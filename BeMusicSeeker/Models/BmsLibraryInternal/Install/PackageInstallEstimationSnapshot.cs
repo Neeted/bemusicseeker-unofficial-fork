@@ -95,7 +95,11 @@ internal sealed class PackageInstallEstimationSnapshot
 {
     public ChartFile RepresentativeChart { get; set; }
 
-    public ChartResourceSnapshot DefinedResources { get; set; } = new ChartResourceSnapshot();
+    /// <summary>取得済みの使用集合です。未捕捉のnullを正常な0件へ補完しません。</summary>
+    public ChartResourceSnapshot DefinedResources { get; set; }
+
+    /// <summary>集約充足率で個別譜面の不足を隠さないため、同じ対象群の取得済み使用集合を保持します。</summary>
+    public IReadOnlyList<ChartResourceSnapshot> TargetChartResources { get; set; } = [];
 
     public InstallEstimationMetadataProfile TargetMetadataProfile { get; set; } = InstallEstimationMetadataProfile.Empty;
 
@@ -107,11 +111,11 @@ internal sealed class PackageInstallEstimationSnapshot
 
     public int ChartCount { get; set; }
 
-    public int BundledAudioCount => BundledResources?.AudioRelativePathHashArray?.Length ?? 0;
+    public int BundledAudioCount => BundledResources?.AudioFileNameHashCount ?? 0;
 
-    public int BundledImageCount => BundledResources?.ImageRelativePathHashArray?.Length ?? 0;
+    public int BundledImageCount => BundledResources?.ImageFileNameHashCount ?? 0;
 
-    public int BundledMovieCount => BundledResources?.MovieRelativePathHashArray?.Length ?? 0;
+    public int BundledMovieCount => BundledResources?.MovieFileNameHashCount ?? 0;
 
     public long SourceSurfaceScanMs { get; set; }
 
@@ -152,6 +156,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
             RepresentativeChart = representativeEntry?.Chart,
             DefinedResources = definedResources ?? ChartResourceSnapshot.CreateAggregate(normalizedTargetEntries.Select(entry => entry.Chart)),
             TargetMetadataProfile = BuildTargetMetadataProfile(normalizedTargetEntries),
+            TargetChartResources = normalizedTargetEntries.Select(entry => ChartResourceSnapshot.Create(entry.Chart)).ToArray(),
             BundledResources = installSurfaceSnapshot?.BundledResources?.Clone() ?? new DirectoryResourceLookupCache.Entry(),
             SourceCandidateResources = installSurfaceSnapshot?.SourceCandidateResources?.Clone() ?? new DirectoryResourceLookupCache.Entry(),
             SourceDirectory = installSurfaceSnapshot?.SourceDirectory ?? ResolveSourceDirectory(package?.path),
@@ -185,6 +190,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
             RepresentativeChart = representativeEntry?.Chart,
             DefinedResources = ChartResourceSnapshot.CreateAggregate(normalizedTargetEntries.Select(entry => entry.Chart)),
             TargetMetadataProfile = BuildTargetMetadataProfile(normalizedTargetEntries),
+            TargetChartResources = normalizedTargetEntries.Select(entry => ChartResourceSnapshot.Create(entry.Chart)).ToArray(),
             BundledResources = sourceSurfaceSnapshot.BundledResources.Clone(),
             SourceCandidateResources = sourceSurfaceSnapshot.SourceCandidateResources.Clone(),
             SourceDirectory = sourceSurfaceSnapshot.SourceDirectory,

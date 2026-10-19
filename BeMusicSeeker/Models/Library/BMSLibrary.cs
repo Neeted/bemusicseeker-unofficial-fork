@@ -699,7 +699,6 @@ public partial class BMSLibrary : ObservableObject
     private readonly LibraryResourceIndexOwner libraryResourceIndexOwner = new(
         LibraryResourceIndex.CreateFromScanResult(new ChartScanResult()));
 
-    private readonly int innerWavHealthThreshForNormalBMSFile = 70;
 
     private readonly double dupRateThreshInOnePkg = 0.9;
 
@@ -2488,12 +2487,12 @@ public partial class BMSLibrary : ObservableObject
 
     private BmsLibraryInstallEstimationService CreateInstallEstimationService()
     {
-        return new BmsLibraryInstallEstimationService(CurrentOptionsSnapshot, innerWavHealthThreshForNormalBMSFile);
+        return new BmsLibraryInstallEstimationService(CurrentOptionsSnapshot);
     }
 
     private BmsLibraryInstallEstimationService CreateInstallEstimationService(BmsLibraryOptionsSnapshot optionsSnapshot)
     {
-        return new BmsLibraryInstallEstimationService(optionsSnapshot ?? CurrentOptionsSnapshot, innerWavHealthThreshForNormalBMSFile);
+        return new BmsLibraryInstallEstimationService(optionsSnapshot ?? CurrentOptionsSnapshot);
     }
 
     private const int PendingEstimateSourceBatchMaxRootsPerChunk = 256;
@@ -2521,6 +2520,8 @@ public partial class BMSLibrary : ObservableObject
         public List<PackageChartEntry> TargetEntries { get; set; } = [];
 
         public ChartInstallationEstimateMode EstimateMode { get; set; }
+
+        public InstallEstimationCandidatePolicy CandidatePolicy { get; set; }
 
         public bool WasPendingAtPreparation { get; set; }
 
@@ -3364,6 +3365,7 @@ public partial class BMSLibrary : ObservableObject
                                 requests.Add(new PendingInstallEstimateEvaluationRequest
                                 {
                                     OrderIndex = orderIndex++,
+                                    CandidatePolicy = request.CandidatePolicy,
                                     Package = state.Package,
                                     DisplayName = state.DisplayName,
                                     AlreadyInstalledEntries = [.. state.AlreadyInstalledEntries],
@@ -3389,6 +3391,7 @@ public partial class BMSLibrary : ObservableObject
                                 requests.Add(new PendingInstallEstimateEvaluationRequest
                                 {
                                     OrderIndex = orderIndex++,
+                                    CandidatePolicy = request.CandidatePolicy,
                                     Package = package,
                                     DisplayName = PendingInstallEstimateBatchRequest.GetDisplayName(package?.path),
                                     AlreadyInstalledEntries = partition.AlreadyInstalledEntries,
@@ -3624,7 +3627,7 @@ public partial class BMSLibrary : ObservableObject
                     result.InstalledResolution.InstallDirectory,
                     request.TargetEntries,
                     useThreadSafeResolver: true,
-                    evaluationContext.OptionsSnapshot, package: request.Package, batchState: request.BatchState, directoryLookupCache: evaluationContext.DirectoryLookupCacheSnapshot);
+                    evaluationContext.OptionsSnapshot, package: request.Package, batchState: request.BatchState, directoryLookupCache: evaluationContext.DirectoryLookupCacheSnapshot, candidatePolicy: request.CandidatePolicy);
                 if (result.EstimationData.SourceSurfaceScanLimitExceeded)
                 {
                     result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.SourceSurfaceScanLimitExceeded;
@@ -3652,7 +3655,7 @@ public partial class BMSLibrary : ObservableObject
                     request.BatchState,
                     result.InstalledResolution.CandidateDirectories,
                     result.InstalledResolution.GetCandidateDirectoryUniquePrimaryHashCount,
-                    markInstalledDestinationAmbiguous: true);
+                    markInstalledDestinationAmbiguous: true, candidatePolicy: request.CandidatePolicy);
                 if (result.EstimationData?.SourceSurfaceScanLimitExceeded == true)
                 {
                     result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.SourceSurfaceScanLimitExceeded;
@@ -3673,7 +3676,7 @@ public partial class BMSLibrary : ObservableObject
             useThreadSafeResolvers: true,
             useSharedLazyHashMetrics: true,
             evaluationContext.DirectoryLookupCacheSnapshot,
-            request.BatchState);
+            request.BatchState, candidatePolicy: request.CandidatePolicy);
         if (result.EstimationData?.SourceSurfaceScanLimitExceeded == true)
         {
             result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.SourceSurfaceScanLimitExceeded;
@@ -8929,21 +8932,40 @@ public partial class BMSLibrary : ObservableObject
         }
 
         string normalizedDestinationDirectory = NormalizeInstallDestinationDirectoryForLookup(destinationDirectory);
+        Lazy<InstallEstimationMetadataProfile> shared;
+        bool reused;
         lock (catalogOwnedCollectionOwner.MetadataProfileGate)
         {
-            if (catalogOwnedCollectionOwner.MetadataProfiles.TryGetValue(normalizedDestinationDirectory, out InstallEstimationMetadataProfile cachedProfile))
+            reused = catalogOwnedCollectionOwner.MetadataProfiles.TryGetValue(normalizedDestinationDirectory, out shared);
+            if (!reused)
             {
-                return cachedProfile ?? InstallEstimationMetadataProfile.Empty;
+                // カタログ読取り権を持つ呼出元で評価する。プロフィールロックからカタログロックへ逆取得しない。
+                shared = new Lazy<InstallEstimationMetadataProfile>(() =>
+                {
+                    (string Title, string Artist, string Path)[] records = EnumerateInstalledChartMetadataRecordsUnsafe(normalizedDestinationDirectory).ToArray();
+                    InstallEstimationMetadataProfile built = InstallEstimationMetadataNormalizer.BuildProfile(records);
+                    Interlocked.Increment(ref catalogOwnedCollectionOwner.MetadataProfileBuildCount);
+                    Interlocked.Add(ref catalogOwnedCollectionOwner.MetadataProfileRecordCount, records.Length);
+                    return built;
+                }, LazyThreadSafetyMode.ExecutionAndPublication);
+                catalogOwnedCollectionOwner.MetadataProfiles.Add(normalizedDestinationDirectory, shared);
             }
         }
-
-        InstallEstimationMetadataProfile profile = InstallEstimationMetadataNormalizer.BuildProfile(
-            EnumerateInstalledChartMetadataRecordsUnsafe(normalizedDestinationDirectory));
-
-        lock (catalogOwnedCollectionOwner.MetadataProfileGate)
+        try
         {
-            catalogOwnedCollectionOwner.MetadataProfiles[normalizedDestinationDirectory] = profile ?? InstallEstimationMetadataProfile.Empty;
-            return catalogOwnedCollectionOwner.MetadataProfiles[normalizedDestinationDirectory];
+            InstallEstimationMetadataProfile profile = shared.Value;
+            if (reused) { Interlocked.Increment(ref catalogOwnedCollectionOwner.MetadataProfileReuseCount); }
+            return profile;
+        }
+        catch
+        {
+            // 失敗をEmptyや次回も残る失敗プロフィールへ置き換えない。
+            lock (catalogOwnedCollectionOwner.MetadataProfileGate)
+            {
+                if (catalogOwnedCollectionOwner.MetadataProfiles.TryGetValue(normalizedDestinationDirectory, out Lazy<InstallEstimationMetadataProfile> current) && ReferenceEquals(current, shared))
+                { catalogOwnedCollectionOwner.MetadataProfiles.Remove(normalizedDestinationDirectory); }
+            }
+            throw;
         }
     }
 
@@ -8959,8 +8981,8 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    /// <summary>ハッシュ候補をサービスで評価し、通常の推定結果と同じ反映単位へ渡します。同じ入力資源と候補索引で音源完全性を確認し、入力元走査の上限超過を既存の保留・警告へ渡します。</summary>
-    private InstallEstimationEvaluationData EvaluateInstalledChartHashDestination(string destinationDirectory, IReadOnlyCollection<PackageChartEntry> entries, bool useThreadSafeResolver = false, BmsLibraryOptionsSnapshot optionsSnapshot = null, ChartPackage package = null, PendingEstimateSourceBatchPackageState batchState = null, DirectoryResourceLookupCache directoryLookupCache = null)
+    /// <summary>ハッシュ候補をサービスで評価し、通常の推定結果と同じ反映単位へ渡します。同じ入力資源と候補索引で各譜面の音源許可条件を確認し、入力元走査の上限超過を既存の保留・警告へ渡します。</summary>
+    private InstallEstimationEvaluationData EvaluateInstalledChartHashDestination(string destinationDirectory, IReadOnlyCollection<PackageChartEntry> entries, bool useThreadSafeResolver = false, BmsLibraryOptionsSnapshot optionsSnapshot = null, ChartPackage package = null, PendingEstimateSourceBatchPackageState batchState = null, DirectoryResourceLookupCache directoryLookupCache = null, InstallEstimationCandidatePolicy candidatePolicy = InstallEstimationCandidatePolicy.RelatedOnly)
     {
         foreach (PackageChartEntry entry in entries)
         {
@@ -8982,16 +9004,21 @@ public partial class BMSLibrary : ObservableObject
                 destinationDirectory,
                 entries,
                 useThreadSafeResolver ? ResolveInstallDestinationMetadataProfileThreadSafe : ResolveInstallDestinationMetadataProfileUnsafe,
-                resources, directoryLookupCache ?? libraryResourceIndexOwner.CaptureSnapshot().DirectoryLookupCache)
+                resources, directoryLookupCache ?? libraryResourceIndexOwner.CaptureSnapshot().DirectoryLookupCache, candidatePolicy)
         };
     }
 
-    private void ApplyResolvedInstallDestinationPathAndMetadataToEntries(IEnumerable<PackageChartEntry> entries, string destinationDirectory)
+    /// <summary>パスの適用先全体へ同じ根拠を投影します。比較対象は推定と同じ未所持群を優先し、全既所持の場合だけ全群を使います。</summary>
+    private void ApplyResolvedInstallDestinationPathAndMetadataToEntries(IEnumerable<PackageChartEntry> entries, string destinationDirectory, ChartPackage package)
     {
-        InstallEstimationMetadataProfile metadata = ResolveInstallDestinationMetadataProfileUnsafe(destinationDirectory);
-        foreach (PackageChartEntry entry in (entries ?? []).Where(entry => entry?.Chart != null))
+        List<PackageChartEntry> targets = [.. (entries ?? []).Where(entry => entry?.Chart != null)];
+        InstallEstimationMetadataProfile profile = ResolveInstallDestinationMetadataProfileUnsafe(destinationDirectory);
+        IEnumerable<PackageChartEntry> comparisonEntries = package == null ? targets : BuildPendingPackageChartEntryPartitionUnsafe(package).ManualEstimationEntries;
+        InstallEstimationMetadataProfile target = PackageInstallEstimationSnapshotBuilder.BuildTargetMetadataProfile(comparisonEntries);
+        InstallEstimationMetadataMatch match = new InstallEstimationMetadataMatcher(target).Evaluate(profile);
+        foreach (PackageChartEntry entry in targets)
         {
-            entry.ApplyInstallDestinationMetadata(destinationDirectory, metadata.DominantPairDisplayTitle, metadata.DominantPairDisplayArtist);
+            entry.ApplyInstallDestinationMetadata(destinationDirectory, match.DisplayTitle, match.DisplayArtist);
         }
     }
 
@@ -9024,13 +9051,15 @@ public partial class BMSLibrary : ObservableObject
             && (entry.Chart.InstallDestinationSuggestions.Count > 0
                 || entry.Chart.Warnings.Any(warning => warning.Kind is ChartWarningKind.InstallEstimationAmbiguous
                     or ChartWarningKind.InstallEstimationMetadataMismatch
+                    or ChartWarningKind.InstallEstimationUnrelated
+                    or ChartWarningKind.InstallEstimationMetadataUnavailable
                     or ChartWarningKind.InstallEstimationReinstallNotImproved
                     or ChartWarningKind.InstalledDestinationAmbiguous
                     or ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous
                     or ChartWarningKind.InstallEstimationLowConfidence)));
     }
 
-    private InstallEstimationEvaluationData EvaluateInstallEstimation(ChartPackage package, List<PackageChartEntry> targetEntries, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false, DirectoryResourceLookupCache directoryLookupCacheSnapshot = null, PendingEstimateSourceBatchPackageState batchState = null, IReadOnlyCollection<string> candidateDirectoryOverride = null, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver = null, bool markInstalledDestinationAmbiguous = false)
+    private InstallEstimationEvaluationData EvaluateInstallEstimation(ChartPackage package, List<PackageChartEntry> targetEntries, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false, DirectoryResourceLookupCache directoryLookupCacheSnapshot = null, PendingEstimateSourceBatchPackageState batchState = null, IReadOnlyCollection<string> candidateDirectoryOverride = null, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver = null, bool markInstalledDestinationAmbiguous = false, InstallEstimationCandidatePolicy candidatePolicy = InstallEstimationCandidatePolicy.RelatedOnly)
     {
         List<PackageChartEntry> targetEntryList = [.. (targetEntries ?? []).Where(entry => entry?.Chart != null)];
         if (targetEntryList.Count == 0)
@@ -9101,7 +9130,7 @@ public partial class BMSLibrary : ObservableObject
                 candidateEvaluationDegree,
                 estimateMode,
                 metadataProfileResolver,
-                candidateDirectoryUniquePrimaryHashCountResolver)
+                candidateDirectoryUniquePrimaryHashCountResolver, candidatePolicy)
             : CreateInstallEstimationService(optionsSnapshot).EstimateInstallationDirectoryForCandidateDirectories(
                 estimationSnapshot,
                 candidateDirectoryOverride,
@@ -9109,7 +9138,7 @@ public partial class BMSLibrary : ObservableObject
                 candidateEvaluationDegree,
                 estimateMode,
                 metadataProfileResolver,
-                candidateDirectoryUniquePrimaryHashCountResolver);
+                candidateDirectoryUniquePrimaryHashCountResolver, candidatePolicy);
         if (markInstalledDestinationAmbiguous && result?.LowConfidenceKind == InstallEstimationLowConfidenceKind.AmbiguousCandidates)
         {
             ApplyMixedInstalledDestinationAmbiguityPolicy(result);
@@ -9196,14 +9225,14 @@ public partial class BMSLibrary : ObservableObject
                 + " selected=" + (result.SelectedCandidate?.DirectoryPath ?? string.Empty)
                 + " dst=" + (result.DestinationDirectory ?? "(none)")
                 + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination
-                + " confidenceReason=" + result.ConfidenceReason + " audioCompleteness=" + result.AudioCompleteness + " metadata_validation=" + result.MetadataValidationSummary);
+                + " candidatePolicy=" + result.CandidatePolicy + " audioThreshold=" + result.AudioAutoApplyThreshold + " audioPermission=" + result.AudioAutoApplyReason + " confidenceReason=" + result.ConfidenceReason + " audioCompleteness=" + result.AudioCompleteness + " metadata_validation=" + result.MetadataValidationSummary);
             return;
         }
         if (!estimationData.SourceSurfaceCacheHit && !estimationData.SourceSurfaceBatchHit && estimationData.SourceSurfaceTrackedFileCount > 0)
         {
             LogInstallPerformance("package_surface_build backend=" + (estimationData.SourceSurfaceScanBackend ?? string.Empty) + " trackedFileCount=" + estimationData.SourceSurfaceTrackedFileCount + " chartFileCount=" + estimationData.SourceSurfaceChartFileCount + " resourceFileCount=" + estimationData.SourceSurfaceResourceFileCount + " scanMs=" + estimationData.SourceSurfaceScanMs + " hashMaterializeMs=" + estimationData.SourceSurfaceHashMaterializeMs);
         }
-        LogInstallPerformance("estimate_install start chartCount=" + estimationData.ChartCount + " targetHashes=" + result.TargetResourceHashCount + " targetResources=" + result.TargetResourceCount + " pathAwareRefs=" + result.TargetPathAwareHashCount + " pathAwareAudioRefs=" + result.TargetPathAwareAudioHashCount + " pathAwareVisualRefs=" + result.TargetPathAwareVisualHashCount + " pathAwareMovieRefs=" + result.TargetPathAwareMovieHashCount + " pathAwareOptionalRefs=" + result.TargetPathAwareOptionalImageHashCount + " bundledAudioCount=" + result.BundledAudioCount + " bundledImageCount=" + result.BundledImageCount + " bundledMovieCount=" + result.BundledMovieCount + " evalMode=relative_strict candidateMode=" + (result.CandidateMode ?? string.Empty) + " coarseFilterMode=" + (result.CoarseFilterMode ?? string.Empty) + " candidateDegree=" + result.CandidateEvaluationDegree + " audioRefs=" + result.AudioReferenceCount + " visualRefs=" + result.VisualReferenceCount + " movieRefs=" + result.MovieReferenceCount + " optionalRefs=" + result.OptionalImageReferenceCount + " audioMinMatchRequired=" + result.AudioMinimumMatchRequired + " candidateDirsBefore=" + result.CandidateDirectoryCountBeforeHashFilter + " candidateDirsAfterBroadFilter=" + result.CandidateDirectoryCountAfterBroadFilter + " candidateDirsAfterAudioGate=" + result.CandidateDirectoryCountAfterAudioGate + " candidateDirsInHierarchy=" + result.HierarchyCandidateDirectoryCount + " shadowSuppressed=" + result.AncestorShadowSuppressedCount + " lazySelfOwnedCandidates=" + result.LazySelfOwnedEvaluationCount + " shadowMs=" + result.AncestorShadowEvaluationMs + " candidateViewBuildMs=" + result.CandidateViewBuildMs + " candidateMatchMs=" + result.CandidateMatchMs + " candidateViewBuildCount=" + result.CandidateViewBuildCount + " sourceSurfaceScanMs=" + estimationData.SourceSurfaceScanMs + " sourceSurfaceChartFileCount=" + estimationData.SourceSurfaceChartFileCount + " sourceSurfaceResourceFileCount=" + estimationData.SourceSurfaceResourceFileCount + " sourceSurfaceTrackedFileCount=" + estimationData.SourceSurfaceTrackedFileCount + " sourceSurfaceHashMaterializeMs=" + estimationData.SourceSurfaceHashMaterializeMs + " sourceSurfaceCacheHit=" + estimationData.SourceSurfaceCacheHit.ToString().ToLowerInvariant() + " sourceSurfaceBatchHit=" + estimationData.SourceSurfaceBatchHit.ToString().ToLowerInvariant() + " sourceSurfaceScanBackend=" + (estimationData.SourceSurfaceScanBackend ?? string.Empty) + " candidateDirsAfter=" + result.CandidateDirectoryCountAfterHashFilter + " candidateDirs=" + result.CandidateDirectoryCount + " evaluationMs=" + result.EvaluationMs + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination + " confidenceReason=" + (result.ConfidenceReason ?? string.Empty) + " audioCompleteness=" + result.AudioCompleteness + " lazyHashBuildMsDelta=" + estimationData.LazyHashBuildMsDelta + " lazyHashEntriesAdded=" + estimationData.LazyHashEntriesAdded + " lazyHashLookupCountDelta=" + estimationData.LazyHashLookupCountDelta + " lazyHashBuildReason=" + (estimationData.LazyHashBuildReason ?? string.Empty) + " summary=" + (result.ResourceSummary ?? string.Empty));
+        LogInstallPerformance("estimate_install start chartCount=" + estimationData.ChartCount + " targetHashes=" + result.TargetResourceHashCount + " targetResources=" + result.TargetResourceCount + " pathAwareRefs=" + result.TargetPathAwareHashCount + " pathAwareAudioRefs=" + result.TargetPathAwareAudioHashCount + " pathAwareVisualRefs=" + result.TargetPathAwareVisualHashCount + " pathAwareMovieRefs=" + result.TargetPathAwareMovieHashCount + " pathAwareOptionalRefs=" + result.TargetPathAwareOptionalImageHashCount + " bundledAudioCount=" + result.BundledAudioCount + " bundledImageCount=" + result.BundledImageCount + " bundledMovieCount=" + result.BundledMovieCount + " evalMode=relative_strict candidateMode=" + (result.CandidateMode ?? string.Empty) + " coarseFilterMode=" + (result.CoarseFilterMode ?? string.Empty) + " candidateDegree=" + result.CandidateEvaluationDegree + " audioRefs=" + result.AudioReferenceCount + " visualRefs=" + result.VisualReferenceCount + " movieRefs=" + result.MovieReferenceCount + " optionalRefs=" + result.OptionalImageReferenceCount + " audioMinMatchRequired=" + result.AudioMinimumMatchRequired + " candidateDirsBefore=" + result.CandidateDirectoryCountBeforeHashFilter + " candidateDirsAfterBroadFilter=" + result.CandidateDirectoryCountAfterBroadFilter + " candidateDirsAfterAudioGate=" + result.CandidateDirectoryCountAfterAudioGate + " candidateDirsInHierarchy=" + result.HierarchyCandidateDirectoryCount + " shadowSuppressed=" + result.AncestorShadowSuppressedCount + " lazySelfOwnedCandidates=" + result.LazySelfOwnedEvaluationCount + " shadowMs=" + result.AncestorShadowEvaluationMs + " sourceSurfaceScanMs=" + estimationData.SourceSurfaceScanMs + " sourceSurfaceChartFileCount=" + estimationData.SourceSurfaceChartFileCount + " sourceSurfaceResourceFileCount=" + estimationData.SourceSurfaceResourceFileCount + " sourceSurfaceTrackedFileCount=" + estimationData.SourceSurfaceTrackedFileCount + " sourceSurfaceHashMaterializeMs=" + estimationData.SourceSurfaceHashMaterializeMs + " sourceSurfaceCacheHit=" + estimationData.SourceSurfaceCacheHit.ToString().ToLowerInvariant() + " sourceSurfaceBatchHit=" + estimationData.SourceSurfaceBatchHit.ToString().ToLowerInvariant() + " sourceSurfaceScanBackend=" + (estimationData.SourceSurfaceScanBackend ?? string.Empty) + " candidateDirsAfter=" + result.CandidateDirectoryCountAfterHashFilter + " candidateDirs=" + result.CandidateDirectoryCount + " metadataProfileBuildsTotal=" + Interlocked.Read(ref catalogOwnedCollectionOwner.MetadataProfileBuildCount) + " metadataProfileReuseTotal=" + Interlocked.Read(ref catalogOwnedCollectionOwner.MetadataProfileReuseCount) + " metadataProfileRecordsTotal=" + Interlocked.Read(ref catalogOwnedCollectionOwner.MetadataProfileRecordCount) + " inverseVisits=" + result.ReverseLookupVisits + " metadataClassifications=" + result.MetadataClassificationSummary + " metadataPairs=" + result.MetadataPairComparisonCount + " metadataMs=" + result.MetadataEvaluationMs + " audioThreshold=" + result.AudioAutoApplyThreshold + " audioPermission=" + result.AudioAutoApplyReason + " evaluationMs=" + result.EvaluationMs + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination + " confidenceReason=" + (result.ConfidenceReason ?? string.Empty) + " audioCompleteness=" + result.AudioCompleteness + " lazyHashBuildMsDelta=" + estimationData.LazyHashBuildMsDelta + " lazyHashEntriesAdded=" + estimationData.LazyHashEntriesAdded + " lazyHashLookupCountDelta=" + estimationData.LazyHashLookupCountDelta + " lazyHashBuildReason=" + (estimationData.LazyHashBuildReason ?? string.Empty) + " summary=" + (result.ResourceSummary ?? string.Empty));
         if (!string.IsNullOrWhiteSpace(result.TopCandidateSummary))
         {
             LogInstallPerformance("estimate_install candidates " + result.TopCandidateSummary);
@@ -9211,14 +9240,6 @@ public partial class BMSLibrary : ObservableObject
         if (!string.IsNullOrWhiteSpace(result.SelectedCandidateSummary))
         {
             LogInstallPerformance("estimate_install selected " + result.SelectedCandidateSummary + " dst=" + (result.DestinationDirectory ?? "(none)") + " second=" + (result.SecondCandidate?.DirectoryPath ?? "(none)"));
-        }
-        if (!string.IsNullOrWhiteSpace(result.MetadataFrontierSummary))
-        {
-            LogInstallPerformance("estimate_install metadata_frontier " + result.MetadataFrontierSummary);
-        }
-        if (!string.IsNullOrWhiteSpace(result.MetadataTieBreakSummary))
-        {
-            LogInstallPerformance("estimate_install metadata_tiebreak " + result.MetadataTieBreakSummary);
         }
         if (!string.IsNullOrWhiteSpace(result.MetadataValidationSummary))
         {
@@ -9249,6 +9270,7 @@ public partial class BMSLibrary : ObservableObject
 
     /// <summary>
     /// 指定された chart file 群について、インストール先ディレクトリを再探索し、正しいパスを設定します。
+    /// 一操作の開始時に捕捉した設定を全譜面の再評価へ渡し、途中の設定変更を取り込みません。
     /// </summary>
     internal void SearchCorrectInstallationDirectoryCharts(IEnumerable<PackageChartEntry> chartEntries)
     {
@@ -9256,10 +9278,11 @@ public partial class BMSLibrary : ObservableObject
         {
             throw new ArgumentNullException(nameof(chartEntries));
         }
+        BmsLibraryOptionsSnapshot optionsSnapshot = CurrentOptionsSnapshot;
         List<PackageChartEntry> entries = [.. chartEntries.Where(entry => entry?.Chart != null)];
-        CreateInstallEstimationService().CorrectChartInstallationDirectory(entries, delegate (PackageChartEntry chartEntry)
+        CreateInstallEstimationService(optionsSnapshot).CorrectChartInstallationDirectory(entries, delegate (PackageChartEntry chartEntry)
         {
-            SearchEstimatedInstallationDirectoryForChartsCore(null, [chartEntry], asParallel: false, ChartInstallationEstimateMode.ReinstallCorrection);
+            SearchEstimatedInstallationDirectoryForChartsCore(null, [chartEntry], asParallel: false, ChartInstallationEstimateMode.ReinstallCorrection, optionsSnapshot: optionsSnapshot);
         });
     }
 
@@ -9311,7 +9334,7 @@ public partial class BMSLibrary : ObservableObject
                     ShowOperationDialog(selection.WarningMessage, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     return false;
                 }
-                ApplyResolvedInstallDestinationPathAndMetadataToEntries(selection.TargetEntries, selection.ValidatedDestinationDirectory);
+                ApplyResolvedInstallDestinationPathAndMetadataToEntries(selection.TargetEntries, selection.ValidatedDestinationDirectory, selection.Package);
                 RefreshPendingResourceHealth(selection.TargetEntries, selection.Package);
                 ClearDeferredEstimateReasonForEntriesUnsafe(selection.TargetEntries);
                 return true;

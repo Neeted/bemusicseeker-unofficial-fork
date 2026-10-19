@@ -58,6 +58,26 @@ public sealed class PortableSettingsPersistenceTests
         Assert.IsTrue(OpenSettings(files.Path).ShowNewPackageInstallConfirmMsg);
         Assert.AreEqual(2, OpenSettings(files.Path).PlayerResamplingQuality);
         Assert.AreEqual(1, OpenSettings(files.Path).PlayerMixerThreadCount);
+        Assert.AreEqual(100, OpenSettings(files.Path).InstallDestinationAutoApplyMinAudioHealth);
+    }
+
+    /// <summary>旧設定の欠如は100%で読み、有効な90/97/100と範囲外の保存値を実保存・新reader・操作snapshotへそのまま渡し、黙った丸めを検出します。</summary>
+    [TestMethod]
+    public void InstallDestinationAudioThresholdRoundTripsWithoutNormalizingInvalidValues()
+    {
+        using var files = new SettingsFiles();
+        Assert.AreEqual(100, OpenSettings(files.Path).InstallDestinationAutoApplyMinAudioHealth);
+        File.WriteAllText(files.Path, Config());
+        Assert.AreEqual(100, OpenSettings(files.Path).InstallDestinationAutoApplyMinAudioHealth);
+        foreach (int threshold in new[] { 90, 97, 100, 89, 101 })
+        {
+            Settings settings = OpenSettings(files.Path);
+            settings.InstallDestinationAutoApplyMinAudioHealth = threshold;
+            settings.Save();
+            Settings loaded = OpenSettings(files.Path);
+            Assert.AreEqual(threshold, loaded.InstallDestinationAutoApplyMinAudioHealth);
+            Assert.AreEqual(threshold, Models.BmsLibraryInternal.BmsLibraryOptionsSnapshot.CreateCurrent(loaded).InstallDestinationAutoApplyMinAudioHealth);
+        }
     }
 
     /// <summary>不正 XML と必須構造の欠損を外部編集として置き、読込みと保存を Read 失敗にし元 bytes を既定値で上書きしないことを確認します。</summary>

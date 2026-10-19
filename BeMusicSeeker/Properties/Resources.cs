@@ -406,6 +406,22 @@ public class Resources
 
     public static string Error_RestartApplicationFailed => ResourceManager.GetString("Error_RestartApplicationFailed", resourceCulture);
 
+    public static string Estimate_install_loc_keep_unrelated => ResourceManager.GetString("Estimate_install_loc_keep_unrelated", resourceCulture);
+
+    public static string Details_install_destination_min_audio_health => ResourceManager.GetString("Details_install_destination_min_audio_health", resourceCulture);
+
+    public static string Details_install_destination_min_audio_health_description => ResourceManager.GetString("Details_install_destination_min_audio_health_description", resourceCulture);
+
+    public static string Details_install_destination_min_audio_health_invalid => ResourceManager.GetString("Details_install_destination_min_audio_health_invalid", resourceCulture);
+
+    public static string Warning_InstallEstimationUnrelated => ResourceManager.GetString("Warning_InstallEstimationUnrelated", resourceCulture);
+
+    public static string Warning_InstallEstimationMetadataUnavailable => ResourceManager.GetString("Warning_InstallEstimationMetadataUnavailable", resourceCulture);
+
+    public static string WarningDigest_InstallEstimationUnrelated => ResourceManager.GetString("WarningDigest_InstallEstimationUnrelated", resourceCulture);
+
+    public static string WarningDigest_InstallEstimationMetadataUnavailable => ResourceManager.GetString("WarningDigest_InstallEstimationMetadataUnavailable", resourceCulture);
+
     public static string Estimate_install_loc => ResourceManager.GetString("Estimate_install_loc", resourceCulture);
 
 

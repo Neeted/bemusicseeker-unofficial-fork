@@ -428,8 +428,8 @@ public sealed class CatalogMaintenanceCurrentValueTests
         var owner = new CatalogOwnedCollectionOwner();
         owner.ReplaceCharts([Chart(10)], []);
         ChartFile first = owner.BmsRows[0];
-        owner.MetadataProfiles[@"C:\Library"] = InstallEstimationMetadataProfile.Empty;
-        owner.MetadataProfiles[@"C:\Other"] = InstallEstimationMetadataProfile.Empty;
+        owner.MetadataProfiles[@"C:\Library"] = new Lazy<InstallEstimationMetadataProfile>(() => InstallEstimationMetadataProfile.Empty);
+        owner.MetadataProfiles[@"C:\Other"] = new Lazy<InstallEstimationMetadataProfile>(() => InstallEstimationMetadataProfile.Empty);
         owner.CommitCurrentValues([first], (current, _) => current with { WAVHealth = 0 });
         Assert.IsTrue(owner.MetadataProfiles.ContainsKey(@"C:\Library"));
         owner.CommitCurrentValues([first], (current, _) => current with { RawTitle = "new raw title" });

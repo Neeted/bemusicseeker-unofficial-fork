@@ -8,8 +8,13 @@ internal sealed partial class CatalogOwnedCollectionOwner
 {
     /// <summary>導入先推定のmetadata profileをカタログの実依存変更と同時に失効させる排他です。</summary>
     internal object MetadataProfileGate { get; } = new();
+
+    /// <summary>プロフィール共有の診断用累積件数です。カタログ世代の採用判断には使いません。</summary>
+    internal long MetadataProfileBuildCount;
+    internal long MetadataProfileReuseCount;
+    internal long MetadataProfileRecordCount;
     /// <summary>原題・作者・所属に依存する既存のディレクトリ別profileです。</summary>
-    internal Dictionary<string, InstallEstimationMetadataProfile> MetadataProfiles { get; } = new(StringComparer.OrdinalIgnoreCase);
+    internal Dictionary<string, Lazy<InstallEstimationMetadataProfile>> MetadataProfiles { get; } = new(StringComparer.OrdinalIgnoreCase);
     private bool chartInfoInputCoverage;
     private readonly HashSet<OwnedChartToken> pendingChartInfoTokens = [];
 

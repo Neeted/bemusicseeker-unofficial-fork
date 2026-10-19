@@ -7,7 +7,6 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Tests.Performance;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -92,15 +91,17 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             entry.Chart.Warnings.Select(warning => warning.Kind).ToArray());
     }
 
-    /// <summary>同梱98件で両候補が100%になる場合も、候補自身の一致90件を2件より優先します。同梱との重複を二重計数しません。</summary>
+    /// <summary>同梱98件または100件で両候補が100%になる場合も、候補自身の一致90件を2件より優先します。同梱との重複を二重計数しません。</summary>
     [TestMethod]
-    public void EstimateInstallationDirectory_UnionFulfillmentRanksCandidateOwnMatches()
+    [DataRow(98)]
+    [DataRow(100)]
+    public void EstimateInstallationDirectory_UnionFulfillmentRanksCandidateOwnMatches(int supplied)
     {
         BmsLibraryInstallEstimationService service = CreateService();
         string[] names = Enumerable.Range(0, 100).Select(i => "r" + i + ".wav").ToArray();
         ChartFile target = CreateFile("md5", @"C:\Source\chart.bms", names) with { RawTitle = "Song", Artist = "Artist", RawArtist = "Artist" };
         var index = new DirectoryResourceLookupCache();
-        index.AddDir(@"C:\Source", names.Take(98));
+        index.AddDir(@"C:\Source", names.Take(supplied));
         index.AddDir(@"C:\Candidate2", names.Skip(98));
         index.AddDir(@"C:\Candidate90", names.Skip(10));
         var snapshot = new PackageInstallEstimationSnapshot
@@ -121,11 +122,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(2, result.Candidates[1].AudioExactMatched);
     }
 
-    /// <summary>候補提示の70%境界は表示整数でなく実比率で判定し、Strongかつ曖昧自動適用ONでも欠損音源を自動確定しません。</summary>
+    /// <summary>候補提示の80%境界は表示整数でなく実比率で判定し、Strongかつ曖昧自動適用ONでも欠損音源を自動確定しません。</summary>
     [TestMethod]
-    [DataRow(100, 70, false)]
-    [DataRow(100, 71, true)]
-    [DataRow(101, 71, true)]
+    [DataRow(100, 79, false)]
+    [DataRow(100, 80, true)]
+    [DataRow(101, 80, false)]
     public void EstimateInstallationDirectory_UsesExactViabilityRatioAndRequiresCompleteAudio(int required, int matched, bool viable)
     {
         WithAutoApplyAmbiguousInstallDestination(true, () =>
@@ -151,7 +152,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
-    /// <summary>所持hashの直接候補も音源完全性を必要とし、欠損・照合不能・未取得では候補を保持します。実BMSの未定義ID追加は完全音源の自動適用を妨げず、音源0件も完全として扱います。候補索引が未取得でも二譜面の全音源を同梱だけで満たせれば許可し、代表譜面だけの充足では許可しません。</summary>
+    /// <summary>所持hashの直接候補も音源完全性を必要とし、欠損・照合不能・未取得では候補を保持します。実BMSの未定義ID追加は完全音源の自動適用を妨げず、取得済みの音源0件は完全として扱い、未捕捉入力は確認不能として拒否します。候補索引が未取得でも二譜面の全音源を同梱だけで満たせれば許可し、代表譜面だけの充足では許可しません。</summary>
     [TestMethod]
     [DataRow("complete", true)]
     [DataRow("missing", false)]
@@ -319,11 +320,18 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.IsTrue(result.HasViableDestination);
             Assert.AreEqual(InstallEstimationFinalEvaluationMode.InstalledChartHash, result.FinalEvaluationMode);
             InstallEstimationCandidate candidate = result.SelectedCandidate;
+            if (targetTitle.Length == 0 || candidateTitle.Length == 0)
+            {
+                Assert.IsNull(candidate);
+                Assert.AreEqual(0, result.SuggestedDestinationDirectories.Count);
+                Assert.AreEqual(InstallEstimationLowConfidenceKind.MetadataMismatch, result.LowConfidenceKind);
+                return;
+            }
             Assert.IsNotNull(candidate);
             Assert.IsTrue(candidate.IsViableDestination);
             Assert.AreEqual(destination, candidate.DirectoryPath);
-            Assert.AreEqual(profile.DominantPairDisplayTitle, candidate.RepresentativeTitle);
-            Assert.AreEqual(profile.DominantPairDisplayArtist, candidate.RepresentativeArtist);
+            Assert.AreEqual(profile.DominantPairDisplayTitle, candidate.DisplayTitle);
+            Assert.AreEqual(profile.DominantPairDisplayArtist, candidate.DisplayArtist);
             Assert.AreEqual(0, candidate.AudioHealth);
             Assert.AreEqual(0, candidate.AudioMatched);
             Assert.AreEqual(0, result.TargetResourceCount);
@@ -569,7 +577,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                ChartInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal, candidatePolicy: InstallEstimationCandidatePolicy.KeepUnrelated);
 
             Assert.AreEqual(mergeDir, result.SelectedCandidate?.DirectoryPath);
             Assert.AreEqual(1, result.CandidateDirectoryCount);
@@ -639,9 +647,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
-    /// <summary>複数の音声参照がある入力では二つの一致が必要で、一つだけ一致する候補の通過を検出する。</summary>
+    /// <summary>音源一致は一件以上を要求し、二件要求の半分しか満たさない候補を80%条件で除外する。</summary>
     [TestMethod]
-    public void EstimateInstallationDirectory_AudioGate_RequiresTwoAudioMatches_WhenAudioRefsAreTwoOrMore()
+    public void EstimateInstallationDirectory_AudioGate_UsesOneMatchAndEightyPercentFulfillment()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
@@ -669,7 +677,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.AreEqual(2, result.CandidateDirectoryCountAfterBroadFilter);
             Assert.AreEqual(1, result.CandidateDirectoryCountAfterAudioGate);
             Assert.AreEqual(1, result.CandidateDirectoryCount);
-            Assert.AreEqual(2, result.AudioMinimumMatchRequired);
+            Assert.AreEqual(1, result.AudioMinimumMatchRequired);
             Assert.AreEqual(strongCandidateDir, result.SelectedCandidate?.DirectoryPath);
         });
     }
@@ -804,13 +812,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                ChartInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal, candidatePolicy: InstallEstimationCandidatePolicy.KeepUnrelated);
 
             InstallEstimationResult mergeResult = service.EstimateInstallationDirectory(
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                ChartInstallationEstimateMode.ReinstallCorrection);
+                ChartInstallationEstimateMode.ReinstallCorrection, candidatePolicy: InstallEstimationCandidatePolicy.KeepUnrelated);
 
             Assert.AreEqual(1, normalResult.CandidateDirectoryCountAfterAudioGate);
             Assert.AreEqual(candidateDir, normalResult.SelectedCandidate?.DirectoryPath);
@@ -862,101 +870,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                ChartInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal, candidatePolicy: InstallEstimationCandidatePolicy.KeepUnrelated);
 
             Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
             Assert.AreEqual(0, result.CandidateDirectoryCountAfterAudioGate);
             Assert.AreEqual(0, result.CandidateDirectoryCount);
             Assert.AreEqual("no_viable_destination_below_threshold", result.ConfidenceReason);
         });
-    }
-
-    /// <summary>音声100件のうち70件と71件の一致を比較し、70%を超える候補だけが残る境界の誤りを検出する。</summary>
-    [TestMethod]
-    public void EstimateInstallationDirectory_AudioGate_RequiresMatchedAboveSeventyPercentBoundary()
-    {
-        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
-        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
-        {
-            string sourceDir = Path.Combine(tempRoot, "source");
-            string weakCandidateDir = Path.Combine(tempRoot, "weak");
-            string strongCandidateDir = Path.Combine(tempRoot, "strong");
-
-            string[] allAudio = [.. Enumerable.Range(0, 100).Select(i => i.ToString("D3") + ".wav")];
-            ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), allAudio);
-            file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(CreateMaintenanceInfo(file, wavDefined: 100, wavExisting: 0)));
-
-            var lookupCache = new DirectoryResourceLookupCache();
-            lookupCache.AddDir(sourceDir, ["chart.bms"]);
-            lookupCache.AddDir(weakCandidateDir, [.. allAudio.Take(70)]);
-            lookupCache.AddDir(strongCandidateDir, [.. allAudio.Take(71)]);
-
-            InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
-                [file],
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                lookupCache,
-                asParallel: false,
-                ChartInstallationEstimateMode.Normal);
-
-            Assert.AreEqual(2, result.CandidateDirectoryCountAfterBroadFilter);
-            Assert.AreEqual(1, result.CandidateDirectoryCountAfterAudioGate);
-            Assert.AreEqual(1, result.CandidateDirectoryCount);
-            Assert.AreEqual(strongCandidateDir, result.SelectedCandidate?.DirectoryPath);
-        });
-    }
-
-    /// <summary>候補8・64・512件で各候補のリソースビューを一度だけ作り、候補の再構築による処理量の重複を検出する。</summary>
-    [TestMethod]
-    [TestCategory("Net10Performance")]
-    [TestCategory("estimation")]
-    public void EstimateInstallationDirectory_BuildsEachCandidateResourceViewOnce()
-    {
-        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
-        foreach (Net10PerformanceCorpusScale scale in Net10PerformanceCorpus.GetConfiguredScales())
-        {
-            int candidateCount = scale switch
-            {
-                Net10PerformanceCorpusScale.Small => 8,
-                Net10PerformanceCorpusScale.Medium => 64,
-                _ => 512
-            };
-            BmsLibraryInstallEstimationService service = CreateService();
-            string sourceDir = Path.Combine(@"C:\Pending", "Source");
-            string[] allAudio =
-                [.. Enumerable.Range(0, 100).Select(index => index.ToString("D3") + ".wav")];
-            ChartFile file = CreateFile(
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                Path.Combine(sourceDir, "chart.bms"),
-                allAudio);
-            file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(CreateMaintenanceInfo(file, wavDefined: allAudio.Length, wavExisting: 0)));
-            var lookupCache = new DirectoryResourceLookupCache();
-            lookupCache.AddDir(sourceDir, ["chart.bms"]);
-            for (int index = 0; index < candidateCount; index++)
-            {
-                lookupCache.AddDir(
-                    Path.Combine(@"C:\Installed", "Candidate" + index.ToString("D4")),
-                    allAudio.Take(71));
-            }
-
-            InstallEstimationResult result = EstimateLooseChartInstallationDirectory(
-                service,
-                [file],
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                lookupCache,
-                candidateEvaluationDegree: 1,
-                ChartInstallationEstimateMode.Normal);
-
-            Assert.AreEqual(candidateCount, result.CandidateDirectoryCountAfterBroadFilter);
-            Assert.AreEqual(candidateCount, result.CandidateDirectoryCountAfterAudioGate);
-            Assert.AreEqual(candidateCount, result.CandidateViewBuildCount);
-            TestContext.WriteLine(
-                "route=install_estimation_candidate_views"
-                + " scale=" + scale
-                + " candidates=" + candidateCount
-                + " legacyViewBuildCount=" + (candidateCount * 2)
-                + " currentViewBuildCount=" + result.CandidateViewBuildCount
-                + " selected=" + result.SelectedCandidate?.DirectoryPath);
-        }
     }
 
     /// <summary>同じbasenameを含む音声でも相対パスの完全一致を数え、有効な候補を一致不足として落とす誤りを検出する。</summary>
@@ -1907,7 +1827,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                ChartInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal, candidatePolicy: InstallEstimationCandidatePolicy.KeepUnrelated);
 
             string debugSummary = (result.ResourceSummary ?? string.Empty) + " || " + (result.TopCandidateSummary ?? string.Empty) + " || " + (result.SelectedCandidateSummary ?? string.Empty);
             Assert.AreEqual(expectedDir, result.SelectedCandidate?.DirectoryPath, debugSummary);
@@ -1951,7 +1871,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                ChartInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal, candidatePolicy: InstallEstimationCandidatePolicy.KeepUnrelated);
 
             Assert.IsFalse(result.ShouldAutoApplyDestination, result.SelectedCandidateSummary);
             Assert.IsTrue(string.IsNullOrWhiteSpace(result.DestinationDirectory), result.SelectedCandidateSummary);
@@ -1994,7 +1914,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                ChartInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal, candidatePolicy: InstallEstimationCandidatePolicy.KeepUnrelated);
 
             Assert.AreEqual(InstallEstimationConfidence.High, result.Confidence);
             Assert.AreEqual("no_viable_destination_below_threshold", result.ConfidenceReason);
@@ -2170,7 +2090,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(candidateDir, result.DestinationDirectory);
         Assert.AreEqual(0, result.SourceBaselinePrimaryHealth);
         Assert.AreEqual(100, result.SelectedCandidatePrimaryHealth);
-        Assert.AreEqual("candidate_only_source_excluded", result.CandidateMode);
+        Assert.AreEqual("candidate_only_RelatedOnly", result.CandidateMode);
     }
 
     /// <summary>元と同じ音声健全性の再推定先は自動適用せず、改善しない変更を実行する誤りを検出する。</summary>
@@ -2260,7 +2180,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             Assert.AreEqual(InstallEstimationConfidence.Low, result.Confidence);
             Assert.AreEqual(InstallEstimationLowConfidenceKind.AmbiguousCandidates, result.LowConfidenceKind);
-            Assert.AreEqual("reinstall_multiple_viable_candidates", result.ConfidenceReason);
+            Assert.AreEqual("reinstall_multiple_strong_candidates", result.ConfidenceReason);
             Assert.IsFalse(result.ShouldAutoApplyDestination);
             Assert.AreEqual(candidateADir, result.DestinationDirectory);
             CollectionAssert.AreEqual(new[] { candidateADir, candidateBDir }, result.SuggestedDestinationDirectories.ToArray());
@@ -2865,7 +2785,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                ChartInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal, candidatePolicy: InstallEstimationCandidatePolicy.KeepUnrelated);
 
             Assert.AreEqual(candidateDir, result.SelectedCandidate?.DirectoryPath);
             StringAssert.Contains(result.ResourceSummary ?? string.Empty, "chart=" + bmsonPath);
@@ -2973,7 +2893,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(candidateADir, result.DestinationDirectory);
         Assert.AreEqual(candidateADir, result.SelectedCandidate?.DirectoryPath);
         Assert.AreEqual(candidateBDir, result.SecondCandidate?.DirectoryPath);
-        Assert.AreEqual("tie_on_viable_non_source_candidates", result.ConfidenceReason);
+        Assert.AreEqual("tie_on_strong_primary_metrics", result.ConfidenceReason);
     }
 
     /// <summary>メタデータも一致する同点候補は明示の自動適用設定に従い適用し、候補一覧と曖昧分類を失う誤りを検出する。</summary>
@@ -3026,7 +2946,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(InstallEstimationLowConfidenceKind.AmbiguousCandidates, result.LowConfidenceKind);
                 Assert.IsTrue(result.ShouldAutoApplyDestination);
                 Assert.AreEqual(candidateADir, result.DestinationDirectory);
-                Assert.AreEqual("tie_on_viable_non_source_candidates_auto_apply_enabled", result.ConfidenceReason);
+                Assert.AreEqual("tie_on_strong_primary_metrics", result.ConfidenceReason);
                 CollectionAssert.AreEqual(new[] { candidateADir, candidateBDir }, result.SuggestedDestinationDirectories.ToArray());
             });
         });
@@ -3075,73 +2995,37 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(InstallEstimationConfidence.High, result.Confidence);
         Assert.IsTrue(result.ShouldAutoApplyDestination);
         Assert.IsTrue(result.DirectoryHashCountTieBreakApplied);
-        Assert.AreEqual("directory_hash_count_tiebreak_distinct", result.ConfidenceReason);
+        Assert.AreEqual("distinct_strong_primary_metrics", result.ConfidenceReason);
         StringAssert.Contains(result.DirectoryHashCountTieBreakSummary ?? string.Empty, candidateDDir + ":5");
     }
 
-    /// <summary>実在ペアが片側でも欠ければ、単独一致・資源差・ハッシュ優位・曖昧自動適用でも低確信度と候補表示を保つ。</summary>
-    /// <remarks>欠如の基本条件と順位分岐を別々の代表入力へ分担し、全組合せの重複は作らない。0=完全、2=空作者ペア、3=全空、4=リゾルバーなし。</remarks>
+    /// <summary>有効ペア欠如・非関連を通常では表示から除き、明示保持だけが候補と分類別警告を表示します。資源の候補解決と自動設定許可を混同しません。</summary>
     [DataTestMethod]
-    [DataRow(3, 2, "single")]
-    [DataRow(3, 0, "single")]
-    [DataRow(0, 3, "single")]
-    [DataRow(0, 4, "single")]
-    [DataRow(3, 2, "resources")]
-    [DataRow(3, 2, "hashes")]
-    [DataRow(3, 2, "auto")]
-    public void EstimateInstallationDirectory_MissingRealPairKeepsLowConfidenceCandidates(int targetKind, int candidateKind, string ranking)
+    [DataRow(true, false)]
+    [DataRow(false, false)]
+    [DataRow(true, true)]
+    [DataRow(false, true)]
+    public void Estimate_NonRelatedCandidatesRequireExplicitKeepPolicy(bool unavailable, bool keep)
     {
-        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
-        WithAutoApplyAmbiguousInstallDestination(ranking == "auto", () =>
-        {
-            BmsLibraryInstallEstimationService service = CreateService();
-            string sourceDir = @"C:\Pending\Source";
-            string candidateA = @"C:\Installed\A";
-            string candidateB = @"C:\Installed\B";
-            (string Title, string Artist, string Path)[] targetRecords = Records(targetKind);
-            ChartFile[] files = [.. targetRecords.Select((record, index) => CreateFile(
-                index.ToString("x32"), Path.Combine(sourceDir, index + ".bms"), "sound.wav")
-                with { RawTitle = record.Title, Artist = record.Artist, RawArtist = record.Artist })];
-            InstallEstimationMetadataProfile candidateProfile = InstallEstimationMetadataNormalizer.BuildProfile(Records(candidateKind));
-            Func<string, InstallEstimationMetadataProfile>? resolver = candidateKind == 4 ? null : _ => candidateProfile;
-            var cache = new DirectoryResourceLookupCache();
-            cache.AddDir(sourceDir, ["0.bms"]);
-            cache.AddDir(candidateA, ["sound.wav"]);
-            bool multiple = ranking != "single";
-            if (multiple)
-            {
-                cache.AddDir(candidateB, ranking == "resources" ? ["sound.wav", "extra.wav"] : ["sound.wav"]);
-            }
-            InstallEstimationResult result = service.EstimateInstallationDirectoryForCandidateDirectories(
-                BuildLooseChartSnapshot(files, new HashSet<string>(StringComparer.OrdinalIgnoreCase), ChartInstallationEstimateMode.Normal)!,
-                multiple ? [candidateA, candidateB] : [candidateA], cache, false, ChartInstallationEstimateMode.Normal,
-                resolver, ranking == "hashes" ? path => path == candidateB ? 5 : 1 : null);
-
-            string selectedPath = ranking == "hashes" ? candidateB : candidateA;
-            Assert.IsTrue(result.HasViableDestination);
-            Assert.AreEqual(InstallEstimationConfidence.Low, result.Confidence);
-            Assert.AreEqual(InstallEstimationLowConfidenceKind.MetadataMismatch, result.LowConfidenceKind);
-            Assert.IsFalse(result.ShouldAutoApplyDestination);
-            Assert.IsFalse(result.SelectedCandidateMetadataEvidenceStrong);
-            Assert.AreEqual(selectedPath, result.SelectedCandidate?.DirectoryPath);
-            Assert.AreEqual(multiple ? 2 : 1, result.Candidates.Count);
-            CollectionAssert.Contains(result.SuggestedDestinationDirectories, selectedPath);
-            Assert.AreEqual(candidateKind is 0 or 2 ? "Song" : string.Empty, result.SelectedCandidate?.RepresentativeTitle);
-            Assert.AreEqual(candidateKind == 0 ? "Artist" : string.Empty, result.SelectedCandidate?.RepresentativeArtist);
-            var entry = PackageChartEntry.FromChart(files[0]);
-            entry.ApplyInstallEstimationResult(result);
-            Assert.IsTrue(string.IsNullOrWhiteSpace(entry.Chart.InstallDestination));
-            Assert.AreEqual(result.SelectedCandidate?.RepresentativeTitle, entry.Chart.InstallDestinationTitle);
-            Assert.AreEqual(result.SelectedCandidate?.RepresentativeArtist, entry.Chart.InstallDestinationArtist);
-            Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
-        });
-
-        static (string Title, string Artist, string Path)[] Records(int kind) => kind switch
-        {
-            0 => [("Song", "Artist", "a")],
-            2 => [("Song", "", "a")],
-            _ => [("", "", "a")]
-        };
+        ChartFile chart = CreateFile("target", @"C:\Source\chart.bms", "sound.wav") with { RawTitle = "Song", RawArtist = "Artist", Artist = "Artist" };
+        var entry = PackageChartEntry.FromChart(chart);
+        PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries([entry]);
+        var cache = new DirectoryResourceLookupCache();
+        cache.AddDir(@"C:\Candidate", ["sound.wav"]);
+        InstallEstimationMetadataProfile profile = unavailable ? InstallEstimationMetadataProfile.Empty
+            : InstallEstimationMetadataNormalizer.BuildProfile([("ZZZZ", "XXXX", "candidate")]);
+        InstallEstimationResult result = CreateService().EstimateInstallationDirectory(snapshot, cache, false, ChartInstallationEstimateMode.Normal, _ => profile,
+            candidatePolicy: keep ? InstallEstimationCandidatePolicy.KeepUnrelated : InstallEstimationCandidatePolicy.RelatedOnly);
+        Assert.IsTrue(result.HasViableDestination);
+        Assert.IsFalse(result.ShouldAutoApplyDestination);
+        Assert.IsFalse(result.SelectedCandidateMetadataEvidenceStrong);
+        Assert.AreEqual(keep ? 1 : 0, result.Candidates.Count);
+        Assert.AreEqual(keep ? 1 : 0, result.SuggestedDestinationDirectories.Count);
+        entry.ApplyInstallEstimationResult(result);
+        Assert.AreEqual(keep && !unavailable ? "ZZZZ" : string.Empty, entry.Chart.InstallDestinationTitle);
+        Assert.AreEqual(keep && !unavailable ? "XXXX" : string.Empty, entry.Chart.InstallDestinationArtist);
+        Assert.AreEqual(keep, entry.Chart.Warnings.Any(warning => warning.Kind == (unavailable ? ChartWarningKind.InstallEstimationMetadataUnavailable : ChartWarningKind.InstallEstimationUnrelated)));
+        if (!keep) { Assert.AreEqual("no_related_destination", result.ConfidenceReason); }
     }
 
     /// <summary>TITLEが完全一致でもARTISTが異なれば低確信度・自動適用不可となり、TITLE単独での昇格を検出する。</summary>
@@ -3202,8 +3086,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
     /// <summary>実サービスの単一候補で、Dice閾値・空作者同値・再切断禁止を強一致と自動適用の必要条件として確認する。</summary>
     [DataTestMethod]
-    [DataRow("abcdefghijklmnopqrstuvw", "Artist", "abcdefghijklmnopqrstuvwxyz012", "Artist", true)]
-    [DataRow("abcdefghijklmnopqrstuvw", "Artist", "abcdefghijklmnopqrstuvwxyz0123", "Artist", false)]
+    [DataRow("abcdefghijklmnopqrs", "Artist", "abcdefghijklmnopqrstuvwxyz0123456", "Artist", true)]
+    [DataRow("abcdefghijklmnopqrs", "Artist", "abcdefghijklmnopqrstuvwxyz01234567", "Artist", false)]
     [DataRow("Song", "", "Song", "", true)]
     [DataRow("Song", "", "Song", "Artist", false)]
     [DataRow("Song", "Artist", "Song", "", false)]
@@ -3225,8 +3109,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             _ => InstallEstimationMetadataNormalizer.BuildProfile([(candidateTitle, candidateArtist, "a")]));
         Assert.AreEqual(strong, result.SelectedCandidateMetadataEvidenceStrong);
         Assert.AreEqual(strong, result.ShouldAutoApplyDestination);
-        Assert.AreEqual(strong ? InstallEstimationConfidence.High : InstallEstimationConfidence.Low, result.Confidence);
-        Assert.AreEqual(strong ? InstallEstimationLowConfidenceKind.None : InstallEstimationLowConfidenceKind.MetadataMismatch, result.LowConfidenceKind);
+        bool visible = title.Length > 0 && candidateTitle.Length > 0;
+        Assert.AreEqual(strong || !visible ? InstallEstimationConfidence.High : InstallEstimationConfidence.Low, result.Confidence);
+        Assert.AreEqual(strong || !visible ? InstallEstimationLowConfidenceKind.None : InstallEstimationLowConfidenceKind.MetadataMismatch, result.LowConfidenceKind);
     }
 
     /// <summary>同リソースではStrong真偽だけでメタデータ優劣を決め、完全一致・類似度・支持数やハッシュ数でStrong偽を昇格しない。</summary>
@@ -3268,9 +3153,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
-    /// <summary>リソース主順位の上位がStrong偽なら、下位のStrong真へ逆転せず上位を低確信度の候補として残す。</summary>
+    /// <summary>通常はStrongをRelatedより優先し、明示保持では資源上位のRelatedを先頭に残して自動適用を止める。</summary>
     [TestMethod]
-    public void EstimateInstallationDirectory_StrongDoesNotOverrideResourceRanking()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void EstimateInstallationDirectory_StrongOverridesResourceRankingOnlyInNormalPolicy(bool keep)
     {
         const string candidateA = @"C:\Installed\A";
         const string candidateB = @"C:\Installed\B";
@@ -3283,11 +3170,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = CreateService().EstimateInstallationDirectoryForCandidateDirectories(
             BuildLooseChartSnapshot([file], [], ChartInstallationEstimateMode.Normal)!, [candidateA, candidateB], cache,
             false, ChartInstallationEstimateMode.Normal,
-            path => InstallEstimationMetadataNormalizer.BuildProfile([("Song", path == candidateA ? "Other" : "Artist", "a")]));
-        Assert.AreEqual(candidateA, result.SelectedCandidate?.DirectoryPath);
-        Assert.AreEqual(InstallEstimationConfidence.Low, result.Confidence);
-        Assert.AreEqual(InstallEstimationLowConfidenceKind.MetadataMismatch, result.LowConfidenceKind);
-        Assert.IsFalse(result.ShouldAutoApplyDestination);
+            path => InstallEstimationMetadataNormalizer.BuildProfile([("Song", path == candidateA ? "Other" : "Artist", "a")]),
+            candidatePolicy: keep ? InstallEstimationCandidatePolicy.KeepUnrelated : InstallEstimationCandidatePolicy.RelatedOnly);
+        Assert.AreEqual(keep ? candidateA : candidateB, result.SelectedCandidate?.DirectoryPath);
+        Assert.AreEqual(keep ? InstallEstimationConfidence.Low : InstallEstimationConfidence.High, result.Confidence);
+        Assert.AreEqual(keep ? InstallEstimationLowConfidenceKind.MetadataMismatch : InstallEstimationLowConfidenceKind.None, result.LowConfidenceKind);
+        Assert.AreEqual(!keep, result.ShouldAutoApplyDestination);
     }
 
     /// <summary>音声が同点でも曲名・作者の一致先を高信頼へ選び、無関係なメタデータの候補を適用する誤りを検出する。</summary>
@@ -3337,9 +3225,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.AreEqual(candidateBDir, result.DestinationDirectory);
             Assert.AreEqual(InstallEstimationConfidence.High, result.Confidence);
             Assert.IsTrue(result.ShouldAutoApplyDestination);
-            Assert.AreEqual("metadata_tiebreak_distinct", result.ConfidenceReason);
-            StringAssert.Contains(result.MetadataFrontierSummary ?? string.Empty, candidateADir);
-            StringAssert.Contains(result.MetadataTieBreakSummary ?? string.Empty, candidateBDir);
+            Assert.AreEqual("distinct_strong_primary_metrics", result.ConfidenceReason);
         });
     }
 
@@ -3386,7 +3272,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.AreEqual(candidateDir, result.DestinationDirectory);
             Assert.AreEqual(candidateDir, result.SelectedCandidate?.DirectoryPath);
             Assert.IsNull(result.SecondCandidate);
-            Assert.AreEqual("single_candidate", result.ConfidenceReason);
+            Assert.AreEqual("distinct_strong_primary_metrics", result.ConfidenceReason);
             Assert.AreEqual(0, result.SuggestedDestinationDirectories.Count);
             Assert.AreEqual(1, result.Candidates.Count);
         });
@@ -3477,7 +3363,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                ChartInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal, candidatePolicy: InstallEstimationCandidatePolicy.KeepUnrelated);
 
             Assert.AreEqual(InstallEstimationConfidence.High, result.Confidence);
             Assert.AreEqual("no_viable_destination_below_threshold", result.ConfidenceReason);
@@ -3571,8 +3457,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
         Assert.AreEqual(InstallEstimationConfidence.High, result.Confidence);
         Assert.IsTrue(result.ShouldAutoApplyDestination);
-        Assert.AreEqual("Representative Title", result.SelectedCandidate?.RepresentativeTitle);
-        Assert.AreEqual("Representative Artist", result.SelectedCandidate?.RepresentativeArtist);
+        Assert.AreEqual("Representative Title", result.SelectedCandidate?.DisplayTitle);
+        Assert.AreEqual("Representative Artist", result.SelectedCandidate?.DisplayArtist);
     }
 
     /// <summary>階層付き音声参照では同名だけの平坦候補を粗い絞込みで除き、相対パスを無視した誤一致を検出する。</summary>
@@ -3803,8 +3689,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(0, result.CandidateDirectoryCountAfterBroadFilter);
         Assert.AreEqual(0, result.HierarchyCandidateDirectoryCount);
         Assert.AreEqual(0, result.AncestorShadowSuppressedCount);
-        Assert.AreEqual(0, result.LazySelfOwnedEvaluationCount);
-        Assert.AreEqual(0, result.CandidateViewBuildCount);
+
         Assert.IsNull(result.SelectedCandidate);
         Assert.IsTrue(string.IsNullOrWhiteSpace(result.DestinationDirectory));
     }
@@ -3835,8 +3720,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
         Assert.AreEqual(0, result.HierarchyCandidateDirectoryCount);
         Assert.AreEqual(0, result.AncestorShadowSuppressedCount);
-        Assert.AreEqual(0, result.LazySelfOwnedEvaluationCount);
-        Assert.AreEqual(1, result.CandidateViewBuildCount);
+
         Assert.AreEqual(1, result.SelectedCandidate?.AudioMatched);
         Assert.AreEqual(1, result.SelectedCandidate?.AudioExactMatched);
         Assert.AreEqual(flatCandidateDir, result.SelectedCandidate?.DirectoryPath);
@@ -3892,10 +3776,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
         Assert.AreEqual(candidateDir, result.SelectedCandidate?.DirectoryPath);
         Assert.AreEqual(1, result.SelectedCandidate?.AudioMatched);
-        Assert.AreEqual(50, result.SelectedCandidate?.AudioPrecision);
         Assert.AreEqual(50, result.SelectedCandidate?.AudioJaccard);
-        Assert.AreEqual(2, result.SelectedCandidate?.AudioFileCount);
-        Assert.AreEqual(1, result.CandidateViewBuildCount);
+        Assert.AreEqual(2, result.SelectedCandidate?.CandidateResourceCount);
+
     }
 
     /// <summary>階層付き音声の不足分は通常推定で同梱分を補い合流推定では補わず、相対参照でのモード差の欠落を検出する。</summary>
@@ -3935,13 +3818,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                ChartInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal, candidatePolicy: InstallEstimationCandidatePolicy.KeepUnrelated);
 
             InstallEstimationResult mergeResult = service.EstimateInstallationDirectory(
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                ChartInstallationEstimateMode.ReinstallCorrection);
+                ChartInstallationEstimateMode.ReinstallCorrection, candidatePolicy: InstallEstimationCandidatePolicy.KeepUnrelated);
 
             Assert.AreEqual(1, normalResult.CandidateDirectoryCountAfterAudioGate);
             Assert.AreEqual(candidateDir, normalResult.SelectedCandidate?.DirectoryPath);
@@ -4021,8 +3904,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual("resource_index_unavailable", unavailableResult.ConfidenceReason);
         Assert.AreEqual("resource_index_unavailable", unavailableResult.CandidateMode);
         Assert.AreEqual("resource_index_unavailable", unavailableResult.CoarseFilterMode);
-        Assert.AreEqual(1, lookupResult.CandidateViewBuildCount);
-        Assert.AreEqual(0, unavailableResult.CandidateViewBuildCount);
+
+
     }
 
     /// <summary>親子索引があっても相対音声が一致しなければ候補を作らず、索引なしでも階層補正で候補を捏造しないことを確認する。</summary>
@@ -4076,8 +3959,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual("resource_index_unavailable", unavailableResult.CoarseFilterMode);
         Assert.AreEqual(0, lookupResult.CandidateDirectoryCountAfterBroadFilter);
         Assert.AreEqual(0, unavailableResult.CandidateDirectoryCountAfterBroadFilter);
-        Assert.AreEqual(0, lookupResult.CandidateViewBuildCount);
-        Assert.AreEqual(0, unavailableResult.CandidateViewBuildCount);
+
+
     }
 
     /// <summary>MD5が違いSHA256だけ一致する所持譜面からは所持先を返さず、主ハッシュ条件の迂回を検出する。</summary>
@@ -4124,6 +4007,241 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(0, directories.Count);
     }
 
+
+    /// <summary>単純集合R/S/CからU・M・Jを検算します。同梱重複・残りだけの補完・候補単独80%不要・一致一件を同じ評価で確認します。</summary>
+    [DataTestMethod]
+    [DataRow(5, 4, 4, 1)]
+    [DataRow(5, 4, 0, 5)]
+    [DataRow(5, 5, 0, 1)]
+    [DataRow(500, 400, 400, 100)]
+    [DataRow(5, 0, 0, 4)]
+    public void Estimate_ReverseAggregationMatchesSimpleSets(int required, int supplied, int candidateStart, int candidateCount)
+    {
+        string[] names = Enumerable.Range(0, required).Select(i => "r" + i + ".wav").ToArray();
+        ChartFile chart = CreateFile("target", @"C:\Pending\chart.bms", names) with { RawTitle = "Song", RawArtist = "Artist", Artist = "Artist" };
+        var cache = new DirectoryResourceLookupCache();
+        cache.AddDir(@"C:\Source", names.Take(supplied));
+        cache.AddDir(@"C:\Candidate", names.Skip(candidateStart).Take(candidateCount).Concat(["extra.wav"]));
+        var snapshot = new PackageInstallEstimationSnapshot
+        {
+            RepresentativeChart = chart,
+            DefinedResources = ChartResourceSnapshot.Create(chart),
+            TargetMetadataProfile = InstallEstimationMetadataNormalizer.BuildProfile([("Song", "Artist", "target")]),
+            BundledResources = cache.GetEntryOrNull(@"C:\Source"),
+            SourceDirectory = @"C:\Pending"
+        };
+        InstallEstimationResult result = CreateService().EstimateInstallationDirectory(snapshot, cache, false, ChartInstallationEstimateMode.Normal, _ => snapshot.TargetMetadataProfile);
+        InstallEstimationCandidate candidate = result.Candidates.Single(value => value.DirectoryPath == @"C:\Candidate");
+        HashSet<string> r = names.ToHashSet();
+        var suppliedSet = names.Take(supplied).ToHashSet();
+        var c = names.Skip(candidateStart).Take(candidateCount).Append("extra.wav").ToHashSet();
+        int m = r.Intersect(c).Count();
+        int u = r.Intersect(suppliedSet.Union(c)).Count();
+        int union = r.Union(c).Count();
+        Assert.AreEqual(m, candidate.AudioExactMatched);
+        Assert.AreEqual(u, candidate.AudioMatched);
+        Assert.AreEqual((int)(100L * u / required), candidate.AudioHealth);
+        Assert.AreEqual((int)Math.Round(100d * m / union, MidpointRounding.AwayFromZero), candidate.AudioJaccard);
+        if (candidateStart >= supplied && supplied < required)
+        { Assert.AreEqual(@"C:\Candidate", result.SelectedCandidate.DirectoryPath); }
+    }
+
+    /// <summary>全候補の分類を通常は優先し、明示保持は資源優先にします。先頭が非Strongなら下位Strongへ自動乗換えしません。</summary>
+    [DataTestMethod]
+    [DataRow(false, 99, 98)]
+    [DataRow(false, 97, 100)]
+    [DataRow(true, 99, 98)]
+    [DataRow(true, 97, 100)]
+    public void Estimate_CandidatePolicySeparatesDisplayRankingFromAutomaticPermission(bool keep, int strongHealth, int relatedHealth)
+    {
+        string[] names = Enumerable.Range(0, 100).Select(i => "r" + i + ".wav").ToArray();
+        ChartFile chart = CreateFile("target", @"C:\Pending\chart.bms", names) with { RawTitle = "Song", RawArtist = "Artist", Artist = "Artist" };
+        PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries([PackageChartEntry.FromChart(chart)]);
+        var cache = new DirectoryResourceLookupCache();
+        cache.AddDir(@"C:\Unrelated", names);
+        cache.AddDir(@"C:\Strong", names.Take(strongHealth));
+        cache.AddDir(@"C:\Related", names.Take(relatedHealth).Concat(relatedHealth == 100 ? new[] { "extra.wav" } : []));
+        var service = new BmsLibraryInstallEstimationService(new BmsLibraryOptionsSnapshot { InstallDestinationAutoApplyMinAudioHealth = 97 });
+        InstallEstimationResult result = service.EstimateInstallationDirectory(snapshot, cache, false, ChartInstallationEstimateMode.Normal,
+            path => InstallEstimationMetadataNormalizer.BuildProfile([(path.EndsWith("Unrelated") ? "ZZZZ" : "Song", path.EndsWith("Strong") ? "Artist" : "XXXX", path)]),
+            candidatePolicy: keep ? InstallEstimationCandidatePolicy.KeepUnrelated : InstallEstimationCandidatePolicy.RelatedOnly);
+        CollectionAssert.AreEqual(keep ? relatedHealth == 100 ? new[] { @"C:\Unrelated", @"C:\Related", @"C:\Strong" } : new[] { @"C:\Unrelated", @"C:\Strong", @"C:\Related" } : new[] { @"C:\Strong", @"C:\Related" },
+            result.Candidates.Select(candidate => candidate.DirectoryPath).ToArray());
+        Assert.AreEqual(!keep, result.ShouldAutoApplyDestination);
+        Assert.AreEqual(keep ? InstallEstimationLowConfidenceKind.MetadataMismatch : InstallEstimationLowConfidenceKind.None, result.LowConfidenceKind);
+        Assert.AreEqual(keep ? InstallAudioCompleteness.Complete : InstallAudioCompleteness.Missing, result.AudioCompleteness);
+    }
+
+    /// <summary>リソース順位の11位・170位にだけStrongがあっても発見します。表示三件へ切る前に全候補を分類します。</summary>
+    [DataTestMethod]
+    [DataRow(11)]
+    [DataRow(170)]
+    public void Estimate_ExaminesStrongBeyondFormerCandidateFrontier(int strongPosition)
+    {
+        ChartFile chart = CreateFile("target", @"C:\Pending\chart.bms", "tone.wav") with { RawTitle = "Song", RawArtist = "Artist", Artist = "Artist" };
+        PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries([PackageChartEntry.FromChart(chart)]);
+        var cache = new DirectoryResourceLookupCache();
+        for (int i = 1; i <= strongPosition; i++) { cache.AddDir(@"C:\Candidates\" + i.ToString("D3"), new[] { "tone.wav" }.Concat(Enumerable.Range(0, i).Select(n => "extra" + n + ".wav"))); }
+        InstallEstimationResult result = CreateService().EstimateInstallationDirectory(snapshot, cache, false, ChartInstallationEstimateMode.Normal,
+            path => InstallEstimationMetadataNormalizer.BuildProfile([("Song", path.EndsWith(strongPosition.ToString("D3")) ? "Artist" : "ZZZZ", path)]));
+        Assert.IsTrue(result.ShouldAutoApplyDestination);
+        Assert.IsTrue(result.DestinationDirectory.EndsWith(strongPosition.ToString("D3")));
+        Assert.AreEqual(3, result.Candidates.Count);
+    }
+
+    /// <summary>保持モードで表示外の四番目Strongも競合へ数え、Jaccardとパスの差だけでは曖昧性を解消しません。Relatedと非関連はStrongの競合に数えません。</summary>
+    [TestMethod]
+    public void Estimate_AmbiguityUsesAllStrongCandidatesBeyondDisplayLimit()
+    {
+        ChartFile chart = CreateFile("target", @"C:\Pending\chart.bms", "tone.wav") with { RawTitle = "Song", RawArtist = "Artist", Artist = "Artist" };
+        PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries([PackageChartEntry.FromChart(chart)]);
+        var cache = new DirectoryResourceLookupCache();
+        for (int i = 1; i <= 4; i++) { cache.AddDir(@"C:\Candidate" + i, new[] { "tone.wav" }.Concat(Enumerable.Range(0, i).Select(n => "extra" + n + ".wav"))); }
+        InstallEstimationResult result = CreateService().EstimateInstallationDirectory(snapshot, cache, false, ChartInstallationEstimateMode.Normal,
+            path => InstallEstimationMetadataNormalizer.BuildProfile([(path.EndsWith("2") ? "ZZZZ" : "Song", path.EndsWith("3") || path.EndsWith("2") ? "XXXX" : "Artist", path)]),
+            candidatePolicy: InstallEstimationCandidatePolicy.KeepUnrelated);
+        Assert.AreEqual(3, result.Candidates.Count);
+        Assert.AreEqual(@"C:\Candidate1", result.SelectedCandidate.DirectoryPath);
+        Assert.AreEqual(@"C:\Candidate4", result.AmbiguousCandidateDirectory);
+        Assert.AreEqual(InstallEstimationConfidence.Low, result.Confidence);
+        Assert.IsFalse(result.ShouldAutoApplyDestination);
+    }
+
+    /// <summary>各譜面へ丸め前の90/97/100%閾値を適用します。Missingのまま許可した場合も一般欠損警告を保ち、自動設定見送り警告は出しません。不正保存値は丸めず拒否します。</summary>
+    [DataTestMethod]
+    [DataRow(90, 97, true, false)]
+    [DataRow(90, 90, true, false)]
+    [DataRow(100, 100, true, false)]
+    [DataRow(97, 97, true, false)]
+    [DataRow(97, 97, true, true)]
+    [DataRow(97, 96, false, false)]
+    [DataRow(100, 97, false, false)]
+    [DataRow(89, 100, false, false)]
+    [DataRow(101, 100, false, false)]
+    public void Estimate_PerChartAudioThresholdPreservesMissingAndWarnings(int threshold, int existing, bool apply, bool hash)
+    {
+        string[] names = Enumerable.Range(0, 100).Select(i => "r" + i + ".wav").ToArray();
+        ChartFile chart = CreateFile("target", @"C:\Pending\chart.bms", names) with { RawTitle = "Song", RawArtist = "Artist", Artist = "Artist" };
+        var entry = PackageChartEntry.FromChart(chart);
+        PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries([entry]);
+        var cache = new DirectoryResourceLookupCache();
+        cache.AddDir(@"C:\Candidate", names.Take(existing));
+        var service = new BmsLibraryInstallEstimationService(new BmsLibraryOptionsSnapshot { InstallDestinationAutoApplyMinAudioHealth = threshold });
+        InstallEstimationResult result = hash
+            ? service.EvaluateInstalledChartHashDestination(@"C:\Candidate", [entry], _ => snapshot.TargetMetadataProfile, snapshot, cache)
+            : service.EstimateInstallationDirectory(snapshot, cache, false, ChartInstallationEstimateMode.Normal, _ => snapshot.TargetMetadataProfile);
+        Assert.AreEqual(hash ? InstallEstimationFinalEvaluationMode.InstalledChartHash : InstallEstimationFinalEvaluationMode.RelativeStrict, result.FinalEvaluationMode);
+        Assert.AreEqual(apply, result.ShouldAutoApplyDestination);
+        Assert.AreEqual(existing == 100 ? InstallAudioCompleteness.Complete : InstallAudioCompleteness.Missing, result.AudioCompleteness);
+        entry.ApplyInstallEstimationResult(result);
+        BmsLibraryPackageInstallService.RefreshPendingResourceHealth([entry], null, cache, snapshot.BundledResources, true);
+        Assert.AreEqual(existing < 100 && !apply, entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAudioMissing));
+        Assert.AreEqual(existing < 100, entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+    }
+
+    /// <summary>集約99%でも一譜面が50%なら自動確定しません。各譜面の不足を大きい兄弟の集合で隠す誤りを検出します。</summary>
+    [TestMethod]
+    public void Estimate_AggregateAudioDoesNotHideIncompleteSibling()
+    {
+        string[] names = Enumerable.Range(0, 100).Select(i => "r" + i + ".wav").ToArray();
+        PackageChartEntry[] entries = new[] { CreateFile("first", @"C:\Pending\a.bms", names.Take(99).ToArray()), CreateFile("second", @"C:\Pending\b.bms", names.Skip(98).ToArray()) }
+            .Select(chart => PackageChartEntry.FromChart(chart with { RawTitle = "Song", Artist = "Artist", RawArtist = "Artist" })).ToArray();
+        PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries(entries);
+        var cache = new DirectoryResourceLookupCache();
+        cache.AddDir(@"C:\Candidate", names.Take(99));
+        var service = new BmsLibraryInstallEstimationService(new BmsLibraryOptionsSnapshot { InstallDestinationAutoApplyMinAudioHealth = 90 });
+        InstallEstimationResult result = service.EstimateInstallationDirectory(snapshot, cache, false, ChartInstallationEstimateMode.Normal, _ => snapshot.TargetMetadataProfile);
+        Assert.AreEqual(99, result.SelectedCandidate.AudioHealth);
+        Assert.AreEqual(InstallAudioCompleteness.Missing, result.AudioCompleteness);
+        Assert.IsFalse(result.ShouldAutoApplyDestination);
+    }
+
+    /// <summary>再導入は無関係候補を除外し、唯一Strongだけを改善と各譜面閾値で確定します。Relatedは妨げず、異順位の複数Strongと同梱による不足の隠蔽を拒否します。</summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public void Estimate_ReinstallRequiresOneImprovedStrongWithoutBundledResources(bool secondStrong, bool bundledMasksMissing)
+    {
+        string[] names = Enumerable.Range(0, 100).Select(i => "r" + i + ".wav").ToArray();
+        ChartFile chart = CreateFile("target", @"C:\Current\chart.bms", names) with { RawTitle = "Song", RawArtist = "Artist", Artist = "Artist" };
+        PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries([PackageChartEntry.FromChart(chart)]);
+        var cache = new DirectoryResourceLookupCache();
+        cache.AddDir(@"C:\Current", bundledMasksMissing ? names.Take(90) : []);
+        cache.AddDir(@"C:\Strong", names.Take(bundledMasksMissing ? 80 : 97));
+        if (!bundledMasksMissing)
+        {
+            cache.AddDir(@"C:\Related", names);
+            cache.AddDir(@"C:\Unrelated", names);
+            cache.AddDir(@"C:\Unavailable", names);
+        }
+        snapshot.BundledResources = new DirectoryResourceLookupCache.Entry(names.Select(name => ChartResourceKeyHash.GetLookupHash(Path.GetFileNameWithoutExtension(name))), [], []);
+        var service = new BmsLibraryInstallEstimationService(new BmsLibraryOptionsSnapshot { InstallDestinationAutoApplyMinAudioHealth = bundledMasksMissing || secondStrong ? 90 : 97, AutoApplyAmbiguousInstallDestination = true });
+        InstallEstimationResult result = service.EstimateInstallationDirectory(snapshot, cache, false, ChartInstallationEstimateMode.ReinstallCorrection,
+            path => path.EndsWith("Unavailable") ? InstallEstimationMetadataProfile.Empty : InstallEstimationMetadataNormalizer.BuildProfile([
+                (path.EndsWith("Unrelated") ? "ZZZZ" : "Song", path.EndsWith("Strong") || secondStrong && path.EndsWith("Related") ? "Artist" : "XXXX", path)]));
+        Assert.AreEqual(!secondStrong && !bundledMasksMissing, result.ShouldAutoApplyDestination);
+        Assert.IsFalse(result.Candidates.Any(candidate => candidate.MetadataRelation < InstallEstimationMetadataRelation.Related));
+        Assert.AreEqual(bundledMasksMissing ? 80 : secondStrong ? 100 : 97, result.SelectedCandidate.AudioHealth);
+    }
+
+    /// <summary>同じ相対キーでもカテゴリを分離し、複数ID・拡張子違い・同梱重複は各カテゴリで一件だけ数えます。</summary>
+    [TestMethod]
+    public void Estimate_AggregationSeparatesCategoriesAndDeduplicatesReferences()
+    {
+        ChartFile chart = CreateFile("target", @"C:\Pending\chart.bms") with
+        {
+            RawTitle = "Song",
+            RawArtist = "Artist",
+            Artist = "Artist",
+            Resources = TestChartResources.Create(["same.wav", "same.ogg"], ["same.png", "same.jpg", "same.mp4"], "same.png")
+        };
+        PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries([PackageChartEntry.FromChart(chart)]);
+        var cache = new DirectoryResourceLookupCache();
+        cache.AddDir(@"C:\Candidate", ["same.wav", "same.png", "same.mp4"]);
+        cache.AddDir(@"C:\Source", ["same.wav", "same.png"]);
+        snapshot.BundledResources = cache.GetEntryOrNull(@"C:\Source");
+        snapshot.SourceDirectory = @"C:\Source";
+        InstallEstimationResult result = CreateService().EstimateInstallationDirectory(snapshot, cache, false, ChartInstallationEstimateMode.Normal, _ => snapshot.TargetMetadataProfile);
+        InstallEstimationCandidate candidate = result.SelectedCandidate;
+        Assert.AreEqual(4, result.TargetResourceCount);
+        Assert.AreEqual(1, candidate.AudioMatched);
+        Assert.AreEqual(1, candidate.VisualMatched);
+        Assert.AreEqual(1, candidate.MovieMatched);
+        Assert.AreEqual(1, candidate.OptionalImageMatched);
+        Assert.AreEqual(1, candidate.AudioExactMatched);
+        Assert.AreEqual(1, candidate.VisualExactMatched);
+        Assert.AreEqual(1, candidate.MovieExactMatched);
+        Assert.AreEqual(1, candidate.OptionalImageExactMatched);
+        Assert.AreEqual(3, candidate.CandidateResourceCount);
+        Assert.IsTrue(result.ShouldAutoApplyDestination);
+    }
+
+    /// <summary>祖先抑制は分類後に行い、関連性の弱い子をStrong親の抑制理由にしません。同じStrongなら自身の所有条件で子へ絞ります。</summary>
+    [DataTestMethod]
+    [DataRow(0, false)]
+    [DataRow(1, false)]
+    [DataRow(2, false)]
+    [DataRow(0, true)]
+    [DataRow(1, true)]
+    [DataRow(2, true)]
+    public void Estimate_AncestorSuppressionRequiresDescendantRelationAtLeastAsStrong(int childKind, bool keep)
+    {
+        ChartFile chart = CreateFile("target", @"C:\Pending\chart.bms", "tone.wav") with { RawTitle = "Song", RawArtist = "Artist", Artist = "Artist" };
+        PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries([PackageChartEntry.FromChart(chart)]);
+        var cache = new DirectoryResourceLookupCache();
+        uint tone = ChartResourceKeyHash.GetLookupHash("tone");
+        cache.AddDir(@"C:\Parent", [tone], [], [], [], [], []);
+        cache.AddDir(@"C:\Parent\Child", [tone], [], [], [tone], [], []);
+        InstallEstimationResult result = CreateService().EstimateInstallationDirectory(snapshot, cache, false, ChartInstallationEstimateMode.Normal,
+            path => InstallEstimationMetadataNormalizer.BuildProfile([(
+                path.EndsWith("Child") && childKind == 0 ? "ZZZZ" : "Song",
+                path.EndsWith("Child") && childKind != 2 ? "XXXX" : "Artist", path)]),
+            candidatePolicy: keep ? InstallEstimationCandidatePolicy.KeepUnrelated : InstallEstimationCandidatePolicy.RelatedOnly);
+        Assert.AreEqual(childKind == 2 ? @"C:\Parent\Child" : @"C:\Parent", result.SelectedCandidate.DirectoryPath);
+        Assert.AreEqual(childKind == 2 ? 1 : keep || childKind == 1 ? 2 : 1, result.Candidates.Count);
+    }
+
     private void WithWorkspace(Action<string, BmsLibraryInstallEstimationService> testAction)
     {
         string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_InstallEstimateTests_" + Guid.NewGuid().ToString("N"));
@@ -4140,7 +4258,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
     private BmsLibraryInstallEstimationService CreateService()
     {
-        return new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(testSettings), 70);
+        return new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(testSettings));
     }
 
     private static InstalledChartLookupIndexSnapshot CreateInstalledChartLookupIndexSnapshot(IEnumerable<ChartFile> installedFiles, IEnumerable<ChartFile>? installedBmsonSongs = null)
@@ -4170,7 +4288,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             directoryLookupCache!,
             asParallel,
             estimateMode,
-            metadataProfileResolver);
+            metadataProfileResolver, candidatePolicy: metadataProfileResolver == null ? InstallEstimationCandidatePolicy.KeepUnrelated : InstallEstimationCandidatePolicy.RelatedOnly);
     }
 
     private static InstallEstimationResult EstimateLooseChartInstallationDirectory(BmsLibraryInstallEstimationService service, IEnumerable<PackageChartEntry> chartEntries, HashSet<string> installedHashes, DirectoryResourceLookupCache? directoryLookupCache, bool asParallel, ChartInstallationEstimateMode estimateMode, Func<string, InstallEstimationMetadataProfile>? metadataProfileResolver = null)
@@ -4180,7 +4298,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             directoryLookupCache!,
             asParallel,
             estimateMode,
-            metadataProfileResolver);
+            metadataProfileResolver, candidatePolicy: metadataProfileResolver == null ? InstallEstimationCandidatePolicy.KeepUnrelated : InstallEstimationCandidatePolicy.RelatedOnly);
     }
 
     private static InstallEstimationResult EstimateLooseChartInstallationDirectory(BmsLibraryInstallEstimationService service, IEnumerable<ChartFile> chartFiles, HashSet<string> installedHashes, DirectoryResourceLookupCache? directoryLookupCache, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, Func<string, InstallEstimationMetadataProfile>? metadataProfileResolver = null)
@@ -4190,7 +4308,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             directoryLookupCache!,
             candidateEvaluationDegree,
             estimateMode,
-            metadataProfileResolver);
+            metadataProfileResolver, candidatePolicy: metadataProfileResolver == null ? InstallEstimationCandidatePolicy.KeepUnrelated : InstallEstimationCandidatePolicy.RelatedOnly);
     }
 
     private static PackageInstallEstimationSnapshot? BuildLooseChartSnapshot(IEnumerable<ChartFile> chartFiles, HashSet<string> installedHashes, ChartInstallationEstimateMode estimateMode)

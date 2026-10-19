@@ -19,7 +19,7 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class PackageInstallWorkflowOwnerTests
 {
-    /// <summary>元音源99%でも欠損1件を補う候補へ実自動推定します。画像不足またはBMSONの親参照補助だけの厳格保留は自動推定を省略し、照合不能を実欠損の画像警告へ変換しません。通常画像不足で手動推定を許し、準備中のprovider変更は次操作へ反映します。</summary>
+    /// <summary>自動設定閾値97%でも元音源99%の欠損1件を補う候補へ実自動推定します。画像不足またはBMSONの親参照補助だけの厳格保留は自動推定を省略し、照合不能を実欠損の画像警告へ変換しません。通常画像不足で手動推定を許し、準備中のprovider変更は次操作へ反映します。</summary>
     [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
@@ -63,6 +63,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             ScanBmsFilesOnStartup = true,
             BMSInstallDir = libraryRoot,
             FolderNameFormat = "%TITLE%",
+            InstallDestinationAutoApplyMinAudioHealth = 97,
             RequireCompleteUsedResourcesForAutoInstall = strict
         };
         BmsLibraryOptionsSnapshot options = Options(onlyVisualMissing);

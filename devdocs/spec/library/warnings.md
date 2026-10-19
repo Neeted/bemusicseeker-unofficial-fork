@@ -58,7 +58,9 @@
 | `DuplicateChart` | `Duplicate` | 30 | `重複譜面` | true | 該当する警告がある場合 |
 | `InstallEstimationAmbiguous` | `InstallEstimation` | 40 | `推定先複数` | true | 該当する警告がある場合 |
 | `InstallEstimationMetadataMismatch` | `InstallEstimation` | 41 | `TITLE/ARTIST未確認` | true | 該当する警告がある場合 |
-| `InstallEstimationAudioMissing` | `InstallEstimation` | 42 | `導入後音源不足` | true | 有効候補への音源完全性が欠損で不成立の場合 |
+| `InstallEstimationUnrelated` | `InstallEstimation` | 42 | `作品との関連性なし` | true | 明示保持した先頭候補がUnrelatedの場合 |
+| `InstallEstimationMetadataUnavailable` | `InstallEstimation` | 42 | `作品情報の比較不能` | true | 明示保持した先頭候補がUnavailableの場合 |
+| `InstallEstimationAudioMissing` | `InstallEstimation` | 42 | `導入後音源不足` | true | 選択候補で各譜面の設定音源閾値を満たさず自動設定を見送る場合 |
 | `InstallEstimationAudioUnverifiable` | `InstallEstimation` | 42 | `導入後音源未確認` | true | 有効候補への音源完全性を確認できない場合 |
 | `InstallEstimationReinstallNotImproved` | `InstallEstimation` | 43 | `再導入改善なし` | true | 該当する警告がある場合 |
 | `InstalledDestinationAmbiguous` | `InstallEstimation` | 43 | `導入先複数` | true | 該当する警告がある場合 |
@@ -77,7 +79,7 @@
 | `ResourceBackbmpMissing` | `ResourceHealth` | 83 | `画像不足` | false | 要約には出さず、ツールチップだけに表示 |
 | `ResourceBannerMissing` | `ResourceHealth` | 83 | `画像不足` | false | 要約には出さず、ツールチップだけに表示 |
 
-選択された有効候補への音源完全性はTITLE/ARTISTと独立して評価します。欠損と照合不能・未取得を区別し、推定対象群の全行へ見送り理由を付けます。自身のWAVが100%の行にも付け、候補なしでは付けません。現在の配置での不足警告とは別の結果です。再グループ化では元の対象行の理由と評価先を引き継ぎ、新グループの他行へ広げません。
+選択された有効候補への音源完全性はTITLE/ARTISTと独立して評価します。閾値未達と照合不能・未取得を区別し、見送る場合は推定対象群の全行へ理由を付けます。Missingでも設定閾値を満たして自動設定できた場合は見送り警告を付けず、一般のResourceWavMissingを保持します。自身のWAVが100%の行にも付け、候補なしでは付けません。現在の配置での不足警告とは別の結果です。再グループ化では元の対象行の理由と評価先を引き継ぎ、新グループの他行へ広げません。
 
 ### 種類ごとの更新
 

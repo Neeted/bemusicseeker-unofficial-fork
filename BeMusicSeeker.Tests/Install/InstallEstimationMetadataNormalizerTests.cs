@@ -1,3 +1,4 @@
+using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -207,7 +208,7 @@ public sealed class InstallEstimationMetadataNormalizerTests
     [DataTestMethod]
     [DataRow("Ice Festival", "Nota BGI:雪椿", "Ice Festival[札幌雪祭り]", "Nota/obj:みあ BGI:雪椿", true)]
     // ARTISTが一致しても、末尾点や別mix名によるTITLEの差は同じ閾値で判断する。
-    [DataRow("I believe", "Gun string", "I believe...", "Gun string", false)]
+    [DataRow("I believe", "Gun string", "I believe...", "Gun string", true)]
     [DataRow("Midnight BEAST", "AKITO", "Midnight BEAST -deep azure mix-", "AKITO / #050C1B", false)]
     // 別名推定やスラッシュ切断で、異なる制作名義を同一視しない。
     [DataRow("Song", "Zris Remixed by Daily天利 BG by Rosa", "Song", "Zris Remixed by Daily BG by Rosa", false)]
@@ -298,4 +299,62 @@ public sealed class InstallEstimationMetadataNormalizerTests
     {
         Assert.AreEqual(expected, InstallEstimationMetadataNormalizer.ComputeTitleSimilarity(left, right), 1e-12);
     }
+    /// <summary>最頻Strongの0.72境界とRelatedの0.50 OR、空TITLEと空ARTISTを独立した期待値で固定します。</summary>
+    [DataTestMethod]
+    [DataRow("abcdefghijklmnopqrs", "X", "abcdefghijklmnopqrstuvwxyz0123456", "X", (int)InstallEstimationMetadataRelation.Strong)]
+    [DataRow("abcdefghijklmnopqrs", "X", "abcdefghijklmnopqrstuvwxyz01234567", "X", (int)InstallEstimationMetadataRelation.Related)]
+    [DataRow("abc", "xxx", "abd", "yyy", (int)InstallEstimationMetadataRelation.Related)]
+    [DataRow("xxx", "abc", "yyy", "abd", (int)InstallEstimationMetadataRelation.Related)]
+    [DataRow("abc", "abc", "xyz", "xyz", (int)InstallEstimationMetadataRelation.Unrelated)]
+    [DataRow("abc", "", "abc", "", (int)InstallEstimationMetadataRelation.Strong)]
+    [DataRow("abc", "", "xyz", "", (int)InstallEstimationMetadataRelation.Unrelated)]
+    [DataRow("", "abc", "abc", "abc", (int)InstallEstimationMetadataRelation.Unavailable)]
+    [DataRow("abc", "abc", "", "abc", (int)InstallEstimationMetadataRelation.Unavailable)]
+    [DataRow("abc", "xxx", "abc", "yyy", (int)InstallEstimationMetadataRelation.Related)]
+    public void Classify_UsesDominantStrongAndIndependentRelatedBoundaries(string title, string artist, string candidateTitle, string candidateArtist,
+        int expected)
+    {
+        InstallEstimationMetadataProfile target = InstallEstimationMetadataNormalizer.BuildProfile([(title, artist, "target")]);
+        InstallEstimationMetadataProfile candidate = InstallEstimationMetadataNormalizer.BuildProfile([(candidateTitle, candidateArtist, "candidate")]);
+        InstallEstimationMetadataMatch result = new InstallEstimationMetadataMatcher(target).Evaluate(candidate);
+        Assert.AreEqual((InstallEstimationMetadataRelation)expected, result.Relation);
+    }
+
+    /// <summary>最頻以外の完全一致はRelated止まりとし、1,000番目の実在ペアも省略せず候補側の表示を返します。</summary>
+    [TestMethod]
+    public void Classify_UsesAllUniquePairsAndKeepsMinorityExactMatchRelated()
+    {
+        var records = System.Linq.Enumerable.Range(0, 999).Select(i => ("曲" + i, "作者" + i, "a" + i)).ToList();
+        records.Insert(0, records[0]);
+        records.Add(("Matched Title", "MATCHED ARTIST", "z"));
+        InstallEstimationMetadataProfile target = InstallEstimationMetadataNormalizer.BuildProfile([("matched title", "matched artist", "target")]);
+        InstallEstimationMetadataProfile candidate = InstallEstimationMetadataNormalizer.BuildProfile(records);
+        InstallEstimationMetadataMatch result = new InstallEstimationMetadataMatcher(target).Evaluate(candidate);
+        Assert.AreEqual(1000, candidate.Pairs.Count);
+        Assert.AreEqual(InstallEstimationMetadataRelation.Related, result.Relation);
+        Assert.AreEqual("Matched Title", result.DisplayTitle);
+        Assert.AreEqual("MATCHED ARTIST", result.DisplayArtist);
+    }
+
+    /// <summary>Related根拠を一レコードから選び、同点はパスと入力順で決めます。別ペアの最高TITLE/ARTISTを合成しません。</summary>
+    [TestMethod]
+    public void Classify_SelectsOneRealPairWithStablePathAndInputOrder()
+    {
+        InstallEstimationMetadataProfile target = InstallEstimationMetadataNormalizer.BuildProfile([("abc", "abc", "target")]);
+        (string, string, string)[] records = [("abd", "abc", "b"), ("abc", "xyz", "a")];
+        foreach ((string, string, string)[]? source in new[] { records, records.Reverse().ToArray() })
+        {
+            InstallEstimationMetadataMatch result = new InstallEstimationMetadataMatcher(target).Evaluate(InstallEstimationMetadataNormalizer.BuildProfile(source));
+            Assert.AreEqual(InstallEstimationMetadataRelation.Related, result.Relation);
+            Assert.AreEqual("abc", result.DisplayTitle);
+            Assert.AreEqual("xyz", result.DisplayArtist);
+        }
+        InstallEstimationMetadataMatch tied = new InstallEstimationMetadataMatcher(target).Evaluate(InstallEstimationMetadataNormalizer.BuildProfile([
+            ("abd", "abc", "B"), ("abe", "abc", "A")]));
+        Assert.AreEqual("abe", tied.DisplayTitle);
+        InstallEstimationMetadataMatch inputTied = new InstallEstimationMetadataMatcher(target).Evaluate(InstallEstimationMetadataNormalizer.BuildProfile([
+            ("abd", "abc", "A"), ("abe", "abc", "a")]));
+        Assert.AreEqual("abd", inputTied.DisplayTitle);
+    }
+
 }

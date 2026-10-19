@@ -850,6 +850,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool tempAutoApplyAmbiguousInstallDestination;
 
+    private int tempInstallDestinationAutoApplyMinAudioHealth;
+
     private bool tempDeletePendingPackageSourceAfterInstall;
 
     private bool tempEnableSmartComponentOverwrite;
@@ -3728,6 +3730,31 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>利用者が明示選択できる90～100%を1%刻みで提供します。</summary>
+    public IReadOnlyList<KeyValuePair<int, string>> InstallDestinationAutoApplyMinAudioHealthOptions { get; } =
+        Array.AsReadOnly(Enumerable.Range(90, 11).Select(value => new KeyValuePair<int, string>(value, value + "%")).ToArray());
+
+    /// <summary>自動設定時の各譜面の最低音源充足率を編集します。範囲外の保存値やComboBoxの選択解除は自動補正しません。</summary>
+    public int? InstallDestinationAutoApplyMinAudioHealth
+    {
+        get => ApplicationSettings.InstallDestinationAutoApplyMinAudioHealth;
+        set
+        {
+            if (value is >= 90 and <= 100 && ApplicationSettings.InstallDestinationAutoApplyMinAudioHealth != value.Value)
+            {
+                ApplicationSettings.InstallDestinationAutoApplyMinAudioHealth = value.Value;
+                RaisePropertyChanged(nameof(InstallDestinationAutoApplyMinAudioHealth));
+                RaisePropertyChanged(nameof(InstallDestinationAutoApplyMinAudioHealthWarning));
+            }
+        }
+    }
+
+    /// <summary>保存済みの不正値が未選択になる理由と、明示修正が必要なことを表示します。</summary>
+    public string InstallDestinationAutoApplyMinAudioHealthWarning =>
+        ApplicationSettings.InstallDestinationAutoApplyMinAudioHealth is >= 90 and <= 100
+            ? string.Empty
+            : string.Format(Resources.Details_install_destination_min_audio_health_invalid, ApplicationSettings.InstallDestinationAutoApplyMinAudioHealth);
+
     public bool AutoApplyAmbiguousInstallDestination
     {
         get
@@ -4345,6 +4372,7 @@ public partial class SettingsDialogViewModel : ViewModel
         });
         resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
         {
+            settingDialogViewModel.RaisePropertyChanged(nameof(InstallDestinationAutoApplyMinAudioHealthWarning));
             foreach (AppearanceThemeOption option in settingDialogViewModel.appearanceThemeOptions)
             {
                 option.RefreshDisplayName();
@@ -6322,6 +6350,7 @@ public partial class SettingsDialogViewModel : ViewModel
         tempKeepInstallablePackagesPending = ApplicationSettings.KeepInstallablePackagesPending;
         tempRequireCompleteUsedResourcesForAutoInstall = ApplicationSettings.RequireCompleteUsedResourcesForAutoInstall;
         tempAutoApplyAmbiguousInstallDestination = ApplicationSettings.AutoApplyAmbiguousInstallDestination;
+        tempInstallDestinationAutoApplyMinAudioHealth = ApplicationSettings.InstallDestinationAutoApplyMinAudioHealth;
         tempDeletePendingPackageSourceAfterInstall = ApplicationSettings.DeletePendingPackageSourceAfterInstall;
         tempEnableSmartComponentOverwrite = ApplicationSettings.EnableSmartComponentOverwrite;
         tempKeepSmartOverwriteProtectedFilesByRenaming = ApplicationSettings.KeepSmartOverwriteProtectedFilesByRenaming;
@@ -6457,6 +6486,7 @@ public partial class SettingsDialogViewModel : ViewModel
             || tempKeepInstallablePackagesPending != ApplicationSettings.KeepInstallablePackagesPending
             || tempRequireCompleteUsedResourcesForAutoInstall != ApplicationSettings.RequireCompleteUsedResourcesForAutoInstall
             || tempAutoApplyAmbiguousInstallDestination != ApplicationSettings.AutoApplyAmbiguousInstallDestination
+            || tempInstallDestinationAutoApplyMinAudioHealth != ApplicationSettings.InstallDestinationAutoApplyMinAudioHealth
             || tempDeletePendingPackageSourceAfterInstall != ApplicationSettings.DeletePendingPackageSourceAfterInstall
             || tempEnableSmartComponentOverwrite != ApplicationSettings.EnableSmartComponentOverwrite
             || tempKeepSmartOverwriteProtectedFilesByRenaming != ApplicationSettings.KeepSmartOverwriteProtectedFilesByRenaming
@@ -7642,6 +7672,7 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationSettings.KeepInstallablePackagesPending = tempKeepInstallablePackagesPending;
         ApplicationSettings.RequireCompleteUsedResourcesForAutoInstall = tempRequireCompleteUsedResourcesForAutoInstall;
         ApplicationSettings.AutoApplyAmbiguousInstallDestination = tempAutoApplyAmbiguousInstallDestination;
+        ApplicationSettings.InstallDestinationAutoApplyMinAudioHealth = tempInstallDestinationAutoApplyMinAudioHealth;
         ApplicationSettings.DeletePendingPackageSourceAfterInstall = tempDeletePendingPackageSourceAfterInstall;
         ApplicationSettings.EnableSmartComponentOverwrite = tempEnableSmartComponentOverwrite;
         ApplicationSettings.KeepSmartOverwriteProtectedFilesByRenaming = tempKeepSmartOverwriteProtectedFilesByRenaming;
@@ -7745,6 +7776,8 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(KeepInstallablePackagesPending));
         RaisePropertyChanged(nameof(RequireCompleteUsedResourcesForAutoInstall));
         RaisePropertyChanged(nameof(AutoApplyAmbiguousInstallDestination));
+        RaisePropertyChanged(nameof(InstallDestinationAutoApplyMinAudioHealth));
+        RaisePropertyChanged(nameof(InstallDestinationAutoApplyMinAudioHealthWarning));
         RaisePropertyChanged(nameof(DeletePendingPackageSourceAfterInstall));
         RaisePropertyChanged(nameof(EnableSmartComponentOverwrite));
         RaisePropertyChanged(nameof(KeepSmartOverwriteProtectedFilesByRenaming));

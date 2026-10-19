@@ -2352,14 +2352,16 @@ public sealed class ChartListVirtualViewTests
         result.Candidates.Add(new InstallEstimationCandidate
         {
             DirectoryPath = @"C:\Candidate\A",
-            RepresentativeTitle = "Candidate A",
-            RepresentativeArtist = "Artist A"
+            MetadataRelation = InstallEstimationMetadataRelation.Related,
+            DisplayTitle = "Candidate A",
+            DisplayArtist = "Artist A"
         });
         result.Candidates.Add(new InstallEstimationCandidate
         {
             DirectoryPath = @"C:\Candidate\B",
-            RepresentativeTitle = "Candidate B",
-            RepresentativeArtist = "Artist B"
+            MetadataRelation = InstallEstimationMetadataRelation.Related,
+            DisplayTitle = "Candidate B",
+            DisplayArtist = "Artist B"
         });
         result.SuggestedDestinationDirectories.Add(@"C:\Candidate\A");
         result.SuggestedDestinationDirectories.Add(@"C:\Candidate\B");
@@ -2525,14 +2527,16 @@ public sealed class ChartListVirtualViewTests
         result.Candidates.Add(new InstallEstimationCandidate
         {
             DirectoryPath = candidates[0],
-            RepresentativeTitle = "Candidate A",
-            RepresentativeArtist = "Artist A"
+            MetadataRelation = InstallEstimationMetadataRelation.Related,
+            DisplayTitle = "Candidate A",
+            DisplayArtist = "Artist A"
         });
         result.Candidates.Add(new InstallEstimationCandidate
         {
             DirectoryPath = candidates[1],
-            RepresentativeTitle = "Candidate B",
-            RepresentativeArtist = "Artist B"
+            MetadataRelation = InstallEstimationMetadataRelation.Related,
+            DisplayTitle = "Candidate B",
+            DisplayArtist = "Artist B"
         });
         result.SuggestedDestinationDirectories.AddRange(candidates);
         entry.ApplyInstallEstimationResult(result);

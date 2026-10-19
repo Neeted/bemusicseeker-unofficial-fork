@@ -82,15 +82,21 @@ JSONの欠落・アクセス・読取り失敗、シリアライザーの入力�
 | --- | --- | --- | --- | --- |
 | 完全（要求0件を含む） | 完全 | 自動新規導入を許可 | 自動新規導入を許可 | 不要 |
 | 完全（要求0件を含む） | 欠損または定義済み参照の照合不能 | 自動新規導入を許可 | 保留 | 省略。手動推定は可能 |
-| 欠損または定義済み参照の照合不能 | 任意 | 保留 | 保留 | 実行。元の充足率が70%超でも省略しない |
+| 欠損または定義済み参照の照合不能 | 任意 | 保留 | 保留 | 実行。元の充足率が自動設定閾値以上でも100%未満なら省略しない |
 
 「許可」はリソース条件だけを指します。既所持・単体・入れ子・利用者の保留維持設定・ライブラリ未準備・取消・失敗など、他の保留条件を解除しません。非音声には使用BGA・動画と、STAGEFILE・BANNER・BACKBMP等の補助画像の明示参照を含めます。BMSONに非空の不正な補助画像パスや親参照が明記されている場合も、入力を拒否せず既存の補助画像不足WARNINGを表示し、音源完全ならONで保留・新規リソース探索省略、OFFで自動新規導入を許可します。未指定・null・空文字は対象外です。OFFで非音声不足を許可してもWARNINGを保持します。
 
 自動推定を開始するのは、未所持譜面を含み、同じ操作の初期分類で新規インストール対象ではない保留パッケージだけです。全既所持と、保留維持設定などで残った新規対象は、推定準備から省略して導入先を設定しません。手動推定はどちらも実行できます。準備前の選別と所持分割は[自動推定](../library/install-estimation.md#自動推定と並列処理)に従います。
 
-自動推定の対象で完全音源の場合に省略するのは、リソースから新たに候補を探す処理だけです。混在パッケージで既所持ハッシュの候補が分かる場合は、一意先のStrong判定と同点の限定候補評価を残します。未所持群だけを評価し、Strongと音源完全性が成立すれば導入先を設定します。不成立・比較不能では候補と警告を保持して未設定とし、別候補へ迂回しません。未定義IDは必要集合へ含めず、分類・警告・推定可否へ影響させません。
+自動推定の対象で完全音源の場合に省略するのは、リソースから新たに候補を探す処理だけです。混在パッケージで既所持ハッシュの候補が分かる場合は、一意先のStrong判定と同点の限定候補評価を残します。未所持群だけを評価し、Strongと各譜面の音源許可条件が成立すれば導入先を設定します。Strong不成立では自動設定せず、候補表示は共通の関連性ポリシーに従い、別候補へ迂回しません。未定義IDは必要集合へ含めず、分類・警告・推定可否へ影響させません。
 
-初期分類、保留追加、後続推定は同じ操作で捕捉した設定と取得済みのリソースを使います。途中で設定を再取得して分類を変えません。この設定は自動新規導入と保留後の自動推定の要否を変えるもので、[導入先自動確定の音源完全性](../library/install-estimation.md#確信度と画面への適用)を緩めません。
+初期分類、保留追加、後続推定は同じ操作で捕捉した設定と取得済みのリソースを使います。途中で設定を再取得して分類を変えません。この設定は自動新規導入と保留後の自動推定の要否を変えるもので、[導入先自動確定の音源条件](../library/install-estimation.md#確信度と画面への適用)を緩めません。
+
+### 導入先を自動設定するときの音源充足率
+
+詳細のインストール設定に `InstallDestinationAutoApplyMinAudioHealth` を配置し、90～100%を1%刻みで選択します。既定100%、旧設定にキーがない場合も100%です。設定した値は操作開始時の `BmsLibraryOptionsSnapshot` に捕捉し、途中の設定変更で兄弟パッケージの判定を変えません。
+
+設定は各対象譜面の音源充足率へ適用し、候補順位、推定開始、新規インストールの分類・許可へ流用しません。欠損を許可しても一般の不足警告は残ることを画面の説明に明記します。確認不能な音源は許容せず、保存済みの範囲外値は診断付きで自動設定を拒否します。範囲外値を黙って90%等へ丸めず、画面で利用者が有効な値へ修正できます。編集取消・保存・再読込みは既存の設定sessionを使います。詳細な許可条件は[導入先推定](../library/install-estimation.md#確信度と画面への適用)を正本とします。
 
 ### 新規判定の保留と複数候補の説明
 
@@ -237,6 +243,7 @@ Allでは必要な出力配置の移行と旧BMTの整理を一回行い、新�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 導入先自動設定の音源閾値、既定100、90～100・不正保存値、保存/取消 | `Settings`、`BmsLibraryOptionsSnapshot`、`SettingsDialogViewModel`、`AdvancedSettingsPage` | [`PortableSettingsPersistenceTests`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) が欠如・端点・97・範囲外値の実保存と新readerを、[`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCategoryPersistenceTests.cs) がcompiled選択・保存・取消を確認する。操作内捕捉と各譜面許可は[推定の対応表](../library/install-estimation.md#実装とテストの対応)に分担する。 |
 | 自動新規導入の完全性設定、既定OFF、実編集・取消・保存・再読込み | [`Settings`](../../../BeMusicSeeker/Properties/Settings.cs)、[`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`AdvancedSettingsPage`](../../../BeMusicSeeker/Views/Settings/Pages/AdvancedSettingsPage.xaml) | [`PortableSettingsPersistenceTests`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) の欠落キー既定値、[`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCategoryPersistenceTests.cs) の詳細設定の実Bindingと保存・新provider・取消を確認する。分類と同一操作の設定捕捉は[導入先推定の対応表](../library/install-estimation.md#実装とテストの対応)に分担する。 |
 | 起動設定の保存警告と必須失敗の分離 | [`ApplicationSettingsLifecycle`](../../../BeMusicSeeker/Models/Settings/ApplicationSettingsLifecycle.cs) | [`ApplicationSettingsLifecycleTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationSettingsLifecycleTests.cs)の`ValidSaveBlockedInputWarnsAndMaterializesCanonicalValuesWhileReadFailureIsFatal`、`VersionUpdateDistinguishesReadFailureFromPublicationFailure`は実XMLで両保存警告の通常完了・コールバック例外と、同じ値・バイト列・文化圏・テーマを確認します。`InitializeLegacyMigrationFailureIsFatalWithoutSaveWarningOrStoreRead`は実移行の公開失敗を警告へ変換せず停止することを分担します。 |
 | 10カテゴリのcompiled編集から実保存・稼働値・新画面への接続 | `SettingsWindow`、`SettingsDialogViewModel`、実編集session・専用provider、`ApplicationComposition` | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCategoryPersistenceTests.cs) の `CompiledCategoryEditor_SaveReachesFreshProviderLiveSettingsAndNewDialog` は一般・導入・playlist・外観・再生・音声・録音・backup・右クリックの各一代表と、詳細の説明付き3項目を実Bindingで変更し、専用providerの新reader、本番が参照する設定窓口、新dialogのeditor値を確認する。説明付き項目は内容の実CheckBoxを編集し、boolの自動伝播、保存後の取消と再表示、未編集設定・別Web actionも保持する。個々の副作用、外部起動・引数展開、未知キーの条件は既存機能・永続化系列へ分担し、文化・テーマ・Window・設定ownerの終端を回収する。 |

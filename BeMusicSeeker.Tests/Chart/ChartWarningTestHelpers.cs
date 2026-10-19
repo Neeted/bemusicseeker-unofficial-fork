@@ -40,6 +40,8 @@ internal static class ChartWarningTestHelpers
     {
         return warning?.Kind == ChartWarningKind.InstallEstimationAmbiguous
             || warning?.Kind == ChartWarningKind.InstallEstimationMetadataMismatch
+            || warning?.Kind == ChartWarningKind.InstallEstimationUnrelated
+            || warning?.Kind == ChartWarningKind.InstallEstimationMetadataUnavailable
             || warning?.Kind == ChartWarningKind.InstallEstimationReinstallNotImproved
             || warning?.Kind == ChartWarningKind.InstalledDestinationAmbiguous
             || warning?.Kind == ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous

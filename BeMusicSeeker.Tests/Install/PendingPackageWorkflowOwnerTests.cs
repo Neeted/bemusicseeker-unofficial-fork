@@ -656,9 +656,11 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
-    /// <summary>保留entryの推定から変更投影が空で返っても、抑制・activity終端後に導入先と識別情報の更新通知を送る。</summary>
-    [TestMethod]
-    public async Task SearchPendingAsync_EmptyChangesStillPublishesTerminalRefresh()
+    /// <summary>通常・無関係保持の方針と保留entryをstoreへ渡し、変更投影が空でも抑制・activity終端後に導入先と識別情報の更新通知を送る。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SearchPendingAsync_EmptyChangesStillPublishesTerminalRefresh(bool keepUnrelated)
     {
         var events = new List<string>();
         ChartFile chart = CreateChart();
@@ -672,11 +674,15 @@ public sealed partial class PendingPackageWorkflowOwnerTests
                 completion = mutation;
             }
         };
-        var request =
-            PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([CreateTarget(chart)]);
+        InstallEstimationCandidatePolicy policy = keepUnrelated ? InstallEstimationCandidatePolicy.KeepUnrelated : InstallEstimationCandidatePolicy.RelatedOnly;
+        var request = PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([CreateTarget(chart)], policy);
 
         await owner.SearchPendingAsync(request);
 
+        Assert.AreSame(request, store.LastSearchRequest);
+        Assert.IsNotNull(store.LastSearchRequest);
+        Assert.AreEqual(policy, store.LastSearchRequest.CandidatePolicy);
+        Assert.AreEqual(InstallEstimationCandidatePolicy.RelatedOnly, PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([CreateTarget(chart)]).CandidatePolicy);
         Assert.IsNotNull(completion);
         Assert.AreEqual(0, completion!.ChangedCharts.Count);
         CollectionAssert.AreEqual(
@@ -693,9 +699,11 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             events);
     }
 
-    /// <summary>保留entryに結び付かない対象の推定は、受付解放後にその変更投影を一度公開して一覧更新へ渡す。</summary>
-    [TestMethod]
-    public async Task SearchPendingAsync_LooseTargetPublishesTransientProjectionAfterGateRelease()
+    /// <summary>通常・無関係保持の方針と単独譜面をstoreへ渡し、受付解放後に変更投影を一度公開して一覧更新へ渡す。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SearchPendingAsync_LooseTargetPublishesTransientProjectionAfterGateRelease(bool keepUnrelated)
     {
         var events = new List<string>();
         ChartFile chart = CreateChart();
@@ -722,9 +730,13 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             Assert.AreSame(chart, mutationApplied.ChangedCharts[0]);
         };
 
+        InstallEstimationCandidatePolicy policy = keepUnrelated ? InstallEstimationCandidatePolicy.KeepUnrelated : InstallEstimationCandidatePolicy.RelatedOnly;
         await owner.SearchPendingAsync(
-            PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([CreateLooseTarget(chart)]));
+            PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([CreateLooseTarget(chart)], policy));
 
+        Assert.IsNotNull(store.LastSearchRequest);
+        Assert.AreEqual(policy, store.LastSearchRequest.CandidatePolicy);
+        Assert.AreEqual(chart.Path, store.LastSearchRequest.LooseEntries.Single().Chart.Path);
         Assert.AreEqual(1, completionCount);
         Assert.IsTrue(gateAvailableAtCompletion);
         CollectionAssert.AreEqual(
@@ -742,19 +754,24 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             events);
     }
 
-    /// <summary>パッケージ単位の通常推定で対象をstoreへ渡して抑制・activity終端後に更新を通知する。</summary>
-    [TestMethod]
-    public async Task SearchPackagesAsync_RunsMutation()
+    /// <summary>単一・複数パッケージと通常・無関係保持の方針をstoreへ渡し、抑制・activity終端後に更新を通知する。</summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, true)]
+    public async Task SearchPackagesAsync_RunsMutation(bool keepUnrelated, bool multiplePackages)
     {
         var events = new List<string>();
         var store = new RecordingStore(events);
         FakeUiDialogService dialogs = AcceptedDialogs();
         PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
         var package = new ChartPackage();
+        ChartPackage[] packages = multiplePackages ? [package, new ChartPackage()] : [package];
+        InstallEstimationCandidatePolicy policy = keepUnrelated ? InstallEstimationCandidatePolicy.KeepUnrelated : InstallEstimationCandidatePolicy.RelatedOnly;
 
-        await owner.SearchPackagesAsync([package]);
+        await owner.SearchPackagesAsync(packages, policy);
 
-        CollectionAssert.AreEqual(new[] { package }, (System.Collections.ICollection)store.LastPackages);
+        CollectionAssert.AreEqual(packages, (System.Collections.ICollection)store.LastPackages);
+        Assert.AreEqual(policy, store.LastCandidatePolicy);
         CollectionAssert.AreEqual(
             new[]
             {
@@ -2754,6 +2771,10 @@ public sealed partial class PendingPackageWorkflowOwnerTests
 
         internal IReadOnlyList<ChartPackage> LastPackages { get; private set; } = [];
 
+        internal InstallEstimationCandidatePolicy LastCandidatePolicy { get; private set; }
+
+        internal PendingInstallDestinationSearchRequest? LastSearchRequest { get; private set; }
+
         internal IReadOnlyList<ChartFile> ChangedCharts { get; set; } = [];
 
         internal ChartFile? SetResult { get; set; }
@@ -2792,11 +2813,13 @@ public sealed partial class PendingPackageWorkflowOwnerTests
 
         public void SearchPackages(
             BMSLibrary library,
-            IReadOnlyList<ChartPackage> packages)
+            IReadOnlyList<ChartPackage> packages,
+            InstallEstimationCandidatePolicy candidatePolicy)
         {
             events.Add("store-search-packages");
             SearchPackagesCount++;
             LastPackages = packages;
+            LastCandidatePolicy = candidatePolicy;
             SearchPackagesAction?.Invoke(library);
             ThrowIfConfigured();
         }
@@ -2807,6 +2830,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         {
             events.Add("store-search-pending");
             SearchPendingCount++;
+            LastSearchRequest = request;
             ThrowIfConfigured();
             return ChangedCharts;
         }

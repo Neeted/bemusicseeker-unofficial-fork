@@ -242,6 +242,214 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         field.SetValue(package, surface);
     }
 
+    /// <summary>実索引・保留DBの20パッケージで保持方針を末端まで渡し、次の通常操作では方針を残しません。BMS/BMSON混在と外側バッチの適用を確認し、先頭反映で設定97から100へ変更しても全兄弟に捕捉済み97を適用します。</summary>
+    [TestMethod]
+    public void SearchEstimatedInstallationDirectory_TwentyPackagesKeepPolicyIsOperationLocal()
+    {
+        bool normalPhase = false;
+        int changed = 0;
+        using var observer = new RecordingInstallEstimationExecutionObserver(attemptObserver: _ =>
+        {
+            if (normalPhase && Interlocked.CompareExchange(ref changed, 1, 0) == 0) { testSettings.InstallDestinationAutoApplyMinAudioHealth = 100; }
+        });
+        testSettings.InstallDestinationAutoApplyMinAudioHealth = 97;
+        WithTemporaryLibrary((root, db, library) =>
+        {
+            string strong = Path.Combine(root, "Strong");
+            string unrelated = Path.Combine(root, "Unrelated");
+            library.BmsCharts = [ReadChart(CreateBmsFileWithContents(strong, "base.bms", "#TITLE Song\n#ARTIST Artist\n")),
+                ReadChart(CreateBmsFileWithContents(unrelated, "base.bms", "#TITLE ZZZZ\n#ARTIST XXXX\n"))];
+            string[] names = Enumerable.Range(0, 100).Select(index => "sound" + index + ".wav").ToArray();
+            foreach (string name in names) { File.WriteAllText(Path.Combine(unrelated, name), "audio"); }
+            foreach (string name in names.Take(97)) { File.WriteAllText(Path.Combine(strong, name), "audio"); }
+            File.WriteAllText(Path.Combine(strong, "extra.wav"), "audio");
+            SetLibraryResourceIndex(library, BuildDirectoryLookupCache(strong, unrelated));
+            ChartPackage[] packages = Enumerable.Range(0, 20).Select(index =>
+            {
+                string source = Path.Combine(root, "Pending", index.ToString());
+                string bmsBody = "#TITLE Song\n#ARTIST Artist\n" + string.Concat(names.Select((name, soundIndex) =>
+                    "#WAV" + (soundIndex + 1).ToString("X2") + " " + name + "\n#00101:" + (soundIndex + 1).ToString("X2") + "\n"));
+                string path = CreateBmsFileWithContents(source, index % 2 == 0 ? "pending.bms" : "pending.bmson", bmsBody);
+                if (index % 2 != 0)
+                {
+                    File.WriteAllText(path, "{\"info\":{\"title\":\"Song\",\"artist\":\"Artist\"},\"sound_channels\":["
+                        + string.Join(",", names.Select(name => "{\"name\":\"" + name + "\",\"notes\":[{\"x\":1,\"y\":0}]}")) + "]}");
+                }
+                ChartFile chart = index % 2 == 0 ? ReadChart(path) : ChartTestValues.ReadBmson(path);
+                var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
+                package.path = source;
+                return package;
+            }).ToArray();
+            SeedPendingPackages(library, db, packages);
+            library.SearchEstimatedInstallationDirectory(packages, InstallEstimationCandidatePolicy.KeepUnrelated);
+            foreach (ChartPackage package in packages)
+            {
+                ChartFile chart = package.ChartEntries.Single().Chart;
+                Assert.IsTrue(string.IsNullOrWhiteSpace(chart.InstallDestination));
+                Assert.AreEqual("ZZZZ", chart.InstallDestinationTitle);
+                CollectionAssert.AreEqual(new[] { unrelated, strong }, chart.InstallDestinationSuggestions.ToArray());
+                Assert.IsFalse(chart.Status.HasFlag(ChartFileStatus.SEARCHING));
+            }
+            normalPhase = true;
+            library.SearchEstimatedInstallationDirectory(packages);
+            foreach (ChartPackage package in packages)
+            {
+                ChartFile chart = package.ChartEntries.Single().Chart;
+                Assert.AreEqual(strong, chart.InstallDestination);
+                Assert.AreEqual("Song", chart.InstallDestinationTitle);
+                Assert.AreEqual(0, chart.InstallDestinationSuggestions.Count);
+                Assert.IsFalse(chart.Status.HasFlag(ChartFileStatus.SEARCHING));
+            }
+            Assert.AreEqual(1, changed);
+            Assert.AreEqual(100, testSettings.InstallDestinationAutoApplyMinAudioHealth);
+        }, observer);
+    }
+
+    /// <summary>混在パッケージの未所持群で決まるRelatedの根拠を、選択・空編集・再選択では適用先全群へ一括投影します。所持多数派による比較対象の逆転を防ぎ、少数ペアの追加・削除・所属変更後も同じ比較群で明示再評価します。</summary>
+    [TestMethod]
+    public void SetPendingInstallDestination_RelatedEvidenceFollowsGroupAndCatalogChanges()
+    {
+        WithTemporaryLibrary((root, db, library) =>
+        {
+            string destination = Path.Combine(root, "Destination");
+            string other = Path.Combine(root, "Other");
+            string minorityPath = CreateBmsFileWithContents(Path.Combine(destination, "Child"), "minority.bms", "#TITLE Song\n#ARTIST Original Artist\n");
+            library.BmsCharts = [ReadChart(CreateBmsFileWithContents(destination, "a.bms", "#TITLE ZZZZ\n#ARTIST XXXX\n")),
+                ReadChart(CreateBmsFileWithContents(destination, "b.bms", "#TITLE ZZZZ\n#ARTIST XXXX\n#GENRE other\n")),
+                ReadChart(CreateBmsFileWithContents(destination, "c.bms", "#TITLE ZZZZ\n#ARTIST XXXX\n#GENRE third\n")),
+                ReadChart(minorityPath), ReadChart(CreateBmsFileWithContents(other, "other.bms", "#TITLE Other\n#ARTIST Other\n"))];
+            File.WriteAllText(Path.Combine(destination, "tone.wav"), "audio");
+            SetLibraryResourceIndex(library, BuildDirectoryLookupCache(destination));
+            string source = Path.Combine(root, "Pending");
+            PackageChartEntry[] entries = Enumerable.Range(0, 2).Select(index => PackageChartEntry.FromChart(ReadChart(CreateBmsFileWithContents(source,
+                index + ".bms", "#TITLE Song\n#ARTIST Artist\n#WAV01 tone.wav\n#00111:01\n#GENRE " + index + "\n")))).ToArray();
+            PackageChartEntry[] ownedEntries = library.BmsCharts.Where(chart => Path.GetDirectoryName(chart.Path) == destination)
+                .Select(chart => PackageChartEntry.FromPath(CreateBmsFileWithContents(source, Path.GetFileName(chart.Path), File.ReadAllText(chart.Path)))).ToArray();
+            var package = ChartPackage.FromChartEntries(entries.Concat(ownedEntries));
+            package.path = source;
+            SeedPendingPackages(library, db, package);
+            library.SearchEstimatedInstallationDirectory(package);
+            Assert.IsTrue(entries.All(entry => entry.Chart.InstallDestinationTitle == "Song" && entry.Chart.InstallDestinationArtist == "Original Artist"));
+            Assert.IsTrue(ownedEntries.All(entry => string.IsNullOrWhiteSpace(entry.Chart.InstallDestination)));
+            Assert.IsTrue(library.SetPendingInstallDestination(entries[0], destination));
+            AssertEvidence("Song", "Original Artist");
+            Assert.IsTrue(library.SetPendingInstallDestination(entries[0], string.Empty));
+            AssertEvidence(string.Empty, string.Empty);
+            Assert.IsTrue(entries.All(entry => entry.Chart.InstallDestinationSuggestions.Contains(destination)));
+            Assert.IsTrue(library.SetPendingInstallDestination(entries[1], destination));
+            AssertEvidence("Song", "Original Artist");
+
+            CatalogOwnedCollectionOwner owner = typeof(BMSLibrary).GetField("catalogOwnedCollectionOwner", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(library)
+                as CatalogOwnedCollectionOwner ?? throw new InvalidOperationException("Catalog owner is unavailable.");
+            ChartFile added = ReadChart(CreateBmsFileWithContents(destination, "new.bms", "#TITLE Song\n#ARTIST Artist\n"));
+            owner.ApplyCommittedChartUpsert([added], out _);
+            Assert.IsTrue(library.SetPendingInstallDestination(entries[0], destination));
+            AssertEvidence("Song", "Artist");
+            owner.ApplyMutation([OwnedChartRemoveRequest.FromChart(owner.BmsRows.Single(chart => chart.Path == added.Path))], []);
+            Assert.IsTrue(library.SetPendingInstallDestination(entries[0], destination));
+            AssertEvidence("Song", "Original Artist");
+            ChartFile minority = owner.BmsRows.Single(chart => chart.Path == minorityPath);
+            string movedPath = Path.Combine(other, "moved.bms");
+            File.Move(minorityPath, movedPath);
+            owner.ApplyMutation([], [new LibraryChartPathChange { Chart = minority, OldPath = minorityPath, NewPath = movedPath }]);
+            Assert.IsTrue(library.SetPendingInstallDestination(entries[0], destination));
+            AssertEvidence("ZZZZ", "XXXX");
+            Assert.IsTrue(library.SetPendingInstallDestination(entries[1], other));
+            AssertEvidence("Song", "Original Artist");
+
+            void AssertEvidence(string title, string artist)
+            {
+                foreach (PackageChartEntry entry in package.ChartEntries)
+                {
+                    Assert.AreEqual(title, entry.Chart.InstallDestinationTitle);
+                    Assert.AreEqual(artist, entry.Chart.InstallDestinationArtist);
+                }
+            }
+        });
+    }
+
+    /// <summary>複合入口と再導入の実入口で設定97を一回捕捉します。先頭反映で100へ変更しても、後続の独立譜面を含む兄弟は97%の候補を同じ判断で自動設定します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void SearchInstallationDirectory_CombinedAndReinstallKeepCapturedAudioThreshold(bool reinstall)
+    {
+        testSettings.InstallDestinationAutoApplyMinAudioHealth = 97;
+        WithTemporaryLibrary((root, db, library) =>
+        {
+            string destination = Path.Combine(root, "Installed");
+            library.BmsCharts = [ReadChart(CreateBmsFileWithContents(destination, "base.bms", "#TITLE Song\n#ARTIST Artist\n"))];
+            string[] names = Enumerable.Range(0, 100).Select(index => "sound" + index + ".wav").ToArray();
+            foreach (string name in names.Take(97)) { File.WriteAllText(Path.Combine(destination, name), "audio"); }
+            SetLibraryResourceIndex(library, BuildDirectoryLookupCache(destination));
+            string body = "#TITLE Song\n#ARTIST Artist\n" + string.Concat(names.Select((name, index) =>
+                "#WAV" + (index + 1).ToString("X2") + " " + name + "\n#00101:" + (index + 1).ToString("X2") + "\n"));
+            PackageChartEntry[] entries = Enumerable.Range(0, 2).Select(index => PackageChartEntry.FromPath(
+                CreateBmsFileWithContents(Path.Combine(root, "Pending", index.ToString()), "pending.bms", body))).ToArray();
+            int changed = 0;
+            entries[0].PropertyChanged += (_, _) =>
+            {
+                if (!string.IsNullOrWhiteSpace(entries[0].Chart.InstallDestination) && Interlocked.CompareExchange(ref changed, 1, 0) == 0)
+                {
+                    testSettings.InstallDestinationAutoApplyMinAudioHealth = 100;
+                }
+            };
+            if (reinstall)
+            {
+                library.SearchCorrectInstallationDirectoryCharts(entries);
+            }
+            else
+            {
+                var package = ChartPackage.FromChartEntries([entries[0]]);
+                package.path = Path.GetDirectoryName(entries[0].Chart.Path);
+                SeedPendingPackages(library, db, package);
+                library.SearchEstimatedInstallationDirectory([package], [entries[1]], InstallEstimationCandidatePolicy.RelatedOnly);
+            }
+            Assert.AreEqual(1, changed);
+            Assert.AreEqual(100, testSettings.InstallDestinationAutoApplyMinAudioHealth);
+            foreach (PackageChartEntry entry in entries)
+            {
+                Assert.AreEqual(destination, entry.Chart.InstallDestination);
+                Assert.AreEqual("Song", entry.Chart.InstallDestinationTitle);
+                Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAudioMissing));
+                Assert.IsFalse(entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
+            }
+        });
+    }
+
+    /// <summary>loose譜面の一意ハッシュ入口へ明示保持を伝播します。TITLEのない実BMSONは判定不能の候補を保持操作だけで示し、通常操作では表示を空に戻します。</summary>
+    [TestMethod]
+    public void SearchEstimatedInstallationDirectoryForLooseCharts_KeepUnavailableHashCandidateOnlyForCurrentOperation()
+    {
+        WithTemporaryLibrary((root, db, library) =>
+        {
+            string destination = Path.Combine(root, "Installed");
+            string source = Path.Combine(root, "Pending");
+            ChartFile owned = ChartTestValues.ReadBmson(CreateBmsonFile(destination, "owned.bmson", string.Empty, "Artist"));
+            library.BmsonCharts = [owned];
+            library.BmsCharts = [ReadChart(CreateBmsFileWithContents(destination, "base.bms", "#TITLE Song\n#ARTIST Artist\n"))];
+            File.WriteAllText(Path.Combine(destination, "sound.wav"), "audio");
+            SetLibraryResourceIndex(library, BuildDirectoryLookupCache(destination));
+            var entry = PackageChartEntry.FromChart(ChartTestValues.ReadBmson(CreateBmsonFile(source, "pending.bmson", string.Empty, "Artist")));
+            var package = ChartPackage.FromChartEntries([entry]);
+            package.path = source;
+            SeedPendingPackages(library, db, package);
+            library.SearchEstimatedInstallationDirectoryForLooseCharts([entry], InstallEstimationCandidatePolicy.KeepUnrelated);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(entry.Chart.InstallDestination));
+            Assert.AreEqual("Song", entry.Chart.InstallDestinationTitle);
+            Assert.AreEqual("Artist", entry.Chart.InstallDestinationArtist);
+            CollectionAssert.AreEqual(new[] { destination }, entry.Chart.InstallDestinationSuggestions.ToArray());
+            Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataUnavailable));
+            library.SearchEstimatedInstallationDirectoryForLooseCharts([entry]);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(entry.Chart.InstallDestination));
+            Assert.AreEqual(string.Empty, entry.Chart.InstallDestinationTitle);
+            Assert.AreEqual(string.Empty, entry.Chart.InstallDestinationArtist);
+            Assert.AreEqual(0, entry.Chart.InstallDestinationSuggestions.Count);
+            Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
+            Assert.IsFalse(entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
+        });
+    }
+
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
     /// <summary>混在の対象は未所持群だけの最頻ペアとし、所持群を混ぜた逆転や全譜面一致の要求を検出する。使用音源が完全な候補だけをStrongで設定する。</summary>
@@ -283,7 +491,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             foreach (PackageChartEntry entry in package.ChartEntries.Where(entry => Path.GetFileName(entry.Chart.Path).StartsWith("missing", StringComparison.Ordinal)))
             {
                 Assert.AreEqual(strong ? destination : string.Empty, entry.Chart.InstallDestination ?? string.Empty);
-                Assert.AreEqual("Song", entry.Chart.InstallDestinationTitle);
+                Assert.AreEqual(strong ? "Song" : "Other", entry.Chart.InstallDestinationTitle);
                 Assert.AreEqual("Artist", entry.Chart.InstallDestinationArtist);
                 Assert.AreEqual(!strong, entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
                 if (!strong) { CollectionAssert.AreEqual(new[] { destination }, entry.Chart.InstallDestinationSuggestions.ToArray()); }
@@ -352,7 +560,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             SetLibraryResourceIndex(library, BuildDirectoryLookupCache(destination));
             library.SearchEstimatedInstallationDirectory(entry, asParallel: false);
             Assert.AreEqual(strong ? destination : string.Empty, entry.Chart.InstallDestination ?? string.Empty);
-            Assert.AreEqual(title, entry.Chart.InstallDestinationTitle);
+            Assert.AreEqual("Song", entry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Artist", entry.Chart.InstallDestinationArtist);
             if (!strong)
             {
@@ -804,10 +1012,10 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
-    /// <summary>再編成の導入先から代表タイトルと作者を全entryへ反映しても、元entryの候補一覧を消さない。</summary>
+    /// <summary>再編成は項目ごとの確定済み表示ペアと空欄・候補を保持し、フォルダ代表値への再投影を行わない。</summary>
     /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
-    public void TryRegroupPendingPackagesForSourceDirectories_SynchronizesRepresentativeMetadataWithoutClearingSuggestions()
+    public void TryRegroupPendingPackagesForSourceDirectories_PreservesFinalizedMetadataAndSuggestions()
     {
 
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
@@ -820,7 +1028,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             ChartPackage firstPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "a.bms", "Same A"), destinationDirectoryPath);
             ChartPackage secondPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "b.bms", "Same B"), destinationDirectoryPath);
             PackageChartEntry firstPendingEntry = GetOnlyEntry(firstPackage);
-            firstPendingEntry.RestoreInstallDestinationState(new PackageChartInstallDestinationState(destinationDirectoryPath, string.Empty, string.Empty, [destinationDirectoryPath]));
+            firstPendingEntry.RestoreInstallDestinationState(new PackageChartInstallDestinationState(destinationDirectoryPath, "Minority", "Other", [destinationDirectoryPath]));
+            GetOnlyEntry(secondPackage).RestoreInstallDestinationState(new PackageChartInstallDestinationState(destinationDirectoryPath, string.Empty, string.Empty, []));
             firstPendingEntry.SetWarning(ChartWarningKind.InstallEstimationLowConfidence, BeMusicSeeker.Properties.Resources.WarningDigest_InstallEstimationLowConfidence);
 
             library.BmsCharts = [.. new[] { minorityPath, installedFilePath, majorityPath }
@@ -832,8 +1041,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             ChartPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
             foreach (PackageChartEntry regroupedEntry in regroupedPackage.ChartEntries)
             {
-                Assert.AreEqual("Installed Title", regroupedEntry.Chart.InstallDestinationTitle);
-                Assert.AreEqual("Installed Artist", regroupedEntry.Chart.InstallDestinationArtist);
+                Assert.AreEqual(Path.GetFileName(regroupedEntry.Chart.Path) == "a.bms" ? "Minority" : string.Empty, regroupedEntry.Chart.InstallDestinationTitle);
+                Assert.AreEqual(Path.GetFileName(regroupedEntry.Chart.Path) == "a.bms" ? "Other" : string.Empty, regroupedEntry.Chart.InstallDestinationArtist);
             }
             Assert.AreEqual(1, firstPendingEntry.Chart.InstallDestinationSuggestions.Count);
             Assert.AreEqual(destinationDirectoryPath, firstPendingEntry.Chart.InstallDestinationSuggestions.Single());
@@ -942,7 +1151,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
-    /// <summary>Strongが成立しない二候補では導入先を未確定にし、代表メタデータ・両候補・不一致理由を表示用警告へ残す。</summary>
+    /// <summary>明示保持操作では非関連の二候補を未確定にし、候補の表示ペア・両候補・非関連理由を表示用警告へ残す。</summary>
     /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_LowConfidenceLeavesInstallDestinationEmptyAndShowsRepresentativeMetadata()
@@ -971,7 +1180,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             SeedPendingPackages(library, songDbPath, pendingPackage);
             SetLibraryResourceIndex(library, BuildDirectoryLookupCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
 
-            library.SearchEstimatedInstallationDirectory(pendingPackage);
+            library.SearchEstimatedInstallationDirectory(pendingPackage, InstallEstimationCandidatePolicy.KeepUnrelated);
 
             PackageChartEntry pendingEntry = GetOnlyEntry(pendingPackage);
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingEntry.Chart.InstallDestination));
@@ -979,9 +1188,9 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual("Artist A", pendingEntry.Chart.InstallDestinationArtist);
             CollectionAssert.AreEquivalent(new[] { candidateADirectoryPath, candidateBDirectoryPath }, pendingEntry.Chart.InstallDestinationSuggestions.ToArray());
             Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingEntry));
-            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
-            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), BeMusicSeeker.Properties.Resources.Warning_InstallEstimationMetadataMismatchPrefix);
-            StringAssert.Contains(ChartWarningTestHelpers.BuildDigestText(pendingEntry), BeMusicSeeker.Properties.Resources.WarningDigest_InstallEstimationMetadataMismatch);
+            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationUnrelated));
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), string.Format(BeMusicSeeker.Properties.Resources.Warning_InstallEstimationUnrelated, candidateADirectoryPath));
+            StringAssert.Contains(ChartWarningTestHelpers.BuildDigestText(pendingEntry), BeMusicSeeker.Properties.Resources.WarningDigest_InstallEstimationUnrelated);
             StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), candidateADirectoryPath);
         });
     }
@@ -1549,10 +1758,10 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.BmsCharts = [.. library.BmsCharts.Select(chart => chart with { RawTitle = "Ark (remix/5keys)", Artist = string.Empty, RawArtist = string.Empty })];
             library.SearchEstimatedInstallationDirectory(pendingPackage);
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingEntry.Chart.InstallDestination));
-            Assert.AreEqual("Ark (remix", pendingEntry.Chart.InstallDestinationTitle);
+            Assert.AreEqual(string.Empty, pendingEntry.Chart.InstallDestinationTitle);
             Assert.AreEqual(string.Empty, pendingEntry.Chart.InstallDestinationArtist);
-            CollectionAssert.AreEquivalent(new[] { candidateADirectoryPath, candidateBDirectoryPath }, pendingEntry.Chart.InstallDestinationSuggestions.ToArray());
-            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
+            Assert.AreEqual(0, pendingEntry.Chart.InstallDestinationSuggestions.Count);
+            Assert.IsFalse(pendingEntry.Chart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
 
         });
     }
@@ -1875,8 +2084,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             foreach (PackageChartEntry pendingEntry in pendingPackage.ChartEntries.Where(entry => Path.GetFileName(entry.Chart.Path).StartsWith("missing", StringComparison.Ordinal)))
             {
                 Assert.IsTrue(string.IsNullOrWhiteSpace(pendingEntry.Chart.InstallDestination));
-                Assert.AreEqual("Unrelated", pendingEntry.Chart.InstallDestinationTitle);
-                Assert.AreEqual("Other", pendingEntry.Chart.InstallDestinationArtist);
+                Assert.AreEqual("Majority BMS A", pendingEntry.Chart.InstallDestinationTitle);
+                Assert.AreEqual("Mixed Artist", pendingEntry.Chart.InstallDestinationArtist);
                 CollectionAssert.AreEqual(new[] { primaryDestinationDirectoryPath }, pendingEntry.Chart.InstallDestinationSuggestions.ToArray());
                 Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
             }
@@ -2172,7 +2381,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             SeedPendingPackages(library, songDbPath, pendingPackage, otherPackage);
             SetLibraryResourceIndex(library, BuildDirectoryLookupCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
 
-            library.SearchEstimatedInstallationDirectory(pendingPackage);
+            library.SearchEstimatedInstallationDirectory(pendingPackage, InstallEstimationCandidatePolicy.KeepUnrelated);
 
             PackageChartEntry pendingEntry = pendingPackage.ChartEntries.First();
             bool succeeded = library.SetPendingInstallDestination(pendingEntry, candidateBDirectoryPath);
@@ -2184,15 +2393,15 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 Assert.AreEqual("Candidate B", entry.Chart.InstallDestinationTitle);
                 Assert.AreEqual("Artist B", entry.Chart.InstallDestinationArtist);
                 CollectionAssert.AreEquivalent(new[] { candidateADirectoryPath, candidateBDirectoryPath }, entry.Chart.InstallDestinationSuggestions.ToArray());
-                Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
+                Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationUnrelated));
             }
             Assert.AreEqual(candidateADirectoryPath, otherEntry.Chart.InstallDestination);
             Assert.AreEqual("Other title", otherEntry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Other artist", otherEntry.Chart.InstallDestinationArtist);
             Assert.AreEqual(0, otherEntry.Chart.InstallDestinationSuggestions.Count);
             Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingEntry));
-            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
-            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), BeMusicSeeker.Properties.Resources.Warning_InstallEstimationMetadataMismatchPrefix);
+            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationUnrelated));
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), string.Format(BeMusicSeeker.Properties.Resources.Warning_InstallEstimationUnrelated, candidateADirectoryPath));
             StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), candidateADirectoryPath);
         });
     }
@@ -2273,7 +2482,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             SeedPendingPackages(library, songDbPath, pendingPackage);
             SetLibraryResourceIndex(library, BuildDirectoryLookupCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath, manualDirectoryPath));
 
-            library.SearchEstimatedInstallationDirectory(pendingPackage);
+            library.SearchEstimatedInstallationDirectory(pendingPackage, InstallEstimationCandidatePolicy.KeepUnrelated);
 
             PackageChartEntry pendingEntry = GetOnlyEntry(pendingPackage);
             Assert.IsTrue(library.SetPendingInstallDestination(pendingEntry, string.Empty));
@@ -2281,7 +2490,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual(string.Empty, pendingEntry.Chart.InstallDestinationTitle);
             Assert.AreEqual(string.Empty, pendingEntry.Chart.InstallDestinationArtist);
             CollectionAssert.AreEquivalent(new[] { candidateADirectoryPath, candidateBDirectoryPath }, pendingEntry.Chart.InstallDestinationSuggestions.ToArray());
-            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
+            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationUnrelated));
             bool succeeded = library.SetPendingInstallDestination(pendingEntry, manualDirectoryPath);
 
             Assert.IsTrue(succeeded);
@@ -2290,7 +2499,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual("Manual Artist", pendingEntry.Chart.InstallDestinationArtist);
             CollectionAssert.AreEquivalent(new[] { candidateADirectoryPath, candidateBDirectoryPath }, pendingEntry.Chart.InstallDestinationSuggestions.ToArray());
             Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingEntry));
-            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
+            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationUnrelated));
             ChartWarning[] warningsBeforeRejection = pendingEntry.Chart.Warnings.ToArray();
             Assert.IsFalse(library.SetPendingInstallDestination(pendingEntry, Path.Combine(tempRootPath, "Missing")));
             Assert.AreEqual(manualDirectoryPath, pendingEntry.Chart.InstallDestination);

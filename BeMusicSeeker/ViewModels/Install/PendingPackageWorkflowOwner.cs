@@ -164,10 +164,11 @@ internal interface IPendingPackageStore
     /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を返します。呼出元が実処理・後片付けまで元leaseを保持します。</summary>
     IPendingPackageStore ForAcceptedOperation(LibraryFileMutationCapability capability) => this;
 
-    /// <summary>通常の導入先推定へ保留パッケージを渡します。既所持だけの対象も含みます。</summary>
+    /// <summary>一操作の候補方針で保留パッケージを推定します。既所持だけの対象も含みます。</summary>
     void SearchPackages(
         BMSLibrary library,
-        IReadOnlyList<ChartPackage> packages);
+        IReadOnlyList<ChartPackage> packages,
+        InstallEstimationCandidatePolicy candidatePolicy);
 
     IReadOnlyList<ChartFile> SearchPending(
         BMSLibrary library,
@@ -396,9 +397,10 @@ internal sealed class PendingPackageWorkflowOwner
         _ = externalShellGateway.OpenFileAndSelect(packagePath);
     }
 
-    /// <summary>保留パッケージの導入先を推定し、受付解放後に一覧への影響をまとめて通知します。</summary>
+    /// <summary>一操作の候補方針で保留パッケージを推定し、受付解放後に一覧への影響をまとめて通知します。</summary>
     internal Task SearchPackagesAsync(
-        IEnumerable<ChartPackage> packages)
+        IEnumerable<ChartPackage> packages,
+        InstallEstimationCandidatePolicy candidatePolicy = InstallEstimationCandidatePolicy.RelatedOnly)
     {
         if (packages == null)
         {
@@ -413,7 +415,7 @@ internal sealed class PendingPackageWorkflowOwner
         {
             await ExecuteInstallDestinationMutation((library, operationStore) =>
             {
-                operationStore.SearchPackages(library, packageSnapshot);
+                operationStore.SearchPackages(library, packageSnapshot, candidatePolicy);
                 return [];
             }, operationGate, identitySortKeyChanged: true);
         }, operationGate);
@@ -1618,23 +1620,15 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
         return new BmsLibraryPendingPackageStore(capability, destinations, options);
     }
 
-    /// <summary>既所持のみを含め、通常の導入先推定へ統合して渡します。</summary>
-    public void SearchPackages(BMSLibrary library, IReadOnlyList<ChartPackage> packages)
-        => library.SearchEstimatedInstallationDirectory(packages);
+    /// <summary>パッケージ推定へ一操作の候補方針をそのまま渡します。</summary>
+    public void SearchPackages(BMSLibrary library, IReadOnlyList<ChartPackage> packages, InstallEstimationCandidatePolicy candidatePolicy)
+        => library.SearchEstimatedInstallationDirectory(packages, candidatePolicy);
 
-    /// <summary>パッケージと独立譜面の選択を、それぞれ通常入口へ渡します。</summary>
+    /// <summary>パッケージと独立譜面の選択を一回の推定入口へ渡し、一操作の設定スナップショットと候補方針を共有します。</summary>
     public IReadOnlyList<ChartFile> SearchPending(BMSLibrary library, PendingInstallDestinationSearchRequest request)
     {
         IReadOnlyList<ChartPackage> packages = ResolvePackages(library, request.PackageTargets);
-        if (packages.Count > 0)
-        {
-            library.SearchEstimatedInstallationDirectory(packages);
-        }
-
-        if (request.LooseEntries.Count > 0)
-        {
-            library.SearchEstimatedInstallationDirectoryForLooseCharts(request.LooseEntries);
-        }
+        library.SearchEstimatedInstallationDirectory(packages, request.LooseEntries, request.CandidatePolicy);
 
         return [.. request.LooseEntries.Select(entry => entry?.Chart).Where(chart => chart != null)];
     }

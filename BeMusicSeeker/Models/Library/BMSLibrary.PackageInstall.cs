@@ -1003,7 +1003,7 @@ public partial class BMSLibrary
     /// 全てのフォルダを計算すると重すぎるため、事前のハッシュマッチで候補を絞り込むことで劇的な高速化を図りつつ、
     /// 根本的には旧来と同じく、最もファイルの依存関係が解決される（健康度/Health が高まる）フォルダを自動算出して提案します。
     /// </remarks>
-    private void SearchEstimatedInstallationDirectoryForChartsCore(ChartPackage package, IEnumerable<PackageChartEntry> targetEntries, bool asParallel, ChartInstallationEstimateMode estimateMode)
+    private void SearchEstimatedInstallationDirectoryForChartsCore(ChartPackage package, IEnumerable<PackageChartEntry> targetEntries, bool asParallel, ChartInstallationEstimateMode estimateMode, InstallEstimationCandidatePolicy candidatePolicy = InstallEstimationCandidatePolicy.RelatedOnly, BmsLibraryOptionsSnapshot optionsSnapshot = null)
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
@@ -1035,7 +1035,7 @@ public partial class BMSLibrary
                         package,
                         targetEntryList,
                         BmsLibraryInstallEstimationService.ResolveCandidateEvaluationDegree(asParallel),
-                        estimateMode);
+                        estimateMode, optionsSnapshot, candidatePolicy: candidatePolicy);
                     if (estimationData.SourceSurfaceScanLimitExceeded)
                     {
                         LogSourceSurfaceScanLimitExceeded(estimationData, package?.path);
@@ -1145,7 +1145,7 @@ public partial class BMSLibrary
     /// （UIからのドラッグ＆ドロップ登録時などに呼び出されます）
     /// </summary>
     /// <param name="package">推定を行う chart package オブジェクト</param>
-    private void SearchEstimatedInstallationDirectoryCore(ChartPackage package)
+    private void SearchEstimatedInstallationDirectoryCore(ChartPackage package, InstallEstimationCandidatePolicy candidatePolicy = InstallEstimationCandidatePolicy.RelatedOnly, BmsLibraryOptionsSnapshot optionsSnapshot = null)
     {
         if (package == null)
         {
@@ -1189,7 +1189,7 @@ public partial class BMSLibrary
                             LogMixedPackageResolution(resolution, package.path, targetEntries.Count);
                             if (resolution.Success)
                             {
-                                InstallEstimationEvaluationData hashEstimation = EvaluateInstalledChartHashDestination(resolution.InstallDirectory, targetEntries, package: package);
+                                InstallEstimationEvaluationData hashEstimation = EvaluateInstalledChartHashDestination(resolution.InstallDirectory, targetEntries, optionsSnapshot: optionsSnapshot, package: package, candidatePolicy: candidatePolicy);
                                 if (hashEstimation.SourceSurfaceScanLimitExceeded)
                                 {
                                     LogSourceSurfaceScanLimitExceeded(hashEstimation, package.path);
@@ -1214,9 +1214,10 @@ public partial class BMSLibrary
                                     targetEntries,
                                     BmsLibraryInstallEstimationService.ResolveCandidateEvaluationDegree(asParallel: true),
                                     ChartInstallationEstimateMode.Normal,
+                                    optionsSnapshot: optionsSnapshot,
                                     candidateDirectoryOverride: resolution.CandidateDirectories,
                                     candidateDirectoryUniquePrimaryHashCountResolver: resolution.GetCandidateDirectoryUniquePrimaryHashCount,
-                                    markInstalledDestinationAmbiguous: true);
+                                    markInstalledDestinationAmbiguous: true, candidatePolicy: candidatePolicy);
                                 if (estimationData.SourceSurfaceScanLimitExceeded)
                                 {
                                     LogSourceSurfaceScanLimitExceeded(estimationData, package?.path);
@@ -1240,7 +1241,7 @@ public partial class BMSLibrary
                         }
                         if (targetEntries.Count > 0)
                         {
-                            SearchEstimatedInstallationDirectoryForChartsCore(package, targetEntries, asParallel: true, ChartInstallationEstimateMode.Normal);
+                            SearchEstimatedInstallationDirectoryForChartsCore(package, targetEntries, asParallel: true, ChartInstallationEstimateMode.Normal, candidatePolicy, optionsSnapshot);
                         }
                     }
                 }
@@ -1256,11 +1257,16 @@ public partial class BMSLibrary
     /// このAPIは受付を取り直さず、取消トークンも受け取りません。評価失敗は元例外で伝播し、適用済み結果を巻き戻しません。
     /// </remarks>
     public void SearchEstimatedInstallationDirectory(ChartPackage package)
+        => SearchEstimatedInstallationDirectory(package, InstallEstimationCandidatePolicy.RelatedOnly);
+
+    /// <summary>一操作の候補表示方針を指定して単一パッケージを推定します。</summary>
+    internal void SearchEstimatedInstallationDirectory(ChartPackage package, InstallEstimationCandidatePolicy candidatePolicy)
     {
         if (package == null)
         {
             throw new ArgumentNullException("package");
         }
+        BmsLibraryOptionsSnapshot optionsSnapshot = CurrentOptionsSnapshot;
         var stopwatch = Stopwatch.StartNew();
         string displayName = PendingInstallEstimateBatchRequest.GetDisplayName(package.path);
         LogInstallPerformance("manual_estimate_progress start kind=package total=1 current=" + displayName);
@@ -1268,7 +1274,7 @@ public partial class BMSLibrary
         try
         {
             {
-                SearchEstimatedInstallationDirectoryCore(package);
+                SearchEstimatedInstallationDirectoryCore(package, candidatePolicy, optionsSnapshot);
             }
             SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, 1, 1, displayName);
         }
@@ -1290,6 +1296,28 @@ public partial class BMSLibrary
     /// 適用済み結果は保持し、未適用結果は次の明示推定対象として残します。
     /// </remarks>
     public void SearchEstimatedInstallationDirectory(IEnumerable<ChartPackage> packages)
+        => SearchEstimatedInstallationDirectory(packages, InstallEstimationCandidatePolicy.RelatedOnly);
+
+    /// <summary>同じ操作方針と設定スナップショットで複数パッケージを推定します。</summary>
+    internal void SearchEstimatedInstallationDirectory(IEnumerable<ChartPackage> packages, InstallEstimationCandidatePolicy candidatePolicy)
+        => SearchEstimatedInstallationDirectoryPackagesCore(packages, candidatePolicy, CurrentOptionsSnapshot);
+
+    /// <summary>一回捕捉した設定と候補方針で、パッケージ群の後に独立譜面群を推定します。各群の既存の評価・反映・進捗終端を保ちます。</summary>
+    /// <param name="packages">推定するパッケージ群。null要素は除外します。</param>
+    /// <param name="looseEntries">所属パッケージの再評価を行わない独立譜面群。</param>
+    /// <param name="candidatePolicy">この操作だけに適用する候補表示方針。</param>
+    /// <remarks>呼出元が共通論理受付と既存試聴の停止を所有します。群の途中で設定が変更されても後続評価へ取り込みません。</remarks>
+    internal void SearchEstimatedInstallationDirectory(IEnumerable<ChartPackage> packages, IEnumerable<PackageChartEntry> looseEntries, InstallEstimationCandidatePolicy candidatePolicy)
+    {
+        ArgumentNullException.ThrowIfNull(packages);
+        ArgumentNullException.ThrowIfNull(looseEntries);
+        BmsLibraryOptionsSnapshot optionsSnapshot = CurrentOptionsSnapshot;
+        SearchEstimatedInstallationDirectoryPackagesCore(packages, candidatePolicy, optionsSnapshot);
+        SearchEstimatedInstallationDirectoryForLooseChartsCore(looseEntries, candidatePolicy, true, optionsSnapshot);
+    }
+
+    /// <summary>入口が捕捉した設定を再取得せず、パッケージ群の既存pipelineへ渡します。</summary>
+    private void SearchEstimatedInstallationDirectoryPackagesCore(IEnumerable<ChartPackage> packages, InstallEstimationCandidatePolicy candidatePolicy, BmsLibraryOptionsSnapshot optionsSnapshot)
     {
         if (packages == null)
         {
@@ -1309,13 +1337,13 @@ public partial class BMSLibrary
                 string displayName = PendingInstallEstimateBatchRequest.GetDisplayName(packageList[0].path);
                 SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, 1, 0, displayName);
                 {
-                    SearchEstimatedInstallationDirectoryCore(packageList[0]);
+                    SearchEstimatedInstallationDirectoryCore(packageList[0], candidatePolicy, optionsSnapshot);
                 }
                 SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, 1, 1, displayName);
             }
             else
             {
-                ProcessManualPackageEstimateBatch(packageList);
+                ProcessManualPackageEstimateBatch(packageList, candidatePolicy, optionsSnapshot);
             }
         }
         finally
@@ -1326,7 +1354,7 @@ public partial class BMSLibrary
         }
     }
 
-    private void ProcessManualPackageEstimateBatch(IReadOnlyList<ChartPackage> packageList)
+    private void ProcessManualPackageEstimateBatch(IReadOnlyList<ChartPackage> packageList, InstallEstimationCandidatePolicy candidatePolicy, BmsLibraryOptionsSnapshot optionsSnapshot)
     {
         if (packageList == null || packageList.Count == 0)
         {
@@ -1335,7 +1363,7 @@ public partial class BMSLibrary
         var request = new PendingInstallEstimateBatchRequest(
             PendingInstallEstimateBatchSource.ManualReestimate,
             packageList,
-            PendingInstallEstimateBatchRequest.GetDisplayName(packageList.FirstOrDefault()?.path));
+            PendingInstallEstimateBatchRequest.GetDisplayName(packageList.FirstOrDefault()?.path), optionsSnapshot: optionsSnapshot, candidatePolicy: candidatePolicy);
         string source = ToPendingEstimateBatchSourceLogValue(request.Source);
         int lowConfidenceCount = 0;
         int completed = 0;
@@ -1362,7 +1390,7 @@ public partial class BMSLibrary
         LogInstallPerformance("pending_estimate_batch done source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + executionPolicy.WorkItemDegree + " estimated=" + completed + " completed=" + completed + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " lowConfidence=" + lowConfidenceCount);
     }
 
-    private void SearchEstimatedInstallationDirectoryCore(PackageChartEntry chartEntry, bool asParallel = true, bool fixMode = false)
+    private void SearchEstimatedInstallationDirectoryCore(PackageChartEntry chartEntry, bool asParallel = true, bool fixMode = false, InstallEstimationCandidatePolicy candidatePolicy = InstallEstimationCandidatePolicy.RelatedOnly, BmsLibraryOptionsSnapshot optionsSnapshot = null)
     {
         if (chartEntry?.Chart == null)
         {
@@ -1387,7 +1415,7 @@ public partial class BMSLibrary
                         List<string> installedDirectories = GetDistinctInstalledDirectoriesForChartUnsafe(chartEntry.Chart);
                         if (installedDirectories.Count == 1)
                         {
-                            InstallEstimationEvaluationData hashEstimation = EvaluateInstalledChartHashDestination(installedDirectories[0], [chartEntry]);
+                            InstallEstimationEvaluationData hashEstimation = EvaluateInstalledChartHashDestination(installedDirectories[0], [chartEntry], optionsSnapshot: optionsSnapshot, candidatePolicy: candidatePolicy);
                             LogInstallEstimationEvaluation(hashEstimation);
                             ApplyInstallEstimationResultToEntries([chartEntry], hashEstimation.Result);
                             resolvedInstalledDirectory = true;
@@ -1400,7 +1428,7 @@ public partial class BMSLibrary
                 return;
             }
         }
-        SearchEstimatedInstallationDirectoryForChartsCore(null, [chartEntry], asParallel, fixMode ? ChartInstallationEstimateMode.ReinstallCorrection : ChartInstallationEstimateMode.Normal);
+        SearchEstimatedInstallationDirectoryForChartsCore(null, [chartEntry], asParallel, fixMode ? ChartInstallationEstimateMode.ReinstallCorrection : ChartInstallationEstimateMode.Normal, candidatePolicy, optionsSnapshot);
     }
 
     /// <summary>一つの保留譜面の導入先を推定して反映し、評価と進捗の終端まで実行します。</summary>
@@ -1418,6 +1446,7 @@ public partial class BMSLibrary
         {
             throw new ArgumentNullException(nameof(chartEntry));
         }
+        BmsLibraryOptionsSnapshot optionsSnapshot = CurrentOptionsSnapshot;
         var stopwatch = Stopwatch.StartNew();
         string displayName = PendingInstallEstimateBatchRequest.GetDisplayName(chartEntry.Chart.Path);
         LogInstallPerformance("manual_estimate_progress start kind=chart total=1 current=" + displayName);
@@ -1425,7 +1454,7 @@ public partial class BMSLibrary
         try
         {
             {
-                SearchEstimatedInstallationDirectoryCore(chartEntry, asParallel, fixMode);
+                SearchEstimatedInstallationDirectoryCore(chartEntry, asParallel, fixMode, optionsSnapshot: optionsSnapshot);
             }
             SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, 1, 1, displayName);
         }
@@ -1457,6 +1486,7 @@ public partial class BMSLibrary
         {
             return;
         }
+        BmsLibraryOptionsSnapshot optionsSnapshot = CurrentOptionsSnapshot;
         var stopwatch = Stopwatch.StartNew();
         LogInstallPerformance("manual_estimate_progress start kind=charts total=" + targetEntries.Count);
         try
@@ -1470,7 +1500,7 @@ public partial class BMSLibrary
                 .Where(entry => !PackageTargetsContainChartEntry(packageTargets, entry))];
             if (!fixMode && looseEntries.Count == 0 && packageTargets.Count > 1)
             {
-                ProcessManualPackageEstimateBatch(packageTargets);
+                ProcessManualPackageEstimateBatch(packageTargets, InstallEstimationCandidatePolicy.RelatedOnly, optionsSnapshot);
             }
             else
             {
@@ -1487,11 +1517,11 @@ public partial class BMSLibrary
                         SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, totalWorkCount, i, displayName);
                         if (workItem is ChartPackage targetPackage)
                         {
-                            SearchEstimatedInstallationDirectoryCore(targetPackage);
+                            SearchEstimatedInstallationDirectoryCore(targetPackage, optionsSnapshot: optionsSnapshot);
                         }
                         else
                         {
-                            SearchEstimatedInstallationDirectoryCore((PackageChartEntry)workItem, asParallel, fixMode);
+                            SearchEstimatedInstallationDirectoryCore((PackageChartEntry)workItem, asParallel, fixMode, optionsSnapshot: optionsSnapshot);
                         }
                         SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, totalWorkCount, i + 1, displayName);
                     }
@@ -1515,6 +1545,14 @@ public partial class BMSLibrary
     /// このAPIは受付を取り直さず、取消トークンも受け取りません。評価失敗は元例外で伝播し、適用済み結果を巻き戻しません。
     /// </remarks>
     internal void SearchEstimatedInstallationDirectoryForLooseCharts(IEnumerable<PackageChartEntry> chartEntries, bool asParallel = true)
+        => SearchEstimatedInstallationDirectoryForLooseChartsCore(chartEntries, InstallEstimationCandidatePolicy.RelatedOnly, asParallel, CurrentOptionsSnapshot);
+
+    /// <summary>同じ操作方針で独立保留譜面を推定します。設定は群の開始時に捕捉します。</summary>
+    internal void SearchEstimatedInstallationDirectoryForLooseCharts(IEnumerable<PackageChartEntry> chartEntries, InstallEstimationCandidatePolicy candidatePolicy)
+        => SearchEstimatedInstallationDirectoryForLooseChartsCore(chartEntries, candidatePolicy, true, CurrentOptionsSnapshot);
+
+    /// <summary>単独入口または複合入口で捕捉した設定を独立譜面群全体へ渡します。</summary>
+    private void SearchEstimatedInstallationDirectoryForLooseChartsCore(IEnumerable<PackageChartEntry> chartEntries, InstallEstimationCandidatePolicy candidatePolicy, bool asParallel, BmsLibraryOptionsSnapshot optionsSnapshot)
     {
         if (chartEntries == null)
         {
@@ -1536,7 +1574,7 @@ public partial class BMSLibrary
                     PackageChartEntry targetEntry = targetEntries[i];
                     string displayName = PendingInstallEstimateBatchRequest.GetDisplayName(targetEntry.Chart.Path);
                     SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, totalWorkCount, i, displayName);
-                    SearchEstimatedInstallationDirectoryCore(targetEntry, asParallel);
+                    SearchEstimatedInstallationDirectoryCore(targetEntry, asParallel, candidatePolicy: candidatePolicy, optionsSnapshot: optionsSnapshot);
                     SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, totalWorkCount, i + 1, displayName);
                 }
             }
@@ -2847,16 +2885,16 @@ public partial class BMSLibrary
             skipReason = "no_files";
             return false;
         }
-        ApplyRegroupedInstallDestinationToEntries(regroupedEntries, resolvedDestinationDirectory, installedDirectoryIndex);
+        ClearRegroupedOwnedInstallDestinations(regroupedEntries, installedDirectoryIndex);
         regroupedPackage = ChartPackage.FromChartEntries(regroupedEntries);
         regroupedPackage.path = canonicalSourceDirectoryPath;
         regroupedPackage.delete_parent = false;
         return true;
     }
 
-    private void ApplyRegroupedInstallDestinationToEntries(IEnumerable<PackageChartEntry> entries, string destinationDirectory, IInstalledChartLookupIndex installedDirectoryIndex)
+    /// <summary>再編成で既所持の導入先だけを消去します。未所持項目の確定表示根拠・候補は同じ項目状態として引き継ぎ、再照合しません。</summary>
+    private static void ClearRegroupedOwnedInstallDestinations(IEnumerable<PackageChartEntry> entries, IInstalledChartLookupIndex installedDirectoryIndex)
     {
-        List<PackageChartEntry> missingEntries = [];
         foreach (PackageChartEntry entry in (entries ?? []).Where(entry => entry?.Chart != null))
         {
             if (BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesForChart(installedDirectoryIndex, entry.Chart).Count > 0)
@@ -2865,12 +2903,7 @@ public partial class BMSLibrary
                 entry.ClearInstallDestination();
                 foreach (ChartWarning warning in audioReasons) { entry.SetWarning(warning.Kind, warning.Message); }
             }
-            else
-            {
-                missingEntries.Add(entry);
-            }
         }
-        ApplyResolvedInstallDestinationPathAndMetadataToEntries(missingEntries, destinationDirectory);
     }
 
     private bool TryResolvePendingFileExpectedInstallDirectory(ChartFile chart, IInstalledChartLookupIndex installedDirectoryIndex, out string expectedDirectory, out string reason)

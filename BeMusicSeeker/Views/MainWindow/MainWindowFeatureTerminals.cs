@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Ribbit.Logging;
@@ -333,14 +334,14 @@ internal sealed class MainWindowPackageCatalogTerminal
 /// </summary>
 internal sealed class MainWindowPendingInstallEstimationTerminal
 {
-    private readonly Func<IEnumerable<ChartPackage>, Task> searchPackages;
+    private readonly Func<IEnumerable<ChartPackage>, InstallEstimationCandidatePolicy, Task> searchPackages;
     private readonly Func<PendingInstallDestinationSearchRequest, Task> searchPending;
     private readonly Func<PendingInstallDestinationClearRequest, Task> clearPending;
     private readonly Func<IEnumerable<ChartPackage>, Task> clearPackages;
 
-    /// <summary>通常推定と解除の非同期終端を実画面へ接続します。</summary>
+    /// <summary>候補方針付き推定と解除の非同期終端を実画面へ接続します。</summary>
     internal MainWindowPendingInstallEstimationTerminal(
-        Func<IEnumerable<ChartPackage>, Task> searchPackages,
+        Func<IEnumerable<ChartPackage>, InstallEstimationCandidatePolicy, Task> searchPackages,
         Func<PendingInstallDestinationSearchRequest, Task> searchPending,
         Func<PendingInstallDestinationClearRequest, Task> clearPending,
         Func<IEnumerable<ChartPackage>, Task> clearPackages)
@@ -351,9 +352,9 @@ internal sealed class MainWindowPendingInstallEstimationTerminal
         this.clearPackages = clearPackages ?? throw new ArgumentNullException(nameof(clearPackages));
     }
 
-    /// <summary>既所持だけの場合も含めて通常の保留パッケージ推定へ渡します。</summary>
-    internal Task SearchPackagesAsync(IEnumerable<ChartPackage> packages)
-        => searchPackages(packages ?? throw new ArgumentNullException(nameof(packages)));
+    /// <summary>既所持だけの場合も含め、候補方針を同じ保留パッケージ推定へ渡します。</summary>
+    internal Task SearchPackagesAsync(IEnumerable<ChartPackage> packages, InstallEstimationCandidatePolicy candidatePolicy = InstallEstimationCandidatePolicy.RelatedOnly)
+        => searchPackages(packages ?? throw new ArgumentNullException(nameof(packages)), candidatePolicy);
 
     internal Task SearchPendingAsync(PendingInstallDestinationSearchRequest request)
         => searchPending(request ?? throw new ArgumentNullException(nameof(request)));

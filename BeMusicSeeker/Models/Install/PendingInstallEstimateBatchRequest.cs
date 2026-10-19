@@ -12,6 +12,9 @@ internal sealed class PendingInstallEstimateBatchRequest
 {
     public PendingInstallEstimateBatchSource Source { get; }
 
+    /// <summary>この受理操作だけの候補表示方針です。</summary>
+    public InstallEstimationCandidatePolicy CandidatePolicy { get; }
+
     public ChartPackage[] Packages { get; }
 
     public int PackageCount => Packages.Length;
@@ -42,10 +45,12 @@ internal sealed class PendingInstallEstimateBatchRequest
         int deferredPackageCount = 0,
         PendingEstimateSourceBatchSnapshot batchSourceSnapshot = null,
         PerformanceInteraction? performanceInteraction = null,
-        BmsLibraryOptionsSnapshot optionsSnapshot = null)
+        BmsLibraryOptionsSnapshot optionsSnapshot = null,
+        InstallEstimationCandidatePolicy candidatePolicy = InstallEstimationCandidatePolicy.RelatedOnly)
     {
         OptionsSnapshot = optionsSnapshot;
         Source = source;
+        CandidatePolicy = candidatePolicy;
         Packages = [.. (packages ?? []).Where(package => package != null)];
         DeferredPackageCount = Math.Max(0, deferredPackageCount);
         DisplayName = string.IsNullOrWhiteSpace(displayName)

@@ -3760,7 +3760,7 @@ ON: すべての使用リソースがそろった場合のみ、自動新規イ�
     <value>導入後音源未確認</value>
   </data>
   <data name="Warning_InstallEstimationAudioMissing" xml:space="preserve">
-    <value>推定対象の音源が導入後も不足するため、自動設定を見送りました。候補: {0}</value>
+    <value>設定した音源充足率を満たさないため、導入先の自動設定を見送りました。候補: {0}</value>
   </data>
   <data name="Warning_InstallEstimationAudioUnverifiable" xml:space="preserve">
     <value>推定対象の導入後の音源完全性を確認できないため、自動設定を見送りました。候補: {0}</value>
@@ -3792,5 +3792,29 @@ ON: すべての使用リソースがそろった場合のみ、自動新規イ�
   <data name="Details_auto_apply_ambiguous_install_destination_description" xml:space="preserve">
     <value>同じ構成のBMS作品が複数フォルダにあるなど、候補が同率で残る場合の設定です。ONでは、自動確定の条件を満たす第1候補をインストール先に設定します。OFFでは、候補を確認して選択します。
 既所持譜面を手掛かりに候補を比較できる場合は、追加差分による譜面数の違いなどで候補を絞れます。候補が一意に決まる場合、この設定に関わらずインストール先を自動確定します。</value>
+  </data>
+  <data name="Estimate_install_loc_keep_unrelated" xml:space="preserve">
+    <value>インストール先を推定（無関係候補を残す）</value>
+  </data>
+  <data name="Details_install_destination_min_audio_health" xml:space="preserve">
+    <value>導入先の自動設定に必要な最低音源充足率</value>
+  </data>
+  <data name="Details_install_destination_min_audio_health_description" xml:space="preserve">
+    <value>各譜面の音源充足率がこの値以上の場合に導入先を自動設定します。欠損警告は残ります。新規インストールの許可条件とは別の設定です。</value>
+  </data>
+  <data name="Details_install_destination_min_audio_health_invalid" xml:space="preserve">
+    <value>保存値 {0}% は範囲外です。導入先は自動設定されません。90～100%から選び直してください。</value>
+  </data>
+  <data name="Warning_InstallEstimationUnrelated" xml:space="preserve">
+    <value>候補 {0} は作品との関連性が確認できません。自動設定は行いません。</value>
+  </data>
+  <data name="Warning_InstallEstimationMetadataUnavailable" xml:space="preserve">
+    <value>候補 {0} との比較に使うTITLE/ARTISTが取得できないため、自動設定は行いません。</value>
+  </data>
+  <data name="WarningDigest_InstallEstimationUnrelated" xml:space="preserve">
+    <value>作品との関連性なし</value>
+  </data>
+  <data name="WarningDigest_InstallEstimationMetadataUnavailable" xml:space="preserve">
+    <value>作品情報の比較不能</value>
   </data>
 </root>

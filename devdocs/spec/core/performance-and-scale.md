@@ -55,7 +55,7 @@
 | 複数対象の変更 | 一操作の変更セッションで、前処理、DB・索引反映、LR2同期、必要な公開を集約する。 |
 | 一覧の絞込み・整列 | 全件が必要な問い合わせと可視行の表示を分け、無関係な更新で全順序を捨てない。 |
 
-共通所持sequenceの形式別範囲を読む際は、前置形式の件数に比例する読み捨てや範囲末端外の訪問を行いません。途中開始の列挙は上限付き局所バッファを再利用し、項目ごとの木のindex検索や全範囲の事前複製を避けます。早期終了の範囲内先読みは実訪問として計測します。通常一覧のBMS専用表示は捕捉前からBMSONの準備・整列を省きます。[データと索引](data-and-indexes.md#共通現在値の格納・識別・順序)の実装・テスト対応で、背景件数から独立した範囲取得と捕捉後の不変性を確認します。
+共通所持sequenceの形式別範囲を読む際は、前置形式の件数に比例する読み捨てや範囲末端外の訪問を行いません。途中開始の列挙は上限付き局所バッファを再利用し、項目ごとの木のindex検索や全範囲の事前複製を避けます。早期終了の範囲内先読みは実訪問として計測します。通常一覧のBMS専用表示は捕捉前からBMSONの準備・整列を省きます。[データと索引](data-and-indexes.md#共通現在値の格納識別順序)の実装・テスト対応で、背景件数から独立した範囲取得と捕捉後の不変性を確認します。
 
 全件処理が本当に必要なら、規模、頻度、既存索引で代替できない理由、比較区間と結果を示します。「変更不能だから」「安全側だから」だけで全件複製を選ばず、計算量と定数項・候補数・実測を併せて評価します。
 
@@ -135,7 +135,7 @@ DBは問い合わせ数だけでなく、読み出す行数・列・索引を確
 | 複数パッケージと失敗時の非公開 | `CommitInstalledSessionChanges` | [BmsLibraryPackageInstallServiceTests](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `PendingResourcePackages_InstallThroughLibraryAndPreserveEarlierResourceSnapshot`、`InstallPendingPackagesToEstimatedDestinations_CanonicalApplyFailureKeepsPreparedTargetsWithoutPartialPublication`: 旧世代と成功後の対象集合も確認する。 |
 | 修正・削除・統合・LR2失敗 | ライブラリ変更主体と統合後保守 | [BmsLibraryFolderRenameRefreshTests](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) の `FixInstallationDirectoryCharts_MultipleRepairsShareOneCatalogTransaction`、`RemoveLibraryCharts_CommitsCatalogBeforePublishingOwnedCollectionChange`、`AutoRenameChartFolders_Lr2FinalizationFailureReturnsDurableNonSuccess` と [BmsLibraryDuplicateServiceTests](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) の `MergeChartDirectory_RechecksResourcesWithinAcceptedOperation`。 |
 | 実際のフォルダ行数 | `BmsLibraryDbGateway.ReplaceFolderRecords` | [CatalogMutationOwnerTests](../../../BeMusicSeeker.Tests/Catalog/CatalogMutationOwnerTests.cs) の `ApplyRelocation_CombinedBmsBmsonAndFolderEmitsDurableReceipt`: 対象行数と移転後の行を確認する。 |
-| 候補の仕事量と解析器の入力規模 | 導入先推定・解析器 | [BmsLibraryInstallEstimationServiceTests](../../../BeMusicSeeker.Tests/Install/BmsLibraryInstallEstimationServiceTests.cs) の `EstimateInstallationDirectory_BuildsEachCandidateResourceViewOnce` は候補8・64・512件。[Net10ScanParserPerformanceTests](../../../BeMusicSeeker.Tests/Performance/Net10ScanParserPerformanceTests.cs) の `BmsonContinuationLookup_EqualYOnlyGroupHasNoNextNoteFromAnyPosition` は同位置だけの1,000・4,000・16,000ノートについて、全位置から次音なしを確認する機能検査。走査回数・所要時間の測定ではない。 |
+| 全候補評価の明示性能計測と解析器の入力規模 | 導入先推定・解析器 | [InstallEstimationPerformanceTests](../../../BeMusicSeeker.Tests/Performance/InstallEstimationPerformanceTests.cs) は要求100～1,000・同梱0/80/100%・3,000/20,001候補・最大1,000実在ペアを使い、単体逐次/有界並列と同一20入力、初回プロフィール構築/再利用の全値・中央値・範囲・割当・逆引き訪問・実比較数を5回測る。索引準備を別記し、fixture所有のプロフィール供給cacheを使うサービスの捕捉済み入力評価までが対象。同じ明示系列で実カタログのプロフィールresolverと診断counterを使い、3,000/20,001フォルダに対する単体/20要求の初回共有と再利用も別区間で測る。実FS・DB保存・UI終端は含まない。[Net10ScanParserPerformanceTests](../../../BeMusicSeeker.Tests/Performance/Net10ScanParserPerformanceTests.cs) の同位置ノート系列は機能検査であり、走査回数・所要時間を測定しない。 |
 | 明示検査と実規模の区別 | [benchmark-net10-performance.ps1](../../../scripts/benchmark-net10-performance.ps1)、`Net10PerformanceCorpus.GetConfiguredScales` | 診断出力・候補評価・ノート探索を分担する。候補数とノート数は各ケースで定め、実DBや800万キーの逆引きは自動構築しない。代表操作の実時間は別の比較で確認する。 |
 
 設計・報告には対象入口、規模と差分、全件処理の回数、再利用と失効、逐次境界、計測する完了範囲、結果同等性、実測と制約を短く示します。専用台帳や全変更への大規模測定は要求しません。

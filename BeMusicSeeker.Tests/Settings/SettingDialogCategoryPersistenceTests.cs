@@ -31,6 +31,7 @@ public sealed partial class SettingDialogEditCompletionTests
     [DataRow("Advanced", "KeepInstallablePackagesPending")]
     [DataRow("Advanced", "RequireCompleteUsedResourcesForAutoInstall")]
     [DataRow("Advanced", "AutoApplyAmbiguousInstallDestination")]
+    [DataRow("Advanced", "InstallDestinationAutoApplyMinAudioHealth")]
     [DataRow("RightClick", "RightClickActionSettingsEditor.SelectedWebAction.Name")]
     public void CompiledCategoryEditor_SaveReachesFreshProviderLiveSettingsAndNewDialog(string category, string bindingPath)
     {
@@ -67,6 +68,8 @@ public sealed partial class SettingDialogEditCompletionTests
                 values.KeepInstallablePackagesPending = false;
                 values.RequireCompleteUsedResourcesForAutoInstall = false;
                 values.AutoApplyAmbiguousInstallDestination = false;
+                // 範囲外の保存値は画面初期化で丸めず、選び直して97%へ修正します。
+                values.InstallDestinationAutoApplyMinAudioHealth = bindingPath == "InstallDestinationAutoApplyMinAudioHealth" ? 89 : 100;
                 values.FolderNameFormat = "%TITLE%";
                 values.RightClickActionsJson = "{\"webActions\":[{\"id\":\"edited\",\"name\":\"Before\",\"urlTemplate\":\"https://example.com/{md5}\",\"enabled\":true,\"chartKind\":\"All\"},{\"id\":\"kept\",\"name\":\"Other\",\"urlTemplate\":\"https://example.org/{md5}\",\"enabled\":true,\"chartKind\":\"BmsOnly\"}],\"programActions\":[]}";
                 values.Save();
@@ -79,8 +82,15 @@ public sealed partial class SettingDialogEditCompletionTests
                 window = OpenSettingsWindow(scope, owner.SettingDialog);
                 presentation.CurrentWindow = window;
                 object before = ReadCategoryEditor(window, category, bindingPath);
+                if (bindingPath == "InstallDestinationAutoApplyMinAudioHealth")
+                {
+                    Assert.IsNull(before);
+                    Assert.AreEqual(89, owner.SettingDialog.InstallDestinationAutoApplyMinAudioHealth);
+                    Assert.IsFalse(string.IsNullOrEmpty(owner.SettingDialog.InstallDestinationAutoApplyMinAudioHealthWarning));
+                }
                 object expected = category switch
                 {
+                    "Advanced" when bindingPath == "InstallDestinationAutoApplyMinAudioHealth" => 97,
                     "General" => TestApplicationContext.CreateCultureCatalog().Cultures.Single(pair => pair.Value == "en-US").Key,
                     "Install" => "%ARTIST% - %TITLE%",
                     "Playlist" or "Playback" or "Advanced" => true,
@@ -112,7 +122,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 reopened = OpenSettingsWindow(scope, freshOwner.SettingDialog);
                 freshPresentation.CurrentWindow = reopened;
                 Assert.AreEqual(expected, ReadCategoryEditor(reopened, category, bindingPath));
-                EditCategoryControl(reopened, category, bindingPath, before);
+                EditCategoryControl(reopened, category, bindingPath, bindingPath == "InstallDestinationAutoApplyMinAudioHealth" ? 90 : before);
                 var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 reopened.Closed += (_, _) => cancelled.TrySetResult();
                 freshOwner.SettingDialog.CancelCommand.Execute();
@@ -217,6 +227,8 @@ public sealed partial class SettingDialogEditCompletionTests
             case "Audio": Assert.AreEqual(4, ((IPlayerSettingsGateway)ReadField(composition, "playerSettingsGateway")).CaptureSnapshot().SampleRateConversionQuality); break;
             case "Recording": Assert.AreEqual(1.3f, ((IAudioSettingsGateway)ReadField(composition, "audioSettingsGateway")).CaptureEncodingSettings().EncoderAmplifier); break;
             case "Backup": Assert.AreEqual(5, composition.StartupSettingsProvider().LR2BackupNum); break;
+            case "Advanced" when bindingPath == "InstallDestinationAutoApplyMinAudioHealth":
+                Assert.AreEqual(97, composition.BmsLibraryOptionsProvider().InstallDestinationAutoApplyMinAudioHealth); break;
             case "Advanced":
                 Assert.IsTrue(bindingPath switch
                 {
@@ -242,6 +254,8 @@ public sealed partial class SettingDialogEditCompletionTests
             case "Audio": Assert.AreEqual(4, settings.PlayerResamplingQuality); break;
             case "Recording": Assert.AreEqual(1.3f, settings.EncoderAmplifier); break;
             case "Backup": Assert.AreEqual(5, settings.LR2BackupNum); break;
+            case "Advanced" when bindingPath == "InstallDestinationAutoApplyMinAudioHealth":
+                Assert.AreEqual(97, settings.InstallDestinationAutoApplyMinAudioHealth); break;
             case "Advanced":
                 Assert.IsTrue(bindingPath switch
                 {

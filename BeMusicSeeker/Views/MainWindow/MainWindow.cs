@@ -5920,6 +5920,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async void treeViewInstallPackageContextMenuSearchInstallationDirectoryClick(object sender, RoutedEventArgs e)
     {
+        await SearchPackageInstallationDirectoryAsync(e, InstallEstimationCandidatePolicy.RelatedOnly);
+    }
+
+    private async void treeViewInstallPackageContextMenuSearchInstallationDirectoryKeepUnrelatedClick(object sender, RoutedEventArgs e)
+    {
+        await SearchPackageInstallationDirectoryAsync(e, InstallEstimationCandidatePolicy.KeepUnrelated);
+    }
+
+    /// <summary>ツリーの通常・明示推定を同じ受付・例外・非同期終端へ渡します。</summary>
+    private async Task SearchPackageInstallationDirectoryAsync(RoutedEventArgs e, InstallEstimationCandidatePolicy candidatePolicy)
+    {
         try
         {
             if (ShouldBlockChartPackageMutationInteraction("tree_package_search_install_destination"))
@@ -5939,7 +5950,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 e.Handled = true;
                 await pendingInstallEstimationTerminal
-                    .SearchPackagesAsync([pkg]);
+                    .SearchPackagesAsync([pkg], candidatePolicy);
             }
         }
         catch (Exception exception)
@@ -8112,9 +8123,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async void searchInstallDestinationSelectedPendingCharts(object sender, RoutedEventArgs e)
     {
+        await SearchInstallDestinationSelectedPendingChartsWithPolicyAsync(e, InstallEstimationCandidatePolicy.RelatedOnly);
+    }
+
+    private async void searchInstallDestinationSelectedPendingChartsKeepUnrelated(object sender, RoutedEventArgs e)
+    {
+        await SearchInstallDestinationSelectedPendingChartsWithPolicyAsync(e, InstallEstimationCandidatePolicy.KeepUnrelated);
+    }
+
+    /// <summary>一覧の通常・明示推定を同じ例外通知へ接続します。</summary>
+    private async Task SearchInstallDestinationSelectedPendingChartsWithPolicyAsync(RoutedEventArgs e, InstallEstimationCandidatePolicy candidatePolicy)
+    {
         try
         {
-            await SearchInstallDestinationSelectedPendingChartsAsync(e);
+            await SearchInstallDestinationSelectedPendingChartsAsync(e, candidatePolicy);
         }
         catch (Exception exception)
         {
@@ -8122,7 +8144,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    private async Task SearchInstallDestinationSelectedPendingChartsAsync(RoutedEventArgs e)
+    private async Task SearchInstallDestinationSelectedPendingChartsAsync(RoutedEventArgs e, InstallEstimationCandidatePolicy candidatePolicy)
     {
         if (ShouldBlockChartPackageMutationInteraction("datagrid_search_install_destination"))
         {
@@ -8138,7 +8160,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        var request = PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch(targets);
+        var request = PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch(targets, candidatePolicy);
         var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
         await pendingInstallEstimationTerminal

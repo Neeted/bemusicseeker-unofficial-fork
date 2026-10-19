@@ -20,6 +20,15 @@ internal enum InstallAudioCompleteness
     Unverifiable
 }
 
+/// <summary>確認済みの音源件数と完全性です。閾値による許可は欠損状態を変更しません。</summary>
+internal readonly record struct InstallAudioEvaluation(InstallAudioCompleteness Completeness, int Existing, int Required)
+{
+    /// <summary>確認可能な各譜面だけを、丸めずに設定閾値と比較します。</summary>
+    internal bool MeetsThreshold(int threshold) => threshold is >= 90 and <= 100
+        && Completeness is InstallAudioCompleteness.Complete or InstallAudioCompleteness.Missing
+        && (Required == 0 || 100L * Existing >= (long)threshold * Required);
+}
+
 /// <summary>一操作で捕捉した不変の配置文脈です。同梱・候補の変更不能な索引を共有し、行ごとに複製しません。</summary>
 internal sealed class ChartResourcePlacement(
     ChartResourcePlacementBasis basis,
@@ -79,12 +88,16 @@ internal sealed class ChartResourcePlacement(
     }
 
     /// <summary>メタデータ判定と独立して、推定対象群の導入後音源完全性を返します。</summary>
-    internal InstallAudioCompleteness EvaluateAudio(ChartResourceSnapshot resources)
+    internal InstallAudioCompleteness EvaluateAudio(ChartResourceSnapshot resources) => EvaluateAudioResources(resources).Completeness;
+
+    /// <summary>存在確認を一回だけ行い、許可と警告で同じ結果を共有します。</summary>
+    internal InstallAudioEvaluation EvaluateAudioResources(ChartResourceSnapshot resources)
     {
-        if (resources == null || resources.HasUnresolvedAudio) { return InstallAudioCompleteness.Unverifiable; }
+        if (resources == null || resources.HasUnresolvedAudio) { return new(InstallAudioCompleteness.Unverifiable, 0, resources?.AudioReferenceCount ?? 0); }
         int? existing = CountExisting(resources.AudioReferences, ChartResourceKind.Audio);
-        return !existing.HasValue ? InstallAudioCompleteness.Unverifiable
-            : existing.Value == resources.AudioReferenceCount ? InstallAudioCompleteness.Complete : InstallAudioCompleteness.Missing;
+        return new(!existing.HasValue ? InstallAudioCompleteness.Unverifiable
+            : existing.Value == resources.AudioReferenceCount ? InstallAudioCompleteness.Complete : InstallAudioCompleteness.Missing,
+            existing ?? 0, resources.AudioReferenceCount);
     }
 
     /// <summary>設定先、先頭候補、現在配置の順で選びます。入力元親全体を同梱とはみなしません。</summary>

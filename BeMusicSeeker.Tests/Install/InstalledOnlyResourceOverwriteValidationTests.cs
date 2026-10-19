@@ -228,7 +228,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
     {
 
         string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_InstalledDirIndexTests_" + Guid.NewGuid().ToString("N"));
-        var service = new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(testSettings), 70);
+        var service = new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(testSettings));
         testAction(service, tempRoot);
     }
 

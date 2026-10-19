@@ -753,12 +753,159 @@ public sealed class MainWindowPackageMaintenanceWpfTests
         }
     }
 
-    /// <summary>compiledツリーメニューの一覧消去と保留操作が、導入済み・保留の区分と元packageを正しい終端へ渡します。</summary>
+    /// <summary>実推定のRelated根拠ペア・候補・警告を生成済み保留行へ届け、選択・空編集・再選択・明示クリアでも多数派代表値へ戻さず別パッケージを変更しません。</summary>
+    /// <remarks>分類と編集条件の表は下位テストへ分担し、実MainWindowのcomposition、実索引とDB、compiled推定メニュー、一覧受信を一つの代表フローで接続します。</remarks>
+    [TestMethod]
+    public void PendingEstimationAndCandidateEditingReachRealizedRowsWithRelatedEvidence()
+    {
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PendingPresentation_" + Guid.NewGuid().ToString("N"));
+        string candidate = Path.Combine(root, "Installed");
+        string source = Path.Combine(root, "Pending");
+        string otherSource = Path.Combine(root, "OtherPending");
+        Directory.CreateDirectory(candidate);
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(otherSource);
+        string[] ownedPaths = [Path.Combine(candidate, "majority-a.bms"), Path.Combine(candidate, "majority-b.bms"), Path.Combine(candidate, "related.bms")];
+        const string audio = "\r\n#WAV01 sound.wav\r\n#00111:01\r\n";
+        File.WriteAllText(ownedPaths[0], "#TITLE Collection Main\r\n#ARTIST Collection Author" + audio);
+        File.WriteAllText(ownedPaths[1], "#TITLE Collection Main\r\n#ARTIST Collection Author\r\n#GENRE second" + audio);
+        File.WriteAllText(ownedPaths[2], "#TITLE Target Song\r\n#ARTIST Candidate Artist" + audio);
+        File.WriteAllText(Path.Combine(candidate, "sound.wav"), "audio");
+        string sourcePath = Path.Combine(source, "pending.bms");
+        string otherPath = Path.Combine(otherSource, "other.bms");
+        File.WriteAllText(sourcePath, "#TITLE Target Song\r\n#ARTIST Source Author" + audio);
+        File.WriteAllText(otherPath, "#TITLE Other Pending\r\n#ARTIST Other Author\r\n");
+        var entry = PackageChartEntry.FromPath(sourcePath);
+        var otherEntry = PackageChartEntry.FromPath(otherPath);
+        var package = ChartPackage.FromChartEntries([entry]);
+        package.path = source;
+        var otherPackage = ChartPackage.FromChartEntries([otherEntry]);
+        otherPackage.path = otherSource;
+        string songDbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.StartupSelectInstallPending = false);
+        var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, ScanBmsFilesOnStartup = true };
+        var scanner = CapturedChartFileScanner.FromFixture(ownedPaths,
+            new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [candidate] = ["sound.wav"] }, [candidate]);
+        TestBmsLibrary? library = null;
+        try
+        {
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(settings, (viewModel, window) =>
+            {
+                var rowsApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                viewModel.MainChartList.PropertyChanged += (_, args) =>
+                {
+                    if (args.PropertyName == nameof(MainChartListViewModel.Rows)) { rowsApplied.TrySetResult(); }
+                };
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    viewModel.RegularChartList.NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected), "pending rows navigation");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(rowsApplied.Task, "pending rows applied");
+                LibraryChartRow row = viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Single(value => value.path == sourcePath);
+                LibraryChartRow otherRow = viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Single(value => value.path == otherPath);
+                // 起動時の所持判定・表示投影を終えた現在値を、これから行う操作の比較基準にします。
+                ChartFile otherBefore = otherEntry.Chart;
+                int otherProjectionVersion = otherEntry.ProjectionVersion;
+                Assert.AreEqual(string.Empty, row.InstallDestinationTitle);
+                var menu = (ContextMenu)window.FindResource("treeViewInstallPackageContextMenu");
+                menu.PlacementTarget = new TreeViewItem { DataContext = package };
+                MenuItem group = menu.Items.OfType<MenuItem>().Single(item => item.Items.OfType<MenuItem>().Any(child => Equals(child.Header, Resources.Estimate_install_loc)));
+                MenuItem search = group.Items.OfType<MenuItem>().Single(item => Equals(item.Header, Resources.Estimate_install_loc));
+                Task searchEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(search));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(searchEvent, "real pending estimation menu");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                AssertEvidence();
+                Assert.AreEqual(string.Empty, row.instl_dst);
+                CollectionAssert.AreEqual(new[] { candidate }, row.Chart.InstallDestinationSuggestions.ToArray());
+                Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
+                Assert.IsFalse(row.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
+
+                Assert.AreEqual(ChartOperationSourceScope.PendingPackage, viewModel.MainChartList.CurrentOperationContext.SourceScope);
+                Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, viewModel.MainChartList.CurrentOperationContext.SourceScope, out ChartOperationTarget target));
+                Assert.AreSame(entry, target.PackageEntry);
+                Assert.IsTrue(PendingInstallDestinationEditRequest.TryCreate(target, out PendingInstallDestinationEditRequest edit));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PendingPackages.SetPendingAsync(edit, candidate), "Related candidate selection");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(candidate, row.instl_dst);
+                AssertEvidence();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PendingPackages.SetPendingAsync(edit, string.Empty), "empty destination edit");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(string.Empty, row.instl_dst);
+                Assert.AreEqual(string.Empty, row.InstallDestinationTitle);
+                Assert.AreEqual(string.Empty, row.InstallDestinationArtist);
+                CollectionAssert.AreEqual(new[] { candidate }, row.Chart.InstallDestinationSuggestions.ToArray());
+                Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PendingPackages.SetPendingAsync(edit, candidate), "Related candidate reselection");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                AssertEvidence();
+                MenuItem clear = group.Items.OfType<MenuItem>().Single(item => Equals(item.Header, Resources.Clear_estimation));
+                Task clearEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(clear));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(clearEvent, "real pending destination clear menu");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(string.Empty, row.instl_dst);
+                Assert.AreEqual(string.Empty, row.InstallDestinationTitle);
+                Assert.AreEqual(string.Empty, row.InstallDestinationArtist);
+                Assert.AreEqual(0, row.Chart.InstallDestinationSuggestions.Count);
+                Assert.IsFalse(row.Chart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
+                AssertOtherUnchanged();
+                Assert.AreEqual(string.Empty, otherRow.instl_dst);
+                Assert.AreEqual(string.Empty, otherRow.InstallDestinationTitle);
+                Assert.AreEqual(0, otherRow.Chart.InstallDestinationSuggestions.Count);
+
+                void AssertEvidence()
+                {
+                    Assert.AreEqual("Target Song", row.InstallDestinationTitle);
+                    Assert.AreEqual("Candidate Artist", row.InstallDestinationArtist);
+                    AssertOtherUnchanged();
+                }
+
+                void AssertOtherUnchanged()
+                {
+                    // Chartは毎回不変投影を作るため、参照同一性ではなく変更版と利用者に見える値を比較します。
+                    ChartFile current = otherEntry.Chart;
+                    Assert.AreEqual(otherProjectionVersion, otherEntry.ProjectionVersion);
+                    Assert.AreEqual(otherBefore.Status, current.Status);
+                    Assert.AreEqual(otherBefore.InstallDestination, current.InstallDestination);
+                    Assert.AreEqual(otherBefore.InstallDestinationTitle, current.InstallDestinationTitle);
+                    Assert.AreEqual(otherBefore.InstallDestinationArtist, current.InstallDestinationArtist);
+                    CollectionAssert.AreEqual(otherBefore.InstallDestinationSuggestions.ToArray(), current.InstallDestinationSuggestions.ToArray());
+                    CollectionAssert.AreEqual(otherBefore.Warnings.Select(value => (value.Kind, value.Message)).ToArray(), current.Warnings.Select(value => (value.Kind, value.Message)).ToArray());
+                }
+            }, prepareViewModel: viewModel =>
+            {
+                ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
+                library = new TestBmsLibrary(songDbPath, getLR2Config: null, _lr2ScoreDB: null, startupRequiredFileScanReason: null,
+                    optionsSnapshotProvider: () => options, applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+                    chartFileScanner: scanner, operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission)
+                {
+                    SearchTargets = [candidate],
+                    StartupBackgroundTaskScheduler = (_, _, _, _) => false
+                };
+                library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+                library.ChartPackagesPending = new[] { package, otherPackage };
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+                {
+                    db.CreateTable<LR2SongDBExtended.install>();
+                    db.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
+                    db.InsertOrReplace(otherPackage, typeof(LR2SongDBExtended.install));
+                });
+                ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
+            });
+        }
+        finally
+        {
+            library?.RequestShutdown("pending-related-presentation-test");
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>compiledツリーメニューの一覧消去と保留操作が、導入済み・保留の区分、元package、通常・無関係保持の方針を正しい終端へ渡します。</summary>
     [TestMethod]
     public void CompiledTreeMenusPreservePackageSectionsAndPendingOperations()
     {
         var catalogCalls = new List<(string Action, PackageCatalogSection Section, ChartPackage? Package)>();
         var pendingEstimationCalls = new List<(string Action, object Request)>();
+        var candidatePolicies = new List<InstallEstimationCandidatePolicy>();
         var pendingInstallationCalls = new List<(string Action, object Request)>();
         var packageCatalogTerminal = new MainWindowPackageCatalogTerminal(
             section =>
@@ -777,9 +924,10 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 return Task.FromResult(PackageCatalogMutationResult.Rejected);
             });
         var pendingInstallEstimationTerminal = new MainWindowPendingInstallEstimationTerminal(
-            packages =>
+            (packages, policy) =>
             {
                 pendingEstimationCalls.Add(("search-package", packages.Single()));
+                candidatePolicies.Add(policy);
                 return Task.CompletedTask;
             },
             request =>
@@ -832,7 +980,10 @@ public sealed class MainWindowPackageMaintenanceWpfTests
 
                 foreach (MenuItem command in installCommands)
                 {
-                    RaiseMenuClick(command);
+                    var args = new RoutedEventArgs(MenuItem.ClickEvent, command);
+                    Task terminal = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => command.RaiseEvent(args));
+                    Assert.IsTrue(args.Handled);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "compiled-tree-pending-operation");
                 }
 
                 RaiseMenuClick(packageMenu.Items.OfType<MenuItem>().Last());
@@ -859,9 +1010,12 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     new[]
                     {
                         "search-package",
+                        "search-package",
                         "clear-packages"
                     },
                     pendingEstimationCalls.Select(call => call.Action).ToArray());
+                CollectionAssert.AreEquivalent(
+                    new[] { InstallEstimationCandidatePolicy.RelatedOnly, InstallEstimationCandidatePolicy.KeepUnrelated }, candidatePolicies);
                 CollectionAssert.AreEquivalent(
                     new[] { "manual-install", "force-install" },
                     pendingInstallationCalls.Select(call => call.Action).ToArray());
@@ -1296,7 +1450,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             duplicateMaintenanceTerminal: duplicateTerminal);
     }
 
-    /// <summary>選択譜面のcompiled導入・候補解除・削除・修復が元entryまたはchart/tokenを対応する要求へ渡し、非同期終端前にイベントを処理済みにします。</summary>
+    /// <summary>選択譜面のcompiled通常・無関係保持推定と導入・解除・削除・修復が元entryまたはchart/tokenを渡し、非同期終端前にイベントを処理済みにします。</summary>
     [TestMethod]
     public void CompiledSelectedChartRoutesPreservePendingTargetAndHandledBeforeCompletion()
     {
@@ -1306,6 +1460,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
         var repairCalls = new List<(string Kind, RepairInstalledLocationRequest Request)>();
         var catalogRemovalCalls = new List<PackageCatalogRemovalRequest>();
         var searchInstallCompletion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task searchEvent = Task.CompletedTask;
         var clearCompletion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var forceCompletion = new TaskCompletionSource<PendingPackageMutationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var manualCompletion = new TaskCompletionSource<PendingPackageMutationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1322,7 +1477,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
         var pendingEntry = PackageChartEntry.FromChart((pendingFile));
         var pendingRow = LibraryChartRow.FromPackageChartEntry(pendingEntry);
         var pendingEstimationTerminal = new MainWindowPendingInstallEstimationTerminal(
-            packages => Task.CompletedTask,
+            (packages, policy) => Task.CompletedTask,
             request =>
             {
                 pendingEstimateCalls.Add(("estimate", request));
@@ -1391,16 +1546,25 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         .Single(item => item.Items.OfType<MenuItem>().Any(child => Equals(child.Header, Resources.Estimate_install_loc)));
                     string[] installHeaders = [Resources.Estimate_install_loc, Resources.Install_to_estimation, Resources.Force_install, Resources.Clear_estimation];
                     MenuItem[] installCommands = installHeaders.Select(header => installGroup.Items.OfType<MenuItem>().Single(item => Equals(item.Header, header))).ToArray();
-                    var searchInstallArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[0]);
-                    installCommands[0].RaiseEvent(searchInstallArgs);
-                    Assert.IsTrue(searchInstallArgs.Handled);
-                    Assert.IsFalse(searchInstallCompletion.Task.IsCompleted);
-                    Assert.AreEqual(1, pendingEstimateCalls.Count);
-                    Assert.AreEqual(1, pendingEstimateCalls[0].Request.PackageTargets.Count);
-                    Assert.AreEqual(1, pendingEstimateCalls[0].Request.SelectedRowCount);
-                    Assert.AreSame(pendingEntry, pendingEstimateCalls[0].Request.PackageTargets[0].PackageEntry);
-                    searchInstallCompletion.SetResult(null);
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(searchInstallCompletion.Task, "compiled-terminal-delegate-result");
+                    // 明示操作の次の通常操作へ方針が残らず、両方とも元entryを同じ終端へ渡します。
+                    foreach (bool keepUnrelated in new[] { true, false })
+                    {
+                        searchInstallCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                        string header = keepUnrelated ? Resources.Estimate_install_loc_keep_unrelated : Resources.Estimate_install_loc;
+                        MenuItem searchCommand = installGroup.Items.OfType<MenuItem>().Single(item => Equals(item.Header, header));
+                        var searchInstallArgs = new RoutedEventArgs(MenuItem.ClickEvent, searchCommand);
+                        searchEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => searchCommand.RaiseEvent(searchInstallArgs));
+                        Assert.IsTrue(searchInstallArgs.Handled);
+                        Assert.IsFalse(searchInstallCompletion.Task.IsCompleted);
+                        Assert.AreEqual(keepUnrelated ? 1 : 2, pendingEstimateCalls.Count);
+                        PendingInstallDestinationSearchRequest request = pendingEstimateCalls[^1].Request;
+                        Assert.AreEqual(keepUnrelated ? InstallEstimationCandidatePolicy.KeepUnrelated : InstallEstimationCandidatePolicy.RelatedOnly, request.CandidatePolicy);
+                        Assert.AreEqual(1, request.PackageTargets.Count);
+                        Assert.AreEqual(1, request.SelectedRowCount);
+                        Assert.AreSame(pendingEntry, request.PackageTargets[0].PackageEntry);
+                        searchInstallCompletion.SetResult(null);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(searchEvent, "compiled-search-event-terminal");
+                    }
 
                     var manualArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[1]);
                     installCommands[1].RaiseEvent(manualArgs);
@@ -1507,7 +1671,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 finally
                 {
                     searchInstallCompletion.TrySetResult(null);
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(searchInstallCompletion.Task, "compiled-finally-delegate");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(searchEvent, "compiled-finally-search-event");
                     clearCompletion.TrySetResult(null);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(clearCompletion.Task, "compiled-finally-delegate");
                     forceCompletion.TrySetResult(PendingPackageMutationResult.Rejected);

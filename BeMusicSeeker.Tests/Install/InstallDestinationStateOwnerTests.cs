@@ -27,6 +27,7 @@ public sealed class InstallDestinationStateOwnerTests
         Assert.AreEqual(first.Md5, reattached.Md5);
         Assert.AreEqual("C:\\Install\\Chart", reattached.InstallDestination);
         Assert.AreEqual("Overlay title", reattached.InstallDestinationTitle);
+        Assert.AreEqual("Overlay artist", reattached.InstallDestinationArtist);
     }
 
     /// <summary>同pathでも形式が違う残存宛先を再接続せず、BMSからBMSONへの状態漏れを検出します。</summary>

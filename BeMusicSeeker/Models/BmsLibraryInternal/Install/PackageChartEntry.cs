@@ -254,10 +254,10 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         RaiseChartChanged();
     }
 
-    /// <summary>候補と推定警告を保持したまま、導入先と代表情報だけを更新します。</summary>
+    /// <summary>候補と推定警告を保持したまま、導入先と表示根拠だけを更新します。</summary>
     /// <param name="destinationDirectory">新しい導入先。空値による編集も含みます。</param>
-    /// <param name="title">導入先の代表題名。</param>
-    /// <param name="artist">導入先の代表アーティスト。</param>
+    /// <param name="title">導入先の分類根拠となった実在ペアの題名。</param>
+    /// <param name="artist">題名と同じ実在ペアのアーティスト。</param>
     internal void ApplyInstallDestinationMetadata(string destinationDirectory, string title, string artist)
     {
         ReplacePendingInstallDestination(
@@ -281,8 +281,8 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
             result?.ShouldAutoApplyDestination == true && !string.IsNullOrWhiteSpace(result.DestinationDirectory)
                 ? result.DestinationDirectory
                 : null,
-            result?.HasViableDestination == true ? selectedCandidate?.RepresentativeTitle ?? string.Empty : string.Empty,
-            result?.HasViableDestination == true ? selectedCandidate?.RepresentativeArtist ?? string.Empty : string.Empty,
+            result?.HasViableDestination == true ? selectedCandidate?.DisplayTitle ?? string.Empty : string.Empty,
+            result?.HasViableDestination == true ? selectedCandidate?.DisplayArtist ?? string.Empty : string.Empty,
             isLowConfidence || result?.ShouldAutoApplyDestination != true ? suggestionPaths : [],
             forceProjection: true);
         ApplyInstallEstimationWarnings(result);
@@ -515,9 +515,9 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
             .Take(3)];
         bool isLowConfidence = result?.Confidence == InstallEstimationConfidence.Low;
         InstallEstimationLowConfidenceKind lowConfidenceKind = result?.LowConfidenceKind ?? InstallEstimationLowConfidenceKind.None;
-        if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.AmbiguousCandidates && selectedCandidate != null && secondCandidate != null)
+        if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.AmbiguousCandidates && selectedCandidate != null && (result.AmbiguousCandidateDirectory != null || secondCandidate != null))
         {
-            yield return ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, string.Format(Properties.Resources.Warning_InstallEstimationAmbiguous, selectedCandidate.DirectoryPath, secondCandidate.DirectoryPath));
+            yield return ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, string.Format(Properties.Resources.Warning_InstallEstimationAmbiguous, selectedCandidate.DirectoryPath, result.AmbiguousCandidateDirectory ?? secondCandidate.DirectoryPath));
         }
         if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.InstalledDestinationAmbiguous && suggestionPaths.Length >= 2)
         {
@@ -529,7 +529,13 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         }
         if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.MetadataMismatch && selectedCandidate != null)
         {
-            yield return ChartWarning.Create(ChartWarningKind.InstallEstimationMetadataMismatch, string.Format(Properties.Resources.Warning_InstallEstimationMetadataMismatch, selectedCandidate.DirectoryPath));
+            (ChartWarningKind kind, string message) = selectedCandidate.MetadataRelation switch
+            {
+                InstallEstimationMetadataRelation.Unrelated => (ChartWarningKind.InstallEstimationUnrelated, Properties.Resources.Warning_InstallEstimationUnrelated),
+                InstallEstimationMetadataRelation.Unavailable => (ChartWarningKind.InstallEstimationMetadataUnavailable, Properties.Resources.Warning_InstallEstimationMetadataUnavailable),
+                _ => (ChartWarningKind.InstallEstimationMetadataMismatch, Properties.Resources.Warning_InstallEstimationMetadataMismatch)
+            };
+            yield return ChartWarning.Create(kind, string.Format(message, selectedCandidate.DirectoryPath));
         }
         if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.ReinstallNotImproved && selectedCandidate != null)
         {
@@ -537,7 +543,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         }
         if (result?.HasViableDestination == true && selectedCandidate != null)
         {
-            if (result.AudioCompleteness == InstallAudioCompleteness.Missing)
+            if (result.AudioCompleteness == InstallAudioCompleteness.Missing && !result.AudioAutoApplyAllowed)
             {
                 yield return ChartWarning.Create(ChartWarningKind.InstallEstimationAudioMissing,
                     string.Format(Properties.Resources.Warning_InstallEstimationAudioMissing, selectedCandidate.DirectoryPath));

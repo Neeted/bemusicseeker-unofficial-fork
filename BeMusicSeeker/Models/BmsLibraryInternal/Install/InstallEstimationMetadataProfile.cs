@@ -24,14 +24,105 @@ internal sealed class InstallEstimationMetadataProfile
     /// <summary>表示TITLEと同じレコードから得た、小文字化前の照合ARTISTです。</summary>
     public string DominantPairDisplayArtist { get; init; } = string.Empty;
 
+    /// <summary>正規化キーが一意な実在ペアです。表示は同じレコードの表記を保持します。</summary>
+    public IReadOnlyList<InstallEstimationMetadataPair> Pairs { get; init; } = [];
+
     /// <summary>比較に使える実在ペアの有無です。ARTISTの非空は要求しません。</summary>
     public bool HasPair => DominantNormalizedTitle.Length > 0;
+}
+
+/// <summary>候補と対象の関連性です。Unavailableは有効な実在ペアがない場合です。</summary>
+internal enum InstallEstimationMetadataRelation
+{
+    /// <summary>対象または候補に有効な非空TITLEの実在ペアがありません。</summary>
+    Unavailable,
+    /// <summary>比較材料はありますが、関連性の条件を満たしません。</summary>
+    Unrelated,
+    /// <summary>候補の実在ペアでTITLEまたはARTISTのDiceが0.50以上です。</summary>
+    Related,
+    /// <summary>両最頻ペアのARTISTが同値で、非空TITLEのDiceが0.72以上です。</summary>
+    Strong
+}
+
+/// <summary>比較キーと同一レコードの表示根拠を保持する不変の実在ペアです。</summary>
+internal sealed record InstallEstimationMetadataPair(string Title, string Artist, string DisplayTitle, string DisplayArtist, string Path, int InputOrder);
+
+/// <summary>分類と表示根拠は同じ比較結果から取得します。</summary>
+internal sealed record InstallEstimationMetadataMatch(InstallEstimationMetadataRelation Relation, string DisplayTitle, string DisplayArtist, double TitleSimilarity, double ArtistSimilarity);
+
+/// <summary>対象の2-gramと文字列ごとの比較結果を一操作で再利用します。対象依存の結果は永続化しません。</summary>
+internal sealed class InstallEstimationMetadataMatcher
+{
+    private readonly InstallEstimationMetadataProfile target;
+    private readonly Dictionary<string, double> titleSimilarities = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, double> artistSimilarities = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> titleGrams;
+    private readonly Dictionary<string, int> artistGrams;
+
+    internal InstallEstimationMetadataMatcher(InstallEstimationMetadataProfile target)
+    {
+        this.target = target ?? InstallEstimationMetadataProfile.Empty;
+        titleGrams = InstallEstimationMetadataNormalizer.BuildBigramCounts(this.target.DominantNormalizedTitle);
+        artistGrams = InstallEstimationMetadataNormalizer.BuildBigramCounts(this.target.DominantNormalizedArtist);
+    }
+
+    /// <summary>実際に評価したペア数です。操作内の診断にだけ使います。</summary>
+    internal int PairComparisonCount { get; private set; }
+
+    /// <summary>最頻ペアだけでStrongを判定し、その後に全ユニーク実在ペアのRelatedと表示根拠を求めます。</summary>
+    internal InstallEstimationMetadataMatch Evaluate(InstallEstimationMetadataProfile candidate)
+    {
+        candidate ??= InstallEstimationMetadataProfile.Empty;
+        var dominant = new InstallEstimationMetadataPair(candidate.DominantNormalizedTitle, candidate.DominantNormalizedArtist,
+            candidate.DominantPairDisplayTitle, candidate.DominantPairDisplayArtist, string.Empty, 0);
+        if (!target.HasPair || !candidate.HasPair)
+        {
+            return Match(InstallEstimationMetadataRelation.Unavailable, dominant, 0, 0);
+        }
+        PairComparisonCount++;
+        double title = Similarity(dominant.Title, true);
+        double artist = Similarity(dominant.Artist, false);
+        if (title >= 0.72 && string.Equals(target.DominantNormalizedArtist, dominant.Artist, StringComparison.Ordinal))
+        {
+            return Match(InstallEstimationMetadataRelation.Strong, dominant, title, artist);
+        }
+        InstallEstimationMetadataPair best = null;
+        double bestTitle = 0, bestArtist = 0;
+        foreach (InstallEstimationMetadataPair pair in candidate.Pairs.Count > 0 ? candidate.Pairs : new[] { dominant })
+        {
+            PairComparisonCount++;
+            double t = Similarity(pair.Title, true), a = Similarity(pair.Artist, false);
+            if (t < 0.50 && a < 0.50) { continue; }
+            int compare = Math.Max(t, a).CompareTo(Math.Max(bestTitle, bestArtist));
+            if (compare == 0) { compare = t.CompareTo(bestTitle); }
+            if (compare == 0) { compare = a.CompareTo(bestArtist); }
+            if (compare == 0 && best != null) { compare = -StringComparer.OrdinalIgnoreCase.Compare(pair.Path, best.Path); }
+            if (compare == 0 && best != null) { compare = best.InputOrder.CompareTo(pair.InputOrder); }
+            if (best == null || compare > 0) { best = pair; bestTitle = t; bestArtist = a; }
+        }
+        return best == null ? Match(InstallEstimationMetadataRelation.Unrelated, dominant, title, artist)
+            : Match(InstallEstimationMetadataRelation.Related, best, bestTitle, bestArtist);
+    }
+
+    private static InstallEstimationMetadataMatch Match(InstallEstimationMetadataRelation relation, InstallEstimationMetadataPair pair, double title, double artist)
+        => new(relation, pair.DisplayTitle, pair.DisplayArtist, title, artist);
+
+    private double Similarity(string value, bool isTitle)
+    {
+        Dictionary<string, double> cache = isTitle ? titleSimilarities : artistSimilarities;
+        if (!cache.TryGetValue(value, out double similarity))
+        {
+            similarity = InstallEstimationMetadataNormalizer.ComputeSimilarity(isTitle ? target.DominantNormalizedTitle : target.DominantNormalizedArtist,
+                value, isTitle ? titleGrams : artistGrams);
+            cache.Add(value, similarity);
+        }
+        return similarity;
+    }
 }
 
 /// <summary>導入先照合の入力を一度だけ正規化し、実在ペアの集計と唯一の強一致判定を提供します。</summary>
 internal static class InstallEstimationMetadataNormalizer
 {
-    private const double TitleFuzzyStrongThreshold = 0.88;
     private const string ArtistGeneralCreditNames = "featuring|feat|pmsobj|reobj|obj|odj|bga|bgi|movie|mov|illustration|illust|vocals?|差分|譜面";
     private const string ArtistShortCreditNames = "ft|vo";
     private const string ArtistCommonCreditNames = "notes?|object(?:ed)?|bg|bms|charts?|graphics?|sliced?|guitars?|pms|patterns?|sequence|lyrics?|image|artwork|visual";
@@ -97,38 +188,33 @@ internal static class InstallEstimationMetadataNormalizer
             return 1d;
         }
 
-        Dictionary<string, int> leftBigrams = BuildBigramCounts(left);
-        Dictionary<string, int> rightBigrams = BuildBigramCounts(right);
-        int leftCount = leftBigrams.Values.Sum();
-        int rightCount = rightBigrams.Values.Sum();
-        if (leftCount == 0 || rightCount == 0)
-        {
-            return 0d;
-        }
-
-        int overlapCount = 0;
-        foreach (KeyValuePair<string, int> pair in leftBigrams)
-        {
-            if (rightBigrams.TryGetValue(pair.Key, out int rightOccurrences))
-            {
-                overlapCount += Math.Min(pair.Value, rightOccurrences);
-            }
-        }
-        return (2d * overlapCount) / (leftCount + rightCount);
+        return ComputeSimilarity(left, right, BuildBigramCounts(left));
     }
 
-    /// <summary>両側の非空TITLE、空許容ARTISTの同値、TITLEのDice係数0.88以上を唯一の強一致条件とします。</summary>
+    /// <summary>捕捉済みの左辺2-gramを使い、正規化済み文字列のDiceを再利用可能にします。</summary>
+    internal static double ComputeSimilarity(string left, string right, Dictionary<string, int> leftBigrams)
+    {
+        if (left.Length == 0 || right.Length == 0) { return 0d; }
+        if (string.Equals(left, right, StringComparison.Ordinal)) { return 1d; }
+        Dictionary<string, int> rightBigrams = BuildBigramCounts(right);
+        int overlap = 0;
+        foreach (KeyValuePair<string, int> pair in leftBigrams)
+        {
+            if (rightBigrams.TryGetValue(pair.Key, out int count)) { overlap += Math.Min(pair.Value, count); }
+        }
+        return 2d * overlap / (leftBigrams.Values.Sum() + rightBigrams.Values.Sum());
+    }
+
+    /// <summary>両側の非空TITLE、空許容ARTISTの同値、TITLEのDice係数0.72以上を唯一の強一致条件とします。</summary>
     internal static bool IsStrongMatch(InstallEstimationMetadataProfile target, InstallEstimationMetadataProfile candidate)
     {
-        return target?.HasPair == true && candidate?.HasPair == true
-            && string.Equals(target.DominantNormalizedArtist, candidate.DominantNormalizedArtist, StringComparison.Ordinal)
-            && ComputeTitleSimilarity(target.DominantNormalizedTitle, candidate.DominantNormalizedTitle) >= TitleFuzzyStrongThreshold;
+        return new InstallEstimationMetadataMatcher(target).Evaluate(candidate).Relation == InstallEstimationMetadataRelation.Strong;
     }
 
     /// <summary>非空TITLEと空許容ARTISTの実在ペアを集計し、最多・パス順・入力順で同一レコードの比較キーと表示を選びます。</summary>
     internal static InstallEstimationMetadataProfile BuildProfile(IEnumerable<(string Title, string Artist, string Path)> records)
     {
-        var dominantGroup = (records ?? [])
+        var groups = (records ?? [])
             .Select((record, index) => new
             {
                 Title = NormalizeTitleDisplay(record.Title),
@@ -148,13 +234,16 @@ internal static class InstallEstimationMetadataNormalizer
             .OrderByDescending(group => group.Count)
             .ThenBy(group => group.DisplayRecord.Path, StringComparer.OrdinalIgnoreCase)
             .ThenBy(group => group.FirstIndex)
-            .FirstOrDefault();
+            .ToArray();
+        var dominantGroup = groups.FirstOrDefault();
         return dominantGroup == null ? InstallEstimationMetadataProfile.Empty : new InstallEstimationMetadataProfile
         {
             DominantNormalizedTitle = dominantGroup.Key.Title,
             DominantNormalizedArtist = dominantGroup.Key.Artist,
             DominantPairDisplayTitle = dominantGroup.DisplayRecord.Title,
-            DominantPairDisplayArtist = dominantGroup.DisplayRecord.Artist
+            DominantPairDisplayArtist = dominantGroup.DisplayRecord.Artist,
+            Pairs = Array.AsReadOnly(groups.Select(group => new InstallEstimationMetadataPair(group.Key.Title, group.Key.Artist,
+                group.DisplayRecord.Title, group.DisplayRecord.Artist, group.DisplayRecord.Path, group.DisplayRecord.Index)).ToArray())
         };
     }
 
@@ -346,7 +435,8 @@ internal static class InstallEstimationMetadataNormalizer
         return end;
     }
 
-    private static Dictionary<string, int> BuildBigramCounts(string value)
+    /// <summary>UTF-16コード単位の重複2-gramを比較用に集計します。</summary>
+    internal static Dictionary<string, int> BuildBigramCounts(string value)
     {
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
         if (string.IsNullOrWhiteSpace(value))
