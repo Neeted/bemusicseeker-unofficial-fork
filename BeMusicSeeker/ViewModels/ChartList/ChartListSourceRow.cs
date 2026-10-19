@@ -188,6 +188,16 @@ internal sealed class ChartListSourceRow
 
     private ChartScoreSnapshot ScoreSnapshot => GetScoreSnapshot();
 
+    /// <summary>同じ入力へ接続した表示行にも、行単位のscore投影を共有します。</summary>
+    internal ChartScoreSnapshot ScoreValue => GetScoreSnapshot();
+
+    /// <summary>確定rangeの実対象だけを無効化し、無関係行を再投影しません。</summary>
+    internal void InvalidateScoreProjection()
+    {
+        cachedScoreSnapshotValid = false;
+        cachedChartValid = false;
+    }
+
     internal BeMusicSeeker.Models.ChartDetails ChartInfo => ResolveChartInfoProjection();
 
     private ChartInfoDisplaySnapshot ChartInfoDisplay => GetChartInfoDisplay();
@@ -257,7 +267,7 @@ internal sealed class ChartListSourceRow
 
     private ChartScoreSnapshot ResolveScoreSnapshot()
     {
-        if (packageEntry != null)
+        if (packageEntry != null && scoreSnapshotProjectionProvider == null)
         {
             return packageEntry.Chart?.Score ?? ChartScoreSnapshot.MissingChart;
         }
@@ -433,7 +443,8 @@ internal sealed class ChartListSourceRow
         Func<ChartFile, BeMusicSeeker.Models.ChartDetails> chartInfoProjectionProvider = null,
         Func<ChartListSourceRow, BeMusicSeeker.Models.ChartDetails> chartInfoRowProjectionProvider = null,
         Func<int> chartInfoProjectionVersionProvider = null,
-        Func<int> scoreSnapshotVersionProvider = null)
+        Func<int> scoreSnapshotVersionProvider = null,
+        Func<ChartListSourceRow, ChartScoreSnapshot> scoreSnapshotProjectionProvider = null)
     {
         ChartFile chart = entry?.Chart;
         return chart == null ? null : new ChartListSourceRow(
@@ -446,7 +457,7 @@ internal sealed class ChartListSourceRow
             chartInfoRowProjectionProvider,
             chartInfoProjectionVersionProvider,
             scoreSnapshotVersionProvider,
-            scoreSnapshotProjectionProvider: null,
+            scoreSnapshotProjectionProvider,
             entry,
             hideResourceHealthDigestWhenInstallDestinationSet: false);
     }
@@ -500,10 +511,11 @@ internal sealed class ChartListSourceRow
         Func<ChartFile, BeMusicSeeker.Models.ChartDetails> chartInfoProjectionProvider = null,
         Func<ChartListSourceRow, BeMusicSeeker.Models.ChartDetails> chartInfoRowProjectionProvider = null,
         Func<int> chartInfoProjectionVersionProvider = null,
-        Func<int> scoreSnapshotVersionProvider = null)
+        Func<int> scoreSnapshotVersionProvider = null,
+        Func<ChartListSourceRow, ChartScoreSnapshot> scoreSnapshotProjectionProvider = null)
     {
         return [.. (entries ?? [])
-            .Select(entry => FromPackageChartEntry(entry, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, chartTransientStateProvider, chartInfoProjectionProvider, chartInfoRowProjectionProvider, chartInfoProjectionVersionProvider, scoreSnapshotVersionProvider))
+            .Select(entry => FromPackageChartEntry(entry, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, chartTransientStateProvider, chartInfoProjectionProvider, chartInfoRowProjectionProvider, chartInfoProjectionVersionProvider, scoreSnapshotVersionProvider, scoreSnapshotProjectionProvider))
             .Where(row => row != null)];
     }
 

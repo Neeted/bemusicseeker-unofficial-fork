@@ -630,7 +630,14 @@ public sealed class PlaylistViewPipelineTests
             missingEntry.SetTitle("Missing");
             var missing = new PlaylistDetailSourceRow(missingEntry, resolvedChart: null,
                 scoreSnapshot: new BMSScore { IsLr2IrScoreUnsent = true });
-            var view = new PlaylistDetailVirtualView([source, source, missing]);
+            BMSTableEntry duplicateEntry = source.Entry.Duplicate();
+            duplicateEntry.folder = "duplicate folder";
+            var table = new BMSTable { entries = [source.Entry, duplicateEntry] };
+            Assert.AreEqual(2, table.entries.Count, "同譜面でも別folderの独立entryは正規所属で保持されます。");
+            var duplicateSource = new PlaylistDetailSourceRow(duplicateEntry, source.OwnedCurrent,
+                scoreSnapshot: new BMSScore { perfect = 100, great = 12, totalnotes = 200, IsLr2IrScoreUnsent = true }, entryOrder: 1);
+            duplicateSource.PlaybackStatusProvider = _ => currentStatus;
+            var view = new PlaylistDetailVirtualView([source, duplicateSource, missing]);
             try
             {
                 var first = (PlaylistDetailRow)view[0];
@@ -683,7 +690,14 @@ public sealed class PlaylistViewPipelineTests
             }
             ChartFileStatus currentStatus = ChartFileStatus.PLAY;
             source.PlaybackStatusProvider = _ => currentStatus;
-            var view = new PlaylistDetailVirtualView([source, source]);
+            BMSTableEntry duplicateEntry = source.Entry.Duplicate();
+            duplicateEntry.folder = "duplicate folder";
+            var table = new BMSTable { entries = [source.Entry, duplicateEntry] };
+            Assert.AreEqual(2, table.entries.Count);
+            var duplicateSource = new PlaylistDetailSourceRow(duplicateEntry, source.OwnedCurrent,
+                scoreSnapshot: new BMSScore { perfect = 100, great = 12, totalnotes = 200, IsLr2IrScoreUnsent = true }, entryOrder: 1);
+            duplicateSource.PlaybackStatusProvider = _ => currentStatus;
+            var view = new PlaylistDetailVirtualView([source, duplicateSource]);
             try
             {
                 var first = (PlaylistDetailRow)view[0];
@@ -868,9 +882,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1, modeCount);
     }
 
-    /// <summary>同じsourceを二回適用しても各表示行を独立生成し、前回の編集可能な表示snapshotを次回へ共有しません。</summary>
+    /// <summary>明示的な再表示で同じ不変入力を共有し、前回の短命 draft を次の表示へ漏らしません。</summary>
     [TestMethod]
-    public void PlaylistDetailPresentationService_RebuildsDetachedSnapshotsForEachApply()
+    public void PlaylistDetailPresentationService_IsolatesDraftsAcrossExplicitPresentations()
     {
         PlaylistDetailSourceRow alphaRow = CreateSourceRow("77777777777777777777777777777777", "Alpha", 7);
         var sourceRows = new PlaylistDetailSourceRow[] { alphaRow };
@@ -907,7 +921,9 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.AreEqual(1, first.Count);
         Assert.AreEqual(1, second.Count);
-        Assert.IsFalse(ReferenceEquals(first[0], second[0]));
+        first[0].memo = "draft";
+        Assert.AreEqual(string.Empty, second[0].memo);
+        Assert.AreEqual(string.Empty, alphaRow.memo);
     }
 
     /// <summary>playlistのlevel 2.5・3・12を数値昇順へ並べ、文字列順や譜面側levelで小数の順序を誤りません。</summary>
@@ -1090,9 +1106,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(decision.SourceInvalidationReason);
     }
 
-    /// <summary>score世代だけ進んだ場合はsourceを再構築し、旧score世代と失効理由を返して古いscoreを再利用しません。</summary>
+    /// <summary>score世代だけの変更でsourceを再構築せず、差分配送による局所更新を維持します。</summary>
     [TestMethod]
-    public void PlaylistDetailBuildDecision_WhenScoreSnapshotChanges_RebuildsSource()
+    public void PlaylistDetailBuildDecision_WhenScoreSnapshotChangesKeepsSourceForKeyedPatch()
     {
         var table = new BMSTable();
         PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "Folder", PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
@@ -1102,9 +1118,9 @@ public sealed class PlaylistViewPipelineTests
             CreatePlaylistBuildRequest(request),
             CreatePlaylistDetailBuildStateSnapshot(current));
 
-        Assert.AreEqual(PlaylistDetailBuildAction.RebuildSource, decision.Action);
+        Assert.AreEqual(PlaylistDetailBuildAction.ApplyViewOnly, decision.Action);
         Assert.IsTrue(decision.ScoreSnapshotInvalidated);
-        Assert.AreEqual("score_snapshot_version", decision.SourceInvalidationReason);
+        Assert.IsNull(decision.SourceInvalidationReason);
         Assert.AreEqual(5, decision.LastBuiltScoreSnapshotVersion);
     }
 
@@ -1434,29 +1450,25 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("selection_changed", decision.SourceInvalidationReason);
     }
 
-    /// <summary>表示行のmemo・comment・小数level・両URL編集をsourceへ同期し、検索文字列に新memoと新commentを含めることを確認します。</summary>
+    /// <summary>編集 setter は短命 draft だけを保持し、未確定値を不変 source・生存 entry・別表示行へ流しません。保存後の反映は実SQLiteのDetailEdit系列が分担します。</summary>
     [TestMethod]
-    public void PlaylistDetailSourceRow_SynchronizeEditableSnapshot_UpdatesEditableFieldsAndSearchText()
+    public void PlaylistDetailRow_DraftDoesNotChangeSourceOrEntry()
     {
-        PlaylistDetailSourceRow sourceRow = CreateSourceRow("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Editable", 7, memo: "old memo", comment: "old comment", entryLevel: 3);
-        PlaylistDetailRow editedRow = sourceRow.CreateViewRow();
-
-        editedRow.comment = "new comment";
-        editedRow.memo = "new memo";
-        editedRow.Level = "12.5";
-        editedRow.Url = new Uri("https://example.com/original");
-        editedRow.Url_diff = new Uri("https://example.com/diff");
-
-        sourceRow.SynchronizeEditableSnapshot(editedRow);
-
-        Assert.AreEqual("new comment", sourceRow.comment);
-        Assert.AreEqual("new memo", sourceRow.memo);
-        Assert.AreEqual("12.5", sourceRow.Level);
-        Assert.AreEqual(12.5, sourceRow.EntryLevelSortKey);
-        Assert.AreEqual(new Uri("https://example.com/original"), sourceRow.Url);
-        Assert.AreEqual(new Uri("https://example.com/diff"), sourceRow.Url_diff);
-        StringAssert.Contains(sourceRow.SearchText, "NEW MEMO");
-        StringAssert.Contains(sourceRow.SearchText, "NEW COMMENT");
+        PlaylistDetailSourceRow source = CreateSourceRow("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Editable", 7,
+            memo: "old memo", comment: "old comment", entryLevel: 3);
+        PlaylistDetailRow row = source.CreateViewRow();
+        row.memo = "draft memo";
+        row.comment = "draft comment";
+        row.Level = "★12.5";
+        Assert.AreEqual("draft memo", row.memo);
+        Assert.AreEqual("★12.5", row.Level);
+        Assert.AreEqual("old memo", source.memo);
+        Assert.AreEqual("old comment", source.comment);
+        Assert.AreEqual(3d, source.Entry.level);
+        Assert.AreEqual("old memo", source.CreateViewRow().memo);
+        row.EndDraft();
+        Assert.AreEqual("old memo", row.memo);
+        Assert.AreEqual("3", row.Level);
     }
 
     /// <summary>sourceから表示行と外部操作Resolverまで同じSHA256を引き渡し、表示実体化で外部操作用hashを落としません。</summary>
@@ -2635,80 +2647,6 @@ public sealed class PlaylistViewPipelineTests
         }
     }
 
-    /// <summary>memo編集取消は未保存で元memoを保持し、編集中に延期されたscore世代を含むrefresh要求の公開内容と保留状態の解放を確認します。</summary>
-    [TestMethod]
-    public async Task PlaylistDetailEditing_UsesStartedLifecycleAndReleasesDeferredRefreshOnCancel()
-    {
-        var entry = new TestablePlaylistEntry
-        {
-            parent = new BMSTable { is_external_sync = false },
-            memo = "before"
-        };
-        var sourceRow = new PlaylistDetailSourceRow(entry, resolvedChart: null);
-        PlaylistDetailRow row = sourceRow.CreateViewRow();
-        var state = new PlaylistDetailViewState();
-        state.Source.Rows = [sourceRow];
-        state.Source.LastBuiltScoreSnapshotVersion = 3;
-        state.Source.PendingScoreSnapshotRefreshVersion = 5;
-        var workspace = new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(),
-            new PlaylistDetailBuildState(),
-            state,
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            () => throw new AssertFailedException("cancel must not persist"),
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
-        PlaylistDetailScoreSnapshotRefreshRequestedEventArgs? refresh = null;
-        workspace.PlaylistDetailScoreSnapshotRefreshRequested += (_, request) => refresh = request;
-        var context = new MainChartListCellEditContext(
-            row,
-            nameof(PlaylistDetailRow.memo),
-            ChartOperationSourceScope.PlaylistOwned,
-            MainViewOperationSection.Playlist);
-
-        Assert.IsTrue(workspace.CanBeginDetailEdit(context));
-        workspace.BeginDetailEdit(context);
-        Assert.IsTrue(state.Source.IsPlaylistCellEditing);
-
-        await workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "after", commit: false));
-
-        Assert.IsFalse(state.Source.IsPlaylistCellEditing);
-        Assert.AreEqual("before", row.memo);
-        Assert.IsNotNull(refresh);
-        Assert.AreEqual(5, refresh!.ScoreSnapshotVersion);
-        Assert.AreEqual(3, refresh.LastBuiltVersion);
-        Assert.IsTrue(refresh.DeferredByEdit);
-        Assert.IsTrue(refresh.RefreshRequired);
-        Assert.AreEqual(0, state.Source.PendingScoreSnapshotRefreshVersion);
-    }
-
     /// <summary>保存先取得が失敗したmemo編集は元例外をTaskへ返し、live sourceのmemoを保存成功のように同期しません。</summary>
     [TestMethod]
     public async Task PlaylistDetailEditing_DurableFailureDoesNotSynchronizeLiveSource()
@@ -3711,9 +3649,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(5555, row.ChartNotes);
     }
 
-    /// <summary>未所持表示行のlevel編集は譜面snapshot・entry・数値sort keyへ反映し、画面文字列だけを変更して後続操作を古いlevelにしません。</summary>
+    /// <summary>未所持行の未保存Level入力はdraftだけに留め、譜面・entry・sortへ漏らしません。保存後の数値投影は実SQLiteのDetailEdit_LocalAttributes系列が分担します。</summary>
     [TestMethod]
-    public void PlaylistDetailRow_MissingLevelEditRefreshesChartSnapshot()
+    public void PlaylistDetailRow_MissingLevelDraftKeepsCommittedChartSnapshot()
     {
         var entry = new TestablePlaylistEntry();
         entry.SetTitle("MissingEditableLevel");
@@ -3724,10 +3662,13 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsTrue(GridRowResolver.TryGetChartFile(row, out ChartFile chart));
         Assert.AreSame(row.Chart, chart);
-        Assert.AreEqual("13", chart.LevelText);
-        Assert.AreEqual(13d, chart.Level);
-        Assert.AreEqual(13d, row.Entry.level);
-        Assert.AreEqual(13d, row.EntryLevelSortKey);
+        Assert.AreEqual("13", row.Level);
+        Assert.AreEqual(string.Empty, chart.LevelText);
+        Assert.IsNull(chart.Level);
+        Assert.IsNull(row.Entry.level);
+        Assert.IsNull(row.EntryLevelSortKey);
+        row.EndDraft();
+        Assert.AreEqual(string.Empty, row.Level);
     }
 
     /// <summary>保証：欠損情報の行を数値順から除去せず、同値notesの集合と数値検索の最終2件を保つ。</summary>
@@ -4492,9 +4433,8 @@ public sealed class PlaylistViewPipelineTests
         ChartFile file = ChartTestValues.Empty();
         file = file with { Path = @"C:\BMS\play-history-resolved.bms", Title = "Resolved Play History", RawTitle = "Resolved Play History", Artist = "Artist", RawArtist = "Artist", Md5 = hash, Folder = System.IO.Path.GetDirectoryName(@"C:\BMS\play-history-resolved.bms") };
         file = file with { Sha256 = sha256 };
-        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromCharts([file]);
-        var projectionIndex = PlayHistoryProjectionIndex.Create(
-            resolveIndex,
+        PlayHistoryProjectionIndex projectionIndex = PlayHistoryCatalogTestSupport.Create(
+            [file],
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [hash] = sha256 });
         PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
             new Lr2PlayHistoryReadResult(

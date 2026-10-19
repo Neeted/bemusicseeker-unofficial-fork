@@ -172,6 +172,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private void AttachPlaylistTreeStore(BMSPlaylist nextStore, BMSLibrary nextLibrary)
     {
+        SetDetailEntryCommitStore(nextStore);
         SetPlaylistExternalSyncReceiptSubscription(nextStore, nextLibrary);
         bool changed = MutatePlaylistTreeAfterInvalidatingHydrationReceipt(
             () => !ReferenceEquals(playlistTreeStore, nextStore)
@@ -522,19 +523,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             playlistDetailSelection = playlistDetailSelection.WithFolderName(rewrittenFolder);
             playlistDetailSelectionRevision++;
-            return true;
-        }
-    }
-
-    internal bool MarkCurrentPlaylistDetailEntriesChanged(BMSTable table, string reason)
-    {
-        lock (playlistDetailSelectionSyncRoot)
-        {
-            if (playlistDetailSelection?.Table != table)
-            {
-                return false;
-            }
-            IncrementDetailContentRevision(reason);
             return true;
         }
     }

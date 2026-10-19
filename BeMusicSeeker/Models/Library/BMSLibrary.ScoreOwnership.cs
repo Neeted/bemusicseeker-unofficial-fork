@@ -5,8 +5,26 @@ using System.Linq;
 
 namespace BeMusicSeeker.Models;
 
-/// <summary>スコアの変更版と、変更した既存索引のキーを通知します。</summary>
-internal sealed record ScoreSnapshotChange(int Version, IReadOnlyList<string> Md5Keys, IReadOnlyList<string> Sha256Keys);
+/// <summary>score正本で確定した変更範囲と実キーです。全score値の不変snapshotではなく、表示の反映済み位置を進める結果です。</summary>
+internal sealed record ScoreSnapshotChange
+{
+    /// <summary>確定前後の既存版と対象キーを固定します。空キーでも確定版の位置を保持します。</summary>
+    internal ScoreSnapshotChange(int baseVersion, int version, IReadOnlyList<string> md5Keys, IReadOnlyList<string> sha256Keys)
+    {
+        BaseVersion = baseVersion;
+        Version = version;
+        Md5Keys = Array.AsReadOnly((md5Keys ?? []).ToArray());
+        Sha256Keys = Array.AsReadOnly((sha256Keys ?? []).ToArray());
+    }
+    /// <summary>この変更の直前まで確定したscore版です。</summary>
+    internal int BaseVersion { get; }
+    /// <summary>このキー集合を反映して覆えるscore版です。</summary>
+    internal int Version { get; }
+    /// <summary>変更・削除・全lookup置換で影響するMD5です。</summary>
+    internal IReadOnlyList<string> Md5Keys { get; }
+    /// <summary>変更・削除・全lookup置換で影響するSHA-256です。</summary>
+    internal IReadOnlyList<string> Sha256Keys { get; }
+}
 
 public partial class BMSLibrary
 {
@@ -20,8 +38,8 @@ public partial class BMSLibrary
         internal string[] Sha256Keys { get; } = sha256Keys;
     }
 
-    /// <summary>スコア正本の変更を、保存行や譜面ごとの購読を経由せず通知します。</summary>
-    internal event Action<ScoreSnapshotChange> ScoreSnapshotChanged;
+    /// <summary>scoreの実lookup・列挙・複写地点を観測します。callbackはscoreへ再入せず、状態を保持しません。</summary>
+    internal Action<string> ScoreSnapshotWorkObserver { get; set; }
 
     /// <summary>ライブラリが現在所有するスコアの購読数です。</summary>
     internal int ScoreSubscriptionCount
@@ -29,51 +47,50 @@ public partial class BMSLibrary
         get { lock (scoreSubscriptionGate) { return scoreSubscriptions.Count; } }
     }
 
-    private void ReplaceScoreSubscriptions(ScoreSnapshot snapshot)
+    private void ReplaceScoreSubscriptionsUnsafe(ScoreSnapshot snapshot)
     {
-        lock (scoreSubscriptionGate)
+        DetachScoreSubscriptionsUnsafe();
+        if (IsShutdownRequested || snapshot == null)
         {
-            DetachScoreSubscriptionsUnsafe();
-            if (IsShutdownRequested || snapshot == null)
+            return;
+        }
+        var md5Keys = new Dictionary<BMSScore, List<string>>();
+        var sha256Keys = new Dictionary<BMSScore, List<string>>();
+        foreach ((string key, BMSScore score) in snapshot.ScoresByHash)
+        {
+            ScoreSnapshotWorkObserver?.Invoke("score_subscription_key_enumerated");
+            if (!md5Keys.TryGetValue(score, out List<string> keys))
             {
-                return;
+                md5Keys[score] = keys = [];
             }
-            var md5Keys = new Dictionary<BMSScore, List<string>>();
-            var sha256Keys = new Dictionary<BMSScore, List<string>>();
-            foreach ((string key, BMSScore score) in snapshot.ScoresByHash)
+            keys.Add(key);
+        }
+        foreach ((string key, BMSScore score) in snapshot.ScoresBySha256)
+        {
+            ScoreSnapshotWorkObserver?.Invoke("score_subscription_key_enumerated");
+            if (!sha256Keys.TryGetValue(score, out List<string> keys))
             {
-                if (!md5Keys.TryGetValue(score, out List<string> keys))
-                {
-                    md5Keys[score] = keys = [];
-                }
-                keys.Add(key);
+                sha256Keys[score] = keys = [];
             }
-            foreach ((string key, BMSScore score) in snapshot.ScoresBySha256)
-            {
-                if (!sha256Keys.TryGetValue(score, out List<string> keys))
-                {
-                    sha256Keys[score] = keys = [];
-                }
-                keys.Add(key);
-            }
-            foreach (BMSScore score in md5Keys.Keys.Concat(sha256Keys.Keys).Distinct())
-            {
-                PropertyChangedEventHandler handler = (_, _) => PublishOwnedScoreChange(score);
-                var subscription = new ScoreSubscription(handler,
-                    md5Keys.TryGetValue(score, out List<string> md5) ? [.. md5] : [],
-                    sha256Keys.TryGetValue(score, out List<string> sha256) ? [.. sha256] : []);
-                scoreSubscriptions.Add(score, subscription);
-                score.PropertyChanged += handler;
-            }
+            keys.Add(key);
+        }
+        foreach (BMSScore score in md5Keys.Keys.Concat(sha256Keys.Keys).Distinct())
+        {
+            PropertyChangedEventHandler handler = (_, _) => PublishOwnedScoreChange(score);
+            var subscription = new ScoreSubscription(handler,
+                md5Keys.TryGetValue(score, out List<string> md5) ? [.. md5] : [],
+                sha256Keys.TryGetValue(score, out List<string> sha256) ? [.. sha256] : []);
+            scoreSubscriptions.Add(score, subscription);
+            score.PropertyChanged += handler;
         }
     }
 
     /// <summary>現在実体の変更版を先に採用し、版と変更キーの純通知を互いの通常失敗から分離します。</summary>
     private void PublishOwnedScoreChange(BMSScore score)
     {
-        ScoreSnapshotChange change;
         lock (scoreSubscriptionGate)
         {
+            ScoreSnapshotWorkObserver?.Invoke("score_subscription_lookup");
             if (IsShutdownRequested || !scoreSubscriptions.TryGetValue(score, out ScoreSubscription subscription))
             {
                 return;
@@ -86,6 +103,7 @@ public partial class BMSLibrary
                 {
                     return;
                 }
+                int baseVersion = current.Version;
                 version = ++scoreSnapshotVersion;
                 scoreSnapshot = new ScoreSnapshot
                 {
@@ -101,11 +119,11 @@ public partial class BMSLibrary
                     LoadFailureMessage = current.LoadFailureMessage,
                     SourceGeneration = current.SourceGeneration
                 };
+                normalLibraryRefreshPublisher.Register(new ScoreSnapshotChange(baseVersion, version, subscription.Md5Keys, subscription.Sha256Keys));
             }
-            change = new ScoreSnapshotChange(version, subscription.Md5Keys, subscription.Sha256Keys);
         }
         TryInvokePostLeaseNotification(() => RaisePropertyChanged(nameof(ScoreSnapshotVersion)), "score_snapshot_version_notification_failed");
-        TryInvokePostLeaseNotification(() => ScoreSnapshotChanged?.Invoke(change), "score_snapshot_change_notification_failed");
+        TryInvokePostLeaseNotification(() => RaisePropertyChanged(nameof(NormalLibraryRefreshNotificationVersion)), "score_snapshot_change_notification_failed");
     }
 
     private void DetachScoreSubscriptions()

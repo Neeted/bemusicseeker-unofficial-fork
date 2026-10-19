@@ -15,18 +15,15 @@ internal enum RegularChartFolderFilterKind
 
 internal sealed class RegularNormalLibraryTreeFilter
 {
-    private RegularNormalLibraryTreeFilter(RegularChartFolderFilterKind kind, string term, string identity)
+    private RegularNormalLibraryTreeFilter(RegularChartFolderFilterKind kind, string term)
     {
         Kind = kind;
         Term = term ?? string.Empty;
-        Identity = identity ?? string.Empty;
     }
 
     internal RegularChartFolderFilterKind Kind { get; }
 
     internal string Term { get; }
-
-    internal string Identity { get; }
 
     internal static RegularNormalLibraryTreeFilter Create(RegularChartFolderFilterKind kind, string filterKey)
     {
@@ -38,9 +35,9 @@ internal sealed class RegularNormalLibraryTreeFilter
         if (kind == RegularChartFolderFilterKind.Directory)
         {
             string directoryTerm = EnsureTrailingDirectorySeparator(filterKey);
-            return new RegularNormalLibraryTreeFilter(kind, directoryTerm, "directory:" + directoryTerm);
+            return new RegularNormalLibraryTreeFilter(kind, directoryTerm);
         }
-        return new RegularNormalLibraryTreeFilter(kind, filterKey, "artist:" + filterKey);
+        return new RegularNormalLibraryTreeFilter(kind, filterKey);
     }
 
     internal bool Matches(ChartListSourceRow row)

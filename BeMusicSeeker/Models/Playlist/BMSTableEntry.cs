@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -549,6 +551,59 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         snapshot.parent = null;
         snapshot.Org_md5 = [.. Org_md5 ?? []];
         return snapshot;
+    }
+
+    /// <summary>現在の entry の表示・解決値を不変値へ捕捉します。所属表の reader または writer 内で呼びます。</summary>
+    internal PlaylistEntryValue CaptureValue() => new(md5, sha256, level, title, artist,
+        folder, lr2_bmsid, Url, Url_diff, EffectiveUrl, EffectiveUrlDiff, name_diff,
+        comment, memo, adddate, is_removed, org_md5);
+
+    /// <summary>writer 内の現在値から作った候補へ、一つの draft 属性だけを適用します。</summary>
+    internal void ApplyEditDraft(string propertyName, string text)
+    {
+        switch (propertyName)
+        {
+            case "Level":
+            case nameof(level):
+                if (string.IsNullOrWhiteSpace(text)) { level = null; }
+                else
+                {
+                    Match match = numParseRegex.Match(text.Trim());
+                    if (match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Float,
+                            CultureInfo.InvariantCulture, out double number)) { level = number; }
+                }
+                break;
+            case nameof(Url):
+            case nameof(Url_diff):
+                if (!Uri.TryCreate(text, UriKind.Absolute, out Uri uri))
+                {
+                    throw new UriFormatException("Playlist edit requires an absolute URI.");
+                }
+                if (propertyName == nameof(Url)) { Url = uri; } else { Url_diff = uri; }
+                break;
+            case nameof(comment): comment = text; break;
+            case nameof(memo): memo = text; break;
+            default: throw new ArgumentOutOfRangeException(nameof(propertyName));
+        }
+    }
+
+    /// <summary>同じ writer 内で DB 確定した候補の、保存操作が所有する値だけを現行 entry へ適用します。</summary>
+    internal void ApplyCommittedEdit(BMSTableEntry candidate)
+    {
+        level = candidate.level;
+        comment = candidate.comment;
+        memo = candidate.memo;
+        _md5 = candidate._md5;
+        _sha256 = candidate._sha256;
+        playlistHashIdentityKind = candidate.playlistHashIdentityKind;
+        deferredOrgMd5Raw = candidate.deferredOrgMd5Raw;
+        _orgMd5 = candidate._orgMd5;
+        deferredUrlRaw = candidate.deferredUrlRaw;
+        deferredUrlDiffRaw = candidate.deferredUrlDiffRaw;
+        _url = candidate._url;
+        _urlDiff = candidate._urlDiff;
+        runtimeUrlCompletion = candidate.runtimeUrlCompletion;
+        runtimeUrlDiffCompletion = candidate.runtimeUrlDiffCompletion;
     }
 
     /// <summary>

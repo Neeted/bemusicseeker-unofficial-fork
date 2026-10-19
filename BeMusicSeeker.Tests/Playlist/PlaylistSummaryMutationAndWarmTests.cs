@@ -93,12 +93,12 @@ public sealed class PlaylistSummaryMutationAndWarmTests
             Assert.AreEqual("built", first.Status);
             Assert.AreEqual(1, first.Md5Count);
             Assert.AreEqual(1, first.Sha256Count);
-            Assert.AreEqual(library.OwnedCollectionVersion, first.OwnedCollectionVersion);
-            Assert.IsTrue(first.OwnedCollectionVersion > 0);
+            Assert.AreEqual(library.CatalogRevision, first.CatalogRevision);
+            Assert.IsTrue(first.CatalogRevision > 0);
             Assert.AreEqual("cached", second.Status);
             Assert.AreEqual(first.SnapshotVersion, second.SnapshotVersion);
             Assert.AreEqual(first.InvalidationVersion, second.InvalidationVersion);
-            Assert.AreEqual(first.OwnedCollectionVersion, second.OwnedCollectionVersion);
+            Assert.AreEqual(first.CatalogRevision, second.CatalogRevision);
 
             library.BmsCharts =
             [
@@ -111,8 +111,8 @@ public sealed class PlaylistSummaryMutationAndWarmTests
             Assert.AreEqual("built", third.Status);
             Assert.IsTrue(third.SnapshotVersion > second.SnapshotVersion);
             Assert.IsTrue(third.InvalidationVersion > second.InvalidationVersion);
-            Assert.AreEqual(library.OwnedCollectionVersion, third.OwnedCollectionVersion);
-            Assert.IsTrue(third.OwnedCollectionVersion > second.OwnedCollectionVersion);
+            Assert.AreEqual(library.CatalogRevision, third.CatalogRevision);
+            Assert.IsTrue(third.CatalogRevision > second.CatalogRevision);
             Assert.AreEqual(third.SnapshotVersion, snapshot.Version);
             CollectionAssert.DoesNotContain(new List<string>(snapshot.Md5Hashes), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             CollectionAssert.Contains(new List<string>(snapshot.Md5Hashes), "cccccccccccccccccccccccccccccccc");

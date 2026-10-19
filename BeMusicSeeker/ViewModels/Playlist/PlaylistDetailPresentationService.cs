@@ -106,6 +106,7 @@ internal static class PlaylistDetailPresentationService
         return viewRows;
     }
 
+    /// <summary>初回または明示条件変更の全範囲を評価し、確定identityと局所順序観測先を仮想表示へ接続します。</summary>
     internal static PlaylistDetailVirtualView ApplyVirtualViewFromSource(
         IReadOnlyList<PlaylistDetailSourceRow> sourceRows,
         string keywordFilter,
@@ -117,10 +118,12 @@ internal static class PlaylistDetailPresentationService
         out long keywordStageMs,
         out long modeStageMs,
         out long sortStageMs,
-        out long viewMaterializeMs)
+        out long viewMaterializeMs,
+        bool onlyNotOwned = false, System.Action<string> observeWork = null, PlaylistRequestIdentity? identity = null)
     {
+        IReadOnlyList<PlaylistDetailSourceRow> visibleInput = onlyNotOwned ? [.. sourceRows.Where(row => !row.IsOwned)] : sourceRows;
         List<PlaylistDetailSourceRow> sortedSourceRows = ApplySourceRows(
-            sourceRows,
+            visibleInput,
             keywordFilter,
             modeFilter,
             sortParameters,
@@ -133,7 +136,7 @@ internal static class PlaylistDetailPresentationService
         var stageStopwatch = Stopwatch.StartNew();
         var viewRows = new PlaylistDetailVirtualView(
             sortedSourceRows,
-            CountDistinctFolders(sortedSourceRows));
+            CountDistinctFolders(sortedSourceRows), observeWork, identity);
         viewMaterializeMs = stageStopwatch.ElapsedMilliseconds;
         return viewRows;
     }

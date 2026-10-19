@@ -3821,8 +3821,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     Assert.IsTrue(updatedInstalled.ContainsPrimaryHash(secondInstalled.Md5));
                     Assert.IsTrue(updatedPlaylist.ContainsCandidate(ChartFileKind.Bms, firstDestinationPath));
                     Assert.IsTrue(updatedPlaylist.ContainsCandidate(ChartFileKind.Bms, secondDestinationPath));
-                    Assert.AreEqual(firstInstalled.Mode, updatedPlaylist.ResolveChartSnapshot(LibraryChartRef.FromChartFile(firstInstalled)).Mode);
-                    Assert.AreEqual(firstInstalled.Level, updatedPlaylist.ResolveChartSnapshot(LibraryChartRef.FromChartFile(firstInstalled)).Level);
+                    Assert.AreEqual(firstInstalled.Mode, library.CaptureCatalogReadSnapshot([LibraryChartRef.FromChartFile(firstInstalled)]).Resolve(LibraryChartRef.FromChartFile(firstInstalled)).Mode);
+                    Assert.AreEqual(firstInstalled.Level, library.CaptureCatalogReadSnapshot([LibraryChartRef.FromChartFile(firstInstalled)]).Resolve(LibraryChartRef.FromChartFile(firstInstalled)).Level);
 
                     if (stepIndex == 0)
                     {

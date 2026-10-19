@@ -267,6 +267,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         cancellationToken.ThrowIfCancellationRequested();
         OwnedChartHashIndexVersionedSnapshot ownedHashSnapshot = library?.GetOwnedChartHashIndexSnapshot(cancellationToken);
+        summaryOwnedHashContentVersion = ownedHashSnapshot?.Version;
         List<BMSTable> tablesSnapshot = [];
         if (playlists != null)
         {

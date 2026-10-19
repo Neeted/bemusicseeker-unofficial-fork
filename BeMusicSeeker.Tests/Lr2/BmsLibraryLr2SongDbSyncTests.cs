@@ -1939,7 +1939,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         {
             if (!string.Equals(
                     args.PropertyName,
-                    nameof(BMSLibrary.OwnedCollectionVersion),
+                    nameof(BMSLibrary.CatalogRevision),
                     StringComparison.Ordinal))
             {
                 return;
@@ -2597,20 +2597,20 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             };
             var synchronizationOwner =
                 (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
-            int initialOwnedCollectionVersion = library.OwnedCollectionVersion;
+            int initialCatalogRevision = library.CatalogRevision;
             int observedNotificationVersion = 0;
             bool mutationLeaseWasAvailable = false;
             System.ComponentModel.PropertyChangedEventHandler notificationObserver = (_, args) =>
             {
                 if (!string.Equals(
                         args.PropertyName,
-                        nameof(BMSLibrary.OwnedCollectionVersion),
+                        nameof(BMSLibrary.CatalogRevision),
                         StringComparison.Ordinal))
                 {
                     return;
                 }
 
-                observedNotificationVersion = library.OwnedCollectionVersion;
+                observedNotificationVersion = library.CatalogRevision;
                 using LibraryFileMutationLease reentryLease = synchronizationOwner.TryBeginMutation(
                     "test_reload_committed_receipt_post_lease_reentry",
                     showMessage: false);
@@ -2627,8 +2627,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 library.PropertyChanged -= notificationObserver;
             }
 
-            Assert.AreEqual(initialOwnedCollectionVersion + 1, library.OwnedCollectionVersion);
-            Assert.AreEqual(library.OwnedCollectionVersion, observedNotificationVersion);
+            Assert.AreEqual(initialCatalogRevision + 1, library.CatalogRevision);
+            Assert.AreEqual(library.CatalogRevision, observedNotificationVersion);
             Assert.IsTrue(mutationLeaseWasAvailable);
 
             // The native LR2 grouped scan is intentionally unavailable in this fixture.

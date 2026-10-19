@@ -684,37 +684,44 @@ internal sealed class Lr2SynchronizationProjectionPort : ILr2SynchronizationProj
                 .Where(file => file != null && !string.IsNullOrWhiteSpace(file.Path))
                 .GroupBy(file => file.Path, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-            foreach (ResourceHealthMaintenanceSnapshot sourceInfo in infoList)
+            storageRowsOwner.Commit(state =>
             {
-                if (!bmsByPath.TryGetValue(sourceInfo.Path, out ChartFile file)
-                    || file == null
-                    || (!string.IsNullOrWhiteSpace(sourceInfo.Hash)
-                        && !string.Equals(sourceInfo.Hash, file.Md5, StringComparison.OrdinalIgnoreCase)))
+                foreach (ResourceHealthMaintenanceSnapshot sourceInfo in infoList)
                 {
-                    continue;
-                }
+                    if (!bmsByPath.TryGetValue(sourceInfo.Path, out ChartFile file)
+                        || file == null
+                        || (!string.IsNullOrWhiteSpace(sourceInfo.Hash)
+                            && !string.Equals(sourceInfo.Hash, file.Md5, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        continue;
+                    }
 
-                ResourceHealthMaintenanceSnapshot targetInfo = file.ResourceHealthMaintenanceSnapshot;
-                targetInfo ??= new ResourceHealthMaintenanceSnapshot { Path = file.Path, Hash = file.Md5 };
-                ResourceHealthMaintenanceSnapshot next = targetInfo with
-                {
-                    Lr2WarningFlags = sourceInfo.Lr2WarningFlags,
-                    Lr2ResourceMaxRelativeCp932Bytes = sourceInfo.Lr2ResourceMaxRelativeCp932Bytes,
-                    Lr2ResourceHasParentTraversal = sourceInfo.Lr2ResourceHasParentTraversal,
-                    Origin = MaintenanceInfoOrigin.Calculated
-                };
-                if (next == targetInfo)
-                {
-                    continue;
-                }
+                    file = state.ResolveCurrentChart(LibraryChartRef.FromChartFile(file));
+                    if (file == null)
+                    {
+                        continue;
+                    }
 
-                lock (storageRowsOwner.Gate)
-                {
-                    storageRowsOwner.Collection.ApplyCurrentChartValue(ChartFileProjection.WithMaintenance(file, next));
-                }
+                    ResourceHealthMaintenanceSnapshot targetInfo = file.ResourceHealthMaintenanceSnapshot;
+                    targetInfo ??= new ResourceHealthMaintenanceSnapshot { Path = file.Path, Hash = file.Md5 };
+                    ResourceHealthMaintenanceSnapshot next = targetInfo with
+                    {
+                        Lr2WarningFlags = sourceInfo.Lr2WarningFlags,
+                        Lr2ResourceMaxRelativeCp932Bytes = sourceInfo.Lr2ResourceMaxRelativeCp932Bytes,
+                        Lr2ResourceHasParentTraversal = sourceInfo.Lr2ResourceHasParentTraversal,
+                        Origin = MaintenanceInfoOrigin.Calculated
+                    };
+                    if (next == targetInfo)
+                    {
+                        continue;
+                    }
 
-                applied++;
-            }
+                    if (state.ApplyCurrentChartValue(ChartFileProjection.WithMaintenance(file, next)) == CatalogCurrentValueApplyResult.Changed)
+                    {
+                        applied++;
+                    }
+                }
+            });
         }
 
         if (logSummary)

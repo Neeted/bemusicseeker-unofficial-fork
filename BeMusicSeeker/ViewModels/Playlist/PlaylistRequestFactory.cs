@@ -59,21 +59,21 @@ internal static class PlaylistRequestFactory
     }
 
     /// <summary>
-    /// Creates the normalized identity used to coalesce and reuse playlist build requests.
+    /// 詳細要求の合流とsource再利用に使う、選択・条件・必要な確定位置を正規化します。
     /// </summary>
-    /// <param name="table">Playlist table selected by the current tree node.</param>
-    /// <param name="selectionScope">Semantic source scope represented by the selection.</param>
-    /// <param name="folderName">Playlist folder name selected by the current tree node.</param>
-    /// <param name="filterType">Playlist filter type selected by the current tree node.</param>
-    /// <param name="keywordFilter">Keyword filter text.</param>
-    /// <param name="modeFilter">BMS mode filter.</param>
-    /// <param name="sortParameters">Current sort parameters.</param>
-    /// <param name="libraryIndexVersion">Library resolve-index version used by the source build.</param>
-    /// <param name="playlistRevision">Playlist revision used by the source build.</param>
-    /// <param name="scoreSnapshotVersion">Score snapshot version used by the source build.</param>
-    /// <param name="chartInfoIndexVersion">Chart-info index version used by the source build.</param>
-    /// <param name="hasResolvedSelection">Whether the selected playlist source was resolved.</param>
-    /// <returns>Normalized playlist request identity.</returns>
+    /// <param name="table">選択した表。</param>
+    /// <param name="selectionScope">元集合の選択範囲。</param>
+    /// <param name="folderName">選択した実folder名。rootはnull。</param>
+    /// <param name="filterType">詳細filter種別。</param>
+    /// <param name="keywordFilter">検索条件。</param>
+    /// <param name="modeFilter">譜面mode条件。</param>
+    /// <param name="sortParameters">表示順条件。</param>
+    /// <param name="libraryIndexVersion">必要なカタログ確定版。</param>
+    /// <param name="playlistRevision">必要な表entry確定版。</param>
+    /// <param name="scoreSnapshotVersion">要求では必要なscore確定位置、採用済み入力では元集合全体の反映済み位置。</param>
+    /// <param name="chartInfoIndexVersion">必要な詳細解析版。</param>
+    /// <param name="hasResolvedSelection">解決済み選択の有無。</param>
+    /// <returns>正規化した詳細要求の識別。</returns>
     internal static PlaylistRequestIdentity CreateIdentity(
         BMSTable table,
         PlaylistDetailSelectionScope selectionScope,

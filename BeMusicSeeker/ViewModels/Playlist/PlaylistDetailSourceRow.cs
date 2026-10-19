@@ -1,8 +1,6 @@
 using System;
-using System.Globalization;
 using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -15,7 +13,6 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal sealed class PlaylistDetailSourceRow
 {
-    private static readonly Regex levelParseRegex = new("([+-]?\\d+(\\.\\d*)?|\\.\\d+)", RegexOptions.Compiled);
 
     /// <summary>
     /// プレイリストエントリ本体です。
@@ -23,6 +20,20 @@ internal sealed class PlaylistDetailSourceRow
     internal BMSTableEntry Entry { get; }
 
     private readonly ChartFile resolvedChartSnapshot;
+    private ResourceHealthWarningProjection resourceHealthProjection;
+    private bool hasResourceHealthProjection;
+
+    /// <summary>reader または確定結果から受け取った entry 値です。Entry は識別にだけ使います。</summary>
+    internal PlaylistEntryValue EntryValue { get; private set; }
+    /// <summary>表 owner が確定した基準順です。</summary>
+    internal long EntryOrder { get; private set; }
+    /// <summary>投影前の所持 current です。</summary>
+    internal ChartFile OwnedCurrent => resolvedChartSnapshot;
+    /// <summary>候補再解決の依存キーです。MD5 がある場合は SHA-256 へ広げません。</summary>
+    internal PlaylistEntryLookupKey LookupKey => !string.IsNullOrWhiteSpace(EntryValue.Md5)
+        ? new(PlaylistEntryLookupKeyKind.Md5, EntryValue.Md5)
+        : new(PlaylistEntryLookupKeyKind.Sha256, EntryValue.Sha256);
+
 
     private readonly Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider;
 
@@ -53,13 +64,13 @@ internal sealed class PlaylistDetailSourceRow
 
     internal bool HasZeroNoteMismatchWarning { get; }
 
-    internal bool HasHighlightedWarning { get; }
+    internal bool HasHighlightedWarning => ChartWarningProjectionFormatter.HasHighlightedWarning(Chart, resourceHealthProjection, hasResourceHealthProjection);
 
-    internal string DisplayWarning { get; }
+    internal string DisplayWarning => ChartWarningProjectionFormatter.BuildDisplayText(Chart, resourceHealthProjection, hasResourceHealthProjection);
 
-    internal string WarningDigestText { get; }
+    internal string WarningDigestText => FirstNonEmpty(ChartWarningProjectionFormatter.BuildDigestText(Chart, resourceHealthProjection, hasResourceHealthProjection), DisplayWarning);
 
-    internal string WarningTooltipText { get; }
+    internal string WarningTooltipText => FirstNonEmpty(ChartWarningProjectionFormatter.BuildTooltipText(Chart, resourceHealthProjection, hasResourceHealthProjection), DisplayWarning);
 
     internal string comment { get; private set; }
 
@@ -129,7 +140,7 @@ internal sealed class PlaylistDetailSourceRow
 
     internal BeMusicSeeker.Models.ChartDetails EntryChartInfo { get; private set; }
 
-    internal BeMusicSeeker.Models.ChartDetails ChartInfo => ResolveChartInfoProjection();
+    internal BeMusicSeeker.Models.ChartDetails ChartInfo => Chart?.ChartInfo ?? EntryChartInfo;
 
     internal bool HasEntryChartInfoDependency => resolvedChartSnapshot == null
         || string.IsNullOrWhiteSpace(resolvedChartSnapshot.Path);
@@ -218,10 +229,14 @@ internal sealed class PlaylistDetailSourceRow
         Func<ChartFile, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null,
         Func<ChartFile, BeMusicSeeker.Models.ChartDetails> chartInfoProjectionProvider = null,
-        LibraryChartRef resolvedChartRef = null)
+        LibraryChartRef resolvedChartRef = null,
+        PlaylistEntryValue entryValue = null,
+        long entryOrder = 0)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         resolvedChartSnapshot = resolvedChart;
+        EntryValue = entryValue ?? entry.CaptureValue();
+        EntryOrder = entryOrder;
         EntryChartInfo = entryChartInfo;
         this.chartTransientStateProvider = chartTransientStateProvider;
         this.chartInfoProjectionProvider = chartInfoProjectionProvider;
@@ -233,28 +248,24 @@ internal sealed class PlaylistDetailSourceRow
             Chart = ChartFileProjection.WithScore(chart, effectiveScoreSnapshot);
             chart = Chart;
         }
-        Title = FirstNonEmpty(chart?.Title, entry.title);
-        Artist = FirstNonEmpty(chart?.Artist, entry.artist);
+        Title = FirstNonEmpty(chart?.Title, EntryValue.Title);
+        Artist = FirstNonEmpty(chart?.Artist, EntryValue.Artist);
         genre = FirstNonEmpty(chart?.Genre);
         mode = chart?.Mode;
         tag = chart?.Tag ?? string.Empty;
-        Url = entry.EffectiveUrl;
-        Url_diff = entry.EffectiveUrlDiff;
-        name_diff = entry.name_diff ?? string.Empty;
-        comment = entry.comment ?? string.Empty;
-        memo = entry.memo ?? string.Empty;
-        hash = FirstNonEmpty(chart?.Md5, entry.md5);
-        sha256 = FirstNonEmpty(chart?.Sha256, entry.sha256, entryChartInfo?.sha256);
-        Folder = FirstNonEmpty(entry.folder, chart?.Folder);
+        Url = EntryValue.EffectiveUrl;
+        Url_diff = EntryValue.EffectiveUrlDiff;
+        name_diff = EntryValue.NameDiff ?? string.Empty;
+        comment = EntryValue.Comment ?? string.Empty;
+        memo = EntryValue.Memo ?? string.Empty;
+        hash = FirstNonEmpty(chart?.Md5, EntryValue.Md5);
+        sha256 = FirstNonEmpty(chart?.Sha256, EntryValue.Sha256, entryChartInfo?.sha256);
+        Folder = FirstNonEmpty(EntryValue.Folder, chart?.Folder);
         path = FirstNonEmpty(chart?.Path);
         PlaylistReferenceDisplay playlistReferenceDisplay = playlistReferenceDisplayProvider != null
             ? playlistReferenceDisplayProvider.Invoke(Chart) ?? PlaylistReferenceDisplay.Empty
             : PlaylistReferenceDisplay.Empty;
         HasZeroNoteMismatchWarning = Chart?.Warnings?.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch) ?? false;
-        HasHighlightedWarning = HasProjectedWarning(Chart);
-        DisplayWarning = ChartWarningProjectionFormatter.BuildDisplayText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false);
-        WarningDigestText = FirstNonEmpty(ChartWarningProjectionFormatter.BuildDigestText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), DisplayWarning);
-        WarningTooltipText = FirstNonEmpty(ChartWarningProjectionFormatter.BuildTooltipText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), DisplayWarning);
         instl_dst = Chart?.InstallDestination ?? string.Empty;
         InstallDestinationTitle = Chart?.InstallDestinationTitle ?? string.Empty;
         InstallDestinationArtist = Chart?.InstallDestinationArtist ?? string.Empty;
@@ -275,9 +286,9 @@ internal sealed class PlaylistDetailSourceRow
         rankingLastupdate = effectiveScoreSnapshot.RankingLastUpdate;
         stddevVal = effectiveScoreSnapshot.StdDevVal;
         scoreDifficulty = effectiveScoreSnapshot.ScoreDifficulty;
-        lr2_bmsid = entry.lr2_bmsid ?? string.Empty;
-        EntryLevelSortKey = entry.level;
-        Level = BuildLevelText(entry, Chart);
+        lr2_bmsid = EntryValue.Lr2BmsId ?? string.Empty;
+        EntryLevelSortKey = EntryValue.Level;
+        Level = EntryValue.Level?.ToString() ?? Chart?.LevelText ?? string.Empty;
         SearchText = BuildSearchText();
     }
 
@@ -299,7 +310,7 @@ internal sealed class PlaylistDetailSourceRow
     private void SetScoreSnapshot(BMSScore scoreSnapshot)
     {
         effectiveScoreSnapshot = ResolveEffectiveScore(Chart, scoreSnapshot);
-        Chart = CreateChartFileWithEffectiveScore();
+        Chart = ChartFileProjection.WithScore(Chart, effectiveScoreSnapshot);
         clear = effectiveScoreSnapshot.Clear;
         rank = effectiveScoreSnapshot.Rank;
         rate = effectiveScoreSnapshot.Rate;
@@ -343,35 +354,18 @@ internal sealed class PlaylistDetailSourceRow
     /// <summary>UI表示用の行を生成し、再生状態の読取り口へ接続します。</summary>
     internal PlaylistDetailRow CreateViewRow()
     {
-        Chart = CreateChartFileWithEffectiveScore();
         var row = new PlaylistDetailRow(this);
         row.SetPlaybackStatusProvider(PlaybackStatusProvider);
         return row;
     }
 
-    /// <summary>
-    /// 編集済み view row の値で editable snapshot を更新します。
-    /// 再 sort/filter 時の再生成元となるため、playlist row の durable 保存成功後に同期します。
-    /// </summary>
-    /// <param name="editedRow">編集済み row。</param>
-    internal void SynchronizeEditableSnapshot(PlaylistDetailRow editedRow)
+    /// <summary>専門 owner の捕捉済み警告を共通 formatter へ接続します。</summary>
+    internal PlaylistDetailSourceRow WithResourceHealthProjection(ResourceHealthWarningProjection projection)
     {
-        if (editedRow == null)
-        {
-            throw new ArgumentNullException(nameof(editedRow));
-        }
-        if (!ReferenceEquals(Entry, editedRow.Entry))
-        {
-            throw new InvalidOperationException("PlaylistDetailSourceRow entry mismatch.");
-        }
-        Level = editedRow.Level ?? string.Empty;
-        Url = editedRow.Url;
-        Url_diff = editedRow.Url_diff;
-        comment = editedRow.comment ?? string.Empty;
-        memo = editedRow.memo ?? string.Empty;
-        EntryLevelSortKey = ResolveEntryLevelSortKey(editedRow.Level, Entry.level, editedRow.EntryLevelSortKey);
-        Chart = CreateChartFileWithEffectiveScore();
-        SearchText = BuildSearchText();
+        var next = (PlaylistDetailSourceRow)MemberwiseClone();
+        next.resourceHealthProjection = projection ?? ResourceHealthWarningProjection.Empty;
+        next.hasResourceHealthProjection = true;
+        return next;
     }
 
     private ChartFile CreateChartFile()
@@ -386,35 +380,16 @@ internal sealed class PlaylistDetailSourceRow
         }
         return ChartFileProjection.FromBmsMetadata(
             path,
-            FirstNonEmpty(hash, Entry?.md5),
-            FirstNonEmpty(sha256, Entry?.sha256, EntryChartInfo?.sha256),
-            FirstNonEmpty(Title, Entry?.title),
-            FirstNonEmpty(Artist, Entry?.artist),
+            FirstNonEmpty(hash, EntryValue?.Md5),
+            FirstNonEmpty(sha256, EntryValue?.Sha256, EntryChartInfo?.sha256),
+            FirstNonEmpty(Title, EntryValue?.Title),
+            FirstNonEmpty(Artist, EntryValue?.Artist),
             genre,
-            FirstNonEmpty(Folder, Entry?.folder),
+            FirstNonEmpty(Folder, EntryValue?.Folder),
             tag,
-            Entry?.level,
+            EntryValue?.Level,
             mode,
             EntryChartInfo);
-    }
-
-    private ChartFile CreateChartFileWithEffectiveScore()
-    {
-        ChartFile chart = CreateChartFile();
-        return !ReferenceEquals(effectiveScoreSnapshot, chart?.Score)
-            ? ChartFileProjection.WithScore(chart, effectiveScoreSnapshot)
-            : chart;
-    }
-
-    private BeMusicSeeker.Models.ChartDetails ResolveChartInfoProjection()
-    {
-        if (resolvedChartSnapshot != null)
-        {
-            return ResolveChartInfoFromProvider(resolvedChartSnapshot)
-                ?? resolvedChartSnapshot.ChartInfo
-                ?? EntryChartInfo;
-        }
-        return EntryChartInfo;
     }
 
     private ChartFile ApplyChartInfoProjection(ChartFile chart, ChartFile identitySource)
@@ -449,50 +424,10 @@ internal sealed class PlaylistDetailSourceRow
             : chart?.Score ?? ChartScoreSnapshot.MissingChart;
     }
 
-    private static bool HasProjectedWarning(ChartFile chart)
-    {
-        return ChartWarningProjectionFormatter.HasHighlightedWarning(chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false);
-    }
-
     private static bool HasOwnedChart(ChartFile chart)
     {
         return !string.IsNullOrWhiteSpace(chart?.Path)
             && !string.IsNullOrWhiteSpace(chart?.Md5);
-    }
-
-    private static string BuildLevelText(BMSTableEntry entry, ChartFile chart)
-    {
-        if (entry?.level != null)
-        {
-            return entry.level.ToString();
-        }
-        return chart?.LevelText ?? string.Empty;
-    }
-
-    private static double? ResolveEntryLevelSortKey(string levelText, double? entryLevel, double? rowSortKey)
-    {
-        if (entryLevel.HasValue)
-        {
-            return entryLevel;
-        }
-        if (rowSortKey.HasValue)
-        {
-            return rowSortKey;
-        }
-        if (string.IsNullOrWhiteSpace(levelText))
-        {
-            return null;
-        }
-        Match match = levelParseRegex.Match(levelText.Trim());
-        if (!match.Success)
-        {
-            return null;
-        }
-        if (double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsedLevel))
-        {
-            return parsedLevel;
-        }
-        return null;
     }
 
     private static string FirstNonEmpty(params string[] candidates)

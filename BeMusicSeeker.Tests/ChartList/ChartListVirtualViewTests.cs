@@ -2182,7 +2182,8 @@ public sealed class ChartListVirtualViewTests
             return MaterializeSourceRow(row);
         });
 
-        Assert.AreEqual("directory:folder-z" + Path.DirectorySeparatorChar, folderFilter.Identity);
+        Assert.AreEqual(RegularChartFolderFilterKind.Directory, folderFilter.Kind);
+        Assert.AreEqual("folder-z" + Path.DirectorySeparatorChar, folderFilter.Term);
         CollectionAssert.AreEqual(new[] { "Bravo", "Delta", "Echo" }, filteredIndexes.Select(index => sourceRows[index].Title).ToArray());
         Assert.AreEqual(3, folderCount);
         Assert.AreEqual(3, keywordCount);
@@ -2194,24 +2195,6 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual("Bravo", ((LibraryChartRow)view[0]).Title);
         Assert.AreEqual(1, view.RealizedRowCount);
         Assert.AreEqual(1, createdCount);
-    }
-
-    /// <summary>末尾区切りを正規化した同じfolder条件は要求世代が変わっても同じfilter identityとし、不必要なcache分離を検出します。</summary>
-    [TestMethod]
-    public void VirtualNormalLibraryFilterIdentity_UsesStableFolderFilterIdentity()
-    {
-        string folderIdentity = RegularNormalLibraryTreeFilter.Create(
-            RegularChartFolderFilterKind.Directory,
-            @"D:\BMS\1 EVENT").Identity;
-        string sameFolderIdentity = RegularNormalLibraryTreeFilter.Create(
-            RegularChartFolderFilterKind.Directory,
-            @"D:\BMS\1 EVENT\").Identity;
-
-        string identity = RegularChartListOwner.CreateVirtualNormalLibraryFilterIdentity(folderIdentity, string.Empty, ChartModeFilter.All, 1, 1);
-        string sameIdentity = RegularChartListOwner.CreateVirtualNormalLibraryFilterIdentity(sameFolderIdentity, string.Empty, ChartModeFilter.All, 9, 9);
-
-        Assert.AreEqual(folderIdentity, sameFolderIdentity);
-        Assert.AreEqual(identity, sameIdentity);
     }
 
     /// <summary>artist keywordと複数modeの部分一覧を元path降順と件数のまま絞り、必要行だけを生成することを確認します。</summary>

@@ -269,6 +269,51 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
+    /// <summary>直接の重複警告writerが追加・解除した同receiptを全排他解放後に配送し、通知先失敗でも確定値を維持する。</summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public void SearchDuplicateChartGroups_PublishesCommittedWarningsAfterLocksRelease(bool clearWarning, bool notificationFails)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            ChartFile first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", @"C:\BMS\DirA\a.bms");
+            if (clearWarning)
+            {
+                first = first with { Warnings = [ChartWarning.Create(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile)] };
+            }
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            {
+                BmsCharts = clearWarning ? [first] : [first, CreateFile(first.Md5, @"C:\BMS\DirB\b.bms")]
+            };
+            CatalogChartCollectionSnapshot before = library.CaptureNormalLibraryChartSnapshot();
+            int handled = library.NormalLibraryRefreshNotificationVersion;
+            var delivered = new List<CatalogCommitReceipt>();
+            bool locksReleased = true;
+            library.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName != nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion)) { return; }
+                locksReleased &= !library.IsWriteLockHeldInitializeMin && !library.IsWriteLockHeldInitializeBMSFiles
+                    && !library.IsWriteLockHeldDuplicateChartGroups;
+                delivered.AddRange(library.GetNormalLibraryRefreshNotificationsAfter(handled).CatalogCommits);
+                if (notificationFails) { throw new InvalidOperationException("notification failed after commit"); }
+            };
+            library.SearchDuplicateChartGroups();
+            Assert.IsTrue(locksReleased);
+            Assert.AreEqual(1, delivered.Count);
+            CatalogCommitReceipt receipt = delivered[0];
+            Assert.AreEqual(before.CatalogRevision + 1, receipt.Revision);
+            Assert.AreEqual(library.CatalogRevision, receipt.Revision);
+            Assert.AreEqual(clearWarning, before.BmsRows[0].Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
+            Assert.AreEqual(!clearWarning, receipt.Snapshot.BmsRows[0].Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
+            Assert.AreSame(library.BmsCharts[0], receipt.Snapshot.BmsRows[0]);
+            library.SearchDuplicateChartGroups();
+            Assert.AreEqual(1, delivered.Count);
+            Assert.AreEqual(receipt.Revision, library.CatalogRevision);
+        });
+    }
+
     /// <summary>
     /// BMSとBMSONの重複を検索後にBMSONを除くと、再検索で群と警告を解除し、失効後の古い重複表示を検出します。
     /// </summary>
@@ -1161,7 +1206,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             int ownedCollectionPublicationCount = 0;
             library.PropertyChanged += (_, args) =>
             {
-                if (args.PropertyName == nameof(BMSLibrary.OwnedCollectionVersion))
+                if (args.PropertyName == nameof(BMSLibrary.CatalogRevision))
                 {
                     ownedCollectionPublicationCount++;
                 }
@@ -1252,7 +1297,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 int normalRefreshPublicationCount = 0;
                 library.PropertyChanged += (_, args) =>
                 {
-                    if (args.PropertyName == nameof(BMSLibrary.OwnedCollectionVersion))
+                    if (args.PropertyName == nameof(BMSLibrary.CatalogRevision))
                     {
                         ownedCollectionPublicationCount++;
                     }
@@ -1939,7 +1984,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             int ownedCollectionPublicationCount = 0;
             library.PropertyChanged += (_, args) =>
             {
-                if (args.PropertyName == nameof(BMSLibrary.OwnedCollectionVersion))
+                if (args.PropertyName == nameof(BMSLibrary.CatalogRevision))
                 {
                     ownedCollectionPublicationCount++;
                 }

@@ -166,28 +166,8 @@ internal sealed class CatalogMutationOwner
             using (maintenanceWriteGate.GetWriterGuard())
             {
                 dbGateway.UpdateSongModes(files);
-                lock (ownedCollectionOwner.Gate)
-                {
-                    foreach (ChartFile chart in files)
-                    {
-                        ChartFile current = ownedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart));
-                        if (current?.Token == null || !ReferenceEquals(current.Token, chart.Token))
-                        {
-                            continue;
-                        }
-                        ChartFile next = current with { Mode = chart.Mode };
-                        bool valueChanged = current.Mode != next.Mode;
-                        if (valueChanged && ownedCollectionOwner.Collection.ApplyCurrentChartValue(next))
-                        {
-                            changed.Add(next);
-                        }
-                    }
-                    if (changed.Count > 0)
-                    {
-                        ownedCollectionOwner.IncrementVersion();
-                        ownedCollectionOwner.RebaseHashIndexSnapshot();
-                    }
-                }
+                CatalogCommitReceipt commit = ownedCollectionOwner.CommitCurrentValues(files, (current, chart) => current with { Mode = chart.Mode });
+                changed.AddRange(commit.Changes.Where(change => change.After != null).Select(change => change.After));
             }
         }
         catch (Exception exception)
@@ -225,28 +205,8 @@ internal sealed class CatalogMutationOwner
             using (maintenanceWriteGate.GetWriterGuard())
             {
                 dbGateway.UpdateSongLevels(files);
-                lock (ownedCollectionOwner.Gate)
-                {
-                    foreach (ChartFile chart in files)
-                    {
-                        ChartFile current = ownedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart));
-                        if (current?.Token == null || !ReferenceEquals(current.Token, chart.Token))
-                        {
-                            continue;
-                        }
-                        ChartFile next = current with { Level = chart.Level, LevelText = chart.LevelText };
-                        bool valueChanged = current.Level != next.Level || current.LevelText != next.LevelText;
-                        if (valueChanged && ownedCollectionOwner.Collection.ApplyCurrentChartValue(next))
-                        {
-                            changed.Add(next);
-                        }
-                    }
-                    if (changed.Count > 0)
-                    {
-                        ownedCollectionOwner.IncrementVersion();
-                        ownedCollectionOwner.RebaseHashIndexSnapshot();
-                    }
-                }
+                CatalogCommitReceipt commit = ownedCollectionOwner.CommitCurrentValues(files, (current, chart) => current with { Level = chart.Level, LevelText = chart.LevelText });
+                changed.AddRange(commit.Changes.Where(change => change.After != null).Select(change => change.After));
             }
         }
         catch (Exception exception)
@@ -756,28 +716,27 @@ internal sealed class CatalogMutationOwner
                 CatalogChartMutationFact.CreateRemovalFacts(removalRequest?.RemoveRequests);
             bool ownedCollectionChanged = removedChartFacts.Count > 0
                 || pathFacts.Count > 0;
-            bool ownedCollectionApplied = ownedCollectionOwner.ApplyMutation(removalRequest?.RemoveRequests, [.. relocationRequest.BmsPathReplacements.Select(value => new LibraryChartPathChange { Chart = value.Song, OldPath = value.OldPath, NewPath = value.Song.Path })
+            CatalogCommitReceipt commit = ownedCollectionOwner.ApplyMutation(removalRequest?.RemoveRequests, [.. relocationRequest.BmsPathReplacements.Select(value => new LibraryChartPathChange { Chart = value.Song, OldPath = value.OldPath, NewPath = value.Song.Path })
                     .Concat(relocationRequest.BmsonPathReplacements.Select(value => new LibraryChartPathChange { Chart = value.Song, OldPath = value.OldPath, NewPath = value.Song.Path }))], out bool bmsonCanonicalOrderNormalized);
-            int ownedCollectionVersion = ownedCollectionChanged
-                ? ownedCollectionOwner.IncrementVersion()
-                : ownedCollectionOwner.OwnedCollectionVersion;
+            int catalogRevision = ownedCollectionOwner.CatalogRevision;
             return new CatalogMutationReceipt(
                 applied: true,
-                new OwnedChartCollectionVersionSnapshot(storageRowsVersion.OwnedCollectionVersion, ownedCollectionVersion),
+                new OwnedChartCollectionVersionSnapshot(storageRowsVersion.CatalogRevision, catalogRevision),
                 dbResult.FolderDbMs,
                 dbResult.BmsPathDbMs,
                 dbResult.BmsonPathDbMs,
                 dbResult.BmsRemovalDbMs,
                 dbResult.BmsonRemovalDbMs,
                 liveApplyMs,
-                ownedCollectionApplied,
-                 ownedCollectionVersion,
+                commit.HasChanges,
+                 catalogRevision,
                  [],
                  pathFacts,
                  removalRequest?.RemoveRequests,
                  bmsonCanonicalOrderNormalized,
                  dbResult.FolderDbTargetRows,
-                 dbResult.FolderDbFullScanCount);
+                 dbResult.FolderDbFullScanCount,
+                 ownedCollectionOwner.Collection.CapturePathMembershipIndex(), commit);
         }
     }
 
@@ -879,17 +838,15 @@ internal sealed class CatalogMutationOwner
             {
                 ownedCollectionOwner.Invalidate();
             }
-            int ownedCollectionVersion = applied
-                ? ownedCollectionOwner.IncrementVersion()
-                : ownedCollectionOwner.OwnedCollectionVersion;
+            int catalogRevision = ownedCollectionOwner.CatalogRevision;
             OwnedChartCollectionVersionSnapshot currentVersions = ownedCollectionOwner.CaptureVersionSnapshot();
             return new CatalogStorageRowsReplacementReceipt(
                 applied,
                 request.BmsRowsChanged,
                 request.BmsonRowsChanged,
                 ownedCollectionInvalidated: applied,
-                new OwnedChartCollectionVersionSnapshot(previousVersions.OwnedCollectionVersion, currentVersions.OwnedCollectionVersion),
-                ownedCollectionVersion);
+                new OwnedChartCollectionVersionSnapshot(previousVersions.CatalogRevision, currentVersions.CatalogRevision),
+                catalogRevision);
         }
     }
 
@@ -947,17 +904,15 @@ internal sealed class CatalogMutationOwner
             }
             // The receipt is captured at this commit boundary; post-lease
             // publication must observe this version without advancing again.
-            int ownedCollectionVersion = request.HasDbDiff
-                ? ownedCollectionOwner.IncrementVersion()
-                : ownedCollectionOwner.OwnedCollectionVersion;
+            int catalogRevision = ownedCollectionOwner.CatalogRevision;
             OwnedChartCollectionVersionSnapshot versions = new(
-                previousVersions.OwnedCollectionVersion,
-                ownedCollectionVersion);
+                previousVersions.CatalogRevision,
+                catalogRevision);
             return new CatalogFileScanStorageReplacementReceipt(
                 applied: request.HasDbDiff,
                 ownedCollectionApplied: request.HasDbDiff,
                 versions,
-                ownedCollectionVersion,
+                catalogRevision,
                 filterSummary,
                 request.AddedCharts,
                 request.RemovedCharts,
@@ -1046,7 +1001,7 @@ internal sealed class CatalogMutationOwner
     }
 
     /// <summary>immutable requestを適用します。</summary>
-    /// <param name="request">事前にversionとrowを固定したrequest。</param>
+    /// <param name="request">対象pathの識別・digestと保存予定値を固定した要求。</param>
     /// <param name="onValidationPassed">DB validation通過時に一度だけ呼ぶcallback。</param>
     /// <returns>DB・storage・owned collectionの確定receipt。</returns>
     internal CatalogInstalledTargetUpsertReceipt ApplyInstalledTargetUpsert(
@@ -1119,8 +1074,13 @@ internal sealed class CatalogMutationOwner
         IEnumerable<string> installPathsToDelete = null,
         IEnumerable<ChartPackage> installRowsToUpsert = null)
     {
-        OwnedChartCollectionVersionSnapshot currentVersions = ownedCollectionOwner.CaptureVersionSnapshot();
-        return new CatalogInstalledTargetUpsertRequest(targets, currentVersions.OwnedCollectionVersion, installPathsToDelete, installRowsToUpsert);
+        var beforeByPath = new Dictionary<string, LibraryChartRef>(StringComparer.Ordinal);
+        foreach (ChartFile target in targets.Charts)
+        {
+            beforeByPath[target.Path] = LibraryChartRef.FromChartFile(ownedCollectionOwner.Collection.ResolveCurrentChart(
+                LibraryChartRef.FromPath(target.Kind, target.Path, null, null)));
+        }
+        return new CatalogInstalledTargetUpsertRequest(targets, beforeByPath, installPathsToDelete, installRowsToUpsert);
     }
 
     private CatalogInstalledTargetUpsertRequest CreateInstalledTargetUpsertRequestUnsafe(
@@ -1128,8 +1088,8 @@ internal sealed class CatalogMutationOwner
         IEnumerable<ChartFile> bmsonRows,
         IEnumerable<string> installPathsToDelete = null)
     {
-        OwnedChartCollectionVersionSnapshot currentVersions = ownedCollectionOwner.CaptureVersionSnapshot();
-        return new CatalogInstalledTargetUpsertRequest(ChartStorageTargetSet.FromCharts((bmsRows ?? []).Concat(bmsonRows ?? [])), currentVersions.OwnedCollectionVersion, installPathsToDelete);
+        return CreateInstalledTargetUpsertRequestUnsafe(
+            ChartStorageTargetSet.FromCharts((bmsRows ?? []).Concat(bmsonRows ?? [])), installPathsToDelete);
     }
 
     private CatalogInstalledTargetUpsertReceipt ApplyInstalledTargetUpsertUnsafe(
@@ -1137,10 +1097,17 @@ internal sealed class CatalogMutationOwner
         Action onValidationPassed = null,
         Action<CatalogWriteFailureFact> captureFailureFact = null)
     {
-        OwnedChartCollectionVersionSnapshot currentVersions = ownedCollectionOwner.CaptureVersionSnapshot();
-        if (currentVersions.OwnedCollectionVersion != request.PreviousOwnedCollectionVersion)
+        foreach (ChartFile target in request.Targets.Charts)
         {
-            throw new InvalidOperationException("Catalog storage rows changed before installed target upsert.");
+            LibraryChartRef before = request.BeforeByPath[target.Path];
+            ChartFile current = ownedCollectionOwner.Collection.ResolveCurrentChart(
+                LibraryChartRef.FromPath(target.Kind, target.Path, null, null));
+            if (before?.Token != current?.Token
+                || !string.Equals(before?.Md5, current?.Md5, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(before?.Sha256, current?.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Catalog target changed before installed target upsert.");
+            }
         }
 
         ChartStorageTargetSet targets = request.Targets;
@@ -1216,17 +1183,15 @@ internal sealed class CatalogMutationOwner
         {
             ownedCollectionApplied = ownedCollectionOwner.ApplyCommittedChartUpsert(targets.Charts, out bmsonCanonicalOrderNormalized);
         }
-        int ownedCollectionVersion = ownedCollectionApplied
-            ? ownedCollectionOwner.IncrementVersion()
-            : ownedCollectionOwner.OwnedCollectionVersion;
+        int catalogRevision = ownedCollectionOwner.CatalogRevision;
         return new CatalogInstalledTargetUpsertReceipt(
             applied: targets.BmsCharts.Count > 0
                 || targets.BmsonCharts.Count > 0
                 || hasInstallRowDeletion
                 || hasInstallRowUpsert,
             ownedCollectionApplied,
-            new OwnedChartCollectionVersionSnapshot(versions.OwnedCollectionVersion, ownedCollectionVersion),
-            ownedCollectionVersion,
+            new OwnedChartCollectionVersionSnapshot(versions.CatalogRevision, catalogRevision),
+            catalogRevision,
             request.AddedCharts,
             installRowDeleted: hasInstallRowDeletion,
             bmsonCanonicalOrderNormalized: bmsonCanonicalOrderNormalized);
@@ -1253,7 +1218,7 @@ internal sealed class CatalogMutationOwner
                 applied: request.DigestChanges.Count > 0,
                 ownedCollectionApplied,
                 ownedCollectionOwner.CaptureVersionSnapshot(),
-                ownedCollectionOwner.OwnedCollectionVersion,
+                ownedCollectionOwner.CatalogRevision,
                 request.DigestChanges);
         }
     }
@@ -1382,7 +1347,7 @@ internal sealed class CatalogStorageRowsReplacementReceipt
             bmsonRowsChanged: false,
             ownedCollectionInvalidated: false,
             default,
-            ownedCollectionVersion: 0);
+            catalogRevision: 0);
 
     internal CatalogStorageRowsReplacementReceipt(
         bool applied,
@@ -1390,7 +1355,7 @@ internal sealed class CatalogStorageRowsReplacementReceipt
         bool bmsonRowsChanged,
         bool ownedCollectionInvalidated,
         OwnedChartCollectionVersionSnapshot storageRowsVersion,
-        int ownedCollectionVersion)
+        int catalogRevision)
     {
         Applied = applied;
         Kind = applied
@@ -1400,7 +1365,7 @@ internal sealed class CatalogStorageRowsReplacementReceipt
         BmsonRowsChanged = bmsonRowsChanged;
         OwnedCollectionInvalidated = ownedCollectionInvalidated;
         StorageRowsVersion = storageRowsVersion;
-        OwnedCollectionVersion = ownedCollectionVersion;
+        CatalogRevision = catalogRevision;
     }
 
     internal bool Applied { get; }
@@ -1415,7 +1380,7 @@ internal sealed class CatalogStorageRowsReplacementReceipt
 
     internal OwnedChartCollectionVersionSnapshot StorageRowsVersion { get; }
 
-    internal int OwnedCollectionVersion { get; }
+    internal int CatalogRevision { get; }
 }
 
 /// <summary>
@@ -1427,15 +1392,16 @@ internal sealed class CatalogInstalledTargetUpsertRequest
     /// 確定destinationを持つtargetをrequestへ固定します。
     /// </summary>
     /// <param name="targets">確定先とdetachedな共通値を保持する導入対象。</param>
-    /// <param name="previousOwnedCollectionVersion">要求作成時の共通集合版。</param>
+    /// <param name="beforeByPath">要求作成時の対象完全一致pathごとの所持識別とdigest。不在はnull。</param>
     /// <param name="installPathsToDelete">同じtransactionで削除するpending install rowのpath。</param>
     /// <param name="installRowsToUpsert">同じtransactionでupsertするpending install row。</param>
-    internal CatalogInstalledTargetUpsertRequest(ChartStorageTargetSet targets, int previousOwnedCollectionVersion, IEnumerable<string> installPathsToDelete = null, IEnumerable<ChartPackage> installRowsToUpsert = null)
+    internal CatalogInstalledTargetUpsertRequest(ChartStorageTargetSet targets, IReadOnlyDictionary<string, LibraryChartRef> beforeByPath, IEnumerable<string> installPathsToDelete = null, IEnumerable<ChartPackage> installRowsToUpsert = null)
     {
         Targets = targets ?? ChartStorageTargetSet.FromCharts([]);
         BmsCharts = Targets.BmsCharts;
         BmsonCharts = Targets.BmsonCharts;
-        PreviousOwnedCollectionVersion = previousOwnedCollectionVersion;
+        BeforeByPath = new System.Collections.ObjectModel.ReadOnlyDictionary<string, LibraryChartRef>(
+            new Dictionary<string, LibraryChartRef>(beforeByPath, StringComparer.Ordinal));
 
         InstallPathsToDelete = SnapshotInstallPaths(installPathsToDelete);
         InstallRowsToUpsert = SnapshotInstallRows(installRowsToUpsert);
@@ -1449,7 +1415,8 @@ internal sealed class CatalogInstalledTargetUpsertRequest
 
     internal IReadOnlyList<ChartFile> BmsonCharts { get; }
 
-    internal int PreviousOwnedCollectionVersion { get; }
+    /// <summary>導入対象の実入力だけを再検査する捕捉値。無関係な現在値更新は拒否条件にしません。</summary>
+    internal IReadOnlyDictionary<string, LibraryChartRef> BeforeByPath { get; }
 
 
     /// <summary>installed target upsert と同じ transaction で削除する pending install row path。</summary>
@@ -1493,7 +1460,7 @@ internal sealed class CatalogInstalledTargetUpsertReceipt
             applied: false,
             ownedCollectionApplied: false,
             default,
-            ownedCollectionVersion: 0,
+            catalogRevision: 0,
             [],
             bmsonCanonicalOrderNormalized: false);
 
@@ -1501,7 +1468,7 @@ internal sealed class CatalogInstalledTargetUpsertReceipt
         bool applied,
         bool ownedCollectionApplied,
         OwnedChartCollectionVersionSnapshot storageRowsVersion,
-        int ownedCollectionVersion,
+        int catalogRevision,
         IEnumerable<CatalogChartMutationFact> addedCharts,
         bool installRowDeleted = false,
         bool bmsonCanonicalOrderNormalized = false)
@@ -1512,7 +1479,7 @@ internal sealed class CatalogInstalledTargetUpsertReceipt
             : CatalogMutationApplyKind.NoOp;
         OwnedCollectionApplied = ownedCollectionApplied;
         StorageRowsVersion = storageRowsVersion;
-        OwnedCollectionVersion = ownedCollectionVersion;
+        CatalogRevision = catalogRevision;
         AddedCharts = Array.AsReadOnly([.. addedCharts ?? []]);
         InstallRowDeleted = installRowDeleted;
         BmsonCanonicalOrderNormalized = bmsonCanonicalOrderNormalized;
@@ -1526,7 +1493,7 @@ internal sealed class CatalogInstalledTargetUpsertReceipt
 
     internal OwnedChartCollectionVersionSnapshot StorageRowsVersion { get; }
 
-    internal int OwnedCollectionVersion { get; }
+    internal int CatalogRevision { get; }
 
     internal IReadOnlyList<CatalogChartMutationFact> AddedCharts { get; }
 
@@ -1561,14 +1528,14 @@ internal sealed class CatalogDigestMutationReceipt
             applied: false,
             ownedCollectionApplied: false,
             default,
-            ownedCollectionVersion: 0,
+            catalogRevision: 0,
             []);
 
     internal CatalogDigestMutationReceipt(
         bool applied,
         bool ownedCollectionApplied,
         OwnedChartCollectionVersionSnapshot storageRowsVersion,
-        int ownedCollectionVersion,
+        int catalogRevision,
         IEnumerable<LibraryChartDigestChange> digestChanges)
     {
         Applied = applied;
@@ -1577,7 +1544,7 @@ internal sealed class CatalogDigestMutationReceipt
             : CatalogMutationApplyKind.NoOp;
         OwnedCollectionApplied = ownedCollectionApplied;
         StorageRowsVersion = storageRowsVersion;
-        OwnedCollectionVersion = ownedCollectionVersion;
+        CatalogRevision = catalogRevision;
         DigestChanges = Array.AsReadOnly([.. digestChanges ?? []]);
     }
 
@@ -1589,7 +1556,7 @@ internal sealed class CatalogDigestMutationReceipt
 
     internal OwnedChartCollectionVersionSnapshot StorageRowsVersion { get; }
 
-    internal int OwnedCollectionVersion { get; }
+    internal int CatalogRevision { get; }
 
     internal IReadOnlyList<LibraryChartDigestChange> DigestChanges { get; }
 }
@@ -1658,7 +1625,7 @@ internal sealed class CatalogFileScanStorageReplacementReceipt
             applied: false,
             ownedCollectionApplied: false,
             default,
-            ownedCollectionVersion: 0,
+            catalogRevision: 0,
             new OwnedChartStorageRowFilterSummary(0, 0, 0, 0, 0, 0),
             [],
             [],
@@ -1668,7 +1635,7 @@ internal sealed class CatalogFileScanStorageReplacementReceipt
         bool applied,
         bool ownedCollectionApplied,
         OwnedChartCollectionVersionSnapshot versions,
-        int ownedCollectionVersion,
+        int catalogRevision,
         OwnedChartStorageRowFilterSummary filterSummary,
         IEnumerable<CatalogChartMutationFact> addedCharts,
         IEnumerable<ChartFile> removedCharts,
@@ -1680,7 +1647,7 @@ internal sealed class CatalogFileScanStorageReplacementReceipt
             : CatalogMutationApplyKind.NoOp;
         OwnedCollectionApplied = ownedCollectionApplied;
         StorageRowsVersion = versions;
-        OwnedCollectionVersion = ownedCollectionVersion;
+        CatalogRevision = catalogRevision;
         FilterSummary = filterSummary;
         AddedCharts = SnapshotFacts(addedCharts);
         RemovedCharts = CreateFacts(removedCharts);
@@ -1698,7 +1665,7 @@ internal sealed class CatalogFileScanStorageReplacementReceipt
     /// <summary>
     /// 差分走査の共通現在値適用時点で確定した集合版です。
     /// </summary>
-    internal int OwnedCollectionVersion { get; }
+    internal int CatalogRevision { get; }
 
     internal OwnedChartStorageRowFilterSummary FilterSummary { get; }
 

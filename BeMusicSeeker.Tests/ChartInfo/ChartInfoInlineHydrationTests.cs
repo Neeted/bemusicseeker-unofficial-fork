@@ -24,6 +24,63 @@ public sealed class ChartInfoInlineHydrationTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>初回補完後のhealth変更は全体候補検索をせず、digest欠損一件の再補完は背景16/128件に関係なく対象だけを取得・投影する。</summary>
+    [DataTestMethod]
+    [DataRow(16)]
+    [DataRow(128)]
+    public void WarmBackfill_UsesChangedInputTokensInsteadOfGlobalCatalogRevision(int backgroundCount)
+    {
+        WithTemporarySongDb((root, songDbPath) =>
+        {
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var observer = new BackfillInputWorkObserver();
+            var rows = new CatalogOwnedCollectionOwner(observer);
+            var charts = new List<ChartFile>();
+            for (int index = 0; index < backgroundCount; index++)
+            {
+                string path = Path.Combine(root, $"input-{index}.bms");
+                File.WriteAllText(path, $"#PLAYER 1\r\n#TITLE input {index}\r\n#PLAYLEVEL 9\r\n#BPM 130\r\n#00111:01\r\n", Encoding.ASCII);
+                charts.Add(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)) with { Sha256 = string.Empty });
+            }
+            gateway.UpsertSongs(charts);
+            gateway.EnsureChartInfoBackfillSchema();
+            rows.ReplaceCharts(charts, []);
+            var logs = new List<string>();
+            var owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, logs.Add);
+            owner.ConfigureWorkflow(gateway, new CatalogMutationOwner(rows, gateway), rows, _ => { }, _ => { });
+            owner.QueueBackfill("initial", processSynchronously: true);
+            ChartFile first = rows.BmsRows[0];
+            Assert.IsFalse(string.IsNullOrWhiteSpace(first.Sha256));
+            Assert.IsNotNull(owner.ResolveChartInfo(first.Sha256, first.Md5));
+            rows.CommitCurrentValues([first], (current, _) => current with { WAVHealth = 0 });
+            observer.Reset();
+            owner.QueueBackfill("health", processSynchronously: true);
+            Assert.AreEqual(0, observer.EntriesVisited);
+            Assert.AreEqual(0, owner.ChartInfoBackfillTotalCount);
+
+            rows.CommitCurrentValues([first], (current, _) => current with { Sha256 = string.Empty });
+            observer.Reset();
+            logs.Clear();
+            owner.QueueBackfill("one-input", processSynchronously: true);
+            Assert.IsTrue(observer.EntriesVisited < 16, $"背景{backgroundCount}件で{observer.EntriesVisited}件を取得しました。");
+            Assert.AreEqual(1, owner.ChartInfoBackfillTotalCount);
+            Assert.IsFalse(logs.Any(message => message.StartsWith("chart_info_backfill candidate_summary_start", StringComparison.Ordinal)));
+            Assert.AreEqual(first.Sha256, rows.BmsRows[0].Sha256);
+            Assert.IsFalse(owner.ChartInfoBackfillRunning);
+            Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+        });
+    }
+
+    private sealed class BackfillInputWorkObserver : ICatalogStorageSequenceWorkObserver
+    {
+        internal int EntriesVisited { get; private set; }
+        internal void Reset() => EntriesVisited = 0;
+        public void ObserveAccess() { }
+        public void ObserveEnumeration() { }
+        public void ObserveEntryVisit() => EntriesVisited++;
+        public void ObserveMaterialization(int count) { }
+    }
+
     /// <summary>候補取得前と受付後保存前のDB準備故障を隠さず、未採用のDB・現在値と実Taskの失敗を保持する。</summary>
     /// <remarks>既存gatewayの接続factoryで候補取得または受付後の最初のDB準備だけを失敗させる。同じSQLiteの後続接続、要求終端と次の明示要求を確認する。</remarks>
     [DataTestMethod]
@@ -175,7 +232,7 @@ public sealed class ChartInfoInlineHydrationTests
             var owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { });
             owner.ConfigureWorkflow(gateway, new CatalogMutationOwner(rows, gateway), rows, _ => { }, _ => { },
                 beginDigestMutationWindow: () => new TestMutationWindow(() => windowReleased = true),
-                prepareDigestPublication: (_, _) => throw new InvalidOperationException("digest preparation fault"));
+                prepareDigestPublication: (_, _, _) => throw new InvalidOperationException("digest preparation fault"));
             var operation = Task.Run(() => owner.QueueBackfill("publication_failure", processSynchronously: true));
             try
             {
@@ -1526,7 +1583,7 @@ public sealed class ChartInfoInlineHydrationTests
                     Assert.IsTrue(library.ChartInfoIndexVersion > 0);
                     Assert.IsNotNull(library.ResolveChartInfo(library.BmsCharts.Single().Sha256, library.BmsCharts.Single().Md5));
                 }
-                else if (args.PropertyName == nameof(BMSLibrary.OwnedCollectionVersion))
+                else if (args.PropertyName == nameof(BMSLibrary.CatalogRevision))
                 {
                     publicationOrder.Add("digest_effects");
                     Assert.IsNotNull(library.ResolveChartInfo(library.BmsCharts.Single().Sha256, library.BmsCharts.Single().Md5));
@@ -1616,7 +1673,7 @@ public sealed class ChartInfoInlineHydrationTests
                 try
                 {
                     ChartFile captured = library.BmsCharts.Single();
-                    int initialOwnedVersion = library.OwnedCollectionVersion;
+                    int initialOwnedVersion = library.CatalogRevision;
                     InvokeDeferredChartInfoHydration(library, "unit_test_missing", queueFullBackfillAfterHydration: true);
 
                     await TestUiDispatcherHost.AwaitNotificationAsync(
@@ -1629,7 +1686,7 @@ public sealed class ChartInfoInlineHydrationTests
                     Assert.AreEqual(13, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
                     Assert.AreEqual(13, library.BmsCharts.Single().Level);
                     Assert.AreSame(captured.Token, library.BmsCharts.Single().Token);
-                    Assert.AreEqual(initialOwnedVersion + 1, library.OwnedCollectionVersion);
+                    Assert.AreEqual(initialOwnedVersion + 1, library.CatalogRevision);
                     Assert.IsNull(file.Level);
                 }
                 catch (Exception exception)

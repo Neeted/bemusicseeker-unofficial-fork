@@ -13,26 +13,26 @@ internal sealed class Lr2NormalFolderCatalogMutationReceipt
     /// <summary>
     /// catalog mutation の結果と、捕捉済み current BMS facts を receipt として固定します。
     /// </summary>
-    /// <param name="ownedCollectionVersion">facts と対応する owned collection 世代。</param>
+    /// <param name="catalogRevision">facts と対応する owned collection 世代。</param>
     /// <param name="addedBmsChartPaths">追加された BMS の exact path。</param>
     /// <param name="removedBmsChartPaths">削除された BMS の exact path。</param>
     /// <param name="pathChanges">移動前後の BMS path facts。</param>
     /// <param name="currentBmsFacts">捕捉済み current BMS の局所 facts。</param>
     internal Lr2NormalFolderCatalogMutationReceipt(
-        int ownedCollectionVersion,
+        int catalogRevision,
         IEnumerable<string> addedBmsChartPaths,
         IEnumerable<string> removedBmsChartPaths,
         IEnumerable<Lr2NormalFolderPathChange> pathChanges,
         Lr2NormalFolderCurrentBmsLookup currentBmsFacts)
     {
-        OwnedCollectionVersion = ownedCollectionVersion;
+        CatalogRevision = catalogRevision;
         AddedBmsChartPaths = SnapshotPaths(addedBmsChartPaths);
         RemovedBmsChartPaths = SnapshotPaths(removedBmsChartPaths);
         PathChanges = Array.AsReadOnly([.. (pathChanges ?? []).Where(change => change != null)]);
         CurrentBmsFacts = currentBmsFacts;
     }
 
-    internal int OwnedCollectionVersion { get; }
+    internal int CatalogRevision { get; }
 
     internal IReadOnlyList<string> AddedBmsChartPaths { get; }
 

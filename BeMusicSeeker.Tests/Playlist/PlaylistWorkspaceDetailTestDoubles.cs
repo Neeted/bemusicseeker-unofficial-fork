@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -24,18 +25,34 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
 
     internal Action? ResolveIndexAction { get; set; }
 
-    public int ChartInfoIndexVersion => 1;
+    internal CancellationToken LastResolveIndexCancellationToken { get; private set; }
+
+    internal int CurrentChartInfoIndexVersion { get; set; } = 1;
+    public int ChartInfoIndexVersion => CurrentChartInfoIndexVersion;
 
     public int ScoreSnapshotVersion => 1;
 
-    internal long? CurrentOwnedCollectionVersion { get; set; }
+    internal long? CurrentCatalogRevision { get; set; }
 
-    public long OwnedCollectionVersion => CurrentOwnedCollectionVersion ?? ResolveIndexSnapshot.OwnedCollectionVersion;
+    public long CatalogRevision => CurrentCatalogRevision ?? ResolveIndexSnapshot.CatalogRevision;
 
     public void EnsureEntriesLoaded(BMSTable table, string reason)
     {
         EnsureEntriesLoadedCallCount++;
         EnsureEntriesLoadedAction?.Invoke();
+    }
+
+    internal CatalogReadSnapshot CatalogSnapshot { get; set; } = new(0, new Dictionary<OwnedChartToken, ChartFile>());
+
+    public CatalogReadSnapshot CapturePlaylistReadSnapshot(IEnumerable<PlaylistEntryLookupKey> keys, CancellationToken cancellationToken)
+    {
+        var resolved = new Dictionary<PlaylistEntryLookupKey, LibraryChartRef>(CatalogReadSnapshot.LookupKeyComparer);
+        foreach (PlaylistEntryLookupKey key in keys)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            resolved[key] = ResolveIndexSnapshot.ResolveChartForPlaylistLookupKey(key);
+        }
+        return new CatalogReadSnapshot((int)CatalogRevision, new Dictionary<OwnedChartToken, ChartFile>(CatalogSnapshot.Charts), resolved);
     }
 
     public BMSLibrary.ScoreSnapshot GetScoreSnapshot()
@@ -49,6 +66,7 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
         out int staleRetryCount)
     {
         ResolveIndexCallCount++;
+        LastResolveIndexCancellationToken = cancellationToken;
         ResolveIndexAction?.Invoke();
         cacheHit = true;
         staleRetryCount = 0;
@@ -70,14 +88,18 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
         ChartFile resolvedChart,
         BMSScore score,
         BeMusicSeeker.Models.ChartDetails chartInfo,
-        LibraryChartRef resolvedChartRef)
+        LibraryChartRef resolvedChartRef,
+        PlaylistEntryValue? entryValue = null,
+        long entryOrder = 0)
     {
         return new PlaylistDetailSourceRow(
             entry,
             resolvedChart,
             scoreSnapshot: score,
             entryChartInfo: chartInfo,
-            resolvedChartRef: resolvedChartRef);
+            resolvedChartRef: resolvedChartRef,
+            entryValue: entryValue,
+            entryOrder: entryOrder);
     }
 }
 

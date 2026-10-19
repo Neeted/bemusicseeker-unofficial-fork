@@ -88,15 +88,15 @@ public sealed class RegularChartNavigationTests
     }
 
 
-    /// <summary>directory・artist・全体への移動でfilter identityとsummary終了要求を配送し、無効種類は通知も条件変更もしないことで、旧条件残留と拒否時の変更を検出します。</summary>
+    /// <summary>directory・artist・全体への移動で検索条件とsummary終了要求を配送し、無効種類は通知も条件変更もしないことで、旧条件残留と拒否時の変更を検出します。</summary>
     [TestMethod]
-    public void NavigateTree_OwnsFilterIdentitySummaryTransitionAndRefreshRequest()
+    public void NavigateTree_OwnsFilterSummaryTransitionAndRefreshRequest()
     {
         PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner();
         using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), workspace);
-        var presentations = new List<(string? FilterIdentity, bool KeywordRefresh, MainViewUpdateMode RefreshMode)>();
+        var presentations = new List<(RegularNormalLibraryTreeFilter? Filter, bool KeywordRefresh, MainViewUpdateMode RefreshMode)>();
         owner.TreeNavigationPresentationRequested += (_, request) => presentations.Add((
-            owner.CaptureTreeFilter(enabled: true)?.Identity,
+            owner.CaptureTreeFilter(enabled: true),
             request.KeywordPresentationRefreshRequired,
             request.RefreshMode));
 
@@ -105,20 +105,22 @@ public sealed class RegularChartNavigationTests
             @"C:\Charts\Folder A"));
         Assert.AreEqual(1, presentations.Count);
         Assert.AreEqual(
-            "directory:" + @"C:\Charts\Folder A" + Path.DirectorySeparatorChar,
-            presentations[0].FilterIdentity);
+            @"C:\Charts\Folder A" + Path.DirectorySeparatorChar,
+            presentations[0].Filter?.Term);
+        Assert.AreEqual(RegularChartFolderFilterKind.Directory, presentations[0].Filter?.Kind);
         Assert.IsFalse(presentations[0].KeywordRefresh);
         Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, presentations[0].RefreshMode);
 
         workspace.SetPlaylistSummaryMode(enabled: true);
         Assert.IsTrue(owner.NavigateTree(RegularChartFolderFilterKind.Artist, "Artist A"));
-        Assert.AreEqual("artist:Artist A", presentations[1].FilterIdentity);
+        Assert.AreEqual("Artist A", presentations[1].Filter?.Term);
+        Assert.AreEqual(RegularChartFolderFilterKind.Artist, presentations[1].Filter?.Kind);
         Assert.IsTrue(presentations[1].KeywordRefresh);
         Assert.IsTrue(workspace.IsPlaylistSummaryMode);
         Assert.IsFalse(workspace.IsPlaylistSummaryModeRequested);
 
         Assert.IsTrue(owner.NavigateTree(filterKind: null));
-        Assert.IsNull(presentations[2].FilterIdentity);
+        Assert.IsNull(presentations[2].Filter);
         Assert.IsTrue(presentations[2].KeywordRefresh);
 
         workspace.SetPlaylistSummaryMode(enabled: true);

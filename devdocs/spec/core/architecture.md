@@ -25,6 +25,8 @@
 | `BeMusicSeeker.Models.Utils` | 走査、パス、ハッシュ、設定等の共通処理。 |
 | `native/EverythingBridge` | Everything SDK 3のx64連携。管理側のコードと同じ配布契約で扱う。 |
 
+所持current・`CatalogRevision`・不変確定結果は `CatalogOwnedCollectionOwner` が同時確定します。候補索引は識別と順序、ResourceHealthは検査事実を所有し、表示・操作用の現在値は同じカタログ捕捉口から取得します。詳しい依存と局所更新は[データと索引](data-and-indexes.md#共通変更と派生索引)に従います。
+
 機能の状態や複数サービスの処理順をルートのViewModelへ戻しません。画面固有処理を隠すだけの転送クラス、可変状態・ロックを外へ並べる巨大な窓口、実行時に依存を探し回る仕組みは追加しません。
 
 #### 責務の接続図

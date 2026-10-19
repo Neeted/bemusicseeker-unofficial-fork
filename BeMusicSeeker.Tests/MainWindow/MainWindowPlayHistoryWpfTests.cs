@@ -769,9 +769,8 @@ public sealed class MainWindowPlayHistoryWpfTests
             ""
         ]));
         file = file with { Md5 = hash, Sha256 = sha256 };
-        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromCharts([file]);
-        var projectionIndex = PlayHistoryProjectionIndex.Create(
-            resolveIndex,
+        PlayHistoryProjectionIndex projectionIndex = PlayHistoryCatalogTestSupport.Create(
+            [file],
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [hash] = sha256 });
         PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
             new Lr2PlayHistoryReadResult(
@@ -810,8 +809,7 @@ public sealed class MainWindowPlayHistoryWpfTests
             Md5 = md5,
             Sha256 = sha256
         };
-        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromCharts([song]);
-        var projectionIndex = PlayHistoryProjectionIndex.Create(resolveIndex);
+        PlayHistoryProjectionIndex projectionIndex = PlayHistoryCatalogTestSupport.Create([song]);
         PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectBeatorajaRows(
             new BeatorajaPlayHistoryReadResult(
                 PlayHistorySourceProfile.Beatoraja("score.db"),

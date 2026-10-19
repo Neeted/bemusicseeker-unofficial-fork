@@ -23,12 +23,12 @@ BMSとBMSONを同じ画面・操作から扱うためのモデルと、形式ご
 | BMSの保存行 | `LR2SongDB.song`。DB入出力の境界だけで生成・読取りを行い、解析・スコア購読・アプリ状態を持ちません。 |
 | BMSONの保存行 | `LR2SongDBExtended.bmson_song`。LR2の `song` へ互換行を作りません。 |
 | 譜面の共通現在値 | 不変の `ChartFile`。形式、実パス、ハッシュ、生メタデータと表示値、必要期間のリソース結果を持ち、保存行へ戻る参照を持ちません。 |
-| 所持譜面集合 | `OwnedChartCollectionState` が共通現在値と索引を持ち、`CatalogOwnedCollectionOwner` が既存の排他・集合版・派生索引を所有します。 |
+| 所持譜面集合 | `OwnedChartCollectionState` が共通現在値と索引を持ち、`CatalogOwnedCollectionOwner` が既存の排他・`CatalogRevision`・不変確定結果・派生索引を所有します。 |
 | 詳細・失敗・保守 | 不変の `ChartDetails`、`ChartParseFailure`、`ResourceHealthMaintenanceSnapshot`。専門管理主体のキャッシュ・最新性・失敗・未計算の契約を維持します。 |
 | パッケージ内の譜面 | 安定した `PackageChartEntry` が現在の `ChartFile` と導入状態を所有し、項目自身を排他境界とします。 |
 | 画面で一時的に重ねる値 | `ChartFileTransientState`。導入先、警告、リソース健全性、文字コードなどの投影で、永続化の正本にはしません。 |
 
-所持カタログを基本譜面情報の正本とします。基本解析は捕捉済みのバイト列・ハッシュ・時刻から直接 `ChartFile` を返します。DB読込みでは境界で一回だけ共通値へ変換し、保存時は不変の変更事実を境界で行へ変換します。共通値から現在値や保存行を引くowner参照、双方向同期、保存行の通知中継を設けません。
+所持カタログを、health・encoding・警告を含む所持現在値の正本とします。基本解析は捕捉済みのバイト列・ハッシュ・時刻から直接 `ChartFile` を返します。DB読込みでは境界で一回だけ共通値へ変換し、保存時は不変の変更事実を境界で行へ変換します。共通値から現在値や保存行を引くowner参照、双方向同期、保存行の通知中継を設けません。
 
 共通値に含める警告と導入先候補も、不変集合へ捕捉し、呼出元の可変リストを保持しません。
 
@@ -174,7 +174,7 @@ UIスレッド上で選択を固定し、機能別の要求へ変換してから
 
 `Resources` のnullは未取得または解放、空集合は解析に成功した0件です。投影・複製・パッケージは同じ不変結果を共有し、getterで読取り、保存主体からの補完、原文の逆引き、再正規化を行いません。基本現在値を投影するコピーでも、リソースはsourceの結果を共有します。コピー側に取得省略の優先分岐を設けず、保存行から初めて軽量基本値を作る入口の取得省略と区別します。基本情報用の解析戻り値は必要期間だけ同じ結果を一時保持します。`ChartResourceSnapshot.Create(ChartFile)` は取得済み結果だけを索引化し、未取得を正常な空結果として扱いません。
 
-保守の既存入口が不足する結果を明示取得し、時刻・ハッシュ・強制更新の既存条件で再評価します。取得・解析に失敗した結果を成功0件として保存しません。BMSの文字コード・修正済み状態をリソース計算で上書きせず、保守はファイル内容のハッシュ更新通知の生成元にしません。文字コードだけの表示変更では集合版を進めません。手動文字コード適用、選択対象・全所持対象の保守で自動判定した生メタデータや合成title・subtitle・artistが実際に変わった場合は、DB確定後に同じtokenの基本現在値を適用し、対象数によらず集合版を一回進めます。既存の基本通知と対象限定playlist差分へ接続し、通常一覧の並べ替え・絞込みも更新します。再読解件数だけでは基本変更と判定せず、同値の強制再評価や保守markerだけの変更では集合版を維持します。使用件数・存在件数と補助画像の明示参照は[リソース健全性](../core/data-and-indexes.md#リソース健全性)、短命な保持と解放は[読取り仕様](chart-file-reading.md#リソース参照と文字コード)に従います。
+保守の既存入口が不足する結果を明示取得し、時刻・ハッシュ・強制更新の既存条件で再評価します。取得・解析に失敗した結果を成功0件として保存しません。BMSの文字コード・修正済み状態をリソース計算で上書きせず、保守はファイル内容のハッシュ更新通知の生成元にしません。health・encoding・警告・検査の由来を含む現在値の実変更を、[共通確定契約](../core/data-and-indexes.md#共通変更と派生索引)で一回確定します。同値再評価では版を進めません。候補索引は識別・digest・順序だけを保持し、通常一覧・playlist・履歴の現在値は同じカタログ読取り境界から捕捉します。使用件数と補助画像の明示参照は[リソース健全性](../core/data-and-indexes.md#リソース健全性)、短命な保持と解放は[読取り仕様](chart-file-reading.md#リソース参照と文字コード)に従います。
 
 リソース参照の `.` は譜面相対のキーへ正規化し、`..` は未対応の親ディレクトリ参照として区別します。通常変更は対象譜面だけの保守を行い、全件対象は明示的な全件検査・索引再構築に限定します。同じ操作で必要な全件対象を二重生成しません。
 
@@ -192,7 +192,7 @@ UIスレッド上で選択を固定し、機能別の要求へ変換してから
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 保守による文字コード基本値の実変更と同値再評価 | [`CatalogMaintenanceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogMaintenanceOwner.cs)、[`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.Common.cs) | [`RegularChartNormalLibraryRefreshTests`](../../../BeMusicSeeker.Tests/ChartList/RegularChartNormalLibraryRefreshTests.cs) の `MaintenanceMetadataChange_ReachesAttachedViewAndWarmPlaylistDeltaOnce` は実選択保守の二対象、DB・同token現在値・集合版一回・基本通知・温めたplaylist差分の局所性・接続済み一覧の絞込みとTitle順・同値再forceを確認する。保守だけの版不変、全所持の保存と通知失敗、手動文字コード適用は [`BmsLibraryMaintenanceServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryMaintenanceServiceTests.cs)、要求とrefreshの順序は [`SelectedChartMutationWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartMutationWorkflowOwnerTests.cs) が分担する。 |
+| 保守による文字コード基本値の実変更と同値再評価 | [`CatalogMaintenanceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogMaintenanceOwner.cs)、[`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.Common.cs) | [`RegularChartNormalLibraryRefreshTests`](../../../BeMusicSeeker.Tests/ChartList/RegularChartNormalLibraryRefreshTests.cs) の `MaintenanceMetadataChange_ReachesAttachedViewAndWarmPlaylistDeltaOnce` は実選択保守の二対象、DB・同token現在値・集合版一回・基本通知・候補索引を再構築しない局所性・接続済み一覧の絞込みとTitle順・同値再forceを確認する。保守の実変更による新版・同値再評価、全所持の保存と通知失敗、手動文字コード適用は [`BmsLibraryMaintenanceServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryMaintenanceServiceTests.cs)、要求とrefreshの順序は [`SelectedChartMutationWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartMutationWorkflowOwnerTests.cs) が分担する。 |
 | 不変リソースの原文・用途・状態・両キー、未取得と成功0件 | [`ChartResourceReference`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceReference.cs)、[`ChartResourceSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceSnapshot.cs)、[`ChartFileProjection`](../../../BeMusicSeeker/Models/Chart/ChartFileProjection.cs) | [`ChartResourceSnapshotTests`](../../../BeMusicSeeker.Tests/Resources/ChartResourceSnapshotTests.cs) は重複検索と全原文、未取得拒否、解析後ファイル削除と正式な現在値適用後の共有・投影・パッケージ・消費を確認する。両形式の抽出は [`BMSFileSnapshotTests`](../../../BeMusicSeeker.Tests/Chart/BMSFileSnapshotTests.cs)、[`BmsonSongParserTests`](../../../BeMusicSeeker.Tests/ChartInfo/BmsonSongParserTests.cs)。getter・他の複製経路の非読取りと同じ結果の受渡しは静的に確認する。 |
 | 共通再生対象、BMS・bmsonの変換能力とBMS専用能力の分離 | [`GridRowResolver`](../../../BeMusicSeeker/ViewModels/ChartList/GridRowResolver.cs) の `TryGetPlaybackChart` と権限生成、[`PlaybackChart`](../../../BeMusicSeeker/Ribbit/BMS/PlaybackChart.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) の変換メニュー | [`PlaylistViewPipelineTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistViewPipelineTests.cs) の `ChartOperationTarget_CapabilityMatrix_SeparatesBmsOnlyAndBmsonCommonOperations` は所持BMS・bmsonの変換許可、両形式の保留拒否とBMS専用能力の維持を確認し、所持プレイリスト・新規導入済み・未所持の既存ケースも変換能力を確認する。[`MainWindowSelectedChartContextMenuWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowSelectedChartContextMenuWpfTests.cs) の `CompiledAudioConversionMenu_AllowsBmsonAndMixedOrderButRejectsPendingAndMissingFiles` は実ファイルを使い、bmsonのみの表示・有効状態、正確な譜面と混在選択順、保留・消失ファイルの非実行を確認する。要求と実行への受渡しは[音声変換](../runtime/audio-conversion.md#実装とテストの対応)を参照する。 |
 | 捕捉入力と共通payloadの保存行非依存 | `BmsChartFileParser`、`BmsonChartFileParser`、`ChartFile`、共通要求・結果 | [`BMSFileSnapshotTests`](../../../BeMusicSeeker.Tests/Chart/BMSFileSnapshotTests.cs) は捕捉後のファイル置換から独立したhash・時刻・生メタデータを確認する。[`CommonChartPayloadContractTests`](../../../BeMusicSeeker.Tests/Chart/CommonChartPayloadContractTests.cs) は代表compiled型の保持状態・公開境界の引数と戻り値・parser戻り値、空のsealed tokenを確認する。 |

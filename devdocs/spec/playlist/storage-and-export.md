@@ -12,9 +12,9 @@
 
 ### 正本と識別
 
-正本は本アプリの `playlist`、`playlist_entry`、`playlist_course` です。共通の `app_schema=1` に含まれ、プレイリスト専用のスキーマ版は持ちません。LR2連携・スタンドアロンの両方で保存します。
+永続化の正本は本アプリの `playlist`、`playlist_entry`、`playlist_course` です。アプリ内の現在値・所属・明示順序は `BMSPlaylist` / `PlaylistAggregatePersistenceOwner` / `BMSTable` が所有し、DB確定後に同じentry参照へ採用します。共通の `app_schema=1` に含まれ、プレイリスト専用のスキーマ版は持ちません。LR2連携・スタンドアロンの両方で保存します。
 
-JSON解析、内蔵推薦・難度推定、DB読込みで完成した行集合は、共通の `BMSTable.entries` setterで一度取り込みます。入力集合を防御複写し、行の親、正規化、フォルダ派生状態、読込状態とリビジョンを揃えます。所属IDは親表の現在の採番値から取得します。公開一覧は構成を変更できない読取り専用ビューとし、行の参照と編集可能性は保持します。このビューは不変スナップショットの代用にせず、独立した集合が必要な捕捉では従来どおり複写します。手動追加・削除・改名と補償復元は既存の局所操作を使い、全件の再取込み・再正規化へ変更しません。
+JSON解析、内蔵推薦・難度推定、DB読込みで完成した行集合は、共通の `BMSTable.entries` setterで一度取り込みます。行の親、正規化、フォルダ派生状態、読込状態とentry版を揃えます。公開所属列は構造共有した読取り専用列で、未変更entryの参照と明示順序を保持します。entry自体はownerが更新するため、不変入力にはreader内で `CaptureEntryReadSnapshot` / `CaptureEntriesReadSnapshot` を使い、必要値とentry版を同時捕捉します。少数の追加・削除は対象だけを候補化し、全行のclone・退避・再取込みを行いません。所属・解決キーの依存は表示内容のentry版と分け、memo・URL・levelだけの更新では所持数を再走査しません。
 
 | 表 | 主な列と意味 |
 | --- | --- |
@@ -25,7 +25,7 @@ JSON解析、内蔵推薦・難度推定、DB読込みで完成した行集合�
 
 譜面の解決・参照・所持集計はMD5があればMD5を選び、ない場合だけSHA-256を選びます。MD5不一致の後で同じ行のSHA-256へ探索を広げません。手動追加では所持譜面から分かる両ハッシュを保存し、外部同期では取得元の値を保存します。手動追加の `org_md5` は同じディレクトリ内の所持BMS/BMSONのMD5集合です。
 
-所持譜面の参照解決索引は共通所持集合の管理主体が所有し、自身の単一の集合版と既存の失効版で構築・再利用を判断します。構築前の集合版捕捉と構築後の最新性確認、取消、digest更新範囲の待機を維持します。構築済み索引へ変更事実を差分適用し、未構築時は構築を起こさず、同MD5の別配置と捕捉済みの旧索引を保持します。排他境界は[データと索引](../core/data-and-indexes.md)を参照します。
+所持譜面の参照解決索引はカタログownerが所有し、候補の識別・hash・配置・候補順に依存します。表示用のfull譜面値は保持せず、候補解決と選択したtokenのcurrent・CatalogRevisionを共通の読取り区間で捕捉します。無関係な内容変更だけで候補索引を再構築せず、取消、digest更新範囲の待機を維持します。構築済み索引へ変更事実を差分適用し、未構築時は構築を起こさず、同MD5の別配置と捕捉済みの旧索引を保持します。排他境界は[データと索引](../core/data-and-indexes.md)を参照します。
 
 カタログ変更後の詳細は有効エントリーを保持し、最後の一致配置が消えれば未所持へ、別配置が残れば既存の代表選択で再解決します。表示の更新だけでエントリーのDB値や出力ファイルを変更しません。サマリーの所持・未所持集計も更新しますが、表の所属・総エントリー数の算定規則・同期STATUSはカタログ変更だけでは変えません。詳細とサマリーの採用・再利用は[一覧表示](../ui/table-view.md)に従います。
 
@@ -108,9 +108,9 @@ DB接続・短いモデルロックを解放してからUIスケジューラー�
 
 ### 手動編集と失敗
 
-フォルダ作成・改名・削除、譜面削除、ドロップを一つの編集として扱います。DB保存前の失敗では、同じ表・譜面オブジェクトを維持しながら集合、編集可能な値、フォルダ順、更新日時、譜面の版を開始時へ戻します。全表の交換や無条件の再読込み、永続的な取消履歴・再試行は使いません。複数表の削除は受理した有限の対象を一回のDB保存へまとめます。DB確定後の出力・公開失敗で成功済み事実を戻しません。プロパティ保存では必要な索引・現行参照の公開と任意通知を区別し、進捗・処理後通知の失敗を保存失敗や次回の未完了出力へ持ち越しません。必要出力の継続は保存値と未完了の事実だけを保持し、過去の例外を次の明示保存へ再合成しません。
+フォルダ作成・改名・削除、譜面削除、ドロップを一つの編集として扱います。対象folderの行と移動先で衝突する候補だけを準備し、DB確定まで同じ表・entry参照、所属、フォルダ順、更新日時、entry版を変更しません。少数folder変更のために全entryを退避・再取込み・DB全置換しません。全表の交換や無条件の再読込み、永続的な取消履歴・再試行は使いません。複数表の削除は受理した有限の対象を一回のDB保存へまとめます。DB確定後の出力・公開失敗で成功済み事実を戻しません。プロパティ保存では必要な索引・現行参照の公開と任意通知を区別し、進捗・処理後通知の失敗を保存失敗や次回の未完了出力へ持ち越しません。必要出力の継続は保存値と未完了の事実だけを保持し、過去の例外を次の明示保存へ再合成しません。
 
-永続化成功後だけ詳細表示の同期、成功通知、`afterApply` を進めます。サマリーの一括変更も同様で、失敗後の索引・検索候補・整列・表示更新やダイアログ終了を成功経路で実行しません。モデルの途中失敗でプロパティ通知を公開せず、復元後の現在状態を通常の通知処理へ渡します。
+永続化成功後だけ確定差分の表示反映、成功通知、`afterApply` を進めます。サマリーの一括変更も同様で、失敗後の索引・検索候補・整列・表示更新やダイアログ終了を成功経路で実行しません。モデルの途中失敗でプロパティ通知を公開せず、復元後の現在状態を通常の通知処理へ渡します。
 
 受付条件・draftの現行性確認は[競合ポリシー](../core/operation-concurrency-policy.md#プレイリストと必要出力)に従います。新規draftは保存まで正本外です。購読先の実行前に集合・表・DBのロックを解放し、必要な出力・公開は同じ処理のTaskとして直接待ちます。
 
@@ -122,7 +122,13 @@ DB接続・短いモデルロックを解放してからUIスケジューラー�
 
 DB確定後のLR2/BMT出力失敗で、保存済みの表や表示を巻き戻しません。対象と元の原因を警告・エラーへ残し、現在の参照と表示は確定した内容へ揃えます。BMT生成・削除・manifest・Table URL反映の失敗も元操作の部分失敗として返します。
 
-詳細セルはDB確定から必要なLR2/BMT出力と結果記録のセッション終端までを一つの確定後境界として扱います。設定捕捉・準備・書込みの失敗、終了によるBMT取消、結果記録取得やセッションの実寿命の失敗は、確定後の失敗分類で元例外・取消を保持します。先行のDB・出力失敗を二次結果記録・セッション失敗で置換せず、二次原因は局所診断します。任意の結果記録表示とその診断だけが失敗した場合は、保存成功を失敗へ変えず、実出力失敗や取消へ合成しません。DB、正本の項目、詳細一覧の入力スナップショットを確定した値へ揃えます。DB未確定時だけ正本と編集した一属性の表示値を戻し、旧入力スナップショットとの整合と同じ入力の再保存を保ちます。表示の実終端前に受理Task・受付を解放せず、編集セッションの後片付けを必ず行います。終了では受付閉鎖を維持し、それ以外の表示失敗後は次の明示編集を新しい保存値として受け付けます。
+詳細セルはDB確定から必要なLR2/BMT出力と結果記録のセッション終端までを一つの確定後境界として扱います。設定捕捉・準備・書込みの失敗、終了によるBMT取消、結果記録取得やセッションの実寿命の失敗は、確定後の失敗分類で元例外・取消を保持します。先行のDB・出力失敗を二次結果記録・セッション失敗で置換せず、二次原因は局所診断します。任意の結果記録表示とその診断だけが失敗した場合は、保存成功を失敗へ変えず、実出力失敗や取消へ合成しません。draftは生存する元表・同じentry参照・属性名・入力値として渡します。writer内の現在値から候補を作り、DB確定までlive entry・header・版を変更しません。DB確定後に必要値・更新日時・entry版・不変の `PlaylistEntryCommitReceipt` を同じwriter内で揃え、配送キューへ登録します。DB前失敗では旧正本を保持し、DB後の出力・結果記録・セッション失敗でも登録済み差分を取り消しません。排他解放後に同じ差分を表示へ配送し、表示コピー同士の手動同期と正本のrollbackを行いません。表示の実終端前に受理Task・受付を解放せず、編集セッションの後片付けを必ず行います。終了では受付閉鎖を維持し、それ以外の表示失敗後は次の明示編集を新しい保存値として受け付けます。
+
+`PlaylistEntryCommitReceipt` は表、元版・確定版、対象entryの不変な旧新値・所属・順序と全置換の区別を持ちます。フォルダ明示順の変更も同じ結果に不変値で含めます。URL補完・解除も同じentry版と差分を発行し、DBと永続化世代を変えません。単一属性保存はwriter内の最新値を基にし、URL補完後に古い表示行からmemoを保存しても非編集URLを戻しません。ローカル明示保存時だけ有効URLを材料化します。Levelは数値部分を保存し（`★12.5`は12.5）、非数値だけの入力では旧数値を保持し、空入力はnullとします。確定表示に未保存の入力文字列は残しません。
+
+少数追加・削除は旧新キーに影響するDB候補だけを同じtransaction内で取得・差替えます。DBのNULLとliveの既存正規化、重複候補、削除済み、空フォルダのダミーを保持し、未変更行の参照や順序を作り直しません。複数表のbatchは一つのtransactionで確定し、二表目の保存が失敗しても全表の旧所属・日時・版とDBを保持します。
+
+候補取得は同じ正規化式の非一意索引を使います。hashのNULL・空・Unicode空白だけの値は同じblankキーとし、非blank値は前後を削らず、ASCIIの大小文字だけを同一視します。従来のsetterが受理する最終LF付きhashもLFを保持した別キーです。titleのNULLと空は既存のentry identityが同値とし、通常readerがNULLを空へ読み込む場合も、raw startupがNULLを保持する場合も同じ対象を保存・削除します。保存行とUNIQUE条件は変更しません。同表・同folder・NULL titleでhashだけ異なる背景16/128行を使い、正規保存時の候補SELECTの実 `SQLITE_STMTSTATUS_VM_STEP` が背景件数に比例しないことを確認します。返却行数・変更行数と `FULLSCAN_STEP` だけでは、索引の広い範囲を読む退行を検出できません。
 
 ### フォルダ単位のドロップ
 
@@ -131,6 +137,7 @@ DB確定後のLR2/BMT出力失敗で、保存済みの表や表示を巻き戻�
 複数候補は実一覧と同じフォルダ順・自然順で選びます。名前の衝突は既存の接尾辞規則で避け、同じタイトルだけ、または空の親MD5集合だけでは統合しません。同じ入力順なら一括投入と分割投入で所属と重複除去後の集合が一致します。任意の入力順の同一視や既存手動分類の移行は行いません。
 
 通常譜面、プレイリスト詳細、解決済みの `PlayHistoryRow.ResolvedChart` を入力にできます。未解決の履歴行を含む選択は部分追加しません。
+
 
 ### JSON出力・SQLバックアップと復元
 
@@ -172,6 +179,7 @@ SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行
 | 見出し・項目の型と不正なJSONの失敗 | [`BMSTable`](../../../BeMusicSeeker/Models/Playlist/BMSTable.cs) | [`BMSTableLoadTests`](../../../BeMusicSeeker.Tests/Playlist/BMSTableLoadTests.cs) |
 | 現行詳細編集のURL・日時・ハッシュ一意性と補完・BMSON・レベルと確定前後の失敗 | [`PlaylistWorkspaceViewModel.DetailEditing`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.DetailEditing.cs)、[`PlaylistAggregatePersistenceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistAggregatePersistenceOwner.cs) | [`PlaylistUrlCompletionTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlCompletionTests.cs) はURLの材料化・非材料化とDB原値、[`BmsPlaylistPersistenceLifecycleTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs) は表・項目削除後の拒否を確認する。[`BmsPlaylistCustomFolderOutputTests.DetailEdit_ReoutputsLr2FolderRowsForLevelProjection`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) は設定取得窓口の優先、DB・LR2/BMT出力、確定後の出力・準備失敗と終了取消、確定前失敗の旧値保持と同じ入力の再保存を分担する。 |
 | 詳細編集の空の結果記録と実LR2警告の配送、受付と次操作 | [`PlaylistWorkspaceViewModel.DetailTerminal`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.DetailTerminal.cs) | [`BmsPlaylistCustomFolderOutputTests.DetailEdit_ReoutputsLr2FolderRowsForLevelProjection`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) は成功・DB確定前失敗・BMT取消での空の結果記録の購読故障と、LR2出力失敗による実警告の表示・診断故障を区別する。警告の件数・種別・見出し・表名・出力先、配送中のDB確定・編集状態・PとTaskの保持を確認し、終端後も元原因とDB・正本・入力を保つ。編集後片付けと次の明示レベル変更のDB・LR2反映も確認する。 |
+| entryのdraft・確定版・旧捕捉値・局所SQLと複数表原子性 | `PlaylistAggregatePersistenceOwner`、`PlaylistPersistenceRepository` | [`PlaylistEntryCommitTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistEntryCommitTests.cs) は実SQLiteの失敗・NULL/重複キーと背景16/128行で実捕捉/所属変更/SQL対象を確認する。表示・出力終端は既存詳細編集系列、正規URL補完/解除の不変差分は `PlaylistUrlCompletionTests` が分担する。 |
 | 項目の題名の永続化 | [`LR2SongDB`](../../../BeMusicSeeker/Models/LR2/LR2SongDB.cs) | [`Lr2PlaylistEntryPersistenceTests`](../../../BeMusicSeeker.Tests/Playlist/Lr2PlaylistEntryPersistenceTests.cs) |
 | 外部再取得の出力失敗・部分成功・実置換後の通知失敗と次操作 | `PlaylistExternalSyncOwner`、`PlaylistAggregatePersistenceOwner` | [`BmsPlaylistExternalReloadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalReloadTests.cs)の`ReloadPlaylistTargetsAsync_OutputFailureReturnsConfirmedReferencesAndSeparateTargetFailures`、`ReloadPlaylistTargetsAsync_CollectionNotificationFailureRetainsActuallyAdoptedReference`。変更判定・日時・ローカル値は既存再取得・mergeテストと分担する。 |
 | 手動単表・任意複数表の元BMT失敗と参照採用後の必要詳細公開失敗の保持 | [`PlaylistWorkspaceViewModel.Reload`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.Reload.cs)、[`PlaylistWorkspaceViewModel.ExternalPlaylistSync`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.ExternalPlaylistSync.cs) | [`BmsPlaylistExternalReloadTests.PlaylistWorkspaceResync_PostAdoptionPresentationFailureRetainsOutputFailureAndConfirmedState`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalReloadTests.cs)の二行で、実台帳書込み失敗と必要な`PlaylistDetailReloadRefreshRequested`の実失敗、公開中P/Task保持、進捗終端と次要求を確認する。任意の操作結果記録表示失敗はこの二次原因の保証へ含めない。 |

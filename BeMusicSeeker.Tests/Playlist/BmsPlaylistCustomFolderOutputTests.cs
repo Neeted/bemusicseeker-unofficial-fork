@@ -3072,6 +3072,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                     if (failureStage is "empty_receipt_consumer" or "output_notification") { throw diagnosticFailure; }
                 },
                 playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
+            var entryDeliveries = new List<string>();
+            workspace.DetailWorkObserver = kind => entryDeliveries.Add(kind);
             var source = new PlaylistDetailSourceRow(entry, resolvedChart: null);
             workspace.DetailViewState.Source.Rows = [source];
             var context = new MainChartListCellEditContext(source.CreateViewRow(), nameof(PlaylistDetailRow.Level),
@@ -3199,7 +3201,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             int expectedLevel = failureStage == "database_empty_receipt_consumer" ? 1 : 12;
             Assert.AreEqual(expectedLevel, entry.level);
             Assert.AreEqual(expectedLevel.ToString(), ((PlaylistDetailRow)context.Row).Level);
-            Assert.AreEqual(expectedLevel.ToString(), source.CreateViewRow().Level, "入力snapshotもDBの確定値を保持します。");
+            Assert.AreEqual("1", source.CreateViewRow().Level, "過去の不変入力は確定後も変更しません。");
+            Assert.AreEqual(expectedLevel.ToString(), workspace.DetailViewState.Source.Rows.Single().CreateViewRow().Level);
+            Assert.AreEqual(failureStage == "database_empty_receipt_consumer" ? 0 : 1,
+                entryDeliveries.Count(kind => kind == "playlist_entry_commit_applied"),
+                "DB確定後は出力・取消・通知の失敗でも同じ差分が表示へ届きます。");
             Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
 
             using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
@@ -3229,7 +3235,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 await edit;
                 Assert.AreEqual(12, entry.level);
                 Assert.AreEqual("12", ((PlaylistDetailRow)context.Row).Level);
-                Assert.AreEqual("12", source.CreateViewRow().Level);
+                Assert.AreEqual("12", workspace.DetailViewState.Source.Rows.Single().CreateViewRow().Level);
                 Assert.AreEqual(2, receipts.Count);
                 Assert.IsTrue(receipts[1].Receipt.IsEmpty);
                 using LR2SongDBExtended verifyRetry = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
@@ -3248,7 +3254,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 await edit;
                 Assert.AreEqual(13, entry.level);
                 Assert.AreEqual("13", ((PlaylistDetailRow)nextContext.Row).Level);
-                Assert.AreEqual("13", source.CreateViewRow().Level);
+                Assert.AreEqual("13", workspace.DetailViewState.Source.Rows.Single().CreateViewRow().Level);
                 Assert.AreEqual(2, receipts.Count);
                 Assert.IsTrue(receipts[1].Receipt.IsEmpty);
                 Assert.AreEqual(failureStage == "output_notification" ? 1 : 0, displayAttempts.Count, "次の空receiptで表示を試みません。");

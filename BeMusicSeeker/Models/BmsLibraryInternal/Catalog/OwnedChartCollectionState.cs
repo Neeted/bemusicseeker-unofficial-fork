@@ -110,11 +110,37 @@ internal sealed class OwnedChartCollectionView
     private readonly IReadOnlyDictionary<ChartFileKind, ImmutableDictionary<string, OwnedChartToken>> paths;
 
     internal OwnedChartCollectionView(IReadOnlyList<ChartFile> bmsCharts,
-        IReadOnlyList<ChartFile> bmsonCharts, IReadOnlyDictionary<ChartFileKind, ImmutableDictionary<string, OwnedChartToken>> paths)
+        IReadOnlyList<ChartFile> bmsonCharts, IReadOnlyDictionary<ChartFileKind, ImmutableDictionary<string, OwnedChartToken>> paths,
+        ImmutableDictionary<OwnedChartToken, CatalogStorageSequenceEntry<ChartFile>> entries = null,
+        CatalogStorageIndexedSequence<ChartFile> sequence = null)
     {
         BmsCharts = bmsCharts;
         BmsonCharts = bmsonCharts;
         this.paths = paths;
+        this.entries = entries;
+        this.sequence = sequence;
+    }
+
+    private readonly ImmutableDictionary<OwnedChartToken, CatalogStorageSequenceEntry<ChartFile>> entries;
+    private readonly CatalogStorageIndexedSequence<ChartFile> sequence;
+    /// <summary>捕捉したtoken索引と永続順序列で現在値と位置を取得します。ownerの後続状態を読みません。</summary>
+    internal bool TryGetChart(OwnedChartToken token, out ChartFile chart, out int position)
+    {
+        chart = null;
+        position = -1;
+        if (token == null || entries == null || !entries.TryGetValue(token, out CatalogStorageSequenceEntry<ChartFile> entry))
+        {
+            return false;
+        }
+
+        position = sequence.FindIndex(entry);
+        if (position < 0 || position >= Count)
+        {
+            return false;
+        }
+
+        chart = entry.Value;
+        return true;
     }
 
     internal IReadOnlyList<ChartFile> BmsCharts { get; }
@@ -216,14 +242,28 @@ internal readonly struct OwnedChartCanonicalOrderKey : IComparable<OwnedChartCan
     }
 }
 
+/// <summary>現在値適用の対象なし・同値・実変更を区別する結果です。</summary>
+internal enum CatalogCurrentValueApplyResult
+{
+    /// <summary>同じ生存tokenの対象がありません。</summary>
+    NotFound,
+    /// <summary>対象は生存していますが現在値は同値です。</summary>
+    Unchanged,
+    /// <summary>対象の現在値を実際に変更しました。</summary>
+    Changed
+}
+
 internal sealed class OwnedChartCollectionState
 {
+    /// <summary>owner が確定区間だけ接続する、実際の旧新値の記録先です。</summary>
+    internal Action<ChartFile, ChartFile> CurrentValueChanged { get; set; }
+
     private CatalogStorageIndexedSequence<ChartFile> chartSequence;
     private CatalogStorageReadOnlyView<ChartFile> charts;
     private OwnedChartCollectionView collectionView;
     /// <summary>所属・基準順序の変更事実を捕捉値へ渡す識別です。値だけの置換や位置を保つ移転では維持します。</summary>
     internal object MembershipOrderIdentity { get; private set; } = new();
-    private readonly Dictionary<OwnedChartToken, CatalogStorageSequenceEntry<ChartFile>> chartEntriesByChart = [];
+    private ImmutableDictionary<OwnedChartToken, CatalogStorageSequenceEntry<ChartFile>> chartEntriesByChart = ImmutableDictionary<OwnedChartToken, CatalogStorageSequenceEntry<ChartFile>>.Empty;
     private ImmutableDictionary<ChartFileKind, ImmutableDictionary<string, OwnedChartToken>> chartsByPath =
         ImmutableDictionary<ChartFileKind, ImmutableDictionary<string, OwnedChartToken>>.Empty
             .Add(ChartFileKind.Bms, ImmutableDictionary.Create<string, OwnedChartToken>(StringComparer.Ordinal))
@@ -281,11 +321,7 @@ internal sealed class OwnedChartCollectionState
             entries,
             CompareRawCanonicalEntries,
             sequenceWorkObserver);
-        chartEntriesByChart.Clear();
-        foreach (CatalogStorageSequenceEntry<ChartFile> entry in entries)
-        {
-            chartEntriesByChart[entry.Value.Token] = entry;
-        }
+        chartEntriesByChart = entries.ToImmutableDictionary(entry => entry.Value.Token);
         bmsonNeedsCanonicalNormalization = entries.Any(entry => entry.Value?.Kind == ChartFileKind.Bmson);
         bmsonChartCount = entries.Count(entry => entry.Value?.Kind == ChartFileKind.Bmson);
         sequenceUsesCanonicalComparer = false;
@@ -1051,11 +1087,11 @@ internal sealed class OwnedChartCollectionState
             int bmsCount = chartSequence.Count - bmsonChartCount;
             collectionView = new OwnedChartCollectionView(
                 new CatalogStorageReadOnlyView<ChartFile>(chartSequence, 0, bmsCount),
-                new CatalogStorageReadOnlyView<ChartFile>(chartSequence, bmsCount, bmsonChartCount), chartsByPath);
+                new CatalogStorageReadOnlyView<ChartFile>(chartSequence, bmsCount, bmsonChartCount), chartsByPath, chartEntriesByChart, chartSequence);
         }
         if (!includeBmsonRows)
         {
-            return new OwnedChartCollectionView(collectionView.BmsCharts, [], chartsByPath);
+            return new OwnedChartCollectionView(collectionView.BmsCharts, [], chartsByPath, chartEntriesByChart, chartSequence);
         }
         return collectionView;
     }
@@ -1332,7 +1368,11 @@ internal sealed class OwnedChartCollectionState
             var nextEntry = new CatalogStorageSequenceEntry<ChartFile>(replacement.Next,
                 replacement.Next.Path, previous.SortKey, previous.Ordinal);
             chartSequence = chartSequence.ReplaceAt(position, nextEntry);
-            chartEntriesByChart[replacement.Current.Token] = nextEntry;
+            chartEntriesByChart = chartEntriesByChart.SetItem(replacement.Current.Token, nextEntry);
+            if (!CatalogChartValueEquality.AreEqual(replacement.Current, replacement.Next))
+            {
+                CurrentValueChanged?.Invoke(replacement.Current, replacement.Next);
+            }
         }
         foreach ((ChartFile Current, ChartFile Next) replacement in replacements)
         {
@@ -1358,12 +1398,13 @@ internal sealed class OwnedChartCollectionState
         }
     }
 
-    /// <summary>同じ所持識別へ通常の現在値を適用します。捕捉済み読取り値と順序位置は変更しません。</summary>
-    internal bool ApplyCurrentChartValue(ChartFile value)
+    /// <summary>同じ所持識別へ現在値を適用します。捕捉済み読取り値と順序位置は変更しません。</summary>
+    /// <returns>対象なし、同値、実変更を区別します。版と差分の確定は呼出し元ownerが行います。</returns>
+    internal CatalogCurrentValueApplyResult ApplyCurrentChartValue(ChartFile value)
     {
         if (value?.Token == null || !chartEntriesByChart.TryGetValue(value.Token, out CatalogStorageSequenceEntry<ChartFile> entry))
         {
-            return false;
+            return CatalogCurrentValueApplyResult.NotFound;
         }
         ChartFile current = entry.Value;
         if (current.Kind != value.Kind || !string.Equals(current.Path, value.Path, StringComparison.Ordinal))
@@ -1379,9 +1420,9 @@ internal sealed class OwnedChartCollectionState
         {
             next = ChartFileProjection.WithChartInfo(next, null);
         }
-        if (current == next)
+        if (CatalogChartValueEquality.AreEqual(current, next))
         {
-            return true;
+            return CatalogCurrentValueApplyResult.Unchanged;
         }
         if (digestChanged)
         {
@@ -1392,7 +1433,7 @@ internal sealed class OwnedChartCollectionState
         {
             libraryChartRefIndexSnapshot?.AddCharts([next]);
         }
-        return true;
+        return CatalogCurrentValueApplyResult.Changed;
     }
 
     private void ReplaceCurrentChartValue(ChartFile next)
@@ -1406,9 +1447,10 @@ internal sealed class OwnedChartCollectionState
                 OwnedChartCanonicalOrderKey.Missing, chartSequence, chartSequence.Count - bmsonChartCount);
         }
         chartSequence = chartSequence.ReplaceAt(position, replacement);
-        chartEntriesByChart[next.Token] = replacement;
+        chartEntriesByChart = chartEntriesByChart.SetItem(next.Token, replacement);
         RegisterCurrentChartIndex(next);
         RefreshCanonicalSequenceView();
+        CurrentValueChanged?.Invoke(previous.Value, next);
     }
     /// <summary>現在のowner参照または指定された旧exact keyだけを正本と索引から取り除きます。</summary>
     internal int RemoveChartRequests(IEnumerable<OwnedChartRemoveRequest> removeRequests)
@@ -1533,7 +1575,7 @@ internal sealed class OwnedChartCollectionState
             .WithComparison(CompareCanonicalEntries);
         foreach (CatalogStorageSequenceEntry<ChartFile> entry in normalizedBmsonEntries)
         {
-            chartEntriesByChart[entry.Value.Token] = entry;
+            chartEntriesByChart = chartEntriesByChart.SetItem(entry.Value.Token, entry);
         }
         bmsonNeedsCanonicalNormalization = false;
         sequenceUsesCanonicalComparer = true;
@@ -1555,7 +1597,8 @@ internal sealed class OwnedChartCollectionState
             : chartSequence.FindInsertionIndex(entry);
         chartSequence = chartSequence.InsertAt(insertionIndex, entry);
         MembershipOrderIdentity = new object();
-        chartEntriesByChart[chart.Token] = entry;
+        chartEntriesByChart = chartEntriesByChart.SetItem(chart.Token, entry);
+        CurrentValueChanged?.Invoke(null, chart);
         if (chart.Kind == ChartFileKind.Bmson)
         {
             bmsonChartCount++;
@@ -1577,7 +1620,8 @@ internal sealed class OwnedChartCollectionState
         }
         chartSequence = chartSequence.RemoveAt(index);
         MembershipOrderIdentity = new object();
-        chartEntriesByChart.Remove(chart.Token);
+        chartEntriesByChart = chartEntriesByChart.Remove(chart.Token);
+        CurrentValueChanged?.Invoke(chart, null);
         if (chart.Kind == ChartFileKind.Bmson)
         {
             bmsonChartCount--;

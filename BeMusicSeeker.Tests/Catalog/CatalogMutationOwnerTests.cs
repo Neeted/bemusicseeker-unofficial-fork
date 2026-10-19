@@ -137,6 +137,7 @@ public sealed class CatalogMutationOwnerTests
 
     /// <summary>
     /// 背景BMSの件数とbmson包含の有無に応じて通常一覧を捕捉順で射影し、含めた行だけを一度ずつ訪問する。
+    /// 同じ一巡でhash依存も準備し、準備済み入力の再準備では追加訪問・投影をしない。
     /// </summary>
     [TestMethod]
     [DataRow(16, true)]
@@ -155,14 +156,22 @@ public sealed class CatalogMutationOwnerTests
         observer.Reset();
 
         CatalogChartCollectionSnapshot source = owner.CaptureSnapshot(includeBmsonRows);
-        NormalLibrarySourceRows rows = new MainChartRowProjectionOwner().BuildNormalSourceRows(null, source, includeBmsonRows);
+        var work = new Dictionary<string, int>();
+        var projectionOwner = new MainChartRowProjectionOwner
+        {
+            NormalInputWorkObserver = (kind, count) => work[kind] = work.GetValueOrDefault(kind) + count
+        };
+        NormalLibrarySourceRows rows = projectionOwner.BuildNormalSourceRows(null, source, includeBmsonRows);
 
         ChartFile[] expected = includeBmsonRows
             ? [.. bms, .. bmson] : bms;
         CollectionAssert.AreEqual(expected.Select(chart => chart.Path).ToArray(), rows.Select(row => row.Chart.Path).ToArray());
+        rows.PrepareForOrder();
         Assert.AreEqual(expected.Length, observer.VisitedEntryCount);
         Assert.AreEqual(0, observer.AccessCount);
         Assert.AreEqual(0, observer.MaterializationCount);
+        Assert.AreEqual(expected.Length, work.GetValueOrDefault("projection"));
+        Assert.AreEqual(expected.Length, work.GetValueOrDefault("hash_dependency_visit"));
         Assert.AreEqual(includeBmsonRows ? 64 : 0, source.BmsonRows.Count);
     }
 
@@ -247,7 +256,7 @@ public sealed class CatalogMutationOwnerTests
             Assert.AreNotSame(selected.Token, replacement.Token);
             var gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.UpsertSongs([replacement]);
-            int version = collection.OwnedCollectionVersion;
+            int version = collection.CatalogRevision;
             int durableNotifications = 0;
             var owner = new CatalogMutationOwner(collection, gateway);
             var facts = new LibraryCatalogMutationFacts([], [new LibraryChartPathChange
@@ -256,7 +265,7 @@ public sealed class CatalogMutationOwnerTests
             Assert.ThrowsException<InvalidCastException>(() => owner.ApplyCatalogMutation(facts, () => durableNotifications++));
 
             Assert.AreEqual(0, durableNotifications);
-            Assert.AreEqual(version, collection.OwnedCollectionVersion);
+            Assert.AreEqual(version, collection.CatalogRevision);
             Assert.AreSame(replacement.Token, collection.Collection.ResolveCurrentChart(LibraryChartRef.FromPath(ChartFileKind.Bms, oldPath, null, null)).Token);
             using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song row = readback.Table<LR2SongDB.song>().Single();
@@ -341,8 +350,8 @@ public sealed class CatalogMutationOwnerTests
             Assert.AreEqual(1, receipt.FolderDbTargetRows);
             Assert.AreEqual(0, receipt.FolderDbFullScanCount);
             Assert.AreEqual(2, receipt.PathFacts.Count);
-            Assert.AreEqual(capturedRows.OwnedCollectionVersion, receipt.StorageRowsVersion.PreviousOwnedCollectionVersion);
-            Assert.AreEqual(capturedRows.OwnedCollectionVersion + 1, receipt.StorageRowsVersion.OwnedCollectionVersion);
+            Assert.AreEqual(capturedRows.CatalogRevision, receipt.StorageRowsVersion.PreviousCatalogRevision);
+            Assert.AreEqual(capturedRows.CatalogRevision + 1, receipt.StorageRowsVersion.CatalogRevision);
             Assert.AreEqual(oldBmsPath, bms.Path);
             Assert.AreEqual(newBmsPath, storageRowsOwner.BmsRows.Single().Path);
             Assert.AreSame(bms.Token, storageRowsOwner.BmsRows.Single().Token);
@@ -452,8 +461,8 @@ public sealed class CatalogMutationOwnerTests
             Assert.AreEqual(movedNewPath, receipt.MovedCharts[0].NewPath);
             Assert.AreEqual(movedBms.Md5, receipt.MovedCharts[0].Md5);
             Assert.IsTrue(receipt.OwnedCollectionApplied);
-            Assert.AreEqual(ownedCollectionOwner.OwnedCollectionVersion, receipt.OwnedCollectionVersion);
-            Assert.AreEqual(initialRows.OwnedCollectionVersion + 1, receipt.StorageRowsVersion.OwnedCollectionVersion);
+            Assert.AreEqual(ownedCollectionOwner.CatalogRevision, receipt.CatalogRevision);
+            Assert.AreEqual(initialRows.CatalogRevision + 1, receipt.StorageRowsVersion.CatalogRevision);
             Assert.AreEqual(movedNewPath, storageRowsOwner.BmsRows.Single().Path);
             Assert.AreEqual(1, storageRowsOwner.BmsRows.Count);
             Assert.AreSame(movedBms.Token, storageRowsOwner.BmsRows.Single().Token);
@@ -510,7 +519,7 @@ public sealed class CatalogMutationOwnerTests
         SQLite.SQLiteException failure = Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyLr2NormalFolderSync(request));
         Assert.AreEqual(SQLite.SQLite3.Result.Constraint, failure.Result);
         StringAssert.Contains(failure.Message, "forced folder rollback");
-        Assert.AreEqual(snapshot.OwnedCollectionVersion, rows.OwnedCollectionVersion);
+        Assert.AreEqual(snapshot.CatalogRevision, rows.CatalogRevision);
         Assert.AreEqual(chart.Path, rows.BmsRows.Single().Path);
         CollectionAssert.AreEqual(new[] { chart.Path }, rows.Collection.CreatePathSnapshot().ToArray());
         using (LR2SongDBExtended readback = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly())
@@ -523,7 +532,7 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreEqual(1, result.UpsertedCount);
         using LR2SongDBExtended finalReadback = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
         Assert.AreEqual("next explicit folder", finalReadback.ExecuteScalar<string>("SELECT title FROM folder WHERE path = ?;", folderPath));
-        Assert.AreEqual(snapshot.OwnedCollectionVersion, rows.OwnedCollectionVersion);
+        Assert.AreEqual(snapshot.CatalogRevision, rows.CatalogRevision);
     }
 
     /// <summary>
@@ -581,7 +590,7 @@ public sealed class CatalogMutationOwnerTests
             Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyCatalogMutation(catalogFacts));
 
             Assert.AreEqual(oldPath, movedBms.Path);
-            Assert.AreEqual(initialRows.OwnedCollectionVersion, storageRowsOwner.OwnedCollectionVersion);
+            Assert.AreEqual(initialRows.CatalogRevision, storageRowsOwner.CatalogRevision);
             Assert.AreEqual(2, storageRowsOwner.BmsRows.Count);
             Assert.AreEqual(2, ownedCollectionOwner.Collection.CreateSnapshot().Count);
             using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
@@ -1105,7 +1114,7 @@ public sealed class CatalogMutationOwnerTests
         CatalogChartCollectionSnapshot initialRows = storageRowsOwner.ReplaceChartsAndCaptureSnapshot([oldBms], [oldBmson]);
         CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
         ownedCollectionOwner.ApplyBuiltCollection(OwnedChartCollectionState.FromCharts(ChartTestValues.Combine([oldBms], [oldBmson])));
-        int initialOwnedCollectionVersion = ownedCollectionOwner.OwnedCollectionVersion;
+        int initialCatalogRevision = ownedCollectionOwner.CatalogRevision;
         var owner = new CatalogMutationOwner(storageRowsOwner, null);
 
         CatalogFileScanStorageReplacementRequest request = owner.CreateFileScanStorageReplacementRequest(
@@ -1122,16 +1131,16 @@ public sealed class CatalogMutationOwnerTests
         Assert.IsTrue(receipt.Applied);
         Assert.AreEqual(CatalogMutationApplyKind.FileScanStorageReplacement, receipt.Kind);
         Assert.IsTrue(receipt.OwnedCollectionApplied);
-        Assert.AreEqual(initialRows.OwnedCollectionVersion, receipt.StorageRowsVersion.PreviousOwnedCollectionVersion);
-        Assert.AreEqual(initialRows.OwnedCollectionVersion + 1, receipt.StorageRowsVersion.OwnedCollectionVersion);
+        Assert.AreEqual(initialRows.CatalogRevision, receipt.StorageRowsVersion.PreviousCatalogRevision);
+        Assert.AreEqual(initialRows.CatalogRevision + 1, receipt.StorageRowsVersion.CatalogRevision);
         Assert.AreEqual(2, receipt.AddedCharts.Count);
         Assert.AreEqual(2, receipt.RemovedCharts.Count);
         Assert.AreEqual(nextBms.Path, receipt.AddedCharts[0].Path);
         Assert.AreEqual(nextBmson.Path, receipt.AddedCharts[1].Path);
         Assert.AreEqual(oldBms.Path, receipt.RemovedCharts[0].Path);
         Assert.AreEqual(oldBmson.Path, receipt.RemovedCharts[1].Path);
-        Assert.AreEqual(initialOwnedCollectionVersion + 1, receipt.OwnedCollectionVersion);
-        Assert.AreEqual(ownedCollectionOwner.OwnedCollectionVersion, receipt.OwnedCollectionVersion);
+        Assert.AreEqual(initialCatalogRevision + 1, receipt.CatalogRevision);
+        Assert.AreEqual(ownedCollectionOwner.CatalogRevision, receipt.CatalogRevision);
     }
 
     /// <summary>
@@ -1144,7 +1153,7 @@ public sealed class CatalogMutationOwnerTests
         var storageRowsOwner = new CatalogOwnedCollectionOwner();
         CatalogChartCollectionSnapshot initialRows = storageRowsOwner.ReplaceChartsAndCaptureSnapshot([bms], []);
         CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
-        int initialOwnedCollectionVersion = ownedCollectionOwner.OwnedCollectionVersion;
+        int initialCatalogRevision = ownedCollectionOwner.CatalogRevision;
         var owner = new CatalogMutationOwner(storageRowsOwner, null);
 
         CatalogFileScanStorageReplacementRequest request = owner.CreateFileScanStorageReplacementRequest(
@@ -1161,11 +1170,11 @@ public sealed class CatalogMutationOwnerTests
         Assert.IsFalse(receipt.Applied);
         Assert.AreEqual(CatalogMutationApplyKind.NoOp, receipt.Kind);
         Assert.IsFalse(receipt.OwnedCollectionApplied);
-        Assert.AreEqual(initialRows.OwnedCollectionVersion, receipt.StorageRowsVersion.OwnedCollectionVersion);
+        Assert.AreEqual(initialRows.CatalogRevision, receipt.StorageRowsVersion.CatalogRevision);
         Assert.AreEqual(0, receipt.AddedCharts.Count);
         Assert.AreEqual(0, receipt.RemovedCharts.Count);
-        Assert.AreEqual(initialOwnedCollectionVersion, receipt.OwnedCollectionVersion);
-        Assert.AreEqual(initialOwnedCollectionVersion, ownedCollectionOwner.OwnedCollectionVersion);
+        Assert.AreEqual(initialCatalogRevision, receipt.CatalogRevision);
+        Assert.AreEqual(initialCatalogRevision, ownedCollectionOwner.CatalogRevision);
         Assert.AreSame(bms, storageRowsOwner.BmsRows[0]);
     }
 
@@ -1183,7 +1192,7 @@ public sealed class CatalogMutationOwnerTests
         CatalogChartCollectionSnapshot initialRows = storageRowsOwner.ReplaceChartsAndCaptureSnapshot([oldBms], [oldBmson]);
         CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
         Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(OwnedChartCollectionState.FromCharts(ChartTestValues.Combine([oldBms], [oldBmson]))));
-        int initialOwnedCollectionVersion = ownedCollectionOwner.OwnedCollectionVersion;
+        int initialCatalogRevision = ownedCollectionOwner.CatalogRevision;
         var owner = new CatalogMutationOwner(storageRowsOwner, null);
 
         CatalogStorageRowsReplacementRequest request = owner.CreateStorageRowsReplacementRequest(
@@ -1198,10 +1207,10 @@ public sealed class CatalogMutationOwnerTests
         Assert.IsTrue(receipt.BmsRowsChanged);
         Assert.IsTrue(receipt.BmsonRowsChanged);
         Assert.IsTrue(receipt.OwnedCollectionInvalidated);
-        Assert.AreEqual(initialOwnedCollectionVersion + 1, receipt.OwnedCollectionVersion);
-        Assert.AreEqual(receipt.OwnedCollectionVersion, ownedCollectionOwner.OwnedCollectionVersion);
-        Assert.AreEqual(initialRows.OwnedCollectionVersion, receipt.StorageRowsVersion.PreviousOwnedCollectionVersion);
-        Assert.AreEqual(initialRows.OwnedCollectionVersion + 1, receipt.StorageRowsVersion.OwnedCollectionVersion);
+        Assert.AreEqual(initialCatalogRevision + 1, receipt.CatalogRevision);
+        Assert.AreEqual(receipt.CatalogRevision, ownedCollectionOwner.CatalogRevision);
+        Assert.AreEqual(initialRows.CatalogRevision, receipt.StorageRowsVersion.PreviousCatalogRevision);
+        Assert.AreEqual(initialRows.CatalogRevision + 1, receipt.StorageRowsVersion.CatalogRevision);
         Assert.AreSame(newBms, storageRowsOwner.BmsRows.Single());
         Assert.AreSame(newBmson, storageRowsOwner.BmsonRows.Single());
     }
@@ -1231,16 +1240,18 @@ public sealed class CatalogMutationOwnerTests
         Assert.IsTrue(receipt.BmsRowsChanged);
         Assert.IsFalse(receipt.BmsonRowsChanged);
         Assert.IsTrue(receipt.OwnedCollectionInvalidated);
-        Assert.AreEqual(initialRows.OwnedCollectionVersion + 1, receipt.StorageRowsVersion.OwnedCollectionVersion);
+        Assert.AreEqual(initialRows.CatalogRevision + 1, receipt.StorageRowsVersion.CatalogRevision);
         Assert.AreSame(newBms.Token, storageRowsOwner.BmsRows.Single().Token);
         Assert.AreSame(oldBmson, storageRowsOwner.BmsonRows.Single());
     }
 
     /// <summary>
-    /// 同じ入力でも明示されたBMS置換は受理して集合世代を進め、内容一致だけで必要な失効を省略しない。
+    /// 全再読込みでtokenを再発行するときだけ新版へ進み、明示token継承の同値入力と識別実変更を区別する。
     /// </summary>
-    [TestMethod]
-    public void ApplyStorageRowsReplacement_ExplicitSameInputStillPublishesVersion()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ApplyStorageRowsReplacement_DistinguishesTokenInheritanceFromReload(bool inheritToken)
     {
         ChartFile bms = CreateBms("same-input.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         var storageRowsOwner = new CatalogOwnedCollectionOwner();
@@ -1249,7 +1260,7 @@ public sealed class CatalogMutationOwnerTests
         var owner = new CatalogMutationOwner(storageRowsOwner, null);
 
         CatalogStorageRowsReplacementRequest request = owner.CreateStorageRowsReplacementRequest(
-            storageRowsOwner.BmsRows,
+            storageRowsOwner.BmsRows.Select(chart => inheritToken ? chart : chart with { Token = null }),
             [],
             replaceBmsRows: true,
             replaceBmsonRows: false);
@@ -1258,8 +1269,9 @@ public sealed class CatalogMutationOwnerTests
         Assert.IsTrue(receipt.Applied);
         Assert.IsTrue(receipt.BmsRowsChanged);
         Assert.IsFalse(receipt.BmsonRowsChanged);
-        Assert.AreEqual(initialRows.OwnedCollectionVersion + 1, receipt.StorageRowsVersion.OwnedCollectionVersion);
-        Assert.AreSame(bms, storageRowsOwner.BmsRows.Single());
+        Assert.AreEqual(initialRows.CatalogRevision + (inheritToken ? 0 : 1), receipt.StorageRowsVersion.CatalogRevision);
+        Assert.AreEqual(bms.Path, storageRowsOwner.BmsRows.Single().Path);
+        Assert.AreEqual(inheritToken, ReferenceEquals(bms.Token, storageRowsOwner.BmsRows.Single().Token));
     }
 
     /// <summary>
@@ -1350,13 +1362,13 @@ public sealed class CatalogMutationOwnerTests
             Assert.IsTrue(receipt.Applied);
             Assert.AreEqual(CatalogMutationApplyKind.InstalledTargetUpsert, receipt.Kind);
             Assert.IsTrue(receipt.OwnedCollectionApplied);
-            Assert.AreEqual(initialRows.OwnedCollectionVersion, receipt.StorageRowsVersion.PreviousOwnedCollectionVersion);
-            Assert.AreEqual(initialRows.OwnedCollectionVersion + 1, receipt.StorageRowsVersion.OwnedCollectionVersion);
+            Assert.AreEqual(initialRows.CatalogRevision, receipt.StorageRowsVersion.PreviousCatalogRevision);
+            Assert.AreEqual(initialRows.CatalogRevision + 1, receipt.StorageRowsVersion.CatalogRevision);
             Assert.AreEqual(2, receipt.AddedCharts.Count);
             CollectionAssert.AreEquivalent(
                 new[] { newBms.Path, newBmson.Path },
                 receipt.AddedCharts.Select(fact => fact.Path).ToArray());
-            Assert.AreEqual(ownedCollectionOwner.OwnedCollectionVersion, receipt.OwnedCollectionVersion);
+            Assert.AreEqual(ownedCollectionOwner.CatalogRevision, receipt.CatalogRevision);
             Assert.AreEqual(newBms.Md5, storageRowsOwner.BmsRows.Single().Md5);
             Assert.AreNotSame(oldBms.Token, storageRowsOwner.BmsRows.Single().Token);
             Assert.AreNotSame(newBms.Token, storageRowsOwner.BmsRows.Single().Token);
@@ -1439,25 +1451,62 @@ public sealed class CatalogMutationOwnerTests
         });
     }
 
-    /// <summary>
-    /// 要求作成後に集合が置換された導入済み追加は拒否し、並行して確定した現在行を上書きしない。
-    /// </summary>
-    [TestMethod]
-    public void ApplyInstalledTargetUpsert_RejectsStaleRequestBeforeChangingRows()
+    /// <summary>導入先の識別・digestの変更を保存前に拒否し、無関係なTitle・healthの確定だけなら導入を続行する。</summary>
+    [DataTestMethod]
+    [DataRow("title")]
+    [DataRow("health")]
+    [DataRow("target_replaced")]
+    [DataRow("target_digest")]
+    [DataRow("target_created")]
+    public void ApplyInstalledTargetUpsert_ValidatesOnlyCapturedTargetInputs(string interveningChange)
     {
-        ChartFile original = CreateBms("original.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        ChartFile replacement = CreateBms("replacement.bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        var storageRowsOwner = new CatalogOwnedCollectionOwner();
-        storageRowsOwner.ReplaceChartsAndCaptureSnapshot([original], []);
-        CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
-        var owner = new CatalogMutationOwner(storageRowsOwner, null);
-
-        CatalogInstalledTargetUpsertRequest request = owner.CreateInstalledTargetUpsertRequest([replacement], []);
-        ChartFile concurrent = CreateBms("concurrent.bms", "cccccccccccccccccccccccccccccccc");
-        storageRowsOwner.ReplaceChartsAndCaptureSnapshot([concurrent], []);
-
-        Assert.ThrowsException<InvalidOperationException>(() => owner.ApplyInstalledTargetUpsert(request));
-        Assert.AreSame(concurrent, storageRowsOwner.BmsRows.Single());
+        BmsLibraryStateApplierTestSupport.WithTemporarySongDb(songDbPath =>
+        {
+            ChartFile original = CreateBms("target.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            ChartFile unrelated = CreateBms("other.bms", "cccccccccccccccccccccccccccccccc");
+            var catalog = new CatalogOwnedCollectionOwner();
+            catalog.ReplaceChartsAndCaptureSnapshot(interveningChange == "target_created" ? [unrelated] : [original, unrelated], []);
+            var owner = new CatalogMutationOwner(catalog, new BmsLibraryDbGateway(songDbPath));
+            ChartFile replacement = CreateBms("target.bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            CatalogInstalledTargetUpsertRequest request = owner.CreateInstalledTargetUpsertRequest([replacement], []);
+            ChartFile captured = catalog.BmsRows.Last();
+            if (interveningChange == "title")
+            {
+                catalog.CommitCurrentValues([captured], (current, _) => current with { Title = "latest title" });
+            }
+            else if (interveningChange == "health")
+            {
+                catalog.CommitCurrentValues([captured], (current, _) => current with { WAVHealth = 50 });
+            }
+            else if (interveningChange == "target_digest")
+            {
+                catalog.CommitCurrentValues([catalog.BmsRows[0]], (current, _) => current with { Md5 = "dddddddddddddddddddddddddddddddd" });
+            }
+            else
+            {
+                catalog.ApplyCommittedChartUpsert([CreateBms("target.bms", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")], out _);
+            }
+            int beforeApply = catalog.CatalogRevision;
+            if (interveningChange is "title" or "health")
+            {
+                Assert.IsTrue(owner.ApplyInstalledTargetUpsert(request).Applied);
+                Assert.AreEqual(beforeApply + 1, catalog.CatalogRevision);
+                Assert.AreEqual(replacement.Md5, catalog.BmsRows.Single(chart => chart.Path == replacement.Path).Md5);
+                ChartFile kept = catalog.BmsRows.Single(chart => chart.Path == unrelated.Path);
+                Assert.AreEqual(interveningChange == "title" ? "latest title" : unrelated.Title, kept.Title);
+                Assert.AreEqual(interveningChange == "health" ? 50 : (int?)null, kept.WAVHealth);
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                Assert.AreEqual(replacement.Md5, db.Find<LR2SongDB.song>(replacement.Path).hash);
+            }
+            else
+            {
+                bool validationPassed = false;
+                Assert.ThrowsException<InvalidOperationException>(() => owner.ApplyInstalledTargetUpsert(request, () => validationPassed = true));
+                Assert.IsFalse(validationPassed);
+                Assert.AreEqual(beforeApply, catalog.CatalogRevision);
+                Assert.AreNotEqual(replacement.Md5, catalog.BmsRows.Single(chart => chart.Path == replacement.Path).Md5);
+            }
+        });
     }
 
     /// <summary>
@@ -1482,7 +1531,7 @@ public sealed class CatalogMutationOwnerTests
             CatalogInstalledTargetUpsertRequest request = owner.CreateInstalledTargetUpsertRequest([replacement], []);
             Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyInstalledTargetUpsert(request));
 
-            Assert.AreEqual(initialRows.OwnedCollectionVersion, storageRowsOwner.OwnedCollectionVersion);
+            Assert.AreEqual(initialRows.CatalogRevision, storageRowsOwner.CatalogRevision);
             Assert.AreSame(original, storageRowsOwner.BmsRows.Single());
             Assert.IsTrue(ownedCollectionOwner.Collection.CreateCollectionView().ContainsOwnerPath(original.Path));
             Assert.IsFalse(ownedCollectionOwner.Collection.CreateCollectionView().ContainsOwnerPath(replacement.Path));
@@ -1512,7 +1561,7 @@ public sealed class CatalogMutationOwnerTests
         Assert.IsFalse(receipt.Applied);
         Assert.AreEqual(CatalogMutationApplyKind.NoOp, receipt.Kind);
         Assert.AreEqual(0, receipt.AddedCharts.Count);
-        Assert.AreEqual(0, receipt.StorageRowsVersion.OwnedCollectionVersion);
+        Assert.AreEqual(0, receipt.StorageRowsVersion.CatalogRevision);
         Assert.AreEqual(0, storageRowsOwner.BmsRows.Count);
         Assert.AreEqual(0, storageRowsOwner.BmsonRows.Count);
     }
@@ -1547,11 +1596,11 @@ public sealed class CatalogMutationOwnerTests
         Assert.IsTrue(receipt.Applied);
         Assert.AreEqual(CatalogMutationApplyKind.DigestMutation, receipt.Kind);
         Assert.IsTrue(receipt.OwnedCollectionApplied);
-        Assert.AreEqual(initialRows.OwnedCollectionVersion, receipt.StorageRowsVersion.OwnedCollectionVersion);
+        Assert.AreEqual(initialRows.CatalogRevision + 1, receipt.StorageRowsVersion.CatalogRevision);
         Assert.AreEqual(1, receipt.DigestChanges.Count);
         Assert.AreSame(change, receipt.DigestChanges[0]);
         Assert.AreEqual(newMd5, ownedCollectionOwner.Collection.CreateDuplicateChartRowSnapshot().Rows.Single().LookupHash);
-        Assert.AreEqual(ownedCollectionOwner.OwnedCollectionVersion, receipt.OwnedCollectionVersion);
+        Assert.AreEqual(ownedCollectionOwner.CatalogRevision, receipt.CatalogRevision);
     }
 
     /// <summary>
@@ -1578,7 +1627,7 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreEqual(CatalogMutationApplyKind.NoOp, receipt.Kind);
         Assert.IsFalse(receipt.OwnedCollectionApplied);
         Assert.AreEqual(0, receipt.DigestChanges.Count);
-        Assert.AreEqual(0, receipt.StorageRowsVersion.OwnedCollectionVersion);
+        Assert.AreEqual(0, receipt.StorageRowsVersion.CatalogRevision);
     }
 
     /// <summary>

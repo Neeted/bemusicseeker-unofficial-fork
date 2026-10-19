@@ -144,8 +144,6 @@ internal sealed class ResourceHealthIndexMutationFacts
 
         return ResourceMaintenanceTargetSet.ForFullOwned(
             charts,
-            targetSet.StorageRowsVersion!.Value,
-            targetSet.OwnedCollectionVersion!.Value,
             targetSet.ResourceHealthInputVersion!.Value);
     }
 }

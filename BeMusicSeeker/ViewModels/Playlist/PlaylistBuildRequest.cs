@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
@@ -27,6 +30,26 @@ internal sealed class PlaylistBuildRequest
     {
         if (failure == null) { completion.TrySetResult(); }
         else { completion.TrySetException(failure); }
+    }
+
+    // 要求の寿命内だけ、捕捉後の確定結果を保持します。常駐ログにはしません。
+    internal readonly List<CatalogCommitReceipt> CatalogCommits = [];
+    internal readonly List<PlaylistEntryCommitReceipt> EntryCommits = [];
+    internal readonly List<ScoreSnapshotChange> ScoreChanges = [];
+    internal readonly HashSet<string> DetailMd5Keys = new(StringComparer.OrdinalIgnoreCase);
+    internal readonly HashSet<string> DetailSha256Keys = new(StringComparer.OrdinalIgnoreCase);
+    internal TaskCompletionSource DataChanged = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    internal PlaylistDetailDependencies InputDependencies;
+    internal bool WaitingForData;
+    // 詳細通知の対象だけで詳細版を進め、score反映済み位置とは分離します。
+    internal bool HasChartInfoChanges;
+
+    /// <summary>配送後の再開を起動し、新しい待機用 signal を作ります。</summary>
+    internal void SignalDataChanged()
+    {
+        TaskCompletionSource previous = DataChanged;
+        DataChanged = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        previous.TrySetResult();
     }
 
     internal int RequestVersion;

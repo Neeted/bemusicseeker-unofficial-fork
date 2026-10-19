@@ -963,8 +963,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
         ChartFile ignoredChart = (ignored);
         var snapshot = ResourceHealthIndexSnapshot.Build([activeChart, ignoredChart], service, version: 3);
 
-        CollectionAssert.AreEqual(new[] { activeChart }, snapshot.ActiveTargets.ToArray());
-        CollectionAssert.AreEqual(new[] { ignoredChart }, snapshot.IgnoredTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { activeChart.Path }, snapshot.ActiveTargets.Select(reference => reference.Path).ToArray());
+        CollectionAssert.AreEqual(new[] { ignoredChart.Path }, snapshot.IgnoredTargets.Select(reference => reference.Path).ToArray());
         Assert.IsTrue(snapshot.GetProjection(activeChart).HasIssues);
         Assert.IsFalse(snapshot.GetProjection(activeChart).IsIgnored);
         Assert.IsTrue(snapshot.GetProjection(ignoredChart).IsIgnored);
@@ -1020,7 +1020,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         var snapshot = ResourceHealthIndexSnapshot.Build([chart], service, version: 5);
 
-        CollectionAssert.AreEqual(new[] { chart }, snapshot.ActiveTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { chart.Path }, snapshot.ActiveTargets.Select(reference => reference.Path).ToArray());
         Assert.IsTrue(snapshot.GetProjection(chart).HasIssues);
         Assert.IsTrue(snapshot.GetProjection(chart).Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
     }
@@ -1185,7 +1185,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             var library = new TestBmsLibrary(songDbPath);
             SetStorageRows(library, [file], []);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
-            int ownedVersion = library.OwnedCollectionVersion;
+            int ownedVersion = library.CatalogRevision;
             int refreshNotificationChanged = 0;
             System.ComponentModel.PropertyChangedEventHandler handler = delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
@@ -1204,7 +1204,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
                 Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
                 Assert.AreEqual(1, refreshNotificationChanged);
-                Assert.AreEqual(ownedVersion, library.OwnedCollectionVersion);
+                Assert.AreEqual(ownedVersion + 1, library.CatalogRevision);
                 Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
                 Assert.AreEqual("unknown", file.ResourceHealthMaintenanceSnapshot.Encoding);
                 Assert.AreEqual("shift_jis", OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library).Collection
@@ -1222,7 +1222,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                     NormalLibraryRefreshNotificationBatch noChange = library.GetNormalLibraryRefreshNotificationsAfter(beforeRepeat);
                     Assert.IsFalse(noChange.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
                     Assert.IsFalse(noChange.HasEffect(LibraryChartRefreshEffects.SourceChanged));
-                    Assert.AreEqual(ownedVersion, library.OwnedCollectionVersion);
+                    Assert.AreEqual(ownedVersion + 1, library.CatalogRevision);
                     Assert.AreSame(current.Token, GetOwnedCollectionOwner(library).Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(current)).Token);
                 }
                 Assert.AreSame(index, library.GetResourceHealthIndexSnapshotForView("same-maintenance-after-force"));
@@ -1283,7 +1283,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ResourceHealthIndexSnapshot beforeFirst = library.TryGetCurrentResourceHealthIndexSnapshotForView();
             beforeFirst.StoreWorkObserver = operation => storeWork.Add(operation);
             int initialTargetCount = beforeFirst.TargetCount;
-            int ownedVersion = library.OwnedCollectionVersion;
+            int ownedVersion = library.CatalogRevision;
             Assert.AreEqual(backgroundCount + 2, initialTargetCount);
             Assert.IsTrue(beforeFirst.GetProjection(firstChart).HasIssues);
             Assert.IsTrue(beforeFirst.GetProjection(secondChart).HasIssues);
@@ -1305,7 +1305,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(0, firstFixTargets.Count);
             Assert.IsTrue(firstBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
             Assert.IsTrue(firstBatch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
-            Assert.AreEqual(ownedVersion, library.OwnedCollectionVersion);
+            Assert.AreEqual(ownedVersion + 1, library.CatalogRevision);
             Assert.IsFalse(firstBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
             Assert.IsTrue(beforeFirst.GetProjection(firstChart).HasIssues);
 
@@ -1327,7 +1327,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(0, secondFixTargets.Count);
             Assert.IsTrue(secondBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
             Assert.IsTrue(secondBatch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
-            Assert.AreEqual(ownedVersion, library.OwnedCollectionVersion);
+            Assert.AreEqual(ownedVersion + 2, library.CatalogRevision);
             Assert.IsFalse(secondBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
             Assert.IsTrue(afterFirst.GetProjection(secondChart).HasIssues);
             Assert.IsTrue(storeWork.Contains("entry_lookup"));
@@ -1713,7 +1713,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         var duplicateBuild = ResourceHealthIndexSnapshot.Build([activeChart, activeChart], service, version: 0);
 
         Assert.AreEqual(1, duplicateBuild.TargetCount);
-        CollectionAssert.AreEqual(new[] { activeChart }, duplicateBuild.ActiveTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { activeChart.Path }, duplicateBuild.ActiveTargets.Select(reference => reference.Path).ToArray());
 
         ChartFile rehashed = CreateFile("dddddddddddddddddddddddddddddddd");
         rehashed = rehashed with { Path = active.Path };
@@ -1724,8 +1724,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual(2, afterRehash.TargetCount);
         Assert.IsFalse(afterRehash.GetProjection(activeChart).HasIssues);
         Assert.IsTrue(afterRehash.GetProjection(rehashedChart).HasIssues);
-        CollectionAssert.AreEqual(new[] { rehashedChart }, afterRehash.ActiveTargets.ToArray());
-        CollectionAssert.AreEqual(new[] { ignoredChart }, afterRehash.IgnoredTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { rehashedChart.Path }, afterRehash.ActiveTargets.Select(reference => reference.Path).ToArray());
+        CollectionAssert.AreEqual(new[] { ignoredChart.Path }, afterRehash.IgnoredTargets.Select(reference => reference.Path).ToArray());
 
         ChartFile initialActiveChart = activeChart;
         active = ChartFileProjection.WithMaintenance(active, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = active.Path, Hash = active.Md5, WavFilesDefined = 2, WavFilesExisting = 2 });
@@ -1734,15 +1734,15 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         Assert.AreEqual(2, afterFix.TargetCount);
         Assert.IsFalse(afterFix.GetProjection(activeChart).HasIssues);
-        CollectionAssert.AreEqual(Array.Empty<ChartFile>(), afterFix.ActiveTargets.ToArray());
-        CollectionAssert.AreEqual(new[] { ignoredChart }, afterFix.IgnoredTargets.ToArray());
+        Assert.AreEqual(0, afterFix.ActiveTargets.Count);
+        CollectionAssert.AreEqual(new[] { ignoredChart.Path }, afterFix.IgnoredTargets.Select(reference => reference.Path).ToArray());
 
         ResourceHealthIndexSnapshot afterHealthyRemove = afterFix.ApplyDelta(null, [activeChart], service, version: 3);
 
         Assert.AreEqual(1, afterHealthyRemove.TargetCount);
         Assert.IsFalse(afterHealthyRemove.GetProjection(activeChart).HasIssues);
-        CollectionAssert.AreEqual(Array.Empty<ChartFile>(), afterHealthyRemove.ActiveTargets.ToArray());
-        CollectionAssert.AreEqual(new[] { ignoredChart }, afterHealthyRemove.IgnoredTargets.ToArray());
+        Assert.AreEqual(0, afterHealthyRemove.ActiveTargets.Count);
+        CollectionAssert.AreEqual(new[] { ignoredChart.Path }, afterHealthyRemove.IgnoredTargets.Select(reference => reference.Path).ToArray());
 
         ChartFile added = CreateFile("cccccccccccccccccccccccccccccccc");
         added = added with { Path = @"C:\Library\added.bms" };
@@ -1752,25 +1752,25 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         Assert.AreEqual(3, afterAdd.TargetCount);
         Assert.IsTrue(afterAdd.GetProjection(addedChart).HasIssues);
-        CollectionAssert.AreEqual(new[] { addedChart }, afterAdd.ActiveTargets.ToArray());
-        CollectionAssert.AreEqual(new[] { ignoredChart }, afterAdd.IgnoredTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { addedChart.Path }, afterAdd.ActiveTargets.Select(reference => reference.Path).ToArray());
+        CollectionAssert.AreEqual(new[] { ignoredChart.Path }, afterAdd.IgnoredTargets.Select(reference => reference.Path).ToArray());
 
         ResourceHealthIndexSnapshot afterDuplicateUpdate = afterAdd.ApplyDelta([addedChart, addedChart], null, service, version: 4);
 
         Assert.AreEqual(3, afterDuplicateUpdate.TargetCount);
-        CollectionAssert.AreEqual(new[] { addedChart }, afterDuplicateUpdate.ActiveTargets.ToArray());
-        CollectionAssert.AreEqual(new[] { ignoredChart }, afterDuplicateUpdate.IgnoredTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { addedChart.Path }, afterDuplicateUpdate.ActiveTargets.Select(reference => reference.Path).ToArray());
+        CollectionAssert.AreEqual(new[] { ignoredChart.Path }, afterDuplicateUpdate.IgnoredTargets.Select(reference => reference.Path).ToArray());
 
         ResourceHealthIndexSnapshot afterRemove = afterDuplicateUpdate.ApplyDelta([ignoredChart], [ignoredChart], service, version: 5);
 
         Assert.AreEqual(2, afterRemove.TargetCount);
         Assert.IsFalse(afterRemove.GetProjection(ignoredChart).HasIssues);
-        CollectionAssert.AreEqual(new[] { addedChart }, afterRemove.ActiveTargets.ToArray());
-        CollectionAssert.AreEqual(Array.Empty<ChartFile>(), afterRemove.IgnoredTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { addedChart.Path }, afterRemove.ActiveTargets.Select(reference => reference.Path).ToArray());
+        Assert.AreEqual(0, afterRemove.IgnoredTargets.Count);
 
         Assert.AreEqual(2, snapshot.TargetCount);
-        CollectionAssert.AreEqual(new[] { initialActiveChart }, snapshot.ActiveTargets.ToArray());
-        CollectionAssert.AreEqual(new[] { ignoredChart }, snapshot.IgnoredTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { initialActiveChart.Path }, snapshot.ActiveTargets.Select(reference => reference.Path).ToArray());
+        CollectionAssert.AreEqual(new[] { ignoredChart.Path }, snapshot.IgnoredTargets.Select(reference => reference.Path).ToArray());
         Assert.IsTrue(snapshot.GetProjection(initialActiveChart).HasIssues);
         Assert.IsTrue(snapshot.GetProjection(ignoredChart).HasIssues);
     }
@@ -2023,8 +2023,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
         cold.StoreWorkObserver = operation => coldWork.Add(operation);
         int coldActiveCount = cold.ActiveTargets.Count;
         int coldIgnoredCount = cold.IgnoredTargets.Count;
-        ChartFile[] coldActiveMaterialized = cold.ActiveTargets.ToArray();
-        ChartFile[] coldIgnoredMaterialized = cold.IgnoredTargets.ToArray();
+        LibraryChartRef[] coldActiveMaterialized = cold.ActiveTargets.ToArray();
+        LibraryChartRef[] coldIgnoredMaterialized = cold.IgnoredTargets.ToArray();
         cold.StoreWorkObserver = null;
 
         Assert.AreEqual(coldActiveCount, coldActiveMaterialized.Length);

@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -61,6 +60,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 RaiseMutationRejected(PlaylistWorkspaceMutationKind.PropertySave, isBusy: true, isStale: false);
                 return;
             }
+            SetDetailEntryCommitStore(store);
             using IDisposable accepted = admission;
             using LibraryFileMutationCapability authority = store.CreatePlaylistMutationCapability(admission);
             if (!store.ContainsCurrentDetailEntry(playlistRow.Entry))
@@ -68,88 +68,38 @@ public sealed partial class PlaylistWorkspaceViewModel
                 RaiseMutationRejected(PlaylistWorkspaceMutationKind.PropertySave, isBusy: false, isStale: true);
                 return;
             }
-            BMSTableEntry originalEntry = playlistRow.Entry.CreatePlaylistReloadSnapshot();
-            Action restoreEditedDisplay = CaptureDetailEditDisplayRollback(playlistRow, request.Context.PropertyName);
-            if (!TryApplyEdit(playlistRow, request.Context.PropertyName, request.Text))
+            string propertyName = request.Context.PropertyName;
+            if ((propertyName == nameof(PlaylistDetailRow.Url) || propertyName == nameof(PlaylistDetailRow.Url_diff))
+                && !Uri.TryCreate(request.Text, UriKind.Absolute, out _))
             {
                 return;
             }
-            string editedPropertyName = request.Context.PropertyName;
-            await CommitRowAndSynchronizeSourceAsync(playlistRow, editedPropertyName, originalEntry, restoreEditedDisplay, authority);
+            await Task.Run(() => CommitRow(playlistRow, propertyName, request.Text, authority)).ConfigureAwait(true);
         }
         finally
         {
-            CompleteDetailEditSession();
+            // 任意表示の失敗で先行する DB・必要出力・session の結果を置換しません。
+            TryCompleteDetailEditPresentation(() =>
+            {
+                PlaylistDetailSourceRow current;
+                lock (DetailViewState.SyncRoot) { EnsureDetailDependencies().TryGet(playlistRow.Entry, out current); }
+                if (current != null) { playlistRow.ApplySource(current); }
+            }, "playlist_detail_edit_projection_failed");
+            TryCompleteDetailEditPresentation(playlistRow.EndDraft, "playlist_detail_edit_draft_notification_failed");
+            TryCompleteDetailEditPresentation(CompleteDetailEditSession, "playlist_detail_edit_refresh_notification_failed");
         }
     }
 
-    private async Task CommitRowAndSynchronizeSourceAsync(
-        PlaylistDetailRow playlistRow,
-        string editedPropertyName,
-        BMSTableEntry originalEntry, Action restoreEditedDisplay, LibraryFileMutationCapability capability)
+    private void TryCompleteDetailEditPresentation(Action presentation, string reason)
     {
-        try
-        {
-            await Task.Run(() => CommitRow(playlistRow, capability)).ConfigureAwait(true);
-        }
-        catch (PlaylistMutationPostCommitException)
-        {
-            SynchronizeSourceRow(playlistRow);
-            throw;
-        }
-        catch
-        {
-            restoreEditedDisplay();
-            playlistRow.Entry.ApplyPlaylistEditableStateFrom(originalEntry, editedPropertyName);
-            throw;
-        }
-        SynchronizeSourceRow(playlistRow);
+        try { presentation(); }
+        catch (Exception failure) { TryLogPlaylistDropSecondaryFailure(failure, reason); }
     }
 
-    // DB未確定時は編集した一属性の表示キャッシュも戻し、同値setterが次の再保存をskipしないようにします。
-    private static Action CaptureDetailEditDisplayRollback(PlaylistDetailRow row, string propertyName)
-    {
-        switch (propertyName)
-        {
-            case nameof(PlaylistDetailRow.Level):
-                string level = row.Level;
-                return () => row.Level = level;
-            case nameof(PlaylistDetailRow.Url):
-                Uri url = row.Url;
-                return () => row.Url = url;
-            case nameof(PlaylistDetailRow.Url_diff):
-                Uri urlDiff = row.Url_diff;
-                return () => row.Url_diff = urlDiff;
-            case nameof(PlaylistDetailRow.comment):
-                string comment = row.comment;
-                return () => row.comment = comment;
-            case nameof(PlaylistDetailRow.memo):
-                string memo = row.memo;
-                return () => row.memo = memo;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(propertyName));
-        }
-    }
-
-    private void SynchronizeSourceRow(PlaylistDetailRow playlistRow)
-    {
-        lock (DetailViewState.SyncRoot)
-        {
-            PlaylistDetailSourceRow sourceRow = (DetailViewState.Source.Rows ?? [])
-                .FirstOrDefault(row => row != null && ReferenceEquals(row.Entry, playlistRow.Entry));
-            sourceRow?.SynchronizeEditableSnapshot(playlistRow);
-        }
-    }
-
-    private async Task CommitRow(PlaylistDetailRow playlistRow, LibraryFileMutationCapability capability)
+    private async Task CommitRow(PlaylistDetailRow playlistRow, string propertyName, string text, LibraryFileMutationCapability capability)
     {
         BMSPlaylist playlistStore = getPlaylistStore()
             ?? throw new InvalidOperationException("Playlist persistence is not available.");
-        ChartFile chart = playlistRow.Chart;
-        if (chart != null && playlistRow.Entry?.parent?.is_external_sync != true)
-        {
-            playlistRow.Entry.ApplyPlaylistHashesFromChart(chart);
-        }
         bool committed = false;
         ExceptionDispatchInfo primaryFailure = null;
         try
@@ -157,7 +107,9 @@ public sealed partial class PlaylistWorkspaceViewModel
             using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlistStore.OperationNotificationOwner.BeginSession();
             try
             {
-                BMSTable changed = playlistStore.CommitBMSTableEntry(playlistRow.Entry, capability);
+                PlaylistEntryCommitReceipt receipt = playlistStore.CommitBMSTableEntry(
+                    playlistRow.Entry, propertyName, text, capability, playlistRow.Chart);
+                BMSTable changed = receipt.Table;
                 committed = true;
                 if (changed != null)
                 {
@@ -210,60 +162,13 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private void CompleteDetailEditSession()
     {
-        int pendingScoreSnapshotVersion;
-        int lastBuiltScoreSnapshotVersion;
         lock (DetailViewState.SyncRoot)
         {
             DetailViewState.Source.IsPlaylistCellEditing = false;
-            pendingScoreSnapshotVersion = DetailViewState.Source.PendingScoreSnapshotRefreshVersion;
-            lastBuiltScoreSnapshotVersion = DetailViewState.Source.LastBuiltScoreSnapshotVersion;
-            if (pendingScoreSnapshotVersion > lastBuiltScoreSnapshotVersion)
-            {
-                DetailViewState.Source.PendingScoreSnapshotRefreshVersion = 0;
-            }
+            if (DetailViewState.View.CurrentIdentity is PlaylistRequestIdentity current)
+            { (DetailViewState.View.Rows as PlaylistDetailVirtualView)?.FlushDeferred(current); }
         }
-        if (pendingScoreSnapshotVersion > lastBuiltScoreSnapshotVersion)
-        {
-            PublishPlaylistDetailScoreSnapshotRefreshRequested(
-                pendingScoreSnapshotVersion,
-                lastBuiltScoreSnapshotVersion,
-                deferredByEdit: true,
-                refreshRequired: true);
-        }
-    }
-
-    private static bool TryApplyEdit(PlaylistDetailRow row, string propertyName, string text)
-    {
-        switch (propertyName)
-        {
-            case nameof(PlaylistDetailRow.Level):
-                row.Level = text;
-                return true;
-            case nameof(PlaylistDetailRow.Url):
-                if (!Uri.TryCreate(text, UriKind.Absolute, out Uri url))
-                {
-                    return false;
-                }
-
-                row.Url = url;
-                return true;
-            case nameof(PlaylistDetailRow.Url_diff):
-                if (!Uri.TryCreate(text, UriKind.Absolute, out Uri urlDiff))
-                {
-                    return false;
-                }
-
-                row.Url_diff = urlDiff;
-                return true;
-            case nameof(PlaylistDetailRow.comment):
-                row.comment = text;
-                return true;
-            case nameof(PlaylistDetailRow.memo):
-                row.memo = text;
-                return true;
-            default:
-                return false;
-        }
+        (DetailViewState.View.Rows as PlaylistDetailVirtualView)?.PublishChanges();
     }
 
     private static bool IsDetailEditableProperty(string propertyName)

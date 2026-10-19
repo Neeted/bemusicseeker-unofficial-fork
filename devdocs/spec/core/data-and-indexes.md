@@ -36,7 +36,7 @@
 
 `CatalogOwnedCollectionOwner` が唯一の現在値集合・排他・集合版・派生索引を所有します。`CatalogStorageIndexedSequence` の変更不能なルートを共有し、tokenから既存sequence entryへ到達します。パス完全一致索引と派生参照索引から対象を直接探し、順序キーの二分探索で位置を求めます。捕捉済みビューは所属・順序・版に加えて要素の値も固定し、後の現在値適用・移転で変わりません。形式別ビューを捕捉するために全件を複製しません。
 
-通常一覧の添字再利用には、所属・基準順序の変更を示す `MembershipOrderIdentity` を捕捉値へ渡します。加入・離脱・順序の正規化・全置換で識別を替え、同じ位置への基本値更新と内部移転では維持します。基本値の鮮度を示す集合版とは用途を分け、同件数の別所属へ旧添字を流用しません。
+通常一覧の添字再利用には、所属・基準順序の変更を示す `MembershipOrderIdentity` を捕捉値へ渡します。加入・離脱・順序の正規化・全置換で識別を替え、同じ位置への基本値更新と内部移転では維持します。現在値の鮮度を示すカタログ版とは用途を分け、同件数の別所属へ旧添字を流用しません。
 
 形式別範囲ビューの列挙・検索・コピーは、その範囲だけを読みます。先頭開始は通常の列挙器を使い、途中開始は上限256件の局所バッファ一つを再利用して `ImmutableList.CopyTo` で順次取得します。範囲外の前置項目と末端項目を訪問せず、全列挙では必要な各項目を一回取得します。早期終了時の範囲内先読みも `ObserveEntryVisit` に含め、indexer取得の `ObserveAccess`、開始の `ObserveEnumeration`、明示結果具体化の `ObserveMaterialization` と区別します。明示具体化0件でも、この一時バッファは存在します。
 
@@ -53,13 +53,13 @@
 
 全置換後の最初の追加・更新ではBMSON部分だけを一度整列します。BMSの列・順序キー・索引を共有し、全BMSを複製・再採番しません。移転は捕捉済みの順序位置を保ち、画面の並べ替えには共通現在値のpathを使います。`LibraryChartRefIndexSnapshot` の局所更新でも、全譜面の順位表を作りません。
 
-集合版は所属・基本値・path/hashの確定変更でだけ進めます。詳細表示・スコア・保守・警告だけの更新では進めず、既存の専門版と通知を使います。形式別の保存行版と共通集合の二重同期、getterでの全件照合・再構築を行いません。
+`CatalogRevision` は所属・識別・順序と、health・encoding・警告・検査の由来を含む所持現在値の実変更で進めます。一回の確定batchで一回進み、対象なし・同じtokenの同値再評価では進みません。tokenを再発行する全再読込みは識別の実変更です。明示的にtokenを継承する同値入力とは区別します。スコアなど独立した正本の版は維持します。
 
 ### 共通変更と派生索引
 
-`LibraryMutationOwner` は共通の変更事実から、追加・削除・移転・ハッシュ変更・導入先変更・保守対象を一度組み立て、`DispatchOwnedChartCollectionMutation(...)` から必要な索引へ渡します。各索引が保存行のsetterや任意のコールバックで別々に判断する経路は増やしません。
+`CatalogOwnedCollectionOwner` が既存writer内で現在値、必要な候補・ハッシュ索引、版と `CatalogCommitReceipt` を同時に確定します。receiptは `BaseRevision`、`Revision`、対象のbefore/after、全置換の区別と確定時の構造共有snapshotを持ちます。同じ短い集合排他内で既存publisherへ登録し、排他解放後に配送を起動します。`LibraryMutationOwner` は操作の成功集合と必須後処理をまとめます。
 
-通常の変更では旧path/hashを不変の変更事実として捕捉し、DB確定後だけ共通現在値へ一回適用します。構築済み索引へ同じ旧新事実を渡し、排他権を解放してから通知します。未構築索引は変更のためだけに構築しません。全置換、必要な旧新対応の不足、途中失敗では従来どおり必要な無効化を行い、識別条件違反を無効化で隠しません。
+通常の変更では旧path/hashを不変の変更事実として捕捉し、DB確定後だけ共通現在値へ一回適用します。構築済み索引へ同じ旧新事実を渡し、排他権を解放してから登録済みの同じreceiptを配送します。未構築索引は変更のためだけに構築しません。全置換、必要な旧新対応の不足、途中失敗では従来どおり必要な無効化を行い、識別条件違反を無効化で隠しません。
 
 共通値と集合版は同じ既存排他で捕捉・適用します。DB失敗・確定前取消しで現在値を先行変更しません。詳細書込みもDB確定、同tokenへの必要な基本値更新、ハッシュ依存索引、詳細セッション索引、解放後通知の順に行います。[譜面情報](../library/chart-info.md)を参照します。
 
@@ -70,37 +70,43 @@
 | 実パスの参照・子孫数 | 実際の所属・移転を反映します。予定の導入先を混ぜません。 |
 | 導入先の一時状態 | 導入先変更と元の所持主体・パッケージ項目の消失を反映します。実ファイルの存在や子孫数の根拠にはしません。 |
 | 親フォルダ候補 | 現行キャッシュを無効化します。捕捉済みパスを再利用し、出力先の正規化は一回の構築につき一度行います。 |
-| プレイリストの所持ハッシュ・参照解決 | 構築済み索引へ対象ハッシュの差分と同tokenの基本値変更を局所反映し、捕捉済みの旧値を維持します。基本値だけの更新のために全件を再構築しません。 |
+| プレイリストの所持ハッシュ・参照解決 | 構築済み索引へtoken・path・digest・候補順の実変更だけを局所反映します。表示値は保持せず、必要な候補と現在値を共通読取り区間で捕捉します。 |
 | プレイリスト参照の表示更新 | 選択キーに一致する所持参照だけをその都度取り出します。全参照一覧を複製してから絞り込みません。 |
 | リソース健全性 | 対象の差分を優先し、入力不足時は無効化・延期・必要な全件処理を選びます。 |
 | 重複行・グループ | 共通現在値の捕捉sequenceとハッシュ別の不変派生索引を共有します。構築済みの索引は変更したハッシュの要素だけを更新し、グループ結果を無効化します。局所現在値更新のために全件を走査・複製しません。 |
-| 通常一覧 | 所持集合の変更と、警告・保守・導入先・参照表示の変更を別の依存世代として通知します。表示値だけの変更で元一覧の世代を進めません。 |
+| 通常一覧 | 確定した同じカタログsnapshotと対象差分を渡します。鮮度と更新範囲を分け、版の変化だけで全体を再構築しません。 |
 
-通常通知は `NormalLibraryRefreshNotificationVersion` を入口にし、必要な更新契機・変更範囲を渡します。通常一覧の所属・基本値はその時点のカタログ捕捉値を入力とし、過去の追加・削除通知を再生して所属を再現する独立集合は持ちません。差分は実体化済み行や依存する順序の局所更新に使い、次の明示表示要求も現在のカタログから構築できます。通知不達の常時監視や自動再試行は行いません。
+通常通知は `NormalLibraryRefreshNotificationVersion` を入口にし、必要な更新契機・変更範囲を渡します。通常一覧の所属・現在値はreceiptに含む同じ確定時のカタログsnapshotを入力とし、過去の追加・削除通知を再生して所属を再現する独立集合は持ちません。差分は実体化済み行や依存する順序の局所更新に使い、次の明示表示要求も現在のカタログから構築できます。重複警告の直接更新も、確定済みreceiptを既存キューへ登録し、全排他解放後に同じ通知入口を起動します。確定後の処理・通知先の失敗でreceiptを削除しません。未公開の補助通知だけの破棄は、確定receiptを含まない通知に限定します。通知不達の常時監視や自動再試行は行いません。
 
 `NormalLibraryRowCache` は所持tokenをキーに表示行を再利用し、所属の根拠にはしません。詳細は既存の詳細版と変更MD5/SHA-256、スコアは既存の版と変更キー、保守・警告は既存通知と対象、Packageは `ProjectionVersion` とdeferralで更新します。明示的な全置換だけをReset境界とし、局所変更で全sourceのReset、全catalog走査、全件投影・リソース解析を行いません。
 
 
-導入済み項目の参照索引は `PackageLifecycleOwner` が既存の所属ロック内で管理します。tokenに対応するlive entry参照と所属package参照集合だけを持ち、共通現在値・保存行・独立版・永続識別を追加しません。確定値の局所反映では対応entryだけを訪問し、全導入済み列の走査・entry複製・lazy構築をしません。DB確定、共通現在値への一回適用、既存索引反映の後で対応entryへ適用し、項目とモデルの排他を解放してから既存の通知を公開します。
+scoreの既存lookupは可変 `BMSScore` を共有し、全score値の不変snapshotとは扱いません。局所setterと全lookup再公開は `scoreSubscriptionGate → lockScoreSnapshot` の順で、新lookupの公開前に必要な購読を接続し、既存 `ScoreSnapshotVersion` と `ScoreSnapshotChange(BaseVersion, Version, Md5Keys, Sha256Keys)` の通常queue登録を同じ排他内で確定します。全再公開の対象は旧新keyのunionで、空keyの版進行も結果として保持します。純通知は解放後に通常のwakeを起動し、直接score通知の別配送経路を置きません。catalog resetの整理と未公開legacy通知の破棄は、独立score rangeを削除しません。
+
+score版は表示へ反映済みの位置です。可変lookupから最新値を読めても、その版までの全変更keyを反映していないsourceを最新版として採用しません。modelの実setter・全lookup公開・source切替・空key・reset前後と16/128件のlookup/複写仕事量は `ScoreSnapshotPublicationTests`、購読差替えと終了解除・純通知失敗後の成績保持は `BmsLibraryIrStartupTests`、`StartupRequiredInitializationTests`、`BmsLibrarySavedScoreAvailabilityTests`、`BmsLibraryIrServiceTests` が確認します。通常一覧とworkspaceの反映済み位置・待機は[一覧](../ui/table-view.md)へ従います。
+
+導入済み項目の参照索引は `PackageLifecycleOwner` が既存の所属ロック内で管理します。tokenに対応するlive entry参照と所属package参照集合だけを持ち、共通現在値・保存行・独立版・永続識別を追加しません。確定値の局所反映では対応entryだけを訪問し、全導入済み列の走査・entry複製・lazy構築をしません。DB確定、共通現在値への一回適用、既存索引反映の後で、同じ確定receiptのAfterを対応entryへ共有します。移転の不完全なpath要求や後続currentの再捕捉で補いません。項目とモデルの排他を解放してから既存の通知を公開します。
 
 #### 変更事実から索引・表示への反映
 
-実線はラベルに示す変更情報の受渡し、破線は公開前の順序条件です。`LibraryMutationOwner` が一度組み立てた変更結果を保存正本と必要な派生状態へ渡し、保存行や所持集合の変更通知から索引差分を再推測しません。索引反映と無効化の枝は変更に応じて必要な側だけを扱い、両方が対象になる場合もあります。通知への破線の合流は、その変更で対象になった内部反映・無効化の完了を表し、全枝を毎回実行するAND条件ではありません。
+実線はラベルに示す変更情報の受渡し、破線は公開前の順序条件です。操作の変更事実はDB確定後に `CatalogOwnedCollectionOwner` へ適用し、同じ境界で現在値・版・旧新差分を確定します。構築済み索引と専門依存の更新はその旧新差分に従い、保存行や所持集合の変更通知から再推測しません。索引反映と無効化の枝は変更に応じて必要な側だけを扱い、両方が対象になる場合もあります。通知への破線の合流は、その変更で対象になった内部反映・無効化の完了を表し、全枝を毎回実行するAND条件ではありません。
 
 ```mermaid
 flowchart TB
-    Facts["確定した旧新の変更事実"] -->|操作単位で集約| Owner["LibraryMutationOwner"]
-    Owner -->|保存・正本更新| Catalog["DB確定後の共通現在値集合"]
+    Facts["確定した旧新の変更事実"] -->|操作単位で集約| Owner["CatalogOwnedCollectionOwner：現在値・版・不変結果の確定"]
+    Owner -->|正本更新| Catalog["DB確定後の共通現在値集合"]
     Owner -->|同じ確定事実を差分反映| Indexes["構築済みの派生索引"]
     Owner -->|必要な無効化・延期| Lazy["未構築・失効中の索引と専門キャッシュ"]
-    Owner -->|通知対象を決定| Notifications["必要な通知"]
+    Owner -->|通知対象を決定| Notifications["登録済みの不変結果"]
     Catalog -.-> Notifications
     Indexes -.-> Notifications
     Lazy -.-> Notifications
     Notifications -->|排他権解放後に公開| View["読取りモデル・一覧表示"]
 ```
 
-未構築の索引を変更のためだけに構築しません。通常一覧の表示値だけの変更も、所持集合全体の版更新とは分けます。譜面情報の書込み順序は[譜面情報](../library/chart-info.md#保存する列と公開順序)を参照します。
+導入要求の再検査は、要求対象の完全一致pathにいたtokenとdigestだけを比較します。無関係なTitle・healthの確定で要求を拒否しません。LR2通常folderの件数・実パス捕捉は既存のBMS path所属rootを共有し、所属の変化と表示値の変化を区別します。
+
+未構築の索引を変更のためだけに構築しません。カタログ版が進むことと、高価な派生索引を更新することは別の判断です。譜面情報の書込み順序は[譜面情報](../library/chart-info.md#保存する列と公開順序)を参照します。
 
 ### ハッシュと導入済みディレクトリ
 
@@ -114,7 +120,9 @@ flowchart TB
 
 ### プレイリストの所持・解決索引
 
-プレイリスト参照解決索引も `CatalogOwnedCollectionOwner` 自身の共通集合・読取り排他・集合排他・集合版を使います。同じ所有者を別引数として受け直したり、同じ集合排他を二重に取得したりしません。構築前に集合排他内で単一の集合版を捕捉し、読取り排他を解放した後、構築開始時の失効版と捕捉した集合版が現在も一致し、digest更新範囲が終了していることを確認して公開します。既存の取消・digest更新中の待機と最新性確認を維持し、未構築索引を変更処理のためだけに構築しません。
+プレイリスト参照解決索引は `CatalogOwnedCollectionOwner` が所有し、候補のtoken・種類・完全一致path・digest・順序だけを保持します。`ChartFile` の表示値を索引へ複写しません。`CapturePlaylistCatalogReadSnapshot` は候補解決と必要tokenの現在値・カタログ版を同じ読取り区間で捕捉し、退役tokenを同pathの別項目へ救済しません。内容だけの更新は候補rootの内容版を維持します。確定receiptのsnapshotは、その時点でwarmな既存候補rootもO(1)で共有します。`TryCapturePlaylistReadSnapshot` はそのrootと同じsnapshotのtoken現在値だけを読み、後続の候補・現在値を混ぜません。coldな索引は変更のために構築せず、明示全置換で破棄した索引は次の全構築で取得します。
+
+確定後の候補変更と後続currentの混在防止、cold・全置換の非構築は `CatalogMaintenanceCurrentValueTests.ReceiptSnapshot_ResolvesCapturedCandidateAfterLaterCommit` と `CurrentCommit_DoesNotBuildColdIndexesAndTracksOnlyAnalysisInputs` が確認します。重複警告の配送・通知先失敗は `BmsLibraryDuplicateServiceTests.SearchDuplicateChartGroups_PublishesCommittedWarningsAfterLocksRelease`、確定後例外と補助通知削除は `CatalogMaintenanceCurrentValueTests.CommitQueue_KeptAfterApplyFailureAndLegacyNotificationClear` が確認します。
 
 所持ハッシュ索引はMD5・SHA-256それぞれの所持項目数を持ち、最後の項目が消えた場合にだけ所属を除きます。両ハッシュ集合が同じなら内容の `Version` を維持し、所持数集計を再利用します。共通集合版はハッシュ所属内容の版と別に管理します。
 
@@ -181,7 +189,7 @@ WAV/BGA/MOVIEの健康度は使用ファイルキーの存在数／要求数で�
 
 有効な保守情報はDBから反映した `DbHydrated` または計算済みの `Calculated` です。未計算の仮値を健全性索引の正本にしません。通常起動では保存済み情報を読み、欠落・古い対象だけを後続保守へ回します。
 
-構築済みの `ResourceHealthIndexSnapshot` は、種類と完全一致パスから対象・ハッシュ・警告へ直接到達します。対象の差分だけを更新し、健康状態への変更では警告だけを除いて対象数を維持し、譜面除去では所属も除きます。更新する警告は入力順に末尾へ追加し、未変更項目の順序と旧スナップショットを保ちます。全所属の複製、ハッシュ変更対象ごとの全キー探索、getterでの全件具体化はしません。
+構築済みの `ResourceHealthIndexSnapshot` は、種類と完全一致パスから対象参照・ハッシュ・警告の検査事実へ直接到達します。対象にfull `ChartFile` を保持せず、表示と操作対象の現在値は共通捕捉口から取得します。鮮度は実資源入力の `InputVersion` で守り、カタログ版を二重保持しません。無関係なTitle等の確定で正常な資源差分を捨てません。対象の差分だけを更新し、健康状態への変更では警告だけを除いて対象数を維持し、譜面除去では所属も除きます。更新する警告は入力順に末尾へ追加し、未変更項目の順序と旧スナップショットを保ちます。全所属の複製、ハッシュ変更対象ごとの全キー探索、getterでの全件具体化はしません。
 
 再利用できるスナップショットがない保守一覧の読取りは、初期化済み最小情報の読取りと共通現在値の読取り範囲内で対象を捕捉します。カタログ書込み途中の状態を空一覧として確定しません。再利用できる場合に新しい待機は加えません。
 
@@ -225,6 +233,7 @@ BMSの削除前ハッシュは対象パスの一時表から主キーを引き�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 全現在値の確定版、同値、確定順、旧snapshotと局所仕事量 | [`CatalogOwnedCollectionOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogOwnedCollectionOwner.Commit.cs) | [`CatalogMaintenanceCurrentValueTests`](../../../BeMusicSeeker.Tests/Catalog/CatalogMaintenanceCurrentValueTests.cs) は共通writer・実キューで旧新値・退役と背景16/128件を確認する。実DBの保守・encodingは [`BmsLibraryMaintenanceServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryMaintenanceServiceTests.cs) が担う。 |
 | 保存行の順序、移転、一定差分の仕事量 | [`CatalogOwnedCollectionOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogOwnedCollectionOwner.cs)、[`CatalogStorageIndexedSequence`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogStorageIndexedSequence.cs)、[`CatalogMutationOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogMutationOwner.cs) | [`CatalogMutationOwnerTests`](../../../BeMusicSeeker.Tests/Catalog/CatalogMutationOwnerTests.cs) |
 | 範囲だけの取得と通常一覧の形式選択・捕捉順 | [`CatalogStorageIndexedSequence`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogStorageIndexedSequence.cs)、[`OwnedChartCollectionState`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/OwnedChartCollectionState.cs)、[`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs) | [`CatalogMutationOwnerTests`](../../../BeMusicSeeker.Tests/Catalog/CatalogMutationOwnerTests.cs) の `FormatRangeOperations_VisitOnlyRequestedBmsonEntriesRegardlessOfBmsBackground`、`RangeEnumerationAndCapture_PreserveBoundsOrderAndCapturedValues`、`NormalSourceCaptureAndProjection_VisitEachIncludedEntryOnce`。BMSON64件・BMS背景16/128件で範囲内訪問、相対位置、明示コピー、捕捉前から本番行生成までの仕事量を確認します。[`OwnedChartCollectionProjectionTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionProjectionTests.cs) の `CaptureSnapshot_PreservesCatalogOrderAndExcludesPathlessRows` が形式別の捕捉順、内部移転後の位置・token継承と旧捕捉値を確認します。 |
 | 所持集合の順序、完全一致参照、未構築索引 | [`OwnedChartCollectionState`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/OwnedChartCollectionState.cs)、[`LibraryChartRefIndexSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/LibraryChartRefIndexSnapshot.cs) | [`OwnedChartCollectionLookupMembershipTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionLookupMembershipTests.cs)、[`OwnedChartCollectionReferenceIndexTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionReferenceIndexTests.cs) |

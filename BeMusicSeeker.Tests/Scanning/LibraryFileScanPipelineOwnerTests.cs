@@ -114,7 +114,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
             LibraryFileScanPipelineOwner owner = CreateOwner(callbacks, lr2ModeEnabled: true);
             var injectedException = new InvalidOperationException("injected post-lease observer failure");
-            int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion;
+            int initialCatalogRevision = callbacks.CatalogOwnedCollectionOwner.CatalogRevision;
 
             InvalidOperationException thrown = Assert.ThrowsException<InvalidOperationException>(
                 () => owner.ApplyFileScanDiff(
@@ -143,13 +143,13 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
             Assert.AreSame(injectedException, thrown);
             Assert.IsNotNull(callbacks.LastCatalogReplacement);
-            int committedOwnedCollectionVersion = callbacks.LastCatalogReplacement.Receipt.OwnedCollectionVersion;
-            Assert.AreEqual(initialOwnedCollectionVersion + 1, committedOwnedCollectionVersion);
-            Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion);
+            int committedCatalogRevision = callbacks.LastCatalogReplacement.Receipt.CatalogRevision;
+            Assert.AreEqual(initialCatalogRevision + 1, committedCatalogRevision);
+            Assert.AreEqual(committedCatalogRevision, callbacks.CatalogOwnedCollectionOwner.CatalogRevision);
             Lr2SongDbSyncInput input = callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput();
 
 
-            Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion);
+            Assert.AreEqual(committedCatalogRevision, callbacks.CatalogOwnedCollectionOwner.CatalogRevision);
         }
         finally
         {
@@ -182,7 +182,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
             LibraryFileScanPipelineOwner owner = CreateOwner(callbacks, lr2ModeEnabled: true, chartFileScanner: chartFileScanner);
             BmsLibraryOptionsSnapshot options = new() { OperationModeLR2DB = true };
-            int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion;
+            int initialCatalogRevision = callbacks.CatalogOwnedCollectionOwner.CatalogRevision;
 
             long firstGeneration = owner.BeginFileScanRequest(options, [directoryPath], "test_initial_commit");
             Lr2FolderFileDiffPreparationResult first = owner.ApplyActiveFileScan(
@@ -195,8 +195,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
             Assert.AreEqual(1, first.FileCheckResult.DbCommitBmsChangedCount);
             Assert.IsTrue(callbacks.ParseProgress.Any(progress => progress.Total == 1 && progress.Processed == 1));
             Assert.IsTrue(first.SynchronizationInput.CommittedBmsPaths.Contains(bmsPath));
-            int committedOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion;
-            Assert.AreEqual(initialOwnedCollectionVersion + 1, committedOwnedCollectionVersion);
+            int committedCatalogRevision = callbacks.CatalogOwnedCollectionOwner.CatalogRevision;
+            Assert.AreEqual(initialCatalogRevision + 1, committedCatalogRevision);
 
             callbacks.ParseProgress.Clear();
             long secondGeneration = owner.BeginFileScanRequest(options, [directoryPath], "test_no_diff");
@@ -212,7 +212,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             Assert.IsFalse(callbacks.ParseProgress.Any(progress => progress.Total > 0));
             Assert.IsNotNull(callbacks.LastCatalogReplacement);
             Assert.IsFalse(callbacks.LastCatalogReplacement.Receipt.Applied);
-            Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion);
+            Assert.AreEqual(committedCatalogRevision, callbacks.CatalogOwnedCollectionOwner.CatalogRevision);
 
 
         }
@@ -286,7 +286,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 lr2ModeEnabled: true,
                 chartFileScanner: scanner, directoryPath: directoryPath);
             BmsLibraryOptionsSnapshot options = new() { OperationModeLR2DB = true };
-            int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion;
+            int initialCatalogRevision = callbacks.CatalogOwnedCollectionOwner.CatalogRevision;
 
             long firstGeneration = owner.BeginFileScanRequest(options, [directoryPath], "test_initial_commit");
             Lr2FolderFileDiffPreparationResult first = owner.ApplyActiveFileScan(
@@ -295,8 +295,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
             Assert.IsTrue(first.FileCheckResult.HasDbDiff);
             Assert.IsTrue(first.SynchronizationInput.CommittedBmsPaths.Contains(bmsPath));
-            int committedOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion;
-            Assert.AreEqual(initialOwnedCollectionVersion + 1, committedOwnedCollectionVersion);
+            int committedCatalogRevision = callbacks.CatalogOwnedCollectionOwner.CatalogRevision;
+            Assert.AreEqual(initialCatalogRevision + 1, committedCatalogRevision);
 
             using (var db = new LR2SongDBExtended(Path.Combine(directoryPath, "song.db"))) { db.CreateTable<LR2SongDB.folder>(); }
             generation = owner.BeginFileScanRequest(options, [directoryPath], "test_incomplete",
@@ -320,7 +320,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             StringAssert.Contains(callbacks.LastIncompleteWarningReason, prefetchThrows ? "test_prefetch_failed" : incompleteScan.ErrorReason);
 
             Assert.IsTrue(callbacks.LastCatalogReplacement.Receipt.Applied);
-            Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion);
+            Assert.AreEqual(committedCatalogRevision, callbacks.CatalogOwnedCollectionOwner.CatalogRevision);
             using (var db = new LR2SongDBExtended(Path.Combine(directoryPath, "song.db")))
             { Assert.AreEqual(bmsPath, db.Table<LR2SongDB.song>().Single().path); }
             long nextGeneration = owner.BeginFileScanRequest(options, [directoryPath], "test_next_explicit_request");
@@ -502,7 +502,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             // 依存のexitは準備Task全体の終端と別です。実applyの終端を先に待ってから両方を確認します。
             await preparationDependencyExited.Task;
             CatalogChartCollectionSnapshot currentCatalog = callbacks.CatalogOwnedCollectionOwner.CaptureSnapshot();
-            Assert.AreEqual(committedCatalog.OwnedCollectionVersion, currentCatalog.OwnedCollectionVersion);
+            Assert.AreEqual(committedCatalog.CatalogRevision, currentCatalog.CatalogRevision);
             Assert.AreEqual(1, currentCatalog.BmsRows.Count);
             Assert.AreSame(committedCatalog.BmsRows.Single(), currentCatalog.BmsRows.Single());
             Assert.AreSame(committedReplacement, callbacks.LastCatalogReplacement);
@@ -840,7 +840,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         CatalogChartCollectionSnapshot current = owner.CaptureSnapshot();
         CatalogChartCollectionStateSnapshot state = owner.CaptureStateSnapshot();
-        Assert.AreEqual(current.OwnedCollectionVersion, state.OwnedCollectionVersion);
+        Assert.AreEqual(current.CatalogRevision, state.CatalogRevision);
         Assert.AreEqual(current.BmsRows.Count, state.BmsRowCount);
         Assert.AreEqual(current.BmsonRows.Count, state.BmsonRowCount);
         CollectionAssert.AreEqual(new[] { replacementBms }.Select(chart => chart.Path).ToArray(), current.BmsRows.Select(chart => chart.Path).ToArray());
@@ -1020,8 +1020,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
             new BmsLibraryMaintenanceService(),
             _ => { },
             () => new ResourceHealthIndexCurrentVersion(
-                new OwnedChartCollectionVersionSnapshot(0),
-                0,
                 0));
         return new LibraryFileScanPipelineOwner(
             dbGateway,

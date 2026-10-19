@@ -866,10 +866,12 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private void PublishEntriesChanged(BMSTable table, bool refreshSummaryIfVisible = true)
     {
-        bool detailContentChanged = MarkCurrentPlaylistDetailEntriesChanged(table, "playlist_updated");
+        // entry の値・所属は正規 receipt が既存 source と構築要求へ配送します。
+        // ここでは folder rename 等で実選択が変わり、まだその選択の要求がない場合だけ再表示します。
+        bool detailSelectionChanged = RequiresDetailSelectionRefresh(table);
         try
         {
-            if (detailContentChanged
+            if (detailSelectionChanged
                 && IsPlaylistDetailViewActive
                 && !IsPlaylistSummaryMode)
             {
@@ -883,6 +885,30 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 RequestPlaylistSummaryDataRefresh(
                     "playlist_entries_updated");
+            }
+        }
+    }
+
+    private bool RequiresDetailSelectionRefresh(BMSTable table)
+    {
+        lock (playlistDetailSelectionSyncRoot)
+        {
+            PlaylistDetailSelection selection = playlistDetailSelection;
+            if (selection == null || !ReferenceEquals(selection.Table, table)) { return false; }
+            bool Matches(PlaylistRequestIdentity identity) => ReferenceEquals(identity.Table, selection.Table)
+                && identity.SelectionScope == selection.Scope && identity.FolderName == selection.FolderName
+                && identity.FilterType == selection.Filter;
+            lock (DetailBuildState.SyncRoot)
+            {
+                lock (DetailViewState.SyncRoot)
+                {
+                    PlaylistDetailSourceSnapshotState source = DetailViewState.Source;
+                    if (ReferenceEquals(source.CurrentTable, selection.Table) && source.CurrentSelectionScope == selection.Scope
+                        && source.CurrentFolderName == selection.FolderName && source.CurrentFilterType == selection.Filter)
+                    { return false; }
+                }
+                return !(DetailBuildState.CurrentBuildRequest is PlaylistBuildRequest current && Matches(current.Identity))
+                    && !(DetailBuildState.PendingRequest is PlaylistBuildRequest pending && Matches(pending.Identity));
             }
         }
     }

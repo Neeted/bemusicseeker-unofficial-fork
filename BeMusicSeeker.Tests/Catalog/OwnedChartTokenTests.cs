@@ -32,7 +32,7 @@ public sealed class OwnedChartTokenTests
         LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
         ChartFile updated = original with { Title = "Current", Md5 = new string('a', 32), Sha256 = new string('b', 64) };
 
-        Assert.IsTrue(state.ApplyCurrentChartValue(updated));
+        Assert.AreEqual(CatalogCurrentValueApplyResult.Changed, state.ApplyCurrentChartValue(updated));
 
         Assert.AreSame(originalPaths, state.CapturePathMembershipIndex());
         ChartFile current = state.ResolveCurrentChart(captured);
@@ -78,7 +78,7 @@ public sealed class OwnedChartTokenTests
         Assert.AreEqual(moved.Md5, replacement.Md5);
         Assert.AreNotSame(moved.Token, replacement.Token);
         Assert.IsNull(state.ResolveCurrentChart(fixedReference));
-        Assert.IsFalse(state.ApplyCurrentChartValue(moved));
+        Assert.AreEqual(CatalogCurrentValueApplyResult.NotFound, state.ApplyCurrentChartValue(moved));
         ChartFile loaded = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.ToBmsRow(replacement), replacement.Sha256);
         var reload = OwnedChartCollectionState.FromCharts([loaded]);
         Assert.AreNotSame(replacement.Token, reload.ResolveCurrentChart(LibraryChartRef.FromPath(replacement.Kind, replacement.Path, replacement.Md5, replacement.Sha256)).Token);

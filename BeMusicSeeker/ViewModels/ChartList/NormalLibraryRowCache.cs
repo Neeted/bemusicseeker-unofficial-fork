@@ -52,9 +52,9 @@ internal sealed class NormalLibraryRowCache
         return row;
     }
 
-    /// <summary>通知で捕捉した変更値と削除tokenだけを既存の表示行へ反映します。</summary>
+    /// <summary>通知で捕捉した変更値と削除tokenだけを既存の表示行へ反映し、同じ基本値で投影提供元を接続します。</summary>
     internal void ApplyChanges(IEnumerable<ChartFile> changedCharts, IEnumerable<OwnedChartToken> deletedTokens,
-        Action<LibraryChartRow> configureRow)
+        Action<LibraryChartRow, ChartFile> configureRow)
     {
         foreach (OwnedChartToken token in deletedTokens ?? [])
         {
@@ -69,7 +69,7 @@ internal sealed class NormalLibraryRowCache
             {
                 row.UpdateSourceProjection(chart);
                 UpdateScoreKeys(chart);
-                configureRow?.Invoke(row);
+                configureRow?.Invoke(row, chart);
                 row.RefreshDisplayForDataDependency(MainViewDataDependency.SourceMembership);
             }
         }

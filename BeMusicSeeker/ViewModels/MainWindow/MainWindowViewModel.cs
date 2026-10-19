@@ -1432,29 +1432,6 @@ public partial class MainWindowViewModel : ViewModel,
         return true;
     }
 
-    private void RefreshChartInfoDependentViews()
-    {
-        MainChartList.RowProjection.CaptureVersions(files);
-        MainViewDataDependency libraryDependency = MainViewDataDependency.ChartInfo;
-        regularChartListOwner.ResetDerivedCaches();
-        if (TrySuppress(UiRefreshChannel.PlaylistTree))
-        {
-            PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                "chart_info_dependent_views");
-        }
-        else
-        {
-            PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                "chart_info_dependent_views");
-            PlaylistWorkspace.RequestPlaylistDetailReloadRefresh();
-        }
-        if (TrySuppress(UiRefreshChannel.LibraryMainView))
-        {
-            return;
-        }
-        RefreshLibraryMainViewForDataDependency(libraryDependency, "chart_info_dependent_views");
-    }
-
     private void LibraryFolderTreeCacheRefreshRequested(
         object sender,
         LibraryFolderTreeRefreshRequestedEventArgs e)
@@ -1649,17 +1626,6 @@ public partial class MainWindowViewModel : ViewModel,
                     EndUiUpdateSuppression();
                 }
                 break;
-            case DuplicateMaintenanceRefreshPriorityWindowChangedEventArgs priorityChanged:
-                if (priorityChanged.IsActive)
-                {
-                    PlaylistWorkspace.BeginDuplicateRefreshPriorityWindow(priorityChanged.Reason);
-                }
-                else
-                {
-                    ReleaseDuplicateRefreshPriorityWindowAfterUiRefresh(
-                        priorityChanged.Reason + "_ui_refresh_done");
-                }
-                break;
             default:
                 throw new ArgumentOutOfRangeException(
                     nameof(e),
@@ -1700,13 +1666,6 @@ public partial class MainWindowViewModel : ViewModel,
                 if (mutationApplied.LibraryPathChanged)
                 {
                     regularChartListOwner.QueueLatestNormalLibraryRefreshNotification("library_charts_changed");
-                    InvalidateNormalLibrarySortKeysAfterPathMutation(
-                        hasBmsPathMutation: true,
-                        hasBmsonPathMutation: true);
-                }
-                if (mutationApplied.EncodingChanged)
-                {
-                    InvalidateNormalLibraryIdentitySortKeys(NormalLibraryBmsTitleChangedReason);
                 }
                 break;
             default:
@@ -1840,8 +1799,8 @@ public partial class MainWindowViewModel : ViewModel,
             return false;
         }
 
-        if (regularChartListOwner.TryInvalidateSourceForOwnedCollectionVersion(
-            files?.OwnedCollectionVersion ?? 0,
+        if (regularChartListOwner.TryInvalidateSourceForCatalogRevision(
+            files?.CatalogRevision ?? 0,
             out int cacheCount))
         {
             sourceGenerationChanged = true;
@@ -1889,45 +1848,16 @@ public partial class MainWindowViewModel : ViewModel,
             : (string.IsNullOrWhiteSpace(reason) ? NormalLibraryBmsonSortKeyChangedReason : reason));
     }
 
-    private const string NormalLibraryBmsPathChangedReason = "bms_path_changed";
-
-    private const string NormalLibraryBmsTitleChangedReason = "bms_title_changed";
-
-    private const string NormalLibraryBmsonPathChangedReason = "bmson_path_changed";
-
     private const string NormalLibraryBmsonSortKeyChangedReason = "bmson_sort_key_changed";
 
-    private const string NormalLibraryChartInfoDigestBackfilledReason = "chart_info_digest_backfilled";
 
     private const string NormalLibraryInstallDestinationChangedReason = "install_destination_changed";
 
     private const string NormalLibraryReferenceTablesChangedReason = "ref_tables_changed";
 
-    private const string NormalLibraryMaintenanceChangedReason = "maintenance_changed";
-
     private const string NormalLibraryWarningChangedReason = "warning_changed";
 
-    private static IReadOnlyList<string> GetNormalLibraryPathSortKeyInvalidationReasons(bool hasBmsPathMutation, bool hasBmsonPathMutation)
-    {
-        return MainViewRefreshDecisionService.GetPathSortKeyInvalidationReasons(hasBmsPathMutation, hasBmsonPathMutation);
-    }
-
     private const string NormalLibraryBmsonSourceIdentityChangedReason = "bmson_source_identity_changed";
-
-    private void InvalidateNormalLibrarySortKeysAfterPathMutation(bool hasBmsPathMutation, bool hasBmsonPathMutation)
-    {
-        IReadOnlyList<string> reasons = GetNormalLibraryPathSortKeyInvalidationReasons(hasBmsPathMutation, hasBmsonPathMutation);
-        foreach (string reason in reasons)
-        {
-            if (string.Equals(reason, NormalLibraryBmsPathChangedReason, StringComparison.Ordinal))
-            {
-                InvalidateNormalLibraryIdentitySortKeys(reason);
-            }
-            else if (string.Equals(reason, NormalLibraryBmsonPathChangedReason, StringComparison.Ordinal))
-            {
-            }
-        }
-    }
 
 
     private void NotifyBmsonPlaylistReferenceDisplayChanged()
@@ -2325,7 +2255,6 @@ public partial class MainWindowViewModel : ViewModel,
         PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
         PlaylistWorkspace.PlaylistLampNavigationRequested += PlaylistWorkspacePlaylistLampNavigationRequested;
         PlaylistWorkspace.PlaylistPresentationRefreshRequested += PlaylistWorkspacePlaylistPresentationRefreshRequested;
-        PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
         PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;
         PlaylistWorkspace.PlaylistDetailReloadRefreshRequested += PlaylistWorkspacePlaylistDetailReloadRefreshRequested;
         PlaylistWorkspace.PlaylistTablesPresentationChanged += PlaylistWorkspacePlaylistTablesPresentationChanged;
@@ -2416,7 +2345,6 @@ public partial class MainWindowViewModel : ViewModel,
         PackageInstallWorkflow.FailurePublished += PackageInstallWorkflowFailurePublished;
         PackageInstallWorkflow.RefreshSuppressionChanged += PackageInstallWorkflowRefreshSuppressionChanged;
         MaintenanceRescanWorkflow = childComposition.MaintenanceRescanWorkflow;
-        MaintenanceRescanWorkflow.CompletionPublished += MaintenanceRescanWorkflowCompletionPublished;
         FolderAutoRenameWorkflow = childComposition.FolderAutoRenameWorkflow;
         FolderAutoRenameWorkflow.CompletionPublished += FolderAutoRenameWorkflowCompletionPublished;
         FolderAutoRenameWorkflow.FailurePublished += FolderAutoRenameWorkflowFailurePublished;
@@ -2437,7 +2365,6 @@ public partial class MainWindowViewModel : ViewModel,
         SelectedChartMutations.WorkflowChanged += SelectedChartMutationWorkflowChanged;
         SelectedChartExternalActions = childComposition.SelectedChartExternalActions;
         SelectedChartResourceHealth = childComposition.SelectedChartResourceHealth;
-        SelectedChartResourceHealth.RescanCompleted += SelectedChartResourceHealthRescanCompleted;
         ChartInfoParseFailureRemoval = childComposition.ChartInfoParseFailureRemoval;
         SelectedChartAudioConversion = childComposition.SelectedChartAudioConversion;
         Lr2SongDbSyncWorkflow = childComposition.Lr2SongDbSyncWorkflow;
@@ -2495,6 +2422,7 @@ public partial class MainWindowViewModel : ViewModel,
         PlaylistWorkspace.PlaylistDetailSortChanged += PlaylistWorkspacePlaylistDetailSortChanged;
         PlaylistWorkspace.PlaylistDetailFilterChanged += PlaylistWorkspacePlaylistDetailFilterChanged;
         regularChartListOwner = childComposition.RegularChartListOwner;
+        PlaylistWorkspace.SetLibraryChangeDelivery(regularChartListOwner.DeliverPendingLibraryChangesAsync);
         startupPostInitializationWarmupOwner = new StartupPostInitializationWarmupOwner(
             () =>
             {
@@ -2668,6 +2596,7 @@ public partial class MainWindowViewModel : ViewModel,
         regularChartListOwner.CompleteCellEdit(request);
     }
 
+    /// <summary>一回取得した同じ確定batchを、workspaceと通常一覧の既存接続へ渡します。</summary>
     private void RegularChartListOwnerNormalLibraryRefreshApplied(
         object sender,
         NormalLibraryRefreshAppliedEventArgs request)
@@ -2677,20 +2606,14 @@ public partial class MainWindowViewModel : ViewModel,
             return;
         }
 
-        if (request.NotificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
-        {
-            PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(request.Reason);
-        }
-        if (TrySuppress(UiRefreshChannel.LibraryMainView)
-            || TrySuppress(UiRefreshChannel.LibraryMainView))
-        {
-            return;
-        }
+
+        PlaylistWorkspace.ApplyLibraryChanges(files, request.NotificationBatch);
         MainViewRefreshAction action = regularChartListOwner.ApplyNotificationPresentation(
             files, request.NotificationBatch, treeViewFilterTypeSelected,
             treeViewFilterParameterSelected as ChartPackage, ChartFilters.CaptureSnapshot(), PlaylistWorkspace.IsPlaylistDetailViewActive);
         if (action == MainViewRefreshAction.Refresh)
         {
+            if (TrySuppress(UiRefreshChannel.LibraryMainView)) { return; }
             if (request.NotificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
             {
                 RefreshNormalLibraryAfterSourceChanged(request.Reason);
@@ -2748,44 +2671,6 @@ public partial class MainWindowViewModel : ViewModel,
             UpdateChartKeywordSearchContext();
         }
         RefreshChartRowsView(request.Mode, request.Parameter);
-    }
-
-    private void PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested(
-        object sender,
-        PlaylistDetailScoreSnapshotRefreshRequestedEventArgs request)
-    {
-        if (request == null)
-        {
-            return;
-        }
-        InvokeMainChartListPresentationAction(
-            () =>
-            {
-                if (!PlaylistWorkspace.IsPlaylistDetailViewActive
-                    || PlaylistWorkspace.IsPlaylistSummaryMode)
-                {
-                    return;
-                }
-                if (!request.RefreshRequired)
-                {
-                    LogPlaylistWorker("playlist_score_snapshot_refresh_deferred scoreSnapshotVersion="
-                        + request.ScoreSnapshotVersion
-                        + " lastBuiltScoreSnapshotVersion="
-                        + request.LastBuiltVersion
-                        + " reason=editing");
-                    return;
-                }
-                LogPlaylistWorker("playlist_score_snapshot_refresh_requested scoreSnapshotVersion="
-                    + request.ScoreSnapshotVersion
-                    + " lastBuiltScoreSnapshotVersion="
-                    + request.LastBuiltVersion
-                    + " deferredByEdit="
-                    + request.DeferredByEdit.ToString().ToLowerInvariant());
-                if (!TrySuppress(UiRefreshChannel.LibraryMainView))
-                {
-                    RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
-                }
-            });
     }
 
     private void PlaylistWorkspaceTreeSelectionActivated(
@@ -3731,13 +3616,6 @@ public partial class MainWindowViewModel : ViewModel,
         regularChartListOwner.InitializeColumnPresentation(treeViewFilterTypeSelected);
         listenerForBMSLibrary?.Dispose();
         listenerForBMSLibrary = new PropertyChangedEventListener(files);
-        listenerForBMSLibrary.RegisterHandler(() => files.OwnedCollectionVersion, delegate
-        {
-            PlaylistWorkspace.InvalidatePlaylistLibraryIndexSnapshot(
-                "owned_collection_changed",
-                startupReadyOperableReached,
-                treeViewFilterTypeSelected);
-        });
         listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgressVersion, delegate
         {
             startupProgressWorkflowOwner.UpdateStartupProgressLibraryInitializationStatuses(
@@ -3762,55 +3640,9 @@ public partial class MainWindowViewModel : ViewModel,
         listenerForBMSLibrary.RegisterHandler(() => files.ScoreHydrationCompletedVersion, delegate
         {
             startupProgressWorkflowOwner.TryCompleteStartupProgressScoreHydration(files.ScoreHydrationCompletedVersion);
-            if (TrySuppress(UiRefreshChannel.LibraryMainView))
-            {
-                return;
-            }
-            RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Score, "score_hydration_completed");
-            if (TrySuppress(UiRefreshChannel.PlaylistTree))
-            {
-                PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                    "score_hydration_completed");
-                return;
-            }
-            PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                "score_hydration_completed");
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.ScoreSnapshotVersion, delegate
-        {
-            MainChartList.RowProjection.CaptureVersions(files);
-            if (!PlaylistWorkspace.IsPlaylistDetailViewActive)
-            {
-                return;
-            }
-            PlaylistWorkspace.RequestPlaylistDetailScoreSnapshotRefresh(files.ScoreSnapshotVersion);
-            PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                "score_snapshot_changed");
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.RankingRefreshCompletedVersion, delegate
-        {
-            if (TrySuppress(UiRefreshChannel.LibraryMainView))
-            {
-                return;
-            }
-            RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Score, "ranking_refresh_completed");
-            if (TrySuppress(UiRefreshChannel.PlaylistTree))
-            {
-                PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                    "ranking_refresh_completed");
-                return;
-            }
-            PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                "ranking_refresh_completed");
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillCompletedVersion, delegate
-        {
-            if ((files?.ChartInfoBackfillDigestBackfilledCount ?? 0) > 0)
-            {
-                InvalidateNormalLibraryIdentitySortKeys(NormalLibraryChartInfoDigestBackfilledReason);
-            }
-            RefreshChartInfoDependentViews();
-        });
+        // scoreのload・hydration・rankingは確定キー通知、ChartInfoは通常batchの確定キーで表示へ届く。
+        // 完了版やCatalogRevisionから再構築を重ねると、局所更新後に全sourceを再投影してしまう。
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoHydrationRequestedVersion, delegate
         {
             startupProgressWorkflowOwner.TrackStartupProgressChartInfoHydrationRequested(files.ChartInfoHydrationRequestedVersion, files.ChartInfoHydrationProgressRequest);
@@ -3818,7 +3650,6 @@ public partial class MainWindowViewModel : ViewModel,
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoHydrationCompletedVersion, delegate
         {
             startupProgressWorkflowOwner.TryCompleteStartupProgressChartInfoHydration(files.ChartInfoHydrationCompletedVersion);
-            RefreshChartInfoDependentViews();
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoHydrationProgressSnapshot, delegate
         {
@@ -4536,22 +4367,6 @@ public partial class MainWindowViewModel : ViewModel,
         return prefix + "_source_reference_changed";
     }
 
-    private void MaintenanceRescanWorkflowCompletionPublished(MaintenanceRescanCompletionReceipt receipt)
-    {
-        RefreshResourceHealthViewsAfterMaintenanceChanged(
-            "maintenance_hydration_completed",
-            "maintenance_changed",
-            invalidateSortDependency: false);
-    }
-
-    private void SelectedChartResourceHealthRescanCompleted(object sender, EventArgs e)
-    {
-        RefreshResourceHealthViewsAfterMaintenanceChanged(
-            "maintenance_hydration_completed",
-            "maintenance_changed",
-            invalidateSortDependency: false);
-    }
-
     private static void ReportMaintenanceRescanWorkflowNotificationFailure(Exception exception)
     {
         NLogWrapper.FileLogger?.Error(exception, "maintenance_rescan_workflow_notification_failed");
@@ -4569,7 +4384,6 @@ public partial class MainWindowViewModel : ViewModel,
             FileDbMutationReport.NotifyBestEffort(() =>
             {
                 regularChartListOwner.QueueLatestNormalLibraryRefreshNotification("library_charts_changed");
-                InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
             });
         }
         await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
@@ -4627,43 +4441,6 @@ public partial class MainWindowViewModel : ViewModel,
         {
             EndUiUpdateSuppression();
         }
-    }
-
-    private void RefreshResourceHealthViewsAfterMaintenanceChanged()
-    {
-        RefreshResourceHealthViewsAfterMaintenanceChanged("maintenance_hydration_completed", "maintenance_changed");
-    }
-
-    private void RefreshResourceHealthViewsAfterMaintenanceChanged(string reason)
-    {
-        RefreshResourceHealthViewsAfterMaintenanceChanged(reason, reason);
-    }
-
-    private void RefreshResourceHealthViewsAfterMaintenanceChanged(
-        string filterReason,
-        string dependencyReason,
-        bool invalidateSortDependency = true)
-    {
-        if (invalidateSortDependency)
-        {
-            InvalidateNormalLibrarySortDependency(MainViewDataDependency.Maintenance, NormalLibraryMaintenanceChangedReason);
-        }
-        Action refresh = delegate
-        {
-            if (TrySuppress(UiRefreshChannel.LibraryMainView))
-            {
-                return;
-            }
-            if (treeViewFilterTypeSelected == MainViewUpdateMode.FileMissingFilterSelected
-                || treeViewFilterTypeSelected == MainViewUpdateMode.FileMissingIgnoredFilterSelected
-                || treeViewFilterTypeSelected == MainViewUpdateMode.FullScanAllChartsFilterSelected)
-            {
-                RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
-                return;
-            }
-            RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Maintenance, dependencyReason);
-        };
-        DispatchUiAction(refresh);
     }
 
     private void RefreshNormalLibraryAfterWarningChanged(string reason)
@@ -4818,31 +4595,6 @@ public partial class MainWindowViewModel : ViewModel,
     private void UpdateInstallEstimationProgressStatus(InstallEstimationProgressSnapshot snapshot)
     {
         DispatchMainChartListAction(() => ProgressHub.UpdateInstallEstimationProgress(snapshot));
-    }
-
-    private void ReleaseDuplicateRefreshPriorityWindowAfterUiRefresh(string reason)
-    {
-        if (!uiScheduler.IsAvailable && uiScheduler.CanExecuteInline)
-        {
-            PlaylistWorkspace.ReleaseDuplicateRefreshPriorityWindow(reason);
-            return;
-        }
-
-        try
-        {
-            IUiScheduledOperation operation = uiScheduler.Schedule(delegate
-            {
-                PlaylistWorkspace.ReleaseDuplicateRefreshPriorityWindow(reason);
-            }, UiSchedulePriority.ApplicationIdle);
-            if (!operation.IsAccepted)
-            {
-                PlaylistWorkspace.ReleaseDuplicateRefreshPriorityWindow(reason);
-            }
-        }
-        catch
-        {
-            PlaylistWorkspace.ReleaseDuplicateRefreshPriorityWindow(reason);
-        }
     }
 
     private static bool ShowUiConfirmation(

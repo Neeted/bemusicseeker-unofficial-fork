@@ -137,7 +137,7 @@ internal sealed class CatalogMutationReceipt
             bmsonRemovalDbMs: 0,
             liveApplyMs: 0,
             ownedCollectionApplied: false,
-             ownedCollectionVersion: 0,
+             catalogRevision: 0,
              addedCharts: [],
              pathFacts: [],
              removalRequests: [],
@@ -157,26 +157,30 @@ internal sealed class CatalogMutationReceipt
         long bmsonRemovalDbMs,
         long liveApplyMs,
         bool ownedCollectionApplied,
-        int ownedCollectionVersion,
+        int catalogRevision,
         IEnumerable<CatalogChartMutationFact> addedCharts,
         IEnumerable<CatalogRelocationPathFact> pathFacts,
         IEnumerable<OwnedChartRemoveRequest> removalRequests,
         bool bmsonCanonicalOrderNormalized = false,
         int folderDbTargetRows = 0,
-        int folderDbFullScanCount = 0)
+        int folderDbFullScanCount = 0,
+        IReadOnlyDictionary<string, OwnedChartToken> bmsPathMembershipIdentity = null,
+        CatalogCommitReceipt commit = null)
     {
         Applied = applied;
+        Commit = commit;
         StorageRowsVersion = storageRowsVersion;
         FolderDbMs = folderDbMs;
         FolderDbTargetRows = folderDbTargetRows;
         FolderDbFullScanCount = folderDbFullScanCount;
+        BmsPathMembershipIdentity = bmsPathMembershipIdentity;
         BmsPathDbMs = bmsPathDbMs;
         BmsonPathDbMs = bmsonPathDbMs;
         BmsRemovalDbMs = bmsRemovalDbMs;
         BmsonRemovalDbMs = bmsonRemovalDbMs;
         LiveApplyMs = liveApplyMs;
         OwnedCollectionApplied = ownedCollectionApplied;
-        OwnedCollectionVersion = ownedCollectionVersion;
+        CatalogRevision = catalogRevision;
         Kind = applied
             ? CatalogMutationApplyKind.GenericMutation
             : CatalogMutationApplyKind.NoOp;
@@ -187,6 +191,9 @@ internal sealed class CatalogMutationReceipt
         BmsonCanonicalOrderNormalized = bmsonCanonicalOrderNormalized;
     }
 
+    /// <summary>同じcatalog確定境界の現在値と差分です。導入済みentryへ要求値を再適用せず、このAfterを共有します。</summary>
+    internal CatalogCommitReceipt Commit { get; }
+
     internal bool Applied { get; }
 
     internal OwnedChartCollectionVersionSnapshot StorageRowsVersion { get; }
@@ -196,6 +203,9 @@ internal sealed class CatalogMutationReceipt
 
     /// <summary>folder DB 全件走査回数。</summary>
     internal int FolderDbFullScanCount { get; }
+
+    /// <summary>確定時のBMS完全一致path所属rootです。LR2の件数・実パス準備に使い、表示値の更新では変わりません。</summary>
+    internal IReadOnlyDictionary<string, OwnedChartToken> BmsPathMembershipIdentity { get; }
 
     internal long FolderDbMs { get; }
 
@@ -211,7 +221,7 @@ internal sealed class CatalogMutationReceipt
 
     internal bool OwnedCollectionApplied { get; }
 
-    internal int OwnedCollectionVersion { get; }
+    internal int CatalogRevision { get; }
 
     internal CatalogMutationApplyKind Kind { get; }
 

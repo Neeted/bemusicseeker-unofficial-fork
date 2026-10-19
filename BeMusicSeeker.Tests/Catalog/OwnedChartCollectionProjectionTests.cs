@@ -119,7 +119,7 @@ public sealed class OwnedChartCollectionProjectionTests
         state.ApplyPathChanges([new LibraryChartPathChange { Chart = capture, OldPath = capture.Path, NewPath = newPath }]);
         bmsFile = state.ResolveCurrentChart(LibraryChartRef.FromChartFile(capture)) with
         { Md5 = "cccccccccccccccccccccccccccccccc", Sha256 = new string('d', 64) };
-        Assert.IsTrue(state.ApplyCurrentChartValue(bmsFile));
+        Assert.AreEqual(CatalogCurrentValueApplyResult.Changed, state.ApplyCurrentChartValue(bmsFile));
         Assert.AreNotEqual(newPath, capture.Path);
         Assert.AreNotEqual(bmsFile.Md5, capture.Md5);
 

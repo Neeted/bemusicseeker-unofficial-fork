@@ -150,9 +150,18 @@ internal static class MainViewRefreshDecisionService
         bool installed = mode == MainViewUpdateMode.NewlyInstalledFolderSelected && !playlistDetail;
         if (batch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
         {
-            // 全source通知で、対象entryの旧新値を取得できなかった追加・置換は通常更新へ戻す。
+            // writerのreceiptは補助entry通知より先に配送できる。同じ確定旧新値で
+            // 表示への非依存を証明できれば、補助通知の到着だけを理由に行集合を交換しない。
             var coveredTokens = new HashSet<OwnedChartToken>(batch.InstalledChartChanges.Select(change => change.Current.Token));
-            if (!installed || batch.ChangedCharts.Count == 0
+            foreach (CatalogChartChange change in batch.CatalogCommits.SelectMany(commit => commit.Changes))
+            {
+                coveredTokens.Add(change.Token);
+                if (BasicChangeAffectsView(change.Before, change.After, keyword, modeFilter, sortColumn))
+                {
+                    return MainViewRefreshAction.Refresh;
+                }
+            }
+            if (!installed || coveredTokens.Count == 0
                 || batch.ChangedCharts.Any(chart => chart.Token == null || !coveredTokens.Contains(chart.Token)))
             {
                 return MainViewRefreshAction.Refresh;

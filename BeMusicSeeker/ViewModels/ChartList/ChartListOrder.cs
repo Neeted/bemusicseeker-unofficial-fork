@@ -348,6 +348,28 @@ internal sealed class ChartListOrder
 
     internal int Count => Indexes.Count;
 
+    /// <summary>全体整列と局所挿入で同じ列・同じ比較規則を使うため、不変の派生キーを捕捉します。</summary>
+    internal static ChartListCapturedSortKey CaptureKey(ChartListSourceRow row, string columnName)
+    {
+        if (!TryGetVirtualSortColumnDefinition(columnName, out ChartListOrderColumnDefinition definition))
+        {
+            throw new ArgumentException("Unknown chart sort column.", nameof(columnName));
+        }
+        return new(definition.KeyKind == ChartListOrderKeyKind.String
+            ? definition.StringKeySelector(row) : definition.ComparableKeySelector(row),
+            row.Title ?? string.Empty, definition.KeyKind);
+    }
+
+    /// <summary>基準順序の同値判定を除く、列と副キーTitleの共通比較です。</summary>
+    internal static int CompareKeys(ChartListCapturedSortKey left, ChartListCapturedSortKey right, ListSortDirection direction)
+    {
+        int compared = left.Kind == ChartListOrderKeyKind.String
+            ? StringComparer.OrdinalIgnoreCase.Compare(left.Primary as string, right.Primary as string)
+            : CompareComparable(left.Primary, right.Primary);
+        if (compared != 0) { return direction == ListSortDirection.Descending ? -Math.Sign(compared) : compared; }
+        return StringComparer.OrdinalIgnoreCase.Compare(left.Title, right.Title);
+    }
+
     internal static ChartListOrder CreateTitleAscending(IReadOnlyList<ChartListSourceRow> rows)
     {
         TryCreate(rows, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, out ChartListOrder order);
@@ -519,6 +541,9 @@ internal sealed class ChartListOrder
         return null;
     }
 }
+
+/// <summary>順序の実依存だけを保持する短命の派生キーです。表示列の第二正本には使いません。</summary>
+internal readonly record struct ChartListCapturedSortKey(IComparable Primary, string Title, ChartListOrderKeyKind Kind);
 
 internal enum ChartListOrderKeyKind
 {

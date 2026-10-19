@@ -1,0 +1,1084 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
+using BeMusicSeeker.ViewModels;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace BeMusicSeeker.Tests;
+
+/// <summary>実譜面・SQLite・保守確定・単一配送から実 playlist source/view までを検証します。候補条件の網羅は model 系列へ分担します。</summary>
+[TestClass]
+public sealed class PlaylistCatalogViewChangeTests
+{
+    public TestContext? TestContext { get; set; }
+
+    /// <summary>背景16/128件のwarm一件保守で未変更行・Rows・選択・未訪問行を保持し、旧入力は変えず対象値と専門警告を配送します。</summary>
+    [DataTestMethod]
+    [DataRow(16, false)]
+    [DataRow(128, false)]
+    [DataRow(16, true)]
+    public async Task MaintenanceCommit_UpdatesOnlyDependentPlaylistInputs(int count, bool bmson)
+    {
+        await using var fixture = new Fixture(count, bmson);
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var first = (PlaylistDetailRow)rows[0];
+        var unrelated = (PlaylistDetailRow)rows[1];
+        PlaylistDetailSourceRow old = fixture.Workspace.DetailViewState.Source.Rows[0];
+        fixture.MainTable.SelectedIndex = 1;
+        var work = new List<string>();
+        fixture.Workspace.DetailWorkObserver = work.Add;
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        MaintenanceWorkflowResult result = fixture.Library.RescanResourceHealthCharts([old.OwnedCurrent]);
+        watch.Stop();
+        Assert.IsTrue(result.HasUpdates);
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreSame(first, rows[0]);
+        Assert.AreSame(unrelated, rows[1]);
+        Assert.AreEqual(1, fixture.MainTable.SelectedIndex);
+        Assert.AreEqual(2, rows.RealizedRowCount);
+        Assert.IsNull(old.WAVHealth);
+        Assert.AreEqual(0, first.WAVHealth);
+        Assert.IsFalse(first.HasHighlightedWarning, "資源欠損は通常一覧と同じく行全体を強調しません。");
+        StringAssert.Contains(first.WarningTooltipText, string.Format(BeMusicSeeker.Properties.Resources.Warning_WavFilesNotFound, 0, 0, 1));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(first.WarningDigestText));
+        Assert.AreEqual(1, work.Count(value => value == "playlist_source_projection"));
+        Assert.AreEqual(0, work.Count(value => value == "playlist_dependency_index_entry"),
+            "初回構築の逆引きを採用し、warm更新で背景entryを再列挙しません。");
+        Assert.AreEqual(1, work.Count(value => value == "playlist_dependency_index_write"));
+        Assert.AreEqual(1, fixture.Workspace.DetailViewState.Source.Rows.Count(row => row.WAVHealth == 0));
+        Assert.IsNull(((PlaylistDetailRow)rows[count - 1]).WAVHealth);
+        TestContext?.WriteLine("playlist count={0} bmson={1} warm_commit_delivery_ms={2:F3}", count, bmson, watch.Elapsed.TotalMilliseconds);
+    }
+
+    /// <summary>入力捕捉後の実保守を配送前で止め、旧入力へ新版を付けず、配送後に同じ候補へ局所差分だけを反映します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task BuildingCandidate_WaitsForCommitDeliveryAndResumesWithoutRebuild(bool deliverBeforeAdoption)
+    {
+        await using var fixture = new Fixture(16);
+        await fixture.Refresh();
+        var oldRows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var oldFirst = (PlaylistDetailRow)oldRows[0];
+        fixture.PauseDelivery = true;
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var work = new List<string>();
+        bool changed = false;
+        EventHandler callback = (_, _) =>
+        {
+            if (changed) { return; }
+            changed = true;
+            ChartFile target = fixture.Workspace.DetailViewState.Source.Rows[0].OwnedCurrent;
+            fixture.WriteFirst("Z changed");
+            // 資源保守は同一encodingのメタデータ再読解を要求しません。題名を変える正規入口を使います。
+            fixture.Library.SetBMSFilesEncoding([target], "utf-8");
+            Assert.AreEqual("Z changed", fixture.Library.CapturePlaylistCatalogReadSnapshot(
+                [new PlaylistEntryLookupKey(PlaylistEntryLookupKeyKind.Md5, target.Md5)], default)
+                .Resolve(new PlaylistEntryLookupKey(PlaylistEntryLookupKeyKind.Md5, target.Md5)).Title,
+                "正規保守の確定値と、未配送候補への反映を分けて検査します。");
+            work.Clear();
+            if (deliverBeforeAdoption) { fixture.Deliver(); }
+            reached.TrySetResult();
+        };
+        fixture.MainTable.RowsReplacing += callback;
+        fixture.Workspace.DetailWorkObserver = work.Add;
+        fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.Title), ListSortDirection.Descending);
+        Task? refresh = null;
+        try
+        {
+            refresh = fixture.Refresh();
+            await Task.WhenAny(reached.Task, refresh);
+            if (!reached.Task.IsCompleted) { await refresh; Assert.Fail("実候補の採用境界へ到達しませんでした。"); }
+            if (!deliverBeforeAdoption)
+            {
+                Assert.IsFalse(refresh.IsCompleted);
+                Assert.AreSame(oldRows, fixture.Workspace.DetailViewState.View.Rows);
+                Assert.AreEqual("A target", oldFirst.Title);
+                fixture.Deliver();
+            }
+            await refresh;
+            if (fixture.Workspace.DetailViewState.View.Rows[0] is not PlaylistDetailRow adopted)
+            { throw new AssertFailedException("Playlist detail row was not adopted."); }
+            Assert.AreEqual("Z changed", adopted.Title);
+            Assert.IsTrue(work.Count(value => value == "playlist_source_projection") <= 2,
+                "既存表示と構築候補の依存一行ずつだけを再投影します。");
+        }
+        finally
+        {
+            fixture.MainTable.RowsReplacing -= callback;
+            fixture.Deliver();
+            if (refresh != null) { await refresh; }
+        }
+    }
+
+    /// <summary>文字列更新で依存filterとsortだけを再評価し、非表示のentryも検索へ入れます。表固有level・memo・DBは保持します。</summary>
+    [TestMethod]
+    public async Task MetadataCommit_ReevaluatesHiddenDependenciesAndKeepsEntryValues()
+    {
+        await using var fixture = new Fixture(3);
+        fixture.Workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("changed", ChartModeFilter.All));
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        Assert.AreEqual(0, rows.Count);
+        PlaylistDetailSourceRow target = fixture.Workspace.DetailViewState.Source.Rows[0];
+        fixture.WriteFirst("Z changed");
+        fixture.Library.SetBMSFilesEncoding([target.OwnedCurrent], "utf-8");
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreEqual(1, rows.Count);
+        var row = (PlaylistDetailRow)rows[0];
+        Assert.AreEqual("Z changed", row.Title);
+        Assert.AreEqual("fixture artist", row.Artist);
+        Assert.AreEqual("2.5", row.Level);
+        Assert.AreEqual("entry memo", row.memo);
+        Assert.AreSame(target.OwnedCurrent.Token, row.Chart.Token);
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        Assert.AreEqual("entry memo", db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE title = 'entry 0';"));
+        Assert.AreEqual(2.5, db.ExecuteScalar<double>("SELECT level FROM playlist_entry WHERE title = 'entry 0';"));
+    }
+
+    /// <summary>背景件数・実体化済み件数を増やしても、一件の題名移動は順序木の探索経路だけを訪問します。</summary>
+    [DataTestMethod]
+    [DataRow(16)]
+    [DataRow(128)]
+    public async Task MetadataSortMove_PreservesRealizedEntriesWithLogarithmicOrderWork(int count)
+    {
+        await using var fixture = new Fixture(count);
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        PlaylistDetailRow[] realized = rows.Cast<PlaylistDetailRow>().ToArray();
+        var work = new List<string>();
+        fixture.Workspace.DetailWorkObserver = work.Add;
+        int publications = 0;
+        realized[0].PropertyChanged += (_, _) =>
+        {
+            Assert.IsFalse(System.Threading.Monitor.IsEntered(fixture.Workspace.DetailViewState.SyncRoot));
+            Assert.IsFalse(System.Threading.Monitor.IsEntered(fixture.Workspace.DetailBuildState.SyncRoot));
+            Assert.AreEqual("Z changed", realized[0].Title);
+            publications++;
+        };
+        rows.CollectionChanged += (_, _) =>
+        {
+            Assert.IsFalse(System.Threading.Monitor.IsEntered(fixture.Workspace.DetailViewState.SyncRoot));
+            Assert.IsFalse(System.Threading.Monitor.IsEntered(fixture.Workspace.DetailBuildState.SyncRoot));
+            Assert.AreSame(realized[0], rows[count - 1]);
+        };
+        fixture.WriteFirst("Z changed");
+        fixture.Library.SetBMSFilesEncoding([fixture.Workspace.DetailViewState.Source.Rows[0].OwnedCurrent], "utf-8");
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreSame(realized[0], rows[count - 1]);
+        Assert.AreEqual(count, rows.RealizedRowCount);
+        Assert.IsTrue(publications > 0);
+        Assert.AreEqual(0, work.Count(kind => kind == "playlist_order_buffer"));
+        Assert.IsTrue(work.Count(kind => kind == "playlist_order_access") <= 6 * Math.Ceiling(Math.Log2(count)) + 6);
+        Assert.IsTrue(work.Count(kind => kind == "playlist_order_write") <= 3);
+        Assert.IsTrue(work.Count(kind => kind == "playlist_notification_buffer") <= 3);
+        for (int index = 1; index < count; index++) { Assert.AreSame(realized[index], rows[index - 1]); }
+    }
+
+    /// <summary>実score ownerのA/B変更で対象行を更新し、memo draftと旧順序を保ってCompleteDetailEditのfinally後だけB/U/Aへ再配置します。</summary>
+    [DataTestMethod]
+    [DataRow(16)]
+    [DataRow(128)]
+    public async Task ScoreChanges_PatchDependentEntriesAndDeferPositionUntilDraftEnds(int count)
+    {
+        await using var fixture = new Fixture(count, regularDelivery: true, oracleScores: true);
+        await fixture.DrainLibraryChanges();
+        fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.stddevVal), ListSortDirection.Ascending);
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var target = (PlaylistDetailRow)rows[0];
+        var other = (PlaylistDetailRow)rows[1];
+        var context = new MainChartListCellEditContext(target, nameof(PlaylistDetailRow.memo),
+            ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+        fixture.Workspace.BeginDetailEdit(context);
+        target.memo = "unsaved draft";
+        var work = new List<string>();
+        fixture.Workspace.DetailWorkObserver = work.Add;
+        long revision = fixture.Library.CatalogRevision;
+        fixture.ChangeScore(0, 40);
+        fixture.ChangeScore(1, 5);
+        await fixture.DrainLibraryChanges();
+        Assert.AreEqual(revision, fixture.Library.CatalogRevision);
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreSame(target, rows[0]);
+        Assert.AreEqual(40d, target.stddevVal);
+        Assert.AreEqual("unsaved draft", target.memo);
+        Assert.AreEqual("entry memo", target.Entry.memo);
+        Assert.AreEqual(2, work.Count(kind => kind == "playlist_source_projection"));
+        Assert.AreEqual(0, work.Count(kind => kind == "playlist_dependency_index_entry"));
+        Assert.AreEqual(2, rows.RealizedRowCount);
+        await fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "unsaved draft", commit: false));
+        Assert.AreSame(target, rows[2]);
+        Assert.AreSame(other, rows[1]);
+        Assert.AreEqual("entry 1", ((PlaylistDetailRow)rows[0]).Entry.title);
+        Assert.AreEqual(5, ((PlaylistDetailRow)rows[0]).score);
+        Assert.AreEqual("entry memo", target.memo);
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        { Assert.AreEqual("entry memo", db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE title = 'entry 0';")); }
+        Assert.AreEqual(40d, target.stddevVal);
+        Assert.IsTrue(work.Count(kind => kind == "playlist_order_access") <= 12 * Math.Ceiling(Math.Log2(count)) + 12);
+        Assert.AreEqual(0, work.Count(kind => kind == "playlist_order_buffer"));
+    }
+
+    /// <summary>非所持entryの詳細独立通知を実解析・DB確定から配送し、全source再構築なしでノーツ数一件だけを反映します。</summary>
+    [DataTestMethod]
+    [DataRow(16)]
+    [DataRow(128)]
+    public async Task ChartInfoChange_PatchesOnlyUnownedDependentEntry(int count)
+    {
+        await using var fixture = new Fixture(count);
+        ChartFile file = fixture.Library.BmsCharts[0];
+        fixture.Library.BmsCharts = fixture.Library.BmsCharts.Skip(1).ToList();
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        // fixtureのTitle順はB background群の後に未所持entry 0が一件だけ続きます。
+        var target = (PlaylistDetailRow)rows[count - 1];
+        Assert.AreEqual("entry 0", target.Entry.title);
+        Assert.IsFalse(target.IsOwned);
+        Assert.AreEqual(1, fixture.Workspace.DetailViewState.Source.Rows.Count(row =>
+            StringComparer.OrdinalIgnoreCase.Equals(row.hash, file.Md5)
+            || StringComparer.OrdinalIgnoreCase.Equals(row.sha256, file.Sha256)),
+            "背景entryは異なるhashで、今回の詳細キーに依存するsourceは未所持の一行だけです。");
+        var other = (PlaylistDetailRow)rows[0];
+        Assert.IsNull(target.ChartNotes);
+        var work = new List<string>();
+        fixture.Workspace.DetailWorkObserver = work.Add;
+        long revision = fixture.Library.CatalogRevision;
+        // 成功時の詳細indexとparse-failure解除の公開を、実UIの予約→drainと同じ一batchで受け取ります。
+        fixture.BatchNotificationsOnDelivery = true;
+        ChartInfoInlineBuildResult built = fixture.Library.BuildAndPersistInlineChartInfoForInstalledCharts("playlist_detail_test", [file]);
+        Assert.AreEqual(1, built.SuccessCount);
+        Assert.AreEqual(0, built.ParseFailedCount);
+        fixture.Deliver();
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        { Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT notes FROM chart_info WHERE sha256 = ?;", file.Sha256)); }
+        Assert.AreEqual(revision, fixture.Library.CatalogRevision);
+        Assert.AreEqual(1, target.ChartNotes);
+        Assert.AreEqual("2.5", target.Level);
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreSame(other, rows[0]);
+        Assert.AreEqual(1, work.Count(kind => kind == "playlist_source_projection"));
+        Assert.AreEqual(1, work.Count(kind => kind == "playlist_dependency_index_write"));
+        Assert.AreEqual(0, work.Count(kind => kind == "playlist_dependency_index_entry"));
+        Assert.AreEqual(0, work.Count(kind => kind == "playlist_order_buffer"));
+        Assert.AreEqual(2, rows.RealizedRowCount, "対象と既訪問の背景一行だけを保持し、未訪問行を実体化しません。");
+    }
+
+    /// <summary>未配送catalogを必要とするentry追加を保留したまま別表を開いても、その後の配送で旧表entryが混入しません。</summary>
+    [TestMethod]
+    public async Task DeferredEntryCommit_DoesNotLeakIntoLaterTable()
+    {
+        await using var fixture = new Fixture(3);
+        await fixture.Refresh();
+        BMSTable oldTable = fixture.Workspace.DetailViewState.Source.CurrentTable;
+        fixture.PauseDelivery = true;
+        fixture.WriteFirst("Z changed");
+        fixture.Library.SetBMSFilesEncoding([fixture.Library.BmsCharts[0]], "utf-8");
+        Assert.IsTrue(fixture.Playlist.AddPlaylistEntriesToFolderBMSTable(
+            [new BMSTableEntry { md5 = new string('f', 32), title = "old table added" }], oldTable, string.Empty));
+        var otherTable = new BMSTable
+        {
+            playlist_id = 4190,
+            name = "other",
+            entries =
+            [new BMSTableEntry { md5 = new string('e', 32), title = "other entry", folder = string.Empty }]
+        };
+        fixture.Playlist.BMSTables.Add(otherTable);
+        fixture.Playlist.CommitBMSTableWithEntriesToDB(otherTable);
+        fixture.Workspace.RequestDetailSelection(otherTable);
+        // 別表の初回捕捉はすでにcatalog新版です。旧表保留はこの入力へ移しません。
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var row = (PlaylistDetailRow)rows[0];
+        fixture.Deliver();
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreEqual(1, rows.Count);
+        Assert.AreSame(row, rows[0]);
+        Assert.AreSame(otherTable.entries[0], row.Entry);
+        Assert.AreEqual(1, fixture.Workspace.DetailViewState.Source.Rows.Count);
+    }
+
+    /// <summary>別表の正規全置換保存で、現在開いている表のRows・入力・実体化を作り直しません。</summary>
+    [TestMethod]
+    public async Task UnrelatedTableFullCommit_PreservesCurrentPresentation()
+    {
+        await using var fixture = new Fixture(3);
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var row = (PlaylistDetailRow)rows[0];
+        var other = new BMSTable
+        {
+            playlist_id = 4191,
+            name = "other",
+            entries =
+            [new BMSTableEntry { md5 = new string('e', 32), title = "unrelated", folder = string.Empty }]
+        };
+        fixture.Playlist.BMSTables.Add(other);
+        var work = new List<string>();
+        fixture.Workspace.DetailWorkObserver = work.Add;
+        fixture.Playlist.CommitBMSTableWithEntriesToDB(other);
+        await fixture.Workspace.WaitForDetailBuildIdleAsync();
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreSame(row, rows[0]);
+        Assert.AreEqual(0, work.Count(kind => kind == "playlist_source_projection"));
+        Assert.AreEqual(0, work.Count(kind => kind == "playlist_order_buffer"));
+    }
+
+    /// <summary>同一receiptの後半が未配送catalogを要するとき、前半のfolder変更も表示へ先行適用しません。</summary>
+    [TestMethod]
+    public async Task EntryReceipt_WaitsAtomicallyForAllRequiredLookups()
+    {
+        await using var fixture = new Fixture(3);
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var first = (PlaylistDetailRow)rows[0];
+        BMSTable table = first.Entry.parent;
+        string originalFolder = first.Folder;
+        fixture.PauseDelivery = true;
+        fixture.WriteFirst("Z changed");
+        fixture.Library.SetBMSFilesEncoding([first.Chart], "utf-8");
+        Assert.IsTrue(fixture.Playlist.AddPlaylistEntriesToFolderBMSTable(
+            [first.Entry, new BMSTableEntry { md5 = new string('f', 32), title = "new member" }], table, "moved"));
+        Assert.AreEqual("moved", first.Entry.folder);
+        Assert.AreEqual(originalFolder, first.Folder);
+        Assert.AreEqual(3, rows.Count);
+        fixture.Deliver();
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreEqual("moved", first.Folder);
+        Assert.AreEqual(4, rows.Count);
+        Assert.AreEqual(4, fixture.Workspace.DetailViewState.Source.Rows.Count);
+    }
+
+    /// <summary>少数削除のsource位置更新は末尾一件だけで、表示の明示sortと同値EntryOrderを維持します。</summary>
+    [DataTestMethod]
+    [DataRow(16)]
+    [DataRow(128)]
+    public async Task EntryRemoval_ChangesOnlyAffectedSourcePositions(int count)
+    {
+        await using var fixture = new Fixture(count);
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var first = (PlaylistDetailRow)rows[0];
+        var next = (PlaylistDetailRow)rows[1];
+        var work = new List<string>();
+        fixture.Workspace.DetailWorkObserver = work.Add;
+        Assert.IsTrue(fixture.Playlist.RemoveEntriesBMSTable([first.Entry], first.Entry.parent));
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreSame(next, rows[0]);
+        Assert.AreEqual(count - 1, rows.Count);
+        Assert.AreEqual(1, work.Count(kind => kind == "playlist_dependency_position_write"));
+        Assert.AreEqual(0, work.Count(kind => kind == "playlist_order_buffer"));
+        Assert.IsTrue(work.Count(kind => kind == "playlist_order_access") <= 4 * Math.Ceiling(Math.Log2(count)) + 4);
+        fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.Title), ListSortDirection.Ascending);
+        await fixture.Refresh();
+        if (fixture.Workspace.DetailViewState.View.Rows[0] is not PlaylistDetailRow adopted)
+        { throw new AssertFailedException("Playlist detail row was not adopted."); }
+        Assert.AreSame(next.Entry, adopted.Entry);
+    }
+
+    /// <summary>大文字小文字と数値表記が既存比較器で同値ならEntryOrderを保ち、実キー変更時だけ対象参照を移動します。</summary>
+    [DataTestMethod]
+    [DataRow(nameof(PlaylistDetailRow.Title))]
+    [DataRow(nameof(PlaylistDetailRow.Folder))]
+    public void LocalSort_UsesSemanticEqualityAndConfirmedEntryOrder(string column)
+    {
+        var table = new BMSTable();
+        var input = Enumerable.Range(0, 3).Select(index => new PlaylistDetailSourceRow(
+            new BMSTableEntry { md5 = index.ToString("x32"), title = "same", folder = "2", parent = table },
+            null, entryOrder: index)).ToList();
+        PlaylistRequestIdentity identity = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.OrdinaryRoot, null,
+            PlaylistDetailFilter.PlaylistFilter, string.Empty, ChartModeFilter.All,
+            new ChartListSortParameters { ColumnsName = column, Direction = ListSortDirection.Ascending }, 0, 0, 0, 0, true);
+        var rows = new PlaylistDetailVirtualView(input, identity: identity);
+        var first = (PlaylistDetailRow)rows[0];
+        var middle = (PlaylistDetailRow)rows[1];
+        var last = (PlaylistDetailRow)rows[2];
+        PlaylistEntryValue equal = column == nameof(PlaylistDetailRow.Title)
+            ? input[1].EntryValue with { Title = "SAME" } : input[1].EntryValue with { Folder = "02" };
+        var equalRow = new PlaylistDetailSourceRow(input[1].Entry, null, entryValue: equal, entryOrder: 1);
+        rows.ApplyChange(input[1], equalRow, identity, false);
+        rows.PublishChanges();
+        Assert.AreSame(first, rows[0]); Assert.AreSame(middle, rows[1]); Assert.AreSame(last, rows[2]);
+        PlaylistEntryValue changed = column == nameof(PlaylistDetailRow.Title) ? equal with { Title = "a" } : equal with { Folder = "1" };
+        var changedRow = new PlaylistDetailSourceRow(input[1].Entry, null, entryValue: changed, entryOrder: 1);
+        rows.ApplyChange(equalRow, changedRow, identity, false);
+        rows.PublishChanges();
+        Assert.AreSame(middle, rows[0]); Assert.AreSame(first, rows[1]); Assert.AreSame(last, rows[2]);
+    }
+
+    /// <summary>正規セル保存のLevel確定差分は同じRowsで並びを変え、memo確定差分は依存keyword所属だけを外します。</summary>
+    [DataTestMethod]
+    [DataRow(16)]
+    [DataRow(128)]
+    public async Task EntryEdits_UpdateLevelOrderAndMemoFilterLocally(int count)
+    {
+        await using var fixture = new Fixture(count);
+        fixture.Workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("memo", ChartModeFilter.All));
+        fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.Level), ListSortDirection.Ascending);
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var target = (PlaylistDetailRow)rows[0];
+        var next = (PlaylistDetailRow)rows[1];
+        var work = new List<string>();
+        fixture.Workspace.DetailWorkObserver = work.Add;
+        var level = new MainChartListCellEditContext(target, nameof(PlaylistDetailRow.Level),
+            ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+        fixture.Workspace.BeginDetailEdit(level);
+        target.Level = "4";
+        await fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(level, "4", commit: true));
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreSame(target, rows[count - 1]);
+        Assert.AreSame(next, rows[0]);
+        Assert.AreEqual("4", target.Level);
+        var memo = new MainChartListCellEditContext(target, nameof(PlaylistDetailRow.memo),
+            ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+        fixture.Workspace.BeginDetailEdit(memo);
+        target.memo = "removed from query";
+        await fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(memo, "removed from query", commit: true));
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreEqual(count - 1, rows.Count);
+        Assert.AreSame(next, rows[0]);
+        Assert.AreEqual(-1, rows.IndexOf(target));
+        Assert.AreEqual(2, work.Count(kind => kind == "playlist_source_projection"));
+        Assert.AreEqual(0, work.Count(kind => kind == "playlist_dependency_index_entry"));
+        Assert.AreEqual(0, work.Count(kind => kind == "playlist_order_buffer"));
+        Assert.IsTrue(work.Count(kind => kind == "playlist_order_access") <= 10 * Math.Ceiling(Math.Log2(count)) + 10);
+    }
+
+    /// <summary>実改名操作の公開後にroot表示を再構築せず、選択folder自身の改名時だけ新選択を評価します。明示folder順はtree、詳細Folder列は自然順です。</summary>
+    [DataTestMethod]
+    [DataRow(16, false)]
+    [DataRow(128, false)]
+    [DataRow(16, true)]
+    [DataRow(128, true)]
+    public async Task WorkspaceRenameFolder_UsesReceiptAndRefreshesOnlyRemappedSelection(int count, bool selectedFolder)
+    {
+        await using var fixture = new Fixture(count, firstFolder: "source");
+        BMSTable table = fixture.Playlist.BMSTables.Single();
+        if (selectedFolder) { fixture.Workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("source")); }
+        fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.Folder), ListSortDirection.Ascending);
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var target = (PlaylistDetailRow)rows[selectedFolder ? 0 : count - 1];
+        PlaylistDetailRow? background = selectedFolder ? null : (PlaylistDetailRow)rows[0];
+        int reloads = 0;
+        Task reload = Task.CompletedTask;
+        fixture.Workspace.PlaylistDetailReloadRefreshRequested += (_, _) => { reloads++; reload = fixture.Refresh(); };
+        var work = new List<string>();
+        fixture.Workspace.DetailWorkObserver = work.Add;
+        await fixture.Workspace.RenameFolderAsync(table, PlaylistFolderNode.CreateFolder("source"), "a");
+        await reload;
+        CollectionAssert.AreEqual(new[] { "background", "a" }, table.folder_list);
+        Assert.AreEqual("a", table.entries[0].folder);
+        Assert.AreEqual(1, work.Count(kind => kind == "playlist_source_projection"));
+        if (selectedFolder)
+        {
+            Assert.AreEqual(1, reloads);
+            Assert.AreEqual("a", fixture.Workspace.CapturePlaylistDetailSelection().FolderName);
+            Assert.AreEqual(1, fixture.Workspace.DetailViewState.View.Rows.Count);
+            if (fixture.Workspace.DetailViewState.View.Rows[0] is not PlaylistDetailRow adopted)
+            { throw new AssertFailedException("Renamed folder was not presented."); }
+            Assert.AreSame(target.Entry, adopted.Entry);
+            Assert.AreEqual("a", adopted.Folder);
+            Assert.AreEqual(1, work.Count(kind => kind == "playlist_dependency_index_entry"));
+            Assert.AreEqual(1, work.Count(kind => kind == "playlist_order_buffer"));
+        }
+        else
+        {
+            Assert.AreEqual(0, reloads);
+            Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+            Assert.AreSame(target, rows[0]);
+            Assert.AreSame(background, rows[1]);
+            Assert.AreEqual(2, rows.RealizedRowCount);
+            Assert.AreEqual("a", target.Folder);
+            Assert.AreEqual(0, work.Count(kind => kind == "playlist_dependency_index_entry"));
+            Assert.AreEqual(0, work.Count(kind => kind == "playlist_order_buffer"));
+            Assert.IsTrue(work.Count(kind => kind == "playlist_order_access") <= 6 * Math.Ceiling(Math.Log2(count)) + 6);
+        }
+    }
+
+    /// <summary>実workspaceの少数delete/dropもreceiptで同じ表示を更新し、公開後の全詳細refresh・全件bufferを要求しません。</summary>
+    [DataTestMethod]
+    [DataRow(16, false)]
+    [DataRow(128, false)]
+    [DataRow(16, true)]
+    [DataRow(128, true)]
+    public async Task WorkspaceDeleteOrDrop_DoesNotRequestDuplicateDetailRefresh(int count, bool drop)
+    {
+        await using var fixture = new Fixture(count, firstFolder: "source");
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var first = (PlaylistDetailRow)rows[0];
+        var next = (PlaylistDetailRow)rows[1];
+        BMSTable table = first.Entry.parent;
+        int reloads = 0;
+        fixture.Workspace.PlaylistDetailReloadRefreshRequested += (_, _) => reloads++;
+        var work = new List<string>();
+        fixture.Workspace.DetailWorkObserver = work.Add;
+        if (drop)
+        {
+            await fixture.Workspace.AddRowsToFolderAsync([first], table, PlaylistFolderNode.CreateFolder("background"));
+            Assert.AreEqual(count, rows.Count);
+            if (rows[0] is not PlaylistDetailRow adopted) { throw new AssertFailedException("Dropped entry was not presented."); }
+            Assert.AreEqual("background", adopted.Entry.folder);
+            Assert.AreEqual(first.Entry.md5, adopted.Entry.md5);
+            Assert.AreNotSame(first.Entry, adopted.Entry);
+            Assert.IsFalse(table.ContainsEntry(first.Entry));
+            Assert.AreSame(next, rows[1]);
+        }
+        else
+        {
+            await fixture.Workspace.DeleteSelectedEntriesAsync([first]);
+            Assert.AreEqual(count - 1, rows.Count);
+            Assert.AreSame(next, rows[0]);
+            Assert.IsFalse(table.ContainsEntry(first.Entry));
+        }
+        Assert.AreEqual(0, reloads);
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreEqual(0, work.Count(kind => kind == "playlist_dependency_index_entry"));
+        Assert.AreEqual(0, work.Count(kind => kind == "playlist_order_buffer"));
+        Assert.IsTrue(work.Count(kind => kind == "playlist_order_access") <= 10 * Math.Ceiling(Math.Log2(count)) + 10);
+    }
+
+    /// <summary>A/Bの別キー確定後、片方のpure wakeを止めても単一drainが全rangeを覆い、同条件要求は混合入力をreuseしません。旧同キー逆順保証もここへ移管します。</summary>
+    [DataTestMethod]
+    [DataRow(16, false)]
+    [DataRow(128, false)]
+    [DataRow(16, true)]
+    [DataRow(128, true)]
+    public async Task ScoreRanges_DelayedDistinctWakeAndSameConditionRequestCoverAllKeys(int count, bool reverseWake)
+    {
+        await using var fixture = new Fixture(count, regularDelivery: true, oracleScores: true);
+        await fixture.DrainLibraryChanges();
+        fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.stddevVal), ListSortDirection.Ascending);
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var a = (PlaylistDetailRow)rows[0];
+        var u = (PlaylistDetailRow)rows[1];
+        var b = (PlaylistDetailRow)rows[2];
+        fixture.MainTable.SelectedIndex = 1;
+        long catalog = fixture.Library.CatalogRevision;
+        var work = new List<string>();
+        var scoreWork = new List<string>();
+        fixture.Workspace.DetailWorkObserver = work.Add;
+        fixture.Library.ScoreSnapshotWorkObserver = scoreWork.Add;
+        using var reached = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        int producerThread = 0;
+        PropertyChangedEventHandler gate = (_, args) =>
+        {
+            if (args.PropertyName == nameof(BMSLibrary.ScoreSnapshotVersion)
+                && Environment.CurrentManagedThreadId == Volatile.Read(ref producerThread))
+            { reached.Set(); release.Wait(); }
+        };
+        // ScoreSnapshotVersionのpure通知は確定とqueue登録後、通常wakeの前です。
+        fixture.Library.PropertyChanged += gate;
+        Task? producer = null;
+        Task? refresh = null;
+        try
+        {
+            if (!reverseWake) { fixture.ChangeScore(0, 40); }
+            producer = Task.Run(() =>
+            {
+                Volatile.Write(ref producerThread, Environment.CurrentManagedThreadId);
+                fixture.ChangeScore(reverseWake ? 0 : 1, reverseWake ? 40 : 5);
+            });
+            reached.Wait();
+            if (reverseWake) { fixture.ChangeScore(1, 5); }
+            Assert.AreEqual(10d, a.stddevVal);
+            Assert.AreEqual(30d, b.stddevVal);
+            refresh = fixture.Refresh();
+            await fixture.DeliveryRequested.Task;
+            Assert.IsFalse(refresh.IsCompleted, "配送終端前に同条件要求を最新版として完了しません。");
+            await fixture.DrainLibraryChanges();
+            await refresh;
+            release.Set();
+            await producer;
+            await fixture.DrainLibraryChanges();
+            CollectionAssert.AreEqual(new[] { b, u, a }, rows.Cast<PlaylistDetailRow>().Take(3).ToArray());
+            Assert.AreEqual(40, a.score); Assert.AreEqual(5, b.score); Assert.AreEqual(20, u.score);
+            Assert.AreEqual(40d, a.stddevVal); Assert.AreEqual(5d, b.stddevVal); Assert.AreEqual(20d, u.stddevVal);
+            Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+            Assert.AreEqual(1, fixture.MainTable.SelectedIndex);
+            Assert.AreEqual(3, rows.RealizedRowCount);
+            Assert.AreEqual(catalog, fixture.Library.CatalogRevision);
+            Assert.AreEqual(fixture.Library.GetScoreSnapshotForDiagnostics().Version,
+                fixture.Workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion);
+            Assert.AreEqual(2, work.Count(kind => kind == "playlist_source_projection"));
+            Assert.AreEqual(2, work.Count(kind => kind == "playlist_dependency_index_write"));
+            Assert.AreEqual(0, work.Count(kind => kind is "playlist_dependency_index_entry" or "playlist_order_buffer"));
+            Assert.AreEqual(0, work.Count(kind => kind == "playlist_detail_materialized"));
+            Assert.AreEqual(2, scoreWork.Count(kind => kind == "score_projection_lookup"));
+            Assert.AreEqual(2, scoreWork.Count(kind => kind == "score_subscription_lookup"));
+            Assert.AreEqual(2, scoreWork.Count(kind => kind == "score_projection_value_copied"));
+            Assert.AreEqual(0, scoreWork.Count(kind => kind is "score_lookup_source_enumerated" or "score_lookup_reference_copied" or "score_subscription_key_enumerated"));
+            Assert.IsTrue(work.Count(kind => kind == "playlist_order_access") <= 12 * Math.Ceiling(Math.Log2(count)) + 12);
+            Assert.AreEqual(work.Count(kind => kind == "playlist_order_access"), work.Count(kind => kind == "playlist_order_comparison"));
+            Assert.IsTrue(work.Count(kind => kind == "playlist_notification_buffer") <= 6);
+        }
+        finally
+        {
+            fixture.Library.PropertyChanged -= gate;
+            release.Set();
+            if (producer != null) { await producer; }
+            fixture.Workspace.CancelDetailBuilds();
+            if (refresh != null) { await refresh; }
+        }
+    }
+
+    /// <summary>実folderのfilter前全entryを同じbaselineで構築し、非表示Aの加入・Bの離脱も一件ずつ更新します。Uと未訪問背景は維持します。</summary>
+    [DataTestMethod]
+    [DataRow(16, false)]
+    [DataRow(128, false)]
+    [DataRow(16, true)]
+    [DataRow(128, true)]
+    public async Task ScoreRanges_UpdateHiddenInputsBeforeFilteringAndCoverActualFolder(int count, bool folder)
+    {
+        await using var fixture = new Fixture(count, firstFolder: folder ? "source" : null, regularDelivery: true, oracleScores: true);
+        await fixture.DrainLibraryChanges();
+        if (folder) { fixture.Workspace.RequestDetailSelection(fixture.Playlist.BMSTables.Single(), PlaylistFolderNode.CreateFolder("source")); }
+        fixture.Workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("score:>=20", ChartModeFilter.All));
+        fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.stddevVal), ListSortDirection.Ascending);
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        Assert.AreEqual(folder ? 3 : count, fixture.Workspace.DetailViewState.Source.Rows.Count);
+        Assert.AreEqual(2, rows.Count);
+        var u = (PlaylistDetailRow)rows[0];
+        var work = new List<string>(); fixture.Workspace.DetailWorkObserver = work.Add;
+        fixture.ChangeScore(0, 40); fixture.ChangeScore(1, 5);
+        await fixture.DrainLibraryChanges();
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreSame(u, rows[0]);
+        Assert.AreEqual(2, rows.Count);
+        Assert.AreEqual("entry 2", ((PlaylistDetailRow)rows[0]).Entry.title);
+        Assert.AreEqual("entry 0", ((PlaylistDetailRow)rows[1]).Entry.title);
+        Assert.AreEqual(40, ((PlaylistDetailRow)rows[1]).score);
+        Assert.AreEqual(2, work.Count(kind => kind == "playlist_source_projection"));
+        Assert.AreEqual(0, work.Count(kind => kind is "playlist_dependency_index_entry" or "playlist_order_buffer"));
+        Assert.AreEqual(fixture.Library.GetScoreSnapshotForDiagnostics().Version,
+            fixture.Workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion);
+    }
+
+    /// <summary>初回A投影後/B投影前の実更新を、捕捉baselineにrange適用してから採用します。途中で読んだ新lookup版による付替えは認めません。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ScoreRanges_CommittedDuringInitialProjectionAreAppliedBeforeAdoption(bool folder)
+    {
+        await using var fixture = new Fixture(16, firstFolder: folder ? "source" : null, regularDelivery: true, oracleScores: true);
+        await fixture.DrainLibraryChanges();
+        if (folder) { fixture.Workspace.RequestDetailSelection(fixture.Playlist.BMSTables.Single(), PlaylistFolderNode.CreateFolder("source")); }
+        fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.stddevVal), ListSortDirection.Ascending);
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        int projected = 0;
+        fixture.Workspace.DetailWorkObserver = kind =>
+        {
+            if (kind == "playlist_source_projection" && Interlocked.Increment(ref projected) == 2)
+            { reached.TrySetResult(); release.Wait(); }
+        };
+        Task refresh = fixture.Refresh();
+        try
+        {
+            await reached.Task;
+            fixture.ChangeScore(0, 40); fixture.ChangeScore(1, 5);
+            await fixture.DrainLibraryChanges();
+            release.Set();
+            await refresh;
+            var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+            CollectionAssert.AreEqual(new[] { "entry 1", "entry 2", "entry 0" }, rows.Cast<PlaylistDetailRow>().Take(3).Select(row => row.Entry.title).ToArray());
+            Assert.AreEqual(5, ((PlaylistDetailRow)rows[0]).score);
+            Assert.AreEqual(40, ((PlaylistDetailRow)rows[2]).score);
+            Assert.AreEqual(fixture.Library.GetScoreSnapshotForDiagnostics().Version,
+                fixture.Workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion);
+        }
+        finally { release.Set(); fixture.Workspace.CancelDetailBuilds(); await refresh; }
+    }
+
+    /// <summary>実drainのfanout失敗、正常配送だがworkspace未反映、port欠落を要求失敗へ収束させ、score新版のreuseと永久待機を防ぎます。</summary>
+    [DataTestMethod]
+    [DataRow("apply_failure")]
+    [DataRow("uncovered")]
+    [DataRow("no_port")]
+    [DataRow("reject")]
+    [DataRow("abort")]
+    public async Task ScoreRanges_DeliveryTerminalFailureDoesNotAdoptUncoveredSource(string failure)
+    {
+        await using var fixture = new Fixture(16, regularDelivery: true, oracleScores: true, connectDelivery: failure != "no_port");
+        await fixture.DrainLibraryChanges(); await fixture.Refresh();
+        IList rows = fixture.Workspace.DetailViewState.View.Rows;
+        int before = fixture.Workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion;
+        fixture.FailWorkspaceDelivery = failure == "apply_failure";
+        fixture.SkipWorkspaceDelivery = failure == "uncovered";
+        fixture.DeliveryScheduler.Reject = failure == "reject";
+        fixture.ChangeScore(0, 40);
+        Task refresh = fixture.Refresh();
+        if (failure != "no_port")
+        {
+            await fixture.DeliveryRequested.Task;
+            if (failure == "abort")
+            {
+                ScheduledScoreOperation operation = await fixture.DeliveryScheduler.NextAsync();
+                operation.Abort();
+            }
+            else if (failure == "reject")
+            {
+                // 拒否時は受理operationが存在しません。portが返した同じTaskの失敗を観測し、再配送を要求しません。
+                Task delivery = fixture.RequestedLibraryDelivery
+                    ?? throw new AssertFailedException("配送portの実終端Taskが捕捉されていません。");
+                await Assert.ThrowsExceptionAsync<InvalidOperationException>(async () => await delivery);
+                Assert.AreEqual(0, fixture.DeliveryScheduler.Count);
+            }
+            else
+            {
+                try { await fixture.DrainLibraryChanges(); }
+                catch (InvalidOperationException) when (failure == "apply_failure") { }
+            }
+        }
+        if (failure == "abort")
+        { await Assert.ThrowsExceptionAsync<TaskCanceledException>(async () => await refresh); }
+        else { await Assert.ThrowsExceptionAsync<InvalidOperationException>(async () => await refresh); }
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreEqual(before, fixture.Workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion);
+        Assert.AreEqual(failure == "no_port" ? 0 : 1, fixture.DeliveryRequests, "同じ必要位置で配送要求を再試行しません。");
+        await fixture.Workspace.WaitForDetailBuildIdleAsync();
+    }
+
+    /// <summary>Δ=1のwarm変更はAだけを投影し、Uの参照・選択・背景未実体化を保持します。lookup列挙/複写と全source索引・順序bufferは作りません。</summary>
+    [DataTestMethod]
+    [DataRow(16)]
+    [DataRow(128)]
+    public async Task ScoreRange_OneKeyKeepsBackgroundWorkIndependent(int count)
+    {
+        await using var fixture = new Fixture(count, regularDelivery: true, oracleScores: true);
+        await fixture.DrainLibraryChanges();
+        fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.stddevVal), ListSortDirection.Ascending);
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var a = (PlaylistDetailRow)rows[0]; var u = (PlaylistDetailRow)rows[1];
+        var background = (PlaylistDetailRow)rows[count - 1];
+        fixture.MainTable.SelectedIndex = count - 1;
+        var work = new List<string>(); var model = new List<string>();
+        fixture.Workspace.DetailWorkObserver = work.Add; fixture.Library.ScoreSnapshotWorkObserver = model.Add;
+        fixture.ChangeScore(0, 40); await fixture.DrainLibraryChanges();
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreSame(u, rows[0]); Assert.AreSame(a, rows[2]); Assert.AreEqual(40, a.score);
+        Assert.AreEqual(count - 1, fixture.MainTable.SelectedIndex);
+        Assert.AreSame(background, rows[count - 1]);
+        Assert.AreEqual(3, rows.RealizedRowCount);
+        Assert.AreEqual(1, work.Count(kind => kind == "playlist_source_projection"));
+        Assert.AreEqual(1, work.Count(kind => kind == "playlist_dependency_index_write"));
+        Assert.AreEqual(1, model.Count(kind => kind == "score_projection_lookup"));
+        Assert.AreEqual(1, model.Count(kind => kind == "score_subscription_lookup"));
+        Assert.AreEqual(1, model.Count(kind => kind == "score_projection_value_copied"));
+        Assert.AreEqual(0, model.Count(kind => kind is "score_lookup_source_enumerated" or "score_lookup_reference_copied" or "score_subscription_key_enumerated"));
+        Assert.AreEqual(0, work.Count(kind => kind is "playlist_dependency_index_entry" or "playlist_order_buffer" or "playlist_detail_materialized"));
+        Assert.IsTrue(work.Count(kind => kind == "playlist_order_access") <= 6 * Math.Ceiling(Math.Log2(count)) + 6);
+        Assert.AreEqual(work.Count(kind => kind == "playlist_order_access"), work.Count(kind => kind == "playlist_order_comparison"));
+    }
+
+    /// <summary>callback実行と実Completionを分け、要求取消/接続交換は他consumerの共有drainを取消さず、旧結果を再採用しません。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ScoreRange_CancelOrReplaceRequestDoesNotCancelSharedDelivery(bool replace)
+    {
+        await using var fixture = new Fixture(16, regularDelivery: true, oracleScores: true);
+        await fixture.DrainLibraryChanges(); await fixture.Refresh();
+        IList rows = fixture.Workspace.DetailViewState.View.Rows;
+        if (rows[0] is not PlaylistDetailRow old)
+        { throw new AssertFailedException("Playlist detail row was not materialized."); }
+        fixture.ChangeScore(0, 40);
+        Task shared = fixture.GetLibraryDelivery();
+        Task refresh = fixture.Refresh();
+        ScheduledScoreOperation? operation = null;
+        try
+        {
+            await fixture.DeliveryRequested.Task;
+            operation = await fixture.DeliveryScheduler.NextAsync();
+            if (replace) { fixture.Workspace.SetDetailDataSource(new FakePlaylistDetailDataSource()); }
+            else
+            {
+                operation.Run();
+                Assert.IsFalse(refresh.IsCompleted, "fanout後も実UI操作Completionまで要求を完了しません。");
+                fixture.Workspace.CancelDetailBuilds();
+            }
+            await refresh;
+            Assert.IsFalse(shared.IsCompleted, "要求側の取消は共有drainを取り消しません。");
+            if (replace) { operation.Run(); }
+            operation.Complete();
+            await shared;
+            Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+            Assert.AreEqual(replace ? 10d : 40d, old.stddevVal);
+        }
+        finally
+        {
+            if (operation?.IsCompleted == false) { operation.Abort(); }
+            while (fixture.DeliveryScheduler.TryTake(out ScheduledScoreOperation? queued)) { queued.Abort(); }
+            fixture.Workspace.CancelDetailBuilds();
+            await refresh;
+            try { await shared; } catch (TaskCanceledException) { }
+        }
+    }
+
+    /// <summary>A配送のcallback後/実Completion前にBが別確定した場合だけ、新しい必要位置へ次の単一drainを要求できます。</summary>
+    [TestMethod]
+    public async Task ScoreRanges_NewCommitAfterFanoutWaitsForNewRegisteredRange()
+    {
+        await using var fixture = new Fixture(16, regularDelivery: true, oracleScores: true);
+        await fixture.DrainLibraryChanges();
+        fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.stddevVal), ListSortDirection.Ascending);
+        await fixture.Refresh();
+        IList rows = fixture.Workspace.DetailViewState.View.Rows;
+        var secondRequest = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.LibraryDeliveryRequested += count => { if (count == 2) { secondRequest.TrySetResult(); } };
+        fixture.ChangeScore(0, 40);
+        Task refresh = fixture.Refresh();
+        ScheduledScoreOperation? first = null;
+        ScheduledScoreOperation? second = null;
+        try
+        {
+            await fixture.DeliveryRequested.Task;
+            first = await fixture.DeliveryScheduler.NextAsync();
+            first.Run();
+            fixture.ChangeScore(1, 5);
+            first.Complete();
+            await secondRequest.Task;
+            second = await fixture.DeliveryScheduler.NextAsync();
+            Assert.IsFalse(refresh.IsCompleted);
+            Assert.IsTrue(fixture.Workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion < fixture.Library.GetScoreSnapshotForDiagnostics().Version);
+            Assert.AreEqual(30, fixture.Workspace.DetailViewState.Source.Rows.Single(row => row.Entry.title == "entry 1").score,
+                "Bのrange配送前はB旧値のままで、そのsourceへB確定位置を付けません。");
+            second.Run(); second.Complete();
+            await refresh;
+            Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+            CollectionAssert.AreEqual(new[] { "entry 1", "entry 2", "entry 0" }, rows.Cast<PlaylistDetailRow>().Take(3).Select(row => row.Entry.title).ToArray());
+            Assert.AreEqual(2, fixture.DeliveryRequests);
+            Assert.AreEqual(fixture.Library.GetScoreSnapshotForDiagnostics().Version,
+                fixture.Workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion);
+        }
+        finally
+        {
+            first?.Abort(); second?.Abort();
+            while (fixture.DeliveryScheduler.TryTake(out ScheduledScoreOperation? queued)) { queued.Abort(); }
+            fixture.Workspace.CancelDetailBuilds();
+            await refresh;
+        }
+    }
+
+    private sealed class Fixture : IAsyncDisposable
+    {
+        private readonly string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistCatalogViewChangeTests), Guid.NewGuid().ToString("N"));
+        private readonly Queue<Action> deliveries = new();
+        private readonly PropertyChangedEventHandler? notification;
+        private readonly RegularChartListOwner? regularOwner;
+        internal ScoreDeliveryUiScheduler DeliveryScheduler { get; } = new();
+        internal BMSScore[] OracleScores { get; } = [];
+        internal TaskCompletionSource DeliveryRequested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal Task? RequestedLibraryDelivery { get; private set; }
+        internal int DeliveryRequests { get; private set; }
+        internal event Action<int>? LibraryDeliveryRequested;
+        internal bool SkipWorkspaceDelivery { get; set; }
+        internal bool FailWorkspaceDelivery { get; set; }
+        private int handled;
+        private readonly bool bmson;
+        internal string SongDb { get; }
+        internal TestBmsLibrary Library { get; }
+        internal TestBmsPlaylist Playlist { get; }
+        internal PlaylistWorkspaceViewModel Workspace { get; }
+        internal MainChartListViewModel MainTable { get; }
+        internal bool PauseDelivery { get; set; }
+        internal bool BatchNotificationsOnDelivery { get; set; }
+        private bool batchNotificationQueued;
+
+        internal Fixture(int count, bool bmson = false, string? firstFolder = null,
+            bool regularDelivery = false, bool oracleScores = false, bool connectDelivery = true)
+        {
+            this.bmson = bmson;
+            Directory.CreateDirectory(directory);
+            SongDb = Path.Combine(directory, "song.db");
+            using (var db = new LR2SongDBExtended(SongDb)) { }
+            PlaylistPersistenceRepository.EnsureSchema(SongDb);
+            var charts = new List<ChartFile>();
+            for (int index = 0; index < count; index++)
+            {
+                string path = Path.Combine(directory, index + (bmson ? ".bmson" : ".bms"));
+                Write(path, index == 0 ? "A target" : "B background " + index.ToString("D3"));
+                ChartFileSnapshot input = ChartFileContentReader.ReadSnapshot(path);
+                charts.Add(bmson ? BmsonChartFileParser.ParseSnapshot(input) : BmsChartFileParser.ParseSnapshot(input));
+            }
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false);
+            string? scorePath = oracleScores ? Path.Combine(directory, "score.db") : null;
+            if (scorePath != null)
+            {
+                using var db = new SQLite.SQLiteConnection(scorePath);
+                db.CreateTable<LR2ScoreDB.player>();
+                db.CreateTable<LR2ScoreDB.score>();
+                for (int index = 0; index < count; index++)
+                { db.Insert(new LR2ScoreDB.score { hash = charts[index].Md5, great = index switch { 0 => 10, 1 => 30, 2 => 20, _ => 1 }, totalnotes = 100 }); }
+            }
+            Library = new TestBmsLibrary(SongDb, null, scorePath, startupRequiredFileScanReason: null, settings: settings);
+            Library.BmsCharts = bmson ? [] : charts;
+            Library.BmsonCharts = bmson ? charts : [];
+            new BmsLibraryDbGateway(SongDb).UpsertSongs(charts);
+            if (oracleScores) { Library.InitializeScoresOnly(null); }
+            if (oracleScores)
+            {
+                var byHash = Library.GetBMSScores().ToDictionary(score => score.hash);
+                OracleScores = charts.Select(chart => byHash[chart.Md5]).ToArray();
+                for (int index = 0; index < count; index++)
+                { OracleScores[index].stddevVal = index switch { 0 => 10, 1 => 30, 2 => 20, _ => 100 + index }; }
+            }
+            Playlist = MainWindowViewModelTestFactory.CreatePlaylist(SongDb, settings, library: Library);
+            var table = new BMSTable
+            {
+                playlist_id = 4188,
+                name = "catalog view",
+                is_external_sync = false,
+                Folder_order = firstFolder == null ? [] : ["background", firstFolder]
+            };
+            table.entries = charts.Select((chart, index) => new BMSTableEntry
+            {
+                md5 = chart.Md5,
+                sha256 = chart.Sha256,
+                title = "entry " + index,
+                artist = "entry artist",
+                memo = "entry memo",
+                level = index == 0 ? 2.5 : 3,
+                folder = firstFolder == null ? string.Empty : index < (oracleScores ? 3 : 1) ? firstFolder : "background"
+            }).ToList();
+            Playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            Playlist.CommitBMSTableWithEntriesToDB(table);
+            Workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _, playlistStoreProvider: () => Playlist,
+                playlistLibraryProvider: () => Library,
+                dispatchPresentation: action => action());
+            Workspace.SetDetailDataSource(new PlaylistDetailDataSource(Library, Playlist, new MainChartRowProjectionOwner()));
+            Workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+            MainTable = (MainChartListViewModel)(typeof(PlaylistWorkspaceViewModel).GetField("detailMainChartList",
+                BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(Workspace) ?? throw new InvalidOperationException());
+            Workspace.RequestDetailSelection(table);
+            Workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+            Workspace.InitializePlaylistDetailSort(new ChartListSortParameters { ColumnsName = nameof(PlaylistDetailRow.Title), Direction = ListSortDirection.Ascending });
+            if (regularDelivery)
+            {
+                RegularChartListOwner owner = RegularChartListOwnerTestSupport.CreateOwner(MainTable, Workspace, action => action(),
+                    DeliveryScheduler);
+                regularOwner = owner;
+                owner.NormalLibraryRefreshApplied += (_, args) =>
+                {
+                    if (FailWorkspaceDelivery) { throw new InvalidOperationException("fixture fanout failure"); }
+                    if (!SkipWorkspaceDelivery) { Workspace.ApplyLibraryChanges(Library, args.NotificationBatch); }
+                };
+                if (connectDelivery)
+                {
+                    Workspace.SetLibraryChangeDelivery((library, cancellationToken) =>
+                    {
+                        Task delivery = owner.DeliverPendingLibraryChangesAsync(library, cancellationToken);
+                        RequestedLibraryDelivery = delivery;
+                        DeliveryRequests++;
+                        LibraryDeliveryRequested?.Invoke(DeliveryRequests);
+                        DeliveryRequested.TrySetResult();
+                        return delivery;
+                    });
+                }
+                owner.AttachNormalLibraryRefreshSource(Library);
+                return;
+            }
+            handled = Library.NormalLibraryRefreshNotificationVersion;
+            notification = (_, args) =>
+            {
+                if (args.PropertyName != "NormalLibraryRefreshNotificationVersion") { return; }
+                if (BatchNotificationsOnDelivery)
+                {
+                    if (!batchNotificationQueued)
+                    {
+                        batchNotificationQueued = true;
+                        deliveries.Enqueue(() =>
+                        {
+                            batchNotificationQueued = false;
+                            NormalLibraryRefreshNotificationBatch pending = Library.GetNormalLibraryRefreshNotificationsAfter(handled);
+                            handled = pending.LatestVersion;
+                            Workspace.ApplyLibraryChanges(Library, pending);
+                        });
+                    }
+                    return;
+                }
+                NormalLibraryRefreshNotificationBatch batch = Library.GetNormalLibraryRefreshNotificationsAfter(handled);
+                handled = batch.LatestVersion;
+                Action deliver = () => Workspace.ApplyLibraryChanges(Library, batch);
+                if (PauseDelivery) { deliveries.Enqueue(deliver); } else { deliver(); }
+            };
+            Library.PropertyChanged += notification;
+        }
+
+        internal Task Refresh() => Workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, false, default);
+
+        internal void ChangeScore(int index, int value)
+        {
+            OracleScores[index].great = value;
+            OracleScores[index].stddevVal = value;
+        }
+
+        internal Task GetLibraryDelivery() => regularOwner?.DeliverPendingLibraryChangesAsync(Library, CancellationToken.None)
+            ?? throw new InvalidOperationException("Real delivery owner was not attached.");
+
+        internal async Task DrainLibraryChanges()
+        {
+            if (regularOwner == null) { throw new InvalidOperationException("Real delivery owner was not attached."); }
+            Task completion = regularOwner.DeliverPendingLibraryChangesAsync(Library, CancellationToken.None);
+            if (!completion.IsCompleted)
+            {
+                ScheduledScoreOperation next = await DeliveryScheduler.NextAsync();
+                next.Run(); next.Complete();
+            }
+            await completion;
+        }
+
+        internal void WriteFirst(string title) => Write(Path.Combine(directory, "0" + (bmson ? ".bmson" : ".bms")), title);
+
+        private void Write(string path, string title)
+        {
+            string content = bmson
+                ? "{\"version\":\"1.0.0\",\"info\":{\"title\":\"" + title + "\",\"artist\":\"fixture artist\",\"init_bpm\":120,\"mode_hint\":\"beat-7k\",\"resolution\":240},\"sound_channels\":[{\"name\":\"missing.wav\",\"notes\":[{\"x\":1,\"y\":240,\"l\":0}]}]}"
+                : "#PLAYER 1\r\n#BPM 120\r\n#TITLE " + title + "\r\n#ARTIST fixture artist\r\n#WAV01 missing.wav\r\n#00111:01\r\n";
+            File.WriteAllText(path, content, new UTF8Encoding(false));
+        }
+
+        internal void Deliver() { while (deliveries.Count > 0) { deliveries.Dequeue()(); } }
+        public async ValueTask DisposeAsync()
+        {
+            if (notification != null) { Library.PropertyChanged -= notification; }
+            Deliver();
+            Workspace.CancelDetailBuilds();
+            await Workspace.WaitForDetailBuildIdleAsync();
+            if (regularOwner != null)
+            {
+                SkipWorkspaceDelivery = true; FailWorkspaceDelivery = false;
+                Task stopped = regularOwner.StopAsync();
+                DeliveryScheduler.AbortOutstanding();
+                while (DeliveryScheduler.TryTake(out ScheduledScoreOperation? operation)) { operation.Run(); operation.Complete(); }
+                await stopped;
+                regularOwner.Dispose();
+            }
+            DeliveryScheduler.Dispose();
+            Workspace.Dispose();
+            Playlist.RequestShutdown("playlist_catalog_view_test");
+            Library.RequestShutdown("playlist_catalog_view_test");
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+}

@@ -910,7 +910,7 @@ public partial class BMSLibrary
                             stopwatch.Stop();
                             string successLog = "lr2_normal_folder_catalog_sync done"
                                 + " reason=" + (reason ?? "unknown")
-                                + " ownedVersion=" + receipt.OwnedCollectionVersion
+                                + " ownedVersion=" + receipt.CatalogRevision
                                 + " paths=" + syncInput.ChartPaths.Count
                                 + " directoryPaths=" + directoryMetadataTargets.Count
                                 + " pruneScopes=" + syncInput.PruneScopeDirectories.Count

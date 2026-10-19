@@ -3373,7 +3373,10 @@ public sealed class PlayHistoryReadModelTests
             ""
         ]));
         file = file with { Md5 = HashA, Sha256 = ShaA };
-        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromCharts([file]);
+        var catalog = new CatalogOwnedCollectionOwner();
+        catalog.ReplaceCharts([file], []);
+        PlaylistLibraryResolveIndexSnapshot resolveIndex = catalog.GetPlaylistLibraryResolveIndexSnapshot(System.Threading.CancellationToken.None, out _, out _);
+        CatalogReadSnapshot read = catalog.CapturePlaylistReadSnapshot([new(PlaylistEntryLookupKeyKind.Md5, HashA), new(PlaylistEntryLookupKeyKind.Sha256, ShaA)]);
         var table = new BMSTable
         {
             name = "Satellite",
@@ -3384,7 +3387,8 @@ public sealed class PlayHistoryReadModelTests
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [HashA] = ShaA },
             (md5, sha256) => new PlaylistReferenceDisplay(
                 [new PlaylistReferenceTableDisplaySnapshot(table.symbol, table.name)]),
-            (sha256, md5) => null);
+            (sha256, md5) => null,
+            catalogSnapshot: read);
     }
 
     private static void AssertPeriodRange(PlayHistoryPeriodKind kind, long expectedFromInclusive, long expectedToExclusive)

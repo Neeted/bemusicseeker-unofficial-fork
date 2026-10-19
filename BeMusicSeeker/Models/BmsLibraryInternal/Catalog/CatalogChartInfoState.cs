@@ -11,10 +11,14 @@ internal sealed class ChartInfoBackfillRequest
 
     public string Reason { get; }
 
-    public static ChartInfoBackfillRequest Full(string reason)
-    {
-        return new ChartInfoBackfillRequest(reason);
-    }
+    /// <summary>明示全体要求かを返します。局所要求は必要なtoken参照だけを保持します。</summary>
+    internal bool IsFull { get; private init; }
+    /// <summary>局所要求の対象参照です。処理時に同tokenの現在値を再検証します。</summary>
+    internal IReadOnlyList<LibraryChartRef> Charts { get; private init; } = [];
+    public static ChartInfoBackfillRequest Full(string reason) => new(reason) { IsFull = true };
+    /// <summary>実変更した解析入力だけを補完要求へ固定します。</summary>
+    internal static ChartInfoBackfillRequest Targets(string reason, IReadOnlyList<LibraryChartRef> charts)
+        => new(reason) { Charts = charts };
 }
 internal sealed class ChartInfoHydrationResult
 {
@@ -75,7 +79,7 @@ internal sealed class ChartInfoHydrationResult
 
 internal sealed class ChartInfoHydrationAllCurrentSnapshot
 {
-    public int OwnedCollectionVersion { get; set; }
+    public int CatalogRevision { get; set; }
 
 
 
@@ -88,19 +92,6 @@ internal sealed class ChartInfoHydrationAllCurrentSnapshot
     public int ParserVersion { get; set; }
 
     public long ParseTimeoutMs { get; set; }
-}
-
-internal sealed class ChartInfoOwnerVersionSnapshot
-{
-    public int OwnedCollectionVersion { get; set; }
-
-
-
-    public int BmsOwnerCount { get; set; }
-
-    public int BmsonOwnerCount { get; set; }
-
-    public int OwnerCount => BmsOwnerCount + BmsonOwnerCount;
 }
 
 internal sealed class ChartInfoIndexUpdateResult

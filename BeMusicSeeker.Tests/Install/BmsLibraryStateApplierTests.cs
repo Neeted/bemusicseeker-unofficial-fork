@@ -710,8 +710,11 @@ internal static class BmsLibraryStateApplierTestSupport
         out CatalogOwnedCollectionOwner currentOwner)
     {
         currentOwner = new CatalogOwnedCollectionOwner();
-        currentOwner.ReplaceCharts(catalogFacts.ChartPathChanges.Select(change => change.Chart with
-        { Path = change.OldPath, Token = change.Chart.Token ?? new OwnedChartToken() }), []);
+        // 本番の形式別初期入力と同じく旧値を振り分け、BMSONをBMS入力へ混ぜて未所持にしません。
+        ChartFile[] previousValues = [.. catalogFacts.ChartPathChanges.Select(change => change.Chart with
+        { Path = change.OldPath, Token = change.Chart.Token ?? new OwnedChartToken() })];
+        currentOwner.ReplaceCharts(previousValues.Where(chart => chart.Kind == ChartFileKind.Bms),
+            previousValues.Where(chart => chart.Kind == ChartFileKind.Bmson));
         var normalizedChanges = new List<LibraryChartPathChange>();
         foreach (LibraryChartPathChange change in catalogFacts.ChartPathChanges)
         {

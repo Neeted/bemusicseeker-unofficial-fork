@@ -240,7 +240,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
             bmsonRemovalDbMs: 0,
             liveApplyMs: 0,
             ownedCollectionApplied: true,
-            ownedCollectionVersion: 17,
+            catalogRevision: 17,
             addedCharts:
             [
                 new CatalogChartMutationFact(

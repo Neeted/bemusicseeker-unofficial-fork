@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.Tests.RegularChartListOwnerTestSupport;
@@ -17,8 +16,364 @@ namespace BeMusicSeeker.Tests;
 /// <summary>実libraryから通常一覧への変更通知、依存失効と停止時の収束を検証します。</summary>
 /// <remarks>Windowを使わず実SQLite・package所有者からの通知接続を確認し、表示操作の接続はMainWindowのcompiled画面caseが分担します。</remarks>
 [TestClass]
-public sealed class RegularChartNormalLibraryRefreshTests
+public sealed partial class RegularChartNormalLibraryRefreshTests
 {
+    public TestContext? TestContext { get; set; }
+    /// <summary>背景16/128件を温めて一件だけ実保守し、配送終端までの投影・確保を対象数へ限定します。未訪問行と無関係行・選択を保持し、旧捕捉値は変更しません。</summary>
+    [DataTestMethod]
+    [DataRow(16, false)]
+    [DataRow(128, false)]
+    [DataRow(16, true)]
+    [DataRow(128, true)]
+    public void MaintenanceCommit_ChangesOnlyTargetProjectionAndKeepsUnvisitedRows(int count, bool dependOnHealth)
+    {
+        WithTemporarySongDb(path => RunAsync(path).GetAwaiter().GetResult());
+
+        async Task RunAsync(string path)
+        {
+            string root = Path.GetDirectoryName(path) ?? throw new InvalidOperationException();
+            ChartFile[] charts = Enumerable.Range(0, count).Select(index =>
+            {
+                string file = Path.Combine(root, index.ToString("D3") + ".bms");
+                File.WriteAllText(file, "#PLAYER 1\r\n#TITLE Song " + index.ToString("D3") + "\r\n#WAV01 missing.wav\r\n#00111:01\r\n");
+                return BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(file));
+            }).ToArray();
+            new BmsLibraryDbGateway(path).UpsertSongs(charts);
+            var library = new TestBmsLibrary(path) { BmsCharts = charts };
+            var table = new MainChartListViewModel();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(table));
+            var request = new RegularVirtualNormalLibraryApplyRequest
+            {
+                Library = library,
+                ModeFilter = ChartModeFilter.All,
+                SortColumnName = dependOnHealth ? nameof(LibraryChartRow.WAVHealth) : nameof(LibraryChartRow.Title),
+                SortDirection = System.ComponentModel.ListSortDirection.Ascending,
+                ColumnSelection = new MainChartListColumnSelection(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD), false, 0,
+                    MainViewUpdateMode.FullScanAllChartsFilterSelected, System.Windows.Visibility.Collapsed, new PlaylistSummaryColumnSettings()),
+                Mode = MainViewUpdateMode.FullScanAllChartsFilterSelected,
+                Stopwatch = System.Diagnostics.Stopwatch.StartNew(),
+                Reason = "maintenance_target_work"
+            };
+            var applied = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            EventHandler<NormalLibraryRefreshAppliedEventArgs> handler = (_, args) =>
+            {
+                try
+                {
+                    MainViewRefreshAction action = owner.ApplyNotificationPresentation(library, args.NotificationBatch,
+                        request.Mode, null, ChartListFilterSnapshot.Default, false);
+                    if (action == MainViewRefreshAction.Refresh)
+                    {
+                        request.Stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                        Assert.IsTrue(owner.TryApplyVirtualNormalLibrary(request).WasCommitted);
+                    }
+                    applied.TrySetResult(true);
+                }
+                catch (Exception exception) { applied.TrySetException(exception); }
+            };
+            Task<MaintenanceWorkflowResult>? operation = null;
+            try
+            {
+                owner.AttachNormalLibraryRefreshSource(library);
+                var initialClock = System.Diagnostics.Stopwatch.StartNew();
+                Assert.IsTrue(owner.TryApplyVirtualNormalLibrary(request).WasCommitted);
+                initialClock.Stop();
+                var rows = (ChartListVirtualView)table.Rows;
+                var first = (LibraryChartRow)rows[0];
+                var unrelated = (LibraryChartRow)rows[1];
+                table.SelectedIndex = 1;
+                CatalogChartCollectionSnapshot before = library.CaptureNormalLibraryChartSnapshot(false);
+                ChartFile target = before.BmsRows[0];
+                var work = new List<(string Kind, int Count)>();
+                table.RowProjection.NormalInputWorkObserver = (kind, amount) => work.Add((kind, amount));
+                owner.NormalLibraryRefreshApplied += handler;
+                var updateClock = System.Diagnostics.Stopwatch.StartNew();
+                operation = Task.Run(() => library.RescanResourceHealthCharts([target]));
+                await Task.WhenAny(operation, applied.Task);
+                await operation;
+                await applied.Task;
+                updateClock.Stop();
+                TestContext?.WriteLine("normal_library count={0} health_sort={1} initial_ms={2:F3} warm_commit_delivery_ms={3:F3}", count,
+                    dependOnHealth, initialClock.Elapsed.TotalMilliseconds, updateClock.Elapsed.TotalMilliseconds);
+                Assert.IsTrue(work.Where(value => value.Kind is "projection_buffer" or "order_buffer").Sum(value => value.Count) <= 1,
+                    "一件の差分で全件長の投影bufferを確保しません。");
+                Assert.AreSame(rows, table.Rows);
+                Assert.AreSame(first, rows[dependOnHealth ? count - 1 : 0]);
+                Assert.AreSame(unrelated, rows[dependOnHealth ? 0 : 1]);
+                Assert.AreEqual(dependOnHealth ? 0 : 1, table.SelectedIndex);
+                Assert.AreEqual(2, rows.RealizedRowCount);
+                Assert.AreEqual(0, first.WAVHealth);
+                Assert.IsNull(target.WAVHealth);
+                Assert.IsTrue(work.Where(value => value.Kind == "projection").Sum(value => value.Count) <= 1);
+                Assert.IsTrue(work.Where(value => value.Kind == "source_visit").Sum(value => value.Count) <= 4,
+                    "一件の差分で背景sourceへ訪問しません。");
+                Assert.AreEqual(1, work.Where(value => value.Kind == "order_key").Sum(value => value.Count));
+                Assert.AreEqual(0, work.Where(value => value.Kind == "hash_dependency_visit").Sum(value => value.Count));
+                StringAssert.Contains(first.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
+                table.RowProjection.NormalInputWorkObserver = null;
+                applied = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                library.SetChartResourceWarningsIgnored([first.Chart]);
+                await applied.Task;
+                Assert.IsTrue(first.Chart.ResourceHealthWarningsIgnored);
+                Assert.IsTrue(library.TryGetCurrentResourceHealthWarningProjection(first.Chart).IsIgnored);
+                StringAssert.Contains(first.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
+                Assert.AreEqual(0, first.WAVHealth);
+                applied = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                library.SetChartResourceWarningsIgnored([first.Chart], unset: true);
+                await applied.Task;
+                Assert.IsFalse(first.Chart.ResourceHealthWarningsIgnored);
+                Assert.IsFalse(library.TryGetCurrentResourceHealthWarningProjection(first.Chart).IsIgnored);
+                StringAssert.Contains(first.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
+                File.WriteAllBytes(Path.Combine(root, "missing.wav"), [0]);
+                applied = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                operation = Task.Run(() => library.RescanResourceHealthCharts([first.Chart]));
+                await Task.WhenAny(operation, applied.Task);
+                await operation;
+                await applied.Task;
+                Assert.AreEqual(100, first.WAVHealth);
+                Assert.IsFalse(first.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing, StringComparison.Ordinal));
+                Assert.AreEqual(2, rows.RealizedRowCount);
+                Assert.IsNull(unrelated.WAVHealth);
+            }
+            finally
+            {
+                owner.NormalLibraryRefreshApplied -= handler;
+                table.RowProjection.NormalInputWorkObserver = null;
+                await owner.StopAsync();
+                library.RequestShutdown("maintenance_target_work_test");
+                if (operation != null) { await operation; }
+            }
+        }
+    }
+
+    /// <summary>候補捕捉後の正規保守を配送前で止め、旧値の採用を待機させます。配送後は同じ候補へ対象差分だけを反映し、全構築をやり直しません。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CatalogCandidate_WaitsForUndeliveredCommitAndResumesOnlyAffectedRows(bool deliveryBeforeAdoption)
+    {
+        WithTemporarySongDb(path =>
+        {
+            string root = Path.GetDirectoryName(path) ?? throw new InvalidOperationException();
+            string file = Path.Combine(root, "candidate.bms");
+            File.WriteAllText(file, "#PLAYER 1\r\n#TITLE Z after あ\r\n", new System.Text.UTF8Encoding(false));
+            ChartFile first = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(file)) with
+            { Title = "A before", RawTitle = "A before" };
+            string secondPath = Path.Combine(root, "background.bms");
+            File.WriteAllText(secondPath, "#PLAYER 1\r\n#TITLE B background\r\n");
+            ChartFile second = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(secondPath));
+            new BmsLibraryDbGateway(path).UpsertSongs([first, second]);
+            var library = new TestBmsLibrary(path) { BmsCharts = [first, second] };
+            var table = new MainChartListViewModel();
+            using var scheduler = new ScoreDeliveryUiScheduler();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(table), action => action(),
+                scheduler);
+            var request = new RegularVirtualNormalLibraryApplyRequest
+            {
+                Library = library,
+                ModeFilter = ChartModeFilter.All,
+                SortColumnName = nameof(LibraryChartRow.Title),
+                SortDirection = System.ComponentModel.ListSortDirection.Ascending,
+                ColumnSelection = new MainChartListColumnSelection(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD), false, 0,
+                    MainViewUpdateMode.FullScanAllChartsFilterSelected, System.Windows.Visibility.Collapsed, new PlaylistSummaryColumnSettings()),
+                Mode = MainViewUpdateMode.FullScanAllChartsFilterSelected,
+                Stopwatch = System.Diagnostics.Stopwatch.StartNew(),
+                Reason = "undelivered_candidate"
+            };
+            bool changed = false;
+            var work = new List<(string Kind, int Count)>();
+            EventHandler captureThenCommit = (_, _) =>
+            {
+                if (changed) { return; }
+                changed = true;
+                ChartFile target = library.CaptureNormalLibraryChartSnapshot(false).BmsRows.Single(chart => chart.Path == file);
+                library.SetBMSFilesEncoding([target], "utf-8");
+                Assert.AreEqual("Z after あ", library.CaptureCatalogReadSnapshot([LibraryChartRef.FromChartFile(target)]).Resolve(LibraryChartRef.FromChartFile(target)).Title);
+                // ここまでが候補の初回仕事です。配送を再開した後の全再構築を独立に観測します。
+                work.Clear();
+                if (deliveryBeforeAdoption)
+                {
+                    Task delivery = owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None);
+                    ScheduledScoreOperation operation = scheduler.NextAsync().GetAwaiter().GetResult();
+                    operation.Run(); operation.Complete();
+                    delivery.GetAwaiter().GetResult();
+                }
+            };
+            try
+            {
+                owner.AttachNormalLibraryRefreshSource(library);
+                Task initial = owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None);
+                if (scheduler.TryTake(out ScheduledScoreOperation? pending)) { pending.Run(); pending.Complete(); }
+                initial.GetAwaiter().GetResult();
+                Assert.IsTrue(owner.TryApplyVirtualNormalLibrary(request).WasCommitted);
+                var originalRows = (ChartListVirtualView)table.Rows;
+                var original = (LibraryChartRow)originalRows[0];
+                CatalogChartCollectionSnapshot captured = originalRows.NormalInput.Snapshot;
+                NormalLibrarySourceRows capturedInput = originalRows.NormalInput;
+                var capturedOrder = ChartListOrder.CreateTitleAscending(capturedInput);
+                NormalLibrarySortCacheKey capturedKey = owner.CreateVirtualOrderKey(owner.SourceGeneration, owner.SortKeyGeneration,
+                    nameof(LibraryChartRow.Title), System.ComponentModel.ListSortDirection.Ascending, capturedInput.Count, new(0, 0, 0));
+                table.RowProjection.NormalInputWorkObserver = (kind, amount) => work.Add((kind, amount));
+                table.RowsReplacing += captureThenCommit;
+                request.Stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                Assert.AreEqual(deliveryBeforeAdoption, owner.TryApplyVirtualNormalLibrary(request).WasCommitted);
+                Assert.IsTrue(changed);
+                if (!deliveryBeforeAdoption)
+                {
+                    Assert.AreSame(originalRows, table.Rows);
+                    Assert.AreEqual("A before", original.Title);
+                    Assert.AreEqual(1, scheduler.Count, "未配送中は採用待ちに留め、再試行を予約しません。");
+                    Task delivery = owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None);
+                    ScheduledScoreOperation operation = scheduler.NextAsync().GetAwaiter().GetResult();
+                    operation.Run(); operation.Complete();
+                    delivery.GetAwaiter().GetResult();
+                    ScheduledScoreOperation continuation = scheduler.NextAsync().GetAwaiter().GetResult();
+                    continuation.Run(); continuation.Complete();
+                }
+                Assert.AreEqual(0, scheduler.Count);
+                Assert.IsFalse(owner.TryPublishVirtualOrder(capturedKey, capturedOrder, new(0, 0, 0), capturedInput),
+                    "世代が同じでも、背景構築の旧入力を新版のcacheへ再登録しません。");
+                Assert.IsTrue(work.Where(value => value.Kind is "projection_buffer" or "order_buffer").Sum(value => value.Count) <= 1);
+                Assert.AreEqual(0, ((ChartListVirtualView)table.Rows).RealizedRowCount);
+                CollectionAssert.AreEqual(new[] { "B background", "Z after あ" }, table.Rows.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
+                Assert.AreEqual("A before", captured.BmsRows.Single(chart => chart.Path == file).Title);
+                Assert.AreEqual(library.CatalogRevision, ((ChartListVirtualView)table.Rows).NormalInput.Snapshot.CatalogRevision);
+            }
+            finally
+            {
+                table.RowsReplacing -= captureThenCommit;
+                table.RowProjection.NormalInputWorkObserver = null;
+                Task stop = owner.StopAsync();
+                scheduler.AbortOutstanding();
+                while (scheduler.TryTake(out ScheduledScoreOperation? pending)) { pending.Run(); pending.Complete(); }
+                stop.GetAwaiter().GetResult();
+                library.RequestShutdown("undelivered_candidate_test");
+            }
+        });
+    }
+
+    /// <summary>実SQLiteの追加・同folder内/別folderへの移転・削除から正規commitと実配送を通し、形式範囲とkeywordの各表示件数・folder数・生存選択を独立値で確認します。</summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void CatalogMembershipCommits_UpdateCountsAndDistinctFoldersLocally(bool includeBmson, bool filtered)
+    {
+        WithTemporarySongDb(path =>
+        {
+            string root = Path.GetDirectoryName(path) ?? throw new InvalidOperationException();
+            ChartFile CreateChart(string folder, string name, string title, bool bmson = false)
+            {
+                string directory = Path.Combine(root, folder);
+                Directory.CreateDirectory(directory);
+                string file = Path.Combine(directory, name + (bmson ? ".bmson" : ".bms"));
+                File.WriteAllText(file, bmson
+                    ? "{\"info\":{\"title\":\"" + title + "\",\"artist\":\"Artist\"},\"sound_channels\":[]}"
+                    : "#PLAYER 1\r\n#TITLE " + title + "\r\n");
+                return bmson ? ChartTestValues.ReadBmson(file)
+                    : BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(file));
+            }
+            ChartFile first = CreateChart("Shared", "a", "Keep A");
+            ChartFile background = CreateChart("Shared", "b", "Drop B");
+            ChartFile bmson = CreateChart("Other", "z", "Keep Z", bmson: true);
+            var gateway = new BmsLibraryDbGateway(path);
+            gateway.UpsertSongs([first, background]);
+            gateway.UpsertBmsonSongs([bmson]);
+            var library = new TestBmsLibrary(path) { BmsCharts = [first, background], BmsonCharts = [bmson] };
+            CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
+            var mutations = new CatalogMutationOwner(catalog, gateway);
+            var queue = new Queue<Action>();
+            var table = new MainChartListViewModel();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(table), action => action(), new ActionQueueUiScheduler(queue.Enqueue));
+            var filters = new ChartListFilterSnapshot(filtered ? "Keep" : string.Empty, ChartModeFilter.All);
+            owner.NormalLibraryRefreshApplied += (_, args) => owner.ApplyNotificationPresentation(library, args.NotificationBatch,
+                MainViewUpdateMode.FullScanAllChartsFilterSelected, null, filters, false);
+            void Deliver()
+            {
+                Task delivery = owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None);
+                while (queue.Count > 0) { queue.Dequeue()(); }
+                delivery.GetAwaiter().GetResult();
+            }
+            ChartFile Current(ChartFile value) => library.CaptureCatalogReadSnapshot([LibraryChartRef.FromChartFile(value)]).Resolve(LibraryChartRef.FromChartFile(value));
+            ChartFile Move(ChartFile value, string folder, string name)
+            {
+                ChartFile current = Current(value);
+                string directory = Path.Combine(root, folder);
+                Directory.CreateDirectory(directory);
+                string next = Path.Combine(directory, name + Path.GetExtension(current.Path));
+                File.Move(current.Path, next);
+                mutations.ApplyCatalogMutation(new(chartPathChanges: [new LibraryChartPathChange { Chart = current, OldPath = current.Path, NewPath = next }]));
+                Deliver();
+                return Current(value);
+            }
+            void Check(int expectedRows, int expectedFolders)
+            {
+                var rows = (ChartListVirtualView)table.Rows;
+                Assert.AreEqual(expectedRows, rows.RowCount);
+                Assert.AreEqual(expectedFolders, rows.DistinctFolderCount);
+                string expectedSummary = "[" + expectedRows + BeMusicSeeker.Properties.Resources.Num_songs
+                    + (expectedFolders > 1 ? " / " + expectedFolders + BeMusicSeeker.Properties.Resources.Num_folders : string.Empty) + "]";
+                Assert.AreEqual(expectedSummary, table.SummaryText);
+            }
+            try
+            {
+                owner.AttachNormalLibraryRefreshSource(library);
+                Deliver();
+                Assert.IsTrue(owner.TryApplyVirtualNormalLibrary(new()
+                {
+                    Library = library,
+                    IncludeBmsonRows = includeBmson,
+                    KeywordFilter = filters.KeywordFilter,
+                    ModeFilter = ChartModeFilter.All,
+                    SortColumnName = nameof(LibraryChartRow.Title),
+                    SortDirection = System.ComponentModel.ListSortDirection.Ascending,
+                    ColumnSelection = new MainChartListColumnSelection(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD), false, 0,
+                        MainViewUpdateMode.FullScanAllChartsFilterSelected, System.Windows.Visibility.Collapsed, new PlaylistSummaryColumnSettings()),
+                    Mode = MainViewUpdateMode.FullScanAllChartsFilterSelected,
+                    Stopwatch = System.Diagnostics.Stopwatch.StartNew(),
+                    Reason = "catalog_membership_counts"
+                }).WasCommitted);
+                int initialCount = (filtered ? 1 : 2) + (includeBmson ? 1 : 0);
+                Check(initialCount, 1 + (includeBmson ? 1 : 0));
+                var originalRows = (ChartListVirtualView)table.Rows;
+                ChartFile ownedFirst = library.CaptureNormalLibraryChartSnapshot().BmsRows.Single(chart => chart.Path == first.Path);
+                var selected = (LibraryChartRow)originalRows[originalRows.IndexOfNormalToken(ownedFirst.Token)];
+                table.SelectedIndex = originalRows.IndexOf(selected);
+                ChartFile added = CreateChart("New", "c", "Keep C");
+                gateway.UpsertSongs([added]);
+                Assert.IsTrue(catalog.ApplyCommittedChartUpsert([added], out _));
+                Deliver();
+                added = library.CaptureNormalLibraryChartSnapshot().BmsRows.Single(chart => chart.Path == added.Path);
+                Check(initialCount + 1, 2 + (includeBmson ? 1 : 0));
+                added = Move(added, "New", "same-folder");
+                Check(initialCount + 1, 2 + (includeBmson ? 1 : 0));
+                added = Move(added, "Shared", "other-folder");
+                Check(initialCount + 1, 1 + (includeBmson ? 1 : 0));
+                ChartFile ownedBmson = library.CaptureNormalLibraryChartSnapshot().BmsonRows[0];
+                ownedBmson = Move(ownedBmson, "Shared", "bmson-moved");
+                Check(initialCount + 1, 1);
+                Assert.AreSame(originalRows, table.Rows);
+                Assert.AreSame(selected, table.Rows[table.SelectedIndex]);
+                Assert.IsTrue(mutations.ApplyCatalogMutation(new(chartRemoveRequests: [OwnedChartRemoveRequest.FromChart(added)])).Applied);
+                Deliver();
+                Check(initialCount, 1);
+                Assert.IsTrue(mutations.ApplyCatalogMutation(new(chartRemoveRequests: [OwnedChartRemoveRequest.FromChart(ownedFirst)])).Applied);
+                Deliver();
+                Check(initialCount - 1, !filtered || includeBmson ? 1 : 0);
+                Assert.AreEqual(-1, table.SelectedIndex);
+                Assert.IsTrue(mutations.ApplyCatalogMutation(new(chartRemoveRequests: [OwnedChartRemoveRequest.FromChart(ownedBmson)])).Applied);
+                Deliver();
+                Check(filtered ? 0 : 1, filtered ? 0 : 1);
+            }
+            finally
+            {
+                while (queue.Count > 0) { queue.Dequeue()(); }
+                owner.StopAsync().GetAwaiter().GetResult();
+                library.RequestShutdown("catalog_membership_counts_test");
+            }
+        });
+    }
+
     /// <summary>実保守の文字コード再読解を同tokenの基本値・集合版・playlist局所差分と接続済み一覧の順序・絞込みへ反映し、再読解の無変更では版を増やさないことを確認します。</summary>
     [TestMethod]
     public void MaintenanceMetadataChange_ReachesAttachedViewAndWarmPlaylistDeltaOnce()
@@ -100,17 +455,18 @@ public sealed class RegularChartNormalLibraryRefreshTests
                 var storeWork = new List<string>();
                 library.PlaylistLibraryResolveIndexStoreWorkObserver = storeWork.Add;
                 PlaylistLibraryResolveIndexSnapshot beforeIndex = library.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out _, out _);
+                CatalogReadSnapshot beforeRead = library.CaptureCatalogReadSnapshot([LibraryChartRef.FromChartFile(first)]);
                 storeWork.Clear();
-                int version = library.OwnedCollectionVersion;
+                int version = library.CatalogRevision;
                 operation = Task.Run(() => library.RescanResourceHealthCharts([first, second]));
                 await Task.WhenAny(operation, applied.Task);
                 MaintenanceWorkflowResult result = await operation;
                 NormalLibraryRefreshNotificationBatch batch = await applied.Task;
                 Assert.IsTrue(result.HasUpdates);
                 Assert.AreEqual(2, result.ReloadedSongCount);
-                Assert.AreEqual(version + 1, library.OwnedCollectionVersion);
+                Assert.AreEqual(version + 1, library.CatalogRevision);
                 Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
-                Assert.AreEqual(version + 1, batch.OwnedCollectionVersion);
+                Assert.AreEqual(version + 1, batch.CatalogRevision);
                 Assert.IsTrue(batch.ChangedCharts.Any(chart => chart.Token == first.Token));
                 Assert.IsTrue(batch.ChangedCharts.Any(chart => chart.Token == second.Token));
                 ChartFile currentFirst = collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(first));
@@ -127,10 +483,10 @@ public sealed class RegularChartNormalLibraryRefreshTests
                 CollectionAssert.AreEqual(new[] { "M before" }, table.Rows.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
                 PlaylistLibraryResolveIndexSnapshot afterIndex = library.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out bool cacheHit, out _);
                 Assert.IsTrue(cacheHit);
-                Assert.AreEqual("A before", beforeIndex.ResolveChartSnapshot(beforeIndex.ResolveChartForPlaylistHash(first.Md5, first.Sha256)).Title);
-                Assert.AreEqual("Zあ", afterIndex.ResolveChartSnapshot(afterIndex.ResolveChartForPlaylistHash(first.Md5, first.Sha256)).Title);
-                Assert.AreEqual("Bあ", afterIndex.ResolveChartSnapshot(afterIndex.ResolveChartForPlaylistHash(second.Md5, second.Sha256)).Title);
-                Assert.IsTrue(storeWork.Contains("playlist_resolve_delta_apply"));
+                Assert.AreEqual("A before", beforeRead.Resolve(beforeIndex.ResolveChartForPlaylistHash(first.Md5, first.Sha256)).Title);
+                Assert.AreEqual("Zあ", library.CaptureCatalogReadSnapshot([afterIndex.ResolveChartForPlaylistHash(first.Md5, first.Sha256)]).Resolve(afterIndex.ResolveChartForPlaylistHash(first.Md5, first.Sha256)).Title);
+                Assert.AreEqual("Bあ", library.CaptureCatalogReadSnapshot([afterIndex.ResolveChartForPlaylistHash(second.Md5, second.Sha256)]).Resolve(afterIndex.ResolveChartForPlaylistHash(second.Md5, second.Sha256)).Title);
+                Assert.IsFalse(storeWork.Contains("playlist_resolve_delta_apply"));
                 Assert.IsFalse(storeWork.Contains("playlist_resolve_source_entry_visited"));
                 Assert.IsFalse(storeWork.Contains("playlist_resolve_source_enumeration"));
                 Assert.IsFalse(storeWork.Contains("playlist_resolve_full_root_enumeration"));
@@ -153,7 +509,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
                 MaintenanceWorkflowResult repeated = await operation;
                 NormalLibraryRefreshNotificationBatch repeatedBatch = await applied.Task;
                 Assert.AreEqual(2, repeated.ReloadedSongCount);
-                Assert.AreEqual(version + 1, library.OwnedCollectionVersion);
+                Assert.AreEqual(version + 1, library.CatalogRevision);
                 Assert.IsFalse(repeatedBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
                 CollectionAssert.AreEqual(new[] { "Bあ", "M before", "Zあ" }, table.Rows.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
             }
@@ -534,49 +890,6 @@ public sealed class RegularChartNormalLibraryRefreshTests
     }
 
 
-    /// <summary>実WAV健全性再走査の通知でmaintenance世代を一回更新し、表示・sortの依存cache失効漏れを検出します。</summary>
-    [TestMethod]
-    public void AttachedNormalLibraryRefreshSource_InvalidatesMaintenanceDependency()
-    {
-
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "maintenance.bms");
-            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE maintenance\r\n");
-            ChartFile file = CreateTestableBmsFile(chartPath);
-            file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = file.Path, hash = file.Md5, wav_files_defined = 2, wav_files_existing = 1 }));
-            var library = new TestBmsLibrary(songDbPath)
-            {
-                BmsCharts = [file]
-            };
-            RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
-            owner.AttachNormalLibraryRefreshSource(library);
-            long maintenanceGeneration = owner.MaintenanceGeneration;
-            using var applied = new ManualResetEventSlim();
-            owner.NormalLibraryRefreshApplied += (_, args) =>
-            {
-                if (args.NotificationBatch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged))
-                {
-                    applied.Set();
-                }
-            };
-            try
-            {
-                MaintenanceWorkflowResult result = library.RescanResourceHealthCharts(
-                    [(file)]);
-
-                Assert.IsTrue(result.HasUpdates);
-                applied.Wait();
-                Assert.AreEqual(maintenanceGeneration + 1, owner.MaintenanceGeneration);
-            }
-            finally
-            {
-                owner.Dispose();
-            }
-        });
-    }
-
-
     /// <summary>接続時のcatch-upを注入execution laneに予約し、実行前は世代を変えず実行後に一回適用することで、呼出laneでの先行適用を検出します。</summary>
     [TestMethod]
     public void AttachedNormalLibraryRefreshSource_MarshalsApplyToExecutionLane()
@@ -614,69 +927,50 @@ public sealed class RegularChartNormalLibraryRefreshTests
     }
 
 
-    /// <summary>catalog writer保持中にも生産側の通知が戻り、UI受信側は実snapshot readerで待つことで、通知からUIを同期待ちするdeadlockを検出します。</summary>
+    /// <summary>catalog writer保持中でも生産側がUI完了を待たず予約して戻り、guard解放後の一回の配送と捕捉が終端することを確認します。</summary>
     [TestMethod]
-    public void AttachedNormalLibraryRefreshSource_DoesNotWaitForUiWhileCatalogWriterHeld()
+    public void AttachedNormalLibraryRefreshSource_QueuesUiDeliveryWhileCatalogWriterHeld()
     {
-        WithTemporarySongDb(delegate (string songDbPath)
+        WithTemporarySongDb(songDbPath =>
         {
             var library = new TestBmsLibrary(songDbPath);
-            var uiScheduler = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
-            using var notificationPublished = new ManualResetEventSlim();
-            using var applied = new ManualResetEventSlim();
-
-            RegularChartListOwner owner = CreateOwner(
-                new MainChartListViewModel(),
-                CreateWorkspaceForOwner(),
-                action => action(),
-                uiScheduler);
+            var queue = new Queue<Action>();
+            using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner(),
+                action => action(), new ActionQueueUiScheduler(queue.Enqueue));
+            int applied = 0;
             owner.AttachNormalLibraryRefreshSource(library);
+            // writerはreceiptを登録し、既存の公開口は登録済み通知の配送だけを起動する。
+            OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library).ReplaceCharts(
+                [CreateTestableBmsFile("C:\\Charts\\writer-held.bms")], []);
             owner.NormalLibraryRefreshApplied += (_, args) =>
             {
                 if (args.NotificationBatch.ResetsPriorNotifications)
                 {
-                    // 表示担当が通常一覧の正式な捕捉入口を読む間も、通知生産側はUIの完了を待ちません。
                     library.CaptureNormalLibraryChartSnapshot();
-                    applied.Set();
+                    applied++;
                 }
             };
-
-            ReaderWriterLockSlimWrapper catalogWriteGate = GetCatalogStorageRowsWriteGate(library);
-            Task producer;
-            bool notificationPublishedWhileWriterHeld;
-            bool uiReachedCatalogReader;
-            using (catalogWriteGate.GetWriterGuard())
-            {
-                producer = StartLongRunning(() =>
-                {
-                    PublishNormalLibraryRefreshResetNotification(
-                        library,
-                        notifiesBmsFiles: true,
-                        notifiesBmsonSongs: false);
-                    notificationPublished.Set();
-                });
-                notificationPublishedWhileWriterHeld =
-                    notificationPublished.Wait(TimeSpan.FromSeconds(10));
-                uiReachedCatalogReader = SpinWait.SpinUntil(
-                    () => catalogWriteGate.WaitingReadCount > 0,
-                    TimeSpan.FromSeconds(10));
-            }
+            Task? producer = null;
             try
             {
-                producer.Wait();
-                Assert.IsTrue(
-                    notificationPublishedWhileWriterHeld,
-                    "The producer waited synchronously for the UI lane while a catalog writer was held.");
-                Assert.IsTrue(
-                    uiReachedCatalogReader,
-                    "The dedicated UI lane did not reach the catalog snapshot reader.");
-                producer.GetAwaiter().GetResult();
-                applied.Wait();
-                owner.StopAsync().GetAwaiter().GetResult();
+                using (GetCatalogStorageRowsWriteGate(library).GetWriterGuard())
+                {
+                    producer = StartLongRunning(() => PublishNormalLibraryRefreshResetNotification(library,
+                        notifiesBmsFiles: true, notifiesBmsonSongs: false));
+                    producer.GetAwaiter().GetResult();
+                    Assert.AreEqual(0, applied);
+                    Assert.AreEqual(1, queue.Count);
+                }
+                queue.Dequeue()();
+                Assert.AreEqual(1, applied);
+                Assert.AreEqual(0, queue.Count);
             }
             finally
             {
-                owner.Dispose();
+                while (queue.Count > 0) { queue.Dequeue()(); }
+                if (producer != null) { producer.GetAwaiter().GetResult(); }
+                owner.StopAsync().GetAwaiter().GetResult();
+                library.RequestShutdown("catalog_writer_delivery_test");
             }
         });
     }

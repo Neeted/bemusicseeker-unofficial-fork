@@ -378,6 +378,7 @@ public sealed class RegularChartFolderRenameTests
                 catchUp = pendingActions.Dequeue();
             }
             catchUp();
+            owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None).GetAwaiter().GetResult();
             actionQueued.Reset();
 
             Task firstRename = owner.RenameChartFolderAsync(firstRequest, "first-destination");
@@ -440,6 +441,7 @@ public sealed class RegularChartFolderRenameTests
                 catchUp = pendingActions.Dequeue();
             }
             catchUp();
+            owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None).GetAwaiter().GetResult();
             actionQueued.Reset();
 
             Task renameTask = owner.RenameChartFolderAsync(request, "queued-destination");

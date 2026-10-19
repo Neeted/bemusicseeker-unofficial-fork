@@ -115,7 +115,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     null,
                     fileMutationService,
                     dialogService);
-                int baselineOwnedCollectionVersion = library.OwnedCollectionVersion;
+                int baselineCatalogRevision = library.CatalogRevision;
 
                 LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(
                     sourceDirectoryPath,
@@ -127,7 +127,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsNotNull(receipt.PhysicalFailure);
                 Assert.AreEqual(sourceDirectoryPath, receipt.FailedTarget.SourcePath);
                 Assert.AreEqual(Path.Combine(tempRootPath, "Renamed"), receipt.FailedTarget.DestinationPath);
-                Assert.AreEqual(baselineOwnedCollectionVersion, library.OwnedCollectionVersion);
+                Assert.AreEqual(baselineCatalogRevision, library.CatalogRevision);
                 Assert.AreEqual(reportAtTerminal ? 0 : 1, dialogService.CallCount);
                 Assert.AreEqual(reportAtTerminal ? "filesystem" : "filesystem|dialog", string.Join("|", phases));
             }
@@ -216,7 +216,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 int normalRefreshPublicationCount = 0;
                 library.PropertyChanged += (_, args) =>
                 {
-                    if (args.PropertyName == nameof(BMSLibrary.OwnedCollectionVersion))
+                    if (args.PropertyName == nameof(BMSLibrary.CatalogRevision))
                     {
                         ownedCollectionPublicationCount++;
                     }
@@ -379,17 +379,17 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 file = library.BmsCharts.Single(chart => chart.Path == file.Path);
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 library.DuplicateChartGroups = [];
-                int baselineOwnedCollectionVersion = library.OwnedCollectionVersion;
+                int baselineCatalogRevision = library.CatalogRevision;
                 int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
                 int baselineDuplicateInvalidationVersion = library.DuplicateChartGroupsInvalidationVersion;
-                int ownedCollectionVersionChangedCount = 0;
+                int catalogRevisionChangedCount = 0;
                 int parentFolderVersionChangedCount = 0;
                 bool stateAvailableAtOwnedCollectionNotification = false;
                 library.PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
-                    if (e.PropertyName == nameof(BMSLibrary.OwnedCollectionVersion))
+                    if (e.PropertyName == nameof(BMSLibrary.CatalogRevision))
                     {
-                        Interlocked.Increment(ref ownedCollectionVersionChangedCount);
+                        Interlocked.Increment(ref catalogRevisionChangedCount);
                         ChartFile current = library.BmsCharts.Single(chart => ReferenceEquals(chart.Token, file.Token));
                         stateAvailableAtOwnedCollectionNotification = string.Equals(current.Folder, "Renamed", StringComparison.Ordinal)
                             && current.Path.Contains(Path.Combine("Renamed", "chart.bms"), StringComparison.OrdinalIgnoreCase);
@@ -434,8 +434,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.AreEqual(1, Volatile.Read(ref pathChangedCount));
                 Assert.AreEqual("Renamed", CurrentOwnedChart(library, file).Folder);
                 Assert.IsTrue(CurrentOwnedChart(library, file).Path.Contains(Path.Combine("Renamed", "chart.bms")));
-                Assert.AreEqual(baselineOwnedCollectionVersion + 1, library.OwnedCollectionVersion);
-                Assert.AreEqual(1, Volatile.Read(ref ownedCollectionVersionChangedCount));
+                Assert.AreEqual(baselineCatalogRevision + 1, library.CatalogRevision);
+                Assert.AreEqual(1, Volatile.Read(ref catalogRevisionChangedCount));
                 Assert.IsTrue(stateAvailableAtOwnedCollectionNotification);
                 Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
                 Assert.AreEqual(1, Volatile.Read(ref parentFolderVersionChangedCount));
@@ -487,7 +487,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 bool publicationObservedReleasedLease = false;
                 library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
                 {
-                    if (args.PropertyName != nameof(BMSLibrary.OwnedCollectionVersion))
+                    if (args.PropertyName != nameof(BMSLibrary.CatalogRevision))
                     {
                         return;
                     }
@@ -573,7 +573,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 int normalRefreshPublicationCount = 0;
                 library.PropertyChanged += (_, args) =>
                 {
-                    if (args.PropertyName == nameof(BMSLibrary.OwnedCollectionVersion))
+                    if (args.PropertyName == nameof(BMSLibrary.CatalogRevision))
                     {
                         ownedCollectionPublicationCount++;
                     }
@@ -1175,7 +1175,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 int normalRefreshPublicationCount = 0;
                 library.PropertyChanged += (_, args) =>
                 {
-                    if (args.PropertyName == nameof(BMSLibrary.OwnedCollectionVersion))
+                    if (args.PropertyName == nameof(BMSLibrary.CatalogRevision))
                     {
                         ownedCollectionPublicationCount++;
                     }
@@ -1400,7 +1400,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         refreshCount++;
                         return;
                     }
-                    if (args.PropertyName != nameof(BMSLibrary.OwnedCollectionVersion))
+                    if (args.PropertyName != nameof(BMSLibrary.CatalogRevision))
                     {
                         return;
                     }
@@ -1625,7 +1625,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 secondFile = secondFile with { Token = new OwnedChartToken() };
                 secondFile = secondFile with { Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" };
                 library.BmsCharts = [firstFile, secondFile];
-                int baselineOwnedCollectionVersion = library.OwnedCollectionVersion;
+                int baselineCatalogRevision = library.CatalogRevision;
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
                     songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(firstFile), typeof(LR2SongDB.song));
@@ -1655,7 +1655,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsNotNull(receipt.ApplyFailure);
                 Assert.AreEqual(0, receipt.UnprocessedTargets.Count);
                 Assert.AreEqual(reportAtTerminal ? 0 : 1, dialogs.CallCount);
-                Assert.AreEqual(baselineOwnedCollectionVersion, library.OwnedCollectionVersion);
+                Assert.AreEqual(baselineCatalogRevision, library.CatalogRevision);
                 Assert.IsFalse(Directory.Exists(firstSourceDirectoryPath));
                 Assert.IsFalse(Directory.Exists(secondSourceDirectoryPath));
                 Assert.IsTrue(File.Exists(firstDestinationChartPath));
@@ -1915,7 +1915,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     {
                         bmsonSongsPublished.TrySetResult(true);
                     }
-                    if (args.PropertyName == nameof(BMSLibrary.OwnedCollectionVersion))
+                    if (args.PropertyName == nameof(BMSLibrary.CatalogRevision))
                     {
                         Interlocked.Increment(ref ownedCollectionPublicationCount);
                     }
@@ -1931,7 +1931,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 await TestUiDispatcherHost.AwaitNotificationAsync(bmsonSongsPublished.Task, Task.CompletedTask, "folder-prepare.common-refresh");
                 Interlocked.Exchange(ref ownedCollectionPublicationCount, 0);
                 Interlocked.Exchange(ref normalLibraryRefreshCount, 0);
-                int baselineOwnedCollectionVersion = library.OwnedCollectionVersion;
+                int baselineCatalogRevision = library.CatalogRevision;
                 int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
 
                 LibraryMutationSessionReceipt receipt = library.MoveLibraryRootFolderWithReceipt(
@@ -1954,7 +1954,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 }, receipt.ApplyCounts);
                 Assert.AreEqual(2, receipt.CatalogChartPathChangeCount);
                 Assert.AreEqual(2, receipt.FolderReferenceMoveCount);
-                Assert.AreEqual(baselineOwnedCollectionVersion + 1, library.OwnedCollectionVersion);
+                Assert.AreEqual(baselineCatalogRevision + 1, library.CatalogRevision);
                 Assert.AreEqual(1, Volatile.Read(ref ownedCollectionPublicationCount));
                 Assert.AreEqual(1, Volatile.Read(ref normalLibraryRefreshCount));
                 Assert.IsTrue((batch.ChangedCharts.Count > 0 || batch.DeletedTokens.Count > 0 || batch.HasEffect(LibraryChartRefreshEffects.SourceChanged)));
@@ -2598,7 +2598,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 }
 
                 int notificationVersion = library.NormalLibraryRefreshNotificationVersion;
-                int ownedCollectionVersion = library.OwnedCollectionVersion;
+                int catalogRevision = library.CatalogRevision;
                 ResourceHealthIndexSnapshot resourceHealthSnapshot = library.GetResourceHealthIndexSnapshotForView("failure_baseline");
                 LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
                     library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((file))]),
@@ -2606,7 +2606,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     approvedWholeFolderDeletePaths: []);
 
                 Assert.AreEqual(notificationVersion, library.NormalLibraryRefreshNotificationVersion);
-                Assert.AreEqual(ownedCollectionVersion, library.OwnedCollectionVersion);
+                Assert.AreEqual(catalogRevision, library.CatalogRevision);
                 Assert.IsTrue(outcome.HasError);
                 Assert.IsTrue(outcome.CatalogApplyAttempted);
                 Assert.IsFalse(outcome.CatalogDurable);
@@ -2724,7 +2724,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             bool notificationAttempted = false;
             library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
-                if (args.PropertyName == nameof(BMSLibrary.OwnedCollectionVersion))
+                if (args.PropertyName == nameof(BMSLibrary.CatalogRevision))
                 {
                     notificationAttempted = true;
                     throw new InvalidOperationException("public notification failure");

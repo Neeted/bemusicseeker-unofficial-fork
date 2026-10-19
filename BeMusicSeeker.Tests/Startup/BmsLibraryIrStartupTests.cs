@@ -168,7 +168,7 @@ public sealed class BmsLibraryIrStartupTests
         fixture.Library.PropertyChanged += reloadHandler;
         int count = 0;
         ScoreSnapshotChange lastChange = null;
-        Action<ScoreSnapshotChange> scoreHandler = change => { count++; lastChange = change; };
+        System.ComponentModel.PropertyChangedEventHandler scoreHandler = null;
         try
         {
             await Task.Run(() => fixture.Library.InitializeScoresOnly(null));
@@ -177,7 +177,9 @@ public sealed class BmsLibraryIrStartupTests
             BMSScore current = fixture.Library.GetBMSScores().Single();
             Assert.AreNotSame(previous, current);
             Assert.AreEqual(1, fixture.Library.ScoreSubscriptionCount);
-            fixture.Library.ScoreSnapshotChanged += scoreHandler;
+            // reload/順位の登録範囲は完了済み。ここから旧実体の解除と新実体の局所変更だけを観測します。
+            scoreHandler = ScoreSnapshotTestSupport.CreateChangeHandler(fixture.Library, change => { count++; lastChange = change; });
+            fixture.Library.PropertyChanged += scoreHandler;
             previous.ranking = 1;
             current.ranking = 2;
             Assert.AreEqual(1, count);
@@ -202,8 +204,8 @@ public sealed class BmsLibraryIrStartupTests
                     ChartFileKind.Bms, "captured.bms", current.hash, string.Empty).Ranking);
             }
             finally { fixture.Library.PropertyChanged -= failingVersion; }
-            Action<ScoreSnapshotChange> failingSnapshot = _ => throw new InvalidOperationException("controlled snapshot notification failure");
-            fixture.Library.ScoreSnapshotChanged += failingSnapshot;
+            System.ComponentModel.PropertyChangedEventHandler failingSnapshot = ScoreSnapshotTestSupport.CreateChangeHandler(fixture.Library, _ => throw new InvalidOperationException("controlled snapshot notification failure"));
+            fixture.Library.PropertyChanged += failingSnapshot;
             try
             {
                 int version = fixture.Library.ScoreSnapshotVersion;
@@ -212,7 +214,7 @@ public sealed class BmsLibraryIrStartupTests
                 Assert.AreEqual(5, fixture.Library.ResolveChartScoreSnapshot(
                     ChartFileKind.Bms, "captured.bms", current.hash, string.Empty).Ranking);
             }
-            finally { fixture.Library.ScoreSnapshotChanged -= failingSnapshot; }
+            finally { fixture.Library.PropertyChanged -= failingSnapshot; }
             current.IsLr2IrScoreUnsent = true;
             Assert.IsTrue(fixture.Library.ResolveChartScoreSnapshot(
                 ChartFileKind.Bms, "captured.bms", current.hash, string.Empty).IsLr2IrScoreUnsent);
@@ -225,7 +227,7 @@ public sealed class BmsLibraryIrStartupTests
         finally
         {
             fixture.Library.PropertyChanged -= reloadHandler;
-            fixture.Library.ScoreSnapshotChanged -= scoreHandler;
+            fixture.Library.PropertyChanged -= scoreHandler;
         }
     }
 
@@ -502,8 +504,8 @@ public sealed class BmsLibraryIrStartupTests
         {
             if (args.PropertyName == nameof(BMSLibrary.ScoreSnapshotVersion)) { RecordAndFail(); }
         };
-        Action<ScoreSnapshotChange> snapshotHandler = _ => RecordAndFail();
-        if (failSnapshot) { fixture.Library.ScoreSnapshotChanged += snapshotHandler; }
+        System.ComponentModel.PropertyChangedEventHandler snapshotHandler = ScoreSnapshotTestSupport.CreateChangeHandler(fixture.Library, _ => RecordAndFail());
+        if (failSnapshot) { fixture.Library.PropertyChanged += snapshotHandler; }
         else { fixture.Library.PropertyChanged += propertyHandler; }
         try
         {
@@ -531,14 +533,14 @@ public sealed class BmsLibraryIrStartupTests
         finally
         {
             fixture.Library.PropertyChanged -= propertyHandler;
-            fixture.Library.ScoreSnapshotChanged -= snapshotHandler;
+            fixture.Library.PropertyChanged -= snapshotHandler;
             fixture.Client.Release.TrySetResult();
             await fixture.WaitForWorkersAsync();
         }
         BMSScore adopted = fixture.Library.GetBMSScores().Single(score => score.hash == StartupFixture.IrHash);
         ScoreSnapshotChange change = null;
-        Action<ScoreSnapshotChange> recordChange = current => change = current;
-        fixture.Library.ScoreSnapshotChanged += recordChange;
+        System.ComponentModel.PropertyChangedEventHandler recordChange = ScoreSnapshotTestSupport.CreateChangeHandler(fixture.Library, current => change = current);
+        fixture.Library.PropertyChanged += recordChange;
         try
         {
             int version = fixture.Library.ScoreSnapshotVersion;
@@ -547,7 +549,7 @@ public sealed class BmsLibraryIrStartupTests
             Assert.AreEqual(7, fixture.Library.ResolveChartScoreSnapshot(ChartFileKind.Bms, "new-ir.bms", adopted.hash, string.Empty).Ranking);
             CollectionAssert.Contains(change.Md5Keys.ToArray(), adopted.hash);
         }
-        finally { fixture.Library.ScoreSnapshotChanged -= recordChange; }
+        finally { fixture.Library.PropertyChanged -= recordChange; }
         await Task.Run(() => fixture.Library.InitializeScoresOnly(null));
         await fixture.WaitForWorkersAsync();
         Assert.AreEqual(2, fixture.Client.RequestCount);

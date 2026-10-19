@@ -11,6 +11,74 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class OwnedChartCollectionRefreshTests
 {
+    /// <summary>純移転の不完全なpath要求を導入済みentryへ再適用せず、同確定receiptのAfterを共有して両形式の表示・利用者属性を維持する。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RenameInstalledFolder_SharesCommittedCurrentInsteadOfPartialPathRequest(bool bmson)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string source = Path.Combine(root, "Source");
+            Directory.CreateDirectory(source);
+            string path = Path.Combine(source, bmson ? "chart.bmson" : "chart.bms");
+            File.WriteAllText(path, bmson ? "{}" : "#TITLE file title\n#PLAYER 1\n");
+            ChartFile before = ChartTestValues.Empty(bmson ? ChartFileKind.Bmson : ChartFileKind.Bms) with
+            {
+                Path = path,
+                Md5 = new string('a', 32),
+                Sha256 = new string('b', 64),
+                Title = "kept current",
+                RawTitle = "kept raw",
+                Artist = "kept artist",
+                RawArtist = "kept raw artist",
+                Mode = bmson ? 7 : 5,
+                Level = 12,
+                Favorite = 3,
+                Tag = "kept tag"
+            };
+            var library = new TestBmsLibrary(songDbPath) { BmsCharts = bmson ? [] : [before], BmsonCharts = bmson ? [before] : [] };
+            try
+            {
+                before = (bmson ? library.BmsonCharts : library.BmsCharts).Single();
+                using (var db = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
+                {
+                    db.CreateTable<BeMusicSeeker.Models.LR2.LR2SongDB.song>();
+                    db.CreateTable<BeMusicSeeker.Models.LR2.LR2SongDBExtended.bmson_song>();
+                    if (bmson) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(before), typeof(BeMusicSeeker.Models.LR2.LR2SongDBExtended.bmson_song)); }
+                    else { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(before), typeof(BeMusicSeeker.Models.LR2.LR2SongDB.song)); }
+                }
+                var entry = PackageChartEntry.FromChart(before);
+                var package = ChartPackage.FromChartEntries([entry]);
+                package.path = source;
+                library.ChartPackagesInstalled = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([package]);
+                CatalogChartCollectionSnapshot old = library.CaptureNormalLibraryChartSnapshot();
+                int handled = library.NormalLibraryRefreshNotificationVersion;
+                LibraryMutationSessionReceipt result = library.RenameChartFolderWithReceipt(source, "Moved", reportAtTerminal: true);
+                Assert.IsTrue(result.DurableCommit);
+                NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handled);
+                CatalogChartChange committed = batch.CatalogCommits.SelectMany(receipt => receipt.Changes).Single(change => change.Token == before.Token);
+                InstalledChartCurrentChange installed = batch.InstalledChartChanges.Single(change => ReferenceEquals(change.Entry, entry));
+                Assert.AreSame(committed.After, entry.Chart);
+                Assert.AreSame(committed.After, installed.Current);
+                Assert.AreEqual("kept current", entry.Chart.Title);
+                Assert.AreEqual(bmson ? 7 : 5, entry.Chart.Mode);
+                Assert.AreEqual<double?>(12, entry.Chart.Level);
+                Assert.AreEqual(3, entry.Chart.Favorite);
+                Assert.AreEqual("kept tag", entry.Chart.Tag);
+                Assert.AreEqual(path, (bmson ? old.BmsonRows : old.BmsRows).Single().Path);
+                Assert.AreEqual("kept current", before.Title);
+                Assert.AreEqual(Path.Combine(root, "Moved", Path.GetFileName(path)), entry.Chart.Path);
+            }
+            finally
+            {
+                library.ChartPackagesInstalled.Clear();
+                library.RequestShutdown("installed-relocation-fixture");
+            }
+        });
+    }
+
     /// <summary>
     /// タイトル変更後にパスを変更してまとめて通知しても、中間のタイトル依存と最終現在値を保ち導入済み画面の更新を欠落させない。
     /// </summary>
@@ -110,6 +178,8 @@ public sealed class OwnedChartCollectionRefreshTests
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            int catalogRevision = library.CatalogRevision;
+            ChartFile oldCurrent = library.BmsCharts.Single();
 
             ChartFile residualChart = ChartFileProjection.WithPackageState(
                 (bmsFile),
@@ -129,7 +199,13 @@ public sealed class OwnedChartCollectionRefreshTests
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
             Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
             Assert.AreEqual(0, batch.DeletedTokens.Count);
-            Assert.AreSame(bmsFile.Token, batch.ChangedCharts.Single().Token);
+            ChartFile projection = batch.InstallDestinationChangedCharts.Single();
+            Assert.AreSame(bmsFile.Token, projection.Token);
+            Assert.AreEqual(residualChart.InstallDestination, projection.InstallDestination);
+            Assert.AreEqual(0, batch.ChangedCharts.Count);
+            Assert.AreEqual(0, batch.CatalogCommits.Count);
+            Assert.AreEqual(catalogRevision, library.CatalogRevision);
+            Assert.AreSame(oldCurrent, library.BmsCharts.Single());
         });
     }
 
@@ -161,7 +237,7 @@ public sealed class OwnedChartCollectionRefreshTests
             LibraryResourceIndexSnapshot beforeResourceIndex = resourceIndexOwner.CaptureSnapshot();
             ResourceHealthIndexSnapshot beforeResourceHealth =
                 library.TryGetCurrentResourceHealthIndexSnapshotForView();
-            int beforeOwnedCollectionVersion = library.OwnedCollectionVersion;
+            int beforeCatalogRevision = library.CatalogRevision;
             int beforeRefreshVersion = library.NormalLibraryRefreshNotificationVersion;
             int beforeDuplicateInvalidationVersion = library.DuplicateChartGroupsInvalidationVersion;
 
@@ -184,7 +260,7 @@ public sealed class OwnedChartCollectionRefreshTests
             Assert.AreSame(beforeResourceIndex.Index, afterResourceIndex.Index);
             Assert.AreSame(beforeResourceIndex.DirectoryLookupCache, afterResourceIndex.DirectoryLookupCache);
             Assert.AreSame(beforeResourceHealth, library.TryGetCurrentResourceHealthIndexSnapshotForView());
-            Assert.AreEqual(beforeOwnedCollectionVersion, library.OwnedCollectionVersion);
+            Assert.AreEqual(beforeCatalogRevision, library.CatalogRevision);
             Assert.AreEqual(beforeRefreshVersion, library.NormalLibraryRefreshNotificationVersion);
             Assert.AreEqual(beforeDuplicateInvalidationVersion, library.DuplicateChartGroupsInvalidationVersion);
         });

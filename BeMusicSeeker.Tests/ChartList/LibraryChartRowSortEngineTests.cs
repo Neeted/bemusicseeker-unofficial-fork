@@ -340,39 +340,6 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.AreEqual(0, MainViewRefreshDecisionService.GetPathSortKeyInvalidationReasons(hasBmsPathMutation: false, hasBmsonPathMutation: false).Count);
     }
 
-    /// <summary>重複表示を優先する起動完了後の所持譜面変更だけでplaylist索引予熱を遅延し、別理由・未完了起動・別表示を遅らせません。</summary>
-    [TestMethod]
-    [TestCategory("SortEngine")]
-    public void PlaylistLibraryIndexPrewarm_DeferForDuplicateRefreshOnlyForOwnedCollectionInDuplicateView()
-    {
-        Assert.IsTrue(PlaylistWorkspaceViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
-            "owned_collection_changed",
-            startupReadyOperable: true,
-            duplicateRefreshPriorityActive: true,
-            (int)MainViewUpdateMode.DuplicateFilterSelected));
-
-        Assert.IsFalse(PlaylistWorkspaceViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
-            "initialize_completed",
-            startupReadyOperable: true,
-            duplicateRefreshPriorityActive: true,
-            (int)MainViewUpdateMode.DuplicateFilterSelected));
-        Assert.IsFalse(PlaylistWorkspaceViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
-            "owned_collection_changed",
-            startupReadyOperable: false,
-            duplicateRefreshPriorityActive: true,
-            (int)MainViewUpdateMode.DuplicateFilterSelected));
-        Assert.IsFalse(PlaylistWorkspaceViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
-            "owned_collection_changed",
-            startupReadyOperable: true,
-            duplicateRefreshPriorityActive: false,
-            (int)MainViewUpdateMode.DuplicateFilterSelected));
-        Assert.IsFalse(PlaylistWorkspaceViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
-            "owned_collection_changed",
-            startupReadyOperable: true,
-            duplicateRefreshPriorityActive: true,
-            (int)MainViewUpdateMode.FolderFilterSelected));
-    }
-
     /// <summary>絞込みのない通常一覧で題名sortに影響しないスコア・譜面情報・保守・警告変更は表示だけを更新し、不要な並べ替えを避けます。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]

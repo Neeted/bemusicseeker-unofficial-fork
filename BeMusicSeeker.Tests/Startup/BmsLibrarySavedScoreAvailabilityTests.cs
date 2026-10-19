@@ -102,8 +102,8 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
         BMSLibrary.ScoreSnapshot previous = fixture.Library.GetScoreSnapshotForDiagnostics();
         fixture.BreakScoreSelect();
         int publications = 0;
-        void Record(ScoreSnapshotChange _) => publications++;
-        fixture.Library.ScoreSnapshotChanged += Record;
+        System.ComponentModel.PropertyChangedEventHandler record = ScoreSnapshotTestSupport.CreateChangeHandler(fixture.Library, _ => publications++);
+        fixture.Library.PropertyChanged += record;
         try
         {
             fixture.Library.InitializeScoresOnly(null);
@@ -116,7 +116,7 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
             Assert.AreEqual(1, publications);
             Assert.AreEqual(1, fixture.Dialogs.Messages.Count);
         }
-        finally { fixture.Library.ScoreSnapshotChanged -= Record; }
+        finally { fixture.Library.PropertyChanged -= record; }
     }
 
     private sealed class ScoreFixture : IDisposable

@@ -67,12 +67,11 @@ internal sealed partial class LibraryMutationOwner
 
     private readonly Action notifyParentFolderListCacheChanged;
 
-    private readonly Action raiseOwnedCollectionVersionChanged;
+    private readonly Action raiseCatalogRevisionChanged;
 
     private readonly Action raiseNormalLibraryRefreshVersionChanged;
 
 
-    private readonly Action invalidateInstallEstimationMetadataProfileCache;
 
     private readonly Func<string, ResourceMaintenanceTargetSet> createFullOwnedResourceMaintenanceTargetSet;
 
@@ -163,9 +162,8 @@ internal sealed partial class LibraryMutationOwner
         Action markDuplicateWarningFullClearPending,
         Action invalidateParentFolderListCache,
         Action notifyParentFolderListCacheChanged,
-        Action raiseOwnedCollectionVersionChanged,
+        Action raiseCatalogRevisionChanged,
         Action raiseNormalLibraryRefreshVersionChanged,
-        Action invalidateInstallEstimationMetadataProfileCache,
         Func<string, ResourceMaintenanceTargetSet> createFullOwnedResourceMaintenanceTargetSet,
         Action<string, string> logStartupMemoryCheckpoint,
         Func<IEnumerable<ChartFile>, string, string> createChartFolderPathFromCharts,
@@ -202,9 +200,8 @@ internal sealed partial class LibraryMutationOwner
         this.markDuplicateWarningFullClearPending = markDuplicateWarningFullClearPending ?? throw new ArgumentNullException(nameof(markDuplicateWarningFullClearPending));
         this.invalidateParentFolderListCache = invalidateParentFolderListCache ?? throw new ArgumentNullException(nameof(invalidateParentFolderListCache));
         this.notifyParentFolderListCacheChanged = notifyParentFolderListCacheChanged ?? throw new ArgumentNullException(nameof(notifyParentFolderListCacheChanged));
-        this.raiseOwnedCollectionVersionChanged = raiseOwnedCollectionVersionChanged ?? throw new ArgumentNullException(nameof(raiseOwnedCollectionVersionChanged));
+        this.raiseCatalogRevisionChanged = raiseCatalogRevisionChanged ?? throw new ArgumentNullException(nameof(raiseCatalogRevisionChanged));
         this.raiseNormalLibraryRefreshVersionChanged = raiseNormalLibraryRefreshVersionChanged ?? throw new ArgumentNullException(nameof(raiseNormalLibraryRefreshVersionChanged));
-        this.invalidateInstallEstimationMetadataProfileCache = invalidateInstallEstimationMetadataProfileCache ?? throw new ArgumentNullException(nameof(invalidateInstallEstimationMetadataProfileCache));
         this.createFullOwnedResourceMaintenanceTargetSet = createFullOwnedResourceMaintenanceTargetSet ?? throw new ArgumentNullException(nameof(createFullOwnedResourceMaintenanceTargetSet));
         this.logStartupMemoryCheckpoint = logStartupMemoryCheckpoint ?? throw new ArgumentNullException(nameof(logStartupMemoryCheckpoint));
         this.createChartFolderPathFromCharts = createChartFolderPathFromCharts ?? throw new ArgumentNullException(nameof(createChartFolderPathFromCharts));
@@ -327,7 +324,6 @@ internal sealed partial class LibraryMutationOwner
     /// </summary>
     internal void InvalidateInstalledDirectoryIndex()
     {
-        InvalidateInstallEstimationMetadataProfileCache();
         lock (ownedInputSnapshotGate)
         {
             catalogOwnedCollectionOwner.InvalidateInstalledChartLookup();

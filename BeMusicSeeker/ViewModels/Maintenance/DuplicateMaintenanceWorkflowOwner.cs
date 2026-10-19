@@ -29,19 +29,6 @@ internal sealed class DuplicateMaintenanceRefreshSuppressionChangedEventArgs : D
     internal bool IsSuppressed { get; }
 }
 
-internal sealed class DuplicateMaintenanceRefreshPriorityWindowChangedEventArgs : DuplicateMaintenanceWorkflowChangedEventArgs
-{
-    internal DuplicateMaintenanceRefreshPriorityWindowChangedEventArgs(bool isActive, string reason)
-    {
-        IsActive = isActive;
-        Reason = reason;
-    }
-
-    internal bool IsActive { get; }
-
-    internal string Reason { get; }
-}
-
 internal enum DuplicateFolderKeyboardActionKind
 {
     None,
@@ -500,7 +487,6 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
                 request.SelectionHeader,
                 mutation: null,
-                refreshPriorityReason: "merge_folder",
                 mutationWithReceipt: (library, operationStore) => operationStore.MergeFolderWithReceipt(
                     library,
                     request.SourceDirectory,
@@ -587,7 +573,6 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
                 plan.SelectionHeader,
                 (library, operationStore) => removalOutcome = operationStore.RemoveCharts(library, prepared, approvedPaths),
-                refreshPriorityReason: null,
                 removedChartCount: 0,
                 acquiredOperationGate: operationGate,
                 physicalPaths: prepared.Targets.Select(chart => chart.Path).Concat(approvedPaths)));
@@ -650,7 +635,6 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     private async Task<DuplicateMaintenanceMutationResult> ExecuteMutation(
         string selectionHeader,
         Action<BMSLibrary, IDuplicateMaintenanceStore> mutation,
-        string refreshPriorityReason,
         int removedChartCount = 0,
         Func<BMSLibrary, IDuplicateMaintenanceStore, DuplicateMergeMaintenanceReceipt> mutationWithReceipt = null,
         IDisposable acquiredOperationGate = null,
@@ -666,7 +650,6 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         LibraryFileMutationCapability playlistCapability = null;
         LibraryFileMutationCapability combinedCapability = null;
         bool suppressionStarted = false;
-        bool refreshPriorityStarted = false;
         try
         {
             operationGate = acquiredOperationGate;
@@ -696,11 +679,6 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             dialogScope = library.BeginOperationDialogScope();
             PublishRefreshSuppressionChanged(isSuppressed: true);
             suppressionStarted = true;
-            if (!string.IsNullOrWhiteSpace(refreshPriorityReason))
-            {
-                PublishRefreshPriorityWindowChanged(isActive: true, reason: refreshPriorityReason);
-                refreshPriorityStarted = true;
-            }
             if (mutationWithReceipt == null)
             {
                 mutation(library, operationStore);
@@ -720,10 +698,6 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             if (suppressionStarted)
             {
                 CaptureNotification(() => PublishRefreshSuppressionChanged(isSuppressed: false));
-            }
-            if (refreshPriorityStarted)
-            {
-                CaptureNotification(() => PublishRefreshPriorityWindowChanged(isActive: false, reason: refreshPriorityReason));
             }
             if (activityLease != null)
             {
@@ -780,13 +754,6 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         WorkflowChanged?.Invoke(
             this,
             new DuplicateMaintenanceRefreshSuppressionChangedEventArgs(isSuppressed));
-    }
-
-    private void PublishRefreshPriorityWindowChanged(bool isActive, string reason)
-    {
-        WorkflowChanged?.Invoke(
-            this,
-            new DuplicateMaintenanceRefreshPriorityWindowChangedEventArgs(isActive, reason));
     }
 
     private static List<ChartFile> BuildHashCleanupDeletionList(IEnumerable<ChartFile> charts)

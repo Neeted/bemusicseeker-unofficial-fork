@@ -257,8 +257,7 @@ internal sealed class CatalogMaintenanceOwner
                 if (workflowResult?.HasUpdates == false)
                 {
                     // 入力保護の開始・終了だけで版は進むため、同値でも現在索引の版接続を保ちます。
-                    resourceHealthOwner.RebaseAfterInputMutation(inputMutation, new ResourceHealthIndexCurrentVersion(
-                        ownedCollectionOwner.CaptureVersionSnapshot(), ownedCollectionOwner.OwnedCollectionVersion, targetInputVersion));
+                    resourceHealthOwner.RebaseAfterInputMutation(inputMutation, new ResourceHealthIndexCurrentVersion(targetInputVersion));
                 }
             }
         }
@@ -370,7 +369,7 @@ internal sealed class CatalogMaintenanceOwner
                 }
 
                 durable = true;
-                ApplyCommittedCurrentValues(result.ChangedCharts, advanceBasicVersion: result.SongsToUpsert.Count > 0);
+                ApplyCommittedCurrentValues(result.ChangedCharts);
             }
         }
         catch (Exception exception)
@@ -385,29 +384,26 @@ internal sealed class CatalogMaintenanceOwner
         return result;
     }
 
-    /// <summary>DB確定済みの同じ所持項目へ適用し、基本メタデータの実変更または明示要求があれば集合版を一回進めます。</summary>
-    /// <returns>基本メタデータに実変更がある場合はtrue。保守投影だけの変更ではfalseです。</returns>
-    private bool ApplyCommittedCurrentValues(IEnumerable<ChartFile> values, bool advanceBasicVersion = false)
+    /// <summary>保守が変更する値だけを現在値へ採用し、実変更batchを一回確定します。</summary>
+    private bool ApplyCommittedCurrentValues(IEnumerable<ChartFile> values)
     {
-        lock (ownedCollectionOwner.Gate)
-        {
-            bool basicValuesChanged = false;
-            foreach (ChartFile value in values ?? [])
+        CatalogCommitReceipt receipt = ownedCollectionOwner.CommitCurrentValues(values, (current, value) =>
+            ChartFileProjection.WithMaintenance(current, value.ResourceHealthMaintenanceSnapshot) with
             {
-                ChartFile current = ownedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(value));
-                if (current?.Token != null && ReferenceEquals(current.Token, value.Token))
-                {
-                    basicValuesChanged |= !BmsLibraryMaintenanceService.HasSameMetadata(current, value);
-                    ownedCollectionOwner.Collection.ApplyCurrentChartValue(value);
-                }
-            }
-            if (basicValuesChanged || advanceBasicVersion)
-            {
-                ownedCollectionOwner.IncrementVersion();
-                ownedCollectionOwner.RebaseHashIndexSnapshot();
-            }
-            return basicValuesChanged;
-        }
+                Title = value.Title,
+                Subtitle = value.Subtitle,
+                Artist = value.Artist,
+                RawTitle = value.RawTitle,
+                RawSubtitle = value.RawSubtitle,
+                RawArtist = value.RawArtist,
+                Subartist = value.Subartist,
+                Genre = value.Genre,
+                Stagefile = value.Stagefile,
+                Banner = value.Banner,
+                Backbmp = value.Backbmp,
+                PreviewMusic = value.PreviewMusic
+            });
+        return receipt.Changes.Any(change => !BmsLibraryMaintenanceService.HasSameDecodedMetadataText(change.Before, change.After));
     }
 
     private void PublishCatalogWriteFailureFactBestEffort(CatalogWriteFailureFact failureFact)
@@ -687,7 +683,7 @@ internal sealed class CatalogMaintenanceOwner
         {
             return;
         }
-        lock (ownedCollectionOwner.Gate)
+        ownedCollectionOwner.Commit(state =>
         {
             foreach (ChartFile captured in ownerView.BmsCharts.Concat(ownerView.BmsonCharts))
             {
@@ -750,9 +746,9 @@ internal sealed class CatalogMaintenanceOwner
                         result.PlaceholderCount++;
                     }
                 }
-                ownedCollectionOwner.Collection.ApplyCurrentChartValue(ChartFileProjection.WithMaintenance(current, maintenance));
+                state.ApplyCurrentChartValue(ChartFileProjection.WithMaintenance(current, maintenance));
             }
-        }
+        });
     }
 
     private static void CaptureOwnerPathAndStaleMaintenancePaths(OwnedChartCollectionView ownerView, MaintenanceTableHydrationResult result)

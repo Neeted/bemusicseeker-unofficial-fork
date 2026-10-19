@@ -53,8 +53,8 @@ public sealed class PlaylistSummaryResolveIndexTests
             Assert.IsFalse(thirdCacheHit);
             Assert.IsTrue(third.Version > second.Version);
             Assert.IsTrue(third.InvalidationVersion > second.InvalidationVersion);
-            Assert.AreEqual(library.OwnedCollectionVersion, third.OwnedCollectionVersion);
-            Assert.IsTrue(third.OwnedCollectionVersion > second.OwnedCollectionVersion);
+            Assert.AreEqual(library.CatalogRevision, third.CatalogRevision);
+            Assert.IsTrue(third.CatalogRevision > second.CatalogRevision);
             Assert.IsNull(third.ResolveChartForPlaylistHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null));
             Assert.IsNotNull(third.ResolveChartForPlaylistHash("cccccccccccccccccccccccccccccccc", null));
         });

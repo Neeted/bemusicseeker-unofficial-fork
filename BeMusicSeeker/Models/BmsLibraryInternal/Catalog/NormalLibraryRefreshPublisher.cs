@@ -6,7 +6,11 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class NormalLibraryRefreshPublishRequest
 {
-    public int OwnedCollectionVersion { get; init; }
+    public int CatalogRevision { get; init; }
+    /// <summary>カタログwriterが同時確定した結果です。</summary>
+    internal CatalogCommitReceipt Commit { get; init; }
+    /// <summary>score正本が同じ確定境界で登録する独立結果です。</summary>
+    internal ScoreSnapshotChange ScoreChange { get; init; }
 
     public IReadOnlyList<ChartFile> ChangedCharts { get; init; } = [];
 
@@ -40,6 +44,7 @@ internal sealed class NormalLibraryRefreshPublisher
             notifications.RemoveAll(notification => notification == null || notification.Version <= handledVersion);
             List<NormalLibraryRefreshNotification> pendingNotifications = [.. notifications
                 .Where(notification => notification != null && notification.Version > handledVersion)];
+            ScoreSnapshotChange[] scoreChanges = [.. pendingNotifications.SelectMany(notification => notification.ScoreChanges)];
             int resetIndex = pendingNotifications.FindLastIndex(notification => notification.ResetsPriorNotifications);
             if (resetIndex >= 0)
             {
@@ -56,7 +61,7 @@ internal sealed class NormalLibraryRefreshPublisher
             }
             bool resetsPriorNotifications = resetIndex >= 0;
             int latestPendingVersion = pendingNotifications[pendingNotifications.Count - 1].Version;
-            int ownedCollectionVersion = pendingNotifications[pendingNotifications.Count - 1].OwnedCollectionVersion;
+            int catalogRevision = pendingNotifications.Max(notification => notification.CatalogRevision);
             LibraryChartRefreshEffects effects = pendingNotifications.Aggregate(
                 LibraryChartRefreshEffects.None,
                 (current, notification) => current | notification.Effects);
@@ -66,7 +71,7 @@ internal sealed class NormalLibraryRefreshPublisher
             var deletedTokens = new HashSet<OwnedChartToken>(pendingNotifications.SelectMany(notification => notification.DeletedTokens));
             return new NormalLibraryRefreshNotificationBatch(
                 latestPendingVersion,
-                ownedCollectionVersion,
+                catalogRevision,
                 effects,
                 DistinctChartsByNotificationKey(installDestinationChangedCharts),
                 resetsPriorNotifications,
@@ -74,8 +79,79 @@ internal sealed class NormalLibraryRefreshPublisher
                 deletedTokens: [.. deletedTokens],
                 changedDetailMd5s: [.. pendingNotifications.SelectMany(value => value.ChangedDetailMd5s).Distinct(System.StringComparer.OrdinalIgnoreCase)],
                 changedDetailSha256s: [.. pendingNotifications.SelectMany(value => value.ChangedDetailSha256s).Distinct(System.StringComparer.OrdinalIgnoreCase)],
-                installedChartChanges: [.. pendingNotifications.SelectMany(value => value.InstalledChartChanges)]);
+                installedChartChanges: [.. pendingNotifications.SelectMany(value => value.InstalledChartChanges)],
+                catalogCommits: [.. pendingNotifications.SelectMany(value => value.CatalogCommits)],
+                scoreChanges: scoreChanges);
         }
+    }
+
+    /// <summary>writer の確定境界で不変結果を登録します。配送イベントは排他解放後に既存接続が起動します。</summary>
+    internal int Register(CatalogCommitReceipt receipt)
+    {
+        if (receipt?.HasChanges != true)
+        {
+            return Version;
+        }
+
+        return Publish(new NormalLibraryRefreshPublishRequest
+        {
+            CatalogRevision = receipt.Revision,
+            Commit = receipt,
+            Effects = receipt.Changes.Aggregate(LibraryChartRefreshEffects.None, (effects, change) => effects | ClassifyEffects(change)),
+            ChangedCharts = System.Array.AsReadOnly(receipt.Changes.Where(change => change.After != null).Select(change => change.After).ToArray()),
+            DeletedTokens = System.Array.AsReadOnly(receipt.Changes.Where(change => change.After == null).Select(change => change.Token).ToArray()),
+            ResetsPriorNotifications = receipt.IsFullReplacement
+        });
+    }
+
+    /// <summary>scoreの版発行・lookup採用と同じ排他内で結果を登録します。配送起動は呼出元が解放後に行います。</summary>
+    internal int Register(ScoreSnapshotChange change)
+        => change == null ? Version : Publish(new NormalLibraryRefreshPublishRequest { ScoreChange = change });
+
+    private static LibraryChartRefreshEffects ClassifyEffects(CatalogChartChange change)
+    {
+        ChartFile before = change.Before, after = change.After;
+        if (before == null || after == null)
+        {
+            return LibraryChartRefreshEffects.SourceChanged | LibraryChartRefreshEffects.WarningPresentationChanged;
+        }
+
+        bool maintenanceChanged = before.ResourceHealthMaintenanceSnapshot != after.ResourceHealthMaintenanceSnapshot
+            || before.EncodingName != after.EncodingName || before.WAVHealth != after.WAVHealth || before.BGAHealth != after.BGAHealth
+            || before.MovieHealth != after.MovieHealth || before.StagefileHealth != after.StagefileHealth
+            || before.BannerHealth != after.BannerHealth || before.BackbmpHealth != after.BackbmpHealth;
+        bool ignoreOnly = maintenanceChanged && before.ResourceHealthMaintenanceSnapshot != null && after.ResourceHealthMaintenanceSnapshot != null
+            && before.ResourceHealthMaintenanceSnapshot with { FilesWarningIgnored = after.ResourceHealthMaintenanceSnapshot.FilesWarningIgnored }
+                == after.ResourceHealthMaintenanceSnapshot && before.EncodingName == after.EncodingName;
+        bool sourceChanged = !CatalogChartValueEquality.AreEqual(before, after with
+        {
+            ResourceHealthMaintenanceSnapshot = before.ResourceHealthMaintenanceSnapshot,
+            EncodingName = before.EncodingName,
+            WAVHealth = before.WAVHealth,
+            BGAHealth = before.BGAHealth,
+            MovieHealth = before.MovieHealth,
+            StagefileHealth = before.StagefileHealth,
+            BannerHealth = before.BannerHealth,
+            BackbmpHealth = before.BackbmpHealth,
+            Warnings = before.Warnings,
+            ResourceHealthWarningsIgnored = before.ResourceHealthWarningsIgnored,
+            ChartInfo = before.ChartInfo,
+            ChartInfoDisplay = before.ChartInfoDisplay,
+            Score = before.Score
+        });
+        LibraryChartRefreshEffects effects = sourceChanged ? LibraryChartRefreshEffects.SourceChanged : LibraryChartRefreshEffects.None;
+        if (maintenanceChanged && !ignoreOnly)
+        {
+            effects |= LibraryChartRefreshEffects.MaintenancePresentationChanged;
+        }
+
+        if (maintenanceChanged || before.ResourceHealthWarningsIgnored != after.ResourceHealthWarningsIgnored
+            || !before.Warnings.Select(value => (value.Kind, value.Message)).SequenceEqual(after.Warnings.Select(value => (value.Kind, value.Message))))
+        {
+            effects |= LibraryChartRefreshEffects.WarningPresentationChanged;
+        }
+
+        return effects;
     }
 
     internal int Publish(NormalLibraryRefreshPublishRequest request)
@@ -89,16 +165,17 @@ internal sealed class NormalLibraryRefreshPublisher
             int version = Interlocked.Increment(ref latestVersion);
             var notification = new NormalLibraryRefreshNotification(
                 version,
-                request.OwnedCollectionVersion,
+                request.CatalogRevision,
                 request.Effects,
                 request.InstallDestinationChangedCharts,
-                request.ResetsPriorNotifications, request.ChangedCharts, request.DeletedTokens, request.ChangedDetailMd5s, request.ChangedDetailSha256s, request.InstalledChartChanges);
+                request.ResetsPriorNotifications, request.ChangedCharts, request.DeletedTokens, request.ChangedDetailMd5s, request.ChangedDetailSha256s, request.InstalledChartChanges, request.Commit == null ? [] : [request.Commit], request.ScoreChange == null ? [] : [request.ScoreChange]);
             notifications.Add(notification);
             return version;
         }
     }
 
-    internal void Clear(int notificationVersion)
+    /// <summary>未公開の補助通知だけを破棄します。ownerが登録したcatalog/score確定結果は失敗時にも削除しません。</summary>
+    internal void ClearLegacyNotification(int notificationVersion)
     {
         if (notificationVersion <= 0)
         {
@@ -106,7 +183,7 @@ internal sealed class NormalLibraryRefreshPublisher
         }
         lock (syncRoot)
         {
-            notifications.RemoveAll(notification => notification.Version == notificationVersion);
+            notifications.RemoveAll(notification => notification.Version == notificationVersion && notification.CatalogCommits.Count == 0 && notification.ScoreChanges.Count == 0);
         }
     }
 

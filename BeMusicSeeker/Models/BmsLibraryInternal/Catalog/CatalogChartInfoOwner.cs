@@ -74,11 +74,20 @@ internal sealed class CatalogChartInfoOwner
 
     private Func<IDisposable> workflowBeginDigestMutationWindow = () => EmptyDisposable.Instance;
 
-    private Func<IReadOnlyList<LibraryChartDigestChange>, string, Action> workflowPrepareDigestPublication;
+    private Func<IReadOnlyList<LibraryChartDigestChange>, string, CatalogCommitReceipt, Action> workflowPrepareDigestPublication;
 
     private readonly object backfillGate = new();
 
     private readonly List<ChartInfoBackfillRequest> backfillRequests = [];
+    private int inputCoverageParserVersion;
+    private long inputCoverageTimeoutMs;
+
+    private void CompleteInputCoverage(IEnumerable<ChartFile> values, bool full)
+    {
+        workflowOwnedCollectionOwner.CompleteChartInfoInputs(values, full);
+        inputCoverageParserVersion = BmsLibraryDbGateway.CurrentChartInfoParserVersion;
+        inputCoverageTimeoutMs = Math.Max(0L, (long)Math.Ceiling(buildService.CurrentParseTimeout.TotalMilliseconds));
+    }
 
     private readonly object hydrationGate = new();
 
@@ -190,7 +199,7 @@ internal sealed class CatalogChartInfoOwner
         Action<string> logWarning,
         Action<CatalogChartInfoOwnerEvent> workflowEvent,
         Func<IDisposable> beginDigestMutationWindow = null,
-        Func<IReadOnlyList<LibraryChartDigestChange>, string, Action> prepareDigestPublication = null)
+        Func<IReadOnlyList<LibraryChartDigestChange>, string, CatalogCommitReceipt, Action> prepareDigestPublication = null)
     {
         workflowDbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
         workflowMutationOwner = mutationOwner ?? throw new ArgumentNullException(nameof(mutationOwner));
@@ -696,14 +705,8 @@ internal sealed class CatalogChartInfoOwner
     {
         EnsureWorkflowConfigured();
         ChartInfoHydrationResult currentAllCurrentResult = null;
-        if (hydrationResult != null
-            && hydrationResult.Succeeded
-            && hydrationResult.OwnerCount > 0
-            && hydrationResult.BackfillCandidateOwnerCount <= 0)
-        {
-            currentAllCurrentResult = CreateCurrentHydrationAllCurrentResult();
-        }
-        if (currentAllCurrentResult != null && currentAllCurrentResult.OwnerCount == hydrationResult.OwnerCount)
+        currentAllCurrentResult = CreateCurrentHydrationAllCurrentResult();
+        if (currentAllCurrentResult != null)
         {
             int skippedVersion = CompleteSkippedBackfillRequestIfIdle(originatingRequest);
             ChartInfoBuildService.ReportDiagnosticBestEffort(LogPerformance, () => "chart_info_backfill skipped reason=hydration_all_current"
@@ -714,6 +717,25 @@ internal sealed class CatalogChartInfoOwner
                 + " currentParseFailure=" + currentAllCurrentResult.CurrentParseFailureOwnerCount
                 + " candidates=" + currentAllCurrentResult.BackfillCandidateOwnerCount);
             NotifyBackfillCompletionBestEffort(() => PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Checkpoint("chart_info_backfill", "skipped")));
+            return;
+        }
+
+        if (inputCoverageParserVersion != BmsLibraryDbGateway.CurrentChartInfoParserVersion
+            || inputCoverageTimeoutMs != Math.Max(0L, (long)Math.Ceiling(buildService.CurrentParseTimeout.TotalMilliseconds)))
+        {
+            workflowOwnedCollectionOwner.ResetChartInfoInputCoverage();
+        }
+
+        if (workflowOwnedCollectionOwner.TryCapturePendingChartInfoInputs(out IReadOnlyList<ChartFile> changedInputs))
+        {
+            if (changedInputs.Count == 0)
+            {
+                CompleteSkippedBackfillRequestIfIdle(originatingRequest);
+                NotifyBackfillCompletionBestEffort(() => PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Checkpoint("chart_info_backfill", "skipped")));
+                return;
+            }
+            QueueBackfillRequest(ChartInfoBackfillRequest.Targets(reason,
+                System.Array.AsReadOnly(changedInputs.Select(chart => LibraryChartRef.FromChartFile(chart)).ToArray())), processSynchronously, originatingRequest);
             return;
         }
 
@@ -820,6 +842,7 @@ internal sealed class CatalogChartInfoOwner
                 break;
             }
             int requestVersion;
+            ChartInfoBackfillRequest[] requests;
             OperationProgressRequest progressRequest;
             Action<OperationProgressRequest, bool> progressReporter;
             lock (backfillGate)
@@ -827,9 +850,11 @@ internal sealed class CatalogChartInfoOwner
                 progressRequest = backfillProgressRequest;
                 progressReporter = backfillExecutionReporter;
                 requestVersion = chartInfoBackfillRequestedVersion;
+                requests = backfillRequests.ToArray();
                 backfillRequests.Clear();
             }
             bool completedLatestRequest = false;
+            bool fullRequest = requests.Any(request => request.IsFull);
             int committedDigestCount = 0;
             List<ChartFile> chartSnapshot = null;
             Dictionary<string, BeMusicSeeker.Models.ChartDetails> existingRowsSnapshot = null;
@@ -839,14 +864,20 @@ internal sealed class CatalogChartInfoOwner
                 try
                 {
                     progressReporter?.Invoke(progressRequest, true);
-                    using (workflowOwnedCollectionOwner.WriteGate.GetReaderGuard())
+                    if (fullRequest)
                     {
-                        lock (workflowOwnedCollectionOwner.Gate)
+                        using (workflowOwnedCollectionOwner.WriteGate.GetReaderGuard())
                         {
-                            chartSnapshot = workflowOwnedCollectionOwner.Collection.CreateSnapshot(
-                                includeWarningSnapshot: false,
-                                includeScoreSnapshot: false);
+                            lock (workflowOwnedCollectionOwner.Gate)
+                            {
+                                chartSnapshot = workflowOwnedCollectionOwner.Collection.CreateSnapshot(includeWarningSnapshot: false, includeScoreSnapshot: false);
+                            }
                         }
+                    }
+                    else
+                    {
+                        CatalogReadSnapshot inputs = workflowOwnedCollectionOwner.CaptureReadSnapshot(requests.SelectMany(request => request.Charts));
+                        chartSnapshot = inputs.Charts.Values.ToList();
                     }
                     using (workflowBeginDigestMutationWindow())
                     {
@@ -862,7 +893,19 @@ internal sealed class CatalogChartInfoOwner
                                 new(requestVersion, total, processed, currentPath, progressRequest),
                                 nameof(BMSLibrary.ChartInfoBackfillProgressSnapshot));
                         }
-                        existingRowsSnapshot = CreateSha256Snapshot();
+                        existingRowsSnapshot = fullRequest ? CreateSha256Snapshot() : new(StringComparer.OrdinalIgnoreCase);
+                        if (!fullRequest)
+                        {
+                            foreach (ChartFile chart in chartSnapshot)
+                            {
+                                ChartDetails row = ResolveChartInfoFromIndex(chart.Sha256, chart.Md5);
+                                if (!string.IsNullOrWhiteSpace(row?.sha256))
+                                {
+                                    existingRowsSnapshot[row.sha256] = row;
+                                }
+                            }
+                        }
+
                         ChartInfoBackfillResult result = buildService.BackfillChartInfos(
                             workflowDbGateway,
                             chartSnapshot,
@@ -881,7 +924,13 @@ internal sealed class CatalogChartInfoOwner
                                     publicationEffects.Add, publication.CurrentValues, publication.ChangedFailureMd5s);
                             },
                             existingRowsSnapshot,
-                            workflowMutationOwner.ApplyChartInfoStorageWrite);
+                            workflowMutationOwner.ApplyChartInfoStorageWrite,
+                            subset: !fullRequest);
+                        if (result.ReadFailedCount == 0 && result.DigestFailedCount == 0)
+                        {
+                            CompleteInputCoverage(chartSnapshot, fullRequest);
+                        }
+
                         ChartInfoBuildService.ReportDiagnosticBestEffort(LogPerformance, () => "chart_info_backfill done version=" + requestVersion
                             + " mode=full total=" + result.TargetCount
                             + " success=" + result.BackfilledCount
@@ -1127,7 +1176,7 @@ internal sealed class CatalogChartInfoOwner
             + " version=" + indexUpdateResult.Version
             + " indexBuildMs=" + result.IndexBuildMs);
 
-        int ownedCollectionVersionAtSummary = 0;
+        int catalogRevisionAtSummary = 0;
         var ownerApplyStopwatch = Stopwatch.StartNew();
         using (workflowOwnedCollectionOwner.WriteGate.GetReaderGuard())
         {
@@ -1144,14 +1193,18 @@ internal sealed class CatalogChartInfoOwner
             result.CurrentParseFailureOwnerCount = ownerSummary.CurrentParseFailureOwnerCount;
             result.BackfillCandidateOwnerCount = ownerSummary.BackfillCandidateOwnerCount;
             result.OwnerApplySkippedCount = ownerSummary.OwnerApplySkippedCount;
-            ownedCollectionVersionAtSummary = workflowOwnedCollectionOwner.OwnedCollectionVersion;
+            catalogRevisionAtSummary = workflowOwnedCollectionOwner.CatalogRevision;
+            lock (workflowOwnedCollectionOwner.Gate)
+            {
+                result.Succeeded = true;
+                CaptureHydrationAllCurrentSnapshot(result, catalogRevisionAtSummary);
+            }
         }
         ownerApplyStopwatch.Stop();
         result.OwnerApplyMs = result.ApplyMs = ownerApplyStopwatch.ElapsedMilliseconds;
         totalStopwatch.Stop();
         result.TotalMs = totalStopwatch.ElapsedMilliseconds;
         result.Succeeded = true;
-        CaptureHydrationAllCurrentSnapshot(result, ownedCollectionVersionAtSummary);
         return result;
     }
 
@@ -1258,7 +1311,7 @@ internal sealed class CatalogChartInfoOwner
         }
     }
 
-    private void CaptureHydrationAllCurrentSnapshot(ChartInfoHydrationResult result, int ownedCollectionVersion)
+    private void CaptureHydrationAllCurrentSnapshot(ChartInfoHydrationResult result, int catalogRevision)
     {
         ChartInfoHydrationAllCurrentSnapshot snapshot = null;
         if (result != null
@@ -1266,9 +1319,12 @@ internal sealed class CatalogChartInfoOwner
             && result.OwnerCount > 0
             && result.BackfillCandidateOwnerCount <= 0)
         {
+            workflowOwnedCollectionOwner.CompleteChartInfoInputs([], full: true, expectedCatalogRevision: catalogRevision);
+            inputCoverageParserVersion = BmsLibraryDbGateway.CurrentChartInfoParserVersion;
+            inputCoverageTimeoutMs = Math.Max(0L, (long)Math.Ceiling(buildService.CurrentParseTimeout.TotalMilliseconds));
             snapshot = new ChartInfoHydrationAllCurrentSnapshot
             {
-                OwnedCollectionVersion = ownedCollectionVersion,
+                CatalogRevision = catalogRevision,
 
                 OwnerCount = result.OwnerCount,
                 CurrentChartInfoOwnerCount = result.CurrentChartInfoOwnerCount,
@@ -1290,10 +1346,9 @@ internal sealed class CatalogChartInfoOwner
         {
             snapshot = hydrationAllCurrentSnapshot;
         }
-        OwnedChartCollectionVersionSnapshot rows = workflowOwnedCollectionOwner.CaptureVersionSnapshot();
         if (snapshot == null
-            || snapshot.OwnedCollectionVersion != workflowOwnedCollectionOwner.OwnedCollectionVersion
-            || snapshot.OwnedCollectionVersion != rows.OwnedCollectionVersion
+            || !workflowOwnedCollectionOwner.TryCapturePendingChartInfoInputs(out IReadOnlyList<ChartFile> pendingInputs) || pendingInputs.Count != 0
+            || workflowOwnedCollectionOwner.CaptureStateSnapshot().BmsRowCount + workflowOwnedCollectionOwner.CaptureStateSnapshot().BmsonRowCount != snapshot.OwnerCount
             || snapshot.ParserVersion != BmsLibraryDbGateway.CurrentChartInfoParserVersion
             || snapshot.ParseTimeoutMs != Math.Max(0L, (long)Math.Ceiling(buildService.CurrentParseTimeout.TotalMilliseconds)))
         {
@@ -1454,25 +1509,6 @@ internal sealed class CatalogChartInfoOwner
             }
             return null;
         };
-    }
-
-    internal ChartInfoOwnerVersionSnapshot CaptureOwnerVersionSnapshot()
-    {
-        EnsureWorkflowConfigured();
-        using (workflowOwnedCollectionOwner.WriteGate.GetReaderGuard())
-        {
-            CatalogChartCollectionStateSnapshot rows = workflowOwnedCollectionOwner.CaptureStateSnapshot();
-            lock (workflowOwnedCollectionOwner.Gate)
-            {
-                return new ChartInfoOwnerVersionSnapshot
-                {
-                    OwnedCollectionVersion = workflowOwnedCollectionOwner.OwnedCollectionVersion,
-
-                    BmsOwnerCount = rows.BmsRowCount,
-                    BmsonOwnerCount = rows.BmsonRowCount
-                };
-            }
-        }
     }
 
     internal ChartInfoIndexUpdateResult ReplaceIndex(
@@ -1970,47 +2006,18 @@ internal sealed class CatalogChartInfoOwner
         BeMusicSeeker.Models.ChartDetails[] committedRows = [.. (appliedRows ?? [])
             .Where(row => row != null)];
 
-        var changedCurrentValues = new List<ChartFile>();
-        bool baseValuesChanged = false;
-        if (currentValues?.Count > 0)
-        {
-            lock (workflowOwnedCollectionOwner.Gate)
+        CatalogCommitReceipt currentCommit = workflowOwnedCollectionOwner.CommitCurrentValues(currentValues, (current, value) =>
+            ChartFileProjection.WithChartInfo(current, value.ChartInfo) with
             {
-                foreach (ChartFile value in currentValues)
-                {
-                    ChartFile current = workflowOwnedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(value));
-                    if (current?.Token == null || value.Token != null && !ReferenceEquals(current.Token, value.Token))
-                    {
-                        continue;
-                    }
-
-                    ChartFile next = ChartFileProjection.WithChartInfo(current, value.ChartInfo) with
-                    {
-                        Md5 = value.Md5,
-                        Sha256 = value.Sha256,
-                        LastWriteTimeUtc = value.LastWriteTimeUtc,
-                        Level = value.Level,
-                        LevelText = value.LevelText,
-                        Difficulty = value.Difficulty,
-                        Mode = value.Mode
-                    };
-                    bool baseChanged = current.Level != next.Level || current.Mode != next.Mode || current.Difficulty != next.Difficulty;
-                    baseValuesChanged |= baseChanged;
-                    workflowOwnedCollectionOwner.Collection.ApplyCurrentChartValue(next);
-                    if (baseChanged || !string.Equals(current.Md5, next.Md5, StringComparison.OrdinalIgnoreCase)
-                        || !string.Equals(current.Sha256, next.Sha256, StringComparison.OrdinalIgnoreCase))
-                    {
-                        changedCurrentValues.Add(next);
-                    }
-                }
-
-                if (baseValuesChanged && committedDigestChanges.Length == 0)
-                {
-                    workflowOwnedCollectionOwner.IncrementVersion();
-                    workflowOwnedCollectionOwner.RebaseHashIndexSnapshot();
-                }
-            }
-        }
+                Md5 = value.Md5,
+                Sha256 = value.Sha256,
+                LastWriteTimeUtc = value.LastWriteTimeUtc,
+                Level = value.Level,
+                LevelText = value.LevelText,
+                Difficulty = value.Difficulty,
+                Mode = value.Mode
+            });
+        List<ChartFile> changedCurrentValues = [.. currentCommit.Changes.Where(change => change.After != null).Select(change => change.After)];
 
         Action digestPublication = null;
         if (committedDigestChanges.Length > 0)
@@ -2024,7 +2031,7 @@ internal sealed class CatalogChartInfoOwner
             }
             digestPublication = workflowPrepareDigestPublication?.Invoke(
                 committedDigestChanges,
-                reason + "_digest");
+                reason + "_digest", currentCommit);
         }
 
 

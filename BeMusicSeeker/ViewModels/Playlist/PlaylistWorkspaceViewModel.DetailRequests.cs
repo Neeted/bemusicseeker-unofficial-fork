@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Util.Extensions;
 
@@ -45,6 +44,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         IPlaylistDetailDataSource dataSource = Volatile.Read(ref detailDataSource)
             ?? throw new InvalidOperationException("Playlist detail data source is not attached.");
+        SetDetailEntryCommitStore(getPlaylistStore());
         PlaylistBuildRequest request;
         PlaylistBuildQueueRegisterResult registerResult;
         lock (playlistDetailSelectionSyncRoot)
@@ -72,7 +72,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 PlaylistRequestIdentity? currentViewIdentity;
                 lock (DetailViewState.SyncRoot)
                 {
-                    playlistRevision = DetailViewState.Source.PlaylistContentRevision;
+                    playlistRevision = table?.PlaylistEntriesRevision ?? 0;
                     lastBuiltScoreSnapshotVersion = DetailViewState.Source.LastBuiltScoreSnapshotVersion;
                     currentViewIdentity = DetailViewState.View.CurrentIdentity;
                 }
@@ -98,7 +98,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         keywordFilter,
                         modeFilter,
                         sortParameters,
-                        dataSource.OwnedCollectionVersion,
+                        dataSource.CatalogRevision,
                         playlistRevision,
                         dataSource.ScoreSnapshotVersion,
                         dataSource.ChartInfoIndexVersion,
@@ -142,20 +142,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         return request;
     }
 
-    internal long IncrementDetailContentRevision(string reason)
-    {
-        long nextRevision;
-        lock (DetailViewState.SyncRoot)
-        {
-            DetailViewState.Source.PlaylistContentRevision++;
-            nextRevision = DetailViewState.Source.PlaylistContentRevision;
-        }
-        detailRetentionLog("playlist_revision incremented revision=" + nextRevision + " reason=" + reason);
-        return nextRevision;
-    }
-
     internal void CancelDetailBuilds()
     {
+        SetDetailEntryCommitStore(null);
         PlaylistDetailBuildQueueCoordinator.CancelForShutdown(DetailBuildState);
     }
 
@@ -270,18 +259,48 @@ public sealed partial class PlaylistWorkspaceViewModel
                 DetailViewState.View.CurrentIdentity);
         }
         PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(request, stateSnapshot);
+        if (!decision.SelectionChanged && !decision.SourceMissing && !decision.PresentationIdentityChanged
+            && !decision.LibraryIndexInvalidated && !decision.PlaylistRevisionInvalidated && !decision.ChartInfoIndexInvalidated)
+        {
+            // 同条件のscore鮮度要求は既存sourceへのrange配送だけを待ちます。全sort/配列化で救済しません。
+            EnsureCurrentDetailScoreDelivery(request, cancellationToken);
+            return true;
+        }
         if (decision.Action == PlaylistDetailBuildAction.PatchChartInfoThenApplyView
             && TryPatchDetailSourceChartInfo(request, cancellationToken, out _, out _, out _, out _))
         {
             return ApplyDetailViewWithoutSourceRebuild(request, cancellationToken);
         }
-        if (decision.Action == PlaylistDetailBuildAction.RebuildSource)
+        if (decision.SelectionChanged || decision.SourceMissing)
         {
             request.LastBuiltScoreSnapshotVersion = decision.LastBuiltScoreSnapshotVersion;
             request.SourceInvalidationReason = decision.SourceInvalidationReason;
             return RebuildDetailSource(request, cancellationToken);
         }
         return ApplyDetailViewWithoutSourceRebuild(request, cancellationToken);
+    }
+
+    private void EnsureCurrentDetailScoreDelivery(PlaylistBuildRequest request, CancellationToken cancellationToken)
+    {
+        int requestedPosition = -1;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int applied;
+            lock (DetailBuildState.SyncRoot)
+            {
+                if (request.RequestVersion != DetailBuildState.RequestVersion) { return; }
+                lock (DetailViewState.SyncRoot) { applied = DetailViewState.Source.LastBuiltScoreSnapshotVersion; }
+            }
+            if (requestedPosition > applied)
+            { throw new InvalidOperationException("Playlist score delivery completed without covering the required position."); }
+            int required = detailDataSource.ScoreSnapshotVersion;
+            if (applied >= required) { return; }
+            if (detailDataSource is not PlaylistDetailDataSource attached || libraryChangeDelivery == null)
+            { throw new InvalidOperationException("Playlist library change delivery is not connected."); }
+            requestedPosition = required;
+            libraryChangeDelivery(attached.Library, cancellationToken).WaitAsync(cancellationToken).GetAwaiter().GetResult();
+        }
     }
 
     private bool ApplyDetailViewWithoutSourceRebuild(
@@ -332,35 +351,20 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return false;
             }
 
-            IPlaylistDetailDataSource dataSource = Volatile.Read(ref detailDataSource)
-                ?? throw new InvalidOperationException("Playlist detail data source is not attached.");
-            cancellationStage = "hash_index";
-            long indexStartMs = stopwatch.ElapsedMilliseconds;
-            PlaylistLibraryResolveIndexSnapshot resolveIndex = dataSource.GetResolveIndexSnapshot(
-                cancellationToken,
-                out bool cacheHit,
-                out int staleRetryCount);
-            long indexMs = stopwatch.ElapsedMilliseconds - indexStartMs;
-            // 要求の寿命はRequestVersionで判定し、データの版は実際に取得した索引から引き継ぐ。
-            lock (DetailBuildState.SyncRoot)
-            {
-                PlaylistRequestIdentity identity = request.Identity;
-                request.Identity = new PlaylistRequestIdentity(
-                    identity.Table, identity.SelectionScope, identity.FolderName, identity.FilterType,
-                    identity.KeywordFilter, identity.ModeFilter, identity.SortColumnName, identity.SortDirection,
-                    resolveIndex.OwnedCollectionVersion, identity.PlaylistRevision,
-                    identity.ScoreSnapshotVersion, identity.ChartInfoIndexVersion, identity.HasResolvedSelection);
-            }
             long sourceStartMs = stopwatch.ElapsedMilliseconds;
             PlaylistSourceBuildResult sourceBuild = BuildDetailSourceRows(
                 request.Identity.Table,
                 request.Identity.SelectionScope,
                 request.Identity.FolderName,
-                request.Identity.FilterType == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected,
-                resolveIndex,
                 cancellationToken,
                 ref cancellationStage);
             sourceRows = sourceBuild.SourceRows;
+            lock (DetailBuildState.SyncRoot)
+            {
+                request.InputDependencies = new(sourceRows, ReportDetailWork);
+                request.Identity = WithDetailVersions(request.Identity, sourceBuild.CatalogRevision, sourceBuild.PlaylistRevision,
+                    sourceBuild.ScoreSnapshotVersion, sourceBuild.ChartInfoIndexVersion);
+            }
             if (cancellationToken.IsCancellationRequested
                 || !PlaylistDetailBuildQueueCoordinator.IsLatestRequest(DetailBuildState, requestVersion))
             {
@@ -410,14 +414,10 @@ public sealed partial class PlaylistWorkspaceViewModel
             detailRetentionLog("playlist_source_build completed version=" + requestVersion
                 + " sourceCount=" + sourceBuild.SourceCount
                 + " viewCount=" + terminalResult.ViewApply.ViewCount
-                + " libraryIndexMs=" + indexMs
-                + " libraryIndexAccess=" + (cacheHit ? "cached" : "inline")
-                + " libraryIndexBuildMs=" + resolveIndex.BuildElapsedMs
-                + " staleRetries=" + staleRetryCount
                 + " sourceMaterializeMs=" + (stopwatch.ElapsedMilliseconds - sourceStartMs));
             return true;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             detailRetentionLog("playlist_source_build cancelled version=" + requestVersion
                 + " stage=" + cancellationStage);

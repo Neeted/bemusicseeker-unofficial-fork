@@ -18,30 +18,10 @@ public class ResourceHealthFullOwnedTargetFreshnessTests
 
         bool isCurrent = ResourceHealthFullOwnedTargetFreshness.IsCurrent(
             targetSet,
-            new OwnedChartCollectionVersionSnapshot(30),
-            currentOwnedCollectionVersion: 30,
             currentResourceHealthInputVersion: 40,
             currentResourceHealthInputVersionStable: true);
 
         Assert.IsTrue(isCurrent);
-    }
-
-    /// <summary>
-    /// 保証：所持世代が進んだ全所持対象を最新とせず、古い対象集合の検査結果を現行へ適用しない。
-    /// </summary>
-    [TestMethod]
-    public void IsCurrent_ReturnsFalseForStaleOwnedCollectionVersion()
-    {
-        ResourceMaintenanceTargetSet targetSet = CreateFullOwnedTargetSet();
-
-        bool isCurrent = ResourceHealthFullOwnedTargetFreshness.IsCurrent(
-            targetSet,
-            new OwnedChartCollectionVersionSnapshot(31),
-            currentOwnedCollectionVersion: 31,
-            currentResourceHealthInputVersion: 40,
-            currentResourceHealthInputVersionStable: true);
-
-        Assert.IsFalse(isCurrent);
     }
 
     /// <summary>
@@ -54,8 +34,6 @@ public class ResourceHealthFullOwnedTargetFreshnessTests
 
         bool isCurrent = ResourceHealthFullOwnedTargetFreshness.IsCurrent(
             targetSet,
-            new OwnedChartCollectionVersionSnapshot(30),
-            currentOwnedCollectionVersion: 30,
             currentResourceHealthInputVersion: 41,
             currentResourceHealthInputVersionStable: true);
 
@@ -72,8 +50,6 @@ public class ResourceHealthFullOwnedTargetFreshnessTests
 
         bool isCurrent = ResourceHealthFullOwnedTargetFreshness.IsCurrent(
             targetSet,
-            new OwnedChartCollectionVersionSnapshot(30),
-            currentOwnedCollectionVersion: 30,
             currentResourceHealthInputVersion: 40,
             currentResourceHealthInputVersionStable: false);
 
@@ -90,8 +66,6 @@ public class ResourceHealthFullOwnedTargetFreshnessTests
 
         bool isCurrent = ResourceHealthFullOwnedTargetFreshness.IsCurrent(
             targetSet,
-            new OwnedChartCollectionVersionSnapshot(30),
-            currentOwnedCollectionVersion: 30,
             currentResourceHealthInputVersion: 40,
             currentResourceHealthInputVersionStable: true);
 
@@ -102,8 +76,6 @@ public class ResourceHealthFullOwnedTargetFreshnessTests
     {
         return ResourceMaintenanceTargetSet.ForFullOwned(
             new List<ChartFile>(),
-            new OwnedChartCollectionVersionSnapshot(30),
-            ownedCollectionVersion: 30,
             resourceHealthInputVersion: 40);
     }
 }

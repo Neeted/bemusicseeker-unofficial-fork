@@ -8,7 +8,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// Owns live projection state and provider wiring shared by every workflow presented in the main chart table.
+/// 一覧の表示投影と提供元の接続を所有します。scoreの位置は各元集合入力が管理します。
 /// </summary>
 internal sealed class MainChartRowProjectionOwner
 {
@@ -18,28 +18,29 @@ internal sealed class MainChartRowProjectionOwner
     internal void SetPlaybackStatusProvider(Func<ChartFile, ChartFileStatus> provider) => playbackStatusProvider = provider;
 
     private int chartInfoVersion;
-    private int scoreSnapshotVersion;
+
+    /// <summary>通常一覧入力の実訪問・投影・確保件数を観測します。未指定時は計測状態を持ちません。</summary>
+    internal Action<string, int> NormalInputWorkObserver { get; set; }
 
     internal int ChartInfoVersion => Volatile.Read(ref chartInfoVersion);
 
-    internal int ScoreSnapshotVersion => Volatile.Read(ref scoreSnapshotVersion);
-
+    /// <summary>独立したchart-info提供元の版を捕捉します。score位置は配送rangeでのみ進めます。</summary>
     internal void CaptureVersions(BMSLibrary library)
     {
         Volatile.Write(ref chartInfoVersion, library?.ChartInfoIndexVersion ?? 0);
-        Volatile.Write(ref scoreSnapshotVersion, library?.ScoreSnapshotVersion ?? 0);
     }
 
-    internal void ConfigureLibraryRow(BMSLibrary library, LibraryChartRow row)
+    /// <summary>表示行へ専門提供元を接続します。元集合入力がある場合はその同じscore投影を共有します。</summary>
+    internal void ConfigureLibraryRow(BMSLibrary library, LibraryChartRow row, ChartListSourceRow scoreSource = null)
     {
         if (row == null)
         {
             return;
         }
         row.SetChartTransientStateProvider(GetTransientState);
-        row.SetScoreProjectionProvider(
-            chart => library?.ResolveChartScoreSnapshot(chart.Kind, chart.Path, chart.Md5, chart.Sha256),
-            () => ScoreSnapshotVersion);
+        row.SetScoreProjectionProvider(scoreSource == null
+            ? chart => library?.ResolveChartScoreSnapshot(chart.Kind, chart.Path, chart.Md5, chart.Sha256)
+            : _ => scoreSource.ScoreValue, () => 0);
         row.SetPlaybackStatusProvider(playbackStatusProvider);
         row.SetChartInfoProjectionProvider(chart => ResolveChartInfo(library, chart));
         row.SetResourceHealthProjectionProvider(candidate => ResolveResourceHealth(library, candidate));
@@ -92,11 +93,13 @@ internal sealed class MainChartRowProjectionOwner
         return row;
     }
 
+    /// <summary>専用package元集合全体を、最初のscore投影前に捕捉した同じlookupへ接続します。</summary>
     internal List<ChartListSourceRow> BuildPackageSourceRows(
         BMSLibrary library,
         IEnumerable<PackageChartEntry> entries,
-        bool includeResourceHealth)
+        bool includeResourceHealth, ChartListScoreInput scoreInput = null)
     {
+        scoreInput ??= new(library);
         return ChartListSourceRow.BuildPackageRows(
             entries,
             includeResourceHealth ? row => ResolveResourceHealth(library, row) : null,
@@ -105,15 +108,17 @@ internal sealed class MainChartRowProjectionOwner
             chart => ResolveChartInfo(library, chart),
             row => ResolveChartInfo(library, row),
             () => ChartInfoVersion,
-            () => ScoreSnapshotVersion);
+            () => 0, scoreInput.Resolve);
     }
 
+    /// <summary>専用譜面元集合全体を、表示filter前から同じscore入力へ接続します。</summary>
     internal List<ChartListSourceRow> BuildStandardSourceRows(
         BMSLibrary library,
         IEnumerable<ChartFile> charts,
         ChartListSourceProjectionMode projectionMode,
-        bool includeResourceHealth)
+        bool includeResourceHealth, ChartListScoreInput scoreInput = null)
     {
+        scoreInput ??= new(library);
         return ChartListSourceRow.BuildStandardLibraryRows(
             charts,
             projectionMode,
@@ -123,13 +128,13 @@ internal sealed class MainChartRowProjectionOwner
             chart => ResolveChartInfo(library, chart),
             row => ResolveChartInfo(library, row),
             () => ChartInfoVersion,
-            () => ScoreSnapshotVersion,
-            row => ResolveScoreSnapshot(library, row));
+            () => 0,
+            scoreInput.Resolve);
     }
 
     /// <summary>捕捉したカタログを直接読む通常一覧入力を作ります。投影のためだけに所属を複製しません。</summary>
     internal NormalLibrarySourceRows BuildNormalSourceRows(
-        BMSLibrary library, CatalogChartCollectionSnapshot source, bool includeBmsonRows, NormalLibrarySourceRows previous = null)
+        BMSLibrary library, CatalogChartCollectionSnapshot source, bool includeBmsonRows)
     {
         source ??= new CatalogChartCollectionSnapshot([], [], 0);
         // 全行で同じ提供元を共有する。行factoryの内側で作ると、全件分の同一delegateを保持して後続処理のGC負荷を増やす。
@@ -139,20 +144,25 @@ internal sealed class MainChartRowProjectionOwner
         Func<ChartFile, BeMusicSeeker.Models.ChartDetails> chartInfo = value => ResolveChartInfo(library, value);
         Func<ChartListSourceRow, BeMusicSeeker.Models.ChartDetails> rowChartInfo = candidate => ResolveChartInfo(library, candidate);
         Func<int> chartInfoVersion = () => ChartInfoVersion;
-        Func<int> scoreVersion = () => ScoreSnapshotVersion;
-        Func<ChartListSourceRow, ChartScoreSnapshot> score = candidate => ResolveScoreSnapshot(library, candidate);
+        var scoreInput = new ChartListScoreInput(library);
+        Func<int> scoreVersion = () => 0;
+        Func<ChartListSourceRow, ChartScoreSnapshot> score = scoreInput.Resolve;
         return new NormalLibrarySourceRows(library, source, includeBmsonRows,
             chart => ChartListSourceRow.FromChartFile(chart, ChartListSourceProjectionMode.OwnerBacked,
-                resourceHealth, references, transientState, chartInfo, rowChartInfo, chartInfoVersion, scoreVersion, score), previous);
+                resourceHealth, references, transientState, chartInfo, rowChartInfo, chartInfoVersion, scoreVersion, score), null,
+            (kind, count) => NormalInputWorkObserver?.Invoke(kind, count), scoreInput);
     }
 
+    /// <summary>同じ読取り境界で捕捉したentry値・順序と所持currentを、一回の詳細投影へ渡します。</summary>
     internal PlaylistDetailSourceRow CreatePlaylistDetailSourceRow(
         BMSLibrary library,
         BMSTableEntry entry,
         ChartFile resolvedChart,
         BMSScore scoreSnapshot,
         BeMusicSeeker.Models.ChartDetails entryChartInfo,
-        LibraryChartRef resolvedChartRef)
+        LibraryChartRef resolvedChartRef,
+        PlaylistEntryValue entryValue = null,
+        long entryOrder = 0)
     {
         var row = new PlaylistDetailSourceRow(
             entry,
@@ -162,7 +172,9 @@ internal sealed class MainChartRowProjectionOwner
             chart => ResolvePlaylistReferenceDisplay(library, chart),
             GetTransientState,
             chart => ResolveChartInfo(library, chart),
-            resolvedChartRef);
+            resolvedChartRef,
+            entryValue,
+            entryOrder);
         row.PlaybackStatusProvider = playbackStatusProvider;
         return row;
     }
@@ -231,13 +243,6 @@ internal sealed class MainChartRowProjectionOwner
         return library == null || row == null
             ? ResourceHealthWarningProjection.Empty
             : library.TryGetCurrentResourceHealthWarningProjection(row.Kind, row.Path, row.Hash);
-    }
-
-    internal ChartScoreSnapshot ResolveScoreSnapshot(BMSLibrary library, ChartListSourceRow row)
-    {
-        return library == null || row == null
-            ? ChartScoreSnapshot.MissingChart
-            : library.ResolveChartScoreSnapshot(row.Kind, row.Path, row.Hash, row.Sha256);
     }
 
     internal BeMusicSeeker.Models.ChartDetails ResolveChartInfo(BMSLibrary library, ChartFile chart)

@@ -467,7 +467,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             int referenceSortInvalidationCount = 0;
             workspace.PlaylistDetailReloadRefreshRequested += (_, _) => detailReloadCount++;
             workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => referenceSortInvalidationCount++;
-            long initialRevision = workspace.DetailViewState.Source.PlaylistContentRevision;
+
 
             await workspace.RenameFolderAsync(table, PlaylistFolderNode.CreateFolder("Mutation"), "Renamed");
             Assert.AreEqual("Renamed", workspace.CapturePlaylistDetailSelection()!.FolderName);
@@ -479,7 +479,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             Assert.AreEqual(4, detailReloadCount);
             Assert.AreEqual(4, referenceSortInvalidationCount);
-            Assert.AreEqual(initialRevision + detailReloadCount, workspace.DetailViewState.Source.PlaylistContentRevision);
+
         }
         finally
         {
@@ -1034,7 +1034,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             workspace.PlaylistDetailReloadRefreshRequested += (_, _) => detailReloadCount++;
             workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => referenceSortInvalidationCount++;
             workspace.PlaylistKeywordValueCandidatesChanged += (_, _) => keywordValueCandidatesChangedCount++;
-            long initialDetailContentRevision = workspace.DetailViewState.Source.PlaylistContentRevision;
+
 
             await workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
                 [new PlaylistSummaryRow { TableRef = table }],
@@ -1059,7 +1059,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.IsTrue(keywordValueCandidatesChangedCount > 0);
             Assert.AreEqual(1, detailReloadCount);
             Assert.AreEqual(1, referenceSortInvalidationCount);
-            Assert.AreEqual(initialDetailContentRevision + 1, workspace.DetailViewState.Source.PlaylistContentRevision);
+
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDBExtended.playlist persisted = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == 9501);

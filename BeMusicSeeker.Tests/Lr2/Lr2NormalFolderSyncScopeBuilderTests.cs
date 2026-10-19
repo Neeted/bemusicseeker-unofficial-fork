@@ -22,7 +22,7 @@ public sealed class Lr2NormalFolderSyncScopeBuilderTests
             Path = Path.Combine(root, "Package", "chart.bms")
         };
         var receipt = new Lr2NormalFolderCatalogMutationReceipt(
-            ownedCollectionVersion: 3,
+            catalogRevision: 3,
             addedBmsChartPaths: [added.Path],
             removedBmsChartPaths: [],
             pathChanges: [],
@@ -47,7 +47,7 @@ public sealed class Lr2NormalFolderSyncScopeBuilderTests
         string removedPath = Path.Combine(removedDirectory, "chart.bms");
         string siblingPath = Path.Combine(root, "Package", "Keep", "chart.bms");
         var receipt = new Lr2NormalFolderCatalogMutationReceipt(
-            ownedCollectionVersion: 4,
+            catalogRevision: 4,
             addedBmsChartPaths: [],
             removedBmsChartPaths: [removedPath],
             pathChanges: [],
@@ -75,7 +75,7 @@ public sealed class Lr2NormalFolderSyncScopeBuilderTests
         string removedPath = Path.Combine(root, "chart.bms");
 
         var receipt = new Lr2NormalFolderCatalogMutationReceipt(
-            ownedCollectionVersion: 5,
+            catalogRevision: 5,
             addedBmsChartPaths: [],
             removedBmsChartPaths: [removedPath],
             pathChanges: [],
@@ -100,7 +100,7 @@ public sealed class Lr2NormalFolderSyncScopeBuilderTests
         string laterPath = Path.Combine(root, "Package", "Later", "chart.bms");
         var sourcePaths = new List<string> { currentPath };
         var receipt = new Lr2NormalFolderCatalogMutationReceipt(
-            ownedCollectionVersion: 6,
+            catalogRevision: 6,
             addedBmsChartPaths: [],
             removedBmsChartPaths: [],
             pathChanges: [],
@@ -118,7 +118,7 @@ public sealed class Lr2NormalFolderSyncScopeBuilderTests
         CollectionAssert.AreEqual(
             new[] { currentPath },
             lookup.GetBmsChartPathsUnderDirectory(Path.GetDirectoryName(currentPath)).ToList());
-        Assert.AreEqual(6, receipt.OwnedCollectionVersion);
+        Assert.AreEqual(6, receipt.CatalogRevision);
     }
 
     /// <summary>
@@ -134,7 +134,7 @@ public sealed class Lr2NormalFolderSyncScopeBuilderTests
         string newPath = Path.Combine(newDirectory, "chart.bms");
         string caseVariantPath = Path.Combine(newDirectory, "Chart.bms");
         var receipt = new Lr2NormalFolderCatalogMutationReceipt(
-            ownedCollectionVersion: 7,
+            catalogRevision: 7,
             addedBmsChartPaths: [],
             removedBmsChartPaths: [],
             pathChanges: [new Lr2NormalFolderPathChange(oldPath, newPath)],

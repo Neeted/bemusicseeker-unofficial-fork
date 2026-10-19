@@ -22,7 +22,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class DuplicateMaintenanceWorkflowOwnerTests
 {
     /// <summary>
-    /// フォルダ統合は再生停止後に表示抑制・重複優先・保存処理の順に進み、解放後に活動を終えて次の選択見出しを返し、処理順の逆転を検出する。
+    /// フォルダ統合は再生停止後に表示抑制・保存処理の順に進み、解放後に活動を終えて次の選択見出しを返し、処理順の逆転を検出する。
     /// </summary>
     [TestMethod]
     public async Task RunFolderMergeAsync_PreservesMutationBoundaryAndReceipt()
@@ -54,10 +54,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 "activity-start",
                 "playback-stop",
                 "suppression-start",
-                "priority-start:merge_folder",
                 "store-merge",
                 "suppression-end",
-                "priority-release:merge_folder",
                 "activity-end"
             },
             events);
@@ -114,10 +112,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 "activity-start",
                 "playback-stop",
                 "suppression-start",
-                "priority-start:merge_folder",
                 "store-merge-with-receipt",
                 "suppression-end",
-                "priority-release:merge_folder",
                 "activity-end"
             },
             events);
@@ -206,7 +202,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             OnMessage = () =>
             {
                 bool released = gate.TryEnter(out IDisposable lease);
-                reportAfterRelease = released && !activity.IsActive && events.Contains("priority-release:merge_folder");
+                reportAfterRelease = released && !activity.IsActive && events.Contains("suppression-end");
                 lease?.Dispose();
             },
             MessageFailure = reporterThrows ? new IOException("report failed") : null
@@ -361,7 +357,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 確定成功後の活動表示の片付けが失敗しても優先・表示抑制を解放して成功receiptを保ち、任意表示障害で保存成功を失う誤りを検出する。
+    /// 確定成功後の活動表示の片付けが失敗しても表示抑制を解放して成功receiptを保ち、任意表示障害で保存成功を失う誤りを検出する。
     /// </summary>
     [TestMethod]
     public async Task RunFolderMergeAsync_TerminalObserverCleanupFailureIsOptionalAfterPriorityRelease()
@@ -401,10 +397,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 "activity-start",
                 "playback-stop",
                 "suppression-start",
-                "priority-start:merge_folder",
                 "store-merge-with-receipt",
                 "suppression-end",
-                "priority-release:merge_folder",
                 "activity-end"
             },
             events);
@@ -947,11 +941,6 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             {
                 case DuplicateMaintenanceRefreshSuppressionChangedEventArgs suppressionChanged:
                     events.Add(suppressionChanged.IsSuppressed ? "suppression-start" : "suppression-end");
-                    break;
-                case DuplicateMaintenanceRefreshPriorityWindowChangedEventArgs priorityChanged:
-                    events.Add(
-                        (priorityChanged.IsActive ? "priority-start:" : "priority-release:")
-                        + priorityChanged.Reason);
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(

@@ -1,6 +1,4 @@
 using System;
-using System.Globalization;
-using System.Text.RegularExpressions;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -10,24 +8,15 @@ namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
 /// プレイリスト詳細表示の一覧行です。
-/// 表示値は source snapshot から複製し、所持 BMS・bmson の再生状態は共通の再生管理主体の現在値をstatus getterだけへ重ねます。
+/// 表示値は同じ不変 source 投影を参照し、所持 BMS・bmson の再生状態は共通の再生管理主体の現在値をstatus getterだけへ重ねます。
 /// playlist 編集に必要な一部プロパティだけを更新可能にします。
 /// </summary>
 internal sealed class PlaylistDetailRow : NotificationObject
 {
-    private static readonly Regex levelParseRegex = new("([+-]?\\d+(\\.\\d*)?|\\.\\d+)", RegexOptions.Compiled);
 
-    private string level;
+    private PlaylistDetailSourceRow source;
+    private readonly System.Collections.Generic.Dictionary<string, object> drafts = [];
 
-    private Uri url;
-
-    private Uri urlDiff;
-
-    private string commentValue;
-
-    private string memoValue;
-
-    private readonly ChartFileStatus projectedStatus;
     private Func<ChartFile, ChartFileStatus> playbackStatusProvider;
 
     /// <summary>現在の再生ownerをstatus getterだけへ接続し、Chartと編集値を変更しません。</summary>
@@ -36,90 +25,90 @@ internal sealed class PlaylistDetailRow : NotificationObject
     /// <summary>
     /// 元の playlist エントリです。
     /// </summary>
-    internal BMSTableEntry Entry { get; }
+    internal BMSTableEntry Entry => source.Entry;
 
     /// <summary>
     /// 実体譜面を所持しているかどうかです。
     /// </summary>
-    internal bool IsOwned { get; }
+    internal bool IsOwned => source.IsOwned;
 
-    internal ChartFile Chart { get; private set; }
+    internal ChartFile Chart => source.Chart;
 
-    internal double? EntryLevelSortKey { get; private set; }
+    internal double? EntryLevelSortKey => source.EntryLevelSortKey;
 
-    public string Title { get; }
+    public string Title => source.Title;
 
-    public string Artist { get; }
+    public string Artist => source.Artist;
 
-    public string genre { get; }
+    public string genre => source.genre;
 
-    public int? mode { get; }
+    public int? mode => source.mode;
 
-    public string tag { get; }
+    public string tag => source.tag;
 
-    public bool HasZeroNoteMismatchWarning { get; }
+    public bool HasZeroNoteMismatchWarning => source.HasZeroNoteMismatchWarning;
 
-    public bool HasHighlightedWarning { get; }
+    public bool HasHighlightedWarning => source.HasHighlightedWarning;
 
-    public string DisplayWarning { get; }
+    public string DisplayWarning => source.DisplayWarning;
 
-    public string WarningDigestText { get; }
+    public string WarningDigestText => source.WarningDigestText;
 
-    public string WarningTooltipText { get; }
+    public string WarningTooltipText => source.WarningTooltipText;
 
-    public string hash { get; }
+    public string hash => source.hash;
 
-    public string sha256 { get; }
+    public string sha256 => source.sha256;
 
-    public string Folder { get; }
+    public string Folder => source.Folder;
 
-    public string path { get; }
+    public string path => source.path;
 
-    public string instl_dst { get; }
+    public string instl_dst => source.instl_dst;
 
-    public string InstallDestinationTitle { get; }
+    public string InstallDestinationTitle => source.InstallDestinationTitle;
 
-    public string InstallDestinationArtist { get; }
+    public string InstallDestinationArtist => source.InstallDestinationArtist;
 
-    public int? WAVHealth { get; }
+    public int? WAVHealth => source.WAVHealth;
 
-    public int? BGAHealth { get; }
+    public int? BGAHealth => source.BGAHealth;
 
-    public int? MovieHealth { get; }
+    public int? MovieHealth => source.MovieHealth;
 
-    public string encoding { get; }
+    public string encoding => source.encoding;
 
-    public string RefTablesSymbols { get; }
+    public string RefTablesSymbols => source.RefTablesSymbols;
 
-    public string RefTablesNames { get; }
+    public string RefTablesNames => source.RefTablesNames;
 
-    public ClearType clear { get; }
+    public ClearType clear => source.clear;
 
-    public RankType rank { get; }
+    public RankType rank => source.rank;
 
     public string ClearDisplayText => ScoreDisplayTextFormatter.FormatClear(clear);
 
     public string RankDisplayText => ScoreDisplayTextFormatter.FormatRank(rank);
 
-    public double? rate { get; }
+    public double? rate => source.rate;
 
     public double? rateDouble => score.HasValue && totalnotes.HasValue && totalnotes.Value > 0 ? (double?)((double)score.Value / 2.0 / totalnotes.Value) : null;
 
-    public int? score { get; }
+    public int? score => source.score;
 
-    public int? totalnotes { get; }
+    public int? totalnotes => source.totalnotes;
 
-    public int? maxcombo { get; }
+    public int? maxcombo => source.maxcombo;
 
-    public int? minbp { get; }
+    public int? minbp => source.minbp;
 
-    public string rankingString { get; }
+    public string rankingString => source.rankingString;
 
-    public DateTime? rankingLastupdate { get; }
+    public DateTime? rankingLastupdate => source.rankingLastupdate;
 
-    public double? stddevVal { get; }
+    public double? stddevVal => source.stddevVal;
 
-    public double? scoreDifficulty { get; }
+    public double? scoreDifficulty => source.scoreDifficulty;
 
     /// <summary>
     /// 譜面の現在状態です。接続された共通の再生管理主体から BMS・bmson の再生状態を読み、再生以外の投影状態を保ちます。
@@ -127,23 +116,23 @@ internal sealed class PlaylistDetailRow : NotificationObject
     public ChartFileStatus status => (SourceStatus & ~ChartFileStatus.PLAYALL)
         | (playbackStatusProvider?.Invoke(Chart) ?? ChartFileStatus.NONE);
 
-    private ChartFileStatus SourceStatus => projectedStatus;
+    private ChartFileStatus SourceStatus => Chart?.Status ?? ChartFileStatus.NONE;
 
-    public string lr2_bmsid { get; }
+    public string lr2_bmsid => source.lr2_bmsid;
 
-    public string name_diff { get; }
+    public string name_diff => source.name_diff;
 
-    public string UrlDownloadIconText => url != null && url.IsAbsoluteUri ? "download" : string.Empty;
+    public string UrlDownloadIconText => Url != null && Url.IsAbsoluteUri ? "download" : string.Empty;
 
-    public string UrlToolTipText => url != null && url.IsAbsoluteUri ? url.ToString() : null;
+    public string UrlToolTipText => Url != null && Url.IsAbsoluteUri ? Url.ToString() : null;
 
-    public string UrlDiffDownloadIconText => urlDiff != null && urlDiff.IsAbsoluteUri ? "download" : string.Empty;
+    public string UrlDiffDownloadIconText => Url_diff != null && Url_diff.IsAbsoluteUri ? "download" : string.Empty;
 
     public string UrlDiffToolTipText
     {
         get
         {
-            if (urlDiff == null || !urlDiff.IsAbsoluteUri)
+            if (Url_diff == null || !Url_diff.IsAbsoluteUri)
             {
                 return null;
             }
@@ -151,308 +140,119 @@ internal sealed class PlaylistDetailRow : NotificationObject
             {
                 if (!name_diff.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
                 {
-                    return name_diff + Environment.NewLine + urlDiff;
+                    return name_diff + Environment.NewLine + Url_diff;
                 }
-                return urlDiff.ToString();
+                return Url_diff.ToString();
             }
-            return urlDiff.ToString();
+            return Url_diff.ToString();
         }
     }
 
-    public string ChartLevelText { get; }
+    public string ChartLevelText => source.ChartLevelText;
 
-    public double? ChartLevelSortKey { get; }
+    public double? ChartLevelSortKey => source.ChartLevelSortKey;
 
-    public bool ChartLevelUndefined { get; }
+    public bool ChartLevelUndefined => source.ChartLevelUndefined;
 
-    public string ChartDifficultyText { get; }
+    public string ChartDifficultyText => source.ChartDifficultyText;
 
-    public int? ChartDifficultySortKey { get; }
+    public int? ChartDifficultySortKey => source.ChartDifficultySortKey;
 
-    public string ChartDifficultyColorKey { get; }
+    public string ChartDifficultyColorKey => source.ChartDifficultyColorKey;
 
-    public bool ChartDifficultyUndefined { get; }
+    public bool ChartDifficultyUndefined => source.ChartDifficultyUndefined;
 
-    public string ChartMainBpmText { get; }
+    public string ChartMainBpmText => source.ChartMainBpmText;
 
-    public double? ChartMainBpmSortKey { get; }
+    public double? ChartMainBpmSortKey => source.ChartMainBpmSortKey;
 
-    public string ChartMaxBpmText { get; }
+    public string ChartMaxBpmText => source.ChartMaxBpmText;
 
-    public double? ChartMaxBpmSortKey { get; }
+    public double? ChartMaxBpmSortKey => source.ChartMaxBpmSortKey;
 
-    public string ChartMinBpmText { get; }
+    public string ChartMinBpmText => source.ChartMinBpmText;
 
-    public double? ChartMinBpmSortKey { get; }
+    public double? ChartMinBpmSortKey => source.ChartMinBpmSortKey;
 
-    public string ChartDurationText { get; }
+    public string ChartDurationText => source.ChartDurationText;
 
-    public int? ChartDurationSortKey { get; }
+    public int? ChartDurationSortKey => source.ChartDurationSortKey;
 
-    public string ChartJudgeText { get; }
+    public string ChartJudgeText => source.ChartJudgeText;
 
-    public int? ChartJudgeSortKey { get; }
+    public int? ChartJudgeSortKey => source.ChartJudgeSortKey;
 
-    public string ChartJudgeColorKey { get; }
+    public string ChartJudgeColorKey => source.ChartJudgeColorKey;
 
-    public string ChartJudgePercentText { get; }
+    public string ChartJudgePercentText => source.ChartJudgePercentText;
 
-    public string ChartFeatureText { get; }
+    public string ChartFeatureText => source.ChartFeatureText;
 
-    public int? ChartFeatureSortKey { get; }
+    public int? ChartFeatureSortKey => source.ChartFeatureSortKey;
 
-    public int? ChartNotes { get; }
+    public int? ChartNotes => source.ChartNotes;
 
-    public int? ChartLongNotes { get; }
+    public int? ChartLongNotes => source.ChartLongNotes;
 
-    public int? ChartScratchNotes { get; }
+    public int? ChartScratchNotes => source.ChartScratchNotes;
 
-    public string ChartTotalText { get; }
+    public string ChartTotalText => source.ChartTotalText;
 
-    public double? ChartTotalSortKey { get; }
+    public double? ChartTotalSortKey => source.ChartTotalSortKey;
 
-    public bool ChartTotalUndefined { get; }
+    public bool ChartTotalUndefined => source.ChartTotalUndefined;
 
-    public string ChartTotalPerNoteText { get; }
+    public string ChartTotalPerNoteText => source.ChartTotalPerNoteText;
 
-    public double? ChartTotalPerNoteSortKey { get; }
+    public double? ChartTotalPerNoteSortKey => source.ChartTotalPerNoteSortKey;
 
-    public string ChartDensityText { get; }
+    public string ChartDensityText => source.ChartDensityText;
 
-    public double? ChartDensitySortKey { get; }
+    public double? ChartDensitySortKey => source.ChartDensitySortKey;
 
-    public string ChartPeakDensityText { get; }
+    public string ChartPeakDensityText => source.ChartPeakDensityText;
 
-    public double? ChartPeakDensitySortKey { get; }
+    public double? ChartPeakDensitySortKey => source.ChartPeakDensitySortKey;
 
-    public string ChartEndDensityText { get; }
+    public string ChartEndDensityText => source.ChartEndDensityText;
 
-    public double? ChartEndDensitySortKey { get; }
+    public double? ChartEndDensitySortKey => source.ChartEndDensitySortKey;
 
-    public int? ChartSoflanCount { get; }
+    public int? ChartSoflanCount => source.ChartSoflanCount;
 
     internal PlaylistDetailRow(PlaylistDetailSourceRow source)
     {
-        if (source == null)
-        {
-            throw new ArgumentNullException(nameof(source));
-        }
-        Entry = source.Entry;
-        IsOwned = source.IsOwned;
-        Chart = source.Chart;
-        projectedStatus = Chart?.Status ?? ChartFileStatus.NONE;
-        EntryLevelSortKey = source.EntryLevelSortKey;
-        level = source.Level;
-        url = source.Url;
-        urlDiff = source.Url_diff;
-        commentValue = source.comment;
-        memoValue = source.memo;
-        Title = source.Title;
-        Artist = source.Artist;
-        genre = source.genre;
-        mode = source.mode;
-        tag = source.tag;
-        HasZeroNoteMismatchWarning = source.HasZeroNoteMismatchWarning;
-        HasHighlightedWarning = source.HasHighlightedWarning;
-        DisplayWarning = source.DisplayWarning;
-        WarningDigestText = source.WarningDigestText;
-        WarningTooltipText = source.WarningTooltipText;
-        hash = source.hash;
-        sha256 = source.sha256;
-        Folder = source.Folder;
-        path = source.path;
-        instl_dst = source.instl_dst;
-        InstallDestinationTitle = source.InstallDestinationTitle;
-        InstallDestinationArtist = source.InstallDestinationArtist;
-        WAVHealth = source.WAVHealth;
-        BGAHealth = source.BGAHealth;
-        MovieHealth = source.MovieHealth;
-        encoding = source.encoding;
-        RefTablesSymbols = source.RefTablesSymbols;
-        RefTablesNames = source.RefTablesNames;
-        clear = source.clear;
-        rank = source.rank;
-        rate = source.rate;
-        score = source.score;
-        totalnotes = source.totalnotes;
-        maxcombo = source.maxcombo;
-        minbp = source.minbp;
-        rankingString = source.rankingString;
-        rankingLastupdate = source.rankingLastupdate;
-        stddevVal = source.stddevVal;
-        scoreDifficulty = source.scoreDifficulty;
-        lr2_bmsid = source.lr2_bmsid;
-        name_diff = source.name_diff;
-        ChartLevelText = source.ChartLevelText;
-        ChartLevelSortKey = source.ChartLevelSortKey;
-        ChartLevelUndefined = source.ChartLevelUndefined;
-        ChartDifficultyText = source.ChartDifficultyText;
-        ChartDifficultySortKey = source.ChartDifficultySortKey;
-        ChartDifficultyColorKey = source.ChartDifficultyColorKey;
-        ChartDifficultyUndefined = source.ChartDifficultyUndefined;
-        ChartMainBpmText = source.ChartMainBpmText;
-        ChartMainBpmSortKey = source.ChartMainBpmSortKey;
-        ChartMaxBpmText = source.ChartMaxBpmText;
-        ChartMaxBpmSortKey = source.ChartMaxBpmSortKey;
-        ChartMinBpmText = source.ChartMinBpmText;
-        ChartMinBpmSortKey = source.ChartMinBpmSortKey;
-        ChartDurationText = source.ChartDurationText;
-        ChartDurationSortKey = source.ChartDurationSortKey;
-        ChartJudgeText = source.ChartJudgeText;
-        ChartJudgeSortKey = source.ChartJudgeSortKey;
-        ChartJudgeColorKey = source.ChartJudgeColorKey;
-        ChartJudgePercentText = source.ChartJudgePercentText;
-        ChartFeatureText = source.ChartFeatureText;
-        ChartFeatureSortKey = source.ChartFeatureSortKey;
-        ChartNotes = source.ChartNotes;
-        ChartLongNotes = source.ChartLongNotes;
-        ChartScratchNotes = source.ChartScratchNotes;
-        ChartTotalText = source.ChartTotalText;
-        ChartTotalSortKey = source.ChartTotalSortKey;
-        ChartTotalUndefined = source.ChartTotalUndefined;
-        ChartTotalPerNoteText = source.ChartTotalPerNoteText;
-        ChartTotalPerNoteSortKey = source.ChartTotalPerNoteSortKey;
-        ChartDensityText = source.ChartDensityText;
-        ChartDensitySortKey = source.ChartDensitySortKey;
-        ChartPeakDensityText = source.ChartPeakDensityText;
-        ChartPeakDensitySortKey = source.ChartPeakDensitySortKey;
-        ChartEndDensityText = source.ChartEndDensityText;
-        ChartEndDensitySortKey = source.ChartEndDensitySortKey;
-        ChartSoflanCount = source.ChartSoflanCount;
+        this.source = source ?? throw new ArgumentNullException(nameof(source));
     }
 
-    public string Level
+    /// <summary>確定入力だけを差し替えます。編集中の短命 draft は保持します。</summary>
+    internal void ApplySource(PlaylistDetailSourceRow next, bool notify = true)
     {
-        get
-        {
-            return level;
-        }
-        set
-        {
-            string normalized = value ?? string.Empty;
-            if (level == normalized)
-            {
-                return;
-            }
-            level = normalized;
-            if (string.IsNullOrWhiteSpace(normalized))
-            {
-                Entry.level = null;
-                EntryLevelSortKey = null;
-            }
-            else
-            {
-                Match match = levelParseRegex.Match(normalized.Trim());
-                if (match.Success)
-                {
-                    if (double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsedLevel))
-                    {
-                        Entry.level = parsedLevel;
-                        EntryLevelSortKey = parsedLevel;
-                    }
-                }
-            }
-            RefreshEditableChartSnapshot();
-            RaisePropertyChanged(nameof(Level));
-        }
+        source = next ?? throw new ArgumentNullException(nameof(next));
+        if (notify) { PublishSourceChanged(); }
     }
 
-    private void RefreshEditableChartSnapshot()
+    /// <summary>無通知で確定した表示入力の変更を lock 解放後に公開します。</summary>
+    internal void PublishSourceChanged() => RaisePropertyChanged(string.Empty);
+
+    /// <summary>編集終了時に draft を破棄し、確定した投影値を表示します。</summary>
+    internal void EndDraft()
     {
-        if (!string.IsNullOrWhiteSpace(Chart?.Path)
-            && !string.IsNullOrWhiteSpace(Chart?.Md5))
-        {
-            return;
-        }
-        Chart = ChartFileProjection.FromBmsMetadata(
-            path,
-            hash,
-            sha256,
-            Title,
-            Artist,
-            genre,
-            Folder,
-            tag,
-            Entry?.level,
-            mode,
-            Chart?.ChartInfo);
+        drafts.Clear();
+        RaisePropertyChanged(string.Empty);
     }
 
-    public Uri Url
+    private T GetDraft<T>(string name, T value) => drafts.TryGetValue(name, out object draft) ? (T)draft : value;
+
+    private void SetDraft(string name, object value)
     {
-        get
-        {
-            return url;
-        }
-        set
-        {
-            if (Equals(url, value))
-            {
-                return;
-            }
-            url = value;
-            Entry.Url = value;
-            RaisePropertyChanged(nameof(Url));
-            RaisePropertyChanged(nameof(UrlDownloadIconText));
-            RaisePropertyChanged(nameof(UrlToolTipText));
-        }
+        drafts[name] = value;
+        RaisePropertyChanged(name);
     }
 
-    public Uri Url_diff
-    {
-        get
-        {
-            return urlDiff;
-        }
-        set
-        {
-            if (Equals(urlDiff, value))
-            {
-                return;
-            }
-            urlDiff = value;
-            Entry.Url_diff = value;
-            RaisePropertyChanged(nameof(Url_diff));
-            RaisePropertyChanged(nameof(UrlDiffDownloadIconText));
-            RaisePropertyChanged(nameof(UrlDiffToolTipText));
-        }
-    }
-
-    public string comment
-    {
-        get
-        {
-            return commentValue;
-        }
-        set
-        {
-            string normalized = value ?? string.Empty;
-            if (commentValue == normalized)
-            {
-                return;
-            }
-            commentValue = normalized;
-            Entry.comment = normalized;
-            RaisePropertyChanged(nameof(comment));
-        }
-    }
-
-    public string memo
-    {
-        get
-        {
-            return memoValue;
-        }
-        set
-        {
-            string normalized = value ?? string.Empty;
-            if (memoValue == normalized)
-            {
-                return;
-            }
-            memoValue = normalized;
-            Entry.memo = normalized;
-            RaisePropertyChanged(nameof(memo));
-        }
-    }
+    public string Level { get => GetDraft(nameof(Level), source.Level); set => SetDraft(nameof(Level), value ?? string.Empty); }
+    public Uri Url { get => GetDraft(nameof(Url), source.Url); set => SetDraft(nameof(Url), value); }
+    public Uri Url_diff { get => GetDraft(nameof(Url_diff), source.Url_diff); set => SetDraft(nameof(Url_diff), value); }
+    public string comment { get => GetDraft(nameof(comment), source.comment); set => SetDraft(nameof(comment), value ?? string.Empty); }
+    public string memo { get => GetDraft(nameof(memo), source.memo); set => SetDraft(nameof(memo), value ?? string.Empty); }
 }

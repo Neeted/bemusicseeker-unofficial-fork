@@ -830,7 +830,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 Assert.AreNotSame(retired.Token, replacement.Token);
                 Assert.AreEqual(retired.Md5, replacement.Md5);
                 new BmsLibraryDbGateway(songDbPath).UpsertSongs(before);
-                int version = owner.OwnedCollectionVersion;
+                int version = owner.CatalogRevision;
                 int notifications = library.NormalLibraryRefreshNotificationVersion;
                 OwnedChartHashIndexSnapshot hashes = owner.Collection.CreateOwnedHashIndexSnapshot();
                 var prepared = new LibraryChartRemovalPreflight([first, retired], [], [], 2, 0);
@@ -851,7 +851,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 Assert.IsTrue(File.Exists(firstPath));
                 Assert.IsTrue(File.Exists(lastPath));
                 AssertChartSnapshotParity(before, library.BmsCharts);
-                Assert.AreEqual(version, owner.OwnedCollectionVersion);
+                Assert.AreEqual(version, owner.CatalogRevision);
                 Assert.AreEqual(notifications, library.NormalLibraryRefreshNotificationVersion);
                 CollectionAssert.AreEquivalent(hashes.Md5Hashes.ToArray(), owner.Collection.CreateOwnedHashIndexSnapshot().Md5Hashes.ToArray());
                 using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
@@ -1045,7 +1045,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     /// </summary>
     /// <remarks>実ライブラリのBMSFiles交換を所持集合のversionと接続し、次回viewでの再構築を確認する。</remarks>
     [TestMethod]
-    public void BMSFilesReplacement_InvalidatesOwnedCollectionVersionAndRebuildsOnNextView()
+    public void BMSFilesReplacement_InvalidatesCatalogRevisionAndRebuildsOnNextView()
     {
 
         WithTemporarySongDb(delegate (string songDbPath)
@@ -1520,9 +1520,9 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 SetLibraryFilesWithoutNotification(library, [bmsFile]);
                 SetLibraryBmsonSongsWithoutNotification(library, [bmsonSong]);
                 SetDuplicateChartGroupsWithoutNotification(library, []);
-                int baselineOwnedCollectionVersion = library.OwnedCollectionVersion;
+                int baselineCatalogRevision = library.CatalogRevision;
                 int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
-                int ownedCollectionVersionChanged = 0;
+                int catalogRevisionChanged = 0;
                 int bmsFilesChanged = 0;
                 int bmsonSongsChanged = 0;
                 bool bmsonPathAvailableAtNotification = false;
@@ -1531,9 +1531,9 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 int parentFolderVersionChanged = 0;
                 library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
                 {
-                    if (args.PropertyName == "OwnedCollectionVersion")
+                    if (args.PropertyName == "CatalogRevision")
                     {
-                        ownedCollectionVersionChanged++;
+                        catalogRevisionChanged++;
                     }
                     if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
                     {
@@ -1543,7 +1543,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                     {
                         bmsonSongsChanged++;
                     }
-                    if (args.PropertyName == "OwnedCollectionVersion")
+                    if (args.PropertyName == "CatalogRevision")
                     {
                         bmsonPathAvailableAtNotification = library.BmsonCharts.Any(song => song.Path == newBmsonPath);
                     }
@@ -1560,8 +1560,8 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
                 NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
-                Assert.AreEqual(baselineOwnedCollectionVersion + 1, library.OwnedCollectionVersion);
-                Assert.AreEqual(1, ownedCollectionVersionChanged);
+                Assert.AreEqual(baselineCatalogRevision + 1, library.CatalogRevision);
+                Assert.AreEqual(1, catalogRevisionChanged);
                 Assert.AreEqual(1, bmsFilesChanged);
                 Assert.AreEqual(1, bmsonSongsChanged);
                 Assert.AreEqual(0, batch.DeletedTokens.Count);

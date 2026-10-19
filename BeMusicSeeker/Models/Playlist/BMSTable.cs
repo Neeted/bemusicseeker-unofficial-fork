@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -23,7 +24,7 @@ public enum PlaylistEntriesLoadState
     Failed
 }
 
-public class BMSTable : LR2SongDBExtended.playlist
+public partial class BMSTable : LR2SongDBExtended.playlist
 {
     private const string Lr2CompatibleFolderFallbackPrefix = "LEVEL ";
 
@@ -33,7 +34,7 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     private List<LR2SongDBExtended.playlist_course> _Courses = [];
 
-    private List<BMSTableEntry> _entries;
+    private ImmutableList<BMSTableEntry> _entries;
 
     private IReadOnlyList<BMSTableEntry> _entriesView;
 
@@ -144,6 +145,7 @@ public class BMSTable : LR2SongDBExtended.playlist
                 entry.parent = this;
             }
         }
+        RebuildEntryMembership();
         _Folder_order = snapshot.FolderOrder == null ? null : [.. snapshot.FolderOrder];
         base.last_update = snapshot.LastUpdate;
         RebuildFolderState(publishNotifications);
@@ -374,8 +376,9 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     private void ReplaceEntriesCore(List<BMSTableEntry> ownedEntries)
     {
-        _entries = ownedEntries;
-        _entriesView = ownedEntries.AsReadOnly();
+        _entries = ownedEntries.ToImmutableList();
+        _entriesView = _entries;
+        RebuildEntryMembership();
     }
 
     public PlaylistEntriesLoadState PlaylistEntriesLoadState
@@ -957,7 +960,7 @@ public class BMSTable : LR2SongDBExtended.playlist
     /// <returns>特殊ノードを含まない、並び順適用後のフォルダ名一覧。</returns>
     private List<string> getSortedFolderList()
     {
-        return GetSortedFolderList(entries, Folder_order);
+        return GetSortedFolderList(activeFolderCounts.Keys.Select(key => key.Name), Folder_order);
     }
 
     /// <summary>
@@ -1062,9 +1065,7 @@ public class BMSTable : LR2SongDBExtended.playlist
     /// <returns>現在の実フォルダ名セット。</returns>
     private HashSet<string> GetExistingFolderNameSet()
     {
-        return new HashSet<string>(from e in entries
-                                   where !e.is_removed
-                                   select e.folder, StringComparer.Ordinal);
+        return new HashSet<string>(activeFolderCounts.Keys.Select(key => key.Name), StringComparer.Ordinal);
     }
 
     internal bool RewriteCompatibleFolderPrefix(string oldPrefix, string newPrefix)
@@ -1150,6 +1151,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             Apply(() => entryRewrite.Entry.folder = entryRewrite.RewrittenFolder);
         }
+        RebuildEntryMembership();
         Apply(() => Folder_order = [.. rewritePlan.RewrittenFolderOrder]);
         Apply(() => RebuildFolderState());
         Apply(() => TouchPlaylistEntriesRevision());
@@ -1227,30 +1229,10 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     public void RenameFolder(string folderNameBefore, string folderNameAfter)
     {
-        foreach (BMSTableEntry entry in entries)
-        {
-            if (entry.folder == folderNameBefore)
-            {
-                entry.folder = folderNameAfter;
-            }
-        }
-        ReplaceEntriesCore(rebuildFolder(folderNameAfter));
-        if (string.IsNullOrWhiteSpace(folderNameAfter))
-        {
-            if (entries.Any(e => string.IsNullOrWhiteSpace(e.folder) && e.md5 != "00000000000000000000000000000000") && !Folder_order.Contains(string.Empty))
-            {
-                Folder_order.Insert(0, string.Empty);
-            }
-            Folder_order = [.. Folder_order.Where(f => f != folderNameBefore)];
-        }
-        else
-        {
-            Folder_order = [.. Folder_order.Select(f => (!(f == folderNameBefore)) ? f : folderNameAfter).Distinct()];
-        }
-        TouchLastUpdate();
-        TouchPlaylistEntriesRevision();
+        EntryMutation mutation = PrepareFolderRename(folderNameBefore, folderNameAfter);
+        ApplyEntryMutation(mutation);
+        if (mutation.HasChanges) { PublishEntryCommitProperties(membershipChanged: true); }
     }
-
     public void RemoveFolder(string folderNameDelete)
     {
         RenameFolder(folderNameDelete, string.Empty);
@@ -1292,7 +1274,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         var bMSTableEntry = BMSTableEntry.CreateDummyBMSTableEntry();
         bMSTableEntry.parent = this;
         bMSTableEntry.folder = text;
-        _entries.Add(bMSTableEntry);
+        AppendEntry(bMSTableEntry);
         TouchLastUpdate();
         RebuildFolderState();
         TouchPlaylistEntriesRevision();
@@ -1311,85 +1293,16 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             throw new ArgumentNullException(nameof(bmsEntries));
         }
-        List<BMSTableEntry> entriesToAdd = [.. bmsEntries];
-        if (entriesToAdd.Count == 0)
-        {
-            return;
-        }
-        bool shouldRebuildFolderState = !GetExistingFolderNameSet().Contains(folderName);
-        foreach (BMSTableEntry entryToAdd in entriesToAdd)
-        {
-            entryToAdd.folder = folderName;
-            entryToAdd.parent = this;
-        }
-        ReplaceEntriesCore(rebuildFolder(folderName, entries.Concat(entriesToAdd)));
-        TouchLastUpdate();
-        if (shouldRebuildFolderState)
-        {
-            RebuildFolderState();
-        }
-        TouchPlaylistEntriesRevision();
+        EntryMutation mutation = PrepareEntryMutation([], [.. bmsEntries.Select(entry => (entry, folderName))]);
+        ApplyEntryMutation(mutation);
     }
 
+    /// <summary>対象参照だけを除去し、空になった非ルートフォルダのダミーを同じ局所変更で補います。</summary>
     public void RemoveBMSTableEntries(IEnumerable<BMSTableEntry> bmsEntries)
     {
-        List<string> source = [.. bmsEntries.Select(e => e.folder).Distinct()];
-        ReplaceEntriesCore([.. entries.Except(bmsEntries)]);
-        bool flag = false;
-        foreach (string item in source.Where(f => _entries.Where(e => e.folder == f).Count() == 0))
-        {
-            if (string.IsNullOrWhiteSpace(item))
-            {
-                flag = true;
-                continue;
-            }
-            var bMSTableEntry = BMSTableEntry.CreateDummyBMSTableEntry();
-            bMSTableEntry.parent = this;
-            bMSTableEntry.folder = item;
-            _entries.Add(bMSTableEntry);
-        }
-        if (flag)
-        {
-            RebuildFolderState();
-        }
-        TouchLastUpdate();
-        TouchPlaylistEntriesRevision();
+        EntryMutation mutation = PrepareEntryMutation([.. bmsEntries], []);
+        ApplyEntryMutation(mutation);
     }
-
-    private List<BMSTableEntry> rebuildFolder(string folderName, IEnumerable<BMSTableEntry> inputEntries = null)
-    {
-        inputEntries ??= entries;
-        List<BMSTableEntry> list = [.. inputEntries.Where(e => e.folder == folderName)];
-        IEnumerable<IGrouping<string, BMSTableEntry>> source = list.GroupBy(delegate (BMSTableEntry e)
-        {
-            string text = string.Empty;
-            if (!string.IsNullOrWhiteSpace(e.md5))
-            {
-                text += e.md5;
-            }
-            else if (!string.IsNullOrWhiteSpace(e.sha256))
-            {
-                text += e.sha256;
-            }
-            else if (!string.IsNullOrWhiteSpace(e.lr2_bmsid))
-            {
-                text += e.lr2_bmsid;
-            }
-            else if (!string.IsNullOrWhiteSpace(e.title))
-            {
-                text += e.title;
-            }
-            return text;
-        });
-        List<BMSTableEntry> second = [.. list.Except(source.Select(g => g.First()))];
-        List<BMSTableEntry> second2 = [];
-        if ((list.Count > 1 || folderName == string.Empty) && list.Any(e => e.md5 == "00000000000000000000000000000000"))
-        {
-            second2 = [.. list.Where(e => e.md5 == "00000000000000000000000000000000")];
-        }
-        return [.. inputEntries.Except(second).Except(second2)];
-    }
-
     private List<BMSTableEntry> normalizeEntries(List<BMSTableEntry> inputEntries)
     {
         if (inputEntries.Count == 0)

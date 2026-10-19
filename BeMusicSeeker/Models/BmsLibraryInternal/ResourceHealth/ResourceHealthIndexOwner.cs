@@ -24,8 +24,6 @@ internal sealed class ResourceHealthIndexOwner
 
     private ResourceHealthIndexSnapshotState state = new(
         ResourceHealthIndexSnapshot.Empty,
-        -1,
-        new OwnedChartCollectionVersionSnapshot(-1),
         -1);
 
     private bool invalidated = true;
@@ -115,8 +113,6 @@ internal sealed class ResourceHealthIndexOwner
         }
         if (!ResourceHealthFullOwnedTargetFreshness.IsCurrent(
             targetSet,
-            currentVersion.StorageRowsVersion,
-            currentVersion.OwnedCollectionVersion,
             currentVersion.InputVersion,
             currentVersion.IsInputVersionStable))
         {
@@ -251,29 +247,6 @@ internal sealed class ResourceHealthIndexOwner
             : ResourceHealthIndexSnapshot.Empty;
     }
 
-    internal void RebaseCurrentVersion(ResourceHealthIndexCurrentVersion currentVersion)
-    {
-        lock (stateLock)
-        {
-            ResourceHealthIndexCurrentVersion observedVersion = currentVersionProvider();
-            if (state?.Snapshot == null
-                || Volatile.Read(ref invalidated)
-                || state.InputVersion != currentVersion.InputVersion
-                || !currentVersion.IsInputVersionStable
-                || observedVersion.InputVersion != currentVersion.InputVersion
-                || observedVersion.StorageRowsVersion.OwnedCollectionVersion != currentVersion.StorageRowsVersion.OwnedCollectionVersion
-                || observedVersion.OwnedCollectionVersion != currentVersion.OwnedCollectionVersion)
-            {
-                return;
-            }
-            state = new ResourceHealthIndexSnapshotState(
-                state.Snapshot,
-                state.InputVersion,
-                currentVersion.StorageRowsVersion,
-                currentVersion.OwnedCollectionVersion);
-        }
-    }
-
     internal void RebaseAfterInputMutation(
         ResourceHealthInputMutation mutation,
         ResourceHealthIndexCurrentVersion currentVersion)
@@ -291,17 +264,13 @@ internal sealed class ResourceHealthIndexOwner
                 || state.InputVersion != mutation.BaseInputVersion
                 || currentVersion.InputVersion != mutation.TargetInputVersion
                 || !currentVersion.IsInputVersionStable
-                || observedVersion.InputVersion != currentVersion.InputVersion
-                || observedVersion.StorageRowsVersion.OwnedCollectionVersion != currentVersion.StorageRowsVersion.OwnedCollectionVersion
-                || observedVersion.OwnedCollectionVersion != currentVersion.OwnedCollectionVersion)
+                || observedVersion.InputVersion != currentVersion.InputVersion)
             {
                 return;
             }
             state = new ResourceHealthIndexSnapshotState(
                 state.Snapshot,
-                currentVersion.InputVersion,
-                currentVersion.StorageRowsVersion,
-                currentVersion.OwnedCollectionVersion);
+                currentVersion.InputVersion);
         }
     }
 
@@ -344,8 +313,6 @@ internal sealed class ResourceHealthIndexOwner
             if (publishVersion.InputVersion != inputVersion
                 || !ResourceHealthFullOwnedTargetFreshness.IsCurrent(
                     targetSet,
-                    publishVersion.StorageRowsVersion,
-                    publishVersion.OwnedCollectionVersion,
                     publishVersion.InputVersion,
                     publishVersion.IsInputVersionStable))
             {
@@ -405,18 +372,14 @@ internal sealed class ResourceHealthIndexOwner
                 || !ReferenceEquals(state, currentState)
                 || inputVersion != targetInputVersion
                 || !IsStableInputVersion(targetInputVersion)
-                || publishVersion.InputVersion != targetInputVersion
-                || publishVersion.StorageRowsVersion.OwnedCollectionVersion != currentVersion.StorageRowsVersion.OwnedCollectionVersion
-                || publishVersion.OwnedCollectionVersion != currentVersion.OwnedCollectionVersion)
+                || publishVersion.InputVersion != targetInputVersion)
             {
                 snapshot = null;
                 return false;
             }
             state = new ResourceHealthIndexSnapshotState(
                 snapshot,
-                targetInputVersion,
-                publishVersion.StorageRowsVersion,
-                publishVersion.OwnedCollectionVersion);
+                targetInputVersion);
             Volatile.Write(ref invalidated, false);
         }
         logPerformance("resource_health_index_delta reason=" + (reason ?? "unknown")
@@ -436,8 +399,6 @@ internal sealed class ResourceHealthIndexOwner
         return currentState?.Snapshot != null
             && !Volatile.Read(ref invalidated)
             && currentState.InputVersion == currentVersion.InputVersion
-            && currentState.StorageRowsVersion.OwnedCollectionVersion == currentVersion.StorageRowsVersion.OwnedCollectionVersion
-            && currentState.OwnedCollectionVersion == currentVersion.OwnedCollectionVersion
             && currentVersion.IsInputVersionStable;
     }
 
@@ -482,9 +443,7 @@ internal sealed class ResourceHealthIndexOwner
     {
         state = new ResourceHealthIndexSnapshotState(
             snapshot,
-            currentVersion.InputVersion,
-            currentVersion.StorageRowsVersion,
-            currentVersion.OwnedCollectionVersion);
+            currentVersion.InputVersion);
         Volatile.Write(ref invalidated, false);
     }
 
@@ -534,17 +493,12 @@ internal sealed class ResourceHealthIndexOwner
 
     private sealed class ResourceHealthIndexSnapshotState(
         ResourceHealthIndexSnapshot snapshot,
-        int inputVersion,
-        OwnedChartCollectionVersionSnapshot storageRowsVersion,
-        int ownedCollectionVersion)
+        int inputVersion)
     {
         internal ResourceHealthIndexSnapshot Snapshot { get; } = snapshot ?? ResourceHealthIndexSnapshot.Empty;
 
         internal int InputVersion { get; } = inputVersion;
 
-        internal OwnedChartCollectionVersionSnapshot StorageRowsVersion { get; } = storageRowsVersion;
-
-        internal int OwnedCollectionVersion { get; } = ownedCollectionVersion;
     }
 
     private sealed class InvalidationSuppression(ResourceHealthIndexOwner owner) : IDisposable
@@ -590,23 +544,13 @@ internal sealed class ResourceHealthIndexOwner
     }
 }
 
+/// <summary>資源入力の変更区間だけを表す版です。カタログ版を二重保持しません。</summary>
 internal readonly struct ResourceHealthIndexCurrentVersion
 {
-    internal ResourceHealthIndexCurrentVersion(
-        OwnedChartCollectionVersionSnapshot storageRowsVersion,
-        int ownedCollectionVersion,
-        int inputVersion)
-    {
-        StorageRowsVersion = storageRowsVersion;
-        OwnedCollectionVersion = ownedCollectionVersion;
-        InputVersion = inputVersion;
-    }
-
-    internal OwnedChartCollectionVersionSnapshot StorageRowsVersion { get; }
-
-    internal int OwnedCollectionVersion { get; }
-
+    /// <summary>資源入力の捕捉版を固定します。</summary>
+    internal ResourceHealthIndexCurrentVersion(int inputVersion) => InputVersion = inputVersion;
+    /// <summary>資源入力の版です。奇数は変更中、偶数は安定状態です。</summary>
     internal int InputVersion { get; }
-
+    /// <summary>入力変更区間の外であるかを返します。</summary>
     internal bool IsInputVersionStable => (InputVersion & 1) == 0;
 }

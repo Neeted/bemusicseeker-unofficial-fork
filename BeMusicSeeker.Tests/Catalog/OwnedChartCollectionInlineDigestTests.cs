@@ -46,7 +46,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
             EnsureCurrentResourceHealthIndex(library);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int bmsFilesChanged = 0;
-            int ownedCollectionVersionChanged = 0;
+            int catalogRevisionChanged = 0;
             bool digestVisibleAtOwnedCollectionNotification = false;
             library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
@@ -54,9 +54,9 @@ public sealed class OwnedChartCollectionInlineDigestTests
                 {
                     bmsFilesChanged++;
                 }
-                if (args.PropertyName == "OwnedCollectionVersion")
+                if (args.PropertyName == "CatalogRevision")
                 {
-                    ownedCollectionVersionChanged++;
+                    catalogRevisionChanged++;
                     digestVisibleAtOwnedCollectionNotification = library
                         .GetOwnedChartHashIndexSnapshot()
                         .ContainsMd5(snapshot.Md5);
@@ -102,7 +102,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
             Assert.IsTrue(batch.ChangedCharts.Any(chart => chart.Kind == ChartFileKind.Bms));
             Assert.IsFalse(batch.ChangedCharts.Any(chart => chart.Kind == ChartFileKind.Bmson));
             Assert.AreEqual(0, bmsFilesChanged);
-            Assert.AreEqual(1, ownedCollectionVersionChanged);
+            Assert.AreEqual(1, catalogRevisionChanged);
             Assert.IsTrue(digestVisibleAtOwnedCollectionNotification);
             Assert.AreEqual(snapshot.Md5, installedEntry.Chart.Md5);
             Assert.AreEqual(snapshot.Sha256, installedEntry.Chart.Sha256);
@@ -428,7 +428,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
             InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
             OwnedChartHashIndexVersionedSnapshot initialSummary = library.GetOwnedChartHashIndexSnapshot();
             int initialNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
-            int initialCollectionVersion = library.OwnedCollectionVersion;
+            int initialCollectionVersion = library.CatalogRevision;
             int initialChartInfoIndexVersion = library.ChartInfoIndexVersion;
             using (var setup = new LR2SongDBExtended(songDbPath))
             {
@@ -444,7 +444,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
             Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", bmsFile.Md5);
             Assert.IsTrue(string.IsNullOrWhiteSpace(bmsFile.Sha256));
             Assert.AreEqual(initialNotificationVersion, library.NormalLibraryRefreshNotificationVersion);
-            Assert.AreEqual(initialCollectionVersion, library.OwnedCollectionVersion);
+            Assert.AreEqual(initialCollectionVersion, library.CatalogRevision);
             Assert.AreEqual(initialChartInfoIndexVersion, library.ChartInfoIndexVersion);
             Assert.IsNull(library.ResolveChartInfo(snapshot.Sha256, snapshot.Md5));
             CollectionAssert.AreEquivalent(

@@ -41,6 +41,158 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 {
     private const string NativeModalFixturePlaylistName = "Native modal fixture";
 
+    /// <summary>実MainWindowの通常通知とscore接続から、開いたplaylistへ保守値・独立scoreを局所配送します。実controlの値・無関係行・未訪問BMSONを確認し、条件網羅は各ownerへ分担します。</summary>
+    [TestMethod]
+    public void CatalogMaintenance_ActualMainWindowRefreshesOpenPlaylistAndBoundCells()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            Console.WriteLine("catalog_main_window fixture_begin");
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope, withScoreDatabase: true);
+            Console.WriteLine("catalog_main_window fixture_ready");
+            Task? opening = null;
+            Task? mutation = null;
+            try
+            {
+                string bmsPath = Path.Combine(fixture.Root, "bound.bms");
+                File.WriteAllText(bmsPath, "#PLAYER 1\r\n#TITLE A owned\r\n#WAV01 missing.wav\r\n#00111:01\r\n");
+                string bmsonPath = Path.Combine(fixture.Root, "unvisited.bmson");
+                File.WriteAllText(bmsonPath,
+                    "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Z bmson\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\",\"init_bpm\":120,\"resolution\":240},\"sound_channels\":[{\"name\":\"missing.wav\",\"notes\":[{\"x\":1,\"y\":0}]}]}");
+                ChartFile first = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath));
+                ChartFile last = BmsonChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsonPath));
+                var gateway = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "data", "song.db"));
+                gateway.UpsertSongs([first]);
+                gateway.UpsertBmsonSongs([last]);
+                using (var scoreDb = new SQLite.SQLiteConnection(Path.Combine(fixture.Root, "data", "score.db")))
+                {
+                    scoreDb.Insert(new LR2ScoreDB.score { hash = first.Md5, perfect = 1, totalnotes = 10 });
+                }
+                fixture.Library.InitializeScoresOnly(null);
+                bool catalogReady = false;
+                int deliveredCatalogRevision = -1;
+                EventHandler<NormalLibraryRefreshAppliedEventArgs> catalogApplied = (_, args) =>
+                {
+                    deliveredCatalogRevision = args.NotificationBatch.CatalogRevision;
+                    CatalogChartCollectionSnapshot? snapshot = args.NotificationBatch.CatalogCommits.LastOrDefault()?.Snapshot;
+                    if (snapshot != null && snapshot.BmsRows.Count == 1 && snapshot.BmsonRows.Count == 1) { catalogReady = true; }
+                };
+                fixture.ViewModel.RegularChartList.NormalLibraryRefreshApplied += catalogApplied;
+                try
+                {
+                    fixture.Library.BmsCharts = [first];
+                    fixture.Library.BmsonCharts = [last];
+                    CatalogChartCollectionSnapshot ready = fixture.Library.CaptureNormalLibraryChartSnapshot();
+                    Assert.AreEqual(1, ready.BmsRows.Count);
+                    Assert.AreEqual(1, ready.BmsonRows.Count);
+                    // モデル公開は同期的にNormal優先度へ配送を予約する。同じ優先度の後続要求を終端にし、
+                    // 到達しなかったイベント自体を待って失敗箇所を隠さない。
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Window.Dispatcher.InvokeAsync(
+                        () => { }, DispatcherPriority.Normal).Task, "catalog-main-window-fixture-delivery");
+                    Console.WriteLine("catalog_main_window initial_revision={0} delivered_revision={1}", ready.CatalogRevision, deliveredCatalogRevision);
+                    Assert.IsTrue(catalogReady, "初回の確定snapshotが実MainWindowの通常通知接続を通過します。");
+                }
+                finally { fixture.ViewModel.RegularChartList.NormalLibraryRefreshApplied -= catalogApplied; }
+                fixture.Table.is_external_sync = false;
+                fixture.Table.entries = new[] { new BMSTableEntry { playlist_id = 1, md5 = first.Md5, title = "A owned" } }
+                    .Concat(Enumerable.Range(1, 64).Select(index => new BMSTableEntry
+                    { playlist_id = 1, md5 = index.ToString("x32"), title = "M background " + index.ToString("D2") }))
+                    .Append(new BMSTableEntry { playlist_id = 1, md5 = last.Md5, title = "Z bmson" }).ToList();
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+                workspace.InitializePlaylistDetailSort(new ChartListSortParameters
+                { ColumnsName = nameof(PlaylistDetailRow.Title), Direction = System.ComponentModel.ListSortDirection.Ascending });
+                workspace.RequestDetailSelection(fixture.Table);
+                opening = workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
+                    MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected,
+                    useCoalescingWindow: false, openReadiness: default);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(opening, "catalog-main-window-playlist-open");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "catalog-main-window-playlist-idle");
+                Console.WriteLine("catalog_main_window playlist_ready");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var control = (CustomTableView)fixture.Window.FindName("customTableView");
+                Assert.AreSame(fixture.ViewModel.MainChartList, control.DataContext);
+                BindingExpression? rowsBinding = BindingOperations.GetBindingExpression(control, CustomTableView.ItemsSourceProperty);
+                Assert.IsNotNull(rowsBinding, "compiled画面の実Bindingを使います。");
+                rowsBinding.UpdateTarget();
+                System.Collections.IList rows = fixture.ViewModel.MainChartList.Rows;
+                Assert.AreSame(rows, control.ItemsSource);
+                Assert.AreEqual(66, rows.Count);
+                PlaylistDetailRow visible = rows[0] as PlaylistDetailRow ?? throw new AssertFailedException("先頭の詳細行がありません。");
+                Assert.AreEqual("A owned", visible.Title);
+                Assert.IsNull(visible.WAVHealth);
+                IChartListViewMetadata metadata = rows as IChartListViewMetadata ?? throw new AssertFailedException();
+                int realized = metadata.RealizedRowCount;
+                Assert.IsTrue(realized < rows.Count, "画面外の行を残した状態で配送を検証します。");
+                bool updated = false;
+                System.ComponentModel.PropertyChangedEventHandler changed = (_, args) =>
+                {
+                    // source交換は全property通知を使う。個別名と同じく、その通知時の実値を観測する。
+                    if ((string.IsNullOrEmpty(args.PropertyName) || args.PropertyName == nameof(PlaylistDetailRow.WAVHealth))
+                        && visible.WAVHealth == 0)
+                    { updated = true; }
+                };
+                visible.PropertyChanged += changed;
+                try
+                {
+                    CatalogChartCollectionSnapshot current = fixture.Library.CaptureNormalLibraryChartSnapshot();
+                    mutation = Task.Run(() => fixture.Library.RescanResourceHealthCharts([current.BmsRows[0], current.BmsonRows[0]]));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(mutation, "catalog-main-window-maintenance-producer");
+                    Console.WriteLine("catalog_main_window maintenance_producer_complete revision={0}", fixture.Library.CatalogRevision);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Window.Dispatcher.InvokeAsync(
+                        () => { }, DispatcherPriority.Normal).Task, "catalog-main-window-maintenance-delivery");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "catalog-main-window-maintenance-consumer");
+                    Assert.IsTrue(updated, "表示済みの行へWAVHealthのPropertyChangedが届きます。");
+                    Assert.AreSame(rows, control.ItemsSource);
+                    Assert.AreSame(visible, rows[0]);
+                    Assert.AreEqual(realized, metadata.RealizedRowCount);
+                    Assert.AreEqual("0%", control.Columns.Single(column => column.Id == "WavHealth").GetText(visible));
+                    PlaylistDetailRow unvisited = rows[rows.Count - 1] as PlaylistDetailRow ?? throw new AssertFailedException("画面外の詳細行がありません。");
+                    Assert.AreEqual("Z bmson", unvisited.Title);
+                    Assert.AreEqual(0, unvisited.WAVHealth);
+                    Assert.IsNull(first.WAVHealth);
+                    Assert.IsNull(last.WAVHealth);
+
+                    PlaylistDetailRow unrelated = rows[1] as PlaylistDetailRow ?? throw new AssertFailedException();
+                    int scoreRealized = metadata.RealizedRowCount;
+                    fixture.ViewModel.MainChartList.SelectedIndex = 1;
+                    var scoreWork = new List<string>();
+                    workspace.DetailWorkObserver = scoreWork.Add;
+                    try
+                    {
+                        BMSScore score = fixture.Library.GetBMSScores().Single();
+                        score.stddevVal = 7;
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Window.Dispatcher.InvokeAsync(
+                            () => { }, DispatcherPriority.Normal).Task, "catalog-main-window-score-delivery");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "catalog-main-window-score-consumer");
+                        Assert.AreEqual(7d, visible.stddevVal);
+                        Assert.AreSame(rows, fixture.ViewModel.MainChartList.Rows);
+                        Assert.AreSame(rows, control.ItemsSource);
+                        Assert.AreSame(visible, rows[0]);
+                        Assert.AreSame(unrelated, rows[1]);
+                        Assert.AreEqual(1, fixture.ViewModel.MainChartList.SelectedIndex);
+                        Assert.AreEqual(scoreRealized, metadata.RealizedRowCount);
+                        Assert.AreEqual(1, scoreWork.Count(kind => kind == "playlist_source_projection"));
+                        Assert.AreEqual(0, scoreWork.Count(kind => kind == "playlist_dependency_index_entry"));
+                        Assert.AreEqual(0, scoreWork.Count(kind => kind == "playlist_order_buffer"));
+                    }
+                    finally { workspace.DetailWorkObserver = null; }
+                }
+                finally { visible.PropertyChanged -= changed; }
+            }
+            finally
+            {
+                try
+                {
+                    if (opening != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(opening, "catalog-main-window-open-cleanup"); }
+                    if (mutation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(mutation, "catalog-main-window-mutation-cleanup"); }
+                }
+                finally { fixture.Close(); }
+            }
+        });
+    }
+
     /// <summary>実property画面のUp・Down・自然順を独立順と比較し、DB由来の自然順からの新編集、LR2の完全一致タイトルとfolder行まで接続します。保存前の正本と出力bytes、別表の出力・DBを保ちます。</summary>
     /// <remarks>実controlの選択とイベント接続、所有モーダル・保存Task・native閉鎖をこの代表で確認し、LR2全出力種別の条件はcustom-folder系列へ分担します。</remarks>
     [TestMethod]
@@ -266,10 +418,16 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 original.EnableExternalSync();
                 fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>([original]);
                 fixture.Playlist.CommitBMSTableWithEntriesToDB(original);
-                BMSTableEntry oldEntry = original.entries.Single();
-                PlaylistDetailRow oldRow = new PlaylistDetailSourceRow(oldEntry, resolvedChart: null).CreateViewRow();
-                File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"level\":\"9\",\"url\":\"https://current.example/song\"}]", new UTF8Encoding(true));
                 PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                BMSTableEntry oldEntry = original.entries.Single();
+                workspace.RequestDetailSelection(original);
+                Task oldDetail = workspace.WaitForDetailBuildIdleAsync();
+                started.Add(oldDetail);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(oldDetail, "detail-original-row-presentation");
+                PlaylistDetailRow oldRow = fixture.ViewModel.MainChartList.Rows[0] as PlaylistDetailRow
+                    ?? throw new AssertFailedException("再同期前の実詳細行がありません。");
+                Assert.AreSame(oldEntry, oldRow.Entry);
+                File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"level\":\"9\",\"url\":\"https://current.example/song\"}]", new UTF8Encoding(true));
                 Task resync = workspace.ResyncPlaylistsAsync([original]);
                 started.Add(resync);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(resync, "detail-resync-actual-terminal");
@@ -306,8 +464,19 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     Assert.AreEqual("https://current.example/song", persisted.url);
                     Assert.AreEqual(expectedMemo, persisted.memo);
                 }
-                PlaylistDetailRow currentRow = new PlaylistDetailSourceRow(currentEntry, resolvedChart: null).CreateViewRow();
+                // 確定receiptの配送先である実source/viewから編集行を取得します。
+                // workspaceに所属しない手製投影へ特別同期する保証は設けません。
+                workspace.RequestDetailSelection(current);
+                Task currentDetail = workspace.WaitForDetailBuildIdleAsync();
+                started.Add(currentDetail);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(currentDetail, "detail-current-row-presentation");
+                PlaylistDetailRow currentRow = fixture.ViewModel.MainChartList.Rows[0] as PlaylistDetailRow
+                    ?? throw new AssertFailedException("再同期後の実詳細行がありません。");
+                Assert.AreSame(currentEntry, currentRow.Entry);
                 var currentContext = new MainChartListCellEditContext(currentRow, nameof(PlaylistDetailRow.memo), ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+                workspace.BeginDetailEdit(currentContext);
+                currentRow.memo = "fresh edit D";
+                Assert.AreEqual(expectedMemo, currentEntry.memo, "入力draftは正規保存前にentryを変更しません。");
                 Task fresh = workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(currentContext, "fresh edit D", commit: true));
                 started.Add(fresh);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(fresh, "detail-current-row-save-terminal");
@@ -2915,7 +3084,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         Func<CancellationToken, Task<WalkureScoreInput>>? recommendationScoreReader = null,
         Func<Window, UiMessageRequest, ThemedMessageBoxResponse>? messagePresenter = null,
         Action<Settings>? configureSettings = null,
-        Func<BeatorajaBmtOptionsSnapshot>? bmtOptionsProvider = null)
+        Func<BeatorajaBmtOptionsSnapshot>? bmtOptionsProvider = null,
+        bool withScoreDatabase = false)
     {
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -2928,6 +3098,13 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         string songDbPath = applicationPath.StandaloneSongDbPath;
         StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
         PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+        string? scoreDbPath = withScoreDatabase ? Path.Combine(applicationPath.DataDirectoryPath, "score.db") : null;
+        if (scoreDbPath != null)
+        {
+            using var scoreDb = new SQLite.SQLiteConnection(scoreDbPath);
+            scoreDb.CreateTable<LR2ScoreDB.player>();
+            scoreDb.CreateTable<LR2ScoreDB.score>();
+        }
 
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
@@ -2965,7 +3142,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         var library = new TestBmsLibrary(
             songDbPath,
             getLR2Config: () => lr2Config,
-            _lr2ScoreDB: null,
+            _lr2ScoreDB: scoreDbPath,
             startupRequiredFileScanReason: null,
             optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
             operationAdmission: composition.OperationAdmission,
@@ -3028,6 +3205,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 viewModel,
                 window!,
                 playlist,
+                library,
                 table,
                 lifetime,
                 modalPreparation,
@@ -3688,6 +3866,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             MainWindowViewModel viewModel,
             MainWindow window,
             TestBmsPlaylist playlist,
+            TestBmsLibrary library,
             BMSTable table,
             RecordingApplicationLifetime lifetime,
             ModalPreparationRecorder modalPreparation,
@@ -3697,6 +3876,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             ViewModel = viewModel;
             Window = window;
             Playlist = playlist;
+            Library = library;
             Table = table;
             Lifetime = lifetime;
             ModalPreparation = modalPreparation;
@@ -3710,6 +3890,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         internal MainWindow Window { get; }
 
         internal TestBmsPlaylist Playlist { get; }
+
+        internal TestBmsLibrary Library { get; }
 
         internal BMSTable Table { get; }
 

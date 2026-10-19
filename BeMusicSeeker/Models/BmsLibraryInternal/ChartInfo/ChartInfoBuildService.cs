@@ -82,12 +82,12 @@ internal sealed class ChartInfoBuildService
         Action<string> logInstallPerformanceWarn = null,
         Action<ChartInfoStorageCommitPublication> storageCommitPublished = null,
         IReadOnlyDictionary<string, BeMusicSeeker.Models.ChartDetails> existingRowsSnapshot = null,
-        Func<CatalogChartInfoStorageWriteRequest, CatalogChartInfoStorageWriteReceipt> chartInfoChunkWriter = null)
+        Func<CatalogChartInfoStorageWriteRequest, CatalogChartInfoStorageWriteReceipt> chartInfoChunkWriter = null, bool subset = false)
     {
         return BackfillChartInfosCore(
             dbGateway,
             currentCharts,
-            "full",
+            subset ? "subset" : "full",
             reportProgress,
             logInstallPerformance,
             logInstallPerformanceWarn,
@@ -233,7 +233,9 @@ internal sealed class ChartInfoBuildService
             existingRowsSource = "db";
             existingRows = dbGateway.LoadChartInfoMap();
         }
-        Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> currentFailures = dbGateway.LoadCurrentChartInfoParseFailureMap(parseTimeout);
+        Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> currentFailures = mode == "subset"
+            ? dbGateway.LoadCurrentChartInfoParseFailuresByMd5(chartList.Select(chart => chart.Md5), parseTimeout)
+            : dbGateway.LoadCurrentChartInfoParseFailureMap(parseTimeout);
         existingRowsStopwatch.Stop();
         string existingRowsLogValue = existingRows.Count.ToString();
         var targetBuildStopwatch = Stopwatch.StartNew();

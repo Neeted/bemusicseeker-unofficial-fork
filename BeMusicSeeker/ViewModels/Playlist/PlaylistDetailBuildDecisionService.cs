@@ -173,7 +173,7 @@ internal static class PlaylistDetailBuildDecisionService
         }
 
         sourceInvalidated = sourceInvalidated || (chartInfoIndexInvalidated && !chartInfoOnlyInvalidated);
-        bool requiresSourceRebuild = selectionChanged || sourceInvalidated || sourceMissing;
+        bool requiresSourceRebuild = selectionChanged || sourceMissing;
         if (requiresSourceRebuild)
         {
             return new PlaylistDetailBuildDecision(

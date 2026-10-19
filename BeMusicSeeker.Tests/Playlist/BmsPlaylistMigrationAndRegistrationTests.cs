@@ -1042,6 +1042,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
 
+            playlist.CommitBMSTableWithEntriesToDB(table);
             using (PlaylistOperationNotificationOwner.OperationNotificationSession notifications = playlist.OperationNotificationOwner.BeginSession())
             {
                 using (FileStream? deletionBlocker = failCleanup ? new FileStream(oldPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite) : null)
@@ -1062,13 +1063,14 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             if (failCleanup)
             {
                 byte[] residual = File.ReadAllBytes(oldPath);
-                table.entries[0].folder = "Changed Folder";
-                table.Folder_order = ["Changed Folder"];
-                playlist.ReOutputCustomFolderAndCommitToDB(table);
+                // 次の明示編集もownerへ渡し、DB確定と所属索引・live・必要出力を同じ操作で揃えます。
+                Assert.IsTrue(playlist.RenameFolderBMSTable(table, "Folder A", "Changed Folder"));
                 CollectionAssert.AreEqual(residual, File.ReadAllBytes(oldPath), "後続routineは旧Aのcleanupを再開しません。");
                 string output = Path.Combine(providerNewBaseDir, table.Output_dir, "0001.lr2folder");
                 StringAssert.Contains(File.ReadAllText(output, Encoding.GetEncoding("shift_jis")), "#TITLE Changed Folder");
                 using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                Assert.AreEqual("Changed Folder", table.entries.Single().folder);
+                Assert.AreEqual("Changed Folder", verify.Table<LR2SongDBExtended.playlist_entry>().Single(row => row.playlist_id == table.playlist_id).folder);
                 Assert.AreEqual("Changed Folder", verify.Table<LR2SongDB.folder>().Single(row => row.path == output).title);
             }
             else { Assert.IsFalse(Directory.Exists(oldDirectory)); }

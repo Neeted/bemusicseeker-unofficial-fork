@@ -1911,6 +1911,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 Path.Combine(noPackageDirectory, "same-title.bms"));
             (_, TestBmsLibrary library, BMSTable activeTable, PlaylistWorkspaceViewModel workspace) =
                 CreateRootDropStore(tempDirectory, table, [packageAnchor, mergedFile]);
+            AssertPersistedRootDropEntries(Path.Combine(tempDirectory, "song.db"), 7822, [existingHash + "|Existing"]);
 
             await workspace.AddRowsToFolderAsync(
                 [
@@ -2762,6 +2763,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         {
             BMSTables = new ObservableCollection<BMSTable>([table])
         };
+        // 局所ドロップの前提となる既存所属をDBにも用意し、未変更行を全表保存で補わせません。
+        playlist.CommitBMSTableWithEntriesToDB(table);
         TestBmsLibrary library = new(songDbPath)
         {
             BmsCharts = [.. libraryFiles ?? []]

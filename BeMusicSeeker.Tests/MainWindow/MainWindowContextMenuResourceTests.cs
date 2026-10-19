@@ -1068,9 +1068,8 @@ public sealed class MainWindowContextMenuResourceTests
             ""
         ]));
         file = file with { Md5 = hash, Sha256 = sha256 };
-        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromCharts([file]);
-        var projectionIndex = PlayHistoryProjectionIndex.Create(
-            resolveIndex,
+        PlayHistoryProjectionIndex projectionIndex = PlayHistoryCatalogTestSupport.Create(
+            [file],
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [hash] = sha256 });
         PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
             new Lr2PlayHistoryReadResult(

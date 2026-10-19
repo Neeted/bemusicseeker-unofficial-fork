@@ -489,10 +489,10 @@ internal sealed class BmsLibraryMaintenanceService
                 updated = BmsChartFileParser.ApplyMetadataEncoding(snapshot, chart, nextEncoding);
 
             }
-            if (!HasSameMetadata(chart, updated) || !string.Equals(info.Encoding, nextEncoding, StringComparison.Ordinal))
+            if (!HasSameDecodedMetadataText(chart, updated) || !string.Equals(info.Encoding, nextEncoding, StringComparison.Ordinal))
             {
                 updated = ChartFileProjection.WithMaintenance(updated, info with { Encoding = nextEncoding, EncodingFixed = true });
-                if (!HasSameMetadata(chart, updated))
+                if (!HasSameDecodedMetadataText(chart, updated))
                 {
                     result.SongsToUpsert.Add(updated);
                 }
@@ -503,8 +503,9 @@ internal sealed class BmsLibraryMaintenanceService
         return result;
     }
 
-    /// <summary>文字コード適用で変更する生メタデータと合成表示値を比較し、保守投影だけの変更を除きます。</summary>
-    internal static bool HasSameMetadata(ChartFile left, ChartFile right)
+    /// <summary>文字コード再解釈で復号した生メタデータと合成表示の8文字列を比較し、DB保存と表示更新の必要性を判断します。</summary>
+    /// <remarks>保守・警告を含む現在値全体の同値判定や、カタログ版の進行条件には使いません。</remarks>
+    internal static bool HasSameDecodedMetadataText(ChartFile left, ChartFile right)
         => left.RawTitle == right.RawTitle && left.RawSubtitle == right.RawSubtitle && left.RawArtist == right.RawArtist
             && left.Subartist == right.Subartist && left.Genre == right.Genre
             && left.Title == right.Title && left.Subtitle == right.Subtitle && left.Artist == right.Artist;

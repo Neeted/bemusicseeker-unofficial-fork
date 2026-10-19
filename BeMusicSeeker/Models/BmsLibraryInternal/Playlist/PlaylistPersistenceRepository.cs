@@ -46,9 +46,13 @@ internal sealed class PlaylistPersistenceRepository
 {
     private readonly string songDbPath;
 
-    internal PlaylistPersistenceRepository(string songDbPath)
+    private readonly Func<string, LR2SongDBExtended> openEntryWriteConnection;
+
+    /// <summary>保存先と entry 書込み接続を受け取り、実 SQL の観測も各保存の接続寿命内に限定します。</summary>
+    internal PlaylistPersistenceRepository(string songDbPath, Func<string, LR2SongDBExtended> openEntryWriteConnection = null)
     {
         this.songDbPath = songDbPath ?? throw new ArgumentNullException(nameof(songDbPath));
+        this.openEntryWriteConnection = openEntryWriteConnection ?? (path => new LR2SongDBExtended(path));
     }
 
     /// <summary>
@@ -419,18 +423,18 @@ internal sealed class PlaylistPersistenceRepository
         ReplaceHeaders([table]);
     }
 
-    internal void ReplaceEntry(BMSTableEntry entry, BMSTable owningTable)
+    internal void ReplaceEntry(BMSTableEntry entry, BMSTable owningTable, BMSTableEntry originalEntry)
     {
         if (entry == null)
         {
             throw new ArgumentNullException(nameof(entry));
         }
-        using var db = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended db = openEntryWriteConnection(songDbPath);
         string savepoint = db.SaveTransactionPoint();
         try
         {
-            db.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName()
-                + " WHERE " + BuildPlaylistEntryReplacementPredicate(entry) + ";");
+            DeleteEquivalentEntries(db, originalEntry);
+            DeleteEquivalentEntries(db, entry);
             db.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
             if (owningTable != null)
             {
@@ -468,6 +472,38 @@ internal sealed class PlaylistPersistenceRepository
                 db.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_course>.GetTableName()
                     + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName(e => e.playlist_id)
                     + " = " + table.playlist_id + ";");
+            }
+            db.Commit();
+        }
+        catch
+        {
+            db.RollbackTo(savepoint);
+            throw;
+        }
+    }
+
+    /// <summary>少数追加削除だけを、複数表で一つの transaction として保存します。対象外の保存行は書き直しません。</summary>
+    internal void CommitEntryMutations(IReadOnlyList<BMSTable.EntryMutation> mutations)
+    {
+        using LR2SongDBExtended db = openEntryWriteConnection(songDbPath);
+        string savepoint = db.SaveTransactionPoint();
+        try
+        {
+            foreach (BMSTable.EntryMutation mutation in mutations)
+            {
+                foreach (PlaylistEntryChange change in mutation.Changes)
+                {
+                    if (change.Before != null)
+                    {
+                        DeleteEquivalentEntries(db, change.Entry);
+                    }
+                }
+                foreach ((BMSTableEntry _, BMSTableEntry candidate) in mutation.Additions)
+                {
+                    DeleteEquivalentEntries(db, candidate);
+                    db.InsertOrReplace(candidate, typeof(LR2SongDBExtended.playlist_entry));
+                }
+                db.InsertOrReplace(mutation.Header, typeof(LR2SongDBExtended.playlist));
             }
             db.Commit();
         }
@@ -666,48 +702,47 @@ internal sealed class PlaylistPersistenceRepository
             + " = " + playlistId + ";");
     }
 
-    private static string BuildPlaylistEntryReplacementPredicate(BMSTableEntry entry)
+    /// <summary>保存候補の旧新キーに影響する DB 行だけを取得し、transaction 内の短命 rowid で削除します。</summary>
+    private static void DeleteEquivalentEntries(LR2SongDBExtended db, BMSTableEntry entry)
     {
-        string playlistIdColumn = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
-        string md5Column = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.md5);
-        string sha256Column = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.sha256);
-        string folderColumn = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.folder);
-        string lr2BmsIdColumn = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.lr2_bmsid);
-        string titleColumn = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.title);
-
-        string hashPredicate;
-        if (!string.IsNullOrWhiteSpace(entry.md5))
+        foreach (PlaylistEntryRowLocator row in db.Query<PlaylistEntryRowLocator>(
+            "SELECT rowid AS RowId FROM playlist_entry WHERE " + BuildExactPlaylistEntryPredicate(entry) + ";"))
         {
-            hashPredicate = md5Column + " = " + SqlQuote(entry.md5);
-            if (!string.IsNullOrWhiteSpace(entry.sha256))
-            {
-                hashPredicate = "(" + hashPredicate + " OR (" + md5Column + " IS NULL AND " + sha256Column + " = " + SqlQuote(entry.sha256) + "))";
-            }
+            db.Execute("DELETE FROM playlist_entry WHERE rowid = ?;", row.RowId);
         }
-        else if (!string.IsNullOrWhiteSpace(entry.sha256))
-        {
-            hashPredicate = md5Column + " IS NULL AND " + sha256Column + " = " + SqlQuote(entry.sha256);
-        }
-        else
-        {
-            hashPredicate = md5Column + " IS NULL AND " + sha256Column + " IS NULL";
-        }
-
-        return playlistIdColumn + " = " + entry.playlist_id
-            + " AND " + hashPredicate
-            + " AND " + folderColumn + " = " + SqlQuote(entry.folder)
-            + " AND " + lr2BmsIdColumn + BuildNullableSqlEquality(entry.lr2_bmsid, blankAsNull: true)
-            + " AND " + titleColumn + BuildNullableSqlEquality(entry.title);
     }
 
-    private static string BuildNullableSqlEquality(string value, bool blankAsNull = false)
+    private sealed class PlaylistEntryRowLocator
     {
-        if (value == null || (blankAsNull && string.IsNullOrWhiteSpace(value)))
-        {
-            return " IS NULL ";
-        }
-        return " = " + SqlQuote(value);
+        public PlaylistEntryRowLocator() { }
+        public long RowId { get; set; }
     }
+
+    /// <summary>live の既存正規化に対応する NULL/空 hash・folder・title を同値候補に含め、削除状態を区別します。</summary>
+    private static string BuildExactPlaylistEntryPredicate(BMSTableEntry entry)
+        => "playlist_id = " + entry.playlist_id
+            + " AND " + HashEquality("md5", entry.md5)
+            + " AND " + HashEquality("sha256", entry.sha256)
+            + " AND ifnull(folder, '')" + ExactEquality(entry.folder ?? string.Empty)
+            + " AND lr2_bmsid" + ExactEquality(entry.lr2_bmsid)
+            + " AND ifnull(title, '')" + ExactEquality(entry.title ?? string.Empty)
+            + " AND is_removed = " + (entry.is_removed ? "1" : "0");
+
+    private static string ExactEquality(string value)
+        => value == null ? " IS NULL" : " = '" + value.Replace("'", "''") + "'";
+
+    private static string HashEquality(string column, string value)
+        => HashComparisonExpression(column) + ExactEquality(value ?? string.Empty);
+
+    /// <summary>
+    /// hash setter の blank→null と ASCII hash の小文字化に対応する索引式です。
+    /// IsNullOrWhiteSpace の文字集合だけを blank 判定へ使い、非blank の原値は削りません。
+    /// 正規表現の $ が従来受理する最終 LF 付き hash も、LF を含む別の保存キーとして保持します。
+    /// </summary>
+    private static string HashComparisonExpression(string column)
+        => "(CASE WHEN " + column + " IS NULL OR trim(" + column
+            + ", char(9, 10, 11, 12, 13, 32, 133, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288)) = '' THEN '' ELSE "
+            + column + " END) COLLATE NOCASE";
 
     private static string SqlQuote(string value = null)
     {
@@ -872,6 +907,17 @@ internal sealed class PlaylistPersistenceRepository
             SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id),
             SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed)
         ]);
+        // UNIQUE と既存の raw 値用索引は変えず、局所保存の正規化同値候補だけを全キーで探索します。
+        string candidateIndexSql = "CREATE INDEX playlist_entry_idx_candidate ON " + tableName
+            + " (playlist_id, is_removed, " + HashComparisonExpression("md5") + ", "
+            + HashComparisonExpression("sha256") + ", ifnull(folder, ''), lr2_bmsid, ifnull(title, ''))";
+        string currentCandidateIndexSql = db.ExecuteScalar<string>(
+            "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_candidate';");
+        if (!string.Equals(currentCandidateIndexSql?.TrimEnd(';'), candidateIndexSql, StringComparison.Ordinal))
+        {
+            db.Execute("DROP INDEX IF EXISTS playlist_entry_idx_candidate;");
+            db.Execute(candidateIndexSql + ";");
+        }
     }
 
     private static void EnsurePlaylistEntryIndex(LR2SongDBExtended db, string tableName, string indexName, string[] columnNames)

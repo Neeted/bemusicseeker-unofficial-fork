@@ -23,6 +23,15 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class RegularChartViewBuildAndOrderingTests
 {
+    /// <summary>専用subsetも最初のscore投影前のbを固定し、非表示元行を含む変更rangeを実配送後に局所反映してから採用します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void VirtualSubset_ScoreBaselineCoversOriginalRangeBeforeFilter(bool filtered)
+    {
+        WithTemporarySongDb(path => RegularChartNormalLibraryRefreshTests.VerifyScoreCandidateAsync(path, filtered, subset: true).GetAwaiter().GetResult());
+    }
+
 
     /// <summary>行準備中の入れ子要求だけを確定し、最新detail退役receiptでsourceを消して通常modeを通知することで、外側の旧結果採用と早すぎるsource破棄を検出します。</summary>
     [TestMethod]
@@ -557,7 +566,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
             ChartFile a = CreateSourceRow("Old", "A", 7).Chart;
             ChartFile b = CreateSourceRow("Old", "B", 14).Chart;
             catalog.ReplaceCharts([a, b], []);
-            catalog.IncrementVersion();
             var table = new MainChartListViewModel();
             using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
             RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected);
@@ -566,7 +574,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
             CollectionAssert.AreEqual(new[] { "A", "B" }, table.Rows.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
             ChartFile c = CreateSourceRow("New", "C", 14).Chart;
             catalog.ReplaceCharts([c, a with { Path = @"C:\Charts\New\A", Folder = "New" }], []);
-            catalog.IncrementVersion();
             request = CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected, "New", ChartModeFilter._7KEYS);
             request.Library = library;
             Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
@@ -579,8 +586,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
             var otherLibrary = new TestBmsLibrary(path);
             CatalogOwnedCollectionOwner otherCatalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(otherLibrary);
             otherCatalog.ReplaceCharts([CreateSourceRow("Other", "Other").Chart, CreateSourceRow("Other", "ZOther").Chart], []);
-            otherCatalog.IncrementVersion();
-            otherCatalog.IncrementVersion(); // 同版でも別libraryの所属を取り違えません。
             request.Library = otherLibrary;
             Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
             Assert.AreEqual(2, table.Rows.Count);
@@ -588,70 +593,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
             request.Library = library;
             Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
             CollectionAssert.AreEqual(new[] { "A", "C" }, table.Rows.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
-        });
-    }
-
-    /// <summary>保守batchと捕捉版が揃う場合はRows・未訪問行を保持し、後続の題名変更が確定済みなら旧整列へ新値だけを採用せず再構築することで、入力混在を検出します。</summary>
-    [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void CatalogInput_PresentationAdoptsNewValuesWithoutRealizingUnvisitedRows(bool newerBasicCommit)
-    {
-        WithTemporarySongDb(path =>
-        {
-            var library = new TestBmsLibrary(path);
-            CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
-            // 使用ファイルの単純充足率で25から75へ変わる保守入力を使い、算式自体の条件網羅は保守側へ分担します。
-            ChartFile[] charts = new[] { "A", "B" }.Select(name => ChartFileProjection.WithMaintenance(
-                CreateSourceRow("Folder", name).Chart with { Token = new OwnedChartToken() },
-                new ResourceHealthMaintenanceSnapshot
-                { Origin = MaintenanceInfoOrigin.Calculated, WavFilesDefined = 4, WavFilesExisting = 1 })).ToArray();
-            catalog.ReplaceCharts(charts, []);
-            catalog.IncrementVersion();
-            CatalogChartCollectionSnapshot previous = library.CaptureNormalLibraryChartSnapshot(false);
-            var table = new MainChartListViewModel();
-            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
-            RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected);
-            request.Library = library;
-            Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
-            var rows = (ChartListVirtualView)table.Rows;
-            var realized = (LibraryChartRow)rows[0];
-            Assert.AreEqual(25, realized.WAVHealth);
-            foreach (ChartFile chart in previous.BmsRows)
-            {
-                catalog.Collection.ApplyCurrentChartValue(ChartFileProjection.WithMaintenance(chart,
-                    new ResourceHealthMaintenanceSnapshot
-                    { Origin = MaintenanceInfoOrigin.Calculated, WavFilesDefined = 4, WavFilesExisting = 3 }));
-            }
-            catalog.IncrementVersion();
-            var batch = new NormalLibraryRefreshNotificationBatch(1, library.OwnedCollectionVersion,
-                LibraryChartRefreshEffects.MaintenancePresentationChanged, [], false);
-            if (newerBasicCommit)
-            {
-                ChartFile current = library.CaptureNormalLibraryChartSnapshot(false).BmsRows[0];
-                catalog.Collection.ApplyCurrentChartValue(current with { Title = "Z", RawTitle = "Z" });
-                catalog.IncrementVersion();
-            }
-            MainViewRefreshAction action = owner.ApplyNotificationPresentation(library, batch,
-                MainViewUpdateMode.FolderFilterSelected, null, ChartListFilterSnapshot.Default, false);
-            if (newerBasicCommit)
-            {
-                Assert.AreEqual(MainViewRefreshAction.Refresh, action);
-                Assert.AreSame(rows, table.Rows);
-                Assert.AreSame(realized, rows[0]);
-                Assert.AreEqual(1, rows.RealizedRowCount);
-                Assert.AreEqual("A", realized.Title); // 旧先頭の添字へ新しいZだけが混入していません。
-                Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
-                CollectionAssert.AreEqual(new[] { "B", "Z" }, table.Rows.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
-                return;
-            }
-            Assert.AreEqual(MainViewRefreshAction.RefreshDisplay, action);
-            Assert.AreSame(rows, table.Rows);
-            Assert.AreSame(realized, rows[0]);
-            Assert.AreEqual(1, rows.RealizedRowCount);
-            Assert.AreEqual(75, realized.WAVHealth);
-            Assert.AreEqual(75, ((LibraryChartRow)rows[1]).WAVHealth);
-            Assert.AreEqual(1, previous.BmsRows[1].ResourceHealthMaintenanceSnapshot.WavFilesExisting);
         });
     }
 
@@ -666,35 +607,61 @@ public sealed class RegularChartViewBuildAndOrderingTests
             ChartFile z = ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = @"C:\z.bmson", Md5 = "z", Title = "Same", Token = new OwnedChartToken() };
             ChartFile a = z with { Path = @"C:\a.bmson", Md5 = "a", Token = new OwnedChartToken() };
             catalog.ReplaceCharts([], [z, a]);
-            catalog.IncrementVersion();
             var table = new MainChartListViewModel();
-            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
-            RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected);
-            request.Library = library;
-            request.IncludeBmsonRows = true;
-            Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
-            var previousRows = (ChartListVirtualView)table.Rows;
-            Assert.AreEqual(z.Path, ((LibraryChartRow)previousRows[0]).path);
-            CatalogChartCollectionSnapshot snapshot = library.CaptureNormalLibraryChartSnapshot();
-            catalog.Collection.ApplyCurrentChartValue(snapshot.BmsonRows[1] with { Title = "New" });
-            catalog.IncrementVersion();
-            Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
-            LibraryChartRow current = table.Rows[0] as LibraryChartRow ?? throw new AssertFailedException();
-            Assert.AreEqual("New", current.Title);
-            Assert.AreEqual("Same", ((LibraryChartRow)previousRows[1]).Title);
-            Assert.AreEqual("New", current.Title);
-            bool changed = false;
-            table.RowsReplacing += (_, _) =>
+            using var scheduler = new ScoreDeliveryUiScheduler();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(), action => action(),
+                scheduler);
+            try
             {
-                if (changed) { return; }
-                changed = true;
-                catalog.Collection.ApplyCurrentChartValue(library.CaptureNormalLibraryChartSnapshot().BmsonRows[0] with { Title = "Later" });
-                catalog.IncrementVersion();
-            };
-            Assert.IsFalse(owner.ApplyRegularView(request).WasCommitted);
-            Assert.AreSame(current, table.Rows[0]);
-            Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
-            Assert.AreEqual("Later", (table.Rows[0] as LibraryChartRow ?? throw new AssertFailedException()).Title);
+                owner.AttachNormalLibraryRefreshSource(library);
+                Task initial = owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None);
+                ScheduledScoreOperation initialOperation = scheduler.NextAsync().GetAwaiter().GetResult();
+                initialOperation.Run(); initialOperation.Complete();
+                initial.GetAwaiter().GetResult();
+                RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected);
+                request.Library = library;
+                request.IncludeBmsonRows = true;
+                Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
+                var previousRows = (ChartListVirtualView)table.Rows;
+                Assert.AreEqual(z.Path, ((LibraryChartRow)previousRows[0]).path);
+                CatalogChartCollectionSnapshot snapshot = library.CaptureNormalLibraryChartSnapshot();
+                catalog.CommitCurrentValues([snapshot.BmsonRows[1]], (currentValue, _) => currentValue with { Title = "New" });
+                owner.QueueLatestNormalLibraryRefreshNotification("bmson_current_commit", library);
+                Task delivery = owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None);
+                ScheduledScoreOperation operation = scheduler.NextAsync().GetAwaiter().GetResult();
+                operation.Run(); operation.Complete();
+                delivery.GetAwaiter().GetResult();
+                LibraryChartRow current = table.Rows[0] as LibraryChartRow ?? throw new AssertFailedException();
+                Assert.AreEqual("New", current.Title);
+                Assert.AreEqual("Same", snapshot.BmsonRows[1].Title);
+                Assert.AreEqual("New", current.Title);
+                bool changed = false;
+                table.RowsReplacing += (_, _) =>
+                {
+                    if (changed) { return; }
+                    changed = true;
+                    ChartFile target = library.CaptureNormalLibraryChartSnapshot().BmsonRows[0];
+                    catalog.CommitCurrentValues([target], (currentValue, _) => currentValue with { Title = "Later" });
+                    owner.QueueLatestNormalLibraryRefreshNotification("bmson_terminal_commit", library);
+                };
+                Assert.IsFalse(owner.ApplyRegularView(request).WasCommitted);
+                Assert.AreSame(current, table.Rows[0]);
+                Task nextDelivery = owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None);
+                ScheduledScoreOperation nextOperation = scheduler.NextAsync().GetAwaiter().GetResult();
+                nextOperation.Run(); nextOperation.Complete();
+                nextDelivery.GetAwaiter().GetResult();
+                ScheduledScoreOperation continuation = scheduler.NextAsync().GetAwaiter().GetResult();
+                continuation.Run(); continuation.Complete();
+                Assert.AreEqual("Later", (table.Rows[0] as LibraryChartRow ?? throw new AssertFailedException()).Title);
+            }
+            finally
+            {
+                Task stop = owner.StopAsync();
+                scheduler.AbortOutstanding();
+                while (scheduler.TryTake(out ScheduledScoreOperation? pending)) { pending.Run(); pending.Complete(); }
+                stop.GetAwaiter().GetResult();
+                library.RequestShutdown("bmson_ties_test");
+            }
         });
     }
 
@@ -724,7 +691,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
             {
                 CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
                 catalog.ReplaceCharts(rows.Select(row => row.Chart), []);
-                catalog.IncrementVersion();
             }
 
             using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
@@ -771,7 +737,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
             {
                 CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
                 catalog.ReplaceCharts(rows.Select(row => row.Chart), []);
-                catalog.IncrementVersion();
             }
 
             var table = new MainChartListViewModel();
@@ -882,7 +847,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
             {
                 CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
                 catalog.ReplaceCharts(rows.Select(row => row.Chart), []);
-                catalog.IncrementVersion();
             }
 
             var table = new MainChartListViewModel();
@@ -929,7 +893,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
             {
                 CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
                 catalog.ReplaceCharts(rows.Select(row => row.Chart), []);
-                catalog.IncrementVersion();
             }
 
             var table = new MainChartListViewModel();
@@ -972,7 +935,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
             {
                 CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
                 catalog.ReplaceCharts(rows.Select(row => row.Chart), []);
-                catalog.IncrementVersion();
             }
 
             var table = new MainChartListViewModel();

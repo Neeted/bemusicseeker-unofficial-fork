@@ -11,15 +11,11 @@ internal readonly struct ResourceMaintenanceTargetSet
     private ResourceMaintenanceTargetSet(
         IEnumerable<ChartFile> charts,
         bool isFullOwned,
-        OwnedChartCollectionVersionSnapshot? storageRowsVersion,
-        int? ownedCollectionVersion,
         int? resourceHealthInputVersion)
     {
         this.charts = Array.AsReadOnly([.. (charts ?? []).Where(chart => chart != null)]);
         IsSpecified = true;
         IsFullOwned = isFullOwned;
-        StorageRowsVersion = storageRowsVersion;
-        OwnedCollectionVersion = ownedCollectionVersion;
         ResourceHealthInputVersion = resourceHealthInputVersion;
     }
 
@@ -29,35 +25,25 @@ internal readonly struct ResourceMaintenanceTargetSet
 
     internal bool IsFullOwned { get; }
 
-    internal OwnedChartCollectionVersionSnapshot? StorageRowsVersion { get; }
-
-    internal int? OwnedCollectionVersion { get; }
-
     internal int? ResourceHealthInputVersion { get; }
 
     internal int Count => Charts.Count;
 
     internal bool HasFullOwnedVersion => IsFullOwned
-        && StorageRowsVersion.HasValue
-        && OwnedCollectionVersion.HasValue
         && ResourceHealthInputVersion.HasValue;
 
     internal static ResourceMaintenanceTargetSet ForSubset(IEnumerable<ChartFile> charts)
     {
-        return new ResourceMaintenanceTargetSet(charts, false, null, null, null);
+        return new ResourceMaintenanceTargetSet(charts, false, null);
     }
 
     internal static ResourceMaintenanceTargetSet ForFullOwned(
         IEnumerable<ChartFile> charts,
-        OwnedChartCollectionVersionSnapshot storageRowsVersion,
-        int ownedCollectionVersion,
         int resourceHealthInputVersion)
     {
         return new ResourceMaintenanceTargetSet(
             charts,
             true,
-            storageRowsVersion,
-            ownedCollectionVersion,
             resourceHealthInputVersion);
     }
 
@@ -67,20 +53,6 @@ internal readonly struct ResourceMaintenanceTargetSet
             ? new ResourceMaintenanceTargetSet(
                 charts,
                 IsFullOwned,
-                StorageRowsVersion,
-                OwnedCollectionVersion,
-                ResourceHealthInputVersion)
-            : default;
-    }
-
-    internal ResourceMaintenanceTargetSet WithOwnedCollectionVersion(int ownedCollectionVersion)
-    {
-        return IsSpecified
-            ? new ResourceMaintenanceTargetSet(
-                Charts,
-                IsFullOwned,
-                StorageRowsVersion,
-                ownedCollectionVersion,
                 ResourceHealthInputVersion)
             : default;
     }
@@ -91,8 +63,6 @@ internal readonly struct ResourceMaintenanceTargetSet
             ? new ResourceMaintenanceTargetSet(
                 Charts,
                 IsFullOwned,
-                StorageRowsVersion,
-                OwnedCollectionVersion,
                 resourceHealthInputVersion)
             : default;
     }

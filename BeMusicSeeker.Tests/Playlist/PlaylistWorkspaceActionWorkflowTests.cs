@@ -82,7 +82,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 Assert.AreSame(request.Table, currentWorkspace.CapturePlaylistDetailSelection().Table,
                     "項目通知に先立ち新参照を採用します。");
             };
-            long contentRevision = workspace.DetailViewState.Source.PlaylistContentRevision;
+
             dialog = await workspace.OpenPropertyDialogAsync(table) ?? throw new AssertFailedException("Property dialog was not created.");
             dialog.Page_url = new Uri(header);
             dialog.compat_prefix = "NEW ";
@@ -94,11 +94,10 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             Assert.AreEqual("NEW 1", selection.FolderName);
             Assert.AreEqual(1, folderNotices);
             Assert.AreEqual(1, entryNotices);
-            Assert.IsTrue(workspace.DetailViewState.Source.PlaylistContentRevision > contentRevision);
+
             Assert.IsTrue(confirmed.FolderNodes.Any(node => node.FolderName == "NEW 1"));
             string stage = string.Empty;
-            PlaylistSourceBuildResult detail = workspace.BuildDetailSourceRows(selection.Table, selection.Scope, selection.FolderName, false,
-                PlaylistLibraryResolveIndexSnapshot.Empty, CancellationToken.None, ref stage);
+            PlaylistSourceBuildResult detail = workspace.BuildDetailSourceRows(selection.Table, selection.Scope, selection.FolderName, CancellationToken.None, ref stage);
             Assert.AreEqual("NEW 1", detail.SourceRows.Single().Folder);
             using LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly();
             Assert.AreEqual("NEW 1", db.Table<LR2SongDBExtended.playlist_entry>().Single(entry => entry.playlist_id == table.playlist_id).folder);

@@ -84,37 +84,6 @@ internal sealed partial class LibraryMutationOwner
     }
 
     /// <summary>
-    /// 確定済みの所持集合世代を内部状態へ適用します。
-    /// 世代を進める場合も、catalog writer が先に確定した世代は再利用します。
-    /// 公開イベントはこの処理の後、排他権を解放してから行います。
-    /// </summary>
-    private void ApplyOwnedChartCollectionState(OwnedChartCollectionMutationResult result)
-    {
-        if (result == null || !result.OwnedCollectionChanged)
-        {
-            if (result != null)
-            {
-                result.OwnedCollectionVersion = catalogOwnedCollectionOwner.OwnedCollectionVersion;
-            }
-            return;
-        }
-
-        if (result.OwnedCollectionVersionAlreadyAdvanced)
-        {
-            if (result.OwnedCollectionVersion <= 0)
-            {
-                result.OwnedCollectionVersion = catalogOwnedCollectionOwner.OwnedCollectionVersion;
-            }
-            return;
-        }
-
-        // catalog writer が世代を確定していない mutation は、索引反映より先に
-        // owner の世代を一度だけ進め、後段の公開通知では再度進めません。
-        result.OwnedCollectionVersion = catalogOwnedCollectionOwner.IncrementVersion();
-        result.OwnedCollectionVersionAlreadyAdvanced = true;
-    }
-
-    /// <summary>
     /// scan/property producer が確定した storage rows の置換を、所持状態と派生索引へ反映します。
     /// DB writer、resource input、collection version、公開通知の順序をこの owner が管理します。
     /// </summary>
@@ -164,7 +133,7 @@ internal sealed partial class LibraryMutationOwner
             InvalidateParentFolderListCache();
             if (bmsonRowsChanged)
             {
-                InvalidateInstallEstimationMetadataProfileCache();
+
             }
             InvalidateDuplicateChartGroupsCache();
             resourceHealthOwner.Invalidate(bmsRowsChanged && bmsonRowsChanged
@@ -176,7 +145,7 @@ internal sealed partial class LibraryMutationOwner
             bool notifiesBmsonSongs = notifyBmsonRows && bmsonRowsChanged;
             publishReplacementEffects = () =>
             {
-                raiseOwnedCollectionVersionChanged();
+                raiseCatalogRevisionChanged();
                 if (notifiesBmsFiles || notifiesBmsonSongs)
                 {
                     PublishExternalReplacementNormalLibraryRefreshNotification(
@@ -257,12 +226,11 @@ internal sealed partial class LibraryMutationOwner
 
         public bool OwnedCollectionChangeNotified { get; set; }
 
-        public bool OwnedCollectionVersionAlreadyAdvanced { get; set; }
 
         /// <summary>今回のcatalog mutationで初回BMSON canonical順序正規化が発生したか。</summary>
         public bool BmsonCanonicalOrderNormalized { get; set; }
 
-        public int OwnedCollectionVersion { get; set; }
+        public int CatalogRevision { get; set; }
 
         public int NormalLibraryRefreshNotificationVersion { get; set; }
 
@@ -355,137 +323,6 @@ internal sealed partial class LibraryMutationOwner
     }
 
     /// <summary>
-    /// durable mutationの旧新 hash factsを、構築済み owned hash rootへ一度だけ渡します。
-    /// </summary>
-    /// <param name="result">catalog mutationの結果。</param>
-    private void ApplyOwnedChartHashIndexMutation(OwnedChartCollectionMutationResult result)
-    {
-        if (result == null)
-        {
-            return;
-        }
-        if (result.OwnedHashIndexMutationApplied)
-        {
-            // ハッシュの反映後に所持世代を確定する経路でも、公開前に世代を揃える。
-            if (result.OwnedCollectionChanged)
-            {
-                catalogOwnedCollectionOwner.RebaseHashIndexSnapshot();
-            }
-            return;
-        }
-
-        bool hasDigestFacts = result.DigestChangedCount > 0 && result.DigestMutationApplied;
-        bool hasStorageHashFacts = result.StorageMutation.RemoveRequests.Count > 0
-            || result.StorageMutation.AddedCharts.Count > 0;
-        if (!hasDigestFacts && !hasStorageHashFacts)
-        {
-            if (result.OwnedCollectionChanged)
-            {
-                catalogOwnedCollectionOwner.RebaseHashIndexSnapshot();
-            }
-            return;
-        }
-
-        var deltas = new List<OwnedChartHashIndexDelta>();
-        bool requiresFullInvalidate = false;
-        if (hasDigestFacts)
-        {
-            foreach (LibraryChartDigestChange change in result.DigestChanges)
-            {
-                if (change?.HasDigestChange == true)
-                {
-                    deltas.Add(new OwnedChartHashIndexDelta(
-                        change.OldMd5,
-                        change.OldSha256,
-                        change.NewMd5,
-                        change.NewSha256));
-                }
-            }
-        }
-        else
-        {
-            foreach (InstalledChartLookupMutationEntry removed in result.InstalledLookupMutation?.Removed ?? [])
-            {
-                deltas.Add(new OwnedChartHashIndexDelta(
-                    removed.Md5,
-                    removed.Sha256,
-                    null,
-                    null));
-            }
-            foreach (ChartFile added in result.StorageMutation.AddedCharts.Where(chart => chart != null))
-            {
-                deltas.Add(new OwnedChartHashIndexDelta(
-                    null,
-                    null,
-                    added.Md5,
-                    added.Sha256));
-            }
-
-            requiresFullInvalidate = result.InstalledLookupMutation?.RequiresFullInvalidate == true
-                && HasUnknownOwnedHashRemoval(result.StorageMutation.RemoveRequests);
-        }
-
-        // 旧行の exact facts が欠ける場合は、候補 hash を部分的に適用せず
-        // 既存の full rebuild 契約へ戻します。file scan の削除 payload 不在もここで扱います。
-        if (result.InstalledLookupMutation?.RequiresFullInvalidate == true
-            && (HasUnknownOwnedHashRemoval(result.StorageMutation.RemoveRequests)
-                || result.RemovedCount > result.StorageMutation.RemoveRequests.Count
-                || (result.StorageMutation.AddedCharts.Count > 0
-                    && result.InstalledLookupMutation.Removed.Count == 0)))
-        {
-            requiresFullInvalidate = true;
-        }
-        catalogOwnedCollectionOwner.ApplyHashIndexDeltas(deltas, requiresFullInvalidate);
-        result.OwnedHashIndexMutationApplied = true;
-    }
-
-    private static bool HasUnknownOwnedHashRemoval(IEnumerable<OwnedChartRemoveRequest> removeRequests)
-    {
-        foreach (OwnedChartRemoveRequest request in removeRequests ?? [])
-        {
-            if (request == null)
-            {
-                continue;
-            }
-            if (!request.HasCapturedFacts)
-            {
-                return true;
-            }
-            if (string.IsNullOrWhiteSpace(request.CapturedMd5))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /// <summary>
-    /// warmなplaylist resolve rootへ、今回の旧新path/hash factsだけを適用します。
-    /// facts不足または全置換境界では既存の全失効契約へ戻します。
-    /// </summary>
-    /// <param name="result">catalog mutationの結果。</param>
-    private void ApplyPlaylistLibraryResolveIndexMutation(OwnedChartCollectionMutationResult result)
-    {
-        if (result == null || result.PlaylistResolveIndexMutationApplied)
-        {
-            return;
-        }
-
-        result.PlaylistResolveIndexMutationApplied = true;
-        if (catalogOwnedCollectionOwner.ApplyPlaylistLibraryResolveIndexMutation(
-            result.DigestChanges,
-            result.DigestMutationApplied,
-            result.InstalledLookupMutation,
-            [.. result.StorageMutation.AddedCharts.Concat(result.PresentationChangedCharts)],
-            result.OwnedCollectionChanged,
-            result.PlaylistResolveIndexInvalidated,
-            result.BmsonCanonicalOrderNormalized))
-        {
-            result.PlaylistResolveIndexInvalidated = true;
-        }
-    }
-
-    /// <summary>
     /// 完全な file scan replacement receipt を正本・resource・派生索引へ反映します。
     /// </summary>
     /// <param name="replacementEvent">scan が確定した置換結果。</param>
@@ -513,8 +350,7 @@ internal sealed partial class LibraryMutationOwner
         OwnedChartCollectionMutationResult mutationResult = CreateFileScanMutationProjection(
             replacementEvent.Request,
             replacementEvent.ResourceHealthIndexCurrentAtBase);
-        mutationResult.OwnedCollectionVersion = receipt.OwnedCollectionVersion;
-        mutationResult.OwnedCollectionVersionAlreadyAdvanced = receipt.Applied;
+        mutationResult.CatalogRevision = receipt.CatalogRevision;
         string dispatchReason = string.IsNullOrWhiteSpace(replacementEvent.Reason)
             ? "file_scan"
             : "file_scan_" + replacementEvent.Reason;
@@ -569,7 +405,7 @@ internal sealed partial class LibraryMutationOwner
         catch
         {
             InvalidateDuplicateChartGroupsCache();
-            InvalidateInstallEstimationMetadataProfileCache();
+
             if (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges)
             {
                 installDestinationStateOwner.PruneToCurrentOwnedCharts();
@@ -655,8 +491,7 @@ internal sealed partial class LibraryMutationOwner
                         () => catalogValidationPassed = true,
                         installPathsToDelete,
                         installRowsToUpsert);
-                    mutationResult.OwnedCollectionVersion = installedTargetReceipt.OwnedCollectionVersion;
-                    mutationResult.OwnedCollectionVersionAlreadyAdvanced = installedTargetReceipt.OwnedCollectionApplied;
+                    mutationResult.CatalogRevision = installedTargetReceipt.CatalogRevision;
                     mutationResult.BmsonCanonicalOrderNormalized = installedTargetReceipt.BmsonCanonicalOrderNormalized;
                 }
             }
@@ -682,7 +517,7 @@ internal sealed partial class LibraryMutationOwner
         {
             OwnedChartCollectionVersionSnapshot storageRowsAfter = catalogOwnedCollectionOwner.CaptureVersionSnapshot();
             bool failureFallbackRequired = !catalogValidationPassed
-                || storageRowsBefore.OwnedCollectionVersion != storageRowsAfter.OwnedCollectionVersion;
+                || storageRowsBefore.CatalogRevision != storageRowsAfter.CatalogRevision;
             return new InstalledChartStorageTargetsApplyReceipt(
                 mutationResult,
                 installedTargetReceipt,
@@ -719,7 +554,7 @@ internal sealed partial class LibraryMutationOwner
             lr2SynchronizationOwner.SyncLr2NormalFoldersForCatalogMutation(
                 CreateLr2NormalFolderCatalogMutationReceipt(
                     receipt.InstalledTargetReceipt,
-                    receipt.MutationResult.OwnedCollectionVersion),
+                    receipt.MutationResult.CatalogRevision),
                 receipt.LookupReason ?? "install_package",
                 mutationCapability);
             receipt.PostLeaseDuplicateChartGroupsNotification = ApplyOwnedChartCollectionMutation(
@@ -1237,7 +1072,6 @@ internal sealed partial class LibraryMutationOwner
             workflowResult.HasUpdates);
         mutationResult.PresentationChangedCharts.AddRange(workflowResult.ChangedCharts);
         mutationResult.OwnedCollectionChanged = receipt?.BasicValuesChanged == true;
-        mutationResult.OwnedCollectionVersionAlreadyAdvanced = mutationResult.OwnedCollectionChanged;
         duplicateChartGroupsPostLeaseNotification = ApplyOwnedChartCollectionMutation(
             mutationResult,
             receipt?.Reason ?? "maintenance");
@@ -1287,7 +1121,6 @@ internal sealed partial class LibraryMutationOwner
         long duplicateMs = 0;
         long resourceHealthMs = 0;
         bool duplicateChartGroupsInvalidated = false;
-        ApplyOwnedChartCollectionState(result);
         if (result.DigestChangedCount > 0 && !result.DigestMutationApplied)
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
@@ -1309,16 +1142,10 @@ internal sealed partial class LibraryMutationOwner
         {
             installDestinationStateOwner.PruneToCurrentOwnedCharts();
         }
-        if (result.InstallEstimationMetadataProfileCacheInvalidated || result.ShouldDispatchInstalledLookup)
-        {
-            InvalidateInstallEstimationMetadataProfileCache();
-        }
         if (result.ShouldDispatchInstalledLookup)
         {
             ApplyInstalledChartLookupMutation(result.InstalledLookupMutation, reason);
         }
-        ApplyOwnedChartHashIndexMutation(result);
-        ApplyPlaylistLibraryResolveIndexMutation(result);
         long semanticLookupMs = StopPerformanceStepStopwatch(semanticLookupStopwatch);
         if (result.ParentFolderInvalidated)
         {
@@ -1344,10 +1171,6 @@ internal sealed partial class LibraryMutationOwner
             }
             result.ResourceHealthDispatchResult = DispatchResourceHealthIndexMutation(result.ResourceHealthMutation, reason);
             resourceHealthMs += StopPerformanceStepStopwatch(stepStopwatch);
-        }
-        if (!result.ResourceHealthMutation.HasChanges && result.OwnedCollectionChanged)
-        {
-            resourceHealthOwner.RebaseCurrentVersion(GetCurrentResourceHealthIndexVersion());
         }
         stopwatch.Stop();
 
@@ -1451,10 +1274,11 @@ internal sealed partial class LibraryMutationOwner
     /// <returns>呼び出し側が入力変更区間と変更予約の解放後に実行する公開 action。</returns>
     internal Action PrepareOwnedChartDigestPublication(
         IReadOnlyList<LibraryChartDigestChange> digestChanges,
-        string reason)
+        string reason, CatalogCommitReceipt commit)
     {
-        OwnedChartCollectionMutationResult mutationResult = CreateOwnedChartCollectionDigestMutationResult(
-            digestChanges);
+        OwnedChartCollectionMutationResult mutationResult = CreateOwnedChartCollectionDigestMutationResult(digestChanges);
+        mutationResult.PresentationChangedCharts.AddRange(commit?.Changes.Where(change => change.After != null).Select(change => change.After) ?? []);
+        mutationResult.CatalogRevision = commit?.Revision ?? catalogOwnedCollectionOwner.CatalogRevision;
         // CatalogMutationOwner.ApplyDigestMutation が先に正本へ適用している。
         mutationResult.DigestMutationApplied = true;
         mutationResult.OwnedHashIndexMutationApplied = true;
@@ -1483,18 +1307,18 @@ internal sealed partial class LibraryMutationOwner
         }
         if (!result.OwnedCollectionChanged)
         {
-            result.OwnedCollectionVersion = catalogOwnedCollectionOwner.OwnedCollectionVersion;
+            result.CatalogRevision = catalogOwnedCollectionOwner.CatalogRevision;
             return;
         }
         if (result.OwnedCollectionChangeNotified)
         {
             return;
         }
-        result.OwnedCollectionVersion = result.OwnedCollectionVersion > 0
-            ? result.OwnedCollectionVersion
-            : catalogOwnedCollectionOwner.OwnedCollectionVersion;
+        result.CatalogRevision = result.CatalogRevision > 0
+            ? result.CatalogRevision
+            : catalogOwnedCollectionOwner.CatalogRevision;
         // 内部反映で確定した世代を、lease 解放後に購読者へ公開する。
-        raiseOwnedCollectionVersionChanged();
+        raiseCatalogRevisionChanged();
         result.OwnedCollectionChangeNotified = true;
     }
 
@@ -1741,8 +1565,6 @@ internal sealed partial class LibraryMutationOwner
     internal ResourceHealthIndexCurrentVersion GetCurrentResourceHealthIndexVersion()
     {
         return new ResourceHealthIndexCurrentVersion(
-            new OwnedChartCollectionVersionSnapshot(catalogOwnedCollectionOwner.OwnedCollectionVersion),
-            catalogOwnedCollectionOwner.OwnedCollectionVersion,
             resourceHealthOwner.CurrentInputVersion);
     }
 
@@ -2118,7 +1940,7 @@ internal sealed partial class LibraryMutationOwner
             lr2SynchronizationOwner.SyncLr2NormalFoldersForCatalogMutation(
                 CreateLr2NormalFolderCatalogMutationReceipt(
                     catalogReceipt,
-                    mutationResult.OwnedCollectionVersion),
+                    mutationResult.CatalogRevision),
                 performanceLogContext ?? defaultReason,
                 mutationCapability);
             timings.Lr2NormalFolderSyncMs = StopPerformanceStepStopwatch(lr2NormalFolderSyncStopwatch);
@@ -2183,10 +2005,6 @@ internal sealed partial class LibraryMutationOwner
             {
                 InvalidateInstalledDirectoryIndex();
             }
-            else if (mutationResult?.InstallEstimationMetadataProfileCacheInvalidated == true)
-            {
-                InvalidateInstallEstimationMetadataProfileCache();
-            }
             if (mutationResult?.ParentFolderInvalidated == true)
             {
                 InvalidateParentFolderListCache();
@@ -2230,14 +2048,14 @@ internal sealed partial class LibraryMutationOwner
             return;
         }
 
+        mutationResult.PresentationChangedCharts.AddRange(receipt.Commit?.Changes.Where(change => change.After != null).Select(change => change.After) ?? []);
         mutationResult.AddedCount = receipt.AddedCharts.Count;
         mutationResult.RemovedCount = receipt.RemovedCharts.Count;
         mutationResult.MovedCount = receipt.MovedCharts.Count;
         bool hasCatalogFacts = receipt.AddedCharts.Count > 0
             || receipt.RemovedCharts.Count > 0
             || receipt.MovedCharts.Count > 0;
-        mutationResult.OwnedCollectionVersion = receipt.OwnedCollectionVersion;
-        mutationResult.OwnedCollectionVersionAlreadyAdvanced = hasCatalogFacts;
+        mutationResult.CatalogRevision = receipt.CatalogRevision;
         mutationResult.BmsonCanonicalOrderNormalized |= receipt.BmsonCanonicalOrderNormalized;
         mutationResult.OwnedCollectionChanged |= hasCatalogFacts;
         mutationResult.DuplicateCacheInvalidated |= receipt.AddedCharts.Count > 0
@@ -2258,16 +2076,16 @@ internal sealed partial class LibraryMutationOwner
         {
             return;
         }
-        int ownedCollectionVersion = result.OwnedCollectionVersion > 0 ? result.OwnedCollectionVersion : catalogOwnedCollectionOwner.OwnedCollectionVersion;
+        int catalogRevision = result.CatalogRevision > 0 ? result.CatalogRevision : catalogOwnedCollectionOwner.CatalogRevision;
         int version = normalLibraryRefreshPublisher.Publish(new NormalLibraryRefreshPublishRequest
         {
-            OwnedCollectionVersion = ownedCollectionVersion,
+            CatalogRevision = catalogRevision,
             Effects = effects,
             InstallDestinationChangedCharts = installDestinationChangedCharts,
 
             ResetsPriorNotifications = false,
 
-            ChangedCharts = CaptureChangedCurrentCharts(result),
+            ChangedCharts = [],
             InstalledChartChanges = result.InstalledChartChanges,
             DeletedTokens = result.DeletedTokens,
             ChangedDetailMd5s = result.ChangedDetailMd5s,
@@ -2279,34 +2097,9 @@ internal sealed partial class LibraryMutationOwner
     private IReadOnlyList<ChartFile> CaptureChangedCurrentCharts(OwnedChartCollectionMutationResult result)
     {
         IEnumerable<ChartFile> captured = result.StorageMutation.AddedCharts
-            .Concat(result.StorageMutation.PathChanges.Select(change => change.Chart))
             .Concat(result.ResourceHealthMutation.UpdatedTargets)
             .Concat(result.InstallDestinationChangedCharts).Concat(result.PresentationChangedCharts);
-        Dictionary<OwnedChartToken, ChartFile> currentByToken = [];
-        lock (catalogOwnedCollectionOwner.Gate)
-        {
-            foreach (ChartFile chart in captured)
-            {
-                ChartFile current = catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart));
-                if (current?.Token != null)
-                {
-                    currentByToken[current.Token] = current;
-                }
-            }
-        }
-        lock (catalogOwnedCollectionOwner.Gate)
-        {
-            foreach (LibraryChartDigestChange change in result.DigestChanges)
-            {
-                ChartFile current = catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(
-                    LibraryChartRef.FromPath(change.Kind, change.Path, change.NewMd5, change.NewSha256));
-                if (current?.Token != null)
-                {
-                    currentByToken[current.Token] = current;
-                }
-            }
-        }
-        return [.. currentByToken.Values];
+        return [.. captured.Where(chart => chart?.Token != null).GroupBy(chart => chart.Token).Select(group => group.Last())];
     }
 
     private static LibraryChartRefreshEffects CreateLibraryChartRefreshEffects(
@@ -2336,15 +2129,6 @@ internal sealed partial class LibraryMutationOwner
 
     private void PublishNormalLibraryRefreshResetNotification(bool notifiesBmsFiles, bool notifiesBmsonSongs)
     {
-        normalLibraryRefreshPublisher.Publish(new NormalLibraryRefreshPublishRequest
-        {
-            OwnedCollectionVersion = catalogOwnedCollectionOwner.OwnedCollectionVersion,
-            Effects = LibraryChartRefreshEffects.SourceChanged | LibraryChartRefreshEffects.InstallDestinationOverlayChanged,
-            InstallDestinationChangedCharts = [],
-
-            ResetsPriorNotifications = true,
-
-        });
         raiseNormalLibraryRefreshVersionChanged();
     }
 
@@ -2364,7 +2148,7 @@ internal sealed partial class LibraryMutationOwner
         {
             return;
         }
-        normalLibraryRefreshPublisher.Clear(result.NormalLibraryRefreshNotificationVersion);
+        normalLibraryRefreshPublisher.ClearLegacyNotification(result.NormalLibraryRefreshNotificationVersion);
     }
 
     private void RaiseNormalLibraryRefreshNotificationVersionChanged(OwnedChartCollectionMutationResult result)
@@ -2373,14 +2157,6 @@ internal sealed partial class LibraryMutationOwner
         {
             raiseNormalLibraryRefreshVersionChanged();
         }
-    }
-
-    /// <summary>
-    /// install estimation が保持する metadata profile cache を失効させます。
-    /// </summary>
-    internal void InvalidateInstallEstimationMetadataProfileCache()
-    {
-        invalidateInstallEstimationMetadataProfileCache();
     }
 
     private bool InvalidateDuplicateChartGroupsCache(bool publishNotification = true)
@@ -2436,16 +2212,16 @@ internal sealed partial class LibraryMutationOwner
 
     private Lr2NormalFolderCatalogMutationReceipt CreateLr2NormalFolderCatalogMutationReceipt(
         CatalogInstalledTargetUpsertReceipt receipt,
-        int ownedCollectionVersion)
+        int catalogRevision)
     {
-        return createInstalledTargetLr2NormalFolderMutationReceipt(receipt, ownedCollectionVersion);
+        return createInstalledTargetLr2NormalFolderMutationReceipt(receipt, catalogRevision);
     }
 
     private Lr2NormalFolderCatalogMutationReceipt CreateLr2NormalFolderCatalogMutationReceipt(
         CatalogMutationReceipt receipt,
-        int ownedCollectionVersion)
+        int catalogRevision)
     {
-        return createCatalogLr2NormalFolderMutationReceipt(receipt, ownedCollectionVersion);
+        return createCatalogLr2NormalFolderMutationReceipt(receipt, catalogRevision);
     }
 
     private bool TryCreateOwnedCanonicalChartRefsForPathsUnsafe(
@@ -2571,7 +2347,6 @@ internal sealed partial class LibraryMutationOwner
         };
         mutationResult.PresentationChangedCharts.AddRange(changedCharts ?? []);
         mutationResult.OwnedCollectionChanged = basicValuesChanged && changedCharts?.Count > 0;
-        mutationResult.OwnedCollectionVersionAlreadyAdvanced = mutationResult.OwnedCollectionChanged;
         Action duplicateChartGroupsPostLeaseNotification = ApplyOwnedChartCollectionMutation(
             mutationResult,
             reason);

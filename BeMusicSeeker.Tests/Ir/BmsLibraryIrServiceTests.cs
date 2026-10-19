@@ -1397,13 +1397,13 @@ public sealed class BmsLibraryIrServiceTests
         BMSLibrary.IRDataCacheInfo successfulTarget = CreateCacheInfo(successHash, updatedAt);
         BMSLibrary.IRDataCacheInfo failedTarget = CreateCacheInfo(failedHash, updatedAt);
         var observations = new List<(int Version, int SnapshotVersion, int Subscriptions, int? Score)>();
-        Action<ScoreSnapshotChange> handler = _ =>
+        System.ComponentModel.PropertyChangedEventHandler handler = ScoreSnapshotTestSupport.CreateChangeHandler(library, _ =>
         {
             observations.Add((library.ScoreSnapshotVersion, library.GetScoreSnapshotForDiagnostics().Version,
                 library.ScoreSubscriptionCount, library.ResolveChartScoreSnapshot(ChartFileKind.Bms, "success.bms", successHash, string.Empty).Score));
             throw new InvalidOperationException("controlled download snapshot notification failure");
-        };
-        library.ScoreSnapshotChanged += handler;
+        });
+        library.PropertyChanged += handler;
         try
         {
             List<BMSLibrary.IRDataCacheInfo> failed = library.DownloadIRData([successfulTarget, failedTarget]);
@@ -1421,7 +1421,7 @@ public sealed class BmsLibraryIrServiceTests
         }
         finally
         {
-            library.ScoreSnapshotChanged -= handler;
+            library.PropertyChanged -= handler;
             library.RequestShutdown("download-model-fixture-cleanup");
         }
     }

@@ -1009,9 +1009,8 @@ public sealed class GridKeywordSearchQueryTests
     {
         ChartFile file = CreateFile();
         BMSTable table = CreateTable("Satellite sl", "SL");
-        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromCharts([file]);
-        var projectionIndex = PlayHistoryProjectionIndex.Create(
-            resolveIndex,
+        PlayHistoryProjectionIndex projectionIndex = PlayHistoryCatalogTestSupport.Create(
+            [file],
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [file.Md5] = file.Sha256 },
             (md5, sha256) => new PlaylistReferenceDisplay(
                 [new PlaylistReferenceTableDisplaySnapshot(table.symbol, table.name)]),

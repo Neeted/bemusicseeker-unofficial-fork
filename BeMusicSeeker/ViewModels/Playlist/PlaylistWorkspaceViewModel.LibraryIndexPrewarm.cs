@@ -18,7 +18,7 @@ internal sealed class PlaylistLibraryIndexReadinessSnapshot
 }
 
 /// <summary>
-/// Owns the playlist library resolve-index prewarm lifecycle used by the playlist detail workflow.
+/// playlist 詳細で使う候補索引の初回準備と取消寿命を所有します。
 /// </summary>
 public sealed partial class PlaylistWorkspaceViewModel
 {
@@ -29,167 +29,71 @@ public sealed partial class PlaylistWorkspaceViewModel
             : MainViewUpdateMode.PlaylistFilterSelected;
     }
 
-    private const int PlaylistLibraryIndexPrewarmDebounceMs = 500;
-
     private readonly object playlistLibraryIndexSync = new();
-
-    // 先読みの取消・重複排除専用。索引のOwnedCollectionVersionとは独立した寿命番号。
-    private long playlistLibraryIndexPrewarmGeneration;
-
     private Task<PlaylistLibraryResolveIndexSnapshot> playlistLibraryIndexPrewarmTask;
-
-    private long playlistLibraryIndexPrewarmTaskGeneration;
-
+    private IPlaylistDetailDataSource playlistLibraryIndexPrewarmSource;
     private CancellationTokenSource playlistLibraryIndexPrewarmCancellation;
-
-    private int duplicateRefreshPriorityDepth;
-
-    private bool deferredPlaylistLibraryIndexPrewarmForDuplicateRefresh;
-
-    private long deferredPlaylistLibraryIndexPrewarmGeneration;
-
-    private string deferredPlaylistLibraryIndexPrewarmReason;
-
     private readonly Func<string, Func<Task>, bool> playlistLibraryIndexPrewarmScheduler;
-
     private bool playlistLibraryIndexShutdownRequested;
 
     private void ResetPlaylistLibraryIndexPrewarmForDataSourceChange()
     {
         lock (playlistLibraryIndexSync)
         {
-            playlistLibraryIndexPrewarmGeneration++;
-            playlistLibraryIndexPrewarmCancellation?.Cancel();
-            deferredPlaylistLibraryIndexPrewarmForDuplicateRefresh = false;
-            deferredPlaylistLibraryIndexPrewarmGeneration = 0;
-            deferredPlaylistLibraryIndexPrewarmReason = null;
+            if (!ReferenceEquals(playlistLibraryIndexPrewarmSource, Volatile.Read(ref detailDataSource)))
+            { playlistLibraryIndexPrewarmCancellation?.Cancel(); }
         }
     }
 
-    internal void InvalidatePlaylistLibraryIndexSnapshot(
-        string reason,
-        bool startupReadyOperable,
-        MainViewUpdateMode currentTreeViewMode)
-    {
-        long nextVersion;
-        lock (playlistLibraryIndexSync)
-        {
-            nextVersion = ++playlistLibraryIndexPrewarmGeneration;
-        }
-        LogPlaylistLibraryIndex("playlist_library_index invalidated version=" + nextVersion + " reason=" + reason);
-        if (!startupReadyOperable)
-        {
-            LogPlaylistLibraryIndex("playlist_library_index_prewarm deferred_until_operable version=" + nextVersion + " reason=" + reason);
-            return;
-        }
-        if (TryDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
-            nextVersion,
-            reason,
-            startupReadyOperable,
-            currentTreeViewMode))
-        {
-            return;
-        }
-        SchedulePlaylistLibraryIndexPrewarm(nextVersion, reason);
-    }
-
+    /// <summary>初回の cold 候補索引を既存schedulerで準備します。予約時のsourceを捕捉し、交換後の古い予約は実行しません。</summary>
     internal void SchedulePlaylistLibraryIndexPrewarm(string reason)
     {
-        long targetVersion;
-        lock (playlistLibraryIndexSync)
+        IPlaylistDetailDataSource source = Volatile.Read(ref detailDataSource);
+        if (source == null) { return; }
+        if (string.Equals(reason, "initialize_completed", StringComparison.OrdinalIgnoreCase))
         {
-            targetVersion = playlistLibraryIndexPrewarmGeneration;
-        }
-        SchedulePlaylistLibraryIndexPrewarm(targetVersion, reason);
-    }
-
-    private void SchedulePlaylistLibraryIndexPrewarm(long targetVersion, string reason)
-    {
-        if (Volatile.Read(ref detailDataSource) == null)
-        {
+            if (!playlistLibraryIndexPrewarmScheduler(reason,
+                async () => { await StartPlaylistLibraryIndexPrewarmTask(source, reason).ConfigureAwait(false); }))
+            { LogPlaylistLibraryIndex("playlist_library_index_prewarm skipped reason=" + reason + " detail=startup_scheduler_rejected"); }
             return;
         }
-        bool debounce = ShouldDebouncePlaylistLibraryIndexPrewarm(reason);
-        int delayMs = debounce ? PlaylistLibraryIndexPrewarmDebounceMs : 0;
-        if (!debounce && string.Equals(reason, "initialize_completed", StringComparison.OrdinalIgnoreCase))
-        {
-            LogPlaylistLibraryIndex("playlist_library_index_prewarm queued version=" + targetVersion + " reason=" + reason + " debounceMs=" + delayMs + " source=scheduler");
-            if (playlistLibraryIndexPrewarmScheduler(
-                reason,
-                async delegate
-                {
-                    Task<PlaylistLibraryResolveIndexSnapshot> task = StartPlaylistLibraryIndexPrewarmTask(targetVersion, reason, delayMs, "scheduler");
-                    if (task != null)
-                    {
-                        await task.ConfigureAwait(false);
-                    }
-                }))
-            {
-                return;
-            }
-            LogPlaylistLibraryIndex("playlist_library_index_prewarm skipped version=" + targetVersion + " reason=" + reason + " detail=startup_scheduler_rejected");
-            return;
-        }
-        StartPlaylistLibraryIndexPrewarmTask(targetVersion, reason, delayMs, debounce ? "debounce" : "inline");
+        StartPlaylistLibraryIndexPrewarmTask(source, reason);
     }
 
-    private Task<PlaylistLibraryResolveIndexSnapshot> StartPlaylistLibraryIndexPrewarmTask(
-        long targetVersion,
-        string reason,
-        int delayMs,
-        string source)
+    private Task<PlaylistLibraryResolveIndexSnapshot> StartPlaylistLibraryIndexPrewarmTask(IPlaylistDetailDataSource source, string reason)
     {
         lock (playlistLibraryIndexSync)
         {
-            if (playlistLibraryIndexPrewarmGeneration != targetVersion)
-            {
-                LogPlaylistLibraryIndex("playlist_library_index_prewarm stale_skipped version=" + targetVersion + " currentVersion=" + playlistLibraryIndexPrewarmGeneration + " reason=" + reason + " source=" + source);
-                return Task.FromResult<PlaylistLibraryResolveIndexSnapshot>(null);
-            }
-            if (playlistLibraryIndexShutdownRequested)
-            {
-                LogPlaylistLibraryIndex("playlist_library_index_prewarm skipped version=" + targetVersion + " reason=" + reason + " source=" + source + " detail=shutdown_requested");
-                return Task.FromResult<PlaylistLibraryResolveIndexSnapshot>(null);
-            }
-            if (playlistLibraryIndexPrewarmTask != null
-                && !playlistLibraryIndexPrewarmTask.IsCompleted
-                && playlistLibraryIndexPrewarmTaskGeneration == targetVersion
+            if (!ReferenceEquals(source, Volatile.Read(ref detailDataSource)) || playlistLibraryIndexShutdownRequested)
+            { return Task.FromResult<PlaylistLibraryResolveIndexSnapshot>(null); }
+            if (playlistLibraryIndexPrewarmTask != null && !playlistLibraryIndexPrewarmTask.IsCompleted
+                && ReferenceEquals(source, playlistLibraryIndexPrewarmSource)
                 && playlistLibraryIndexPrewarmCancellation?.IsCancellationRequested != true)
-            {
-                return playlistLibraryIndexPrewarmTask;
-            }
-            if (playlistLibraryIndexPrewarmTask != null && !playlistLibraryIndexPrewarmTask.IsCompleted)
-            {
-                playlistLibraryIndexPrewarmCancellation?.Cancel();
-                LogPlaylistLibraryIndex("playlist_library_index_prewarm debounced oldVersion=" + playlistLibraryIndexPrewarmTaskGeneration + " newVersion=" + targetVersion + " reason=" + reason);
-            }
+            { return playlistLibraryIndexPrewarmTask; }
+            playlistLibraryIndexPrewarmCancellation?.Cancel();
             playlistLibraryIndexPrewarmCancellation = new CancellationTokenSource();
-            CancellationToken prewarmToken = playlistLibraryIndexPrewarmCancellation.Token;
-            playlistLibraryIndexPrewarmTaskGeneration = targetVersion;
-            LogPlaylistLibraryIndex("playlist_library_index_prewarm scheduled version=" + targetVersion + " reason=" + reason + " debounceMs=" + delayMs + " source=" + source);
-            playlistLibraryIndexPrewarmTask = Task.Run(async delegate
+            CancellationToken token = playlistLibraryIndexPrewarmCancellation.Token;
+            playlistLibraryIndexPrewarmSource = source;
+            playlistLibraryIndexPrewarmTask = Task.Run(() =>
             {
                 var stopwatch = Stopwatch.StartNew();
-                LogPlaylistLibraryIndex("playlist_library_index_prewarm started version=" + targetVersion + " reason=" + reason + " source=" + source);
                 try
                 {
-                    if (delayMs > 0)
-                    {
-                        await Task.Delay(delayMs, prewarmToken).ConfigureAwait(false);
-                    }
-                    prewarmToken.ThrowIfCancellationRequested();
-                    PlaylistLibraryResolveIndexSnapshot snapshot = CreatePlaylistLibraryResolveIndexSnapshot(prewarmToken, out bool cacheHit, out int staleRetryCount);
-                    LogPlaylistLibraryIndex("playlist_library_index_prewarm completed version=" + targetVersion + " status=" + (cacheHit ? "cached" : "built") + " chartsByMd5Count=" + snapshot.Md5HashCount + " buildMs=" + snapshot.BuildElapsedMs + " staleRetries=" + staleRetryCount + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " source=" + source);
+                    PlaylistLibraryResolveIndexSnapshot snapshot = CreatePlaylistLibraryResolveIndexSnapshot(source, token,
+                        out bool cacheHit, out int staleRetryCount);
+                    LogPlaylistLibraryIndex("playlist_library_index_prewarm completed status=" + (cacheHit ? "cached" : "built")
+                        + " chartsByMd5Count=" + snapshot.Md5HashCount + " buildMs=" + snapshot.BuildElapsedMs
+                        + " staleRetries=" + staleRetryCount + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
                     return snapshot;
                 }
                 catch (OperationCanceledException)
                 {
-                    LogPlaylistLibraryIndex("playlist_library_index_prewarm cancelled version=" + targetVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " source=" + source);
+                    LogPlaylistLibraryIndex("playlist_library_index_prewarm cancelled reason=" + reason);
                     throw;
                 }
-                catch (Exception ex)
+                catch (Exception failure)
                 {
-                    LogPlaylistLibraryIndex("playlist_library_index_prewarm failed version=" + targetVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " exception=" + ex.GetType().Name + " source=" + source);
+                    LogPlaylistLibraryIndex("playlist_library_index_prewarm failed reason=" + reason + " exception=" + failure.GetType().Name);
                     throw;
                 }
             });
@@ -197,144 +101,12 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    private static bool ShouldDebouncePlaylistLibraryIndexPrewarm(string reason)
-    {
-        return string.Equals(reason, "library_charts_changed", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(reason, "library_bmsons_changed", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(reason, "owned_collection_changed", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
-        string reason,
-        bool startupReadyOperable,
-        bool duplicateRefreshPriorityActive,
-        MainViewUpdateMode currentTreeViewMode)
-    {
-        return startupReadyOperable
-            && duplicateRefreshPriorityActive
-            && currentTreeViewMode == MainViewUpdateMode.DuplicateFilterSelected
-            && string.Equals(reason, "owned_collection_changed", StringComparison.OrdinalIgnoreCase);
-    }
-
-    internal static bool ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
-        string reason,
-        bool startupReadyOperable,
-        bool duplicateRefreshPriorityActive,
-        int currentTreeViewMode)
-    {
-        return ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
-            reason,
-            startupReadyOperable,
-            duplicateRefreshPriorityActive,
-            (MainViewUpdateMode)currentTreeViewMode);
-    }
-
-    private bool TryDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
-        long targetVersion,
-        string reason,
-        bool startupReadyOperable,
-        MainViewUpdateMode currentTreeViewMode)
-    {
-        if (!ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
-            reason,
-            startupReadyOperable,
-            duplicateRefreshPriorityActive: duplicateRefreshPriorityDepth > 0,
-            currentTreeViewMode))
-        {
-            return false;
-        }
-
-        lock (playlistLibraryIndexSync)
-        {
-            if (!startupReadyOperable
-                || duplicateRefreshPriorityDepth <= 0
-                || currentTreeViewMode != MainViewUpdateMode.DuplicateFilterSelected
-                || !string.Equals(reason, "owned_collection_changed", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-            deferredPlaylistLibraryIndexPrewarmForDuplicateRefresh = true;
-            deferredPlaylistLibraryIndexPrewarmGeneration = targetVersion;
-            deferredPlaylistLibraryIndexPrewarmReason = reason;
-            if (playlistLibraryIndexPrewarmTask != null && !playlistLibraryIndexPrewarmTask.IsCompleted)
-            {
-                playlistLibraryIndexPrewarmCancellation?.Cancel();
-                LogPlaylistLibraryIndex("playlist_library_index_prewarm cancelled_for_duplicate_refresh oldVersion="
-                    + playlistLibraryIndexPrewarmTaskGeneration
-                    + " newVersion=" + targetVersion
-                    + " reason=" + reason);
-            }
-        }
-
-        LogPlaylistLibraryIndex("playlist_library_index_prewarm deferred_for_duplicate_refresh version="
-            + targetVersion
-            + " reason=" + reason);
-        return true;
-    }
-
-    internal void BeginDuplicateRefreshPriorityWindow(string reason)
-    {
-        int depth;
-        lock (playlistLibraryIndexSync)
-        {
-            duplicateRefreshPriorityDepth++;
-            depth = duplicateRefreshPriorityDepth;
-        }
-        LogPlaylistLibraryIndex("duplicate_refresh_priority begin depth=" + depth + " reason=" + (reason ?? string.Empty));
-    }
-
-    internal void ReleaseDuplicateRefreshPriorityWindow(string reason)
-    {
-        long targetVersion = 0;
-        string prewarmReason = null;
-        int depth;
-        bool releasePrewarm = false;
-        bool hadActiveWindow = false;
-        lock (playlistLibraryIndexSync)
-        {
-            if (duplicateRefreshPriorityDepth > 0)
-            {
-                hadActiveWindow = true;
-                duplicateRefreshPriorityDepth--;
-            }
-            depth = duplicateRefreshPriorityDepth;
-            if (duplicateRefreshPriorityDepth == 0 && deferredPlaylistLibraryIndexPrewarmForDuplicateRefresh)
-            {
-                releasePrewarm = true;
-                targetVersion = deferredPlaylistLibraryIndexPrewarmGeneration;
-                prewarmReason = deferredPlaylistLibraryIndexPrewarmReason;
-                deferredPlaylistLibraryIndexPrewarmForDuplicateRefresh = false;
-                deferredPlaylistLibraryIndexPrewarmGeneration = 0;
-                deferredPlaylistLibraryIndexPrewarmReason = null;
-            }
-        }
-
-        if (!hadActiveWindow && !releasePrewarm)
-        {
-            return;
-        }
-
-        LogPlaylistLibraryIndex("duplicate_refresh_priority end depth=" + depth + " reason=" + (reason ?? string.Empty));
-        if (!releasePrewarm)
-        {
-            return;
-        }
-
-        LogPlaylistLibraryIndex("playlist_library_index_prewarm released_after_duplicate_refresh version="
-            + targetVersion
-            + " reason=" + prewarmReason
-            + " releaseReason=" + (reason ?? string.Empty));
-        SchedulePlaylistLibraryIndexPrewarm(targetVersion, prewarmReason);
-    }
-
-    private PlaylistLibraryResolveIndexSnapshot CreatePlaylistLibraryResolveIndexSnapshot(
-        CancellationToken cancellationToken,
+    private static PlaylistLibraryResolveIndexSnapshot CreatePlaylistLibraryResolveIndexSnapshot(
+        IPlaylistDetailDataSource dataSource, CancellationToken cancellationToken,
         out bool cacheHit,
         out int staleRetryCount)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        IPlaylistDetailDataSource dataSource = Volatile.Read(ref detailDataSource)
-            ?? throw new InvalidOperationException("Playlist detail data source is not attached.");
         PlaylistLibraryResolveIndexSnapshot resolveIndex = dataSource.GetResolveIndexSnapshot(
             cancellationToken,
             out cacheHit,
@@ -343,22 +115,21 @@ public sealed partial class PlaylistWorkspaceViewModel
         return resolveIndex;
     }
 
+    /// <summary>同じ接続sourceの現在候補版と実prewarm taskだけから表示準備状態を返します。</summary>
     internal PlaylistLibraryIndexReadinessSnapshot CapturePlaylistLibraryIndexReadinessSnapshot()
     {
         IPlaylistDetailDataSource dataSource = Volatile.Read(ref detailDataSource);
         BMSLibrary.PlaylistLibraryResolveIndexRuntimeState modelState = dataSource?.GetResolveIndexRuntimeState();
         Task<PlaylistLibraryResolveIndexSnapshot> prewarmTask = null;
-        long currentVersion = 0L;
-        long prewarmVersion = 0L;
+        IPlaylistDetailDataSource prewarmSource;
         lock (playlistLibraryIndexSync)
         {
             prewarmTask = playlistLibraryIndexPrewarmTask;
-            currentVersion = playlistLibraryIndexPrewarmGeneration;
-            prewarmVersion = playlistLibraryIndexPrewarmTaskGeneration;
+            prewarmSource = playlistLibraryIndexPrewarmSource;
         }
         if (modelState?.IsCached == true
             && dataSource != null
-            && modelState.OwnedCollectionVersion == dataSource.OwnedCollectionVersion)
+            && modelState.CatalogRevision == dataSource.CatalogRevision)
         {
             return new PlaylistLibraryIndexReadinessSnapshot
             {
@@ -366,7 +137,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 BuildElapsedMs = modelState.BuildElapsedMs
             };
         }
-        if (prewarmTask != null && prewarmVersion == currentVersion)
+        if (prewarmTask != null && ReferenceEquals(prewarmSource, dataSource))
         {
             if (prewarmTask.IsCompleted)
             {

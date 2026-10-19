@@ -997,16 +997,6 @@ public sealed class MainChartListViewModel : ViewModel
         }
     }
 
-    internal bool TryUpdateNormalSummary(IList expectedRows, int rowCount, int distinctFolderCount)
-    {
-        if (!ReferenceEquals(rows, expectedRows))
-        {
-            return false;
-        }
-        UpdateSummaryText(rowCount, distinctFolderCount);
-        return true;
-    }
-
     private static CustomTableRowDragKind ResolveRowDragKind(CustomTableColumnSettings settings)
     {
         return CustomTableRowDragKind.PlaylistDropCandidateRows;

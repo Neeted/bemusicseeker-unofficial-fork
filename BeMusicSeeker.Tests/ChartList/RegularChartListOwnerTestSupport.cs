@@ -74,6 +74,7 @@ internal static class RegularChartListOwnerTestSupport
     /// <remarks>
     /// この fixture は別の mutation を実行すると通知前に catalog writer 待ちになるため、
     /// UI subscriber の非同期スケジューリングを確認するために通知だけを発行します。
+    /// 呼出し前に正規catalog ownerでreceiptを確定しておき、この口で新しい通知を登録しません。
     /// 現行の具象 <see cref="BMSLibrary" /> には typed attach source の注入経路がないため、
     /// owner フィールドだけを反射で取得し、既存の typed internal publication method を呼び出します。
     /// </remarks>
@@ -449,7 +450,7 @@ internal static class RegularChartListOwnerTestSupport
 
         public bool IsCompleted => completion.Task.IsCompleted;
 
-        public bool IsAborted => false;
+        public bool IsAborted { get; private set; }
 
         public string RejectionReason => string.Empty;
 
@@ -457,10 +458,13 @@ internal static class RegularChartListOwnerTestSupport
 
         public void Abort()
         {
+            IsAborted = true;
+            completion.TrySetCanceled();
         }
 
         internal void Execute(Action action)
         {
+            if (IsAborted) { return; }
             try
             {
                 action();
@@ -536,50 +540,4 @@ internal static class RegularChartListOwnerTestSupport
         }
     }
 
-    /// <summary>実summary走査の添字読取りだけをgateで止め、共有走査回数と取消・停止の収束を観測します。</summary>
-    internal sealed class BlockingIndexedSourceRows : IReadOnlyList<ChartListSourceRow>, IDisposable
-    {
-        private readonly IReadOnlyList<ChartListSourceRow> rows;
-        private int indexReadCount;
-
-        internal BlockingIndexedSourceRows(params ChartListSourceRow[] rows)
-        {
-            this.rows = rows;
-        }
-
-        internal ManualResetEventSlim IndexReadStarted { get; } = new();
-
-        internal ManualResetEventSlim ReleaseIndexRead { get; } = new();
-
-        internal int IndexReadCount => Volatile.Read(ref indexReadCount);
-
-        public int Count => rows.Count;
-
-        public ChartListSourceRow this[int index]
-        {
-            get
-            {
-                Interlocked.Increment(ref indexReadCount);
-                IndexReadStarted.Set();
-                ReleaseIndexRead.Wait();
-                return rows[index];
-            }
-        }
-
-        public IEnumerator<ChartListSourceRow> GetEnumerator()
-        {
-            return rows.GetEnumerator();
-        }
-
-        IEnumerator IEnumerable.GetEnumerator()
-        {
-            return GetEnumerator();
-        }
-
-        public void Dispose()
-        {
-            IndexReadStarted.Dispose();
-            ReleaseIndexRead.Dispose();
-        }
-    }
 }

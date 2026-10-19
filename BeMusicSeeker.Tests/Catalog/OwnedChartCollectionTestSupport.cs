@@ -46,7 +46,7 @@ internal static class OwnedChartCollectionTestSupport
         state.ApplyPathChanges(moves);
         foreach (ChartFile value in values)
         {
-            Assert.IsTrue(state.ApplyCurrentChartValue(value));
+            Assert.AreNotEqual(CatalogCurrentValueApplyResult.NotFound, state.ApplyCurrentChartValue(value));
         }
     }
 
@@ -108,7 +108,7 @@ internal static class OwnedChartCollectionTestSupport
 
     internal static void SetLibraryFilesWithoutNotification(BMSLibrary library, IEnumerable<ChartFile> files)
     {
-        int previousVersion = library.CatalogStorageRowsVersion.OwnedCollectionVersion;
+        int previousVersion = library.CatalogStorageRowsVersion.CatalogRevision;
         using var published = new ManualResetEventSlim(false);
         System.ComponentModel.PropertyChangedEventHandler handler = (_, args) =>
         {
@@ -122,7 +122,7 @@ internal static class OwnedChartCollectionTestSupport
         {
             ChartFile[] setupFiles = [.. files ?? []];
             TestUiDispatcherHost.Invoke(() => library.BmsCharts = setupFiles);
-            if (library.CatalogStorageRowsVersion.OwnedCollectionVersion != previousVersion)
+            if (library.CatalogStorageRowsVersion.CatalogRevision != previousVersion)
             {
                 published.Wait();
             }
@@ -135,7 +135,7 @@ internal static class OwnedChartCollectionTestSupport
 
     internal static void SetLibraryBmsonSongsWithoutNotification(BMSLibrary library, IEnumerable<ChartFile> songs)
     {
-        int previousVersion = library.CatalogStorageRowsVersion.OwnedCollectionVersion;
+        int previousVersion = library.CatalogStorageRowsVersion.CatalogRevision;
         using var published = new ManualResetEventSlim(false);
         System.ComponentModel.PropertyChangedEventHandler handler = (_, args) =>
         {
@@ -149,7 +149,7 @@ internal static class OwnedChartCollectionTestSupport
         {
             ChartFile[] setupSongs = [.. songs ?? []];
             TestUiDispatcherHost.Invoke(() => library.BmsonCharts = setupSongs);
-            if (library.CatalogStorageRowsVersion.OwnedCollectionVersion != previousVersion)
+            if (library.CatalogStorageRowsVersion.CatalogRevision != previousVersion)
             {
                 published.Wait();
             }

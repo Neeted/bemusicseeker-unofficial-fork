@@ -519,6 +519,8 @@ internal sealed class PlayHistoryProjectionIndex
 {
     private readonly IReadOnlyDictionary<string, string> sha256ByMd5;
 
+    private readonly CatalogReadSnapshot catalogSnapshot;
+
     private readonly Func<string, string, PlaylistReferenceDisplay> playlistReferenceResolver;
 
     private readonly Func<string, string, BeMusicSeeker.Models.ChartDetails> chartInfoResolver;
@@ -527,8 +529,9 @@ internal sealed class PlayHistoryProjectionIndex
         PlaylistLibraryResolveIndexSnapshot resolveIndex,
         IReadOnlyDictionary<string, string> sha256ByMd5,
         Func<string, string, PlaylistReferenceDisplay> playlistReferenceResolver,
-        Func<string, string, BeMusicSeeker.Models.ChartDetails> chartInfoResolver)
+        Func<string, string, BeMusicSeeker.Models.ChartDetails> chartInfoResolver, CatalogReadSnapshot catalogSnapshot = null)
     {
+        this.catalogSnapshot = catalogSnapshot;
         ResolveIndex = resolveIndex ?? PlaylistLibraryResolveIndexSnapshot.Empty;
         var sha256Map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (KeyValuePair<string, string> pair in sha256ByMd5 ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase))
@@ -555,15 +558,17 @@ internal sealed class PlayHistoryProjectionIndex
         PlaylistLibraryResolveIndexSnapshot resolveIndex,
         IReadOnlyDictionary<string, string> sha256ByMd5 = null,
         Func<string, string, PlaylistReferenceDisplay> playlistReferenceResolver = null,
-        Func<string, string, BeMusicSeeker.Models.ChartDetails> chartInfoResolver = null)
+        Func<string, string, BeMusicSeeker.Models.ChartDetails> chartInfoResolver = null, CatalogReadSnapshot catalogSnapshot = null)
     {
-        return new PlayHistoryProjectionIndex(resolveIndex, sha256ByMd5, playlistReferenceResolver, chartInfoResolver);
+        return new PlayHistoryProjectionIndex(resolveIndex, sha256ByMd5, playlistReferenceResolver, chartInfoResolver, catalogSnapshot);
     }
 
     /// <summary>プレイリストと同じ代表選択で、索引が捕捉した共通基本値を返します。</summary>
     internal ChartFile ResolveChartByMd5(string md5, string sha256)
     {
-        return ResolveIndex.ResolveChartSnapshot(ResolveIndex.ResolveChartForPlaylistHash(md5, sha256));
+        PlaylistEntryLookupKey key = !string.IsNullOrWhiteSpace(md5)
+            ? new(PlaylistEntryLookupKeyKind.Md5, md5) : new(PlaylistEntryLookupKeyKind.Sha256, sha256);
+        return catalogSnapshot?.Resolve(key);
     }
 
     internal string ResolveSha256(string md5, string currentSha256)

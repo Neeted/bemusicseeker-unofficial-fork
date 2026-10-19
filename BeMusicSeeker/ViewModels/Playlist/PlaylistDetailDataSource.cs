@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -12,13 +13,18 @@ internal interface IPlaylistDetailDataSource
 {
     int ChartInfoIndexVersion { get; }
 
+    /// <summary>score ownerの現在確定位置です。sourceの反映済み位置とは区別します。</summary>
     int ScoreSnapshotVersion { get; }
 
-    long OwnedCollectionVersion { get; }
+    long CatalogRevision { get; }
 
     void EnsureEntriesLoaded(BMSTable table, string reason);
 
+    /// <summary>同じ観測点のlookupと基準版を捕捉します。初回は最初の投影前に一回捕捉し、対象全entryで共有します。</summary>
     BMSLibrary.ScoreSnapshot GetScoreSnapshot();
+
+    /// <summary>必要な候補と current を一つのカタログ読取り区間で捕捉します。</summary>
+    CatalogReadSnapshot CapturePlaylistReadSnapshot(IEnumerable<PlaylistEntryLookupKey> keys, CancellationToken cancellationToken);
 
     PlaylistLibraryResolveIndexSnapshot GetResolveIndexSnapshot(
         CancellationToken cancellationToken,
@@ -34,7 +40,9 @@ internal interface IPlaylistDetailDataSource
         ChartFile resolvedChart,
         BMSScore score,
         BeMusicSeeker.Models.ChartDetails chartInfo,
-        LibraryChartRef resolvedChartRef);
+        LibraryChartRef resolvedChartRef,
+        PlaylistEntryValue entryValue = null,
+        long entryOrder = 0);
 }
 
 internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
@@ -55,16 +63,23 @@ internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
         this.rowProjection = rowProjection ?? throw new ArgumentNullException(nameof(rowProjection));
     }
 
+    /// <summary>確定結果の接続元が同じ library であることを検査する識別です。</summary>
+    internal BMSLibrary Library => library;
     public int ChartInfoIndexVersion => library.ChartInfoIndexVersion;
 
     public int ScoreSnapshotVersion => library.GetScoreRuntimeStateForDiagnostics().SnapshotVersion;
 
-    public long OwnedCollectionVersion => library.OwnedCollectionVersion;
+    public long CatalogRevision => library.CatalogRevision;
 
     public void EnsureEntriesLoaded(BMSTable table, string reason)
     {
         playlists.EnsurePlaylistEntriesLoaded(table, reason);
+        // 初回の表示入力では通常一覧と同じ専門警告を準備します。差分投影ではこの入口を通りません。
+        library.GetResourceHealthIndexSnapshotForView("playlist_detail_source");
     }
+
+    public CatalogReadSnapshot CapturePlaylistReadSnapshot(IEnumerable<PlaylistEntryLookupKey> keys, CancellationToken cancellationToken)
+        => library.CapturePlaylistCatalogReadSnapshot(keys, cancellationToken);
 
     public BMSLibrary.ScoreSnapshot GetScoreSnapshot()
     {
@@ -97,14 +112,20 @@ internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
         ChartFile resolvedChart,
         BMSScore score,
         BeMusicSeeker.Models.ChartDetails chartInfo,
-        LibraryChartRef resolvedChartRef)
+        LibraryChartRef resolvedChartRef,
+        PlaylistEntryValue entryValue = null,
+        long entryOrder = 0)
     {
-        return rowProjection.CreatePlaylistDetailSourceRow(
+        PlaylistDetailSourceRow row = rowProjection.CreatePlaylistDetailSourceRow(
             library,
             entry,
             resolvedChart,
             score,
             chartInfo,
-            resolvedChartRef);
+            resolvedChartRef,
+            entryValue,
+            entryOrder);
+        return row.WithResourceHealthProjection(resolvedChart == null ? ResourceHealthWarningProjection.Empty
+            : library.TryGetCurrentResourceHealthWarningProjection(resolvedChart));
     }
 }

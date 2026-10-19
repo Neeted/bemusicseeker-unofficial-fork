@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -44,8 +43,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             table,
             PlaylistDetailSelectionScope.Folder,
             "target",
-            onlyNotOwned: false,
-            PlaylistLibraryResolveIndexSnapshot.Empty,
             CancellationToken.None,
             ref cancellationStage);
 
@@ -77,8 +74,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             table,
             PlaylistDetailSelectionScope.OrdinaryRoot,
             folderName: null,
-            onlyNotOwned: false,
-            PlaylistLibraryResolveIndexSnapshot.Empty,
             CancellationToken.None,
             ref cancellationStage);
 
@@ -277,13 +272,11 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             table,
             PlaylistDetailSelectionScope.Folder,
             null,
-            onlyNotOwned: true,
-            resolveIndex,
             CancellationToken.None,
             ref cancellationStage);
 
-        Assert.AreEqual(1, result.SourceRows.Count);
-        Assert.AreSame(missing, result.SourceRows[0].Entry);
+        Assert.AreEqual(2, result.SourceRows.Count);
+        CollectionAssert.AreEquivalent(new[] { owned, missing }, result.SourceRows.Select(row => row.Entry).ToArray());
     }
 
     /// <summary>取消済tokenのsource構築をOperationCanceledExceptionで終端し、取消を空集合の正常完了へ隠さないことを確認します。</summary>
@@ -303,8 +296,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             table,
             PlaylistDetailSelectionScope.OrdinaryRoot,
             null,
-            onlyNotOwned: false,
-            PlaylistLibraryResolveIndexSnapshot.Empty,
             cancellation.Token,
             ref cancellationStage));
     }
@@ -361,16 +352,14 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "request-entry");
         var highEntry = new TestablePlaylistEntry(new string('b', 32), "request-high");
         var tiedEntry = new TestablePlaylistEntry(new string('c', 32), "request-tied");
-        // 参照だけの索引ではChartInfoを落とすため、固定入力の共通値を含む既存snapshot入口を使う。
-        dataSource.ResolveIndexSnapshot = PlaylistLibraryResolveIndexSnapshot.FromCharts(
-            new[] { highEntry, tiedEntry }.Select(item =>
-                ChartFileProjection.WithChartInfo(ChartTestValues.Empty() with
-                {
-                    Path = item.title + ".bms",
-                    Md5 = item.md5,
-                    RawTitle = item.title,
-                    Title = item.title
-                }, new BeMusicSeeker.Models.ChartDetails { md5 = item.md5, notes = 2500 })));
+        ChartFile[] fixedCharts = [.. new[] { highEntry, tiedEntry }.Select(item =>
+            ChartFileProjection.WithChartInfo(ChartTestValues.Empty() with
+            {
+                Path = item.title + ".bms", Md5 = item.md5, RawTitle = item.title, Title = item.title,
+                Token = new OwnedChartToken()
+            }, new BeMusicSeeker.Models.ChartDetails { md5 = item.md5, notes = 2500 }))];
+        dataSource.ResolveIndexSnapshot = PlaylistLibraryResolveIndexSnapshot.FromCharts(fixedCharts);
+        dataSource.CatalogSnapshot = new CatalogReadSnapshot(0, fixedCharts.ToDictionary(chart => chart.Token));
         var table = new BMSTable { entries = [entry, highEntry, tiedEntry] };
         workspace.RequestDetailSelection(table);
         workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("request notes:>=2000", ChartModeFilter.All));
@@ -416,7 +405,16 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             {
                 dataSource.ChartInfo = new BeMusicSeeker.Models.ChartDetails { md5 = entry.md5, notes = 3000 };
                 // 固定入力の情報更新を受けた後、通常の内容更新受付でsourceを再構成する。
-                workspace.IncrementDetailContentRevision("accepted_notes_update");
+                dataSource.CurrentChartInfoIndexVersion++;
+                var refresh = new PlaylistBuildRequest
+                {
+                    RequestVersion = workspace.DetailBuildState.RequestVersion,
+                    Identity = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.OrdinaryRoot, null,
+                        PlaylistDetailFilter.PlaylistFilter, "request notes:>=2000", ChartModeFilter.All,
+                        workspace.CapturePlaylistDetailSortParameters(), dataSource.CatalogRevision, table.PlaylistEntriesRevision,
+                        dataSource.ScoreSnapshotVersion, dataSource.ChartInfoIndexVersion, true)
+                };
+                workspace.TryPatchDetailSourceChartInfo(refresh, CancellationToken.None, out _, out _, out _, out _);
             }
             requestCompletion = workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
                 MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected,
@@ -916,9 +914,9 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.IsNull(workspace.CapturePlaylistDetailSelection().Table);
     }
 
-    /// <summary>表参照置換と通常・空名folderの改名に選択を追従させ、未所持scopeを誤改名せず現表の内容変更だけを版へ反映します。</summary>
+    /// <summary>表参照置換と通常・空名folderの改名に選択を追従させ、未所持scopeを誤改名しません。</summary>
     [TestMethod]
-    public void TreeSelection_OwnerPreservesReplacementRemapAndContentRevision()
+    public void TreeSelection_OwnerPreservesReplacementRemapAndCurrentTarget()
     {
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         var oldTable = new BMSTable();
@@ -955,59 +953,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             newTable,
             new Dictionary<string, string> { [string.Empty] = "Not Owned Renamed" }));
         Assert.IsNull(workspace.CapturePlaylistDetailSelection().FolderName);
-
-        workspace.DetailViewState.Source.PlaylistContentRevision = 9;
-        Assert.IsTrue(workspace.MarkCurrentPlaylistDetailEntriesChanged(newTable, "test_entries_changed"));
-        Assert.AreEqual(10, workspace.DetailViewState.Source.PlaylistContentRevision);
-        Assert.IsFalse(workspace.MarkCurrentPlaylistDetailEntriesChanged(oldTable, "test_non_current_entries_changed"));
-    }
-
-    /// <summary>編集中のscore更新を保留して最大版を保持し、編集終了後の同じ最新版要求で必要refreshを公開することを確認します。</summary>
-    [TestMethod]
-    public void RequestPlaylistDetailScoreSnapshotRefresh_DefersDuringEditAndPreservesHighestVersion()
-    {
-        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
-        workspace.IsPlaylistDetailViewActive = true;
-        workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion = 3;
-        workspace.DetailViewState.Source.IsPlaylistCellEditing = true;
-        var refreshes = new List<PlaylistDetailScoreSnapshotRefreshRequestedEventArgs>();
-        workspace.PlaylistDetailScoreSnapshotRefreshRequested += (_, request) => refreshes.Add(request);
-
-        workspace.RequestPlaylistDetailScoreSnapshotRefresh(5);
-        workspace.RequestPlaylistDetailScoreSnapshotRefresh(4);
-
-        Assert.AreEqual(2, refreshes.Count);
-        Assert.IsTrue(refreshes[0].DeferredByEdit);
-        Assert.IsFalse(refreshes[0].RefreshRequired);
-        Assert.IsTrue(refreshes[1].DeferredByEdit);
-        Assert.IsFalse(refreshes[1].RefreshRequired);
-        Assert.AreEqual(5, workspace.DetailViewState.Source.PendingScoreSnapshotRefreshVersion);
-        workspace.DetailViewState.Source.IsPlaylistCellEditing = false;
-        workspace.RequestPlaylistDetailScoreSnapshotRefresh(5);
-        Assert.AreEqual(3, refreshes.Count);
-        Assert.IsTrue(refreshes[2].RefreshRequired);
-        Assert.IsTrue(refreshes[2].DeferredByEdit == false);
-        Assert.AreEqual(5, refreshes[2].ScoreSnapshotVersion);
-        Assert.AreEqual(3, refreshes[2].LastBuiltVersion);
-    }
-
-    /// <summary>detail非activeとsummary表示中のscore更新を公開せず、表示対象外へ不要な更新を配送しないことを確認します。</summary>
-    [TestMethod]
-    public void RequestPlaylistDetailScoreSnapshotRefresh_IgnoresStaleOrInactiveRequests()
-    {
-        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
-        workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion = 3;
-        var refreshes = new List<PlaylistDetailScoreSnapshotRefreshRequestedEventArgs>();
-        workspace.PlaylistDetailScoreSnapshotRefreshRequested += (_, request) => refreshes.Add(request);
-
-        workspace.RequestPlaylistDetailScoreSnapshotRefresh(3);
-        workspace.RequestPlaylistDetailScoreSnapshotRefresh(4);
-        Assert.AreEqual(0, refreshes.Count);
-
-        workspace.IsPlaylistDetailViewActive = true;
-        workspace.IsPlaylistSummaryMode = true;
-        workspace.RequestPlaylistDetailScoreSnapshotRefresh(4);
-        Assert.AreEqual(0, refreshes.Count);
     }
 
     /// <summary>mode別の再読込判断を区別しつつ、明示refresh機会の通知は履歴・summaryを含む呼出しごとに届けることを確認します。</summary>
@@ -1065,8 +1010,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             table,
             PlaylistDetailSelectionScope.OrdinaryRoot,
             null,
-            onlyNotOwned: false,
-            PlaylistLibraryResolveIndexSnapshot.Empty,
             CancellationToken.None,
             ref cancellationStage);
 
@@ -1210,102 +1153,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             .WaitForRequestCompletionAsync(state, retirement.RequestVersion).IsCompleted);
     }
 
-    /// <summary>要求後に索引版が進んでも実際の取得版で詳細を採用し、行・所持tokenを保ち、同じ入力の再要求では再構築しません。</summary>
-    [TestMethod]
-    public async Task RequestDetailRefresh_UsesAttachedResolveIndexAndPreservesOwnedToken()
-    {
-        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
-        const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        ChartFile ownedChart = ChartTestValues.Empty() with
-        {
-            Path = @"C:\owned\chart.bms",
-            Md5 = md5,
-            RawTitle = "Owned chart",
-            Token = new OwnedChartToken()
-        };
-        dataSource.CurrentOwnedCollectionVersion = 0;
-        dataSource.ResolveIndexSnapshot = PlaylistLibraryResolveIndexSnapshot.FromCharts([ownedChart])
-            .WithMetadata(version: 1, buildElapsedMs: 0, invalidationVersion: 0, ownedCollectionVersion: 1);
-        dataSource.ResolveIndexAction = () => dataSource.CurrentOwnedCollectionVersion = 1;
-
-        var entry = new TestablePlaylistEntry(md5, "playlist entry");
-        var table = new BMSTable { entries = [entry] };
-        workspace.RequestDetailSelection(table);
-        workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
-        workspace.InitializePlaylistDetailSort(new ChartListSortParameters
-        {
-            ColumnsName = "TITLE",
-            Direction = System.ComponentModel.ListSortDirection.Ascending
-        });
-
-        int requestVersion = workspace.RequestDetailRefresh(
-            MainViewUpdateMode.PlaylistFilterSelected,
-            MainViewUpdateMode.PlaylistFilterSelected,
-            MainViewUpdateMode.PlaylistFilterSelected,
-            useCoalescingWindow: false,
-            openReadiness: default);
-
-        Task requestCompletion = workspace.WaitForDetailRequestCompletionAsync(requestVersion);
-        Task workerIdle = workspace.WaitForDetailBuildIdleAsync();
-        await Task.WhenAll(requestCompletion, workerIdle).ConfigureAwait(false);
-
-        Assert.AreEqual(1, dataSource.ResolveIndexCallCount);
-        Assert.AreEqual(1, workspace.DetailViewState.Source.Rows.Count);
-        PlaylistDetailSourceRow row = workspace.DetailViewState.Source.Rows[0];
-        Assert.AreSame(entry, row.Entry);
-        Assert.IsTrue(row.IsOwned);
-        Assert.AreSame(ownedChart.Token, row.Chart.Token);
-        Assert.AreEqual(ownedChart.Path, row.Chart.Path);
-        Assert.AreEqual(1L, workspace.DetailViewState.Source.LastBuiltLibraryIndexVersion);
-        await workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
-            MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected,
-            useCoalescingWindow: false, openReadiness: default).ConfigureAwait(false);
-        Assert.AreEqual(1, dataSource.ResolveIndexCallCount);
-        Assert.AreSame(row, workspace.DetailViewState.Source.Rows[0]);
-    }
-
-    /// <summary>詳細構築中にカタログ版が進めば旧候補を採用せず、表示行・適用版を保ち、次の明示要求で新しい索引の実パスへ更新します。</summary>
-    [TestMethod]
-    public async Task RequestDetailRefresh_RejectsChangedCatalogAtTerminalAndAllowsNextExplicitRequest()
-    {
-        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
-        const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        ChartFile chart = ChartTestValues.Empty() with { Path = @"C:\owned\first.bms", Md5 = md5, Title = "first" };
-        var entry = new TestablePlaylistEntry(md5, "entry");
-        workspace.RequestDetailSelection(new BMSTable { entries = [entry] });
-        dataSource.ResolveIndexSnapshot = PlaylistLibraryResolveIndexSnapshot.FromCharts([chart])
-            .WithMetadata(1, 0, 0, 1);
-
-        async Task Refresh()
-        {
-            Task request = workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
-                MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected,
-                useCoalescingWindow: false, openReadiness: default);
-            try { await request.ConfigureAwait(false); }
-            finally { await Task.WhenAll(request, workspace.WaitForDetailBuildIdleAsync()).ConfigureAwait(false); }
-        }
-
-        await Refresh();
-        IList firstRows = workspace.DetailViewState.View.Rows;
-        Assert.AreEqual(@"C:\owned\first.bms", ((PlaylistDetailRow)firstRows[0]!).path);
-        dataSource.ResolveIndexSnapshot = PlaylistLibraryResolveIndexSnapshot.FromCharts([chart with { Path = @"C:\owned\second.bms" }])
-            .WithMetadata(2, 0, 0, 2);
-        // 実producerが索引を捕捉した後、エントリー読込み境界で次の確定版へ進める。
-        dataSource.EnsureEntriesLoadedAction = () => dataSource.CurrentOwnedCollectionVersion = 3;
-        await Refresh();
-        Assert.AreSame(firstRows, workspace.DetailViewState.View.Rows);
-        Assert.AreEqual(1L, workspace.DetailViewState.Source.LastBuiltLibraryIndexVersion);
-        Assert.AreEqual(2, dataSource.ResolveIndexCallCount, "不採用を自動再試行で救済しません。");
-
-        dataSource.EnsureEntriesLoadedAction = null;
-        dataSource.ResolveIndexSnapshot = PlaylistLibraryResolveIndexSnapshot.FromCharts([chart with { Path = @"C:\owned\third.bms" }])
-            .WithMetadata(3, 0, 0, 3);
-        await Refresh();
-        Assert.AreEqual(@"C:\owned\third.bms", ((PlaylistDetailRow)workspace.DetailViewState.View.Rows[0]!).path);
-        Assert.AreEqual(3L, workspace.DetailViewState.Source.LastBuiltLibraryIndexVersion);
-        Assert.AreSame(entry, workspace.DetailViewState.Source.Rows[0].Entry);
-    }
-
     /// <summary>既存schedulerへ予約したprewarmを実行して接続sourceの索引を取得し、runtime cacheの準備状態と計測値をreadinessへ配送します。</summary>
     [TestMethod]
     public async Task PlaylistLibraryIndexPrewarm_UsesWorkspaceSchedulerAndRuntimeCache()
@@ -1326,7 +1173,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         dataSource.RuntimeState = new BMSLibrary.PlaylistLibraryResolveIndexRuntimeState
         {
             IsCached = true,
-            OwnedCollectionVersion = (int)dataSource.OwnedCollectionVersion,
+            CatalogRevision = (int)dataSource.CatalogRevision,
             BuildElapsedMs = 12L
         };
         PlaylistLibraryIndexReadinessSnapshot readiness = workspace.CapturePlaylistLibraryIndexReadinessSnapshot();
@@ -1334,7 +1181,61 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual(12L, readiness.BuildElapsedMs);
     }
 
-    /// <summary>二譜面の実削除後にworkspaceのprewarmを実行し、新しいresolve索引を全source再列挙なしで再利用することを確認します。</summary>
+    /// <summary>旧sourceで予約したcold jobは交換後に読み取らず、同じ新sourceの予約だけを実行します。</summary>
+    [TestMethod]
+    public async Task PlaylistLibraryIndexPrewarm_QueuedOldSourceIsSkippedAfterReplacement()
+    {
+        var jobs = new List<Func<Task>>();
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource oldSource, (_, job) =>
+        { jobs.Add(job); return true; });
+        workspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
+        var replacement = new FakePlaylistDetailDataSource();
+        workspace.SetDetailDataSource(replacement);
+        workspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
+        Assert.AreEqual(2, jobs.Count);
+        await jobs[0]();
+        Assert.AreEqual(0, oldSource.ResolveIndexCallCount);
+        await jobs[1]();
+        Assert.AreEqual(1, replacement.ResolveIndexCallCount);
+    }
+
+    /// <summary>読取り中のcold prewarmをsource交換で取り消し、旧結果を採用せず、新sourceの構築は別に完了します。</summary>
+    [TestMethod]
+    public async Task PlaylistLibraryIndexPrewarm_RunningOldSourceIsCancelledAndJoined()
+    {
+        var jobs = new List<Func<Task>>();
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource oldSource, (_, job) =>
+        { jobs.Add(job); return true; });
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        oldSource.ResolveIndexAction = () => { entered.TrySetResult(); release.Wait(); };
+        workspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
+        Task oldWork = jobs[0]();
+        Task duplicateWork = Task.CompletedTask;
+        try
+        {
+            await entered.Task;
+            workspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
+            duplicateWork = jobs[1]();
+            Assert.AreEqual(1, oldSource.ResolveIndexCallCount);
+            var replacement = new FakePlaylistDetailDataSource();
+            workspace.SetDetailDataSource(replacement);
+            Assert.IsTrue(oldSource.LastResolveIndexCancellationToken.IsCancellationRequested);
+            workspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
+            await jobs[2]();
+            Assert.AreEqual(1, replacement.ResolveIndexCallCount);
+            Assert.AreEqual("inline", workspace.CapturePlaylistLibraryIndexReadinessSnapshot().State);
+        }
+        finally
+        {
+            release.Set();
+            bool cancelled = false;
+            try { await Task.WhenAll(oldWork, duplicateWork); } catch (OperationCanceledException) { cancelled = true; }
+            Assert.IsTrue(cancelled, "旧sourceの読取り結果を成功扱いしません。");
+        }
+    }
+
+    /// <summary>実workspaceのcold初回prewarmで索引を準備し、二譜面の実削除後は新しいresolve索引を全source再列挙なしで再利用します。</summary>
     [TestMethod]
     public async Task PlaylistLibraryIndexPrewarm_RealDataSourceReusesWarmResolveIndexAfterTwoRemovals()
     {
@@ -1393,11 +1294,32 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             library.GetOwnedChartHashIndexSnapshot();
             library.WarmInstalledPrimaryHashLookup("playlist_prewarm_two_removals");
             library.CreateInstalledChartLookupSnapshotForDiagnostics();
+            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
+            {
+                BMSTables = new ObservableCollection<BMSTable>()
+            };
+            var queuedWork = new List<Func<Task>>();
+            using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                prewarmScheduler: (_, work) =>
+                {
+                    queuedWork.Add(work);
+                    return true;
+                });
+            workspace.SetDetailDataSource(new PlaylistDetailDataSource(
+                library,
+                playlist,
+                new MainChartRowProjectionOwner()));
+
+            Assert.IsFalse(library.GetPlaylistLibraryResolveIndexRuntimeState().IsCached);
+            workspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
+            Assert.AreEqual(1, queuedWork.Count);
+            await queuedWork[0]().ConfigureAwait(false);
             PlaylistLibraryResolveIndexSnapshot initialResolve = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,
                 out bool initialCacheHit,
                 out int initialStaleRetries);
-            Assert.IsFalse(initialCacheHit);
+            Assert.IsTrue(initialCacheHit);
             Assert.AreEqual(0, initialStaleRetries);
 
             List<string> playlistWork = [];
@@ -1413,26 +1335,9 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             Assert.IsFalse(firstOutcome.HasError);
             Assert.IsFalse(secondOutcome.HasError);
 
-            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
-            {
-                BMSTables = new ObservableCollection<BMSTable>()
-            };
-            var queuedWork = new List<Func<Task>>();
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                prewarmScheduler: (_, work) =>
-                {
-                    queuedWork.Add(work);
-                    return true;
-                });
-            workspace.SetDetailDataSource(new PlaylistDetailDataSource(
-                library,
-                playlist,
-                new MainChartRowProjectionOwner()));
-
             workspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
-            Assert.AreEqual(1, queuedWork.Count);
-            await queuedWork[0]().ConfigureAwait(false);
+            Assert.AreEqual(2, queuedWork.Count);
+            await queuedWork[1]().ConfigureAwait(false);
 
             PlaylistLibraryIndexReadinessSnapshot readiness = workspace.CapturePlaylistLibraryIndexReadinessSnapshot();
             Assert.AreEqual("cached", readiness.State);
@@ -1454,26 +1359,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 Directory.Delete(tempDirectory, recursive: true);
             }
         }
-    }
-
-    /// <summary>duplicate表示の優先期間に索引失効を保留し、優先期間終了後だけprewarmを開始して表示競合と更新漏れを防ぎます。</summary>
-    [TestMethod]
-    public async Task PlaylistLibraryIndexPrewarm_DuplicateRefreshDefersUntilUiPriorityEnds()
-    {
-        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource, (_, _) => true);
-        workspace.BeginDuplicateRefreshPriorityWindow("test");
-
-        workspace.InvalidatePlaylistLibraryIndexSnapshot(
-            "owned_collection_changed",
-            startupReadyOperable: true,
-            MainViewUpdateMode.DuplicateFilterSelected);
-
-        Assert.IsNull(workspace.GetPlaylistLibraryIndexPrewarmTask());
-        workspace.ReleaseDuplicateRefreshPriorityWindow("test_done");
-        Task prewarmTask = workspace.GetPlaylistLibraryIndexPrewarmTask();
-        Assert.IsNotNull(prewarmTask);
-        await prewarmTask.ConfigureAwait(false);
-        Assert.AreEqual(1, dataSource.ResolveIndexCallCount);
     }
 
     /// <summary>P保有中の同期を予約せず未開始結果として返し、解放後の次明示要求と任意同期schedulerの拒否を区別して受付を解放します。</summary>

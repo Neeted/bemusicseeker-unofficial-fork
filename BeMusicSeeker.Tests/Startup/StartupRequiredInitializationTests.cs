@@ -33,8 +33,12 @@ public sealed class StartupRequiredInitializationTests
         StartupRequiredOperationLease accepted = owner.AcquireRequiredOperation(fixture.Library.OperationAdmission,
             fixture.Library.Lr2Synchronization.PlaylistOperationAdmission);
         int scoreNotifications = 0;
-        Action<ScoreSnapshotChange> scoreObserver = _ => Interlocked.Increment(ref scoreNotifications);
-        fixture.Library.ScoreSnapshotChanged += scoreObserver;
+        // queue登録はcatalog wakeから見えてよい。ここでは親へ渡したscore純通知action自体の実行時点を検証します。
+        System.ComponentModel.PropertyChangedEventHandler scoreObserver = (_, args) =>
+        {
+            if (args.PropertyName == nameof(BMSLibrary.ScoreSnapshotVersion)) { Interlocked.Increment(ref scoreNotifications); }
+        };
+        fixture.Library.PropertyChanged += scoreObserver;
         var outputProgress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
         fixture.Playlist.CustomFolderOutputRepairProgressReporter = outputProgress.Enqueue;
         fixture.Playlist.BmtOutput.ExportProgressReporter = outputProgress.Enqueue;
@@ -112,10 +116,10 @@ public sealed class StartupRequiredInitializationTests
             {
                 accepted.Dispose();
                 try { fixture.PublishScoreNotificationsAfterAdmission(); }
-                finally { fixture.Library.ScoreSnapshotChanged -= scoreObserver; }
+                finally { fixture.Library.PropertyChanged -= scoreObserver; }
             }
         }
-        Assert.IsTrue(scoreNotifications > 0);
+        Assert.AreEqual(1, scoreNotifications, "親解放後に保留したscore純通知を一回だけ公開します。");
         Assert.IsTrue(fixture.Library.OperationAdmission.TryEnter(out IDisposable nextLibrary));
         nextLibrary.Dispose();
         Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable nextPlaylist));
@@ -490,9 +494,9 @@ public sealed class StartupRequiredInitializationTests
             if ((fault == "Ready" && args.PropertyName == nameof(BMSLibrary.ScoreSnapshotReady))
                 || (fault == "Version" && args.PropertyName == nameof(BMSLibrary.ScoreSnapshotVersion))) { RecordAndFail(); }
         };
-        Action<ScoreSnapshotChange> snapshotHandler = _ => RecordAndFail();
+        System.ComponentModel.PropertyChangedEventHandler snapshotHandler = ScoreSnapshotTestSupport.CreateChangeHandler(fixture.Library, _ => RecordAndFail());
         fixture.Library.PropertyChanged += propertyHandler;
-        if (fault is "Changed" or "Continuation") { fixture.Library.ScoreSnapshotChanged += snapshotHandler; }
+        if (fault is "Changed" or "Continuation") { fixture.Library.PropertyChanged += snapshotHandler; }
         try
         {
             List<Action> continuations = fault == "Continuation" ? [() =>
@@ -532,7 +536,7 @@ public sealed class StartupRequiredInitializationTests
         finally
         {
             fixture.Library.PropertyChanged -= propertyHandler;
-            fixture.Library.ScoreSnapshotChanged -= snapshotHandler;
+            fixture.Library.PropertyChanged -= snapshotHandler;
         }
         int previousVersion = fixture.Library.ScoreSnapshotVersion;
         await Task.Run(() => fixture.Library.InitializeScoresOnly(null));

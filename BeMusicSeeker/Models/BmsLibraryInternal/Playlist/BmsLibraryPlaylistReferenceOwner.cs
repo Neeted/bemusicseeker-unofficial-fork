@@ -171,7 +171,7 @@ internal sealed class BmsLibraryPlaylistReferenceOwner
             out _,
             out _);
         return new PlaylistReferenceCatalogApplyResult(
-            receipt.OwnedCollectionVersion,
+            receipt.CatalogRevision,
             affectedChartCount,
             matchedChartCount);
     }

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using Newtonsoft.Json;
 using Ribbit.Logging;
 using Ribbit.Net;
@@ -395,6 +396,7 @@ public partial class BMSPlaylist
             TableCount = 1
         };
         bool overwriteExisting = options.OverwritePlaylistUrlsWithCompletion;
+        List<PlaylistEntryChange> changes = [];
         using (table.ReaderWriterLock.GetWriterGuard())
         {
             foreach (BMSTableEntry entry in table.entries ?? Enumerable.Empty<BMSTableEntry>())
@@ -413,9 +415,11 @@ public partial class BMSPlaylist
                 // そのため URL2 だけ空でも、TSV 側に MD5 がある限り Stella で補うことはしません。
                 Uri completedUrl = candidate?.Url;
                 Uri completedUrlDiff = candidate?.UrlDiff;
+                PlaylistEntryValue before = entry.CaptureValue();
                 if (entry.ApplyRuntimeUrlCompletion(completedUrl, completedUrlDiff, overwriteExisting))
                 {
                     tableStats.ChangedEntryCount++;
+                    changes.Add(table.CaptureEntryChange(entry, before));
                 }
                 if (entry.RuntimeUrlCompletion != null)
                 {
@@ -426,11 +430,13 @@ public partial class BMSPlaylist
                     tableStats.RuntimeUrlDiffCount++;
                 }
             }
+            RegisterEntryCommit(table.CommitEntryValues(changes));
         }
+        SignalEntryCommitsAvailable();
         return tableStats;
     }
 
-    private static PlaylistUrlCompletionApplyStats ClearPlaylistUrlCompletionFromTable(BMSTable table)
+    private PlaylistUrlCompletionApplyStats ClearPlaylistUrlCompletionFromTable(BMSTable table)
     {
         if (table == null)
         {
@@ -445,6 +451,7 @@ public partial class BMSPlaylist
             LogPlaylistUrlCompletionDiagnostic(() => NLogWrapper.FileLogger?.Info("playlist_url_completion clear_skip_unloaded_table table=\"" + (table.name ?? string.Empty).Replace("\"", "\"\"") + "\""));
             return tableStats;
         }
+        List<PlaylistEntryChange> changes = [];
         using (table.ReaderWriterLock.GetWriterGuard())
         {
             foreach (BMSTableEntry entry in table.entries ?? Enumerable.Empty<BMSTableEntry>())
@@ -454,12 +461,16 @@ public partial class BMSPlaylist
                     continue;
                 }
                 tableStats.EntryCount++;
+                PlaylistEntryValue before = entry.CaptureValue();
                 if (entry.ClearRuntimeUrlCompletions())
                 {
                     tableStats.ChangedEntryCount++;
+                    changes.Add(table.CaptureEntryChange(entry, before));
                 }
             }
+            RegisterEntryCommit(table.CommitEntryValues(changes));
         }
+        SignalEntryCommitsAvailable();
         return tableStats;
     }
 

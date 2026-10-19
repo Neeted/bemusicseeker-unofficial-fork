@@ -258,58 +258,6 @@ internal readonly struct VirtualChartSubsetSortCacheKey : IEquatable<VirtualChar
 }
 
 /// <summary>
-/// Identifies cached main-view summary calculations for a filtered row set.
-/// </summary>
-internal readonly struct MainViewSummaryCacheKey : IEquatable<MainViewSummaryCacheKey>
-{
-    internal MainViewSummaryCacheKey(long sourceGeneration, long sortKeyGeneration, int rowCount, bool includeBmsonRows, string filterIdentity)
-    {
-        SourceGeneration = sourceGeneration;
-        SortKeyGeneration = sortKeyGeneration;
-        RowCount = rowCount;
-        IncludeBmsonRows = includeBmsonRows;
-        FilterIdentity = filterIdentity ?? string.Empty;
-    }
-
-    internal long SourceGeneration { get; }
-
-    internal long SortKeyGeneration { get; }
-
-    internal int RowCount { get; }
-
-    internal bool IncludeBmsonRows { get; }
-
-    internal string FilterIdentity { get; }
-
-    public bool Equals(MainViewSummaryCacheKey other)
-    {
-        return SourceGeneration == other.SourceGeneration
-            && SortKeyGeneration == other.SortKeyGeneration
-            && RowCount == other.RowCount
-            && IncludeBmsonRows == other.IncludeBmsonRows
-            && string.Equals(FilterIdentity, other.FilterIdentity, StringComparison.Ordinal);
-    }
-
-    public override bool Equals(object obj)
-    {
-        return obj is MainViewSummaryCacheKey other && Equals(other);
-    }
-
-    public override int GetHashCode()
-    {
-        unchecked
-        {
-            int hashCode = SourceGeneration.GetHashCode();
-            hashCode = (hashCode * 397) ^ SortKeyGeneration.GetHashCode();
-            hashCode = (hashCode * 397) ^ RowCount;
-            hashCode = (hashCode * 397) ^ IncludeBmsonRows.GetHashCode();
-            hashCode = (hashCode * 397) ^ StringComparer.Ordinal.GetHashCode(FilterIdentity ?? string.Empty);
-            return hashCode;
-        }
-    }
-}
-
-/// <summary>
 /// Describes a sort that should be prewarmed for the virtual normal library view.
 /// </summary>
 internal readonly struct VirtualNormalLibrarySortDescriptor : IEquatable<VirtualNormalLibrarySortDescriptor>

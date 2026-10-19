@@ -81,7 +81,7 @@ public sealed class PlaylistSummaryCountAndPresentationTests
     {
         var ownedHashes = new OwnedChartHashIndexSnapshot();
         ownedHashes.AddMd5("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var ownedSnapshot = new OwnedChartHashIndexVersionedSnapshot(ownedHashes, version: 1, buildElapsedMs: 0, invalidationVersion: 1, ownedCollectionVersion: 1);
+        var ownedSnapshot = new OwnedChartHashIndexVersionedSnapshot(ownedHashes, version: 1, buildElapsedMs: 0, invalidationVersion: 1, catalogRevision: 1);
         var owner = new PlaylistCatalogSummaryOwner();
         var firstTable = new BMSTable
         {
@@ -121,7 +121,7 @@ public sealed class PlaylistSummaryCountAndPresentationTests
     {
         var ownedHashes = new OwnedChartHashIndexSnapshot();
         ownedHashes.AddMd5("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var ownedSnapshot = new OwnedChartHashIndexVersionedSnapshot(ownedHashes, version: 1, buildElapsedMs: 0, invalidationVersion: 1, ownedCollectionVersion: 1);
+        var ownedSnapshot = new OwnedChartHashIndexVersionedSnapshot(ownedHashes, version: 1, buildElapsedMs: 0, invalidationVersion: 1, catalogRevision: 1);
         var owner = new PlaylistCatalogSummaryOwner();
         var table = new BMSTable
         {

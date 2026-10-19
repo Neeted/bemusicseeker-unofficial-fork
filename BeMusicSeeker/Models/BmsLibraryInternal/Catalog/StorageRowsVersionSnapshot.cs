@@ -4,21 +4,21 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal readonly struct OwnedChartCollectionVersionSnapshot
 {
     /// <summary>変更を伴わない捕捉時点の集合版を保持します。</summary>
-    internal OwnedChartCollectionVersionSnapshot(int ownedCollectionVersion)
-        : this(ownedCollectionVersion, ownedCollectionVersion)
+    internal OwnedChartCollectionVersionSnapshot(int catalogRevision)
+        : this(catalogRevision, catalogRevision)
     {
     }
 
     /// <summary>確定した変更の適用前後を、同じ共通集合の版として保持します。</summary>
-    internal OwnedChartCollectionVersionSnapshot(int previousOwnedCollectionVersion, int ownedCollectionVersion)
+    internal OwnedChartCollectionVersionSnapshot(int previousCatalogRevision, int catalogRevision)
     {
-        PreviousOwnedCollectionVersion = previousOwnedCollectionVersion;
-        OwnedCollectionVersion = ownedCollectionVersion;
+        PreviousCatalogRevision = previousCatalogRevision;
+        CatalogRevision = catalogRevision;
     }
 
     /// <summary>変更適用前の集合版です。</summary>
-    internal int PreviousOwnedCollectionVersion { get; }
+    internal int PreviousCatalogRevision { get; }
 
     /// <summary>変更適用後または捕捉時点の集合版です。</summary>
-    internal int OwnedCollectionVersion { get; }
+    internal int CatalogRevision { get; }
 }

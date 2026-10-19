@@ -152,6 +152,8 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
     private readonly PlaylistPersistenceRepository repository;
 
+    private readonly IPlaylistEntryMutationWorkObserver entryMutationWorkObserver;
+
     private readonly ReaderWriterLockSlimWrapper activeCollectionLock;
 
     private readonly IUiScheduler uiScheduler;
@@ -200,9 +202,11 @@ internal sealed class PlaylistAggregatePersistenceOwner
     internal PlaylistAggregatePersistenceOwner(
         PlaylistPersistenceRepository repository,
         ReaderWriterLockSlimWrapper activeCollectionLock,
-        IUiScheduler uiScheduler)
+        IUiScheduler uiScheduler,
+        IPlaylistEntryMutationWorkObserver entryMutationWorkObserver = null)
     {
         this.repository = repository ?? throw new ArgumentNullException(nameof(repository));
+        this.entryMutationWorkObserver = entryMutationWorkObserver;
         this.activeCollectionLock = activeCollectionLock ?? throw new ArgumentNullException(nameof(activeCollectionLock));
         this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
     }
@@ -903,41 +907,107 @@ internal sealed class PlaylistAggregatePersistenceOwner
         }
     }
 
-    /// <summary>
-    /// Pを保持した詳細編集の現行項目だけを保存し、ローカル表の有効URLと更新日時を永続化します。
-    /// 未接続・削除済み・再同期前の項目を他の表や項目へ読み替えません。
-    /// </summary>
-    /// <param name="entry">同じ生存表に所属する現行項目。</param>
-    /// <param name="acquireCollectionReadGuard">正本集合の読取りを保存範囲内だけ保護する依存。</param>
-    /// <returns>保存した元の表。現行性またはDB保存の失敗は例外で伝えます。</returns>
-    internal BMSTable CommitEntry(BMSTableEntry entry,
-        Func<IDisposable> acquireCollectionReadGuard = null)
+    /// <summary>一属性 draft を現在値から準備し、DB 確定後に同じ entry・header・版・差分を揃えます。</summary>
+    /// <param name="entry">生存する表の同じ entry 参照。</param>
+    /// <param name="propertyName">Level、Url、Url_diff、comment、memo のいずれか。</param>
+    /// <param name="text">未保存の入力値。</param>
+    /// <param name="chart">ローカル表の hash 補完に使う捕捉済み所持譜面。外部同期表では使いません。</param>
+    /// <param name="register">同じ writer 内で確定結果を配送キューへ登録する処理。外部 callback を呼びません。</param>
+    /// <param name="acquireCollectionReadGuard">現行表の生存を保存区間だけ保護する依存。</param>
+    internal PlaylistEntryCommitReceipt CommitEntry(BMSTableEntry entry, string propertyName, string text,
+        ChartFile chart, Action<PlaylistEntryCommitReceipt> register,
+        Func<IDisposable> acquireCollectionReadGuard)
     {
         EnsureNotRestoring();
-        using (acquireCollectionReadGuard?.Invoke())
+        using (acquireCollectionReadGuard())
         {
-            BMSTable owningTable = entry?.parent;
-            if (owningTable == null || !entry.playlist_id.HasValue || !IsActive(owningTable))
+            BMSTable table = entry?.parent;
+            if (table == null || !entry.playlist_id.HasValue || !IsActive(table))
             {
                 throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_PlaylistMutationStale);
             }
-            using (owningTable.ReaderWriterLock.GetWriterGuard())
+            using (table.ReaderWriterLock.GetWriterGuard())
             {
                 lock (synchronization)
                 {
-                    EnsureWriteAllowedUnsafe([owningTable], allowReloadReservation: false, requireCurrentTarget: true);
-                    if (entry.is_removed || !owningTable.entries.Contains(entry))
+                    EnsureWriteAllowedUnsafe([table], allowReloadReservation: false, requireCurrentTarget: true);
+                    if (entry.is_removed || !table.ContainsEntry(entry))
                     {
                         throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_PlaylistMutationStale);
                     }
-                    if (!owningTable.is_external_sync) { entry.MaterializeEffectiveUrlsIntoPersistedValues(); }
-                    entry.NormalizeForPlaylistPersistence();
-                    owningTable.last_update = BMSTable.GetNextLastUpdate(owningTable.last_update);
-                    repository.ReplaceEntry(entry, owningTable);
+                    if (table.is_external_sync && propertyName != nameof(BMSTableEntry.memo))
+                    {
+                        throw new InvalidOperationException("External playlist entries only accept memo edits.");
+                    }
+                    PlaylistEntryValue before = entry.CaptureValue();
+                    entryMutationWorkObserver?.OnEntryReferenceRead();
+                    BMSTableEntry candidate = entry.CreatePlaylistReloadSnapshot();
+                    entryMutationWorkObserver?.OnCandidateCaptured();
+                    candidate.parent = table;
+                    candidate.ApplyEditDraft(propertyName, text);
+                    if (!table.is_external_sync)
+                    {
+                        if (chart != null) { candidate.ApplyPlaylistHashesFromChart(chart); }
+                        candidate.MaterializeEffectiveUrlsIntoPersistedValues();
+                    }
+                    candidate.NormalizeForPlaylistPersistence();
+                    PlaylistEntryValue after = candidate.CaptureValue();
+                    if (before == after) { return new(table, table.PlaylistEntriesRevision, table.PlaylistEntriesRevision, []); }
+                    DateTime lastUpdate = BMSTable.GetNextLastUpdate(table.last_update);
+                    repository.ReplaceEntry(candidate, table.CreatePersistenceHeaderSnapshot(lastUpdate), entry);
+                    table.ApplyEntryCandidate(entry, candidate);
+                    table.last_update = lastUpdate;
+                    PlaylistEntryCommitReceipt receipt = table.CommitEntryValues([table.CaptureEntryChange(entry, before)]);
                     persistenceGeneration++;
+                    register(receipt);
+                    return receipt;
                 }
             }
-            return owningTable;
+        }
+    }
+
+    /// <summary>有限の追加削除候補を複数表で準備し、一つの DB transaction 後に値・所属・版・差分を採用します。</summary>
+    /// <param name="prepare">対象表と、同じ writer 内で局所候補を準備する処理。</param>
+    /// <param name="register">writer 内の配送登録。UI や外部 callback は起動しません。</param>
+    /// <param name="persist">false は未保存ローカル操作です。通常の正規入口は true を渡します。</param>
+    internal IReadOnlyList<PlaylistEntryCommitReceipt> CommitEntryMutations(
+        IReadOnlyDictionary<BMSTable, Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>> prepare,
+        Action<PlaylistEntryCommitReceipt> register, bool persist = true)
+    {
+        List<BMSTable> tables = [.. prepare.Keys.OrderBy(table => table.playlist_id ?? int.MaxValue)
+            .ThenBy(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode)];
+        using (activeCollectionLock.GetReaderGuard())
+        {
+            List<IDisposable> guards = [];
+            try
+            {
+                foreach (BMSTable table in tables) { guards.Add(table.ReaderWriterLock.GetWriterGuard()); }
+                lock (synchronization)
+                {
+                    EnsureWriteAllowedUnsafe(tables, allowReloadReservation: false, requireCurrentTarget: true);
+                    List<BMSTable.EntryMutation> mutations = [];
+                    foreach (BMSTable table in tables)
+                    {
+                        BMSTable.EntryMutation mutation = prepare[table](entryMutationWorkObserver);
+                        if (mutation.HasChanges) { mutations.Add(mutation); }
+                    }
+                    if (mutations.Count == 0) { return []; }
+                    if (persist) { repository.CommitEntryMutations(mutations); }
+                    List<PlaylistEntryCommitReceipt> receipts = [];
+                    foreach (BMSTable.EntryMutation mutation in mutations)
+                    {
+                        PlaylistEntryCommitReceipt receipt = mutation.Table.ApplyEntryMutation(mutation);
+                        register(receipt);
+                        receipts.Add(receipt);
+                    }
+                    if (persist) { persistenceGeneration++; }
+                    return receipts;
+                }
+            }
+            finally
+            {
+                for (int index = guards.Count - 1; index >= 0; index--) { guards[index].Dispose(); }
+            }
         }
     }
 

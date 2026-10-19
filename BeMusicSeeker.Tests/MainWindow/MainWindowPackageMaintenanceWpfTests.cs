@@ -131,7 +131,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     int rowsReplacing = 0;
                     EventHandler replacing = (_, _) => rowsReplacing++;
                     viewModel.MainChartList.RowsReplacing += replacing;
-                    int handledVersion = library.NormalLibraryRefreshNotificationVersion;
+                    var appliedBatches = new List<NormalLibraryRefreshNotificationBatch>();
                     var entryPublished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     var refreshApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     System.ComponentModel.PropertyChangedEventHandler entryChanged = (_, _) =>
@@ -144,7 +144,11 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(probe, "entry release probe");
                         entryPublished.TrySetResult();
                     };
-                    EventHandler<NormalLibraryRefreshAppliedEventArgs> applied = (_, _) => refreshApplied.TrySetResult();
+                    EventHandler<NormalLibraryRefreshAppliedEventArgs> applied = (_, args) =>
+                    {
+                        appliedBatches.Add(args.NotificationBatch);
+                        refreshApplied.TrySetResult();
+                    };
                     first.PropertyChanged += entryChanged;
                     viewModel.RegularChartList.NormalLibraryRefreshApplied += applied;
                     try
@@ -175,8 +179,10 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         Assert.AreSame(second, package.ChartEntries[1]);
                         InstalledChartLookupIndexSnapshot index = OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
                         CollectionAssert.AreEqual(new[] { moved }, index.Md5Directories[bms.Md5].ToArray());
-                        NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledVersion);
-                        Assert.AreEqual(2, batch.ChangedCharts.Count);
+                        Assert.AreEqual(2, appliedBatches.SelectMany(batch => batch.ChangedCharts)
+                            .Select(chart => chart.Token).Distinct().Count());
+                        Assert.IsTrue(appliedBatches.SelectMany(batch => batch.CatalogCommits).SelectMany(commit => commit.Changes)
+                            .Any(change => change.Before?.Path == bmsPath && change.After?.Path == first.Chart.Path));
                         using LR2SongDBExtended readback = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
                         Assert.IsNotNull(readback.Find<LR2SongDB.song>(first.Chart.Path));
                         Assert.IsNotNull(readback.Find<LR2SongDBExtended.bmson_song>(second.Chart.Path));
