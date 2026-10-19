@@ -8,298 +8,172 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
-/// <summary>所属参照のハッシュ判断・索引更新・ライブラリへの接続を検証する。</summary>
-/// <remarks>小さい参照入力でMD5優先とSHA補完を網羅し、最後のケースは実BMSファイルと合成bmsonのパスを使って同一フォルダ参照を検索する。画面表示は実一覧テストへ分担する。</remarks>
+/// <summary>参照索引のkey存在・多重度・不変header順・同時捕捉・単一配送と実処理量を検証します。画面への反映はworkspace/normal系列へ分担します。</summary>
 [TestClass]
 public sealed class BmsLibraryPlaylistReferenceServiceTests
 {
-    /// <summary>2つの所属MD5に対して一致2件と不一致1件を照合し、一致数を返す。全譜面を所属として数える誤りや参照キーの欠落を検出する。</summary>
+    /// <summary>同key多重度0→1→2→1→0で無/有/有/有/無となり、表示同値の区間も版位置を配送する。URLだけのentry確定はno-op。</summary>
     [TestMethod]
-    public void BuildReferenceLookupKeys_AndApplyReferenceMap_CountsOnlyMatchingCharts()
+    public void ReferenceCommits_TrackMultiplicityAndRetainEveryCommitBoundary()
     {
-        var service = new BmsLibraryPlaylistReferenceService(2);
-        BMSTable table = CreateTable(
-            CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-            CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
-        List<ChartFile> files =
-        [
-            CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-            CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
-            CreateFile("cccccccccccccccccccccccccccccccc")
-        ];
-
-        PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
-        int appliedCharts = service.ApplyReferenceMap(ToChartSnapshots(files), lookupKeys, out int matchedFiles, out PlaylistReferenceApplyStats _);
-
-        Assert.AreEqual(2, lookupKeys.Md5Hashes.Count);
-        Assert.AreEqual(0, lookupKeys.Sha256Hashes.Count);
-        Assert.AreEqual(2, matchedFiles);
-        Assert.AreEqual(2, appliedCharts);
+        var publisher = new NormalLibraryRefreshPublisher();
+        int wakes = 0;
+        var owner = new BmsLibraryPlaylistReferenceOwner(publisher, () => wakes++);
+        var table = new BMSTable { name = "B name", symbol = "B" };
+        owner.ReplaceTables([Snapshot(table)]);
+        int handled = publisher.Version;
+        TestablePlaylistEntry first = CreateEntry(new string('a', 32));
+        TestablePlaylistEntry second = CreateEntry(first.md5);
+        var key = PlaylistEntryLookupKey.FromEntry(first);
+        Assert.IsFalse(owner.Capture([key]).Values.ContainsKey(key));
+        PlaylistReferenceCommitReceipt one = owner.Apply([Delta(table, first, null, first.CaptureValue())]);
+        Assert.AreEqual("B", ChangedDisplay(one, key).Symbols);
+        PlaylistReferenceCommitReceipt two = owner.Apply([Delta(table, second, null, second.CaptureValue())]);
+        Assert.AreEqual(0, two.Changes.Count);
+        Assert.AreEqual("B", owner.Find(first.md5, null).Symbols);
+        PlaylistReferenceCommitReceipt three = owner.Apply([Delta(table, first, first.CaptureValue(), null)]);
+        Assert.AreEqual(0, three.Changes.Count);
+        Assert.AreEqual("B", owner.Find(first.md5, null).Symbols);
+        PlaylistReferenceCommitReceipt four = owner.Apply([Delta(table, second, second.CaptureValue(), null)]);
+        Assert.IsNull(four.Changes[key]);
+        Assert.IsFalse(owner.Capture([key]).Values.ContainsKey(key));
+        NormalLibraryRefreshNotificationBatch batch = publisher.GetNotificationsAfter(handled);
+        CollectionAssert.AreEqual(new[] { one, two, three, four }, batch.ReferenceCommits.ToArray());
+        CollectionAssert.AreEqual(new[] { one.BaseRevision, one.Revision, two.Revision, three.Revision }, batch.ReferenceCommits.Select(receipt => receipt.BaseRevision).ToArray());
+        int version = publisher.Version, wakeCount = wakes;
+        PlaylistEntryValue before = second.CaptureValue();
+        Assert.IsNull(owner.Apply([Delta(table, second, before, before with { EffectiveUrl = new Uri("https://example.invalid/url") })]));
+        Assert.AreEqual(version, publisher.Version);
+        Assert.AreEqual(wakeCount, wakes);
     }
 
-    /// <summary>MD5のないエントリはSHAを参照キーにして一致を数える。SHAのみの譜面を所属検索から落とす誤りを検出する。</summary>
+    /// <summary>MD5 present-emptyはSHAへ進まず、消失後だけSHAを使う。捕捉済みpresenceと表示は後続更新で変わらない。</summary>
     [TestMethod]
-    public void ApplyReferenceMap_UsesSha256WhenMd5IsMissing()
+    public void ReferenceCapture_PreservesEmptyBucketPresenceAndShaFallbackInput()
     {
-        var service = new BmsLibraryPlaylistReferenceService(2);
-        BMSTable table = CreateTable(CreateEntry(null, new string('a', 64)));
-        ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('a', 64));
-
-        PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
-        int appliedCharts = service.ApplyReferenceMap(ToChartSnapshots([file]), lookupKeys, out int matchedFiles, out PlaylistReferenceApplyStats _);
-
-        Assert.AreEqual(0, lookupKeys.Md5Hashes.Count);
-        Assert.AreEqual(1, lookupKeys.Sha256Hashes.Count);
-        Assert.AreEqual(1, matchedFiles);
-        Assert.AreEqual(1, appliedCharts);
+        string md5 = new('a', 32), sha = new('b', 64);
+        BMSTable empty = new() { symbol = "", name = "" };
+        BMSTable fallback = new() { symbol = "SHA", name = "SHA name" };
+        var owner = new BmsLibraryPlaylistReferenceOwner();
+        owner.ReplaceTables([Snapshot(empty, CreateEntry(md5)), Snapshot(fallback, CreateEntry(null, sha))]);
+        var md5Key = new PlaylistEntryLookupKey(PlaylistEntryLookupKeyKind.Md5, md5.ToUpperInvariant());
+        var shaKey = new PlaylistEntryLookupKey(PlaylistEntryLookupKeyKind.Sha256, sha);
+        PlaylistReferenceReadSnapshot old = owner.Capture([md5Key, shaKey]);
+        Assert.AreEqual(2, old.Values.Count);
+        Assert.AreEqual(string.Empty, old.Values[md5Key].Symbols);
+        Assert.AreEqual("SHA", old.Values[shaKey].Symbols);
+        Assert.AreEqual(string.Empty, owner.Find(md5, sha).Symbols);
+        PlaylistReferenceCommitReceipt removal = owner.RemoveTables([empty]);
+        Assert.IsNull(removal.Changes[md5Key]);
+        Assert.IsTrue(removal.Revision > old.Revision);
+        Assert.AreEqual("SHA", owner.Find(md5, sha).Symbols);
+        Assert.AreEqual(string.Empty, old.Values[md5Key].Symbols);
+        Assert.IsTrue(old.Values.ContainsKey(md5Key));
     }
 
-    /// <summary>エントリにMD5がある場合は一致するSHAがあってもMD5不一致を所属にしない。異なる譜面をSHA補完で受理する誤りを検出する。</summary>
+    /// <summary>正本A/B/C・BMT SORT 2/1/2はB/A/C。同順位は正本順、負値・0は数値順、欠損は末尾とし、header更新後も旧捕捉値を保持する。</summary>
     [TestMethod]
-    public void ApplyReferenceMap_DoesNotFallbackToSha256WhenEntryMd5Exists()
+    public void ReferenceHeaders_UseBmtSortThenCanonicalTableOrder()
     {
-        var service = new BmsLibraryPlaylistReferenceService(2);
-        string sha256 = new string('a', 64);
-        BMSTable table = CreateTable(CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sha256));
-        ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sha256);
+        string md5 = new('c', 32);
+        BMSTable a = new() { symbol = "A", name = "A name", bmt_sort = 2 };
+        BMSTable b = new() { symbol = "B", name = "B name", bmt_sort = 1 };
+        BMSTable c = new() { symbol = "C", name = "C name", bmt_sort = 2 };
+        var owner = new BmsLibraryPlaylistReferenceOwner();
+        owner.ReplaceTables([Snapshot(a, 0, CreateEntry(md5)), Snapshot(b, 1, CreateEntry(md5)), Snapshot(c, 2, CreateEntry(md5))]);
+        var key = new PlaylistEntryLookupKey(PlaylistEntryLookupKeyKind.Md5, md5);
+        PlaylistReferenceReadSnapshot old = owner.Capture([key]);
+        Assert.AreEqual("B A C", old.Values[key].Symbols);
+        Assert.AreEqual(string.Join(Environment.NewLine, "B name", "A name", "C name"), old.Values[key].Names);
+        PlaylistReferenceCommitReceipt changed = owner.Apply([], [new(a, "AX", "A new", 2, 0)]);
+        Assert.AreEqual("B AX C", ChangedDisplay(changed, key).Symbols);
+        Assert.AreEqual("B A C", old.Values[key].Symbols);
+        Assert.AreEqual("B AX C", owner.Find(md5, null).Symbols);
 
-        PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
-        int appliedCharts = service.ApplyReferenceMap(ToChartSnapshots([file]), lookupKeys, out int matchedFiles, out PlaylistReferenceApplyStats _);
-
-        Assert.AreEqual(1, lookupKeys.Md5Hashes.Count);
-        Assert.AreEqual(0, lookupKeys.Sha256Hashes.Count);
-        Assert.AreEqual(0, matchedFiles);
-        Assert.AreEqual(0, appliedCharts);
+        PlaylistReferenceCommitReceipt numeric = owner.Apply([], [new(a, "AX", "A new", null, 0),
+            new(b, "B", "B name", 0, 1), new(c, "C", "C name", -1, 2)]);
+        Assert.AreEqual("C B AX", ChangedDisplay(numeric, key).Symbols);
+        Assert.AreEqual(string.Join(Environment.NewLine, "C name", "B name", "A new"), ChangedDisplay(numeric, key).Names);
+        Assert.AreEqual("C B AX", owner.Find(md5, null).Symbols);
+        Assert.AreEqual("B A C", old.Values[key].Symbols);
     }
 
-    /// <summary>同一譜面のMD5とSHAが別テーブルに一致しても譜面を一回だけ数える。複数ハッシュによる一致数の二重加算を検出する。</summary>
-    [TestMethod]
-    public void ApplyReferenceMap_CountsChartOnceWhenBothHashesMatch()
+    /// <summary>同groupの二表entry差分は参照版を一回進める。catalog resetと旧補助通知clearは独立参照範囲を削除しない。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ReferenceQueue_PreservesGroupedCommitAcrossCatalogResetAndLegacyClear(bool resetFirst)
     {
-        var service = new BmsLibraryPlaylistReferenceService(2);
-        BMSTable md5Table = CreateTable(CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
-        md5Table.name = "MD5";
-        BMSTable shaTable = CreateTable(CreateEntry(null, new string('b', 64)));
-        shaTable.name = "SHA";
-        ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('b', 64));
-
-        PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys([md5Table, shaTable]);
-        int appliedCharts = service.ApplyReferenceMap(ToChartSnapshots([file]), lookupKeys, out int matchedFiles, out PlaylistReferenceApplyStats _);
-
-        Assert.AreEqual(1, matchedFiles);
-        Assert.AreEqual(1, appliedCharts);
+        var publisher = new NormalLibraryRefreshPublisher();
+        var owner = new BmsLibraryPlaylistReferenceOwner(publisher);
+        BMSTable a = new() { symbol = "A" }, b = new() { symbol = "B" };
+        owner.ReplaceTables([Snapshot(a), Snapshot(b)]);
+        int handled = publisher.Version;
+        TestablePlaylistEntry first = CreateEntry(new string('a', 32));
+        TestablePlaylistEntry second = CreateEntry(new string('b', 32));
+        void Reset() => publisher.Publish(new NormalLibraryRefreshPublishRequest { ResetsPriorNotifications = true });
+        if (resetFirst) { Reset(); }
+        long before = owner.Capture([]).Revision;
+        PlaylistReferenceCommitReceipt receipt = owner.Apply([Delta(a, first, null, first.CaptureValue()), Delta(b, second, null, second.CaptureValue())]);
+        Assert.AreEqual(before + 1, receipt.Revision);
+        Assert.AreEqual(2, receipt.Changes.Count);
+        publisher.ClearLegacyNotification(publisher.Version);
+        if (!resetFirst) { Reset(); }
+        NormalLibraryRefreshNotificationBatch batch = publisher.GetNotificationsAfter(handled);
+        Assert.IsTrue(batch.HasRefreshNotification);
+        Assert.AreSame(receipt, batch.ReferenceCommits.Single());
+        Assert.AreEqual("A", ChangedDisplay(receipt, PlaylistEntryLookupKey.FromEntry(first)).Symbols);
     }
 
-    /// <summary>ライブラリのbmson参照から所属MD5を照合して一致を返す。BMS専用の入力だけを受け付ける接続漏れを検出する。</summary>
-    [TestMethod]
-    public void ApplyReferenceMap_MatchesLibraryBmsonReference()
+    /// <summary>背景entry/keyを16/128へ増やしても一件entry差分は一bucketだけを更新・表示生成し、全表entryを捕捉しない。</summary>
+    [DataTestMethod]
+    [DataRow(16)]
+    [DataRow(128)]
+    public void ReferenceDelta_VisitsOnlyChangedEntryAndBucket(int count)
     {
-        var service = new BmsLibraryPlaylistReferenceService(2);
-        string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        BMSTable table = CreateTable(CreateEntry(md5));
-        var chart = LibraryChartRef.FromChartFile((ChartTestValues.Empty(ChartFileKind.Bmson) with
-        {
-            Path = @"C:\Library\chart.bmson",
-            Md5 = md5,
-            Sha256 = new string('a', 64)
-        }));
-
-        PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
-        int appliedCharts = service.ApplyReferenceMap([PlaylistReferenceChartSnapshot.FromLibraryChartRef(chart)], lookupKeys, out int matchedCharts, out PlaylistReferenceApplyStats _);
-
-        Assert.AreEqual(1, matchedCharts);
-        Assert.AreEqual(1, appliedCharts);
+        var owner = new BmsLibraryPlaylistReferenceOwner();
+        BMSTable a = new() { symbol = "A" }, b = new() { symbol = "B" };
+        owner.ReplaceTables([Snapshot(a, Enumerable.Range(1, count).Select(value => CreateEntry(value.ToString("x32"))).ToArray()),
+            Snapshot(b, Enumerable.Range(1000, count).Select(value => CreateEntry(value.ToString("x32"))).ToArray())]);
+        var work = new List<string>();
+        owner.WorkObserver = work.Add;
+        TestablePlaylistEntry added = CreateEntry(new string('f', 32));
+        owner.Apply([Delta(a, added, null, added.CaptureValue())]);
+        Assert.AreEqual(1, work.Count(value => value == "reference_entry_delta"));
+        Assert.AreEqual(1, work.Count(value => value == "reference_bucket_update"));
+        Assert.AreEqual(1, work.Count(value => value == "reference_display_generated"));
+        Assert.AreEqual(0, work.Count(value => value == "reference_entry_captured"));
+        Assert.AreEqual("A", owner.Capture([PlaylistEntryLookupKey.FromEntry(added)]).Values[PlaylistEntryLookupKey.FromEntry(added)].Symbols);
+        Assert.AreEqual(1, work.Count(value => value == "reference_lookup"));
     }
 
-    /// <summary>保留パッケージのbmsonを所属検索でき、検索後もBMSアダプターを作らない。検索のためだけにBMS構築へ依存する誤りを検出する。</summary>
+    /// <summary>entry自身にMD5があればSHAは登録しない。MD5-onlyとSHA-onlyの登録規則と削除済み除外を維持する。</summary>
     [TestMethod]
-    public void ApplyReferenceMap_PackageEntryDoesNotMaterializeAdapterlessBmson()
+    public void ReferenceIndex_RegistersEntryMd5BeforeShaAndIgnoresRemovedEntries()
     {
-        var service = new BmsLibraryPlaylistReferenceService(2);
-        string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        BMSTable table = CreateTable(CreateEntry(md5));
-        var entry = PackageChartEntry.FromChart((ChartTestValues.Empty(ChartFileKind.Bmson) with
-        {
-            Path = @"C:\Pending\chart.bmson",
-            Md5 = md5,
-            Sha256 = new string('a', 64)
-        }));
-
-        PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
-        int appliedCharts = service.ApplyReferenceMap([PlaylistReferenceChartSnapshot.FromPackageChartEntry(entry)], lookupKeys, out int matchedCharts, out PlaylistReferenceApplyStats _);
-
-        Assert.AreEqual(1, matchedCharts);
-        Assert.AreEqual(1, appliedCharts);
-        Assert.IsNull(entry.GetBmsChartForTest());
+        string sha = new('e', 64);
+        TestablePlaylistEntry entry = CreateEntry(new string('d', 32), sha);
+        TestablePlaylistEntry removed = CreateEntry(new string('f', 32));
+        removed.is_removed = true;
+        BMSTable table = new() { name = "Table", symbol = "T" };
+        var index = PlaylistReferenceIndex.FromSnapshots([Snapshot(table, entry, removed)]);
+        Assert.AreEqual("T", index.Find(entry.md5, null).Symbols);
+        Assert.AreEqual(string.Empty, index.Find(new string('a', 32), sha).Symbols);
+        Assert.AreEqual(string.Empty, index.Find(removed.md5, null).Symbols);
     }
 
-    /// <summary>パッケージのBMS入力から所属MD5を照合し一致を返す。保留項目から共通検索入力への変換漏れを検出する。</summary>
-    [TestMethod]
-    public void ApplyReferenceMap_MatchesPackageBmsReference()
+    private static PlaylistReferenceDisplay ChangedDisplay(PlaylistReferenceCommitReceipt receipt, PlaylistEntryLookupKey key)
     {
-        var service = new BmsLibraryPlaylistReferenceService(2);
-        string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        BMSTable table = CreateTable(CreateEntry(md5));
-        ChartFile file = CreateFile(md5);
-        var entry = PackageChartEntry.FromChart((file));
-
-        PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
-        int appliedCharts = service.ApplyReferenceMap([PlaylistReferenceChartSnapshot.FromPackageChartEntry(entry)], lookupKeys, out int matchedCharts, out PlaylistReferenceApplyStats _);
-
-        Assert.AreEqual(1, matchedCharts);
-        Assert.AreEqual(1, appliedCharts);
+        Assert.IsTrue(receipt.Changes.TryGetValue(key, out PlaylistReferenceDisplay? display));
+        Assert.IsNotNull(display);
+        return display;
     }
 
-    /// <summary>SHAだけのエントリを索引化して対応するテーブル記号・名前を返す。MD5以外の参照欠落や表示テーブルの取り違えを検出する。</summary>
-    [TestMethod]
-    public void PlaylistReferenceIndex_FindsSha256OnlyBmsonReference()
-    {
-        BMSTable table = CreateTable(CreateEntry(null, new string('c', 64)));
-        table.symbol = "BMSN";
-        table.name = "Bmson Table";
-
-        var index = PlaylistReferenceIndex.FromSnapshots(
-            [new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries)]);
-        PlaylistReferenceDisplay display = index.Find(null, new string('c', 64));
-
-        Assert.AreEqual("BMSN", display.Symbols);
-        Assert.AreEqual("Bmson Table", display.Names);
-    }
-
-    /// <summary>MD5とSHAを持つbmsonをChartFileとLibraryChartRefの両入口で検索する。MD5優先の索引化と譜面表現ごとの接続漏れを検出する。</summary>
-    [TestMethod]
-    public void PlaylistReferenceIndex_FindsReferencesFromChartIdentity()
-    {
-        string md5 = "dddddddddddddddddddddddddddddddd";
-        string sha256 = new string('d', 64);
-        BMSTable table = CreateTable(CreateEntry(md5, sha256));
-        table.symbol = "ID";
-        table.name = "Identity";
-        var index = PlaylistReferenceIndex.FromSnapshots(
-            [new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries)]);
-        ChartFile chart = (ChartTestValues.Empty(ChartFileKind.Bmson) with
-        {
-            Path = @"C:\Library\chart.bmson",
-            Md5 = md5,
-            Sha256 = sha256
-        });
-        var chartRef = LibraryChartRef.FromChartFile(chart);
-
-        Assert.AreEqual(1, index.Md5Count);
-        Assert.AreEqual(0, index.Sha256Count);
-        Assert.AreEqual("ID", index.Find(chart).Symbols);
-        Assert.AreEqual("Identity", index.Find(chartRef).Names);
-    }
-
-    /// <summary>同一テーブルのエントリと表示名を差替えると旧ハッシュを消し、新ハッシュに新記号を返す。更新後も古い所属を残す誤りを検出する。</summary>
-    [TestMethod]
-    public void PlaylistReferenceIndex_ReplacesTableEntries()
-    {
-        BMSTable table = CreateTable(CreateEntry(null, new string('d', 64)));
-        table.symbol = "OLD";
-        table.name = "Old Table";
-        PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
-        index.ReplaceSnapshotTable(new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries));
-
-        Assert.AreEqual("OLD", index.Find(null, new string('d', 64)).Symbols);
-
-        table.entries =
-        [
-            CreateEntry(null, new string('e', 64))
-        ];
-        table.symbol = "NEW";
-        table.name = "New Table";
-        index.ReplaceSnapshotTable(new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries));
-
-        Assert.AreEqual(string.Empty, index.Find(null, new string('d', 64)).Symbols);
-        Assert.AreEqual("NEW", index.Find(null, new string('e', 64)).Symbols);
-    }
-
-    /// <summary>追加譜面を持つカタログ確定結果から所属一致と受理世代を返す。カタログ更新を所属へ反映しない接続漏れを検出する。</summary>
-    [TestMethod]
-    public void PlaylistReferenceOwner_AppliesCatalogReceiptToChartSnapshot()
-    {
-        string md5 = "11111111111111111111111111111111";
-        BMSTable table = CreateTable(CreateEntry(md5));
-        var owner = new BmsLibraryPlaylistReferenceOwner(2);
-        var tableSnapshot = new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries);
-        owner.AddReferenceBMSTable(
-            tableSnapshot,
-            owner.BuildReferenceLookupKeys(tableSnapshot),
-            [],
-            [],
-            null);
-
-        var receipt = new CatalogMutationReceipt(
-            applied: true,
-            new OwnedChartCollectionVersionSnapshot(0),
-            folderDbMs: 0,
-            bmsPathDbMs: 0,
-            bmsonPathDbMs: 0,
-            bmsRemovalDbMs: 0,
-            bmsonRemovalDbMs: 0,
-            liveApplyMs: 0,
-            ownedCollectionApplied: true,
-            catalogRevision: 17,
-            addedCharts:
-            [
-                new CatalogChartMutationFact(
-                    ChartFileKind.Bms,
-                    @"C:\\Library\\chart.bms",
-                    md5,
-                    null)
-            ],
-            pathFacts: [],
-            removalRequests: []);
-
-        PlaylistReferenceCatalogApplyResult result = owner.ApplyCatalogMutationReceipt(
-            receipt,
-            [new PlaylistReferenceChartSnapshot(md5, null)]);
-
-        Assert.AreEqual(17, result.CatalogVersion);
-        Assert.AreEqual(1, result.AffectedChartCount);
-        Assert.AreEqual(1, result.MatchedChartCount);
-    }
-
-    /// <summary>所有者経由のテーブル置換で旧所属を除き新所属を公開する。索引更新を所有者の公開結果へ渡し忘れる誤りを検出する。</summary>
-    [TestMethod]
-    public void PlaylistReferenceOwner_ReplaceReferenceBMSTablePublishesNewSnapshot()
-    {
-        string oldMd5 = "22222222222222222222222222222222";
-        string newMd5 = "33333333333333333333333333333333";
-        BMSTable oldTable = CreateTable(CreateEntry(oldMd5));
-        BMSTable newTable = CreateTable(CreateEntry(newMd5));
-        oldTable.symbol = "OLD";
-        newTable.symbol = "NEW";
-        var owner = new BmsLibraryPlaylistReferenceOwner(2);
-        var oldSnapshot = new PlaylistReferenceTableSnapshot(oldTable, oldTable.symbol, oldTable.name, oldTable.entries);
-        var newSnapshot = new PlaylistReferenceTableSnapshot(newTable, newTable.symbol, newTable.name, newTable.entries);
-
-        owner.AddReferenceBMSTable(oldSnapshot, owner.BuildReferenceLookupKeys(oldSnapshot), [], [], null);
-        owner.ReplaceReferenceBMSTable(oldSnapshot, newSnapshot, [], [], null);
-
-        Assert.AreEqual(string.Empty, owner.Find(oldMd5, null).Symbols);
-        Assert.AreEqual("NEW", owner.Find(newMd5, null).Symbols);
-    }
-
-    /// <summary>同一テーブル内の重複MD5は記号と名前を一回だけ表示する。譜面行ごとの重複所属表示を検出する。</summary>
-    [TestMethod]
-    public void PlaylistReferenceIndex_FromSnapshotsDeduplicatesDuplicateEntriesForSameTable()
-    {
-        string md5 = "ffffffffffffffffffffffffffffffff";
-        BMSTable table = CreateTable(
-            CreateEntry(md5),
-            CreateEntry(md5));
-        table.symbol = "DUP";
-        table.name = "Duplicate";
-
-        var index = PlaylistReferenceIndex.FromSnapshots(
-            [new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries)]);
-        PlaylistReferenceDisplay display = index.Find(md5, null);
-
-        Assert.AreEqual("DUP", display.Symbols);
-        Assert.AreEqual("Duplicate", display.Names);
-    }
+    private static PlaylistReferenceTableSnapshot Snapshot(BMSTable table, params TestablePlaylistEntry[] entries) => Snapshot(table, 0, entries);
+    private static PlaylistReferenceTableSnapshot Snapshot(BMSTable table, int position, params TestablePlaylistEntry[] entries)
+        => new(table, table.symbol, table.name, entries, position);
+    private static PlaylistEntryCommitReceipt Delta(BMSTable table, BMSTableEntry entry, PlaylistEntryValue? before, PlaylistEntryValue? after)
+        => new(table, 0, 1, [new(entry, before, after, before == null ? null : 0, after == null ? null : 0)]);
 
     /// <summary>実BMSファイルの参照と同一フォルダの合成bmson参照からMD5を集め、別フォルダのBMSとMD5なしbmsonを除く。形式による参照の欠落や他フォルダの混入を検出する。</summary>
     [TestMethod]
@@ -352,29 +226,6 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         }
     }
 
-    private static BMSTable CreateTable(params TestablePlaylistEntry[] entries)
-    {
-        var table = new BMSTable
-        {
-            name = "Playlist",
-            entries = [.. entries.Cast<BMSTableEntry>()]
-        };
-        return table;
-    }
-
-    private static PlaylistReferenceLookupKeys BuildReferenceLookupKeys(BMSTable table)
-    {
-        return new BmsLibraryPlaylistReferenceOwner(2).BuildReferenceLookupKeys(
-            new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries));
-    }
-
-    private static PlaylistReferenceLookupKeys BuildReferenceLookupKeys(IEnumerable<BMSTable> tables)
-    {
-        return new BmsLibraryPlaylistReferenceOwner(2).BuildReferenceLookupKeys(
-            (tables ?? []).Where(table => table != null)
-                .Select(table => new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries)));
-    }
-
     private static TestablePlaylistEntry CreateEntry(string? md5, string? sha256 = null)
     {
         var entry = new TestablePlaylistEntry();
@@ -390,20 +241,6 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         return entry;
     }
 
-    private static ChartFile CreateFile(string hash, string? sha256 = null)
-    {
-        ChartFile file = ChartTestValues.Empty() with
-        {
-            Path = "C:\\Dummy\\" + Guid.NewGuid().ToString("N") + ".bms"
-        };
-        file = file with { Md5 = hash };
-        if (sha256 != null)
-        {
-            file = file with { Sha256 = sha256 };
-        }
-        return file;
-    }
-
     private static ChartFile CreateLibraryFile(string hash, string path, params string[] wavFiles)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -415,13 +252,6 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         };
         file = file with { Md5 = hash };
         return file;
-    }
-
-    private static List<PlaylistReferenceChartSnapshot> ToChartSnapshots(IEnumerable<ChartFile> files)
-    {
-        return [.. files.Select(chart => LibraryChartRef.FromChartFile((chart)))
-            .Select(PlaylistReferenceChartSnapshot.FromLibraryChartRef)
-            .Where(chart => chart != null)];
     }
 
     private sealed class TestablePlaylistEntry : BMSTableEntry

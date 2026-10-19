@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.Tests.RegularChartListOwnerTestSupport;
@@ -19,6 +20,239 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class RegularChartNormalLibraryRefreshTests
 {
     public TestContext? TestContext { get; set; }
+
+    /// <summary>起動相当の同Title・同hash BMSON b/aへBMS Zを実導入し、順序だけの既存tokenを再投影せずa/b/Zへ収束します。選択・旧snapshot・代表aを保ち、次の局所保守と構築中候補にも同じ構造差分を渡します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void FirstBmsInstall_NormalizesExistingBmsonViewOrderAndKeepsSelection(bool referenceBoundary)
+    {
+        WithTemporarySongDb(path =>
+        {
+            string root = Path.GetDirectoryName(path) ?? throw new InvalidOperationException();
+            string installedRoot = Path.Combine(root, "installed");
+            ChartFile Bmson(string folder)
+            {
+                string directory = Path.Combine(installedRoot, folder);
+                Directory.CreateDirectory(directory);
+                string file = Path.Combine(directory, "chart.bmson");
+                File.WriteAllText(file, "{\"info\":{\"title\":\"A\",\"artist\":\"Artist\"},\"sound_channels\":[]}");
+                return ChartTestValues.ReadBmson(file);
+            }
+            ChartFile b = Bmson("b"), a = Bmson("a");
+            Assert.AreEqual(a.Md5, b.Md5);
+            var gateway = new BmsLibraryDbGateway(path);
+            gateway.UpsertBmsonSongs([b, a]);
+            string pending = Path.Combine(root, "pending");
+            Directory.CreateDirectory(pending);
+            string sourcePath = Path.Combine(pending, "chart.bms");
+            File.WriteAllText(sourcePath, "#PLAYER 1\r\n#TITLE Z\r\n#BPM 120\r\n#00111:01\r\n");
+            ChartFile added = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourcePath));
+            Assert.AreNotEqual(a.Md5, added.Md5);
+            string destination = Path.Combine(installedRoot, "Z");
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(added, destination));
+            package.path = pending;
+            package.delete_parent = false;
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = false,
+                BMSInstallDir = installedRoot,
+                FolderNameFormat = "%TITLE%",
+                DeletePendingPackageSourceAfterInstall = false,
+                EnableSmartComponentOverwrite = false,
+                KeepSmartOverwriteProtectedFilesByRenaming = false
+            };
+            var library = new TestBmsLibrary(
+                songDbPath: path,
+                getLR2Config: null,
+                _lr2ScoreDB: null,
+                fileMutationService: new ResilientFileMutationService(),
+                dialogService: new BmsLibraryInitializationTestSupport.RecordingDialogService(),
+                uiScheduler: new TestUiScheduler(() => null),
+                optionsSnapshotProvider: () => options)
+            {
+                BmsCharts = [],
+                BmsonCharts = [b, a],
+                ChartPackagesPending = [package],
+                ChartPackagesInstalled = []
+            };
+            var reference = new BMSTable { symbol = "OLD", name = "Reference old", entries = [new BMSTableEntry(added)] };
+            if (referenceBoundary) { library.SynchronizeReferenceBMSTables([reference]); }
+            bool capturedReferenceBoundary = false;
+            var table = new MainChartListViewModel();
+            using var scheduler = new ScoreDeliveryUiScheduler();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(table), action => action(), scheduler);
+            var work = new List<(string Kind, int Count)>();
+            int rowsReplacing = 0;
+            EventHandler replacing = (_, _) => rowsReplacing++;
+            var commits = new List<CatalogCommitReceipt>();
+            EventHandler<NormalLibraryRefreshAppliedEventArgs> applied = (_, args) =>
+            {
+                commits.AddRange(args.NotificationBatch.CatalogCommits);
+                Assert.AreNotEqual(MainViewRefreshAction.Refresh, owner.ApplyNotificationPresentation(library, args.NotificationBatch,
+                    MainViewUpdateMode.FullScanAllChartsFilterSelected, null, ChartListFilterSnapshot.Default, false));
+            };
+            void Deliver()
+            {
+                Task delivery = owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None);
+                while (scheduler.TryTake(out ScheduledScoreOperation? operation)) { operation.Run(); operation.Complete(); }
+                delivery.GetAwaiter().GetResult();
+            }
+            try
+            {
+                owner.AttachNormalLibraryRefreshSource(library);
+                Deliver();
+                Assert.IsTrue(owner.TryApplyVirtualNormalLibrary(new()
+                {
+                    Library = library,
+                    IncludeBmsonRows = true,
+                    ModeFilter = ChartModeFilter.All,
+                    SortColumnName = nameof(LibraryChartRow.Title),
+                    SortDirection = System.ComponentModel.ListSortDirection.Ascending,
+                    ColumnSelection = new MainChartListColumnSelection(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD), false, 0,
+                        MainViewUpdateMode.FullScanAllChartsFilterSelected, System.Windows.Visibility.Collapsed, new PlaylistSummaryColumnSettings()),
+                    Mode = MainViewUpdateMode.FullScanAllChartsFilterSelected,
+                    Stopwatch = System.Diagnostics.Stopwatch.StartNew()
+                }).WasCommitted);
+                var rows = (ChartListVirtualView)table.Rows;
+                CatalogChartCollectionSnapshot before = rows.NormalInput.Snapshot;
+                ChartFile ownedB = before.BmsonRows[0], ownedA = before.BmsonRows[1];
+                Assert.IsTrue(rows.NormalInput.TryGetRow(ownedA.Token, out ChartListSourceRow initialA));
+                Assert.IsTrue(rows.NormalInput.TryGetRow(ownedB.Token, out ChartListSourceRow initialB));
+                CollectionAssert.AreEqual(new[] { b.Path, a.Path }, before.BmsonRows.Select(chart => chart.Path).ToArray());
+                var selected = (LibraryChartRow)rows[0];
+                table.SelectedIndex = 0;
+                PlaylistLibraryResolveIndexSnapshot oldCandidates = library.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out _, out _);
+                Assert.AreSame(ownedA.Token, oldCandidates.ResolveChartForPlaylistHash(a.Md5, a.Sha256).Token);
+                var candidate = new ChartListVirtualView(rows.NormalInput, ChartListOrder.CreateTitleAscending(rows.NormalInput), LibraryChartRow.FromSourceRow);
+                Assert.IsTrue(owner.TryBeginVirtualRequest(library, out RegularChartListRequestLease lease));
+                table.RowsReplacing += replacing;
+                table.RowProjection.NormalInputWorkObserver = (kind, count) =>
+                {
+                    work.Add((kind, count));
+                    if (referenceBoundary && kind == "reference_dependency_capture" && !capturedReferenceBoundary)
+                    {
+                        // 新hashをRで捕捉した後、同じUI適用中にSを実登録する。Rを越えてからR値を追加するとFINALへ収束しない。
+                        capturedReferenceBoundary = true;
+                        library.ApplyPlaylistReferenceEntryCommits([], [new(reference, "FINAL", "Reference final", 0, 0)]);
+                    }
+                };
+                owner.NormalLibraryRefreshApplied += applied;
+
+                PendingInstallBatchResult installed = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
+                Assert.IsTrue(installed.HasDurableCommit);
+                Assert.IsFalse(installed.SessionReceipt.HasRequiredFailure);
+                Assert.AreEqual(0, installed.FailedPackages.Count);
+                if (referenceBoundary) { library.ApplyPlaylistReferenceEntryCommits([], [new(reference, "R", "Reference R", 0, 0)]); }
+                Deliver();
+                ChartFile ownedZ = rows.NormalInput.Snapshot.BmsRows.Single();
+                void CheckOrder(ChartListVirtualView view) => CollectionAssert.AreEqual(new[] { ownedA.Token, ownedB.Token, ownedZ.Token },
+                    Enumerable.Range(0, view.Count).Select(view.GetNormalTokenAt).ToArray());
+                CheckOrder(rows);
+                Assert.AreSame(rows, table.Rows);
+                Assert.AreSame(selected, rows[table.SelectedIndex]);
+                Assert.AreEqual(1, table.SelectedIndex);
+                Assert.AreEqual(1, rows.RealizedRowCount, "順序だけの変更で未訪問のBMSONを実体化しません。");
+                Assert.AreEqual(0, rowsReplacing);
+                CatalogChartChange[] zChanges = commits.SelectMany(commit => commit.Changes).ToArray();
+                TestContext?.WriteLine("first_bms_install referenceBoundary=" + referenceBoundary + " work="
+                    + string.Join(",", work.GroupBy(item => item.Kind).OrderBy(group => group.Key).Select(group => group.Key + ":" + group.Sum(item => item.Count)))
+                    + " commits=" + string.Join(";", commits.Select(commit => commit.BaseRevision + "->" + commit.Revision
+                        + " orderOnly=" + commit.OrderChangedTokens.Count + " values="
+                        + string.Join(",", commit.Changes.Select(change => change.Before?.Kind + ":" + change.Before?.Title + "->" + change.After?.Kind + ":" + change.After?.Title
+                            + " health=" + change.Before?.WAVHealth + "/" + change.Before?.BGAHealth + "/" + change.Before?.MovieHealth
+                            + "->" + change.After?.WAVHealth + "/" + change.After?.BGAHealth + "/" + change.After?.MovieHealth
+                            + " encoding=" + change.Before?.EncodingName + "->" + change.After?.EncodingName
+                            + " maintenance=" + change.Before?.ResourceHealthMaintenanceSnapshot?.Origin + "->" + change.After?.ResourceHealthMaintenanceSnapshot?.Origin
+                            + " chartInfoChanged=" + (change.Before?.ChartInfo != change.After?.ChartInfo)
+                            + " difficulty=" + change.Before?.Difficulty + "->" + change.After?.Difficulty
+                            + " level=" + change.Before?.Level + "->" + change.After?.Level
+                            + " mode=" + change.Before?.Mode + "->" + change.After?.Mode)))));
+                Assert.IsTrue(zChanges.Length > 0, "新Zの実追加が同じ配送へ含まれます。");
+                Assert.IsTrue(zChanges.All(change => change.After?.Kind == ChartFileKind.Bms && change.Token == ownedZ.Token));
+                Assert.IsNull(zChanges[0].Before);
+                ChartFile previousZ = zChanges[0].After ?? throw new AssertFailedException("Zの追加値がありません。");
+                foreach (CatalogChartChange change in zChanges.Skip(1))
+                {
+                    ChartFile beforeZ = change.Before ?? throw new AssertFailedException("Zの変更前値がありません。");
+                    ChartFile afterZ = change.After ?? throw new AssertFailedException("Zの変更後値がありません。");
+                    Assert.AreSame(previousZ, beforeZ, "後段の確定は同じZの直前の不変値を引き継ぎます。");
+                    Assert.AreNotEqual(beforeZ, afterZ, "同値の別オブジェクトを実値変更として投影数へ加えません。");
+                    previousZ = afterZ;
+                }
+                Assert.AreSame(ownedZ, previousZ);
+                // 段階数はproducer側の責務です。このconsumerでは実receiptのZ値差分を各一回、独立した参照Sだけ追加一回とします。
+                int expectedZProjections = zChanges.Length + (referenceBoundary ? 1 : 0);
+                Assert.AreEqual(0, work.Where(item => item.Kind == "projection_bmson").Sum(item => item.Count),
+                    "順序だけのBMSONを、比較や再配置のために再投影しません。");
+                Assert.AreEqual(expectedZProjections, work.Where(item => item.Kind == "projection_bms").Sum(item => item.Count),
+                    "Zの実値差分を各一回だけ投影し、trueでは独立した参照Sの一回だけを加えます。");
+                Assert.AreEqual(work.Where(item => item.Kind == "projection_bms").Sum(item => item.Count),
+                    work.Where(item => item.Kind == "projection").Sum(item => item.Count), "未知の背景形式の投影を含めません。");
+                Assert.IsTrue(rows.NormalInput.TryGetRow(ownedA.Token, out ChartListSourceRow currentA));
+                Assert.IsTrue(rows.NormalInput.TryGetRow(ownedB.Token, out ChartListSourceRow currentB));
+                Assert.AreSame(initialA, currentA);
+                Assert.AreSame(initialB, currentB);
+                if (referenceBoundary)
+                {
+                    Assert.IsTrue(capturedReferenceBoundary);
+                    Assert.IsTrue(rows.NormalInput.TryGetRow(ownedZ.Token, out ChartListSourceRow projectedZ));
+                    Assert.AreEqual("FINAL", projectedZ.RefTablesSymbols);
+                    Assert.AreEqual("Reference final", projectedZ.RefTablesNames);
+                    Assert.AreEqual(library.CapturePlaylistReferenceReadSnapshot([]).Revision, rows.ReferencePosition);
+                }
+                CatalogCommitReceipt normalized = commits.Single(commit => commit.OrderChangedTokens.Count > 0);
+                CollectionAssert.AreEquivalent(new[] { ownedA.Token, ownedB.Token }, normalized.OrderChangedTokens.ToArray());
+                Assert.IsTrue(normalized.Changes.All(change => change.Token != ownedA.Token && change.Token != ownedB.Token));
+                string installedPath = Path.Combine(destination, "chart.bms");
+                Assert.IsTrue(File.Exists(installedPath));
+                using (LR2SongDBExtended db = gateway.OpenSongDbReadOnly())
+                {
+                    Assert.AreEqual("Z", db.Table<LR2SongDB.song>().Single(chart => chart.path == installedPath).title);
+                }
+                PlaylistLibraryResolveIndexSnapshot currentCandidates = library.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out bool cacheHit, out _);
+                Assert.IsTrue(cacheHit);
+                Assert.AreSame(ownedA.Token, currentCandidates.ResolveChartForPlaylistHash(a.Md5, a.Sha256).Token);
+
+                work.Clear();
+                library.SetChartResourceWarningsIgnored([ownedZ], unset: false);
+                Deliver();
+                CheckOrder(rows);
+                Assert.AreSame(rows, table.Rows);
+                Assert.AreSame(selected, rows[table.SelectedIndex]);
+                Assert.AreEqual(0, rowsReplacing);
+                Assert.IsTrue(work.Where(item => item.Kind == "projection").Sum(item => item.Count) <= 1);
+                Assert.IsTrue(rows.NormalInput.Snapshot.BmsRows.Single().ResourceHealthWarningsIgnored);
+                Assert.IsTrue(owner.TryCommitVirtual(lease, CreateVirtualTerminalInput(candidate)).WasCommitted,
+                    "構築中候補も同じ順序receiptと次の局所変更を採用前に反映します。");
+                CheckOrder(candidate);
+                Assert.IsTrue(candidate.NormalInput.Snapshot.BmsRows.Single().ResourceHealthWarningsIgnored);
+                if (referenceBoundary)
+                {
+                    Assert.IsTrue(candidate.NormalInput.TryGetRow(ownedZ.Token, out ChartListSourceRow candidateZ));
+                    Assert.AreEqual("FINAL", candidateZ.RefTablesSymbols);
+                    Assert.AreEqual(rows.ReferencePosition, candidate.ReferencePosition);
+                }
+                Assert.AreSame(ownedB.Token, candidate.GetNormalTokenAt(table.SelectedIndex));
+                CollectionAssert.AreEqual(new[] { b.Path, a.Path }, before.BmsonRows.Select(chart => chart.Path).ToArray());
+                Assert.AreEqual(0, before.BmsRows.Count);
+                Assert.AreSame(ownedA.Token, oldCandidates.ResolveChartForPlaylistHash(a.Md5, a.Sha256).Token);
+            }
+            finally
+            {
+                owner.NormalLibraryRefreshApplied -= applied;
+                table.RowsReplacing -= replacing;
+                table.RowProjection.NormalInputWorkObserver = null;
+                Task stop = owner.StopAsync();
+                scheduler.AbortOutstanding();
+                while (scheduler.TryTake(out ScheduledScoreOperation? operation)) { operation.Run(); operation.Complete(); }
+                stop.GetAwaiter().GetResult();
+                library.RequestShutdown("first_bms_install_bmson_order_test");
+            }
+        });
+    }
+
     /// <summary>背景16/128件を温めて一件だけ実保守し、配送終端までの投影・確保を対象数へ限定します。未訪問行と無関係行・選択を保持し、旧捕捉値は変更しません。</summary>
     [DataTestMethod]
     [DataRow(16, false)]

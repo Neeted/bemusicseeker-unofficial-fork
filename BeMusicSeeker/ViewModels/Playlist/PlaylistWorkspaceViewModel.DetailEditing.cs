@@ -168,7 +168,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (DetailViewState.View.CurrentIdentity is PlaylistRequestIdentity current)
             { (DetailViewState.View.Rows as PlaylistDetailVirtualView)?.FlushDeferred(current); }
         }
-        (DetailViewState.View.Rows as PlaylistDetailVirtualView)?.PublishChanges();
+        PublishDetailChanges();
     }
 
     private static bool IsDetailEditableProperty(string propertyName)

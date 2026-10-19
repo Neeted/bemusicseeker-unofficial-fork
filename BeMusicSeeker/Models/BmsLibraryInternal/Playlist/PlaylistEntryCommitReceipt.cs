@@ -18,7 +18,7 @@ internal sealed record PlaylistEntryChange(
 /// <summary>DB またはランタイム補完の確定時に、値・版・対象差分を一緒に捕捉した結果です。</summary>
 internal sealed record PlaylistEntryCommitReceipt(
     BMSTable Table, int BaseRevision, int Revision,
-    ImmutableArray<PlaylistEntryChange> Changes, bool IsFullReplacement = false,
+    ImmutableArray<PlaylistEntryChange> Changes,
     ImmutableArray<string> FolderOrder = default);
 
 /// <summary>reader 内で同時に捕捉した表の entry 版と不変値です。元 entry は識別だけに使います。</summary>

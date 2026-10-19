@@ -250,54 +250,11 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        library ??= getPlaylistLibrary();
-        if (library == null)
-        {
-            return;
-        }
         playlists ??= getPlaylistStore();
-        bool objectReplaced = receipt.OldTable != null
-            && receipt.NewTable != null
-            && !ReferenceEquals(receipt.OldTable, receipt.NewTable);
-        if (receipt.NewTable == null
-            || playlists?.ContainsBMSTable(receipt.NewTable) != true)
+        if (receipt.NewTable != null && playlists?.ContainsBMSTable(receipt.NewTable) == true
+            && (receipt.Updated || receipt.ReferenceEntriesChanged || !ReferenceEquals(receipt.OldTable, receipt.NewTable)))
         {
-            if (receipt.OldTable != null)
-            {
-                library.RemoveReferenceBMSTables(receipt.OldTable);
-            }
-            return;
-        }
-        bool referenceIndexChanged = receipt.Updated
-            || receipt.ReferenceEntriesChanged
-            || objectReplaced;
-        bool referenceIndexApplied = false;
-        if (referenceIndexChanged)
-        {
-            library.ReplaceReferenceBMSTable(
-                receipt.OldTable,
-                receipt.NewTable,
-                receipt.OldEntriesSnapshot,
-                receipt.NewEntriesSnapshot);
-            referenceIndexApplied = true;
-        }
-        if (playlists?.ContainsBMSTable(receipt.NewTable) != true)
-        {
-            if (referenceIndexApplied)
-            {
-                library.RemoveReferenceBMSTables(receipt.NewTable);
-            }
-            return;
-        }
-        if (objectReplaced || receipt.Updated || receipt.ReferenceEntriesChanged)
-        {
-            ReplaceCurrentPlaylistDetailSelectionTable(
-                receipt.OldTable,
-                receipt.NewTable);
-            if (referenceIndexChanged)
-            {
-                RequestPlaylistReferenceSortInvalidation();
-            }
+            ReplaceCurrentPlaylistDetailSelectionTable(receipt.OldTable, receipt.NewTable);
         }
     }
 }

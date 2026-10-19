@@ -89,7 +89,7 @@ BMSONを通常一覧に含める範囲は、通常のルート・フォルダ・
 | --- | --- |
 | 譜面情報 | `BMSLibrary.ResolveChartInfo(...)` とセッションの `ChartInfoIndex`。保存主体に一時的な `ChartInfo` を付けて代用しません。 |
 | スコア・ランク・達成率 | `ChartScoreSnapshot` を介して譜面・表示行で解決します。スコアの接続・購読・再読込み・active source・版は既存のライブラリ管理が所有し、スコアごとに一購読とします。差替え・再読込み・終了で解除し、譜面ごとの購読を作りません。通常のBMSはLR2をMD5、beatorajaをSHA-256で解決し、通常のbmsonはNoScoreです。プレイリスト専用の所持・未所持解決では、所持bmsonのSHA-256によるbeatorajaスコアも維持します。 |
-| 参照するプレイリスト | `PlaylistReferenceIndex`。`RefTablesSymbols` / `RefTablesNames` は表示列名であり、BMS保存行の可変キャッシュではありません。 |
+| 参照するプレイリスト | `PlaylistReferenceIndex`から捕捉した不変入力と参照確定差分。[参照索引の契約](../playlist/storage-and-export.md#参照プレイリストの索引と表示)に従います。`RefTablesSymbols` / `RefTablesNames` は表示列名であり、BMS保存行の可変キャッシュではありません。 |
 | 警告 | `ChartWarningCollection` と `ChartWarningProjectionFormatter`。行側で表示文字列・ハッシュ・ツールチップを作ります。 |
 | リソース健全性・文字コード | 不変の `ResourceHealthMaintenanceSnapshot` と一時投影。`DbHydrated`、`Calculated`、未計算を区別し、既存通知へ変更対象を渡します。 |
 | 導入先 | `PackageChartEntry`、`ChartFileTransientState`、モデル内の一時状態。BMS保存行へ書き戻しません。明示的に空へ変更した状態も区別します。 |

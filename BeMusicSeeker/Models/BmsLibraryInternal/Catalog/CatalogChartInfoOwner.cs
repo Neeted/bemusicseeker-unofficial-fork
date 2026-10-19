@@ -35,7 +35,7 @@ internal sealed class CatalogChartInfoOwner
     /// <summary>直近の読込み要求に捕捉した発生元です。</summary>
     internal OperationProgressRequest HydrationProgressRequest { get { lock (hydrationGate) { return hydrationProgressRequest; } } }
 
-    private readonly ChartInfoBuildService buildService = new();
+    private readonly ChartInfoBuildService buildService;
 
     private readonly ChartInfoInlineBuildService inlineBuildService;
 
@@ -82,9 +82,8 @@ internal sealed class CatalogChartInfoOwner
     private int inputCoverageParserVersion;
     private long inputCoverageTimeoutMs;
 
-    private void CompleteInputCoverage(IEnumerable<ChartFile> values, bool full)
+    private void CaptureInputCoverageConditions()
     {
-        workflowOwnedCollectionOwner.CompleteChartInfoInputs(values, full);
         inputCoverageParserVersion = BmsLibraryDbGateway.CurrentChartInfoParserVersion;
         inputCoverageTimeoutMs = Math.Max(0L, (long)Math.Ceiling(buildService.CurrentParseTimeout.TotalMilliseconds));
     }
@@ -163,13 +162,15 @@ internal sealed class CatalogChartInfoOwner
 
     /// <summary>推定入力の必須背景更新を、構成が共有する論理受付へ接続します。</summary>
     /// <param name="operationAdmission">先行操作の実終端を非同期で待つ共有受付。</param>
+    /// <param name="buildService">構成時に共有する実解析・保存service。省略時は既定の実装を使用します。</param>
     internal CatalogChartInfoOwner(
         Action<string> propertyChanged,
         Func<bool> isShutdownRequested,
         Func<string, string, bool> trySkipForShutdown,
         Func<Func<string, string, string, Func<Task>, bool>> startupBackgroundTaskSchedulerProvider,
         Action<string> logPerformance,
-        ChartFileOperationSynchronizer operationAdmission = null)
+        ChartFileOperationSynchronizer operationAdmission = null,
+        ChartInfoBuildService buildService = null)
     {
         this.propertyChanged = propertyChanged;
         this.isShutdownRequested = isShutdownRequested ?? (() => false);
@@ -177,8 +178,9 @@ internal sealed class CatalogChartInfoOwner
         this.startupBackgroundTaskSchedulerProvider = startupBackgroundTaskSchedulerProvider;
         this.logPerformance = logPerformance;
         this.operationAdmission = operationAdmission ?? new ChartFileOperationSynchronizer();
+        this.buildService = buildService ?? new ChartInfoBuildService();
         inlineBuildService = new(
-            buildService,
+            this.buildService,
             FileScanParseCommitOwner.ResolveDefaultFileDiffParserDegree());
     }
 
@@ -871,6 +873,7 @@ internal sealed class CatalogChartInfoOwner
                             lock (workflowOwnedCollectionOwner.Gate)
                             {
                                 chartSnapshot = workflowOwnedCollectionOwner.Collection.CreateSnapshot(includeWarningSnapshot: false, includeScoreSnapshot: false);
+                                workflowOwnedCollectionOwner.BeginChartInfoInputCoverage(chartSnapshot);
                             }
                         }
                     }
@@ -881,6 +884,7 @@ internal sealed class CatalogChartInfoOwner
                     }
                     using (workflowBeginDigestMutationWindow())
                     {
+                        CaptureInputCoverageConditions();
                         ChartInfoBackfillTotalCount = 0;
                         ChartInfoBackfillProcessedCount = 0;
                         ChartInfoBackfillCurrentPath = string.Empty;
@@ -925,11 +929,8 @@ internal sealed class CatalogChartInfoOwner
                             },
                             existingRowsSnapshot,
                             workflowMutationOwner.ApplyChartInfoStorageWrite,
-                            subset: !fullRequest);
-                        if (result.ReadFailedCount == 0 && result.DigestFailedCount == 0)
-                        {
-                            CompleteInputCoverage(chartSnapshot, fullRequest);
-                        }
+                            subset: !fullRequest,
+                            inputCompleted: values => workflowOwnedCollectionOwner.CompleteChartInfoInputs(values, full: false));
 
                         ChartInfoBuildService.ReportDiagnosticBestEffort(LogPerformance, () => "chart_info_backfill done version=" + requestVersion
                             + " mode=full total=" + result.TargetCount

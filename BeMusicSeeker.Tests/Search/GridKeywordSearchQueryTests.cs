@@ -96,7 +96,7 @@ public sealed class GridKeywordSearchQueryTests
             entries = [CreateBmsonPlaylistEntry(song.Sha256)]
         };
         PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
-        index.ReplaceSnapshotTable(new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries));
+        index.ReplaceTables([new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries)]);
         var row = LibraryChartRow.FromChartFile((song));
         row.SetPlaylistReferenceDisplayProvider(row => index.Find(row.hash, row.sha256));
 
@@ -1000,7 +1000,7 @@ public sealed class GridKeywordSearchQueryTests
         foreach (BMSTable table in tables ?? [])
         {
             table.entries = [new BMSTableEntry(file)];
-            index.ReplaceSnapshotTable(new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries));
+            index.ReplaceTables([new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries)]);
         }
         return index;
     }

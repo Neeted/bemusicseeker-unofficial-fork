@@ -397,6 +397,7 @@ public partial class BMSPlaylist
         };
         bool overwriteExisting = options.OverwritePlaylistUrlsWithCompletion;
         List<PlaylistEntryChange> changes = [];
+        PlaylistEntryCommitReceipt committed;
         using (table.ReaderWriterLock.GetWriterGuard())
         {
             foreach (BMSTableEntry entry in table.entries ?? Enumerable.Empty<BMSTableEntry>())
@@ -430,9 +431,11 @@ public partial class BMSPlaylist
                     tableStats.RuntimeUrlDiffCount++;
                 }
             }
-            RegisterEntryCommit(table.CommitEntryValues(changes));
+            committed = table.CommitEntryValues(changes);
+            RegisterEntryCommit(committed);
         }
-        SignalEntryCommitsAvailable();
+        try { CompleteReferencesAndOutputs([committed], () => { }); }
+        finally { SignalEntryCommitsAvailable(); }
         return tableStats;
     }
 
@@ -452,6 +455,7 @@ public partial class BMSPlaylist
             return tableStats;
         }
         List<PlaylistEntryChange> changes = [];
+        PlaylistEntryCommitReceipt committed;
         using (table.ReaderWriterLock.GetWriterGuard())
         {
             foreach (BMSTableEntry entry in table.entries ?? Enumerable.Empty<BMSTableEntry>())
@@ -468,9 +472,11 @@ public partial class BMSPlaylist
                     changes.Add(table.CaptureEntryChange(entry, before));
                 }
             }
-            RegisterEntryCommit(table.CommitEntryValues(changes));
+            committed = table.CommitEntryValues(changes);
+            RegisterEntryCommit(committed);
         }
-        SignalEntryCommitsAvailable();
+        try { CompleteReferencesAndOutputs([committed], () => { }); }
+        finally { SignalEntryCommitsAvailable(); }
         return tableStats;
     }
 

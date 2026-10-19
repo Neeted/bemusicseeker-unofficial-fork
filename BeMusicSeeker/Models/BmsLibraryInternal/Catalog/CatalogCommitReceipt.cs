@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -20,12 +21,14 @@ internal sealed record CatalogChartChange(ChartFile Before, ChartFile After)
 internal sealed class CatalogCommitReceipt
 {
     /// <summary>owner が確定した結果を構成します。変更集合は外部から変更できません。</summary>
-    internal CatalogCommitReceipt(int baseRevision, int revision, IEnumerable<CatalogChartChange> changes, bool isFullReplacement, CatalogChartCollectionSnapshot snapshot = null)
+    internal CatalogCommitReceipt(int baseRevision, int revision, IEnumerable<CatalogChartChange> changes, bool isFullReplacement, CatalogChartCollectionSnapshot snapshot = null,
+        IEnumerable<OwnedChartToken> orderChangedTokens = null)
     {
         Snapshot = snapshot;
         BaseRevision = baseRevision;
         Revision = revision;
         Changes = Array.AsReadOnly((changes ?? []).ToArray());
+        OrderChangedTokens = (orderChangedTokens ?? []).ToImmutableHashSet();
         IsFullReplacement = isFullReplacement;
     }
     /// <summary>確定時の同じ不変rootを共有する一覧入力です。後続currentを捕捉し直しません。</summary>
@@ -36,9 +39,11 @@ internal sealed class CatalogCommitReceipt
     internal int Revision { get; }
     /// <summary>実際に変更した項目だけの旧新値です。</summary>
     internal IReadOnlyList<CatalogChartChange> Changes { get; }
+    /// <summary>値変更とは独立して、既存項目間の基準位置が実際に変わった生存tokenの不変集合です。位置不変の候補キー再捕捉は含めません。</summary>
+    internal IReadOnlySet<OwnedChartToken> OrderChangedTokens { get; }
     /// <summary>所属と順序を全体で置換した確定かを返します。</summary>
     internal bool IsFullReplacement { get; }
-    /// <summary>現在値の実変更を伴うかを返します。</summary>
+    /// <summary>現在値・所属・基準順序の実変更を伴うかを返します。</summary>
     internal bool HasChanges => Revision != BaseRevision;
 }
 

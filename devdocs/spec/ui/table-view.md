@@ -36,11 +36,13 @@
 
 通常一覧はカタログから所属・現在値・`CatalogRevision` を一組で捕捉し、その読取り入力から絞込み・順序・件数を導出します。所属の正本はカタログに置き、表示は捕捉した不変入力とtokenの順序を参照します。通常BMSONの同値順もカタログ保持順に従い、初回入力だけをpath順へ整列しません。BMS専用表示ではBMSONの入力を準備しません。
 
-通常一覧の行キャッシュは所持tokenをキーとし、共通基本現在値の参照と詳細・スコア・パッケージの既存版から表示を再評価します。tokenは項目の識別、版は表示キャッシュの有効性であり、相互の代用品ではありません。基本値・path・hashの変更範囲は必要な行更新・依存判定に使い、詳細通知は変更hash、スコア通知は変更キー、保守・警告通知は変更対象を渡します。局所更新のために全sourceをResetし、BMSON全行を同期し、未訪問行を実体化しません。
+通常一覧の行キャッシュは所持tokenをキーとし、共通基本現在値の参照、捕捉した不変参照入力と、詳細・スコア・パッケージの既存版から表示を再評価します。tokenは項目の識別、版は表示キャッシュの有効性であり、相互の代用品ではありません。基本値・path・hashの変更範囲は必要な行更新・依存判定に使い、詳細通知は変更hash、スコア通知は変更キー、保守・警告通知は変更対象を渡します。局所更新のために全sourceをResetし、BMSON全行を同期し、未訪問行を実体化しません。
 
 捕捉入力と、その所属・基準順序に対応する順序を一緒に採用します。件数一致だけで旧添字を再利用しません。部分更新では、writerが確定した `CatalogCommitReceipt.Snapshot` と旧新値を使い、通知の配送時に後続の現在値を取り直しません。token、lookup key、entryから必要な行を得て、実際に依存する検索適否・並び位置・件数だけを更新します。変更していない不変入力と順序は構造共有し、全件長の投影配列やpatch配列を毎回作りません。後から取得する未訪問行も同じ採用入力を使います。
 
-カタログと独立scoreの変更結果は `RegularChartListOwner` が既存キューから一度取得し、同じbatchを `MainWindowViewModel` の接続からplaylist workspaceの `ApplyLibraryChanges` にも渡します。通常一覧の表示抑止中やプレイリスト表示中でも、必要な構築中要求へ差分を渡します。配送中の状態はこの受渡しの終端まで保持します。正本の確定・版・差分の契約は[データと索引](../core/data-and-indexes.md)に従います。
+基準順序だけが変わるtokenも、値変更の対象と合わせて旧snapshotの比較規則で順序木から外し、新snapshotへ切り替えてから再挿入します。順序だけで生値やfilterを再投影せず、旧捕捉値と未変更行を保持します。初回BMSON正規化後も、同値列の比較・選択復元と次の局所更新を同じ規則で処理します。
+
+カタログ、独立score、参照プレイリストの変更結果は `RegularChartListOwner` が既存キューから一度取得し、同じbatchを `MainWindowViewModel` の接続からplaylist workspaceの `ApplyLibraryChanges` にも渡します。通常一覧の表示抑止中やプレイリスト表示中でも、必要な構築中要求へ差分を渡します。配送中の状態はこの受渡しの終端まで保持します。正本の確定・版・差分の契約は[データと索引](../core/data-and-indexes.md)、参照索引は[保存仕様](../playlist/storage-and-export.md#参照プレイリストの索引と表示)に従います。
 
 導入済み項目の変更は、現在値適用時に捕捉した旧新基本値とentry・packageの所属参照を通常通知へ渡します。同tokenの複数通知は先行変更も保持し、最後の現在値だけで依存を判定しません。`RegularChartListOwner` と既存の表示更新判断でbatchの全effectsを一度合成します。同じ所属のTitle不変の純移転を、keyword空・mode全て・Title順で表示している場合はpathだけを更新し、Rows・実体行・選択・編集中入力・順序を保持します。path順、依存する検索・モード・Title変更、Reset、所属変更、必要な旧新情報がない場合は正規の最終順序と集合を更新します。
 
@@ -61,13 +63,18 @@
 | 譜面情報 | `ChartInfoIndexVersion` と変更MD5・SHA-256キー |
 | 保守結果 | 確定した対象currentと、その列・検索への実依存 |
 | 警告 | 対象currentと専門警告の事実、警告・導入先条件への実依存 |
-| 導入先・参照プレイリスト | 各表示専用の世代 |
+| 導入先 | 表示専用の世代 |
+| 参照プレイリスト | 参照ownerの確定版範囲・変更MD5/SHA-256 keyと、sourceの処理済み位置 |
 
 スコア・譜面情報・保守結果・警告の部分更新では、変更キーへ依存する入力と必要な並び位置だけを更新します。対象集合ではツリーの種別、集合名と並びの識別情報も使います。初回、明示的なsort/filter変更、実際の全置換では、その範囲に必要な全体評価を行います。
 
 score lookupは所属と索引を共有し、可変な `BMSScore` の全値を版ごとに固定しません。表示の `ScoreSnapshotVersion` は、その位置までの変更キーを全て反映したことを表します。一件の更新で最新lookupを読めても、別キーの未反映分を飛び越えてsource・検索結果・順序を最新版として採用しません。catalogや譜面情報だけの更新でもscoreの位置を進めません。
 
 初回と必要な全評価では、最初のscore投影前に同じlookupと基準版を捕捉します。その基準が覆うのは、通常一覧の選択形式、専用対象集合、詳細の選択表・実folderに対応する元集合全体です。表示filter前の非表示・未訪問入力も同じlookupへ接続し、別のsourceや範囲のcacheまで更新済みと扱いません。通常一覧の未準備scoreは従来どおりNoScoreとし、表示の捕捉だけで構築を開始しません。
+
+参照表示は要求に必要なMD5/SHA-256両keyと参照版を一回の読取りで捕捉し、不変入力として共有します。MD5が現在一致していてもSHAを捕捉し、MD5 bucket消失後のfallbackも同じ入力と差分から求めます。別表のentry変更、name/symbol、参照選択、遅いhydrationも独立した参照差分として適用し、依存する非表示・未訪問入力、検索集合、必要な並び位置だけを更新します。
+
+構築要求は捕捉前から参照差分を受け取り、依存登録前の変更も保持します。新hash依存だけをR版で捕捉した場合は、既存入力へRまでの結果を適用した境界で新依存を追加し、その後の結果も順に適用してから公開します。参照commit境界を潰さず、古い差分で新捕捉値を巻き戻した状態を公開しません。UI内では既存の採用待ち候補と配送から再開し、同じdrainを自分で待ちません。捕捉版と全依存の処理済み位置を分け、最新版への付替え、行ごとの可変索引読取り、欠落を隠す全再構築は行いません。
 
 ### 絞込みと画面更新
 
@@ -101,7 +108,7 @@ score lookupは所属と索引を共有し、可変な `BMSScore` の全値を�
 
 詳細の局所更新では、変更したentryの入力と順序木の経路だけを置換します。末尾までの位置索引書換や、既実体化行全体の移動用bufferを作りません。編集中の順序キーを保ちながら最新の表示入力とdraftを使い、編集終了後に必要な行だけを再配置します。行・集合の通知は、sourceと表示状態の確定・ロック解放後に公開します。フォルダ編集・削除・dropの正規確定差分で更新済みなら、操作後の全詳細再表示を重ねません。選択folderの改名等で実選択が変わる場合は、追従先を評価します。
 
-集計表示の正本は `MainChartList.SummaryText` です。通常一覧は初回に必要な順序キーの登録と同時にfolder別件数を求め、以後は対象folderだけを加減算します。件数のためだけの全source再走査と非同期の再集計cacheは持ちません。フォルダ数が1以下なら曲数だけを表示する既存規則を維持します。専用の対象集合は、その表示に必要な範囲を集計します。
+集計表示の正本は `MainChartList.SummaryText` です。通常一覧とプレイリスト詳細は、初回の順序登録と同時にfolder別件数を求め、以後は対象folderだけを加減算します。空白だけのfolderは除外し、OrdinalIgnoreCaseで数えます。詳細の差分公開と編集終了のflushでも、採用中viewのRowCount/DistinctFolderCountから集計を更新します。編集中に所属変更をdeferしている間は採用中の集合を数えます。件数のためだけの全source再走査と非同期の再集計cacheは持ちません。フォルダ数が1以下なら曲数だけを表示する既存規則を維持します。専用の対象集合は、その表示に必要な範囲を集計します。
 
 #### 古い表示結果を採用しない境界
 
@@ -165,6 +172,10 @@ scoreの未反映範囲を必要とする要求は、その時点で必要な確
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 初回BMSON正規化後の表示順・選択と次の局所更新 | [`NormalLibraryViewOrder`](../../../BeMusicSeeker/ViewModels/ChartList/NormalLibraryViewOrder.cs)、[`RegularChartListOwner.CatalogChanges`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.CatalogChanges.cs) | [`RegularChartNormalLibraryRefreshTests.FirstBmsInstall_NormalizesExistingBmsonViewOrderAndKeepsSelection`](../../../BeMusicSeeker.Tests/ChartList/RegularChartNormalLibraryRefreshTests.cs) は実BMS導入・DB・配送から順序と選択、旧snapshotと構築中候補、次更新を確認する。参照変更併存時は新hashの捕捉境界後の変更も含める。 |
+| 通常・専用一覧の参照捕捉、局所反映、空MD5 bucketとSHA依存 | [`ChartListReferenceInput`](../../../BeMusicSeeker/ViewModels/ChartList/ChartListReferenceInput.cs)、[`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs) | [`RegularChartNormalLibraryRefreshTests.References`](../../../BeMusicSeeker.Tests/ChartList/RegularChartNormalLibraryRefreshTests.References.cs) は背景16/128件で参照headerの対象投影・選択・未訪問行、初回capture中の確定、MD5存在中にも保持するSHA依存を確認する。 |
+| 別表の参照更新、hydration、構築中・同条件要求と実配送終端 | [`PlaylistWorkspaceViewModel.DetailChanges`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.DetailChanges.cs)、[`PlaylistDetailSourceRow`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistDetailSourceRow.cs) | [`PlaylistCatalogViewChangeTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistCatalogViewChangeTests.cs) の `OtherTableEntryAndHeaderCommits_UpdateReferenceSearchAndSortLocally`、`ReferenceCommit_DuringInitialProjectionIsBufferedBeforeDependencyRegistration`、`ReferenceCommit_SameViewWaitsForActualDeliveryAndCancellationKeepsSharedDrain`、`OtherTableHydration_UpdatesExistingDetailAfterDelayedReferenceCapture`、`NewEntryReferenceCapture_InsertsDependencyAtExactBoundaryBeforeFollowingCommit` は実modelからの参照結果、検索・sort、draft、capture/依存登録の隙間、取消と共有drain、遅いDB hydrationを分担する。通常ownerからworkspaceへの実接続とREF列・SummaryTextのBindingは [`MainWindowPlaylistWorkspaceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) の既存代表が確認する。 |
+| 詳細件数と空白・大小文字、編集終了後の採用集合 | [`PlaylistDetailVirtualView`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistDetailVirtualView.cs)、[`PlaylistWorkspaceViewModel.DetailChanges`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.DetailChanges.cs) | [`PlaylistViewPipelineTests.PlaylistDetailFolders_ExcludeBlankIgnoreCaseAndPublishAdoptedCounts`](../../../BeMusicSeeker.Tests/Playlist/PlaylistViewPipelineTests.cs) はfolder数の境界を確認し、[`PlaylistCatalogViewChangeTests.EntryRemoval_ChangesOnlyAffectedSourcePositions`](../../../BeMusicSeeker.Tests/Playlist/PlaylistCatalogViewChangeTests.cs) と編集・filter系列は実差分公開後のSummaryTextまで確認する。 |
 | 通常一覧の確定差分、依存する順序・絞込み・件数だけの更新 | [`RegularChartListOwner.CatalogChanges`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.CatalogChanges.cs)、[`NormalLibrarySourceRows`](../../../BeMusicSeeker/ViewModels/ChartList/NormalLibrarySourceRows.cs)、[`NormalLibraryViewOrder`](../../../BeMusicSeeker/ViewModels/ChartList/NormalLibraryViewOrder.cs) | [`RegularChartNormalLibraryRefreshTests`](../../../BeMusicSeeker.Tests/ChartList/RegularChartNormalLibraryRefreshTests.cs) の `MaintenanceCommit_ChangesOnlyTargetProjectionAndKeepsUnvisitedRows` は実BMS・SQLiteから保守と警告の無視・解除を通し、背景16/128件で対象投影・確保・実体化の仕事量を確認する。`CatalogMembershipCommits_UpdateCountsAndDistinctFoldersLocally` はBMS/BMSONの所属と絞込み・folder件数、`CatalogCandidate_WaitsForUndeliveredCommitAndResumesOnlyAffectedRows` は実確定後の配送前後で全再構築せずに収束することを確認する。 |
 | 詳細の共通入力、逆引きからの局所更新、構築中要求への差分 | [`PlaylistDetailDependencies`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistDetailDependencies.cs)、[`PlaylistWorkspaceViewModel.DetailChanges`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.DetailChanges.cs)、[`PlaylistDetailSourceRow`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistDetailSourceRow.cs) | [`PlaylistCatalogViewChangeTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistCatalogViewChangeTests.cs) の `MaintenanceCommit_UpdatesOnlyDependentPlaylistInputs` は実sourceの専門警告・旧入力不変・未訪問行と背景16/128件の仕事量、`MetadataCommit_ReevaluatesHiddenDependenciesAndKeepsEntryValues` は非表示entryの再評価、`BuildingCandidate_WaitsForCommitDeliveryAndResumesWithoutRebuild` は採用前後の配送と同じ構築要求の継続を確認する。entry保存・URL補完との交錯は[保存仕様](../playlist/storage-and-export.md)へ分担する。 |
 | 詳細の局所順序・独立score/詳細・draft・実操作からの二重更新防止 | [`PlaylistDetailVirtualView`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistDetailVirtualView.cs)、[`PlaylistWorkspaceViewModel.Mutations`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.Mutations.cs)、`PlaylistWorkspaceViewModel.DetailChanges` | `PlaylistCatalogViewChangeTests` の `MetadataSortMove_PreservesRealizedEntriesWithLogarithmicOrderWork` は背景16/128件と全行実体化で実順序訪問・buffer・参照保持・ロック外通知を確認する。`ScoreChanges_PatchDependentEntriesAndDeferPositionUntilDraftEnds`、`ChartInfoChange_PatchesOnlyUnownedDependentEntry` は実score/解析DBからの独立変更とdraft終端、`EntryEdits_UpdateLevelOrderAndMemoFilterLocally` は保存後の順序と検索を確認する。同クラスの実Workspace改名・削除・dropは正規receiptからの更新と全再表示の不発、選択folderの改名追従を分担する。 |

@@ -3157,10 +3157,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     /// <summary>
-    /// 難易度表の名前・記号変更を明示更新までは捕捉値として保ち、更新後は参照表示だけを替えて譜面の共通更新を発行しないことを確認します。
+    /// 難易度表の名前・記号変更を明示確定までは捕捉値として保ち、独立参照rangeを配送してcatalog版・commitは増やさないことを確認します。
     /// </summary>
     [TestMethod]
-    public async Task RefreshReferenceDisplayForTable_UpdatesPlaylistCellWithoutStorageRowCollectionNotification()
+    public async Task ReferenceHeaderCommit_PublishesIndependentRangeWithoutCatalogCommit()
     {
 
         await WithTemporarySongDbAsync(async delegate (string songDbPath)
@@ -3191,17 +3191,24 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             library.BmsCharts = [file];
             await TestUiDispatcherHost.AwaitNotificationAsync(bmsFilesPublished.Task, Task.CompletedTask, "folder-prepare.common-refresh");
             Interlocked.Exchange(ref bmsFilesChangedCount, 0);
-            library.RefreshReferenceDisplayForTable(table);
+            library.SynchronizeReferenceBMSTables([table]);
             ChartFile chart = (file);
+            int handledReferenceVersion = library.NormalLibraryRefreshNotificationVersion;
+            int catalogRevision = library.CatalogRevision;
+            Interlocked.Exchange(ref bmsFilesChangedCount, 0);
 
             table.symbol = "B";
             table.name = "After";
             Assert.AreEqual("A", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("Before", library.GetPlaylistReferenceDisplay(chart).Names);
 
-            library.RefreshReferenceDisplayForTable(table);
+            library.ApplyPlaylistReferenceEntryCommits([], [new(table, table.symbol, table.name, table.bmt_sort, 0)]);
 
-            Assert.AreEqual(0, Volatile.Read(ref bmsFilesChangedCount));
+            Assert.AreEqual(1, Volatile.Read(ref bmsFilesChangedCount));
+            Assert.AreEqual(catalogRevision, library.CatalogRevision);
+            NormalLibraryRefreshNotificationBatch referenceBatch = library.GetNormalLibraryRefreshNotificationsAfter(handledReferenceVersion);
+            Assert.AreEqual(0, referenceBatch.CatalogCommits.Count);
+            Assert.AreEqual(1, referenceBatch.ReferenceCommits.Count);
             Assert.AreEqual("B", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("After", library.GetPlaylistReferenceDisplay(chart).Names);
         });
@@ -3227,7 +3234,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             BMSTable newTable = CreateTable("After", "B", file.Md5);
             library.BmsCharts = [file];
 
-            library.AddReferenceBMSTables(oldTable);
+            library.SynchronizeReferenceBMSTables([oldTable]);
             ChartFile chart = (file);
             Assert.AreEqual("A", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("Before", library.GetPlaylistReferenceDisplay(chart).Names);
@@ -3258,7 +3265,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             BMSTable currentTable = CreateTable("Before", "A", file.Md5);
             BMSTable replacementTable = CreateTable("After", "B", file.Md5);
             library.BmsCharts = [file];
-            library.AddReferenceBMSTables(currentTable);
+            library.SynchronizeReferenceBMSTables([currentTable]);
             ChartFile chart = (file);
 
             BmsLibraryPlaylistReferenceOwner.PlaylistReferenceSynchronizationPlan stalePlan = library.PrepareReferenceBMSTableSynchronization([replacementTable]);
@@ -3266,7 +3273,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             currentTable.symbol = "C";
             currentTable.name = "Concurrent";
-            library.RefreshReferenceDisplayForTable(currentTable);
+            library.ApplyPlaylistReferenceEntryCommits([], [new(currentTable, currentTable.symbol, currentTable.name, currentTable.bmt_sort, 0)]);
 
             Assert.IsFalse(library.TryCommitReferenceBMSTableSynchronization(stalePlan));
             Assert.AreEqual("C", library.GetPlaylistReferenceDisplay(chart).Symbols);
@@ -3283,7 +3290,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// 一致・不一致の保留BMSONを混在させても一致MD5だけへ難易度表の名前と記号を反映し、無関係な譜面への参照付与を検出します。
     /// </summary>
     [TestMethod]
-    public void AddReferenceBMSTables_UsesPlaylistIndexForMatchedPendingBmsonWithoutMaterializing()
+    public void PlaylistReferenceRead_ResolvesMatchedPendingBmsonWithoutMaterializing()
     {
 
         WithTemporarySongDb(delegate (string songDbPath)
@@ -3302,7 +3309,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             ]);
             BMSTable table = CreateTable("Matched", "M", matchingHash);
 
-            library.AddReferenceBMSTables(table);
+            library.SynchronizeReferenceBMSTables([table]);
             Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
             Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Names);
             Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(unmatchedBmsonEntry.Chart).Symbols);
@@ -3313,7 +3320,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// 所持BMSONへ一致MD5の難易度表を反映し、BMSの保存行を持たない形式を参照更新から除外する誤りを検出します。
     /// </summary>
     [TestMethod]
-    public void AddReferenceBMSTables_UsesPlaylistIndexForInstalledBmsonWithoutBmsOwner()
+    public void PlaylistReferenceRead_ResolvesInstalledBmsonWithoutBmsOwner()
     {
 
         WithTemporarySongDb(delegate (string songDbPath)
@@ -3333,7 +3340,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             ChartFile chart = (song);
             BMSTable table = CreateTable("Matched", "M", matchingHash);
 
-            library.AddReferenceBMSTables(table);
+            library.SynchronizeReferenceBMSTables([table]);
             Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(chart).Names);
         });
@@ -3343,7 +3350,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// 明示指定したBMSへ一致ハッシュの表名・記号を反映し、全所持集合だけを対象にする更新漏れを検出します。
     /// </summary>
     [TestMethod]
-    public void AddReferenceBMSTablesToCharts_UsesPlaylistIndexForBmsStorageOwner()
+    public void PlaylistReferenceRead_ResolvesBmsStorageOwner()
     {
 
         WithTemporarySongDb(delegate (string songDbPath)
@@ -3356,7 +3363,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             file = file with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
             BMSTable table = CreateTable("Matched", "M", file.Md5);
 
-            library.AddReferenceBMSTablesToCharts(table, [(file)]);
+            library.SynchronizeReferenceBMSTables([table]);
 
             ChartFile chart = (file);
             Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(chart).Symbols);
@@ -3368,7 +3375,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// 明示指定したBMSONへ一致ハッシュの表名・記号を反映し、BMS以外を対象から落とす更新漏れを検出します。
     /// </summary>
     [TestMethod]
-    public void AddReferenceBMSTablesToCharts_UsesPlaylistIndexForBmsonWithoutBmsOwner()
+    public void PlaylistReferenceRead_ResolvesBmsonWithoutBmsOwner()
     {
 
         WithTemporarySongDb(delegate (string songDbPath)
@@ -3386,7 +3393,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             ChartFile chart = (song);
             BMSTable table = CreateTable("Matched", "M", matchingHash);
 
-            library.AddReferenceBMSTablesToCharts(table, [chart]);
+            library.SynchronizeReferenceBMSTables([table]);
             Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(chart).Names);
         });
@@ -3396,7 +3403,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// 所持外の明示パッケージでも一致BMSONだけに表名・記号を反映し、不一致への誤付与と全体所持だけを更新する漏れを検出します。
     /// </summary>
     [TestMethod]
-    public void AddReferenceBMSTablesToPackageCharts_UsesPlaylistIndexForMatchedBmsonWithoutMaterializing()
+    public void PlaylistReferenceRead_ResolvesInstalledPackageBmsonWithoutMaterializing()
     {
 
         WithTemporarySongDb(delegate (string songDbPath)
@@ -3411,9 +3418,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 "cccccccccccccccccccccccccccccccc");
             var installedPackage = ChartPackage.FromChartEntries([matchingBmsonEntry, unmatchedBmsonEntry]);
             BMSTable table = CreateTable("Matched", "M", matchingHash);
-            library.AddReferenceBMSTables([table]);
+            library.SynchronizeReferenceBMSTables([table]);
 
-            library.AddReferenceBMSTablesToPackageCharts([table], [installedPackage]);
+            Assert.IsNull(installedPackage.ChartEntries[0].GetBmsChartForTest());
             Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
             Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Names);
             Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(unmatchedBmsonEntry.Chart).Symbols);
@@ -3424,7 +3431,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// 旧表だけに一致する保留BMSONは表置換後に参照表示を失い、新表へ一致していない譜面に参照を引き継ぐ誤りを検出します。
     /// </summary>
     [TestMethod]
-    public void ReplaceReferenceBMSTable_DoesNotAddNewTableToOldOnlyPendingBmsonEntry()
+    public void ReferenceTableReplacement_DoesNotTransferOldOnlyPendingBmsonReference()
     {
 
         WithTemporarySongDb(delegate (string songDbPath)
@@ -3441,10 +3448,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             ]);
             BMSTable oldTable = CreateTable("Old", "O", oldHash);
             BMSTable newTable = CreateTable("New", "N", newHash);
-            library.AddReferenceBMSTables(oldTable);
+            library.SynchronizeReferenceBMSTables([oldTable]);
             Assert.AreEqual("O", library.GetPlaylistReferenceDisplay(oldOnlyBmsonEntry.Chart).Symbols);
 
-            library.ReplaceReferenceBMSTable(oldTable, newTable);
+            library.SynchronizeReferenceBMSTables([newTable]);
             Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(oldOnlyBmsonEntry.Chart).Symbols);
         });
     }
@@ -3453,7 +3460,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// SHA256で一致した保留BMSONの表行を実削除して参照解除へ渡し、MD5だけを調べて古い表示を残す誤りを検出します。
     /// </summary>
     [TestMethod]
-    public void RemoveReferenceBMSTables_WithEntriesRemovesPendingReferenceMatchedBySha256()
+    public void ReferenceEntryRemoval_ClearsPendingReferenceMatchedBySha256()
     {
 
         WithTemporarySongDb(delegate (string songDbPath)
@@ -3469,12 +3476,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 ChartPackage.FromChartEntries([matchingBmsonEntry])
             ]);
             BMSTable table = CreateTableWithHashes("Sha", "S", md5: string.Empty, sha256: sha256);
-            library.AddReferenceBMSTables(table);
+            library.SynchronizeReferenceBMSTables([table]);
             Assert.AreEqual("S", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
 
             List<BMSTableEntry> removedEntries = [.. table.entries];
+            PlaylistEntryChange[] changes = [.. removedEntries.Select(entry => new PlaylistEntryChange(entry, entry.CaptureValue(), null, 0, null))];
             table.RemoveBMSTableEntries(removedEntries);
-            library.RemoveReferenceBMSTables(table, removedEntries);
+            library.ApplyPlaylistReferenceEntryCommits([new(table, 0, 1, [.. changes])]);
             Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
         });
     }
@@ -3483,7 +3491,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// 内容が未読込になった表でも登録済みの参照を解除し、行一覧を取得できないことを理由に表示を残す誤りを検出します。
     /// </summary>
     [TestMethod]
-    public void RemoveReferenceBMSTables_AllowsUnloadedTables()
+    public void ReferenceTableRemoval_AllowsUnloadedTables()
     {
 
         WithTemporarySongDb(delegate (string songDbPath)
@@ -3499,12 +3507,12 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             library.BmsCharts = [file];
             BMSTable table = CreateTable("Reference", "R", md5);
 
-            library.AddReferenceBMSTables(table);
+            library.SynchronizeReferenceBMSTables([table]);
             ChartFile chart = (file);
             Assert.AreEqual("R", library.GetPlaylistReferenceDisplay(chart).Symbols);
 
             table.MarkEntriesNotLoaded();
-            library.RemoveReferenceBMSTables([table]);
+            library.RemovePlaylistReferenceTables([table]);
 
             Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(chart).Symbols);
         });

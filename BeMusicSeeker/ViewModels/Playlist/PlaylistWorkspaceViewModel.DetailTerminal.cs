@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
@@ -20,17 +21,41 @@ public sealed partial class PlaylistWorkspaceViewModel
         List<PlaylistDetailSourceRow> sourceRows;
         long sourceGeneration;
         int currentViewCount;
-        lock (DetailViewState.SyncRoot)
-        {
-            // 明示した sort/filter の入力だけを固定します。通常の確定差分ではこの経路を呼びません。
-            sourceRows = [.. DetailViewState.Source.Rows ?? []];
-            request.BuildRequest.InputDependencies = new(sourceRows, ReportDetailWork);
-            request.BuildRequest.Identity = WithDetailVersions(request.BuildRequest.Identity,
-                DetailViewState.Source.LastBuiltLibraryIndexVersion, DetailViewState.Source.LastBuiltPlaylistRevision,
-                DetailViewState.Source.LastBuiltScoreSnapshotVersion, DetailViewState.Source.LastBuiltChartInfoIndexVersion);
-            sourceGeneration = DetailViewState.Source.GenerationId;
-            currentViewCount = CountDetailRows(DetailViewState.View.Rows);
-        }
+        lock (DetailBuildState.SyncRoot)
+            lock (DetailViewState.SyncRoot)
+            {
+                // 明示した sort/filter の入力だけを固定します。通常の確定差分ではこの経路を呼びません。
+                sourceRows = [.. DetailViewState.Source.Rows ?? []];
+                PlaylistDetailDependencies current = EnsureDetailDependencies();
+                var dependencies = new PlaylistDetailDependencies(sourceRows, ReportDetailWork) { ReferenceInput = current.ReferenceInput };
+                dependencies.ReferenceCommits.AddRange(current.ReferenceCommits);
+                dependencies.PendingDetailMd5s.UnionWith(current.PendingDetailMd5s);
+                dependencies.PendingDetailSha256s.UnionWith(current.PendingDetailSha256s);
+                foreach (KeyValuePair<object, PlaylistPendingReferenceProjection> pair in current.PendingReferenceProjections)
+                {
+                    var projection = new PlaylistPendingReferenceProjection
+                    {
+                        Snapshot = pair.Value.Snapshot,
+                        Keys = pair.Value.Keys,
+                        ChartInfoVersion = pair.Value.ChartInfoVersion
+                    };
+                    projection.Changes.AddRange(pair.Value.Changes);
+                    dependencies.PendingReferenceProjections.Add(ReferenceEquals(pair.Key, current.DetailProjectionKey)
+                        ? dependencies.DetailProjectionKey : pair.Key, projection);
+                }
+                request.BuildRequest.InputDependencies = dependencies;
+                request.BuildRequest.CatalogCommits.AddRange(deferredCatalogCommits);
+                request.BuildRequest.EntryCommits.AddRange(deferredEntryCommits.Where(receipt => ReferenceEquals(receipt.Table, request.BuildRequest.Identity.Table)));
+                request.BuildRequest.ScoreChanges.AddRange(current.PendingScores);
+                request.BuildRequest.CatalogCommits.Sort((left, right) => left.Revision.CompareTo(right.Revision));
+                request.BuildRequest.EntryCommits.Sort((left, right) => left.Revision.CompareTo(right.Revision));
+                request.BuildRequest.ScoreChanges.Sort((left, right) => left.Version.CompareTo(right.Version));
+                request.BuildRequest.Identity = WithDetailVersions(request.BuildRequest.Identity,
+                    DetailViewState.Source.LastBuiltLibraryIndexVersion, DetailViewState.Source.LastBuiltPlaylistRevision,
+                    DetailViewState.Source.LastBuiltScoreSnapshotVersion, DetailViewState.Source.LastBuiltChartInfoIndexVersion);
+                sourceGeneration = DetailViewState.Source.GenerationId;
+                currentViewCount = CountDetailRows(DetailViewState.View.Rows);
+            }
         detailViewLog("started mode=" + request.Mode + " sourceGenerationId=" + sourceGeneration + " sourceCount=" + sourceRows.Count + " playlistSourceRowCount=" + sourceRows.Count + " playlistViewRowCount=" + currentViewCount);
         PlaylistViewApplyResult viewApply = BuildDetailView(sourceRows, request);
         detailViewLog("completed mode=" + request.Mode + " sourceGenerationId=" + sourceGeneration + " sourceCount=" + viewApply.SourceCount + " keywordCount=" + viewApply.KeywordCount + " modeCount=" + viewApply.ModeCount + " viewCount=" + viewApply.ViewCount + " sortProfile=" + viewApply.SortProfile + " playlistSourceRowCount=" + sourceRows.Count + " playlistViewRowCount=" + CountDetailRows(viewApply.FinalRows));
@@ -421,7 +446,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             if (committed)
             {
-                (request.ViewRows as PlaylistDetailVirtualView)?.PublishChanges();
+                PublishDetailChanges();
                 detailMainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
                 detailMainChartList.CommitCompletion(new MainChartListCompletion(
                     request.BuildRequest.MainViewBuildRequestId,
@@ -443,6 +468,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
         MainChartListPresentationApplyResult applied;
         int requestedScoreDelivery = -1;
+        long requestedReferenceDelivery = -1;
         while (true)
         {
             System.Threading.Tasks.Task dataChanged;
@@ -468,11 +494,18 @@ public sealed partial class PlaylistWorkspaceViewModel
                 throw new InvalidOperationException("Playlist score delivery completed without covering the required position.");
             }
             int requiredScorePosition = detailDataSource.ScoreSnapshotVersion;
-            if (requiredScorePosition > scorePosition)
+            long referencePosition = request.BuildRequest.InputDependencies?.ReferenceInput?.Revision ?? 0;
+            long requiredReferencePosition = request.BuildRequest.InputDependencies?.PendingReferenceProjections.Values
+                .Select(value => value.Snapshot?.Revision ?? 0).DefaultIfEmpty().Max() ?? 0;
+            requiredReferencePosition = Math.Max(requiredReferencePosition, request.BuildRequest.RequiredReferenceRevision);
+            if (requestedReferenceDelivery > referencePosition)
+            { throw new InvalidOperationException("Playlist reference delivery completed without covering the required position."); }
+            if (requiredScorePosition > scorePosition || requiredReferencePosition > referencePosition)
             {
                 if (detailDataSource is not PlaylistDetailDataSource attached || libraryChangeDelivery == null)
                 { throw new InvalidOperationException("Playlist library change delivery is not connected."); }
                 requestedScoreDelivery = requiredScorePosition;
+                requestedReferenceDelivery = requiredReferencePosition;
                 // build workerだけが待機します。UI/modelの排他を保持せず、共有drain自体は取消しません。
                 libraryChangeDelivery(attached.Library, request.CancellationToken)
                     .WaitAsync(request.CancellationToken).GetAwaiter().GetResult();

@@ -970,9 +970,10 @@ internal sealed class PlaylistAggregatePersistenceOwner
     /// <param name="prepare">対象表と、同じ writer 内で局所候補を準備する処理。</param>
     /// <param name="register">writer 内の配送登録。UI や外部 callback は起動しません。</param>
     /// <param name="persist">false は未保存ローカル操作です。通常の正規入口は true を渡します。</param>
+    /// <param name="requireCurrentTarget">新規draftの初回登録だけfalseとし、DB後に元draftを確定してから正本集合へ公開します。</param>
     internal IReadOnlyList<PlaylistEntryCommitReceipt> CommitEntryMutations(
         IReadOnlyDictionary<BMSTable, Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>> prepare,
-        Action<PlaylistEntryCommitReceipt> register, bool persist = true)
+        Action<PlaylistEntryCommitReceipt> register, bool persist = true, bool requireCurrentTarget = true)
     {
         List<BMSTable> tables = [.. prepare.Keys.OrderBy(table => table.playlist_id ?? int.MaxValue)
             .ThenBy(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode)];
@@ -984,7 +985,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
                 foreach (BMSTable table in tables) { guards.Add(table.ReaderWriterLock.GetWriterGuard()); }
                 lock (synchronization)
                 {
-                    EnsureWriteAllowedUnsafe(tables, allowReloadReservation: false, requireCurrentTarget: true);
+                    EnsureWriteAllowedUnsafe(tables, allowReloadReservation: false, requireCurrentTarget: requireCurrentTarget);
                     List<BMSTable.EntryMutation> mutations = [];
                     foreach (BMSTable table in tables)
                     {
@@ -996,7 +997,9 @@ internal sealed class PlaylistAggregatePersistenceOwner
                     List<PlaylistEntryCommitReceipt> receipts = [];
                     foreach (BMSTable.EntryMutation mutation in mutations)
                     {
+                        int? previousId = mutation.Table.playlist_id;
                         PlaylistEntryCommitReceipt receipt = mutation.Table.ApplyEntryMutation(mutation);
+                        if (previousId != mutation.Table.playlist_id) { RefreshActiveIdentityUnsafe(mutation.Table); }
                         register(receipt);
                         receipts.Add(receipt);
                     }

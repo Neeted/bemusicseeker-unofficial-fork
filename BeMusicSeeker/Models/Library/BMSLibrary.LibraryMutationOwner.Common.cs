@@ -227,9 +227,6 @@ internal sealed partial class LibraryMutationOwner
         public bool OwnedCollectionChangeNotified { get; set; }
 
 
-        /// <summary>今回のcatalog mutationで初回BMSON canonical順序正規化が発生したか。</summary>
-        public bool BmsonCanonicalOrderNormalized { get; set; }
-
         public int CatalogRevision { get; set; }
 
         public int NormalLibraryRefreshNotificationVersion { get; set; }
@@ -492,7 +489,6 @@ internal sealed partial class LibraryMutationOwner
                         installPathsToDelete,
                         installRowsToUpsert);
                     mutationResult.CatalogRevision = installedTargetReceipt.CatalogRevision;
-                    mutationResult.BmsonCanonicalOrderNormalized = installedTargetReceipt.BmsonCanonicalOrderNormalized;
                 }
             }
             finally
@@ -1895,12 +1891,6 @@ internal sealed partial class LibraryMutationOwner
                         FolderDbFullScanCount = applyCounts.FolderDbFullScanCount + (catalogReceipt?.FolderDbFullScanCount ?? 0)
                     };
                     ApplyCatalogMutationReceiptProjection(mutationResult, catalogReceipt);
-                    PlaylistReferenceCatalogApplyResult playlistReferenceApplyResult = playlistReferenceOwner.ApplyCatalogMutationReceipt(
-                        catalogReceipt,
-                        SnapshotLibraryChartRefsForPlaylistReferenceApply(
-                            catalogReceipt?.AddedCharts));
-                    timings.PlaylistReferenceAffectedCharts = playlistReferenceApplyResult.AffectedChartCount;
-                    timings.PlaylistReferenceMatchedCharts = playlistReferenceApplyResult.MatchedChartCount;
                     timings.StateApplyMs = StopPerformanceStepStopwatch(stateApplyStopwatch);
                     if (catalogReceipt?.Applied == true)
                     {
@@ -1981,8 +1971,6 @@ internal sealed partial class LibraryMutationOwner
                             + " stateBmsRemovalDbMs=" + timings.StateBmsRemovalDbMs
                             + " stateBmsonRemovalDbMs=" + timings.StateBmsonRemovalDbMs
                             + " statePackageApplyMs=" + timings.StatePackageApplyMs
-                            + " playlistReferenceAffectedCharts=" + timings.PlaylistReferenceAffectedCharts
-                            + " playlistReferenceMatchedCharts=" + timings.PlaylistReferenceMatchedCharts
                             + " resourceHealthDisposeMs=" + timings.ResourceHealthDisposeMs
                             + " lr2NormalFolderSyncMs=" + timings.Lr2NormalFolderSyncMs
                             + " dispatchMs=" + timings.DispatchMs
@@ -2056,7 +2044,6 @@ internal sealed partial class LibraryMutationOwner
             || receipt.RemovedCharts.Count > 0
             || receipt.MovedCharts.Count > 0;
         mutationResult.CatalogRevision = receipt.CatalogRevision;
-        mutationResult.BmsonCanonicalOrderNormalized |= receipt.BmsonCanonicalOrderNormalized;
         mutationResult.OwnedCollectionChanged |= hasCatalogFacts;
         mutationResult.DuplicateCacheInvalidated |= receipt.AddedCharts.Count > 0
             || receipt.RemovedCharts.Count > 0;
@@ -2178,36 +2165,6 @@ internal sealed partial class LibraryMutationOwner
     {
         InvalidateParentFolderListCache();
         NotifyParentFolderListCacheChanged();
-    }
-
-    private List<PlaylistReferenceChartSnapshot> SnapshotLibraryChartRefsForPlaylistReferenceApply(
-        IEnumerable<CatalogChartMutationFact> facts)
-    {
-        HashSet<string> md5Hashes = new(StringComparer.OrdinalIgnoreCase);
-        HashSet<string> sha256Hashes = new(StringComparer.OrdinalIgnoreCase);
-        foreach (CatalogChartMutationFact fact in facts ?? [])
-        {
-            if (!string.IsNullOrWhiteSpace(fact?.Md5))
-            {
-                md5Hashes.Add(fact.Md5);
-            }
-            if (!string.IsNullOrWhiteSpace(fact?.Sha256))
-            {
-                sha256Hashes.Add(fact.Sha256);
-            }
-        }
-        if (md5Hashes.Count == 0 && sha256Hashes.Count == 0)
-        {
-            return [];
-        }
-
-        lock (catalogOwnedCollectionOwner.Gate)
-        {
-            return [.. catalogOwnedCollectionOwner.Collection
-                .CreateLibraryChartRefsForHashes(md5Hashes, sha256Hashes)
-                .Select(PlaylistReferenceChartSnapshot.FromLibraryChartRef)
-                .Where(snapshot => snapshot != null)];
-        }
     }
 
     private Lr2NormalFolderCatalogMutationReceipt CreateLr2NormalFolderCatalogMutationReceipt(

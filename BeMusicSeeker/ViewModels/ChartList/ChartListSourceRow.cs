@@ -18,6 +18,8 @@ internal sealed class ChartListSourceRow
     private readonly Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider;
 
     private readonly Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider;
+    private PlaylistReferenceDisplay capturedReferenceDisplay;
+    private ChartFile capturedReferenceChart;
 
     private readonly Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider;
 
@@ -149,6 +151,25 @@ internal sealed class ChartListSourceRow
     internal string RefTablesSymbols => GetPlaylistReferenceDisplay().Symbols;
 
     internal string RefTablesNames => GetPlaylistReferenceDisplay().Names;
+    /// <summary>この不変投影に接続した参照表示です。</summary>
+    internal PlaylistReferenceDisplay ReferenceDisplay => GetPlaylistReferenceDisplay();
+    /// <summary>参照へ採用済みのhashです。動的packageが後続currentへ進んでも、先行receiptの依存を混ぜません。</summary>
+    internal string ReferenceMd5 => (capturedReferenceChart ?? sourceChart).Md5;
+    /// <summary>参照へ採用済みのSHA依存です。MD5存在中も保持します。</summary>
+    internal string ReferenceSha256 => (capturedReferenceChart ?? sourceChart).Sha256;
+
+    /// <summary>同じ基本値・専門入力を共有し、確定参照表示だけを持つ不変投影を返します。同値では元の行を保ちます。</summary>
+    internal ChartListSourceRow WithReferenceDisplay(PlaylistReferenceDisplay display, ChartFile referenceChart = null)
+    {
+        PlaylistReferenceDisplay before = GetPlaylistReferenceDisplay();
+        if (before.Symbols == display.Symbols && before.Names == display.Names
+            && (referenceChart == null || StringComparer.OrdinalIgnoreCase.Equals(ReferenceMd5, referenceChart.Md5)
+                && StringComparer.OrdinalIgnoreCase.Equals(ReferenceSha256, referenceChart.Sha256))) { return this; }
+        var next = (ChartListSourceRow)MemberwiseClone();
+        next.capturedReferenceDisplay = display;
+        next.capturedReferenceChart = referenceChart ?? capturedReferenceChart;
+        return next;
+    }
 
     internal int? WAVHealth => CreateChartFile(includeWarningSnapshot: false, includeResourceReferences: false, includeScoreSnapshot: false)?.WAVHealth;
 
@@ -607,6 +628,7 @@ internal sealed class ChartListSourceRow
 
     private PlaylistReferenceDisplay GetPlaylistReferenceDisplay()
     {
+        if (capturedReferenceDisplay != null) { return capturedReferenceDisplay; }
         return playlistReferenceDisplayProvider == null
             ? PlaylistReferenceDisplay.Empty
             : playlistReferenceDisplayProvider.Invoke(this) ?? PlaylistReferenceDisplay.Empty;

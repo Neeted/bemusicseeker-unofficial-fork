@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -35,7 +33,7 @@ internal sealed class PlaylistReferenceApplyQueueRequest
 }
 
 /// <summary>
-/// Owns deferred playlist-reference hydration, snapshotting, and live-index application.
+/// 参照用の遅延hydration要求の受付と実完了を所有します。参照索引は表ownerの確定境界で更新します。
 /// </summary>
 internal sealed class PlaylistReferenceApplyWorkflowOwner
 {
@@ -50,8 +48,6 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
     private Action<OperationProgressRequest, bool> requestedProgressReporter;
 
     private readonly Func<string, Func<Task>, bool> scheduler;
-
-    private readonly Action<Action> dispatchPresentation;
 
     private readonly Func<bool> shutdownRequestedProvider;
 
@@ -81,18 +77,12 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
 
     internal event EventHandler<PlaylistReferenceApplyCompletedEventArgs> Completed;
 
-    internal event EventHandler<PlaylistReferenceApplyPresentationRequestedEventArgs> PresentationRequested;
-
-    internal event EventHandler<PlaylistReferenceAppliedEventArgs> ReferenceApplied;
-
     internal PlaylistReferenceApplyWorkflowOwner(
         Func<string, Func<Task>, bool> scheduler,
-        Action<Action> dispatchPresentation,
         Func<bool> shutdownRequestedProvider,
         Action<string> playlistReloadLog)
     {
         this.scheduler = scheduler ?? throw new ArgumentNullException(nameof(scheduler));
-        this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         this.shutdownRequestedProvider = shutdownRequestedProvider ?? throw new ArgumentNullException(nameof(shutdownRequestedProvider));
         this.playlistReloadLog = playlistReloadLog ?? throw new ArgumentNullException(nameof(playlistReloadLog));
     }
@@ -198,46 +188,8 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
                     context.Store.EnsureAllPlaylistEntriesLoadedAsync("playlist_ref_deferred")
                         .GetAwaiter()
                         .GetResult();
-                    while (true)
-                    {
-                        List<BMSTable> tables;
-                        context.Store.AcquireReaderLockBMSTables();
-                        try
-                        {
-                            tables = [.. (context.Store.BMSTables ?? Enumerable.Empty<BMSTable>())
-                                .Where(table => table != null)];
-                        }
-                        finally
-                        {
-                            context.Store.FreeReaderLockBMSTables();
-                        }
-                        BmsLibraryPlaylistReferenceOwner.PlaylistReferenceSynchronizationPlan synchronizationPlan =
-                            context.Library.PrepareReferenceBMSTableSynchronization(tables);
-                        lock (contextSyncRoot)
-                        {
-                            EnsureCurrentContext(context);
-                            if (context.Library.TryCommitReferenceBMSTableSynchronization(synchronizationPlan))
-                            {
-                                break;
-                            }
-                        }
-                    }
-
-                    PublishReferenceApplied(request.Reason, request.Version, request.OperationToken);
-                    int presentationRequestVersion = request.Version;
-                    dispatchPresentation(() =>
-                    {
-                        if (!IsCurrentContext(context))
-                        {
-                            return;
-                        }
-                        PresentationRequested?.Invoke(
-                            this,
-                            new PlaylistReferenceApplyPresentationRequestedEventArgs(
-                                request.Reason,
-                                presentationRequestVersion,
-                                request.OperationToken));
-                    });
+                    lock (contextSyncRoot) { EnsureCurrentContext(context); }
+                    // 参照索引は表ownerの確定時に更新済みです。ここではhydration要求の終端だけを回収します。
                     playlistReloadLog(
                         "playlist_ref_deferred done reason="
                         + request.Reason
@@ -245,7 +197,7 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
                         + request.Version
                         + " elapsedMs="
                         + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds
-                        + " presentation=queued");
+                        + " hydration=completed");
                     succeeded = true;
                 }
                 catch (Exception ex)
@@ -321,9 +273,7 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
             return;
         }
 
-        // The hydration receipt only wakes the canonical reference-apply worker. That worker
-        // snapshots the current store after it starts, so a reload/edit that races this
-        // notification cannot apply an older receipt after the newer playlist state.
+        // 参照索引は読込みを確定したownerが更新済みです。同じ受領の要求元と実完了だけを既存workerへ渡します。
         Queue(receipt.Reason, operationToken: 0L, originatingRequest: receipt.ProgressRequest);
     }
 
@@ -415,16 +365,6 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
             + version);
     }
 
-    private void PublishReferenceApplied(string reason, int version, long operationToken)
-    {
-        ReferenceApplied?.Invoke(
-            this,
-            new PlaylistReferenceAppliedEventArgs(
-                reason,
-                version,
-                operationToken));
-    }
-
     private PlaylistReferenceApplyRequestSnapshot CaptureRequest()
     {
         lock (stateSyncRoot)
@@ -476,25 +416,6 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
             || attachedContextGeneration != context.Generation)
         {
             throw new InvalidOperationException("Playlist reference apply context changed while applying.");
-        }
-    }
-
-    private bool IsCurrentContext(PlaylistReferenceApplyContext context)
-    {
-        lock (contextSyncRoot)
-        {
-            return ReferenceEquals(attachedStore, context.Store)
-                && ReferenceEquals(attachedLibrary, context.Library)
-                && attachedContextGeneration == context.Generation;
-        }
-    }
-
-    private bool IsCurrentContext(BMSPlaylist store, long generation)
-    {
-        lock (contextSyncRoot)
-        {
-            return ReferenceEquals(attachedStore, store)
-                && attachedContextGeneration == generation;
         }
     }
 
@@ -583,36 +504,4 @@ internal sealed class PlaylistReferenceApplyCompletedEventArgs : EventArgs
     internal bool Succeeded { get; }
 
     internal bool WasSkipped { get; }
-}
-
-internal sealed class PlaylistReferenceApplyPresentationRequestedEventArgs : EventArgs
-{
-    internal PlaylistReferenceApplyPresentationRequestedEventArgs(string reason, int version, long operationToken)
-    {
-        Reason = reason;
-        Version = version;
-        OperationToken = operationToken;
-    }
-
-    internal string Reason { get; }
-
-    internal int Version { get; }
-
-    internal long OperationToken { get; }
-}
-
-internal sealed class PlaylistReferenceAppliedEventArgs : EventArgs
-{
-    internal PlaylistReferenceAppliedEventArgs(string reason, int version, long operationToken)
-    {
-        Reason = reason ?? string.Empty;
-        Version = version;
-        OperationToken = operationToken;
-    }
-
-    internal string Reason { get; }
-
-    internal int Version { get; }
-
-    internal long OperationToken { get; }
 }

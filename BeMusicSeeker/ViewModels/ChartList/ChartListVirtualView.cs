@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -15,18 +16,24 @@ internal sealed class ChartListVirtualView : IList, IChartListViewMetadata, INot
     private readonly Func<ChartListSourceRow, LibraryChartRow> rowFactory;
     private readonly Dictionary<int, LibraryChartRow> realizedSubsetRows = [];
     private readonly Dictionary<OwnedChartToken, LibraryChartRow> realizedNormalRows = [];
+    private readonly NormalLibraryPendingChanges pendingNormalChanges = new();
     private readonly NormalLibraryViewOrder normalOrder;
     private readonly ChartSubsetViewOrder subsetOrder;
     private readonly ChartListScoreInput scoreInput;
+    private readonly ChartSubsetReferenceRows subsetReferences;
     private int scorePosition;
     private readonly int distinctFolderCount;
 
+    /// <summary>初回の整列結果を採用し、以後は同じ元集合の実差分だけを反映します。専用一覧の参照入力も捕捉位置とともに受け取ります。</summary>
     internal ChartListVirtualView(IReadOnlyList<ChartListSourceRow> sourceRows, ChartListOrder order,
         Func<ChartListSourceRow, LibraryChartRow> rowFactory, int distinctFolderCount = -1,
         Func<ChartListSourceRow, bool> normalFilter = null, ChartListScoreInput scoreInput = null,
-        int? scorePosition = null, Action<string, int> observeWork = null)
+        int? scorePosition = null, Action<string, int> observeWork = null,
+        ChartListReferenceInput referenceInput = null, int catalogRevision = 0)
     {
-        this.sourceRows = sourceRows ?? [];
+        if (referenceInput != null && sourceRows is not NormalLibrarySourceRows)
+        { subsetReferences = new(sourceRows ?? [], referenceInput, catalogRevision, observeWork); }
+        this.sourceRows = subsetReferences ?? sourceRows ?? [];
         orderedIndexes = order?.Indexes ?? [];
         this.rowFactory = rowFactory ?? throw new ArgumentNullException(nameof(rowFactory));
         this.distinctFolderCount = distinctFolderCount;
@@ -95,26 +102,53 @@ internal sealed class ChartListVirtualView : IList, IChartListViewMetadata, INot
     /// <summary>確定結果だけを反映し、対象の実体化済み行を更新します。未訪問行は生成しません。</summary>
     internal bool TryApplyCatalogCommits(IReadOnlyList<CatalogCommitReceipt> commits,
         Action<LibraryChartRow, ChartListSourceRow> update, out bool orderChanged)
+        => TryApplyLibraryChanges(commits, [], update, out orderChanged);
+
+    /// <summary>参照の確定境界と構造差分を同じ元集合へ順次適用します。新hashの未配送境界では入力を保留します。</summary>
+    internal bool TryApplyLibraryChanges(IReadOnlyList<CatalogCommitReceipt> commits,
+        IReadOnlyList<PlaylistReferenceCommitReceipt> references,
+        Action<LibraryChartRow, ChartListSourceRow> update, out bool orderChanged,
+        Action<NormalLibrarySourceRows, CatalogCommitReceipt, NormalLibrarySourceRows> beforeCatalog = null, Action referenceValuesChanged = null,
+        Action<NormalLibrarySourceRows, CatalogCommitReceipt> afterCatalog = null)
     {
         orderChanged = false;
         if (normalOrder == null) { return false; }
-        foreach (CatalogCommitReceipt commit in commits)
+        foreach (NormalLibraryPendingChanges.Step step in pendingNormalChanges.Advance(NormalInput, commits, references))
         {
-            if (commit.Revision <= NormalInput.Snapshot.CatalogRevision) { continue; }
-            if (!normalOrder.TryApply(commit, out bool changed)) { return false; }
-            orderChanged |= changed;
-            foreach (CatalogChartChange change in commit.Changes)
+            IEnumerable<OwnedChartToken> changedTokens;
+            if (step.Catalog != null)
             {
-                if (!realizedNormalRows.TryGetValue(change.Token, out LibraryChartRow row)) { continue; }
-                if (normalOrder.IndexOf(change.Token) < 0)
-                {
-                    realizedNormalRows.Remove(change.Token);
-                }
-                if (NormalInput.TryGetRow(change.Token, out ChartListSourceRow source)) { update?.Invoke(row, source); }
+                beforeCatalog?.Invoke(step.Before, step.Catalog, step.After);
+                if (!normalOrder.TryApply(step.Catalog, out bool changed, step.After)) { return false; }
+                orderChanged |= changed;
+                changedTokens = step.Catalog.Changes.Select(change => change.Token);
             }
+            else
+            {
+                if (step.ReferenceTokens.Count > 0) { referenceValuesChanged?.Invoke(); }
+                orderChanged |= normalOrder.ApplyReferenceInput(step.After, step.ReferenceTokens);
+                changedTokens = step.ReferenceTokens;
+            }
+            foreach (OwnedChartToken token in changedTokens)
+            {
+                if (!realizedNormalRows.TryGetValue(token, out LibraryChartRow row)) { continue; }
+                if (normalOrder.IndexOf(token) < 0)
+                {
+                    realizedNormalRows.Remove(token);
+                }
+                if (NormalInput.TryGetRow(token, out ChartListSourceRow source)) { update?.Invoke(row, source); }
+            }
+            if (step.Catalog != null) { afterCatalog?.Invoke(NormalInput, step.Catalog); }
         }
-        return true;
+        return !pendingNormalChanges.HasPending;
     }
+
+    /// <summary>採用前に解消する必要がある、短命の新hash/参照境界待ちです。</summary>
+    internal bool HasPendingReferenceChanges => pendingNormalChanges.HasPending || subsetReferences?.HasPending == true;
+    /// <summary>元集合へ実際に反映した参照位置です。通常と専用一覧で同じ意味を使います。</summary>
+    internal long ReferencePosition => NormalInput?.References.Revision ?? subsetReferences?.References.Revision ?? 0;
+    /// <summary>参照入力を所有するlibraryです。</summary>
+    internal BMSLibrary ReferenceLibrary => NormalInput?.Library ?? subsetReferences?.References.Library;
 
     /// <summary>hashで依存する専門値だけを再評価し、実体化済み対象の表示を更新します。</summary>
     internal bool RefreshKeyDependencies(IEnumerable<string> md5Keys, IEnumerable<string> sha256Keys, Action<LibraryChartRow> refresh)
@@ -175,6 +209,29 @@ internal sealed class ChartListVirtualView : IList, IChartListViewMetadata, INot
             scorePosition = change.Version;
         }
         return true;
+    }
+
+    /// <summary>専用元集合のhash依存だけへ参照を適用し、変更行の表示・検索・順序を一致させます。</summary>
+    internal bool TryApplySubsetLibraryChanges(IReadOnlyList<CatalogCommitReceipt> catalogs,
+        IReadOnlyList<PlaylistReferenceCommitReceipt> references, out bool orderChanged, Action referenceValuesChanged = null)
+    {
+        orderChanged = false;
+        if (subsetReferences == null || subsetOrder == null)
+        {
+            orderChanged = RefreshSubsetCatalogChanges(catalogs);
+            return references.Count == 0;
+        }
+        HashSet<int> indexes = subsetReferences.Apply(subsetOrder, catalogs, references, referenceValuesChanged);
+        orderChanged = subsetOrder.Refresh(indexes);
+        foreach (int index in indexes)
+        {
+            if (!realizedSubsetRows.TryGetValue(index, out LibraryChartRow row)) { continue; }
+            row.UpdateSubsetSourceProjection(sourceRows[index]);
+            row.RefreshDisplayForDataDependency(MainViewDataDependency.ReferenceTables);
+            row.RefreshDisplayForDataDependency(MainViewDataDependency.SourceMembership);
+            if (subsetOrder.IndexOf(index) < 0) { realizedSubsetRows.Remove(index); }
+        }
+        return !subsetReferences.HasPending;
     }
 
     /// <summary>Rowsを保持する動的package入力へreceiptの対象だけを反映し、score更新前にも順序・folder集計を一致させます。</summary>

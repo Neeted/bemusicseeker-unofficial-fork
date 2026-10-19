@@ -13,6 +13,10 @@ internal sealed partial class RegularChartListOwner
     // 捕捉を始める前から要求終端までの差分だけを保持します。通知履歴を常駐させません。
     private List<CatalogCommitReceipt> normalBuildCommits;
     private List<ScoreSnapshotChange> normalBuildScoreChanges;
+    private List<PlaylistReferenceCommitReceipt> normalBuildReferenceCommits;
+    private readonly NormalLibraryPendingChanges cachedNormalChanges = new();
+    // 初回sourceの捕捉からcache公開までだけ生存する構築要求です。公開済み/退役後の履歴は保持しません。
+    private readonly HashSet<(BMSLibrary Library, List<PlaylistReferenceCommitReceipt> Commits)> normalReferenceCaptures = [];
     private BMSLibrary normalBuildLibrary;
     private (RegularChartListRequestLease Lease, RegularChartListPresentationResult Presentation)? pendingNormalPresentation;
     private readonly HashSet<string> normalBuildMd5Keys = new(StringComparer.OrdinalIgnoreCase);
@@ -21,25 +25,33 @@ internal sealed partial class RegularChartListOwner
     private readonly HashSet<Task> normalCandidateDeliveries = [];
     private int pendingNormalScoreRequiredVersion = -1;
     private int pendingNormalCatalogRequiredRevision = -1;
+    private long pendingNormalReferenceRequiredRevision = -1;
 
     /// <summary>確定rootの対象だけを入力・行・派生順序へ反映し、同じbatchを受ける構築中要求にも渡します。</summary>
     private void ApplyIncrementalCatalogNotification(BMSLibrary library, NormalLibraryRefreshNotificationBatch batch)
     {
+        var displayed = mainChartList.Rows as ChartListVirtualView;
         lock (syncRoot)
         {
+            foreach ((BMSLibrary Library, List<PlaylistReferenceCommitReceipt> Commits) capture in normalReferenceCaptures)
+            { if (ReferenceEquals(capture.Library, library)) { capture.Commits.AddRange(batch.ReferenceCommits); } }
             if (normalBuildCommits != null && ReferenceEquals(normalBuildLibrary, library))
             {
                 normalBuildCommits.AddRange(batch.CatalogCommits);
+                normalBuildReferenceCommits.AddRange(batch.ReferenceCommits);
                 normalBuildMd5Keys.UnionWith(batch.ChangedDetailMd5s);
                 normalBuildSha256Keys.UnionWith(batch.ChangedDetailSha256s);
             }
-            foreach (CatalogCommitReceipt commit in batch.CatalogCommits)
+            if (virtualSourceRows != null && ReferenceEquals(virtualSourceRows.Library, library)
+                && !ReferenceEquals(virtualSourceRows, displayed?.NormalInput))
             {
-                if (virtualSourceRows != null && ReferenceEquals(virtualSourceRows.Library, library)
-                    && commit.BaseRevision == virtualSourceRows.Snapshot.CatalogRevision && commit.Snapshot != null)
+                foreach (NormalLibraryPendingChanges.Step step in cachedNormalChanges.Advance(virtualSourceRows, batch.CatalogCommits, batch.ReferenceCommits))
                 {
-                    InvalidateCatalogOrderKeysUnsafe(virtualSourceRows, commit);
-                    virtualSourceRows = virtualSourceRows.WithSnapshot(commit.Snapshot, commit.Changes);
+                    if (step.Catalog != null) { InvalidateCatalogOrderKeysUnsafe(step.Before, step.Catalog, step.After); }
+                    else if (step.ReferenceTokens.Count > 0) { InvalidateReferenceOrderKeys(); }
+                    else { AdvanceUnchangedReferenceOrderKeys(step.Before.References.Revision, step.After.References.Revision); }
+                    virtualSourceRows = step.After;
+                    if (step.Catalog != null) { ApplyCommittedRowCache(step.After, step.Catalog); }
                 }
             }
         }
@@ -47,37 +59,84 @@ internal sealed partial class RegularChartListOwner
             && ReferenceEquals(input.Library, library))
         {
             OwnedChartToken selected = view.GetNormalTokenAt(mainChartList.SelectedIndex);
-            if (view.TryApplyCatalogCommits(batch.CatalogCommits, (row, source) => UpdateNormalRow(library, row, source), out bool changed))
+            bool referenceValuesChanged = false;
+            bool ready = view.TryApplyLibraryChanges(batch.CatalogCommits, batch.ReferenceCommits,
+                (row, source) => UpdateNormalRow(library, row, source), out bool changed, InvalidateCatalogOrderKeysUnsafe,
+                () => { referenceValuesChanged = true; InvalidateReferenceOrderKeys(); }, ApplyCommittedRowCache);
+            if (!referenceValuesChanged) { AdvanceUnchangedReferenceOrderKeys(input.References.Revision, view.NormalInput.References.Revision); }
+            mainChartList.RowProjection.CaptureVersions(library);
+            changed |= view.RefreshKeyDependencies(batch.ChangedDetailMd5s, batch.ChangedDetailSha256s,
+                row => row.RefreshDisplayForDataDependency(MainViewDataDependency.ChartInfo));
+            changed |= view.RefreshTokens(batch.InstallDestinationChangedCharts.Select(chart => chart.Token).Where(token => token != null),
+                row => row.RefreshDisplayForDataDependency(MainViewDataDependency.InstallDestination));
+            if (!ReferenceEquals(mainChartList.Rows, view)) { return; }
+            if (selected != null) { mainChartList.SelectedIndex = view.IndexOfNormalToken(selected); }
+            if (changed) { view.PublishOrderChanged(); }
+            lock (syncRoot)
             {
-                mainChartList.RowProjection.CaptureVersions(library);
-                changed |= view.RefreshKeyDependencies(batch.ChangedDetailMd5s, batch.ChangedDetailSha256s,
-                    row => row.RefreshDisplayForDataDependency(MainViewDataDependency.ChartInfo));
-                changed |= view.RefreshTokens(batch.InstallDestinationChangedCharts.Select(chart => chart.Token).Where(token => token != null),
-                    row => row.RefreshDisplayForDataDependency(MainViewDataDependency.InstallDestination));
-                if (!ReferenceEquals(mainChartList.Rows, view)) { return; }
-                if (selected != null) { mainChartList.SelectedIndex = view.IndexOfNormalToken(selected); }
-                if (changed) { view.PublishOrderChanged(); }
-                lock (syncRoot)
-                {
-                    if (ReferenceEquals(mainChartList.Rows, view) && ReferenceEquals(virtualSourceRowsLibrary, library))
-                    { virtualSourceRows = view.NormalInput; }
-                }
+                if (ReferenceEquals(mainChartList.Rows, view) && ReferenceEquals(virtualSourceRowsLibrary, library))
+                { virtualSourceRows = view.NormalInput; cachedNormalChanges.Clear(); }
             }
+            if (!ready) { QueueLatestNormalLibraryRefreshNotification("normal_reference_boundary", library); }
         }
         else if (mainChartList.Rows is ChartListVirtualView subset && ReferenceEquals(subset.ScoreLibrary, library))
         {
             int selected = subset.GetSubsetSourceIndexAt(mainChartList.SelectedIndex);
-            bool changed = subset.RefreshSubsetCatalogChanges(batch.CatalogCommits);
+            bool ready = subset.TryApplySubsetLibraryChanges(batch.CatalogCommits, batch.ReferenceCommits, out bool changed, InvalidateReferenceOrderKeys);
+            if (!ready) { QueueLatestNormalLibraryRefreshNotification("subset_reference_boundary", library); }
             if (selected >= 0) { mainChartList.SelectedIndex = subset.IndexOfSubsetSourceIndex(selected); }
             if (changed) { subset.PublishOrderChanged(); }
+            mainChartList.UpdateSummaryText(subset);
+        }
+        if (cachedNormalChanges.HasPending) { QueueLatestNormalLibraryRefreshNotification("cached_normal_reference_boundary", library); }
+    }
+
+    /// <summary>この元集合の参照表示が実際に変わった場合だけ、依存する整列cacheを失効させます。</summary>
+    private void InvalidateReferenceOrderKeys()
+    {
+        lock (syncRoot)
+        {
+            _ = PruneCacheUnsafe(sortCache, MainViewDataDependency.ReferenceTables);
+            _ = PruneCacheUnsafe(virtualOrderCache, MainViewDataDependency.ReferenceTables);
+            _ = PruneCacheUnsafe(virtualSubsetOrderCache, MainViewDataDependency.ReferenceTables);
         }
     }
 
+    /// <summary>対象値が不変だった実rangeの適用だけを証拠に、既存順序を再整列せず共有します。</summary>
+    private void AdvanceUnchangedReferenceOrderKeys(long before, long after)
+    {
+        if (before == after) { return; }
+        lock (syncRoot)
+        {
+            foreach (NormalLibrarySortCacheKey key in virtualOrderCache.Keys.Where(key => key.ReferenceTablesGeneration == before
+                && MainViewRefreshDecisionService.GetSortColumnDependency(key.ColumnName) == MainViewDataDependency.ReferenceTables).ToArray())
+            {
+                ChartListOrder order = virtualOrderCache[key];
+                virtualOrderCache.Remove(key);
+                virtualOrderCache[key.WithReferenceRevision(after)] = order;
+            }
+        }
+    }
+
+    /// <summary>参照境界を含めて採用したカタログ差分だけを既存行cacheへ渡します。保留中の新hashを表示へ先行適用しません。</summary>
+    private void ApplyCommittedRowCache(NormalLibrarySourceRows input, CatalogCommitReceipt commit)
+    {
+        rowCache.ApplyChanges(commit.Changes.Where(change => change.After != null).Select(change => change.After),
+            commit.Changes.Where(change => change.After == null).Select(change => change.Token),
+            (row, chart) =>
+            {
+                if (mainChartList.Rows is ChartListVirtualView view && view.IsRealizedNormalRow(chart.Token, row)) { return; }
+                if (input.TryGetRow(chart.Token, out ChartListSourceRow source))
+                { mainChartList.RowProjection.ConfigureLibraryRow(input.Library, row, source); }
+            });
+    }
+
     /// <summary>カタログ版やSourceChangedではなく、キャッシュが使用する順序キーの実変更だけで失効させます。</summary>
-    private void InvalidateCatalogOrderKeysUnsafe(NormalLibrarySourceRows before, CatalogCommitReceipt commit)
+    private void InvalidateCatalogOrderKeysUnsafe(NormalLibrarySourceRows before, CatalogCommitReceipt commit, NormalLibrarySourceRows after)
     {
         bool membershipChanged = !ReferenceEquals(before.Snapshot.MembershipOrderIdentity, commit.Snapshot.MembershipOrderIdentity)
-            && (before.IncludeBmsonRows || commit.Changes.Any(change => change.Before?.Kind == ChartFileKind.Bms || change.After?.Kind == ChartFileKind.Bms));
+            && (before.IncludeBmsonRows || commit.Changes.Any(change => change.Before?.Kind == ChartFileKind.Bms || change.After?.Kind == ChartFileKind.Bms)
+                || commit.OrderChangedTokens.Any(token => commit.Snapshot.TryGetChart(token, out ChartFile chart, out _) && chart.Kind == ChartFileKind.Bms));
         bool Affects(string column)
         {
             if (membershipChanged) { return true; }
@@ -96,7 +155,7 @@ internal sealed partial class RegularChartListOwner
                 if (!before.IncludeBmsonRows && change.After?.Kind == ChartFileKind.Bmson) { continue; }
                 if (change.Before == null || change.After == null) { return true; }
                 if (ChartListOrder.CompareKeys(ChartListOrder.CaptureKey(before.Project(change.Before), column),
-                    ChartListOrder.CaptureKey(before.Project(change.After), column), System.ComponentModel.ListSortDirection.Ascending) != 0)
+                    ChartListOrder.CaptureKey(after.Project(change.After), column), System.ComponentModel.ListSortDirection.Ascending) != 0)
                 { return true; }
             }
             return false;
@@ -116,22 +175,21 @@ internal sealed partial class RegularChartListOwner
         if (presentation.CreateRowsRequest().Rows is not ChartListVirtualView view) { return true; }
         if (view.NormalInput != null)
         {
-            foreach (CatalogCommitReceipt commit in normalBuildCommits ?? [])
-            {
-                if (!commit.IsFullReplacement && commit.Snapshot != null && commit.BaseRevision == view.NormalInput.Snapshot.CatalogRevision)
-                {
-                    InvalidateCatalogOrderKeysUnsafe(view.NormalInput, commit);
-                    if (!view.TryApplyCatalogCommits([commit], (row, source) => UpdateNormalRow(view.NormalInput.Library, row, source), out _))
-                    { break; }
-                }
-            }
-            if (!view.TryApplyCatalogCommits(normalBuildCommits ?? [], (row, source) => UpdateNormalRow(view.NormalInput.Library, row, source), out _)
-                || !view.IsCatalogInputCurrent)
+            if (!view.TryApplyLibraryChanges(normalBuildCommits ?? [], normalBuildReferenceCommits ?? [],
+                    (row, source) => UpdateNormalRow(view.NormalInput.Library, row, source), out _)
+                || !view.IsCatalogInputCurrent || view.NormalInput.References.Revision < CaptureRequiredReferenceRevision(view.NormalInput.Library))
             {
                 pendingNormalPresentation = (lease, presentation);
                 return false;
             }
             view.RefreshKeyDependencies(normalBuildMd5Keys, normalBuildSha256Keys, null);
+        }
+        if (view.NormalInput == null && view.ReferenceLibrary != null
+            && (!view.TryApplySubsetLibraryChanges(normalBuildCommits ?? [], normalBuildReferenceCommits ?? [], out _)
+                || view.ReferencePosition < CaptureRequiredReferenceRevision(view.ReferenceLibrary)))
+        {
+            pendingNormalPresentation = (lease, presentation);
+            return false;
         }
         if (!view.TryApplyScoreChanges(normalBuildScoreChanges ?? [], out _)
             || view.ScoreLibrary != null && view.ScorePosition < view.ScoreLibrary.ScoreSnapshotVersion)
@@ -142,12 +200,17 @@ internal sealed partial class RegularChartListOwner
         return true;
     }
 
+    /// <summary>必要位置だけを検査します。捕捉値や処理済み位置を最新番号へ付け替えません。</summary>
+    private static long CaptureRequiredReferenceRevision(BMSLibrary library)
+        => library?.CapturePlaylistReferenceReadSnapshot([]).Revision ?? 0;
+
     /// <summary>候補が必要とする確定位置ごとに一回だけ既存drainを要求し、その成否を要求の終端へ接続します。</summary>
     private void StartPendingLibraryChangeDelivery()
     {
         (RegularChartListRequestLease Lease, RegularChartListPresentationResult Presentation) pending;
         BMSLibrary library;
         int requiredScore, requiredCatalog;
+        long requiredReference;
         lock (syncRoot)
         {
             if (!pendingNormalPresentation.HasValue || !pendingNormalDelivery.IsCompleted) { return; }
@@ -157,12 +220,15 @@ internal sealed partial class RegularChartListOwner
             if (library == null) { return; }
             requiredScore = library.ScoreSnapshotVersion;
             requiredCatalog = library.CatalogRevision;
-            if (requiredScore <= pendingNormalScoreRequiredVersion && requiredCatalog <= pendingNormalCatalogRequiredRevision) { return; }
+            requiredReference = CaptureRequiredReferenceRevision(library);
+            if (requiredScore <= pendingNormalScoreRequiredVersion && requiredCatalog <= pendingNormalCatalogRequiredRevision
+                && requiredReference <= pendingNormalReferenceRequiredRevision) { return; }
             pendingNormalScoreRequiredVersion = requiredScore;
             pendingNormalCatalogRequiredRevision = requiredCatalog;
+            pendingNormalReferenceRequiredRevision = requiredReference;
         }
         Task delivery = CompletePendingLibraryChangeDeliveryAsync(pending.Lease, pending.Presentation,
-            library, requiredScore, requiredCatalog);
+            library, requiredScore, requiredCatalog, requiredReference);
         lock (syncRoot)
         {
             if (!delivery.IsCompleted) { normalCandidateDeliveries.Add(delivery); }
@@ -178,7 +244,7 @@ internal sealed partial class RegularChartListOwner
     }
 
     private async Task CompletePendingLibraryChangeDeliveryAsync(RegularChartListRequestLease lease,
-        RegularChartListPresentationResult presentation, BMSLibrary library, int requiredScore, int requiredCatalog)
+        RegularChartListPresentationResult presentation, BMSLibrary library, int requiredScore, int requiredCatalog, long requiredReference)
     {
         try
         {
@@ -197,10 +263,15 @@ internal sealed partial class RegularChartListOwner
                     { throw new InvalidOperationException("The delivered score range does not cover the candidate input."); }
                     if (view.NormalInput != null)
                     {
-                        _ = view.TryApplyCatalogCommits(normalBuildCommits ?? [], (row, source) => UpdateNormalRow(library, row, source), out _);
-                        if (view.NormalInput.Snapshot.CatalogRevision < requiredCatalog)
+                        _ = view.TryApplyLibraryChanges(normalBuildCommits ?? [], normalBuildReferenceCommits ?? [],
+                            (row, source) => UpdateNormalRow(library, row, source), out _);
+                        if (view.NormalInput.Snapshot.CatalogRevision < requiredCatalog || view.HasPendingReferenceChanges
+                            || view.NormalInput.References.Revision < requiredReference)
                         { throw new InvalidOperationException("The delivered catalog range does not cover the candidate input."); }
                     }
+                    else if (!view.TryApplySubsetLibraryChanges(normalBuildCommits ?? [], normalBuildReferenceCommits ?? [], out _)
+                        || view.ReferencePosition < requiredReference)
+                    { throw new InvalidOperationException("The delivered reference range does not cover the subset input."); }
                 }
                 _ = TryCommitCore(lease, presentation);
             }, UiSchedulePriority.Normal);
@@ -215,7 +286,8 @@ internal sealed partial class RegularChartListOwner
             lock (syncRoot)
             {
                 advanced = IsCurrentUnsafe(lease) && pendingNormalPresentation.HasValue
-                    && (library.ScoreSnapshotVersion > requiredScore || library.CatalogRevision > requiredCatalog);
+                    && (library.ScoreSnapshotVersion > requiredScore || library.CatalogRevision > requiredCatalog
+                        || CaptureRequiredReferenceRevision(library) > requiredReference);
                 if (advanced) { pendingNormalDelivery = Task.CompletedTask; }
             }
             if (advanced) { StartPendingLibraryChangeDelivery(); }
@@ -233,6 +305,7 @@ internal sealed partial class RegularChartListOwner
                     pendingNormalPresentation = null;
                     normalBuildCommits = null;
                     normalBuildScoreChanges = null;
+                    normalBuildReferenceCommits = null;
                     normalBuildLibrary = null;
                     normalBuildMd5Keys.Clear();
                     normalBuildSha256Keys.Clear();

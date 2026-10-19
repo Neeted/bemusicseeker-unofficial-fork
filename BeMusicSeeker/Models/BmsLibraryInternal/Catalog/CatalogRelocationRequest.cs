@@ -140,8 +140,7 @@ internal sealed class CatalogMutationReceipt
              catalogRevision: 0,
              addedCharts: [],
              pathFacts: [],
-             removalRequests: [],
-             bmsonCanonicalOrderNormalized: false);
+             removalRequests: []);
 
     /// <summary>
     /// canonical DB と live catalog の確定結果を、関連参照の反映と操作内診断へ渡します。
@@ -161,7 +160,6 @@ internal sealed class CatalogMutationReceipt
         IEnumerable<CatalogChartMutationFact> addedCharts,
         IEnumerable<CatalogRelocationPathFact> pathFacts,
         IEnumerable<OwnedChartRemoveRequest> removalRequests,
-        bool bmsonCanonicalOrderNormalized = false,
         int folderDbTargetRows = 0,
         int folderDbFullScanCount = 0,
         IReadOnlyDictionary<string, OwnedChartToken> bmsPathMembershipIdentity = null,
@@ -188,7 +186,6 @@ internal sealed class CatalogMutationReceipt
         PathFacts = Array.AsReadOnly([.. (pathFacts ?? []).Where(fact => fact != null)]);
         MovedCharts = PathFacts;
         RemovedCharts = CatalogChartMutationFact.CreateRemovalFacts(removalRequests);
-        BmsonCanonicalOrderNormalized = bmsonCanonicalOrderNormalized;
     }
 
     /// <summary>同じcatalog確定境界の現在値と差分です。導入済みentryへ要求値を再適用せず、このAfterを共有します。</summary>
@@ -233,8 +230,6 @@ internal sealed class CatalogMutationReceipt
 
     internal IReadOnlyList<CatalogRelocationPathFact> PathFacts { get; }
 
-    /// <summary>今回のupsertで初回BMSON canonical順序正規化が発生したか。</summary>
-    internal bool BmsonCanonicalOrderNormalized { get; }
 
 }
 

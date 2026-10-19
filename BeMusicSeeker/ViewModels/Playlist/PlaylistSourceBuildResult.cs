@@ -41,6 +41,7 @@ internal sealed class PlaylistSourceBuildResult
     }
 
     internal List<PlaylistDetailSourceRow> SourceRows { get; }
+    internal ChartListReferenceInput ReferenceInput { get; init; }
     internal int CatalogRevision { get; init; }
     internal int PlaylistRevision { get; init; }
     /// <summary>filter前の選択表/実folderの全entryを、最初のscore投影前に捕捉したlookupで構築して覆った基準位置です。</summary>

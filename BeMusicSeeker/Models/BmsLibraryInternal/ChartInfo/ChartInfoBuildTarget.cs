@@ -32,6 +32,11 @@ internal sealed class ChartInfoBuildTarget
 
     internal int OwnerCount => charts.Count;
 
+    /// <summary>確認済み入力の識別を返します。今回保存したdigestだけを織り込み、後続currentは再取得しません。</summary>
+    internal IEnumerable<ChartFile> CreateCompletedInputs(string committedSha256 = null)
+        => charts.Select(chart => HasMissingDigest(chart) && !string.IsNullOrWhiteSpace(committedSha256)
+            ? chart with { Sha256 = committedSha256 } : chart);
+
     internal static ChartInfoBuildTarget FromChart(ChartFile chart)
     {
         if (chart == null)

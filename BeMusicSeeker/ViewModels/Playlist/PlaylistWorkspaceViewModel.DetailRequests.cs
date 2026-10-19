@@ -45,6 +45,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         IPlaylistDetailDataSource dataSource = Volatile.Read(ref detailDataSource)
             ?? throw new InvalidOperationException("Playlist detail data source is not attached.");
         SetDetailEntryCommitStore(getPlaylistStore());
+        long requiredReferences = (dataSource as PlaylistDetailDataSource)?.Library.CapturePlaylistReferenceReadSnapshot([]).Revision ?? 0;
         PlaylistBuildRequest request;
         PlaylistBuildQueueRegisterResult registerResult;
         lock (playlistDetailSelectionSyncRoot)
@@ -69,11 +70,13 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 long playlistRevision;
                 int lastBuiltScoreSnapshotVersion;
+                long lastBuiltReferenceRevision;
                 PlaylistRequestIdentity? currentViewIdentity;
                 lock (DetailViewState.SyncRoot)
                 {
                     playlistRevision = table?.PlaylistEntriesRevision ?? 0;
                     lastBuiltScoreSnapshotVersion = DetailViewState.Source.LastBuiltScoreSnapshotVersion;
+                    lastBuiltReferenceRevision = DetailViewState.Source.Dependencies?.ReferenceInput?.Revision ?? 0;
                     currentViewIdentity = DetailViewState.View.CurrentIdentity;
                 }
                 var sortParameters = new ChartListSortParameters
@@ -84,6 +87,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 request = new PlaylistBuildRequest
                 {
                     MainViewBuildRequestId = MainViewBuildRequestSequence.Next(),
+                    RequiredReferenceRevision = requiredReferences,
                     Mode = mode,
                     RequestedMode = requestedMode,
                     Filters = new ChartListFilterSnapshot(keywordFilter, modeFilter),
@@ -110,7 +114,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     request,
                     currentViewIdentity,
                     lastBuiltScoreSnapshotVersion,
-                    isShutdownRequested: false);
+                    isShutdownRequested: false, lastBuiltReferenceRevision);
             }
         }
 
@@ -283,22 +287,34 @@ public sealed partial class PlaylistWorkspaceViewModel
     private void EnsureCurrentDetailScoreDelivery(PlaylistBuildRequest request, CancellationToken cancellationToken)
     {
         int requestedPosition = -1;
+        long requestedReferencePosition = -1;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
             int applied;
+            long referencePosition;
+            long requiredReference;
             lock (DetailBuildState.SyncRoot)
             {
                 if (request.RequestVersion != DetailBuildState.RequestVersion) { return; }
-                lock (DetailViewState.SyncRoot) { applied = DetailViewState.Source.LastBuiltScoreSnapshotVersion; }
+                lock (DetailViewState.SyncRoot)
+                {
+                    applied = DetailViewState.Source.LastBuiltScoreSnapshotVersion;
+                    ChartListReferenceInput input = DetailViewState.Source.Dependencies?.ReferenceInput;
+                    referencePosition = input?.Revision ?? 0;
+                    requiredReference = input?.Library?.CapturePlaylistReferenceReadSnapshot([]).Revision ?? 0;
+                }
             }
             if (requestedPosition > applied)
             { throw new InvalidOperationException("Playlist score delivery completed without covering the required position."); }
+            if (requestedReferencePosition > referencePosition)
+            { throw new InvalidOperationException("Playlist reference delivery completed without covering the required position."); }
             int required = detailDataSource.ScoreSnapshotVersion;
-            if (applied >= required) { return; }
+            if (applied >= required && referencePosition >= requiredReference) { return; }
             if (detailDataSource is not PlaylistDetailDataSource attached || libraryChangeDelivery == null)
             { throw new InvalidOperationException("Playlist library change delivery is not connected."); }
             requestedPosition = required;
+            requestedReferencePosition = requiredReference;
             libraryChangeDelivery(attached.Library, cancellationToken).WaitAsync(cancellationToken).GetAwaiter().GetResult();
         }
     }
@@ -361,7 +377,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             sourceRows = sourceBuild.SourceRows;
             lock (DetailBuildState.SyncRoot)
             {
-                request.InputDependencies = new(sourceRows, ReportDetailWork);
+                request.ReferenceInput = sourceBuild.ReferenceInput;
+                request.InputDependencies = new(sourceRows, ReportDetailWork) { ReferenceInput = sourceBuild.ReferenceInput };
                 request.Identity = WithDetailVersions(request.Identity, sourceBuild.CatalogRevision, sourceBuild.PlaylistRevision,
                     sourceBuild.ScoreSnapshotVersion, sourceBuild.ChartInfoIndexVersion);
             }

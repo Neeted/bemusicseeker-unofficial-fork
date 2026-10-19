@@ -51,13 +51,13 @@
 | 内部移転 | 同じtokenと格納位置を継承し、明示的な旧新pathで現在値・索引を更新します。旧キーを新pathから推測しません。 |
 | 差分変更なし | 現在値とtokenを継承します。外部移転のhash再接続は利用者列だけを復元し、tokenは継承しません。 |
 
-全置換後の最初の追加・更新ではBMSON部分だけを一度整列します。BMSの列・順序キー・索引を共有し、全BMSを複製・再採番しません。移転は捕捉済みの順序位置を保ち、画面の並べ替えには共通現在値のpathを使います。`LibraryChartRefIndexSnapshot` の局所更新でも、全譜面の順位表を作りません。
+全置換後の最初の追加・更新ではBMSON部分だけを一度整列します。順序キーが変わる生存tokenを、値の変更とは別に同じ確定結果へ含めます。BMSの列・順序キー・索引を共有し、全BMSを複製・再採番しません。移転は捕捉済みの順序位置を保ち、画面の並べ替えには共通現在値のpathを使います。`LibraryChartRefIndexSnapshot` の局所更新でも、全譜面の順位表を作りません。
 
 `CatalogRevision` は所属・識別・順序と、health・encoding・警告・検査の由来を含む所持現在値の実変更で進めます。一回の確定batchで一回進み、対象なし・同じtokenの同値再評価では進みません。tokenを再発行する全再読込みは識別の実変更です。明示的にtokenを継承する同値入力とは区別します。スコアなど独立した正本の版は維持します。
 
 ### 共通変更と派生索引
 
-`CatalogOwnedCollectionOwner` が既存writer内で現在値、必要な候補・ハッシュ索引、版と `CatalogCommitReceipt` を同時に確定します。receiptは `BaseRevision`、`Revision`、対象のbefore/after、全置換の区別と確定時の構造共有snapshotを持ちます。同じ短い集合排他内で既存publisherへ登録し、排他解放後に配送を起動します。`LibraryMutationOwner` は操作の成功集合と必須後処理をまとめます。
+`CatalogOwnedCollectionOwner` が既存writer内で現在値、必要な候補・ハッシュ索引、版と `CatalogCommitReceipt` を同時に確定します。receiptは `BaseRevision`、`Revision`、対象のbefore/after、値とは独立した `OrderChangedTokens`、全置換の区別と確定時の構造共有snapshotを持ちます。順序変更も同じ一回の確定へ含め、値変更を偽造しません。同じ短い集合排他内で既存publisherへ登録し、排他解放後に配送を起動します。`LibraryMutationOwner` は操作の成功集合と必須後処理をまとめます。
 
 通常の変更では旧path/hashを不変の変更事実として捕捉し、DB確定後だけ共通現在値へ一回適用します。構築済み索引へ同じ旧新事実を渡し、排他権を解放してから登録済みの同じreceiptを配送します。未構築索引は変更のためだけに構築しません。全置換、必要な旧新対応の不足、途中失敗では従来どおり必要な無効化を行い、識別条件違反を無効化で隠しません。
 
@@ -128,7 +128,7 @@ flowchart TB
 
 参照解決索引は、種類と完全一致パスで全候補を保持します。代表は現在パスの大文字小文字を区別しない最小値、同値なら所持集合で先のものです。代表の削除で次候補を選び、最後の候補がなくなると未解決にします。項目のMD5がある場合はMD5だけで解決し、未解決でもSHA-256へ切り替えません。
 
-構築済み索引は、導入・移転・削除・ハッシュ変更の対象候補だけを更新します。旧スナップショットのパス・ハッシュ・代表は固定します。全置換、旧事実不足、全置換後の初回BMSON順序正規化では既存の全無効化を維持し、その後の通常更新は差分に戻します。
+構築済み索引は、導入・移転・削除・ハッシュ変更と、基準順序が変わる対象候補だけを更新します。初回BMSON順序正規化も、実際に位置が変わるtokenと、移転前の捕捉pathを更新する必要がある候補だけを同じwriter内で更新してからsnapshotを捕捉します。既存Ordinalを保持し、キーの比較modeの表現差だけで無関係な候補や表示行を更新しません。receiptには実際の位置変更だけを含め、候補キーだけの再捕捉対象は確定中の一時入力に限ります。候補の同path比較は両キーへ共通のmodeを適用し、旧新キーが混在しても比較の対称性と新規構築した候補順を保ちます。receipt登録後に索引だけを無効化しません。旧スナップショットのパス・ハッシュ・代表は固定します。全置換と旧事実不足では必要な全無効化を維持します。順序だけの変更は、所持hash集合の内容版や詳細解析入力を失効させません。
 
 ハッシュ差分は通知前に反映します。既に現在の元データから再構築した索引へ旧差分を重ねず、正常に反映したハッシュ変更区間の終了時に再度無効化しません。元の版が違う結果や失敗した結果は公開しません。同世代の先行読込みTask共有は既存の管理主体に残し、利用機能ごとの別キャッシュを作りません。
 
@@ -234,6 +234,7 @@ BMSの削除前ハッシュは対象パスの一時表から主キーを引き�
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 全現在値の確定版、同値、確定順、旧snapshotと局所仕事量 | [`CatalogOwnedCollectionOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogOwnedCollectionOwner.Commit.cs) | [`CatalogMaintenanceCurrentValueTests`](../../../BeMusicSeeker.Tests/Catalog/CatalogMaintenanceCurrentValueTests.cs) は共通writer・実キューで旧新値・退役と背景16/128件を確認する。実DBの保守・encodingは [`BmsLibraryMaintenanceServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryMaintenanceServiceTests.cs) が担う。 |
+| 初回BMSON順序の確定とwarm候補の整合 | [`CatalogOwnedCollectionOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogOwnedCollectionOwner.Commit.cs)、[`OwnedChartCollectionState`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/OwnedChartCollectionState.cs) | [`CatalogMaintenanceCurrentValueTests.FirstUpsert_CommitsExistingBmsonOrderAndWarmCandidatesTogether`](../../../BeMusicSeeker.Tests/Catalog/CatalogMaintenanceCurrentValueTests.cs) は背景16/128件で順序差分、同じ確定候補、旧snapshot不変、次の通常upsertの局所性を確認する。同じクラスの整列済み・単一BMSONでは既存候補のremove/addなしを実処理地点で確認し、逆順後の位置不変キーと後続の大小文字を区別した移転、位置不変のcaptured path再捕捉は保持済み索引と新規構築の全候補順で照合する。表示順と選択への接続は [`RegularChartNormalLibraryRefreshTests`](../../../BeMusicSeeker.Tests/ChartList/RegularChartNormalLibraryRefreshTests.cs) が担う。 |
 | 保存行の順序、移転、一定差分の仕事量 | [`CatalogOwnedCollectionOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogOwnedCollectionOwner.cs)、[`CatalogStorageIndexedSequence`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogStorageIndexedSequence.cs)、[`CatalogMutationOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogMutationOwner.cs) | [`CatalogMutationOwnerTests`](../../../BeMusicSeeker.Tests/Catalog/CatalogMutationOwnerTests.cs) |
 | 範囲だけの取得と通常一覧の形式選択・捕捉順 | [`CatalogStorageIndexedSequence`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogStorageIndexedSequence.cs)、[`OwnedChartCollectionState`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/OwnedChartCollectionState.cs)、[`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs) | [`CatalogMutationOwnerTests`](../../../BeMusicSeeker.Tests/Catalog/CatalogMutationOwnerTests.cs) の `FormatRangeOperations_VisitOnlyRequestedBmsonEntriesRegardlessOfBmsBackground`、`RangeEnumerationAndCapture_PreserveBoundsOrderAndCapturedValues`、`NormalSourceCaptureAndProjection_VisitEachIncludedEntryOnce`。BMSON64件・BMS背景16/128件で範囲内訪問、相対位置、明示コピー、捕捉前から本番行生成までの仕事量を確認します。[`OwnedChartCollectionProjectionTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionProjectionTests.cs) の `CaptureSnapshot_PreservesCatalogOrderAndExcludesPathlessRows` が形式別の捕捉順、内部移転後の位置・token継承と旧捕捉値を確認します。 |
 | 所持集合の順序、完全一致参照、未構築索引 | [`OwnedChartCollectionState`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/OwnedChartCollectionState.cs)、[`LibraryChartRefIndexSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/LibraryChartRefIndexSnapshot.cs) | [`OwnedChartCollectionLookupMembershipTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionLookupMembershipTests.cs)、[`OwnedChartCollectionReferenceIndexTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionReferenceIndexTests.cs) |

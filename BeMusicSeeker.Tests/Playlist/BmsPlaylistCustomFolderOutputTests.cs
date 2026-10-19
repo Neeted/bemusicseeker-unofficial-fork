@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -770,7 +771,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
-    /// <summary>DB保存後の公開失敗でも保存済みsymbolを編集画面のresetへ戻し、未変更の次保存では失敗した公開を再実行しません。確定値の巻戻しと古い公開の自動再試行を検出します。</summary>
+    /// <summary>DB確定後の必須header公開で故障し、同じ原因を返してDB・live・参照・dialog resetをNEWへ保ちます。未変更の次保存で旧公開を再実行しません。故障内でDB NEWも確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistPropertyDialog_PostSaveFailureReconcilesDialogWithDurableActiveState()
@@ -778,6 +779,10 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         PlaylistPropertyDialogViewModel? dialog = null;
+        TestBmsPlaylist? playlistForCleanup = null;
+        TestBmsLibrary? libraryForCleanup = null;
+        BMSTable? subscribedTable = null;
+        PropertyChangedEventHandler? headerPublication = null;
         try
         {
             string songDbPath = CreateTempSongDbPath(tempDirectory);
@@ -790,30 +795,38 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 Output_dir = "PostSaveFailure",
                 entries = [CreateEntry("ffffffffffffffffffffffffffffffff", "Folder")]
             };
-            using (var seed = new LR2SongDBExtended(songDbPath))
-            {
-                seed.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
-                seed.InsertOrReplace(table.entries.Single(), typeof(LR2SongDBExtended.playlist_entry));
-            }
-            var playlist = new TestBmsPlaylist(
-                songDbPath, null, null, null,
-                () => new PlaylistUrlCompletionOptionsSnapshot(),
-                () => new BeatorajaBmtOptionsSnapshot(),
+            var library = new TestBmsLibrary(songDbPath, settings: testSettings);
+            libraryForCleanup = library;
+            var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath,
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+                playlistUrlCompletionOptionsProvider: () => new PlaylistUrlCompletionOptionsSnapshot(),
+                beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot(), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
-            int libraryProviderCallCount = 0;
-            var library = new TestBmsLibrary(songDbPath, settings: testSettings);
+            playlistForCleanup = playlist;
+            playlist.CommitBMSTableWithEntriesToDB(table);
+            var expectedFailure = new InvalidOperationException("test post-save header publication failure");
+            int headerPublicationCount = 0;
+            headerPublication = (_, change) =>
+            {
+                if (change.PropertyName != nameof(BMSTable.symbol)) { return; }
+                Interlocked.Increment(ref headerPublicationCount);
+                // CommitPlaylistHeaderEditsがDBと参照を確定した後に必須公開する地点でのみ故障する。
+                using LR2SongDBExtended committed = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                Assert.AreEqual("NEW", committed.Table<BMSTable>().Single(row => row.playlist_id == table.playlist_id).symbol);
+                Assert.AreEqual("NEW", table.symbol);
+                Assert.AreEqual("NEW", library.GetPlaylistReferenceDisplay(table.entries.Single().md5, null).Symbols);
+                throw expectedFailure;
+            };
+            table.PropertyChanged += headerPublication;
+            subscribedTable = table;
             var service = new PlaylistPropertySaveService(
                 () => playlist,
-                () => Interlocked.Increment(ref libraryProviderCallCount) == 1
-                    ? throw new InvalidOperationException("test post-save failure")
-                    : library,
+                () => library,
                 () => null!,
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
-            service.PlaylistPropertyReferenceSortInvalidationRequested += (_, _) => { };
+
             service.PlaylistPropertySummaryDataRefreshRequested += (_, _) => { };
             PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
                 ?? throw new AssertFailedException("Playlist edit session was not created.");
@@ -825,8 +838,12 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 async () => await dialog.SaveAndApplyAsync());
 
-            Assert.AreEqual("test post-save failure", failure.Message);
+            Assert.AreSame(expectedFailure, failure);
+            Assert.AreEqual(1, headerPublicationCount);
             Assert.AreEqual("NEW", table.symbol);
+            using (LR2SongDBExtended durable = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            { Assert.AreEqual("NEW", durable.Table<BMSTable>().Single(row => row.playlist_id == table.playlist_id).symbol); }
+            Assert.AreEqual("NEW", library.GetPlaylistReferenceDisplay(table.entries.Single().md5, null).Symbols);
             Assert.AreEqual(
                 PlaylistPropertyDialogOperationResult.Completed,
                 await dialog.ResetPropertiesAsync());
@@ -837,7 +854,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             Assert.AreEqual(
                 PlaylistPropertyDialogOperationResult.Completed,
                 await dialog.ResetPropertiesAsync());
-            Assert.AreEqual(1, libraryProviderCallCount, "未変更の明示保存で、失敗した旧公開を予約・再実行しません。");
+            Assert.AreEqual("NEW", dialog.symbol);
+            Assert.AreEqual(1, headerPublicationCount, "未変更の明示保存で、失敗した旧header公開を予約・再実行しません。");
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(
                 "NEW",
@@ -845,7 +863,10 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
+            if (subscribedTable != null && headerPublication != null) { subscribedTable.PropertyChanged -= headerPublication; }
             dialog?.Dispose();
+            playlistForCleanup?.RequestShutdown("playlist_property_post_save_failure_test");
+            libraryForCleanup?.RequestShutdown("playlist_property_post_save_failure_test");
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -905,7 +926,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                     throw new InvalidOperationException("test remap presentation failure");
                 }
             };
-            service.PlaylistPropertyReferenceSortInvalidationRequested += (_, _) => { };
+
             service.PlaylistPropertyEntriesChanged += (_, _) => { };
             PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
                 ?? throw new AssertFailedException("Playlist edit session was not created.");
@@ -986,7 +1007,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 () => null!,
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
             service.PlaylistPropertyFolderSelectionRemapped += (_, _) => { };
-            service.PlaylistPropertyReferenceSortInvalidationRequested += (_, _) => { };
+
             service.PlaylistPropertyEntriesChanged += (_, _) => { };
             bool failRewriteNotification = true;
             table.PropertyChanged += (_, change) =>
@@ -1085,7 +1106,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                     throw new InvalidOperationException("test pending follow-up failure");
                 }
             };
-            service.PlaylistPropertyReferenceSortInvalidationRequested += (_, _) => { };
+
             service.PlaylistPropertyEntriesChanged += (_, _) => { };
             PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
                 ?? throw new AssertFailedException("Playlist edit session was not created.");
@@ -1193,7 +1214,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             service.PlaylistPropertyReferenceTableReplaced += (_, _) =>
                 Interlocked.Increment(ref referenceReplacementPresentationCount);
             service.PlaylistPropertyFolderSelectionRemapped += (_, _) => { };
-            service.PlaylistPropertyReferenceSortInvalidationRequested += (_, _) => { };
+
             service.PlaylistPropertySyncResultReported += (_, _) => { };
             service.PlaylistPropertyExternalSyncFailed += (_, _) => { };
             service.PlaylistPropertyEntriesChanged += (_, _) => { };
@@ -1289,7 +1310,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             service.PlaylistPropertySyncStarted += (_, _) => { };
             service.PlaylistPropertySyncProgressChanged += (_, _) => { };
             service.PlaylistPropertySyncFinished += (_, _) => { };
-            service.PlaylistPropertyReferenceSortInvalidationRequested += (_, _) => { };
+
             service.PlaylistPropertySummaryDataRefreshRequested += (_, _) => { };
             service.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             PlaylistPropertyExternalSyncFailedEventArgs? reportedFailure = null;
@@ -1507,6 +1528,97 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", Path.Combine(outputDir, "CLEAR FOLDER", "0 NO PLAY", "0000.lr2folder")));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", Lr2FolderPath.ToFolderPath(Path.Combine(outputDir, "CLEAR FOLDER"))));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>旧DBのNULL/0を生存、1を削除済みとして公開再出力し、実COMMANDの抽出とLEVEL/ADDDATEの値順を検証します。全保存によるNULLの0化を介さず、全体・folder指定・型別のSQL境界を通します。</summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    [DataRow(LR2SongDBExtended.playlist.CustomFolderSortType.LEVEL, LR2SongDBExtended.playlist.EntryUnitType.File)]
+    [DataRow(LR2SongDBExtended.playlist.CustomFolderSortType.LEVEL, LR2SongDBExtended.playlist.EntryUnitType.Folder)]
+    [DataRow(LR2SongDBExtended.playlist.CustomFolderSortType.ADDDATE, LR2SongDBExtended.playlist.EntryUnitType.File)]
+    [DataRow(LR2SongDBExtended.playlist.CustomFolderSortType.ADDDATE, LR2SongDBExtended.playlist.EntryUnitType.Folder)]
+    public void ReOutputCustomFolder_RawNullLiveEntriesRemainIncludedAndUsePersistedSortValues(
+        LR2SongDBExtended.playlist.CustomFolderSortType sortType,
+        LR2SongDBExtended.playlist.EntryUnitType entryType)
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.EnableDownloadLr2IrScoreAndDetectUnsent = true;
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            LR2SongDBExtended.playlist.CustomFolderType enabledTypes =
+                LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                | LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
+                | LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder
+                | LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder
+                | LR2SongDBExtended.playlist.CustomFolderType.OtherFolder;
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.CreateTable<LR2ScoreDB.score>();
+                db.CreateTable<LR2SongDBExtended.ir_score>();
+                db.Execute("INSERT INTO playlist (playlist_id, name, symbol, output_dir, folder_order, folder_sort_key, folder_sort_ascending, entry_type, ignore_folder_output) VALUES (7390, 'Legacy', 'L', 'Legacy', ?, ?, ?, ?, ?);",
+                    "[\"Group\"]", sortType, sortType == LR2SongDBExtended.playlist.CustomFolderSortType.LEVEL, entryType,
+                    LR2SongDBExtended.playlist.CustomFolderType.AllFolders & ~enabledTypes);
+                // NULLはbool変換を通さず旧行の値を保持する。levelとadddateは曲ごとに異なり、NULLをsort値と誤読すると順序が変わる。
+                foreach ((int number, string removed, int level, int year, string title) in new[]
+                {
+                    (1, "NULL", 3, 2023, "Alpha NULL"),
+                    (2, "0", 1, 2021, "Alpha ZERO"),
+                    (3, "1", 0, 2025, "Alpha REMOVED"),
+                    (4, "NULL", 4, 2024, "2 NULL"),
+                    (5, "0", 2, 2022, "2 ZERO"),
+                    (6, "1", 0, 2026, "2 REMOVED")
+                })
+                {
+                    string hash = number.ToString("x32");
+                    db.Execute("INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, adddate, is_removed) VALUES (7390, ?, ?, 'Group', ?, ?, " + removed + ");",
+                        hash, title, level, new DateTime(year, 1, 1));
+                    db.Execute("INSERT INTO song (hash, title, folder, path, longnote, judge) VALUES (?, ?, ?, ?, 1, 2);", hash, title, "Package" + number, hash + ".bms");
+                    db.Execute("INSERT INTO score (hash, clear, playcount) VALUES (?, 3, ?);", hash, number);
+                }
+                Assert.AreEqual(2L, db.ExecuteScalar<long>("SELECT COUNT(*) FROM playlist_entry WHERE playlist_id = 7390 AND is_removed IS NULL;"));
+            }
+            BMSTable table = new PlaylistPersistenceRepository(songDbPath).LoadPlaylistHeaders().Single();
+            Assert.IsFalse(table.ArePlaylistEntriesLoaded);
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            {
+                BMSTables = new ObservableCollection<BMSTable>(new[] { table })
+            };
+
+            playlist.ReOutputCustomFolder(table);
+
+            Assert.IsTrue(table.ArePlaylistEntriesLoaded);
+            string outputDir = Path.Combine(outputBaseDir, "Legacy");
+            var commands = Directory.GetFiles(outputDir, "*.lr2folder", SearchOption.AllDirectories)
+                .Select(ReadShiftJisText)
+                .ToDictionary(text => text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)
+                    .Single(line => line.StartsWith("#TITLE ", StringComparison.Ordinal)).Substring("#TITLE ".Length), ReadCustomFolderCommand);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(2L, verify.ExecuteScalar<long>("SELECT COUNT(*) FROM playlist_entry WHERE playlist_id = 7390 AND is_removed IS NULL;"));
+            int[] expectedOrder = sortType == LR2SongDBExtended.playlist.CustomFolderSortType.LEVEL ? [2, 5, 1, 4] : [4, 1, 5, 2];
+            AssertCustomFolderCommandHashOrder(verify, commands["Legacy ALL"], expectedOrder);
+            AssertCustomFolderCommandHashOrder(verify, commands["Group"], expectedOrder);
+            AssertCustomFolderCommandHashOrder(verify, commands["NEW SONGS"], [4, 1, 5, 2]);
+            foreach (string title in new[] { "ALL LONG NOTES", "ALL NORMAL JUDGES", "MY BEST", "UNSENT SONGS" })
+            {
+                AssertCustomFolderCommandMatches(verify, commands[title], [1, 2, 4, 5]);
+            }
+            AssertCustomFolderCommandMatches(verify, commands["A.B.C.D."], [1, 2]);
+            AssertCustomFolderCommandMatches(verify, commands["OTHERS"], [4, 5]);
+            AssertCustomFolderCommandMatches(verify, commands["REMOVED SONGS"], [3, 6]);
         }
         finally
         {
@@ -3362,6 +3474,20 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     private static long CountCustomFolderCommandMatches(LR2SongDBExtended db, string command, string hash)
     {
         return db.ExecuteScalar<long>("SELECT COUNT(1) FROM song LEFT JOIN score ON song.hash = score.hash WHERE song.hash = ? AND " + command, hash);
+    }
+
+    private static void AssertCustomFolderCommandMatches(LR2SongDBExtended db, string command, int[] expectedNumbers)
+    {
+        CollectionAssert.AreEquivalent(expectedNumbers.Select(number => number.ToString("x32")).ToArray(),
+            db.Query<LR2SongDB.song>("SELECT song.* FROM song LEFT JOIN score ON song.hash = score.hash WHERE " + command)
+                .Select(song => song.hash).ToArray(), command);
+    }
+
+    private static void AssertCustomFolderCommandHashOrder(LR2SongDBExtended db, string command, int[] expectedNumbers)
+    {
+        CollectionAssert.AreEqual(expectedNumbers.Select(number => number.ToString("x32")).ToArray(),
+            db.Query<LR2SongDB.song>("SELECT song.* FROM song LEFT JOIN score ON song.hash = score.hash WHERE " + command)
+                .Select(song => song.hash).ToArray(), command);
     }
 
     private static string ReadCustomFolderCommand(string folderText)

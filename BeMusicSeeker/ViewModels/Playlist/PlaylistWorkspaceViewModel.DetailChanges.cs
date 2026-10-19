@@ -36,6 +36,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (ReferenceEquals(detailEntryCommitStore, store)) { return; }
         if (detailEntryCommitStore != null) { detailEntryCommitStore.PlaylistEntryCommitsAvailable -= DetailEntryCommitsAvailable; }
         deferredEntryCommits.Clear();
+        deferredCatalogCommits.Clear();
         detailEntryCommitStore = store;
         if (store != null) { store.PlaylistEntryCommitsAvailable += DetailEntryCommitsAvailable; }
     }
@@ -58,40 +59,24 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             if (!ReferenceEquals(store, detailEntryCommitStore)) { return; }
             bool summaryChanged = false;
-            bool rebuild = false;
             lock (DetailBuildState.SyncRoot)
             {
                 foreach (PlaylistEntryCommitReceipt receipt in receipts)
                 {
-                    summaryChanged |= receipt.IsFullReplacement || !receipt.FolderOrder.IsDefault
+                    summaryChanged |= !receipt.FolderOrder.IsDefault
                         || receipt.Changes.Any(change => change.Before == null || change.After == null
                             || change.Before.Folder != change.After.Folder || change.Before.IsRemoved != change.After.IsRemoved
                             || !CatalogReadSnapshot.LookupKeyComparer.Equals(LookupKey(change.Before), LookupKey(change.After)));
                     BufferEntryCommit(DetailBuildState.CurrentBuildRequest, receipt);
                     BufferEntryCommit(DetailBuildState.PendingRequest, receipt);
-                    if (receipt.IsFullReplacement)
-                    {
-                        // 別表の置換は現在の source を無効化しません。構築要求は自分の表だけを受け取ります。
-                        foreach (PlaylistBuildRequest request in new[] { DetailBuildState.CurrentBuildRequest, DetailBuildState.PendingRequest })
-                        {
-                            if (request?.InputDependencies != null && ReferenceEquals(request.Identity.Table, receipt.Table)
-                                && receipt.Revision > request.Identity.PlaylistRevision) { rebuild = true; }
-                        }
-                        lock (DetailViewState.SyncRoot)
-                        {
-                            if (ReferenceEquals(DetailViewState.Source.CurrentTable, receipt.Table)
-                                && receipt.Revision > DetailViewState.Source.LastBuiltPlaylistRevision)
-                            { DetailViewState.Source.CurrentIdentity = null; rebuild = true; }
-                        }
-                        continue;
-                    }
                     lock (DetailViewState.SyncRoot)
                     {
                         if (receipt.Revision > DetailViewState.Source.LastBuiltPlaylistRevision
                             && (ReferenceEquals(DetailViewState.Source.CurrentTable, receipt.Table)
                                 || DetailViewState.Source.Rows.Count > 0 && ReferenceEquals(DetailViewState.Source.Rows[0].Entry.parent, receipt.Table)))
                         {
-                            if (deferredEntryCommits.Any(value => ReferenceEquals(value.Table, receipt.Table))
+                            if (EnsureDetailDependencies().PendingReferenceProjections.Count > 0
+                                || deferredEntryCommits.Any(value => ReferenceEquals(value.Table, receipt.Table))
                                 || !TryApplyEntryCommit(EnsureDetailDependencies(), receipt, DetailViewState.View.Rows as PlaylistDetailVirtualView,
                                 DetailViewState.View.CurrentIdentity, DetailViewState.Source.LastBuiltLibraryIndexVersion))
                             { deferredEntryCommits.Add(receipt); }
@@ -105,9 +90,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                     }
                 }
             }
-            (DetailViewState.View.Rows as PlaylistDetailVirtualView)?.PublishChanges();
+            PublishDetailChanges();
             if (summaryChanged) { RequestPlaylistSummaryDataRefresh("playlist_entry_lookup_changed"); }
-            if (rebuild && IsPlaylistDetailViewActive) { RequestPlaylistDetailReloadRefresh(); }
         });
     }
 
@@ -134,6 +118,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 { rebuild = true; }
                 request.CatalogCommits.AddRange(batch.CatalogCommits);
                 request.ScoreChanges.AddRange(batch.ScoreChanges);
+                request.ReferenceCommits.AddRange(batch.ReferenceCommits);
                 request.DetailMd5Keys.UnionWith(batch.ChangedDetailMd5s);
                 request.DetailSha256Keys.UnionWith(batch.ChangedDetailSha256s);
                 request.HasChartInfoChanges |= batch.ChangedDetailMd5s.Count > 0 || batch.ChangedDetailSha256s.Count > 0;
@@ -146,26 +131,31 @@ public sealed partial class PlaylistWorkspaceViewModel
                 if (state.CurrentIdentity.HasValue)
                 {
                     PlaylistDetailDependencies dependencies = EnsureDetailDependencies();
-                    foreach (CatalogCommitReceipt receipt in batch.CatalogCommits)
+                    dependencies.ReferenceCommits.AddRange(batch.ReferenceCommits);
+                    dependencies.PendingScores.AddRange(batch.ScoreChanges);
+                    dependencies.PendingDetailMd5s.UnionWith(batch.ChangedDetailMd5s);
+                    dependencies.PendingDetailSha256s.UnionWith(batch.ChangedDetailSha256s);
+                    deferredCatalogCommits.AddRange(batch.CatalogCommits);
+                    bool pendingReady = ResumePendingDetailProjection(dependencies,
+                        DetailViewState.View.Rows as PlaylistDetailVirtualView, DetailViewState.View.CurrentIdentity);
+                    foreach (CatalogCommitReceipt receipt in deferredCatalogCommits)
                     {
+                        if (!pendingReady) { break; }
                         if (receipt.Revision <= state.LastBuiltLibraryIndexVersion) { continue; }
-                        if (receipt.IsFullReplacement || !ApplyCatalogCommit(dependencies, receipt,
-                            DetailViewState.View.Rows as PlaylistDetailVirtualView, DetailViewState.View.CurrentIdentity))
+                        if (receipt.IsFullReplacement)
                         {
                             state.CurrentIdentity = null;
                             rebuild = true;
                             break;
                         }
+                        if (!ApplyCatalogCommit(dependencies, receipt, DetailViewState.View.Rows as PlaylistDetailVirtualView,
+                            DetailViewState.View.CurrentIdentity)) { break; }
                         state.LastBuiltLibraryIndexVersion = receipt.Revision;
                     }
+                    deferredCatalogCommits.RemoveAll(receipt => receipt.Revision <= state.LastBuiltLibraryIndexVersion);
                     if (state.CurrentIdentity.HasValue)
                     {
-                        state.LastBuiltScoreSnapshotVersion = ApplyScoreChanges(dependencies, batch.ScoreChanges,
-                            state.LastBuiltScoreSnapshotVersion, DetailViewState.View.Rows as PlaylistDetailVirtualView,
-                            DetailViewState.View.CurrentIdentity);
-                        PatchDetailKeys(dependencies, batch.ChangedDetailMd5s, batch.ChangedDetailSha256s,
-                            DetailViewState.View.Rows as PlaylistDetailVirtualView, DetailViewState.View.CurrentIdentity);
-                        for (int index = 0; index < deferredEntryCommits.Count;)
+                        for (int index = 0; pendingReady && deferredCatalogCommits.Count == 0 && index < deferredEntryCommits.Count;)
                         {
                             PlaylistEntryCommitReceipt receipt = deferredEntryCommits[index];
                             if (!ReferenceEquals(receipt.Table, state.CurrentTable) || receipt.Revision <= state.LastBuiltPlaylistRevision)
@@ -175,14 +165,24 @@ public sealed partial class PlaylistWorkspaceViewModel
                             state.LastBuiltPlaylistRevision = receipt.Revision;
                             deferredEntryCommits.RemoveAt(index);
                         }
-                        if (batch.ChangedDetailMd5s.Count > 0 || batch.ChangedDetailSha256s.Count > 0)
+                        if (dependencies.PendingReferenceProjections.Count == 0)
+                        {
+                            state.LastBuiltScoreSnapshotVersion = ApplyScoreChanges(dependencies, dependencies.PendingScores,
+                                state.LastBuiltScoreSnapshotVersion, DetailViewState.View.Rows as PlaylistDetailVirtualView,
+                                DetailViewState.View.CurrentIdentity);
+                            dependencies.PendingScores.RemoveAll(change => change.Version <= state.LastBuiltScoreSnapshotVersion);
+                        }
+                        if (TryPatchPendingDetails(dependencies, DetailViewState.View.Rows as PlaylistDetailVirtualView,
+                            DetailViewState.View.CurrentIdentity))
                         { state.LastBuiltChartInfoIndexVersion = Math.Max(state.LastBuiltChartInfoIndexVersion, detailVersion); }
+                        if (dependencies.PendingReferenceProjections.Count == 0)
+                        { ApplyReferenceCommits(dependencies, DetailViewState.View.Rows as PlaylistDetailVirtualView, DetailViewState.View.CurrentIdentity); }
                         UpdateDetailIdentities();
                     }
                 }
             }
         }
-        (DetailViewState.View.Rows as PlaylistDetailVirtualView)?.PublishChanges();
+        PublishDetailChanges();
         bool possibleHashChange = batch.CatalogCommits.Any(receipt => receipt.IsFullReplacement || receipt.Changes.Any(change =>
             !StringComparer.OrdinalIgnoreCase.Equals(change.Before?.Md5, change.After?.Md5)
             || !StringComparer.OrdinalIgnoreCase.Equals(change.Before?.Sha256, change.After?.Sha256)));
@@ -197,8 +197,17 @@ public sealed partial class PlaylistWorkspaceViewModel
     private bool ApplyCatalogCommit(PlaylistDetailDependencies dependencies, CatalogCommitReceipt receipt,
         PlaylistDetailVirtualView view, PlaylistRequestIdentity? identity)
     {
+        if (dependencies.PendingReferenceProjections.TryGetValue(receipt, out PlaylistPendingReferenceProjection pending))
+        { return TryCommitReferenceProjection(dependencies, receipt, pending, view, identity); }
         var entries = new HashSet<BMSTableEntry>();
         var candidateEntries = new HashSet<BMSTableEntry>();
+        foreach (OwnedChartToken token in receipt.OrderChangedTokens)
+        {
+            var ordered = new HashSet<BMSTableEntry>();
+            dependencies.AddTokenDependents(token, ordered);
+            foreach (BMSTableEntry entry in ordered)
+            { if (dependencies.TryGet(entry, out PlaylistDetailSourceRow row)) { dependencies.AddLookupDependents(row.LookupKey, candidateEntries); } }
+        }
         foreach (CatalogChartChange change in receipt.Changes)
         {
             dependencies.AddTokenDependents(change.Token, entries);
@@ -215,6 +224,8 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (candidateEntries.Count > 0 && (receipt.Snapshot == null || !receipt.Snapshot.TryCapturePlaylistReadSnapshot(
             candidateEntries.Select(entry => dependencies.TryGet(entry, out PlaylistDetailSourceRow row) ? row.LookupKey : default), out candidates)))
         { return false; }
+        var projection = new PlaylistPendingReferenceProjection();
+        dependencies.PendingReferenceProjections.Add(receipt, projection);
         BMSLibrary.ScoreSnapshot scores = entries.Count == 0 ? null : detailDataSource.GetScoreSnapshot();
         foreach (BMSTableEntry entry in entries)
         {
@@ -223,16 +234,17 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (candidateEntries.Contains(entry)) { current = candidates.Resolve(row.LookupKey); }
             else if (receipt.Snapshot?.TryGetChart(row.OwnedCurrent.Token, out current, out _) != true) { current = null; }
             PlaylistDetailSourceRow next = CreateDetailProjection(detailDataSource, entry, row.EntryValue, current,
-                row.EntryOrder, scores);
-            ReplaceDetailProjection(dependencies, row, next, view, identity);
+                row.EntryOrder, scores, referenceInput: dependencies.ReferenceInput);
+            projection.Changes.Add((row, next));
         }
-        return true;
+        return TryCommitReferenceProjection(dependencies, receipt, projection, view, identity);
     }
 
     private bool TryApplyEntryCommit(PlaylistDetailDependencies dependencies, PlaylistEntryCommitReceipt receipt,
         PlaylistDetailVirtualView view, PlaylistRequestIdentity? identity, long catalogRevision)
     {
-        if (receipt.IsFullReplacement) { return false; }
+        if (dependencies.PendingReferenceProjections.TryGetValue(receipt, out PlaylistPendingReferenceProjection pending))
+        { return TryCommitReferenceProjection(dependencies, receipt, pending, view, identity); }
         // 必要な新 lookup を一度に捕捉し、版を検査してから receipt 全体を適用します。
         // 後半の lookup が未配送の新版を必要としても、前半だけを先行表示しません。
         var keys = new HashSet<PlaylistEntryLookupKey>(CatalogReadSnapshot.LookupKeyComparer);
@@ -246,6 +258,8 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         CatalogReadSnapshot catalog = keys.Count == 0 ? null : detailDataSource.CapturePlaylistReadSnapshot(keys, CancellationToken.None);
         if (catalog != null && catalog.CatalogRevision > catalogRevision) { return false; }
+        var projection = new PlaylistPendingReferenceProjection();
+        dependencies.PendingReferenceProjections.Add(receipt, projection);
         BMSLibrary.ScoreSnapshot scores = detailDataSource.GetScoreSnapshot();
         foreach (PlaylistEntryChange change in receipt.Changes)
         {
@@ -254,7 +268,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 identity?.FolderName ?? DetailViewState.Source.CurrentFolderName);
             if (!inScope)
             {
-                if (before != null) { dependencies.Remove(change.Entry); if (identity.HasValue) { view?.ApplyChange(before, null, identity.Value, DetailViewState.Source.IsPlaylistCellEditing); } }
+                if (before != null) { projection.Changes.Add((before, null)); }
                 continue;
             }
             ChartFile chart = before?.OwnedCurrent;
@@ -263,10 +277,10 @@ public sealed partial class PlaylistWorkspaceViewModel
                 chart = catalog.Resolve(LookupKey(change.After));
             }
             PlaylistDetailSourceRow next = CreateDetailProjection(detailDataSource, change.Entry, change.After, chart,
-                change.AfterOrder ?? before?.EntryOrder ?? 0, scores);
-            ReplaceDetailProjection(dependencies, before, next, view, identity);
+                change.AfterOrder ?? before?.EntryOrder ?? 0, scores, referenceInput: dependencies.ReferenceInput);
+            projection.Changes.Add((before, next));
         }
-        return true;
+        return TryCommitReferenceProjection(dependencies, receipt, projection, view, identity);
     }
 
     private void ReplaceDetailProjection(PlaylistDetailDependencies dependencies, PlaylistDetailSourceRow before,
@@ -289,8 +303,11 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             if (!dependencies.TryGet(entry, out PlaylistDetailSourceRow row)) { continue; }
             DetailWorkObserver?.Invoke("playlist_detail_dependency_projection");
-            PlaylistDetailSourceRow next = CreateDetailProjection(detailDataSource, entry, row.EntryValue, row.OwnedCurrent,
-                row.EntryOrder, scores);
+            // scoreだけの配送から、未配送の詳細による新SHA依存を先取りしません。
+            ReportDetailWork("playlist_source_projection");
+            BMSScore score = ResolveDetailScore(row, row.EntryChartInfo, scores);
+            if (score != null) { (detailDataSource as PlaylistDetailDataSource)?.Library.ScoreSnapshotWorkObserver?.Invoke("score_projection_value_copied"); }
+            PlaylistDetailSourceRow next = row.WithEntryChartInfoAndScore(row.EntryChartInfo, score);
             ReplaceDetailProjection(dependencies, row, next, view, identity);
         }
     }
@@ -335,6 +352,11 @@ public sealed partial class PlaylistWorkspaceViewModel
             dependencies = rows == null ? EnsureDetailDependencies() : new(rows, ReportDetailWork);
             request.InputDependencies = dependencies;
         }
+        dependencies.ReferenceCommits.AddRange(request.ReferenceCommits);
+        dependencies.ReferenceCommits.Sort((left, right) => left.Revision.CompareTo(right.Revision));
+        request.ReferenceCommits.Clear();
+        if (!ResumePendingDetailProjection(dependencies, view, request.Identity, request))
+        { request.WaitingForData = true; return false; }
         long catalogRevision = request.Identity.LibraryIndexVersion;
         long entryRevision = request.Identity.PlaylistRevision;
         int scoreVersion = ApplyScoreChanges(dependencies, request.ScoreChanges, request.Identity.ScoreSnapshotVersion, view, request.Identity);
@@ -366,15 +388,21 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             if (request.HasChartInfoChanges) { detailVersion = Math.Max(detailVersion, detailDataSource.ChartInfoIndexVersion); }
             request.HasChartInfoChanges = false;
-            PatchDetailKeys(dependencies, request.DetailMd5Keys, request.DetailSha256Keys, view, request.Identity);
+            dependencies.PendingDetailMd5s.UnionWith(request.DetailMd5Keys);
+            dependencies.PendingDetailSha256s.UnionWith(request.DetailSha256Keys);
             request.DetailMd5Keys.Clear(); request.DetailSha256Keys.Clear();
         }
+        if (!TryPatchPendingDetails(dependencies, view, request.Identity)) { request.WaitingForData = true; return false; }
         request.CatalogCommits.RemoveAll(receipt => receipt.Revision <= catalogRevision);
         request.EntryCommits.RemoveAll(receipt => receipt.Revision <= entryRevision);
         request.Identity = WithDetailVersions(request.Identity, catalogRevision, entryRevision, scoreVersion, detailVersion);
+        if (dependencies.PendingReferenceProjections.Count == 0) { ApplyReferenceCommits(dependencies, view, request.Identity); }
+        request.ReferenceInput = dependencies.ReferenceInput;
+        request.RequiredReferenceRevision = dependencies.ReferenceInput?.Library?.CapturePlaylistReferenceReadSnapshot([]).Revision ?? 0;
         request.WaitingForData = detailDataSource.CatalogRevision > catalogRevision
             || (request.Identity.Table?.PlaylistEntriesRevision ?? 0) > entryRevision
-            || detailDataSource.ScoreSnapshotVersion > scoreVersion;
+            || detailDataSource.ScoreSnapshotVersion > scoreVersion
+            || (dependencies.ReferenceInput?.Revision ?? 0) < request.RequiredReferenceRevision;
         return !request.WaitingForData;
     }
 }

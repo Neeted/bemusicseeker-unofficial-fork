@@ -28,6 +28,49 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistWorkspaceActionWorkflowTests
 {
+    /// <summary>実property prefix保存を全体/選択folder詳細へ配送し、非表示入力・次sort/filter・memo編集の実終端を確認します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PlaylistPropertySave_PrefixReceiptUpdatesExistingDetailAndLaterRequests(bool selectedFolder)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        BMSTable table = fixture.Table;
+        if (selectedFolder) { fixture.Workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("P1")); }
+        else { fixture.Workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("P1", ChartModeFilter.All)); }
+        await fixture.Refresh();
+        PlaylistDetailSourceRow old = fixture.Workspace.DetailViewState.Source.Rows.Single(row => row.Entry.title == "entry 0");
+        BMSTableEntry target = table.entries[0];
+        DateTime date = table.last_update;
+        Task selectionRefresh = Task.CompletedTask;
+        fixture.Workspace.PlaylistDetailReloadRefreshRequested += (_, _) => { selectionRefresh = fixture.Refresh(); };
+        using PlaylistPropertyDialogViewModel dialog = await fixture.Workspace.OpenPropertyDialogAsync(table)
+            ?? throw new AssertFailedException("Property dialog was not created.");
+        dialog.compat_prefix = "Q";
+        Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+        await selectionRefresh;
+        Assert.AreEqual("P1", old.Folder, "旧捕捉値は書き換えません。");
+        Assert.AreSame(target, table.entries[0]); Assert.AreEqual(date, table.last_update);
+        Assert.AreEqual(selectedFolder ? "Q1" : null, fixture.Workspace.CapturePlaylistDetailSelection().FolderName);
+        Assert.AreEqual(table.PlaylistEntriesRevision, fixture.Workspace.DetailViewState.Source.LastBuiltPlaylistRevision);
+        string[] folders = [.. fixture.Workspace.DetailViewState.Source.Rows.Select(row => row.Folder).OrderBy(value => value, StringComparer.Ordinal)];
+        CollectionAssert.AreEqual(selectedFolder ? new[] { "Q1" } : new[] { "Q1", "Q2", "QQ3", "QX" }, folders);
+        if (!selectedFolder) { Assert.AreEqual(0, fixture.Workspace.DetailViewState.View.Rows.Count, "旧prefix検索から対象が外れます。"); }
+        fixture.Workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+        fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.Folder), System.ComponentModel.ListSortDirection.Descending);
+        await fixture.Refresh();
+        Assert.AreEqual(selectedFolder ? 1 : 4, fixture.Workspace.DetailViewState.View.Rows.Count);
+        PlaylistDetailRow row = fixture.Workspace.DetailViewState.View.Rows.Cast<PlaylistDetailRow>().Single(value => ReferenceEquals(value.Entry, target));
+        var context = new MainChartListCellEditContext(row, nameof(PlaylistDetailRow.memo), ChartOperationSourceScope.PlaylistMissing, MainViewOperationSection.Playlist);
+        fixture.Workspace.BeginDetailEdit(context);
+        row.memo = "memo after prefix";
+        await fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "memo after prefix", commit: true));
+        Assert.AreEqual("memo after prefix", target.memo);
+        Assert.AreEqual("Q1", row.Folder);
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        Assert.AreEqual("memo after prefix", db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE playlist_id=7492 AND title='entry 0';"));
+    }
+
     /// <summary>
     /// 外部参照置換と接頭辞変更を実保存し、参照依存の通知時に既に新参照を採用し、選択・ツリー・実詳細行・DBがNEW 1へ揃うことを確認します。
     /// 受信側単体の非現行参照拒否と、画面のBinding・所有者は既存詳細選択テストとWPF代表へ分担します。
@@ -52,8 +95,9 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(header));
             table.playlist_id = 7481;
             table.Page_url = new Uri(Path.Combine(directory, "previous-header.json"));
-            table.compat_prefix = "OLD ";
-            table.entries.Single().folder = "OLD 1";
+            // 取得済みの所属も正規prefix候補で初期化し、entry値と索引を同時に揃えます。
+            table.ApplyEntryMutation(table.PrepareHeaderMutation(new PlaylistHeaderEdit
+            { Fields = PlaylistHeaderFields.CompatPrefix, CompatPrefix = "OLD " }));
             Assert.IsTrue(table.EnableExternalSync());
             playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
             playlist.CommitBMSTableWithEntriesToDB(table);
@@ -61,7 +105,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             var library = new TestBmsLibrary(songPath, settings: settings);
             var service = new PlaylistPropertySaveService(() => playlist, () => library, () => null!, () => new CustomFolderOutputSettingsSnapshot());
             workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library, propertySaveService: service);
-            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => { };
+
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             workspace.PlaylistSyncProgressChanged += (_, _) => { };
             workspace.PlaylistDetailReloadRefreshRequested += (_, _) => { };
@@ -1394,78 +1438,56 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
-    /// <summary>表への値適用通知を失敗させ、名前・記号・sortとfolder順を開始前へ戻して部分的な編集値を残す誤りを検出します。</summary>
-    [TestMethod]
-    public async Task PlaylistPropertySave_RollsBackAllValuesWhenAPropertyNotificationFails()
+    /// <summary>property保存をDB前の実拒否とDB後の通知故障で分け、前者は全旧状態、後者は同entry/header/版/詳細を確定値で保ちます。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PlaylistPropertySave_FailuresRespectDatabaseCommitBoundary(bool afterCommit)
     {
-        string tempDirectory = Path.Combine(
-            Path.GetTempPath(),
-            nameof(PlaylistWorkspaceViewModelTests),
-            Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        try
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        await fixture.Refresh();
+        BMSTable table = fixture.Table;
+        BMSTableEntry target = table.entries[0];
+        int version = table.PlaylistEntriesRevision;
+        DateTime date = table.last_update;
+        int nameNotices = 0;
+        table.PropertyChanged += (_, change) =>
         {
-            string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
-            {
-            }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            BMSTable table = new()
-            {
-                name = "Initial name",
-                symbol = "OLD",
-                folder_sort_key = LR2SongDBExtended.playlist.CustomFolderSortType.NONE,
-                entries =
-                [
-                    new BMSTableEntry { folder = "A" },
-                    new BMSTableEntry { folder = "B" }
-                ],
-                Folder_order = ["B"]
-            };
-            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(
-                songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
-            {
-                values.OperationModeLR2DB = false;
-            }));
-            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
-            var service = new PlaylistPropertySaveService(
-                () => playlist,
-                () => null!,
-                () => null!,
-                () => new CustomFolderOutputSettingsSnapshot());
-            using PlaylistPropertyEditSession session =
-                await service.CreateEditSessionAsync(table)
-                ?? throw new AssertFailedException("Playlist edit session was not created.");
-            session.Values.Name = "Dialog edit";
-            session.Values.Symbol = "NEW";
-            session.Values.FolderSortKey = LR2SongDBExtended.playlist.CustomFolderSortType.TITLE;
-            table.PropertyChanged += (_, change) =>
-            {
-                if (string.Equals(change.PropertyName, "name", StringComparison.Ordinal))
-                {
-                    throw new InvalidOperationException("test property notification failure");
-                }
-            };
-
-            await Assert.ThrowsExceptionAsync<AggregateException>(
-                async () => await service.TrySaveAsync(session, session.Values));
-
-            Assert.AreEqual("Initial name", table.name);
-            Assert.AreEqual("OLD", table.symbol);
-            Assert.AreEqual(
-                LR2SongDBExtended.playlist.CustomFolderSortType.NONE,
-                table.folder_sort_key);
-            CollectionAssert.AreEqual(new[] { "B" }, table.Folder_order);
-        }
-        finally
+            if (change.PropertyName != "name") { return; }
+            nameNotices++;
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+            Assert.AreEqual("Changed header", db.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id=7492;"));
+            Assert.AreEqual("Q1", db.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id=7492 AND title='entry 0';"));
+            if (afterCommit) { throw new InvalidOperationException("post-commit header notification failed"); }
+        };
+        if (!afterCommit)
+        { fixture.Execute("CREATE TRIGGER fail_property_header BEFORE INSERT ON playlist BEGIN SELECT RAISE(ABORT, 'property header DB failed'); END;"); }
+        using PlaylistPropertyEditSession session = await fixture.Service.CreateEditSessionAsync(table)
+            ?? throw new AssertFailedException("Property session was not created.");
+        session.Values.Name = "Changed header"; session.Values.Symbol = "NEW"; session.Values.CompatPrefix = "Q";
+        PlaylistPropertySaveCommit commit = await fixture.Service.TrySaveAsync(session, session.Values)
+            ?? throw new AssertFailedException("Valid property save was not accepted.");
+        Assert.IsNotNull(commit.Exception);
+        Assert.AreEqual(afterCommit, commit.RequestedValuesSaved);
+        Assert.AreEqual(afterCommit ? 1 : 0, nameNotices);
+        Assert.AreEqual(afterCommit ? "Changed header" : "Prefix", table.name);
+        Assert.AreEqual(afterCommit ? "NEW" : "PF", table.symbol);
+        Assert.AreEqual(afterCommit ? "Q" : "P", table.compat_prefix);
+        Assert.AreEqual(afterCommit ? "Q1" : "P1", target.folder);
+        Assert.AreSame(target, table.entries[0]);
+        Assert.AreEqual(version + (afterCommit ? 1 : 0), table.PlaylistEntriesRevision);
+        Assert.AreEqual(date, table.last_update);
+        CollectionAssert.AreEqual(afterCommit ? new[] { "QQ3", "QX", "Q2", "Q1" } : new[] { "Q3", "X", "P2", "P1" }, table.Folder_order);
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        Assert.AreEqual(afterCommit ? "Q" : "P", verify.ExecuteScalar<string>("SELECT compat_prefix FROM playlist WHERE playlist_id=7492;"));
+        Assert.AreEqual(afterCommit ? "Q1" : "P1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id=7492 AND title='entry 0';"));
+        if (afterCommit)
         {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
+            Assert.IsInstanceOfType<InvalidOperationException>(commit.Exception);
+            Assert.AreEqual("post-commit header notification failed", commit.Exception.Message);
+            Assert.AreEqual(table.PlaylistEntriesRevision, fixture.Workspace.DetailViewState.Source.LastBuiltPlaylistRevision);
         }
     }
-
     /// <summary>prefix保存後の公開を失敗させても実DBと行名の確定を保持し、同値の次保存で二重prefixや公開再試行を起こさず、無効属性・通知不成立・取消も区別します。</summary>
     [TestMethod]
     public async Task CompleteSummaryPropertyEdit_FreshSameValueSaveDoesNotReplayPrefixFollowUp()
@@ -1533,7 +1555,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 playlistLibraryProvider: () => library,
                 propertySaveService: service,
                 playlistWorkspaceDialogService: dialogs);
-            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => { };
+
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             int prefixPresentationCount = 0;
             service.PlaylistPropertyFolderSelectionRemapped += (_, _) =>
@@ -1762,9 +1784,9 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
 
-    /// <summary>BMSとBMSONの実所属行を登録し、導入パッケージの参照を付けて失効を一回通知します。</summary>
+    /// <summary>BMSとBMSONの実所属行を登録し、導入パッケージの参照表示を同じ登録済み索引から解決します。</summary>
     [TestMethod]
-    public void InstallPackageReferenceAttachment_AttachesBmsAndBmsonAndRaisesOneInvalidation()
+    public void InstalledPackageReferenceLookup_ResolvesBmsAndBmsonFromRegisteredTable()
     {
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -1813,13 +1835,10 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 playlistStoreProvider: () => playlist,
                 playlistLibraryProvider: () => library);
             workspace.RefreshPlaylistTreeTables(playlist);
-            library.AddReferenceBMSTables([table]);
-            int invalidationCount = 0;
-            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => invalidationCount++;
+            library.SynchronizeReferenceBMSTables([table]);
 
-            workspace.AttachInstalledPackageReferences([package]);
 
-            Assert.AreEqual(1, invalidationCount);
+
             Assert.AreEqual("P", library.GetPlaylistReferenceDisplay(package.ChartEntries[0].Chart).Symbols);
             Assert.AreEqual("Installed references", library.GetPlaylistReferenceDisplay(package.ChartEntries[0].Chart).Names);
             Assert.AreEqual("P", library.GetPlaylistReferenceDisplay(package.ChartEntries[1].Chart).Symbols);
@@ -1834,60 +1853,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
-    /// <summary>storeのないworkspaceへ空集合と空packageを渡し、参照sortの失効通知を生成しないことを確認します。</summary>
-    [TestMethod]
-    public void InstallPackageReferenceAttachment_EmptyOrMissingPlaylistIsNoOp()
-    {
-        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
-        int invalidationCount = 0;
-        workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => invalidationCount++;
 
-        workspace.AttachInstalledPackageReferences([]);
-        workspace.AttachInstalledPackageReferences([ChartPackage.FromChartEntries([])]);
-
-        Assert.AreEqual(0, invalidationCount);
-    }
-
-    /// <summary>参照付与時のlibrary未接続でInvalidOperationExceptionを返し、その後に同じスレッドで表集合のreaderを再取得・解放できることを確認します。</summary>
-    [TestMethod]
-    public void InstallPackageReferenceAttachment_ReleasesReaderLockWhenLibraryFails()
-    {
-        string tempDirectory = Path.Combine(
-            Path.GetTempPath(),
-            nameof(PlaylistWorkspaceViewModelTests),
-            Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        try
-        {
-            string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
-            {
-            }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath)
-            {
-                BMSTables = new ObservableCollection<BMSTable>([new BMSTable { name = "Lock target" }])
-            };
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                playlistStoreProvider: () => playlist,
-                playlistLibraryProvider: () => null!);
-            workspace.RefreshPlaylistTreeTables(playlist);
-
-            Assert.ThrowsException<InvalidOperationException>(() =>
-                workspace.AttachInstalledPackageReferences([ChartPackage.FromChartEntries([])]));
-
-            playlist.AcquireReaderLockBMSTables();
-            playlist.FreeReaderLockBMSTables();
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
-    }
 
     /// <summary>重複した表の同期オン要求で破壊的変更の確認を行い、取消なら同期状態を変えないことを確認します。</summary>
     [TestMethod]

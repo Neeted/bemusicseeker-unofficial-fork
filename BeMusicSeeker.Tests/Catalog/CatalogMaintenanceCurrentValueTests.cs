@@ -11,6 +11,193 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CatalogMaintenanceCurrentValueTests
 {
+    /// <summary>初回BMSON正規化の既存tokenを値差分と分けて同receiptへ含め、warm候補と旧snapshotを保持する。通常の次upsertでは順序差分・全候補列挙を生じない。</summary>
+    [DataTestMethod]
+    [DataRow(16)]
+    [DataRow(128)]
+    public void FirstUpsert_CommitsExistingBmsonOrderAndWarmCandidatesTogether(int backgroundCount)
+    {
+        var publisher = new NormalLibraryRefreshPublisher();
+        var owner = new CatalogOwnedCollectionOwner { RefreshPublisher = publisher };
+        ChartFile b = Chart(1000) with { Kind = ChartFileKind.Bmson, Path = @"C:\Library\b\chart.bmson", Title = "A" };
+        ChartFile a = b with { Token = new OwnedChartToken(), Path = @"C:\Library\a\chart.bmson" };
+        owner.ReplaceCharts(Enumerable.Range(1, backgroundCount).Select(Chart), [b, a]);
+        PlaylistLibraryResolveIndexSnapshot oldCandidates = owner.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out _, out _);
+        CatalogChartCollectionSnapshot before = owner.CaptureSnapshot();
+        var key = new PlaylistEntryLookupKey(PlaylistEntryLookupKeyKind.Md5, a.Md5);
+        int handled = publisher.Version;
+        var work = new List<string>();
+        owner.PlaylistLibraryResolveIndexStoreWorkObserver = work.Add;
+
+        Assert.IsTrue(owner.ApplyCommittedChartUpsert([Chart(2000) with { Title = "Z" }], out bool normalized));
+        Assert.IsTrue(normalized);
+        CatalogCommitReceipt receipt = publisher.GetNotificationsAfter(handled).CatalogCommits.Single();
+        CollectionAssert.AreEquivalent(new[] { a.Token, b.Token }, receipt.OrderChangedTokens.ToArray());
+        Assert.AreEqual(1, receipt.Changes.Count);
+        Assert.IsNull(receipt.Changes[0].Before);
+        Assert.AreEqual(before.CatalogRevision + 1, receipt.Revision);
+        CollectionAssert.AreEqual(new[] { b.Path, a.Path }, before.BmsonRows.Select(chart => chart.Path).ToArray());
+        CollectionAssert.AreEqual(new[] { a.Path, b.Path }, receipt.Snapshot.BmsonRows.Select(chart => chart.Path).ToArray());
+        Assert.AreSame(a.Token, oldCandidates.ResolveChartForPlaylistLookupKey(key).Token);
+        Assert.IsTrue(receipt.Snapshot.TryCapturePlaylistReadSnapshot([key], out CatalogReadSnapshot captured));
+        Assert.AreEqual(receipt.Revision, captured.CatalogRevision);
+        Assert.AreSame(a.Token, captured.Resolve(key).Token);
+        PlaylistLibraryResolveIndexSnapshot current = owner.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out bool cacheHit, out _);
+        Assert.IsTrue(cacheHit);
+        Assert.AreEqual(receipt.Revision, current.CatalogRevision);
+        Assert.AreEqual(oldCandidates.InvalidationVersion, current.InvalidationVersion);
+        Assert.IsFalse(work.Any(value => value.Contains("source_entry_visited", StringComparison.Ordinal)));
+
+        handled = publisher.Version;
+        work.Clear();
+        owner.ApplyCommittedChartUpsert([Chart(2001)], out normalized);
+        Assert.IsFalse(normalized);
+        Assert.AreEqual(0, publisher.GetNotificationsAfter(handled).CatalogCommits.Single().OrderChangedTokens.Count);
+        Assert.IsFalse(work.Any(value => value.Contains("source_entry_visited", StringComparison.Ordinal)));
+        Assert.AreSame(a.Token, oldCandidates.ResolveChartForPlaylistLookupKey(key).Token);
+    }
+
+    /// <summary>単一・整列済みBMSONの初回正規化は背景16/128でも既存tokenを通知・再索引しない。実追加Zだけを候補へ追加し、旧捕捉と代表を維持する。</summary>
+    [DataTestMethod]
+    [DataRow(16, true)]
+    [DataRow(128, true)]
+    [DataRow(16, false)]
+    [DataRow(128, false)]
+    public void FirstUpsert_AlreadyCanonicalBmsonDoesNotPublishOrderOrReindexExistingCandidates(int backgroundCount, bool singleBmson)
+    {
+        var publisher = new NormalLibraryRefreshPublisher();
+        var owner = new CatalogOwnedCollectionOwner { RefreshPublisher = publisher };
+        ChartFile[] bmson = [.. Enumerable.Range(1, singleBmson ? 1 : backgroundCount).Select(index => Chart(10000 + index) with
+        {
+            Kind = ChartFileKind.Bmson,
+            Path = $@"C:\Library\bmson\{index:D4}.bmson"
+        })];
+        owner.ReplaceCharts(Enumerable.Range(1, backgroundCount).Select(Chart), bmson);
+        PlaylistLibraryResolveIndexSnapshot oldCandidates = owner.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out _, out _);
+        CatalogChartCollectionSnapshot before = owner.CaptureSnapshot();
+        int handled = publisher.Version;
+        var work = new List<string>();
+        owner.PlaylistLibraryResolveIndexStoreWorkObserver = work.Add;
+
+        owner.ApplyCommittedChartUpsert([Chart(20000) with { Title = "Z" }], out bool normalized);
+
+        Assert.IsTrue(normalized);
+        CatalogCommitReceipt receipt = publisher.GetNotificationsAfter(handled).CatalogCommits.Single();
+        Assert.AreEqual(0, receipt.OrderChangedTokens.Count);
+        Assert.AreEqual(1, receipt.Changes.Count);
+        Assert.IsNull(receipt.Changes.Single().Before);
+        Assert.IsNotNull(receipt.Changes.Single().After);
+        Assert.AreEqual("Z", receipt.Changes.Single().After.Title);
+        Assert.AreEqual(0, work.Count(phase => phase == "playlist_resolve_candidate_remove"));
+        Assert.AreEqual(1, work.Count(phase => phase == "playlist_resolve_candidate_add"));
+        Assert.AreEqual(2, work.Count(phase => phase == "playlist_resolve_bucket_update"));
+        Assert.IsFalse(work.Any(phase => phase.Contains("source_entry_visited", StringComparison.Ordinal)
+            || phase.Contains("full_root", StringComparison.Ordinal)));
+        CollectionAssert.AreEqual(bmson.Select(chart => chart.Token).ToArray(), receipt.Snapshot.BmsonRows.Select(chart => chart.Token).ToArray());
+        CollectionAssert.AreEqual(bmson.Select(chart => chart.Token).ToArray(), before.BmsonRows.Select(chart => chart.Token).ToArray());
+        Assert.AreSame(bmson[0].Token, oldCandidates.ResolveChartForPlaylistHash(bmson[0].Md5, null).Token);
+        AssertWarmAndFreshCandidateOrder(owner, bmson[0].Md5, bmson[0].Token);
+    }
+
+    /// <summary>raw c/b/aの位置不変bをwarmに残してc→Bへ移転しても、同current-path比較を左右で一致させる。次正規化の移動tokenだけを通知し、warm/freshと全ての旧捕捉を保つ。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void FirstUpsert_MixedWarmOrderKeysRemainConsistentAfterCaseDistinctRelocation(bool reverseTieInputs)
+    {
+        var publisher = new NormalLibraryRefreshPublisher();
+        var owner = new CatalogOwnedCollectionOwner { RefreshPublisher = publisher };
+        ChartFile c = Chart(1000) with { Kind = ChartFileKind.Bmson, Path = @"C:\Library\c.bmson" };
+        ChartFile b = c with { Token = new OwnedChartToken(), Path = @"C:\Library\b.bmson" };
+        ChartFile a = c with { Token = new OwnedChartToken(), Path = @"C:\Library\a.bmson" };
+        owner.ReplaceCharts([], [c, b, a]);
+        PlaylistLibraryResolveChartFact rawB = owner.Collection.CreatePlaylistLibraryResolveChartFactSnapshot().Single(fact => fact.Chart.Token == b.Token);
+        Assert.AreEqual(1L, rawB.CanonicalOrder.Ordinal);
+        PlaylistLibraryResolveIndexSnapshot rawCandidates = owner.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out _, out _);
+        CatalogChartCollectionSnapshot raw = owner.CaptureSnapshot();
+        int handled = publisher.Version;
+        owner.ApplyCommittedChartUpsert([Chart(2000)], out _);
+        CatalogCommitReceipt canonical = publisher.GetNotificationsAfter(handled).CatalogCommits.Single();
+        CollectionAssert.AreEquivalent(new[] { a.Token, c.Token }, canonical.OrderChangedTokens.ToArray());
+        CollectionAssert.AreEqual(new[] { a.Token, b.Token, c.Token }, canonical.Snapshot.BmsonRows.Select(chart => chart.Token).ToArray());
+        AssertWarmAndFreshCandidateOrder(owner, a.Md5, a.Token, b.Token, c.Token);
+
+        CatalogCommitReceipt relocated = owner.ApplyMutation([], [new LibraryChartPathChange
+        {
+            Chart = c, OldPath = c.Path, NewPath = @"C:\Library\B.bmson"
+        }]);
+        Assert.AreEqual(0, relocated.OrderChangedTokens.Count);
+        AssertWarmAndFreshCandidateOrder(owner, a.Md5, a.Token, b.Token, c.Token);
+        PlaylistLibraryResolveIndexSnapshot movedCandidates = owner.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out _, out _);
+        PlaylistLibraryResolveChartFact movedC = owner.Collection.CreatePlaylistLibraryResolveChartFactSnapshot().Single(fact => fact.Chart.Token == c.Token);
+        Assert.IsFalse(rawB.CanonicalOrder.UsesCapturedPathOrder);
+        Assert.IsTrue(movedC.CanonicalOrder.UsesCapturedPathOrder);
+        Assert.AreEqual(c.Path, movedC.CanonicalOrder.CapturedPath);
+        // 二要素の入力順を逆にして、比較の左右による代表・候補順の違いを検出します。
+        var tie = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartFacts(
+            reverseTieInputs ? [movedC, rawB] : [rawB, movedC]);
+        CollectionAssert.AreEqual(new[] { b.Token, c.Token }, tie.GetMd5Candidates(a.Md5).Select(chart => chart.Token).ToArray());
+        Assert.AreSame(b.Token, tie.ResolveChartForPlaylistHash(a.Md5, null).Token);
+
+        handled = publisher.Version;
+        owner.ApplyCommittedChartUpsert([Chart(2001)], out _);
+        CatalogCommitReceipt normalizedAgain = publisher.GetNotificationsAfter(handled).CatalogCommits.Single();
+        CollectionAssert.AreEquivalent(new[] { b.Token, c.Token }, normalizedAgain.OrderChangedTokens.ToArray());
+        AssertWarmAndFreshCandidateOrder(owner, a.Md5, a.Token, c.Token, b.Token);
+        CollectionAssert.AreEqual(new[] { c.Path, b.Path, a.Path }, raw.BmsonRows.Select(chart => chart.Path).ToArray());
+        CollectionAssert.AreEqual(new[] { a.Path, b.Path, c.Path }, canonical.Snapshot.BmsonRows.Select(chart => chart.Path).ToArray());
+        CollectionAssert.AreEqual(new[] { a.Path, b.Path, @"C:\Library\B.bmson" }, relocated.Snapshot.BmsonRows.Select(chart => chart.Path).ToArray());
+        CollectionAssert.AreEqual(new[] { a.Token, b.Token, c.Token }, movedCandidates.GetMd5Candidates(a.Md5).Select(chart => chart.Token).ToArray());
+        CollectionAssert.AreEqual(new[] { a.Token, b.Token, c.Token }, rawCandidates.GetMd5Candidates(a.Md5).Select(chart => chart.Token).ToArray());
+    }
+
+    /// <summary>単一BMSONの移転後に位置が変わらなくてもcaptured pathを再捕捉し、次のcase別名追加で旧候補より先に割り込ませない。</summary>
+    [TestMethod]
+    public void FirstUpsert_RecapturesRelocatedCandidateKeyWithoutPublishingUnchangedPosition()
+    {
+        var publisher = new NormalLibraryRefreshPublisher();
+        var owner = new CatalogOwnedCollectionOwner { RefreshPublisher = publisher };
+        ChartFile original = Chart(1000) with { Kind = ChartFileKind.Bmson, Path = @"C:\Library\c.bmson" };
+        owner.ReplaceCharts([], [original]);
+        owner.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out _, out _);
+        owner.ApplyCommittedChartUpsert([Chart(2000)], out _);
+        CatalogCommitReceipt relocated = owner.ApplyMutation([], [new LibraryChartPathChange
+        {
+            Chart = original, OldPath = original.Path, NewPath = @"C:\Library\B.bmson"
+        }]);
+        PlaylistLibraryResolveIndexSnapshot before = owner.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out _, out _);
+        int handled = publisher.Version;
+        var work = new List<string>();
+        owner.PlaylistLibraryResolveIndexStoreWorkObserver = work.Add;
+        owner.ApplyCommittedChartUpsert([original with { Token = null, Path = @"C:\Library\b.bmson" }], out _);
+        CatalogCommitReceipt added = publisher.GetNotificationsAfter(handled).CatalogCommits.Single();
+        Assert.AreEqual(0, added.OrderChangedTokens.Count);
+        Assert.AreEqual(1, work.Count(phase => phase == "playlist_resolve_candidate_remove"));
+        Assert.AreEqual(2, work.Count(phase => phase == "playlist_resolve_candidate_add"));
+        OwnedChartToken newToken = added.Changes.Single().Token;
+        AssertWarmAndFreshCandidateOrder(owner, original.Md5, original.Token, newToken);
+        CollectionAssert.AreEqual(new[] { original.Token }, before.GetMd5Candidates(original.Md5).Select(chart => chart.Token).ToArray());
+        Assert.AreEqual(@"C:\Library\B.bmson", relocated.Snapshot.BmsonRows.Single().Path);
+        Assert.IsNull(owner.Collection.CurrentValueChanged);
+        Assert.IsNull(owner.Collection.CurrentOrderChanged);
+        Assert.IsNull(owner.Collection.CurrentCandidateOrderKeyChanged);
+    }
+
+    /// <summary>固定期待の代表と全候補順をwarm/fresh双方、および同commit snapshotの読取りで確認します。</summary>
+    private static void AssertWarmAndFreshCandidateOrder(CatalogOwnedCollectionOwner owner, string md5, params OwnedChartToken[] expected)
+    {
+        PlaylistLibraryResolveIndexSnapshot warm = owner.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out bool cacheHit, out _);
+        Assert.IsTrue(cacheHit);
+        var fresh = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartFacts(owner.Collection.CreatePlaylistLibraryResolveChartFactSnapshot());
+        CollectionAssert.AreEqual(expected, warm.GetMd5Candidates(md5).Select(chart => chart.Token).ToArray());
+        CollectionAssert.AreEqual(expected, fresh.GetMd5Candidates(md5).Select(chart => chart.Token).ToArray());
+        Assert.AreSame(expected[0], warm.ResolveChartForPlaylistHash(md5, null).Token);
+        Assert.AreSame(expected[0], fresh.ResolveChartForPlaylistHash(md5, null).Token);
+        var key = new PlaylistEntryLookupKey(PlaylistEntryLookupKeyKind.Md5, md5);
+        Assert.IsTrue(owner.CaptureSnapshot().TryCapturePlaylistReadSnapshot([key], out CatalogReadSnapshot read));
+        Assert.AreSame(expected[0], read.Resolve(key).Token);
+    }
+
     /// <summary>health・encoding・検査由来・警告を含むbatchの実変更は一回だけ版を進め、同値・対象なしと旧snapshotを区別する。</summary>
     [TestMethod]
     public void CurrentCommit_AdvancesOnceForEveryCurrentValueChangeAndKeepsPriorCapture()
@@ -63,7 +250,7 @@ public sealed class CatalogMaintenanceCurrentValueTests
         ChartFile original = owner.BmsRows[0];
         CatalogCommitReceipt first = owner.CommitCurrentValues([original], (current, _) => current with { Title = "one" });
         CatalogCommitReceipt second = owner.CommitCurrentValues([original], (current, _) => current with { Title = "two" });
-        owner.ApplyMutation([OwnedChartRemoveRequest.FromChart(original)], [], out _);
+        owner.ApplyMutation([OwnedChartRemoveRequest.FromChart(original)], []);
         owner.ApplyCommittedChartUpsert([Chart(1) with { Title = "replacement" }], out _);
         NormalLibraryRefreshNotificationBatch batch = publisher.GetNotificationsAfter(handled);
         Assert.AreEqual(4, batch.CatalogCommits.Count);
@@ -220,10 +407,10 @@ public sealed class CatalogMaintenanceCurrentValueTests
         owner.ApplyCommittedChartUpsert([duplicate], out _);
         Assert.IsTrue(owner.TryGetOwnedHashContentVersion(out int duplicateVersion));
         Assert.AreEqual(initialVersion, duplicateVersion);
-        owner.ApplyMutation([OwnedChartRemoveRequest.FromChart(first)], [], out _);
+        owner.ApplyMutation([OwnedChartRemoveRequest.FromChart(first)], []);
         Assert.IsTrue(owner.TryGetOwnedHashContentVersion(out int stillPresentVersion));
         Assert.AreEqual(initialVersion, stillPresentVersion);
-        owner.ApplyMutation([OwnedChartRemoveRequest.FromChart(owner.BmsRows.Single(chart => chart.Path == duplicate.Path))], [], out _);
+        owner.ApplyMutation([OwnedChartRemoveRequest.FromChart(owner.BmsRows.Single(chart => chart.Path == duplicate.Path))], []);
         Assert.IsTrue(owner.TryGetOwnedHashContentVersion(out int removedVersion));
         Assert.AreEqual(initialVersion + 1, removedVersion);
         Assert.IsFalse(work.Any(value => value.Contains("source_entry_visited", StringComparison.Ordinal) || value.Contains("full_root_enumeration", StringComparison.Ordinal)));

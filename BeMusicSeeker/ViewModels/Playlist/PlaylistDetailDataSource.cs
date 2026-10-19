@@ -35,6 +35,7 @@ internal interface IPlaylistDetailDataSource
 
     BeMusicSeeker.Models.ChartDetails ResolveChartInfo(string sha256, string md5);
 
+    /// <summary>同じentry/currentと捕捉済み参照入力から一行を投影します。参照入力はgetterの可変モデル読取りへ置き換えません。</summary>
     PlaylistDetailSourceRow CreateSourceRow(
         BMSTableEntry entry,
         ChartFile resolvedChart,
@@ -42,7 +43,8 @@ internal interface IPlaylistDetailDataSource
         BeMusicSeeker.Models.ChartDetails chartInfo,
         LibraryChartRef resolvedChartRef,
         PlaylistEntryValue entryValue = null,
-        long entryOrder = 0);
+        long entryOrder = 0,
+        ChartListReferenceInput referenceInput = null);
 }
 
 internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
@@ -107,6 +109,7 @@ internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
         return library.ResolveChartInfo(sha256, md5);
     }
 
+    /// <summary>要求が一括捕捉した参照入力を共有し、専門警告と再生状態だけを既存投影へ接続します。</summary>
     public PlaylistDetailSourceRow CreateSourceRow(
         BMSTableEntry entry,
         ChartFile resolvedChart,
@@ -114,7 +117,8 @@ internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
         BeMusicSeeker.Models.ChartDetails chartInfo,
         LibraryChartRef resolvedChartRef,
         PlaylistEntryValue entryValue = null,
-        long entryOrder = 0)
+        long entryOrder = 0,
+        ChartListReferenceInput referenceInput = null)
     {
         PlaylistDetailSourceRow row = rowProjection.CreatePlaylistDetailSourceRow(
             library,
@@ -124,7 +128,9 @@ internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
             chartInfo,
             resolvedChartRef,
             entryValue,
-            entryOrder);
+            entryOrder,
+            referenceInput);
+        if (referenceInput != null) { row = row.WithReferenceDisplay(referenceInput); }
         return row.WithResourceHealthProjection(resolvedChart == null ? ResourceHealthWarningProjection.Empty
             : library.TryGetCurrentResourceHealthWarningProjection(resolvedChart));
     }

@@ -286,7 +286,7 @@ internal sealed class PlaylistPersistenceRepository
                 + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.playlist_id) + " = ?";
             if (activeOnly)
             {
-                sql += " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.is_removed) + " = 0";
+                sql += " AND ifnull(" + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.is_removed) + ", 0) = 0";
             }
             sql += ";";
             return db.Query<BMSTableEntry>(sql, playlistId.Value);
@@ -491,6 +491,7 @@ internal sealed class PlaylistPersistenceRepository
         {
             foreach (BMSTable.EntryMutation mutation in mutations)
             {
+                db.InsertOrReplace(mutation.Header, typeof(LR2SongDBExtended.playlist));
                 foreach (PlaylistEntryChange change in mutation.Changes)
                 {
                     if (change.Before != null)
@@ -500,10 +501,12 @@ internal sealed class PlaylistPersistenceRepository
                 }
                 foreach ((BMSTableEntry _, BMSTableEntry candidate) in mutation.Additions)
                 {
+                    // 新規IDもDB候補内だけで解決し、commit前の正本tableへ採番を漏らしません。
+                    candidate.parent = mutation.Header;
+                    candidate.playlist_id = mutation.Header.playlist_id;
                     DeleteEquivalentEntries(db, candidate);
                     db.InsertOrReplace(candidate, typeof(LR2SongDBExtended.playlist_entry));
                 }
-                db.InsertOrReplace(mutation.Header, typeof(LR2SongDBExtended.playlist));
             }
             db.Commit();
         }
@@ -705,6 +708,7 @@ internal sealed class PlaylistPersistenceRepository
     /// <summary>保存候補の旧新キーに影響する DB 行だけを取得し、transaction 内の短命 rowid で削除します。</summary>
     private static void DeleteEquivalentEntries(LR2SongDBExtended db, BMSTableEntry entry)
     {
+        if (!entry.playlist_id.HasValue) { return; }
         foreach (PlaylistEntryRowLocator row in db.Query<PlaylistEntryRowLocator>(
             "SELECT rowid AS RowId FROM playlist_entry WHERE " + BuildExactPlaylistEntryPredicate(entry) + ";"))
         {
@@ -726,7 +730,7 @@ internal sealed class PlaylistPersistenceRepository
             + " AND ifnull(folder, '')" + ExactEquality(entry.folder ?? string.Empty)
             + " AND lr2_bmsid" + ExactEquality(entry.lr2_bmsid)
             + " AND ifnull(title, '')" + ExactEquality(entry.title ?? string.Empty)
-            + " AND is_removed = " + (entry.is_removed ? "1" : "0");
+            + " AND ifnull(is_removed, 0) = " + (entry.is_removed ? "1" : "0");
 
     private static string ExactEquality(string value)
         => value == null ? " IS NULL" : " = '" + value.Replace("'", "''") + "'";
@@ -909,7 +913,7 @@ internal sealed class PlaylistPersistenceRepository
         ]);
         // UNIQUE と既存の raw 値用索引は変えず、局所保存の正規化同値候補だけを全キーで探索します。
         string candidateIndexSql = "CREATE INDEX playlist_entry_idx_candidate ON " + tableName
-            + " (playlist_id, is_removed, " + HashComparisonExpression("md5") + ", "
+            + " (playlist_id, ifnull(is_removed, 0), " + HashComparisonExpression("md5") + ", "
             + HashComparisonExpression("sha256") + ", ifnull(folder, ''), lr2_bmsid, ifnull(title, ''))";
         string currentCandidateIndexSql = db.ExecuteScalar<string>(
             "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_candidate';");

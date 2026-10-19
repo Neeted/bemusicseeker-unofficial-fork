@@ -664,6 +664,8 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="playlistUrlCompletionTsvContentFetcher">任意のTSV補完取得能力。</param>
     /// <param name="playlistUrlCompletionStellaContentFetcher">任意のStella補完取得能力。</param>
     /// <param name="recommendationScoreReader">推薦用の原観測を読み取る既存依存。省略時は所有ライブラリへ接続し、L/Pの所有関係は変えません。</param>
+    /// <param name="openEntryWriteConnection">entry保存に使うDB接続の構成依存。省略時は通常の曲DB接続を作ります。</param>
+    /// <param name="lr2PlaylistFolderSynchronization">独立構成で明示する出力境界。省略時は所有ライブラリの同期能力を使います。</param>
     internal BMSPlaylist(
         BmsPlaylistLibraryBindings libraryBindings,
         string _lr2SongDB,
@@ -676,7 +678,9 @@ public partial class BMSPlaylist : ObservableObject
         IUiScheduler uiScheduler,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher = null,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null,
-        Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null)
+        Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null,
+        Func<string, LR2SongDBExtended> openEntryWriteConnection = null,
+        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization = null)
         : this(
             _lr2SongDB,
             getLR2Config,
@@ -687,11 +691,12 @@ public partial class BMSPlaylist : ObservableObject
             customFolderOutputSettingsProvider,
             applicationPathSnapshot,
             uiScheduler,
-            RequireLibraryBindings(libraryBindings).Lr2PlaylistFolderSynchronization,
+            lr2PlaylistFolderSynchronization ?? RequireLibraryBindings(libraryBindings).Lr2PlaylistFolderSynchronization,
             RequireLibraryBindings(libraryBindings).SourceLibrary.Lr2Synchronization.PlaylistOperationAdmission,
             playlistUrlCompletionTsvContentFetcher,
             playlistUrlCompletionStellaContentFetcher,
-            recommendationScoreReader)
+            recommendationScoreReader,
+            openEntryWriteConnection)
     {
         this.libraryBindings = RequireLibraryBindings(libraryBindings);
         playlistMutationAdmission = libraryBindings.SourceLibrary.Lr2Synchronization.PlaylistOperationAdmission;
@@ -716,6 +721,7 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="playlistUrlCompletionTsvContentFetcher">任意のTSV補完取得能力。</param>
     /// <param name="playlistUrlCompletionStellaContentFetcher">任意のStella補完取得能力。</param>
     /// <param name="recommendationScoreReader">テスト等の独立構成で使う選択スコアの読取り能力。通常構成では所有ライブラリへ接続します。</param>
+    /// <param name="openEntryWriteConnection">entry保存に使うDB接続の構成依存。省略時は通常の曲DB接続を作ります。</param>
     internal BMSPlaylist(
         string _lr2SongDB,
         Func<LR2Config> getLR2Config,
@@ -730,7 +736,8 @@ public partial class BMSPlaylist : ObservableObject
         ChartFileOperationSynchronizer playlistOperationAdmission,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher = null,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null,
-        Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null)
+        Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null,
+        Func<string, LR2SongDBExtended> openEntryWriteConnection = null)
     {
         if (_lr2SongDB == null)
         {
@@ -747,7 +754,7 @@ public partial class BMSPlaylist : ObservableObject
         this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
         _BMSTables = new ObservableCollection<BMSTable>();
         lr2SongDBPath = _lr2SongDB;
-        playlistPersistenceRepository = new PlaylistPersistenceRepository(_lr2SongDB);
+        playlistPersistenceRepository = new PlaylistPersistenceRepository(_lr2SongDB, openEntryWriteConnection);
         playlistAggregatePersistenceOwner = new PlaylistAggregatePersistenceOwner(playlistPersistenceRepository, rwlockBMSTables, this.uiScheduler);
         playlistAggregatePersistenceOwner.SetActiveCollection([], _BMSTables);
         lr2config = (getLR2Config ?? (Func<LR2Config>)(() => (LR2Config)null));
@@ -894,7 +901,8 @@ public partial class BMSPlaylist : ObservableObject
             (tables, reason, capability) => BmtOutput.ExportTablesAsync(tables, reason, capability),
             ApplyCachedPlaylistUrlCompletionToTables,
             ReOutputCustomFoldersAfterExternalReload,
-            capability => AcquirePlaylistMutationLease("external_playlist_mutation", capability: capability));
+            capability => AcquirePlaylistMutationLease("external_playlist_mutation", capability: capability),
+            PublishReferenceTableUpdates);
         externalSyncOwner = externalSyncOwnerLocal;
         customFolderOutputOwner = new PlaylistCustomFolderOutputOwner(
             this.customFolderOutputSettingsProvider,
@@ -1179,6 +1187,7 @@ public partial class BMSPlaylist : ObservableObject
             BMSTables.AddRange(headers);
             playlistAggregatePersistenceOwner.SetActiveCollection(previousTables, BMSTables);
         }
+        PublishReferenceTables(headers, previousTables);
     }
 
     /// <summary>
@@ -1275,10 +1284,16 @@ public partial class BMSPlaylist : ObservableObject
     private async Task<Lr2SongDbSyncPreparedDataSurface> HydrateRequiredAsync(string reason, bool exportBeatorajaBmt, bool verifyRootOutputDirectoryRows, LibraryFileMutationCapability capability, bool prepareAllCustomFolders = false, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot settings = null, bool forceBeatorajaBmtProjection = false)
     {
         OperationProgressRequest progressRequest = null;
+        ExceptionDispatchInfo referenceFailure = null;
         try
         {
             PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceipt receipt =
                 await playlistEntriesHydrationOwner.HydrateAsync(reason, originatingRequest).ConfigureAwait(false);
+            if (libraryBindings != null)
+            {
+                try { await ApplyRequiredLibraryReferencesAsync().ConfigureAwait(false); }
+                catch (Exception failure) { referenceFailure = ExceptionDispatchInfo.Capture(failure); }
+            }
             progressRequest = receipt.ProgressRequest with { Source = "playlist_custom_folder_output_repair" };
             settings ??= GetCustomFolderOutputSettings();
             Lr2SongDbSyncPreparedDataSurface preparedSurface = Lr2SongDbSyncPreparedDataSurface.Empty;
@@ -1299,21 +1314,22 @@ public partial class BMSPlaylist : ObservableObject
             {
                 await BmtOutput.ExportAllAsync(reason, originatingRequest: receipt.ProgressRequest, capability: capability, forceProjection: forceBeatorajaBmtProjection).ConfigureAwait(false);
             }
-            if (libraryBindings != null)
-            {
-                // 必須entriesと同じPの内側で参照の実確定まで終える。保存読込みから別workerを予約しない。
-                await ApplyRequiredLibraryReferencesAsync().ConfigureAwait(false);
-            }
-            else
+            if (libraryBindings == null)
             {
                 PlaylistEntriesHydrationReceiptPublished?.Invoke(this,
                     new PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceiptEventArgs(receipt));
             }
             playlistEntriesHydrationOwner.CompleteHydration(receipt);
+            referenceFailure?.Throw();
             return preparedSurface;
         }
         catch (Exception exception)
         {
+            if (referenceFailure != null)
+            {
+                startupReadinessCoordinator.FailRequiredPlaylistReadiness(referenceFailure.SourceException);
+                referenceFailure.Throw();
+            }
             startupReadinessCoordinator.FailRequiredPlaylistReadiness(exception);
             throw;
         }
@@ -1391,7 +1407,11 @@ public partial class BMSPlaylist : ObservableObject
 
     internal void EnsurePlaylistEntriesLoaded(BMSTable table, string reason)
     {
+        bool wasLoaded = table?.ArePlaylistEntriesLoaded == true;
         playlistEntriesHydrationOwner.EnsurePlaylistEntriesLoaded(table, reason);
+        // 集合guardを保持する削除・全表保存では、外側の確定producerがguard解放後に公開する。
+        if (!wasLoaded && table?.ArePlaylistEntriesLoaded == true && !rwlockBMSTables.IsReadLockHeld && !rwlockBMSTables.IsWriteLockHeld)
+        { PublishReferenceTables([table]); }
     }
 
     private List<string> makeCustomFolderTextsOtherFolder(
@@ -1416,7 +1436,7 @@ public partial class BMSPlaylist : ObservableObject
         string tblNameEntry = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
         string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
         string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed);
-        List<string> list = [.. source.Select(f => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "ORDER BY " + makeCustomFolderCmdSort(f.Value, asc: false, bmsTable.playlist_id), bmsTable.name, f.Key, 40))];
+        List<string> list = [.. source.Select(f => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND ifnull(" + columnNameIsRemoved + ", 0) = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "ORDER BY " + makeCustomFolderCmdSort(f.Value, asc: false, bmsTable.playlist_id), bmsTable.name, f.Key, 40))];
         if (settings.EnableDownloadLr2IrScoreAndDetectUnsent)
         {
             string tableName = SQLiteTable<LR2SongDBExtended.ir_score>.GetTableName();
@@ -1429,7 +1449,7 @@ public partial class BMSPlaylist : ObservableObject
             string columnName7 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.bd);
             string columnName8 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.pr);
             string columnName9 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.minbp);
-            string customFolderText = getCustomFolderText("song.hash in (SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0) AND NOT EXISTS (SELECT " + columnName + " FROM " + tableName + " WHERE song.hash = " + tableName + "." + columnName + " AND score.clear = " + tableName + "." + columnName2 + " AND maxcombo = " + columnName3 + " AND perfect = " + columnName4 + " AND great = " + columnName5 + " AND good = " + columnName6 + " AND bad = " + columnName7 + " AND poor = " + columnName8 + " AND score.minbp = " + tableName + "." + columnName9 + ") AND score.clear IS NOT NULL ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true), bmsTable.name, "UNSENT SONGS");
+            string customFolderText = getCustomFolderText("song.hash in (SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND ifnull(" + columnNameIsRemoved + ", 0) = 0) AND NOT EXISTS (SELECT " + columnName + " FROM " + tableName + " WHERE song.hash = " + tableName + "." + columnName + " AND score.clear = " + tableName + "." + columnName2 + " AND maxcombo = " + columnName3 + " AND perfect = " + columnName4 + " AND great = " + columnName5 + " AND good = " + columnName6 + " AND bad = " + columnName7 + " AND poor = " + columnName8 + " AND score.minbp = " + tableName + "." + columnName9 + ") AND score.clear IS NOT NULL ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true), bmsTable.name, "UNSENT SONGS");
             list.Add(customFolderText);
         }
         string customFolderText2 = getCustomFolderText("song.hash in (SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 1) ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true), bmsTable.name, "REMOVED SONGS");
@@ -1474,7 +1494,7 @@ public partial class BMSPlaylist : ObservableObject
         string tblNameEntry = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
         string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
         string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed);
-        return [.. source.Select(a => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "AND (" + a[1] + ")", bmsTable.name, a[0]))];
+        return [.. source.Select(a => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND ifnull(" + columnNameIsRemoved + ", 0) = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "AND (" + a[1] + ")", bmsTable.name, a[0]))];
     }
 
     /// <summary>
@@ -1520,8 +1540,8 @@ public partial class BMSPlaylist : ObservableObject
         string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed);
         List<string> list = [.. (from t in dict.Keys
                              orderby t
-                             select getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")) " : " ") + "AND UPPER(" + columnNameTitle + ") BETWEEN " + sqlQuote(dict[t][0].ToString()) + " AND " + sqlQuote(dict[t][1].ToString()) + " AND UPPER(" + columnNameTitle + ") != " + sqlQuote(dict[t][1].ToString()) + ((bmsTable.entry_type != LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ") " : " ") + "ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true), bmsTable.name, t))];
-        string command = ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")) " : " ") + "AND (UPPER(" + columnNameTitle + ") NOT BETWEEN " + sqlQuote(array[0].ToString()) + " AND " + sqlQuote(array[1].ToString()) + " OR UPPER(" + columnNameTitle + ") = " + sqlQuote(array[1].ToString()) + ")" + ((bmsTable.entry_type != LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ") " : " ") + "ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true);
+                             select getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND ifnull(" + columnNameIsRemoved + ", 0) = 0" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")) " : " ") + "AND UPPER(" + columnNameTitle + ") BETWEEN " + sqlQuote(dict[t][0].ToString()) + " AND " + sqlQuote(dict[t][1].ToString()) + " AND UPPER(" + columnNameTitle + ") != " + sqlQuote(dict[t][1].ToString()) + ((bmsTable.entry_type != LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ") " : " ") + "ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true), bmsTable.name, t))];
+        string command = ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND ifnull(" + columnNameIsRemoved + ", 0) = 0" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")) " : " ") + "AND (UPPER(" + columnNameTitle + ") NOT BETWEEN " + sqlQuote(array[0].ToString()) + " AND " + sqlQuote(array[1].ToString()) + " OR UPPER(" + columnNameTitle + ") = " + sqlQuote(array[1].ToString()) + ")" + ((bmsTable.entry_type != LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ") " : " ") + "ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true);
         list.Add(getCustomFolderText(command, bmsTable.name, title));
         return list;
     }
@@ -1780,10 +1800,11 @@ public partial class BMSPlaylist : ObservableObject
         string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
         string columnNameFolder = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.folder);
         string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed);
+        // 再出力はentryを保存し直さないため、旧DBのNULLもreaderと同じ生存行として参照する。
         var predicates = new List<string>
         {
             columnNamePlaylistId + " = " + bmsTable.playlist_id,
-            columnNameIsRemoved + " = " + (includeRemoved ? "1" : "0")
+            includeRemoved ? columnNameIsRemoved + " = 1" : "ifnull(" + columnNameIsRemoved + ", 0) = 0"
         };
         if (folder != null)
         {
@@ -1908,10 +1929,10 @@ public partial class BMSPlaylist : ObservableObject
                     string columnName3 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
                     if (string.IsNullOrWhiteSpace(folder))
                     {
-                        return "(SELECT " + ftype.ToColumnName() + " FROM " + tableName + " WHERE " + columnName2 + " = song.hash AND " + columnName3 + " = " + playlist_id + " AND " + columnName + " = 0) " + text;
+                        return "(SELECT " + ftype.ToColumnName() + " FROM " + tableName + " WHERE " + columnName2 + " = song.hash AND " + columnName3 + " = " + playlist_id + " AND ifnull(" + columnName + ", 0) = 0) " + text;
                     }
                     string columnName4 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.folder);
-                    return "(SELECT " + ftype.ToColumnName() + " FROM " + tableName + " WHERE " + columnName2 + " = song.hash AND " + columnName3 + " = " + playlist_id + " AND " + columnName4 + " = " + sqlQuote(folder) + " AND " + columnName + " = 0) " + text;
+                    return "(SELECT " + ftype.ToColumnName() + " FROM " + tableName + " WHERE " + columnName2 + " = song.hash AND " + columnName3 + " = " + playlist_id + " AND " + columnName4 + " = " + sqlQuote(folder) + " AND ifnull(" + columnName + ", 0) = 0) " + text;
                 }
             case LR2SongDBExtended.playlist.CustomFolderSortType.SCORE:
             case LR2SongDBExtended.playlist.CustomFolderSortType.MISS:
@@ -4393,6 +4414,8 @@ public partial class BMSPlaylist : ObservableObject
                 return active;
             }
         });
+        try { PublishReferenceTables([], removed); }
+        catch (Exception failure) { notificationFailures.Add(failure); }
         Exception publicationFailure = notificationFailures.Count switch
         {
             0 => null,
@@ -4413,26 +4436,37 @@ public partial class BMSPlaylist : ObservableObject
 
     /// <summary>受理済み新規draftをDBへ確定し、正本参照の公開まで同じPで待ちます。公開後処理の失敗でもDB確定事実を保持します。</summary>
     /// <param name="table">保存対象の正本外draft。</param>
+    /// <param name="edit">この保存が所有するheader編集。DB前は元draftへ適用しません。</param>
     /// <param name="capability">保存操作が保持する同ownerの生存P権限。</param>
     /// <returns>実登録確定後の公開失敗。nullは公開も成功。DB確定前の失敗は例外です。</returns>
-    internal async Task<Exception> RegisterDraftAsync(BMSTable table, LibraryFileMutationCapability capability)
+    internal async Task<Exception> RegisterDraftAsync(BMSTable table, PlaylistHeaderEdit edit, LibraryFileMutationCapability capability)
     {
         using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("RegisterPlaylistDraft", capability: capability);
         if (table == null) { throw new ArgumentNullException(nameof(table)); }
+        int bmtSort;
         using (rwlockBMSTables.GetReaderGuard())
         {
             if (BMSTables.Contains(table) || table.playlist_id.HasValue)
             {
                 throw new InvalidOperationException("A new playlist draft was already registered.");
             }
-            if (BMSTables.Any(current => string.Equals(current.name, table.name, StringComparison.Ordinal)))
+            string desiredName = (edit.Fields & PlaylistHeaderFields.Name) != 0 ? edit.Name : table.name;
+            if (BMSTables.Any(current => string.Equals(current.name, desiredName, StringComparison.Ordinal)))
             {
-                throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, table.name);
+                throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, desiredName);
             }
-            table.bmt_sort = PlaylistBmtOutputOwner.ResolveNextBeatorajaBmtSort(BMSTables);
+            bmtSort = PlaylistBmtOutputOwner.ResolveNextBeatorajaBmtSort(BMSTables);
         }
-        await Task.Run(() => playlistAggregatePersistenceOwner.CommitTablesWithEntries([table],
-            requireCurrentTarget: false, hydrationReason: "RegisterPlaylistDraft")).ConfigureAwait(false);
+        await Task.Run(() => playlistAggregatePersistenceOwner.CommitEntryMutations(
+            new Dictionary<BMSTable, Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>>
+            {
+                [table] = observer =>
+                {
+                    BMSTable.EntryMutation mutation = table.PrepareHeaderMutation(edit, observer);
+                    mutation.Header.bmt_sort = bmtSort;
+                    return mutation;
+                }
+            }, _ => { }, requireCurrentTarget: false)).ConfigureAwait(false);
         try
         {
             await uiScheduler.InvokeAsync(() =>
@@ -4443,6 +4477,7 @@ public partial class BMSPlaylist : ObservableObject
                     BMSTables.Add(table);
                 }
             }).ConfigureAwait(false);
+            PublishReferenceTables([table]);
         }
         catch (Exception exception)
         {
@@ -4607,7 +4642,7 @@ public partial class BMSPlaylist : ObservableObject
             }, RegisterEntryCommit);
         if (receipts.Count == 0) { return PlaylistDropMutationResult.NotApplied; }
         ExceptionDispatchInfo failure = null;
-        try { CompleteEntryOutputs(bmsTable, authority); }
+        try { CompleteReferencesAndOutputs(receipts, () => CompleteEntryOutputs(bmsTable, authority)); }
         catch (PlaylistMutationPostCommitException exception) when (exception.InnerException != null)
         {
             // この結果は Durable で確定済みを伝えるため、共通出力境界の分類を重ねて公開しません。
@@ -4653,7 +4688,7 @@ public partial class BMSPlaylist : ObservableObject
         if (receipts.Count == 0) { return PlaylistDropMutationResult.NotApplied; }
         List<BMSTable> changed = [.. receipts.Select(receipt => receipt.Table)];
         ExceptionDispatchInfo postCommitFailure = null;
-        try { ReOutputCustomFoldersAndCommitHeadersToDB(changed, "playlist_remove_entries", capability: authority); }
+        try { CompleteReferencesAndOutputs(receipts, () => ReOutputCustomFoldersAndCommitHeadersToDB(changed, "playlist_remove_entries", capability: authority)); }
         catch (Exception failure) { postCommitFailure = ExceptionDispatchInfo.Capture(failure); }
         finally { SignalEntryCommitsAvailable(); }
         return new PlaylistDropMutationResult(applied: true, durable: true,
@@ -4689,22 +4724,25 @@ public partial class BMSPlaylist : ObservableObject
                     playlistAggregatePersistenceOwner.ReplaceTablesWithEntries([bmsTable]);
                 }
             }
-            if (settings.OperationModeLR2DB)
+            CompleteRequiredReferenceAndOutputs(() => PublishReferenceTables([bmsTable]), () =>
             {
-                PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderOutputPreparation preparation =
-                    customFolderOutputMaintenanceOwner.PrepareCustomFolderOutput(bmsTable, settings);
-                CustomFolderBatchOutputResult result;
-                using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(
-                    "ReOutputCustomFolderAndCommitToDB", capability: authority))
-                using (LibraryFileMutationCapability mutationCapability =
-                    mutationLease.CreateMutationCapability())
+                if (settings.OperationModeLR2DB)
                 {
-                    result = customFolderOutputMaintenanceOwner.TryReOutputPreparedCustomFolder(
-                        preparation,
-                        request => SyncCustomFolderRowsBatch(request, mutationCapability));
+                    PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderOutputPreparation preparation =
+                        customFolderOutputMaintenanceOwner.PrepareCustomFolderOutput(bmsTable, settings);
+                    CustomFolderBatchOutputResult result;
+                    using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(
+                        "ReOutputCustomFolderAndCommitToDB", capability: authority))
+                    using (LibraryFileMutationCapability mutationCapability =
+                        mutationLease.CreateMutationCapability())
+                    {
+                        result = customFolderOutputMaintenanceOwner.TryReOutputPreparedCustomFolder(
+                            preparation,
+                            request => SyncCustomFolderRowsBatch(request, mutationCapability));
+                    }
+                    customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback: null);
                 }
-                customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback: null);
-            }
+            });
         }
 
     }
@@ -4758,6 +4796,7 @@ public partial class BMSPlaylist : ObservableObject
                 throwOnProjectionFailure: true,
                 settings: settings);
         CustomFolderBatchOutputResult result;
+        IReadOnlyList<PlaylistReferenceTableHeader> referenceHeaders;
         using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(
             "ReOutputCustomFoldersAndCommitHeadersToDB", capability: authority))
         using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
@@ -4777,9 +4816,13 @@ public partial class BMSPlaylist : ObservableObject
                 throw new InvalidOperationException(
                     "Custom-folder output could not verify one or more existing files before committing playlist headers.");
             }
-            CommitPreparedBMSTableHeadersToDB(tableList);
+            referenceHeaders = CommitPreparedBMSTableHeadersToDB(tableList);
         }
-        try { customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback); }
+        try
+        {
+            CompleteRequiredReferenceAndOutputs(() => ApplyCommittedPlaylistReferenceHeaders(referenceHeaders),
+                () => customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback));
+        }
         catch (Exception exception) when (exception is not PlaylistMutationPostCommitException)
         {
             throw new PlaylistMutationPostCommitException(reason, exception);
@@ -4842,28 +4885,26 @@ public partial class BMSPlaylist : ObservableObject
                 rootOutputBaseDirBefore,
                 outputBaseDirPathBeforeByTable,
                 settings);
-        CustomFolderBatchOutputResult result;
         using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(
             "MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB", capability: authority))
         using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
         {
-            CommitPreparedBMSTableHeadersToDB(tableList);
+            IReadOnlyList<PlaylistReferenceTableHeader> referenceHeaders = CommitPreparedBMSTableHeadersToDB(tableList);
             try
             {
-                result = customFolderOutputMaintenanceOwner.MigratePreparedCustomFolderOutputDirectories(
-                    preparation,
-                    reason,
-                    request => SyncCustomFolderRowsBatch(request, mutationCapability));
+                CompleteRequiredReferenceAndOutputs(() => ApplyCommittedPlaylistReferenceHeaders(referenceHeaders), () =>
+                {
+                    CustomFolderBatchOutputResult result = customFolderOutputMaintenanceOwner.MigratePreparedCustomFolderOutputDirectories(
+                        preparation,
+                        reason,
+                        request => SyncCustomFolderRowsBatch(request, mutationCapability));
+                    customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback);
+                });
             }
             catch (Exception exception) when (exception is not PlaylistMutationPostCommitException)
             {
                 throw new PlaylistMutationPostCommitException(reason, exception);
             }
-        }
-        try { customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback); }
-        catch (Exception exception) when (exception is not PlaylistMutationPostCommitException)
-        {
-            throw new PlaylistMutationPostCommitException(reason, exception);
         }
     }
 
@@ -4889,6 +4930,7 @@ public partial class BMSPlaylist : ObservableObject
                     hydrationReason: "CommitBMSTableWithEntriesToDB");
             }
         }
+        PublishReferenceTables([bmsTable]);
     }
 
     /// <summary>
@@ -4924,6 +4966,7 @@ public partial class BMSPlaylist : ObservableObject
                 requireCurrentTarget: true,
                 hydrationReason: "CommitBMSTablesWithEntriesToDB");
         }
+        PublishReferenceTables(tableList);
     }
 
     /// <summary>
@@ -4948,6 +4991,7 @@ public partial class BMSPlaylist : ObservableObject
         {
             playlistAggregatePersistenceOwner.ReplaceHeader(bmsTable);
         }
+        ApplyCommittedPlaylistReferenceHeaders(CaptureReferenceHeaders([bmsTable]));
     }
 
     /// <summary>
@@ -4958,7 +5002,8 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="collectionReadLockHeld">呼び出し元がコレクション読み取りロックを保持している、直列化された経路かどうか。</param>
     /// <param name="capability">親操作の生存P権限。nullは保存対象捕捉前の新規非待機受付です。派生出力を行う上位ownerが終端まで保持します。</param>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTables"/> が <see langword="null"/> の場合。</exception>
-    internal void CommitBMSTableHeadersToDB(
+    /// <returns>同DB確定header。呼出元が集合guardを保持する場合は、全guard解放後・必要出力前にApplyCommittedPlaylistReferenceHeadersへ渡します。自己取得guardではこの入口が適用済みです。</returns>
+    internal IReadOnlyList<PlaylistReferenceTableHeader> CommitBMSTableHeadersToDB(
         IEnumerable<BMSTable> bmsTables,
         bool requireCurrentTarget = true,
         bool collectionReadLockHeld = false, LibraryFileMutationCapability capability = null)
@@ -4976,7 +5021,7 @@ public partial class BMSPlaylist : ObservableObject
         List<BMSTable> tableList = requestedTableList;
         if (tableList.Count == 0)
         {
-            return;
+            return [];
         }
         IDisposable collectionReadGuard = null;
         bool hasCollectionReadLock = collectionReadLockHeld || rwlockBMSTables.IsReadLockHeld;
@@ -4985,12 +5030,14 @@ public partial class BMSPlaylist : ObservableObject
             collectionReadGuard = rwlockBMSTables.GetReaderGuard();
             hasCollectionReadLock = true;
         }
+        IReadOnlyList<PlaylistReferenceTableHeader> referenceHeaders = [];
+        bool callerHoldsGuard = hasCollectionReadLock && collectionReadGuard == null;
         try
         {
             tableList = [.. tableList.Where(table => BMSTables.Contains(table))];
             if (tableList.Count == 0)
             {
-                return;
+                return [];
             }
             if (requireCurrentTarget && tableList.Count != requestedTableList.Count)
             {
@@ -5000,18 +5047,20 @@ public partial class BMSPlaylist : ObservableObject
                 tableList,
                 allowReloadReservation: false,
                 requireCurrentTarget: requireCurrentTarget);
+            referenceHeaders = CaptureReferenceHeadersUnderCollectionGuard(tableList);
         }
         finally
         {
             collectionReadGuard?.Dispose();
         }
+        if (!callerHoldsGuard) { ApplyCommittedPlaylistReferenceHeaders(referenceHeaders); }
+        return referenceHeaders;
     }
 
     /// <summary>
-    /// Persists a prevalidated header snapshot without reacquiring the playlist
-    /// collection lock while a file-mutation lease is active.
+    /// 準備済みheaderをDBへ確定し、全guard解放後に必要参照・出力へ渡す同header捕捉を返します。
     /// </summary>
-    private void CommitPreparedBMSTableHeadersToDB(IReadOnlyCollection<BMSTable> bmsTables)
+    private IReadOnlyList<PlaylistReferenceTableHeader> CommitPreparedBMSTableHeadersToDB(IReadOnlyCollection<BMSTable> bmsTables)
     {
         if (bmsTables == null)
         {
@@ -5022,6 +5071,7 @@ public partial class BMSPlaylist : ObservableObject
             bmsTables,
             allowReloadReservation: false,
             requireCurrentTarget: true);
+        return CaptureReferenceHeaders(bmsTables);
     }
 
     private void CompleteEntryOutputs(BMSTable owningTable, LibraryFileMutationCapability authority)

@@ -26,7 +26,7 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
         return ExecuteSerialized(
             "playlist_summary_apply_current_order_to_bmt_sort",
             [],
-            (playlist, fullOrder, activeTables, authority) =>
+            (playlist, fullOrder, activeTables, authority, committedHeaders) =>
             {
                 List<PlaylistSummaryRow> activeVisibleRows = FilterRowsToActiveTables(visibleRowsSnapshot, activeTables);
                 return activeVisibleRows.Count == 0
@@ -34,7 +34,7 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
                     : PersistOrder(
                         playlist,
                         PlaylistSummaryBmtSortOrderPlanner.BuildOrderByReplacingVisibleSlots(fullOrder, activeVisibleRows),
-                        activeTables, authority);
+                        activeTables, authority, committedHeaders);
             },
             requirePlaylist: false, capability: capability);
     }
@@ -45,7 +45,7 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
         return ExecuteSerialized(
             "playlist_summary_move_to_bmt_sort_top",
             [],
-            (playlist, fullOrder, activeTables, authority) =>
+            (playlist, fullOrder, activeTables, authority, committedHeaders) =>
             {
                 List<PlaylistSummaryRow> activeRows = FilterRowsToActiveTables(rowsSnapshot, activeTables);
                 return activeRows.Count == 0
@@ -53,7 +53,7 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
                     : PersistOrder(
                         playlist,
                         PlaylistSummaryBmtSortOrderPlanner.BuildOrderByMovingRows(fullOrder, activeRows, insertAtTop: true),
-                        activeTables, authority);
+                        activeTables, authority, committedHeaders);
             },
             requirePlaylist: false, capability: capability);
     }
@@ -64,7 +64,7 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
         return ExecuteSerialized(
             "playlist_summary_move_to_bmt_sort_bottom",
             [],
-            (playlist, fullOrder, activeTables, authority) =>
+            (playlist, fullOrder, activeTables, authority, committedHeaders) =>
             {
                 List<PlaylistSummaryRow> activeRows = FilterRowsToActiveTables(rowsSnapshot, activeTables);
                 return activeRows.Count == 0
@@ -72,7 +72,7 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
                     : PersistOrder(
                         playlist,
                         PlaylistSummaryBmtSortOrderPlanner.BuildOrderByMovingRows(fullOrder, activeRows, insertAtTop: false),
-                        activeTables, authority);
+                        activeTables, authority, committedHeaders);
             },
             requirePlaylist: false, capability: capability);
     }
@@ -89,7 +89,7 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
         return ExecuteSerialized(
             "playlist_summary_bmt_sort_drag_drop",
             [],
-            (playlist, fullOrder, activeTables, authority) =>
+            (playlist, fullOrder, activeTables, authority, committedHeaders) =>
             {
                 List<PlaylistSummaryRow> activeVisibleRows = FilterRowsToActiveTables(visibleRowsSnapshot, activeTables);
                 List<PlaylistSummaryRow> activeDraggedRows = FilterRowsToActiveTables(draggedRowsSnapshot, activeTables);
@@ -103,7 +103,7 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
                         activeDraggedRows,
                         activeInsertIndex,
                         activeTables,
-                        activeTablesApplied => appliedDraggedTables = activeTablesApplied, authority);
+                        activeTablesApplied => appliedDraggedTables = activeTablesApplied, authority, committedHeaders);
             },
             requirePlaylist: false,
             completion: changed =>
@@ -127,14 +127,14 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
         return ExecuteSerialized(
             "beatoraja_table_url_import",
             frontTables,
-            (playlist, fullOrder, activeTables, authority) => ApplyImportedTablesToFront(playlist, frontTables, fullOrder, activeTables, authority),
+            (playlist, fullOrder, activeTables, authority, committedHeaders) => ApplyImportedTablesToFront(playlist, frontTables, fullOrder, activeTables, authority, committedHeaders),
             requirePlaylist: true, capability: capability);
     }
 
     private bool ExecuteSerialized(
         string reason,
         IEnumerable<BMSTable> additionalTables,
-        Func<BMSPlaylist, List<BMSTable>, HashSet<BMSTable>, LibraryFileMutationCapability, bool> operation,
+        Func<BMSPlaylist, List<BMSTable>, HashSet<BMSTable>, LibraryFileMutationCapability, List<PlaylistReferenceTableHeader>, bool> operation,
         bool requirePlaylist,
         Action<bool> completion = null, LibraryFileMutationCapability capability = null)
     {
@@ -155,6 +155,7 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
             using LibraryFileMutationLease accepted = playlist.AcquirePlaylistMutationLease(reason, capability: capability);
             using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
             bool changed;
+            List<PlaylistReferenceTableHeader> committedHeaders = [];
             playlist.AcquireReaderLockBMSTables();
             var writerGuards = new List<IDisposable>();
             try
@@ -172,7 +173,7 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
                 {
                     writerGuards.Add(table.ReaderWriterLock.GetWriterGuard());
                 }
-                changed = operation(playlist, fullOrder, activeTables, authority);
+                changed = operation(playlist, fullOrder, activeTables, authority, committedHeaders);
                 for (int index = writerGuards.Count - 1; index >= 0; index--)
                 {
                     writerGuards[index]?.Dispose();
@@ -187,6 +188,7 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
                 }
                 playlist.FreeReaderLockBMSTables();
             }
+            playlist.ApplyCommittedPlaylistReferenceHeaders(committedHeaders);
             completion?.Invoke(changed);
             return changed;
         }
@@ -196,7 +198,7 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
         BMSPlaylist playlist,
         IReadOnlyList<BMSTable> frontTables,
         IReadOnlyList<BMSTable> fullOrder,
-        ISet<BMSTable> activeTables, LibraryFileMutationCapability capability)
+        ISet<BMSTable> activeTables, LibraryFileMutationCapability capability, List<PlaylistReferenceTableHeader> committedHeaders)
     {
         List<BMSTable> activeFrontTables = [.. frontTables.Where(activeTables.Contains)];
         if (activeFrontTables.Count == 0)
@@ -232,10 +234,10 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
             usedSortValues.Add(nextTailSort);
             nextTailSort++;
         }
-        return PersistDesiredSort(playlist, desiredSortByTable, activeTables, capability);
+        return PersistDesiredSort(playlist, desiredSortByTable, activeTables, capability, committedHeaders);
     }
 
-    private bool PersistOrder(BMSPlaylist playlist, IReadOnlyList<BMSTable> orderedTables, ISet<BMSTable> activeTables, LibraryFileMutationCapability capability)
+    private bool PersistOrder(BMSPlaylist playlist, IReadOnlyList<BMSTable> orderedTables, ISet<BMSTable> activeTables, LibraryFileMutationCapability capability, List<PlaylistReferenceTableHeader> committedHeaders)
     {
         if (orderedTables == null || orderedTables.Count == 0)
         {
@@ -251,7 +253,7 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
                 desiredSortByTable[table] = newSort;
             }
         }
-        return PersistDesiredSort(playlist, desiredSortByTable, activeTables, capability);
+        return PersistDesiredSort(playlist, desiredSortByTable, activeTables, capability, committedHeaders);
     }
 
     private bool ApplyDropOrder(
@@ -261,7 +263,7 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
         IReadOnlyList<PlaylistSummaryRow> activeDraggedRows,
         int activeInsertIndex,
         ISet<BMSTable> activeTables,
-        Action<IReadOnlyList<BMSTable>> appliedTables, LibraryFileMutationCapability capability)
+        Action<IReadOnlyList<BMSTable>> appliedTables, LibraryFileMutationCapability capability, List<PlaylistReferenceTableHeader> committedHeaders)
     {
         bool changed = PersistOrder(
             playlist,
@@ -270,7 +272,7 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
                 activeVisibleRows,
                 activeDraggedRows,
                 activeInsertIndex),
-            activeTables, capability);
+            activeTables, capability, committedHeaders);
         if (changed)
         {
             appliedTables?.Invoke([.. activeDraggedRows.Select(row => row.TableRef).Distinct()]);
@@ -281,7 +283,7 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
     private bool PersistDesiredSort(
         BMSPlaylist playlist,
         IReadOnlyDictionary<BMSTable, int?> desiredSortByTable,
-        ISet<BMSTable> activeTables, LibraryFileMutationCapability capability)
+        ISet<BMSTable> activeTables, LibraryFileMutationCapability capability, List<PlaylistReferenceTableHeader> committedHeaders)
     {
         if (desiredSortByTable == null || desiredSortByTable.Count == 0)
         {
@@ -307,10 +309,10 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
         }
         try
         {
-            playlist.CommitBMSTableHeadersToDB(
+            committedHeaders.AddRange(playlist.CommitBMSTableHeadersToDB(
                 changedTables,
                 requireCurrentTarget: true,
-                collectionReadLockHeld: true, capability: capability);
+                collectionReadLockHeld: true, capability: capability));
         }
         catch
         {

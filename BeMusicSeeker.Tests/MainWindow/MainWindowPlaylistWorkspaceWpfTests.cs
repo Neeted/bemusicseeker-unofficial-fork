@@ -41,7 +41,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 {
     private const string NativeModalFixturePlaylistName = "Native modal fixture";
 
-    /// <summary>実MainWindowの通常通知とscore接続から、開いたplaylistへ保守値・独立scoreを局所配送します。実controlの値・無関係行・未訪問BMSONを確認し、条件網羅は各ownerへ分担します。</summary>
+    /// <summary>実MainWindowの単一配送から、開いたplaylistへ保守値・独立score・別表参照を局所配送します。実controlと集計TextBlockのBinding、無関係行・未訪問BMSONを確認し、条件網羅は各ownerへ分担します。</summary>
     [TestMethod]
     public void CatalogMaintenance_ActualMainWindowRefreshesOpenPlaylistAndBoundCells()
     {
@@ -99,6 +99,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     { playlist_id = 1, md5 = index.ToString("x32"), title = "M background " + index.ToString("D2") }))
                     .Append(new BMSTableEntry { playlist_id = 1, md5 = last.Md5, title = "Z bmson" }).ToList();
                 fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                var reference = new BMSTable { symbol = "REF", name = "Reference before", entries = [new BMSTableEntry(first)] };
+                fixture.Library.SynchronizeReferenceBMSTables([reference]);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    fixture.ViewModel.RegularChartList.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None), "catalog-main-window-reference-initial");
                 PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
                 workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
                 workspace.InitializePlaylistDetailSort(new ChartListSortParameters
@@ -119,6 +123,12 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 System.Collections.IList rows = fixture.ViewModel.MainChartList.Rows;
                 Assert.AreSame(rows, control.ItemsSource);
                 Assert.AreEqual(66, rows.Count);
+                TextBlock summary = FindDescendants<TextBlock>(fixture.Window).Single(block =>
+                    BindingOperations.GetBindingExpression(block, TextBlock.TextProperty)?.ParentBinding.Path?.Path == "MainChartList.SummaryText");
+                BindingExpression summaryBinding = BindingOperations.GetBindingExpression(summary, TextBlock.TextProperty)
+                    ?? throw new AssertFailedException("compiled集計TextBlockのBindingがありません。");
+                summaryBinding.UpdateTarget();
+                Assert.AreEqual("[66" + Resources.Num_songs + "]", summary.Text);
                 PlaylistDetailRow visible = rows[0] as PlaylistDetailRow ?? throw new AssertFailedException("先頭の詳細行がありません。");
                 Assert.AreEqual("A owned", visible.Title);
                 Assert.IsNull(visible.WAVHealth);
@@ -178,6 +188,20 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         Assert.AreEqual(0, scoreWork.Count(kind => kind == "playlist_order_buffer"));
                     }
                     finally { workspace.DetailWorkObserver = null; }
+
+                    Assert.AreEqual("REF", visible.RefTablesSymbols);
+                    fixture.Library.ApplyPlaylistReferenceEntryCommits([], [new(reference, "NEW", "Reference after", 0, 0)]);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        fixture.ViewModel.RegularChartList.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None), "catalog-main-window-reference-fanout");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "catalog-main-window-reference-consumer");
+                    Assert.AreSame(rows, control.ItemsSource);
+                    Assert.AreSame(visible, rows[0]);
+                    Assert.AreSame(unrelated, rows[1]);
+                    Assert.AreEqual(scoreRealized, metadata.RealizedRowCount);
+                    Assert.AreEqual("NEW", control.Columns.Single(column => column.Id == "PlaylistSymbols").GetText(visible));
+                    Assert.AreEqual("Reference after", visible.RefTablesNames);
+                    summaryBinding.UpdateTarget();
+                    Assert.AreEqual("[66" + Resources.Num_songs + "]", summary.Text);
                 }
                 finally { visible.PropertyChanged -= changed; }
             }

@@ -45,13 +45,13 @@ internal sealed class NormalLibraryViewOrder
     internal int IndexOf(OwnedChartToken token) => token != null && entriesByToken.TryGetValue(token, out Entry entry)
         ? Find(entry) : -1;
 
-    /// <summary>確定順の対象差分を反映します。未知の版範囲や実全置換は局所更新として受理しません。</summary>
-    internal bool TryApply(CatalogCommitReceipt commit, out bool orderChanged)
+    /// <summary>値変更と順序変更の対象を旧比較規則で除去し、同commitの新snapshotで再挿入します。順序だけの生値は再投影せず、未知の版範囲・実全置換は局所更新として受理しません。</summary>
+    internal bool TryApply(CatalogCommitReceipt commit, out bool orderChanged, NormalLibrarySourceRows nextSource = null)
     {
         orderChanged = false;
         if (commit.Revision <= Source.Snapshot.CatalogRevision) { return true; }
         if (commit.IsFullReplacement || commit.Snapshot == null || commit.BaseRevision != Source.Snapshot.CatalogRevision) { return false; }
-        NormalLibrarySourceRows nextSource = Source.WithSnapshot(commit.Snapshot, commit.Changes);
+        nextSource ??= Source.WithSnapshot(commit.Snapshot, commit.Changes);
         bool membershipChanged = !nextSource.HasSameMembershipOrder(Source);
         var affected = new Dictionary<OwnedChartToken, (Entry Before, Entry After, int Index)>();
         foreach (CatalogChartChange change in commit.Changes)
@@ -67,6 +67,12 @@ internal sealed class NormalLibraryViewOrder
             {
                 affected.Add(change.Token, (before, after, before == null ? -1 : Find(before)));
             }
+        }
+        foreach (OwnedChartToken token in commit.OrderChangedTokens)
+        {
+            if (affected.ContainsKey(token) || !entriesByToken.TryGetValue(token, out Entry entry)) { continue; }
+            // 値・filter適否は不変です。捕捉済みキーを保ち、旧comparerで外して新comparerへ挿し直します。
+            affected.Add(token, (entry, entry, Find(entry)));
         }
         // canonical位置が移る前に影響対象だけを除去します。値だけの更新では順序木を触りません。
         foreach (KeyValuePair<OwnedChartToken, (Entry Before, Entry After, int Index)> pair in affected)
@@ -100,6 +106,13 @@ internal sealed class NormalLibraryViewOrder
     internal HashSet<OwnedChartToken> GetTokens(IEnumerable<string> md5Keys, IEnumerable<string> sha256Keys)
     {
         return Source.GetTokens(md5Keys, sha256Keys);
+    }
+
+    /// <summary>参照値の確定入力を採用し、実表示値が変わるtokenだけ検索・順序へ反映します。</summary>
+    internal bool ApplyReferenceInput(NormalLibrarySourceRows source, IEnumerable<OwnedChartToken> tokens)
+    {
+        Source = source;
+        return RefreshTokens(tokens);
     }
 
     /// <summary>既存入力を保った専門依存の変更を、対象行の検索適否と順序へ反映します。</summary>

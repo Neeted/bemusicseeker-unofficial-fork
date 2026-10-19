@@ -55,12 +55,13 @@ internal readonly struct PlaylistBuildQueueCoalesceResult
 
 internal static class PlaylistDetailBuildQueueCoordinator
 {
+    /// <summary>同じ表示でも必要参照位置が未配送なら受理し、同一の未完了要求だけへ合流します。</summary>
     internal static PlaylistBuildQueueRegisterResult RegisterRequest(
         PlaylistDetailBuildState state,
         PlaylistBuildRequest request,
         PlaylistRequestIdentity? currentViewIdentity,
         int lastBuiltScoreSnapshotVersion,
-        bool isShutdownRequested)
+        bool isShutdownRequested, long lastBuiltReferenceRevision = long.MaxValue)
     {
         TaskCompletionSource<bool> completion = null;
         PlaylistBuildQueueRegisterResult result;
@@ -86,7 +87,8 @@ internal static class PlaylistDetailBuildQueueCoordinator
             if (state.PendingRequest == null
                 && state.CurrentBuildRequest == null
                 && currentViewIdentity.HasValue
-                && currentViewIdentity.Value == request.Identity)
+                && currentViewIdentity.Value == request.Identity
+                && lastBuiltReferenceRevision >= request.RequiredReferenceRevision)
             {
                 request.RequestVersion = state.RequestVersion;
                 request.Complete();

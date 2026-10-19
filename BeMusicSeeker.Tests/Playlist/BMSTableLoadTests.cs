@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -679,7 +680,7 @@ public sealed class BMSTableLoadTests
         var changedProperties = new List<string>();
         table.PropertyChanged += (_, e) => changedProperties.Add(e.PropertyName!);
 
-        bool changed = table.RewriteCompatibleFolderPrefix("LEVEL ", "★");
+        bool changed = ApplyPrefixCandidate(table, "★");
 
         Assert.IsTrue(changed);
         Assert.AreEqual("★1", table.entries[0].folder);
@@ -709,7 +710,7 @@ public sealed class BMSTableLoadTests
             Folder_order = ["Alpha", "Beta"]
         };
 
-        bool changed = table.RewriteCompatibleFolderPrefix(string.Empty, "★");
+        bool changed = ApplyPrefixCandidate(table, "★");
 
         Assert.IsTrue(changed);
         Assert.AreEqual("★Alpha", table.entries[0].folder);
@@ -767,7 +768,7 @@ public sealed class BMSTableLoadTests
             Folder_order = ["2", "1"]
         };
 
-        bool changed = table.RewriteCompatibleFolderPrefix(string.Empty, "★");
+        bool changed = ApplyPrefixCandidate(table, "★");
 
         Assert.IsTrue(changed);
         Assert.AreEqual("★1", table.entries[0].folder);
@@ -791,7 +792,7 @@ public sealed class BMSTableLoadTests
         };
 
         Assert.IsTrue(table.CanRewriteCompatibleFolderPrefix("LEVEL ", "★"));
-        Assert.IsTrue(table.RewriteCompatibleFolderPrefix("LEVEL ", "★"));
+        Assert.IsTrue(ApplyPrefixCandidate(table, "★"));
 
         Assert.AreEqual("★1", table.entries[0].folder);
         Assert.AreEqual("★★1", table.entries[1].folder);
@@ -814,7 +815,7 @@ public sealed class BMSTableLoadTests
         };
 
         Assert.IsFalse(table.CanRewriteCompatibleFolderPrefix("★", "☆"));
-        Assert.ThrowsException<InvalidOperationException>(() => table.RewriteCompatibleFolderPrefix("★", "☆"));
+        Assert.ThrowsException<InvalidOperationException>(() => ApplyPrefixCandidate(table, "☆"));
 
         Assert.AreEqual("1", table.entries[0].folder);
         Assert.AreEqual("★1", table.entries[1].folder);
@@ -832,5 +833,14 @@ public sealed class BMSTableLoadTests
         table.LoadHeaderJSON(headerJson);
         table.LoadDataJSON("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"level\":\"" + level + "\"}]");
         return table;
+    }
+    // 変換条件の網羅だけをモデル候補/適用へ通します。DB・配送・次要求終端は実property/bulk系列が担います。
+    private static bool ApplyPrefixCandidate(BMSTable table, string prefix)
+    {
+        var edit = new PlaylistHeaderEdit { Fields = PlaylistHeaderFields.CompatPrefix, CompatPrefix = prefix };
+        BMSTable.EntryMutation candidate = table.PrepareHeaderMutation(edit);
+        PlaylistEntryCommitReceipt receipt = table.ApplyEntryMutation(candidate);
+        table.PublishHeaderCommitProperties(edit, receipt);
+        return candidate.HasChanges;
     }
 }

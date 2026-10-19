@@ -241,7 +241,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         playlistUrlAcquisitionPresentationScheduler = playlistRestoreUiApplyScheduler;
         PlaylistReferenceApplyWorkflow = new PlaylistReferenceApplyWorkflowOwner(
             playlistReferenceApplyScheduler,
-            dispatchPresentation,
             playlistReloadCleanupShutdownRequestedProvider,
             playlistReloadLog);
         this.playlistWorkspaceDialogService = playlistWorkspaceDialogService ?? new UiDialogCoordinator();
@@ -257,8 +256,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         PlaylistTableLevelOverwriteWorkflow = new PlaylistTableLevelOverwriteWorkflowOwner(
             this.playlistWorkspaceDialogService,
             getPlaylistLibrary);
-        PlaylistRemovalWorkflow.ReferenceSortInvalidationRequested +=
-            (_, _) => RequestPlaylistReferenceSortInvalidation();
         PlaylistRemovalWorkflow.SummaryRefreshRequested +=
             (_, _) => RequestPlaylistSummaryRefresh("playlist_table_removed", rebuildAsync: false);
         PlaylistRemovalWorkflow.OperationNotificationPresentationRequested +=
@@ -290,7 +287,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         propertySaveService.PlaylistPropertySyncFinished += ForwardPlaylistPropertySyncFinished;
         propertySaveService.PlaylistPropertyReferenceTableReplaced += ForwardPlaylistPropertyReferenceTableReplaced;
         propertySaveService.PlaylistPropertyFolderSelectionRemapped += ForwardPlaylistPropertyFolderSelectionRemapped;
-        propertySaveService.PlaylistPropertyReferenceSortInvalidationRequested += ForwardPlaylistPropertyReferenceSortInvalidationRequested;
         propertySaveService.PlaylistPropertySyncResultReported += ForwardPlaylistSyncResultReported;
         propertySaveService.PlaylistPropertyExternalSyncFailed += ForwardPlaylistPropertyExternalSyncFailed;
         propertySaveService.PlaylistPropertySummaryDataRefreshRequested += ForwardPlaylistSummaryDataRefreshRequested;

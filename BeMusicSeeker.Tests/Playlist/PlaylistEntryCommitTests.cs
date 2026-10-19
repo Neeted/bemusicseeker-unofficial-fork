@@ -22,6 +22,161 @@ public sealed class PlaylistEntryCommitTests
     private const string LowerSha256 = LowerMd5 + LowerMd5;
     private const string MixedSha256 = MixedMd5 + MixedMd5;
 
+    /// <summary>raw NULL生存行をstartup readerから正規ownerへ渡し、編集とfreshな削除を別fixtureで読戻します。</summary>
+    /// <remarks>NULLと0だけを同じ生存単位へ揃え、removed・同hash別folder/title・別表の行を保持します。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CommitEntry_NullRemovedStateRoundTripsThroughStartupReader(bool remove)
+    {
+        using var fixture = new Fixture();
+        fixture.Execute("DELETE FROM playlist_entry WHERE playlist_id = 9201;",
+            "INSERT INTO playlist_entry (playlist_id, md5, title, folder, is_removed, memo) VALUES (9201, '" + LowerMd5 + "', 'target', '', NULL, 'before');",
+            "INSERT INTO playlist_entry (playlist_id, md5, title, folder, is_removed, memo) VALUES (9201, '" + LowerMd5 + "', 'target', '', 1, 'removed');",
+            "INSERT INTO playlist_entry (playlist_id, md5, title, folder, is_removed, memo) VALUES (9201, '" + LowerMd5 + "', 'target', 'other', NULL, 'other-folder');",
+            "INSERT INTO playlist_entry (playlist_id, md5, title, folder, is_removed, memo) VALUES (9201, '" + LowerMd5 + "', 'other-title', '', NULL, 'other-title');");
+        fixture.Execute("CREATE TABLE null_state_work (kind TEXT);",
+            "CREATE TRIGGER count_null_delete AFTER DELETE ON playlist_entry BEGIN INSERT INTO null_state_work VALUES ('delete'); END;",
+            "CREATE TRIGGER count_null_insert AFTER INSERT ON playlist_entry BEGIN INSERT INTO null_state_work VALUES ('insert'); END;");
+        BMSTable table = fixture.Tables[0];
+        table.entries = [.. fixture.FreshStartupEntries().Where(entry => entry.playlist_id == 9201 && !entry.is_removed)];
+        BMSTableEntry target = table.entries.First(entry => entry.folder == string.Empty);
+        Assert.AreEqual("target", target.title);
+        Assert.IsTrue(fixture.Repository.LoadPersistedPlaylistEntries(9201, activeOnly: true).Any(entry => entry.memo == "before"));
+        if (remove)
+        {
+            fixture.Owner.CommitEntryMutations(new Dictionary<BMSTable, Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>>
+            { [table] = observer => table.PrepareEntryMutation([target], [], observer) }, fixture.Receipts.Add);
+        }
+        else { fixture.Commit(target, "memo", "after"); }
+        BMSTableEntry[] fresh = [.. fixture.FreshStartupEntries().Where(entry => entry.playlist_id == 9201)];
+        BMSTableEntry[] activeTarget = [.. fresh.Where(entry => !entry.is_removed && entry.folder == string.Empty && entry.title == "target")];
+        Assert.AreEqual(remove ? 0 : 1, activeTarget.Length);
+        if (!remove) { Assert.AreEqual("after", activeTarget.Single().memo); }
+        Assert.AreEqual(1, fresh.Count(entry => entry.is_removed && entry.memo == "removed"));
+        Assert.AreEqual(1, fresh.Count(entry => entry.folder == "other" && entry.memo == "other-folder"));
+        Assert.AreEqual(1, fresh.Count(entry => entry.title == "other-title" && entry.memo == "other-title"));
+        using LR2SongDBExtended db = fixture.OpenRead();
+        Assert.AreEqual(2, db.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE playlist_id = 9202;"));
+        Assert.AreEqual(2, db.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE playlist_id = 9201 AND is_removed IS NULL;"));
+        Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT count(*) FROM null_state_work WHERE kind = 'delete';"));
+        Assert.AreEqual(remove ? 0 : 1, db.ExecuteScalar<int>("SELECT count(*) FROM null_state_work WHERE kind = 'insert';"));
+    }
+
+    /// <summary>prefixとheaderを同じwriterで候補化し、少数folderだけの捕捉・SQL・不変差分と順序・日時保持を確認します。</summary>
+    [DataTestMethod]
+    [DataRow(16)]
+    [DataRow(128)]
+    public void CommitHeader_PrefixTouchesOnlyAffectedFolderAndPreservesCurrentEntryValues(int background)
+    {
+        using var fixture = new Fixture(background);
+        BMSTable table = fixture.Tables[0];
+        table.compat_prefix = "P";
+        table.entries = [.. table.entries.Select((entry, index) => new BMSTableEntry
+        { md5 = entry.md5, title = entry.title, folder = index == 0 ? "P1" : "X", memo = "current memo" })];
+        table.Folder_order = ["X", "P1"];
+        fixture.Owner.ReplaceTablesWithEntries([table]);
+        BMSTableEntry target = table.entries[0], retained = table.entries[1];
+        PlaylistEntryReadSnapshot old = table.CaptureEntryReadSnapshot(target);
+        DateTime lastUpdate = table.last_update;
+        int version = table.PlaylistEntriesRevision;
+        fixture.Execute("CREATE TABLE prefix_work (kind TEXT);",
+            "CREATE TRIGGER count_prefix_delete AFTER DELETE ON playlist_entry BEGIN INSERT INTO prefix_work VALUES ('delete'); END;",
+            "CREATE TRIGGER count_prefix_insert AFTER INSERT ON playlist_entry BEGIN INSERT INTO prefix_work VALUES ('insert'); END;");
+        var edit = new PlaylistHeaderEdit { Fields = PlaylistHeaderFields.CompatPrefix, CompatPrefix = string.Empty };
+        PlaylistEntryCommitReceipt receipt = fixture.Owner.CommitEntryMutations(
+            new Dictionary<BMSTable, Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>>
+            { [table] = observer => table.PrepareHeaderMutation(edit, observer) }, fixture.Receipts.Add).Single();
+        Assert.AreEqual(1, fixture.Work.ReferenceReads);
+        Assert.AreEqual(1, fixture.Work.Candidates);
+        Assert.AreEqual(0, fixture.Work.MembershipChanges);
+        Assert.AreSame(target, table.entries[0]); Assert.AreSame(retained, table.entries[1]);
+        Assert.AreEqual("1", target.folder); Assert.AreEqual("current memo", target.memo);
+        Assert.AreEqual("P1", old.Entries.Single().After.Folder);
+        Assert.AreEqual(lastUpdate, table.last_update); Assert.AreEqual(version + 1, table.PlaylistEntriesRevision);
+        CollectionAssert.AreEqual(new[] { "X", "1" }, receipt.FolderOrder.ToArray());
+        Assert.AreEqual("P1", receipt.Changes.Single().Before.Folder); Assert.AreEqual("1", receipt.Changes.Single().After.Folder);
+        using LR2SongDBExtended db = fixture.OpenRead();
+        Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT count(*) FROM prefix_work WHERE kind='delete';"));
+        Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT count(*) FROM prefix_work WHERE kind='insert';"));
+        Assert.AreEqual(background, db.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE playlist_id=9201;"));
+    }
+
+    /// <summary>raw NULLを含む二表のheader/prefixを一括保存し、二表目の実DB拒否では全表の旧値・所属・版を保ちます。</summary>
+    [TestMethod]
+    public void CommitHeader_SecondTableFailureLeavesNullRowsAndAllCurrentFactsUnchanged()
+    {
+        using var fixture = new Fixture();
+        fixture.Execute("UPDATE playlist_entry SET is_removed = NULL;",
+            "CREATE TRIGGER fail_second_header BEFORE INSERT ON playlist WHEN NEW.playlist_id = 9202 BEGIN SELECT RAISE(ABORT, 'second header failed'); END;");
+        IReadOnlyList<BMSTableEntry>[] memberships = [.. fixture.Tables.Select(table => table.entries)];
+        int[] versions = [.. fixture.Tables.Select(table => table.PlaylistEntriesRevision)];
+        DateTime[] dates = [.. fixture.Tables.Select(table => table.last_update)];
+        var edit = new PlaylistHeaderEdit
+        {
+            Fields = PlaylistHeaderFields.Name | PlaylistHeaderFields.CompatPrefix,
+            Name = "new header",
+            CompatPrefix = "Q"
+        };
+        Dictionary<BMSTable, Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>> requests = fixture.Tables.ToDictionary(table => table,
+            table => new Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>(observer => table.PrepareHeaderMutation(edit, observer)));
+        Assert.ThrowsException<SQLite.SQLiteException>(() => fixture.Owner.CommitEntryMutations(requests, fixture.Receipts.Add));
+        for (int index = 0; index < fixture.Tables.Length; index++)
+        {
+            BMSTable table = fixture.Tables[index];
+            Assert.AreSame(memberships[index], table.entries);
+            Assert.AreEqual("table-" + table.playlist_id, table.name);
+            Assert.AreEqual(string.Empty, table.compat_prefix);
+            Assert.AreEqual(versions[index], table.PlaylistEntriesRevision);
+            Assert.AreEqual(dates[index], table.last_update);
+            Assert.IsTrue(table.entries.All(entry => entry.folder == "folder"));
+        }
+        Assert.AreEqual(0, fixture.Receipts.Count);
+        using LR2SongDBExtended db = fixture.OpenRead();
+        Assert.AreEqual(4, db.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE folder='folder' AND is_removed IS NULL;"));
+        Assert.AreEqual(0, db.ExecuteScalar<int>("SELECT count(*) FROM playlist WHERE name='new header';"));
+    }
+
+    /// <summary>header要求後に別属性を正規確定しても、遅れて保存するprefix候補はwriter内currentから作り、古いmemo/URLを戻しません。</summary>
+    [TestMethod]
+    public void CommitHeader_DelayedPrefixRequestPreservesLaterMemoAndUrlCommits()
+    {
+        using var fixture = new Fixture();
+        BMSTable table = fixture.Tables[0];
+        BMSTableEntry target = table.entries[0];
+        PlaylistEntryReadSnapshot old = table.CaptureEntryReadSnapshot(target);
+        var edit = new PlaylistHeaderEdit { Fields = PlaylistHeaderFields.CompatPrefix, CompatPrefix = "Q" };
+        fixture.Commit(target, "memo", "newer memo");
+        fixture.Commit(target, "Url", "https://example.test/newer");
+        DateTime date = table.last_update;
+        fixture.Owner.CommitEntryMutations(new Dictionary<BMSTable, Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>>
+        { [table] = observer => table.PrepareHeaderMutation(edit, observer) }, fixture.Receipts.Add);
+        Assert.AreEqual("Qfolder", target.folder);
+        Assert.AreEqual("newer memo", target.memo);
+        Assert.AreEqual(new Uri("https://example.test/newer"), target.Url);
+        Assert.AreEqual("memo before", old.Entries.Single().After.Memo);
+        Assert.AreEqual(new Uri("https://example.test/original"), old.Entries.Single().After.Url);
+        Assert.AreEqual(date, table.last_update);
+        using LR2SongDBExtended db = fixture.OpenRead();
+        Assert.AreEqual("newer memo", db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE playlist_id=9201 AND title='row-0';"));
+        Assert.AreEqual("https://example.test/newer", db.ExecuteScalar<string>("SELECT url FROM playlist_entry WHERE playlist_id=9201 AND title='row-0';"));
+    }
+
+    /// <summary>旧定義の同名索引を開き直して更新し、raw NULL値とUNIQUEを変更しません。</summary>
+    [TestMethod]
+    public void EnsureSchema_UpdatesCandidateStateExpressionWithoutRewritingRows()
+    {
+        using var fixture = new Fixture();
+        fixture.Execute("UPDATE playlist_entry SET is_removed = NULL WHERE playlist_id = 9201;",
+            "DROP INDEX playlist_entry_idx_candidate;",
+            "CREATE INDEX playlist_entry_idx_candidate ON playlist_entry (playlist_id, is_removed, md5);");
+        fixture.EnsureSchema();
+        using LR2SongDBExtended db = fixture.OpenRead();
+        StringAssert.Contains(db.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE name = 'playlist_entry_idx_candidate';"), "ifnull(is_removed, 0)");
+        Assert.AreEqual(2, db.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE playlist_id = 9201 AND is_removed IS NULL;"));
+        Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='playlist_entry_idx_uniq';"));
+    }
+
     /// <summary>Level の既存抽出・非数値維持・空 null を DB と不変捕捉で確認し、入力文字列の正本化と非編集値の巻戻しを検出します。</summary>
     [DataTestMethod]
     [DataRow("★12.5", 12.5)]
@@ -309,6 +464,8 @@ public sealed class PlaylistEntryCommitTests
         Assert.AreEqual(2, large.StatementCount);
         Assert.AreEqual(1, small.ReturnedRows);
         Assert.AreEqual(1, large.ReturnedRows);
+        Assert.AreEqual(0, small.FullScanSteps);
+        Assert.AreEqual(0, large.FullScanSteps);
         Assert.IsTrue(small.VmSteps > 0 && large.VmSteps > 0, "実SQLiteのPROFILE計測が必要です。");
         Assert.AreEqual(small.VmSteps, large.VmSteps,
             "影響候補は同じ一件です。背景の増加で候補SQLが広い索引範囲を走査しています。"
@@ -330,6 +487,7 @@ public sealed class PlaylistEntryCommitTests
             string? sha256 = hashKind == "sha256" ? index == 0 ? LowerSha256 : index.ToString("x64") : null;
             fixture.InsertRawEntry(md5, sha256);
         }
+        fixture.Execute("UPDATE playlist_entry SET is_removed = NULL WHERE playlist_id = 9201;");
         BMSTable table = fixture.Tables[0];
         table.entries = fixture.Repository.LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: true);
         BMSTableEntry target = table.entries.Single(entry => hashKind switch
@@ -351,7 +509,7 @@ public sealed class PlaylistEntryCommitTests
             Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE playlist_id = 9201 AND memo = 'after';"));
             Assert.AreEqual(background - 1, db.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE playlist_id = 9201 AND memo = 'before';"));
         }
-        return new(statements.Length, statements.Sum(statement => statement.RowCount), statements.Sum(statement => statement.VmSteps),
+        return new(statements.Length, statements.Sum(statement => statement.RowCount), statements.Sum(statement => statement.VmSteps), statements.Sum(statement => statement.FullScanSteps),
             [.. statements.SelectMany(statement => fixture.Explain(statement.Sql))]);
     }
 
@@ -461,7 +619,7 @@ public sealed class PlaylistEntryCommitTests
         Assert.AreEqual(2, after.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE playlist_id = 9202;"));
     }
 
-    private sealed record CandidateLookupWork(int StatementCount, int ReturnedRows, int VmSteps, IReadOnlyList<string> Plans);
+    private sealed record CandidateLookupWork(int StatementCount, int ReturnedRows, int VmSteps, int FullScanSteps, IReadOnlyList<string> Plans);
 
     private sealed class QueryPlanRow
     {
@@ -516,6 +674,7 @@ public sealed class PlaylistEntryCommitTests
         internal PlaylistEntryCommitReceipt Commit(BMSTableEntry entry, string property, string text)
             => Owner.CommitEntry(entry, property, text, null, Receipts.Add, () => collectionLock.GetReaderGuard());
         internal LR2SongDBExtended OpenRead() => new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+        internal IReadOnlyList<BMSTableEntry> FreshStartupEntries() => new PlaylistPersistenceRepository(dbPath).LoadStartupPlaylistEntries().Entries;
         internal void EnsureSchema() => PlaylistPersistenceRepository.EnsureSchema(dbPath);
         internal IReadOnlyList<string> Explain(string sql)
         {

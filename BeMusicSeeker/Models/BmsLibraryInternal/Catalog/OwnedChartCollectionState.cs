@@ -257,6 +257,10 @@ internal sealed class OwnedChartCollectionState
 {
     /// <summary>owner が確定区間だけ接続する、実際の旧新値の記録先です。</summary>
     internal Action<ChartFile, ChartFile> CurrentValueChanged { get; set; }
+    /// <summary>確定中だけ接続し、現在値を変えずに既存項目間の基準位置が変わったtokenを記録します。</summary>
+    internal Action<OwnedChartToken> CurrentOrderChanged { get; set; }
+    /// <summary>確定中だけ接続し、移転後のcaptured path再捕捉が必要な候補tokenを記録します。表示順通知とは区別します。</summary>
+    internal Action<OwnedChartToken> CurrentCandidateOrderKeyChanged { get; set; }
 
     private CatalogStorageIndexedSequence<ChartFile> chartSequence;
     private CatalogStorageReadOnlyView<ChartFile> charts;
@@ -1528,9 +1532,9 @@ internal sealed class OwnedChartCollectionState
     }
 
     /// <summary>
-    /// 既存BMSON項目の順序を初回だけ正規化し、その際に順序を確認したパスを返します。
+    /// 既存BMSON項目を現在パス順へ正規化し、既存項目間の位置が実際に変わったパスだけを返します。
     /// </summary>
-    /// <param name="normalizedPaths">初回正規化の対象となったBMSON項目のパス。正規化を省略した場合は空です。</param>
+    /// <param name="normalizedPaths">正規化で相対位置が変わったBMSON項目のパス。単一・整列済みでは空です。</param>
     /// <returns>既存BMSON suffixの初回canonical正規化を実施した場合は<see langword="true"/>。</returns>
     private bool EnsureCanonicalBmsonOrder(out List<string> normalizedPaths)
     {
@@ -1561,15 +1565,25 @@ internal sealed class OwnedChartCollectionState
                 continue;
             }
 
-            normalizedBmsonEntries.Add(CreateCanonicalEntry(entry.Value));
-            string currentPath = GetCurrentPath(entry.Value);
-            if (!string.IsNullOrWhiteSpace(currentPath))
+            // 既存項目の同path tie順は継承します。新Ordinalの発行や比較modeの表現差を順序変更とは扱いません。
+            var normalizedEntry = new CatalogStorageSequenceEntry<ChartFile>(entry.Value,
+                entry.Value.Path, entry.Value.Path, entry.Ordinal);
+            normalizedBmsonEntries.Add(normalizedEntry);
+            if (!string.Equals(entry.SortKey, normalizedEntry.SortKey, StringComparison.Ordinal))
             {
-                normalizedPaths.Add(currentPath);
+                CurrentCandidateOrderKeyChanged?.Invoke(entry.Value.Token);
             }
         }
         normalizedBmsonEntries.Sort(CompareCanonicalEntries);
-        MembershipOrderIdentity = new object();
+        for (int index = 0; index < normalizedBmsonEntries.Count; index++)
+        {
+            CatalogStorageSequenceEntry<ChartFile> next = normalizedBmsonEntries[index];
+            if (ReferenceEquals(currentBmsonEntries[index].Value.Token, next.Value.Token)) { continue; }
+            CurrentOrderChanged?.Invoke(next.Value.Token);
+            string currentPath = GetCurrentPath(next.Value);
+            if (!string.IsNullOrWhiteSpace(currentPath)) { normalizedPaths.Add(currentPath); }
+        }
+        if (normalizedPaths.Count > 0) { MembershipOrderIdentity = new object(); }
         chartSequence = chartSequence
             .ReplaceRange(bmsonStartIndex, bmsonChartCount, normalizedBmsonEntries)
             .WithComparison(CompareCanonicalEntries);

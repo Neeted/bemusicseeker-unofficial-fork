@@ -39,7 +39,19 @@ internal sealed partial class CatalogOwnedCollectionOwner
     {
         lock (gate) { chartInfoInputCoverage = false; pendingChartInfoTokens.Clear(); }
     }
-    /// <summary>実際の補完終端で処理したtokenだけを完了し、無関係な更新で全件走査しません。</summary>
+    /// <summary>全体入力の捕捉と同じ排他内で、既存pending集合を未確認入力の基準にします。失敗後も再捕捉せず未完了だけを取得できます。</summary>
+    internal void BeginChartInfoInputCoverage(IEnumerable<ChartFile> values)
+    {
+        lock (gate)
+        {
+            chartInfoInputCoverage = true;
+            foreach (ChartFile chart in values)
+            {
+                if (chart?.Token != null) { pendingChartInfoTokens.Add(chart.Token); }
+            }
+        }
+    }
+    /// <summary>省略可能な結果を確認・採用した入力だけを完了します。捕捉後の入力変更は消さず、health・Title等の無関係な変更は許容します。</summary>
     internal void CompleteChartInfoInputs(IEnumerable<ChartFile> values, bool full, int? expectedCatalogRevision = null)
     {
         lock (gate)
@@ -52,9 +64,14 @@ internal sealed partial class CatalogOwnedCollectionOwner
             if (full) { chartInfoInputCoverage = true; pendingChartInfoTokens.Clear(); }
             else
             {
+                OwnedChartCollectionView view = collection.CreateCollectionView();
                 foreach (ChartFile chart in values ?? [])
                 {
-                    if (chart?.Token != null)
+                    if (chart?.Token != null && view.TryGetChart(chart.Token, out ChartFile current, out _)
+                        && current.Kind == chart.Kind && current.Path == chart.Path
+                        && string.Equals(current.Md5, chart.Md5, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(current.Sha256, chart.Sha256, StringComparison.OrdinalIgnoreCase)
+                        && current.LastWriteTimeUtc == chart.LastWriteTimeUtc)
                     {
                         pendingChartInfoTokens.Remove(chart.Token);
                     }
@@ -75,6 +92,8 @@ internal sealed partial class CatalogOwnedCollectionOwner
             {
                 int baseRevision = collectionVersion;
                 var changes = new Dictionary<OwnedChartToken, CatalogChartChange>();
+                var reorderedTokens = new HashSet<OwnedChartToken>();
+                var candidateOrderKeyTokens = new HashSet<OwnedChartToken>();
                 void Record(ChartFile before, ChartFile after)
                 {
                     OwnedChartToken token = after?.Token ?? before?.Token;
@@ -85,21 +104,35 @@ internal sealed partial class CatalogOwnedCollectionOwner
 
                     changes[token] = new(before, after);
                 }
-                if (collection.CurrentValueChanged != null)
+                if (collection.CurrentValueChanged != null || collection.CurrentOrderChanged != null
+                    || collection.CurrentCandidateOrderKeyChanged != null)
                 {
                     throw new InvalidOperationException("Catalog commit cannot be nested.");
                 }
 
                 OwnedChartCollectionView beforeView = isFullReplacement ? collection.CreateCollectionView() : null;
                 collection.CurrentValueChanged = Record;
+                collection.CurrentOrderChanged = token => reorderedTokens.Add(token);
+                collection.CurrentCandidateOrderKeyChanged = token => candidateOrderKeyTokens.Add(token);
                 System.Runtime.ExceptionServices.ExceptionDispatchInfo failure = null;
                 try { apply(collection); }
                 catch (Exception exception) when (exception is not OutOfMemoryException)
                 {
                     failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(exception);
                 }
-                finally { collection.CurrentValueChanged = null; }
+                finally
+                {
+                    collection.CurrentValueChanged = null;
+                    collection.CurrentOrderChanged = null;
+                    collection.CurrentCandidateOrderKeyChanged = null;
+                }
                 CatalogChartChange[] actual = [.. changes.Values.Where(change => !CatalogChartValueEquality.AreEqual(change.Before, change.After))];
+                OwnedChartCollectionView currentView = collection.CreateCollectionView();
+                ChartFile[] reorderedCharts = [.. reorderedTokens.Select(token => currentView.TryGetChart(token, out ChartFile chart, out _) ? chart : null)
+                    .Where(chart => chart != null)];
+                candidateOrderKeyTokens.UnionWith(reorderedTokens);
+                ChartFile[] candidateOrderKeyCharts = [.. candidateOrderKeyTokens.Select(token => currentView.TryGetChart(token, out ChartFile chart, out _) ? chart : null)
+                    .Where(chart => chart != null)];
                 bool orderChanged = false;
                 if (isFullReplacement && actual.Length == 0)
                 {
@@ -107,15 +140,17 @@ internal sealed partial class CatalogOwnedCollectionOwner
                     orderChanged = !beforeView.BmsCharts.Select(chart => chart.Token).Concat(beforeView.BmsonCharts.Select(chart => chart.Token))
                         .SequenceEqual(afterView.BmsCharts.Select(chart => chart.Token).Concat(afterView.BmsonCharts.Select(chart => chart.Token)));
                 }
-                if (actual.Length == 0 && !orderChanged)
+                if (actual.Length == 0 && reorderedCharts.Length == 0 && !orderChanged)
                 {
+                    // 途中の故障等で値・位置が変わらなくても、採用済みcaptured pathとwarm候補のキーは揃えます。
+                    if (candidateOrderKeyCharts.Length > 0) { ApplyCommitIndexes(actual, candidateOrderKeyCharts, false, baseRevision); }
                     failure?.Throw();
                     return new(baseRevision, baseRevision, [], false, CaptureSnapshot());
                 }
                 int revision = ++collectionVersion;
-                ApplyCommitIndexes(actual, isFullReplacement, revision);
+                ApplyCommitIndexes(actual, candidateOrderKeyCharts, isFullReplacement, revision);
                 UpdateSpecializedDependencies(actual, isFullReplacement);
-                var receipt = new CatalogCommitReceipt(baseRevision, revision, actual, isFullReplacement, CaptureSnapshot());
+                var receipt = new CatalogCommitReceipt(baseRevision, revision, actual, isFullReplacement, CaptureSnapshot(), reorderedCharts.Select(chart => chart.Token));
                 RefreshPublisher?.Register(receipt);
                 failure?.Throw();
                 return receipt;
@@ -192,7 +227,7 @@ internal sealed partial class CatalogOwnedCollectionOwner
         }
     }
 
-    private void ApplyCommitIndexes(IReadOnlyList<CatalogChartChange> changes, bool isFullReplacement, int revision)
+    private void ApplyCommitIndexes(IReadOnlyList<CatalogChartChange> changes, IReadOnlyList<ChartFile> candidateOrderKeyCharts, bool isFullReplacement, int revision)
     {
         CatalogChartChange[] candidates = [.. changes.Where(change => change.ChangesCandidate)];
         if (isFullReplacement)
@@ -242,7 +277,17 @@ internal sealed partial class CatalogOwnedCollectionOwner
                     additions.Add(PlaylistLibraryResolveChartFact.FromChart(reference, order));
                 }
             }
-            if (candidates.Length > 0)
+            HashSet<OwnedChartToken> changedCandidates = [.. candidates.Select(change => change.Token)];
+            foreach (ChartFile chart in candidateOrderKeyCharts)
+            {
+                if (changedCandidates.Contains(chart.Token)) { continue; }
+                removals.Add(PlaylistLibraryResolveChartFact.ForRemoval(chart.Kind, chart.Path, chart.Md5, chart.Sha256));
+                if (collection.TryGetCanonicalChartRefForExactPath(chart.Kind, chart.Path, out LibraryChartRef reference, out OwnedChartCanonicalOrderKey order))
+                {
+                    additions.Add(PlaylistLibraryResolveChartFact.FromChart(reference, order));
+                }
+            }
+            if (removals.Count > 0 || additions.Count > 0)
             {
                 if (!playlistLibraryResolveIndexSnapshot.TryApplyDelta(removals, additions,
                     PlaylistLibraryResolveIndexStoreWorkObserver, out PlaylistLibraryResolveIndexSnapshot next))

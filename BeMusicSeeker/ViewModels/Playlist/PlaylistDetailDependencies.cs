@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -29,6 +30,29 @@ internal sealed class PlaylistDetailDependencies
     }
 
     internal List<PlaylistDetailSourceRow> Rows { get; }
+    /// <summary>この元集合だけの参照bucketと実適用済み位置です。</summary>
+    internal ChartListReferenceInput ReferenceInput;
+    /// <summary>構築中・採用待ちに受信した、境界を保つ参照確定です。適用後に除去します。</summary>
+    internal readonly List<PlaylistReferenceCommitReceipt> ReferenceCommits = [];
+    /// <summary>未配送の捕捉位置を待つ一つの元receiptと投影です。索引や履歴の正本にはしません。</summary>
+    internal readonly Dictionary<object, PlaylistPendingReferenceProjection> PendingReferenceProjections = [];
+    /// <summary>新依存の挿入完了まで先取りしないscore範囲です。</summary>
+    internal readonly List<ScoreSnapshotChange> PendingScores = [];
+    /// <summary>新依存の挿入後に評価する詳細のMD5対象です。</summary>
+    internal readonly HashSet<string> PendingDetailMd5s = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>新依存の挿入後に評価する詳細のSHA-256対象です。</summary>
+    internal readonly HashSet<string> PendingDetailSha256s = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>詳細投影の短命保留を他の元receiptから識別します。</summary>
+    internal readonly object DetailProjectionKey = new();
+
+    /// <summary>捕捉済み参照入力に属するhash依存だけを調べます。</summary>
+    internal bool IncludesReferenceKey(PlaylistEntryLookupKey key)
+        => key.HasValue && (key.Kind == PlaylistEntryLookupKeyKind.Md5 ? md5s.ContainsKey(key.Hash) : sha256s.ContainsKey(key.Hash));
+
+    /// <summary>変更した参照keyに依存する非表示行も含めて集めます。</summary>
+    internal void AddReferenceDependents(PlaylistEntryLookupKey key, HashSet<BMSTableEntry> target)
+        => AddDetailDependents(key.Kind == PlaylistEntryLookupKeyKind.Md5 ? [key.Hash] : [],
+            key.Kind == PlaylistEntryLookupKeyKind.Sha256 ? [key.Hash] : [], target);
     internal bool TryGet(BMSTableEntry entry, out PlaylistDetailSourceRow row)
     {
         row = positions.TryGetValue(entry, out int index) ? Rows[index] : null;
@@ -64,9 +88,11 @@ internal sealed class PlaylistDetailDependencies
     internal void Replace(PlaylistDetailSourceRow row)
     {
         if (!positions.TryGetValue(row.Entry, out int index)) { Add(row); return; }
-        RemoveDependencies(Rows[index]);
+        PlaylistDetailSourceRow previous = Rows[index];
+        RemoveDependencies(previous);
         Rows[index] = row;
         Index(row, index);
+        PruneReferenceInput(previous);
     }
 
     internal void Add(PlaylistDetailSourceRow row) { Rows.Add(row); Index(row, Rows.Count - 1); }
@@ -74,7 +100,8 @@ internal sealed class PlaylistDetailDependencies
     internal void Remove(BMSTableEntry entry)
     {
         if (!positions.Remove(entry, out int index)) { return; }
-        RemoveDependencies(Rows[index]);
+        PlaylistDetailSourceRow previous = Rows[index];
+        RemoveDependencies(previous);
         int last = Rows.Count - 1;
         if (index != last)
         {
@@ -84,6 +111,14 @@ internal sealed class PlaylistDetailDependencies
             observeWork?.Invoke("playlist_dependency_position_write");
         }
         Rows.RemoveAt(last);
+        PruneReferenceInput(previous);
+    }
+
+    private void PruneReferenceInput(PlaylistDetailSourceRow previous)
+    {
+        PlaylistEntryLookupKey[] keys = [new(PlaylistEntryLookupKeyKind.Md5, previous.hash), new(PlaylistEntryLookupKeyKind.Md5, previous.EntryValue.Md5),
+            new(PlaylistEntryLookupKeyKind.Sha256, previous.sha256), new(PlaylistEntryLookupKeyKind.Sha256, previous.EntryValue.Sha256)];
+        ReferenceInput = ReferenceInput?.RemoveDependencies(keys.Where(key => key.HasValue && !IncludesReferenceKey(key)));
     }
 
     private void Index(PlaylistDetailSourceRow row, int index)

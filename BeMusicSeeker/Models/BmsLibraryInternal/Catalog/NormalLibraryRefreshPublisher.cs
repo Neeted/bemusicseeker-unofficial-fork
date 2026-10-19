@@ -11,6 +11,8 @@ internal sealed class NormalLibraryRefreshPublishRequest
     internal CatalogCommitReceipt Commit { get; init; }
     /// <summary>score正本が同じ確定境界で登録する独立結果です。</summary>
     internal ScoreSnapshotChange ScoreChange { get; init; }
+    /// <summary>参照索引が同じ確定境界で登録する独立結果です。</summary>
+    internal PlaylistReferenceCommitReceipt ReferenceCommit { get; init; }
 
     public IReadOnlyList<ChartFile> ChangedCharts { get; init; } = [];
 
@@ -45,6 +47,7 @@ internal sealed class NormalLibraryRefreshPublisher
             List<NormalLibraryRefreshNotification> pendingNotifications = [.. notifications
                 .Where(notification => notification != null && notification.Version > handledVersion)];
             ScoreSnapshotChange[] scoreChanges = [.. pendingNotifications.SelectMany(notification => notification.ScoreChanges)];
+            PlaylistReferenceCommitReceipt[] referenceCommits = [.. pendingNotifications.SelectMany(notification => notification.ReferenceCommits)];
             int resetIndex = pendingNotifications.FindLastIndex(notification => notification.ResetsPriorNotifications);
             if (resetIndex >= 0)
             {
@@ -81,7 +84,7 @@ internal sealed class NormalLibraryRefreshPublisher
                 changedDetailSha256s: [.. pendingNotifications.SelectMany(value => value.ChangedDetailSha256s).Distinct(System.StringComparer.OrdinalIgnoreCase)],
                 installedChartChanges: [.. pendingNotifications.SelectMany(value => value.InstalledChartChanges)],
                 catalogCommits: [.. pendingNotifications.SelectMany(value => value.CatalogCommits)],
-                scoreChanges: scoreChanges);
+                scoreChanges: scoreChanges, referenceCommits: referenceCommits);
         }
     }
 
@@ -97,7 +100,8 @@ internal sealed class NormalLibraryRefreshPublisher
         {
             CatalogRevision = receipt.Revision,
             Commit = receipt,
-            Effects = receipt.Changes.Aggregate(LibraryChartRefreshEffects.None, (effects, change) => effects | ClassifyEffects(change)),
+            Effects = receipt.Changes.Aggregate(receipt.OrderChangedTokens.Count > 0 ? LibraryChartRefreshEffects.SourceChanged : LibraryChartRefreshEffects.None,
+                (effects, change) => effects | ClassifyEffects(change)),
             ChangedCharts = System.Array.AsReadOnly(receipt.Changes.Where(change => change.After != null).Select(change => change.After).ToArray()),
             DeletedTokens = System.Array.AsReadOnly(receipt.Changes.Where(change => change.After == null).Select(change => change.Token).ToArray()),
             ResetsPriorNotifications = receipt.IsFullReplacement
@@ -107,6 +111,10 @@ internal sealed class NormalLibraryRefreshPublisher
     /// <summary>scoreの版発行・lookup採用と同じ排他内で結果を登録します。配送起動は呼出元が解放後に行います。</summary>
     internal int Register(ScoreSnapshotChange change)
         => change == null ? Version : Publish(new NormalLibraryRefreshPublishRequest { ScoreChange = change });
+
+    /// <summary>参照索引の確定順を既存キューへ登録します。空の表示差分でも版範囲は省略しません。</summary>
+    internal int Register(PlaylistReferenceCommitReceipt receipt)
+        => receipt == null ? Version : Publish(new NormalLibraryRefreshPublishRequest { ReferenceCommit = receipt });
 
     private static LibraryChartRefreshEffects ClassifyEffects(CatalogChartChange change)
     {
@@ -168,13 +176,13 @@ internal sealed class NormalLibraryRefreshPublisher
                 request.CatalogRevision,
                 request.Effects,
                 request.InstallDestinationChangedCharts,
-                request.ResetsPriorNotifications, request.ChangedCharts, request.DeletedTokens, request.ChangedDetailMd5s, request.ChangedDetailSha256s, request.InstalledChartChanges, request.Commit == null ? [] : [request.Commit], request.ScoreChange == null ? [] : [request.ScoreChange]);
+                request.ResetsPriorNotifications, request.ChangedCharts, request.DeletedTokens, request.ChangedDetailMd5s, request.ChangedDetailSha256s, request.InstalledChartChanges, request.Commit == null ? [] : [request.Commit], request.ScoreChange == null ? [] : [request.ScoreChange], request.ReferenceCommit == null ? [] : [request.ReferenceCommit]);
             notifications.Add(notification);
             return version;
         }
     }
 
-    /// <summary>未公開の補助通知だけを破棄します。ownerが登録したcatalog/score確定結果は失敗時にも削除しません。</summary>
+    /// <summary>未公開の補助通知だけを破棄します。ownerが登録したcatalog/score/参照の確定結果は失敗時にも削除しません。</summary>
     internal void ClearLegacyNotification(int notificationVersion)
     {
         if (notificationVersion <= 0)
@@ -183,7 +191,7 @@ internal sealed class NormalLibraryRefreshPublisher
         }
         lock (syncRoot)
         {
-            notifications.RemoveAll(notification => notification.Version == notificationVersion && notification.CatalogCommits.Count == 0 && notification.ScoreChanges.Count == 0);
+            notifications.RemoveAll(notification => notification.Version == notificationVersion && notification.CatalogCommits.Count == 0 && notification.ScoreChanges.Count == 0 && notification.ReferenceCommits.Count == 0);
         }
     }
 

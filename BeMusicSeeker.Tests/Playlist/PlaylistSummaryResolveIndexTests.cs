@@ -280,7 +280,7 @@ public sealed class PlaylistSummaryResolveIndexTests
         });
     }
 
-    /// <summary>初回bmson正規化と次のBMS追加を実差分走査し、解決結果を全置換の索引構築で更新する。走査結果の未反映や通常走査を既知差分と誤認する処理を検出する。</summary>
+    /// <summary>初回BMSONを含む実差分走査と次のBMS走査は実全置換として索引を再構築し、旧snapshotと代表を保持します。upsert時のwarm順序更新はCatalogMaintenanceCurrentValueTestsへ分担します。</summary>
     [TestMethod]
     public void ReloadFileDiff_RebuildsResolveIndexForInitialBmsonAndFollowingBmsScan()
     {
@@ -340,7 +340,10 @@ public sealed class PlaylistSummaryResolveIndexTests
                 Assert.AreEqual(bmsonPath, initial.ResolveChartForPlaylistHash(null, bmsonSha256).Path);
                 resolveWork.Clear();
 
+                int beforeScan = library.NormalLibraryRefreshNotificationVersion;
                 library.ReloadFileDiff();
+                Assert.IsTrue(library.GetNormalLibraryRefreshNotificationsAfter(beforeScan).CatalogCommits.Any(receipt => receipt.IsFullReplacement),
+                    "ReloadFileDiffは差分走査後の集合を実全置換する入口です。upsertのwarm契約で上書きしません。");
                 BMSLibrary.PlaylistLibraryResolveIndexRuntimeState invalidated = library.GetPlaylistLibraryResolveIndexRuntimeState();
                 Assert.IsFalse(invalidated.IsCached);
                 PlaylistLibraryResolveIndexSnapshot afterNormalization = library.GetPlaylistLibraryResolveIndexSnapshot(
@@ -351,6 +354,7 @@ public sealed class PlaylistSummaryResolveIndexTests
                 Assert.AreEqual(bmsonPath, afterNormalization.ResolveChartForPlaylistHash(null, bmsonSha256).Path);
                 Assert.IsTrue(resolveWork.Contains("playlist_resolve_full_root_enumeration"));
                 Assert.IsTrue(resolveWork.Contains("playlist_resolve_source_enumeration"));
+                Assert.AreEqual(bmsonPath, initial.ResolveChartForPlaylistHash(null, bmsonSha256).Path);
                 resolveWork.Clear();
 
                 File.WriteAllText(secondBmsPath, "#PLAYER 1\r\n#TITLE Second\r\n");

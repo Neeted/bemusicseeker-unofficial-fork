@@ -13,6 +13,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.Tests.Helpers;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -23,6 +24,253 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlaylistCatalogViewChangeTests
 {
     public TestContext? TestContext { get; set; }
+
+    /// <summary>別表Bへの実workspace追加・property保存・削除と参照選択を同drainでAへ反映します。背景E/Hだけを増やし、必須出力以外の参照・投影・順序仕事が増えないことを確認します。</summary>
+    [TestMethod]
+    public async Task OtherTableEntryAndHeaderCommits_UpdateReferenceSearchAndSortLocally()
+    {
+        int[] small = await MeasureOtherTableReferenceFlow(16);
+        int[] large = await MeasureOtherTableReferenceFlow(128);
+        CollectionAssert.AreEqual(small, large, "変更数・表示依存が同じ実add/deleteではE/Hを増やしてもSQL・参照・投影の仕事量を増やしません。");
+    }
+
+    private async Task<int[]> MeasureOtherTableReferenceFlow(int background)
+    {
+        using var sql = new SqliteStatementObservation();
+        await using var fixture = new Fixture(background, openEntryWriteConnection: sql.OpenSongDb);
+        var reference = new BMSTable
+        {
+            playlist_id = 4189,
+            name = "Reference before",
+            symbol = "REF",
+            is_external_sync = false,
+            Folder_order = ["background", "added"],
+            entries = [.. Enumerable.Range(0, background).Select(index => new BMSTableEntry
+            { md5 = (index + 500).ToString("x32"), title = "unrelated " + index, folder = "background" })]
+        };
+        fixture.Playlist.BMSTables.Add(reference);
+        fixture.Playlist.CommitBMSTableWithEntriesToDB(reference);
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var target = (PlaylistDetailRow)rows[0];
+        var retained = (PlaylistDetailRow)rows[1];
+        fixture.MainTable.SelectedIndex = 1;
+        var modelWork = new List<string>(); var viewWork = new List<string>();
+        fixture.Library.PlaylistReferenceWorkObserver = modelWork.Add;
+        fixture.Workspace.DetailWorkObserver = viewWork.Add;
+        int sqlStart = sql.Statements.Count;
+        await fixture.Workspace.AddRowsToFolderAsync([target], reference, PlaylistFolderNode.CreateFolder("added"));
+        fixture.Deliver();
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        // 正規登録済みのprimary表A（symbol空）も同じMD5 bucketに属し、空要素を含む既存joinを保つ。
+        Assert.AreEqual(" REF", target.RefTablesSymbols);
+        Assert.IsTrue(target.RefTablesNames.Contains("Reference before", StringComparison.Ordinal));
+        Assert.AreSame(retained, rows[1]); Assert.AreEqual(1, fixture.MainTable.SelectedIndex);
+        Assert.AreEqual(0, modelWork.Count(kind => kind is "reference_entry_captured" or "reference_entry_indexed"));
+        Assert.AreEqual(1, modelWork.Count(kind => kind == "reference_bucket_update"));
+        Assert.AreEqual(1, viewWork.Count(kind => kind == "playlist_reference_projection"));
+        Assert.AreEqual(0, viewWork.Count(kind => kind is "playlist_dependency_index_entry" or "playlist_order_buffer"));
+        Assert.AreEqual(2, rows.RealizedRowCount);
+        SqliteStatementObservation.SqliteObservedStatement[] addSql = sql.Statements.Skip(sqlStart).Where(statement => statement.Sql.Contains("playlist_entry", StringComparison.OrdinalIgnoreCase)).ToArray();
+        Assert.IsTrue(addSql.Any(statement => statement.Sql.StartsWith("INSERT", StringComparison.OrdinalIgnoreCase)));
+        Assert.AreEqual(0, addSql.Sum(statement => statement.FullScanSteps));
+        var workCounts = new List<int> { addSql.Length, addSql.Sum(statement => statement.RowCount), addSql.Sum(statement => statement.VmSteps),
+            modelWork.Count, viewWork.Count(kind => kind is "playlist_reference_projection" or "playlist_order_write" or "playlist_detail_materialized"), rows.RealizedRowCount };
+        Assert.IsTrue(viewWork.Count(kind => kind == "playlist_order_access") <= 4 * Math.Ceiling(Math.Log2(background)) + 4);
+
+        var service = new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library, () => null!,
+            () => new CustomFolderOutputSettingsSnapshot());
+        service.PlaylistPropertySummaryDataRefreshRequested += (_, _) => { };
+        var draft = new MainChartListCellEditContext(target, nameof(PlaylistDetailRow.memo),
+            ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+        fixture.Workspace.BeginDetailEdit(draft); target.memo = "unsaved reference draft";
+        using (PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(reference)
+            ?? throw new AssertFailedException("Property session was not created."))
+        {
+            session.Values.Name = "Reference after"; session.Values.Symbol = "NEW";
+            PlaylistPropertySaveCommit commit = await service.TrySaveAsync(session, session.Values)
+                ?? throw new AssertFailedException("Property save was not accepted.");
+            Assert.IsNotNull(commit); Assert.IsNull(commit.Exception);
+        }
+        fixture.Deliver();
+        Assert.AreEqual(" NEW", target.RefTablesSymbols);
+        Assert.IsTrue(target.RefTablesNames.Contains("Reference after", StringComparison.Ordinal));
+        Assert.AreEqual("unsaved reference draft", target.memo);
+        Assert.AreEqual("entry memo", target.Entry.memo);
+        await fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(draft, "unsaved reference draft", commit: false));
+        fixture.Workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("NEW", ChartModeFilter.All));
+        fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.RefTablesSymbols), ListSortDirection.Ascending);
+        await fixture.Refresh();
+        Assert.AreEqual(1, fixture.Workspace.DetailViewState.View.Rows.Count);
+        fixture.Library.SynchronizeReferenceBMSTables([target.Entry.parent]); fixture.Deliver();
+        Assert.AreEqual(0, fixture.Workspace.DetailViewState.View.Rows.Count);
+        fixture.Library.SynchronizeReferenceBMSTables([target.Entry.parent, reference]); fixture.Deliver();
+        Assert.AreEqual(1, fixture.Workspace.DetailViewState.View.Rows.Count);
+        BMSTableEntry added = reference.entries.Single(entry => entry.folder == "added");
+        modelWork.Clear(); viewWork.Clear(); sqlStart = sql.Statements.Count;
+        await fixture.Workspace.DeleteSelectedEntriesAsync([new PlaylistDetailSourceRow(added, target.Chart).CreateViewRow()]);
+        fixture.Deliver();
+        Assert.AreEqual(0, fixture.Workspace.DetailViewState.View.Rows.Count);
+        Assert.AreEqual("[0" + Resources.Num_songs + "]", fixture.MainTable.SummaryText);
+        Assert.AreEqual(background, target.Entry.parent.entries.Count);
+        Assert.AreEqual("entry memo", target.Entry.memo);
+        SqliteStatementObservation.SqliteObservedStatement[] deleteSql = sql.Statements.Skip(sqlStart).Where(statement => statement.Sql.Contains("playlist_entry", StringComparison.OrdinalIgnoreCase)).ToArray();
+        Assert.IsTrue(deleteSql.Any(statement => statement.Sql.StartsWith("DELETE", StringComparison.OrdinalIgnoreCase)));
+        Assert.AreEqual(0, deleteSql.Sum(statement => statement.FullScanSteps));
+        workCounts.AddRange([deleteSql.Length, deleteSql.Sum(statement => statement.RowCount), deleteSql.Sum(statement => statement.VmSteps), modelWork.Count,
+            viewWork.Count(kind => kind is "playlist_reference_projection" or "playlist_order_write" or "playlist_detail_materialized")]);
+        sql.ThrowIfCallbackFailed();
+        return [.. workCounts];
+    }
+
+    /// <summary>初回参照捕捉後・依存索引構築前の更新を実投影gateで配送し、採用時に同じ差分を反映します。採用前中止では候補を公開しません。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ReferenceCommit_DuringInitialProjectionIsBufferedBeforeDependencyRegistration(bool cancel)
+    {
+        await using var fixture = new Fixture(16);
+        BMSTable table = fixture.Playlist.BMSTables[0];
+        var captured = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int visits = 0;
+        fixture.Workspace.DetailWorkObserver = kind =>
+        {
+            if (kind != "playlist_source_projection" || Interlocked.Increment(ref visits) != 1) { return; }
+            captured.TrySetResult(); release.Task.GetAwaiter().GetResult();
+        };
+        Task refresh = fixture.Refresh();
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(captured.Task, refresh, "first playlist projection");
+            using LibraryFileMutationLease lease = fixture.Playlist.AcquirePlaylistMutationLease("reference_during_projection");
+            using LibraryFileMutationCapability capability = lease.CreateMutationCapability();
+            fixture.Playlist.CommitPlaylistHeaderEdits(new Dictionary<BMSTable, PlaylistHeaderEdit>
+            { [table] = new() { Fields = PlaylistHeaderFields.Name | PlaylistHeaderFields.Symbol, Name = "Updated during build", Symbol = "DURING" } }, capability);
+            fixture.Deliver();
+            if (cancel) { fixture.Workspace.CancelDetailBuilds(); }
+            release.TrySetResult(); await refresh;
+            if (cancel)
+            {
+                Assert.AreEqual(0, fixture.Workspace.DetailViewState.Source.Rows.Count);
+                Assert.AreEqual(0, fixture.Workspace.DetailViewState.View.Rows.Count);
+                return;
+            }
+            Assert.AreEqual(16, fixture.Workspace.DetailViewState.Source.Rows.Count);
+            Assert.IsTrue(fixture.Workspace.DetailViewState.Source.Rows.All(row => row.RefTablesSymbols == "DURING"));
+            if (fixture.Workspace.DetailViewState.View.Rows[0] is not PlaylistDetailRow adopted)
+            { throw new AssertFailedException("Playlist detail row was not adopted."); }
+            Assert.AreEqual("DURING", adopted.RefTablesSymbols);
+        }
+        finally { release.TrySetResult(); await refresh; fixture.Workspace.DetailWorkObserver = null; }
+    }
+
+    /// <summary>同条件要求でも未配送参照を待ち、配送callbackと実Completionを区別します。要求取消は共有drainを取り消しません。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ReferenceCommit_SameViewWaitsForActualDeliveryAndCancellationKeepsSharedDrain(bool cancel)
+    {
+        await using var fixture = new Fixture(16, regularDelivery: true);
+        await fixture.DrainLibraryChanges(); await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var target = (PlaylistDetailRow)rows[0];
+        BMSTable table = target.Entry.parent;
+        using (LibraryFileMutationLease lease = fixture.Playlist.AcquirePlaylistMutationLease("reference_same_view"))
+        using (LibraryFileMutationCapability capability = lease.CreateMutationCapability())
+        {
+            fixture.Playlist.CommitPlaylistHeaderEdits(new Dictionary<BMSTable, PlaylistHeaderEdit>
+            { [table] = new() { Fields = PlaylistHeaderFields.Symbol, Symbol = "PENDING" } }, capability);
+        }
+        Task shared = fixture.GetLibraryDelivery();
+        Task refresh = fixture.Refresh();
+        ScheduledScoreOperation? operation = null;
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(fixture.DeliveryRequested.Task, refresh, "reference delivery request");
+            operation = await fixture.DeliveryScheduler.NextAsync();
+            Assert.IsFalse(refresh.IsCompleted);
+            operation.Run();
+            Assert.AreEqual("PENDING", target.RefTablesSymbols);
+            Assert.IsFalse(refresh.IsCompleted, "callbackだけでは生成元UI操作の終端ではありません。");
+            if (cancel) { fixture.Workspace.CancelDetailBuilds(); await refresh; }
+            Assert.IsFalse(shared.IsCompleted);
+            operation.Complete(); await shared; await refresh;
+            Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        }
+        finally
+        {
+            operation?.Abort();
+            while (fixture.DeliveryScheduler.TryTake(out ScheduledScoreOperation? queued)) { queued.Abort(); }
+            fixture.Workspace.CancelDetailBuilds(); await refresh;
+            try { await shared; } catch (TaskCanceledException) { }
+        }
+    }
+
+    /// <summary>別表の実DB読込み後、参照入力の捕捉をgateで遅延させます。開いているAのentryを変えずにhydrationの公開だけでREFと検索を更新します。</summary>
+    [TestMethod]
+    public async Task OtherTableHydration_UpdatesExistingDetailAfterDelayedReferenceCapture()
+    {
+        await using var fixture = new Fixture(16);
+        var reference = new BMSTable { playlist_id = 4189, name = "Late reference", symbol = "LATE", entries = [] };
+        fixture.Playlist.BMSTables.Add(reference); fixture.Playlist.CommitBMSTableWithEntriesToDB(reference);
+        BMSTableEntry entry = fixture.Playlist.BMSTables[0].entries[0];
+        using (var db = new LR2SongDBExtended(fixture.SongDb))
+        { db.Execute("INSERT INTO playlist_entry(playlist_id,md5,title,folder,is_removed) VALUES(?,?,?,?,?);", reference.playlist_id, entry.md5, "hydrated", "late", 0); }
+        reference.MarkEntriesNotLoaded();
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var target = (PlaylistDetailRow)rows[0];
+        Assert.AreEqual(string.Empty, target.RefTablesSymbols);
+        var captured = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Library.PlaylistReferenceWorkObserver = kind =>
+        { if (kind == "reference_entry_captured") { captured.TrySetResult(); release.Task.GetAwaiter().GetResult(); } };
+        var hydration = Task.Run(() => fixture.Playlist.EnsurePlaylistEntriesLoaded(reference, "delayed_reference_hydration"));
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(captured.Task, hydration, "hydrated reference capture");
+            Assert.AreEqual(string.Empty, target.RefTablesSymbols);
+            Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+            release.TrySetResult(); await hydration; fixture.Deliver();
+            // primary表Aの空symbolと、hydrationしたBのsymbolを正本表順で結合する。
+            Assert.AreEqual(" LATE", target.RefTablesSymbols);
+            Assert.IsTrue(GridKeywordSearchQuery.Parse("LATE").MatchesPlaylistDetail(fixture.Workspace.DetailViewState.Source.Rows[0]));
+            Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        }
+        finally { release.TrySetResult(); await hydration; fixture.Library.PlaylistReferenceWorkObserver = null; }
+    }
+
+    /// <summary>新hashをRで一回捕捉して元entryを保留し、既存r→R、新依存挿入、後続R→Sの順で公開します。Rの値をSへ付け替えて後続変更を失う実装を検出します。</summary>
+    [TestMethod]
+    public async Task NewEntryReferenceCapture_InsertsDependencyAtExactBoundaryBeforeFollowingCommit()
+    {
+        await using var fixture = new Fixture(16);
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        BMSTable table = fixture.Playlist.BMSTables[0];
+        const string md5 = "ffffffffffffffffffffffffffffffff";
+        fixture.PauseDelivery = true;
+        var work = new List<string>(); fixture.Library.PlaylistReferenceWorkObserver = work.Add;
+        Assert.IsTrue(fixture.Playlist.AddPlaylistEntriesToFolderBMSTable(
+            [new BMSTableEntry { md5 = md5, title = "new reference dependency" }], table, string.Empty));
+        Assert.AreEqual(16, rows.Count, "新keyの捕捉Rへ既存入力が届く前は元receiptを公開しません。");
+        using (LibraryFileMutationLease lease = fixture.Playlist.AcquirePlaylistMutationLease("following_reference_commit"))
+        using (LibraryFileMutationCapability capability = lease.CreateMutationCapability())
+        {
+            fixture.Playlist.CommitPlaylistHeaderEdits(new Dictionary<BMSTable, PlaylistHeaderEdit>
+            { [table] = new() { Fields = PlaylistHeaderFields.Symbol, Symbol = "AFTER" } }, capability);
+        }
+        Assert.AreEqual(1, work.Count(kind => kind == "reference_lookup"), "新依存一keyだけを一回捕捉します。");
+        fixture.Deliver();
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreEqual(17, rows.Count);
+        PlaylistDetailSourceRow added = fixture.Workspace.DetailViewState.Source.Rows.Single(row => row.hash == md5);
+        Assert.AreEqual("AFTER", added.RefTablesSymbols);
+        Assert.AreEqual("AFTER", rows.Cast<PlaylistDetailRow>().Single(row => row.hash == md5).RefTablesSymbols);
+        Assert.AreEqual(1, work.Count(kind => kind == "reference_lookup"));
+        Assert.AreEqual("[17" + Resources.Num_songs + "]", fixture.MainTable.SummaryText);
+    }
 
     /// <summary>背景16/128件のwarm一件保守で未変更行・Rows・選択・未訪問行を保持し、旧入力は変えず対象値と専門警告を配送します。</summary>
     [DataTestMethod]
@@ -311,9 +559,9 @@ public sealed class PlaylistCatalogViewChangeTests
         Assert.AreEqual(1, fixture.Workspace.DetailViewState.Source.Rows.Count);
     }
 
-    /// <summary>別表の正規全置換保存で、現在開いている表のRows・入力・実体化を作り直しません。</summary>
+    /// <summary>別表の実全保存で、現在開いている表のRows・入力・実体化を作り直しません。局所entry操作の接続は別ケースが担います。</summary>
     [TestMethod]
-    public async Task UnrelatedTableFullCommit_PreservesCurrentPresentation()
+    public async Task UnrelatedTableFullSave_PreservesCurrentPresentation()
     {
         await using var fixture = new Fixture(3);
         await fixture.Refresh();
@@ -379,6 +627,7 @@ public sealed class PlaylistCatalogViewChangeTests
         Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
         Assert.AreSame(next, rows[0]);
         Assert.AreEqual(count - 1, rows.Count);
+        Assert.AreEqual("[" + (count - 1) + Resources.Num_songs + "]", fixture.MainTable.SummaryText);
         Assert.AreEqual(1, work.Count(kind => kind == "playlist_dependency_position_write"));
         Assert.AreEqual(0, work.Count(kind => kind == "playlist_order_buffer"));
         Assert.IsTrue(work.Count(kind => kind == "playlist_order_access") <= 4 * Math.Ceiling(Math.Log2(count)) + 4);
@@ -905,7 +1154,8 @@ public sealed class PlaylistCatalogViewChangeTests
         private bool batchNotificationQueued;
 
         internal Fixture(int count, bool bmson = false, string? firstFolder = null,
-            bool regularDelivery = false, bool oracleScores = false, bool connectDelivery = true)
+            bool regularDelivery = false, bool oracleScores = false, bool connectDelivery = true,
+            Func<string, LR2SongDBExtended>? openEntryWriteConnection = null)
         {
             this.bmson = bmson;
             Directory.CreateDirectory(directory);
@@ -942,7 +1192,11 @@ public sealed class PlaylistCatalogViewChangeTests
                 for (int index = 0; index < count; index++)
                 { OracleScores[index].stddevVal = index switch { 0 => 10, 1 => 30, 2 => 20, _ => 100 + index }; }
             }
-            Playlist = MainWindowViewModelTestFactory.CreatePlaylist(SongDb, settings, library: Library);
+            Playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(Library), SongDb,
+                () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings),
+                playlistUrlCompletionOptionsProvider: () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(settings),
+                beatorajaBmtOptionsProvider: () => BeatorajaBmtOptionsSnapshot.CreateCurrent(settings),
+                openEntryWriteConnection: openEntryWriteConnection);
             var table = new BMSTable
             {
                 playlist_id = 4188,

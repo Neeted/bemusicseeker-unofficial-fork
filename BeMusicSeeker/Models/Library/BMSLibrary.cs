@@ -46,10 +46,12 @@ internal sealed class NormalLibraryRefreshNotification
         IReadOnlyList<string> changedDetailMd5s = null, IReadOnlyList<string> changedDetailSha256s = null,
         IReadOnlyList<InstalledChartCurrentChange> installedChartChanges = null,
         IReadOnlyList<CatalogCommitReceipt> catalogCommits = null,
-        IReadOnlyList<ScoreSnapshotChange> scoreChanges = null)
+        IReadOnlyList<ScoreSnapshotChange> scoreChanges = null,
+        IReadOnlyList<PlaylistReferenceCommitReceipt> referenceCommits = null)
     {
         CatalogCommits = catalogCommits ?? [];
         ScoreChanges = scoreChanges ?? [];
+        ReferenceCommits = referenceCommits == null ? [] : referenceCommits.ToImmutableArray();
         Version = version; CatalogRevision = catalogRevision; Effects = effects;
         InstallDestinationChangedCharts = installDestinationChangedCharts ?? [];
         ResetsPriorNotifications = resetsPriorNotifications;
@@ -62,6 +64,8 @@ internal sealed class NormalLibraryRefreshNotification
     internal IReadOnlyList<CatalogCommitReceipt> CatalogCommits { get; }
     /// <summary>登録順を保つ独立scoreの確定範囲です。catalog resetで失いません。</summary>
     internal IReadOnlyList<ScoreSnapshotChange> ScoreChanges { get; }
+    /// <summary>境界をまとめず登録順に保持する参照索引の確定範囲です。catalog resetで失いません。</summary>
+    internal IReadOnlyList<PlaylistReferenceCommitReceipt> ReferenceCommits { get; }
     internal int CatalogRevision { get; }
     internal LibraryChartRefreshEffects Effects { get; }
     internal IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; }
@@ -85,10 +89,12 @@ internal sealed class NormalLibraryRefreshNotificationBatch
         IReadOnlyList<string> changedDetailMd5s = null, IReadOnlyList<string> changedDetailSha256s = null,
         IReadOnlyList<InstalledChartCurrentChange> installedChartChanges = null,
         IReadOnlyList<CatalogCommitReceipt> catalogCommits = null,
-        IReadOnlyList<ScoreSnapshotChange> scoreChanges = null)
+        IReadOnlyList<ScoreSnapshotChange> scoreChanges = null,
+        IReadOnlyList<PlaylistReferenceCommitReceipt> referenceCommits = null)
     {
         CatalogCommits = catalogCommits ?? [];
         ScoreChanges = scoreChanges ?? [];
+        ReferenceCommits = referenceCommits == null ? [] : referenceCommits.ToImmutableArray();
         LatestVersion = latestVersion; CatalogRevision = catalogRevision; Effects = effects;
         InstallDestinationChangedCharts = installDestinationChangedCharts ?? [];
         ResetsPriorNotifications = resetsPriorNotifications;
@@ -101,6 +107,8 @@ internal sealed class NormalLibraryRefreshNotificationBatch
     internal IReadOnlyList<CatalogCommitReceipt> CatalogCommits { get; }
     /// <summary>登録順を保つ独立scoreの確定範囲です。catalog resetで失いません。</summary>
     internal IReadOnlyList<ScoreSnapshotChange> ScoreChanges { get; }
+    /// <summary>境界をまとめず登録順に保持する参照索引の確定範囲です。catalog resetで失いません。</summary>
+    internal IReadOnlyList<PlaylistReferenceCommitReceipt> ReferenceCommits { get; }
     internal int CatalogRevision { get; }
     internal LibraryChartRefreshEffects Effects { get; }
     internal IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; }
@@ -113,7 +121,7 @@ internal sealed class NormalLibraryRefreshNotificationBatch
     internal IReadOnlyList<string> ChangedDetailMd5s { get; }
     internal IReadOnlyList<string> ChangedDetailSha256s { get; }
     internal bool HasRefreshNotification => ResetsPriorNotifications || Effects != LibraryChartRefreshEffects.None
-        || InstallDestinationChangedCharts.Count > 0 || ChangedCharts.Count > 0 || DeletedTokens.Count > 0 || ScoreChanges.Count > 0;
+        || InstallDestinationChangedCharts.Count > 0 || ChangedCharts.Count > 0 || DeletedTokens.Count > 0 || ScoreChanges.Count > 0 || ReferenceCommits.Count > 0;
     internal bool HasEffect(LibraryChartRefreshEffects effect) => (Effects & effect) != 0;
 }
 
@@ -449,7 +457,6 @@ public partial class BMSLibrary : ObservableObject
 
     private static readonly FileMutationOptions recursiveDirectoryTreeFileMutationOptions = new(ReadOnlyNormalizationScope.RecursiveDirectoryTree);
 
-    private const int playlistReferenceApplyChunkSize = 1024;
 
     /// <summary>
     /// インストール処理のパフォーマンスログを出力します。コマンドラインスイッチで有効化されている場合のみ動作します。
@@ -2670,7 +2677,8 @@ public partial class BMSLibrary : ObservableObject
         catalogOwnedCollectionOwner.RefreshPublisher = normalLibraryRefreshPublisher;
         lr2SynchronizationRuntimeState = new(LogInstallPerformance);
         lr2config = getLR2Config ?? (() => null);
-        playlistReferenceOwner = new(playlistReferenceApplyChunkSize);
+        playlistReferenceOwner = new(normalLibraryRefreshPublisher,
+            () => TryInvokePostLeaseNotification(() => RaisePropertyChanged(nameof(NormalLibraryRefreshNotificationVersion)), "playlist_reference_change_notification_failed"));
         lr2SongDBPath = _lr2SongDB;
         lr2ScoreDBPath = _lr2ScoreDB;
         this.startupRequiredFileScanReason = startupRequiredFileScanReason;
@@ -2790,7 +2798,6 @@ public partial class BMSLibrary : ObservableObject
             catalogMutationOwner,
             catalogMaintenanceOwner,
             resourceHealthOwner,
-            playlistReferenceOwner,
             ownedInputSnapshotGate,
             normalLibraryRefreshPublisher,
             CreateLr2NormalFolderCatalogMutationReceipt,
@@ -9360,136 +9367,37 @@ public partial class BMSLibrary : ObservableObject
         return playlistReferenceOwner.Find(chart);
     }
 
-    public void AddReferenceBMSTables(BMSTable table, IEnumerable<BMSTableEntry> entries = null)
-    {
-        PlaylistReferenceTableSnapshot tableSnapshot = SnapshotPlaylistReferenceTable(table, entries);
-        PlaylistReferenceLookupKeys lookupKeys = playlistReferenceOwner.BuildReferenceLookupKeys(tableSnapshot);
-        playlistReferenceOwner.AddReferenceBMSTable(
-            tableSnapshot,
-            lookupKeys,
-            SnapshotLibraryChartRefsForPlaylistReferenceApply(lookupKeys),
-            SnapshotPendingChartEntriesForPlaylistReferenceApply(lookupKeys),
-            LogInstallPerformance);
-    }
+    /// <summary>必要なMD5/SHA両キーの参照表示を同じ索引版で捕捉します。空bucketを除外しません。</summary>
+    internal PlaylistReferenceReadSnapshot CapturePlaylistReferenceReadSnapshot(IEnumerable<PlaylistEntryLookupKey> keys, CancellationToken cancellationToken = default)
+        => playlistReferenceOwner.Capture(keys, cancellationToken);
 
-    public void AddReferenceBMSTables(IEnumerable<BMSTable> tables)
-    {
-        List<PlaylistReferenceTableSnapshot> tableSnapshots = SnapshotPlaylistReferenceTables(tables);
-        if (tableSnapshots.Count == 0)
-        {
-            return;
-        }
-        PlaylistReferenceLookupKeys lookupKeys = playlistReferenceOwner.BuildReferenceLookupKeys(tableSnapshots);
-        playlistReferenceOwner.AddReferenceBMSTables(
-            tableSnapshots,
-            lookupKeys,
-            SnapshotLibraryChartRefsForPlaylistReferenceApply(lookupKeys),
-            SnapshotPendingChartEntriesForPlaylistReferenceApply(lookupKeys),
-            LogInstallPerformance);
-    }
+    /// <summary>実参照処理だけを観測する任意callback。集計状態は呼出側が所有します。</summary>
+    internal Action<string> PlaylistReferenceWorkObserver { get => playlistReferenceOwner.WorkObserver; set => playlistReferenceOwner.WorkObserver = value; }
 
-    public void AddReferenceBMSTablesIncremental(IEnumerable<BMSTable> tables)
-    {
-        var tableSnapshots = SnapshotPlaylistReferenceTables(tables)
-            .GroupBy(snapshot => snapshot.Table)
-            .Select(group => group.First())
-            .ToList();
-        if (tableSnapshots.Count == 0)
-        {
-            return;
-        }
-        PlaylistReferenceLookupKeys lookupKeys = playlistReferenceOwner.BuildReferenceLookupKeys(tableSnapshots);
-        playlistReferenceOwner.AddReferenceBMSTablesIncremental(
-            tableSnapshots,
-            lookupKeys,
-            SnapshotLibraryChartRefsForPlaylistReferenceApply(lookupKeys),
-            SnapshotPendingChartEntriesForPlaylistReferenceApply(lookupKeys),
-            LogInstallPerformance);
-    }
+    /// <summary>全guard解放後の一groupを既存の参照確定境界へ渡します。</summary>
+    internal void ApplyPlaylistReferenceEntryCommits(IReadOnlyList<PlaylistEntryCommitReceipt> receipts, IEnumerable<PlaylistReferenceTableHeader> headers = null)
+        => playlistReferenceOwner.Apply(receipts, headers);
 
-    /// <summary>
-    /// Applies loaded playlist references to package chart entries after package install without materializing unmatched bmson entries.
-    /// </summary>
-    /// <param name="tables">Loaded playlist tables whose entries should be matched by chart hash.</param>
-    /// <param name="packages">Packages containing newly installed chart entries.</param>
-    public void AddReferenceBMSTablesToPackageCharts(IEnumerable<BMSTable> tables, IEnumerable<ChartPackage> packages)
-    {
-        List<PlaylistReferenceTableSnapshot> tableSnapshots = SnapshotPlaylistReferenceTables(tables);
-        List<ChartPackage> packageList = [.. (packages ?? []).Where(package => package != null)];
-        if (tableSnapshots.Count == 0 || packageList.Count == 0)
-        {
-            return;
-        }
-        PlaylistReferenceLookupKeys lookupKeys = playlistReferenceOwner.BuildReferenceLookupKeys(tableSnapshots);
-        playlistReferenceOwner.AddReferenceBMSTablesToPackageCharts(
-            tableSnapshots,
-            lookupKeys,
-            SnapshotPackageChartEntriesForPlaylistReferenceApply(packageList, lookupKeys),
-            packageList.Count,
-            LogInstallPerformance);
-    }
-
-    internal void ReplaceReferenceBMSTable(BMSTable oldTable, BMSTable newTable, IEnumerable<BMSTableEntry> oldEntries = null, IEnumerable<BMSTableEntry> newEntries = null)
-    {
-        PlaylistReferenceTableSnapshot oldTableSnapshot = SnapshotPlaylistReferenceTable(oldTable, oldEntries);
-        PlaylistReferenceTableSnapshot newTableSnapshot = SnapshotPlaylistReferenceTable(newTable, newEntries);
-        BmsLibraryPlaylistReferenceOwner.BuildPlaylistReferenceHashSets(oldTableSnapshot?.Entries, out HashSet<string> oldMd5Hashes, out HashSet<string> oldSha256Hashes);
-        BmsLibraryPlaylistReferenceOwner.BuildPlaylistReferenceHashSets(newTableSnapshot?.Entries, out HashSet<string> newMd5Hashes, out HashSet<string> newSha256Hashes);
-        playlistReferenceOwner.ReplaceReferenceBMSTable(
-            oldTableSnapshot,
-            newTableSnapshot,
-            SnapshotLibraryChartRefsForPlaylistReferenceApply(
-                CreateCombinedPlaylistReferenceHashSet(oldMd5Hashes, newMd5Hashes),
-                CreateCombinedPlaylistReferenceHashSet(oldSha256Hashes, newSha256Hashes)),
-            SnapshotPendingChartEntriesForPlaylistReferenceApply(),
-            LogInstallPerformance);
-    }
-
-    internal void AddReferenceBMSTablesToCharts(BMSTable table, IEnumerable<ChartFile> charts)
-    {
-        playlistReferenceOwner.AddReferenceBMSTablesToCharts(SnapshotPlaylistReferenceTable(table));
-    }
-
-    internal void RefreshReferenceDisplayForTable(BMSTable table)
-    {
-        playlistReferenceOwner.RefreshReferenceDisplayForTable(SnapshotPlaylistReferenceTable(table));
-    }
-
+    /// <summary>初回・実全置換に必要な参照選択集合を確定します。</summary>
     internal void SynchronizeReferenceBMSTables(IEnumerable<BMSTable> tables)
-    {
-        playlistReferenceOwner.SynchronizeReferenceBMSTables(SnapshotPlaylistReferenceTables(tables));
-    }
+        => playlistReferenceOwner.SynchronizeReferenceBMSTables(SnapshotPlaylistReferenceTables(tables));
 
-    internal BmsLibraryPlaylistReferenceOwner.PlaylistReferenceSynchronizationPlan
-        PrepareReferenceBMSTableSynchronization(IEnumerable<BMSTable> tables)
+    /// <summary>全体参照入力の捕捉前の索引位置と不変入力を結びます。</summary>
+    internal BmsLibraryPlaylistReferenceOwner.PlaylistReferenceSynchronizationPlan PrepareReferenceBMSTableSynchronization(IEnumerable<BMSTable> tables)
     {
-        long baseRevision = playlistReferenceOwner.CaptureReferenceIndexRevision();
-        List<PlaylistReferenceTableSnapshot> snapshots = SnapshotPlaylistReferenceTables(tables);
-        return playlistReferenceOwner.PrepareReferenceBMSTableSynchronization(
-            baseRevision,
-            snapshots);
+        long revision = playlistReferenceOwner.CaptureReferenceIndexRevision();
+        return playlistReferenceOwner.PrepareReferenceBMSTableSynchronization(revision, SnapshotPlaylistReferenceTables(tables));
     }
+    /// <summary>捕捉後に参照索引が進んだ全体準備は採用しません。</summary>
+    internal bool TryCommitReferenceBMSTableSynchronization(BmsLibraryPlaylistReferenceOwner.PlaylistReferenceSynchronizationPlan plan)
+        => playlistReferenceOwner.TryCommitReferenceBMSTableSynchronization(plan);
 
-    internal bool TryCommitReferenceBMSTableSynchronization(
-        BmsLibraryPlaylistReferenceOwner.PlaylistReferenceSynchronizationPlan plan)
-    {
-        return playlistReferenceOwner.TryCommitReferenceBMSTableSynchronization(plan);
-    }
+    /// <summary>新規登録・実表置換で必要な表だけを捕捉します。</summary>
+    internal void PublishPlaylistReferenceTables(IReadOnlyList<PlaylistReferenceTableSnapshot> tables, IReadOnlyList<PlaylistReferenceTableHeader> headers,
+        IEnumerable<BMSTable> removals = null) => playlistReferenceOwner.ReplaceTables(tables, headers, removals);
 
-    /// <summary>
-    /// 指定されたプレイリストの参照を BMS ファイル群から削除します。
-    /// </summary>
-    public void RemoveReferenceBMSTables(BMSTable table, IEnumerable<BMSTableEntry> entries = null)
-    {
-        playlistReferenceOwner.RemoveReferenceBMSTables(
-            SnapshotPlaylistReferenceTable(table),
-            entries == null);
-    }
-
-    public void RemoveReferenceBMSTables(IEnumerable<BMSTable> tables)
-    {
-        playlistReferenceOwner.RemoveReferenceBMSTables(SnapshotPlaylistReferenceTables(tables, requireLoaded: false));
-    }
+    /// <summary>退役した表を既存参照索引から除去します。</summary>
+    internal void RemovePlaylistReferenceTables(IEnumerable<BMSTable> tables) => playlistReferenceOwner.RemoveTables(tables);
 
     internal List<string> GetPlaylistOrgMd5sForChart(ChartFile chart)
     {

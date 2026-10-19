@@ -238,14 +238,12 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     }
 
     /// <summary>
-    /// 保証：混合4対象のURI・Kindを元入力順で照合し、実参照通知の失敗時は同じ例外のWarningを登録結果の直後へ置く。
-    /// 登録確定・IDとentry所属、既存表の非取得・内容、残る二表・管理台帳・config他キー・管理外BMTを両行で保つ。
+    /// 保証：混合4対象のURI・Kindを元入力順で照合し、登録済みの参照表示をモデルから確認する。
+    /// 登録確定・IDとentry所属、既存表の非取得・内容、残る二表・管理台帳・config他キー・管理外BMTを保つ。
     /// 通信中Busyと要求元付き進捗を観測し、実受付Taskとconsumerを合流してからHTTP・tempを解放する。
     /// </summary>
-    [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task StartBeatorajaTableUrlImport_NewTablePublishesOwnedProgressAndSuccessfulSummary(bool failReferenceNotification)
+    [TestMethod]
+    public async Task StartBeatorajaTableUrlImport_NewTablePublishesOwnedProgressAndSuccessfulSummary()
     {
         string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceExternalSourceTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -341,14 +339,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 summaryReady.TrySetException(new InvalidOperationException(request.Message));
             workspace.BeatorajaTableUrlImportSummaryReady += (_, request) => summaryReady.TrySetResult(request.Summary);
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
-            var referenceNotificationFailure = new InvalidOperationException("固定入力：beatoraja共有参照通知の失敗");
-            int referenceNotificationCount = 0;
-            // 実一括参照追加後の通知先でだけ失敗させ、生産側が保持する元causeと対象ごとのWarningを観測する。
-            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) =>
-            {
-                referenceNotificationCount++;
-                if (failReferenceNotification) { throw referenceNotificationFailure; }
-            };
+
 
             started = true;
             workspace.StartBeatorajaTableUrlImport(beatorajaRoot);
@@ -369,35 +360,13 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             Assert.AreEqual(1, summary.ExistingCount, diagnostics);
             Assert.AreEqual(1, summary.FailedCount, diagnostics);
             Assert.AreEqual(0, summary.RestoredFromBmtCount, diagnostics);
-            Assert.AreEqual(failReferenceNotification ? 2 : 0, summary.WarningCount, diagnostics);
-            Assert.AreEqual(failReferenceNotification ? 6 : 4, summary.Outcomes.Count, diagnostics);
-            CollectionAssert.AreEqual(failReferenceNotification
-                ? new[] { inputUri, inputUri, existingUri, unmanagedUri, secondUri, secondUri }
-                : new[] { inputUri, existingUri, unmanagedUri, secondUri }, summary.Outcomes.Select(outcome => outcome.Uri.AbsoluteUri).ToArray());
-            CollectionAssert.AreEqual(failReferenceNotification
-                ? new[] { BeatorajaTableUrlImportOutcomeKind.Imported, BeatorajaTableUrlImportOutcomeKind.Warning,
-                    BeatorajaTableUrlImportOutcomeKind.Existing, BeatorajaTableUrlImportOutcomeKind.Failed,
-                    BeatorajaTableUrlImportOutcomeKind.Imported, BeatorajaTableUrlImportOutcomeKind.Warning }
-                : new[] { BeatorajaTableUrlImportOutcomeKind.Imported, BeatorajaTableUrlImportOutcomeKind.Existing,
-                    BeatorajaTableUrlImportOutcomeKind.Failed, BeatorajaTableUrlImportOutcomeKind.Imported },
+            Assert.AreEqual(0, summary.WarningCount, diagnostics);
+            Assert.AreEqual(4, summary.Outcomes.Count, diagnostics);
+            CollectionAssert.AreEqual(new[] { inputUri, existingUri, unmanagedUri, secondUri },
+                summary.Outcomes.Select(outcome => outcome.Uri.AbsoluteUri).ToArray());
+            CollectionAssert.AreEqual(new[] { BeatorajaTableUrlImportOutcomeKind.Imported, BeatorajaTableUrlImportOutcomeKind.Existing,
+                BeatorajaTableUrlImportOutcomeKind.Failed, BeatorajaTableUrlImportOutcomeKind.Imported },
                 summary.Outcomes.Select(outcome => outcome.Kind).ToArray(), diagnostics);
-            Assert.IsTrue(referenceNotificationCount > 0, "実参照通知へ到達する必要があります。");
-            if (failReferenceNotification)
-            {
-                foreach ((int mainIndex, int warningIndex, string uri, string name) in new[]
-                {
-                    (0, 1, inputUri, "New B"), (4, 5, secondUri, "New A")
-                })
-                {
-                    BeatorajaTableUrlImportOutcome main = summary.Outcomes[mainIndex];
-                    BeatorajaTableUrlImportOutcome warning = summary.Outcomes[warningIndex];
-                    Assert.AreEqual(uri, main.Uri.AbsoluteUri);
-                    Assert.AreEqual(name, main.TableName);
-                    Assert.AreEqual(main.Uri, warning.Uri);
-                    Assert.AreEqual(main.TableName, warning.TableName);
-                    Assert.AreSame(referenceNotificationFailure, warning.Exception);
-                }
-            }
             Assert.IsFalse(existingServer.HeadersSent.Task.IsCompleted, "既存一致のURLを再取得しません。");
             BeatorajaTableUrlImportOutcome imported = summary.Outcomes.First();
             Assert.AreEqual(BeatorajaTableUrlImportOutcomeKind.Imported, imported.Kind, diagnostics);
@@ -790,7 +759,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 playlistLibraryProvider: () => library,
                 propertySaveService: propertySaveService,
                 catalogNotificationQueue: catalogNotificationQueue.Enqueue);
-            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => { };
+
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
 
             ISettingsDialogWorkspacePort settingsPort = workspace;

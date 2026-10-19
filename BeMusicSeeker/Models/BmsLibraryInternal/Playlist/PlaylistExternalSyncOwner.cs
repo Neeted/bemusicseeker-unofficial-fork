@@ -66,6 +66,7 @@ internal sealed class PlaylistExternalSyncOwner
     private readonly Action<IReadOnlyList<BMSTable>, string, LibraryFileMutationCapability> reOutputCustomFoldersAfterReload;
 
     private readonly Func<LibraryFileMutationCapability, LibraryFileMutationLease> mutationAdmission;
+    private readonly Action<IReadOnlyList<PlaylistTableUpdateReceipt>> requiredReferenceApply;
 
     internal event EventHandler<PlaylistTableUpdateReceiptPublishedEventArgs> PlaylistTableUpdateReceiptPublished;
 
@@ -96,6 +97,7 @@ internal sealed class PlaylistExternalSyncOwner
     /// <param name="reOutputCustomFoldersAfterReload">
     /// 正本を永続化した reload result を呼び出し単位でまとめ、`.lr2folder` と LR2 `folder` row を収束させる callback。
     /// </param>
+    /// <param name="requiredReferenceApply">全guard解放後・必要出力前に同じ確定receiptを参照モデルへ渡す必須接続。任意UI配送の抑制では省略しません。</param>
     internal PlaylistExternalSyncOwner(
         AppHttpClient httpClient,
         PlaylistRecommendedTableOwner recommendedTableOwner,
@@ -119,7 +121,8 @@ internal sealed class PlaylistExternalSyncOwner
         Func<IEnumerable<BMSTable>, string, LibraryFileMutationCapability, Task> exportBeatorajaBmts = null,
         Action<IEnumerable<BMSTable>, string> applyCachedPlaylistUrlCompletions = null,
         Action<IReadOnlyList<BMSTable>, string, LibraryFileMutationCapability> reOutputCustomFoldersAfterReload = null,
-        Func<LibraryFileMutationCapability, LibraryFileMutationLease> mutationAdmission = null)
+        Func<LibraryFileMutationCapability, LibraryFileMutationLease> mutationAdmission = null,
+        Action<IReadOnlyList<PlaylistTableUpdateReceipt>> requiredReferenceApply = null)
     {
         this.httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         this.recommendedTableOwner = recommendedTableOwner ?? throw new ArgumentNullException(nameof(recommendedTableOwner));
@@ -149,6 +152,7 @@ internal sealed class PlaylistExternalSyncOwner
         this.applyCachedPlaylistUrlCompletions = applyCachedPlaylistUrlCompletions;
         this.reOutputCustomFoldersAfterReload = reOutputCustomFoldersAfterReload;
         this.mutationAdmission = mutationAdmission;
+        this.requiredReferenceApply = requiredReferenceApply;
     }
 
     internal BMSTable LoadExternalTable(Uri pageUri, BMSTable baseTable = null)
@@ -764,6 +768,8 @@ internal sealed class PlaylistExternalSyncOwner
         }
         string operationReason = reason ?? "RegistrateExternalTableAsync";
         List<Exception> outputFailures = [];
+        try { requiredReferenceApply?.Invoke([new(null, bmsTable, true, true, null, operationReason)]); }
+        catch (Exception failure) { outputFailures.Add(failure); }
         if (migrateCustomFolderOutput)
         {
             try
@@ -844,13 +850,15 @@ internal sealed class PlaylistExternalSyncOwner
             }
             cancellationToken.ThrowIfCancellationRequested();
             await CommitAndAddBMSTablesAsync(tableList).ConfigureAwait(false);
-            cancellationToken.ThrowIfCancellationRequested();
+            // DBと可視集合の確定後は、単表登録と同じく必要参照・出力の実終端まで所有します。
         }
         finally
         {
             playlistAggregatePersistenceOwner.EndRegistration();
         }
         List<Exception> outputFailures = [];
+        try { requiredReferenceApply?.Invoke([.. tableList.Select(table => new PlaylistTableUpdateReceipt(null, table, true, true, null, operationReason))]); }
+        catch (Exception failure) { outputFailures.Add(failure); }
         foreach ((BMSTable table, string directory) target in customFolderOutputTargets)
         {
             try
@@ -1009,8 +1017,6 @@ internal sealed class PlaylistExternalSyncOwner
         Lazy<Task<WalkureScoreInput>> scoreCapture = null)
     {
         BMSTable newTable = table;
-        List<BMSTableEntry> oldEntriesSnapshot = null;
-        List<BMSTableEntry> newEntriesSnapshot = null;
         PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision persistenceDecision = null;
         bool updated = false;
         bool applySkipped = false;
@@ -1049,7 +1055,6 @@ internal sealed class PlaylistExternalSyncOwner
             cancellationToken.ThrowIfCancellationRequested();
             using (table.ReaderWriterLock.GetWriterGuard())
             {
-                oldEntriesSnapshot = [.. (table.entries ?? []).Where(entry => entry != null).Select(entry => entry.CreatePlaylistReloadSnapshot())];
                 IReadOnlyList<BMSTableEntry> persistedActiveEntries = playlistAggregatePersistenceOwner.LoadPersistedActivePlaylistEntries(table.playlist_id);
                 newTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(
                     table,
@@ -1058,16 +1063,12 @@ internal sealed class PlaylistExternalSyncOwner
                     out persistenceDecision,
                     logLastUpdateDecision: true);
                 updated = persistenceDecision.UpdatesLastUpdate;
-                if (persistenceDecision.NeedsEntryPersistence)
+                if (!persistenceDecision.NeedsEntryPersistence)
                 {
-                    newEntriesSnapshot = [.. (newTable.entries ?? []).Where(entry => entry != null).Select(entry => entry.CreatePlaylistReloadSnapshot())];
-                }
-                else
-                {
-                    newEntriesSnapshot = [.. oldEntriesSnapshot];
                     if (persistenceDecision.NeedsHeaderPersistence)
                     {
-                        newTable.entries = oldEntriesSnapshot;
+                        // headerだけの実表置換は既存entry値を材料にします。参照UI専用の旧新mirrorは作りません。
+                        newTable.entries = [.. (table.entries ?? []).Where(entry => entry != null).Select(entry => entry.CreatePlaylistReloadSnapshot())];
                     }
                     if (!persistenceDecision.NeedsStatePersistence)
                     {
@@ -1087,8 +1088,6 @@ internal sealed class PlaylistExternalSyncOwner
                     "Playlist reload result could not be applied to the active table.");
                 applySkipped = true;
                 newTable = table;
-                oldEntriesSnapshot = null;
-                newEntriesSnapshot = null;
                 persistenceDecision = null;
                 updated = false;
             }
@@ -1115,8 +1114,6 @@ internal sealed class PlaylistExternalSyncOwner
             failure = ex;
             applySkipped = true;
             newTable = table;
-            oldEntriesSnapshot = null;
-            newEntriesSnapshot = null;
             persistenceDecision = null;
             updated = false;
             logWarning?.Invoke(
@@ -1135,8 +1132,6 @@ internal sealed class PlaylistExternalSyncOwner
             failure = ex;
             applySkipped = true;
             newTable = table;
-            oldEntriesSnapshot = null;
-            newEntriesSnapshot = null;
             persistenceDecision = null;
             updated = false;
             if (!handledExternalLoadFailure)
@@ -1156,10 +1151,10 @@ internal sealed class PlaylistExternalSyncOwner
                 newTable,
                 updated,
                 persistenceDecision?.NeedsEntryPersistence == true,
-                oldEntriesSnapshot,
-                newEntriesSnapshot,
                 uri,
                 reason);
+            try { requiredReferenceApply?.Invoke([updateReceipt]); }
+            catch (Exception referenceFailure) { failure = CombineFailures([failure, referenceFailure]); }
             if (publishReferenceReceipt)
             {
                 try { PublishPlaylistTableUpdateReceipt(updateReceipt, uri); }
@@ -1326,8 +1321,6 @@ internal sealed class PlaylistExternalSyncOwner
             BMSTable newTable,
             bool updated,
             bool referenceEntriesChanged,
-            IReadOnlyList<BMSTableEntry> oldEntriesSnapshot,
-            IReadOnlyList<BMSTableEntry> newEntriesSnapshot,
             Uri uri,
             string reason)
         {
@@ -1335,8 +1328,6 @@ internal sealed class PlaylistExternalSyncOwner
             NewTable = newTable;
             Updated = updated;
             ReferenceEntriesChanged = referenceEntriesChanged;
-            OldEntriesSnapshot = oldEntriesSnapshot;
-            NewEntriesSnapshot = newEntriesSnapshot;
             Uri = uri;
             Reason = reason ?? string.Empty;
         }
@@ -1348,10 +1339,6 @@ internal sealed class PlaylistExternalSyncOwner
         internal bool ReferenceEntriesChanged { get; }
 
         internal BMSTable OldTable { get; }
-
-        internal IReadOnlyList<BMSTableEntry> OldEntriesSnapshot { get; }
-
-        internal IReadOnlyList<BMSTableEntry> NewEntriesSnapshot { get; }
 
         internal Uri Uri { get; }
 

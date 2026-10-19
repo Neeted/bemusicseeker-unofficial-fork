@@ -36,6 +36,12 @@ internal sealed class PlaylistBuildRequest
     internal readonly List<CatalogCommitReceipt> CatalogCommits = [];
     internal readonly List<PlaylistEntryCommitReceipt> EntryCommits = [];
     internal readonly List<ScoreSnapshotChange> ScoreChanges = [];
+    /// <summary>依存索引が完成する前から受理し、採用候補へ同じcommit境界で配送する参照差分です。</summary>
+    internal readonly List<PlaylistReferenceCommitReceipt> ReferenceCommits = [];
+    /// <summary>初回に一括捕捉し、実差分だけを適用した参照入力です。</summary>
+    internal ChartListReferenceInput ReferenceInput;
+    /// <summary>要求が実配送の完了を待つ必要位置です。入力の適用済み版へ付け替えません。</summary>
+    internal long RequiredReferenceRevision;
     internal readonly HashSet<string> DetailMd5Keys = new(StringComparer.OrdinalIgnoreCase);
     internal readonly HashSet<string> DetailSha256Keys = new(StringComparer.OrdinalIgnoreCase);
     internal TaskCompletionSource DataChanged = new(TaskCreationOptions.RunContinuationsAsynchronously);

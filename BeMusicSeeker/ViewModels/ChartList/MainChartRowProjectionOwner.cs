@@ -19,7 +19,7 @@ internal sealed class MainChartRowProjectionOwner
 
     private int chartInfoVersion;
 
-    /// <summary>通常一覧入力の実訪問・投影・確保件数を観測します。未指定時は計測状態を持ちません。</summary>
+    /// <summary>通常一覧入力の実訪問・投影・確保件数を観測します。投影はBMS/BMSONの形式別も通知し、未指定時は計測状態を持ちません。</summary>
     internal Action<string, int> NormalInputWorkObserver { get; set; }
 
     internal int ChartInfoVersion => Volatile.Read(ref chartInfoVersion);
@@ -44,15 +44,8 @@ internal sealed class MainChartRowProjectionOwner
         row.SetPlaybackStatusProvider(playbackStatusProvider);
         row.SetChartInfoProjectionProvider(chart => ResolveChartInfo(library, chart));
         row.SetResourceHealthProjectionProvider(candidate => ResolveResourceHealth(library, candidate));
-        row.SetPlaylistReferenceDisplayProvider(candidate => ResolvePlaylistReferenceDisplay(library, candidate?.Chart));
-    }
-
-    internal void ConfigureLibraryRows(BMSLibrary library, IEnumerable<LibraryChartRow> rows)
-    {
-        foreach (LibraryChartRow row in rows ?? [])
-        {
-            ConfigureLibraryRow(library, row);
-        }
+        PlaylistReferenceDisplay referenceDisplay = scoreSource == null ? CaptureReferenceDisplay(library, row.Chart) : null;
+        row.SetPlaylistReferenceDisplayProvider(scoreSource == null ? _ => referenceDisplay : _ => scoreSource.ReferenceDisplay);
     }
 
     internal LibraryChartRow CreateLibraryRow(BMSLibrary library, ChartFile chart)
@@ -89,47 +82,63 @@ internal sealed class MainChartRowProjectionOwner
         }
         row?.SetPlaybackStatusProvider(playbackStatusProvider);
         row?.SetChartInfoProjectionProvider(chart => ResolveChartInfo(library, chart));
-        row?.SetPlaylistReferenceDisplayProvider(candidate => ResolvePlaylistReferenceDisplay(library, candidate?.Chart));
+        row?.SetPlaylistReferenceDisplayProvider(_ => sourceRow.ReferenceDisplay);
         return row;
     }
 
-    /// <summary>専用package元集合全体を、最初のscore投影前に捕捉した同じlookupへ接続します。</summary>
+    /// <summary>専用package元集合全体を同じscore入力へ接続し、既存の投影一巡でMD5/SHAを登録して参照を捕捉してから返します。</summary>
     internal List<ChartListSourceRow> BuildPackageSourceRows(
         BMSLibrary library,
         IEnumerable<PackageChartEntry> entries,
-        bool includeResourceHealth, ChartListScoreInput scoreInput = null)
+        bool includeResourceHealth, ChartListScoreInput scoreInput = null, ChartListReferenceInput referenceInput = null)
     {
         scoreInput ??= new(library);
-        return ChartListSourceRow.BuildPackageRows(
-            entries,
+        referenceInput ??= new(library);
+        var keys = new HashSet<PlaylistEntryLookupKey>(CatalogReadSnapshot.LookupKeyComparer);
+        List<ChartListSourceRow> rows = ChartListSourceRow.BuildPackageRows(
+            (entries ?? []).Select(entry => { RegisterReferenceKeys(keys, entry?.Chart); return entry; }),
             includeResourceHealth ? row => ResolveResourceHealth(library, row) : null,
-            row => ResolvePlaylistReferenceDisplay(library, row),
+            row => referenceInput.Resolve(row.CapturedChart.Md5, row.CapturedChart.Sha256),
             GetTransientState,
             chart => ResolveChartInfo(library, chart),
             row => ResolveChartInfo(library, row),
             () => ChartInfoVersion,
             () => 0, scoreInput.Resolve);
+        referenceInput.CaptureInitial(keys);
+        NormalInputWorkObserver?.Invoke("reference_capture", 1);
+        return rows;
     }
 
-    /// <summary>専用譜面元集合全体を、表示filter前から同じscore入力へ接続します。</summary>
+    /// <summary>専用譜面元集合全体を表示filter前から同じscore入力へ接続し、同じ投影列挙で登録した両hashの参照値を捕捉します。</summary>
     internal List<ChartListSourceRow> BuildStandardSourceRows(
         BMSLibrary library,
         IEnumerable<ChartFile> charts,
         ChartListSourceProjectionMode projectionMode,
-        bool includeResourceHealth, ChartListScoreInput scoreInput = null)
+        bool includeResourceHealth, ChartListScoreInput scoreInput = null, ChartListReferenceInput referenceInput = null)
     {
         scoreInput ??= new(library);
-        return ChartListSourceRow.BuildStandardLibraryRows(
-            charts,
+        referenceInput ??= new(library);
+        var keys = new HashSet<PlaylistEntryLookupKey>(CatalogReadSnapshot.LookupKeyComparer);
+        List<ChartListSourceRow> rows = ChartListSourceRow.BuildStandardLibraryRows(
+            (charts ?? []).Select(chart => { RegisterReferenceKeys(keys, chart); return chart; }),
             projectionMode,
             includeResourceHealth ? row => ResolveResourceHealth(library, row) : null,
-            row => ResolvePlaylistReferenceDisplay(library, row),
+            row => referenceInput.Resolve(row.CapturedChart.Md5, row.CapturedChart.Sha256),
             GetTransientState,
             chart => ResolveChartInfo(library, chart),
             row => ResolveChartInfo(library, row),
             () => ChartInfoVersion,
             () => 0,
             scoreInput.Resolve);
+        referenceInput.CaptureInitial(keys);
+        NormalInputWorkObserver?.Invoke("reference_capture", 1);
+        return rows;
+    }
+
+    private static void RegisterReferenceKeys(HashSet<PlaylistEntryLookupKey> keys, ChartFile chart)
+    {
+        if (!string.IsNullOrWhiteSpace(chart?.Md5)) { keys.Add(new(PlaylistEntryLookupKeyKind.Md5, chart.Md5)); }
+        if (!string.IsNullOrWhiteSpace(chart?.Sha256)) { keys.Add(new(PlaylistEntryLookupKeyKind.Sha256, chart.Sha256)); }
     }
 
     /// <summary>捕捉したカタログを直接読む通常一覧入力を作ります。投影のためだけに所属を複製しません。</summary>
@@ -139,7 +148,8 @@ internal sealed class MainChartRowProjectionOwner
         source ??= new CatalogChartCollectionSnapshot([], [], 0);
         // 全行で同じ提供元を共有する。行factoryの内側で作ると、全件分の同一delegateを保持して後続処理のGC負荷を増やす。
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealth = candidate => ResolveResourceHealth(library, candidate);
-        Func<ChartListSourceRow, PlaylistReferenceDisplay> references = candidate => ResolvePlaylistReferenceDisplay(library, candidate);
+        var referenceInput = new ChartListReferenceInput(library);
+        Func<ChartListSourceRow, PlaylistReferenceDisplay> references = candidate => referenceInput.Resolve(candidate.Hash, candidate.Sha256);
         Func<ChartFile, bool, ChartFileTransientState> transientState = GetTransientState;
         Func<ChartFile, BeMusicSeeker.Models.ChartDetails> chartInfo = value => ResolveChartInfo(library, value);
         Func<ChartListSourceRow, BeMusicSeeker.Models.ChartDetails> rowChartInfo = candidate => ResolveChartInfo(library, candidate);
@@ -150,10 +160,10 @@ internal sealed class MainChartRowProjectionOwner
         return new NormalLibrarySourceRows(library, source, includeBmsonRows,
             chart => ChartListSourceRow.FromChartFile(chart, ChartListSourceProjectionMode.OwnerBacked,
                 resourceHealth, references, transientState, chartInfo, rowChartInfo, chartInfoVersion, scoreVersion, score), null,
-            (kind, count) => NormalInputWorkObserver?.Invoke(kind, count), scoreInput);
+            (kind, count) => NormalInputWorkObserver?.Invoke(kind, count), scoreInput, referenceInput);
     }
 
-    /// <summary>同じ読取り境界で捕捉したentry値・順序と所持currentを、一回の詳細投影へ渡します。</summary>
+    /// <summary>同じ読取り境界で捕捉したentry値・順序と所持currentを一回の詳細投影へ渡します。参照入力がある場合はその不変値を共有します。</summary>
     internal PlaylistDetailSourceRow CreatePlaylistDetailSourceRow(
         BMSLibrary library,
         BMSTableEntry entry,
@@ -162,14 +172,17 @@ internal sealed class MainChartRowProjectionOwner
         BeMusicSeeker.Models.ChartDetails entryChartInfo,
         LibraryChartRef resolvedChartRef,
         PlaylistEntryValue entryValue = null,
-        long entryOrder = 0)
+        long entryOrder = 0,
+        ChartListReferenceInput referenceInput = null)
     {
+        PlaylistReferenceDisplay referenceDisplay = referenceInput == null ? CaptureReferenceDisplay(library, resolvedChart) : null;
         var row = new PlaylistDetailSourceRow(
             entry,
             resolvedChart,
             scoreSnapshot,
             entryChartInfo,
-            chart => ResolvePlaylistReferenceDisplay(library, chart),
+            referenceInput == null ? _ => referenceDisplay
+                : chart => referenceInput.Resolve(chart?.Md5, chart?.Sha256),
             GetTransientState,
             chart => ResolveChartInfo(library, chart),
             resolvedChartRef,
@@ -255,16 +268,14 @@ internal sealed class MainChartRowProjectionOwner
         return row == null ? null : library?.ResolveChartInfo(row.Sha256, row.Hash);
     }
 
-    internal PlaylistReferenceDisplay ResolvePlaylistReferenceDisplay(BMSLibrary library, ChartFile chart)
+    private static PlaylistReferenceDisplay CaptureReferenceDisplay(BMSLibrary library, ChartFile chart)
     {
-        return library?.GetPlaylistReferenceDisplay(chart) ?? PlaylistReferenceDisplay.Empty;
-    }
-
-    internal PlaylistReferenceDisplay ResolvePlaylistReferenceDisplay(BMSLibrary library, ChartListSourceRow row)
-    {
-        return row == null
-            ? PlaylistReferenceDisplay.Empty
-            : library?.GetPlaylistReferenceDisplay(row.Hash, row.Sha256) ?? PlaylistReferenceDisplay.Empty;
+        if (chart == null) { return PlaylistReferenceDisplay.Empty; }
+        var input = new ChartListReferenceInput(library);
+        var keys = new HashSet<PlaylistEntryLookupKey>(CatalogReadSnapshot.LookupKeyComparer);
+        RegisterReferenceKeys(keys, chart);
+        input.CaptureInitial(keys);
+        return input.Resolve(chart.Md5, chart.Sha256);
     }
 
     private ResourceHealthWarningProjection ResolveResourceHealth(BMSLibrary library, LibraryChartRow row)

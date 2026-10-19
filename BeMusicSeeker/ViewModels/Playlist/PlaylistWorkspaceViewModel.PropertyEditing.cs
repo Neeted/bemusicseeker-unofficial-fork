@@ -117,14 +117,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             () => RemapCurrentPlaylistDetailFolderSelection(request.Table, request.RewrittenFolders));
     }
 
-    private void ForwardPlaylistPropertyReferenceSortInvalidationRequested(object sender, EventArgs e)
-    {
-        ApplyPlaylistPropertyPresentation(() => RaiseRequiredEvent(
-            PlaylistReferenceSortInvalidationRequested,
-            EventArgs.Empty,
-            nameof(PlaylistReferenceSortInvalidationRequested)));
-    }
-
     private void ForwardPlaylistSyncResultReported(
         object sender,
         PlaylistSyncResultReportedEventArgs request)

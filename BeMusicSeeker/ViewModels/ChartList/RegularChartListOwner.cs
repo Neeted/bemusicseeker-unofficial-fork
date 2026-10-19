@@ -91,7 +91,6 @@ internal sealed partial class RegularChartListOwner : IDisposable
     private long warningGeneration;
     private long installDestinationGeneration;
     private long maintenanceGeneration;
-    private long referenceTablesGeneration;
     private int handledCatalogRevision;
     private PropertyChangedEventListener normalLibraryRefreshListener;
     private BMSLibrary normalLibraryRefreshSource;
@@ -406,6 +405,9 @@ internal sealed partial class RegularChartListOwner : IDisposable
         {
             if (ReferenceEquals(normalLibraryRefreshDrainCompletionSource, completionSource))
             {
+                if (failure == null && (cachedNormalChanges.HasPending
+                    || mainChartList.Rows is ChartListVirtualView { HasPendingReferenceChanges: true }))
+                { failure = new InvalidOperationException("Library change delivery did not cover the captured reference boundary."); }
                 normalLibraryRefreshDrainScheduled = false;
                 if (!disposed && !normalLibraryRefreshApplySuppressed && normalLibraryRefreshSource != null
                     && normalLibraryRefreshRequestedNotificationVersion > normalLibraryRefreshHandledNotificationVersion
@@ -802,6 +804,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
             regularRequestActive = true;
             normalBuildCommits = null;
             normalBuildScoreChanges = null;
+            normalBuildReferenceCommits = null;
             normalBuildLibrary = null;
             normalBuildMd5Keys.Clear();
             normalBuildSha256Keys.Clear();
@@ -869,9 +872,11 @@ internal sealed partial class RegularChartListOwner : IDisposable
             normalBuildLibrary = library;
             normalBuildCommits = [];
             normalBuildScoreChanges = [];
+            normalBuildReferenceCommits = [];
             pendingNormalDelivery = Task.CompletedTask;
             pendingNormalScoreRequiredVersion = -1;
             pendingNormalCatalogRequiredRevision = -1;
+            pendingNormalReferenceRequiredRevision = -1;
             normalBuildMd5Keys.Clear();
             normalBuildSha256Keys.Clear();
             pendingNormalPresentation = null;
@@ -1462,7 +1467,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
     {
         if (!playlistDetail && mainChartList.Rows is ChartListVirtualView normal && normal.NormalInput != null
             && ReferenceEquals(normal.NormalInput.Library, library) && !batch.ResetsPriorNotifications
-            && batch.CatalogCommits.All(commit => commit.Revision <= normal.NormalInput.Snapshot.CatalogRevision))
+            && (normal.HasPendingReferenceChanges || batch.CatalogCommits.All(commit => commit.Revision <= normal.NormalInput.Snapshot.CatalogRevision)))
         {
             // カタログ差分は配送時にすでに対象だけへ反映済みです。ここでは画面公開だけを接続します。
             mainChartList.UpdateSummaryText(normal);
@@ -1514,6 +1519,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
             return;
         }
         ApplyIncrementalCatalogNotification(library, notification);
+        if (notification.CatalogCommits.Count > 0) { return; }
         rowCache.ApplyChanges(notification.ChangedCharts, notification.DeletedTokens,
             (row, chart) =>
             {
@@ -1985,7 +1991,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
 
     internal long MaintenanceGeneration => ReadGeneration(() => maintenanceGeneration);
 
-    internal long ReferenceTablesGeneration => ReadGeneration(() => referenceTablesGeneration);
+    /// <summary>診断用の通常元集合の反映済み参照位置です。独立した手動世代は持ちません。</summary>
+    internal long ReferenceTablesGeneration => ReadGeneration(() => virtualSourceRows?.References.Revision ?? 0);
 
     internal int InvalidateSource()
     {
@@ -2154,13 +2161,14 @@ internal sealed partial class RegularChartListOwner : IDisposable
         }
     }
 
+    /// <summary>整列に使った元集合の参照位置をcache識別へ含めます。最新索引位置へ読み替えません。</summary>
     internal NormalLibrarySortCacheKey CreateVirtualOrderKey(
         long expectedSourceGeneration,
         long expectedSortKeyGeneration,
         string columnName,
         ListSortDirection direction,
         int rowCount,
-        RegularChartListExternalVersions externalVersions)
+        RegularChartListExternalVersions externalVersions, long? referencePosition = null)
     {
         lock (syncRoot)
         {
@@ -2181,13 +2189,15 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 maintenance,
                 warning,
                 installDestination,
-                referenceTables,
+                referencePosition.HasValue && MainViewRefreshDecisionService.GetSortColumnDependency(columnName) == MainViewDataDependency.ReferenceTables
+                    ? referencePosition.Value : referenceTables,
                 columnName,
                 direction,
                 rowCount);
         }
     }
 
+    /// <summary>専用集合の同じ捕捉参照位置を整列cacheへ接続します。通常元集合の位置とは独立です。</summary>
     internal VirtualChartSubsetSortCacheKey CreateVirtualSubsetOrderKey(
         long expectedSourceGeneration,
         long expectedSortKeyGeneration,
@@ -2197,7 +2207,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         string columnName,
         ListSortDirection direction,
         int rowCount,
-        RegularChartListExternalVersions externalVersions)
+        RegularChartListExternalVersions externalVersions, long? referencePosition = null)
     {
         lock (syncRoot)
         {
@@ -2218,7 +2228,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 maintenance,
                 warning,
                 installDestination,
-                referenceTables,
+                referencePosition.HasValue && MainViewRefreshDecisionService.GetSortColumnDependency(columnName) == MainViewDataDependency.ReferenceTables
+                    ? referencePosition.Value : referenceTables,
                 treeMode,
                 subsetName,
                 sourceRowsSignature,
@@ -2253,7 +2264,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
     {
         lock (syncRoot)
         {
-            if (disposed || !IsCurrentUnsafe(key, currentExternalVersions) || input?.IsCurrent == false)
+            if (disposed || !IsCurrentUnsafe(key, currentExternalVersions) || input?.IsCurrent == false
+                || input != null && input.References.Revision < CaptureRequiredReferenceRevision(input.Library))
             {
                 return false;
             }
@@ -2262,14 +2274,17 @@ internal sealed partial class RegularChartListOwner : IDisposable
         }
     }
 
+    /// <summary>入力の参照差分が現在の必要位置を覆う場合だけ専用整列cacheを公開します。</summary>
     internal bool TryPublishVirtualSubsetOrder(
         VirtualChartSubsetSortCacheKey key,
         ChartListOrder order,
-        RegularChartListExternalVersions currentExternalVersions)
+        RegularChartListExternalVersions currentExternalVersions, ChartListReferenceInput referenceInput = null, int? catalogRevision = null)
     {
         lock (syncRoot)
         {
-            if (disposed || !IsCurrentUnsafe(key, currentExternalVersions))
+            if (disposed || !IsCurrentUnsafe(key, currentExternalVersions, referenceInput?.Revision)
+                || referenceInput != null && referenceInput.Revision < CaptureRequiredReferenceRevision(referenceInput.Library)
+                || catalogRevision.HasValue && referenceInput?.Library != null && catalogRevision.Value != referenceInput.Library.CatalogRevision)
             {
                 return false;
             }
@@ -3371,6 +3386,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
         mainChartList.RowProjection.CaptureVersions(request.Library);
         var scoreInput = new ChartListScoreInput(request.Library);
         int scorePosition = scoreInput.Position;
+        var referenceInput = new ChartListReferenceInput(request.Library);
+        int catalogRevision = request.Library?.CatalogRevision ?? 0;
         NormalLibrarySortCacheGenerationSnapshot generation = CaptureSortGeneration(
             request.SortColumnName,
             request.ExternalVersions);
@@ -3380,12 +3397,12 @@ internal sealed partial class RegularChartListOwner : IDisposable
             ? mainChartList.RowProjection.BuildPackageSourceRows(
                 request.Library,
                 request.SourceEntries,
-                request.ApplyResourceHealthProjection, scoreInput)
+                request.ApplyResourceHealthProjection, scoreInput, referenceInput)
             : mainChartList.RowProjection.BuildStandardSourceRows(
                 request.Library,
                 request.SourceCharts,
                 request.SourceProjectionMode,
-                request.ApplyResourceHealthProjection, scoreInput);
+                request.ApplyResourceHealthProjection, scoreInput, referenceInput);
         if (lease.Token.IsCancellationRequested)
         {
             return default;
@@ -3408,7 +3425,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
             out bool sortCacheHit,
             out VirtualChartSubsetSortCacheKey sortCacheKey,
             out long orderCacheLookupMs,
-            out long orderBuildMs, scorePosition);
+            out long orderBuildMs, scorePosition, referenceInput, catalogRevision);
         if (lease.Token.IsCancellationRequested)
         {
             return default;
@@ -3449,7 +3466,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 row,
                 request.ApplyResourceHealthProjection),
             distinctFolderCount, CreateSubsetFilter(request.KeywordFilter, request.ModeFilter), scoreInput, scorePosition,
-            (kind, count) => mainChartList.RowProjection.NormalInputWorkObserver?.Invoke(kind, count));
+            (kind, count) => mainChartList.RowProjection.NormalInputWorkObserver?.Invoke(kind, count), referenceInput, catalogRevision);
         RegularChartListTerminalResult terminal = TryCommitVirtual(
             lease,
             RegularChartListPresentationResult.ForVirtual(
@@ -3508,7 +3525,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         out bool cacheHit,
         out VirtualChartSubsetSortCacheKey cacheKey,
         out long orderCacheLookupMs,
-        out long orderBuildMs, int? scorePosition = null)
+        out long orderBuildMs, int? scorePosition = null, ChartListReferenceInput referenceInput = null, int? catalogRevision = null)
     {
         var lookupStopwatch = Stopwatch.StartNew();
         int rowCount = sourceRows?.Count ?? 0;
@@ -3525,8 +3542,9 @@ internal sealed partial class RegularChartListOwner : IDisposable
             normalizedColumnName,
             direction,
             rowCount,
-            CaptureExternalVersions(library, externalVersions, scorePosition));
-        if (TryGetVirtualSubsetOrder(cacheKey, out ChartListOrder cachedOrder))
+            CaptureExternalVersions(library, externalVersions, scorePosition), referenceInput?.Revision);
+        if ((!catalogRevision.HasValue || library == null || library.CatalogRevision == catalogRevision.Value)
+            && TryGetVirtualSubsetOrder(cacheKey, out ChartListOrder cachedOrder))
         {
             lookupStopwatch.Stop();
             cacheHit = true;
@@ -3545,7 +3563,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         TryPublishVirtualSubsetOrder(
             cacheKey,
             order,
-            CaptureExternalVersions(library, externalVersions));
+            CaptureExternalVersions(library, externalVersions), referenceInput, catalogRevision);
         cacheHit = false;
         orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
         orderBuildMs = buildStopwatch.ElapsedMilliseconds;
@@ -3637,17 +3655,25 @@ internal sealed partial class RegularChartListOwner : IDisposable
             return lookup.Rows;
         }
 
-        NormalLibrarySourceRows sourceRows = mainChartList.RowProjection.BuildNormalSourceRows(
-            library,
-            snapshot,
-            includeBmsonRows);
-        // 元集合の初回投影とhash依存を同じ一巡で準備してから、配送側にも参照されるcacheへ公開します。
-        sourceRows.PrepareForOrder();
-        TryPublishVirtualSourceRows(lookup, sourceRows);
-        cacheHit = false;
-        sourceGenerationAtLookup = lookup.SourceGeneration;
-        sortKeyGenerationAtLookup = lookup.SortKeyGeneration;
-        return sourceRows;
+        (BMSLibrary Library, List<PlaylistReferenceCommitReceipt> Commits) referenceCapture = (Library: library, Commits: new List<PlaylistReferenceCommitReceipt>());
+        lock (syncRoot) { normalReferenceCaptures.Add(referenceCapture); }
+        try
+        {
+            NormalLibrarySourceRows sourceRows = mainChartList.RowProjection.BuildNormalSourceRows(library, snapshot, includeBmsonRows);
+            // 元集合の初回投影/hash登録と同じ一巡で参照を捕捉し、同時に届いた実差分も公開前へ反映します。
+            sourceRows.PrepareForOrder();
+            lock (syncRoot)
+            {
+                foreach (PlaylistReferenceCommitReceipt commit in referenceCapture.Commits)
+                { sourceRows = sourceRows.WithReferenceCommit(commit, out _); }
+                TryPublishVirtualSourceRows(lookup, sourceRows);
+            }
+            cacheHit = false;
+            sourceGenerationAtLookup = lookup.SourceGeneration;
+            sortKeyGenerationAtLookup = lookup.SortKeyGeneration;
+            return sourceRows;
+        }
+        finally { lock (syncRoot) { normalReferenceCaptures.Remove(referenceCapture); } }
     }
 
     private ChartListOrder GetOrCreateVirtualNormalLibraryOrder(
@@ -3679,7 +3705,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 normalizedColumnName,
                 direction,
                 rowCount,
-                CaptureExternalVersions(library, externalVersions, scorePosition ?? (sourceRows as NormalLibrarySourceRows)?.ScoreInput?.Position));
+                CaptureExternalVersions(library, externalVersions, scorePosition ?? (sourceRows as NormalLibrarySourceRows)?.ScoreInput?.Position),
+                (sourceRows as NormalLibrarySourceRows)?.References.Revision);
             if (TryGetVirtualOrder(cacheKey, out ChartListOrder cachedOrder))
             {
                 lookupStopwatch.Stop();
@@ -3838,6 +3865,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 commitRows();
                 normalBuildCommits = null;
                 normalBuildScoreChanges = null;
+                normalBuildReferenceCommits = null;
                 normalBuildLibrary = null;
                 normalBuildMd5Keys.Clear();
                 normalBuildSha256Keys.Clear();
@@ -3930,7 +3958,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 + " totalMs=" + presentation.Stopwatch.ElapsedMilliseconds);
         }
         if (applied.WasApplied && presentation.CreateRowsRequest().Rows is ChartListVirtualView normalRows
-            && normalRows.NormalInput != null && presentation.CreateRowsRequest().Summary.Kind != MainChartListSummaryKind.Preserve)
+            && presentation.CreateRowsRequest().Summary.Kind != MainChartListSummaryKind.Preserve)
         {
             mainChartList.UpdateSummaryText(normalRows);
         }
@@ -3966,10 +3994,12 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 normalLibraryRefreshSource = null;
                 normalBuildCommits = null;
                 normalBuildScoreChanges = null;
+                normalBuildReferenceCommits = null;
                 normalBuildLibrary = null;
                 normalBuildMd5Keys.Clear();
                 normalBuildSha256Keys.Clear();
                 pendingNormalPresentation = null;
+                cachedNormalChanges.Clear();
                 normalLibraryRefreshHandledNotificationVersion = 0;
                 normalLibraryRefreshRequestedNotificationVersion = 0;
                 normalLibraryRefreshRequestedReason = null;
@@ -4134,6 +4164,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         regularRequestActive = false;
         normalBuildCommits = null;
         normalBuildScoreChanges = null;
+        normalBuildReferenceCommits = null;
         normalBuildLibrary = null;
         normalBuildMd5Keys.Clear();
         normalBuildSha256Keys.Clear();
@@ -4177,6 +4208,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
 
     private void ClearVirtualSourceRowsUnsafe()
     {
+        cachedNormalChanges.Clear();
         virtualSourceRows = null;
     }
 
@@ -4194,7 +4226,6 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 maintenanceGeneration++;
                 break;
             case MainViewDataDependency.ReferenceTables:
-                referenceTablesGeneration++;
                 break;
         }
     }
@@ -4272,7 +4303,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 installDestination = installDestinationGeneration;
                 break;
             case MainViewDataDependency.ReferenceTables:
-                referenceTables = referenceTablesGeneration;
+                referenceTables = virtualSourceRows?.References.Revision ?? 0;
                 break;
         }
     }
@@ -4300,7 +4331,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
 
     private bool IsCurrentUnsafe(
         VirtualChartSubsetSortCacheKey key,
-        RegularChartListExternalVersions externalVersions)
+        RegularChartListExternalVersions externalVersions, long? referencePosition = null)
     {
         NormalLibrarySortCacheGenerationSnapshot current = CaptureSortGenerationUnsafe(key.ColumnName, externalVersions);
         return sourceGeneration == key.SourceGeneration
@@ -4310,7 +4341,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
             && current.Maintenance == key.MaintenanceGeneration
             && current.Warning == key.WarningGeneration
             && current.InstallDestination == key.InstallDestinationGeneration
-            && current.ReferenceTables == key.ReferenceTablesGeneration;
+            && (referencePosition.HasValue && MainViewRefreshDecisionService.GetSortColumnDependency(key.ColumnName) == MainViewDataDependency.ReferenceTables
+                ? referencePosition.Value : current.ReferenceTables) == key.ReferenceTablesGeneration;
     }
 
     private NormalLibrarySortCacheGenerationSnapshot CaptureSortGenerationUnsafe(
@@ -4654,7 +4686,7 @@ internal sealed class RegularChartListPresentationResult
             Rows = rows,
             ColumnsSettings = columnsSettings,
             SelectionPolicy = selectionPolicy,
-            Summary = rows is ChartListVirtualView normal && normal.NormalInput != null
+            Summary = rows is ChartListVirtualView normal
                 && summary.Kind != MainChartListSummaryKind.Preserve
                 ? MainChartListSummaryUpdate.NormalCounts(normal.Count, normal.DistinctFolderCount) : summary,
             ColumnSettingReuse = columnSettingReuse,

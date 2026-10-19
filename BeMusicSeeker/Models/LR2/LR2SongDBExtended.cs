@@ -148,6 +148,13 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
         private string _symbol;
 
+        /// <summary>保存候補、またはDB確定後の正本へ名前・記号を無通知で設定します。正本はownerの同writer内で採用し、guard解放後に通知します。</summary>
+        protected void ApplyCommittedPlaylistNames(string name, string symbol)
+        {
+            _name = name;
+            _symbol = symbol;
+        }
+
         [PrimaryKey]
         [AutoIncrement]
         public int? playlist_id { get; set; }

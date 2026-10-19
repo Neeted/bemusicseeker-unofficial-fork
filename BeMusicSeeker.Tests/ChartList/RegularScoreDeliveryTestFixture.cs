@@ -105,6 +105,7 @@ internal sealed class RegularScoreDeliveryTestFixture : IDisposable
     public void Dispose()
     {
         Library.ScoreSnapshotWorkObserver = null;
+        Library.PlaylistReferenceWorkObserver = null;
         Table.RowProjection.NormalInputWorkObserver = null;
         Task stop = Owner.StopAsync();
         Scheduler.AbortOutstanding();

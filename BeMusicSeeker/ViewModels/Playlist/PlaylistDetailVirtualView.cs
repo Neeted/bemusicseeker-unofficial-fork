@@ -22,7 +22,7 @@ internal sealed class PlaylistDetailVirtualView : IList, IChartListViewMetadata,
     public event NotifyCollectionChangedEventHandler CollectionChanged;
 
     private readonly int distinctFolderCount;
-    private readonly Dictionary<string, int> folderCounts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> folderCounts = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>初回・明示条件変更の評価済み順序を取り込みます。局所更新では変更経路だけを共有します。</summary>
     internal PlaylistDetailVirtualView(
@@ -198,8 +198,8 @@ internal sealed class PlaylistDetailVirtualView : IList, IChartListViewMetadata,
 
     private void ChangeFolderCount(PlaylistDetailSourceRow row, int delta)
     {
-        if (distinctFolderCount < 0) { return; }
-        string folder = row.Folder ?? string.Empty;
+        if (distinctFolderCount < 0 || string.IsNullOrWhiteSpace(row.Folder)) { return; }
+        string folder = row.Folder;
         folderCounts.TryGetValue(folder, out int count);
         if (count + delta == 0) { folderCounts.Remove(folder); }
         else { folderCounts[folder] = count + delta; }

@@ -190,9 +190,8 @@ internal sealed partial class CatalogOwnedCollectionOwner
     }
     /// <summary>DBで確定した項目削除と内部移転を、共通現在値と隣接索引へ一回適用します。</summary>
     /// <returns>同じ確定時の現在値・版・旧新差分。後続entryへはこのAfterを共有します。</returns>
-    internal CatalogCommitReceipt ApplyMutation(IReadOnlyList<OwnedChartRemoveRequest> removals, IReadOnlyList<LibraryChartPathChange> paths, out bool normalized)
+    internal CatalogCommitReceipt ApplyMutation(IReadOnlyList<OwnedChartRemoveRequest> removals, IReadOnlyList<LibraryChartPathChange> paths)
     {
-        normalized = false;
         return Commit(state =>
         {
             if (removals?.Count > 0)
@@ -214,11 +213,6 @@ internal sealed partial class CatalogOwnedCollectionOwner
         bool orderNormalized = false;
         CatalogCommitReceipt receipt = Commit(state => orderNormalized = state.UpsertCharts(values));
         normalized = orderNormalized;
-        if (orderNormalized)
-        {
-            InvalidatePlaylistLibraryResolveIndexSnapshot();
-        }
-
         return receipt.HasChanges;
     }
     /// <summary>同じ所持識別の内容変更を共通現在値と温まったハッシュ索引へ反映します。</summary>

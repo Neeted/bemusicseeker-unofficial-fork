@@ -266,6 +266,8 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
     /// <param name="playlistUrlCompletionOptionsProvider">専用設定からURL補完入力を捕捉する既存依存。</param>
     /// <param name="beatorajaBmtOptionsProvider">専用設定からBMT入力を捕捉する既存依存。</param>
     /// <param name="recommendationScoreReader">推薦だけの固定原観測読取り。省略時は実ライブラリを使います。</param>
+    /// <param name="openEntryWriteConnection">entry保存の実DB接続をテスト所有のSQL観測へ接続します。</param>
+    /// <param name="lr2PlaylistFolderSynchronization">参照と受付は型付き構成で共有し、独立した出力境界だけを明示します。</param>
     internal TestBmsPlaylist(
         BmsPlaylistLibraryBindings libraryBindings,
         string songDbPath,
@@ -274,7 +276,9 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider = null,
         Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider = null,
         Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null,
-        Settings settings = null, IUiScheduler uiScheduler = null)
+        Settings settings = null, IUiScheduler uiScheduler = null,
+        Func<string, LR2SongDBExtended> openEntryWriteConnection = null,
+        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization = null)
         : base(
             libraryBindings,
             songDbPath,
@@ -285,7 +289,9 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             customFolderOutputSettingsProvider,
             TestBmsFactory.MissingEverythingBridge,
             uiScheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-            recommendationScoreReader: recommendationScoreReader)
+            recommendationScoreReader: recommendationScoreReader,
+            openEntryWriteConnection: openEntryWriteConnection,
+            lr2PlaylistFolderSynchronization: lr2PlaylistFolderSynchronization)
     {
     }
 

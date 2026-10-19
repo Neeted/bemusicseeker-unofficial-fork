@@ -34,6 +34,231 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistSummaryBulkEditTests
 {
+    /// <summary>実外部属性初期化のprefix候補をDBと詳細へ配送し、全体/folder選択と次sort要求の終端を保持します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task BulkExternalPrefix_UsesCommittedEntryReceiptForExistingDetail(bool selectedFolder)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        BMSTable table = fixture.Table;
+        if (selectedFolder) { fixture.Workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("P1")); }
+        await fixture.Refresh();
+        BMSTableEntry target = table.entries[0];
+        DateTime date = table.last_update;
+        Task selectionRefresh = Task.CompletedTask;
+        fixture.Workspace.PlaylistDetailReloadRefreshRequested += (_, _) => { selectionRefresh = fixture.Refresh(); };
+        await fixture.Workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync([new PlaylistSummaryRow { TableRef = table }],
+            new PlaylistWorkspaceViewModel.PlaylistSummaryExternalPropertyInitializationOptions { CompatPrefix = true });
+        await selectionRefresh;
+        Assert.AreEqual("Q", table.compat_prefix);
+        Assert.AreEqual(date, table.last_update);
+        Assert.AreSame(target, table.entries[0]);
+        Assert.AreEqual("current 0", target.memo);
+        CollectionAssert.AreEqual(new[] { "Q1", "Q2", "QX", "QQ3" }, table.entries.Select(entry => entry.folder).ToArray());
+        CollectionAssert.AreEqual(new[] { "QQ3", "QX", "Q2", "Q1" }, table.Folder_order);
+        Assert.AreEqual(selectedFolder ? "Q1" : null, fixture.Workspace.CapturePlaylistDetailSelection().FolderName);
+        Assert.AreEqual(table.PlaylistEntriesRevision, fixture.Workspace.DetailViewState.Source.LastBuiltPlaylistRevision);
+        fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.Folder), ListSortDirection.Descending);
+        await fixture.Refresh();
+        Assert.AreEqual(selectedFolder ? 1 : 4, fixture.Workspace.DetailViewState.View.Rows.Count);
+        Assert.IsTrue(fixture.Workspace.DetailViewState.View.Rows.Cast<PlaylistDetailRow>().All(row => row.Folder.StartsWith("Q", StringComparison.Ordinal)));
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        Assert.AreEqual("Q", db.ExecuteScalar<string>("SELECT compat_prefix FROM playlist WHERE playlist_id=7492;"));
+        Assert.AreEqual("Q1", db.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id=7492 AND title='entry 0';"));
+    }
+
+    /// <summary>bulk prefixの実DB前拒否と確定後通知故障を分け、旧状態維持/確定差分配送を実DBと既存詳細で確認します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task BulkExternalPrefix_FailuresRespectDatabaseCommitBoundary(bool afterCommit)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        await fixture.Refresh();
+        int version = fixture.Table.PlaylistEntriesRevision;
+        DateTime date = fixture.Table.last_update;
+        int notifications = 0;
+        fixture.Table.PropertyChanged += (_, change) =>
+        {
+            if (change.PropertyName != nameof(BMSTable.Folder_order)) { return; }
+            notifications++;
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+            Assert.AreEqual("Q", db.ExecuteScalar<string>("SELECT compat_prefix FROM playlist WHERE playlist_id=7492;"));
+            if (afterCommit) { throw new InvalidOperationException("bulk prefix notification failed"); }
+        };
+        if (!afterCommit) { fixture.Execute("CREATE TRIGGER fail_bulk_prefix BEFORE INSERT ON playlist BEGIN SELECT RAISE(ABORT, 'bulk prefix DB failed'); END;"); }
+        Exception? failure = null;
+        try
+        {
+            await fixture.Workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync([new PlaylistSummaryRow { TableRef = fixture.Table }],
+                new PlaylistWorkspaceViewModel.PlaylistSummaryExternalPropertyInitializationOptions { CompatPrefix = true });
+        }
+        catch (Exception caught) { failure = caught; }
+        Assert.IsNotNull(failure);
+        Assert.AreEqual(afterCommit ? "Q" : "P", fixture.Table.compat_prefix);
+        Assert.AreEqual(afterCommit ? "Q1" : "P1", fixture.Table.entries[0].folder);
+        Assert.AreEqual(version + (afterCommit ? 1 : 0), fixture.Table.PlaylistEntriesRevision);
+        Assert.AreEqual(date, fixture.Table.last_update);
+        Assert.AreEqual(afterCommit ? 1 : 0, notifications);
+        Assert.AreEqual(fixture.Table.PlaylistEntriesRevision, fixture.Workspace.DetailViewState.Source.LastBuiltPlaylistRevision);
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        Assert.AreEqual(afterCommit ? "Q" : "P", verify.ExecuteScalar<string>("SELECT compat_prefix FROM playlist WHERE playlist_id=7492;"));
+        Assert.AreEqual(afterCommit ? "Q1" : "P1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id=7492 AND title='entry 0';"));
+    }
+
+    /// <summary>実BMT台帳の読取り故障をDB確定後に発生させ、概要コピー/候補または採用済み詳細を確定値へ進めます。二次通知故障を重ねても出力原因を保ち、Pと進捗・receiptの終端を実Taskで確認します。DB前の旧状態は既存DurableFailureとprefix境界ケースが担当します。</summary>
+    [DataTestMethod]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    [DataRow(false, true)]
+    public async Task BulkExternalProperties_BmtFailureRefreshesCommittedPresentationAndPreservesPrimary(
+        bool summaryActive, bool failSecondaryNotifications)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(enableBmtOutput: true);
+        var receiptEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseReceipt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<Exception?>? operation = null;
+        try
+        {
+            await fixture.Refresh();
+            if (summaryActive)
+            {
+                fixture.Workspace.SetPlaylistSummaryMode(enabled: true);
+                fixture.Workspace.RebuildPlaylistSummaryView(runAsync: false);
+                Assert.AreEqual("Prefix", fixture.Workspace.PlaylistSummaryView.Single().Name);
+            }
+            BMSTableEntry entry = fixture.Table.entries[0];
+            int version = fixture.Table.PlaylistEntriesRevision;
+            DateTime date = fixture.Table.last_update;
+            Assert.AreEqual("PF", fixture.Library.GetPlaylistReferenceDisplay(entry.md5, null).Symbols);
+            File.WriteAllText(fixture.HeaderPath, "{\"name\":\"Changed Prefix\",\"symbol\":\"NEW\",\"compat_prefix\":\"Q\",\"data_url\":\"data.json\"}");
+            var secondary = new InvalidOperationException("bulk presentation notification failed");
+            int summaryRequests = 0, catalogNotifications = 0, keywordNotifications = 0, entryNotifications = 0;
+            bool headerGuardsReleased = false, collectionGuardReleased = false;
+            var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
+            var receipts = new ConcurrentQueue<PlaylistOperationNotificationPresentationRequestedEventArgs>();
+            var keywordCandidates = new ConcurrentQueue<string[]>();
+            var bmtFailures = new List<BmtTableExportService.FileOperationFailure>();
+            fixture.Playlist.BmtOutput.FailureReporter = failures =>
+            {
+                bmtFailures.AddRange(failures);
+                fixture.Workspace.ReportBmtOutputFailures(failures);
+            };
+            fixture.Playlist.PlaylistEntryCommitsAvailable += (_, _) => entryNotifications++;
+            fixture.Workspace.PlaylistCatalogChanged += (_, _) =>
+            {
+                catalogNotifications++;
+                headerGuardsReleased = !fixture.Table.ReaderWriterLock.IsReadLockHeld && !fixture.Table.ReaderWriterLock.IsWriteLockHeld;
+                // 同threadのcollection readerが残っていればwriter昇格は失敗する。
+                fixture.Playlist.AcquireWriterLockBMSTables();
+                try { collectionGuardReleased = true; }
+                finally { fixture.Playlist.FreeWriterLockBMSTables(); }
+                if (failSecondaryNotifications) { throw secondary; }
+            };
+            fixture.Workspace.PlaylistPresentationRefreshRequested += (_, request) =>
+            {
+                if (request.Kind == PlaylistPresentationRefreshKind.SummaryData
+                    && request.Reason == "playlist_summary_external_property_initialization")
+                {
+                    summaryRequests++;
+                    if (failSecondaryNotifications) { throw secondary; }
+                }
+            };
+            fixture.Workspace.PlaylistKeywordValueCandidatesChanged += (_, _) =>
+            {
+                keywordNotifications++;
+                keywordCandidates.Enqueue(fixture.Workspace.GetPlaylistKeywordValueCandidates().ToArray());
+                if (failSecondaryNotifications) { throw secondary; }
+            };
+            fixture.Workspace.PlaylistSyncProgressChanged += (_, request) => progress.Enqueue(request.Snapshot);
+            fixture.Workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
+            {
+                receipts.Enqueue(request);
+                if (request.RouteName != "playlist summary external property initialization notification") { return; }
+                receiptEntered.TrySetResult();
+                releaseReceipt.Task.GetAwaiter().GetResult();
+                if (failSecondaryNotifications) { throw secondary; }
+            };
+            using var blocker = new FileStream(fixture.BmtManifestPath, FileMode.Open, FileAccess.Read, FileShare.None);
+            operation = Task.Run(async () =>
+            {
+                try
+                {
+                    await fixture.Workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
+                        [new PlaylistSummaryRow { TableRef = fixture.Table }],
+                        new PlaylistWorkspaceViewModel.PlaylistSummaryExternalPropertyInitializationOptions
+                        { Name = true, Symbol = true, CompatPrefix = true });
+                    return (Exception?)null;
+                }
+                catch (Exception failure) { return failure; }
+            });
+            await TestUiDispatcherHost.AwaitNotificationAsync(receiptEntered.Task, operation, "bulk external properties terminal receipt");
+            Assert.IsFalse(operation.IsCompleted);
+            Assert.IsFalse(fixture.Playlist.WaitForPlaylistMutationIdleAsync().IsCompleted);
+            Assert.ThrowsException<InvalidOperationException>(() =>
+            {
+                using LibraryFileMutationLease conflicting = fixture.Playlist.AcquirePlaylistMutationLease("bulk-notification-busy");
+            });
+            releaseReceipt.TrySetResult();
+            Exception? failure = await operation;
+            Assert.IsNotNull(failure);
+            Assert.IsInstanceOfType<PlaylistMutationPostCommitException>(failure);
+            Assert.IsNotNull(failure.InnerException);
+            Assert.IsInstanceOfType<IOException>(failure.InnerException);
+            StringAssert.Contains(failure.InnerException.Message, BmtTableExportService.ManifestFileName);
+            Assert.IsTrue(bmtFailures.Count > 0);
+            Assert.AreNotSame(secondary, failure);
+            Assert.AreNotSame(secondary, failure.InnerException);
+            await fixture.Workspace.WaitForDetailBuildIdleAsync();
+            await fixture.Workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            Assert.AreSame(entry, fixture.Table.entries[0]);
+            Assert.AreEqual(version + 1, fixture.Table.PlaylistEntriesRevision);
+            Assert.AreEqual(date, fixture.Table.last_update);
+            Assert.AreEqual("Changed Prefix", fixture.Table.name);
+            Assert.AreEqual("NEW", fixture.Table.symbol);
+            Assert.AreEqual("Q", fixture.Table.compat_prefix);
+            Assert.AreEqual("Q1", entry.folder);
+            Assert.AreEqual("NEW", fixture.Library.GetPlaylistReferenceDisplay(entry.md5, null).Symbols);
+            Assert.AreEqual(1, entryNotifications);
+            Assert.AreEqual(1, catalogNotifications);
+            Assert.IsTrue(headerGuardsReleased);
+            Assert.IsTrue(collectionGuardReleased);
+            Assert.AreEqual(summaryActive ? 1 : 0, summaryRequests);
+            Assert.AreEqual(1, keywordNotifications);
+            CollectionAssert.AreEqual(new[] { "Changed Prefix" }, keywordCandidates.Single());
+            if (summaryActive)
+            {
+                PlaylistSummaryRow row = fixture.Workspace.PlaylistSummaryView.Single();
+                Assert.AreEqual("Changed Prefix", row.Name);
+                Assert.AreEqual("NEW", row.Symbol);
+                Assert.AreEqual("Q", row.CompatPrefix);
+            }
+            else
+            {
+                Assert.AreEqual(fixture.Table.PlaylistEntriesRevision, fixture.Workspace.DetailViewState.Source.LastBuiltPlaylistRevision);
+                CollectionAssert.AreEquivalent(new[] { "Q1", "Q2", "QX", "QQ3" },
+                    fixture.Workspace.DetailViewState.Source.Rows.Select(row => row.Folder).ToArray());
+            }
+            PlaylistSyncProgressSnapshot[] bulkProgress = progress.Where(snapshot => snapshot.Source == "playlist_summary_bulk").ToArray();
+            Assert.IsTrue(bulkProgress.Length > 0);
+            Assert.IsFalse(bulkProgress[^1].IsActive);
+            Assert.AreEqual(1, receipts.Count(request => request.RouteName == "playlist summary external property initialization notification"));
+            await fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+            using (fixture.Playlist.AcquirePlaylistMutationLease("bulk-failure-next-request")) { }
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+            Assert.AreEqual("Changed Prefix", db.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id=7492;"));
+            Assert.AreEqual("NEW", db.ExecuteScalar<string>("SELECT symbol FROM playlist WHERE playlist_id=7492;"));
+            Assert.AreEqual("Q", db.ExecuteScalar<string>("SELECT compat_prefix FROM playlist WHERE playlist_id=7492;"));
+            Assert.AreEqual("Q1", db.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id=7492 AND title='entry 0';"));
+        }
+        finally
+        {
+            releaseReceipt.TrySetResult();
+            if (operation != null) { await operation; }
+        }
+    }
+
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
     /// <summary>対象二表が同じ出力種別を有効にしている場合、別種別の除外差を無視して一括編集の有効状態を返すことを確認します。</summary>

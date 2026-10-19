@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -23,6 +24,12 @@ internal sealed class BmsPlaylistLibraryBindings
     /// </summary>
     internal BMSLibrary SourceLibrary { get; }
 
+    /// <summary>全guard解放後の同entry/header確定groupを、必要出力前に参照索引へ適用します。</summary>
+    internal void ApplyReferenceCommits(IReadOnlyList<PlaylistEntryCommitReceipt> receipts, IReadOnlyList<PlaylistReferenceTableHeader> headers = null)
+        => SourceLibrary.ApplyPlaylistReferenceEntryCommits(receipts, headers);
+    /// <summary>実表の登録・置換と同じ正本順のheaderを一回で参照索引へ渡します。</summary>
+    internal void PublishReferenceTables(IReadOnlyList<PlaylistReferenceTableSnapshot> tables, IReadOnlyList<PlaylistReferenceTableHeader> headers,
+        IEnumerable<BMSTable> removals = null) => SourceLibrary.PublishPlaylistReferenceTables(tables, headers, removals);
     /// <summary>選択中のスコア DB を読み直し、推薦用の変更不能な原観測を返します。</summary>
     internal Task<WalkureScoreInput> ReadRecommendationScoresAsync(CancellationToken cancellationToken)
         => SourceLibrary.ReadRecommendationScoresAsync(cancellationToken);

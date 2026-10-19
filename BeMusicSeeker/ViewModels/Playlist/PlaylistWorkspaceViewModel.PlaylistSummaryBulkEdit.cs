@@ -768,6 +768,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         public string EffectiveOutputDirAfter => BMSTable.ResolveOutputDirectoryName(DesiredName, DesiredOutputDir);
     }
 
+    /// <summary>外部属性をDB確定後に採用します。確定後の出力故障でもguard解放後に概要・候補・通知の終端を一度試し、最初の操作原因を保持します。</summary>
     internal async Task ApplyPlaylistSummaryExternalPropertyInitializationAsync(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryExternalPropertyInitializationOptions options, CancellationToken cancellationToken = default)
     {
         if (rows == null || options?.HasAnySelection != true)
@@ -777,7 +778,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         BMSPlaylist tables = GetPlaylistStore();
         using LibraryFileMutationLease accepted = tables.AcquirePlaylistMutationLease("playlist_summary_edit");
         using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
-        BMSLibrary library = getPlaylistLibrary();
         List<BMSTable> targetTables = [.. rows
             .Where(row => row?.TableRef != null)
             .Select(row => row.TableRef)
@@ -790,13 +790,11 @@ public sealed partial class PlaylistWorkspaceViewModel
             ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
 
         const string reason = "playlist_summary_external_property_initialization";
-        bool summaryRefreshRequired = false;
-        bool summaryRefreshAttempted = false;
+        bool headersCommitted = false;
         bool playlistTablesReaderLockHeld = false;
-        bool referenceDisplayRefreshRequired = false;
-        bool referenceSortInvalidationPublishedByEntryChange = false;
         bool playlistKeywordValueCandidatesChanged = false;
-        bool operationFailed = false;
+        Exception operationFailure = null;
+        Exception headerNotificationFailure = null;
         using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = tables.OperationNotificationOwner.BeginSession();
         BeginPlaylistSyncProgressOperation(PlaylistSummaryBulkProgressSource);
         try
@@ -887,9 +885,11 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 return;
             }
+            // 以後の生存確認は同じPとaggregateの保存区間が担います。確定後通知へcollection readerを持ち越しません。
+            tables.FreeReaderLockBMSTables();
+            playlistTablesReaderLockHeld = false;
             playlistKeywordValueCandidatesChanged = acceptedChanges.Any(change =>
                 !string.Equals(change.OriginalName, change.DesiredName, StringComparison.Ordinal));
-            summaryRefreshRequired = true;
 
             var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
             var outputBaseDirPathBeforeByTable = new Dictionary<BMSTable, string>();
@@ -899,6 +899,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             var headerOnlyTables = new List<BMSTable>();
             var sameOutputReOutputTables = new List<BMSTable>();
             var bmtProjectionTables = new List<BMSTable>();
+            var headerEdits = new Dictionary<BMSTable, PlaylistHeaderEdit>();
+            var folderMaps = new Dictionary<BMSTable, IReadOnlyDictionary<string, string>>();
             for (int changeIndex = 0; changeIndex < acceptedChanges.Count; changeIndex++)
             {
                 PlaylistSummaryExternalPropertyInitializationChange change = acceptedChanges[changeIndex];
@@ -923,35 +925,27 @@ public sealed partial class PlaylistWorkspaceViewModel
                 if (change.RequiresCompatiblePrefixRewrite)
                 {
                     tables.EnsurePlaylistEntriesLoaded(table, "ApplyPlaylistSummaryExternalPropertyInitialization.RewriteCompatiblePrefix");
-                    using (table.ReaderWriterLock.GetWriterGuard())
+                    using (table.ReaderWriterLock.GetReaderGuard())
                     {
-                        table.compat_prefix = change.DesiredCompatPrefix;
-                        entryFolderProjectionChanged = table.RewriteCompatibleFolderPrefix(
-                            change.OriginalCompatPrefix,
-                            change.DesiredCompatPrefix,
-                            out rewrittenFolders);
+                        rewrittenFolders = table.CreateValidatedCompatibleFolderPrefixRewriteMap(change.OriginalCompatPrefix, change.DesiredCompatPrefix);
+                        entryFolderProjectionChanged = rewrittenFolders.Count > 0;
                     }
-                    if (entryFolderProjectionChanged)
-                    {
-                        RemapCurrentPlaylistDetailFolderSelection(table, rewrittenFolders);
-                    }
+                    folderMaps[table] = rewrittenFolders;
                 }
 
-                table.name = change.DesiredName;
-                table.symbol = change.DesiredSymbol;
-                if (!change.RequiresCompatiblePrefixRewrite)
+                PlaylistHeaderFields fields = PlaylistHeaderFields.None;
+                if (change.OriginalName != change.DesiredName) { fields |= PlaylistHeaderFields.Name; }
+                if (change.OriginalSymbol != change.DesiredSymbol) { fields |= PlaylistHeaderFields.Symbol; }
+                if (change.RequiresCompatiblePrefixRewrite) { fields |= PlaylistHeaderFields.CompatPrefix; }
+                if (options.OutputDirectory) { fields |= PlaylistHeaderFields.OutputDirectory; }
+                headerEdits[table] = new PlaylistHeaderEdit
                 {
-                    table.compat_prefix = change.DesiredCompatPrefix;
-                }
-                if (options.OutputDirectory)
-                {
-                    table.Output_dir = BMSTable.CreateDefaultOutputDirectoryName(table.name);
-                }
-                if (library != null && change.BmtProjectionChanged)
-                {
-                    library.RefreshReferenceDisplayForTable(table);
-                    referenceDisplayRefreshRequired = true;
-                }
+                    Fields = fields,
+                    Name = change.DesiredName,
+                    Symbol = change.DesiredSymbol,
+                    CompatPrefix = change.DesiredCompatPrefix,
+                    OutputDirectory = options.OutputDirectory ? null : change.DesiredOutputDir
+                };
 
                 if (entryFolderProjectionChanged)
                 {
@@ -976,17 +970,28 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
 
             List<BMSTable> entryChangedTableList = [.. entryChangedTables.Distinct()];
+            try
+            {
+                tables.CommitPlaylistHeaderEdits(headerEdits, authority);
+                headersCommitted = true;
+            }
+            catch (PlaylistMutationPostCommitException failure)
+            {
+                headersCommitted = true;
+                headerNotificationFailure = failure.InnerException ?? failure;
+            }
+            foreach (PlaylistSummaryExternalPropertyInitializationChange change in acceptedChanges)
+            {
+                if (folderMaps.TryGetValue(change.Table, out IReadOnlyDictionary<string, string> map))
+                { RemapCurrentPlaylistDetailFolderSelection(change.Table, map); }
+            }
             if (entryChangedTableList.Count > 0)
             {
                 UpdatePlaylistSummaryExternalPropertyInitializationProgress(0, entryChangedTableList.Count, string.Empty);
-                tables.CommitBMSTablesWithEntriesToDB(
-                    entryChangedTableList,
-                    UpdatePlaylistSummaryExternalPropertyInitializationProgress, authority);
                 foreach (BMSTable table in entryChangedTableList)
                 {
                     PublishEntriesChanged(table, refreshSummaryIfVisible: false);
                 }
-                referenceSortInvalidationPublishedByEntryChange = true;
             }
             if (outputChangedTables.Count > 0)
             {
@@ -1029,7 +1034,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (headerOnlyCommitTables.Count > 0)
             {
                 UpdatePlaylistSummaryExternalPropertyInitializationProgress(0, headerOnlyCommitTables.Count, string.Empty);
-                tables.CommitBMSTableHeadersToDB(headerOnlyCommitTables, capability: authority);
                 UpdatePlaylistSummaryExternalPropertyInitializationProgress(headerOnlyCommitTables.Count, headerOnlyCommitTables.Count, string.Empty);
             }
             // Pが正本の変更を防ぐため、同期のmodel保護を出力の非同期待機へ持ち越しません。
@@ -1044,46 +1048,48 @@ public sealed partial class PlaylistWorkspaceViewModel
                 await tables.BmtOutput.ExportTablesAsync(bmtProjectionTables.Distinct(), reason, authority);
             }
             UpdatePlaylistSummaryExternalPropertyInitializationProgress(0, 0, string.Empty);
-            summaryRefreshAttempted = true;
-            RequestPlaylistSummaryRefresh(reason);
+            if (headerNotificationFailure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(headerNotificationFailure).Throw(); }
         }
-        catch
+        catch (Exception failure)
         {
-            operationFailed = true;
+            operationFailure = headerNotificationFailure ?? failure;
+            if (headerNotificationFailure != null && !ReferenceEquals(headerNotificationFailure, failure))
+            {
+                TryLogPlaylistDropSecondaryFailure(failure, "playlist_summary_external_property_initialization_post_commit_failure");
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(headerNotificationFailure).Throw();
+            }
             throw;
         }
         finally
         {
-            try
+            // 準備済み候補ではなくDB確定を根拠にする。出力失敗時も正本の値を公開し、別owner/UIへmodel guardを持ち越さない。
+            if (playlistTablesReaderLockHeld)
             {
-                if (!operationFailed && summaryRefreshRequired && !summaryRefreshAttempted)
+                tables.FreeReaderLockBMSTables();
+                playlistTablesReaderLockHeld = false;
+            }
+            Exception completionFailure = null;
+            void CompletePresentation(Action complete)
+            {
+                try { complete(); }
+                catch (Exception failure)
                 {
-                    summaryRefreshAttempted = true;
-                    RequestPlaylistSummaryRefresh(reason);
+                    if (operationFailure == null && completionFailure == null) { completionFailure = failure; }
+                    else { TryLogPlaylistDropSecondaryFailure(failure, "playlist_summary_external_property_initialization_completion_failure"); }
                 }
             }
-            finally
+            if (headersCommitted)
             {
-                if (playlistTablesReaderLockHeld)
-                {
-                    tables.FreeReaderLockBMSTables();
-                    playlistTablesReaderLockHeld = false;
-                }
-                if (!operationFailed && playlistKeywordValueCandidatesChanged)
-                {
-                    DispatchPlaylistKeywordValueCandidatesChanged();
-                }
-                if (!operationFailed
-                    && referenceDisplayRefreshRequired
-                    && !referenceSortInvalidationPublishedByEntryChange)
-                {
-                    RequestPlaylistReferenceSortInvalidation();
-                }
-                EndPlaylistSyncProgressOperation(PlaylistSummaryBulkProgressSource);
-                PublishPlaylistOperationNotificationReceipt(
-                    notificationSession,
-                    "playlist summary external property initialization notification");
+                // catalog通知が失敗してもコピー行の再構築要求は一度だけ試す。
+                CompletePresentation(PublishPlaylistCatalogChanged);
+                CompletePresentation(() => RequestPlaylistSummaryDataRefresh(reason));
+                if (playlistKeywordValueCandidatesChanged) { CompletePresentation(DispatchPlaylistKeywordValueCandidatesChanged); }
             }
+            CompletePresentation(() => EndPlaylistSyncProgressOperation(PlaylistSummaryBulkProgressSource));
+            CompletePresentation(() => PublishPlaylistOperationNotificationReceipt(
+                notificationSession,
+                "playlist summary external property initialization notification"));
+            if (completionFailure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(completionFailure).Throw(); }
         }
     }
 

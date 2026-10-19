@@ -76,6 +76,11 @@ internal readonly struct NormalLibrarySortCacheKey : IEquatable<NormalLibrarySor
 
     internal int RowCount { get; }
 
+    /// <summary>参照rangeの適用で表示キーが一つも変わらなかった場合だけ、同じ整列結果の証拠を新しい反映位置へ移します。</summary>
+    internal NormalLibrarySortCacheKey WithReferenceRevision(long revision) => new(SourceGeneration, SortKeyGeneration,
+        ScoreGeneration, ChartInfoGeneration, MaintenanceGeneration, WarningGeneration, InstallDestinationGeneration,
+        revision, ColumnName, Direction, RowCount);
+
     public bool Equals(NormalLibrarySortCacheKey other)
     {
         return SourceGeneration == other.SourceGeneration

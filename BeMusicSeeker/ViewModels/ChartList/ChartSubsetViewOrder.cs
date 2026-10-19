@@ -41,8 +41,8 @@ internal sealed class ChartSubsetViewOrder
         for (int i = 0; i < source.Count; i++)
         {
             observe?.Invoke("hash_dependency_visit", 1);
-            AddKey(byMd5, source[i].Hash, i);
-            AddKey(bySha256, source[i].Sha256, i);
+            AddKey(byMd5, source[i].ReferenceMd5, i);
+            AddKey(bySha256, source[i].ReferenceSha256, i);
             if (source[i].PackageEntry != null && source[i].Token is OwnedChartToken token)
             {
                 if (!byToken.TryGetValue(token, out HashSet<int> indexes)) { byToken.Add(token, indexes = []); }
@@ -69,6 +69,22 @@ internal sealed class ChartSubsetViewOrder
         return result;
     }
 
+    /// <summary>参照の変更keyに依存する、非表示を含む元集合の添字を返します。</summary>
+    internal HashSet<int> GetReferenceIndexes(IEnumerable<PlaylistEntryLookupKey> keys)
+    {
+        HashSet<int> result = [];
+        foreach (PlaylistEntryLookupKey key in keys)
+        { CaptureIndexes(key.Kind == PlaylistEntryLookupKeyKind.Md5 ? byMd5 : bySha256, [key.Hash], result); }
+        return result;
+    }
+
+    /// <summary>既存hash依存に含まれるkeyかを、元集合を走査せず判定します。</summary>
+    internal bool ContainsReferenceKey(PlaylistEntryLookupKey key)
+        => (key.Kind == PlaylistEntryLookupKeyKind.Md5 ? byMd5 : bySha256).ContainsKey(key.Hash);
+
+    /// <summary>依存登録を変更する前に、packageの実対象添字だけを取得します。</summary>
+    internal IReadOnlySet<int> GetCatalogIndexes(OwnedChartToken token) => byToken.TryGetValue(token, out HashSet<int> indexes) ? indexes : ImmutableHashSet<int>.Empty;
+
     /// <summary>動的package入力の実対象tokenを取得し、path移転後も保持中のfolder情報を局所的に更新します。</summary>
     internal HashSet<int> GetIndexes(IReadOnlyList<CatalogCommitReceipt> commits)
     {
@@ -85,8 +101,8 @@ internal sealed class ChartSubsetViewOrder
                 {
                     RemoveKey(byMd5, change.Before?.Md5, index);
                     RemoveKey(bySha256, change.Before?.Sha256, index);
-                    AddKey(byMd5, source[index].Hash, index);
-                    AddKey(bySha256, source[index].Sha256, index);
+                    AddKey(byMd5, change.After?.Md5, index);
+                    AddKey(bySha256, change.After?.Sha256, index);
                 }
             }
         }

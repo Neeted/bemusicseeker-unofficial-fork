@@ -2,7 +2,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Runtime.CompilerServices;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -12,7 +11,7 @@ namespace BeMusicSeeker.ViewModels;
 internal sealed class NormalLibrarySourceRows : IReadOnlyList<ChartListSourceRow>
 {
     private readonly Func<ChartFile, ChartListSourceRow> project;
-    private readonly ConditionalWeakTable<ChartFile, ChartListSourceRow> projections;
+    private ImmutableDictionary<ChartFile, ChartListSourceRow> projections;
     private readonly Action<string, int> observeWork;
     private ImmutableDictionary<string, ImmutableHashSet<OwnedChartToken>> tokensByMd5;
     private ImmutableDictionary<string, ImmutableHashSet<OwnedChartToken>> tokensBySha256;
@@ -20,7 +19,7 @@ internal sealed class NormalLibrarySourceRows : IReadOnlyList<ChartListSourceRow
     /// <summary>同じ確定時点の値・所属・順序を保持します。行getterで可変の現在値を検索しません。</summary>
     internal NormalLibrarySourceRows(BMSLibrary library, CatalogChartCollectionSnapshot snapshot,
         bool includeBmsonRows, Func<ChartFile, ChartListSourceRow> project, NormalLibrarySourceRows previous = null,
-        Action<string, int> observeWork = null, ChartListScoreInput scoreInput = null)
+        Action<string, int> observeWork = null, ChartListScoreInput scoreInput = null, ChartListReferenceInput referenceInput = null)
     {
         Library = library;
         Snapshot = snapshot;
@@ -28,10 +27,11 @@ internal sealed class NormalLibrarySourceRows : IReadOnlyList<ChartListSourceRow
         this.project = project;
         this.observeWork = observeWork;
         ScoreInput = scoreInput ?? previous?.ScoreInput;
+        References = referenceInput ?? previous?.References ?? new(library);
         // 旧要求が投影を作り続けても、現在値のcacheを古い値で上書きしません。
         // 退役値はsnapshotと投影への参照がなくなると回収でき、所属変更時の全cache剪定も不要です。
         projections = previous != null && ReferenceEquals(library, previous.Library)
-            ? previous.projections : new();
+            ? previous.projections : ImmutableDictionary.Create<ChartFile, ChartListSourceRow>(ReferenceEqualityComparer.Instance);
         // nullは初回列挙前だけを表します。hash登録は同じ投影列挙に含め、元集合を二度読みません。
         tokensByMd5 = previous?.tokensByMd5;
         tokensBySha256 = previous?.tokensBySha256;
@@ -41,6 +41,8 @@ internal sealed class NormalLibrarySourceRows : IReadOnlyList<ChartListSourceRow
     internal BMSLibrary Library { get; }
     /// <summary>元集合全体へ接続した独立score入力です。</summary>
     internal ChartListScoreInput ScoreInput { get; }
+    /// <summary>同じ元集合の参照表示と反映済み位置です。</summary>
+    internal ChartListReferenceInput References { get; private set; }
     /// <summary>この入力の確定済みカタログrootです。</summary>
     internal CatalogChartCollectionSnapshot Snapshot { get; }
     /// <summary>BMSONを表示範囲に含めるかを返します。</summary>
@@ -52,18 +54,35 @@ internal sealed class NormalLibrarySourceRows : IReadOnlyList<ChartListSourceRow
         ? Snapshot.BmsRows[index] : Snapshot.BmsonRows[index - Snapshot.BmsRows.Count]);
 
     /// <summary>確定結果の構造共有rootを使う次の入力を作ります。現在カタログは捕捉し直しません。</summary>
-    internal NormalLibrarySourceRows WithSnapshot(CatalogChartCollectionSnapshot snapshot, IReadOnlyList<CatalogChartChange> changes)
+    internal NormalLibrarySourceRows WithSnapshot(CatalogChartCollectionSnapshot snapshot, IReadOnlyList<CatalogChartChange> changes,
+        ChartListReferenceInput references = null)
     {
         PrepareForOrder();
-        var next = new NormalLibrarySourceRows(Library, snapshot, IncludeBmsonRows, project, this, observeWork, ScoreInput);
+        var next = new NormalLibrarySourceRows(Library, snapshot, IncludeBmsonRows, project, this, observeWork, ScoreInput, references);
         foreach (CatalogChartChange change in changes)
         {
+            if (change.Before != null && !ReferenceEquals(change.Before, change.After)) { next.projections = next.projections.Remove(change.Before); }
+            if (change.After != null && !ReferenceEquals(next.References, References)
+                && next.projections.TryGetValue(change.After, out ChartListSourceRow existing))
+            {
+                ChartListSourceRow updated = existing.WithReferenceDisplay(next.References.Resolve(change.After.Md5, change.After.Sha256));
+                if (!ReferenceEquals(existing, updated)) { ObserveProjection(change.After); next.projections = next.projections.SetItem(change.After, updated); }
+            }
             if (change.Before?.Kind == change.After?.Kind
                 && StringComparer.OrdinalIgnoreCase.Equals(change.Before?.Md5, change.After?.Md5)
                 && StringComparer.OrdinalIgnoreCase.Equals(change.Before?.Sha256, change.After?.Sha256)) { continue; }
             next.RemoveHashKeys(change.Before);
             next.AddHashKeys(change.After);
         }
+        var removedKeys = new HashSet<PlaylistEntryLookupKey>(CatalogReadSnapshot.LookupKeyComparer);
+        foreach (CatalogChartChange change in changes)
+        {
+            if (!string.IsNullOrWhiteSpace(change.Before?.Md5) && !next.tokensByMd5.ContainsKey(change.Before.Md5))
+            { removedKeys.Add(new(PlaylistEntryLookupKeyKind.Md5, change.Before.Md5)); }
+            if (!string.IsNullOrWhiteSpace(change.Before?.Sha256) && !next.tokensBySha256.ContainsKey(change.Before.Sha256))
+            { removedKeys.Add(new(PlaylistEntryLookupKeyKind.Sha256, change.Before.Sha256)); }
+        }
+        next.References = next.References.RemoveDependencies(removedKeys);
         return next;
     }
 
@@ -153,11 +172,63 @@ internal sealed class NormalLibrarySourceRows : IReadOnlyList<ChartListSourceRow
     internal ChartListSourceRow Project(ChartFile chart)
     {
         observeWork?.Invoke("source_visit", 1);
-        return projections.GetValue(chart, value =>
+        return ImmutableInterlocked.GetOrAdd(ref projections, chart, value =>
         {
-            observeWork?.Invoke("projection", 1);
-            return project(value);
+            ObserveProjection(value);
+            ChartListSourceRow row = project(value);
+            return References.IsCaptured ? row.WithReferenceDisplay(References.Resolve(value.Md5, value.Sha256)) : row;
         });
+    }
+
+    /// <summary>既存のhash依存索引から必要な両形式keyを返します。カタログを追加走査しません。</summary>
+    internal IEnumerable<PlaylistEntryLookupKey> ReferenceKeys()
+    {
+        foreach (string hash in tokensByMd5.Keys) { yield return new(PlaylistEntryLookupKeyKind.Md5, hash); }
+        foreach (string hash in tokensBySha256.Keys) { yield return new(PlaylistEntryLookupKeyKind.Sha256, hash); }
+    }
+
+    /// <summary>新しいカタログ差分が増やすhash依存だけを得ます。</summary>
+    internal HashSet<PlaylistEntryLookupKey> AddedReferenceKeys(CatalogCommitReceipt commit)
+    {
+        var result = new HashSet<PlaylistEntryLookupKey>(CatalogReadSnapshot.LookupKeyComparer);
+        foreach (CatalogChartChange change in commit.Changes)
+        {
+            ChartFile chart = change.After;
+            if (chart == null || !IncludeBmsonRows && chart.Kind == ChartFileKind.Bmson) { continue; }
+            if (!string.IsNullOrWhiteSpace(chart.Md5) && !tokensByMd5.ContainsKey(chart.Md5)) { result.Add(new(PlaylistEntryLookupKeyKind.Md5, chart.Md5)); }
+            if (!string.IsNullOrWhiteSpace(chart.Sha256) && !tokensBySha256.ContainsKey(chart.Sha256)) { result.Add(new(PlaylistEntryLookupKeyKind.Sha256, chart.Sha256)); }
+        }
+        return result;
+    }
+
+    /// <summary>参照差分の実対象だけを不変投影へ差し替え、無関係な投影と旧入力を共有します。</summary>
+    internal NormalLibrarySourceRows WithReferenceCommit(PlaylistReferenceCommitReceipt commit, out HashSet<OwnedChartToken> changed)
+    {
+        changed = [];
+        ChartListReferenceInput references = References.Apply(commit, key => key.Kind == PlaylistEntryLookupKeyKind.Md5
+            ? tokensByMd5.ContainsKey(key.Hash) : tokensBySha256.ContainsKey(key.Hash));
+        if (ReferenceEquals(references, References)) { return this; }
+        var next = new NormalLibrarySourceRows(Library, Snapshot, IncludeBmsonRows, project, this, observeWork, ScoreInput, references);
+        foreach (KeyValuePair<PlaylistEntryLookupKey, PlaylistReferenceDisplay> pair in commit.Changes)
+        {
+            HashSet<OwnedChartToken> tokens = pair.Key.Kind == PlaylistEntryLookupKeyKind.Md5 ? GetTokens([pair.Key.Hash], []) : GetTokens([], [pair.Key.Hash]);
+            foreach (OwnedChartToken token in tokens)
+            {
+                if (changed.Contains(token) || !TryGetRow(token, out ChartListSourceRow before)) { continue; }
+                ChartListSourceRow after = before.WithReferenceDisplay(references.Resolve(before.Hash, before.Sha256));
+                if (ReferenceEquals(before, after)) { continue; }
+                ObserveProjection(before.CapturedChart);
+                next.projections = next.projections.SetItem(before.CapturedChart, after);
+                changed.Add(token);
+            }
+        }
+        return next;
+    }
+
+    private void ObserveProjection(ChartFile chart)
+    {
+        observeWork?.Invoke("projection", 1);
+        observeWork?.Invoke(chart.Kind == ChartFileKind.Bms ? "projection_bms" : "projection_bmson", 1);
     }
 
     /// <summary>実際の順序キー取得・格納件数を観測します。</summary>
@@ -175,6 +246,7 @@ internal sealed class NormalLibrarySourceRows : IReadOnlyList<ChartListSourceRow
             ? ImmutableDictionary.CreateBuilder<string, ImmutableHashSet<OwnedChartToken>>(StringComparer.OrdinalIgnoreCase) : null;
         ImmutableDictionary<string, ImmutableHashSet<OwnedChartToken>>.Builder sha256 = md5 != null
             ? ImmutableDictionary.CreateBuilder<string, ImmutableHashSet<OwnedChartToken>>(StringComparer.OrdinalIgnoreCase) : null;
+        ImmutableDictionary<ChartFile, ChartListSourceRow>.Builder initialProjections = md5 != null ? projections.ToBuilder() : null;
         ChartListSourceRow ProjectInitial(ChartFile chart)
         {
             if (md5 != null && chart.Token != null)
@@ -183,7 +255,14 @@ internal sealed class NormalLibrarySourceRows : IReadOnlyList<ChartListSourceRow
                 AddInitialKey(md5, chart.Md5, chart.Token);
                 AddInitialKey(sha256, chart.Sha256, chart.Token);
             }
-            return Project(chart);
+            if (initialProjections == null) { return Project(chart); }
+            observeWork?.Invoke("source_visit", 1);
+            if (!initialProjections.TryGetValue(chart, out ChartListSourceRow row))
+            {
+                ObserveProjection(chart);
+                initialProjections.Add(chart, row = project(chart));
+            }
+            return row;
         }
         foreach (ChartFile chart in Snapshot.BmsRows) { yield return ProjectInitial(chart); }
         if (IncludeBmsonRows)
@@ -194,6 +273,9 @@ internal sealed class NormalLibrarySourceRows : IReadOnlyList<ChartListSourceRow
         {
             tokensBySha256 = sha256.ToImmutable();
             tokensByMd5 = md5.ToImmutable();
+            projections = initialProjections.ToImmutable();
+            References.CaptureInitial(ReferenceKeys());
+            observeWork?.Invoke("reference_capture", 1);
         }
     }
 

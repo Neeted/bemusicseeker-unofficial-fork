@@ -73,6 +73,7 @@ internal sealed class ChartInfoBuildService
     /// <param name="logInstallPerformanceWarn">解析を継続できない譜面を逐次 WARN 出力する callback。</param>
     /// <param name="storageCommitPublished">DB commit 成功後に canonical owner へ適用済みの publication facts を通知する callback。</param>
     /// <param name="existingRowsSnapshot">hydration 済みの chart_info index snapshot。full backfill 時の DB 全件再読込を避けるために使います。</param>
+    /// <param name="inputCompleted">現在結果の確認、または保存と必要公開が済んだ入力だけをその時点で渡します。後続失敗でも確認済み証拠を失いません。</param>
     /// <returns>構築結果。</returns>
     public ChartInfoBackfillResult BackfillChartInfos(
         BmsLibraryDbGateway dbGateway,
@@ -82,7 +83,8 @@ internal sealed class ChartInfoBuildService
         Action<string> logInstallPerformanceWarn = null,
         Action<ChartInfoStorageCommitPublication> storageCommitPublished = null,
         IReadOnlyDictionary<string, BeMusicSeeker.Models.ChartDetails> existingRowsSnapshot = null,
-        Func<CatalogChartInfoStorageWriteRequest, CatalogChartInfoStorageWriteReceipt> chartInfoChunkWriter = null, bool subset = false)
+        Func<CatalogChartInfoStorageWriteRequest, CatalogChartInfoStorageWriteReceipt> chartInfoChunkWriter = null, bool subset = false,
+        Action<IReadOnlyList<ChartFile>> inputCompleted = null)
     {
         return BackfillChartInfosCore(
             dbGateway,
@@ -93,7 +95,7 @@ internal sealed class ChartInfoBuildService
             logInstallPerformanceWarn,
             storageCommitPublished,
             existingRowsSnapshot,
-            chartInfoChunkWriter);
+            chartInfoChunkWriter, inputCompleted);
     }
 
     /// <summary>
@@ -198,7 +200,8 @@ internal sealed class ChartInfoBuildService
         Action<string> logInstallPerformanceWarn,
         Action<ChartInfoStorageCommitPublication> storageCommitPublished,
         IReadOnlyDictionary<string, BeMusicSeeker.Models.ChartDetails> existingRowsSnapshot,
-        Func<CatalogChartInfoStorageWriteRequest, CatalogChartInfoStorageWriteReceipt> chartInfoChunkWriter)
+        Func<CatalogChartInfoStorageWriteRequest, CatalogChartInfoStorageWriteReceipt> chartInfoChunkWriter,
+        Action<IReadOnlyList<ChartFile>> inputCompleted)
     {
         var result = new ChartInfoBackfillResult
         {
@@ -239,7 +242,9 @@ internal sealed class ChartInfoBuildService
         existingRowsStopwatch.Stop();
         string existingRowsLogValue = existingRows.Count.ToString();
         var targetBuildStopwatch = Stopwatch.StartNew();
-        List<ChartInfoBuildTarget> targets = BuildTargets(chartList, existingRows, currentFailures, result);
+        var confirmedInputs = new List<ChartFile>();
+        List<ChartInfoBuildTarget> targets = BuildTargets(chartList, existingRows, currentFailures, result, confirmedInputs);
+        if (confirmedInputs.Count > 0) { inputCompleted?.Invoke(confirmedInputs.AsReadOnly()); }
         targetBuildStopwatch.Stop();
         result.TargetCount = targets.Count;
         result.WorkerCount = ResolveWorkerCount();
@@ -272,7 +277,7 @@ internal sealed class ChartInfoBuildService
                 logInstallPerformance,
                 logInstallPerformanceWarn,
                 storageCommitPublished,
-                chartInfoChunkWriter);
+                chartInfoChunkWriter, inputCompleted);
         });
 
         var resultCollector = Task.Run(delegate
@@ -286,7 +291,7 @@ internal sealed class ChartInfoBuildService
                     commitChunkSize,
                     logInstallPerformance,
                     reportProgress,
-                    processedCount);
+                    processedCount, inputCompleted);
             }
             finally
             {
@@ -516,7 +521,8 @@ internal sealed class ChartInfoBuildService
         int commitChunkSize,
         Action<string> logInstallPerformance,
         Action<int, int, string> reportProgress,
-        int[] processedCount)
+        int[] processedCount,
+        Action<IReadOnlyList<ChartFile>> inputCompleted)
     {
         var commitBuffer = new ChartInfoCommitBuffer();
         List<long> parseDurations = [];
@@ -530,10 +536,10 @@ internal sealed class ChartInfoBuildService
             ReportProgressBestEffort(reportProgress, result.TargetCount, processed, itemResult.Target?.Path ?? string.Empty, logInstallPerformance);
             if (commitBuffer.TargetCount >= commitChunkSize)
             {
-                EnqueueCommitBuffer(commitChunks, commitBuffer);
+                EnqueueCommitBuffer(commitChunks, commitBuffer, inputCompleted);
             }
         }
-        EnqueueCommitBuffer(commitChunks, commitBuffer);
+        EnqueueCommitBuffer(commitChunks, commitBuffer, inputCompleted);
         ApplyParseMetrics(result, parseDurations);
         ReportDiagnosticBestEffort(logInstallPerformance, () => BuildParseDoneLogMessage(result, parseSucceededCount));
         LogSlowParseRecords(logInstallPerformance, slowParseRecords);
@@ -578,6 +584,10 @@ internal sealed class ChartInfoBuildService
         if (itemResult.SkippedPersistedFailure)
         {
             result.FailureSkippedCount += itemResult.Target?.OwnerCount ?? 1;
+            if (!itemResult.Target.NeedsDigest || itemResult.DigestSucceeded)
+            {
+                commitBuffer.CompletedInputs.AddRange(itemResult.Target.CreateCompletedInputs(itemResult.Sha256));
+            }
             return;
         }
         if (itemResult.Row != null)
@@ -589,6 +599,10 @@ internal sealed class ChartInfoBuildService
             }
             commitBuffer.AddChartInfoApplication(itemResult.Target, itemResult.Row);
             commitBuffer.AddParseFailureDelete(itemResult.ParseFailureDeleteMd5);
+            if (!itemResult.Target.NeedsDigest || itemResult.DigestSucceeded)
+            {
+                commitBuffer.CompletedInputs.AddRange(itemResult.Target.CreateCompletedInputs(itemResult.Sha256));
+            }
         }
         if (itemResult.ParseFailed)
         {
@@ -599,16 +613,22 @@ internal sealed class ChartInfoBuildService
                 result.TimeoutFailedCount++;
             }
             commitBuffer.AddParseFailure(itemResult);
+            if (itemResult.ParseFailureRow != null && (!itemResult.Target.NeedsDigest || itemResult.DigestSucceeded))
+            {
+                commitBuffer.CompletedInputs.AddRange(itemResult.Target.CreateCompletedInputs(itemResult.Sha256));
+            }
             result.FailedPaths.Add(itemResult.Target.Path);
         }
     }
 
     private static void EnqueueCommitBuffer(
         BlockingCollection<ChartInfoCommitChunk> commitChunks,
-        ChartInfoCommitBuffer commitBuffer)
+        ChartInfoCommitBuffer commitBuffer,
+        Action<IReadOnlyList<ChartFile>> inputCompleted)
     {
         if (!commitBuffer.HasPendingDbRows)
         {
+            if (commitBuffer.CompletedInputs.Count > 0) { inputCompleted?.Invoke(commitBuffer.CompletedInputs.ToArray()); }
             commitBuffer.Clear();
             return;
         }
@@ -622,11 +642,12 @@ internal sealed class ChartInfoBuildService
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
         Action<ChartInfoStorageCommitPublication> storageCommitPublished,
-        Func<CatalogChartInfoStorageWriteRequest, CatalogChartInfoStorageWriteReceipt> chartInfoChunkWriter)
+        Func<CatalogChartInfoStorageWriteRequest, CatalogChartInfoStorageWriteReceipt> chartInfoChunkWriter,
+        Action<IReadOnlyList<ChartFile>> inputCompleted)
     {
         foreach (ChartInfoCommitChunk chunk in commitChunks)
         {
-            FlushCommitChunk(chunk, result, logInstallPerformance, logInstallPerformanceWarn, storageCommitPublished, chartInfoChunkWriter);
+            FlushCommitChunk(chunk, result, logInstallPerformance, logInstallPerformanceWarn, storageCommitPublished, chartInfoChunkWriter, inputCompleted);
         }
     }
 
@@ -636,7 +657,8 @@ internal sealed class ChartInfoBuildService
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
         Action<ChartInfoStorageCommitPublication> storageCommitPublished,
-        Func<CatalogChartInfoStorageWriteRequest, CatalogChartInfoStorageWriteReceipt> chartInfoChunkWriter)
+        Func<CatalogChartInfoStorageWriteRequest, CatalogChartInfoStorageWriteReceipt> chartInfoChunkWriter,
+        Action<IReadOnlyList<ChartFile>> inputCompleted)
     {
         int chunkNumber = result.CommitChunks + 1;
         ReportDiagnosticBestEffort(logInstallPerformance, () => BuildCommitStartLogMessage(chunkNumber, commitChunk));
@@ -729,6 +751,7 @@ internal sealed class ChartInfoBuildService
         }
         result.FailurePersistedCount += commitChunk.ParseFailureRows.Count;
         result.FailureClearedCount += commitChunk.ParseFailureDeleteMd5s.Count;
+        if (commitChunk.CompletedInputs.Count > 0) { inputCompleted?.Invoke(commitChunk.CompletedInputs); }
         ReportDiagnosticBestEffort(logInstallPerformance, () => BuildCommitDoneLogMessage(chunkNumber, commitChunk, stopwatch.ElapsedMilliseconds));
     }
 
@@ -859,13 +882,15 @@ internal sealed class ChartInfoBuildService
         IEnumerable<ChartFile> currentCharts,
         IDictionary<string, BeMusicSeeker.Models.ChartDetails> existingRows,
         IDictionary<string, BeMusicSeeker.Models.ChartParseFailure> currentFailures,
-        ChartInfoBackfillResult result)
+        ChartInfoBackfillResult result,
+        ICollection<ChartFile> confirmedInputs)
     {
         var targets = new Dictionary<string, ChartInfoBuildTarget>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartFile chart in currentCharts ?? [])
         {
             if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
             {
+                if (chart != null) { confirmedInputs.Add(chart); }
                 continue;
             }
             BeMusicSeeker.Models.ChartDetails currentRow = null;
@@ -881,15 +906,18 @@ internal sealed class ChartInfoBuildService
             if (currentness.CurrentRowSkipped)
             {
                 result.CurrentRowSkippedCount++;
+                confirmedInputs.Add(chart);
                 continue;
             }
             if (ChartInfoBuildTargetMapper.ShouldSkipBackfillTarget(chart))
             {
+                confirmedInputs.Add(chart);
                 continue;
             }
             if (currentness.SkippedPersistedFailure)
             {
                 result.FailureSkippedCount++;
+                confirmedInputs.Add(chart);
                 continue;
             }
             string key = ChartInfoBuildTargetMapper.BuildKey(chart);
@@ -1385,6 +1413,7 @@ internal sealed class ChartInfoBuildService
 
     private sealed class ChartInfoCommitBuffer
     {
+        public List<ChartFile> CompletedInputs { get; } = [];
         public List<ChartDigestBackfillEntry> DigestEntries { get; } = [];
 
         public List<PendingDigestApplication> DigestApplications { get; } = [];
@@ -1456,6 +1485,7 @@ internal sealed class ChartInfoBuildService
 
         public void Clear()
         {
+            CompletedInputs.Clear();
             DigestEntries.Clear();
             DigestApplications.Clear();
             ChartInfoRows.Clear();
@@ -1474,7 +1504,7 @@ internal sealed class ChartInfoBuildService
                 [.. ChartInfoRows],
                 [.. ChartInfoApplications],
                 [.. ParseFailureRows],
-                [.. ParseFailureDeleteMd5s]);
+                [.. ParseFailureDeleteMd5s], [.. CompletedInputs]);
         }
     }
 
@@ -1485,8 +1515,10 @@ internal sealed class ChartInfoBuildService
         IReadOnlyList<BeMusicSeeker.Models.ChartDetails> chartInfoRows,
         IReadOnlyList<ChartInfoBuildService.PendingChartInfoApplication> chartInfoApplications,
         IReadOnlyList<BeMusicSeeker.Models.ChartParseFailure> parseFailureRows,
-        IReadOnlyList<string> parseFailureDeleteMd5s)
+        IReadOnlyList<string> parseFailureDeleteMd5s,
+        IReadOnlyList<ChartFile> completedInputs)
     {
+        public IReadOnlyList<ChartFile> CompletedInputs { get; } = completedInputs;
         public int TargetCount { get; } = targetCount;
 
         public IReadOnlyList<ChartDigestBackfillEntry> DigestEntries { get; } = digestEntries ?? [];

@@ -25,6 +25,40 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistViewPipelineTests
 {
+    /// <summary>有効folderの空・空白を除きA/aを同一視します。編集中は採用済み集合、flush後は追加Bを数え、表示集計と一致させます。</summary>
+    [TestMethod]
+    public void PlaylistDetailFolders_ExcludeBlankIgnoreCaseAndPublishAdoptedCounts()
+    {
+        var table = new BMSTable();
+        var source = new[] { "", " ", "A", "a" }.Select((folder, index) =>
+            new PlaylistDetailSourceRow(new BMSTableEntry
+            {
+                md5 = (index + 1).ToString("x32"),
+                title = "entry " + index,
+                folder = folder,
+                parent = table
+            }, null, entryOrder: index)).ToList();
+        PlaylistRequestIdentity identity = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.OrdinaryRoot,
+            null, PlaylistDetailFilter.PlaylistFilter, string.Empty, ChartModeFilter.All,
+            new ChartListSortParameters { ColumnsName = nameof(PlaylistDetailRow.Title), Direction = ListSortDirection.Ascending }, 0, 0, 0, 0, true);
+        var rows = new PlaylistDetailVirtualView(source, distinctFolderCount: 1, identity: identity);
+        var main = new MainChartListViewModel();
+        main.SetRows(rows, updateSummary: true);
+        Assert.AreEqual(4, rows.RowCount); Assert.AreEqual(1, rows.DistinctFolderCount);
+        Assert.AreEqual("[4" + BeMusicSeeker.Properties.Resources.Num_songs + "]", main.SummaryText);
+        var added = new PlaylistDetailSourceRow(new BMSTableEntry { md5 = new string('f', 32), title = "last", folder = "B", parent = table }, null, entryOrder: 4);
+        rows.ApplyChange(null, added, identity, deferPosition: true);
+        main.UpdateSummaryText(rows);
+        Assert.AreEqual(4, rows.RowCount); Assert.AreEqual(1, rows.DistinctFolderCount);
+        Assert.AreEqual("[4" + BeMusicSeeker.Properties.Resources.Num_songs + "]", main.SummaryText);
+        rows.FlushDeferred(identity); rows.PublishChanges(); main.UpdateSummaryText(rows);
+        Assert.AreEqual(5, rows.RowCount); Assert.AreEqual(2, rows.DistinctFolderCount);
+        Assert.AreEqual("[5" + BeMusicSeeker.Properties.Resources.Num_songs + " / 2" + BeMusicSeeker.Properties.Resources.Num_folders + "]", main.SummaryText);
+        // raw空folderは所持譜面folderを使うため、上の未所持空folderとは区別する。
+        ChartFile owned = ChartTestValues.Empty() with { Md5 = new string('e', 32), Path = @"C:\Songs\song.bms", Folder = "Owned" };
+        var fallback = new PlaylistDetailSourceRow(new BMSTableEntry { md5 = owned.Md5, folder = "", parent = table }, owned);
+        Assert.AreEqual("Owned", fallback.Folder);
+    }
     /// <summary>タイトル昇順で二行をhashとともに並べ替え、絞込なしの件数を保ち、並替で行を欠落させません。</summary>
     [TestMethod]
     public void PlaylistDetailPresentationService_SortKeepsAllRowsVisible()
@@ -1736,7 +1770,7 @@ public sealed class PlaylistViewPipelineTests
             entries = [entry]
         };
         PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
-        index.ReplaceSnapshotTable(new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries));
+        index.ReplaceTables([new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries)]);
 
         var sourceRow = new PlaylistDetailSourceRow(
             entry,
@@ -1753,7 +1787,7 @@ public sealed class PlaylistViewPipelineTests
 
         table.symbol = "REPLACED";
         table.name = "Replaced Bmson Playlist";
-        index.ReplaceSnapshotTable(new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries));
+        index.ReplaceTables([new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries)]);
 
         var refreshedSourceRow = new PlaylistDetailSourceRow(
             entry,

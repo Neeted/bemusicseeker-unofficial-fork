@@ -30,7 +30,6 @@ internal sealed class PlaylistRemovalWorkflowOwner
 
     private readonly Func<BMSPlaylist, PlaylistWorkspaceMutationKind, IDisposable> tryBeginPlaylistMutation;
 
-    internal event EventHandler ReferenceSortInvalidationRequested;
 
     internal event EventHandler SummaryRefreshRequested;
 
@@ -217,7 +216,6 @@ internal sealed class PlaylistRemovalWorkflowOwner
             catch (Exception failure) { failures.Add(failure); }
             try
             {
-                ReferenceSortInvalidationRequested?.Invoke(this, EventArgs.Empty);
                 SummaryRefreshRequested?.Invoke(this, EventArgs.Empty);
             }
             catch (Exception failure) { failures.Add(failure); }
@@ -247,7 +245,6 @@ internal sealed class PlaylistRemovalWorkflowOwner
 
     private void PublishRemovedTable(BMSTable table, CustomFolderOutputSettingsSnapshot settings)
     {
-        GetPlaylistLibrary().RemoveReferenceBMSTables(table);
         if (settings.OperationModeLR2DB && table.is_root_folder && !string.IsNullOrWhiteSpace(table.Output_dir))
         {
             LR2Config lr2config = lr2ConfigProvider() ?? throw new InvalidOperationException("LR2 config provider is not configured.");

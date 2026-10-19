@@ -1822,14 +1822,6 @@ public partial class MainWindowViewModel : ViewModel,
         LogNormalLibrarySortCacheInvalidation("sort_key", reason, cacheCount);
     }
 
-    private void InvalidateNormalLibraryReferenceTableSortKeys()
-    {
-        NotifyBmsonPlaylistReferenceDisplayChanged();
-        InvalidateNormalLibrarySortDependency(
-            MainViewDataDependency.ReferenceTables,
-            NormalLibraryReferenceTablesChangedReason);
-    }
-
     private void InvalidateNormalLibrarySortDependency(MainViewDataDependency dependency, string reason)
     {
         int removedCount = regularChartListOwner.InvalidateSortCacheByDependency(dependency, out int cacheCount);
@@ -1853,40 +1845,10 @@ public partial class MainWindowViewModel : ViewModel,
 
     private const string NormalLibraryInstallDestinationChangedReason = "install_destination_changed";
 
-    private const string NormalLibraryReferenceTablesChangedReason = "ref_tables_changed";
-
     private const string NormalLibraryWarningChangedReason = "warning_changed";
 
     private const string NormalLibraryBmsonSourceIdentityChangedReason = "bmson_source_identity_changed";
 
-
-    private void NotifyBmsonPlaylistReferenceDisplayChanged()
-    {
-        Action notify = delegate
-        {
-            if (MainChartList.Rows is ChartListVirtualView virtualView)
-            {
-                virtualView.ForEachRealizedRow(RaiseBmsonPlaylistReferenceDisplayChanged);
-            }
-            else
-            {
-                foreach (LibraryChartRow row in (MainChartList.Rows ?? new List<object>()).OfType<LibraryChartRow>())
-                {
-                    RaiseBmsonPlaylistReferenceDisplayChanged(row);
-                }
-            }
-            foreach (LibraryChartRow row in regularChartListOwner.SnapshotRows())
-            {
-                RaiseBmsonPlaylistReferenceDisplayChanged(row);
-            }
-        };
-        DispatchUiAction(notify);
-    }
-
-    private static void RaiseBmsonPlaylistReferenceDisplayChanged(LibraryChartRow row)
-    {
-        row?.RaisePlaylistReferenceDisplayChanged();
-    }
 
 
     private static bool ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChange(string reason)
@@ -2255,7 +2217,6 @@ public partial class MainWindowViewModel : ViewModel,
         PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
         PlaylistWorkspace.PlaylistLampNavigationRequested += PlaylistWorkspacePlaylistLampNavigationRequested;
         PlaylistWorkspace.PlaylistPresentationRefreshRequested += PlaylistWorkspacePlaylistPresentationRefreshRequested;
-        PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;
         PlaylistWorkspace.PlaylistDetailReloadRefreshRequested += PlaylistWorkspacePlaylistDetailReloadRefreshRequested;
         PlaylistWorkspace.PlaylistTablesPresentationChanged += PlaylistWorkspacePlaylistTablesPresentationChanged;
         PlaylistWorkspace.PlaylistKeywordValueCandidatesChanged += PlaylistWorkspacePlaylistKeywordValueCandidatesChanged;
@@ -2266,8 +2227,6 @@ public partial class MainWindowViewModel : ViewModel,
         PlaylistWorkspace.PlaylistExternalSyncReferenceApplied += PlaylistWorkspacePlaylistExternalSyncReferenceApplied;
         PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queued += PlaylistReferenceApplyWorkflowQueued;
         PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Completed += PlaylistReferenceApplyWorkflowCompleted;
-        PlaylistWorkspace.PlaylistReferenceApplyWorkflow.PresentationRequested += PlaylistReferenceApplyWorkflowPresentationRequested;
-        PlaylistWorkspace.PlaylistReferenceApplyWorkflow.ReferenceApplied += PlaylistReferenceApplyWorkflowReferenceApplied;
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             MainChartList,
             PlaylistWorkspace,
@@ -3921,28 +3880,6 @@ public partial class MainWindowViewModel : ViewModel,
         startupProgressWorkflowOwner.TryCompleteStartupProgressPlaylistReference(completion.Version, completion.OperationToken);
     }
 
-    private void PlaylistReferenceApplyWorkflowPresentationRequested(
-        object sender,
-        PlaylistReferenceApplyPresentationRequestedEventArgs request)
-    {
-        if (request == null || !startupProgressWorkflowOwner.IsStartupProgressOperationTokenCurrent(request.OperationToken))
-        {
-            return;
-        }
-        if (TrySuppress(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree))
-        {
-            return;
-        }
-        RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
-    }
-
-    private void PlaylistReferenceApplyWorkflowReferenceApplied(
-        object sender,
-        PlaylistReferenceAppliedEventArgs receipt)
-    {
-        InvalidateNormalLibraryReferenceTableSortKeys();
-    }
-
     /// <summary>
     /// 指定された更新モードとパラメータに基づいて、メインの chart row 表示用コレクションを生成・更新します。
     /// ツリーでのフォルダ選択、プレイリストや難易度表の適用、Missingファイル等の保守フィルタ、およびキーワードやキーモードでの絞り込み等を行います。<br/>
@@ -4530,10 +4467,6 @@ public partial class MainWindowViewModel : ViewModel,
     {
         try
         {
-            if (receipt?.Packages.Count > 0)
-            {
-                FileDbMutationReport.NotifyBestEffort(() => PlaylistWorkspace.AttachInstalledPackageReferences(receipt.Packages));
-            }
             await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
                 BeMusicSeeker.Properties.Resources.Install, receipt?.SessionReceipt);
         }
@@ -4547,10 +4480,6 @@ public partial class MainWindowViewModel : ViewModel,
             if (failure?.Exception == null) { return; }
             if (failure.CommandResult?.SessionReceipt != null)
             {
-                if (failure.CommandResult.RegisteredPackages.Count > 0)
-                {
-                    FileDbMutationReport.NotifyBestEffort(() => PlaylistWorkspace.AttachInstalledPackageReferences(failure.CommandResult.RegisteredPackages));
-                }
                 await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
                     BeMusicSeeker.Properties.Resources.Install, failure.CommandResult.SessionReceipt, failure.Exception);
                 return;

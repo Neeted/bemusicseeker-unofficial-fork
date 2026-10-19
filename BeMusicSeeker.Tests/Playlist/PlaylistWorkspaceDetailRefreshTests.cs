@@ -1487,8 +1487,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 out _,
                 playlistStoreProvider: () => firstPlaylist,
                 playlistLibraryProvider: () => currentLibrary);
-            int sortInvalidationCount = 0;
-            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => sortInvalidationCount++;
+
             workspace.RefreshPlaylistTreeTables(firstPlaylist, currentLibrary);
 
             File.WriteAllText(firstHeaderPath, "{\"name\":\"first-updated\",\"symbol\":\"F2\",\"data_url\":\"./score.json\",\"level_order\":[1]}", Encoding.UTF8);
@@ -1504,7 +1503,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                     publishReferenceReceipts: true);
 
             Assert.IsTrue(oldResults.Single().Succeeded);
-            Assert.AreEqual(0, sortInvalidationCount, "Receipts from the retired store must be ignored.");
             Assert.AreEqual("second", workspace.PlaylistTreeTables.Single().name);
 
             File.WriteAllText(secondScorePath, "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"second-updated\",\"level\":\"1\"}]", Encoding.UTF8);
@@ -1516,7 +1514,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                     publishReferenceReceipts: true);
 
             Assert.IsTrue(currentResults.Single().Succeeded);
-            Assert.AreEqual(1, sortInvalidationCount, "The active store receipt must reach the workspace.");
             TestUiDispatcherHost.ProcessQueuedPresentation();
             Assert.AreEqual("second-updated", secondPlaylist.BMSTables.Single().entries.Single().title);
         }
@@ -1823,7 +1820,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
-    /// <summary>同じ予約に二つの参照反映要求を集約し、最新reason・token・版を開始と終端へ配送して一回の確定表示を公開します。</summary>
+    /// <summary>同じ予約に二つの参照反映要求を集約し、最新reason・token・版を開始と実終端へ一回配送します。</summary>
     [TestMethod]
     public void QueuePlaylistReferenceApply_CoalescesAndRunsLatestRequestSnapshot()
     {
@@ -1858,7 +1855,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             Func<Task>? scheduledWork = null;
             var queued = new List<PlaylistReferenceApplyQueuedEventArgs>();
             var completed = new List<PlaylistReferenceApplyCompletedEventArgs>();
-            var presentation = new List<PlaylistReferenceApplyPresentationRequestedEventArgs>();
+            var presentation = new List<PlaylistReferenceApplyCompletedEventArgs>();
             var lifecycle = new List<string>();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
@@ -1878,9 +1875,9 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             workspace.PlaylistReferenceApplyWorkflow.Queued += (_, request) => queued.Add(request);
             workspace.PlaylistReferenceApplyWorkflow.Completed += (_, request) => completed.Add(request);
             workspace.PlaylistEntriesHydrationCompleted += (_, _) => lifecycle.Add("hydration");
-            workspace.PlaylistReferenceApplyWorkflow.PresentationRequested += (_, request) =>
+            workspace.PlaylistReferenceApplyWorkflow.Completed += (_, request) =>
             {
-                lifecycle.Add("presentation");
+                lifecycle.Add("completed");
                 presentation.Add(request);
             };
 
@@ -1906,7 +1903,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             Assert.AreEqual(1, presentation.Count);
             Assert.AreEqual(2, presentation[0].Version);
             Assert.AreEqual(2L, presentation[0].OperationToken);
-            CollectionAssert.AreEqual(new[] { "presentation" }, lifecycle);
+            CollectionAssert.AreEqual(new[] { "completed" }, lifecycle);
         }
         finally
         {
@@ -1957,9 +1954,9 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
-    /// <summary>実初期化のhydration receiptを受信して参照反映を実行し、初期化reasonと要求識別を持つ表示要求を一回届けます。</summary>
+    /// <summary>実初期化のhydration receiptを受信し、初期化reasonと要求識別を持つ実完了を一回届けます。参照表示の接続は実workspace系列へ分担します。</summary>
     [TestMethod]
-    public async Task PlaylistTreeHydrationReceipt_RequestsPresentationRefreshAfterSnapshotApply()
+    public async Task PlaylistTreeHydrationReceipt_PublishesCompletionAfterModelApply()
     {
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -1997,8 +1994,8 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                     referenceApplyWork = work;
                     return true;
                 });
-            var presentations = new List<PlaylistReferenceApplyPresentationRequestedEventArgs>();
-            workspace.PlaylistReferenceApplyWorkflow.PresentationRequested += (_, request) => presentations.Add(request);
+            var presentations = new List<PlaylistReferenceApplyCompletedEventArgs>();
+            workspace.PlaylistReferenceApplyWorkflow.Completed += (_, request) => presentations.Add(request);
 
             workspace.RefreshPlaylistTreeTables(playlist);
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>

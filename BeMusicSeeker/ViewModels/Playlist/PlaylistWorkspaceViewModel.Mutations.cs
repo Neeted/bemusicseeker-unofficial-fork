@@ -19,7 +19,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler<PlaylistOperationNotificationPresentationRequestedEventArgs> PlaylistOperationNotificationPresentationRequested;
 
-    internal event EventHandler PlaylistReferenceSortInvalidationRequested;
 
     private bool TryEnterPlaylistMutationAdmission(
         BMSPlaylist playlistStore,
@@ -389,7 +388,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         List<BMSTableEntry> entriesToRemove = [];
         List<BMSTableEntry> entriesToAdd = [];
         List<PlaylistDropFolderMutation> folderMutations = [];
-        List<ChartFile> resolvedCharts = [];
         PlaylistDropMutationResult mutationResult = null;
         ExceptionDispatchInfo primaryFailure = null;
         try
@@ -429,9 +427,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                     }
                 }
 
-                resolvedCharts = [.. sourceRows
-                    .Select(ResolveDropChart)
-                    .Where(chart => chart != null)];
                 if (activeTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder
                     && string.IsNullOrWhiteSpace(folderName))
                 {
@@ -483,14 +478,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                     "playlist_drop", capability).ConfigureAwait(false);
                 }
                 catch (Exception outputFailure) { primaryFailure ??= ExceptionDispatchInfo.Capture(outputFailure); }
-                try
-                {
-                    library.AddReferenceBMSTablesToCharts(activeTable, resolvedCharts);
-                }
-                catch (Exception exception)
-                {
-                    primaryFailure ??= ExceptionDispatchInfo.Capture(exception);
-                }
                 try
                 {
                     PublishEntriesChanged(activeTable);
@@ -591,7 +578,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        BMSLibrary library = GetPlaylistLibrary();
         List<Exception> failures = [];
         using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession =
             playlistStore.OperationNotificationOwner.BeginSession();
@@ -605,8 +591,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                 catch (Exception failure) { failures.Add(failure); }
                 foreach (BMSTable table in result.ChangedTables)
                 {
-                    try { library.RemoveReferenceBMSTables(table, entriesByTable[table]); }
-                    catch (Exception failure) { failures.Add(failure); }
                     try { PublishEntriesChanged(table); }
                     catch (Exception failure) { failures.Add(failure); }
                 }
@@ -877,7 +861,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 RequestPlaylistDetailReloadRefresh();
             }
-            RequestPlaylistReferenceSortInvalidation();
         }
         finally
         {
@@ -911,11 +894,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                     && !(DetailBuildState.PendingRequest is PlaylistBuildRequest pending && Matches(pending.Identity));
             }
         }
-    }
-
-    internal void RequestPlaylistReferenceSortInvalidation()
-    {
-        PlaylistReferenceSortInvalidationRequested?.Invoke(this, EventArgs.Empty);
     }
 }
 

@@ -24,6 +24,139 @@ public sealed class ChartInfoInlineHydrationTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>内部故障だけを同ownerの次の明示要求へ残し、正常な兄弟・現在の保存済み失敗と無関係なhealth変更では再解析しない。</summary>
+    /// <remarks>実serviceの解析関数だけ最初のXで故障させ、実SQLite・digest/current/indexと対象読取りを二要求の終端で確認する。</remarks>
+    [TestMethod]
+    public void BackfillInputCoverage_InternalFaultRetriesOnlyUnfinishedInputOnNextExplicitRequest()
+    {
+        WithTemporarySongDb((root, songDbPath) =>
+        {
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            ChartFile[] charts = CreateCoverageCharts(root, "S", "F", "X");
+            string successSha256 = charts[0].Sha256;
+            string internalFaultSha256 = charts[2].Sha256;
+            charts[0] = charts[0] with { Sha256 = string.Empty };
+            charts[2] = charts[2] with { Sha256 = string.Empty };
+            gateway.UpsertSongs(charts);
+            gateway.EnsureChartInfoBackfillSchema();
+            gateway.UpsertChartInfoParseFailures([CreateChartInfoParseFailureRow(charts[1].Md5, charts[1].Sha256, charts[1].Path,
+                BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "stored input failure", null)]);
+            using (var prepared = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            {
+                // Fは準備時の生成行保存で既存digestも保存する。今回補完するS/Xの二行と区別する。
+                Assert.AreEqual(1, prepared.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_digest_map;"));
+                Assert.AreEqual(charts[1].Sha256, prepared.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = ?;", charts[1].Md5));
+            }
+            var rows = new CatalogOwnedCollectionOwner();
+            rows.ReplaceCharts(charts, []);
+            var reads = new ConcurrentQueue<string>();
+            var parses = new ConcurrentQueue<string>();
+            bool failX = true;
+            var service = new ChartInfoBuildService(path => { reads.Enqueue(path); return File.ReadAllBytes(path); }, workerCountOverride: 1, commitChunkSizeOverride: 1,
+                parseBytes: (bytes, path, md5, sha256, timeout) =>
+                {
+                    parses.Enqueue(path);
+                    if (path == charts[2].Path && failX) { failX = false; throw new InvalidOperationException("temporary internal parse failure"); }
+                    return ChartInfoParser.ParseBytesDetailed(bytes, path, md5, sha256, timeout: timeout, retainChartString: false);
+                });
+            var owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { }, buildService: service);
+            owner.ConfigureWorkflow(gateway, new CatalogMutationOwner(rows, gateway), rows, _ => { }, _ => { });
+
+            owner.QueueBackfill("first", processSynchronously: true);
+            ChartFile success = rows.BmsRows.Single(chart => chart.Path == charts[0].Path);
+            Assert.IsNotNull(owner.ResolveChartInfo(success.Sha256, success.Md5));
+            Assert.IsNull(owner.ResolveChartInfo(charts[2].Sha256, charts[2].Md5));
+            Assert.AreEqual(successSha256, success.Sha256);
+            Assert.AreEqual(internalFaultSha256, rows.BmsRows.Single(chart => chart.Path == charts[2].Path).Sha256);
+            CollectionAssert.AreEquivalent(new[] { charts[0].Path, charts[2].Path }, reads.ToArray());
+            CollectionAssert.AreEquivalent(new[] { charts[0].Path, charts[2].Path }, parses.ToArray());
+            using (var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            {
+                Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
+                Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
+                Assert.AreEqual(3, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_digest_map;"));
+                Assert.AreEqual(successSha256, verify.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = ?;", charts[0].Md5));
+                Assert.AreEqual(charts[1].Sha256, verify.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = ?;", charts[1].Md5));
+                Assert.AreEqual(internalFaultSha256, verify.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = ?;", charts[2].Md5));
+                Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info_parse_failure WHERE md5 = ?;", charts[2].Md5));
+            }
+            Assert.IsTrue(rows.TryCapturePendingChartInfoInputs(out IReadOnlyList<ChartFile> pending));
+            CollectionAssert.AreEqual(new[] { charts[2].Path }, pending.Select(chart => chart.Path).ToArray());
+            rows.CommitCurrentValues([success], (current, _) => current with { WAVHealth = 0 });
+            reads.Clear();
+            parses.Clear();
+            owner.QueueBackfill("explicit_next", processSynchronously: true);
+            CollectionAssert.AreEqual(new[] { charts[2].Path }, reads.ToArray());
+            CollectionAssert.AreEqual(new[] { charts[2].Path }, parses.ToArray());
+            Assert.AreEqual(1, owner.ChartInfoBackfillTotalCount);
+            Assert.IsNotNull(owner.ResolveChartInfo(charts[2].Sha256, charts[2].Md5));
+            Assert.IsTrue(rows.TryCapturePendingChartInfoInputs(out pending));
+            Assert.AreEqual(0, pending.Count);
+            Assert.IsFalse(owner.ChartInfoBackfillRunning);
+            Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+        });
+    }
+
+    /// <summary>後続chunkの実DB故障でも先行DB・current/index・完了証拠を保持し、同ownerの次要求は未確定対象だけ読む。</summary>
+    /// <remarks>各chunkを一対象に固定し、最初のchart_info確定後にだけ発火するSQLite triggerで失敗させる。対象の完了順は固定しない。</remarks>
+    [TestMethod]
+    public void BackfillInputCoverage_LaterChunkFaultPreservesEarlierProofAndRetriesOnlyPendingInputs()
+    {
+        WithTemporarySongDb((root, songDbPath) =>
+        {
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            ChartFile[] charts = CreateCoverageCharts(root, "one", "two", "three");
+            gateway.UpsertSongs(charts);
+            gateway.EnsureChartInfoBackfillSchema();
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.Execute("CREATE TRIGGER fail_later_coverage BEFORE INSERT ON chart_info WHEN (SELECT COUNT(1) FROM chart_info) >= 1 BEGIN SELECT RAISE(ABORT, 'later coverage chunk fault'); END;");
+            }
+            var rows = new CatalogOwnedCollectionOwner();
+            rows.ReplaceCharts(charts, []);
+            var reads = new ConcurrentQueue<string>();
+            var service = new ChartInfoBuildService(path => { reads.Enqueue(path); return File.ReadAllBytes(path); }, workerCountOverride: 1, commitChunkSizeOverride: 1);
+            var owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { }, buildService: service);
+            owner.ConfigureWorkflow(gateway, new CatalogMutationOwner(rows, gateway), rows, _ => { }, _ => { });
+            Exception? failure = null;
+            try { owner.QueueBackfill("later_failure", processSynchronously: true); }
+            catch (Exception ex) { failure = ex; }
+            Assert.IsNotNull(failure);
+            StringAssert.Contains(failure.ToString(), "later coverage chunk fault");
+            Assert.IsFalse(owner.ChartInfoBackfillRunning);
+            Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+            string committedSha;
+            using (var verify = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
+                committedSha = verify.ExecuteScalar<string>("SELECT sha256 FROM chart_info;");
+                verify.Execute("DROP TRIGGER fail_later_coverage;");
+            }
+            ChartFile committed = rows.BmsRows.Single(chart => chart.Sha256 == committedSha);
+            Assert.IsNotNull(owner.ResolveChartInfo(committed.Sha256, committed.Md5));
+            Assert.IsTrue(rows.TryCapturePendingChartInfoInputs(out IReadOnlyList<ChartFile> pending));
+            string[] unfinishedPaths = charts.Where(chart => chart.Sha256 != committedSha).Select(chart => chart.Path).ToArray();
+            CollectionAssert.AreEquivalent(unfinishedPaths, pending.Select(chart => chart.Path).ToArray());
+            reads.Clear();
+            owner.QueueBackfill("explicit_next", processSynchronously: true);
+            CollectionAssert.AreEquivalent(unfinishedPaths, reads.ToArray());
+            Assert.AreEqual(2, owner.ChartInfoBackfillTotalCount);
+            Assert.IsTrue(rows.TryCapturePendingChartInfoInputs(out pending));
+            Assert.AreEqual(0, pending.Count);
+            foreach (ChartFile chart in rows.BmsRows) { Assert.IsNotNull(owner.ResolveChartInfo(chart.Sha256, chart.Md5)); }
+            using var completed = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            Assert.AreEqual(3, completed.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
+        });
+    }
+
+    private static ChartFile[] CreateCoverageCharts(string root, params string[] names)
+        => names.Select(name =>
+        {
+            string path = Path.Combine(root, name + ".bms");
+            File.WriteAllText(path, $"#PLAYER 1\r\n#TITLE {name}\r\n#PLAYLEVEL 9\r\n#BPM 130\r\n#00111:01\r\n", Encoding.ASCII);
+            return BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path));
+        }).ToArray();
+
     /// <summary>初回補完後のhealth変更は全体候補検索をせず、digest欠損一件の再補完は背景16/128件に関係なく対象だけを取得・投影する。</summary>
     [DataTestMethod]
     [DataRow(16)]

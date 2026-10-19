@@ -443,7 +443,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         CancellationToken cancellationToken = default)
     {
         BMSPlaylist tables = GetPlaylistStore();
-        BMSLibrary files = GetPlaylistLibrary();
         ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
         List<BMSTable> tableList = [.. (importedTables ?? [])
             .Where(table => table != null)
@@ -453,15 +452,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             return false;
         }
         ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
-        files.AddReferenceBMSTablesIncremental(tableList);
-        ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
-        foreach (BMSTable table in tableList.Where(table => !tables.ContainsBMSTable(table)))
-        {
-            ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
-            files.RemoveReferenceBMSTables(table);
-        }
-        ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
-        RequestPlaylistReferenceSortInvalidation();
         if (queueSummaryRefresh)
         {
             ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);

@@ -389,7 +389,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
-    /// <summary>表示中の表へフォルダ変更と行削除を行い、選択の追従・詳細再読込・参照sort失効を公開して変更を古い表示へ取り残す誤りを検出します。</summary>
+    /// <summary>表示中の表へフォルダ変更と行削除を行い、選択の追従と詳細再読込を公開して変更を古い表示へ取り残す誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistWorkspaceMutation_ReportsDetailContentChangeForCurrentTable()
@@ -464,9 +464,8 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             workspace.IsPlaylistDetailViewActive = true;
 
             int detailReloadCount = 0;
-            int referenceSortInvalidationCount = 0;
             workspace.PlaylistDetailReloadRefreshRequested += (_, _) => detailReloadCount++;
-            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => referenceSortInvalidationCount++;
+
 
 
             await workspace.RenameFolderAsync(table, PlaylistFolderNode.CreateFolder("Mutation"), "Renamed");
@@ -478,7 +477,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 new PlaylistDetailSourceRow(entry, resolvedChart: null)]);
 
             Assert.AreEqual(4, detailReloadCount);
-            Assert.AreEqual(4, referenceSortInvalidationCount);
 
         }
         finally
@@ -1012,10 +1010,10 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             table.playlist_id = 9501;
             table.name = "Local Name";
             table.symbol = "L";
-            table.compat_prefix = string.Empty;
+            table.ApplyEntryMutation(table.PrepareHeaderMutation(new PlaylistHeaderEdit
+            { Fields = PlaylistHeaderFields.CompatPrefix, CompatPrefix = string.Empty }));
             table.Output_dir = "CustomOutput";
             table.DisableExternalSync();
-            table.entries[0].folder = "1";
             table.AddBMSTableEntriesToFolder([CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "★1")], "★1");
             foreach (BMSTableEntry entry in table.entries)
             {
@@ -1023,16 +1021,16 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             }
             table.Folder_order = ["1", "★1"];
             playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            playlist.CommitBMSTableWithEntriesToDB(table);
 
             BMSLibrary library = new TestBmsLibrary(songDbPath, settings: testSettings);
             PlaylistWorkspaceViewModel workspace = CreatePlaylistWorkspace(playlist, library);
             int detailReloadCount = 0;
-            int referenceSortInvalidationCount = 0;
             int keywordValueCandidatesChangedCount = 0;
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("1"));
             workspace.IsPlaylistDetailViewActive = true;
             workspace.PlaylistDetailReloadRefreshRequested += (_, _) => detailReloadCount++;
-            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => referenceSortInvalidationCount++;
+
             workspace.PlaylistKeywordValueCandidatesChanged += (_, _) => keywordValueCandidatesChangedCount++;
 
 
@@ -1058,7 +1056,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             CollectionAssert.Contains(workspace.GetPlaylistKeywordValueCandidates().ToArray(), "External:Name");
             Assert.IsTrue(keywordValueCandidatesChangedCount > 0);
             Assert.AreEqual(1, detailReloadCount);
-            Assert.AreEqual(1, referenceSortInvalidationCount);
 
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
@@ -1884,7 +1881,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
     /// <summary>単独モードで互換prefixを変更し、ヘッダーと二行のフォルダ名を同じ実DBへ保存して部分更新を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void CommitBMSTableWithEntriesToDB_PersistsPrefixRewrittenFoldersInStandaloneMode()
+    public void CommitPlaylistHeaderEdits_PersistsPrefixRewrittenFoldersInStandaloneMode()
     {
         testSettings.OperationModeLR2DB = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
@@ -1920,9 +1917,12 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
 
-            table.compat_prefix = "★";
-            Assert.IsTrue(table.RewriteCompatibleFolderPrefix("LEVEL ", table.compat_prefix));
-            playlist.CommitBMSTableWithEntriesToDB(table);
+            DateTime lastUpdate = table.last_update;
+            IReadOnlyList<PlaylistEntryCommitReceipt> receipts = playlist.CommitPlaylistHeaderEdits(
+                new Dictionary<BMSTable, PlaylistHeaderEdit>
+                { [table] = new PlaylistHeaderEdit { Fields = PlaylistHeaderFields.CompatPrefix, CompatPrefix = "★" } }, capability: null);
+            Assert.AreEqual(lastUpdate, table.last_update);
+            Assert.AreEqual(2, receipts.Single().Changes.Length);
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             string firstFolder = verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = 7201 AND md5 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';");

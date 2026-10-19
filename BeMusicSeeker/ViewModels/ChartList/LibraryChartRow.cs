@@ -15,7 +15,7 @@ internal sealed class LibraryChartRow : NotificationObject
 {
     private ChartFile sourceChart;
 
-    private readonly Func<ChartFile> chartProvider;
+    private Func<ChartFile> chartProvider;
 
     private readonly bool hideResourceHealthDigestWhenInstallDestinationSet;
 
@@ -138,6 +138,15 @@ internal sealed class LibraryChartRow : NotificationObject
             hideResourceHealthDigestWhenInstallDestinationSet: sourceRow.HideResourceHealthDigestWhenInstallDestinationSet);
     }
 
+    /// <summary>専用一覧の局所差替え入力へ接続し直し、行とpackage購読を維持します。</summary>
+    internal void UpdateSubsetSourceProjection(ChartListSourceRow source)
+    {
+        sourceChart = source.CapturedChart;
+        chartProvider = () => source.Chart;
+        playlistReferenceDisplayProvider = _ => source.ReferenceDisplay;
+        InvalidateChartCache();
+    }
+
     internal void UpdateSourceProjection(ChartFile chart)
     {
         if (chart == null)
@@ -180,12 +189,6 @@ internal sealed class LibraryChartRow : NotificationObject
         chartInfoProjectionProvider = provider;
     }
 
-    internal void RaisePlaylistReferenceDisplayChanged()
-    {
-        RaisePropertyChanged(nameof(RefTablesSymbols));
-        RaisePropertyChanged(nameof(RefTablesNames));
-    }
-
     internal void RefreshDisplayForDataDependency(MainViewDataDependency dependency)
     {
         InvalidateChartCache();
@@ -193,6 +196,10 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             case MainViewDataDependency.ChartInfo:
                 RaiseChartInfoDisplayPropertiesChanged();
+                break;
+            case MainViewDataDependency.ReferenceTables:
+                RaisePropertyChanged(nameof(RefTablesSymbols));
+                RaisePropertyChanged(nameof(RefTablesNames));
                 break;
             case MainViewDataDependency.Score:
                 RaiseScoreDisplayPropertiesChanged();

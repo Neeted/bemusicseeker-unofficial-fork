@@ -1702,10 +1702,12 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
-    /// <summary>一覧追加通知で取消を要求しても、既に確定した登録をモデル・DBへ保持します。確定後の取消を未登録へ戻す誤りを検出します。</summary>
-    [TestMethod]
+    /// <summary>単表・複数表の一覧追加通知で取消を要求しても、DB確定を保持して必要参照とBMT出力を終端します。DB後取消による中途終端を検出します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
     [TestCategory("Playlist")]
-    public async Task ExternalTableRegistration_CancellationDuringVisiblePublishDoesNotUndoCommit()
+    public async Task ExternalTableRegistration_CancellationDuringVisiblePublishDoesNotUndoCommit(bool multiple)
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -1713,15 +1715,17 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         {
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string output = Path.Combine(tempDirectory, "table");
+            var library = new TestBmsLibrary(songDbPath, settings: testSettings);
             var playlist = new TestBmsPlaylist(
+                new BmsPlaylistLibraryBindings(library),
                 songDbPath,
-                null,
-                null,
-                null,
-                () => new PlaylistUrlCompletionOptionsSnapshot(),
-                () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot(),
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+                beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot
+                {
+                    EnableBeatorajaBmtOutput = true,
+                    BeatorajaBmtTablePath = output
+                }, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
@@ -1733,6 +1737,16 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 Output_dir = "CancellationDuringVisiblePublish",
                 entries = [CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Folder")]
             };
+            BMSTable second = new()
+            {
+                playlist_id = 7813,
+                name = "Second cancellation during visible publish",
+                symbol = "SECOND",
+                Output_dir = "SecondCancellationDuringVisiblePublish",
+                entries = [CreateEntry("cccccccccccccccccccccccccccccccc", "Folder")]
+            };
+            BMSTable[] registered = multiple ? [table, second] : [table];
+            int handled = library.NormalLibraryRefreshNotificationVersion;
             using var cancellation = new CancellationTokenSource();
             bool visibleNotificationObserved = false;
             playlist.BMSTables.CollectionChanged += (_, change) =>
@@ -1744,19 +1758,38 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 }
             };
 
-            await playlist.ExternalSyncOwner.RegistrateExternalTableAsync(
-                table,
-                renameDuplicateName: false,
-                reason: "cancel_during_visible_publish",
-                cancellation.Token);
+            if (multiple)
+            {
+                await playlist.ExternalSyncOwner.RegistrateExternalTablesAsync(
+                    registered, renameDuplicateName: false, reason: "cancel_during_visible_publish", cancellation.Token);
+            }
+            else
+            {
+                await playlist.ExternalSyncOwner.RegistrateExternalTableAsync(
+                    table, renameDuplicateName: false, reason: "cancel_during_visible_publish", cancellation.Token);
+            }
 
             Assert.IsTrue(visibleNotificationObserved);
             Assert.IsTrue(cancellation.IsCancellationRequested);
-            Assert.IsTrue(playlist.BMSTables.Contains(table));
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>(
-                "SELECT COUNT(1) FROM playlist WHERE playlist_id = ?;",
-                table.playlist_id));
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handled);
+            PlaylistReferenceCommitReceipt receipt = batch.ReferenceCommits.Single();
+            PlaylistReferenceReadSnapshot references = library.CapturePlaylistReferenceReadSnapshot(
+                registered.Select(current => PlaylistEntryLookupKey.FromEntry(current.entries.Single())));
+            Assert.AreEqual(receipt.Revision, references.Revision);
+            foreach (BMSTable current in registered)
+            {
+                Assert.IsTrue(playlist.BMSTables.Contains(current));
+                Assert.AreEqual(1L, verify.ExecuteScalar<long>(
+                    "SELECT COUNT(1) FROM playlist WHERE playlist_id = ?;", current.playlist_id));
+                var key = PlaylistEntryLookupKey.FromEntry(current.entries.Single());
+                Assert.AreEqual(current.symbol, references.Values[key].Symbols);
+                Assert.IsTrue(receipt.Changes.ContainsKey(key));
+            }
+            Assert.AreEqual(registered.Length, Directory.GetFiles(output, "*.bmt").Length);
+            Assert.IsTrue(File.Exists(Path.Combine(output, BmtTableExportService.ManifestFileName)));
+            Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable next));
+            next.Dispose();
         }
         finally
         {

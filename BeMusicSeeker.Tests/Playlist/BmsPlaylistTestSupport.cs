@@ -129,7 +129,7 @@ internal static class BmsPlaylistTestSupport
         workspace.PlaylistPropertyExternalSyncFailed += (_, _) => { };
         workspace.PlaylistSyncProgressChanged += (_, _) => { };
         workspace.PlaylistDetailReloadRefreshRequested += (_, _) => { };
-        workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => { };
+
         workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         workspace.RefreshPlaylistTreeTables(playlist, library);
         return workspace;

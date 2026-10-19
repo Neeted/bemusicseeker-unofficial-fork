@@ -98,9 +98,9 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string encoding { get; }
 
-    internal string RefTablesSymbols { get; }
+    internal string RefTablesSymbols { get; private set; }
 
-    internal string RefTablesNames { get; }
+    internal string RefTablesNames { get; private set; }
 
     internal ClearType clear { get; private set; }
 
@@ -329,6 +329,17 @@ internal sealed class PlaylistDetailSourceRow
         var copy = (PlaylistDetailSourceRow)MemberwiseClone();
         copy.SetEntryChartInfo(chartInfo);
         return copy;
+    }
+
+    /// <summary>同じ捕捉入力の参照表示だけを置換し、検索・並べ替えへ渡します。</summary>
+    internal PlaylistDetailSourceRow WithReferenceDisplay(ChartListReferenceInput input)
+    {
+        PlaylistReferenceDisplay display = input.Resolve(hash, sha256);
+        var next = (PlaylistDetailSourceRow)MemberwiseClone();
+        next.RefTablesSymbols = display.Symbols;
+        next.RefTablesNames = display.Names;
+        next.SearchText = next.BuildSearchText();
+        return next;
     }
 
     /// <summary>

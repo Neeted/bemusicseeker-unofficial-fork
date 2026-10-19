@@ -1,729 +1,129 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>同じ表reader内で捕捉した参照headerです。表参照は識別だけに使い、比較時にlive属性を読みません。</summary>
+internal sealed record PlaylistReferenceTableHeader(BMSTable Table, string Symbol, string Name, int? BmtSort, int TableOrder);
+
+/// <summary>初回・表集合変更・実置換で必要な表の参照入力です。通常entry変更は既存receiptを使います。</summary>
 internal sealed class PlaylistReferenceTableSnapshot
 {
-    internal PlaylistReferenceTableSnapshot(
-        BMSTable table,
-        string symbol,
-        string name,
-        IEnumerable<BMSTableEntry> entries)
+    /// <summary>呼出元が保持する同じ表reader内のheaderと有効entry keyだけを捕捉します。</summary>
+    internal PlaylistReferenceTableSnapshot(BMSTable table, string symbol, string name, IEnumerable<BMSTableEntry> entries, int tableOrder = 0, Action<string> observe = null)
     {
-        Table = table ?? throw new ArgumentNullException(nameof(table));
-        Symbol = symbol ?? string.Empty;
-        Name = name ?? string.Empty;
-        Entries = Array.AsReadOnly([.. (entries ?? [])
-            .Where(entry => entry?.is_removed == false)
-            .Select(entry => new PlaylistReferenceEntrySnapshot(entry))]);
+        Header = new(table ?? throw new ArgumentNullException(nameof(table)), symbol ?? string.Empty, name ?? string.Empty, table.bmt_sort, tableOrder);
+        var values = new List<PlaylistReferenceEntrySnapshot>();
+        foreach (BMSTableEntry entry in entries ?? [])
+        {
+            observe?.Invoke("reference_entry_captured");
+            if (entry?.is_removed == false) { values.Add(new(entry)); }
+        }
+        Entries = values.AsReadOnly();
     }
-
-    internal BMSTable Table { get; }
-
-    internal string Symbol { get; }
-
-    internal string Name { get; }
-
+    /// <summary>値の読取りには使わない正本表の識別です。</summary>
+    internal BMSTable Table => Header.Table;
+    /// <summary>同じ表reader内で捕捉した表示headerです。</summary>
+    internal PlaylistReferenceTableHeader Header { get; }
+    /// <summary>実全置換で索引へ渡す有効entryの優先keyです。</summary>
     internal IReadOnlyList<PlaylistReferenceEntrySnapshot> Entries { get; }
 }
-
-internal sealed class PlaylistReferenceTableDisplaySnapshot
-{
-    internal PlaylistReferenceTableDisplaySnapshot(string symbol, string name)
-    {
-        Symbol = symbol ?? string.Empty;
-        Name = name ?? string.Empty;
-    }
-
-    internal string Symbol { get; }
-
-    internal string Name { get; }
-}
-
+/// <summary>既に順序が確定した表の表示文字列です。live属性を参照しません。</summary>
+internal sealed record PlaylistReferenceTableDisplaySnapshot(string Symbol, string Name);
+/// <summary>参照索引登録に必要なentry優先key一個です。entry値の第二正本は持ちません。</summary>
 internal sealed class PlaylistReferenceEntrySnapshot
 {
-    internal PlaylistReferenceEntrySnapshot(BMSTableEntry entry)
-    {
-        LookupKey = PlaylistEntryLookupKey.FromEntry(entry);
-    }
-
+    /// <summary>同じ表reader内の有効entryからMD5優先のkeyを捕捉します。</summary>
+    internal PlaylistReferenceEntrySnapshot(BMSTableEntry entry) { LookupKey = PlaylistEntryLookupKey.FromEntry(entry); }
+    /// <summary>MD5がなければSHAだけを持つ登録keyです。</summary>
     internal PlaylistEntryLookupKey LookupKey { get; }
 }
 
-internal sealed class PlaylistReferenceChartSnapshot
-{
-    internal PlaylistReferenceChartSnapshot(string md5, string sha256)
-    {
-        Md5 = NormalizeHash(md5);
-        Sha256 = NormalizeHash(sha256);
-    }
-
-    internal string Md5 { get; }
-
-    internal string Sha256 { get; }
-
-    internal static PlaylistReferenceChartSnapshot FromLibraryChartRef(LibraryChartRef chart)
-    {
-        return chart == null ? null : new PlaylistReferenceChartSnapshot(chart.Md5, chart.Sha256);
-    }
-
-    internal static PlaylistReferenceChartSnapshot FromPackageChartEntry(PackageChartEntry entry)
-    {
-        return entry?.Chart == null ? null : new PlaylistReferenceChartSnapshot(entry.Chart.Md5, entry.Chart.Sha256);
-    }
-
-    private static string NormalizeHash(string hash)
-    {
-        return string.IsNullOrWhiteSpace(hash) ? null : hash.Trim();
-    }
-}
-
-internal sealed class PlaylistReferenceCatalogApplyResult
-{
-    internal static PlaylistReferenceCatalogApplyResult Empty { get; } = new(0, 0, 0);
-
-    internal PlaylistReferenceCatalogApplyResult(int catalogVersion, int affectedChartCount, int matchedChartCount)
-    {
-        CatalogVersion = catalogVersion;
-        AffectedChartCount = affectedChartCount;
-        MatchedChartCount = matchedChartCount;
-    }
-
-    internal int CatalogVersion { get; }
-
-    internal int AffectedChartCount { get; }
-
-    internal int MatchedChartCount { get; }
-}
-
-/// <summary>
-/// Owns playlist-reference index state and the reference-apply behavior.
-/// Source owners hand this object immutable snapshots; it does not own catalog,
-/// package, playlist-persistence, or LR2 state.
-/// </summary>
+/// <summary>参照索引・確定版・不変差分・既存キュー登録を一つの排他内で確定します。配送起動は排他解放後です。</summary>
 internal sealed class BmsLibraryPlaylistReferenceOwner
 {
     private readonly object syncRoot = new();
-
-    private readonly BmsLibraryPlaylistReferenceService service;
-
-    private PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
-
+    private readonly PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
+    private readonly NormalLibraryRefreshPublisher publisher;
+    private readonly Action wake;
     private long indexRevision;
-
-    internal BmsLibraryPlaylistReferenceOwner(int playlistReferenceApplyChunkSize)
-    {
-        service = new BmsLibraryPlaylistReferenceService(playlistReferenceApplyChunkSize);
-    }
-
+    /// <summary>既存キューへの確定登録と、排他解放後の任意配送起動を接続します。</summary>
+    internal BmsLibraryPlaylistReferenceOwner(NormalLibraryRefreshPublisher publisher = null, Action wake = null)
+    { this.publisher = publisher; this.wake = wake; }
+    /// <summary>実参照格納・lookup・bucket・表示生成地点だけの任意observerです。集計状態は呼出側が所有します。</summary>
+    internal Action<string> WorkObserver { get; set; }
+    /// <summary>MD5 bucketの存在を優先し、不在時だけSHAを引きます。</summary>
     internal PlaylistReferenceDisplay Find(string md5, string sha256)
+    { lock (syncRoot) { WorkObserver?.Invoke("reference_lookup"); return index.Find(md5, sha256); } }
+    /// <summary>捕捉済み所持譜面のhashから参照表示を引きます。</summary>
+    internal PlaylistReferenceDisplay Find(ChartFile chart) => chart == null ? PlaylistReferenceDisplay.Empty : Find(chart.Md5, chart.Sha256);
+    /// <summary>捕捉済み譜面参照のhashから参照表示を引きます。</summary>
+    internal PlaylistReferenceDisplay Find(LibraryChartRef chart) => chart == null ? PlaylistReferenceDisplay.Empty : Find(chart.Md5, chart.Sha256);
+
+    /// <summary>必要なMD5/SHA両キーを同じ版で捕捉します。存在する空bucketも結果に含め、全索引は複写しません。</summary>
+    internal PlaylistReferenceReadSnapshot Capture(IEnumerable<PlaylistEntryLookupKey> keys, CancellationToken cancellationToken = default)
     {
         lock (syncRoot)
         {
-            return (index ?? PlaylistReferenceIndex.Empty).Find(md5, sha256);
-        }
-    }
-
-    internal PlaylistReferenceDisplay Find(ChartFile chart)
-    {
-        lock (syncRoot)
-        {
-            return (index ?? PlaylistReferenceIndex.Empty).Find(chart);
-        }
-    }
-
-    internal PlaylistReferenceDisplay Find(LibraryChartRef chart)
-    {
-        lock (syncRoot)
-        {
-            return (index ?? PlaylistReferenceIndex.Empty).Find(chart);
-        }
-    }
-
-    /// <summary>
-    /// Applies a catalog mutation receipt to the newly visible owned-chart
-    /// projection. The reference index is table-owned, so the receipt does not
-    /// mutate catalog state; it scopes a post-commit immutable projection pass.
-    /// </summary>
-    internal PlaylistReferenceCatalogApplyResult ApplyCatalogMutationReceipt(
-        CatalogMutationReceipt receipt,
-        IEnumerable<PlaylistReferenceChartSnapshot> affectedCharts)
-    {
-        if (receipt?.Applied != true || affectedCharts == null)
-        {
-            return PlaylistReferenceCatalogApplyResult.Empty;
-        }
-        PlaylistReferenceLookupKeys lookupKeys;
-        lock (syncRoot)
-        {
-            lookupKeys = (index ?? PlaylistReferenceIndex.Empty).CreateLookupKeysSnapshot();
-        }
-        List<PlaylistReferenceChartSnapshot> chartSnapshots = [.. affectedCharts.Where(chart => chart != null)];
-        int affectedChartCount = chartSnapshots.Count;
-        int matchedChartCount;
-        ApplyReferenceMap(
-            chartSnapshots,
-            lookupKeys,
-            out matchedChartCount,
-            out _,
-            out _);
-        return new PlaylistReferenceCatalogApplyResult(
-            receipt.CatalogRevision,
-            affectedChartCount,
-            matchedChartCount);
-    }
-
-    internal PlaylistReferenceLookupKeys BuildReferenceLookupKeys(PlaylistReferenceTableSnapshot table)
-    {
-        return BuildReferenceLookupKeys(table == null ? [] : [table]);
-    }
-
-    internal PlaylistReferenceLookupKeys BuildReferenceLookupKeys(IEnumerable<PlaylistReferenceTableSnapshot> tables)
-    {
-        var md5Hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var sha256Hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (PlaylistReferenceTableSnapshot snapshot in tables ?? [])
-        {
-            AddEntriesToLookupKeys(md5Hashes, sha256Hashes, snapshot);
-        }
-        return new PlaylistReferenceLookupKeys(md5Hashes, sha256Hashes);
-    }
-
-    internal void AddReferenceBMSTable(
-        PlaylistReferenceTableSnapshot tableSnapshot,
-        PlaylistReferenceLookupKeys lookupKeys,
-        IEnumerable<PlaylistReferenceChartSnapshot> libraryCharts,
-        IEnumerable<PlaylistReferenceChartSnapshot> pendingEntries,
-        Action<string> logInstallPerformance)
-    {
-        if (tableSnapshot?.Table == null)
-        {
-            return;
-        }
-
-        BMSTable table = tableSnapshot.Table;
-        lookupKeys ??= BuildReferenceLookupKeys(tableSnapshot);
-        var stopwatchBuildMap = Stopwatch.StartNew();
-        ReplaceTable(tableSnapshot);
-        stopwatchBuildMap.Stop();
-
-        var stopwatchApplySong = Stopwatch.StartNew();
-        ApplyReferenceMap(libraryCharts, lookupKeys, out int matchedLibraryCharts, out int appliedLibraryCharts, out PlaylistReferenceApplyStats songApplyStats);
-        stopwatchApplySong.Stop();
-        var stopwatchApplyPending = Stopwatch.StartNew();
-        ApplyReferenceMap(pendingEntries, lookupKeys, out int matchedPendingFiles, out int appliedPendingCharts, out PlaylistReferenceApplyStats pendingApplyStats);
-        stopwatchApplyPending.Stop();
-
-        logInstallPerformance?.Invoke(
-            "playlist_ref_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds
-            + " applySongMs=" + stopwatchApplySong.ElapsedMilliseconds
-            + " applySongChunks=" + songApplyStats.Chunks
-            + " applySongChunkMaxMs=" + songApplyStats.MaxChunkMs
-            + " applySongYieldCount=" + songApplyStats.YieldCount
-            + " applyPendingMs=" + stopwatchApplyPending.ElapsedMilliseconds
-            + " applyPendingChunks=" + pendingApplyStats.Chunks
-            + " applyPendingChunkMaxMs=" + pendingApplyStats.MaxChunkMs
-            + " applyPendingYieldCount=" + pendingApplyStats.YieldCount
-            + " mapMd5Count=" + (lookupKeys?.Md5Hashes?.Count ?? 0)
-            + " mapSha256Count=" + (lookupKeys?.Sha256Hashes?.Count ?? 0)
-            + " tableCount=1"
-            + " matchedLibraryCharts=" + matchedLibraryCharts
-            + " appliedLibraryCharts=" + appliedLibraryCharts
-            + " matchedPendingFiles=" + matchedPendingFiles
-            + " appliedPendingCharts=" + appliedPendingCharts);
-    }
-
-    internal void AddReferenceBMSTables(
-        IEnumerable<PlaylistReferenceTableSnapshot> tables,
-        PlaylistReferenceLookupKeys lookupKeys,
-        IEnumerable<PlaylistReferenceChartSnapshot> libraryCharts,
-        IEnumerable<PlaylistReferenceChartSnapshot> pendingEntries,
-        Action<string> logInstallPerformance)
-    {
-        List<PlaylistReferenceTableSnapshot> tableList = [.. (tables ?? []).Where(snapshot => snapshot?.Table != null)];
-        if (tableList.Count == 0)
-        {
-            return;
-        }
-
-        lookupKeys ??= BuildReferenceLookupKeys(tableList);
-        var stopwatchBuildMap = Stopwatch.StartNew();
-        Synchronize(tableList);
-        stopwatchBuildMap.Stop();
-        ApplyBatchReferenceMaps(
-            lookupKeys,
-            libraryCharts,
-            pendingEntries,
-            out long applySongMs,
-            out long applyPendingMs,
-            out int matchedLibraryCharts,
-            out int appliedLibraryCharts,
-            out int matchedPendingFiles,
-            out int appliedPendingCharts,
-            out PlaylistReferenceApplyStats songApplyStats,
-            out PlaylistReferenceApplyStats pendingApplyStats);
-
-        logInstallPerformance?.Invoke(
-            "playlist_ref_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds
-            + " applySongMs=" + applySongMs
-            + " applySongChunks=" + songApplyStats.Chunks
-            + " applySongChunkMaxMs=" + songApplyStats.MaxChunkMs
-            + " applySongYieldCount=" + songApplyStats.YieldCount
-            + " applyPendingMs=" + applyPendingMs
-            + " applyPendingChunks=" + pendingApplyStats.Chunks
-            + " applyPendingChunkMaxMs=" + pendingApplyStats.MaxChunkMs
-            + " applyPendingYieldCount=" + pendingApplyStats.YieldCount
-            + " mapMd5Count=" + (lookupKeys?.Md5Hashes?.Count ?? 0)
-            + " mapSha256Count=" + (lookupKeys?.Sha256Hashes?.Count ?? 0)
-            + " tableCount=" + tableList.Count
-            + " matchedLibraryCharts=" + matchedLibraryCharts
-            + " appliedLibraryCharts=" + appliedLibraryCharts
-            + " matchedPendingFiles=" + matchedPendingFiles
-            + " appliedPendingCharts=" + appliedPendingCharts);
-    }
-
-    internal void AddReferenceBMSTablesIncremental(
-        IEnumerable<PlaylistReferenceTableSnapshot> tables,
-        PlaylistReferenceLookupKeys lookupKeys,
-        IEnumerable<PlaylistReferenceChartSnapshot> libraryCharts,
-        IEnumerable<PlaylistReferenceChartSnapshot> pendingEntries,
-        Action<string> logInstallPerformance)
-    {
-        List<PlaylistReferenceTableSnapshot> tableList = [.. (tables ?? []).Where(snapshot => snapshot?.Table != null).GroupBy(snapshot => snapshot.Table).Select(group => group.First())];
-        if (tableList.Count == 0)
-        {
-            return;
-        }
-
-        lookupKeys ??= BuildReferenceLookupKeys(tableList);
-        var stopwatchBuildMap = Stopwatch.StartNew();
-        foreach (PlaylistReferenceTableSnapshot tableSnapshot in tableList)
-        {
-            ReplaceTable(tableSnapshot);
-        }
-        stopwatchBuildMap.Stop();
-        ApplyBatchReferenceMaps(
-            lookupKeys,
-            libraryCharts,
-            pendingEntries,
-            out long applySongMs,
-            out long applyPendingMs,
-            out int matchedLibraryCharts,
-            out int appliedLibraryCharts,
-            out int matchedPendingFiles,
-            out int appliedPendingCharts,
-            out PlaylistReferenceApplyStats songApplyStats,
-            out PlaylistReferenceApplyStats pendingApplyStats);
-
-        logInstallPerformance?.Invoke(
-            "playlist_ref_incremental_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds
-            + " applySongMs=" + applySongMs
-            + " applySongChunks=" + songApplyStats.Chunks
-            + " applySongChunkMaxMs=" + songApplyStats.MaxChunkMs
-            + " applySongYieldCount=" + songApplyStats.YieldCount
-            + " applyPendingMs=" + applyPendingMs
-            + " applyPendingChunks=" + pendingApplyStats.Chunks
-            + " applyPendingChunkMaxMs=" + pendingApplyStats.MaxChunkMs
-            + " applyPendingYieldCount=" + pendingApplyStats.YieldCount
-            + " mapMd5Count=" + (lookupKeys?.Md5Hashes?.Count ?? 0)
-            + " mapSha256Count=" + (lookupKeys?.Sha256Hashes?.Count ?? 0)
-            + " tableCount=" + tableList.Count
-            + " matchedLibraryCharts=" + matchedLibraryCharts
-            + " appliedLibraryCharts=" + appliedLibraryCharts
-            + " matchedPendingFiles=" + matchedPendingFiles
-            + " appliedPendingCharts=" + appliedPendingCharts);
-    }
-
-    internal void AddReferenceBMSTablesToPackageCharts(
-        IEnumerable<PlaylistReferenceTableSnapshot> tables,
-        PlaylistReferenceLookupKeys lookupKeys,
-        IEnumerable<PlaylistReferenceChartSnapshot> packageEntries,
-        int packageCount,
-        Action<string> logInstallPerformance)
-    {
-        List<PlaylistReferenceTableSnapshot> tableList = [.. (tables ?? []).Where(snapshot => snapshot?.Table != null)];
-        if (tableList.Count == 0)
-        {
-            return;
-        }
-
-        lookupKeys ??= BuildReferenceLookupKeys(tableList);
-        var stopwatchBuildMap = Stopwatch.StartNew();
-        stopwatchBuildMap.Stop();
-        int matchedPackageFiles = 0;
-        int appliedPackageCharts = 0;
-        PlaylistReferenceApplyStats packageApplyStats = default;
-        long applyPackageMs = 0L;
-        if (HasReferenceKeys(lookupKeys))
-        {
-            var stopwatchApplyPackage = Stopwatch.StartNew();
-            List<PlaylistReferenceChartSnapshot> packageEntriesSnapshot = [.. (packageEntries ?? []).Where(entry => entry != null).Distinct()];
-            if (packageEntriesSnapshot.Count > 0)
+            var values = new Dictionary<PlaylistEntryLookupKey, PlaylistReferenceDisplay>(CatalogReadSnapshot.LookupKeyComparer);
+            foreach (PlaylistEntryLookupKey key in keys.Distinct(CatalogReadSnapshot.LookupKeyComparer))
             {
-                appliedPackageCharts = service.ApplyReferenceMap(packageEntriesSnapshot, lookupKeys, out matchedPackageFiles, out packageApplyStats);
+                cancellationToken.ThrowIfCancellationRequested(); WorkObserver?.Invoke("reference_lookup");
+                if (key.HasValue && index.TryGet(key, out PlaylistReferenceDisplay value)) { values.Add(key, value); }
             }
-            stopwatchApplyPackage.Stop();
-            applyPackageMs = stopwatchApplyPackage.ElapsedMilliseconds;
-        }
-        logInstallPerformance?.Invoke(
-            "playlist_ref_package_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds
-            + " applyPackageMs=" + applyPackageMs
-            + " applyPackageChunks=" + packageApplyStats.Chunks
-            + " applyPackageChunkMaxMs=" + packageApplyStats.MaxChunkMs
-            + " applyPackageYieldCount=" + packageApplyStats.YieldCount
-            + " mapMd5Count=" + (lookupKeys?.Md5Hashes?.Count ?? 0)
-            + " mapSha256Count=" + (lookupKeys?.Sha256Hashes?.Count ?? 0)
-            + " tableCount=" + tableList.Count
-            + " packageCount=" + packageCount
-            + " matchedPackageFiles=" + matchedPackageFiles
-            + " appliedPackageCharts=" + appliedPackageCharts);
-    }
-
-    internal void ReplaceReferenceBMSTable(
-        PlaylistReferenceTableSnapshot oldTableSnapshot,
-        PlaylistReferenceTableSnapshot newTableSnapshot,
-        IEnumerable<PlaylistReferenceChartSnapshot> libraryCharts,
-        IEnumerable<PlaylistReferenceChartSnapshot> pendingEntries,
-        Action<string> logInstallPerformance)
-    {
-        BMSTable oldTable = oldTableSnapshot?.Table;
-        BMSTable newTable = newTableSnapshot?.Table;
-        IReadOnlyList<PlaylistReferenceEntrySnapshot> oldEntriesSnapshot = oldTableSnapshot?.Entries ?? [];
-        IReadOnlyList<PlaylistReferenceEntrySnapshot> newEntriesSnapshot = newTableSnapshot?.Entries ?? [];
-        BuildPlaylistReferenceHashSets(oldEntriesSnapshot, out HashSet<string> oldMd5Hashes, out HashSet<string> oldSha256Hashes);
-        BuildPlaylistReferenceHashSets(newEntriesSnapshot, out HashSet<string> newMd5Hashes, out HashSet<string> newSha256Hashes);
-        List<PlaylistReferenceChartSnapshot> libraryChartsSnapshot = [.. (libraryCharts ?? []).Where(chart => chart != null)];
-        List<PlaylistReferenceChartSnapshot> pendingEntriesSnapshot = [.. (pendingEntries ?? []).Where(entry => entry != null)];
-        List<PlaylistReferenceChartSnapshot> oldLibraryCharts = FilterPlaylistReferenceTargets(libraryChartsSnapshot, oldMd5Hashes, oldSha256Hashes);
-        List<PlaylistReferenceChartSnapshot> oldPendingEntries = FilterPendingPlaylistReferenceTargetEntries(pendingEntriesSnapshot, oldMd5Hashes, oldSha256Hashes);
-        List<PlaylistReferenceChartSnapshot> newLibraryCharts = FilterPlaylistReferenceTargets(libraryChartsSnapshot, newMd5Hashes, newSha256Hashes);
-        List<PlaylistReferenceChartSnapshot> newPendingEntries = FilterPendingPlaylistReferenceTargetEntries(pendingEntriesSnapshot, newMd5Hashes, newSha256Hashes);
-        logInstallPerformance?.Invoke(
-            "playlist_ref_replace targetsOldLibraryCharts=" + oldLibraryCharts.Count
-            + " targetsOldPending=" + oldPendingEntries.Count
-            + " targetsNewLibraryCharts=" + newLibraryCharts.Count
-            + " targetsNewPending=" + newPendingEntries.Count
-            + " oldEntryCount=" + oldEntriesSnapshot.Count
-            + " newEntryCount=" + newEntriesSnapshot.Count);
-        if (newTable != null)
-        {
-            ReplaceTables(oldTable, newTableSnapshot);
-        }
-        else if (oldTable != null)
-        {
-            RemoveTable(oldTable);
+            return new(indexRevision, values);
         }
     }
-
-    internal void AddReferenceBMSTablesToCharts(PlaylistReferenceTableSnapshot tableSnapshot)
-    {
-        ReplaceTable(tableSnapshot);
-    }
-
-    internal void RefreshReferenceDisplayForTable(PlaylistReferenceTableSnapshot tableSnapshot)
-    {
-        ReplaceTable(tableSnapshot);
-    }
-
-    internal void SynchronizeReferenceBMSTables(IEnumerable<PlaylistReferenceTableSnapshot> tables)
-    {
-        Synchronize([.. (tables ?? []).Where(snapshot => snapshot?.Table != null).GroupBy(snapshot => snapshot.Table).Select(group => group.First())]);
-    }
-
-    internal long CaptureReferenceIndexRevision()
-    {
-        lock (syncRoot)
-        {
-            return indexRevision;
-        }
-    }
-
-    internal PlaylistReferenceSynchronizationPlan PrepareReferenceBMSTableSynchronization(
-        long baseRevision,
-        IEnumerable<PlaylistReferenceTableSnapshot> tables)
-    {
-        var preparedIndex = PlaylistReferenceIndex.FromSnapshots(
-            (tables ?? [])
-                .Where(snapshot => snapshot?.Table != null)
-                .GroupBy(snapshot => snapshot.Table)
-                .Select(group => group.First()));
-        return new PlaylistReferenceSynchronizationPlan(baseRevision, preparedIndex);
-    }
-
+    /// <summary>同groupのentry差分を全guard解放後に一回適用します。headerだけの変更も同じ境界へ渡せます。</summary>
+    internal PlaylistReferenceCommitReceipt Apply(IReadOnlyList<PlaylistEntryCommitReceipt> receipts, IEnumerable<PlaylistReferenceTableHeader> headers = null)
+        => Commit(() => index.Apply(receipts, headers, WorkObserver));
+    /// <summary>初回・実全置換で参照選択集合全体を採用します。</summary>
+    internal PlaylistReferenceCommitReceipt SynchronizeReferenceBMSTables(IEnumerable<PlaylistReferenceTableSnapshot> snapshots)
+        => Commit(() => index.ReplaceTables(snapshots, synchronize: true, WorkObserver));
+    /// <summary>新規登録・表の実置換に必要な表だけを更新します。</summary>
+    internal PlaylistReferenceCommitReceipt ReplaceTables(IEnumerable<PlaylistReferenceTableSnapshot> snapshots,
+        IEnumerable<PlaylistReferenceTableHeader> headers = null, IEnumerable<BMSTable> removals = null)
+        => Commit(() => index.ReplaceTables(snapshots, observe: WorkObserver, headers: headers, removals: removals));
+    /// <summary>退役した表だけを除去します。</summary>
+    internal PlaylistReferenceCommitReceipt RemoveTables(IEnumerable<BMSTable> tables)
+        => Commit(() => index.RemoveTables(tables, WorkObserver));
+    /// <summary>全体入力捕捉の前に既存索引の確定位置を取得します。</summary>
+    internal long CaptureReferenceIndexRevision() { lock (syncRoot) { return indexRevision; } }
+    /// <summary>全体捕捉と採用の間に確定した更新を上書きしないための短命な準備結果です。</summary>
+    internal sealed record PlaylistReferenceSynchronizationPlan(long BaseRevision, IReadOnlyList<PlaylistReferenceTableSnapshot> Snapshots);
+    /// <summary>全体捕捉を短命な準備結果へ固定します。別の完成索引は事前構築しません。</summary>
+    internal PlaylistReferenceSynchronizationPlan PrepareReferenceBMSTableSynchronization(long baseRevision, IEnumerable<PlaylistReferenceTableSnapshot> snapshots)
+        => new(baseRevision, Array.AsReadOnly(snapshots.ToArray()));
+    /// <summary>捕捉後に独立参照更新が進んだ準備結果を採用しません。配送起動は排他解放後です。</summary>
     internal bool TryCommitReferenceBMSTableSynchronization(PlaylistReferenceSynchronizationPlan plan)
     {
-        if (plan == null)
-        {
-            throw new ArgumentNullException(nameof(plan));
-        }
+        PlaylistReferenceCommitReceipt receipt;
         lock (syncRoot)
         {
-            if (indexRevision != plan.BaseRevision)
-            {
-                return false;
-            }
-            index = plan.PreparedIndex;
-            indexRevision++;
-            return true;
+            if (indexRevision != plan.BaseRevision) { return false; }
+            receipt = Register(index.ReplaceTables(plan.Snapshots, synchronize: true, observe: WorkObserver));
         }
+        if (receipt != null) { wake?.Invoke(); }
+        return true;
     }
-
-    internal void RemoveReferenceBMSTables(PlaylistReferenceTableSnapshot tableSnapshot, bool removeTable)
+    private PlaylistReferenceCommitReceipt Commit(Func<PlaylistReferenceIndex.ChangeResult> apply)
     {
-        BMSTable table = tableSnapshot?.Table;
-        if (table == null)
-        {
-            return;
-        }
-        if (removeTable)
-        {
-            RemoveTable(table);
-            return;
-        }
-        ReplaceTable(tableSnapshot);
-    }
-
-    internal void RemoveReferenceBMSTables(IEnumerable<PlaylistReferenceTableSnapshot> tables)
-    {
-        List<BMSTable> tableList = [.. (tables ?? [])
-            .Where(snapshot => snapshot?.Table != null)
-            .Select(snapshot => snapshot.Table)
-            .Distinct()];
-        if (tableList.Count == 0)
-        {
-            return;
-        }
+        PlaylistReferenceCommitReceipt receipt;
         lock (syncRoot)
         {
-            foreach (BMSTable table in tableList)
-            {
-                index?.RemoveTable(table);
-            }
-            indexRevision++;
+            PlaylistReferenceIndex.ChangeResult result = apply();
+            receipt = Register(result);
         }
+        if (receipt != null) { wake?.Invoke(); }
+        return receipt;
     }
-
-    private void ReplaceTable(PlaylistReferenceTableSnapshot snapshot)
+    private PlaylistReferenceCommitReceipt Register(PlaylistReferenceIndex.ChangeResult result)
     {
-        if (snapshot?.Table == null)
-        {
-            return;
-        }
-        lock (syncRoot)
-        {
-            index ??= PlaylistReferenceIndex.Empty;
-            index.ReplaceSnapshotTable(snapshot);
-            indexRevision++;
-        }
-    }
-
-    private void ReplaceTables(BMSTable oldTable, PlaylistReferenceTableSnapshot newSnapshot)
-    {
-        lock (syncRoot)
-        {
-            index ??= PlaylistReferenceIndex.Empty;
-            index.RemoveTable(oldTable);
-            index.ReplaceSnapshotTable(newSnapshot);
-            indexRevision++;
-        }
-    }
-
-    private void RemoveTable(BMSTable table)
-    {
-        if (table == null)
-        {
-            return;
-        }
-        lock (syncRoot)
-        {
-            index?.RemoveTable(table);
-            indexRevision++;
-        }
-    }
-
-    private void Synchronize(IEnumerable<PlaylistReferenceTableSnapshot> tables)
-    {
-        lock (syncRoot)
-        {
-            var nextIndex = PlaylistReferenceIndex.FromSnapshots(tables);
-            index = nextIndex;
-            indexRevision++;
-        }
-    }
-
-    internal sealed class PlaylistReferenceSynchronizationPlan
-    {
-        internal PlaylistReferenceSynchronizationPlan(long baseRevision, PlaylistReferenceIndex preparedIndex)
-        {
-            BaseRevision = baseRevision;
-            PreparedIndex = preparedIndex ?? PlaylistReferenceIndex.Empty;
-        }
-
-        internal long BaseRevision { get; }
-
-        internal PlaylistReferenceIndex PreparedIndex { get; }
-    }
-
-    internal static bool HasPlaylistReferenceMatch(ChartFile chart, PlaylistReferenceLookupKeys lookupKeys)
-    {
-        return chart != null
-            && lookupKeys != null
-            && (lookupKeys.ContainsMd5(chart.Md5) || lookupKeys.ContainsSha256(chart.Sha256));
-    }
-
-    internal static bool HasPlaylistReferenceMatch(PlaylistReferenceChartSnapshot chart, PlaylistReferenceLookupKeys lookupKeys)
-    {
-        return chart != null
-            && lookupKeys != null
-            && (lookupKeys.ContainsMd5(chart.Md5) || lookupKeys.ContainsSha256(chart.Sha256));
-    }
-
-    internal static List<PlaylistReferenceChartSnapshot> FilterPackagePlaylistReferenceTargets(IEnumerable<PlaylistReferenceChartSnapshot> entries, PlaylistReferenceLookupKeys lookupKeys)
-    {
-        if (entries == null || !HasReferenceKeys(lookupKeys))
-        {
-            return [];
-        }
-        return [.. entries.Where(entry => entry != null && HasPlaylistReferenceMatch(entry, lookupKeys)).Distinct()];
-    }
-
-    internal static void BuildPlaylistReferenceHashSets(
-        IEnumerable<PlaylistReferenceEntrySnapshot> entries,
-        out HashSet<string> md5Hashes,
-        out HashSet<string> sha256Hashes)
-    {
-        md5Hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        sha256Hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (PlaylistReferenceEntrySnapshot entry in entries ?? [])
-        {
-            PlaylistEntryLookupKey lookupKey = entry?.LookupKey ?? default;
-            if (!lookupKey.HasValue)
-            {
-                continue;
-            }
-            if (lookupKey.Kind == PlaylistEntryLookupKeyKind.Md5)
-            {
-                md5Hashes.Add(lookupKey.Hash);
-            }
-            else
-            {
-                sha256Hashes.Add(lookupKey.Hash);
-            }
-        }
-    }
-
-    private static void AddEntriesToLookupKeys(
-        HashSet<string> md5Hashes,
-        HashSet<string> sha256Hashes,
-        PlaylistReferenceTableSnapshot snapshot)
-    {
-        BMSTable table = snapshot?.Table;
-        if (table == null || snapshot?.Entries == null)
-        {
-            return;
-        }
-        foreach (PlaylistReferenceEntrySnapshot entry in snapshot.Entries)
-        {
-            PlaylistEntryLookupKey lookupKey = entry?.LookupKey ?? default;
-            if (!lookupKey.HasValue)
-            {
-                continue;
-            }
-            HashSet<string> target = lookupKey.Kind == PlaylistEntryLookupKeyKind.Md5
-                ? md5Hashes
-                : sha256Hashes;
-            if (target != null)
-            {
-                target.Add(lookupKey.Hash);
-            }
-        }
-    }
-
-    private void ApplyBatchReferenceMaps(
-        PlaylistReferenceLookupKeys lookupKeys,
-        IEnumerable<PlaylistReferenceChartSnapshot> libraryCharts,
-        IEnumerable<PlaylistReferenceChartSnapshot> pendingEntries,
-        out long applySongMs,
-        out long applyPendingMs,
-        out int matchedLibraryCharts,
-        out int appliedLibraryCharts,
-        out int matchedPendingFiles,
-        out int appliedPendingCharts,
-        out PlaylistReferenceApplyStats songApplyStats,
-        out PlaylistReferenceApplyStats pendingApplyStats)
-    {
-        applySongMs = 0L;
-        applyPendingMs = 0L;
-        matchedLibraryCharts = 0;
-        matchedPendingFiles = 0;
-        appliedLibraryCharts = 0;
-        appliedPendingCharts = 0;
-        songApplyStats = default;
-        pendingApplyStats = default;
-        if (!HasReferenceKeys(lookupKeys))
-        {
-            return;
-        }
-        var stopwatchApplySong = Stopwatch.StartNew();
-        ApplyReferenceMap(libraryCharts, lookupKeys, out matchedLibraryCharts, out appliedLibraryCharts, out songApplyStats);
-        stopwatchApplySong.Stop();
-        applySongMs = stopwatchApplySong.ElapsedMilliseconds;
-        var stopwatchApplyPending = Stopwatch.StartNew();
-        ApplyReferenceMap(pendingEntries, lookupKeys, out matchedPendingFiles, out appliedPendingCharts, out pendingApplyStats);
-        stopwatchApplyPending.Stop();
-        applyPendingMs = stopwatchApplyPending.ElapsedMilliseconds;
-    }
-
-    private void ApplyReferenceMap(
-        IEnumerable<PlaylistReferenceChartSnapshot> charts,
-        PlaylistReferenceLookupKeys lookupKeys,
-        out int matchedCharts,
-        out int appliedCharts,
-        out PlaylistReferenceApplyStats applyStats)
-    {
-        appliedCharts = 0;
-        applyStats = default;
-        if (charts != null && HasReferenceKeys(lookupKeys))
-        {
-            appliedCharts = service.ApplyReferenceMap(charts, lookupKeys, out matchedCharts, out applyStats);
-            return;
-        }
-        matchedCharts = 0;
-    }
-
-    private static bool HasReferenceKeys(PlaylistReferenceLookupKeys lookupKeys)
-    {
-        return lookupKeys?.HasAny == true;
-    }
-
-    private static List<PlaylistReferenceChartSnapshot> FilterPlaylistReferenceTargets(
-        IEnumerable<PlaylistReferenceChartSnapshot> charts,
-        HashSet<string> md5Hashes,
-        HashSet<string> sha256Hashes)
-    {
-        if (charts == null || ((md5Hashes?.Count ?? 0) == 0 && (sha256Hashes?.Count ?? 0) == 0))
-        {
-            return [];
-        }
-        return [.. charts.Where(chart => chart != null
-            && ((!string.IsNullOrWhiteSpace(chart.Md5) && md5Hashes.Contains(chart.Md5))
-                || (!string.IsNullOrWhiteSpace(chart.Sha256) && sha256Hashes.Contains(chart.Sha256)))).Distinct()];
-    }
-
-    private static List<PlaylistReferenceChartSnapshot> FilterPendingPlaylistReferenceTargetEntries(
-        IEnumerable<PlaylistReferenceChartSnapshot> entries,
-        HashSet<string> md5Hashes,
-        HashSet<string> sha256Hashes)
-    {
-        if (entries == null || ((md5Hashes?.Count ?? 0) == 0 && (sha256Hashes?.Count ?? 0) == 0))
-        {
-            return [];
-        }
-        return [.. entries.Where(entry => entry != null
-            && ((!string.IsNullOrWhiteSpace(entry.Md5) && md5Hashes.Contains(entry.Md5))
-                || (!string.IsNullOrWhiteSpace(entry.Sha256) && sha256Hashes.Contains(entry.Sha256)))).Distinct()];
+        if (!result.HasChanges) { return null; }
+        var receipt = new PlaylistReferenceCommitReceipt(indexRevision, ++indexRevision, result.Changes);
+        publisher?.Register(receipt);
+        return receipt;
     }
 }

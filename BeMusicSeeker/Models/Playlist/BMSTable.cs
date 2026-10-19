@@ -52,115 +52,6 @@ public partial class BMSTable : LR2SongDBExtended.playlist
 
     public string LoadedRawHeaderSha256 { get; private set; }
 
-    /// <summary>
-    /// 一つの playlist mutation だけを補償するための一時スナップショットです。
-    /// </summary>
-    internal sealed class MutationSnapshot
-    {
-        /// <summary>同じ表と行を復元するため、変更前の所属・内容・更新情報を保全します。</summary>
-        internal MutationSnapshot(
-            BMSTable table,
-            IReadOnlyList<BMSTableEntry> entries,
-            IReadOnlyDictionary<BMSTableEntry, BMSTableEntry.MutationState> entryStates,
-            IReadOnlyList<string> folderOrder,
-            DateTime lastUpdate,
-            int playlistEntriesRevision)
-        {
-            Table = table;
-            Entries = entries;
-            EntryStates = entryStates;
-            FolderOrder = folderOrder;
-            LastUpdate = lastUpdate;
-            PlaylistEntriesRevision = playlistEntriesRevision;
-        }
-
-        /// <summary>この操作内スナップショットの復元先の表です。</summary>
-        internal BMSTable Table { get; }
-
-        /// <summary>変更前の行集合と行オブジェクトの参照です。</summary>
-        internal IReadOnlyList<BMSTableEntry> Entries { get; }
-
-        /// <summary>対象操作と保存時の正規化が変更し得る既存行の状態です。</summary>
-        internal IReadOnlyDictionary<BMSTableEntry, BMSTableEntry.MutationState> EntryStates { get; }
-
-        /// <summary>変更前のフォルダー表示順です。</summary>
-        internal IReadOnlyList<string> FolderOrder { get; }
-
-        /// <summary>変更前の表の更新日時です。</summary>
-        internal DateTime LastUpdate { get; }
-
-        /// <summary>変更前の行更新リビジョンです。</summary>
-        internal int PlaylistEntriesRevision { get; }
-    }
-
-    /// <summary>
-    /// 現在の table と既存 entry object の状態を operation 内補償用に取得します。
-    /// </summary>
-    /// <returns>変更前の table state。</returns>
-    internal MutationSnapshot CaptureMutationSnapshot()
-    {
-        List<BMSTableEntry> entrySnapshot = [.. (_entries ?? [])];
-        Dictionary<BMSTableEntry, BMSTableEntry.MutationState> entryStates = [];
-        foreach (BMSTableEntry entry in entrySnapshot.Where(entry => entry != null).Distinct())
-        {
-            entryStates.Add(entry, entry.CaptureMutationState());
-        }
-        return new MutationSnapshot(
-            this,
-            entrySnapshot,
-            entryStates,
-            _Folder_order == null ? null : [.. _Folder_order],
-            base.last_update,
-            PlaylistEntriesRevision);
-    }
-
-    /// <summary>
-    /// DB commit 前に失敗した operation の変更を、同じ object を保ったまま戻します。
-    /// </summary>
-    /// <param name="snapshot">この table から取得した補償用 snapshot。</param>
-    /// <param name="publishNotifications">
-    /// 復元時に property/folder cache 通知を発行するかどうか。
-    /// model lock 内の途中失敗では通知を遅らせ、DB failure 後の終端でのみ発行します。
-    /// </param>
-    internal void RestoreMutationSnapshot(MutationSnapshot snapshot, bool publishNotifications = true)
-    {
-        if (snapshot == null)
-        {
-            throw new ArgumentNullException(nameof(snapshot));
-        }
-        if (!ReferenceEquals(snapshot.Table, this))
-        {
-            throw new ArgumentException("Mutation snapshot belongs to another playlist table.", nameof(snapshot));
-        }
-
-        ReplaceEntriesCore([.. snapshot.Entries]);
-        foreach (BMSTableEntry entry in _entries.Where(entry => entry != null).Distinct())
-        {
-            if (snapshot.EntryStates.TryGetValue(entry, out BMSTableEntry.MutationState state))
-            {
-                state.Restore(entry, this);
-            }
-            else
-            {
-                entry.parent = this;
-            }
-        }
-        RebuildEntryMembership();
-        _Folder_order = snapshot.FolderOrder == null ? null : [.. snapshot.FolderOrder];
-        base.last_update = snapshot.LastUpdate;
-        RebuildFolderState(publishNotifications);
-        bool revisionChanged = _PlaylistEntriesRevision != snapshot.PlaylistEntriesRevision;
-        _PlaylistEntriesRevision = snapshot.PlaylistEntriesRevision;
-        if (publishNotifications)
-        {
-            RaisePropertyChanged("Folder_order");
-            if (revisionChanged)
-            {
-                RaisePropertyChanged(nameof(PlaylistEntriesRevision));
-            }
-        }
-    }
-
     public override string folder_order
     {
         get
@@ -1068,11 +959,6 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         return new HashSet<string>(activeFolderCounts.Keys.Select(key => key.Name), StringComparer.Ordinal);
     }
 
-    internal bool RewriteCompatibleFolderPrefix(string oldPrefix, string newPrefix)
-    {
-        return RewriteCompatibleFolderPrefix(oldPrefix, newPrefix, out _);
-    }
-
     internal bool CanRewriteCompatibleFolderPrefix(string oldPrefix, string newPrefix)
     {
         try
@@ -1102,64 +988,6 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         return folderMap;
     }
 
-    internal bool RewriteCompatibleFolderPrefix(string oldPrefix, string newPrefix, out IReadOnlyDictionary<string, string> rewrittenFolders)
-    {
-        CompatibleFolderPrefixRewritePlan rewritePlan = CreateCompatibleFolderPrefixRewritePlan(oldPrefix, newPrefix);
-        rewrittenFolders = rewritePlan.FolderMap;
-        return ApplyCompatibleFolderPrefixRewritePlan(rewritePlan);
-    }
-
-    internal CompatibleFolderPrefixRewritePlan CreateCompatibleFolderPrefixRewritePlan(string oldPrefix, string newPrefix)
-    {
-        IReadOnlyDictionary<string, string> folderMap = CreateValidatedCompatibleFolderPrefixRewriteMap(oldPrefix, newPrefix);
-        var entryRewrites = new List<CompatibleFolderPrefixEntryRewrite>();
-        foreach (BMSTableEntry entry in entries ?? [])
-        {
-            if (entry != null && folderMap.TryGetValue(entry.folder ?? string.Empty, out string rewrittenFolder))
-            {
-                entryRewrites.Add(new CompatibleFolderPrefixEntryRewrite(entry, rewrittenFolder));
-            }
-        }
-        List<string> rewrittenFolderOrder = [.. (Folder_order ?? [])
-            .Select(folder => folderMap.TryGetValue(folder ?? string.Empty, out string rewrittenFolder) ? rewrittenFolder : folder)
-            .Distinct(StringComparer.Ordinal)];
-        return new CompatibleFolderPrefixRewritePlan(folderMap, entryRewrites, rewrittenFolderOrder);
-    }
-
-    /// <summary>固定したprefix変更を全対象へ適用します。通知失敗でも後続モデル反映を完了し、元失敗を呼出元の保存・終端処理へ返します。</summary>
-    /// <param name="rewritePlan">同じP内で一度捕捉・検証した有限の変更対象。</param>
-    /// <returns>変更対象がある場合true。通知例外は全モデル反映後に送出します。</returns>
-    internal bool ApplyCompatibleFolderPrefixRewritePlan(CompatibleFolderPrefixRewritePlan rewritePlan)
-    {
-        if (rewritePlan == null)
-        {
-            throw new ArgumentNullException(nameof(rewritePlan));
-        }
-        IReadOnlyDictionary<string, string> folderMap = rewritePlan.FolderMap;
-        if (folderMap.Count == 0)
-        {
-            return false;
-        }
-
-        List<Exception> notificationFailures = [];
-        void Apply(Action mutation)
-        {
-            try { mutation(); }
-            catch (Exception failure) { notificationFailures.Add(failure); }
-        }
-        foreach (CompatibleFolderPrefixEntryRewrite entryRewrite in rewritePlan.EntryRewrites)
-        {
-            Apply(() => entryRewrite.Entry.folder = entryRewrite.RewrittenFolder);
-        }
-        RebuildEntryMembership();
-        Apply(() => Folder_order = [.. rewritePlan.RewrittenFolderOrder]);
-        Apply(() => RebuildFolderState());
-        Apply(() => TouchPlaylistEntriesRevision());
-        if (notificationFailures.Count == 1) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(notificationFailures[0]).Throw(); }
-        if (notificationFailures.Count > 1) { throw new AggregateException(notificationFailures).Flatten(); }
-        return true;
-    }
-
     private Dictionary<string, string> CreateCompatibleFolderPrefixRewriteMapCore(string oldPrefix, string newPrefix)
     {
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -1176,8 +1004,8 @@ public partial class BMSTable : LR2SongDBExtended.playlist
 
     private IEnumerable<string> EnumerateCompatibleFolderPrefixRewriteSourceFolders()
     {
-        return (entries ?? [])
-            .Select(entry => entry?.folder ?? string.Empty)
+        return entriesByFolder.Keys
+            .Select(key => key.Name ?? string.Empty)
             .Concat((Folder_order ?? []).Select(folder => folder ?? string.Empty))
             .Distinct(StringComparer.Ordinal);
     }
@@ -1548,36 +1376,4 @@ public partial class BMSTable : LR2SongDBExtended.playlist
             : folderName.ReplaceFromStart(sourceCompatPrefix, string.Empty);
         return (targetCompatPrefix ?? string.Empty) + compatibleLevel;
     }
-}
-
-internal sealed class CompatibleFolderPrefixRewritePlan
-{
-    internal CompatibleFolderPrefixRewritePlan(
-        IReadOnlyDictionary<string, string> folderMap,
-        IReadOnlyList<CompatibleFolderPrefixEntryRewrite> entryRewrites,
-        IReadOnlyList<string> rewrittenFolderOrder)
-    {
-        FolderMap = folderMap ?? throw new ArgumentNullException(nameof(folderMap));
-        EntryRewrites = entryRewrites ?? throw new ArgumentNullException(nameof(entryRewrites));
-        RewrittenFolderOrder = rewrittenFolderOrder ?? throw new ArgumentNullException(nameof(rewrittenFolderOrder));
-    }
-
-    internal IReadOnlyDictionary<string, string> FolderMap { get; }
-
-    internal IReadOnlyList<CompatibleFolderPrefixEntryRewrite> EntryRewrites { get; }
-
-    internal IReadOnlyList<string> RewrittenFolderOrder { get; }
-}
-
-internal sealed class CompatibleFolderPrefixEntryRewrite
-{
-    internal CompatibleFolderPrefixEntryRewrite(BMSTableEntry entry, string rewrittenFolder)
-    {
-        Entry = entry ?? throw new ArgumentNullException(nameof(entry));
-        RewrittenFolder = rewrittenFolder ?? string.Empty;
-    }
-
-    internal BMSTableEntry Entry { get; }
-
-    internal string RewrittenFolder { get; }
 }

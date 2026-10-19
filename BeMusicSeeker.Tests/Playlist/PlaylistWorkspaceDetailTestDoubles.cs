@@ -90,7 +90,8 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
         BeMusicSeeker.Models.ChartDetails chartInfo,
         LibraryChartRef resolvedChartRef,
         PlaylistEntryValue? entryValue = null,
-        long entryOrder = 0)
+        long entryOrder = 0,
+        ChartListReferenceInput? referenceInput = null)
     {
         return new PlaylistDetailSourceRow(
             entry,

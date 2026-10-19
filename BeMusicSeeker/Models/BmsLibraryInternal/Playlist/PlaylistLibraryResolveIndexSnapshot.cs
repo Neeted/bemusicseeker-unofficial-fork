@@ -297,6 +297,7 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
             }
 
             nextMembership = nextMembership.Remove(identityKey);
+            storeWorkObserver?.Invoke("playlist_resolve_candidate_remove");
             if (!TryRemoveCandidate(
                 nextMd5Buckets,
                 existing.Md5,
@@ -335,6 +336,7 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
             if (nextMembership.TryGetValue(candidateIdentityKey, out PlaylistLibraryResolveChartFact existing))
             {
                 nextMembership = nextMembership.Remove(candidateIdentityKey);
+                storeWorkObserver?.Invoke("playlist_resolve_candidate_remove");
                 if (!TryRemoveCandidate(
                     nextMd5Buckets,
                     existing.Md5,
@@ -361,6 +363,7 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
             }
 
             nextMembership = nextMembership.SetItem(candidateIdentityKey, candidate);
+            storeWorkObserver?.Invoke("playlist_resolve_candidate_add");
             nextMd5Buckets = AddCandidate(nextMd5Buckets, candidate.Md5, candidate);
             affectedMd5.Add(candidate.Md5);
             if (!string.IsNullOrWhiteSpace(candidate.Sha256))
@@ -628,6 +631,7 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
         return true;
     }
 
+    /// <summary>現在パスを先に比較し、同値なら両キー共通のmodeで安定順を比較します。raw/canonicalの混在でも左右を入れ替えた比較を一致させます。</summary>
     private static int CompareCandidates(
         PlaylistLibraryResolveChartFact left,
         PlaylistLibraryResolveChartFact right)
@@ -637,8 +641,14 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
         {
             return pathCompare;
         }
-        int orderCompare = (left?.CanonicalOrder ?? OwnedChartCanonicalOrderKey.Missing)
-            .CompareTo(right?.CanonicalOrder ?? OwnedChartCanonicalOrderKey.Missing);
+        OwnedChartCanonicalOrderKey leftKey = left?.CanonicalOrder ?? OwnedChartCanonicalOrderKey.Missing;
+        OwnedChartCanonicalOrderKey rightKey = right?.CanonicalOrder ?? OwnedChartCanonicalOrderKey.Missing;
+        // 正規化はOrdinalを継承し、captured/current pathの異なるキーだけを再捕捉します。
+        // 残るrawキーはcaptured pathがcurrent pathと一致するため、この同current-path区間では
+        // raw同士のpathも同値です。片方がcanonicalなら共通path modeを使い、後続移転時の非対称を防ぎます。
+        bool usesPathOrder = leftKey.UsesCapturedPathOrder || rightKey.UsesCapturedPathOrder;
+        int orderCompare = new OwnedChartCanonicalOrderKey(leftKey.Kind, leftKey.CapturedPath, leftKey.Ordinal, usesPathOrder)
+            .CompareTo(new OwnedChartCanonicalOrderKey(rightKey.Kind, rightKey.CapturedPath, rightKey.Ordinal, usesPathOrder));
         if (orderCompare != 0)
         {
             return orderCompare;

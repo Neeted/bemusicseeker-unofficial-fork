@@ -47,7 +47,6 @@ internal sealed partial class LibraryMutationOwner
 
     private readonly ResourceHealthIndexOwner resourceHealthOwner;
 
-    private readonly BmsLibraryPlaylistReferenceOwner playlistReferenceOwner;
 
     private readonly object ownedInputSnapshotGate;
 
@@ -152,7 +151,6 @@ internal sealed partial class LibraryMutationOwner
         CatalogMutationOwner catalogMutationOwner,
         CatalogMaintenanceOwner catalogMaintenanceOwner,
         ResourceHealthIndexOwner resourceHealthOwner,
-        BmsLibraryPlaylistReferenceOwner playlistReferenceOwner,
         object ownedInputSnapshotGate,
         NormalLibraryRefreshPublisher normalLibraryRefreshPublisher,
         Func<CatalogInstalledTargetUpsertReceipt, int, Lr2NormalFolderCatalogMutationReceipt> createInstalledTargetLr2NormalFolderMutationReceipt,
@@ -190,7 +188,6 @@ internal sealed partial class LibraryMutationOwner
         this.catalogMutationOwner = catalogMutationOwner ?? throw new ArgumentNullException(nameof(catalogMutationOwner));
         this.catalogMaintenanceOwner = catalogMaintenanceOwner ?? throw new ArgumentNullException(nameof(catalogMaintenanceOwner));
         this.resourceHealthOwner = resourceHealthOwner ?? throw new ArgumentNullException(nameof(resourceHealthOwner));
-        this.playlistReferenceOwner = playlistReferenceOwner ?? throw new ArgumentNullException(nameof(playlistReferenceOwner));
         this.ownedInputSnapshotGate = ownedInputSnapshotGate ?? throw new ArgumentNullException(nameof(ownedInputSnapshotGate));
         this.normalLibraryRefreshPublisher = normalLibraryRefreshPublisher ?? throw new ArgumentNullException(nameof(normalLibraryRefreshPublisher));
         this.createInstalledTargetLr2NormalFolderMutationReceipt = createInstalledTargetLr2NormalFolderMutationReceipt ?? throw new ArgumentNullException(nameof(createInstalledTargetLr2NormalFolderMutationReceipt));
