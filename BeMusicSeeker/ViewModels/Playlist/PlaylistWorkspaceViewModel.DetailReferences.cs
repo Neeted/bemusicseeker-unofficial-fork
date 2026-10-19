@@ -57,6 +57,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         dependencies.ReferenceCommits.RemoveAll(receipt => receipt.Revision <= input.Revision);
     }
 
+    /// <summary>必要な捕捉境界へ到達してから元投影を全件適用し、その最終依存で参照入力を整理して後続の参照確定へ進みます。</summary>
     private bool TryCommitReferenceProjection(PlaylistDetailDependencies dependencies, object receipt,
         PlaylistPendingReferenceProjection projection, PlaylistDetailVirtualView view, PlaylistRequestIdentity? identity)
     {
@@ -99,6 +100,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                 ReplaceDetailProjection(dependencies, before, after, view, identity);
             }
         }
+        // 行ごとの途中状態では、同じ投影内で別entryへ引き継ぐhashまで解放してしまう。
+        dependencies.PruneReferenceInput(projection.Changes.Select(change => change.Before));
         dependencies.PendingReferenceProjections.Remove(receipt);
         ApplyReferenceCommits(dependencies, view, identity);
         return true;

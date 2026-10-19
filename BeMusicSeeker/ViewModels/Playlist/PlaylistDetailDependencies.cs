@@ -84,7 +84,7 @@ internal sealed class PlaylistDetailDependencies
         foreach (string key in sha256Keys ?? []) { if (key != null && sha256s.TryGetValue(key, out HashSet<BMSTableEntry> entries)) { target.UnionWith(entries); } }
     }
 
-    /// <summary>変更対象の投影とその逆引きだけを置換します。</summary>
+    /// <summary>変更対象の投影と逆引きだけを置換します。参照入力の解放は共通投影の全変更後に行います。</summary>
     internal void Replace(PlaylistDetailSourceRow row)
     {
         if (!positions.TryGetValue(row.Entry, out int index)) { Add(row); return; }
@@ -92,11 +92,10 @@ internal sealed class PlaylistDetailDependencies
         RemoveDependencies(previous);
         Rows[index] = row;
         Index(row, index);
-        PruneReferenceInput(previous);
     }
 
     internal void Add(PlaylistDetailSourceRow row) { Rows.Add(row); Index(row, Rows.Count - 1); }
-    /// <summary>対象を除去し、格納末尾の一件だけを移して位置辞書を更新します。表示順はEntryOrderが担当します。</summary>
+    /// <summary>対象を除去し、格納末尾の一件だけを移して位置辞書を更新します。表示順はEntryOrderが担当し、参照入力の解放は共通投影の全変更後に行います。</summary>
     internal void Remove(BMSTableEntry entry)
     {
         if (!positions.Remove(entry, out int index)) { return; }
@@ -111,13 +110,17 @@ internal sealed class PlaylistDetailDependencies
             observeWork?.Invoke("playlist_dependency_position_write");
         }
         Rows.RemoveAt(last);
-        PruneReferenceInput(previous);
     }
 
-    private void PruneReferenceInput(PlaylistDetailSourceRow previous)
+    /// <summary>全変更適用後、変更前の影響行に由来するkeyのうち最後の依存を失ったものだけを解放します。同じ投影内の移動で一時的に依存がなくなっても入力を失わず、旧不変入力を保ちます。</summary>
+    internal void PruneReferenceInput(IEnumerable<PlaylistDetailSourceRow> previousRows)
     {
-        PlaylistEntryLookupKey[] keys = [new(PlaylistEntryLookupKeyKind.Md5, previous.hash), new(PlaylistEntryLookupKeyKind.Md5, previous.EntryValue.Md5),
-            new(PlaylistEntryLookupKeyKind.Sha256, previous.sha256), new(PlaylistEntryLookupKeyKind.Sha256, previous.EntryValue.Sha256)];
+        IEnumerable<PlaylistEntryLookupKey> keys = previousRows.Where(previous => previous != null)
+            .SelectMany(previous => new PlaylistEntryLookupKey[]
+            {
+                new(PlaylistEntryLookupKeyKind.Md5, previous.hash), new(PlaylistEntryLookupKeyKind.Md5, previous.EntryValue.Md5),
+                new(PlaylistEntryLookupKeyKind.Sha256, previous.sha256), new(PlaylistEntryLookupKeyKind.Sha256, previous.EntryValue.Sha256)
+            });
         ReferenceInput = ReferenceInput?.RemoveDependencies(keys.Where(key => key.HasValue && !IncludesReferenceKey(key)));
     }
 

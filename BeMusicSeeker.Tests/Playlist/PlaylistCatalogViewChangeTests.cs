@@ -759,7 +759,7 @@ public sealed class PlaylistCatalogViewChangeTests
         }
     }
 
-    /// <summary>実workspaceの少数delete/dropもreceiptで同じ表示を更新し、公開後の全詳細refresh・全件bufferを要求しません。</summary>
+    /// <summary>実delete/dropを局所反映し、同表移動後の新entryでMEMO保存しても参照だけに一致するfilterと表示を保持します。16→128の背景では移動・保存を別区間で観測します。</summary>
     [DataTestMethod]
     [DataRow(16, false)]
     [DataRow(128, false)]
@@ -767,7 +767,15 @@ public sealed class PlaylistCatalogViewChangeTests
     [DataRow(128, true)]
     public async Task WorkspaceDeleteOrDrop_DoesNotRequestDuplicateDetailRefresh(int count, bool drop)
     {
-        await using var fixture = new Fixture(count, firstFolder: "source");
+        const string referenceSymbol = "MOVE_REF";
+        await using var fixture = new Fixture(count, firstFolder: "source", prepareTable: drop ? (prepared, entries) =>
+        {
+            prepared.symbol = referenceSymbol;
+            // source/targetの双方に別譜面を残し、空folder用dummyを作らず同表移動を検証する。
+            entries[1].folder = "source";
+        }
+        : null);
+        if (drop) { fixture.Workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot(referenceSymbol, ChartModeFilter.All)); }
         await fixture.Refresh();
         var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
         var first = (PlaylistDetailRow)rows[0];
@@ -776,17 +784,62 @@ public sealed class PlaylistCatalogViewChangeTests
         int reloads = 0;
         fixture.Workspace.PlaylistDetailReloadRefreshRequested += (_, _) => reloads++;
         var work = new List<string>();
+        var modelWork = new List<string>();
         fixture.Workspace.DetailWorkObserver = work.Add;
+        fixture.Library.PlaylistReferenceWorkObserver = modelWork.Add;
         if (drop)
         {
+            Assert.AreEqual(count, rows.Count);
+            Assert.AreEqual(referenceSymbol, first.RefTablesSymbols);
+            Assert.AreEqual(table.name, first.RefTablesNames);
             await fixture.Workspace.AddRowsToFolderAsync([first], table, PlaylistFolderNode.CreateFolder("background"));
+            fixture.Deliver();
             Assert.AreEqual(count, rows.Count);
             if (rows[0] is not PlaylistDetailRow adopted) { throw new AssertFailedException("Dropped entry was not presented."); }
             Assert.AreEqual("background", adopted.Entry.folder);
             Assert.AreEqual(first.Entry.md5, adopted.Entry.md5);
             Assert.AreNotSame(first.Entry, adopted.Entry);
             Assert.IsFalse(table.ContainsEntry(first.Entry));
+            Assert.IsTrue(table.ContainsEntry(adopted.Entry));
             Assert.AreSame(next, rows[1]);
+            Assert.AreEqual(referenceSymbol, adopted.RefTablesSymbols);
+            Assert.AreEqual(table.name, adopted.RefTablesNames);
+            using (var db = new LR2SongDBExtended(fixture.SongDb))
+            { Assert.AreEqual("background", db.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE title = 'entry 0';")); }
+            Assert.AreEqual(1, work.Count(kind => kind == "playlist_source_projection"));
+            Assert.AreEqual(1, work.Count(kind => kind == "playlist_detail_materialized"));
+            Assert.AreEqual(2, rows.RealizedRowCount);
+            Assert.AreEqual(0, modelWork.Count(kind => kind is "reference_lookup" or "reference_entry_captured" or "reference_entry_indexed"));
+            Assert.AreEqual(0, reloads);
+            Assert.AreEqual(0, work.Count(kind => kind is "playlist_dependency_index_entry" or "playlist_order_buffer"));
+            Assert.IsTrue(work.Count(kind => kind == "playlist_order_access") <= 10 * Math.Ceiling(Math.Log2(count)) + 10);
+
+            work.Clear(); modelWork.Clear();
+            var memo = new MainChartListCellEditContext(adopted, nameof(PlaylistDetailRow.memo),
+                ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+            fixture.Workspace.BeginDetailEdit(memo);
+            adopted.memo = "saved after folder move";
+            await fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(memo, "saved after folder move", commit: true));
+            fixture.Deliver();
+            // filter語は参照symbolだけに存在する。後続の実保存でも欠落して表示から外れてはならない。
+            Assert.AreEqual(referenceSymbol, adopted.RefTablesSymbols);
+            Assert.AreEqual(table.name, adopted.RefTablesNames);
+            Assert.AreEqual(count, rows.Count);
+            Assert.AreSame(adopted, rows[0]);
+            Assert.AreSame(next, rows[1]);
+            Assert.AreEqual("source", next.Folder);
+            Assert.AreEqual("entry memo", next.memo);
+            Assert.AreEqual("saved after folder move", adopted.Entry.memo);
+            using (var db = new LR2SongDBExtended(fixture.SongDb))
+            {
+                Assert.AreEqual("background", db.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE title = 'entry 0';"));
+                Assert.AreEqual("saved after folder move", db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE title = 'entry 0';"));
+                Assert.AreEqual(count, db.ExecuteScalar<int>("SELECT COUNT(*) FROM playlist_entry WHERE playlist_id = ?;", table.playlist_id));
+            }
+            Assert.AreEqual(1, work.Count(kind => kind == "playlist_source_projection"));
+            Assert.AreEqual(0, work.Count(kind => kind == "playlist_detail_materialized"));
+            Assert.AreEqual(2, rows.RealizedRowCount);
+            Assert.AreEqual(0, modelWork.Count(kind => kind is "reference_lookup" or "reference_entry_captured" or "reference_entry_indexed"));
         }
         else
         {
@@ -800,6 +853,114 @@ public sealed class PlaylistCatalogViewChangeTests
         Assert.AreEqual(0, work.Count(kind => kind == "playlist_dependency_index_entry"));
         Assert.AreEqual(0, work.Count(kind => kind == "playlist_order_buffer"));
         Assert.IsTrue(work.Count(kind => kind == "playlist_order_access") <= 10 * Math.Ceiling(Math.Log2(count)) + 10);
+    }
+
+    /// <summary>実workspace削除の2→1ではMD5/SHA入力を保持し、最後の依存が消えた終端だけ解放します。別表のowner値と捕捉済み旧入力は残ります。</summary>
+    [TestMethod]
+    public async Task EntryDeletion_ReleasesOnlyLastReferenceDependencyAndPreservesOldInput()
+    {
+        await using var fixture = new Fixture(3, prepareTable: (prepared, entries) =>
+        {
+            prepared.symbol = "DETAIL";
+            entries[1].md5 = entries[0].md5;
+            entries[1].sha256 = entries[0].sha256;
+            // 正規取込みは同folder内の同hashを重複排除するため、二つの実依存を別folderへ置く。
+            entries[1].folder = "duplicate";
+        });
+        BMSTable table = fixture.Playlist.BMSTables[0];
+        string md5 = table.entries[0].md5;
+        string sha256 = table.entries[0].sha256;
+        var owner = new BMSTable
+        {
+            playlist_id = 4189,
+            name = "Retained reference",
+            symbol = "KEEP",
+            is_external_sync = false,
+            entries = [new BMSTableEntry { md5 = md5, sha256 = sha256, title = "md5 owner" },
+                new BMSTableEntry { sha256 = sha256, title = "sha owner" }]
+        };
+        fixture.Playlist.BMSTables.Add(owner);
+        fixture.Playlist.CommitBMSTableWithEntriesToDB(owner);
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var first = (PlaylistDetailRow)rows[0];
+        var second = (PlaylistDetailRow)rows[1];
+        var retained = (PlaylistDetailRow)rows[2];
+        List<PlaylistDetailSourceRow> source = fixture.Workspace.DetailViewState.Source.Rows;
+        PlaylistDetailDependencies dependencies = fixture.Workspace.DetailViewState.Source.Dependencies
+            ?? throw new AssertFailedException("Detail dependencies were not adopted.");
+        ChartListReferenceInput oldInput = dependencies.ReferenceInput
+            ?? throw new AssertFailedException("Reference input was not adopted.");
+        PlaylistReferenceDisplay oldMd5 = oldInput.Resolve(md5, null);
+        PlaylistReferenceDisplay oldSha = oldInput.Resolve(null, sha256);
+        Assert.IsTrue(oldMd5.Names.Contains(owner.name, StringComparison.Ordinal));
+        Assert.AreEqual("KEEP", oldSha.Symbols);
+
+        await fixture.Workspace.DeleteSelectedEntriesAsync([first]); fixture.Deliver();
+        Assert.AreEqual(2, rows.Count);
+        Assert.AreSame(second, rows[0]);
+        Assert.AreSame(retained, rows[1]);
+        Assert.AreEqual(oldMd5.Symbols, dependencies.ReferenceInput.Resolve(md5, null).Symbols);
+        Assert.AreEqual(oldMd5.Names, dependencies.ReferenceInput.Resolve(md5, null).Names);
+        Assert.AreEqual(oldSha.Symbols, dependencies.ReferenceInput.Resolve(null, sha256).Symbols);
+        Assert.AreEqual(oldSha.Names, dependencies.ReferenceInput.Resolve(null, sha256).Names);
+
+        await fixture.Workspace.DeleteSelectedEntriesAsync([second]); fixture.Deliver();
+        Assert.AreEqual(1, rows.Count);
+        Assert.AreSame(retained, rows[0]);
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreSame(source, fixture.Workspace.DetailViewState.Source.Rows);
+        Assert.AreSame(dependencies, fixture.Workspace.DetailViewState.Source.Dependencies);
+        Assert.AreSame(source, dependencies.Rows);
+        Assert.AreEqual(string.Empty, dependencies.ReferenceInput.Resolve(md5, null).Symbols);
+        Assert.AreEqual(string.Empty, dependencies.ReferenceInput.Resolve(md5, null).Names);
+        Assert.AreEqual(string.Empty, dependencies.ReferenceInput.Resolve(null, sha256).Symbols);
+        Assert.AreEqual(string.Empty, dependencies.ReferenceInput.Resolve(null, sha256).Names);
+        PlaylistReferenceReadSnapshot snapshot = fixture.Library.CapturePlaylistReferenceReadSnapshot(
+            [new(PlaylistEntryLookupKeyKind.Md5, md5), new(PlaylistEntryLookupKeyKind.Sha256, sha256)]);
+        Assert.AreEqual("KEEP", snapshot.Values[new(PlaylistEntryLookupKeyKind.Md5, md5)].Symbols);
+        Assert.AreEqual("KEEP", snapshot.Values[new(PlaylistEntryLookupKeyKind.Sha256, sha256)].Symbols);
+        Assert.AreSame(oldMd5, oldInput.Resolve(md5, null));
+        Assert.AreSame(oldSha, oldInput.Resolve(null, sha256));
+        Assert.IsTrue(oldInput.Resolve(md5, null).Names.Contains(owner.name, StringComparison.Ordinal));
+    }
+
+    /// <summary>初回捕捉でbucketが不在でも有効な入力です。後続の実MEMO保存は追加lookupせず、空表示と採用中sourceを保持します。</summary>
+    [TestMethod]
+    public async Task MemoSave_WithCapturedAbsentReferenceBucketDoesNotRecapture()
+    {
+        await using var fixture = new Fixture(3);
+        fixture.Library.SynchronizeReferenceBMSTables([]);
+        fixture.Deliver();
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var target = (PlaylistDetailRow)rows[0];
+        PlaylistDetailDependencies dependencies = fixture.Workspace.DetailViewState.Source.Dependencies
+            ?? throw new AssertFailedException("Detail dependencies were not adopted.");
+        ChartListReferenceInput input = dependencies.ReferenceInput
+            ?? throw new AssertFailedException("Reference input was not adopted.");
+        Assert.IsTrue(input.IsCaptured);
+        PlaylistReferenceReadSnapshot absent = fixture.Library.CapturePlaylistReferenceReadSnapshot(
+            [new(PlaylistEntryLookupKeyKind.Md5, target.hash), new(PlaylistEntryLookupKeyKind.Sha256, target.sha256)]);
+        Assert.AreEqual(0, absent.Values.Count);
+        var modelWork = new List<string>();
+        fixture.Library.PlaylistReferenceWorkObserver = modelWork.Add;
+        var memo = new MainChartListCellEditContext(target, nameof(PlaylistDetailRow.memo),
+            ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+        fixture.Workspace.BeginDetailEdit(memo);
+        target.memo = "saved with no reference";
+        await fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(memo, "saved with no reference", commit: true));
+        fixture.Deliver();
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreSame(dependencies, fixture.Workspace.DetailViewState.Source.Dependencies);
+        Assert.AreSame(target, rows[0]);
+        Assert.AreEqual(3, rows.Count);
+        Assert.AreEqual(string.Empty, target.RefTablesSymbols);
+        Assert.AreEqual(string.Empty, target.RefTablesNames);
+        Assert.AreEqual("saved with no reference", target.Entry.memo);
+        using (var db = new LR2SongDBExtended(fixture.SongDb))
+        { Assert.AreEqual("saved with no reference", db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE title = 'entry 0';")); }
+        Assert.AreEqual(0, modelWork.Count(kind => kind == "reference_lookup"));
     }
 
     /// <summary>A/Bの別キー確定後、片方のpure wakeを止めても単一drainが全rangeを覆い、同条件要求は混合入力をreuseしません。旧同キー逆順保証もここへ移管します。</summary>
@@ -1153,9 +1314,10 @@ public sealed class PlaylistCatalogViewChangeTests
         internal bool BatchNotificationsOnDelivery { get; set; }
         private bool batchNotificationQueued;
 
+        /// <summary>所属・hash索引を確立するentries取込み前に表と未登録entryを準備し、初回捕捉も同じ正規保存値から開始します。</summary>
         internal Fixture(int count, bool bmson = false, string? firstFolder = null,
             bool regularDelivery = false, bool oracleScores = false, bool connectDelivery = true,
-            Func<string, LR2SongDBExtended>? openEntryWriteConnection = null)
+            Func<string, LR2SongDBExtended>? openEntryWriteConnection = null, Action<BMSTable, List<BMSTableEntry>>? prepareTable = null)
         {
             this.bmson = bmson;
             Directory.CreateDirectory(directory);
@@ -1204,7 +1366,7 @@ public sealed class PlaylistCatalogViewChangeTests
                 is_external_sync = false,
                 Folder_order = firstFolder == null ? [] : ["background", firstFolder]
             };
-            table.entries = charts.Select((chart, index) => new BMSTableEntry
+            var entries = charts.Select((chart, index) => new BMSTableEntry
             {
                 md5 = chart.Md5,
                 sha256 = chart.Sha256,
@@ -1214,6 +1376,8 @@ public sealed class PlaylistCatalogViewChangeTests
                 level = index == 0 ? 2.5 : 3,
                 folder = firstFolder == null ? string.Empty : index < (oracleScores ? 3 : 1) ? firstFolder : "background"
             }).ToList();
+            prepareTable?.Invoke(table, entries);
+            table.entries = entries;
             Playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
             Playlist.CommitBMSTableWithEntriesToDB(table);
             Workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _, playlistStoreProvider: () => Playlist,
@@ -1315,6 +1479,8 @@ public sealed class PlaylistCatalogViewChangeTests
         internal void Deliver() { while (deliveries.Count > 0) { deliveries.Dequeue()(); } }
         public async ValueTask DisposeAsync()
         {
+            Workspace.DetailWorkObserver = null;
+            Library.PlaylistReferenceWorkObserver = null;
             if (notification != null) { Library.PropertyChanged -= notification; }
             Deliver();
             Workspace.CancelDetailBuilds();
