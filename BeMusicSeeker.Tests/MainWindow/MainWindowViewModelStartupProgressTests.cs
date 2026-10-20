@@ -389,7 +389,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         }
     }
 
-    /// <summary>親解放後のUI待機で終了が先着した場合だけ取消へ分類し、同時に発生した実UI障害は保持します。</summary>
+    /// <summary>親解放後のUI待機で終了が先着した場合だけ取消へ分類します。実UI障害の原因通知と登録済み表示Taskの終端を待ち、古い表示を含む反映後も失敗原因を保持します。</summary>
     [DataTestMethod]
     [DataRow(false)] // 終了による取消だけなら進捗を実失敗へ分類しません。
     [DataRow(true)] // 終了中に生じた実UI失敗は取消へ置換しません。
@@ -406,21 +406,49 @@ public sealed class MainWindowViewModelStartupProgressTests
             fixture.AssertBeforeUiCompletion();
             Task shutdown = fixture.Owner.ShellShutdownWorkflow.RequestWindowCloseAsync();
             fixture.Track(shutdown);
-            if (realFailure) { fixture.Ui.Release.TrySetException(new IOException("real UI failure during shutdown")); }
-            else { fixture.Ui.Release.TrySetResult(); }
-            TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "startup-ui-shutdown-terminal");
-            TestUiDispatcherHost.AwaitTaskOnDispatcher(shutdown, "startup-ui-shutdown-drain");
-            Assert.IsFalse(initialization.GetAwaiter().GetResult());
-            Assert.IsTrue(fixture.Lifetime.IsFirstStartup);
-            Assert.IsFalse(fixture.Owner.IsInitializationCompleted);
-            Assert.IsFalse(fixture.Owner.HasActiveLibraryProfile);
-            Assert.IsFalse(fixture.Scheduler.IsPostInitializationSchedulingComplete);
-            Assert.IsFalse(fixture.OptionalEntered.Task.IsCompleted, "受理済み必須cleanupのdrainは許可し、任意workは開始しません。");
-            Assert.IsTrue(fixture.Scheduler.IsFullyIdle);
-            Assert.AreEqual(0, recorded.Count, "終了開始後に新しい失敗画面を開きません。");
-            Assert.AreEqual(realFailure, fixture.Owner.ProgressHub.StartupProgress.IsFailed);
-            if (realFailure) { StringAssert.Contains(fixture.Owner.ProgressHub.StartupProgress.SubLabel, "real UI failure"); }
-            Assert.AreEqual(0, fixture.CompletionNotifications);
+            var failure = new IOException("real UI failure during shutdown");
+            var causePresented = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            StartupProgressWorkflowOwner progress = fixture.Owner.ProgressHub.StartupProgress;
+            void PresentationChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if ((string.IsNullOrEmpty(args.PropertyName) || args.PropertyName == nameof(StartupProgressWorkflowOwner.SubLabel))
+                    && progress.SubLabel.Contains(failure.Message, StringComparison.Ordinal)) { causePresented.TrySetResult(); }
+            }
+            progress.PropertyChanged += PresentationChanged;
+            try
+            {
+                if (realFailure) { fixture.Ui.Release.TrySetException(failure); }
+                else { fixture.Ui.Release.TrySetResult(); }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(initialization, shutdown), "startup-ui-shutdown-terminal");
+                Task presentation = fixture.Ui.JoinScheduledOperationsAsync();
+                if (realFailure)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(causePresented.Task, presentation,
+                        "startup-ui-shutdown-failure-presentation"), "startup-ui-shutdown-failure-notification");
+                }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(presentation, "startup-ui-shutdown-presentation-terminal");
+                Assert.IsFalse(initialization.GetAwaiter().GetResult());
+                Assert.IsTrue(fixture.Lifetime.IsFirstStartup);
+                Assert.IsFalse(fixture.Owner.IsInitializationCompleted);
+                Assert.IsFalse(fixture.Owner.HasActiveLibraryProfile);
+                Assert.IsFalse(fixture.Scheduler.IsPostInitializationSchedulingComplete);
+                Assert.IsFalse(fixture.OptionalEntered.Task.IsCompleted, "受理済み必須cleanupのdrainは許可し、任意workは開始しません。");
+                Assert.IsTrue(fixture.Scheduler.IsFullyIdle);
+                Assert.AreEqual(0, recorded.Count, "終了開始後に新しい失敗画面を開きません。");
+                Assert.AreEqual(realFailure, progress.IsFailed);
+                if (realFailure) { StringAssert.Contains(progress.SubLabel, failure.Message); }
+                Assert.AreEqual(0, fixture.CompletionNotifications);
+            }
+            finally
+            {
+                fixture.Ui.Release.TrySetResult();
+                try { TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(initialization, shutdown), "startup-ui-shutdown-task-cleanup"); }
+                finally
+                {
+                    try { TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Ui.JoinScheduledOperationsAsync(), "startup-ui-shutdown-presentation-cleanup"); }
+                    finally { progress.PropertyChanged -= PresentationChanged; }
+                }
+            }
         });
     }
 
@@ -1407,6 +1435,8 @@ public sealed class MainWindowViewModelStartupProgressTests
     internal sealed class CompletionUiScheduler(IUiScheduler inner) : IUiScheduler
     {
         private bool armed;
+        private readonly object scheduledOperationsLock = new();
+        private readonly List<Task> scheduledOperations = [];
         internal Func<bool> IsCompletionBoundary { get; set; } = () => false;
         internal TaskCompletionSource Entered { get; private set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal TaskCompletionSource Release { get; private set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1419,7 +1449,17 @@ public sealed class MainWindowViewModelStartupProgressTests
         public bool IsAvailable => inner.IsAvailable;
         public bool CanExecuteInline => inner.CanExecuteInline;
         public bool CheckAccess() => inner.CheckAccess();
-        public IUiScheduledOperation Schedule(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.Schedule(action, priority);
+        public IUiScheduledOperation Schedule(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            IUiScheduledOperation operation = inner.Schedule(action, priority);
+            lock (scheduledOperationsLock) { scheduledOperations.Add(operation.Completion); }
+            return operation;
+        }
+        /// <summary>生成元の初期化・終了Taskを回収した後、既に登録された実表示Taskを古いsnapshotも含めて待ちます。</summary>
+        internal Task JoinScheduledOperationsAsync()
+        {
+            lock (scheduledOperationsLock) { return Task.WhenAll(scheduledOperations); }
+        }
         public void Invoke(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.Invoke(action, priority);
         public T Invoke<T>(Func<T> action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.Invoke(action, priority);
         public async Task InvokeAsync(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)

@@ -122,6 +122,14 @@ JSONの欠落・アクセス・読取り失敗、シリアライザーの入力�
 
 設定は各対象譜面の音源充足率へ適用し、候補順位、推定開始、新規インストールの分類・許可へ流用しません。欠損を許可しても一般の不足警告は残ることを画面の説明に明記します。確認不能な音源は許容せず、保存済みの範囲外値は診断付きで自動設定を拒否します。範囲外値を黙って90%等へ丸めず、画面で利用者が有効な値へ修正できます。編集取消・保存・再読込みは既存の設定sessionを使います。詳細な許可条件は[導入先推定](../library/install-estimation.md#確信度と画面への適用)を正本とします。
 
+### 取り込み後の自動推定に続く導入
+
+詳細設定の「インストール」に、説明付きチェックボックス「取り込み時の自動推定でインストール先が確定したら、自動インストールする」を置きます。ユーザー設定 `AutoInstallAfterAutomaticEstimation` はbool、既定falseです。新規ファイル・旧設定のキー欠損のいずれも無効とし、更新だけで有効にしません。
+
+有効時は、保留への登録に続く自動推定が正常完了し、今回導入先が自動確定した対象を確認画面なしで導入します。説明文には、手動で開始した推定は対象外で、上書きと元パッケージ削除は既存設定に従うことを示します。対象・失敗・取消の正本は[推定仕様](../library/install-estimation.md#取り込み後の自動推定に続く導入)です。ダウンロード後の取り込みを制御する `AutoInstall` / `EnableAutoInstall` とは別の設定です。
+
+設定編集のバックアップ・変更検出・取消復元・変更通知へ接続し、保存するだけで推定・導入・スキャンや再起動を開始しません。取り込み入口の設定スナップショットを終端まで使い、処理中の編集は実行中の取り込みに混入させません。次の取り込みはその入口の設定を捕捉します。
+
 ### 新規判定の保留と複数候補の説明
 
 `KeepInstallablePackagesPending` は、新規と判定されたパッケージを導入前に保留画面で確認したい場合の設定として説明します。① #BMP定義やARTIST名の修正などで全同梱譜面のハッシュが変わった既所持作品を既所持フォルダへまとめられるか確認する用途、② 同梱譜面が削除された難易度表パッケージなどを新規導入で別フォルダに分けたくない用途を、別々の行に示します。自動の導入先推定は行わず、必要ならパッケージを選択して「インストール」→「インストール先を推定」を実行することを案内します。
@@ -271,6 +279,7 @@ Allでは必要な出力配置の移行と旧BMTの整理を一回行い、新�
 | 一覧の初回非同期取得、表示終了と実終端、保存値の保持 | `AudioDeviceTestWorkflowOwner`、`SettingsDialogViewModel` | `AudioDeviceListRefreshTests`で可視/表示有効化の通知順、未完了タスクの再利用、現在の編集値、閉画面非通知、旧照会後の列挙、音声未訪問/列挙中/外側失敗時の他設定保存と新しい読取り元を確認する。`AudioDeviceCatalogTests`は方式別の直近正常一覧保持を担う。 |
 | 列挙中の実画面操作と終了接続 | `AudioSettingsPage`、`SettingsWindow`、`MainWindow` | `SettingsWindowPresentationTests.AudioListRefresh_KeepsNavigationEditingAndOrdinaryCloseResponsive`で実バインディング・Dispatcher・通常閉鎖、`MainWindow_OwnerShutdownWaitsForAcceptedAudioWorkBeforeRuntimeShutdown`の一覧/明示テストで音声基盤の終了前の実タスク待機を確認する。 |
 | ルート候補の除外と取得内の全件スナップショット共有 | `SettingsDialogViewModel`のルート取得と出力先計算 | `SettingDialogCustomFolderOutputBaseTests.Lr2BmsDirectoryChoices_ExcludeCustomFolderOutputBases`で実LR2登録、現在/変更前の各出力先、同一/子/親/兄弟、欠落登録、ROOT出力なし・候補0件での未取得、必要時一回のスナップショット共有と次の取得への変更反映を確認する。 |
+| 自動推定後導入の既定OFF・永続化・実チェックボックスの保存と取消・設定捕捉 | [`Settings`](../../../BeMusicSeeker/Properties/Settings.cs)、[`BmsLibraryOptionsSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryOptionsSnapshot.cs)、`SettingsDialogViewModel`、`AdvancedSettingsPage` | [`PortableSettingsPersistenceTests`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) はキー欠損とON/OFFの新provider読戻し、[`SettingDialogCategoryPersistenceTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCategoryPersistenceTests.cs) の `CompiledCategoryEditor_SaveReachesFreshProviderLiveSettingsAndNewDialog` は実checkboxから保存・稼働options・新dialog・取消復元を確認する。捕捉後の固定は [`BmsLibraryOptionsSnapshotTests`](../../../BeMusicSeeker.Tests/Library/BmsLibraryOptionsSnapshotTests.cs)、翻訳の共通整合は `LocalizationResourceParityTests` が分担する。 |
 | 導入先自動設定の音源閾値、既定100、90～100・不正保存値、保存/取消 | `Settings`、`BmsLibraryOptionsSnapshot`、`SettingsDialogViewModel`、`AdvancedSettingsPage` | [`PortableSettingsPersistenceTests`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) が欠如・端点・97・範囲外値の実保存と新readerを、[`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCategoryPersistenceTests.cs) がcompiled選択・保存・取消を確認する。操作内捕捉と各譜面許可は[推定の対応表](../library/install-estimation.md#実装とテストの対応)に分担する。 |
 | 自動新規導入の完全性設定、既定OFF、実編集・取消・保存・再読込み | [`Settings`](../../../BeMusicSeeker/Properties/Settings.cs)、[`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`AdvancedSettingsPage`](../../../BeMusicSeeker/Views/Settings/Pages/AdvancedSettingsPage.xaml) | [`PortableSettingsPersistenceTests`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) の欠落キー既定値、[`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCategoryPersistenceTests.cs) の詳細設定の実Bindingと保存・新provider・取消を確認する。分類と同一操作の設定捕捉は[導入先推定の対応表](../library/install-estimation.md#実装とテストの対応)に分担する。 |
 | 起動設定の保存警告と必須失敗の分離 | [`ApplicationSettingsLifecycle`](../../../BeMusicSeeker/Models/Settings/ApplicationSettingsLifecycle.cs) | [`ApplicationSettingsLifecycleTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationSettingsLifecycleTests.cs)の`ValidSaveBlockedInputWarnsAndMaterializesCanonicalValuesWhileReadFailureIsFatal`、`VersionUpdateDistinguishesReadFailureFromPublicationFailure`は実XMLで両保存警告の通常完了・コールバック例外と、同じ値・バイト列・文化圏・テーマを確認します。`InitializeLegacyMigrationFailureIsFatalWithoutSaveWarningOrStoreRead`は実移行の公開失敗を警告へ変換せず停止することを分担します。 |

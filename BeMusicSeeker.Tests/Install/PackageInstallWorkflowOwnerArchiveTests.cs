@@ -13,6 +13,78 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class PackageInstallWorkflowOwnerTests
 {
+    /// <summary>未引渡し展開先の実削除失敗を、展開後取消または停止の元失敗とともに終端へ残します。Delete共有を許さない実handleを終端まで保持し、解放だけでは再試行しません。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    [DoNotParallelize]
+    public async Task ProductionImport_RetainsRealInputCleanupFailureAlongsideOriginalTerminal(bool failStop)
+    {
+        using var fixture = new ManagedArchiveInstallFixture();
+        string archive = fixture.CreateInput("managed");
+        FileStream? locked = null;
+        string? marker = null;
+        fixture.Files.BeforeTimestamp = path =>
+        {
+            if (locked != null) { return; }
+            marker = Path.Combine(Path.GetDirectoryName(path) ?? throw new AssertFailedException("展開先がありません。"), "cleanup-lock.marker");
+            locked = new FileStream(marker, FileMode.Create, FileAccess.ReadWrite, FileShare.Read);
+        };
+        var original = new IOException("original-playback-stop-before-input-cleanup");
+        var owner = new PackageInstallWorkflowOwner(fixture.Dialogs, fixture.Library.OperationAdmission,
+            new ChartMutationActivityOwner(), new BmsLibraryPackageInstallMutationPort(),
+            new ArchiveTestPlaybackPort(() => failStop ? Task.FromException(original) : Task.CompletedTask), action => { action(); return true; });
+        owner.AttachLibrary(fixture.Library);
+        PackageInstallFailure? outcome = null;
+        bool activeAtTerminal = true;
+        owner.FailurePublished += failure =>
+        {
+            outcome = failure;
+            activeAtTerminal = fixture.Library.OperationAdmission.IsActive;
+        };
+        int cancelled = 0;
+        owner.StatusChanged += progress =>
+        {
+            if (!failStop && progress.IsActive && progress.CompletedPathCount == 1 && Interlocked.Exchange(ref cancelled, 1) == 0)
+            { owner.CancelAll(); }
+        };
+        try
+        {
+            Assert.IsTrue(owner.Enqueue([archive]));
+            await owner.WaitForIdleAsync();
+            Assert.IsNotNull(locked);
+            Assert.IsNotNull(marker);
+            Assert.IsNotNull(outcome);
+            Assert.IsFalse(activeAtTerminal);
+            Assert.IsFalse(outcome.CommandResult.HasDurableCommit);
+            PackageInstallInputCleanupFailure cleanup = outcome.CommandResult.InputCleanupFailures.Single();
+            Assert.IsTrue(string.Equals(fixture.ExtractedRoots.Single(), cleanup.Path, StringComparison.OrdinalIgnoreCase));
+            Assert.IsTrue(File.Exists(marker));
+            Exception[] causes = outcome.Exception is AggregateException aggregate ? aggregate.Flatten().InnerExceptions.ToArray() : [outcome.Exception];
+            Assert.IsTrue(causes.Any(cause => ReferenceEquals(cause, cleanup.Failure)));
+            if (failStop) { Assert.IsTrue(causes.Any(cause => ReferenceEquals(cause, original))); }
+            else { Assert.IsTrue(causes.Any(cause => cause is OperationCanceledException)); }
+            Assert.IsTrue(outcome.CommandResult.RecoveryPaths.Contains(cleanup.Path));
+            Assert.AreEqual(0, fixture.Library.ChartPackagesPending.Count);
+            Assert.AreEqual(0, fixture.Library.ChartPackagesInstalled.Count);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count());
+                Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
+            }
+            locked.Dispose();
+            locked = null;
+            await owner.WaitForIdleAsync();
+            Assert.IsTrue(File.Exists(marker), "handle解放やidle観測は回収の再試行を開始しません。");
+        }
+        finally
+        {
+            await owner.WaitForIdleAsync();
+            locked?.Dispose();
+            foreach (string path in fixture.ExtractedRoots) { TempDirectoryPublisher.TryDeleteManagedPath(path); }
+        }
+    }
+
     /// <summary>
     /// 実owner・mutation portから展開直後取消、準備後停止失敗、譜面なし、実展開先消失へ到達します。
     /// 未引渡し管理入力の回収終端まで受付を保持し、利用者元ZIPと未変更DBを保全し、取消・元例外・準備診断を解放後へ一度渡します。
@@ -23,6 +95,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow("stop_failure")]
     [DataRow("no_charts")]
     [DataRow("missing_expanded_input")]
+    // 初回管理sessionのマーカーと実回収を共有するため、fixture生成から終端・回収まで非並列にします。
+    [DoNotParallelize]
     public async Task ProductionImport_PreApplyTerminalReclaimsManagedInputsBeforeAdmissionRelease(string scenario)
     {
         using var fixture = new ManagedArchiveInstallFixture();
@@ -158,6 +232,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]
+    // 初回管理sessionのマーカーと実回収を共有するため、fixture生成から終端・回収まで非並列にします。
+    [DoNotParallelize]
     public async Task ProductionImport_ArchiveWarningsAreDeliveredOnceAfterRelease(bool timestampFailure)
     {
         using var fixture = new ManagedArchiveInstallFixture();

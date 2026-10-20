@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
@@ -432,6 +433,110 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     viewModel.SettingDialog.Dispose();
                 }
                 Directory.Delete(root, true);
+            }
+        });
+    }
+
+    /// <summary>実取り込みの初段成功と後段DB失敗を、実MainWindowのowner通知とreceiverへ通し、一回の集約表示に成功・未確定・回復情報を保持します。</summary>
+    [TestMethod]
+    public void DropInstallAutomaticContinuation_ReportsBothStagesThroughActualReceiver()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            var dialogs = new FileDbReportRecordingDialogs();
+            var composition = new ApplicationComposition(
+                settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(), fileDbMutationDialogService: dialogs);
+            var fixture = new PackageInstallWorkflowOwnerTests.AutomaticContinuationFixture(true, false,
+                operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission,
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
+            MainWindowViewModel? viewModel = null;
+            FileStream? cleanupLock = null;
+            string? cleanupRoot = null;
+            string managedZipRoot = TempDirectoryPublisher.Get("automatic-receiver-input");
+            string managedZip = Path.Combine(managedZipRoot, "no-charts.zip");
+            using (ZipArchive zip = System.IO.Compression.ZipFile.Open(managedZip, System.IO.Compression.ZipArchiveMode.Create))
+            using (var writer = new StreamWriter(zip.CreateEntry("readme.txt").Open())) { writer.Write("no charts"); }
+            fixture.Files.BeforeTimestamp = path =>
+            {
+                if (Path.GetFileName(path) != "readme.txt" || cleanupLock != null) { return; }
+                cleanupRoot = Path.GetDirectoryName(path) ?? throw new AssertFailedException("展開先がありません。");
+                cleanupLock = new FileStream(Path.Combine(cleanupRoot, "cleanup-lock.marker"), FileMode.Create, FileAccess.ReadWrite, FileShare.Read);
+            };
+            try
+            {
+                string normal = fixture.WriteInput("Normal", "normal.bms", "normal");
+                File.WriteAllText(Path.Combine(normal, "normal.bms"), BmsLibraryInitializationTestSupport.CreateValidBmsText("NewSong"));
+                File.WriteAllBytes(Path.Combine(normal, "sound.wav"), [1]);
+                string first = fixture.WriteInput("A", "a.bms", "a");
+                string second = fixture.WriteInput("B", "b.bms", "b");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.InitializeAsync(), "automatic-report.initialize");
+                fixture.Options = fixture.CreateOptions(true, false, keepNewPending: false);
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(fixture.Database, db => db.Execute(
+                    "CREATE TRIGGER fail_actual_automatic_receiver BEFORE INSERT ON song WHEN NEW.path = '"
+                    + Path.Combine(fixture.Destination, "b.bms").Replace("'", "''")
+                    + "' BEGIN SELECT RAISE(ABORT, 'automatic-receiver-marker'); END;"));
+                viewModel = composition.CreateMainWindowViewModelForTest();
+                viewModel.StartupUpdateWorkflow.NotifyClosing();
+                ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(fixture.Library);
+                PackageInstallCommandResult? outcome = null;
+                viewModel.PackageInstallWorkflow.CompletionPublished += receipt => outcome = receipt.CommandResult;
+                viewModel.PackageInstallWorkflow.FailurePublished += failure => outcome = failure.CommandResult;
+                var displayed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                bool activeAtReport = true;
+                dialogs.OnMessage = () =>
+                {
+                    activeAtReport = composition.OperationAdmission.IsActive;
+                    displayed.TrySetResult();
+                };
+                Assert.IsTrue(viewModel.PackageInstallWorkflow.Enqueue([normal, first, second, managedZip]));
+                Task idle = viewModel.PackageInstallWorkflow.WaitForIdleAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(idle, "automatic-report.idle");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(displayed.Task, "automatic-report.displayed");
+                Assert.IsFalse(activeAtReport);
+                Assert.IsNotNull(outcome);
+                Assert.IsTrue(outcome.SessionReceipt.DurableCommit);
+                Assert.IsNotNull(outcome.EstimatedInstallReceipt);
+                Assert.IsFalse(outcome.EstimatedInstallReceipt.DurableCommit);
+                Assert.AreEqual(1, outcome.RegisteredPackages.Count);
+                Assert.IsNotNull(cleanupRoot);
+                Assert.AreEqual(cleanupRoot, outcome.InputCleanupFailures.Single().Path);
+                Assert.IsTrue(Directory.Exists(cleanupRoot));
+                Assert.IsFalse(File.Exists(managedZip));
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+                {
+                    Assert.IsNotNull(db.Table<LR2SongDB.song>().Single(row => row.path.EndsWith("normal.bms", StringComparison.OrdinalIgnoreCase)));
+                }
+                Assert.IsTrue(fixture.Library.BmsCharts.Any(chart => chart.Path.EndsWith("normal.bms", StringComparison.OrdinalIgnoreCase)));
+                Assert.AreEqual(1, dialogs.Messages.Count);
+                Assert.AreEqual(MessageBoxImage.Error, dialogs.Messages.Single().Icon);
+                string body = dialogs.Messages.Single().MessageBoxText;
+                StringAssert.Contains(body, "automatic-receiver-marker");
+                StringAssert.Contains(body, fixture.Destination);
+                StringAssert.Contains(body, cleanupRoot);
+                StringAssert.Contains(body, outcome.InputCleanupFailures.Single().Failure.Message);
+                StringAssert.Contains(body, string.Format(Resources.LibraryMutationSessionReport_Counts,
+                    outcome.SessionReceipt.ConfirmedChangeCount + outcome.EstimatedInstallReceipt.ConfirmedChangeCount,
+                    outcome.SessionReceipt.ConfirmedChangeCount, outcome.EstimatedInstallReceipt.ConfirmedChangeCount,
+                    1, 1, 0));
+                cleanupLock?.Dispose();
+                cleanupLock = null;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PackageInstallWorkflow.WaitForIdleAsync(), "automatic-report.no-retry");
+                Assert.IsTrue(Directory.Exists(cleanupRoot), "handle解放だけでは回収を自動再試行しません。");
+            }
+            finally
+            {
+                cleanupLock?.Dispose();
+                if (viewModel != null)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "automatic-report.close");
+                    viewModel.SettingDialog.Dispose();
+                }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.DisposeAsync().AsTask(), "automatic-report.fixture");
+                if (cleanupRoot != null) { TempDirectoryPublisher.TryDeleteManagedPath(cleanupRoot); }
+                TempDirectoryPublisher.TryDeleteManagedPath(managedZipRoot);
             }
         });
     }

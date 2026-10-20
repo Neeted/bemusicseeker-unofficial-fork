@@ -3225,18 +3225,21 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private void ProcessPendingInstallEstimateBatch(PendingInstallEstimateBatchRequest request, CancellationToken token)
+    /// <summary>全推定Taskの終端と再グループ化を待ち、今回実適用した有限の自動導入対象だけを正常時に返します。</summary>
+    private IReadOnlyList<ChartPackage> ProcessPendingInstallEstimateBatch(PendingInstallEstimateBatchRequest request, CancellationToken token)
     {
         if (request == null)
         {
-            return;
+            return [];
         }
         if (request.PackageCount == 0)
         {
             token.ThrowIfCancellationRequested();
             RegroupPendingInstallBatchSources(request.RegroupEligibleSourceDirectories, token);
-            return;
+            return [];
         }
+        AutomaticInstallEstimateTargets automaticTargets = request.Source == PendingInstallEstimateBatchSource.AutoInstall
+            && request.OptionsSnapshot?.AutoInstallAfterAutomaticEstimation == true ? new() : null;
         var stopwatch = Stopwatch.StartNew();
         string source = ToPendingEstimateBatchSourceLogValue(request.Source);
         int lowConfidenceCount = 0;
@@ -3270,8 +3273,8 @@ public partial class BMSLibrary : ObservableObject
                     executionPolicy,
                     ref completed,
                     ref lowConfidenceCount,
-                    ref firstVisibleInteraction);
-                RegroupPendingInstallBatchSources(request.RegroupEligibleSourceDirectories, token);
+                    ref firstVisibleInteraction, automaticTargets);
+                RegroupPendingInstallBatchSources(request.RegroupEligibleSourceDirectories, token, automaticTargets);
             }
             stopwatch.Stop();
             LogInstallPerformance("pending_estimate_batch done source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + executionPolicy.WorkItemDegree + " estimated=" + completed + " completed=" + (completed + request.DeferredPackageCount) + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " lowConfidence=" + lowConfidenceCount);
@@ -3290,10 +3293,18 @@ public partial class BMSLibrary : ObservableObject
         {
             ClearInstallEstimationProgress();
         }
+        token.ThrowIfCancellationRequested();
+        if (automaticTargets == null) { return []; }
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        using (rwlockPendingInstallCharts.GetReaderGuard())
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            return automaticTargets.GetEligiblePackages(ChartPackagesPending, ContainsInstalledChartUnsafe);
+        }
     }
 
     /// <summary>同じ受理操作の末尾で、取消されていない入力元ごとの保留を既存条件で再グループ化します。推定対象がない場合も共用します。</summary>
-    private void RegroupPendingInstallBatchSources(string[] sourceDirectories, CancellationToken token)
+    private void RegroupPendingInstallBatchSources(string[] sourceDirectories, CancellationToken token, AutomaticInstallEstimateTargets automaticTargets = null)
     {
         if (token.IsCancellationRequested || sourceDirectories.Length == 0)
         {
@@ -3306,7 +3317,7 @@ public partial class BMSLibrary : ObservableObject
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
-                    TryRegroupPendingPackagesForSourceDirectoriesUnsafe(sourceDirectories);
+                    TryRegroupPendingPackagesForSourceDirectoriesUnsafe(sourceDirectories, automaticTargets);
                 }
             }
         }
@@ -3489,7 +3500,8 @@ public partial class BMSLibrary : ObservableObject
         InstallEstimationExecutionPolicy executionPolicy,
         ref int completed,
         ref int lowConfidenceCount,
-        ref PerformanceInteraction? firstVisibleInteraction)
+        ref PerformanceInteraction? firstVisibleInteraction,
+        AutomaticInstallEstimateTargets automaticTargets = null)
     {
         executionPolicy ??= InstallEstimationExecutionPolicy.ForSingleWorkItem();
         List<(PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task)> inFlight = [];
@@ -3532,7 +3544,7 @@ public partial class BMSLibrary : ObservableObject
                 PendingInstallEstimateEvaluationResult result = item.Task.GetAwaiter().GetResult();
                 inFlight.RemoveAt(slot);
                 ApplyPendingInstallEstimateEvaluationResult(request, source, item.Request, result,
-                    executionPolicy, token, ref completed, ref lowConfidenceCount, ref firstVisibleInteraction);
+                    executionPolicy, token, ref completed, ref lowConfidenceCount, ref firstVisibleInteraction, automaticTargets);
                 searchingRequests.Remove(item.Request);
                 nextApplyIndex++;
             }
@@ -3711,7 +3723,8 @@ public partial class BMSLibrary : ObservableObject
         CancellationToken token,
         ref int completed,
         ref int lowConfidenceCount,
-        ref PerformanceInteraction? firstVisibleInteraction)
+        ref PerformanceInteraction? firstVisibleInteraction,
+        AutomaticInstallEstimateTargets automaticTargets = null)
     {
         PendingInstallEstimateEvaluationRequest request = evaluationResult?.Request;
         List<PackageChartEntry> dispatchedSearchingEntries = [.. (dispatchedRequest?.TargetEntries ?? [])
@@ -3730,7 +3743,7 @@ public partial class BMSLibrary : ObservableObject
             using (rwlockBMSFiles.GetReaderGuard())
             using (rwlockSongDBInstall.GetWriterGuard())
             {
-                isLowConfidence = ApplyPendingInstallEstimateEvaluationResultUnsafe(evaluationResult);
+                isLowConfidence = ApplyPendingInstallEstimateEvaluationResultUnsafe(evaluationResult, automaticTargets);
             }
             installEstimationExecutionObserver?.ObserveResultApplied(new InstallEstimationAppliedObservation(
                 batchRequest.Source, request?.OrderIndex ?? -1, currentDisplayName));
@@ -3765,7 +3778,7 @@ public partial class BMSLibrary : ObservableObject
         LogInstallPerformance("pending_estimate_batch progress source=" + source + " packageDegree=" + executionPolicy.WorkItemDegree + " completed=" + completed + "/" + batchRequest.PackageCount + " current=" + currentDisplayName);
     }
 
-    private bool ApplyPendingInstallEstimateEvaluationResultUnsafe(PendingInstallEstimateEvaluationResult evaluationResult)
+    private bool ApplyPendingInstallEstimateEvaluationResultUnsafe(PendingInstallEstimateEvaluationResult evaluationResult, AutomaticInstallEstimateTargets automaticTargets = null)
     {
         PendingInstallEstimateEvaluationRequest request = evaluationResult?.Request;
         if (request == null)
@@ -3820,6 +3833,10 @@ public partial class BMSLibrary : ObservableObject
                         return false;
                     }
                     ApplyInstallEstimationResultToEntries(currentTargetEntries, evaluationResult.EstimationData?.Result, package);
+                    if (evaluationResult.EstimationData?.Result?.ShouldAutoApplyDestination == true)
+                    {
+                        automaticTargets?.Record(package, currentTargetEntries, evaluationResult.EstimationData.Result.DestinationDirectory);
+                    }
                     return HasPendingLowConfidenceInstallDestination(currentTargetEntries);
                 }
             case PendingInstallEstimateEvaluationOutcomeKind.NoOp:
@@ -9800,13 +9817,14 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="recursive">祖先フォルダ全体の移動・削除も交差に含めるか。</param>
     /// <param name="lease">交差時のP所有lease。非交差はnull、Busyは未取得です。</param>
     /// <param name="capability">外側の生存L権限。既存P権限があれば借用し、外側の権限を解放しません。</param>
+    /// <param name="optionsSnapshot">同一取り込み操作で固定した設定。省略時は現在設定を捕捉します。</param>
     /// <returns>非交差または取得/借用成功ならtrue。Busyはfalseで返し、外側が結果を通知します。</returns>
     internal bool TryEnterManagedOutputMutation(IEnumerable<string> paths, bool recursive,
-        out LibraryFileMutationLease lease, LibraryFileMutationCapability capability)
+        out LibraryFileMutationLease lease, LibraryFileMutationCapability capability, BmsLibraryOptionsSnapshot optionsSnapshot = null)
     {
         ArgumentNullException.ThrowIfNull(capability);
         capability.Validate(OperationAdmission);
-        return lr2SynchronizationOwner.TryEnterManagedOutputMutation(paths, recursive, out lease, capability);
+        return lr2SynchronizationOwner.TryEnterManagedOutputMutation(paths, recursive, out lease, capability, optionsSnapshot: optionsSnapshot);
     }
 
     /// <summary>

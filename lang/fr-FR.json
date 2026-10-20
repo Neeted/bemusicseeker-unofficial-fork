@@ -1,6 +1,11 @@
 {
   "AudioDeviceListLoading": "Chargement des périphériques audio. Vous pouvez continuer à modifier, enregistrer ou annuler les paramètres.",
   "AudioDeviceListRefreshFailed": "Impossible d’actualiser la liste des périphériques audio. Les périphériques conservés et la sélection actuelle sont affichés.",
+  "PackageInstallReport_InputCleanupFailure": "Échec du nettoyage de l’entrée temporaire d’importation : {0}",
+  "PackageInstallReport_Unprocessed": "Installations automatiques non démarrées : {0}",
+  "PackageInstallReport_SynchronizationIncomplete": "La synchronisation avec LR2 est incomplète.",
+  "Details_auto_install_after_automatic_estimation": "Installer automatiquement lorsque l’estimation automatique à l’importation détermine la destination",
+  "Details_auto_install_after_automatic_estimation_description": "Installe les paquets sans boîte de confirmation lorsque l’estimation automatique suivant leur ajout aux paquets en attente détermine leur destination. L’estimation lancée manuellement est exclue. L’écrasement et la suppression du paquet source suivent les paramètres existants.",
   "Warning_InstallEstimationUnrelated": "Aucun lien avec cette œuvre n’est établi pour le candidat {0}. La destination ne sera pas définie automatiquement.",
   "Warning_InstallEstimationMetadataUnavailable": "Les métadonnées TITLE/ARTIST nécessaires à la comparaison avec le candidat {0} sont indisponibles. La destination ne sera pas définie automatiquement.",
   "WarningDigest_InstallEstimationUnrelated": "Sans lien avec cette œuvre",

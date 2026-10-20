@@ -75,10 +75,10 @@ public partial class BMSLibrary
         /// <param name="paths">最初の副作用前に固定した実変更先と変更元。</param>
         /// <param name="recursive">祖先フォルダの移動・再帰削除も交差として扱うか。</param>
         /// <param name="lease">交差時に後片付けまで保持するP。競合時は取得せずfalseを返します。</param>
-        internal bool TryEnterManagedOutputMutation(IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease lease, LibraryFileMutationCapability capability = null, IEnumerable<string> recursivePaths = null)
+        internal bool TryEnterManagedOutputMutation(IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease lease, LibraryFileMutationCapability capability = null, IEnumerable<string> recursivePaths = null, BmsLibraryOptionsSnapshot optionsSnapshot = null)
         {
             lease = null;
-            BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+            BmsLibraryOptionsSnapshot options = optionsSnapshot ?? CurrentOptionsSnapshot;
             if (!options.OperationModeLR2DB) { return true; }
             if (capability?.PlaylistCapability != null)
             {

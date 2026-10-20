@@ -291,6 +291,21 @@ public class Resources
 
     public static string Details_auto_apply_ambiguous_install_destination => ResourceManager.GetString("Details_auto_apply_ambiguous_install_destination", resourceCulture);
 
+    /// <summary>取り込み後の自動推定で確定した保留を導入する設定名です。</summary>
+    public static string Details_auto_install_after_automatic_estimation => ResourceManager.GetString("Details_auto_install_after_automatic_estimation", resourceCulture);
+
+    /// <summary>自動導入の対象、確認省略、上書きと元削除の設定を説明します。</summary>
+    public static string Details_auto_install_after_automatic_estimation_description => ResourceManager.GetString("Details_auto_install_after_automatic_estimation_description", resourceCulture);
+
+    /// <summary>後段の自動導入候補のうち、競合・取消で未開始となった件数を表示します。</summary>
+    public static string PackageInstallReport_Unprocessed => ResourceManager.GetString("PackageInstallReport_Unprocessed", resourceCulture);
+
+    /// <summary>既存の整合条件により必要なLR2同期を実行できなかったことを表示します。</summary>
+    public static string PackageInstallReport_SynchronizationIncomplete => ResourceManager.GetString("PackageInstallReport_SynchronizationIncomplete", resourceCulture);
+
+    /// <summary>取り込み用一時入力の回収失敗を、削除できなかった対象パスとともに表示します。</summary>
+    public static string PackageInstallReport_InputCleanupFailure => ResourceManager.GetString("PackageInstallReport_InputCleanupFailure", resourceCulture);
+
     public static string Details_estimate_offline_score_ranking => ResourceManager.GetString("Details_estimate_offline_score_ranking", resourceCulture);
 
     public static string Details_update_lr2ir_ranking_cache_on_startup => ResourceManager.GetString("Details_update_lr2ir_ranking_cache_on_startup", resourceCulture);

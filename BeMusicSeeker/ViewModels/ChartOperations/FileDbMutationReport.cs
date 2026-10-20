@@ -25,6 +25,98 @@ internal static class FileDbMutationReport
     private const int ConflictErrorLimit = 160;
     private const int ConflictGuidanceLimit = 512;
 
+    /// <summary>取り込みの二つの確定境界と未実行対象、複数の終端原因を一回の表示へ集約します。</summary>
+    internal static UiMessageRequest CreatePackageInstall(string operation, PackageInstallCommandResult command,
+        Exception failure = null, CultureInfo culture = null)
+    {
+        if (command == null) { return null; }
+        LibraryMutationSessionReceipt[] sessions = command.SessionReceipts.ToArray();
+        if (command.EstimatedInstallReceipt == null && command.UnprocessedPackages.Count == 0
+            && !command.SynchronizationIncomplete && command.WorkflowFailures.Count == 0 && command.InputCleanupFailures.Count == 0)
+        { return Create(operation, command.SessionReceipt, failure ?? command.EstimationFailure, culture); }
+        string Localized(string key) => Resources.ResourceManager.GetString(key, culture ?? Resources.Culture);
+        string Format(string key, params object[] values) => string.Format(culture ?? CultureInfo.CurrentCulture, Localized(key), values);
+        bool hasError = command.HasRequiredFailure || failure != null;
+        if (!hasError && !command.CompletedWithCleanupFailure && command.DestinationTypeConflicts.Count == 0
+            && command.UnprocessedPackages.Count == 0) { return null; }
+        List<string> lines =
+        [
+            Format(nameof(Resources.FileDbMutationReport_Operation), Limit(operation, 240)),
+            Format(nameof(Resources.LibraryMutationSessionReport_Counts),
+                sessions.Sum(session => session.ConfirmedChangeCount),
+                sessions.Where(session => session.DurableCommit).Sum(session => session.ConfirmedChangeCount),
+                sessions.Sum(session => (session.DurableCommit ? 0 : session.ConfirmedChangeCount)
+                    + (session.FailedTarget == null ? 0 : 1) + session.ItemFailures.Count(item => !item.IsDestinationTypeConflictRefusal)),
+                sessions.Sum(session => (session.ApplyFailure == null ? 0 : 1) + (session.FinalizationFailure == null ? 0 : 1)),
+                sessions.Count(session => session.CleanupFailure != null) + command.InputCleanupFailures.Count,
+                sessions.Sum(session => session.UnprocessedTargets.Count) + command.UnprocessedPackages.Count)
+        ];
+        if (command.UnprocessedPackages.Count > 0)
+        { lines.Add(Format(nameof(Resources.PackageInstallReport_Unprocessed), command.UnprocessedPackages.Count)); }
+        if (command.SynchronizationIncomplete) { lines.Add(Localized(nameof(Resources.PackageInstallReport_SynchronizationIncomplete))); }
+        foreach (PackageInstallInputCleanupFailure cleanup in command.InputCleanupFailures.Take(3))
+        { lines.Add(Format(nameof(Resources.PackageInstallReport_InputCleanupFailure), Limit(cleanup.Path, 240))); }
+        foreach (LibraryMutationSessionReceipt session in sessions.Where(session => session.DestinationTypeConflicts.Count > 0))
+        { lines.Add(Create(operation, session, culture: culture).MessageBoxText); }
+        IEnumerable<Exception> errors = sessions.SelectMany(session => new[]
+            { session.PhysicalFailure, session.ApplyFailure, session.FinalizationFailure, session.CleanupFailure }
+                .Concat(session.ItemFailures.Select(item => item.Failure)))
+            .Concat(command.WorkflowFailures).Concat(command.InputCleanupFailures.Select(cleanup => cleanup.Failure))
+            .Append(command.EstimationFailure).Append(failure)
+            .Where(error => error != null)
+            .SelectMany(error => error is AggregateException aggregate ? aggregate.Flatten().InnerExceptions.AsEnumerable() : new[] { error })
+            .Distinct();
+        foreach (Exception error in errors.Take(5))
+        { lines.Add(Format(nameof(Resources.FileDbMutationReport_Error), Limit(error.Message, 300))); }
+        string[] paths = sessions.OrderByDescending(session => session.HasRequiredFailure || session.CleanupFailure != null)
+            .SelectMany(session => session.CandidatePaths).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(3).Select(path => Limit(path, 240)).ToArray();
+        if (paths.Length > 0) { lines.Add(Localized(nameof(Resources.FileDbMutationReport_CandidatePaths))); lines.AddRange(paths); }
+        string body = Limit(string.Join(Environment.NewLine, lines), MaximumMessageLength - 1026)
+            + Environment.NewLine + Limit(Localized(nameof(Resources.FileDbMutationReport_Guidance)), 1024);
+        return hasError ? UiMessageRequest.CreateError(body, Localized(nameof(Resources.FileDbMutationReport_Title)))
+            : UiMessageRequest.CreateWarning(body, Localized(nameof(Resources.FileDbMutationReport_Title)));
+    }
+
+    /// <summary>全受付と入力回収の後、一操作の集約結果を一回だけ表示します。表示の失敗は変更事実へ混ぜません。</summary>
+    internal static async Task ShowPackageInstallAsync(IUiDialogService dialogs, string operation, PackageInstallCommandResult command, Exception failure = null)
+    {
+        try
+        {
+            UiMessageRequest request = CreatePackageInstall(operation, command, failure);
+            if (request == null) { return; }
+            LogSessionDetails(operation, command.SessionReceipt, stage: "import");
+            if (command.EstimatedInstallReceipt != null)
+            { LogSessionDetails(operation, command.EstimatedInstallReceipt, stage: "estimated_install"); }
+            foreach (Exception workflowFailure in command.WorkflowFailures)
+            {
+                LogBestEffort(() => NLogWrapper.FileLogger?.Warn(workflowFailure,
+                    "package_install_workflow_failure operation=" + operation));
+            }
+            if (command.EstimationFailure != null)
+            {
+                LogBestEffort(() => NLogWrapper.FileLogger?.Warn(command.EstimationFailure,
+                    "package_install_estimation_failure operation=" + operation));
+            }
+            foreach (PackageInstallInputCleanupFailure cleanup in command.InputCleanupFailures)
+            {
+                LogBestEffort(() => NLogWrapper.FileLogger?.Warn(cleanup.Failure,
+                    "package_install_input_cleanup_failure operation=" + operation + " path=" + cleanup.Path));
+            }
+            foreach (ChartPackage package in command.UnprocessedPackages)
+            {
+                LogBestEffort(() => NLogWrapper.FileLogger?.Warn(
+                    "package_install_unprocessed operation=" + operation + " path=" + package.path));
+            }
+            LogBestEffort(() => NLogWrapper.FileLogger?.Warn(failure,
+                "package_install_report operation=" + operation + " synchronizationIncomplete=" + command.SynchronizationIncomplete
+                + " workflowFailures=" + command.WorkflowFailures.Count + " inputCleanupFailures=" + command.InputCleanupFailures.Count
+                + " unprocessed=" + command.UnprocessedPackages.Count));
+            UiDialogRoute.ThrowIfNotShown(await dialogs.ShowMessageAsync(request).ConfigureAwait(false), "Package install report");
+        }
+        catch (Exception exception) { LogNotificationFailure(exception); }
+    }
+
     /// <summary>
     /// 一つの session の confirmed / failed / unprocessed facts から bounded terminal を作成します。
     /// 操作別の表示を選択しても per-item durable receipt は生成しません。
@@ -273,49 +365,7 @@ internal static class FileDbMutationReport
                 return;
             }
 
-            try
-            {
-                NLogWrapper.FileLogger?.Warn(session.PrimaryFailure
-                    ?? session.ItemFailures.FirstOrDefault()?.Failure
-                    ?? failure,
-                    "library_mutation_session_report operation=" + operation
-                    + " durable=" + session.DurableCommit
-                    + " confirmed=" + session.ConfirmedChangeCount
-                    + " catalogRemovals=" + session.CatalogChartRemovalCount
-                    + " catalogPathChanges=" + session.CatalogChartPathChangeCount
-                    + " catalogFolderChanges=" + session.CatalogFolderPathChangeCount
-                    + " packageDestinationChanges=" + session.PackageInstallDestinationChangeCount
-                    + " packagePathChanges=" + session.PackageInstalledPathChangeCount
-                    + " reverseLookupMoves=" + session.FolderReferenceMoveCount
-                    + " reverseLookupRemovals=" + session.ResourceDirectoryRemovalCount
-                    + " itemFailures=" + session.ItemFailures.Count
-                    + " failedSource=" + session.FailedTarget?.SourcePath
-                    + " failedDestination=" + session.FailedTarget?.DestinationPath
-                    + " unprocessed=" + session.UnprocessedTargets.Count
-                    + " candidates=" + string.Join("|", session.CandidatePaths)
-                    + " applyFailure=" + session.ApplyFailure
-                    + " finalizationFailure=" + session.FinalizationFailure
-                    + " cleanupFailure=" + session.CleanupFailure);
-            }
-            catch
-            {
-                // Diagnostic sinks must not affect terminal facts.
-            }
-
-            foreach (LibraryMutationSessionItemFailure itemFailure in session.ItemFailures)
-            {
-                try
-                {
-                    NLogWrapper.FileLogger?.Warn(
-                        itemFailure.Failure,
-                        "library_mutation_session_item_failure source=" + itemFailure.Target.SourcePath
-                        + " destination=" + itemFailure.Target.DestinationPath);
-                }
-                catch
-                {
-                    // Keep logging best-effort for every retained item failure.
-                }
-            }
+            LogSessionDetails(operation, session, failure);
 
             if (failure != null && !ReferenceEquals(failure, session.PrimaryFailure))
             {
@@ -333,6 +383,51 @@ internal static class FileDbMutationReport
         {
             LogNotificationFailure(exception);
         }
+    }
+
+    /// <summary>表示の省略上限とは独立に、全セッション原因と対象を既存の終端診断へ残します。個別のログ失敗でも後続診断と表示を続けます。</summary>
+    private static void LogSessionDetails(string operation, LibraryMutationSessionReceipt session, Exception failure = null, string stage = null)
+    {
+        LogBestEffort(() => NLogWrapper.FileLogger?.Warn(session.PrimaryFailure
+            ?? session.ItemFailures.FirstOrDefault()?.Failure ?? failure,
+            "library_mutation_session_report operation=" + operation + " stage=" + stage
+            + " durable=" + session.DurableCommit
+            + " confirmed=" + session.ConfirmedChangeCount
+            + " catalogRemovals=" + session.CatalogChartRemovalCount
+            + " catalogPathChanges=" + session.CatalogChartPathChangeCount
+            + " catalogFolderChanges=" + session.CatalogFolderPathChangeCount
+            + " packageDestinationChanges=" + session.PackageInstallDestinationChangeCount
+            + " packagePathChanges=" + session.PackageInstalledPathChangeCount
+            + " reverseLookupMoves=" + session.FolderReferenceMoveCount
+            + " reverseLookupRemovals=" + session.ResourceDirectoryRemovalCount
+            + " itemFailures=" + session.ItemFailures.Count
+            + " failedSource=" + session.FailedTarget?.SourcePath
+            + " failedDestination=" + session.FailedTarget?.DestinationPath
+            + " unprocessed=" + session.UnprocessedTargets.Count
+            + " candidates=" + string.Join("|", session.CandidatePaths)
+            + " physicalFailure=" + session.PhysicalFailure
+            + " applyFailure=" + session.ApplyFailure
+            + " finalizationFailure=" + session.FinalizationFailure
+            + " cleanupFailure=" + session.CleanupFailure));
+        foreach (LibraryMutationSessionItemFailure itemFailure in session.ItemFailures)
+        {
+            LogBestEffort(() => NLogWrapper.FileLogger?.Warn(itemFailure.Failure,
+                "library_mutation_session_item_failure operation=" + operation + " stage=" + stage
+                + " source=" + itemFailure.Target.SourcePath + " destination=" + itemFailure.Target.DestinationPath));
+        }
+        foreach (LibraryMutationSessionTarget target in session.UnprocessedTargets)
+        {
+            LogBestEffort(() => NLogWrapper.FileLogger?.Warn(
+                "library_mutation_session_unprocessed operation=" + operation + " stage=" + stage
+                + " source=" + target.SourcePath + " destination=" + target.DestinationPath));
+        }
+    }
+
+    /// <summary>任意診断の書込み・例外整形の失敗を、保持済み事実とUI表示から分離します。</summary>
+    private static void LogBestEffort(Action diagnostic)
+    {
+        try { diagnostic(); }
+        catch { /* 診断先が失敗しても、他の対象とUI表示を続けます。 */ }
     }
 
     /// <summary>

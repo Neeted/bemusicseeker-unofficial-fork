@@ -1,6 +1,11 @@
 {
   "AudioDeviceListLoading": "Loading audio devices. You can continue editing, saving, or canceling settings.",
   "AudioDeviceListRefreshFailed": "Could not refresh the audio device list. Retained devices and the current selection are shown.",
+  "PackageInstallReport_InputCleanupFailure": "Failed to clean up temporary import input: {0}",
+  "PackageInstallReport_Unprocessed": "Automatic installations not started: {0}",
+  "PackageInstallReport_SynchronizationIncomplete": "Synchronization with LR2 is incomplete.",
+  "Details_auto_install_after_automatic_estimation": "Automatically install when automatic estimation during import determines the installation destination",
+  "Details_auto_install_after_automatic_estimation_description": "Installs packages without a confirmation dialog when automatic estimation after adding them to pending determines their installation destination. Manually started estimation is excluded. Overwriting and source package deletion follow the existing settings.",
   "Warning_InstallEstimationUnrelated": "Candidate {0} has no confirmed relation to this work. The destination will not be set automatically.",
   "Warning_InstallEstimationMetadataUnavailable": "TITLE/ARTIST metadata for comparison with candidate {0} is unavailable. The destination will not be set automatically.",
   "WarningDigest_InstallEstimationUnrelated": "Unrelated to this work",

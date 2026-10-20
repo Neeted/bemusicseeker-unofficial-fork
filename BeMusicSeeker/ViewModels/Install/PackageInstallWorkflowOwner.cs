@@ -78,8 +78,12 @@ internal sealed class PackageInstallCompletionReceipt : EventArgs
     {
         Generation = generation;
         Packages = [.. (packages ?? []).Where(package => package != null)];
+        CommandResult = commandResult;
         SessionReceipt = commandResult?.SessionReceipt;
     }
+
+    /// <summary>初段・後段とセッション外の終端事実を保持します。</summary>
+    internal PackageInstallCommandResult CommandResult { get; }
 
     internal long Generation { get; }
 
@@ -90,18 +94,18 @@ internal sealed class PackageInstallCompletionReceipt : EventArgs
 
     /// <summary>パッケージ変更前に見つかった immutable な宛先型衝突を取得します。</summary>
     internal IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts =>
-        SessionReceipt?.DestinationTypeConflicts ?? [];
+        CommandResult?.DestinationTypeConflicts ?? [];
 
-    internal bool HasDurableCommit => SessionReceipt?.DurableCommit == true;
+    internal bool HasDurableCommit => CommandResult?.HasDurableCommit == true;
 
-    internal bool ManualRecoveryRequired => SessionReceipt?.ManualRecoveryRequired == true;
+    internal bool ManualRecoveryRequired => CommandResult?.ManualRecoveryRequired == true;
 
     /// <summary>Gets whether package finalization failed after durable state.</summary>
-    internal bool HasDurableFinalizationFailure => SessionReceipt?.HasDurableFinalizationFailure == true;
+    internal bool HasDurableFinalizationFailure => CommandResult?.HasDurableFinalizationFailure == true;
 
-    internal bool CompletedWithCleanupFailure => SessionReceipt?.CompletedWithCleanupFailure == true;
+    internal bool CompletedWithCleanupFailure => CommandResult?.CompletedWithCleanupFailure == true;
 
-    internal IReadOnlyList<string> RecoveryPaths => SessionReceipt?.CandidatePaths ?? [];
+    internal IReadOnlyList<string> RecoveryPaths => CommandResult?.RecoveryPaths ?? [];
 }
 
 internal sealed class PackageInstallFailure : EventArgs
@@ -501,7 +505,8 @@ internal sealed class PackageInstallWorkflowOwner
         if (packages.Count == 0
             && !commandResult.HasRequiredFailure
             && commandResult.DestinationTypeConflicts.Count == 0
-            && !commandResult.CompletedWithCleanupFailure)
+            && !commandResult.CompletedWithCleanupFailure
+            && commandResult.UnprocessedPackages.Count == 0)
         {
             return;
         }
@@ -569,6 +574,8 @@ internal sealed class PackageInstallWorkflowOwner
                     }
                     commandResult = await installation.ConfigureAwait(false)
                         ?? throw new InvalidOperationException("Package install mutation returned no result.");
+                    failures.AddRange(commandResult.WorkflowFailures.Concat(commandResult.InputCleanupFailures.Select(failure => failure.Failure))
+                        .Distinct().Select(ExceptionDispatchInfo.Capture));
                     if (commandResult.EstimationFailure != null)
                     {
                         failures.Add(ExceptionDispatchInfo.Capture(commandResult.EstimationFailure));

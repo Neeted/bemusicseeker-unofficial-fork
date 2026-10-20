@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media.Audio;
@@ -214,34 +215,53 @@ public sealed class BassAudioEffectTests
     }
 
     /// <summary>
-    /// native引数の解放処理が例外でも元例外を返してpinを解放し、失敗後に固定した配列を残さない。
+    /// 実Disposeがcleanupの元例外を返し、準備フレーム終了後のfull GCで対象配列が回収されることを、disposed leaseを生存させたまま確認する。
     /// </summary>
     [TestMethod]
     public void NativeParameterLease_PreservesCleanupPrimaryErrorAndReleasesPins()
     {
-        var pin = GCHandle.Alloc(new byte[1], GCHandleType.Pinned);
-        IntPtr pinHandle = GCHandle.ToIntPtr(pin);
-        InvalidOperationException cleanupFailure = new("cleanup sentinel");
+        (InvalidOperationException? expectedFailure, Exception? actualFailure, WeakReference? target, NativeEffectParameterLease? lease) = CreateAndDisposeFailingParameterLease();
         try
         {
-            var lease = NativeEffectParameterLease.Create(
-                new ManagedBassBfxVolumeParameters(),
-                pins: new[] { pin },
-                cleanup: () => throw cleanupFailure);
-
-            InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
-                () => lease.Dispose());
-            Assert.AreSame(cleanupFailure, exception);
-            var releasedHandle = GCHandle.FromIntPtr(pinHandle);
-            Assert.IsNull(releasedHandle.Target);
+            Assert.AreSame(expectedFailure, actualFailure);
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+            Assert.IsFalse(target.IsAlive, "cleanup例外後もlease所有のpinが対象配列を保持してはいけません。");
         }
         finally
         {
-            if (pin.IsAllocated)
-            {
-                pin.Free();
-            }
+            GC.KeepAlive(lease);
         }
+    }
+
+    /// <summary>配列を局所フレームだけで所有し、pinを実leaseへ移譲してから実Disposeの例外と弱参照を返します。</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static (InvalidOperationException ExpectedFailure, Exception? ActualFailure, WeakReference Target, NativeEffectParameterLease Lease)
+        CreateAndDisposeFailingParameterLease()
+    {
+        byte[] target = new byte[1];
+        var weakTarget = new WeakReference(target);
+        var pin = GCHandle.Alloc(target, GCHandleType.Pinned);
+        InvalidOperationException cleanupFailure = new("cleanup sentinel");
+        NativeEffectParameterLease lease;
+        try
+        {
+            lease = NativeEffectParameterLease.Create(
+                new ManagedBassBfxVolumeParameters(),
+                pins: new[] { pin },
+                cleanup: () => throw cleanupFailure);
+        }
+        catch
+        {
+            pin.Free();
+            throw;
+        }
+
+        Exception? actualFailure = null;
+        try { lease.Dispose(); }
+        catch (Exception exception) { actualFailure = exception; }
+        return (cleanupFailure, actualFailure, weakTarget, lease);
     }
 
 }

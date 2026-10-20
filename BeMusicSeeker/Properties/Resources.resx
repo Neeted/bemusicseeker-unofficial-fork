@@ -3897,4 +3897,19 @@ ON: すべての使用リソースがそろった場合のみ、自動新規イ�
   <data name="AudioDeviceListRefreshFailed" xml:space="preserve">
     <value>音声デバイス一覧を更新できませんでした。保持している候補と現在の選択を表示しています。</value>
   </data>
+  <data name="Details_auto_install_after_automatic_estimation" xml:space="preserve">
+    <value>取り込み時の自動推定でインストール先が確定したら、自動インストールする</value>
+  </data>
+  <data name="Details_auto_install_after_automatic_estimation_description" xml:space="preserve">
+    <value>保留への追加に続く自動推定でインストール先が確定したパッケージを、確認画面を表示せずにインストールします。手動で開始した推定は対象外です。上書きと元パッケージの削除は既存の設定に従います。</value>
+  </data>
+  <data name="PackageInstallReport_Unprocessed" xml:space="preserve">
+    <value>自動インストール未実行: {0} 件</value>
+  </data>
+  <data name="PackageInstallReport_SynchronizationIncomplete" xml:space="preserve">
+    <value>LR2との同期が完了していません。</value>
+  </data>
+  <data name="PackageInstallReport_InputCleanupFailure" xml:space="preserve">
+    <value>取り込み用一時入力の回収に失敗: {0}</value>
+  </data>
 </root>

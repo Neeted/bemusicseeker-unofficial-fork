@@ -349,6 +349,7 @@ If startup scanning is OFF, [reload the library](#library-reload) before estimat
 | Install | Add to pending instead of auto-installing even for new entries | OFF | Even if enough resources are present for a new work, do not install automatically; always make it possible to confirm it in the pending list. |
 | Install | Require all used resources for automatic new installation | OFF | When OFF, complete used audio permits automatic new installation even if images, videos, or auxiliary images are missing. When ON, these are required too; non-audio shortages keep the package pending and skip searching for new candidates. Candidates known from owned charts still undergo TITLE/ARTIST matching. Missing audio keeps it pending and triggers estimation with either setting. |
 | Install | Even if multiple candidates remain, use the first candidate as the install destination when its title and artist match strongly | OFF | Automatically set the first candidate when TITLE / ARTIST match strongly. Multiple-candidate warnings may remain. |
+| Install | Automatically install when automatic estimation during import determines the installation destination | OFF | Installs packages without a confirmation dialog when automatic estimation after adding them to Pending determines their destination. Manually started estimation is excluded. Overwriting and source package deletion follow the existing settings. |
 | Install | Delete the source package after a normal installation even if it still contains already-owned charts | OFF | Clean up remaining already-owned charts and empty source folders after installation. Unowned or unidentifiable remnants are retained. Moved source files are removed even when OFF. |
 | Install | Optimize bundled file overwrite by comparing modified date and size on diff install | ON | Enables [Smart Overwrite](#smart-overwrite). |
 | Install | During smart overwrite, keep *.bmx/*.pmx/*.txt by automatically adding numbers to their names instead of overwriting them | OFF | In [Smart Overwrite](#smart-overwrite), protected extensions are not overwritten and are kept with sequentially numbered names. |
@@ -954,15 +955,17 @@ Supported inputs are BMS / bmson charts, work folders, and `.zip`, `.7z`, `.rar`
 
 ### Installation Steps
 
+To install packages as soon as automatic estimation during import determines their destination, turn ON `Automatically install when automatic estimation during import determines the installation destination` in Advanced settings before importing. Eligible packages are installed without a confirmation dialog, and results appear in `New`. This setting is OFF by default.
+
 1. Drag and drop a BMS work, differential chart, or a folder / archive containing them onto the window.
 2. New unowned works with all used audio files present are normally installed to the `New install destination` configured in the settings dialog. To require images and videos too, turn ON `Require all used resources for automatic new installation` in Advanced settings. If `Add to pending instead of auto-installing even for new entries` is enabled, they remain in Pending even when judged as new.
 3. Items with missing used audio files are added to `Pending`, and install-destination estimation is performed. When the setting above keeps a package pending solely for missing images or videos, searching for new candidates is skipped. Candidates known from owned charts still undergo TITLE/ARTIST matching, and the destination is set when the conditions are met. You can estimate its destination manually from Pending.
-4. Check `WARNING`, `TITLE`, `ARTIST`, `INSTL DST TITLE`, `INSTL DST ARTIST`, and related columns. If necessary, manually enter `INSTL DST` or choose it from the suggested candidates.
+4. For packages still pending, check `WARNING`, `TITLE`, `ARTIST`, `INSTL DST TITLE`, `INSTL DST ARTIST`, and related columns. If necessary, manually enter `INSTL DST` or choose it from the suggested candidates.
 5. Select rows that look correct, then run `Install` -> `Install to estimated install destination` from the context menu.
 
 You can drop multiple files or folders at once. To add more inputs during installation, wait for the current operation to finish and drop them again.
 
-Until install-destination estimation after import finishes, additional imports, pending-package changes, new playback starts, and saving or applying settings are unavailable. Repeat the operation after processing finishes. You can still browse, search, sort, select rows, and view, edit, or cancel settings. Cancelling estimation preserves registered packages and already applied results; you can manually estimate the remaining pending packages.
+Until processing after import, including destination estimation and automatic installation, finishes, additional imports, pending-package changes, new playback starts, and saving or applying settings are unavailable. Repeat the operation after processing finishes. You can still browse, search, sort, select rows, and view, edit, or cancel settings. Cancelling estimation preserves registered packages and already applied results; you can manually estimate the remaining pending packages. Cancelling during automatic installation finishes the current package before stopping. Packages not yet started remain pending with their destinations intact. The result message shows successful installations and the number not started.
 
 During full LR2 synchronization, new playback starts and saving or applying settings are also unavailable. Your settings draft remains intact; save it explicitly after synchronization finishes. You can still browse, search, select rows, edit settings, and cancel. DB synchronization alone does not stop existing playback. Routine playlist editing and output can run alongside library operations that do not intersect managed output directories. Custom folder destinations change after settings are saved and applied; unsaved destination edits are not used.
 
@@ -980,6 +983,8 @@ For example, a differential chart by itself is typically added to `Pending` with
 ![Install Pending](img/一覧_インストール_保留.PNG)
 
 `Pending` contains packages not yet installed. Check or correct their destination before installation. For pending packages restored at startup, select them and run `Install` → `Estimate install destination` from the context menu. You can also re-estimate using [Install-Destination Estimation](#install-destination-estimation).
+
+Turning ON automatic installation leaves existing pending packages in place. For destinations determined through manual estimation, candidate selection, or text entry, use `Install to estimated install destination` to install them.
 
 #### Checking Destinations and WARNING
 
@@ -1024,6 +1029,8 @@ Use `Install` → `Estimate install destination` for both additional charts and 
 When the bundled files alone verifiably cover at least 90% of the used audio, candidates are retained if TITLE / ARTIST match strongly or both the title and artist of the same chart are similar. Otherwise, similarity in either field is sufficient. This 90% uses audio brought in by the package before adding the destination, so it can differ from the displayed `WAV` value. If renamed titles or artists leave no suitable candidates, use `Estimate installation location (keep unrelated candidates)` to inspect candidates by their resource matches.
 
 Automatic confirmation of `INSTL DST` requires a strong TITLE / ARTIST match and each chart’s used-audio coverage from the package and candidate together to meet the configured threshold (100% by default). If audio is missing, you can still inspect and select a candidate manually. Missing images or videos alone do not prevent automatic confirmation. Enabling automatic selection among multiple candidates keeps the same audio requirement.
+
+With automatic installation during import enabled, packages whose destinations were determined by that import’s automatic estimation are installed after estimation completes successfully. Manually started estimation only sets destinations. If charts from the same source folder are grouped into one package and any unowned chart was not automatically assigned a destination by this import, the entire package remains pending.
 
 `Install to estimated install destination` installs pending packages whose `INSTL DST` is set into their estimated destinations, one package at a time in list order. Check results in New after installation. Packages whose charts all have an empty `INSTL DST` remain in Pending. Same-name collisions among bundled files are handled according to [Smart Overwrite](#smart-overwrite) in the settings dialog.
 

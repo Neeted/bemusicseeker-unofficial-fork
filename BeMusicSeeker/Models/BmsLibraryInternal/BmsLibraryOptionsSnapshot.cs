@@ -45,6 +45,9 @@ internal sealed class BmsLibraryOptionsSnapshot
 
     public bool AutoApplyAmbiguousInstallDestination { get; init; }
 
+    /// <summary>取り込み後の自動推定に続く導入の有効性を、取り込み開始時の設定で固定します。</summary>
+    public bool AutoInstallAfterAutomaticEstimation { get; init; }
+
     /// <summary>導入先の自動設定に各譜面が必要とする最低音源充足率を捕捉します。許可範囲は90～100で、範囲外は評価側で拒否します。</summary>
     public int InstallDestinationAutoApplyMinAudioHealth { get; init; } = 100;
 
@@ -95,6 +98,7 @@ internal sealed class BmsLibraryOptionsSnapshot
             KeepInstallablePackagesPending = settings.KeepInstallablePackagesPending,
             RequireCompleteUsedResourcesForAutoInstall = settings.RequireCompleteUsedResourcesForAutoInstall,
             AutoApplyAmbiguousInstallDestination = settings.AutoApplyAmbiguousInstallDestination,
+            AutoInstallAfterAutomaticEstimation = settings.AutoInstallAfterAutomaticEstimation,
             InstallDestinationAutoApplyMinAudioHealth = settings.InstallDestinationAutoApplyMinAudioHealth,
             EstimateOfflineScoreRanking = settings.EstimateOfflineScoreRanking,
             UpdateLr2IrRankingCacheOnStartup = settings.UpdateLr2IrRankingCacheOnStartup,

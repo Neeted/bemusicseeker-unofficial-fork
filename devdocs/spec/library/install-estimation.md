@@ -240,7 +240,7 @@ TITLEは `()`・`[]`・`<>`・`【】`・`《》` の対応と入れ子を考慮
 
 全選択譜面が保留パッケージに属する場合はパッケージ単位へまとめられます。単独譜面が混じる場合と再導入先修正は外側を逐次実行し、内側の候補を並列評価します。取り込みで取得した参照集合は同じ対象の評価へ再利用します。
 
-取り込みから推定・regroupへの直接継続と受付終端は[競合ポリシー](../core/operation-concurrency-policy.md#ライブラリ保留保守)に従います。物理変更leaseの解放を推定完了と扱わず、確定済み登録・適用済み結果・未適用の保留を実結果へ区別します。
+取り込みから推定・再グループ化・[自動導入](#取り込み後の自動推定に続く導入)への直接継続と受付終端は[競合ポリシー](../core/operation-concurrency-policy.md#ライブラリ保留保守)に従います。物理変更leaseの解放を推定完了と扱わず、確定済み登録・適用済み結果・未適用の保留を実結果へ区別します。
 
 ### 推定入力の確定と停止
 
@@ -266,6 +266,40 @@ TITLEは `()`・`[]`・`<>`・`【】`・`《》` の対応と入れ子を考慮
 
 既存のリソース状態索引が有効なら対象だけを差分更新し、索引が未構築・無効なら、この後処理だけを理由に全体再構築しません。入力元の保全、確認済み残存物の削除、終端の報告は[ファイルとDBの整合](file-db-consistency.md)に従います。
 
+### 取り込み後の自動推定に続く導入
+
+`AutoInstallAfterAutomaticEstimation` が有効な取り込みでは、保留への登録に続く自動推定が正常完了した後、今回導入先を自動設定した対象を既存の推定先導入核へ渡します。設定の既定値・保存・取消は[設定仕様](../runtime/settings.md#取り込み後の自動推定に続く導入)に従います。ドロップ・ファイル指定・ダウンロード由来で同じ取り込み経路へ入る入力へ適用します。
+
+手動の推定・再推定、候補選択、導入先の手入力・修正、起動時の保留復元、設定の有効化だけでは導入を開始しません。候補が存在するだけの対象や、以前から導入先が設定済みの別保留も含めません。自動推定の資格、音源充足率、Strong判定、曖昧候補の自動設定許可は既存の判定を再利用します。新規判定の保留維持設定を本機能の全体停止条件へ転用せず、推定対象でない入力へ推定を追加しません。
+
+#### 今回の対象と再グループ化
+
+取り込みに続く `AutoInstall` sourceの自動推定で、現在の保留・有効なentryの検査を通り、`ShouldAutoApplyDestination` と導入先が成立して実適用が完了したentry・導入先だけを、一操作の間収集します。設定無効時には後段用の追跡を行いません。永続的な起源フラグや全保留の監視は追加しません。
+
+再グループ化を終えた現在の保留パッケージから、次の全条件を満たす有限集合を確定します。
+
+- 今回自動設定した有効なentryを一つ以上含む。
+- 導入対象の未所持entryが、すべて今回の自動設定に由来する。
+- 現在の導入先が今回自動設定した先と一致し、既存の推定先導入条件を満たす。
+
+再グループ化による置換時は元entryから置換後entryへの対応を引き継ぎ、重複統合も既存の同一対象判定に揃えます。古いパッケージ、親ディレクトリ、ハッシュだけから候補を拾い直しません。同じ元ディレクトリの分割譜面は、再グループ化後のディレクトリ単位で同梱資源とともに導入します。今回の自動設定外の未所持entryが一つでも混ざれば、パッケージ全体を保留に残し、今回確定した兄弟だけの抜取り導入もしません。推定対象が0件で再グループ化だけを行った場合、後段候補は空です。
+
+候補の資格は後段開始前に確定します。同じバッチの先行成功によって後続が既所持になった場合は、既存核のリソースのみの導入・片付けのみの処理を維持し、候補を独自に除外し直しません。
+
+#### 実行と取消
+
+初段の通常導入・保留登録を確定してから推定と再グループ化を待ちます。推定の失敗・取消では、適用済み推定を保持しても後段を一件も開始しません。正常完了・設定有効・未取消の場合だけ、候補を一つの推定先導入バッチへ渡します。初段と後段の変更セッションは別で、後段をパッケージごとの確定へ分割しません。
+
+同じ取り込みのcapabilityと入口で捕捉済みの `BmsLibraryOptionsSnapshot` を、物理scope準備、上書き、元削除、導入、必要同期まで明示的に渡します。手動導入も自分の受付で捕捉した設定を同じ核へ渡します。物理変更の受付と停止順は[競合ポリシー](../core/operation-concurrency-policy.md#ライブラリ保留保守)に従います。元の保留入力・管理ZIP・借用ZIPの寿命は[ドロップ導入](drop-install.md#導入後の入力の寿命)に従います。
+
+自動導入は差分導入の確認を省略します。物理処理・SmartOverwrite・元削除・所持集合・DB・索引・導入済み表示・導入先消去は既存核を使います。手動導入の確認は変更しません。後段開始前の取消では後段を開始せず、後段実行中は現在のパッケージを最後まで処理して次を開始しません。成功分を確定・反映し、未開始対象は元と推定先を保持した保留へ残します。物理失敗と型衝突は既存核の継続・停止条件に従います。
+
+#### 終端結果と同期
+
+初段・後段のreceiptを区別し、それぞれの永続確定と必須反映の成否を保持します。初段成功後の推定・準備・停止・後段・同期・後片付けの失敗でも、先行の確定を空結果へ置換しません。必須反映に失敗した段階は、永続確定済みでも導入済み表示の成功として公開しません。同期可能な確定分は[LR2同期](../integration/lr2-song-db.md#局所変更と性能)に従い操作末尾の一回へ集約し、元の失敗・取消も保持します。
+
+ownerから完了・失敗receiverまで、成功として公開できる初段・後段の導入済み対象を重複なく集約し、競合・取消による後段の未実行対象、物理失敗・型衝突・回復パス、必須反映・セッション外の失敗を一回の終端報告へ渡します。通常の保留件数と後段未実行件数は区別します。必須の公開・入力回収を待ち、[未引渡し管理入力の回収失敗](drop-install.md#導入後の入力の寿命)も同じ結果へ反映します。任意の終端案内は受付解放後に配送します。案内の表示失敗で確定済み変更の結果を変えません。
+
 ### 診断
 
 `estimate_install` でモード、要求数、同梱で満たす数、逆引き訪問数、リソース条件通過数、全候補の分類件数、実際のメタデータ比較ペア数と区間時間を確認します。プロフィール構築・再利用・入力行数の累積値は、その一推定だけの件数と混同しません。上位候補はHの元件数、候補自身M、Jaccard、分類と表示根拠、音源閾値・拒否理由を記録し、全候補の全文は通常ログへ出しません。一括の `packageDegree` と候補内並列度、初回・再利用の費用も分けます。
@@ -288,6 +322,11 @@ TITLEは `()`・`[]`・`<>`・`【】`・`《》` の対応と入れ子を考慮
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 取り込み後の正常な自動推定だけからの導入、設定OFF・対象限定・再グループ化 | `BMSLibrary`、`BMSLibrary.PackageInstall`、`BmsLibraryPackageInstallService` | [`PackageInstallWorkflowOwnerAutomaticContinuationTests`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerAutomaticContinuationTests.cs) の `AutomaticContinuation_UsesCapturedSettingsAndRegroupedSource` は設定ON/OFF・元削除ON/OFF・推定中の反転と次操作、再グループ化後の同梱物・実ファイル・SQLite・所持集合・保留／導入済みを確認する。`AutomaticContinuation_DoesNotExpandIntoUntrackedRegroupedSibling` は既存の未所持兄弟混在時の全体保留を確認する。混在分類は `PackageInstallWorkflowOwnerEstimationTests`、自動設定の条件表は `BmsLibraryInstallEstimationServiceTests`、再グループ化の条件表は `BmsLibraryPendingPackageRegroupTests` へ分担する。 |
+| 手動推定・復元・候補編集からの非起動 | `PendingPackageWorkflowOwner`、`BMSLibrary` | `PackageInstallWorkflowOwnerTests.AutomaticContinuation_DoesNotRunAfterManualEstimation` は新設定有効の実モデルの手動推定後も物理導入・保留除去しないことを確認する。手動owner、候補編集・修正・復元は既存の `PendingPackageWorkflowOwnerTests`、`BmsLibraryPendingPackageRegroupTests`、`BmsLibraryPackageLifecycleTests`、`BmsLibraryInitializationInstallTests` が分担する。 |
+| 後段の取消・対象別競合・停止と受付寿命 | `BMSLibrary.PackageInstall`、`BmsLibraryPackageInstallService`、`PackageInstallWorkflowOwner` | `PackageInstallWorkflowOwnerAutomaticContinuationTests` の `AutomaticContinuation_WaitsForStopAndCancelsOnlyBetweenPackages` は実停止Taskと物理処理の到達点で制御し、停止前の未書込み、現パッケージ完了・次の未開始保留、部分成功と受付終端を確認する。LR2有効行は停止Task中の追加P保持、取消後の必要同期とL/P解放も確認する。`AutomaticContinuation_ExcludesOnlyPlaylistBusyTargetWithoutReplay` は交差Xの未実行と独立A/Bの一括確定、P解放後の非再実行を確認する。推定失敗・取消の全joinは既存の `PackageInstallWorkflowOwnerEstimationTests`、管理・借用入力は既存のarchive系列が分担する。 |
+| 二段階の確定前／必須反映失敗と実receiverへの集約表示 | `BMSLibrary.PackageInstall`、`PackageInstallWorkflowOwner`、`MainWindowViewModel`、`FileDbMutationReport` | `PackageInstallWorkflowOwnerTests.AutomaticContinuation_RetainsFirstStageWhenSecondStageTransactionFails` は実DBのsong／maintenance書込み失敗で初段保持・後段全体の確定境界・回復情報を確認する。[`MainWindowPackageMaintenanceWpfTests.DropInstallAutomaticContinuation_ReportsBothStagesThroughActualReceiver`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) は実取り込みowner通知から実receiverと記録dialogへ通し、受付解放後の一回の本文に初段成功・後段未確定・回復情報と、譜面なし管理ZIPの削除失敗の原因／対象パスが届くことを確認する。回収失敗と元原因・取消の分担は[入力回収の対応表](drop-install.md#実装とテストの対応)、表示の既存組合せは `FileDbMutationReportTests` を参照する。 |
+| 後段バッチ内の先行成功による後続の既所持化と別の既存保留の除外 | `BmsLibraryPackageInstallService`、`SessionSuccessOwnershipOverlay` | [`PackageInstallWorkflowOwnerTests.AutomaticContinuation_ReclassifiesLaterOwnedCandidateInsideSingleBatch`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerAutomaticContinuationTests.cs) は先の実owner取り込みを設定OFFで行って別入力元の導入先設定済み未所持保留を作り、今回ONの同hash二候補だけを導入・片付けする。一回の後段確定で後続を片付けのみへ分類し直すこと、song・導入済みの重複なし、両方の元片付けと今回二候補の保留除去を実FS/DBで確認する。別保留は元bytes・設定先・hash・install行のpath／delete_parentを維持し、song・所持集合へ追加せず、設定先にファイルを作らないことも確認する。リソース専用の下位判定は既存の `BmsLibraryPackageInstallServiceTests` が分担する。 |
 | 譜面発見の完全性と破壊的操作の確認 | [`PackageInstallEstimationSnapshotBuilder`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/PackageInstallEstimationSnapshot.cs) | 列挙の成否・完全性と全譜面の読取り結果から完全性を作る範囲は静的に確認する。実際の部分取得・部分管理列から削除への接続は[削除の対応表](mutations.md#実装とテストの対応)の実FS・DB試験、列挙失敗そのものは既存の `RootFileEnumerationTests` に分担する。 |
 | 新規としての導入確認、設定による省略、拒否対象の保全 | `PendingPackageWorkflowOwner`、`BMSLibrary.PackageInstall`、`BmsLibraryPackageInstallService` | [`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerTests.cs) の `ForceInstallPackagesAsync_ConfirmsAccordingToDestinationAndNewInstallSetting` は要求の既定値を実表示部品で正規化した `ClosedByUser` 応答が未承認になることと項目保持を確認し、既存の確認条件・混在選択も維持する。[`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `ForceInstallPendingPackages_PublicEntryUsesConfirmationSettingAndPreservesRejectedInput`: 公開入口で未設定ONの新規確認、未設定OFFの無確認導入、設定済みOFFの確認維持、No・未選択閉鎖時の入力元・DB・保留保持、肯定時の実新規導入を確認する。閉鎖応答は要求のボタンと既定値を `ThemedMessageBox.NormalizeDefaultResult`・`UiDialogResult.ClosedByUser` の既存変換へ通して生成する。明示的な未承認パッケージ保全の既存ケースも維持する。 |
 | 新規としてのメニュー表示と既存操作経路 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml) | [`MainWindowPackageMaintenanceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) の `CompiledTreeMenusPreservePackageSectionsAndPendingOperations`、`CompiledSelectedChartRoutesPreservePendingTargetAndHandledBeforeCompletion`: ツリー・選択譜面の実ForceInstall項目Headerと表示リソースの対応、既存経路・対象・完了を確認する。 |
@@ -300,8 +339,8 @@ TITLEは `()`・`[]`・`<>`・`【】`・`《》` の対応と入れ子を考慮
 | 逆引きによるs/M/D/U・80%以上・カテゴリと相対キー | `BmsLibraryInstallEstimationService`、`DirectoryResourceLookupCache` | `BmsLibraryInstallEstimationServiceTests` が単純な集合演算との一致、同梱補完・1件境界・重複を、[`DirectoryResourceLookupCacheTests`](../../../BeMusicSeeker.Tests/Resources/DirectoryResourceLookupCacheTests.cs) が逆引き更新・世代を確認する。 |
 | ハッシュ解決事実と通常関連性フィルタ・各譜面音源許可 | `BmsLibraryInstallEstimationService`、`ChartResourcePlacement`、`BMSLibrary` | `BmsLibraryInstallEstimationServiceTests` が直接候補への入口80%非適用、90/97/100%・不正値・各譜面判定・既知0/未取得0・Missing保持と見送り理由、拒否後の乗換え禁止を確認する。 |
 | ハッシュ経路の集約単位・全既所持の通常推定・拒否後停止・一括結果反映 | `BMSLibrary`、`BMSLibrary.PackageInstall` | [`BmsLibraryPendingPackageRegroupTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPendingPackageRegroupTests.cs) で未所持群または全既所持群の代表、単独bmson、最多候補拒否後の迂回防止、候補・警告・SEARCHING・進捗終端を確認する。旧マージ専用入口の必要保証も通常推定へ移管する。 |
-| 自動新規導入の設定と音源不足時の自動推定 | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs)、`BMSLibrary.PackageInstall` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) で設定ON/OFF・音源／非音声不足・未解決・補助画像・他の保留理由を確認する。同一操作の設定捕捉、自動設定閾値以上でも100%未満なら推定する接続を代表ケースで確認する。`PackageInstallWorkflowOwnerTests.ProductionImport_UsesCapturedCompletenessPolicyAndEstimatesMissingAudio` はハッシュ根拠なし完全音源でwork itemを開始しないことと手動推定を分担し、`ProductionImport_CompleteSourceAudioStillEvaluatesKnownHashCandidates` は実混在取り込みで一意先Strong成立・拒否と同点限定集合を維持する。 |
-| 自動対象の準備前選別と手動推定 | `BmsLibraryPackageInstallService.ApplyAutoInstallWorkflowForMutationSession`、`BMSLibrary.BuildAutomaticPendingEstimateSourceBatchSnapshotUnsafe` | [`PackageInstallWorkflowOwnerTests.ProductionImport_SkipsOwnedAndNewPackagesBeforePreparationButEstimatesMixedSibling`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerEstimationTests.cs) は同一受理バッチの全既所持・設定保留の新規・混在から、混在だけの準備到達と1 work item、未所持だけの導入先、3保留行、SEARCHING解除・受付解放、新規対象の後続手動推定を確認する。除外対象が推定用処理へ迂回しないことと、同操作の自動導入成功を含む索引の利用は静的に確認する。全既所持の手動個別・一括系列は `BmsLibraryPendingPackageRegroupTests` が分担する。 |
+| 自動新規導入の設定と音源不足時の自動推定 | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs)、`BMSLibrary.PackageInstall` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) で設定ON/OFF・音源／非音声不足・未解決・補助画像・他の保留理由を確認する。同一操作の設定捕捉、自動設定閾値以上でも100%未満なら推定する接続を代表ケースで確認する。`PackageInstallWorkflowOwnerTests.ProductionImport_UsesCapturedCompletenessPolicyAndEstimatesMissingAudio` はハッシュ根拠なし完全音源でwork itemを開始しないことと手動推定を分担し、`ProductionImport_CompleteSourceAudioStillEvaluatesKnownHashCandidates` は実混在取り込みで一意先Strong成立・拒否と同点限定集合を維持し、新設定有効でも曖昧自動適用が無効なら候補だけを残して保留することを確認する。 |
+| 自動対象の準備前選別と手動推定 | `BmsLibraryPackageInstallService.ApplyAutoInstallWorkflowForMutationSession`、`BMSLibrary.BuildAutomaticPendingEstimateSourceBatchSnapshotUnsafe` | [`PackageInstallWorkflowOwnerTests.ProductionImport_SkipsOwnedAndNewPackagesBeforePreparationButEstimatesMixedSibling`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerEstimationTests.cs) は同じ全既所持・設定保留の新規・混在入力を新設定OFF/ONで取り込み、前二者の準備・評価なし、元bytes保持・song追加なしを確認する。混在だけを一回準備・評価し、OFFは3保留と未所持の推定先設定、ONは実FS・song・所持集合・導入済みへの反映と混在のinstall行除去を確認する。両行でSEARCHING解除・受付解放を確認し、ONでも後続の新規対象の手動推定から導入しない。除外対象の迂回防止と同操作の先行成功索引の利用は静的確認も併用し、全既所持の手動個別・一括系列は `BmsLibraryPendingPackageRegroupTests` が分担する。 |
 | 混在取り込みのハッシュ候補拒否と保留確定 | `BMSLibrary.PackageInstall`、`BMSLibrary` | `BmsLibraryPackageInstallServiceTests.AutoInstall_MixedFolderHashMetadataMismatchKeepsPendingInputAndCandidate` は実フォルダ入力、実DB保留行、未所持入力・候補・表示・警告保持と受付解放を確認する。 |
 | Strong不成立の候補・WARNINGと生成済み行への投影 | `BMSLibrary`、`PackageChartEntry`、`LibraryChartRow` | [`BmsLibraryPendingPackageRegroupTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPendingPackageRegroupTests.cs) の `SearchEstimatedInstallationDirectory_MetadataMismatchLeavesInstallDestinationEmptyAndShowsSingleSuggestion` と二候補の既存ケースが実索引・実BMS入力から不一致候補を確認する。[`ChartListVirtualViewTests`](../../../BeMusicSeeker.Tests/ChartList/ChartListVirtualViewTests.cs) の `PackageChartEntryDisplayRow_ReflectsUpdatedAdapterlessBmsonEntryState` は生成済み行へのMetadataMismatch・代表表示・候補・adapter非生成を確認する。判断の条件網羅はサービス側へ分担する。 |
 | BMS・bmsonの原題入力、形式別の作者入力、空値からの非補完 | `PackageInstallEstimationSnapshotBuilder`、`BMSLibrary`、[`BmsonChartFileParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/BmsonChartFileParser.cs) | `BmsLibraryInstallEstimationServiceTests.PackageInstallEstimationSnapshotBuilder_BuildsTargetMetadataProfileFromFormatSpecificMetadata` は対象側の原題・作者を形式別に確認する。所持側は `BmsLibraryPendingPackageRegroupTests` の `SetPendingInstallDestination_UpdatesRepresentativeMetadata` と `SearchEstimatedInstallationDirectory_ResolvesBmsonFromInstalledBmsonHash` が、未知のSUBARTISTを含むBMS・合成Artistを持つbmson・空Artist・現在値更新後の代表表示を確認する。[`BmsonSongParserTests`](../../../BeMusicSeeker.Tests/ChartInfo/BmsonSongParserTests.cs) の `Parse_MissingTitleKeepsRawTitleEmptyAndComposedDisplay` は原題の省略・null・空文字を確認し、失効後の再推定は `SearchEstimatedInstallationDirectory_MetadataTieBreakSelectsMatchingCandidate` でも維持する。 |

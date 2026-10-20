@@ -1,6 +1,11 @@
 {
   "AudioDeviceListLoading": "音声デバイス一覧を取得しています。設定の編集・保存・取消は引き続き行えます。",
   "AudioDeviceListRefreshFailed": "音声デバイス一覧を更新できませんでした。保持している候補と現在の選択を表示しています。",
+  "PackageInstallReport_InputCleanupFailure": "取り込み用一時入力の回収に失敗: {0}",
+  "PackageInstallReport_Unprocessed": "自動インストール未実行: {0} 件",
+  "PackageInstallReport_SynchronizationIncomplete": "LR2との同期が完了していません。",
+  "Details_auto_install_after_automatic_estimation": "取り込み時の自動推定でインストール先が確定したら、自動インストールする",
+  "Details_auto_install_after_automatic_estimation_description": "保留への追加に続く自動推定でインストール先が確定したパッケージを、確認画面を表示せずにインストールします。手動で開始した推定は対象外です。上書きと元パッケージの削除は既存の設定に従います。",
   "Warning_InstallEstimationUnrelated": "候補 {0} は作品との関連性が確認できません。自動設定は行いません。",
   "Warning_InstallEstimationMetadataUnavailable": "候補 {0} との比較に使うTITLE/ARTISTが取得できないため、自動設定は行いません。",
   "WarningDigest_InstallEstimationUnrelated": "作品との関連性なし",

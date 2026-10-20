@@ -852,6 +852,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool tempAutoApplyAmbiguousInstallDestination;
 
+    private bool tempAutoInstallAfterAutomaticEstimation;
+
     private int tempInstallDestinationAutoApplyMinAudioHealth;
 
     private bool tempDeletePendingPackageSourceAfterInstall;
@@ -3782,6 +3784,20 @@ public partial class SettingsDialogViewModel : ViewModel
             ? string.Empty
             : string.Format(Resources.Details_install_destination_min_audio_health_invalid, ApplicationSettings.InstallDestinationAutoApplyMinAudioHealth);
 
+    /// <summary>取り込み後の自動推定で導入先が確定した保留を、続けて確認なしで導入するかを編集します。</summary>
+    public bool AutoInstallAfterAutomaticEstimation
+    {
+        get => ApplicationSettings.AutoInstallAfterAutomaticEstimation;
+        set
+        {
+            if (ApplicationSettings.AutoInstallAfterAutomaticEstimation != value)
+            {
+                ApplicationSettings.AutoInstallAfterAutomaticEstimation = value;
+                RaisePropertyChanged(nameof(AutoInstallAfterAutomaticEstimation));
+            }
+        }
+    }
+
     public bool AutoApplyAmbiguousInstallDestination
     {
         get
@@ -6378,6 +6394,7 @@ public partial class SettingsDialogViewModel : ViewModel
         tempKeepInstallablePackagesPending = ApplicationSettings.KeepInstallablePackagesPending;
         tempRequireCompleteUsedResourcesForAutoInstall = ApplicationSettings.RequireCompleteUsedResourcesForAutoInstall;
         tempAutoApplyAmbiguousInstallDestination = ApplicationSettings.AutoApplyAmbiguousInstallDestination;
+        tempAutoInstallAfterAutomaticEstimation = ApplicationSettings.AutoInstallAfterAutomaticEstimation;
         tempInstallDestinationAutoApplyMinAudioHealth = ApplicationSettings.InstallDestinationAutoApplyMinAudioHealth;
         tempDeletePendingPackageSourceAfterInstall = ApplicationSettings.DeletePendingPackageSourceAfterInstall;
         tempEnableSmartComponentOverwrite = ApplicationSettings.EnableSmartComponentOverwrite;
@@ -6514,6 +6531,7 @@ public partial class SettingsDialogViewModel : ViewModel
             || tempKeepInstallablePackagesPending != ApplicationSettings.KeepInstallablePackagesPending
             || tempRequireCompleteUsedResourcesForAutoInstall != ApplicationSettings.RequireCompleteUsedResourcesForAutoInstall
             || tempAutoApplyAmbiguousInstallDestination != ApplicationSettings.AutoApplyAmbiguousInstallDestination
+            || tempAutoInstallAfterAutomaticEstimation != ApplicationSettings.AutoInstallAfterAutomaticEstimation
             || tempInstallDestinationAutoApplyMinAudioHealth != ApplicationSettings.InstallDestinationAutoApplyMinAudioHealth
             || tempDeletePendingPackageSourceAfterInstall != ApplicationSettings.DeletePendingPackageSourceAfterInstall
             || tempEnableSmartComponentOverwrite != ApplicationSettings.EnableSmartComponentOverwrite
@@ -7700,6 +7718,7 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationSettings.KeepInstallablePackagesPending = tempKeepInstallablePackagesPending;
         ApplicationSettings.RequireCompleteUsedResourcesForAutoInstall = tempRequireCompleteUsedResourcesForAutoInstall;
         ApplicationSettings.AutoApplyAmbiguousInstallDestination = tempAutoApplyAmbiguousInstallDestination;
+        ApplicationSettings.AutoInstallAfterAutomaticEstimation = tempAutoInstallAfterAutomaticEstimation;
         ApplicationSettings.InstallDestinationAutoApplyMinAudioHealth = tempInstallDestinationAutoApplyMinAudioHealth;
         ApplicationSettings.DeletePendingPackageSourceAfterInstall = tempDeletePendingPackageSourceAfterInstall;
         ApplicationSettings.EnableSmartComponentOverwrite = tempEnableSmartComponentOverwrite;
@@ -7804,6 +7823,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(KeepInstallablePackagesPending));
         RaisePropertyChanged(nameof(RequireCompleteUsedResourcesForAutoInstall));
         RaisePropertyChanged(nameof(AutoApplyAmbiguousInstallDestination));
+        RaisePropertyChanged(nameof(AutoInstallAfterAutomaticEstimation));
         RaisePropertyChanged(nameof(InstallDestinationAutoApplyMinAudioHealth));
         RaisePropertyChanged(nameof(InstallDestinationAutoApplyMinAudioHealthWarning));
         RaisePropertyChanged(nameof(DeletePendingPackageSourceAfterInstall));

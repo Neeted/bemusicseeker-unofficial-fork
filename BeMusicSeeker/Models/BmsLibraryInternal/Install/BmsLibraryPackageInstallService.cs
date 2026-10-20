@@ -2759,7 +2759,7 @@ internal sealed class BmsLibraryPackageInstallService
 
     /// <summary>
     /// 推定導入で実行可能な候補を、副作用なしで構築します。
-    /// 現在の保留照合、入力順重複排除、全 DST 空候補の除外は短い
+    /// 現在の保留照合は要求対象だけの索引で一回行います。入力順重複排除、全 DST 空候補の除外は短い
     /// model guard の保持中に行い、package 分類と component 列挙は
     /// package ごとの実行段階まで遅延します。
     /// </summary>
@@ -2774,16 +2774,30 @@ internal sealed class BmsLibraryPackageInstallService
         var planStopwatch = Stopwatch.StartNew();
         var plan = new PendingInstallBatchPlan();
         var filterStopwatch = Stopwatch.StartNew();
-        List<ChartPackage> pendingSnapshot = [.. (currentPendingPackages ?? []).Where(pkg => pkg != null)];
+        List<ChartPackage> requested = DeduplicatePackagesByPathOrReference(requestedPackages);
+        var pendingByRequest = new Dictionary<ChartPackage, ChartPackage>(ReferenceEqualityComparer.Instance);
+        var requestedByPath = new Dictionary<string, ChartPackage>(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartPackage package in requested)
+        {
+            pendingByRequest.Add(package, null);
+            if (!string.IsNullOrWhiteSpace(package.path)) { requestedByPath.Add(package.path, package); }
+        }
+        foreach (ChartPackage package in currentPendingPackages ?? [])
+        {
+            if (package == null) { continue; }
+            // 参照かパスで最初に一致した保留を保持します。後続の参照一致で先行パス一致を置換しません。
+            if (pendingByRequest.TryGetValue(package, out ChartPackage referenceMatch) && referenceMatch == null)
+            { pendingByRequest[package] = package; }
+            if (!string.IsNullOrWhiteSpace(package.path)
+                && requestedByPath.TryGetValue(package.path, out ChartPackage pathRequest)
+                && pendingByRequest[pathRequest] == null)
+            { pendingByRequest[pathRequest] = package; }
+        }
         var selectedReferences = new HashSet<ChartPackage>();
         var selectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (ChartPackage requestedPackage in DeduplicatePackagesByPathOrReference(requestedPackages))
+        foreach (ChartPackage requestedPackage in requested)
         {
-            ChartPackage pendingPackage = pendingSnapshot.FirstOrDefault(package =>
-                ReferenceEquals(package, requestedPackage)
-                || (!string.IsNullOrWhiteSpace(package.path)
-                    && !string.IsNullOrWhiteSpace(requestedPackage.path)
-                    && string.Equals(package.path, requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
+            ChartPackage pendingPackage = pendingByRequest[requestedPackage];
             if (pendingPackage == null
                 || (!string.IsNullOrWhiteSpace(pendingPackage.path)
                     ? !selectedPaths.Add(pendingPackage.path)
@@ -2817,6 +2831,23 @@ internal sealed class BmsLibraryPackageInstallService
         return plan;
     }
 
+    /// <summary>実行時と同じ分類で、変更不要な候補を除いた物理scopeを副作用なしで準備します。先行成功による所持変化は実行時に再分類します。</summary>
+    internal IReadOnlyDictionary<ChartPackage, IReadOnlyList<string>> PrepareEstimatedInstallPhysicalScopes(
+        PendingInstallBatchPlan plan, bool deleteSource, Func<ChartPackage, string, ISet<string>, int> countComponents)
+    {
+        Dictionary<ChartPackage, IReadOnlyList<string>> scopes = [];
+        foreach (ChartPackage package in plan.SelectedPendingPackages)
+        {
+            PendingInstallBatchItem item = PrepareEstimatedInstallBatchItem(package, plan.IndependentOwnershipLookup, applyWarnings: false);
+            if (item == null || (item.IsResourceOnlyInstall && !deleteSource
+                && countComponents(item.InstallWorkPackage, item.DestinationDirectory, item.ExcludedComponentPaths) == 0)) { continue; }
+            scopes.Add(package, package.delete_parent
+                ? [package.path, item.DestinationDirectory, Path.GetDirectoryName(package.path)]
+                : [package.path, item.DestinationDirectory]);
+        }
+        return scopes;
+    }
+
     /// <summary>
     /// 推定導入候補を一つの operation-scoped mutation session へ集約します。
     /// physical success だけを pending lifecycle 成功として収集し、DST clear と collection publication は caller が
@@ -2839,7 +2870,8 @@ internal sealed class BmsLibraryPackageInstallService
         Func<ChartPackage, PackageInstallSessionMoveResult> prepareCleanupOnly,
         LibraryMutationOwner.LibraryMutationSession mutationSession,
         Action<string> logInfo = null,
-        Func<ChartPackage, string, ISet<string>, int> countComponentMoveTargets = null)
+        Func<ChartPackage, string, ISet<string>, int> countComponentMoveTargets = null,
+        CancellationToken token = default)
     {
         ArgumentNullException.ThrowIfNull(mutationSession);
         var result = new PendingInstallBatchResult();
@@ -2854,6 +2886,12 @@ internal sealed class BmsLibraryPackageInstallService
 
         for (int packageIndex = 0; packageIndex < plan.SelectedPendingPackages.Count; packageIndex++)
         {
+            if (token.IsCancellationRequested)
+            {
+                result.Cancelled = true;
+                result.UnprocessedPackages.AddRange(plan.SelectedPendingPackages.Skip(packageIndex).Where(package => package != null));
+                break;
+            }
             ChartPackage originalPackage = plan.SelectedPendingPackages[packageIndex];
             if (originalPackage == null)
             {
@@ -3004,7 +3042,7 @@ internal sealed class BmsLibraryPackageInstallService
 
     private static PendingInstallBatchItem PrepareEstimatedInstallBatchItem(
         ChartPackage originalPackage,
-        IPrimaryHashLookup installedHashes)
+        IPrimaryHashLookup installedHashes, bool applyWarnings = true)
     {
         List<PackageChartEntry> packageEntries = [.. (originalPackage?.ChartEntries ?? [])
             .Where(entry => entry?.Chart != null)];
@@ -3018,7 +3056,7 @@ internal sealed class BmsLibraryPackageInstallService
         List<PackageChartEntry> installedInLibraryEntries = installClassification.InstalledInLibraryEntries;
         List<PackageChartEntry> installTargetPackageEntries = installClassification.InstallTargetEntries;
         List<PackageChartEntry> duplicateInBatchEntries = installClassification.DuplicateInBatchEntries;
-        ApplyAlreadyInstalledWarning(installedInLibraryEntries);
+        if (applyWarnings) { ApplyAlreadyInstalledWarning(installedInLibraryEntries); }
 
         List<PackageChartEntry> installWorkPackageEntries = installTargetPackageEntries;
         bool isResourceOnlyInstall = false;

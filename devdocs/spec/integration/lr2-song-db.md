@@ -161,6 +161,10 @@ sequenceDiagram
 
 ### 局所変更と性能
 
+取り込み後の自動推定と[後段の自動導入](../library/install-estimation.md#取り込み後の自動推定に続く導入)では、初段・後段の同期可能な確定分の必要同期を操作末尾の一回へ集約します。同じcapabilityと取り込み入口の設定を渡し、別の予約や自動再試行を作りません。初段成功後の推定失敗・取消、後段準備失敗・競合、後段のパッケージ境界取消でも、安全に同期できる確定分の必要同期を待ちます。設定無効でも初段の必要同期を維持します。
+
+DB確定後の必須反映失敗・未回復の物理失敗など、既存の整合条件が同期を許さない場合は迂回しません。初段を含む確定事実と必要同期の未完了を操作結果へ残します。同期自体の失敗でも、推定・後段の元の失敗や取消を上書きせず、確定済み変更を保持します。
+
 導入・削除・移動・リネーム・統合では、確定結果から追加・削除・旧新BMSパスを捕捉します。追加だけなら現在BMSの再検索は不要です。削除・移動では変更ディレクトリ内と、登録ルートまでの祖先のBMS件数だけを既存索引から取得します。BMSONを残存BMSに数えず、削除範囲をルート全体へ広げません。
 
 値は所持集合のロックと対応する版の下で固定し、確定結果に可変な検索関数を持たせません。自動リネームも共通の変更セッション内で局所値を取得し、LR2同期を一回終えます。取得・同期の失敗は失敗として返し、既に確定したファイル・DB処理を再実行・巻き戻ししません。
@@ -173,6 +177,7 @@ sequenceDiagram
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 自動推定後導入を含む操作末尾の必要同期と先行結果保持 | `BMSLibrary.PackageInstall`、`Lr2SongDbSyncRequestCoordinator` | [`PackageInstallWorkflowOwnerTests.AutomaticContinuation_SynchronizesCommittedStagesAtTerminal`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerAutomaticContinuationTests.cs) は後段正常成功・初段後の推定失敗／取消・後段部分成功後取消・推定と同期の重畳失敗を、本番受付・実coordinator・SQLiteのsong／folder出力と同期状態まで確認する。`AutomaticContinuation_ExcludesOnlyPlaylistBusyTargetWithoutReplay` はP競合による同期未完了と先行結果保持、既存の [`BmsLibraryLr2SongDbSyncTests`](../../../BeMusicSeeker.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs) は同期核の条件を分担する。 |
 | 差分インストールのtxt保存とfile_diffへの接続 | [`Lr2TextGroupResolver`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2TextGroupResolver.cs)、`LibraryMutationSession.Commit` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `EstimatedInstall_TextFlagMatchesFinalPlacementWithoutImmediateFileDiffReparse` は既存直下txt・後続同梱txt・子だけのtxtを分担し、実SQLiteのtxtと導入後の現在値、LR2モードの `BmsAddedTargetCount=0`・`BmsTextOnlyUpdateCount=0` を確認する。既存の [`BmsLibraryInstallEstimationServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryInstallEstimationServiceTests.cs) の `PackageChartEntry_BmsCurrentChartRecomputesTextGroupOnInstalledPath`・`PackageChartEntry_BmsCurrentChartClearsStaleTextGroupOnInstalledPath` は項目単独の判定、[`BmsLibraryInitializationFileScanTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationFileScanTests.cs) は差分判定の詳細条件を担う。 |
 | 両受付の開始競合、準備・書込み0と部分取得解放 | `Lr2SongDbSyncRequestCoordinator` | [`QueueLr2SongDbSync_CompetingAdmissionSkipsBeforePreparationAndReleasesPartialLease`](../../../BeMusicSeeker.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
 | 差分の実chart/通常フォルダ確定と全体同期競合skipの区別 | `FileDiffReloadWorkflowOwner` | [`DailyLibraryDiffAndIndependentPlaylistRegistration_CompleteActualChangesConcurrently`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionAdmissionTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |

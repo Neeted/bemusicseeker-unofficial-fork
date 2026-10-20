@@ -137,11 +137,15 @@ internal sealed class ArchiveInputFileMutationService(Action<string> observeTime
 {
     private readonly ResilientFileMutationService inner = new();
     internal Action<string>? BeforeTimestamp { get; set; }
+    /// <summary>実コピー開始を観測し、取消などを現在の物理処理中に要求します。</summary>
+    internal Action<string>? BeforeCopy { get; set; }
     public void EnsureDirectory(string path, FileMutationOptions? options = null) => inner.EnsureDirectory(path, options);
     public void MoveFile(string source, string destination, bool overwrite, FileMutationOptions? options = null) => inner.MoveFile(source, destination, overwrite, options);
     public void MoveDirectory(string source, string destination, bool overwrite, FileMutationOptions? options = null) => inner.MoveDirectory(source, destination, overwrite, options);
-    public void CopyFile(string source, string destination, bool overwrite, FileMutationOptions? options = null) => inner.CopyFile(source, destination, overwrite, options);
-    public void CopyDirectory(string source, string destination, bool overwrite, FileMutationOptions? options = null) => inner.CopyDirectory(source, destination, overwrite, options);
+    public void CopyFile(string source, string destination, bool overwrite, FileMutationOptions? options = null)
+    { BeforeCopy?.Invoke(source); inner.CopyFile(source, destination, overwrite, options); }
+    public void CopyDirectory(string source, string destination, bool overwrite, FileMutationOptions? options = null)
+    { BeforeCopy?.Invoke(source); inner.CopyDirectory(source, destination, overwrite, options); }
     public void DeleteFileDirect(string path, FileMutationOptions? options = null) => inner.DeleteFileDirect(path, options);
     public void DeleteFileShell(string path, UIOption ui, RecycleOption recycle, FileMutationOptions? options = null) => inner.DeleteFileShell(path, ui, recycle, options);
     public void DeleteDirectoryDirect(string path, bool recursive, FileMutationOptions? options = null) => inner.DeleteDirectoryDirect(path, recursive, options);

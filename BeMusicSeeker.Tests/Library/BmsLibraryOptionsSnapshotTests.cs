@@ -33,26 +33,32 @@ public sealed class BmsLibraryOptionsSnapshotTests
     }
 
     /// <summary>
-    /// 保証：設定の並列上限を変更して再捕捉すると新しい値を取得し、先に捕捉した操作入力の値は保持する。
+    /// 保証：設定の並列上限と自動推定後の導入を変更して再捕捉すると新しい値を取得し、先に捕捉した操作入力の値は保持する。
     /// </summary>
     [TestMethod]
     public void CreateCurrentReturnsValuesFromTheCurrentSettingsEachTime()
     {
         int original = testSettings.PendingInstallEstimateMaxParallelPackages;
+        bool originalAutoInstall = testSettings.AutoInstallAfterAutomaticEstimation;
         try
         {
             testSettings.PendingInstallEstimateMaxParallelPackages = 3;
+            testSettings.AutoInstallAfterAutomaticEstimation = true;
             var first = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
 
             testSettings.PendingInstallEstimateMaxParallelPackages = 5;
+            testSettings.AutoInstallAfterAutomaticEstimation = false;
             var second = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
 
             Assert.AreEqual(3, first.PendingInstallEstimateMaxParallelPackages);
+            Assert.IsTrue(first.AutoInstallAfterAutomaticEstimation);
             Assert.AreEqual(5, second.PendingInstallEstimateMaxParallelPackages);
+            Assert.IsFalse(second.AutoInstallAfterAutomaticEstimation);
         }
         finally
         {
             testSettings.PendingInstallEstimateMaxParallelPackages = original;
+            testSettings.AutoInstallAfterAutomaticEstimation = originalAutoInstall;
         }
     }
 

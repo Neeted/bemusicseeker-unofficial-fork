@@ -1,6 +1,11 @@
 {
   "AudioDeviceListLoading": "正在取得音訊裝置清單。您可以繼續編輯、儲存或取消設定。",
   "AudioDeviceListRefreshFailed": "無法更新音訊裝置清單。目前顯示保留的裝置和目前的選擇。",
+  "PackageInstallReport_InputCleanupFailure": "清理匯入用暫存輸入失敗：{0}",
+  "PackageInstallReport_Unprocessed": "未執行的自動安裝：{0} 個",
+  "PackageInstallReport_SynchronizationIncomplete": "與 LR2 的同步尚未完成。",
+  "Details_auto_install_after_automatic_estimation": "匯入時自動推定確定安裝位置後，自動安裝",
+  "Details_auto_install_after_automatic_estimation_description": "將加入待安裝清單後透過自動推定確定安裝位置的套件直接安裝，不顯示確認對話方塊。手動開始的推定不在此範圍內。覆寫與來源套件刪除遵循現有設定。",
   "Warning_InstallEstimationUnrelated": "無法確認候選 {0} 與此作品的相關性。不會自動設定安裝位置。",
   "Warning_InstallEstimationMetadataUnavailable": "無法取得與候選 {0} 進行比較所需的 TITLE/ARTIST 資訊，因此不會自動設定安裝位置。",
   "WarningDigest_InstallEstimationUnrelated": "與作品無關",

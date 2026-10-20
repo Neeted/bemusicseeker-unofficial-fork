@@ -1560,6 +1560,16 @@ internal sealed class Settings : ApplicationSettingsBase
         }
     }
 
+    /// <summary>取り込み後の自動推定が正常完了したとき、今回導入先を自動設定した保留を続けて導入します。既定は無効です。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("False")]
+    public bool AutoInstallAfterAutomaticEstimation
+    {
+        get => (bool)this[nameof(AutoInstallAfterAutomaticEstimation)];
+        set => this[nameof(AutoInstallAfterAutomaticEstimation)] = value;
+    }
+
     [UserScopedSetting]
     [DebuggerNonUserCode]
     [DefaultSettingValue("0")]

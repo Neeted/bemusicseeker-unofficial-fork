@@ -1596,14 +1596,22 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
     private readonly LibraryFileMutationCapability capability;
     private readonly IReadOnlyDictionary<ChartPackage, string> preparedDestinations;
     private readonly BmsLibraryOptionsSnapshot preparedOptions;
+    private readonly PendingEstimatedInstallPreparation estimatedInstallPreparation;
 
-    /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を作ります。元leaseの所有と実終端は呼出元が担当します。</summary>
+    /// <summary>受理済み操作の明示権限と導入準備を物理変更へ渡す窓口を作ります。準備はこの操作内だけで共有し、元leaseの所有と実終端は呼出元が担当します。</summary>
     internal BmsLibraryPendingPackageStore(LibraryFileMutationCapability capability = null,
-        IReadOnlyDictionary<ChartPackage, string> preparedDestinations = null, BmsLibraryOptionsSnapshot preparedOptions = null)
-    { this.capability = capability; this.preparedDestinations = preparedDestinations; this.preparedOptions = preparedOptions; }
+        IReadOnlyDictionary<ChartPackage, string> preparedDestinations = null, BmsLibraryOptionsSnapshot preparedOptions = null,
+        PendingEstimatedInstallPreparation estimatedInstallPreparation = null)
+    {
+        this.capability = capability;
+        this.preparedDestinations = preparedDestinations;
+        this.preparedOptions = preparedOptions;
+        this.estimatedInstallPreparation = estimatedInstallPreparation;
+    }
 
-    /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を返します。呼出元が実処理・後片付けまで元leaseを保持します。</summary>
-    public IPendingPackageStore ForAcceptedOperation(LibraryFileMutationCapability capability) => new BmsLibraryPendingPackageStore(capability, preparedDestinations, preparedOptions);
+    /// <summary>追加Pの権限へ切り替える場合も同じ導入準備を受け渡します。呼出元が実処理・後片付けまで元leaseを保持します。</summary>
+    public IPendingPackageStore ForAcceptedOperation(LibraryFileMutationCapability capability)
+        => new BmsLibraryPendingPackageStore(capability, preparedDestinations, preparedOptions, estimatedInstallPreparation);
 
     /// <summary>固定した実scopeが管理領域と交差する場合だけPを取得し、外側へ所有を渡します。</summary>
     public bool TryBeginPhysicalMutation(BMSLibrary library, IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease lease)
@@ -1613,11 +1621,12 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
     public IPendingPackageStore PreparePackagePhysicalMutation(BMSLibrary library, IReadOnlyList<ChartPackage> packages,
         bool forceInstall, bool overwriteResources, out LibraryFileMutationLease lease)
     {
-        (IReadOnlyList<string> paths, IReadOnlyDictionary<ChartPackage, string> destinations, BmsLibraryOptionsSnapshot options)
+        (IReadOnlyList<string> paths, IReadOnlyDictionary<ChartPackage, string> destinations, BmsLibraryOptionsSnapshot options,
+            PendingEstimatedInstallPreparation preparation)
             = library.PreparePendingPackagePhysicalScope(packages, forceInstall, overwriteResources);
-        if (!library.TryEnterManagedOutputMutation(paths, true, out lease, capability))
+        if (!library.TryEnterManagedOutputMutation(paths, true, out lease, capability, optionsSnapshot: options))
         { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
-        return new BmsLibraryPendingPackageStore(capability, destinations, options);
+        return new BmsLibraryPendingPackageStore(capability, destinations, options, preparation);
     }
 
     /// <summary>パッケージ推定へ一操作の候補方針をそのまま渡します。</summary>
@@ -1709,12 +1718,13 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
             reportAtTerminal: true, capability: capability, preparedDestinations: preparedDestinations, preparedOptions: preparedOptions);
     }
 
-    /// <summary>推定導入の集約結果を操作終端へ返します。</summary>
+    /// <summary>P判定と共有した準備を再列挙せず実行し、推定導入の集約結果を操作終端へ返します。</summary>
     public PendingInstallBatchResult ManualInstallPackagesWithReceipt(
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages)
     {
-        return library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages, reportAtTerminal: true, capability: capability);
+        return library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages, reportAtTerminal: true, capability: capability,
+            preparedOptions: preparedOptions, preparation: estimatedInstallPreparation);
     }
 
     public bool IsPendingSectionEmpty(BMSLibrary library)

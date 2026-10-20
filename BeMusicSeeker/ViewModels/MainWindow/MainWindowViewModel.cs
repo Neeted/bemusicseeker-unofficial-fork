@@ -4416,8 +4416,8 @@ public partial class MainWindowViewModel : ViewModel,
     {
         try
         {
-            await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
-                BeMusicSeeker.Properties.Resources.Install, receipt?.SessionReceipt);
+            await FileDbMutationReport.ShowPackageInstallAsync(FileDbMutationDialogs,
+                BeMusicSeeker.Properties.Resources.Install, receipt?.CommandResult);
         }
         catch (Exception exception) { ReportPackageInstallWorkflowNotificationFailure(exception); }
     }
@@ -4429,8 +4429,8 @@ public partial class MainWindowViewModel : ViewModel,
             if (failure?.Exception == null) { return; }
             if (failure.CommandResult?.SessionReceipt != null)
             {
-                await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
-                    BeMusicSeeker.Properties.Resources.Install, failure.CommandResult.SessionReceipt, failure.Exception);
+                await FileDbMutationReport.ShowPackageInstallAsync(FileDbMutationDialogs,
+                    BeMusicSeeker.Properties.Resources.Install, failure.CommandResult, failure.Exception);
                 return;
             }
             UiDialogResult result = await FileDbMutationDialogs.ShowMessageAsync(new UiMessageRequest(

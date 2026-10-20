@@ -31,6 +31,7 @@ public sealed partial class SettingDialogEditCompletionTests
     [DataRow("Advanced", "KeepInstallablePackagesPending")]
     [DataRow("Advanced", "RequireCompleteUsedResourcesForAutoInstall")]
     [DataRow("Advanced", "AutoApplyAmbiguousInstallDestination")]
+    [DataRow("Advanced", "AutoInstallAfterAutomaticEstimation")]
     [DataRow("Advanced", "InstallDestinationAutoApplyMinAudioHealth")]
     [DataRow("RightClick", "RightClickActionSettingsEditor.SelectedWebAction.Name")]
     public void CompiledCategoryEditor_SaveReachesFreshProviderLiveSettingsAndNewDialog(string category, string bindingPath)
@@ -68,6 +69,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 values.KeepInstallablePackagesPending = false;
                 values.RequireCompleteUsedResourcesForAutoInstall = false;
                 values.AutoApplyAmbiguousInstallDestination = false;
+                values.AutoInstallAfterAutomaticEstimation = false;
                 // 範囲外の保存値は画面初期化で丸めず、選び直して97%へ修正します。
                 values.InstallDestinationAutoApplyMinAudioHealth = bindingPath == "InstallDestinationAutoApplyMinAudioHealth" ? 89 : 100;
                 values.FolderNameFormat = "%TITLE%";
@@ -235,6 +237,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     "RequireCompleteUsedResourcesForAutoInstall" => composition.BmsLibraryOptionsProvider().RequireCompleteUsedResourcesForAutoInstall,
                     "KeepInstallablePackagesPending" => composition.BmsLibraryOptionsProvider().KeepInstallablePackagesPending,
                     "AutoApplyAmbiguousInstallDestination" => composition.BmsLibraryOptionsProvider().AutoApplyAmbiguousInstallDestination,
+                    "AutoInstallAfterAutomaticEstimation" => composition.BmsLibraryOptionsProvider().AutoInstallAfterAutomaticEstimation,
                     _ => throw new AssertFailedException(bindingPath)
                 }); break;
             case "RightClick": AssertCustomWebActions(((RightClickActionSettingsStore)ReadField(owner.SelectedChartExternalActions, "rightClickActionSettingsStore")).Load()); break;
@@ -262,6 +265,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     "RequireCompleteUsedResourcesForAutoInstall" => settings.RequireCompleteUsedResourcesForAutoInstall,
                     "KeepInstallablePackagesPending" => settings.KeepInstallablePackagesPending,
                     "AutoApplyAmbiguousInstallDestination" => settings.AutoApplyAmbiguousInstallDestination,
+                    "AutoInstallAfterAutomaticEstimation" => settings.AutoInstallAfterAutomaticEstimation,
                     _ => throw new AssertFailedException(bindingPath)
                 }); break;
             case "RightClick": AssertCustomWebActions(new RightClickActionSettingsStore(() => settings).Load()); break;

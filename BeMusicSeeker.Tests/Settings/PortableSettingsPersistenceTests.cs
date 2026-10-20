@@ -24,6 +24,7 @@ public sealed class PortableSettingsPersistenceTests
         settings.PlayerResamplingQuality = 4;
         settings.ShowNewPackageInstallConfirmMsg = false;
         settings.RequireCompleteUsedResourcesForAutoInstall = true;
+        settings.AutoInstallAfterAutomaticEstimation = true;
         // 有効な 1〜4 thread の利用者値をすべて保持し、同じ値への正規化で隠さないことを確認します。
         foreach (int threadCount in Enumerable.Range(1, 4))
         {
@@ -33,12 +34,15 @@ public sealed class PortableSettingsPersistenceTests
             Assert.AreEqual("fr-FR", loaded.Lang);
             Assert.IsFalse(loaded.ShowNewPackageInstallConfirmMsg);
             Assert.IsTrue(loaded.RequireCompleteUsedResourcesForAutoInstall);
+            Assert.IsTrue(loaded.AutoInstallAfterAutomaticEstimation);
             Assert.AreEqual(4, loaded.PlayerResamplingQuality, "既存の有効な品質4は新しい既定値2へ移行せず保持します。");
             Assert.AreEqual(threadCount, loaded.PlayerMixerThreadCount);
         }
         settings.ShowNewPackageInstallConfirmMsg = true;
+        settings.AutoInstallAfterAutomaticEstimation = false;
         settings.Save();
         Assert.IsTrue(OpenSettings(files.Path).ShowNewPackageInstallConfirmMsg);
+        Assert.IsFalse(OpenSettings(files.Path).AutoInstallAfterAutomaticEstimation);
         Assert.AreEqual("retain", XDocument.Load(files.Path).Descendants("setting").Single(e => (string?)e.Attribute("name") == "FutureKey").Element("value")!.Value);
         Assert.AreEqual(0, Directory.GetFiles(files.Directory, "*.tmp").Length);
     }
@@ -49,9 +53,11 @@ public sealed class PortableSettingsPersistenceTests
     {
         using var files = new SettingsFiles();
         string defaultLanguage = OpenSettings(files.Path).Lang;
+        Assert.IsFalse(OpenSettings(files.Path).AutoInstallAfterAutomaticEstimation, "新規利用で自動導入を有効にしません。");
         Assert.IsFalse(OpenSettings(files.Path).RequireCompleteUsedResourcesForAutoInstall);
         Assert.IsTrue(OpenSettings(files.Path).ShowNewPackageInstallConfirmMsg);
         File.WriteAllText(files.Path, Config());
+        Assert.IsFalse(OpenSettings(files.Path).AutoInstallAfterAutomaticEstimation, "旧設定のキー欠損で自動導入を有効にしません。");
         Assert.AreEqual(defaultLanguage, OpenSettings(files.Path).Lang);
         Assert.IsFalse(OpenSettings(files.Path).RequireCompleteUsedResourcesForAutoInstall);
         Assert.IsNull(OpenSettings(files.Path).AssemblyVersion);

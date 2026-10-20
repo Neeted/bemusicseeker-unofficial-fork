@@ -43,7 +43,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 {
     private const string NativeModalFixturePlaylistName = "Native modal fixture";
 
-    /// <summary>実MainWindowの単一配送から、開いたplaylistへ保守値・独立score・別表参照を局所配送します。実controlと集計TextBlockのBinding、無関係行・未訪問BMSONを確認し、条件網羅は各ownerへ分担します。</summary>
+    /// <summary>実MainWindowの単一配送から、開いたplaylistへ保守値・独立score・別表参照を局所配送します。score版とMD5の実batch・行通知・drain終端を待ち、実controlと集計TextBlockのBinding、無関係行・未訪問BMSONを確認し、条件網羅は各ownerへ分担します。</summary>
     [TestMethod]
     public void CatalogMaintenance_ActualMainWindowRefreshesOpenPlaylistAndBoundCells()
     {
@@ -176,13 +176,42 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     fixture.ViewModel.MainChartList.SelectedIndex = 1;
                     var scoreWork = new List<string>();
                     workspace.DetailWorkObserver = scoreWork.Add;
+                    int scoreVersion = fixture.Library.ScoreSnapshotVersion;
+                    var scoreBatchApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var scoreRowUpdated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    Task initialScoreDelivery = Task.CompletedTask;
+                    Task targetScoreDelivery = Task.CompletedTask;
+                    Task initialScoreObservation = Task.CompletedTask;
+                    EventHandler<NormalLibraryRefreshAppliedEventArgs> scoreApplied = (_, args) =>
+                    {
+                        if (args.NotificationBatch.ScoreChanges.Any(change => change.Version > scoreVersion
+                            && change.Md5Keys.Contains(first.Md5, StringComparer.OrdinalIgnoreCase)))
+                        {
+                            targetScoreDelivery = fixture.ViewModel.RegularChartList.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None);
+                            scoreBatchApplied.TrySetResult();
+                        }
+                    };
+                    System.ComponentModel.PropertyChangedEventHandler scoreChanged = (_, args) =>
+                    {
+                        if ((string.IsNullOrEmpty(args.PropertyName) || args.PropertyName == nameof(PlaylistDetailRow.stddevVal))
+                            && visible.stddevVal == 7) { scoreRowUpdated.TrySetResult(); }
+                    };
+                    fixture.ViewModel.RegularChartList.NormalLibraryRefreshApplied += scoreApplied;
+                    visible.PropertyChanged += scoreChanged;
                     try
                     {
                         BMSScore score = fixture.Library.GetBMSScores().Single();
                         score.stddevVal = 7;
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                            fixture.ViewModel.RegularChartList.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None),
-                            "catalog-main-window-score-delivery");
+                        initialScoreDelivery = fixture.ViewModel.RegularChartList.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None);
+                        // 旧drainの正常終端後に対象batchが予約される場合も待つ。失敗・取消だけは直ちに伝える。
+                        initialScoreObservation = initialScoreDelivery.ContinueWith(completed =>
+                        {
+                            if (completed.Exception is AggregateException failure) { scoreBatchApplied.TrySetException(failure.InnerExceptions); }
+                            else if (completed.IsCanceled) { scoreBatchApplied.TrySetCanceled(); }
+                        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                        TestUiDispatcherHost.AwaitPresentationOnDispatcher(scoreBatchApplied.Task, "catalog-main-window-score-batch");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(initialScoreDelivery, targetScoreDelivery), "catalog-main-window-score-delivery");
+                        TestUiDispatcherHost.AwaitPresentationOnDispatcher(scoreRowUpdated.Task, "catalog-main-window-score-row");
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "catalog-main-window-score-consumer");
                         Assert.AreEqual(7d, visible.stddevVal);
                         Assert.AreSame(rows, fixture.ViewModel.MainChartList.Rows);
@@ -195,7 +224,17 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         Assert.AreEqual(0, scoreWork.Count(kind => kind == "playlist_dependency_index_entry"));
                         Assert.AreEqual(0, scoreWork.Count(kind => kind == "playlist_order_buffer"));
                     }
-                    finally { workspace.DetailWorkObserver = null; }
+                    finally
+                    {
+                        fixture.ViewModel.RegularChartList.NormalLibraryRefreshApplied -= scoreApplied;
+                        visible.PropertyChanged -= scoreChanged;
+                        try
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(initialScoreDelivery, targetScoreDelivery, initialScoreObservation),
+                                "catalog-main-window-score-cleanup");
+                        }
+                        finally { workspace.DetailWorkObserver = null; }
+                    }
 
                     Assert.AreEqual("REF", visible.RefTablesSymbols);
                     fixture.Library.ApplyPlaylistReferenceEntryCommits([], [new(reference, "NEW", "Reference after", 0, 0)]);

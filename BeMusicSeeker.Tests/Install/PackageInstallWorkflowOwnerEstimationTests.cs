@@ -164,10 +164,14 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     /// <summary>音源完全な実混在取り込みでも既知ハッシュ候補を評価します。源側100%では片側一致候補と候補由来の表示・警告を残さず、Strongと同点限定集合の成功・範囲を維持します。</summary>
     /// <remarks>本番ownerの受理からidleまでを通し、一意先は同梱だけに音源を用意します。同点は候補自身の既存最低一致条件も満たし、詳細条件表は下位・手動入口の既存系列へ分担します。</remarks>
     [TestMethod]
-    [DataRow(true, false)]
-    [DataRow(false, false)]
-    [DataRow(true, true)]
-    public async Task ProductionImport_CompleteSourceAudioStillEvaluatesKnownHashCandidates(bool strong, bool tied)
+    [DataRow(true, false, false, true)]
+    [DataRow(false, false, false, true)]
+    [DataRow(true, true, false, true)]
+    [DataRow(true, false, true, true)]
+    [DataRow(false, false, true, true)]
+    [DataRow(true, true, true, true)]
+    [DataRow(true, true, true, false)]
+    public async Task ProductionImport_CompleteSourceAudioStillEvaluatesKnownHashCandidates(bool strong, bool tied, bool autoInstall, bool allowAmbiguous)
     {
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         string libraryRoot = Path.Combine(root, "Library");
@@ -225,7 +229,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             OperationModeLR2DB = false,
             ScanBmsFilesOnStartup = true,
             KeepInstallablePackagesPending = true,
-            AutoApplyAmbiguousInstallDestination = true
+            AutoApplyAmbiguousInstallDestination = allowAmbiguous,
+            AutoInstallAfterAutomaticEstimation = autoInstall
         };
         string dbPath = Path.Combine(root, "song.db");
         File.WriteAllBytes(dbPath, []);
@@ -249,17 +254,33 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             await owner.WaitForIdleAsync();
             Assert.IsNull(failure, failure?.Exception.ToString());
             Assert.AreEqual(1, observer.WorkCount);
+            bool shouldApply = strong && (!tied || allowAmbiguous);
+            if (autoInstall && shouldApply)
+            {
+                Assert.AreEqual(0, library.ChartPackagesPending.Count);
+                Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
+                for (int index = 0; index < 3; index++)
+                {
+                    string destination = Path.Combine(candidate, "missing" + index + ".bms");
+                    Assert.IsTrue(File.Exists(destination));
+                    Assert.IsTrue(library.BmsCharts.Any(chart => chart.Path == destination));
+                    using LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+                    Assert.IsNotNull(db.Find<LR2SongDB.song>(destination));
+                    Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
+                }
+                return;
+            }
             ChartPackage package = library.ChartPackagesPending.Single();
             Assert.AreEqual(PendingEstimateDeferredReason.None, package.DeferredEstimateReason);
             var missing = package.ChartEntries.Where(entry => Path.GetFileName(entry.Chart.Path).StartsWith("missing", StringComparison.Ordinal)).ToList();
             Assert.AreEqual(3, missing.Count);
             foreach (PackageChartEntry entry in missing)
             {
-                Assert.AreEqual(strong ? candidate : string.Empty, entry.Chart.InstallDestination ?? string.Empty);
+                Assert.AreEqual(shouldApply ? candidate : string.Empty, entry.Chart.InstallDestination ?? string.Empty);
                 Assert.AreEqual(strong ? "Song" : string.Empty, entry.Chart.InstallDestinationTitle);
                 Assert.AreEqual(strong ? "Artist" : string.Empty, entry.Chart.InstallDestinationArtist);
                 Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
-                Assert.AreEqual(tied, entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous));
+                Assert.AreEqual(tied && allowAmbiguous, entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous));
                 Assert.IsFalse(entry.Chart.InstallDestinationSuggestions.Contains(outside));
                 if (!strong) { Assert.AreEqual(0, entry.Chart.InstallDestinationSuggestions.Count); }
                 if (tied) { CollectionAssert.AreEqual(new[] { candidate, second }, entry.Chart.InstallDestinationSuggestions.ToArray()); }
@@ -277,10 +298,12 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
     }
 
-    /// <summary>自動取り込みは全既所持と設定保留の新規対象を準備前に除外し、同じバッチの混在だけを推定します。除外した新規対象は明示手動推定で設定できます。</summary>
-    /// <remarks>小さい実FS・SQLiteと本番ownerの受理からidleを通し、準備到達・評価数・保留確定・受付解放を観測します。Strong条件表と手動全既所持系列は既存のサービス・再グループ化テストへ分担します。</remarks>
+    /// <summary>自動取り込みは全既所持と設定保留の新規対象を準備前に除外し、同じバッチの混在だけを推定します。新設定ONは混在の今回確定だけを導入し、OFFは推定までに留まり、除外した新規対象は手動推定できます。</summary>
+    /// <remarks>小さい実FS・SQLiteと本番ownerの受理からidleを通し、ON/OFFの準備到達・評価数・実導入・所持集合・保留DB・受付解放を観測します。Strong条件表と手動全既所持系列は既存のサービス・再グループ化テストへ分担します。</remarks>
     [TestMethod]
-    public async Task ProductionImport_SkipsOwnedAndNewPackagesBeforePreparationButEstimatesMixedSibling()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ProductionImport_SkipsOwnedAndNewPackagesBeforePreparationButEstimatesMixedSibling(bool autoInstall)
     {
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         string libraryRoot = Path.Combine(root, "Library");
@@ -306,7 +329,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         {
             OperationModeLR2DB = false,
             ScanBmsFilesOnStartup = true,
-            KeepInstallablePackagesPending = true
+            KeepInstallablePackagesPending = true,
+            AutoInstallAfterAutomaticEstimation = autoInstall
         };
         var background = new ConcurrentQueue<Func<Task>>();
         var admission = new ChartFileOperationSynchronizer();
@@ -334,22 +358,39 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             CollectionAssert.AreEqual(new[] { new InstallEstimationPreparationObservation(PendingInstallEstimateBatchSource.AutoInstall, mixedSource) },
                 observer.Preparations.ToArray());
             Assert.AreEqual(1, observer.WorkCount);
-            Assert.AreEqual(3, library.ChartPackagesPending.Count);
+            Assert.AreEqual(autoInstall ? 2 : 3, library.ChartPackagesPending.Count);
+            Assert.AreEqual(autoInstall ? 1 : 0, library.ChartPackagesInstalled.Count);
+            string missingDestination = Path.Combine(candidate, "missing.bms");
+            Assert.AreEqual(autoInstall, File.Exists(missingDestination));
+            Assert.AreEqual(autoInstall, library.BmsCharts.Any(chart => chart.Path == missingDestination));
+            Assert.IsFalse(File.Exists(Path.Combine(candidate, "new.bms")));
+            Assert.AreEqual(body, File.ReadAllText(Path.Combine(ownedSource, "owned.bms"), Encoding.ASCII));
+            Assert.AreEqual(body + "#GENRE new\n", File.ReadAllText(Path.Combine(newSource, "new.bms"), Encoding.ASCII));
             using (LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly())
             {
-                Assert.AreEqual(3, db.Table<LR2SongDBExtended.install>().Count());
+                string[] expectedPending = autoInstall ? [ownedSource, newSource] : [ownedSource, newSource, mixedSource];
+                CollectionAssert.AreEquivalent(expectedPending, db.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
+                Assert.AreEqual(autoInstall, db.Find<LR2SongDB.song>(missingDestination) != null);
+                Assert.IsNull(db.Find<LR2SongDB.song>(Path.Combine(candidate, "new.bms")));
+                Assert.IsNull(db.Find<LR2SongDB.song>(Path.Combine(ownedSource, "owned.bms")));
+                Assert.AreEqual(autoInstall ? 2 : 1, db.Table<LR2SongDB.song>().Count());
             }
             ChartPackage owned = library.ChartPackagesPending.Single(package => package.path == ownedSource);
             ChartPackage fresh = library.ChartPackagesPending.Single(package => package.path == newSource);
-            ChartPackage mixed = library.ChartPackagesPending.Single(package => package.path == mixedSource);
             Assert.IsTrue(owned.ChartEntries.Concat(fresh.ChartEntries).All(entry => string.IsNullOrEmpty(entry.Chart.InstallDestination)));
-            Assert.IsTrue(string.IsNullOrEmpty(mixed.ChartEntries.Single(entry => Path.GetFileName(entry.Chart.Path) == "owned.bms").Chart.InstallDestination));
-            Assert.AreEqual(candidate, mixed.ChartEntries.Single(entry => Path.GetFileName(entry.Chart.Path) == "missing.bms").Chart.InstallDestination);
+            Assert.IsFalse(library.BmsCharts.Any(chart => chart.Md5 == fresh.ChartEntries.Single().Chart.Md5));
+            if (!autoInstall)
+            {
+                ChartPackage mixed = library.ChartPackagesPending.Single(package => package.path == mixedSource);
+                Assert.IsTrue(string.IsNullOrEmpty(mixed.ChartEntries.Single(entry => Path.GetFileName(entry.Chart.Path) == "owned.bms").Chart.InstallDestination));
+                Assert.AreEqual(candidate, mixed.ChartEntries.Single(entry => Path.GetFileName(entry.Chart.Path) == "missing.bms").Chart.InstallDestination);
+            }
             Assert.IsTrue(library.ChartPackagesPending.SelectMany(package => package.ChartEntries)
                 .All(entry => (entry.Chart.Status & ChartFileStatus.SEARCHING) == 0));
             Assert.IsFalse(admission.IsActive);
             library.SearchEstimatedInstallationDirectory(fresh);
             Assert.AreEqual(candidate, fresh.ChartEntries.Single().Chart.InstallDestination);
+            Assert.IsFalse(File.Exists(Path.Combine(candidate, "new.bms")), "ONでも明示手動推定は導入を開始しません。");
             Assert.IsFalse(admission.IsActive);
         }
         finally
@@ -644,6 +685,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             OperationModeLR2DB = false,
             ScanBmsFilesOnStartup = true,
             KeepInstallablePackagesPending = true,
+            AutoInstallAfterAutomaticEstimation = true,
             PendingInstallEstimateMaxParallelPackages = 2
         };
         var library = new TestBmsLibrary(songDb, null, null, files, new FileDbReportRecordingDialogs(),
@@ -716,6 +758,16 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             ChartPackage managedPending = library.ChartPackagesPending.Single(package => extractedRoots.Contains(package.path));
             Assert.IsTrue(managedPending.ChartEntries.All(entry => File.Exists(entry.Chart.Path)));
             Assert.IsTrue(string.IsNullOrEmpty(managedPending.ChartEntries.Single().Chart.InstallDestination), "未開始の管理入力は次の明示推定へ保全します。");
+            Assert.IsNull(failure.CommandResult.EstimatedInstallReceipt);
+            Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
+            Assert.IsTrue(sources.Take(3).All(path => Directory.Exists(path)));
+            options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = false,
+                ScanBmsFilesOnStartup = true,
+                KeepInstallablePackagesPending = true,
+                PendingInstallEstimateMaxParallelPackages = 2
+            };
             failure = null;
             Assert.IsTrue(owner.Enqueue([sources[4]]));
             await owner.WaitForIdleAsync();

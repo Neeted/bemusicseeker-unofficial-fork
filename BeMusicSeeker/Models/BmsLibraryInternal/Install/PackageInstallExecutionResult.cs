@@ -191,54 +191,79 @@ internal sealed class PackageInstallExecutionResult
     public long TotalMs { get; set; }
 }
 
+/// <summary>今回の取り込みが適用へ渡さなかった管理入力の、実回収失敗を保持します。</summary>
+internal sealed class PackageInstallInputCleanupFailure(string path, Exception failure)
+{
+    /// <summary>回収できず残った管理入力です。</summary>
+    internal string Path { get; } = path;
+    /// <summary>回収時の元の例外です。</summary>
+    internal Exception Failure { get; } = failure;
+}
+
 /// <summary>
 /// 取り込み・直接推定の同一操作が返す、確定事実と実失敗です。
 /// </summary>
 internal sealed class PackageInstallCommandResult
 {
-    /// <summary>操作単位の導入sessionから変更不能な終端事実を作ります。</summary>
-    /// <param name="registeredPackages">終端までに永続登録が確定したパッケージ。</param>
-    /// <param name="sessionReceipt">導入sessionの確定事実。</param>
-    /// <param name="estimationFailure">確定後の推定失敗・取消。確定事実は保持します。</param>
-    /// <param name="operationMessages">同期scopeが捕捉した、終端時に通知する情報メッセージ。</param>
+    /// <summary>初段と後段の確定事実を独立して保持します。後続の失敗は確定済みの結果を置き換えません。</summary>
     internal PackageInstallCommandResult(
         IEnumerable<ChartPackage> registeredPackages,
         LibraryMutationSessionReceipt sessionReceipt,
         Exception estimationFailure = null,
-        IEnumerable<BMSLibrary.OperationDialogMessage> operationMessages = null)
+        IEnumerable<BMSLibrary.OperationDialogMessage> operationMessages = null,
+        LibraryMutationSessionReceipt estimatedInstallReceipt = null,
+        IEnumerable<ChartPackage> unprocessedPackages = null,
+        IEnumerable<Exception> workflowFailures = null,
+        bool synchronizationIncomplete = false,
+        IEnumerable<PackageInstallInputCleanupFailure> inputCleanupFailures = null)
     {
         EstimationFailure = estimationFailure;
         OperationMessages = Array.AsReadOnly([.. operationMessages ?? []]);
-        RegisteredPackages = Array.AsReadOnly([.. (registeredPackages ?? []).Where(package => package != null)]);
+        RegisteredPackages = Array.AsReadOnly([.. (registeredPackages ?? []).Where(package => package != null).Distinct()]);
         SessionReceipt = sessionReceipt ?? LibraryMutationSessionReceipt.Empty;
+        EstimatedInstallReceipt = estimatedInstallReceipt;
+        UnprocessedPackages = Array.AsReadOnly([.. (unprocessedPackages ?? []).Distinct()]);
+        WorkflowFailures = Array.AsReadOnly([.. (workflowFailures ?? []).Where(failure => failure != null)]);
+        SynchronizationIncomplete = synchronizationIncomplete;
+        InputCleanupFailures = Array.AsReadOnly([.. inputCleanupFailures ?? []]);
     }
 
-    /// <summary>確定済み取り込み後の推定の失敗・取消を保持します。</summary>
+    /// <summary>自動推定自体の失敗・取消です。</summary>
     internal Exception EstimationFailure { get; }
-
-    /// <summary>同期推定scopeで捕捉し、操作終端で非同期に通知する情報メッセージです。</summary>
+    /// <summary>準備、停止、同期、回収などセッション外の実失敗を保持します。</summary>
+    internal IReadOnlyList<Exception> WorkflowFailures { get; }
+    /// <summary>操作終端の任意情報通知です。</summary>
     internal IReadOnlyList<BMSLibrary.OperationDialogMessage> OperationMessages { get; }
-
+    /// <summary>必須反映まで成功し公開できる登録済みパッケージです。</summary>
     internal IReadOnlyList<ChartPackage> RegisteredPackages { get; }
-
-    /// <summary>導入操作の canonical session 終端 facts。</summary>
+    /// <summary>取り込み初段の確定事実です。</summary>
     internal LibraryMutationSessionReceipt SessionReceipt { get; }
-
-    /// <summary>パッケージ変更前に見つかった immutable な宛先型衝突を取得します。</summary>
+    /// <summary>推定後の導入バッチの確定事実です。未開始時はnullです。</summary>
+    internal LibraryMutationSessionReceipt EstimatedInstallReceipt { get; }
+    /// <summary>Busyまたは取消により後段で開始しなかった有限対象です。</summary>
+    internal IReadOnlyList<ChartPackage> UnprocessedPackages { get; }
+    /// <summary>必要な同期が安全条件または同期失敗により未完了かどうか。</summary>
+    internal bool SynchronizationIncomplete { get; }
+    /// <summary>未引渡し管理入力の回収失敗を、セッション内の元パッケージ片付けと区別して保持します。</summary>
+    internal IReadOnlyList<PackageInstallInputCleanupFailure> InputCleanupFailures { get; }
+    /// <summary>一操作の二つの確定境界を統合せず列挙します。</summary>
+    internal IEnumerable<LibraryMutationSessionReceipt> SessionReceipts => EstimatedInstallReceipt == null
+        ? [SessionReceipt] : [SessionReceipt, EstimatedInstallReceipt];
+    /// <summary>両段階で検出した宛先型衝突です。</summary>
     internal IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts =>
-        SessionReceipt.DestinationTypeConflicts;
-
-    internal bool HasDurableCommit => SessionReceipt.DurableCommit;
-
-    internal bool HasRequiredFailure => SessionReceipt.HasRequiredFailure || EstimationFailure != null;
-
-    /// <summary>Gets whether a post-durable required finalizer failed for this command.</summary>
-    internal bool HasDurableFinalizationFailure => SessionReceipt.HasDurableFinalizationFailure;
-
-    internal bool ManualRecoveryRequired => SessionReceipt.ManualRecoveryRequired;
-
-    internal bool CompletedWithCleanupFailure => SessionReceipt.CompletedWithCleanupFailure;
-
-    /// <summary>Gets operation-scoped paths that may require confirmation or recovery.</summary>
-    internal IReadOnlyList<string> RecoveryPaths => SessionReceipt.CandidatePaths;
+        SessionReceipts.SelectMany(receipt => receipt.DestinationTypeConflicts).ToArray();
+    /// <summary>少なくとも一段階が永続確定したかどうか。</summary>
+    internal bool HasDurableCommit => SessionReceipts.Any(receipt => receipt.DurableCommit);
+    /// <summary>両段階の必須失敗、推定・操作外失敗、必要同期未完了を合わせた判定です。</summary>
+    internal bool HasRequiredFailure => SessionReceipts.Any(receipt => receipt.HasRequiredFailure)
+        || EstimationFailure != null || WorkflowFailures.Count > 0 || InputCleanupFailures.Count > 0 || SynchronizationIncomplete;
+    /// <summary>いずれかの段階が永続確定後の必須反映に失敗したかどうか。</summary>
+    internal bool HasDurableFinalizationFailure => SessionReceipts.Any(receipt => receipt.HasDurableFinalizationFailure);
+    /// <summary>いずれかの段階に未回復の物理変更があるかどうか。</summary>
+    internal bool ManualRecoveryRequired => SessionReceipts.Any(receipt => receipt.ManualRecoveryRequired);
+    /// <summary>確定成功した段階の元の後片付けに失敗したかどうか。</summary>
+    internal bool CompletedWithCleanupFailure => SessionReceipts.Any(receipt => receipt.CompletedWithCleanupFailure);
+    /// <summary>両段階の確認・回復候補を重複なく保持します。</summary>
+    internal IReadOnlyList<string> RecoveryPaths => SessionReceipts.SelectMany(receipt => receipt.CandidatePaths)
+        .Concat(InputCleanupFailures.Select(failure => failure.Path)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 }

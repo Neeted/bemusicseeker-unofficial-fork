@@ -2850,7 +2850,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     {
         MethodInfo? regroupMethod = typeof(BMSLibrary).GetMethod("TryRegroupPendingPackagesForSourceDirectoriesUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(regroupMethod);
-        regroupMethod!.Invoke(library, [sourceDirectoryPaths]);
+        regroupMethod!.Invoke(library, [sourceDirectoryPaths, null]);
     }
 
     private static ChartPackage AssertRegroupedPendingPackage(BMSLibrary library, string expectedPackagePath, string expectedDestinationDirectory, int expectedFileCount)
