@@ -277,43 +277,7 @@
       </ContextMenu>
       <ContextMenu x:Key="treeViewPlaylistRootContextMenu" HasDropShadow="True" Opened="treeViewPlaylistRootContextMenuOpend">
         <MenuItem Name="treeViewPlaylistRootContextMenuItemCreateNewPlaylist" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Create_new, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick" />
-        <MenuItem>
-          <MenuItem.Header>
-            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Import, Mode=OneWay}" />
-          </MenuItem.Header>
-          <MenuItem Name="treeViewPlaylistRootContextMenuItemLoadPlaylistURL" IsEnabled="False" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Load_Url, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemLoadPlaylistURLClick" />
-          <MenuItem Name="treeViewPlaylistRootContextMenuItemLoadPlaylistCollection" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Load_from_table_list, Mode=OneWay}" ItemsSource="{Binding PlaylistWorkspace.BMSExternalTableListExt.Children}">
-            <ItemsControl.ItemTemplate>
-              <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-                <TextBlock Text="{Binding name}" />
-              </HierarchicalDataTemplate>
-            </ItemsControl.ItemTemplate>
-            <ItemsControl.ItemContainerStyle>
-              <Style TargetType="{x:Type MenuItem}" BasedOn="{StaticResource {x:Type MenuItem}}">
-                <Setter Property="MenuItem.Icon" Value="{Binding symbol, Converter={StaticResource textToCharBlockConverter}}" />
-                <Setter Property="MenuItem.StaysOpenOnClick" Value="True" />
-                <EventSetter Event="Click" Handler="treeViewPlaylistRootContextMenuItemLoadPlaylistCollectionClick" />
-                <Style.Triggers>
-                  <DataTrigger Binding="{Binding url}" Value="{x:Null}">
-                    <Setter Property="MenuItem.StaysOpenOnClick" Value="False" />
-                  </DataTrigger>
-                </Style.Triggers>
-              </Style>
-            </ItemsControl.ItemContainerStyle>
-          </MenuItem>
-          <MenuItem Name="treeViewPlaylistRootContextMenuItemLoadWalkureTable">
-            <MenuItem.Header>
-              <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Load_from_insane_estimation_table, Mode=OneWay}" />
-            </MenuItem.Header>
-            <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Insane_estimation_table_easy, Mode=OneWay}" Tag="bmseeker:table.estimation?type=easy" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
-            <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Insane_estimation_table_normal, Mode=OneWay}" Tag="bmseeker:table.estimation?type=normal" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
-            <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Insane_estimation_table_hard, Mode=OneWay}" Tag="bmseeker:table.estimation?type=hard" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
-            <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Insane_estimation_table_fc, Mode=OneWay}" Tag="bmseeker:table.estimation?type=fc" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
-            <MenuItem Tag="bmseeker:table.recommended" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Recommended_standard, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
-            <MenuItem Tag="bmseeker:table.recommended?base=failed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Recommended_unplayed_as_failed, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
-            <MenuItem Tag="bmseeker:table.recommended?failed=noplay" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Recommended_failed_as_unplayed, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
-          </MenuItem>
-        </MenuItem>
+        <MenuItem Name="treeViewPlaylistRootContextMenuItemImport" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_title, Mode=OneWay}" Click="PlaylistImportClick" />
         <Separator />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reload, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemReloadClick" />
       </ContextMenu>
@@ -1008,7 +972,7 @@
           </Grid.ColumnDefinitions>
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" MinHeight="{Binding ActualHeight, ElementName=playbackPanelView}" />
-            <RowDefinition Height="27" />
+            <RowDefinition Height="Auto" MinHeight="27" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
           </Grid.RowDefinitions>
@@ -1785,7 +1749,6 @@
         </Grid>
       </DockPanel>
       <v:InitialSetupLanguageDialog x:Name="initialSetupLanguageDialog" DataContext="{Binding SettingDialog}" IsVisibleChanged="dialogIsVisibleChanged" Visibility="Hidden" Panel.ZIndex="1" />
-      <v:LoadPlaylistURIDialog x:Name="loadPlaylistURIDialog" DataContext="{Binding PlaylistWorkspace}" IsVisibleChanged="dialogIsVisibleChanged" Visibility="Hidden" Panel.ZIndex="2" />
       <StackPanel Name="windowCaptionPanel" DockPanel.Dock="Top" Orientation="Horizontal" Margin="0" HorizontalAlignment="Right" VerticalAlignment="Top">
         <Button Content="0" Style="{DynamicResource CaptionButtonStyleKey}" Command="{x:Static SystemCommands.MinimizeWindowCommand}" />
         <Button Content="1" Style="{DynamicResource CaptionButtonStyleKey}" Command="{x:Static SystemCommands.MaximizeWindowCommand}" Visibility="{Binding WindowState, ElementName=window, Converter={StaticResource WindowStateToCaptionVisibilityConverter}, ConverterParameter=Maximized}" />

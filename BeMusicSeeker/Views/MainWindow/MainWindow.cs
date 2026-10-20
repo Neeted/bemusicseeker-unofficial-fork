@@ -57,6 +57,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private FrameworkElement activeOverlayDialog;
 
+    private PlaylistImportDialog activePlaylistImportDialog;
+
+    private Task playlistImportDialogCleanupTask = Task.CompletedTask;
+
     private PlaylistPropertyDialog activePlaylistPropertyDialog;
 
     private PlaylistSummaryBulkEditDialog activePlaylistSummaryBulkEditDialog;
@@ -244,10 +248,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
 
         activeOverlayDialog = dialog;
-        if (HidesPlaybackSurface(dialog))
-        {
-            PlaybackOverlayVisibility = Visibility.Visible;
-        }
         dialog.Visibility = Visibility.Visible;
         dialog.Focus();
     }
@@ -263,16 +263,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         if (ReferenceEquals(activeOverlayDialog, dialog))
         {
             activeOverlayDialog = null;
-            if (HidesPlaybackSurface(dialog))
-            {
-                PlaybackOverlayVisibility = Visibility.Collapsed;
-            }
         }
-    }
-
-    private bool HidesPlaybackSurface(FrameworkElement dialog)
-    {
-        return ReferenceEquals(dialog, loadPlaylistURIDialog);
     }
 
     private async void addRootFolderMenuItemClick(object sender, RoutedEventArgs e)
@@ -718,7 +709,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         object sender,
         ExternalPlaylistImportQueueSummaryReadyEventArgs request)
     {
-        ShowExternalPlaylistImportQueueSummary(request?.Summary);
+        if (request?.Summary == null || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+        // 発行元はまだPを保持しているため、UIスレッドからの発行も必ず別のDispatcher操作へ渡します。
+        Dispatcher.InvokeAsync(() => ShowExternalPlaylistImportQueueSummaryAsync(request))
+            .Task.Unwrap().ObserveFault("MainWindow.ExternalPlaylistImportQueueSummary");
     }
 
     private void MainWindow_PlaylistWorkspaceMutationRejected(
@@ -944,9 +941,35 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    private void ShowExternalPlaylistImportQueueSummary(ExternalPlaylistImportQueueSummary summary)
+    private async Task ShowExternalPlaylistImportQueueSummaryAsync(ExternalPlaylistImportQueueSummaryReadyEventArgs request)
     {
-        if (summary == null || !summary.HasNotifiableItems)
+        if (IsShellClosingOrClosed())
+        {
+            return;
+        }
+        if (request.Receipt != null)
+        {
+            foreach (PlaylistOperationNotificationOwner.OperationNotification notification in request.Receipt.Notifications)
+            {
+                if (IsShellClosingOrClosed())
+                {
+                    return;
+                }
+                MessageBoxImage icon = notification.Severity switch
+                {
+                    PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information => MessageBoxImage.Asterisk,
+                    PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning => MessageBoxImage.Exclamation,
+                    PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error => MessageBoxImage.Hand,
+                    _ => MessageBoxImage.None,
+                };
+                UiDialogResult notificationResult = await playlistWorkspaceDialogService.ShowMessageAsync(new UiMessageRequest(
+                    notification.Message, notification.Caption, MessageBoxButton.OK, icon, MessageBoxResult.OK,
+                    owner: this));
+                ThrowIfUiDialogNotShown(notificationResult, "external playlist import notification");
+            }
+        }
+        ExternalPlaylistImportQueueSummary summary = request.Summary;
+        if (summary == null || !summary.HasNotifiableItems || IsShellClosingOrClosed())
         {
             return;
         }
@@ -954,15 +977,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         message.AppendFormat(
             BeMusicSeeker.Properties.Resources.Playlist_import_result_summary_format,
             summary.ImportedCount,
+            summary.SkippedDuplicateUrlCount,
             summary.SkippedDuplicateNameCount,
             summary.FailedCount);
+        AppendImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Playlist_import_result_skipped_url_header, summary.SkippedDuplicateUrlOutcomes);
         AppendImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Playlist_import_result_skipped_header, summary.SkippedDuplicateNameOutcomes);
         AppendImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Playlist_import_result_failed_header, summary.FailedOutcomes);
-        ShowUiMessage(
+        UiDialogResult result = await playlistWorkspaceDialogService.ShowMessageAsync(new UiMessageRequest(
             message.ToString(),
             BeMusicSeeker.Properties.Resources.Playlist_import_result_title,
+            MessageBoxButton.OK,
             summary.FailedCount > 0 ? MessageBoxImage.Exclamation : MessageBoxImage.Information,
-            "external playlist import summary");
+            MessageBoxResult.OK,
+            owner: this));
+        ThrowIfUiDialogNotShown(result, "external playlist import summary");
     }
 
     private static void AppendImportOutcomeSamples(StringBuilder message, string header, IReadOnlyList<ExternalPlaylistImportOutcome> outcomes)
@@ -1628,6 +1656,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         propertyDialog?.CloseForOwnerShutdown();
         bulkEditDialog?.CloseForOwnerShutdown();
         settingsWindow?.CloseForOwnerShutdown();
+        activePlaylistImportDialog?.Close();
         Task lampCleanupTask = playlistLampViewerWindowManager.DisposeAsync().AsTask();
         Task chartPropertiesReadTask = chartPropertiesWindowManager.CompleteShutdownAsync();
 
@@ -1635,7 +1664,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         // the operation, forced close, DataContext detach, and workspace cleanup have all
         // reached their terminal signals.
         await Task.WhenAll(propertyOperationTask, bulkApplyTask, settingsAudioTestTask,
-            lampCleanupTask, propertyCleanupTask, bulkCleanupTask, chartPropertiesReadTask).ConfigureAwait(true);
+            lampCleanupTask, propertyCleanupTask, bulkCleanupTask, chartPropertiesReadTask,
+            playlistImportDialogCleanupTask).ConfigureAwait(true);
 
         CaptureWindowStateForClosing();
         if (viewModel?.ShellShutdownWorkflow is { } shellShutdownWorkflow)
@@ -1653,6 +1683,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     private void MainWindow_Closed(object sender, EventArgs e)
     {
         playbackPanelView.DisposePlayerHost();
+        activePlaylistImportDialog?.Close();
         activePlaylistPropertyDialog?.CloseForOwnerShutdown();
         activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
         playlistLampViewerWindowManager.Dispose();
@@ -1681,6 +1712,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             activePlaylistPropertyDialog?.CloseForOwnerShutdown();
             activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
             settingsWindow?.CloseForOwnerShutdown();
+            activePlaylistImportDialog?.Close();
             CancelRelatedDocumentRequest();
             CloseContextMenuIfOpen(_lastOpenedContextMenu);
             if (closeRequestStarted)
@@ -1706,6 +1738,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         activePlaylistPropertyDialog?.CloseForOwnerShutdown();
         activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
         settingsWindow?.CloseForOwnerShutdown();
+        activePlaylistImportDialog?.Close();
         playlistLampViewerWindowManager.CloseAll();
         chartPropertiesWindowManager.BeginShutdown();
         base.OnClosing(e);
@@ -4759,7 +4792,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <summary>
     /// プレイリストツリーの「ルート（プレイリスト一覧）」に対するコンテキストメニューが開かれた際の処理。
     /// 現在の書き込みロック状態やバックグラウンド処理状況（IsWriteLockHeld等）に応じ、
-    /// 新規作成やURL読み込みなどの各種メニュー項目の有効/無効 (IsEnabled) を動的に制御します。
+    /// 新規作成項目の有効/無効 (IsEnabled) を動的に制御します。
     /// </summary>
     private void treeViewPlaylistRootContextMenuOpend(object sender, RoutedEventArgs e)
     {
@@ -4767,54 +4800,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        PlaylistRootContextMenuAvailability availability =
-            mainWindowViewModel.PlaylistWorkspace.CapturePlaylistRootContextMenuAvailability();
-        MenuItem menuItem = null;
-        MenuItem menuItem2 = null;
-        MenuItem menuItem3 = null;
-        MenuItem menuItem4 = null;
-        foreach (Control item in (IEnumerable)contextMenu.Items)
+        foreach (MenuItem item in contextMenu.Items.OfType<MenuItem>())
         {
-            string name = item.Name;
-            if (name == "treeViewPlaylistRootContextMenuItemCreateNewPlaylist")
+            if (item.Name == "treeViewPlaylistRootContextMenuItemCreateNewPlaylist")
             {
-                menuItem = item as MenuItem;
+                item.IsEnabled = mainWindowViewModel.PlaylistWorkspace.CanCreatePlaylist;
             }
-            if (item is not MenuItem)
-            {
-                continue;
-            }
-            foreach (Control item2 in (IEnumerable)((MenuItem)item).Items)
-            {
-                switch (item2.Name)
-                {
-                    case "treeViewPlaylistRootContextMenuItemLoadPlaylistURL":
-                        menuItem2 = item2 as MenuItem;
-                        break;
-                    case "treeViewPlaylistRootContextMenuItemLoadPlaylistCollection":
-                        menuItem3 = item2 as MenuItem;
-                        break;
-                    case "treeViewPlaylistRootContextMenuItemLoadWalkureTable":
-                        menuItem4 = item2 as MenuItem;
-                        break;
-                }
-            }
-        }
-        if (menuItem != null)
-        {
-            menuItem.IsEnabled = availability.CanCreatePlaylist;
-        }
-        if (menuItem2 != null)
-        {
-            menuItem2.IsEnabled = availability.CanLoadPlaylistUri;
-        }
-        if (menuItem3 != null)
-        {
-            menuItem3.IsEnabled = availability.CanLoadPlaylistCollection;
-        }
-        if (menuItem4 != null)
-        {
-            menuItem4.IsEnabled = availability.CanLoadBuiltInTables;
         }
     }
 
@@ -4883,45 +4874,45 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    /// <summary>
-    /// プレイリストルートのコンテキストメニュー「URLからプレイリストを読み込む」がクリックされた際の処理。
-    /// カスタムURL入力用のダイアログ (loadPlaylistURIDialog) を画面に表示します。
-    /// </summary>
-    private void treeViewPlaylistRootContextMenuItemLoadPlaylistURLClick(object sender, RoutedEventArgs e)
+    private async void PlaylistImportClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel viewModel
-            && viewModel.PlaylistWorkspace != null
-            && viewModel.PlaylistWorkspace.CapturePlaylistRootContextMenuAvailability().CanLoadPlaylistUri)
-        {
-            ShowOverlayDialog(loadPlaylistURIDialog);
-        }
+        e.Handled = true;
+        try { await ShowPlaylistImportDialogAsync(); }
+        catch (Exception exception) { await NotifyMainWindowOperationFailureAsync(exception, "Playlist import dialog"); }
     }
 
-    /// <summary>
-    /// プレイリストルートのコンテキストメニュー「プレイリストコレクションを読み込む」がクリックされた際の処理。
-    /// 指定されたコレクションURLをもとに、ViewModelへプレイリスト群の非同期登録を要求します。
-    /// </summary>
-    private void treeViewPlaylistRootContextMenuItemLoadPlaylistCollectionClick(object sender, RoutedEventArgs e)
+    private async Task ShowPlaylistImportDialogAsync()
     {
-        if (sender is MenuItem menuItem)
+        if (activePlaylistImportDialog != null || IsShellClosingOrClosed()
+            || DataContext is not MainWindowViewModel viewModel)
         {
-            e.Handled = true;
-            playlistWorkspaceTerminals.CollectionImport
-                .TryEnqueueExternalPlaylistCollectionImport(menuItem.DataContext as BMSTableSimple);
+            return;
         }
-    }
 
-    /// <summary>
-    /// プレイリストルートのコンテキストメニュー「内蔵の難度推定表・リコメンドから読み込む」に関するメニュー項目（各難易度表単位）のアクション。
-    /// MenuItem の Tag に格納された URI を既存の取込みキューへ受理します。
-    /// </summary>
-    private void treeViewPlaylistRootContextMenuItemLoadWalkureTableClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is MenuItem menuItem)
+        PlaylistImportDialogViewModel session = viewModel.PlaylistWorkspace.CreatePlaylistImportDialogSession();
+        var cleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        playlistImportDialogCleanupTask = cleanup.Task;
+        Visibility previousOverlay = PlaybackOverlayVisibility;
+        PlaybackOverlayVisibility = Visibility.Visible;
+        try
         {
-            e.Handled = true;
-            playlistWorkspaceTerminals.CollectionImport
-                .TryEnqueueBuiltInExternalPlaylistImport((string)menuItem.Tag);
+            UiWindowDialogResult<object> result = await playlistWorkspaceDialogService.ShowWindowAsync(
+                new UiWindowDialogRequest<PlaylistImportDialog, object>(
+                    () => activePlaylistImportDialog = new PlaylistImportDialog(session, playlistWorkspaceDialogService),
+                    _ => null, this));
+            ThrowIfWindowDialogFailed(result.Status, result.Error, "Playlist import dialog");
+        }
+        finally
+        {
+            if (activePlaylistImportDialog != null)
+            {
+                activePlaylistImportDialog.DataContext = null;
+            }
+
+            activePlaylistImportDialog = null;
+            session.Dispose();
+            PlaybackOverlayVisibility = previousOverlay;
+            cleanup.TrySetResult();
         }
     }
 
@@ -8544,20 +8535,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         if (sender is FrameworkElement overlayDialog && (bool)e.NewValue)
         {
             activeOverlayDialog = overlayDialog;
-            if (HidesPlaybackSurface(overlayDialog))
-            {
-                PlaybackOverlayVisibility = Visibility.Visible;
-            }
         }
         if (!(bool)e.NewValue && (bool)e.OldValue)
         {
             if (ReferenceEquals(activeOverlayDialog, sender))
             {
                 activeOverlayDialog = null;
-                if (sender is FrameworkElement hiddenDialog && HidesPlaybackSurface(hiddenDialog))
-                {
-                    PlaybackOverlayVisibility = Visibility.Collapsed;
-                }
             }
             playbackPanelView.RestoreSelectedSurface();
         }

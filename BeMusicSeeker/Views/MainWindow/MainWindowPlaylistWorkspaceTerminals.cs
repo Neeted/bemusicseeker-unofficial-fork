@@ -159,22 +159,18 @@ internal sealed class MainWindowForegroundTerminal
 /// </summary>
 internal sealed class MainWindowPlaylistWorkspaceTerminals
 {
-    /// <summary>
-    /// Initializes the playlist-workspace terminal bundle.
-    /// </summary>
-    /// <param name="entryRemoval">Playlist-entry removal terminal.</param>
-    /// <param name="tableLevelOverwrite">Playlist-table level overwrite terminal.</param>
-    /// <param name="tableRemoval">Playlist-table removal terminal.</param>
-    /// <param name="collectionImport">External collection and built-in playlist import terminal.</param>
-    /// <param name="urlAcquisition">Playlist URL action and availability terminal.</param>
-    /// <param name="urlInstallTreeExpansionEventSource">Typed owner completion-event source.</param>
-    /// <param name="urlInstallTreeExpansion">Install-tree presentation expansion terminal.</param>
-    /// <param name="tablesReload">Playlist-root table reload terminal.</param>
+    /// <summary>プレイリスト操作の既存所有者へ接続する画面終端を束ねます。</summary>
+    /// <param name="entryRemoval">エントリー削除の終端。</param>
+    /// <param name="tableLevelOverwrite">表レベル上書きの終端。</param>
+    /// <param name="tableRemoval">表削除の終端。</param>
+    /// <param name="urlAcquisition">譜面配布URL取得の終端。</param>
+    /// <param name="urlInstallTreeExpansionEventSource">取得完了通知の発行元。</param>
+    /// <param name="urlInstallTreeExpansion">取得完了後のツリー展開。</param>
+    /// <param name="tablesReload">表全体の再取得。</param>
     internal MainWindowPlaylistWorkspaceTerminals(
         MainWindowPlaylistEntryRemovalTerminal entryRemoval,
         MainWindowPlaylistTableLevelOverwriteTerminal tableLevelOverwrite,
         MainWindowPlaylistTableRemovalTerminal tableRemoval,
-        MainWindowPlaylistCollectionImportTerminal collectionImport,
         MainWindowPlaylistUrlAcquisitionTerminal urlAcquisition,
         IMainWindowPlaylistUrlInstallTreeExpansionEventSource urlInstallTreeExpansionEventSource,
         MainWindowPlaylistUrlInstallTreeExpansionTerminal urlInstallTreeExpansion,
@@ -184,7 +180,6 @@ internal sealed class MainWindowPlaylistWorkspaceTerminals
         TableLevelOverwrite = tableLevelOverwrite
             ?? throw new ArgumentNullException(nameof(tableLevelOverwrite));
         TableRemoval = tableRemoval ?? throw new ArgumentNullException(nameof(tableRemoval));
-        CollectionImport = collectionImport ?? throw new ArgumentNullException(nameof(collectionImport));
         UrlAcquisition = urlAcquisition ?? throw new ArgumentNullException(nameof(urlAcquisition));
         UrlInstallTreeExpansionEventSource = urlInstallTreeExpansionEventSource
             ?? throw new ArgumentNullException(nameof(urlInstallTreeExpansionEventSource));
@@ -207,11 +202,6 @@ internal sealed class MainWindowPlaylistWorkspaceTerminals
     /// Gets the playlist-table removal terminal.
     /// </summary>
     internal MainWindowPlaylistTableRemovalTerminal TableRemoval { get; }
-
-    /// <summary>
-    /// Gets the external playlist collection import terminal.
-    /// </summary>
-    internal MainWindowPlaylistCollectionImportTerminal CollectionImport { get; }
 
     /// <summary>
     /// Gets the playlist URL acquisition terminal.
@@ -251,9 +241,6 @@ internal sealed class MainWindowPlaylistWorkspaceTerminals
                 viewModel.PlaylistWorkspace.PlaylistTableLevelOverwriteWorkflow.OverwriteAsync),
             new MainWindowPlaylistTableRemovalTerminal(
                 viewModel.PlaylistWorkspace.PlaylistRemovalWorkflow.RemoveTreeTableAsync),
-            new MainWindowPlaylistCollectionImportTerminal(
-                viewModel.PlaylistWorkspace.TryEnqueueExternalPlaylistCollectionImport,
-                viewModel.PlaylistWorkspace.TryEnqueueBuiltInExternalPlaylistImport),
             new MainWindowPlaylistUrlAcquisitionTerminal(
                 viewModel.PlaylistWorkspace.RunSinglePlaylistUrlAsync,
                 viewModel.PlaylistWorkspace.RunPlaylistUrlActionAsync,
@@ -300,47 +287,6 @@ internal sealed class MainWindowPlaylistTablesReloadTerminal
         ArgumentNullException.ThrowIfNull(viewModel);
         return new MainWindowPlaylistTablesReloadTerminal(viewModel.ReloadTablesAsync);
     }
-}
-
-/// <summary>
-/// Narrows compiled playlist import menu clicks to the playlist workspace queue owner.
-/// </summary>
-internal sealed class MainWindowPlaylistCollectionImportTerminal
-{
-    private readonly Func<BMSTableSimple, bool> enqueueCollectionImport;
-
-    private readonly Func<string, bool> enqueueBuiltInImport;
-
-    /// <summary>
-    /// Initializes the collection-import terminal.
-    /// </summary>
-    /// <param name="enqueueCollectionImport">Owner operation for one collection leaf.</param>
-    /// <param name="enqueueBuiltInImport">Owner operation for one built-in raw tag.</param>
-    internal MainWindowPlaylistCollectionImportTerminal(
-        Func<BMSTableSimple, bool> enqueueCollectionImport,
-        Func<string, bool> enqueueBuiltInImport)
-    {
-        this.enqueueCollectionImport = enqueueCollectionImport
-            ?? throw new ArgumentNullException(nameof(enqueueCollectionImport));
-        this.enqueueBuiltInImport = enqueueBuiltInImport
-            ?? throw new ArgumentNullException(nameof(enqueueBuiltInImport));
-    }
-
-    /// <summary>
-    /// Enqueues one external collection leaf without changing its identity.
-    /// </summary>
-    /// <param name="source">The exact generated menu-item data context.</param>
-    /// <returns>Whether the workspace accepted the queue request.</returns>
-    internal bool TryEnqueueExternalPlaylistCollectionImport(BMSTableSimple source)
-        => enqueueCollectionImport(source);
-
-    /// <summary>
-    /// Enqueues one built-in playlist import using its exact XAML tag.
-    /// </summary>
-    /// <param name="rawTag">The exact built-in menu-item tag.</param>
-    /// <returns>Whether the workspace accepted the queue request.</returns>
-    internal bool TryEnqueueBuiltInExternalPlaylistImport(string rawTag)
-        => enqueueBuiltInImport(rawTag);
 }
 
 /// <summary>

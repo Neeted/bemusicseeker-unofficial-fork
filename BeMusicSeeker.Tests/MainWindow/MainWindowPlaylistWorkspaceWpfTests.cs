@@ -8,6 +8,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,6 +19,7 @@ using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
@@ -85,10 +87,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     CatalogChartCollectionSnapshot ready = fixture.Library.CaptureNormalLibraryChartSnapshot();
                     Assert.AreEqual(1, ready.BmsRows.Count);
                     Assert.AreEqual(1, ready.BmsonRows.Count);
-                    // モデル公開は同期的にNormal優先度へ配送を予約する。同じ優先度の後続要求を終端にし、
-                    // 到達しなかったイベント自体を待って失敗箇所を隠さない。
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Window.Dispatcher.InvokeAsync(
-                        () => { }, DispatcherPriority.Normal).Task, "catalog-main-window-fixture-delivery");
+                    // 空のDispatcher操作ではなく、同じ確定batchのfanoutとscheduler Completionまで待ちます。
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        fixture.ViewModel.RegularChartList.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None),
+                        "catalog-main-window-fixture-delivery");
                     Console.WriteLine("catalog_main_window initial_revision={0} delivered_revision={1}", ready.CatalogRevision, deliveredCatalogRevision);
                     Assert.IsTrue(catalogReady, "初回の確定snapshotが実MainWindowの通常通知接続を通過します。");
                 }
@@ -114,6 +116,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(opening, "catalog-main-window-playlist-open");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "catalog-main-window-playlist-idle");
                 Console.WriteLine("catalog_main_window playlist_ready");
+                // 表示値を観測する列は、このfixtureで明示的に表示して既定の非表示設定へ依存しません。
+                fixture.ViewModel.MainChartList.ColumnsSettings.WavHealth.Visibility = Visibility.Visible;
+                fixture.ViewModel.MainChartList.ColumnsSettings.PlaylistSymbols.Visibility = Visibility.Visible;
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var control = (CustomTableView)fixture.Window.FindName("customTableView");
                 Assert.AreSame(fixture.ViewModel.MainChartList, control.DataContext);
@@ -150,8 +155,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     mutation = Task.Run(() => fixture.Library.RescanResourceHealthCharts([current.BmsRows[0], current.BmsonRows[0]]));
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(mutation, "catalog-main-window-maintenance-producer");
                     Console.WriteLine("catalog_main_window maintenance_producer_complete revision={0}", fixture.Library.CatalogRevision);
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Window.Dispatcher.InvokeAsync(
-                        () => { }, DispatcherPriority.Normal).Task, "catalog-main-window-maintenance-delivery");
+                    // 保守配送の実終端より前に次のscore変更を合流させないよう、正式な配送Taskを回収します。
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        fixture.ViewModel.RegularChartList.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None),
+                        "catalog-main-window-maintenance-delivery");
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "catalog-main-window-maintenance-consumer");
                     Assert.IsTrue(updated, "表示済みの行へWAVHealthのPropertyChangedが届きます。");
                     Assert.AreSame(rows, control.ItemsSource);
@@ -173,8 +180,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     {
                         BMSScore score = fixture.Library.GetBMSScores().Single();
                         score.stddevVal = 7;
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Window.Dispatcher.InvokeAsync(
-                            () => { }, DispatcherPriority.Normal).Task, "catalog-main-window-score-delivery");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            fixture.ViewModel.RegularChartList.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None),
+                            "catalog-main-window-score-delivery");
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "catalog-main-window-score-consumer");
                         Assert.AreEqual(7d, visible.stddevVal);
                         Assert.AreSame(rows, fixture.ViewModel.MainChartList.Rows);
@@ -1879,7 +1887,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 try
                 {
                     var menu = (ContextMenu)window.FindResource("treeViewPlaylistRootContextMenu");
-                    MenuItem reload = menu.Items.OfType<MenuItem>().Last();
+                    MenuItem reload = FindMenuItemByHeaderBindingPath(menu, "Resources.Reload");
                     RoutedEventArgs? args = null;
                     reloadEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => args = RaiseMenuClick(reload));
                     Assert.IsNotNull(args);
@@ -1936,76 +1944,366 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             playlistWorkspaceDialogService: dialogs);
     }
 
-    /// <summary>compiled表一覧のgroupとleafでクリック後の開閉を分け、leafの元表と組込みURIタグを取り込み終端へ一度ずつ渡します。</summary>
-    [TestMethod]
-    public void PlaylistTableListImportMenu_StaysOpenOnlyForLeafItemsAndUsesQueue()
+    /// <summary>プレイリストルートの実コンテキストメニューは所有モーダルを開き、取消・Escape・native Close・親終了でDataContextと全購読を回収します。再表示は入力・検索・選択が空で既定フィルターへ戻ります。</summary>
+    [DataTestMethod]
+    [DataRow("cancel")]
+    [DataRow("escape")]
+    [DataRow("native")]
+    [DataRow("owner")]
+    public void PlaylistImportDialog_UsesOwnedModalAndDiscardsSessionOnEveryClose(string closeKind)
     {
-        var collectionCalls = new List<BMSTableSimple>();
-        var builtInTags = new List<string>();
-        BMSTableSimpleCategorized parent = new()
+        TestUiDispatcherHost.RunWindowTest(scope =>
         {
-            name = "Collection group",
-            Children =
-            [
-                new BMSTableSimpleCategorized
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope);
+            try
+            {
+                ModalObservation<PlaylistImportDialog> observation = OpenImportDialog(fixture, "import-" + closeKind, (dialog, _) =>
                 {
-                    name = "Collection leaf",
-                    url = new Uri("https://example.invalid/collection.json")
-                }
-            ]
-        };
-        MainWindowPlaylistCollectionImportTerminal importTerminal = new(
-            source =>
-            {
-                collectionCalls.Add(source);
-                return true;
-            },
-            rawTag =>
-            {
-                builtInTags.Add(rawTag);
-                return true;
-            });
-
-        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
-            (_, window) =>
-            {
-                var rootMenu = (ContextMenu)window.FindResource("treeViewPlaylistRootContextMenu");
-                MaterializeMenuItems(rootMenu);
-                MenuItem collectionMenu = FindMenuItem(
-                    rootMenu,
-                    "treeViewPlaylistRootContextMenuItemLoadPlaylistCollection");
-                collectionMenu.ItemsSource = new List<BMSTableSimpleCategorized> { parent };
-                MaterializeMenuItems(collectionMenu);
-
-                MenuItem parentItem = GetOrGenerateMenuItem(collectionMenu, parent);
-                Assert.IsNotNull(parentItem);
-                Assert.IsFalse(parentItem.StaysOpenOnClick);
-                MaterializeMenuItems(parentItem);
-
-                BMSTableSimple leaf = parent.Children.Single();
-                MenuItem leafItem = GetOrGenerateMenuItem(parentItem, leaf);
-                Assert.IsNotNull(leafItem);
-                Assert.IsTrue(leafItem.StaysOpenOnClick);
-
-                RoutedEventArgs collectionArgs = RaiseMenuClick(leafItem);
-                Assert.IsTrue(collectionArgs.Handled);
-                Assert.AreEqual(1, collectionCalls.Count);
-                Assert.AreSame(leaf, collectionCalls[0]);
-
-                MenuItem builtInMenu = FindMenuItem(
-                    rootMenu,
-                    "treeViewPlaylistRootContextMenuItemLoadWalkureTable");
-                MenuItem[] builtInLeaves = builtInMenu.Items.OfType<MenuItem>().ToArray();
-                Assert.IsTrue(builtInLeaves.Length > 0);
-                foreach (MenuItem builtInLeaf in builtInLeaves)
+                    var vm = (PlaylistImportDialogViewModel)dialog.DataContext;
+                    vm.UriInput = "https://example.test/unsubmitted";
+                    vm.SearchText = "draft";
+                    vm.HideRegisteredUrls = false;
+                    vm.HideSameNames = true;
+                    vm.SetSelected(new(new("https://example.test/selected"), "Draft"), true);
+                    switch (closeKind)
+                    {
+                        case "cancel": RaiseButtonClick((Button)dialog.FindName("cancelImportButton")); break;
+                        case "escape":
+                            PresentationSource source = PresentationSource.FromVisual(dialog) ?? throw new AssertFailedException("実表示のPresentationSourceがありません。");
+                            dialog.RaiseEvent(new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, source, 0, System.Windows.Input.Key.Escape) { RoutedEvent = System.Windows.Input.Keyboard.KeyDownEvent });
+                            break;
+                        case "native": dialog.Close(); break;
+                        case "owner": fixture.Window.Close(); break;
+                    }
+                });
+                Assert.AreSame(fixture.Window, observation.Owner);
+                Assert.IsFalse(observation.OwnerEnabled, "モーダル中は親のnative HWNDが無効であることを観測する。");
+                Assert.IsNull(observation.Window.DataContext);
+                Assert.AreEqual(1, observation.DataContextDetachCount);
+                var oldSession = (PlaylistImportDialogViewModel)observation.DataContext;
+                int oldNotifications = 0;
+                oldSession.PropertyChanged += (_, _) => oldNotifications++;
+                Task catalog = fixture.ViewModel.PlaylistWorkspace.LoadExternalTableCollectionAsync(new Uri("https://example.test/catalog"), (_, _) => Task.FromResult<IReadOnlyList<BMSTableSimple>>([]));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(catalog, "import-closed-catalog-update");
+                ResourceService.Current.ChangeCulture(Resources.Culture?.Name ?? "en-US");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(0, oldNotifications, "閉鎖セッションへカタログ・言語通知を配送しない。");
+                if (closeKind == "owner")
                 {
-                    RoutedEventArgs args = RaiseMenuClick(builtInLeaf);
-                    Assert.IsTrue(args.Handled);
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(fixture.Window.CloseCompletion, "import-owner-close");
+                    Assert.AreEqual(1, fixture.Lifetime.RequestShutdownCount);
                 }
-                CollectionAssert.AreEqual(builtInLeaves.Select(item => (string)item.Tag).ToArray(), builtInTags);
-            },
-            playlistWorkspaceTerminals: CreateTerminals(collectionImport: importTerminal));
+                else
+                {
+                    Assert.IsTrue(IsNativeWindowEnabled(new WindowInteropHelper(fixture.Window).Handle));
+                    OpenImportDialog(fixture, "import-reopen", (dialog, _) =>
+                    {
+                        var fresh = (PlaylistImportDialogViewModel)dialog.DataContext;
+                        Assert.AreEqual(0, fresh.SelectedCount);
+                        Assert.AreEqual("", fresh.UriInput);
+                        Assert.AreEqual("", fresh.SearchText);
+                        Assert.IsTrue(fresh.HideRegisteredUrls);
+                        Assert.IsFalse(fresh.HideSameNames);
+                        dialog.Close();
+                    });
+                }
+            }
+            finally { fixture.Close(); }
+        });
+    }
+
+    /// <summary>実WindowのStarted後に子の閉鎖と購読回収を先に完了しても、実HTTP本文待ちの取込みはWorkspaceで継続します。同URL除外を含む結果応答の前にPを解放し、DB登録・BMT出力と結果発行も確認します。</summary>
+    [TestMethod]
+    public void PlaylistImportDialog_StartedClosesBeforeWorkspaceImportFinishes()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string output = "";
+            Task? idle = null;
+            ActualMainWindowFixture? presenterFixture = null;
+            TaskCompletionSource<object?> responseProbe = NewCompletion<object?>();
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope,
+                messagePresenter: (owner, request) =>
+                {
+                    if (request.Caption == Resources.Playlist_import_result_title)
+                    {
+                        try
+                        {
+                            ActualMainWindowFixture active = presenterFixture ?? throw new AssertFailedException("結果表示より前にfixtureを作成します。");
+                            Task terminal = idle ?? throw new AssertFailedException("HTTP本文gate中に実P終端Taskを捕捉します。");
+                            Assert.AreSame(active.Window, owner);
+                            Assert.AreSame(active.Window, request.Owner);
+                            StringAssert.Contains(request.MessageBoxText, string.Format(Resources.Playlist_import_result_summary_format, 1, 1, 0, 0));
+                            // presenterからまだ応答していない間に、実処理がPを解放して次の明示操作を許可する。
+                            TestUiDispatcherHost.AwaitPresentationOnDispatcher(terminal, "import-admission-released-before-summary-response");
+                            Assert.IsTrue(active.Playlist.TryEnterPlaylistMutation(out IDisposable admission));
+                            admission.Dispose();
+                            responseProbe.TrySetResult(null);
+                        }
+                        catch (Exception failure)
+                        {
+                            // coordinatorがFailedへ変換しても、検証失敗をObserveFaultへ吸収させない。
+                            responseProbe.TrySetException(failure);
+                        }
+                    }
+                    return new ThemedMessageBoxResponse(MessageBoxResult.OK, closedWithoutSelection: false);
+                },
+                bmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = output });
+            presenterFixture = fixture;
+            var existingUri = new Uri("https://example.test/already-registered");
+            fixture.Table.Page_url = existingUri;
+            output = Path.Combine(fixture.Root, "import-bmt");
+            Directory.CreateDirectory(output);
+            using var server = new BlockingPlaylistJsonServer(
+                "{\"name\":\"Imported after dialog close\",\"symbol\":\"I\",\"data_url\":\"./score.json\"}",
+                "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Imported chart\",\"level\":\"1\"}]");
+            PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+            TaskCompletionSource<ExternalPlaylistImportQueueSummary> summary = NewCompletion<ExternalPlaylistImportQueueSummary>();
+            EventHandler<ExternalPlaylistImportQueueSummaryReadyEventArgs> summaryHandler = (_, e) => summary.TrySetResult(e.Summary);
+            workspace.ExternalPlaylistImportQueueSummaryReady += summaryHandler;
+            Exception? primaryFailure = null;
+            try
+            {
+                ModalObservation<PlaylistImportDialog> observation = OpenImportDialog(fixture, "import-start", (dialog, _) =>
+                {
+                    var vm = (PlaylistImportDialogViewModel)dialog.DataContext;
+                    vm.SetSelected(new(existingUri, "Existing"), true);
+                    vm.SetSelected(new(server.PageUri, "Import"), true);
+                    RaiseButtonClick((Button)dialog.FindName("startImportButton"));
+                });
+                Assert.IsNull(observation.Window.DataContext);
+                Assert.IsTrue(fixture.Window.IsEnabled);
+                idle = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+                Task producer = Task.WhenAny(idle, server.Completion).Unwrap();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(server.DataRequestAccepted.Task, producer, "import-http-gate"), "import-http-gate");
+                Assert.IsFalse(idle.IsCompleted);
+                Assert.IsFalse(summary.Task.IsCompleted);
+                server.ReleaseResponse();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(idle, "import-workspace-terminal");
+                Assert.IsTrue(summary.Task.IsCompleted, "結果イベントを実処理終端までに発行する。");
+                Assert.AreEqual(1, summary.Task.Result.ImportedCount);
+                Assert.AreEqual(1, summary.Task.Result.SkippedDuplicateUrlCount);
+                // idleが先に終わる順序も正当なので、結果表示consumerは独立して回収します。
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(responseProbe.Task, "import-summary-response-probe");
+                using (LR2SongDBExtended read = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly())
+                {
+                    Assert.IsTrue(read.Table<LR2SongDBExtended.playlist>().Any(x => x.name == "Imported after dialog close"));
+                }
+
+                Assert.IsTrue(Directory.GetFiles(output, "*.bmt", SearchOption.AllDirectories).Length > 0);
+            }
+            catch (Exception exception) { primaryFailure = exception; throw; }
+            finally
+            {
+                try
+                {
+                    server.ReleaseResponse();
+                    try
+                    {
+                        if (idle != null)
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(idle, "import-finally-terminal");
+                            TestUiDispatcherHost.AwaitPresentationOnDispatcher(responseProbe.Task, "import-finally-summary-response-probe");
+                        }
+                    }
+                    finally
+                    {
+                        workspace.ExternalPlaylistImportQueueSummaryReady -= summaryHandler;
+                        fixture.Close();
+                    }
+                }
+                catch when (primaryFailure != null) { }
+            }
+        });
+    }
+
+    /// <summary>実LR2必須出力のI/O失敗後も確定DBを保持し、同封receiptの警告へ応答する前に実処理とPを解放します。警告・集計の所有者と事実を実完了イベントへ照合します。</summary>
+    [TestMethod]
+    public void PlaylistImport_Lr2OutputFailurePreservesCommittedDatabaseAndReleasesAdmissionBeforeWarningResponse()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            const string tableName = "ImportOutputFailure";
+            const string chartTitle = "Committed chart after LR2 output failure";
+            string chartMd5 = new('a', 32);
+            string outputDirectory = "";
+            Task? idle = null;
+            ActualMainWindowFixture? presenterFixture = null;
+            TaskCompletionSource<ExternalPlaylistImportQueueSummaryReadyEventArgs> completion = NewCompletion<ExternalPlaylistImportQueueSummaryReadyEventArgs>();
+            TaskCompletionSource<object?> warningProbe = NewCompletion<object?>();
+            TaskCompletionSource<object?> summaryProbe = NewCompletion<object?>();
+            int completionCount = 0;
+            int warningCalls = 0;
+            int summaryCalls = 0;
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope,
+                configureSettings: values =>
+                {
+                    string root = values.BMSRootPath;
+                    values.OperationModeLR2DB = true;
+                    values.LR2RootPath = root;
+                    values.LR2SongDBPath = Path.Combine(root, "data", "song.db");
+                    values.LR2ConfigXmlPath = Path.Combine(root, "LR2files", "Config", "config.xml");
+                    Directory.CreateDirectory(Path.GetDirectoryName(values.LR2ConfigXmlPath) ?? throw new AssertFailedException());
+                    File.WriteAllText(values.LR2ConfigXmlPath, "<config><system /><jukebox /></config>");
+                    string songs = Path.Combine(root, "Songs");
+                    Directory.CreateDirectory(songs);
+                    values.BMSRootPath = songs;
+                    values.BMSInstallDir = songs;
+                    var config = new LR2Config(values.LR2ConfigXmlPath);
+                    config.AddBMSSearchDirectories([songs]);
+                    config.Save();
+                    File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
+                    values.LR2CustomFolderOutputBaseDir = Path.Combine(root, "custom");
+                    values.LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "root-custom");
+                    values.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+                    values.PlaylistDefaultIgnoreFolderOutput = (int)(LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder);
+                    Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDir);
+                    Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDirRootType);
+                },
+                messagePresenter: (owner, request) =>
+                {
+                    bool isSummary = request.Caption == Resources.Playlist_import_result_title;
+                    TaskCompletionSource<object?> probe = isSummary ? summaryProbe : warningProbe;
+                    try
+                    {
+                        ActualMainWindowFixture active = presenterFixture ?? throw new AssertFailedException("通知より前にfixtureを作成します。");
+                        Task terminal = idle ?? throw new AssertFailedException("HTTP本文gate中に実P終端を捕捉します。");
+                        if (!isSummary)
+                        {
+                            // 旧同期警告経路では完了イベントも未発行のため、まず実P終端を期限付きで観測します。
+                            TestUiDispatcherHost.AwaitPresentationOnDispatcher(terminal, "import-output-failure-admission-before-warning-response");
+                        }
+                        Assert.IsTrue(completion.Task.IsCompleted, "P解放より前にreceiptと集計の完了イベントを発行する。");
+                        ExternalPlaylistImportQueueSummaryReadyEventArgs published = completion.Task.GetAwaiter().GetResult();
+                        Assert.AreSame(active.Window, owner);
+                        Assert.AreSame(active.Window, request.Owner);
+                        if (isSummary)
+                        {
+                            summaryCalls++;
+                            Assert.IsTrue(warningProbe.Task.IsCompletedSuccessfully, "警告の応答後に集計を表示する。");
+                            Assert.AreEqual(MessageBoxImage.Exclamation, request.Icon);
+                            StringAssert.Contains(request.MessageBoxText, string.Format(Resources.Playlist_import_result_summary_format, 0, 0, 0, 1));
+                            ExternalPlaylistImportOutcome failure = published.Summary.FailedOutcomes.Single();
+                            StringAssert.Contains(request.MessageBoxText, failure.Uri.AbsoluteUri);
+                        }
+                        else
+                        {
+                            warningCalls++;
+                            Assert.IsFalse(published.Receipt.IsEmpty);
+                            PlaylistOperationNotificationOwner.OperationNotification notification = published.Receipt.Notifications.Single();
+                            Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, notification.Severity);
+                            Assert.AreEqual(Resources.MessageBoxTitle_Warning, notification.Caption);
+                            Assert.AreEqual(string.Format(Resources.Warn_CustomFolderOutputFailed, tableName, outputDirectory), notification.Message);
+                            Assert.AreEqual(notification.Caption, request.Caption);
+                            Assert.AreEqual(notification.Message, request.MessageBoxText);
+                            Assert.AreEqual(MessageBoxImage.Exclamation, request.Icon);
+                            // 警告presenterの応答前でも、別の明示変更を受け付ける。
+                            Assert.IsTrue(active.Playlist.TryEnterPlaylistMutation(out IDisposable admission));
+                            admission.Dispose();
+                            using LR2SongDBExtended read = new BmsLibraryDbGateway(Path.Combine(active.Root, "data", "song.db")).OpenSongDbReadOnly();
+                            LR2SongDBExtended.playlist persisted = read.Table<LR2SongDBExtended.playlist>().Single(row => row.name == tableName);
+                            int persistedId = persisted.playlist_id ?? throw new AssertFailedException("確定した表IDがありません。");
+                            ExternalPlaylistImportOutcome failure = published.Summary.FailedOutcomes.Single();
+                            // 直接JSONの取得元はヘッダーURLとして保存し、存在しないHTMLページURLを生成しません。
+                            Assert.AreEqual(failure.Uri.AbsoluteUri, persisted.header_url);
+                            Assert.IsTrue(string.IsNullOrEmpty(persisted.page_url));
+                            LR2SongDBExtended.playlist_entry entry = read.Table<LR2SongDBExtended.playlist_entry>().Single(row => row.playlist_id == persistedId);
+                            Assert.AreEqual(persistedId, entry.playlist_id);
+                            Assert.AreEqual(chartMd5, entry.md5);
+                            Assert.AreEqual(chartTitle, entry.title);
+                            Assert.AreEqual(7d, entry.level);
+                        }
+                        probe.TrySetResult(null);
+                    }
+                    catch (Exception failure)
+                    {
+                        // coordinatorのFailed変換や本番ObserveFaultで表明失敗を失わない。
+                        probe.TrySetException(failure);
+                    }
+                    return new ThemedMessageBoxResponse(MessageBoxResult.OK, closedWithoutSelection: false);
+                });
+            presenterFixture = fixture;
+            outputDirectory = Path.Combine(fixture.Root, "custom", tableName);
+            Directory.CreateDirectory(outputDirectory);
+            FileStream? outputBlocker = null;
+            var server = new BlockingPlaylistJsonServer(
+                "{\"name\":\"" + tableName + "\",\"symbol\":\"W\",\"output_dir\":\"" + tableName + "\",\"data_url\":\"./score.json\"}",
+                "[{\"md5\":\"" + chartMd5 + "\",\"title\":\"" + chartTitle + "\",\"level\":\"7\"}]");
+            PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+            EventHandler<ExternalPlaylistImportQueueSummaryReadyEventArgs> completed = (_, request) =>
+            {
+                completionCount++;
+                completion.TrySetResult(request);
+            };
+            workspace.ExternalPlaylistImportQueueSummaryReady += completed;
+            Exception? primaryFailure = null;
+            try
+            {
+                outputBlocker = new FileStream(Path.Combine(outputDirectory, "0000.lr2folder"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                PlaylistImportStartResult start = workspace.TryStartPlaylistImport([server.PageUri]);
+                Assert.AreEqual(PlaylistImportStartStatus.Started, start.Status);
+                idle = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+                Task producer = Task.WhenAny(idle, server.Completion).Unwrap();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(server.DataRequestAccepted.Task, producer, "import-output-failure-http-gate"),
+                    "import-output-failure-http-gate");
+                Assert.IsFalse(idle.IsCompleted);
+                server.ReleaseResponse();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(idle, "import-output-failure-terminal");
+                Assert.IsTrue(completion.Task.IsCompleted, "実処理終端までにreceiptと集計を同じイベントで発行する。");
+                Assert.AreEqual(1, completionCount, "実処理終端までの完了イベントは一回です。");
+                ExternalPlaylistImportQueueSummaryReadyEventArgs published = completion.Task.GetAwaiter().GetResult();
+                Assert.IsFalse(published.Receipt.IsEmpty);
+                Assert.AreEqual(0, published.Summary.ImportedCount);
+                Assert.AreEqual(0, published.Summary.SkippedDuplicateUrlCount);
+                Assert.AreEqual(0, published.Summary.SkippedDuplicateNameCount);
+                Assert.AreEqual(1, published.Summary.FailedCount);
+                Assert.AreEqual(server.PageUri.AbsoluteUri, published.Summary.FailedOutcomes.Single().Uri.AbsoluteUri);
+                // idleとUI consumerの完了順を固定せず、警告と集計をそれぞれ回収する。
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(warningProbe.Task, "import-output-failure-warning-probe");
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(summaryProbe.Task, "import-output-failure-summary-probe");
+                Assert.AreEqual(1, warningCalls);
+                Assert.AreEqual(1, summaryCalls);
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                server.ReleaseResponse();
+                try
+                {
+                    if (idle != null)
+                    {
+                        try
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(idle, "import-output-failure-finally-terminal");
+                            TestUiDispatcherHost.AwaitPresentationOnDispatcher(warningProbe.Task, "import-output-failure-finally-warning");
+                        }
+                        finally
+                        {
+                            TestUiDispatcherHost.AwaitPresentationOnDispatcher(summaryProbe.Task, "import-output-failure-finally-summary");
+                        }
+                    }
+                }
+                catch when (primaryFailure != null) { }
+                finally
+                {
+                    workspace.ExternalPlaylistImportQueueSummaryReady -= completed;
+                    try { outputBlocker?.Dispose(); }
+                    catch when (primaryFailure != null) { }
+                    finally
+                    {
+                        try { fixture.Close(); }
+                        catch when (primaryFailure != null) { }
+                        finally
+                        {
+                            try { server.Dispose(); }
+                            catch when (primaryFailure != null) { }
+                        }
+                    }
+                }
+            }
+        });
     }
 
     /// <summary>compiled混在URL操作が選択順と通常・差分区分を保持し、単独downloadセルも元URLへ配送して、所有完了イベントでだけツリーを展開し終了時に購読解除します。</summary>
@@ -2978,7 +3276,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         MainWindowPlaylistEntryRemovalTerminal? entryRemoval = null,
         MainWindowPlaylistTableLevelOverwriteTerminal? tableLevelOverwrite = null,
         MainWindowPlaylistTableRemovalTerminal? tableRemoval = null,
-        MainWindowPlaylistCollectionImportTerminal? collectionImport = null,
         MainWindowPlaylistUrlAcquisitionTerminal? urlAcquisition = null,
         IMainWindowPlaylistUrlInstallTreeExpansionEventSource? urlInstallTreeExpansionEventSource = null,
         MainWindowPlaylistUrlInstallTreeExpansionTerminal? urlInstallTreeExpansion = null,
@@ -2988,7 +3285,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             entryRemoval ?? new MainWindowPlaylistEntryRemovalTerminal(_ => Task.CompletedTask),
             tableLevelOverwrite ?? new MainWindowPlaylistTableLevelOverwriteTerminal(_ => Task.CompletedTask),
             tableRemoval ?? new MainWindowPlaylistTableRemovalTerminal((_, _) => Task.CompletedTask),
-            collectionImport ?? new MainWindowPlaylistCollectionImportTerminal((_) => false, (_) => false),
             urlAcquisition ?? new MainWindowPlaylistUrlAcquisitionTerminal(
                 (_) => Task.CompletedTask,
                 (_, _) => Task.CompletedTask,
@@ -3543,6 +3839,39 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         }
     }
 
+    // ShowDialogはmanaged IsEnabledを変えずにowner HWNDを無効化するため、実native状態を観測します。
+    [DllImport("user32.dll", EntryPoint = "IsWindowEnabled")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsNativeWindowEnabled(IntPtr window);
+
+    private static ModalObservation<PlaylistImportDialog> OpenImportDialog(
+        ActualMainWindowFixture fixture, string operation,
+        Action<PlaylistImportDialog, ModalObservation<PlaylistImportDialog>> drive)
+    {
+        ModalObservation<PlaylistImportDialog> observation = OpenDialog(
+            fixture.Window,
+            (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary"),
+            CreatePlaylistSummaryRow(fixture.Table),
+            "Resources.Playlist_import_title", operation, drive,
+            () =>
+            {
+                var root = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                ContextMenu menu = root.ContextMenu;
+                Assert.IsNotNull(menu, "プレイリストルートにインポートメニューを接続します。");
+                Assert.AreSame(fixture.Window.FindResource("treeViewPlaylistRootContextMenu"), menu);
+                Assert.IsNull(fixture.Window.FindName("playlistImportButton"), "ツリー上部に独立ボタンを残しません。");
+                menu.PlacementTarget = root;
+                OpenContextMenu(menu);
+                MenuItem import = FindMenuItemByHeaderBindingPath(menu, "Resources.Playlist_import_title");
+                Assert.IsTrue(import.IsEnabled);
+                Assert.IsTrue(RaiseMenuClick(import).Handled);
+            });
+        Task cleanup = typeof(MainWindow).GetField("playlistImportDialogCleanupTask", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(fixture.Window) as Task
+            ?? throw new AssertFailedException("インポート画面の表示回収Taskがありません。");
+        TestUiDispatcherHost.AwaitPresentationOnDispatcher(cleanup, operation + ".modal-cleanup");
+        return observation;
+    }
+
     private static ModalObservation<PlaylistPropertyDialog> OpenPropertyDialog(
         MainWindow owner,
         CustomTableView summary,
@@ -3601,7 +3930,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         PlaylistSummaryRow row,
         string commandResourcePath,
         string operationName,
-        Action<TWindow, ModalObservation<TWindow>> drive)
+        Action<TWindow, ModalObservation<TWindow>> drive,
+        Action? invoke = null)
         where TWindow : Window
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(commandResourcePath);
@@ -3631,7 +3961,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             observation = new ModalObservation<TWindow>(
                 dialog,
                 dialog.Owner,
-                !owner.IsEnabled,
+                IsNativeWindowEnabled(new WindowInteropHelper(owner).Handle),
                 dialog.DataContext,
                 callbackGate);
             dialog.DataContextChanged += observation.HandleDataContextChanged;
@@ -3655,6 +3985,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     {
                         bulkDialog.CloseForOwnerShutdown();
                     }
+                    else { dialog.Close(); }
                 }
                 catch (Exception cleanupFailure)
                 {
@@ -3665,14 +3996,19 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
         try
         {
-            var menu = (ContextMenu)owner.FindResource("playlistSummaryContextMenu");
-            menu.PlacementTarget = summary;
-            menu.Tag = new CustomTableContextMenuContext(row, 0);
-            MenuItem command = FindMenuItemByHeaderBindingPath(menu, commandResourcePath);
-            callbackGate.Queue(
-                DispatcherPriority.Loaded,
-                ObserveDialog);
-            RaiseMenuClick(command);
+            callbackGate.Queue(DispatcherPriority.Loaded, ObserveDialog);
+            if (invoke != null)
+            {
+                invoke();
+            }
+            else
+            {
+                var menu = (ContextMenu)owner.FindResource("playlistSummaryContextMenu");
+                menu.PlacementTarget = summary;
+                menu.Tag = new CustomTableContextMenuContext(row, 0);
+                MenuItem command = FindMenuItemByHeaderBindingPath(menu, commandResourcePath);
+                RaiseMenuClick(command);
+            }
 
             TestUiDispatcherHost.AwaitTaskOnDispatcher(opened.Task, operationName + ".opened");
             observation = opened.Task.GetAwaiter().GetResult();

@@ -488,6 +488,9 @@ public partial class BMSPlaylist : ObservableObject
     /// <summary>取得・予約せず、設定の限定前段を始められるか読み取ります。実受付は確認後に再判定します。</summary>
     internal bool CanEnterPlaylistMutation => !IsShutdownRequested && playlistMutationAdmission.CanEnter;
 
+    /// <summary>終了の前段で新規プレイリスト変更の受付を閉じたかを返し、単なるBusyと区別します。</summary>
+    internal bool IsPlaylistMutationAdmissionClosed => playlistMutationAdmission.IsAdmissionClosed;
+
     public bool ContainsBMSTable(BMSTable table)
     {
         if (table == null)

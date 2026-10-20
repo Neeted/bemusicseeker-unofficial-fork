@@ -1306,7 +1306,7 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 </ul>
 <p>Playlists:</p>
 <ul>
-<li>Playlist root: You can run <code>Create new</code>, <code>Import</code>, and <code>Reload</code>. Import options include specifying a URL, loading from a difficulty table list, importing the Overjoy BMS difficulty estimation table, recommend tables, and so on.</li>
+<li>Playlist root: You can run <code>Create new</code>, <code>Import playlists</code>, and <code>Reload</code>. The import window lets you select multiple tables from the table list, built-in tables, URLs, or files.</li>
 <li>Playlist body: You can run <code>Reload</code>, <code>Open page</code>, <code>Override Level</code>, <code>Create new folder</code>, <code>Export</code>, <code>Remove playlist</code>, and <code>Properties</code>. For details on each item, see <a href="#playlist-detail">Playlist Detail</a>.</li>
 <li>Folder in playlist: You can run <code>Remove folder</code> and <code>Rename folder</code>.</li>
 <li>Playlist summary row: You can run <code>Reload</code>, <code>Open page</code>, <code>Apply current order to BMT SORT</code>, <code>Move to top of BMT SORT</code>, <code>Move to bottom of BMT SORT</code>, <code>Bulk edit...</code>, <code>Properties</code>, and <code>Remove playlist</code>. Reloading multiple selected rows in the summary targets the selected playlists regardless of their external sync flag.</li>
@@ -1492,16 +1492,41 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Turning a playlist's <code>BMT OUTPUT</code> OFF removes its managed <code>.bmt</code> and registered URL at the next output. Before disabling output globally, enable <code>Keep existing .bmt files when output is disabled</code> if you want to preserve them.</p></div>
 <p>With the keep-existing-files option enabled, disabling global output stops automatic re-export while retaining the existing <code>.bmt</code> files and registered URLs.</p>
 <h3 id="import-external-playlist">Import External Playlist</h3>
-<p><img alt="Playlist import menu" src="img/プレイリストインポート_ツリーコンテキストメニュー.PNG"/></p>
-<p>Right-click the playlist tree root and use <code>Import</code> to add external playlists. You can choose from registered external table lists or specify a URI to load.</p>
-<p>The default difficulty table list retrieval URI is managed by <a href="https://darksabun.club/table/tablelist.html">DARKSABUN</a>.</p>
-<p><img alt="Playlist import URL specification" src="img/プレイリストインポート_URLを指定して読み込む.PNG"/></p>
-<p>Import menus such as external table lists and recommend tables <strong>do not close when you click a single item, so you can select and import multiple tables in sequence.</strong></p>
-<p>In <code>Load from URL</code>, you can enter destination URIs across multiple lines. If you paste multiple difficulty table URLs at once, each line is treated as a load target, and external loading plus post-registration work are processed in batches. If a playlist with the same name already exists, that URL is skipped and the result dialog shows the skipped count and names after processing finishes.</p>
+<p>Right-click the playlist tree root and choose <code>Import playlists</code>. Choose candidates on the left, review the selection on the right, then press <code>Import</code> to load them together.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Tab</th>
+<th>How to choose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Table list</td>
+<td>Check individual tables. Search by name, symbol, category, or URL, or use <code>All</code> beside the search box to select or clear all matching tables.</td>
+</tr>
+<tr>
+<td>Built-in tables</td>
+<td>Choose EASY / NORMAL / HARD / FC difficulty estimates and the three recommendation types. Use category checkboxes to select or clear a group.</td>
+</tr>
+<tr>
+<td>URL / file</td>
+<td>Enter one table URL or JSON file path per line, then press <code>Add to selection</code>. The file picker appends a path to the input box.</td>
+</tr>
+</tbody>
+</table></div>
+<p>The default difficulty table list retrieval URI is managed by <a href="https://darksabun.club/table/tablelist.html">DARKSABUN</a>. Built-in tables and URL / file input remain available while the list is loading or if retrieval fails.</p>
+<p>The table list starts with upper categories such as <code>SP</code> expanded and the categories immediately above table names, such as <code>General</code>, collapsed. All built-in categories start expanded. Click a category name or the empty part of its row once to expand or collapse it. Use the checkbox on its left to select or clear the group. A dash means that only some matching tables are selected; clicking it selects the rest. This operation keeps selections that are hidden by the current search or filters.</p>
+<p>You can search for a full URL or part of its domain or path. Search updates after you stop typing for about half a second and expands the categories containing matches. Clearing the search restores their previous expansion state. Changing the display filters also preserves the normal expansion state.</p>
+<p>Selections stay on the right when you change tabs or search conditions. The same URL appears once in the selection. Use <code>Remove</code> for individual items or <code>Clear all</code> for the whole selection. Closing the window discards the current selection.</p>
+<p>The table list and built-in tables share display filters and initially hide tables whose URLs are already registered. You can show those tables or also hide candidates with existing names. Items needing attention show <code>Same URL</code> or <code>Matching name</code> to the right of their names. The counts below the selection list show selected items, candidates to run, and matching URLs. Hover over a shortened name to see it in full.</p>
+<p>URL / file input adds valid lines to the selection. If any lines are invalid, the app reports those lines and keeps the full input so you can correct them and press <code>Add to selection</code> again. URLs already selected keep their position, and only new URLs are appended. The input box clears when all lines are valid.</p>
+<p><code>Same URL</code> indicates a match with a registered URL. Before starting, the app checks the latest registered page and header URLs and skips matching URLs without loading them. <code>Matching name</code> means that the displayed name matches an existing table. These candidates remain eligible for import; duplicates are determined from the actual table names after loading. If any items are skipped or fail, the result dialog shows separate counts for successful imports, duplicate URLs, duplicate names, and failures, along with samples of the skipped or failed items.</p>
+<p>If another operation is running, playlist preparation is incomplete, or all selected URLs are already registered, the window stays open with the reason and selection intact. The request is not scheduled for later; press <code>Import</code> again when appropriate.</p>
 <p>Externally synced playlists can be updated by re-fetching the original difficulty table. After importing, check the sync result in the playlist summary <code>STATUS</code> column.</p>
 <h3 id="built-in-difficulty-estimates-and-recommendations">Built-in Difficulty Estimates and Recommendations</h3>
 <p>The built-in difficulty estimates and recommendations integrate <a href="https://github.com/naktazdim/walkure-offline/">Walkure Offline</a>, the offline version of <a href="http://walkure.net/hakkyou/index.html">Walkure's Insane BMS difficulty estimates and recommendations</a>. No internet connection, LR2 player ID, or score upload is required.</p>
-<p>Right-click the playlist tree root and choose <code>Import</code> → <code>Load built-in difficulty estimates and recommendations</code>.</p>
+<p>Right-click the playlist tree root, open <code>Import playlists</code>, and choose the <code>Built-in tables</code> tab. Select multiple types to register them in one import.</p>
 <p>Difficulty estimates have four types: EASY, NORMAL, HARD, and FC. To view each difficulty's star rating, right-click the chart list's column header and enable the <code>ENTRY LEVEL</code> column.</p>
 <p>Recommendations use the LR2 or beatoraja player and score database selected in <code>General</code> settings. Targets above the current lamp with at least a 20% clear probability appear under EASY, NORMAL, HARD, or FC, sorted by probability within each group. A chart can have multiple targets. The star rating in the table name is estimated player skill; the clear probability (%) is shown in the same <code>ENTRY LEVEL</code> column.</p>
 <div class="table-scroll"><table>

@@ -256,9 +256,6 @@ LR2 連携:
   <data name="Save_header_file" xml:space="preserve">
     <value>ヘッダーファイルを保存</value>
   </data>
-  <data name="Load_from_insane_estimation_table" xml:space="preserve">
-    <value>内蔵の難度推定表・リコメンドから読み込む</value>
-  </data>
   <data name="Backup" xml:space="preserve">
     <value>バックアップ</value>
   </data>
@@ -905,9 +902,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   </data>
   <data name="Install_to_estimation" xml:space="preserve">
     <value>推定先にインストール</value>
-  </data>
-  <data name="Load_PlaylistURI" xml:space="preserve">
-    <value>読み込むURI</value>
   </data>
   <data name="PlaylistProp_folder_type" xml:space="preserve">
     <value>出力フォルダ</value>
@@ -1855,9 +1849,6 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="Install_foldername" xml:space="preserve">
     <value>フォルダ名書式: </value>
   </data>
-  <data name="Load_from_table_list" xml:space="preserve">
-    <value>難易度表リストから読み込む</value>
-  </data>
   <data name="Rename_folder_auto" xml:space="preserve">
     <value>フォルダの自動リネーム</value>
   </data>
@@ -2674,8 +2665,9 @@ Everything を使用している場合は、楽曲フォルダが Everything 1.5
   </data>
   <data name="Playlist_import_result_summary_format" xml:space="preserve">
     <value>インポート: {0} 件
-同名スキップ: {1} 件
-失敗: {2} 件</value>
+同URLスキップ: {1} 件
+同名スキップ: {2} 件
+失敗: {3} 件</value>
   </data>
   <data name="Playlist_import_result_skipped_header" xml:space="preserve">
     <value>同名のためスキップ:</value>
@@ -2702,13 +2694,8 @@ Everything を使用している場合は、楽曲フォルダが Everything 1.5
   <data name="Beatoraja_table_url_import_failed_with_bmt_restore_format" xml:space="preserve">
     <value>外部読み込みと .bmt 復元に失敗しました: {0}</value>
   </data>
-  <data name="Playlist_uri_input_no_valid_uri" xml:space="preserve">
-    <value>入力された値が正しくありません。
-絶対URIであることを確認してください。</value>
-  </data>
   <data name="Playlist_uri_input_invalid_lines_format" xml:space="preserve">
-    <value>一部のURIを読み込めませんでした。
-絶対URIであることを確認してください。
+    <value>次の行は選択に追加していません。絶対URIへ修正してください。
 {0}</value>
   </data>
   <data name="Error_OutputDirNameEmpty" xml:space="preserve">
@@ -3816,5 +3803,92 @@ ON: すべての使用リソースがそろった場合のみ、自動新規イ�
   </data>
   <data name="WarningDigest_InstallEstimationMetadataUnavailable" xml:space="preserve">
     <value>作品情報の比較不能</value>
+  </data>
+  <data name="Playlist_import_title" xml:space="preserve">
+    <value>プレイリストをインポート</value>
+  </data>
+  <data name="Playlist_import_external" xml:space="preserve">
+    <value>難易度表リスト</value>
+  </data>
+  <data name="Playlist_import_builtin" xml:space="preserve">
+    <value>内蔵表</value>
+  </data>
+  <data name="Playlist_import_url_file" xml:space="preserve">
+    <value>URL・ファイル</value>
+  </data>
+  <data name="Playlist_import_search" xml:space="preserve">
+    <value>表名・記号・分類・URLを検索</value>
+  </data>
+  <data name="Playlist_import_hide_urls" xml:space="preserve">
+    <value>同URLの登録済みを非表示</value>
+  </data>
+  <data name="Playlist_import_hide_names" xml:space="preserve">
+    <value>同名候補を非表示</value>
+  </data>
+  <data name="Playlist_import_select_matching" xml:space="preserve">
+    <value>すべて</value>
+  </data>
+  <data name="Playlist_import_selected" xml:space="preserve">
+    <value>選択済みプレイリスト</value>
+  </data>
+  <data name="Playlist_import_remove" xml:space="preserve">
+    <value>解除</value>
+  </data>
+  <data name="Playlist_import_clear" xml:space="preserve">
+    <value>すべて解除</value>
+  </data>
+  <data name="Playlist_import_add" xml:space="preserve">
+    <value>選択に追加</value>
+  </data>
+  <data name="Playlist_import_start" xml:space="preserve">
+    <value>インポート</value>
+  </data>
+  <data name="Playlist_import_counts_format" xml:space="preserve">
+    <value>選択: {0} 件 · 実行候補: {1} 件 · 同URL: {2} 件</value>
+  </data>
+  <data name="Playlist_import_catalog_not_started" xml:space="preserve">
+    <value>難易度表リストは準備中です。</value>
+  </data>
+  <data name="Playlist_import_catalog_loading" xml:space="preserve">
+    <value>難易度表リストを取得中です…</value>
+  </data>
+  <data name="Playlist_import_catalog_failed" xml:space="preserve">
+    <value>難易度表リストを取得できませんでした。</value>
+  </data>
+  <data name="Playlist_import_catalog_empty" xml:space="preserve">
+    <value>難易度表リストは空です。</value>
+  </data>
+  <data name="Playlist_import_input_empty" xml:space="preserve">
+    <value>絶対URIを1行に一つ入力してください。</value>
+  </data>
+  <data name="Playlist_import_busy" xml:space="preserve">
+    <value>別の操作を実行中です。終了後にもう一度インポートしてください。</value>
+  </data>
+  <data name="Playlist_import_not_ready" xml:space="preserve">
+    <value>プレイリストの準備が完了していません。準備後にもう一度インポートしてください。</value>
+  </data>
+  <data name="Playlist_import_shutting_down" xml:space="preserve">
+    <value>アプリケーションを終了中のため開始できません。</value>
+  </data>
+  <data name="Playlist_import_no_targets_format" xml:space="preserve">
+    <value>実行対象がありません。同URLの登録済み除外: {0} 件。</value>
+  </data>
+  <data name="Playlist_import_registered_url" xml:space="preserve">
+    <value>同URL</value>
+  </data>
+  <data name="Playlist_import_same_name" xml:space="preserve">
+    <value>同名候補</value>
+  </data>
+  <data name="Playlist_import_estimation_group" xml:space="preserve">
+    <value>難度推定表</value>
+  </data>
+  <data name="Playlist_import_recommendation_group" xml:space="preserve">
+    <value>リコメンド</value>
+  </data>
+  <data name="Playlist_import_input_description" xml:space="preserve">
+    <value>絶対URLまたはファイルパスを1行に一つ入力してください。有効な行を選択に追加します。</value>
+  </data>
+  <data name="Playlist_import_result_skipped_url_header" xml:space="preserve">
+    <value>同URLでスキップ:</value>
   </data>
 </root>

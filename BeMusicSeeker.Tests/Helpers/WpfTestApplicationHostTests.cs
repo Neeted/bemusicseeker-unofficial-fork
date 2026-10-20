@@ -13,7 +13,9 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
 using BeMusicSeeker.Views.Settings;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Parago.Windows;
@@ -322,19 +324,16 @@ public sealed class WpfTestApplicationHostTests
             Assert.IsNull(playlistPropertyContent.Background);
             Assert.IsNull(playlistPropertyContent.BorderBrush);
 
-            var loadPlaylistDialog = new LoadPlaylistURIDialog();
-            Grid loadPlaylistRoot = FindVisualDescendants<Grid>(loadPlaylistDialog)
-                .Single(grid => FindResourceInScope(grid.Resources, "App.Canonical.DialogContentStyle") is Style);
-            AssertBrush(loadPlaylistRoot.GetValue(TextElement.ForegroundProperty), "App.TextBrush");
-            Rectangle loadPlaylistOverlay = FindElementWithScopedStyle<Rectangle>(
-                loadPlaylistRoot,
-                "App.Canonical.DialogOverlayStyle");
-            Border loadPlaylistContent = FindElementWithScopedStyle<Border>(
-                loadPlaylistRoot,
-                "App.Canonical.DialogContentStyle");
-            AssertBrush(loadPlaylistOverlay.Fill, "App.DialogOverlayBrush");
-            AssertBrush(loadPlaylistContent.Background, "App.DialogBackgroundBrush");
-            AssertBrush(loadPlaylistContent.BorderBrush, "App.DialogBorderBrush");
+            var importDialog = new PlaylistImportDialog(new PlaylistImportDialogViewModel(_ => new(PlaylistImportStartStatus.Busy)), new UiDialogCoordinator());
+            try
+            {
+                AssertBrush(importDialog.Background, "App.DialogBackgroundBrush");
+                AssertBrush(importDialog.Foreground, "App.TextBrush");
+                Border importContent = FindElementWithScopedStyle<Border>(importDialog, "App.Canonical.NativeWindowContentStyle");
+                Assert.IsNull(importContent.Background);
+                Assert.IsNull(importContent.BorderBrush);
+            }
+            finally { importDialog.Close(); }
 
             var pendingDeleteDialog = new PendingDeleteConfirmDialog();
             AssertBrush(pendingDeleteDialog.Background, "App.DialogBackgroundBrush");

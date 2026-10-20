@@ -39,7 +39,7 @@ public sealed class DialogPresentationTests
     [DataRow("ProgressDialog")]
     [DataRow("ThemedMessageBox")]
     [DataRow("InitialSetupLanguageDialog")]
-    [DataRow("LoadPlaylistURIDialog")]
+    [DataRow("PlaylistImportDialog")]
     [DataRow("PlaylistPropertyDialog")]
     [DataRow("PlaylistSummaryBulkEditDialog")]
     public void CustomDialogScope_UsesAppliedCanonicalRolesAndKeepsOuterSentinelIsolated(string dialogName)
@@ -505,14 +505,14 @@ public sealed class DialogPresentationTests
                 720,
                 520,
                 [ButtonWithAutomationId("InitialSetupLanguageContinue", DialogButtonRole.Primary, "initial setup continue")]),
-            "LoadPlaylistURIDialog" => CreateOverlayFixture(
-                new LoadPlaylistURIDialog(),
-                720,
-                520,
+            "PlaylistImportDialog" => CreateNativeFixture(
+                new PlaylistImportDialog(new PlaylistImportDialogViewModel(_ => new(PlaylistImportStartStatus.Busy)), new UiDialogCoordinator()),
                 [
-                    ButtonWithAutomationId("LoadPlaylistUriOpenLocalFile", DialogButtonRole.Neutral, "playlist URI open local file"),
-                    ButtonWithAutomationId("LoadPlaylistUriAccept", DialogButtonRole.Primary, "playlist URI affirmative"),
-                    ButtonWithAutomationId("LoadPlaylistUriCancel", DialogButtonRole.Quiet, "playlist URI cancel"),
+                    ButtonWithAutomationId("PlaylistImportClear", DialogButtonRole.Quiet, "playlist import clear selection"),
+                    ButtonWithAutomationId("PlaylistImportOpenFile", DialogButtonRole.Quiet, "playlist import JSON picker"),
+                    ButtonWithAutomationId("PlaylistImportAddUri", DialogButtonRole.Neutral, "playlist import add URI"),
+                    ButtonWithAutomationId("PlaylistImportStart", DialogButtonRole.Primary, "playlist import start"),
+                    ButtonWithAutomationId("PlaylistImportCancel", DialogButtonRole.Quiet, "playlist import cancel"),
                 ]),
             "PlaylistPropertyDialog" => CreateNativeFixture(
                 new PlaylistPropertyDialog(),

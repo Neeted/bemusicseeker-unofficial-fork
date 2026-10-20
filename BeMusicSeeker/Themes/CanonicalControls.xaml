@@ -227,13 +227,14 @@
               BorderBrush="{DynamicResource App.BorderBrush}"
               BorderThickness="1"
               CornerRadius="3">
-        <Path x:Name="CheckGlyph"
-              Width="10"
-              Height="8"
-              Data="M 0 4 L 3.5 7.5 L 10 0"
-              Stroke="{DynamicResource App.AccentForegroundBrush}"
-              StrokeThickness="2"
-              Visibility="Collapsed" />
+        <Grid>
+          <Path x:Name="CheckGlyph"
+                Width="10" Height="8" Data="M 0 4 L 3.5 7.5 L 10 0"
+                Stroke="{DynamicResource App.AccentForegroundBrush}" StrokeThickness="2" Visibility="Collapsed" />
+          <Path x:Name="IndeterminateGlyph"
+                Width="10" Height="2" Data="M 0 1 L 10 1"
+                Stroke="{DynamicResource App.AccentForegroundBrush}" StrokeThickness="2" Visibility="Collapsed" />
+        </Grid>
       </Border>
       <ContentPresenter Grid.Column="1"
                         Margin="{TemplateBinding Padding}"
@@ -252,6 +253,11 @@
         <Setter TargetName="CheckChrome" Property="Background" Value="{DynamicResource App.AccentBrush}" />
         <Setter TargetName="CheckChrome" Property="BorderBrush" Value="{DynamicResource App.AccentBrush}" />
         <Setter TargetName="CheckGlyph" Property="Visibility" Value="Visible" />
+      </Trigger>
+      <Trigger Property="IsChecked" Value="{x:Null}">
+        <Setter TargetName="CheckChrome" Property="Background" Value="{DynamicResource App.AccentBrush}" />
+        <Setter TargetName="CheckChrome" Property="BorderBrush" Value="{DynamicResource App.AccentBrush}" />
+        <Setter TargetName="IndeterminateGlyph" Property="Visibility" Value="Visible" />
       </Trigger>
       <Trigger Property="IsMouseOver" Value="True">
         <Setter TargetName="CheckChrome" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />

@@ -1329,7 +1329,7 @@ public sealed class PlaylistSummaryBulkEditTests
         });
     }
 
-    /// <summary>一括編集画面の全出力種別をdraftからとcontrolから双方向に変更し、種別ごとの配送先と表示文言の取り違えを検出します。</summary>
+    /// <summary>全出力種別の双方向接続と文言、共通チェックの中間表示と三状態循環を確認します。属性初期化の二状態操作へ中間状態が波及しないことも実Toggle経路で検証します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void PlaylistSummaryBulkEditDialog_BindsAllCustomFolderOptionsTwoWayAndLocalized()
@@ -1390,6 +1390,41 @@ public sealed class PlaylistSummaryBulkEditTests
                 checkBox.GetBindingExpression(ToggleButton.IsCheckedProperty)!.UpdateSource();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(true, GetBulkFolderValue(dialog, propertyName), propertyName);
+            }
+
+            CheckBox nullableCheck = checkBoxes[nameof(dialog.OutputAllSongsFolder)];
+            dialog.OutputAllSongsFolder = null;
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            Assert.IsTrue(nullableCheck.IsThreeState);
+            var indeterminateGlyph = (FrameworkElement)nullableCheck.Template.FindName("IndeterminateGlyph", nullableCheck);
+            Assert.IsNotNull(indeterminateGlyph, "共通チェックは中間状態を描画します。");
+            Assert.AreEqual(Visibility.Visible, indeterminateGlyph.Visibility);
+            Assert.IsNull(nullableCheck.IsChecked);
+            IToggleProvider nullableToggle = new CheckBoxAutomationPeer(nullableCheck)
+                .GetPattern(PatternInterface.Toggle) as IToggleProvider
+                ?? throw new AssertFailedException("一括編集のチェックにToggle操作がありません。");
+            foreach (bool? expected in new bool?[] { false, true, null })
+            {
+                nullableToggle.Toggle();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(expected, dialog.OutputAllSongsFolder, "三状態の標準循環を維持します。");
+                Assert.AreEqual(expected, nullableCheck.IsChecked);
+                Assert.AreEqual(expected.HasValue ? Visibility.Collapsed : Visibility.Visible, indeterminateGlyph.Visibility);
+            }
+
+            CheckBox twoStateCheck = FindBoundCheckBox(view, nameof(dialog.InitializeNameFromExternal));
+            Assert.IsFalse(twoStateCheck.IsThreeState);
+            dialog.InitializeNameFromExternal = false;
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            IToggleProvider twoStateToggle = new CheckBoxAutomationPeer(twoStateCheck)
+                .GetPattern(PatternInterface.Toggle) as IToggleProvider
+                ?? throw new AssertFailedException("属性初期化のチェックにToggle操作がありません。");
+            foreach (bool expected in new[] { true, false })
+            {
+                twoStateToggle.Toggle();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(expected, dialog.InitializeNameFromExternal);
+                Assert.AreEqual((bool?)expected, twoStateCheck.IsChecked, "二状態は中間状態を経由しません。");
             }
         });
     }

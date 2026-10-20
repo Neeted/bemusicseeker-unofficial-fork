@@ -786,12 +786,6 @@ public class Resources
 
     public static string Library => ResourceManager.GetString("Library", resourceCulture);
 
-    public static string Load_from_insane_estimation_table => ResourceManager.GetString("Load_from_insane_estimation_table", resourceCulture);
-
-    public static string Load_from_table_list => ResourceManager.GetString("Load_from_table_list", resourceCulture);
-
-    public static string Load_PlaylistURI => ResourceManager.GetString("Load_PlaylistURI", resourceCulture);
-
     public static string Load_Url => ResourceManager.GetString("Load_Url", resourceCulture);
 
     public static string Maintenance => ResourceManager.GetString("Maintenance", resourceCulture);
@@ -1897,6 +1891,7 @@ public class Resources
     public static string Playlist_import_result_title => ResourceManager.GetString("Playlist_import_result_title", resourceCulture);
 
 
+    /// <summary>成功・同URL除外・同名除外・失敗の件数を、この順に表示する書式です。</summary>
     public static string Playlist_import_result_summary_format => ResourceManager.GetString("Playlist_import_result_summary_format", resourceCulture);
 
 
@@ -1915,9 +1910,7 @@ public class Resources
 
     public static string Beatoraja_table_url_import_failed_with_bmt_restore_format => ResourceManager.GetString("Beatoraja_table_url_import_failed_with_bmt_restore_format", resourceCulture);
 
-    public static string Playlist_uri_input_no_valid_uri => ResourceManager.GetString("Playlist_uri_input_no_valid_uri", resourceCulture);
-
-
+    /// <summary>選択へ追加しなかった不正URI行を案内する書式です。</summary>
     public static string Playlist_uri_input_invalid_lines_format => ResourceManager.GetString("Playlist_uri_input_invalid_lines_format", resourceCulture);
 
 
@@ -2920,5 +2913,92 @@ public class Resources
     public static string ChartPropertiesCurrentPlacement => ResourceManager.GetString("ChartPropertiesCurrentPlacement", resourceCulture);
 
     public static string ChartPropertiesUnverifiable => ResourceManager.GetString("ChartPropertiesUnverifiable", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_title => ResourceManager.GetString("Playlist_import_title", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_external => ResourceManager.GetString("Playlist_import_external", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_builtin => ResourceManager.GetString("Playlist_import_builtin", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_url_file => ResourceManager.GetString("Playlist_import_url_file", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_search => ResourceManager.GetString("Playlist_import_search", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_hide_urls => ResourceManager.GetString("Playlist_import_hide_urls", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_hide_names => ResourceManager.GetString("Playlist_import_hide_names", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_select_matching => ResourceManager.GetString("Playlist_import_select_matching", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_selected => ResourceManager.GetString("Playlist_import_selected", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_remove => ResourceManager.GetString("Playlist_import_remove", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_clear => ResourceManager.GetString("Playlist_import_clear", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_add => ResourceManager.GetString("Playlist_import_add", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_start => ResourceManager.GetString("Playlist_import_start", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_counts_format => ResourceManager.GetString("Playlist_import_counts_format", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_catalog_not_started => ResourceManager.GetString("Playlist_import_catalog_not_started", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_catalog_loading => ResourceManager.GetString("Playlist_import_catalog_loading", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_catalog_failed => ResourceManager.GetString("Playlist_import_catalog_failed", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_catalog_empty => ResourceManager.GetString("Playlist_import_catalog_empty", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_input_empty => ResourceManager.GetString("Playlist_import_input_empty", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_busy => ResourceManager.GetString("Playlist_import_busy", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_not_ready => ResourceManager.GetString("Playlist_import_not_ready", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_shutting_down => ResourceManager.GetString("Playlist_import_shutting_down", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_no_targets_format => ResourceManager.GetString("Playlist_import_no_targets_format", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_registered_url => ResourceManager.GetString("Playlist_import_registered_url", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_same_name => ResourceManager.GetString("Playlist_import_same_name", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_estimation_group => ResourceManager.GetString("Playlist_import_estimation_group", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_recommendation_group => ResourceManager.GetString("Playlist_import_recommendation_group", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_input_description => ResourceManager.GetString("Playlist_import_input_description", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_result_skipped_url_header => ResourceManager.GetString("Playlist_import_result_skipped_url_header", resourceCulture);
 
 }

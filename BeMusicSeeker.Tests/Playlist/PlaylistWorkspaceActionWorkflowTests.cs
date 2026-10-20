@@ -2173,9 +2173,14 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             completion = summaryReady.Task;
             playlist.StartupReadiness.BeginPlaylistInitialization("test");
             playlist.StartupReadiness.MarkRequiredPlaylistReady();
-            ExternalPlaylistUriSubmissionResult submission = workspace.SubmitExternalPlaylistUriText(
-                "bmseeker:table.recommended\nbmseeker:table.recommended?base=failed\nbmseeker:table.recommended?failed=noplay");
-            Assert.AreEqual(3, submission.ValidUriCount);
+            PlaylistImportStartResult submission = workspace.TryStartPlaylistImport(
+            [
+                new Uri("bmseeker:table.recommended"),
+                new Uri("bmseeker:table.recommended?base=failed"),
+                new Uri("bmseeker:table.recommended?failed=noplay")
+            ]);
+            Assert.AreEqual(PlaylistImportStartStatus.Started, submission.Status);
+            Assert.AreEqual(3, submission.StartedCount);
 
             Assert.IsNull(dialogs.LastConfirmationRequest);
             Assert.IsNull(dialogs.LastMessageRequest);
@@ -2224,13 +2229,15 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) => summaryReady.TrySetResult(request.Summary);
             completion = summaryReady.Task;
             playlist.StartupReadiness.BeginPlaylistInitialization("test");
-            Assert.IsFalse(workspace.TryEnqueueBuiltInExternalPlaylistImport("bmseeker:table.recommended"));
+            Assert.AreEqual(PlaylistImportStartStatus.NotReady,
+                workspace.TryStartPlaylistImport([new Uri("bmseeker:table.recommended")]).Status);
             Assert.IsNull(dialogs.LastConfirmationRequest);
             Assert.AreEqual(0, reads);
             Assert.AreEqual(0, playlist.BMSTables.Count);
             Assert.IsFalse(completion.IsCompleted);
             playlist.StartupReadiness.MarkRequiredPlaylistReady();
-            Assert.IsTrue(workspace.TryEnqueueBuiltInExternalPlaylistImport("bmseeker:table.recommended"));
+            Assert.AreEqual(PlaylistImportStartStatus.Started,
+                workspace.TryStartPlaylistImport([new Uri("bmseeker:table.recommended")]).Status);
             ExternalPlaylistImportQueueSummary summary = await completion;
             Assert.AreEqual(1, summary.ImportedCount);
             Assert.AreEqual(0, summary.FailedCount);

@@ -61,7 +61,7 @@ LR2ルートの選択は、現在と同じルートでも標準の子パスと�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| プレイリストURL読込みのローカル選択 | [`LoadPlaylistURIDialog`](../../../BeMusicSeeker/Views/Playlist/LoadPlaylistURIDialog.cs) | [`LoadPlaylistURIDialogTests`](../../../BeMusicSeeker.Tests/Playlist/LoadPlaylistURIDialogTests.cs) は、翻訳リソースの選択とJSON形式、既定拡張子、所有者、承諾時の入力追加、取消・失敗時の入力保持、非同期の完了を確認する。 |
+| プレイリストインポートのローカル選択 | [`PlaylistImportDialog`](../../../BeMusicSeeker/Views/Playlist/PlaylistImportDialog.cs) | [`PlaylistImportDialogTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistImportDialogTests.cs) は、翻訳リソースの選択とJSON形式、既定拡張子、所有者、承諾時の入力追加、取消・失敗時の入力保持、非同期の完了を確認する。 |
 | 形式、拡張子、初期パスの共通変換 | [`UiFilePickerUtilities`](../../../BeMusicSeeker/Views/Dialogs/UiFilePickerUtilities.cs)、[`UiDialogCoordinator`](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs) | [`WpfPickerBoundaryTests`](../../../BeMusicSeeker.Tests/Dialogs/WpfPickerBoundaryTests.cs) |
 | LR2のルートと個別パス、確認・取消時の保持 | [`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs) | [`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs)、[`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs)、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs) |
 | 右クリック操作の編集用選択 | [`RightClickActionSettingsEditor`](../../../BeMusicSeeker/ViewModels/Settings/RightClickActionSettingsEditor.cs) | [`RightClickActionSettingsEditorTests`](../../../BeMusicSeeker.Tests/ExternalActions/RightClickActionSettingsEditorTests.cs)、[`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) |
