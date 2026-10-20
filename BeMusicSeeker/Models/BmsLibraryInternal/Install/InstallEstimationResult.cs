@@ -109,6 +109,9 @@ internal sealed class InstallEstimationCandidate
 /// </summary>
 internal sealed class InstallEstimationResult
 {
+    /// <summary>一操作で一回評価した入力元の観測数・確認状態・Related規則です。永続化しません。</summary>
+    internal InstallEstimationSourceAudio SourceAudio { get; set; }
+
     public bool Success => !string.IsNullOrWhiteSpace(DestinationDirectory);
 
     public string DestinationDirectory { get; set; }

@@ -14,6 +14,132 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryInstallEstimationServiceTests
 {
+    /// <summary>対象群の和集合90%でBothを選びつつ、各譜面の最終音源許可は不足する兄弟を個別に拒否します。</summary>
+    [TestMethod]
+    public void Estimate_GroupSourceUnionDoesNotHideIndividualAudioDeficit()
+    {
+        string[] names = [.. Enumerable.Range(0, 10).Select(i => $"tone{i}.wav")];
+        ChartFile first = CreateFile("first", @"C:\Pending\a.bms", names.Take(9).ToArray()) with { RawTitle = "Song", RawArtist = "Artist", Artist = "Artist" };
+        ChartFile second = CreateFile("second", @"C:\Pending\b.bms", names.Skip(9).ToArray()) with { RawTitle = "Song", RawArtist = "Artist", Artist = "Artist" };
+        var cache = new DirectoryResourceLookupCache();
+        cache.AddDir(@"C:\Source", names.Take(9));
+        cache.AddDir(@"C:\Candidate", names.Take(1));
+        var snapshot = new PackageInstallEstimationSnapshot
+        {
+            RepresentativeChart = first,
+            DefinedResources = ChartResourceSnapshot.CreateAggregate([first, second]),
+            TargetChartResources = [ChartResourceSnapshot.Create(first), ChartResourceSnapshot.Create(second)],
+            TargetMetadataProfile = InstallEstimationMetadataNormalizer.BuildProfile([("Song", "Artist", "a")]),
+            SourceDirectory = @"C:\Source",
+            BundledResources = cache.GetEntryOrNull(@"C:\Source")
+        };
+        var service = new BmsLibraryInstallEstimationService(new BmsLibraryOptionsSnapshot { InstallDestinationAutoApplyMinAudioHealth = 90 });
+        InstallEstimationResult result = service.EstimateInstallationDirectory(snapshot, cache, 1, ChartInstallationEstimateMode.Normal, _ => snapshot.TargetMetadataProfile);
+        Assert.AreEqual(InstallEstimationRelatedRule.BothFields, result.SourceAudio.RelatedRule);
+        Assert.AreEqual(9, result.SourceAudio.ObservedMatched);
+        Assert.AreEqual(10, result.SourceAudio.Required);
+        Assert.AreEqual(90, result.SelectedCandidate.AudioHealth);
+        Assert.IsFalse(result.AudioAutoApplyAllowed);
+        Assert.IsFalse(result.ShouldAutoApplyDestination);
+    }
+
+    /// <summary>源側の元件数で90%を判定し、部分列挙の下限と完全性を独立させます。</summary>
+    [DataTestMethod]
+    [DataRow(100, 89, true, false)]
+    [DataRow(1000, 899, true, false)]
+    [DataRow(100, 90, true, true)]
+    [DataRow(1000, 900, true, true)]
+    [DataRow(10, 9, true, true)]
+    [DataRow(101, 90, true, false)]
+    [DataRow(101, 91, true, true)]
+    [DataRow(100, 95, false, true)]
+    [DataRow(100, 89, false, false)]
+    [DataRow(100, 100, false, true)]
+    public void SourceAudio_UsesExactCountsAndObservedLowerBound(int required, int matched, bool complete, bool both)
+    {
+        string[] names = [.. Enumerable.Range(0, required).Select(i => $"tone{i}.wav")];
+        var resources = ChartResourceSnapshot.Create(CreateFile("hash", @"C:\Pending\chart.bms", names));
+        var cache = new DirectoryResourceLookupCache();
+        cache.AddDir(@"C:\Source", names.Take(matched).Concat(Enumerable.Range(0, 1000).Select(i => $"unused{i}.wav")));
+        var source = InstallEstimationSourceAudio.Evaluate(resources, cache.GetEntryOrNull(@"C:\Source"), complete);
+        Assert.AreEqual(matched, source.ObservedMatched);
+        Assert.AreEqual(required, source.Required);
+        Assert.AreEqual(both ? InstallEstimationRelatedRule.BothFields : InstallEstimationRelatedRule.AnyField, source.RelatedRule);
+        Assert.AreEqual(complete || matched == required ? InstallEstimationSourceAudioStatus.Verified : InstallEstimationSourceAudioStatus.LowerBound, source.Status);
+    }
+
+    /// <summary>未取得・既知0件・不正参照を区別し、未知でも観測済み件数を失わず正規化重複を一件に数えます。</summary>
+    [TestMethod]
+    public void SourceAudio_DistinguishesUnknownEmptyAndUnresolvedWithoutLosingObserved()
+    {
+        var bundled = new DirectoryResourceLookupCache();
+        bundled.AddDir(@"C:\Source", ["tone.ogg"]);
+        DirectoryResourceLookupCache.Entry entry = bundled.GetEntryOrNull(@"C:\Source");
+        var resources = ChartResourceSnapshot.Create(CreateFile("h", @"C:\Source\c.bms", "tone.wav", "TONE.ogg", @".\tone.wav"));
+        var known = InstallEstimationSourceAudio.Evaluate(resources, entry, true);
+        Assert.AreEqual(1, known.Required);
+        Assert.AreEqual(1, known.ObservedMatched);
+        Assert.AreEqual(InstallEstimationSourceAudioStatus.Unverifiable, InstallEstimationSourceAudio.Evaluate(null, entry, true).Status);
+        Assert.IsNull(InstallEstimationSourceAudio.Evaluate(null, entry, true).Required);
+        Assert.AreEqual(InstallEstimationSourceAudioStatus.Unverifiable, InstallEstimationSourceAudio.Evaluate(resources, null, true).Status);
+        var empty = InstallEstimationSourceAudio.Evaluate(ChartResourceSnapshot.Create(CreateFile("h", @"C:\Source\c.bms")), entry, true);
+        Assert.AreEqual(InstallEstimationSourceAudioStatus.NoAudioReferences, empty.Status);
+        Assert.AreEqual("no_audio_references", empty.Reason);
+        var unresolved = InstallEstimationSourceAudio.Evaluate(ChartResourceSnapshot.Create(CreateFile("h", @"C:\Source\c.bms", "tone.wav", @"..\bad.wav")), entry, true);
+        Assert.AreEqual(1, unresolved.ObservedMatched);
+        Assert.AreEqual(InstallEstimationSourceAudioStatus.Unverifiable, unresolved.Status);
+        Assert.AreEqual(InstallEstimationRelatedRule.AnyField, unresolved.RelatedRule);
+    }
+
+    /// <summary>通常・限定・ハッシュの同じ入力から同じ規則を渡し、候補並列・設定閾値・保持モードに左右されません。</summary>
+    [DataTestMethod]
+    [DataRow(89, false)]
+    [DataRow(90, true)]
+    public void Estimate_SourceAudioRuleReachesAllCandidateEntrances(int supplied, bool both)
+    {
+        string[] names = [.. Enumerable.Range(0, 100).Select(i => $"tone{i}.wav")];
+        ChartFile chart = CreateFile("hash", @"C:\Pending\c.bms", names) with { RawTitle = "abc", RawArtist = "abc", Artist = "abc" };
+        var resources = ChartResourceSnapshot.Create(chart);
+        var cache = new DirectoryResourceLookupCache();
+        cache.AddDir(@"C:\Source", names.Take(supplied));
+        cache.AddDir(@"C:\Candidate", names);
+        var snapshot = new PackageInstallEstimationSnapshot
+        {
+            RepresentativeChart = chart,
+            DefinedResources = resources,
+            TargetChartResources = [resources],
+            TargetMetadataProfile = InstallEstimationMetadataNormalizer.BuildProfile([("abc", "abc", "target")]),
+            SourceDirectory = @"C:\Source",
+            BundledResources = cache.GetEntryOrNull(@"C:\Source")
+        };
+        InstallEstimationMetadataProfile profile = InstallEstimationMetadataNormalizer.BuildProfile([("xyz", "abc", "candidate")]);
+        foreach (int threshold in new[] { 100, 97, 90 })
+        {
+            foreach (int degree in new[] { 1, 2 })
+            {
+                foreach (InstallEstimationCandidatePolicy policy in Enum.GetValues<InstallEstimationCandidatePolicy>())
+                {
+                    var service = new BmsLibraryInstallEstimationService(new BmsLibraryOptionsSnapshot { InstallDestinationAutoApplyMinAudioHealth = threshold });
+                    InstallEstimationResult[] results = new[] {
+                service.EstimateInstallationDirectory(snapshot, cache, degree, ChartInstallationEstimateMode.Normal, _ => profile, candidatePolicy: policy),
+                service.EstimateInstallationDirectoryForCandidateDirectories(snapshot, [@"C:\Candidate"], cache, degree, ChartInstallationEstimateMode.Normal, _ => profile, candidatePolicy: policy),
+                service.EvaluateInstalledChartHashDestination(@"C:\Candidate", [PackageChartEntry.FromChart(chart)], _ => profile, snapshot, cache, policy) };
+                    foreach (InstallEstimationResult? result in results)
+                    {
+                        Assert.AreEqual(both ? InstallEstimationRelatedRule.BothFields : InstallEstimationRelatedRule.AnyField, result.SourceAudio.RelatedRule);
+                        Assert.AreEqual(both && policy == InstallEstimationCandidatePolicy.RelatedOnly ? 0 : 1, result.Candidates.Count);
+                        Assert.IsFalse(result.ShouldAutoApplyDestination);
+                        if (result.SelectedCandidate != null) { Assert.AreEqual(both ? InstallEstimationMetadataRelation.Unrelated : InstallEstimationMetadataRelation.Related, result.SelectedCandidate.MetadataRelation); }
+                    }
+                }
+            }
+        }
+
+        InstallEstimationResult reinstall = CreateService().EstimateInstallationDirectory(snapshot, cache, 1, ChartInstallationEstimateMode.ReinstallCorrection, _ => profile);
+        Assert.AreEqual(InstallEstimationRelatedRule.AnyField, reinstall.SourceAudio.RelatedRule);
+        Assert.AreEqual("reinstall_not_applicable", reinstall.SourceAudio.Reason);
+    }
+
     /// <summary>通常の部分列挙は観測済み資源を候補評価へ渡し、全参照が観測できれば自動確定します。未観測の参照は欠損へ変換せず、直接・共有入力と通常・ハッシュ入口の両方で確認不能理由を保ちます。</summary>
     [TestMethod]
     [DataRow(false, false)]

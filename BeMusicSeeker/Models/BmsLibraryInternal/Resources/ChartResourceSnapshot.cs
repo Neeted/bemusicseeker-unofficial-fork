@@ -29,6 +29,8 @@ internal sealed class ChartResourceSnapshot
 
     private readonly List<ChartResourceReference> resourceReferences = [];
 
+    private bool hasUnresolvedAudio;
+
     public HashSet<string> AudioRelativePaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     public HashSet<uint> AudioRelativePathHashes { get; } = [];
@@ -76,8 +78,8 @@ internal sealed class ChartResourceSnapshot
     /// <summary>使用参照に独立した <c>..</c> セグメントがあるかを返します。未使用定義のLR2診断は全原文から別に評価します。</summary>
     public bool HasUnsupportedParentTraversalReference => resourceReferences.Any(reference => reference.IsUsed && reference.Status == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported);
 
-    /// <summary>定義された使用音声に照合不能なパスがあるかを返します。未定義IDは参照へ含めません。</summary>
-    internal bool HasUnresolvedAudio => resourceReferences.Any(reference => IsUnresolved(reference) && reference.Kind == ChartResourceKind.Audio);
+    /// <summary>構築時に確定した使用音声の照合不能を返します。源側評価で重複原文を再走査せず、未定義IDは参照へ含めません。</summary>
+    internal bool HasUnresolvedAudio => hasUnresolvedAudio;
 
     /// <summary>種類を確定できないBMPも画像・動画双方の未判定理由にします。</summary>
     internal bool HasUnresolvedVisual => resourceReferences.Any(reference => IsUnresolved(reference) && reference.Kind is ChartResourceKind.Image or ChartResourceKind.Unknown);
@@ -169,6 +171,7 @@ internal sealed class ChartResourceSnapshot
     private void AddReference(ChartResourceReference reference, bool includeUnused = false)
     {
         resourceReferences.Add(reference);
+        hasUnresolvedAudio |= IsUnresolved(reference) && reference.Kind == ChartResourceKind.Audio;
         if ((!includeUnused && !reference.IsUsed)
             || reference.Status != ChartResourcePathNormalizationStatus.Valid || string.IsNullOrWhiteSpace(reference.LookupKey))
         {

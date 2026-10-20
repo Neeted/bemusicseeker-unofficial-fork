@@ -291,11 +291,14 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
     {
         InstallEstimationMetadataProfile target = PackageInstallEstimationSnapshotBuilder.BuildTargetMetadataProfile(targetEntries);
         InstallEstimationMetadataProfile profile = metadataProfileResolver?.Invoke(destinationDirectory) ?? InstallEstimationMetadataProfile.Empty;
-        InstallEstimationMetadataMatch match = new InstallEstimationMetadataMatcher(target).Evaluate(profile);
+        var sourceAudio = InstallEstimationSourceAudio.Evaluate(resourceSnapshot?.DefinedResources, resourceSnapshot?.BundledResources,
+            resourceSnapshot?.SourceSurfaceIsComplete == true, resourceSnapshot?.SourceSurfaceScanLimitExceeded == true);
+        InstallEstimationMetadataMatch match = new InstallEstimationMetadataMatcher(target, sourceAudio.RelatedRule).Evaluate(profile);
         var result = new InstallEstimationResult
         {
             PendingDirectoryLookupCache = directoryLookupCache,
             CandidatePolicy = candidatePolicy,
+            SourceAudio = sourceAudio,
             FinalEvaluationMode = InstallEstimationFinalEvaluationMode.InstalledChartHash,
             HasViableDestination = true,
             CandidateDirectoryCount = 1,
@@ -374,6 +377,12 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             CandidateEvaluationDegree = NormalizeCandidateEvaluationDegree(candidateEvaluationDegree),
             AudioAutoApplyThreshold = options.InstallDestinationAutoApplyMinAudioHealth
         };
+        bool reinstall = estimateMode == ChartInstallationEstimateMode.ReinstallCorrection;
+        result.SourceAudio = reinstall ? new(0, null, InstallEstimationSourceAudioStatus.ReinstallNotApplicable)
+            : InstallEstimationSourceAudio.Evaluate(snapshot?.DefinedResources, snapshot?.BundledResources, snapshot?.SourceSurfaceIsComplete == true,
+                snapshot?.SourceSurfaceScanLimitExceeded == true);
+        result.PendingBundledResources = reinstall ? null : snapshot?.BundledResources;
+        result.PendingBundledResourcesComplete = reinstall || snapshot?.SourceSurfaceIsComplete == true;
         if (snapshot?.RepresentativeChart == null) { result.ConfidenceReason = "input_unavailable"; return result; }
         if (directoryLookupCache == null || directoryLookupCache.Count == 0)
         {
@@ -381,13 +390,10 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             result.CandidateMode = candidateDirectoryOverride == null ? "resource_index_unavailable" : "candidate_limited_resource_index_unavailable";
             result.CoarseFilterMode = "resource_index_unavailable"; return result;
         }
-        bool reinstall = estimateMode == ChartInstallationEstimateMode.ReinstallCorrection;
         ChartResourceSnapshot resources = snapshot.DefinedResources;
         if (resources == null) { result.ConfidenceReason = "resource_references_unavailable"; return result; }
         if (resources.TotalReferenceCount == 0) { result.ConfidenceReason = "no_resource_references"; return result; }
         DirectoryResourceLookupCache.Entry bundled = reinstall ? null : snapshot.BundledResources;
-        result.PendingBundledResources = bundled;
-        result.PendingBundledResourcesComplete = reinstall || snapshot.SourceSurfaceIsComplete;
         result.TargetResourceCount = resources.TotalReferenceCount;
         result.TargetResourceHashCount = resources.EnumerateAllRelativePathHashes().Count;
         result.AudioReferenceCount = resources.AudioReferenceCount;
@@ -432,7 +438,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         }
         if (result.CandidateEvaluationDegree == 1)
         {
-            var matcher = new InstallEstimationMetadataMatcher(snapshot.TargetMetadataProfile);
+            var matcher = new InstallEstimationMetadataMatcher(snapshot.TargetMetadataProfile, result.SourceAudio.RelatedRule);
             foreach (CandidateEvaluation candidate in candidates) { Classify(candidate, matcher); }
             comparedPairs = matcher.PairComparisonCount;
         }
@@ -440,7 +446,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         {
             // 外側がパッケージ並列の場合はdegree=1。単体だけで有界な候補並列を使い、対象依存cacheはworkerごとに閉じる。
             Parallel.ForEach(candidates, new ParallelOptions { MaxDegreeOfParallelism = result.CandidateEvaluationDegree },
-                () => new InstallEstimationMetadataMatcher(snapshot.TargetMetadataProfile),
+                () => new InstallEstimationMetadataMatcher(snapshot.TargetMetadataProfile, result.SourceAudio.RelatedRule),
                 (candidate, _, matcher) => { Classify(candidate, matcher); return matcher; },
                 matcher => Interlocked.Add(ref comparedPairs, matcher.PairComparisonCount));
         }
@@ -527,7 +533,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         cache.EnsureAudioRelativeDirectoriesByHashes(resources.AudioReferences.Select(reference => reference.RelativePathHash));
         cache.EnsureImageRelativeDirectoriesByHashes(resources.VisualReferences.Concat(resources.OptionalImageReferences).Select(reference => reference.RelativePathHash));
         cache.EnsureMovieRelativeDirectoriesByHashes(resources.MovieReferences.Select(reference => reference.RelativePathHash));
-        int sAudio = CountBundled(resources.AudioReferences, bundled?.AudioRelativePathHashes);
+        int sAudio = result.SourceAudio.ObservedMatched;
         int sVisual = CountBundled(resources.VisualReferences, bundled?.ImageRelativePathHashes);
         int sMovie = CountBundled(resources.MovieReferences, bundled?.MovieRelativePathHashes);
         int sOptional = CountBundled(resources.OptionalImageReferences, bundled?.ImageRelativePathHashes);

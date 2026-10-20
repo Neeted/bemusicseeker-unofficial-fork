@@ -684,14 +684,16 @@ internal sealed class BmsLibraryPackageInstallService
     {
         List<PackageChartEntry> targets = [.. (entries ?? []).Where(entry => entry?.Chart != null)];
         bool hasDestination = targets.Any(entry => !string.IsNullOrWhiteSpace(entry.Chart.InstallDestination) || entry.Chart.InstallDestinationSuggestions.Count > 0);
-        PackageInstallSurfaceSnapshot surface = hasDestination && capturedBundled == null
-            ? package?.GetOrBuildInstallEstimationSurfaceSnapshot(out _) : null;
+        PackageInstallSurfaceSnapshot surface = capturedBundled == null ? package?.CaptureInstallEstimationSurfaceSnapshot() : null;
+        if (surface == null && hasDestination && capturedBundled == null)
+        { surface = package?.GetOrBuildInstallEstimationSurfaceSnapshot(out _); }
         // 通常失敗の観測済み資源は利用し、未観測の参照だけを未確認として扱います。
         bool bundledComplete = capturedBundled != null ? capturedBundledComplete : package == null || surface?.IsComplete == true;
         DirectoryResourceLookupCache.Entry bundled = capturedBundled ?? surface?.BundledResources;
         foreach (PackageChartEntry entry in targets)
         {
-            var placement = ChartResourcePlacement.Select(entry.Chart, bundled, cache, bundledComplete);
+            var placement = ChartResourcePlacement.Select(entry.Chart, bundled ?? entry.ResourcePlacement?.BundledResources, cache,
+                bundled != null ? bundledComplete : entry.ResourcePlacement?.BundledResourcesComplete ?? bundledComplete);
             ApplyPendingResourceHealthProjection(entry, out _, placement);
         }
     }

@@ -13,6 +13,52 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartResourceSnapshotTests
 {
+    /// <summary>未解決音声は使用中の通常音声だけで決まり、全定義取得でも未使用や別用途を混ぜません。</summary>
+    [TestMethod]
+    [DataRow(".wav", (int)ChartResourceKind.Audio, (int)ChartResourceUsage.Normal, true, true)]
+    [DataRow(@"..\tone.wav", (int)ChartResourceKind.Audio, (int)ChartResourceUsage.Normal, true, true)]
+    [DataRow("tone.wav", (int)ChartResourceKind.Audio, (int)ChartResourceUsage.Normal, true, false)]
+    [DataRow(".wav", (int)ChartResourceKind.Audio, (int)ChartResourceUsage.Normal, false, false)]
+    [DataRow(".wav", (int)ChartResourceKind.Audio, (int)ChartResourceUsage.InputDiagnostic, true, false)]
+    [DataRow(".wav", (int)ChartResourceKind.Audio, (int)ChartResourceUsage.Stagefile, true, false)]
+    [DataRow(".png", (int)ChartResourceKind.Image, (int)ChartResourceUsage.Normal, true, false)]
+    [DataRow(".mp4", (int)ChartResourceKind.Movie, (int)ChartResourceUsage.Normal, true, false)]
+    public void Create_UnresolvedAudioKeepsUsedNormalAudioBoundary(string path, int kind,
+        int usage, bool used, bool expected)
+    {
+        ChartResourceReference reference = ChartResourceReference.Parse(path, (ChartResourceKind)kind, (ChartResourceUsage)usage).WithUsage(used);
+        foreach (bool includeUnused in new[] { false, true })
+        {
+            Assert.AreEqual(expected, ChartResourceSnapshot.Create([reference], includeUnused).HasUnresolvedAudio);
+        }
+    }
+
+    /// <summary>複数譜面の同一キーを一件へ集約しても、後続譜面の使用音声の照合不能を保持します。</summary>
+    [TestMethod]
+    public void CreateAggregate_UnresolvedAudioSurvivesDuplicateKeysAcrossCharts()
+    {
+        ChartFile first = ChartTestValues.Empty() with
+        {
+            Resources = ImmutableList.Create(ChartResourceReference.Parse("tone.wav", ChartResourceKind.Audio))
+        };
+        ChartFile second = first with
+        {
+            Resources = ImmutableList.Create(ChartResourceReference.Parse("tone.ogg", ChartResourceKind.Audio),
+                ChartResourceReference.Parse(".wav", ChartResourceKind.Audio).WithUsage(false))
+        };
+        var resolved = ChartResourceSnapshot.CreateAggregate([first, second]);
+        Assert.AreEqual(1, resolved.AudioReferenceCount);
+        Assert.IsFalse(resolved.HasUnresolvedAudio);
+
+        ChartFile unresolved = second with
+        {
+            Resources = second.Resources.Add(ChartResourceReference.Parse(".wav", ChartResourceKind.Audio))
+        };
+        var aggregate = ChartResourceSnapshot.CreateAggregate([first, second, unresolved]);
+        Assert.AreEqual(1, aggregate.AudioReferenceCount);
+        Assert.IsTrue(aggregate.HasUnresolvedAudio);
+    }
+
     /// <summary>実BMS/PMSの全行から使用チャンネル・特殊ID・BASE62・同IDの全定義先を収集します。LNOBJを除外せず、未定義IDと地雷ダメージをファイルへ加えません。</summary>
     [TestMethod]
     [DataRow("bms", "")]

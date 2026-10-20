@@ -214,6 +214,16 @@ public class ChartPackage : LR2SongDBExtended.install
         }
     }
 
+    /// <summary>現在の入力パスに対応する取得済み同梱入力だけを読みます。未取得時に列挙を開始しません。</summary>
+    internal PackageInstallSurfaceSnapshot CaptureInstallEstimationSurfaceSnapshot()
+    {
+        lock (installEstimationSnapshotLock)
+        {
+            return string.Equals(packageInstallSurfaceSnapshot?.SourcePath, path ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+                ? packageInstallSurfaceSnapshot : null;
+        }
+    }
+
     private PackageChartDiscoverySnapshot GetOrBuildPackageChartDiscoverySnapshot(out bool cacheHit)
     {
         lock (installEstimationSnapshotLock)

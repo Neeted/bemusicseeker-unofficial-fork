@@ -149,13 +149,14 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     /// <summary>共通値と導入状態を同じ時点で捕捉したdetached項目を作ります。</summary>
     internal PackageChartEntry ToChartEntrySnapshot()
     {
-        ChartFile currentChart = Chart;
-        if (currentChart == null)
+        lock (mutationGate)
         {
-            return null;
+            ChartFile currentChart = Chart;
+            if (currentChart == null) { return null; }
+            PackageChartEntry snapshot = FromChart(currentChart);
+            snapshot.ResourcePlacement = ResourcePlacement;
+            return snapshot;
         }
-
-        return FromChart(currentChart);
     }
 
     /// <summary>項目の共通対象を、所持tokenまたは従来の形式・物理パス条件で比較します。</summary>

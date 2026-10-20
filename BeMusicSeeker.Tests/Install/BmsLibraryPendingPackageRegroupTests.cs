@@ -16,6 +16,201 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryPendingPackageRegroupTests
 {
+    /// <summary>単独ファイルのOR確定表示を再編成で引き継ぎ、その後の明示選択は新ディレクトリ群の捕捉済み90%と同一ペアANDを使います。</summary>
+    [TestMethod]
+    public void TryRegroup_NewDirectorySourceKeepsFinalizedDisplayThenUsesCapturedGroupRule()
+    {
+        WithTemporaryLibrary((root, db, library) =>
+        {
+            string source = Path.Combine(root, "Pending");
+            string destination = Path.Combine(root, "Installed");
+            string firstRequirements = string.Join("", Enumerable.Range(1, 9).Select(i => $"#WAV{i:D2} tone{i}.wav\n"))
+                + "#00111:010203040506070809\n";
+            string firstPath = CreateBmsFileWithContents(source, "first.bms", "#TITLE abc\n#ARTIST abc\n" + firstRequirements);
+            string secondPath = CreateBmsFileWithContents(source, "second.bms", "#TITLE abc\n#ARTIST abc\n#WAV01 tone10.wav\n#00111:01\n");
+            library.BmsCharts = [
+                ReadChart(CreateBmsFileWithContents(destination, "a.bms", "#TITLE abc\n#ARTIST xyz\n")),
+                ReadChart(CreateBmsFileWithContents(destination, "b.bms", "#TITLE abd\n#ARTIST abe\n"))];
+            foreach (int i in Enumerable.Range(1, 10))
+            {
+                File.WriteAllText(Path.Combine(destination, $"tone{i}.ogg"), "audio");
+                if (i <= 9) { File.WriteAllText(Path.Combine(source, $"tone{i}.ogg"), "audio"); }
+            }
+            SetLibraryResourceIndex(library, BuildDirectoryLookupCache(destination));
+            ChartPackage[] packages = new[] { firstPath, secondPath }.Select(path =>
+            {
+                var package = ChartPackage.FromChartEntries([PackageChartEntry.FromPath(path)]);
+                package.path = path;
+                package.delete_parent = false;
+                return package;
+            }).ToArray();
+            SeedPendingPackages(library, db, packages);
+            // 単独ファイルでは親の音源を持ち込まないため、元の操作はORの片側一致ペアを使います。
+            foreach (ChartPackage package in packages)
+            {
+                library.SearchEstimatedInstallationDirectory(package);
+                PackageChartEntry entry = package.ChartEntries.Single();
+                Assert.AreEqual("abc", entry.Chart.InstallDestinationTitle);
+                Assert.IsTrue(library.SetPendingInstallDestination(entry, destination));
+            }
+            InvokeRegroupForSourceDirectories(library, source);
+            ChartPackage regrouped = AssertRegroupedPendingPackage(library, source, destination, expectedFileCount: 2);
+            Assert.IsTrue(regrouped.ChartEntries.All(entry => entry.Chart.InstallDestinationTitle == "abc"));
+            Assert.IsTrue(regrouped.ChartEntries.All(entry => entry.Chart.WAVHealth == 100));
+            // 新しいdirectoryの同梱は群で9/10。後の物理変更を、取得済み入力の暗黙再走査で取り込みません。
+            File.Delete(Path.Combine(source, "tone9.ogg"));
+            Assert.IsTrue(library.SetPendingInstallDestination(regrouped.ChartEntries[0], destination));
+            Assert.IsTrue(regrouped.ChartEntries.All(entry => entry.Chart.InstallDestinationTitle == "abd"
+                && entry.Chart.InstallDestinationArtist == "abe"));
+        });
+    }
+
+
+    /// <summary>同じ群で捕捉時点が異なる同梱入力を先頭一件で代表せず、不明Anyとして明示指定を受理します。</summary>
+    [TestMethod]
+    public void SelectDestination_DifferentCapturedSourceContextsAreUnverifiable()
+    {
+        WithTemporaryLibrary((root, db, library) =>
+        {
+            string source = Path.Combine(root, "Pending");
+            string destination = Path.Combine(root, "Installed");
+            string[] names = [.. Enumerable.Range(0, 10).Select(i => $"tone{i}.wav")];
+            PackageChartEntry[] entries = Enumerable.Range(0, 2).Select(i =>
+            {
+                ChartFile chart = ReadChart(CreateBmsFileWithContents(source, $"target{i}.bms", "#TITLE abc\n#ARTIST abc\n"))
+                    with
+                { Resources = TestChartResources.Create(names) };
+                var entry = PackageChartEntry.FromChart(chart);
+                var bundled = new DirectoryResourceLookupCache.Entry(entry.ResourceSnapshot.AudioReferences.Take(9 - i).Select(r => r.RelativePathHash), [], []);
+                entry.ReplaceResourceHealthProjection(null, [], new ChartResourcePlacement(ChartResourcePlacementBasis.Current, source, bundled));
+                return entry;
+            }).ToArray();
+            var package = ChartPackage.FromChartEntries(entries);
+            package.path = source;
+            library.BmsCharts = [
+                ReadChart(CreateBmsFileWithContents(destination, "a.bms", "#TITLE abc\n#ARTIST xyz\n")),
+                ReadChart(CreateBmsFileWithContents(destination, "b.bms", "#TITLE abd\n#ARTIST abe\n"))];
+            SeedPendingPackages(library, db, package);
+            Assert.IsTrue(library.SetPendingInstallDestination(entries[0], destination));
+            Assert.IsTrue(entries.All(entry => entry.Chart.InstallDestinationTitle == "abc"));
+        });
+    }
+
+    /// <summary>同一バッチの89%と90%を別々に分類し、候補0件でCurrentになった項目も捕捉済み源側を失いません。</summary>
+    [TestMethod]
+    public void SearchBatch_UsesIndependentSourceRulesAndRetainsCurrentContext()
+    {
+        WithTemporaryLibrary((root, db, library) =>
+        {
+            string destination = Path.Combine(root, "Installed");
+            library.BmsCharts = [ReadChart(CreateBmsFileWithContents(destination, "candidate.bms", "#TITLE xyz\n#ARTIST abc\n"))];
+            string[] names = [.. Enumerable.Range(0, 100).Select(i => $"tone{i}.wav")];
+            foreach (string name in names) { File.WriteAllText(Path.Combine(destination, name), "audio"); }
+            SetLibraryResourceIndex(library, BuildDirectoryLookupCache(destination));
+            ChartPackage[] packages = Enumerable.Range(89, 2).Select(supplied =>
+            {
+                string source = Path.Combine(root, "Pending" + supplied);
+                ChartFile chart = ReadChart(CreateBmsFileWithContents(source, "target.bms", "#TITLE abc\n#ARTIST abc\n"))
+                    with
+                { Resources = TestChartResources.Create(names) };
+                foreach (string name in names.Take(supplied)) { File.WriteAllText(Path.Combine(source, name), "audio"); }
+                var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
+                package.path = source;
+                return package;
+            }).ToArray();
+            SeedPendingPackages(library, db, packages);
+            library.SearchEstimatedInstallationDirectory(packages);
+            for (int index = 0; index < packages.Length; index++)
+            {
+                PackageChartEntry entry = packages[index].ChartEntries.Single();
+                Assert.AreEqual(index == 0 ? 1 : 0, entry.Chart.InstallDestinationSuggestions.Count);
+                Assert.AreEqual(index == 0 ? "xyz" : string.Empty, entry.Chart.InstallDestinationTitle);
+                PackageChartEntry detached = entry.ToChartEntrySnapshot();
+                var audio = InstallEstimationSourceAudio.Evaluate(detached.ResourceSnapshot, detached.ResourcePlacement.BundledResources, detached.ResourcePlacement.BundledResourcesComplete);
+                Assert.AreEqual(index == 0 ? InstallEstimationRelatedRule.AnyField : InstallEstimationRelatedRule.BothFields, audio.RelatedRule);
+                Assert.IsFalse(entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
+                packages[index].InvalidateInstallEstimationSnapshot();
+                foreach (string name in names) { File.WriteAllText(Path.Combine(packages[index].path, name), "later"); }
+                Assert.IsTrue(library.SetPendingInstallDestination(entry, destination));
+                Assert.IsNull(packages[index].CaptureInstallEstimationSurfaceSnapshot(), "捕捉済みのバッチ入力を手動表示と健康度へ共用し、追加列挙しません。");
+                Assert.AreEqual(index == 0 ? InstallEstimationRelatedRule.AnyField : InstallEstimationRelatedRule.BothFields,
+                    InstallEstimationSourceAudio.Evaluate(entry.ResourceSnapshot, entry.ResourcePlacement.BundledResources, entry.ResourcePlacement.BundledResourcesComplete).RelatedRule);
+            }
+        });
+    }
+
+    /// <summary>源側80/90%の表示根拠を推定・選択・空編集・再選択で維持し、配置先込み100%や入力元の後続変更から逆算しません。</summary>
+    [DataTestMethod]
+    [DataRow(8, "abc")]
+    [DataRow(9, "abd")]
+    public void SelectDestination_UsesCapturedSourceRuleAcrossEditingAndExplicitReestimation(int supplied, string expectedTitle)
+    {
+        WithTemporaryLibrary((root, db, library) =>
+        {
+            string source = Path.Combine(root, "Pending");
+            string destination = Path.Combine(root, "Installed");
+            string requirements = string.Join("", Enumerable.Range(1, 10).Select(i => $"#WAV{i:D2} tone{i}.wav\n"))
+                + "#00111:01020304050607080910\n";
+            var entry = PackageChartEntry.FromPath(CreateBmsFileWithContents(source, "target.bms", "#TITLE abc\n#ARTIST abc\n" + requirements));
+            var package = ChartPackage.FromChartEntries([entry]);
+            package.path = source;
+            library.BmsCharts = [
+                ReadChart(CreateBmsFileWithContents(destination, "a.bms", "#TITLE abc\n#ARTIST xyz\n")),
+                ReadChart(CreateBmsFileWithContents(destination, "b.bms", "#TITLE abd\n#ARTIST abe\n"))];
+            foreach (int i in Enumerable.Range(1, 10))
+            {
+                File.WriteAllText(Path.Combine(destination, $"tone{i}.ogg"), "audio");
+                if (i <= supplied) { File.WriteAllText(Path.Combine(source, $"tone{i}.ogg"), "audio"); }
+            }
+            SetLibraryResourceIndex(library, BuildDirectoryLookupCache(destination));
+            SeedPendingPackages(library, db, package);
+            library.SearchEstimatedInstallationDirectory(package);
+            Assert.AreEqual(expectedTitle, entry.Chart.InstallDestinationTitle);
+            Assert.AreEqual(100, entry.Chart.WAVHealth);
+            // 捕捉後にFSを変えても、手動表示のために入力元を再列挙しません。
+            foreach (int i in Enumerable.Range(1, 10)) { File.WriteAllText(Path.Combine(source, $"tone{i}.ogg"), "later"); }
+            Assert.IsTrue(library.SetPendingInstallDestination(entry, destination));
+            Assert.AreEqual(expectedTitle, entry.Chart.InstallDestinationTitle);
+            Assert.IsTrue(library.SetPendingInstallDestination(entry, string.Empty));
+            Assert.IsTrue(library.SetPendingInstallDestination(entry, destination));
+            Assert.AreEqual(expectedTitle, entry.Chart.InstallDestinationTitle);
+            // 明示クリアでCurrentへ戻った後、detached要求境界でも同じ源側評価を再現できます。
+            library.RemoveInstallDestination([entry], package);
+            Assert.AreEqual(ChartResourcePlacementBasis.Current, entry.ResourcePlacement.Basis);
+            PackageChartEntry detached = entry.ToChartEntrySnapshot();
+            var sourceAudio = InstallEstimationSourceAudio.Evaluate(detached.ResourceSnapshot,
+                detached.ResourcePlacement.BundledResources, detached.ResourcePlacement.BundledResourcesComplete);
+            Assert.AreEqual(supplied == 9 ? InstallEstimationRelatedRule.BothFields : InstallEstimationRelatedRule.AnyField, sourceAudio.RelatedRule);
+            Assert.IsTrue(library.SetPendingInstallDestination(detached, destination));
+            Assert.AreEqual(expectedTitle, entry.Chart.InstallDestinationTitle);
+            library.RemoveInstallDestination([entry], package);
+            package.InvalidateInstallEstimationSnapshot();
+            library.SearchEstimatedInstallationDirectory(package);
+            Assert.AreEqual("abd", entry.Chart.InstallDestinationTitle);
+        });
+    }
+
+    /// <summary>未推定の手入力は源側不明でも受理し、表示照合のために隠れた入力元取得を始めません。</summary>
+    [TestMethod]
+    public void SelectDestination_UncapturedSourceUsesAnyFieldAndAcceptsExplicitPath()
+    {
+        WithTemporaryLibrary((root, db, library) =>
+        {
+            string source = Path.Combine(root, "Pending");
+            string destination = Path.Combine(root, "Installed");
+            var entry = PackageChartEntry.FromPath(CreateBmsFileWithContents(source, "target.bms", "#TITLE abc\n#ARTIST abc\n#WAV01 tone.wav\n#00111:01\n"));
+            File.WriteAllText(Path.Combine(source, "tone.ogg"), "audio");
+            var package = ChartPackage.FromChartEntries([entry]);
+            package.path = source;
+            library.BmsCharts = [
+                ReadChart(CreateBmsFileWithContents(destination, "a.bms", "#TITLE abc\n#ARTIST xyz\n")),
+                ReadChart(CreateBmsFileWithContents(destination, "b.bms", "#TITLE abd\n#ARTIST abe\n"))];
+            SeedPendingPackages(library, db, package);
+            Assert.IsNull(package.CaptureInstallEstimationSurfaceSnapshot());
+            Assert.IsTrue(library.SetPendingInstallDestination(entry, destination));
+            Assert.AreEqual("abc", entry.Chart.InstallDestinationTitle);
+        });
+    }
     /// <summary>手動編集は解決済みのパッケージ同梱を使い、パッケージクリアは対象の現在配置へ戻します。別の保留パッケージや通常所持の投影は変更しません。</summary>
     [TestMethod]
     public void SetAndClearPendingInstallDestination_RefreshesResolvedPackagePlacement()

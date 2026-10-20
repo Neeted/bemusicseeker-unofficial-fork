@@ -103,7 +103,8 @@ internal sealed class PackageInstallEstimationSnapshot
 
     public InstallEstimationMetadataProfile TargetMetadataProfile { get; set; } = InstallEstimationMetadataProfile.Empty;
 
-    public DirectoryResourceLookupCache.Entry BundledResources { get; set; } = new DirectoryResourceLookupCache.Entry();
+    /// <summary>捕捉済み同梱索引です。未捕捉のnullと既知の空索引を区別します。</summary>
+    public DirectoryResourceLookupCache.Entry BundledResources { get; set; }
 
     public DirectoryResourceLookupCache.Entry SourceCandidateResources { get; set; } = new DirectoryResourceLookupCache.Entry();
 
@@ -143,6 +144,44 @@ internal sealed class PackageInstallEstimationSnapshot
     public int SourceSurfaceMaxVisitedFileSystemEntryCount { get; set; }
 }
 
+/// <summary>入力元だけの確認状態です。未取得・既知0件・観測下限を区別します。</summary>
+internal enum InstallEstimationSourceAudioStatus { Unverifiable, NoAudioReferences, Verified, LowerBound, ReinstallNotApplicable }
+
+/// <summary>候補に依存しない同梱一致の観測結果です。同じ件数を候補の和集合集計へ再利用します。</summary>
+internal readonly record struct InstallEstimationSourceAudio(int ObservedMatched, int? Required, InstallEstimationSourceAudioStatus Status)
+{
+    /// <summary>確定した要求の観測下限で90%以上を証明した場合だけ、両項目一致を要求します。</summary>
+    internal InstallEstimationRelatedRule RelatedRule { get; } = Status is InstallEstimationSourceAudioStatus.Verified or InstallEstimationSourceAudioStatus.LowerBound
+        && Required > 0 && 100L * ObservedMatched >= 90L * Required.Value
+        ? InstallEstimationRelatedRule.BothFields : InstallEstimationRelatedRule.AnyField;
+
+    /// <summary>率未定義の状態を0%や100%へ変換しない、操作内の診断理由です。</summary>
+    internal string Reason => Status switch
+    {
+        InstallEstimationSourceAudioStatus.NoAudioReferences => "no_audio_references",
+        InstallEstimationSourceAudioStatus.ReinstallNotApplicable => "reinstall_not_applicable",
+        InstallEstimationSourceAudioStatus.Verified => RelatedRule == InstallEstimationRelatedRule.BothFields ? "source_audio_at_least_90" : "source_audio_below_90",
+        InstallEstimationSourceAudioStatus.LowerBound when RelatedRule == InstallEstimationRelatedRule.BothFields => "source_audio_lower_bound_at_least_90",
+        _ => "source_audio_unverifiable"
+    };
+
+    /// <summary>率を捏造せず、通常候補とハッシュ候補の同じ診断へ入力状態を渡します。</summary>
+    internal string ToSummary() => $"sourceAudioObservedMatched={ObservedMatched} sourceAudioRequired={Required?.ToString() ?? "unknown"} sourceAudioStatus={Status} relatedRule={RelatedRule} relatedRuleReason={Reason}";
+
+    /// <summary>捕捉済み要求と同梱だけを一回照合します。確認不能でも観測数を保持し、物理I/Oを行いません。</summary>
+    internal static InstallEstimationSourceAudio Evaluate(ChartResourceSnapshot resources, DirectoryResourceLookupCache.Entry bundled, bool complete, bool scanLimitExceeded = false)
+    {
+        ISet<uint> supplied = bundled?.AudioRelativePathHashes;
+        int observed = supplied == null || resources == null ? 0 : resources.AudioReferences.Count(reference => supplied.Contains(reference.RelativePathHash));
+        bool unresolved = resources?.HasUnresolvedAudio == true;
+        if (resources == null || unresolved || scanLimitExceeded)
+        { return new(observed, resources == null || unresolved ? null : resources.AudioReferenceCount, InstallEstimationSourceAudioStatus.Unverifiable); }
+        if (resources.AudioReferenceCount == 0) { return new(observed, 0, InstallEstimationSourceAudioStatus.NoAudioReferences); }
+        return new(observed, resources.AudioReferenceCount, bundled == null ? InstallEstimationSourceAudioStatus.Unverifiable
+            : complete || observed == resources.AudioReferenceCount ? InstallEstimationSourceAudioStatus.Verified : InstallEstimationSourceAudioStatus.LowerBound);
+    }
+}
+
 internal static class PackageInstallEstimationSnapshotBuilder
 {
     internal const int DefaultSourceSurfaceMaxVisitedFileSystemEntries = 50000;
@@ -157,7 +196,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
             DefinedResources = definedResources ?? ChartResourceSnapshot.CreateAggregate(normalizedTargetEntries.Select(entry => entry.Chart)),
             TargetMetadataProfile = BuildTargetMetadataProfile(normalizedTargetEntries),
             TargetChartResources = normalizedTargetEntries.Select(entry => ChartResourceSnapshot.Create(entry.Chart)).ToArray(),
-            BundledResources = installSurfaceSnapshot?.BundledResources?.Clone() ?? new DirectoryResourceLookupCache.Entry(),
+            BundledResources = installSurfaceSnapshot?.BundledResources?.Clone(),
             SourceCandidateResources = installSurfaceSnapshot?.SourceCandidateResources?.Clone() ?? new DirectoryResourceLookupCache.Entry(),
             SourceDirectory = installSurfaceSnapshot?.SourceDirectory ?? ResolveSourceDirectory(package?.path),
             ChartCount = normalizedTargetEntries.Count,

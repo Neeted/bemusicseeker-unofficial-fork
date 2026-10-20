@@ -161,7 +161,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
     }
 
-    /// <summary>音源完全な実混在取り込みでも既知ハッシュ候補を評価します。未所持群だけの最頻ペアで一意先のStrong可否を判定し、同点は限定集合を維持して候補外の強一致先へ迂回しません。</summary>
+    /// <summary>音源完全な実混在取り込みでも既知ハッシュ候補を評価します。源側100%では片側一致候補と候補由来の表示・警告を残さず、Strongと同点限定集合の成功・範囲を維持します。</summary>
     /// <remarks>本番ownerの受理からidleまでを通し、一意先は同梱だけに音源を用意します。同点は候補自身の既存最低一致条件も満たし、詳細条件表は下位・手動入口の既存系列へ分担します。</remarks>
     [TestMethod]
     [DataRow(true, false)]
@@ -256,12 +256,12 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             foreach (PackageChartEntry entry in missing)
             {
                 Assert.AreEqual(strong ? candidate : string.Empty, entry.Chart.InstallDestination ?? string.Empty);
-                Assert.AreEqual(strong ? "Song" : "Other", entry.Chart.InstallDestinationTitle);
-                Assert.AreEqual("Artist", entry.Chart.InstallDestinationArtist);
-                Assert.AreEqual(!strong, entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
+                Assert.AreEqual(strong ? "Song" : string.Empty, entry.Chart.InstallDestinationTitle);
+                Assert.AreEqual(strong ? "Artist" : string.Empty, entry.Chart.InstallDestinationArtist);
+                Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
                 Assert.AreEqual(tied, entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous));
                 Assert.IsFalse(entry.Chart.InstallDestinationSuggestions.Contains(outside));
-                if (!strong) { CollectionAssert.AreEqual(new[] { candidate }, entry.Chart.InstallDestinationSuggestions.ToArray()); }
+                if (!strong) { Assert.AreEqual(0, entry.Chart.InstallDestinationSuggestions.Count); }
                 if (tied) { CollectionAssert.AreEqual(new[] { candidate, second }, entry.Chart.InstallDestinationSuggestions.ToArray()); }
                 Assert.IsFalse(entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
             }

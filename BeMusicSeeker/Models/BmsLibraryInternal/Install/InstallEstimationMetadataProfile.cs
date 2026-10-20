@@ -38,7 +38,7 @@ internal enum InstallEstimationMetadataRelation
     Unavailable,
     /// <summary>比較材料はありますが、関連性の条件を満たしません。</summary>
     Unrelated,
-    /// <summary>候補の実在ペアでTITLEまたはARTISTのDiceが0.50以上です。</summary>
+    /// <summary>候補の実在ペアが、源側入力で選んだ片方または両方のDice 0.50条件を満たします。</summary>
     Related,
     /// <summary>両最頻ペアのARTISTが同値で、非空TITLEのDiceが0.72以上です。</summary>
     Strong
@@ -50,17 +50,23 @@ internal sealed record InstallEstimationMetadataPair(string Title, string Artist
 /// <summary>分類と表示根拠は同じ比較結果から取得します。</summary>
 internal sealed record InstallEstimationMetadataMatch(InstallEstimationMetadataRelation Relation, string DisplayTitle, string DisplayArtist, double TitleSimilarity, double ArtistSimilarity);
 
-/// <summary>対象の2-gramと文字列ごとの比較結果を一操作で再利用します。対象依存の結果は永続化しません。</summary>
+/// <summary>Relatedに必要な実在ペア内の一致条件です。Strongには影響しません。</summary>
+internal enum InstallEstimationRelatedRule { AnyField, BothFields }
+
+/// <summary>対象の2-gramと比較結果を操作・ワーカー内で再利用し、明示したRelated規則を適用します。</summary>
 internal sealed class InstallEstimationMetadataMatcher
 {
     private readonly InstallEstimationMetadataProfile target;
+    private readonly InstallEstimationRelatedRule relatedRule;
     private readonly Dictionary<string, double> titleSimilarities = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> artistSimilarities = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> titleGrams;
     private readonly Dictionary<string, int> artistGrams;
 
-    internal InstallEstimationMetadataMatcher(InstallEstimationMetadataProfile target)
+    /// <summary>対象とRelated規則を固定し、Strongは従来条件で評価します。</summary>
+    internal InstallEstimationMetadataMatcher(InstallEstimationMetadataProfile target, InstallEstimationRelatedRule relatedRule)
     {
+        this.relatedRule = relatedRule;
         this.target = target ?? InstallEstimationMetadataProfile.Empty;
         titleGrams = InstallEstimationMetadataNormalizer.BuildBigramCounts(this.target.DominantNormalizedTitle);
         artistGrams = InstallEstimationMetadataNormalizer.BuildBigramCounts(this.target.DominantNormalizedArtist);
@@ -92,7 +98,7 @@ internal sealed class InstallEstimationMetadataMatcher
         {
             PairComparisonCount++;
             double t = Similarity(pair.Title, true), a = Similarity(pair.Artist, false);
-            if (t < 0.50 && a < 0.50) { continue; }
+            if (relatedRule == InstallEstimationRelatedRule.BothFields ? t < 0.50 || a < 0.50 : t < 0.50 && a < 0.50) { continue; }
             int compare = Math.Max(t, a).CompareTo(Math.Max(bestTitle, bestArtist));
             if (compare == 0) { compare = t.CompareTo(bestTitle); }
             if (compare == 0) { compare = a.CompareTo(bestArtist); }
@@ -208,7 +214,7 @@ internal static class InstallEstimationMetadataNormalizer
     /// <summary>両側の非空TITLE、空許容ARTISTの同値、TITLEのDice係数0.72以上を唯一の強一致条件とします。</summary>
     internal static bool IsStrongMatch(InstallEstimationMetadataProfile target, InstallEstimationMetadataProfile candidate)
     {
-        return new InstallEstimationMetadataMatcher(target).Evaluate(candidate).Relation == InstallEstimationMetadataRelation.Strong;
+        return new InstallEstimationMetadataMatcher(target, InstallEstimationRelatedRule.AnyField).Evaluate(candidate).Relation == InstallEstimationMetadataRelation.Strong;
     }
 
     /// <summary>非空TITLEと空許容ARTISTの実在ペアを集計し、最多・パス順・入力順で同一レコードの比較キーと表示を選びます。</summary>

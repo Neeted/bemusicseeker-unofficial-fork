@@ -5,7 +5,7 @@
 | 判断 | 適用範囲 |
 | --- | --- |
 | [ライブラリ変更の操作単位化](library-mutation-session.md) | 成功依存、DB反映の粒度、限定補償。 |
-| [導入先推定のメタデータ照合](install-estimation-metadata-matching.md) | 正規化、Strong/Relatedと実在ペア、関連性優先・同梱補完・各譜面音源閾値、逆引き集計を採用する理由と事前実験の限界。 |
+| [導入先推定のメタデータ照合](install-estimation-metadata-matching.md) | 正規化、Strong/Relatedと実在ペア、持込み使用音源90%での条件切り替え、関連性優先・同梱補完・各譜面音源閾値、逆引き集計を採用する理由と事前実験の限界。 |
 | [LR2楽曲DBの一括再生成](lr2-song-db-one-shot-reconciliation.md) | 完全な入力、保存済み途中位置を再開に使わない理由。 |
 | [Everythingの種別別検索](everything-query-boundary.md) | 外部検索の候補生成を暗黙の前提にしない理由。 |
 | [ManagedBassの採用](managedbass-adoption.md) | ラッパーとネイティブDLLの責務、配布条件。 |

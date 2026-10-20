@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -7,6 +8,40 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class InstallEstimationMetadataNormalizerTests
 {
+    /// <summary>片側一致・両側一致・Strongの境界を規則別に確認し、空作者Strongも維持します。</summary>
+    [DataTestMethod]
+    [DataRow("abc", "xxx", "abd", "yyy", false, false)]
+    [DataRow("xxx", "abc", "yyy", "abd", false, false)]
+    [DataRow("abc", "abc", "abd", "abd", true, false)]
+    [DataRow("abc", "", "abc", "", true, true)]
+    [DataRow("abcdefghijklmnopqrs", "X", "abcdefghijklmnopqrstuvwxyz0123456", "X", true, true)]
+    public void Classify_RelatedRuleUsesSamePairAndPreservesStrong(string title, string artist, string candidateTitle, string candidateArtist, bool both, bool strong)
+    {
+        InstallEstimationMetadataProfile target = InstallEstimationMetadataNormalizer.BuildProfile([(title, artist, "target")]);
+        InstallEstimationMetadataProfile candidate = InstallEstimationMetadataNormalizer.BuildProfile([(candidateTitle, candidateArtist, "candidate")]);
+        foreach (InstallEstimationRelatedRule rule in Enum.GetValues<InstallEstimationRelatedRule>())
+        {
+            InstallEstimationMetadataMatch result = new InstallEstimationMetadataMatcher(target, rule).Evaluate(candidate);
+            Assert.AreEqual(strong ? InstallEstimationMetadataRelation.Strong : both || rule == InstallEstimationRelatedRule.AnyField
+                ? InstallEstimationMetadataRelation.Related : InstallEstimationMetadataRelation.Unrelated, result.Relation);
+        }
+    }
+
+    /// <summary>別ペアの片側最高値を合成せず、ANDでは成立した同一ペアだけから表示根拠を選びます。</summary>
+    [TestMethod]
+    public void Classify_BothFieldsExcludesSplitEvidenceAndSelectsQualifiedDisplay()
+    {
+        InstallEstimationMetadataProfile target = InstallEstimationMetadataNormalizer.BuildProfile([("abc", "abc", "target")]);
+        InstallEstimationMetadataProfile candidate = InstallEstimationMetadataNormalizer.BuildProfile([("abc", "xyz", "a"), ("xyz", "abc", "b")]);
+        Assert.AreEqual(InstallEstimationMetadataRelation.Unrelated, new InstallEstimationMetadataMatcher(target, InstallEstimationRelatedRule.BothFields).Evaluate(candidate).Relation);
+        candidate = InstallEstimationMetadataNormalizer.BuildProfile([("abc", "xyz", "a"), ("abd", "abe", "b")]);
+        Assert.AreEqual("abc", new InstallEstimationMetadataMatcher(target, InstallEstimationRelatedRule.AnyField).Evaluate(candidate).DisplayTitle);
+        InstallEstimationMetadataMatch both = new InstallEstimationMetadataMatcher(target, InstallEstimationRelatedRule.BothFields).Evaluate(candidate);
+        Assert.AreEqual(InstallEstimationMetadataRelation.Related, both.Relation);
+        Assert.AreEqual("abd", both.DisplayTitle);
+        Assert.AreEqual("abe", both.DisplayArtist);
+    }
+
     /// <summary>最後の区切り群・MIX終端・先頭保護を生TITLEへ一度だけ適用し、同じ小文字化前表記を表示に使う。</summary>
     [DataTestMethod]
     [DataRow("Ark (remix/5keys)", "Ark (remix")]
@@ -316,20 +351,22 @@ public sealed class InstallEstimationMetadataNormalizerTests
     {
         InstallEstimationMetadataProfile target = InstallEstimationMetadataNormalizer.BuildProfile([(title, artist, "target")]);
         InstallEstimationMetadataProfile candidate = InstallEstimationMetadataNormalizer.BuildProfile([(candidateTitle, candidateArtist, "candidate")]);
-        InstallEstimationMetadataMatch result = new InstallEstimationMetadataMatcher(target).Evaluate(candidate);
+        InstallEstimationMetadataMatch result = new InstallEstimationMetadataMatcher(target, InstallEstimationRelatedRule.AnyField).Evaluate(candidate);
         Assert.AreEqual((InstallEstimationMetadataRelation)expected, result.Relation);
     }
 
     /// <summary>最頻以外の完全一致はRelated止まりとし、1,000番目の実在ペアも省略せず候補側の表示を返します。</summary>
-    [TestMethod]
-    public void Classify_UsesAllUniquePairsAndKeepsMinorityExactMatchRelated()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Classify_UsesAllUniquePairsAndKeepsMinorityExactMatchRelated(bool both)
     {
         var records = System.Linq.Enumerable.Range(0, 999).Select(i => ("曲" + i, "作者" + i, "a" + i)).ToList();
         records.Insert(0, records[0]);
         records.Add(("Matched Title", "MATCHED ARTIST", "z"));
         InstallEstimationMetadataProfile target = InstallEstimationMetadataNormalizer.BuildProfile([("matched title", "matched artist", "target")]);
         InstallEstimationMetadataProfile candidate = InstallEstimationMetadataNormalizer.BuildProfile(records);
-        InstallEstimationMetadataMatch result = new InstallEstimationMetadataMatcher(target).Evaluate(candidate);
+        InstallEstimationMetadataMatch result = new InstallEstimationMetadataMatcher(target, both ? InstallEstimationRelatedRule.BothFields : InstallEstimationRelatedRule.AnyField).Evaluate(candidate);
         Assert.AreEqual(1000, candidate.Pairs.Count);
         Assert.AreEqual(InstallEstimationMetadataRelation.Related, result.Relation);
         Assert.AreEqual("Matched Title", result.DisplayTitle);
@@ -344,15 +381,15 @@ public sealed class InstallEstimationMetadataNormalizerTests
         (string, string, string)[] records = [("abd", "abc", "b"), ("abc", "xyz", "a")];
         foreach ((string, string, string)[]? source in new[] { records, records.Reverse().ToArray() })
         {
-            InstallEstimationMetadataMatch result = new InstallEstimationMetadataMatcher(target).Evaluate(InstallEstimationMetadataNormalizer.BuildProfile(source));
+            InstallEstimationMetadataMatch result = new InstallEstimationMetadataMatcher(target, InstallEstimationRelatedRule.AnyField).Evaluate(InstallEstimationMetadataNormalizer.BuildProfile(source));
             Assert.AreEqual(InstallEstimationMetadataRelation.Related, result.Relation);
             Assert.AreEqual("abc", result.DisplayTitle);
             Assert.AreEqual("xyz", result.DisplayArtist);
         }
-        InstallEstimationMetadataMatch tied = new InstallEstimationMetadataMatcher(target).Evaluate(InstallEstimationMetadataNormalizer.BuildProfile([
+        InstallEstimationMetadataMatch tied = new InstallEstimationMetadataMatcher(target, InstallEstimationRelatedRule.AnyField).Evaluate(InstallEstimationMetadataNormalizer.BuildProfile([
             ("abd", "abc", "B"), ("abe", "abc", "A")]));
         Assert.AreEqual("abe", tied.DisplayTitle);
-        InstallEstimationMetadataMatch inputTied = new InstallEstimationMetadataMatcher(target).Evaluate(InstallEstimationMetadataNormalizer.BuildProfile([
+        InstallEstimationMetadataMatch inputTied = new InstallEstimationMetadataMatcher(target, InstallEstimationRelatedRule.AnyField).Evaluate(InstallEstimationMetadataNormalizer.BuildProfile([
             ("abd", "abc", "A"), ("abe", "abc", "a")]));
         Assert.AreEqual("abd", inputTied.DisplayTitle);
     }

@@ -977,7 +977,7 @@ For example, a differential chart by itself is typically added to `Pending` with
 | INSTL DST TITLE / ARTIST | Title–artist pair representing the destination folder |
 | WARNING | Missing resources, ambiguous candidates, unconfirmed title–artist matches, and similar issues |
 
-`INSTL DST TITLE` and `INSTL DST ARTIST` show the most frequent pair among charts with both values present, after removing subtitles and chart-author annotations. Destination estimation compares this pair, as well as title and artist information individually, with the pending charts’ information alongside resource matching. Both columns are blank when no chart has both values. When the destination is still unset, the displayed pair belongs to the first candidate. If a title–artist pair is unavailable on either side, the candidates are shown and the destination is left for manual confirmation.
+`INSTL DST TITLE` and `INSTL DST ARTIST` show the title and artist from the same chart that supports the match, after removing subtitles and chart-author annotations. Strong matches show the candidate folder’s most frequent pair; other related candidates show a pair that meets the similarity conditions. The artist may be blank. When the destination is still unset, the displayed pair belongs to the first candidate. Both columns are blank when there is no displayed candidate or valid title.
 
 `WARNING` shows a `[type count] label` summary; hover for details. Several missing-resource types can share one label. Resource shortages in pending packages remain in the summary after a destination is set.
 
@@ -1009,7 +1009,9 @@ You can enter an owned chart's full path or its containing directory. Full paths
 
 Use `Install` → `Estimate install destination` for both additional charts and packages containing only already-owned charts. It compares how many files used by the charts will be available after combining bundled resources with each candidate folder. When combined coverage is equal, candidates with more matching files of their own rank higher.
 
-Automatic confirmation of `INSTL DST` requires a strong TITLE / ARTIST match and all used audio files to be available from the package and candidate together. If audio is missing, you can still inspect and select a candidate manually. Missing images or videos alone do not prevent automatic confirmation. Enabling automatic selection among multiple candidates keeps the same audio requirement.
+When the bundled files alone verifiably cover at least 90% of the used audio, candidates are retained if TITLE / ARTIST match strongly or both the title and artist of the same chart are similar. Otherwise, similarity in either field is sufficient. This 90% uses audio brought in by the package before adding the destination, so it can differ from the displayed `WAV` value. If renamed titles or artists leave no suitable candidates, use `Estimate installation location (keep unrelated candidates)` to inspect candidates by their resource matches.
+
+Automatic confirmation of `INSTL DST` requires a strong TITLE / ARTIST match and each chart’s used-audio coverage from the package and candidate together to meet the configured threshold (100% by default). If audio is missing, you can still inspect and select a candidate manually. Missing images or videos alone do not prevent automatic confirmation. Enabling automatic selection among multiple candidates keeps the same audio requirement.
 
 `Install to estimated install destination` installs pending packages whose `INSTL DST` is set into their estimated destinations, one package at a time in list order. Check results in New after installation. Packages whose charts all have an empty `INSTL DST` remain in Pending. Same-name collisions among bundled files are handled according to [Smart Overwrite](#smart-overwrite) in the settings dialog.
 

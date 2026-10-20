@@ -90,7 +90,25 @@ BMS/PMSの未定義WAV/BMP IDとBMSONの参照先ヘッダーのないBGA/LAYER/
 
 通常の自動・手動推定はStrongとRelatedだけを表示候補へ残します。ツリーの保留パッケージと一覧の保留譜面の「インストール先を推定（無関係候補を残す）」だけが保持モードです。UnrelatedとUnavailableの差でリソース順位を逆転させません。モードは要求からバッチ・サービスまで明示的に渡し、保存したり次の操作へ持ち越したりしません。再導入先修正のメニューへ複製しません。
 
-同梱100%でも候補自身Mを比較でき、同梱の不足を補う候補はHで比較できます。同梱率別の別方式や重み付き合計は設けません。音源自動設定閾値も候補順位を変えません。
+同梱100%でも候補自身Mを比較でき、同梱の不足を補う候補はHで比較できます。リソースの集計・順位には同梱率別の別方式や重み付き合計を設けません。音源自動設定閾値も候補順位を変えません。
+
+### 持ち込む使用音源によるRelated条件の選択
+
+通常推定・候補限定・所持ハッシュの直接候補は、同じ対象群の使用音源要求の和集合を `R`、実際に持ち込む同梱音源を `S` とし、候補を加える前の `s=|R∩S|`、`n=|R|` から一度だけ条件を選びます。混在パッケージは未所持群、全既所持の手動推定は全対象を使います。要求が確定した `n>0` に対し、`100L*s >= 90L*n` を証明できる場合は `BothFields`、それ以外は `AnyField` です。Strongはこの切り替えより先に従来条件で判定します。
+
+| 源側入力 | Related条件と診断 |
+| --- | --- |
+| 完全な同梱で89/100、899/1000、90/101 | AnyField。90%未満を確認済み |
+| 90/100、900/1000、9/10、91/101 | BothFields。90%以上を確認済み |
+| 使用音源要求が取得済みで0件 | AnyField。率は適用対象外であり、100%とは扱わない |
+| 要求未取得・照合不能な使用音源・同梱未捕捉 | AnyField。率は確認不能であり、0%とは扱わない |
+| 同梱が部分列挙で95/100を観測、要求は確定 | BothFields。観測下限だけで90%以上を証明できる。正確な率と入力面の完全性は未確認のまま |
+| 同梱が部分列挙で89/100を観測、残り未確認 | AnyField。境界判定は確認不能であり、確定89%とは扱わない |
+| 部分列挙でも全要求を観測 | BothFields。同梱だけで100%と確認できるが入力面の完全性は変更しない |
+
+分母・分子は既存の正規化された使用キーの件数です。未使用定義、同梱の総件数、ファイルサイズ、候補の音源、配置先込み健康度、表示の丸めは使いません。単独譜面は既知の空同梱からAnyFieldを選び、親を列挙しません。既存の走査上限超過・非対応入力は推定を中止したままです。
+
+この固定90%はメタデータ条件だけを選びます。リソース探索の80%・候補自身の音源一致1件以上、各譜面の自動設定90～100%とは独立し、自動推定の開始、新規導入の分類・許可も変更しません。再導入先修正は現在配置の充足率を流用せず、常にAnyFieldを明示します。KeepUnrelatedでも同じ規則で分類し、非関連候補を残す既存のリソース優先順位を維持します。通常候補が0件でもAnyFieldで再探索しません。
 
 ### 比較用の基本情報と導入先の代表ペア
 
@@ -177,16 +195,18 @@ TITLEは `()`・`[]`・`<>`・`【】`・`《》` の対応と入れ子を考慮
 
 空編集は導入先とその表示だけを空にし、候補と推定警告を保持します。明示クリア・再推定・導入後は既存の状態置換に従って古い表示を消去します。再グループ化・detached項目・保存復元では確定済み表示を項目状態として引き継ぎ、フォルダ代表へ戻したり復元時に再探索したりしません。カタログ変更後に既存経路で表示を明示再評価する場合は、失効後の新しいプロフィールを共通分類器へ渡します。
 
+表示再照合はパス・健康度の変更前に、同じ群の取得済み要求と同梱を捕捉してRelated条件を選びます。パッケージの現在パスに対応する既存入力面cacheを非構築で読み、未取得なら全比較項目で共有している不変の配置文脈を使います。異なる捕捉入力を先頭一項目で代表しません。候補なしの現在配置・detached項目・要求snapshotでも、推定で取得した同梱と完全性を保持します。未捕捉の手入力は確認不能のAnyFieldとして受理し、表示のための追加走査は行いません。源側80%が選択先込みで100%になってもAnyFieldのままです。入力失効後の明示推定は新しい捕捉値で判定し、前回規則・率を別保存しません。
+
 ### メタデータの強一致と同順位の解決
 
 共通分類器は分類と候補側の表示根拠ペア、TITLE/ARTISTの類似度を同じ計算から返します。類似度はUTF-16コード単位の重複回数付き文字2-gram Diceです。非空の同一文字列は1、空文字との類似度は0とし、閾値判定の前に丸めません。
 
 1. 対象最頻ペアまたは候補プロフィールに有効な非空TITLEがなければUnavailable。
 2. 対象と候補の最頻ペア同士で、TITLE Diceが0.72以上かつ正規化ARTISTが完全一致すればStrong。ARTIST空文字同士も同値です。
-3. Strongでなければ候補の全ユニーク実在ペアを調べ、TITLE DiceまたはARTIST Diceが0.50以上ならRelated。
+3. Strongでなければ候補の全ユニーク実在ペアを調べる。AnyFieldはTITLE DiceまたはARTIST Diceが0.50以上、BothFieldsは同じペアの両Diceが0.50以上ならRelated。
 4. 有効な比較材料があり成立ペアがなければUnrelated。
 
-最頻以外に完全一致ペアがあってもRelated止まりです。空TITLEからARTISTだけの新しいプロフィールを作りません。Relatedの根拠が複数なら、`max(TITLE Dice, ARTIST Dice)`、TITLE Dice、ARTIST Diceの降順、次に表示レコードのパスの `OrdinalIgnoreCase` 順と入力順で一組を選びます。別レコードの最大TITLEと最大ARTISTを合成せず、この微差を候補フォルダ同士の順位・確信度へ加えません。
+最頻以外に完全一致ペアがあってもRelated止まりです。空TITLEからARTISTだけの新しいプロフィールを作りません。Relatedの根拠が複数なら、採用した規則で成立するペアだけから、`max(TITLE Dice, ARTIST Dice)`、TITLE Dice、ARTIST Diceの降順、次に表示レコードのパスの `OrdinalIgnoreCase` 順と入力順で一組を選びます。別レコードの最大TITLEと最大ARTISTを合成せず、この微差を候補フォルダ同士の順位・確信度へ加えません。
 
 ### 祖先候補の抑制
 
@@ -248,7 +268,9 @@ TITLEは `()`・`[]`・`<>`・`【】`・`《》` の対応と入れ子を考慮
 
 `estimate_install` でモード、要求数、同梱で満たす数、逆引き訪問数、リソース条件通過数、全候補の分類件数、実際のメタデータ比較ペア数と区間時間を確認します。プロフィール構築・再利用・入力行数の累積値は、その一推定だけの件数と混同しません。上位候補はHの元件数、候補自身M、Jaccard、分類と表示根拠、音源閾値・拒否理由を記録し、全候補の全文は通常ログへ出しません。一括の `packageDegree` と候補内並列度、初回・再利用の費用も分けます。
 
-性能計測は[明示性能検査](../development/testing.md#解析大規模データ外部エンコーダー)へ分離し、恒久的な機能テストに時間・割当・仕事量の合否を含めません。要求100・300・500・1,000、同梱100%・80%・なし、数千・2万超候補、複数・1,000級ペア、単体・20入力、初回・再利用を再現可能な合成入力で測定します。反復の全値・中央値・範囲と測定した完了範囲を示し、事前のC++/Python実験値を製品実測として扱いません。
+源側の観測一致数・要求数・状態、Relatedのand/orと採用理由も一推定の結果へ含めます。率確認済み・観測下限・要求なし・確認不能・再導入対象外を区別し、未確認を0%や100%に見せません。候補が残らなくても評価済み入力の理由を残します。源側計数は既存sAudioと共有する一推定O(|R|)で、ワーカーごと・候補ごとに再計数せず、プロフィールも規則別に構築しません。
+
+性能計測は[明示性能検査](../development/testing.md#解析大規模データ外部エンコーダー)へ分離し、恒久的な機能テストに時間・割当・仕事量の合否を含めません。要求100・300・500・1,000、同梱100%・90%・89%・80%・なし、数千・2万超候補、複数・1,000級ペア、単体・20入力、初回・再利用の代表組合せを再現可能な合成入力で測定します。条件切り替えの比較は基準版と同じ入力を使い、源側評価・メタデータ分類・結果反映を分けます。反復の全値・中央値・範囲と測定した完了範囲を示し、事前のC++/Python実験値を製品実測として扱いません。
 
 実導入の対象別記録は物理処理の単位であり、DB確定回数ではありません。`reverse_lookup_incremental_update`、`maintenance_update`、`resource_health_index_delta`、`chart_info_inline_install` で操作末尾の集約を確認します。
 
@@ -268,7 +290,9 @@ TITLEは `()`・`[]`・`<>`・`【】`・`《》` の対応と入れ子を考慮
 | 新規としての導入確認、設定による省略、拒否対象の保全 | `PendingPackageWorkflowOwner`、`BMSLibrary.PackageInstall`、`BmsLibraryPackageInstallService` | [`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerTests.cs) の `ForceInstallPackagesAsync_ConfirmsAccordingToDestinationAndNewInstallSetting` は要求の既定値を実表示部品で正規化した `ClosedByUser` 応答が未承認になることと項目保持を確認し、既存の確認条件・混在選択も維持する。[`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `ForceInstallPendingPackages_PublicEntryUsesConfirmationSettingAndPreservesRejectedInput`: 公開入口で未設定ONの新規確認、未設定OFFの無確認導入、設定済みOFFの確認維持、No・未選択閉鎖時の入力元・DB・保留保持、肯定時の実新規導入を確認する。閉鎖応答は要求のボタンと既定値を `ThemedMessageBox.NormalizeDefaultResult`・`UiDialogResult.ClosedByUser` の既存変換へ通して生成する。明示的な未承認パッケージ保全の既存ケースも維持する。 |
 | 新規としてのメニュー表示と既存操作経路 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml) | [`MainWindowPackageMaintenanceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) の `CompiledTreeMenusPreservePackageSectionsAndPendingOperations`、`CompiledSelectedChartRoutesPreservePendingTargetAndHandledBeforeCompletion`: ツリー・選択譜面の実ForceInstall項目Headerと表示リソースの対応、既存経路・対象・完了を確認する。 |
 | 新規としての実導入先と設定先の非使用 | `BMSLibrary.PackageInstall`、`BmsLibraryPackageInstallService` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `ForceInstallPendingPackages_UsesPreflightDestinationAndWarmDelta`: 実導入先が設定済みExplicitと異なること、Explicitへ入力譜面・資源を作らないことを、既存の仕事量・通知・永続結果とともに確認する。 |
-| 実在ペア・Strong0.72・Related0.50 OR・根拠一組・正規化 | [`InstallEstimationMetadataProfile`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/InstallEstimationMetadataProfile.cs) | [`InstallEstimationMetadataNormalizerTests`](../../../BeMusicSeeker.Tests/Install/InstallEstimationMetadataNormalizerTests.cs) が境界係数、空値、非最頻完全一致、安定した一組、末尾1,000ペア、NFKC・役割・区切り・UTF-16・二重適用防止を確認する。 |
+| 実在ペア・Strong0.72・Related0.50 Any/Both・成立根拠一組・正規化 | [`InstallEstimationMetadataProfile`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/InstallEstimationMetadataProfile.cs) | [`InstallEstimationMetadataNormalizerTests`](../../../BeMusicSeeker.Tests/Install/InstallEstimationMetadataNormalizerTests.cs) が両規則の境界、同一ペア、空値、非最頻完全一致、安定した一組、末尾1,000ペア、NFKC・役割・区切り・UTF-16・二重適用防止を確認する。 |
+| 源側90%境界・不明と0件・部分下限・入口と設定の独立性 | `PackageInstallEstimationSnapshot`、`BmsLibraryInstallEstimationService` | `BmsLibraryInstallEstimationServiceTests` が89/90%と90/101の整数境界、観測数と完全性、通常/限定/hash/並列、再導入・保持モード・各譜面許可との独立性を確認する。実入力のバッチ伝播は `PackageInstallWorkflowOwnerTests` と `BmsLibraryPendingPackageRegroupTests` が分担する。 |
+| 候補編集時の源側条件・表示根拠維持、非構築読取り、detachedと再グループ化 | `BMSLibrary`、`ChartPackage`、`ChartResourcePlacement`、`PackageChartEntry` | `BmsLibraryPendingPackageRegroupTests` が源側80%/90%以上の実推定と候補選択・空編集・手入力、捕捉入力の保持と明示再推定を確認する。非構築APIから列挙への到達がないこととsAudio共有は静的に確認する。 |
 | ARTISTの副役割除去・境界・括弧・制作担当の保持再開・名義の保護と集約 | `InstallEstimationMetadataNormalizer` | `InstallEstimationMetadataNormalizerTests` の `IsStrongMatch_IgnoresSecondaryArtistCredits`、`IsStrongMatch_PreservesMainArtistNames`、`IsStrongMatch_ResumesAtExplicitMusicCredits`、`BuildProfile_GroupsEquivalentArtistCredits`。両側へのサービス接続は `BmsLibraryInstallEstimationServiceTests.EstimateInstallationDirectory_StrongRequiresPairArtistAndTitleThreshold`、実BMS解析からStrong・自動適用への接続は `EstimateInstallationDirectory_ParsedBmsSubrolesRemainStrongAndAutoApply`、整理後の候補表示は 候補の表示ペアを確認する系列。 |
 | 通常と保持の全候補順位・表示3件・Strong間曖昧性・祖先抑制 | `BmsLibraryInstallEstimationService` | [`BmsLibraryInstallEstimationServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryInstallEstimationServiceTests.cs) が関連性優先と資源優先、11位以降・表示外競合、Jaccardだけでは解消しないこと、弱い子孫で親を消さないことを確認する。 |
 | 逆引きによるs/M/D/U・80%以上・カテゴリと相対キー | `BmsLibraryInstallEstimationService`、`DirectoryResourceLookupCache` | `BmsLibraryInstallEstimationServiceTests` が単純な集合演算との一致、同梱補完・1件境界・重複を、[`DirectoryResourceLookupCacheTests`](../../../BeMusicSeeker.Tests/Resources/DirectoryResourceLookupCacheTests.cs) が逆引き更新・世代を確認する。 |

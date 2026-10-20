@@ -42,6 +42,11 @@ internal sealed class ChartResourcePlacement(
     /// <summary>資源を配置したとみなすディレクトリです。</summary>
     internal string Directory { get; } = directory;
 
+    /// <summary>捕捉した同梱だけの索引です。現在配置や候補の物理存在とは独立しています。</summary>
+    internal DirectoryResourceLookupCache.Entry BundledResources => bundled;
+    /// <summary>捕捉した同梱列挙の完全性です。</summary>
+    internal bool BundledResourcesComplete => bundledComplete;
+
     /// <summary>現在配置は物理確認し、導入後配置は種別別の候補と同梱の和集合で確認します。</summary>
     internal bool? Exists(string key, ChartResourceKind kind)
     {
@@ -106,7 +111,7 @@ internal sealed class ChartResourcePlacement(
         bool configured = !string.IsNullOrWhiteSpace(chart.InstallDestination);
         string destination = configured ? chart.InstallDestination : chart.InstallDestinationSuggestions.FirstOrDefault();
         return string.IsNullOrWhiteSpace(destination)
-            ? new(ChartResourcePlacementBasis.Current, Path.GetDirectoryName(chart.Path))
+            ? new(ChartResourcePlacementBasis.Current, Path.GetDirectoryName(chart.Path), bundled, bundledComplete: bundledComplete)
             : new(configured ? ChartResourcePlacementBasis.Destination : ChartResourcePlacementBasis.FirstCandidate,
                 destination, bundled, cache?.GetEntryOrNull(destination), bundledComplete);
     }
