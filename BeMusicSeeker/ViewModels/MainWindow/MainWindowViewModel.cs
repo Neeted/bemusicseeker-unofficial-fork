@@ -2839,6 +2839,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     /// <summary>
     /// 対象解決前にPを非待機取得し、DB一覧・必須項目読込み・外部同期・出力と参照公開の実終端を同じ権限で待ちます。
+    /// 対象ごとの保存済みサマリーは全件の終端を待たずに公開し、操作全体の受付・進捗・必須処理の寿命とは分離します。
     /// 競合要求はBusyとして未開始で終了し、予約・再実行しません。
     /// </summary>
     internal async Task ReloadTablesAsync()
@@ -2855,7 +2856,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             await _semaphore.WaitAsync();
             long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.ReloadTables);
-            BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree);
+            BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView);
             try
             {
                 await PlaylistTablesReloadWorkflow.ReloadAsync(new(operationToken, authority)).LoggingAndPropagate("ReloadTables");

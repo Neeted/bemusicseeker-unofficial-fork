@@ -114,7 +114,9 @@ score lookupは所属と索引を共有し、可変な `BMSScore` の全値を�
 
 サマリーは表とentryの所属・読込み状態を保ち、所持hashの存在集合・entry lookup等の実依存だけを更新します。Title・health・memo・URLだけで全表を再集計せず、coldな任意索引を無関係な更新判定のために構築しません。非表示中の更新は次の表示要求へ渡し、全表の先行読込みを行いません。
 
-サマリー要求はshellがDispatcherのBackground優先度へ一回予約し、workspaceの既存延期状態でデータ更新を表示更新より優先します。予約済みの間に届いた要求はまとめ、世代の取消・古い結果の非採用はworkspaceが判断します。起動・表の再初期化で `PlaylistTree` を抑制する間だけ延期し、通常一覧や導入ツリーの抑制・再描画だけではサマリーを止めたり全表を再構築したりしません。予約と抑制の判定だけをshellのロック内で行い、行の構築・公開はロック外で実行します。終了時の拒否・予約取消でも予約状態を解放し、新しい構築を開始しません。
+サマリー要求はshellがDispatcherのBackground優先度へ一回予約し、workspaceの既存延期状態でデータ更新を表示更新より優先します。予約済みの間に届いた要求はまとめ、世代の取消・古い結果の非採用はworkspaceが判断します。起動・全再初期化で `PlaylistTree` を抑制する間だけ延期し、通常一覧や導入ツリーの抑制・再描画だけではサマリーを止めたり全表を再構築したりしません。予約と抑制の判定だけをshellのロック内で行い、行の構築・公開はロック外で実行します。終了時の拒否・予約取消でも予約状態を解放し、新しい構築を開始しません。
+
+表一覧の再読込みは通常一覧だけを抑制し、対象ごとの保存・必須参照反映後にサマリーの現在参照・更新日時・今回のSTATUSを公開します。取得失敗対象は保存済み内容と更新日時を保ち、今回の失敗STATUSへ更新します。他対象の待機中も表示を進めますが、全件の処理・必要出力・通知session・必須UI終端は既存の実Taskで待ち、部分表示で操作全体の完了やBusy解除を前倒ししません。
 
 詳細の局所更新では、変更したentryの入力と順序木の経路だけを置換します。末尾までの位置索引書換や、既実体化行全体の移動用bufferを作りません。編集中の順序キーを保ちながら最新の表示入力とdraftを使い、編集終了後に必要な行だけを再配置します。行・集合の通知は、sourceと表示状態の確定・ロック解放後に公開します。フォルダ編集・削除・dropの正規確定差分で更新済みなら、操作後の全詳細再表示を重ねません。選択folderの改名等で実選択が変わる場合は、追従先を評価します。
 
@@ -173,6 +175,8 @@ scoreの未反映範囲を必要とする要求は、その時点で必要な確
 ## 実装とテストの対応
 
 [`ApplicationCompositionTests.MainWindowCompositionRoutesPlaylistSummaryRefreshThroughShellArbiter`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionTests.cs) は実Dispatcherで同時要求のデータ優先・一回適用を確認します。実導入記録削除の抑制中にもサマリーを公開し、別一覧の抑制終了でサマリーを再構築しないことを確認します。
+
+[`MainWindowPlaylistWorkspaceWpfTests.ReloadTables_ActualMainWindowPublishesCompletedSummariesWhileAnotherHttpBodyIsPending`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) は、実全体再読込み・DB・HTTP・shell予約・summary buildからcompiled Bindingと可視セルまでを通し、B本文待機中のA成功・C取得失敗とBの未採用、全体Task・P・Busy・進捗・通知終端の保持、解放後の収束と次の明示操作を確認します。実メニュー配送は同クラスの `PlaylistRootReload_UsesOneTypedTerminalAndHandlesBeforeAsyncCompletion`、必須公開失敗後の停止は `MainWindowViewModelStartupProgressTests.ReloadTables_RequiredPublicationFailureRetainsExistingSafetyStop` へ分担します。
 
 [`MainWindowCatalogProjectionTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowCatalogProjectionTests.cs) の `ManualReload_StandardCompositionConvergesNormalDetailAndSummary` は、標準構成の実初期化・走査保存・通知から表示までを通し、二配置の削除、最後の配置の削除、再加入後の通常所属・詳細の再解決・未所持絞込み・サマリーとエントリー保存値を確認します。外部のファイル発見だけを完全な捕捉入力へ置き換えます。
 

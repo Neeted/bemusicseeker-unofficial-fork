@@ -1274,6 +1274,301 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         });
     }
 
+    /// <summary>
+    /// 実全体再読込みでBのHTTP本文を保持しても、保存済みAと取得失敗Cの今回サマリーを実画面へ公開し、
+    /// 未完了Bの旧内容・日時と操作全体のP・Busy・進捗・通知終端を保ちます。
+    /// </summary>
+    /// <remarks>
+    /// 実VM・DB再読込みからshell予約、summary build、compiled Bindingと描画セルまでの接続を担います。
+    /// A/C完了進捗から二段のDispatcher予約を回収し、全体終端までの抑制への退行を旧表示の値で検出します。
+    /// メニュー配送と失敗・取消・必須出力の条件網羅は既存の入口・管理主体テストへ分担します。
+    /// </remarks>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void ReloadTables_ActualMainWindowPublishesCompletedSummariesWhileAnotherHttpBodyIsPending()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest, closeNextMessage: () => true);
+            BlockingPlaylistJsonServer? server = null;
+            Task? reload = null;
+            Task? producer = null;
+            Task? nextMutation = null;
+            Exception? primaryFailure = null;
+            try
+            {
+                const string oldData = "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]";
+                string goodHeader = Path.Combine(fixture.Root, "good-header.json");
+                string blockedHeader = Path.Combine(fixture.Root, "blocked-header.json");
+                string badHeader = Path.Combine(fixture.Root, "bad-header.json");
+                string goodData = Path.Combine(fixture.Root, "good-data.json");
+                string blockedData = Path.Combine(fixture.Root, "blocked-data.json");
+                File.WriteAllText(goodHeader, "{\"name\":\"A success\",\"symbol\":\"A\",\"data_url\":\"good-data.json\"}");
+                File.WriteAllText(blockedHeader, "{\"name\":\"B blocked\",\"symbol\":\"B\",\"data_url\":\"blocked-data.json\"}");
+                File.WriteAllText(badHeader, "{\"name\":\"C failed\",\"symbol\":\"C\",\"data_url\":\"blocked-data.json\"}");
+                File.WriteAllText(goodData, oldData);
+                File.WriteAllText(blockedData, oldData);
+                Task<BMSTable> goodLoad = fixture.Playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(goodHeader));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(goodLoad, "summary-reload.seed-a");
+                BMSTable good = goodLoad.Result;
+                Task<BMSTable> blockedLoad = fixture.Playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(blockedHeader));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(blockedLoad, "summary-reload.seed-b");
+                BMSTable blocked = blockedLoad.Result;
+                Task<BMSTable> badLoad = fixture.Playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(badHeader));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(badLoad, "summary-reload.seed-c");
+                BMSTable bad = badLoad.Result;
+                server = new BlockingPlaylistJsonServer(
+                    "{\"name\":\"B blocked\",\"symbol\":\"B\",\"data_url\":\"./score.json\"}",
+                    "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"B after\",\"level\":\"1\"}]");
+                blocked.Page_url = server.PageUri;
+                blocked.Header_url = server.PageUri;
+                blocked.Data_url = new Uri("./score.json", UriKind.Relative);
+                good.playlist_id = 7531;
+                blocked.playlist_id = 7532;
+                bad.playlist_id = 7533;
+                DateTime oldUpdate = new(2001, 2, 3, 4, 5, 6);
+                foreach (BMSTable table in new[] { good, blocked, bad })
+                {
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(table.header_sha256));
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(table.data_sha256));
+                    table.last_update = oldUpdate;
+                    table.is_bmt_output = false;
+                    Assert.IsTrue(table.EnableExternalSync());
+                }
+                bad.entries.Single().memo = "keep-failed-local";
+                fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>([good, blocked, bad]);
+                fixture.Playlist.CommitBMSTablesWithEntriesToDB(fixture.Playlist.BMSTables);
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
+                workspace.SetPlaylistSummaryMode(true);
+                // 観測する二列だけを表示領域へ配置し、既定の全幅・列順には依存しない。
+                foreach (PlaylistSummaryColumnSettings.ColumnLayout layout in
+                    CustomTableColumnFactory.EnumeratePlaylistSummaryColumnLayouts(workspace.PlaylistSummaryColumnsSettings))
+                { layout.Visibility = Visibility.Collapsed; }
+                workspace.PlaylistSummaryColumnsSettings.LastUpdate.Visibility = Visibility.Visible;
+                workspace.PlaylistSummaryColumnsSettings.LastUpdate.DisplayIndex = 0;
+                workspace.PlaylistSummaryColumnsSettings.LastUpdate.Width = 170;
+                workspace.PlaylistSummaryColumnsSettings.Status.Visibility = Visibility.Visible;
+                workspace.PlaylistSummaryColumnsSettings.Status.DisplayIndex = 1;
+                workspace.PlaylistSummaryColumnsSettings.Status.Width = 130;
+                workspace.RebuildPlaylistSummaryView(runAsync: false);
+                PumpSummary(workspace, fixture.Window);
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                Assert.IsNotNull(BindingOperations.GetBindingExpression(summary, CustomTableView.ItemsSourceProperty));
+                Assert.AreSame(workspace.PlaylistSummaryView, summary.ItemsSource);
+                foreach (BMSTable table in new[] { good, blocked, bad })
+                {
+                    PlaylistSummaryRow row = workspace.PlaylistSummaryView.Single(item => item.PlaylistId == table.playlist_id);
+                    Assert.AreSame(table, row.TableRef);
+                    Assert.AreEqual(oldUpdate, row.LastUpdate);
+                    Assert.AreEqual(Resources.Playlist_sync_status_none, row.Status);
+                    AssertSummaryCells(summary, row, oldUpdate, Resources.Playlist_sync_status_none);
+                }
+
+                TaskCompletionSource<PlaylistExternalSyncRequestEventArgs> queued = NewCompletion<PlaylistExternalSyncRequestEventArgs>();
+                TaskCompletionSource<object?> completedTargets = NewCompletion();
+                TaskCompletionSource<PlaylistExternalSyncCompletionEventArgs> completed = NewCompletion<PlaylistExternalSyncCompletionEventArgs>();
+                TaskCompletionSource<object?> progressTerminal = NewCompletion();
+                var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
+                int notificationTerminalCount = 0;
+                BMSTable? blockedAtSyncStart = null;
+                BMSTable? badAtSyncStart = null;
+                workspace.PlaylistExternalSyncQueued += (_, request) =>
+                {
+                    if (request.Reason != "ReloadTables") { return; }
+                    blockedAtSyncStart = fixture.Playlist.BMSTables.FirstOrDefault(table => table.playlist_id == blocked.playlist_id);
+                    badAtSyncStart = fixture.Playlist.BMSTables.FirstOrDefault(table => table.playlist_id == bad.playlist_id);
+                    queued.TrySetResult(request);
+                };
+                workspace.PlaylistSyncProgressChanged += (_, request) =>
+                {
+                    if (!queued.Task.IsCompletedSuccessfully
+                        || request.Snapshot.Source != "external_playlist_sync"
+                        || request.Snapshot.Request != queued.Task.Result.ProgressRequest
+                        || request.Snapshot.Request?.OperationToken != queued.Task.Result.OperationToken)
+                    { return; }
+                    progress.Enqueue(request.Snapshot);
+                    if (request.Snapshot.IsActive && request.Snapshot.CompletedTableCount == 2)
+                    { completedTargets.TrySetResult(null); }
+                    if (!request.Snapshot.IsActive) { progressTerminal.TrySetResult(null); }
+                };
+                workspace.PlaylistExternalSyncCompleted += (_, request) =>
+                {
+                    if (queued.Task.IsCompletedSuccessfully && request.Reason == "ReloadTables"
+                        && request.OperationToken == queued.Task.Result.OperationToken
+                        && request.Version == queued.Task.Result.Version)
+                    { completed.TrySetResult(request); }
+                };
+                workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
+                {
+                    if (request.RouteName == "external playlist sync notification")
+                    { Interlocked.Increment(ref notificationTerminalCount); }
+                };
+                File.WriteAllText(goodData, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"A after\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Added\",\"level\":\"2\"}]");
+                File.WriteAllText(badHeader, "{ invalid json }");
+                reload = fixture.ViewModel.ReloadTablesAsync();
+                producer = Task.WhenAny(reload, server.Completion).Unwrap();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(queued.Task, producer, "summary-reload.sync-start"), "summary-reload.sync-start");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(server.DataRequestAccepted.Task, producer, "summary-reload.http-body-gate"), "summary-reload.http-body-gate");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(completedTargets.Task, producer, "summary-reload.a-c-callbacks"), "summary-reload.a-c-callbacks");
+                PumpSummary(workspace, fixture.Window);
+                Assert.AreSame(workspace.PlaylistSummaryView, summary.ItemsSource);
+
+                PlaylistExternalSyncRequestEventArgs request = queued.Task.Result;
+                Assert.IsTrue(request.OperationToken > 0);
+                Assert.IsTrue(request.Version > 0);
+                Assert.IsNotNull(request.ProgressRequest);
+                Assert.IsTrue(request.FromReloadTables);
+                Assert.IsNotNull(blockedAtSyncStart);
+                Assert.IsNotNull(badAtSyncStart);
+                BMSTable confirmed = fixture.Playlist.BMSTables.Single(table => table.playlist_id == good.playlist_id);
+                Assert.AreEqual("A after", confirmed.entries.First().title);
+                Assert.AreNotEqual(oldUpdate, confirmed.last_update);
+                PlaylistSummaryRow goodRow = workspace.PlaylistSummaryView.Single(row => row.PlaylistId == good.playlist_id);
+                Assert.AreSame(confirmed, goodRow.TableRef);
+                Assert.AreEqual(confirmed.last_update, goodRow.LastUpdate);
+                Assert.AreEqual(Resources.Playlist_sync_status_updated, goodRow.Status);
+                Assert.IsFalse(goodRow.HasFailureStatus);
+                AssertSummaryCells(summary, goodRow, confirmed.last_update, Resources.Playlist_sync_status_updated);
+                PlaylistSummaryRow badRow = workspace.PlaylistSummaryView.Single(row => row.PlaylistId == bad.playlist_id);
+                Assert.AreSame(badAtSyncStart, badRow.TableRef);
+                Assert.AreSame(badAtSyncStart, fixture.Playlist.BMSTables.Single(table => table.playlist_id == bad.playlist_id));
+                Assert.AreEqual("Before", badAtSyncStart.entries.Single().title);
+                Assert.AreEqual("keep-failed-local", badAtSyncStart.entries.Single().memo);
+                Assert.AreEqual(oldUpdate, badRow.LastUpdate);
+                Assert.AreEqual(Resources.Playlist_sync_status_header, badRow.Status);
+                Assert.IsTrue(badRow.HasFailureStatus);
+                AssertSummaryCells(summary, badRow, oldUpdate, Resources.Playlist_sync_status_header);
+                PlaylistSummaryRow blockedRow = workspace.PlaylistSummaryView.Single(row => row.PlaylistId == blocked.playlist_id);
+                Assert.AreSame(blockedAtSyncStart, blockedRow.TableRef);
+                Assert.AreSame(blockedAtSyncStart, fixture.Playlist.BMSTables.Single(table => table.playlist_id == blocked.playlist_id));
+                Assert.AreEqual("Before", blockedAtSyncStart.entries.Single().title);
+                Assert.AreEqual(oldUpdate, blockedRow.LastUpdate);
+                Assert.AreEqual(Resources.Playlist_sync_status_none, blockedRow.Status);
+                AssertSummaryCells(summary, blockedRow, oldUpdate, Resources.Playlist_sync_status_none);
+                using (LR2SongDBExtended database = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly())
+                {
+                    Assert.AreEqual(confirmed.last_update, database.Table<BMSTable>().Single(table => table.playlist_id == good.playlist_id).last_update);
+                    Assert.AreEqual(2, database.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == good.playlist_id));
+                    Assert.AreEqual(oldUpdate, database.Table<BMSTable>().Single(table => table.playlist_id == bad.playlist_id).last_update);
+                    LR2SongDBExtended.playlist_entry persistedBad = database.Table<LR2SongDBExtended.playlist_entry>().Single(entry => entry.playlist_id == bad.playlist_id);
+                    Assert.AreEqual("Before", persistedBad.title);
+                    Assert.AreEqual("keep-failed-local", persistedBad.memo);
+                    Assert.AreEqual(oldUpdate, database.Table<BMSTable>().Single(table => table.playlist_id == blocked.playlist_id).last_update);
+                    Assert.AreEqual("Before", database.Table<LR2SongDBExtended.playlist_entry>().Single(entry => entry.playlist_id == blocked.playlist_id).title);
+                }
+                Assert.IsFalse(reload.IsCompleted);
+                Assert.IsTrue(fixture.Playlist.IsPlaylistUpdating);
+                bool entered = fixture.Playlist.TryEnterPlaylistMutation(out IDisposable admission);
+                admission?.Dispose();
+                Assert.IsFalse(entered, "部分表示だけでは全体Pを解放しません。");
+                StartupProgressWorkflowOwner startup = fixture.ViewModel.ProgressHub.StartupProgress;
+                Assert.IsTrue(startup.IsOperationActive);
+                Assert.IsTrue(fixture.ViewModel.IsLibraryOperationInProgress);
+                Assert.AreEqual(request.OperationToken, startup.GetActiveStartupProgressOperationToken());
+                Assert.IsTrue(progress.Last().IsActive);
+                Assert.IsTrue(progress.Any(snapshot => snapshot.IsActive && snapshot.CompletedTableCount == 2));
+                Assert.IsFalse(completed.Task.IsCompleted);
+                Assert.IsFalse(progressTerminal.Task.IsCompleted);
+                Assert.AreEqual(0, Volatile.Read(ref notificationTerminalCount));
+                Assert.IsTrue(fixture.ViewModel.ProgressHub.Rows.Any(row => row.ParentKey == "startup"
+                    && (row.Key.StartsWith("background:external_playlist_sync:", StringComparison.Ordinal)
+                        || row.Key.StartsWith("playlist:external_playlist_sync:", StringComparison.Ordinal))));
+
+                server.ReleaseResponse();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(reload, "summary-reload.actual-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(completed.Task, reload, "summary-reload.completed"), "summary-reload.completed");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(progressTerminal.Task, reload, "summary-reload.progress-terminal"), "summary-reload.progress-terminal");
+                PumpSummary(workspace, fixture.Window);
+                Assert.IsFalse(completed.Task.Result.Succeeded, "通常取得失敗Cを全件成功へ読み替えません。");
+                Assert.AreEqual(1, Volatile.Read(ref notificationTerminalCount));
+                Assert.IsFalse(fixture.Playlist.IsPlaylistUpdating);
+                Assert.IsFalse(fixture.ViewModel.IsLibraryOperationInProgress);
+                Assert.IsFalse(progress.Last().IsActive);
+                Assert.IsTrue(progress.Any(snapshot => snapshot.TotalTableCount == 3 && snapshot.CompletedTableCount == 3));
+                BMSTable confirmedBlocked = fixture.Playlist.BMSTables.Single(table => table.playlist_id == blocked.playlist_id);
+                Assert.AreEqual("B after", confirmedBlocked.entries.Single().title);
+                Assert.AreNotEqual(oldUpdate, confirmedBlocked.last_update);
+                AssertSummaryCells(summary, workspace.PlaylistSummaryView.Single(row => row.PlaylistId == blocked.playlist_id),
+                    confirmedBlocked.last_update, Resources.Playlist_sync_status_updated);
+                AssertSummaryCells(summary, workspace.PlaylistSummaryView.Single(row => row.PlaylistId == good.playlist_id),
+                    confirmed.last_update, Resources.Playlist_sync_status_updated);
+                AssertSummaryCells(summary, workspace.PlaylistSummaryView.Single(row => row.PlaylistId == bad.playlist_id),
+                    oldUpdate, Resources.Playlist_sync_status_header);
+                nextMutation = workspace.ResyncPlaylistTableAsync(confirmed);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(nextMutation, "summary-reload.next-explicit-mutation");
+                Assert.AreEqual(PlaylistSyncStatusKind.Ok, workspace.CapturePlaylistSyncStatusSnapshot()["id:7531"].Kind);
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                server?.ReleaseResponse();
+                var cleanupFailures = new List<Exception>();
+                void Cleanup(Action action)
+                {
+                    try { action(); }
+                    catch (Exception failure) { cleanupFailures.Add(failure); }
+                }
+                if (reload != null) { Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(reload, "summary-reload.finally-reload")); }
+                if (producer != null) { Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(producer, "summary-reload.finally-producer")); }
+                if (nextMutation != null) { Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(nextMutation, "summary-reload.finally-next-mutation")); }
+                if (server != null) { Cleanup(server.Dispose); }
+                Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.ViewModel.PlaylistWorkspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "summary-reload.finally-summary"));
+                Cleanup(fixture.Close);
+                if (cleanupFailures.Count > 0)
+                {
+                    var cleanupFailure = new AggregateException("Summary reload fixture cleanup failed.", cleanupFailures);
+                    if (primaryFailure != null) { primaryFailure.Data["SummaryReloadCleanupFailure"] = cleanupFailure.ToString(); }
+                    else { throw cleanupFailure; }
+                }
+            }
+
+            static void PumpSummary(PlaylistWorkspaceViewModel workspace, MainWindow window)
+            {
+                // shellのBackground予約、worker、別予約のNormal反映を別々に回収する。
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle).Task,
+                    "summary-reload.shell-background");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "summary-reload.summary-build");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle).Task,
+                    "summary-reload.summary-reflect");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+            }
+
+            static void AssertSummaryCells(CustomTableView summary, PlaylistSummaryRow row, DateTime updated, string status)
+            {
+                Assert.IsTrue(summary.IsLoaded && summary.IsVisible);
+                var owner = Window.GetWindow(summary);
+                // 専用設定のnative配置復元後は表の高さが0になり得るため、観測する一行分だけ領域を確保する。
+                // 全行の同時表示や固定の画面寸法を前提にせず、既存の選択・スクロールで対象行を可視化する。
+                double missingHeight = summary.HeaderHeight + summary.RowHeight - summary.SurfaceHeight;
+                if (missingHeight > 0)
+                {
+                    owner.Height = owner.ActualHeight + missingHeight;
+                    owner.UpdateLayout();
+                }
+                summary.SelectRowsByPredicate(candidate => ReferenceEquals(candidate, row));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(summary.ActualWidth > 0 && summary.ActualHeight > 0,
+                    $"Summary must be arranged: table={summary.ActualWidth}x{summary.ActualHeight}, surface={summary.SurfaceWidth}x{summary.SurfaceHeight}, owner={owner.ActualWidth}x{owner.ActualHeight}, measureValid={summary.IsMeasureValid}, arrangeValid={summary.IsArrangeValid}, first={summary.FirstVisibleRowIndex}, capacity={summary.CalculateFullVisibleRowCapacity()}, rowHeight={summary.RowHeight}, headerHeight={summary.HeaderHeight}.");
+                Assert.IsTrue(summary.ItemsSource.Contains(row));
+                int index = summary.ItemsSource.IndexOf(row);
+                Assert.IsTrue(index >= summary.FirstVisibleRowIndex
+                    && index < summary.FirstVisibleRowIndex + summary.CalculateFullVisibleRowCapacity(),
+                    $"Summary row must be visible: id={row.PlaylistId}, index={index}, first={summary.FirstVisibleRowIndex}, capacity={summary.CalculateFullVisibleRowCapacity()}, size={summary.ActualWidth}x{summary.ActualHeight}, rowHeight={summary.RowHeight}.");
+                CustomTableColumnLayoutSnapshot columns = summary.GetColumnLayoutSnapshot();
+                CustomTableColumn lastUpdate = columns.VisibleEntries.Single(entry => entry.Column.Id == "LastUpdate").Column;
+                CustomTableColumn statusColumn = columns.VisibleEntries.Single(entry => entry.Column.Id == "Status").Column;
+                Assert.AreEqual(updated.ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.CurrentCulture), summary.GetCellValue(row, lastUpdate, out _).Text);
+                Assert.AreEqual(status, summary.GetCellValue(row, statusColumn, out _).Text);
+            }
+        });
+    }
+
     /// <summary>実HTTP応答を保持した手動・明示・全再同期中は別編集を拒否し、拒否要求を再実行せず、UI公開と進捗終端後の次の明示編集だけを受理します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
@@ -2829,6 +3124,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         }
 
         internal Uri PageUri { get; }
+
+        /// <summary>HTTP到達待機中にも実serverの早期失敗・終端を観測し、通知だけの待機を残さないためのTaskです。</summary>
+        internal Task Completion => serverTask;
 
         internal TaskCompletionSource<object?> DataRequestAccepted => responseStages[0].DataRequestAccepted;
 
