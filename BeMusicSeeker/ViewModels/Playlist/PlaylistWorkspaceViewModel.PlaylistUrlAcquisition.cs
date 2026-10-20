@@ -92,7 +92,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     private readonly Func<Action, Task> playlistUrlAcquisitionPresentationScheduler;
 
 
-    private readonly Func<IReadOnlyList<string>, bool> playlistUrlInstallSink;
+    private readonly Func<DroppedInstallBatchRequest, bool> playlistUrlInstallSink;
 
     private readonly Action<Uri> playlistUrlBrowserOpenSink;
 
@@ -882,10 +882,15 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
+        var cleanupFailures = new List<Exception>();
+        var request = new DroppedInstallBatchRequest(pathSnapshot, pathSnapshot, pathSnapshot,
+            playlistUrlAcquisitionWorkflow.ReclaimStagedFile, (_, failure) => cleanupFailures.Add(failure));
+        bool accepted = false;
         Exception operationFailure = null;
         try
         {
-            if (!playlistUrlInstallSink(Array.AsReadOnly(pathSnapshot)))
+            accepted = playlistUrlInstallSink(request);
+            if (!accepted)
             {
                 await ShowPlaylistUrlAcquisitionNotificationAsync(PlaylistUrlAcquisitionNotificationKind.InstallUnavailable).ConfigureAwait(true);
                 return;
@@ -900,7 +905,18 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         finally
         {
-            await ReclaimPlaylistUrlInputsAsync(pathSnapshot, operationFailure).ConfigureAwait(false);
+            if (!accepted)
+            {
+                // 拒否時のownerによる回収と受理前故障を、同じ要求の一回限りの処分へ集約します。
+                await Task.Run(request.TryAbandonUnconsumedSources).ConfigureAwait(false);
+                await request.WaitForDispositionAsync().ConfigureAwait(false);
+            }
+            // 受理後は待ち行列の実idleまで待った結果だけを確認し、導入へ移した入力を削除しません。
+            if (cleanupFailures.Count > 0)
+            {
+                if (operationFailure != null) { cleanupFailures.Insert(0, operationFailure); }
+                throw new AggregateException(cleanupFailures);
+            }
         }
 
     }

@@ -136,7 +136,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         this.log = log ?? throw new ArgumentNullException(nameof(log));
     }
 
-    /// <summary>取得側が所有するstagingだけを回収し、全削除の実終端を待ちます。受理した導入の入力使用終端後に呼びます。</summary>
+    /// <summary>未引渡しの取得物を回収し、全削除の実終端を待ちます。導入へ移転済みの入力には使いません。</summary>
     internal Task ReclaimStagedFilesAsync(IReadOnlyList<string> paths)
     {
         return Task.Run(() =>
@@ -144,15 +144,22 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
             List<Exception> failures = [];
             foreach (string path in paths ?? [])
             {
-                try { _downloadGateway.DeleteFile(path); }
-                catch (Exception exception)
-                {
-                    LogDownload("playlist_url_download reclaim_failed path=" + path + Environment.NewLine + exception);
-                    failures.Add(exception);
-                }
+                try { ReclaimStagedFile(path); }
+                catch (Exception exception) { failures.Add(exception); }
             }
             if (failures.Count > 0) { throw new AggregateException(failures); }
         });
+    }
+
+    /// <summary>要求が所有する一取得物を回収し、失敗は診断と呼出元の両方へ残します。</summary>
+    internal void ReclaimStagedFile(string path)
+    {
+        try { _downloadGateway.DeleteFile(path); }
+        catch (Exception exception)
+        {
+            LogDownload("playlist_url_download reclaim_failed path=" + path + Environment.NewLine + exception);
+            throw;
+        }
     }
 
     internal bool IsStagedFileReady(string path)

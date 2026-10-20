@@ -12,9 +12,11 @@
 
 ### 受付とURIの境界
 
-取得は変更不能入力の確保です。導入との受付分離は[競合ポリシー](../core/operation-concurrency-policy.md#音声と独立した読取り)に従います。全取得pathを一度 `PackageInstallWorkflowOwner.Enqueue` へ渡し、未受理なら `Warn_PackageInstallUnavailable` を一度表示します。導入の予約、ブラウザー代替、自動再試行へ変換しません。取得成功と導入受理・確定を別々に報告します。
+取得は変更不能入力の確保です。導入との受付分離は[競合ポリシー](../core/operation-concurrency-policy.md#音声と独立した読取り)に従います。全取得pathとその所有情報を一つの `DroppedInstallBatchRequest` にまとめ、`PackageInstallWorkflowOwner.TryEnqueue` へ一度渡します。未受理なら `Warn_PackageInstallUnavailable` を一度表示します。導入の予約、ブラウザー代替、自動再試行へ変換しません。取得成功と導入受理・確定を別々に報告します。
 
-アプリ所有stagingは未受理時に取得側が回収し、回収の実終端を待ちます。受理した場合は導入による入力利用の実終端を待ってから取得側の回収を行います。持込み入力・利用者指定保存物へ削除を広げません。
+アプリ所有stagingは未受理時に要求が一回だけ回収し、取得Taskは回収の実終端を待ちます。受理した入力の寿命は待ち行列へ移し、導入開始前の取消・世代退役でも未消費入力の回収と実idleまで待ちます。導入開始直前に導入側へ所有権を移し、その後は[導入側の保全・回収規則](../core/managed-temp-files.md#削除の時機)に従います。取得Taskの終端では無条件に削除しません。
+
+実推定後も保留へ残る単体譜面は、保留理由によらず実ファイルとバイト列を保持し、後の明示手動導入に使えます。導入の入力使用終端は、保留入力の寿命の終端ではありません。持込み入力・利用者指定保存物へ削除を広げません。
 
 初期URI、HTTP転送後の最終URI、HTML/JSONから辿る各URIはHTTP(S)だけを許可します。ローカルパス、UNC、`file:`、FTP、独自スキームは入力エラーとして取得・一時保存・ブラウザー代替・登録を始めません。これは保存済み表の外部同期元がローカルパスを扱う契約とは別です。
 
@@ -27,24 +29,6 @@
 開始前に確認し、50件以上では一時領域の空き容量と取得・展開時間、本体が大きくなりやすい点を追加警告します。逐次取得して進捗を表示し、取消後は新しいURLを開始しません。進行中の接続・HTML読取り・保存にも取消を渡し、実処理が観測して終わるまで待ちます。
 
 取消までに取得したファイルも共通受付へまとめて渡します。一括取得ではブラウザーを開かず、要ブラウザー・取消未処理を件数で示します。結果の成功件数はダウンロード成功であり、解凍・譜面検出・導入確定の件数ではありません。導入拒否の警告と取得結果を混ぜません。
-
-#### 取得と導入受付の分離
-
-複数行・外部APIの一括取得で、取得できたファイルを導入へ渡す流れです。通常完了と複数行の取消は取得処理の異なる終端であり、AND条件ではありません。取消時は、実処理の終了までに取得済みのパスだけを通常完了と同じ集約へ渡します。矢印は処理・引渡しの順序であり、通信中から導入の排他権を保持する意味ではありません。単体URLのブラウザー代替条件は前節、URI・サイズの検証は各節に従います。
-
-```mermaid
-flowchart TB
-    Fetch["許可されたURIから取得・一時保存"] --> Paths["取得済みパスをまとめる"]
-    Cancel["複数行の取消：新規取得を止め、実処理の終了を待つ"] --> Paths
-    Paths --> Any{"取得済みファイルがあるか"}
-    Any -->|いいえ| Result["取得結果を別に報告"]
-    Any -->|はい| Admission{"一回の導入要求を受理するか"}
-    Admission -->|はい| Install["展開・導入の入力使用終端まで待つ"]
-    Install --> Lifetime
-    Admission -->|いいえ| Warn["一度警告：再試行・ブラウザー代替をしない"]
-    Warn --> Lifetime["所有するstagingを回収し実終端を待つ"]
-    Lifetime --> Result
-```
 
 引渡し後の入力の寿命は[導入後の入力の寿命](../library/drop-install.md#導入後の入力の寿命)と[一時ファイル](../core/managed-temp-files.md)を参照します。
 
@@ -124,8 +108,11 @@ TSVとStellaの開始済み取得はともに終端まで待ちます。複数�
 | 進捗・結果・診断の失敗、通常通信と内部故障、未引渡し入力の回収 | `PlaylistWorkspaceViewModel.PlaylistUrlAcquisition`、`PlaylistUrlAcquisitionWorkflow`、`PlaylistExternalPackageLookupService` | `PlaylistUrlAcquisitionOwnershipTests` の単体・一括引渡し、結果表示失敗後の次要求、`DownloadFailureReclaimsUnpublishedInputAndPreservesUnresolvedCleanup`、`PlaylistExternalPackageLookupServiceTests` の通常期限切れ・内部故障・回収不能。確認失敗と導入利用終端の既存保証を維持する。 |
 | URI境界・共有ページ・サイズ・保存 | [`PlaylistUrlAcquisitionWorkflow`](../../../BeMusicSeeker/Models/Playlist/PlaylistUrlAcquisitionWorkflow.cs) | [`PlaylistUrlAcquisitionOwnershipTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlAcquisitionOwnershipTests.cs) |
 | API候補・優先順・重複・取消 | [`PlaylistExternalPackageLookupService`](../../../BeMusicSeeker/Models/Playlist/PlaylistExternalPackageLookupService.cs) | [`PlaylistExternalPackageLookupServiceTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistExternalPackageLookupServiceTests.cs) |
-| 取得完了と取消の交差、取得済み入力の集約 | [`PlaylistExternalPackageLookupService`](../../../BeMusicSeeker/Models/Playlist/PlaylistExternalPackageLookupService.cs)、[`PlaylistWorkspaceViewModel.PlaylistUrlAcquisition`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.PlaylistUrlAcquisition.cs) | `LookupService_StopsAtFirstProviderWhenDownloadSucceeds` は成功返却直前の取消でも成功pathを保持する。`ExternalPackageLookup_CancellationDuringResponseDisposalHandsOffCompletedDownloadsOnce` は実保存後の応答解放中に取り消し、開始済み取得の終端、取得済み2件の一回引渡し、次対象の未開始とstaging回収を確認する。導入の受理・利用終端の条件は既存の所有テストに分担する。 |
+| 取得完了と取消の交差、取得済み入力の集約 | [`PlaylistExternalPackageLookupService`](../../../BeMusicSeeker/Models/Playlist/PlaylistExternalPackageLookupService.cs)、[`PlaylistWorkspaceViewModel.PlaylistUrlAcquisition`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.PlaylistUrlAcquisition.cs) | `LookupService_StopsAtFirstProviderWhenDownloadSucceeds` は成功返却直前の取消でも成功pathを保持する。`DownloadedPackages_CancellationDuringResponseDisposalHandsOffCompletedDownloadsOnce` は実保存後の応答解放中に取り消し、開始済み取得の終端、取得済み2件の一回引渡し、API・URL一括それぞれで次対象の未開始と受理後のstaging保持を確認する。導入の受理・利用終端の条件は既存の所有テストに分担する。 |
 | 通信中の許可と取得後の導入拒否 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs)、[`PackageInstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PackageInstallWorkflowOwner.cs) | [`PlaylistUrlAcquisitionOwnershipTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlAcquisitionOwnershipTests.cs) |
+| 受理後の保留入力と後の明示導入 | `PlaylistWorkspaceViewModel.PlaylistUrlAcquisition`、`DroppedInstallBatchRequest`、`PackageInstallWorkflowOwner` | `PlaylistUrlAcquisitionOwnershipTests.DownloadedChart_RealEstimationRetainsPendingBytesForLaterManualInstall` は単体・複数URL・APIから実導入・推定、SQLiteとFSを通し、取得Taskと実idle後の保留正本・install行・バイト列、後の手動導入先・song行・所持を確認する。 |
+| 未受理と開始前取消・世代退役の回収終端 | 同上 | `DownloadedInput_UnacceptedWaitsForCleanupAndPreservesBothFailures` は実削除gateで取得Taskの待機、一回の回収、元故障と回収原因の保持を確認する。`DownloadedInput_CancellationBeforeStartReclaimsOwnedSourceBeforeIdle` はURLが生成した所有要求を実queueへ入れ、開始前の取消／退役でport未呼出し、入力削除、実idle後の次の明示受付を確認する。 |
+| 開始後の入力保持と導入の実終端 | `PlaylistWorkspaceViewModel.PlaylistUrlAcquisition`、`PackageInstallWorkflowOwner` | `DownloadedInput_HoldsStagingUntilActualInstallTerminalWhilePlaylistIsBusy` はP中の読取り取得、実ownerの導入中の可読性と取得Taskの待機、通常／故障終端後の入力保持を確認する。適用前の管理入力回収と適用後の保全は[導入側の検証](../library/drop-install.md#実装とテストの対応)に分担する。 |
 | 単一期限・本文取消・接続解放 | [`AppHttpClient`](../../../BeMusicSeeker/Ribbit/Net/AppHttpClient.cs) | [`AppHttpClientTests`](../../../BeMusicSeeker.Tests/Runtime/AppHttpClientTests.cs) |
 | HTMLの再取得なし・相対URI基準 | [`PlaylistExternalSyncOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistExternalSyncOwner.cs) | [`BmsPlaylistExternalLoadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalLoadTests.cs) |
 | 補完元の通常失敗・内部故障と退役 | `BMSPlaylist.UrlCompletion` | `PlaylistUrlCompletionTests.BMSPlaylist_UrlCompletionDistinguishesUnavailableSourceFromInternalFailure` は旧補完と次の明示要求、`BMSPlaylist_UrlCompletionUsesInjectedOptionsAndRetiredResultDoesNotApply` は停止token、取消終端と旧行への適用拒否を確認する。 |

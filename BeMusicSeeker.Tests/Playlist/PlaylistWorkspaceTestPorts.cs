@@ -34,7 +34,7 @@ internal static class PlaylistWorkspaceTestPorts
             acquisitionWorkflow ?? CreateUrlAcquisitionWorkflow(),
             CreateExternalPackageLookupService(),
             UrlAcquisitionOptionsProvider,
-            installSink ?? PlaylistUrlInstallSink,
+            installSink == null ? PlaylistUrlInstallSink : request => installSink(Array.AsReadOnly(request.Paths)),
             browserSink ?? PlaylistUrlBrowserOpenSink,
             ExternalPlaylistImportWarningLog,
             ExternalPlaylistImportInfoLog,
@@ -154,7 +154,7 @@ internal static class PlaylistWorkspaceTestPorts
         () => new PlaylistUrlAcquisitionOptionsSnapshot();
 
 
-    internal static Func<IReadOnlyList<string>, bool> PlaylistUrlInstallSink => _ => true;
+    internal static Func<DroppedInstallBatchRequest, bool> PlaylistUrlInstallSink => _ => true;
 
     internal static Action<Uri> PlaylistUrlBrowserOpenSink => _ => { };
 

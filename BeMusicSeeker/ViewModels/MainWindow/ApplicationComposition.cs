@@ -264,7 +264,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             mainChartColumnSettingsStore);
     }
 
-    /// <summary>プレイリストの通信・表示と、受理結果を返す共通導入受付を接続します。</summary>
+    /// <summary>プレイリストの通信・表示と、所有入力付き要求の寿命を受け取る共通導入受付を接続します。</summary>
     internal PlaylistWorkspaceViewModel CreatePlaylistWorkspaceViewModel(
         Action<Action> dispatchPresentationAction,
         MainChartListViewModel mainChartList,
@@ -272,7 +272,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Func<IEnumerable<BMSTable>> tableSnapshotProvider,
         Action<string> detailViewLog,
         Action<string> detailRetentionLog,
-        Func<IReadOnlyList<string>, bool> playlistUrlInstallSink,
+        Func<DroppedInstallBatchRequest, bool> playlistUrlInstallSink,
         Action<Uri> playlistUrlBrowserOpenSink,
         Action<Exception, string> externalPlaylistImportWarningLog,
         Action<string> externalPlaylistImportInfoLog,

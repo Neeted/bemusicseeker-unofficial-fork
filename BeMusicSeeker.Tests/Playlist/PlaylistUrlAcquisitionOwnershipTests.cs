@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -19,7 +20,7 @@ using Ribbit.Net;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>URLの取得判断と実workspaceから導入・表示への配送、受理されなかった入力の回収を確認します。</summary>
-/// <remarks>取得は応答portで固定し実stagingを使います。Windowは不要で、compiled購読の接続はMainWindowの代表が担います。実導入ownerの受付・終端だけは上位の引渡しケースで通します。</remarks>
+/// <remarks>取得は応答portで固定し実stagingを使います。Windowは不要で、compiled購読の接続はMainWindowの代表が担います。所有移転の代表では実ownerを、保留の代表では実推定・SQLite・FSまで通します。</remarks>
 [TestClass]
 public sealed class PlaylistUrlAcquisitionOwnershipTests
 {
@@ -1115,7 +1116,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
-    /// <summary>単独の実取得物を変更不能なpathsでsinkへ渡してからtree展開し、入力使用終端後にstagingを回収します。進捗・診断故障を重ねても引渡しを保ち、展開順序の逆転と入力回収漏れを検出します。</summary>
+    /// <summary>単独の実取得物を変更不能なpathsでsinkへ渡してからtree展開し、受理後のstagingを保持します。進捗・診断故障を重ねても引渡しを保ち、展開順序の逆転と入力回収漏れを検出します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1163,7 +1164,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             Assert.IsNotNull(capturedPaths);
             Assert.AreEqual(1, capturedPaths!.Count);
             Assert.IsTrue(((IList<string>)capturedPaths).IsReadOnly);
-            Assert.IsFalse(File.Exists(capturedPaths[0]), "入力使用の終端後にアプリ所有stagingを回収します。");
+            Assert.IsTrue(File.Exists(capturedPaths[0]), "受理後の入力は導入側の寿命へ移します。");
         }
         finally
         {
@@ -1174,7 +1175,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
-    /// <summary>二取得物を変更不能なpathsでまとめてsinkへ渡し、tree展開→結果表示の順に終えてstagingを回収します。進捗・結果・診断故障を重ねても引渡しを保ち、引渡しの分割と表示順序・回収の欠落を検出します。</summary>
+    /// <summary>二取得物を変更不能なpathsでまとめてsinkへ渡し、tree展開→結果表示の順に終え、受理後のstagingを保持します。進捗・結果・診断故障を重ねても引渡しを保ち、引渡しの分割と表示順序・回収の欠落を検出します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1240,7 +1241,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             Assert.IsTrue(((IList<string>)capturedPaths).IsReadOnly);
             foreach (string path in capturedPaths)
             {
-                Assert.IsFalse(File.Exists(path), "入力使用の終端後にアプリ所有stagingを回収します。");
+                Assert.IsTrue(File.Exists(path), "受理後の入力は導入側の寿命へ移します。");
             }
         }
         finally
@@ -1260,9 +1261,11 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
 
 
 
-    /// <summary>二件目の保存後・応答解放中に取消しても実終端を待ち、完了した二取得物を一回で渡して回収します。三件目の開始、完了済み入力の喪失と早すぎる引渡しを検出します。</summary>
-    [TestMethod]
-    public async Task ExternalPackageLookup_CancellationDuringResponseDisposalHandsOffCompletedDownloadsOnce()
+    /// <summary>二件目の保存後・応答解放中に取消しても実終端を待ち、完了した二取得物を一回で渡して保持します。三件目の開始、完了済み入力の喪失と早すぎる引渡しを検出します。</summary>
+    [DataTestMethod]
+    [DataRow("api")]
+    [DataRow("url")]
+    public async Task DownloadedPackages_CancellationDuringResponseDisposalHandsOffCompletedDownloadsOnce(string ingress)
     {
         string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -1301,7 +1304,9 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 dialogService: new RecordingPlaylistUrlDialogService(),
                 externalLookupService: new PlaylistExternalPackageLookupService([provider]));
 
-            acquisition = Task.Run(() => workspace.RunPlaylistExternalPackageLookupAsync(md5s.Select(CreatePlaylistExternalPackageRow)));
+            acquisition = Task.Run(() => ingress == "api"
+                ? workspace.RunPlaylistExternalPackageLookupAsync(md5s.Select(CreatePlaylistExternalPackageRow))
+                : workspace.RunPlaylistUrlBatchAsync(uris, isDiffUrl: false));
             Task reached = await Task.WhenAny(disposeEntered.Task, acquisition);
             if (reached == acquisition) { await acquisition; }
             Assert.AreSame(disposeEntered.Task, reached);
@@ -1313,7 +1318,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
 
             Assert.IsFalse(acquisition.IsCompleted, "開始済みの応答解放が終わるまで取得操作を保持します。");
             Assert.AreEqual(0, handoffs);
-            CollectionAssert.AreEqual(md5s.Take(2).ToArray(), provider.RequestedMd5s);
+            CollectionAssert.AreEqual(ingress == "api" ? md5s.Take(2).ToArray() : [], provider.RequestedMd5s);
             disposeRelease.TrySetResult();
             await acquisition;
 
@@ -1326,10 +1331,10 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             CollectionAssert.AreEqual(secondBytes, capturedBytes[1]);
             Assert.IsTrue(responsesDisposedAtHandoff);
             Assert.IsTrue(secondStream.WasDisposed);
-            CollectionAssert.AreEqual(md5s.Take(2).ToArray(), provider.RequestedMd5s);
+            CollectionAssert.AreEqual(ingress == "api" ? md5s.Take(2).ToArray() : [], provider.RequestedMd5s);
             CollectionAssert.AreEqual(uris.Take(2).ToArray(), gateway.RequestedUris);
-            Assert.IsTrue(capturedPaths.All(path => !File.Exists(path)), "入力利用の終端後に所有stagingを回収します。");
-            Assert.AreEqual(0, Directory.GetFiles(root).Length);
+            Assert.IsTrue(capturedPaths.All(File.Exists), "受理後の入力は導入側へ寿命を移します。");
+            Assert.AreEqual(2, Directory.GetFiles(root).Length);
             Assert.IsFalse(workspace.IsPlaylistUrlDownloadRunning);
         }
         finally
@@ -1403,11 +1408,11 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
                 new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
-                paths =>
+                ownedInstallSink: request =>
                 {
                     handoffCount++;
-                    downloaded = paths;
-                    return installOwner.Enqueue(paths);
+                    downloaded = Array.AsReadOnly(request.Paths);
+                    return installOwner.TryEnqueue(request);
                 },
                 browserSink: _ => browserCount++,
                 treeExpansionSink: () => expansionCount++,
@@ -1469,9 +1474,11 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
-    /// <summary>実導入ownerへの一回引渡しと入力使用終端を通し、P中の読取り取得とstagingの回収時機を確認します。</summary>
-    [TestMethod]
-    public async Task DownloadedInput_HoldsStagingUntilActualInstallTerminalWhilePlaylistIsBusy()
+    /// <summary>実導入ownerへの一回引渡しと入力使用終端を通し、P中の読取り取得と開始後のstaging保持を確認します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task DownloadedInput_HoldsStagingUntilActualInstallTerminalWhilePlaylistIsBusy(bool failAfterStart)
     {
         string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -1480,6 +1487,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         Task? acquisition = null;
         IDisposable? playlistLease = null;
         PackageInstallWorkflowOwner? installer = null;
+        PackageInstallFailure? installFailure = null;
+        var expectedFailure = new IOException("started install failure");
         string? capturedPath = null;
         int handoffs = 0;
         try
@@ -1495,14 +1504,16 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                     entered.TrySetResult();
                     release.Task.GetAwaiter().GetResult();
                     Assert.IsTrue(File.Exists(capturedPath));
+                    if (failAfterStart) { throw expectedFailure; }
                     return new PackageInstallCommandResult([], null);
                 }), new NoOpChartMutationPlaybackPort(), action => { action(); return true; });
             installer.AttachLibrary(library);
+            installer.FailurePublished += failure => installFailure = failure;
             var gateway = new FakePlaylistUrlDownloadGateway(root, [1, 2, 3]);
             PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
                 new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
-                paths => { handoffs++; capturedPath = paths.Single(); return installer.Enqueue(paths); },
+                ownedInstallSink: request => { handoffs++; capturedPath = request.Paths.Single(); return installer.TryEnqueue(request); },
                 installCompletion: installer.WaitForIdleAsync,
                 captureStore: store =>
                 {
@@ -1518,9 +1529,10 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             Assert.AreEqual(1, handoffs);
             release.TrySetResult();
             await acquisition;
-            Assert.IsFalse(File.Exists(capturedPath));
+            Assert.IsTrue(File.Exists(capturedPath));
             Assert.IsFalse(library.OperationAdmission.IsActive);
             Assert.AreEqual(1, handoffs);
+            Assert.AreSame(failAfterStart ? expectedFailure : null, installFailure?.Exception);
         }
         finally
         {
@@ -1532,6 +1544,229 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 playlistLease?.Dispose();
                 Directory.Delete(root, true);
             }
+        }
+    }
+
+    /// <summary>URLが作った所有要求を実queueへ挿入し、worker開始前の取消・世代退役で入力回収と実idleを待ちます。所有情報の付与漏れと早いidleを検出します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task DownloadedInput_CancellationBeforeStartReclaimsOwnedSourceBeforeIdle(bool retireGeneration)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "url-before-start-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var statusEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseStatus = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cleanupEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? acquisition = null;
+        PackageInstallWorkflowOwner? owner = null;
+        try
+        {
+            string db = Path.Combine(root, "song.db");
+            File.WriteAllBytes(db, []);
+            var library = new TestBmsLibrary(db, null, null, string.Empty);
+            int installs = 0;
+            owner = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), library.OperationAdmission,
+                new ChartMutationActivityOwner(), new DelegatePackageInstallMutationPort((_, _, _, _) =>
+                {
+                    Interlocked.Increment(ref installs);
+                    return new PackageInstallCommandResult([], null);
+                }), new NoOpChartMutationPlaybackPort(), action => { action(); return true; });
+            owner.AttachLibrary(library);
+            int held = 0;
+            owner.StatusChanged += snapshot =>
+            {
+                if (snapshot.IsActive && Interlocked.Exchange(ref held, 1) == 0)
+                {
+                    statusEntered.TrySetResult();
+                    releaseStatus.Task.GetAwaiter().GetResult();
+                }
+            };
+            Uri uri = new("https://example.invalid/owned.bms");
+            var gateway = new RecordingPlaylistUrlDownloadGateway(root)
+            {
+                BeforeDelete = () => { cleanupEntered.TrySetResult(); releaseCleanup.Task.GetAwaiter().GetResult(); }
+            };
+            gateway.AddResponse(uri, () => new AppHttpResponse(uri, new MemoryStream([1, 2, 3], writable: false)));
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+                () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
+                new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
+                ownedInstallSink: owner.TryEnqueue, installCompletion: owner.WaitForIdleAsync);
+            acquisition = Task.Run(() => workspace.RunSinglePlaylistUrlAsync(uri));
+            await TestUiDispatcherHost.AwaitNotificationAsync(statusEntered.Task, acquisition, "URL queue insertion");
+            if (retireGeneration) { owner.AttachLibrary(new TestBmsLibrary(db, null, null, string.Empty)); }
+            else { owner.CancelAll(); }
+            await TestUiDispatcherHost.AwaitNotificationAsync(cleanupEntered.Task, acquisition, "URL unconsumed cleanup");
+            Assert.AreEqual(0, installs);
+            Assert.IsTrue(File.Exists(Path.Combine(root, "owned.bms")));
+            Assert.IsFalse(acquisition.IsCompleted);
+            Assert.IsFalse(owner.WaitForIdleAsync().IsCompleted);
+            releaseStatus.TrySetResult();
+            releaseCleanup.TrySetResult();
+            await acquisition;
+            await owner.WaitForIdleAsync();
+            Assert.AreEqual(0, installs);
+            Assert.AreEqual(1, gateway.DeleteCount);
+            Assert.IsFalse(File.Exists(Path.Combine(root, "owned.bms")));
+            Assert.IsTrue(owner.Enqueue([Path.Combine(root, "next-borrowed.zip")]));
+            await owner.WaitForIdleAsync();
+            Assert.AreEqual(1, installs);
+        }
+        finally
+        {
+            releaseStatus.TrySetResult();
+            releaseCleanup.TrySetResult();
+            try { if (acquisition != null) { await acquisition; } }
+            finally
+            {
+                if (owner != null) { await owner.WaitForIdleAsync(); }
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>未受理と受理前故障は要求自身が一回だけ回収し、取得Taskが実削除を待ちます。元故障と回収失敗を両方保持し、自動再試行しません。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task DownloadedInput_UnacceptedWaitsForCleanupAndPreservesBothFailures(bool failHandoffAndCleanup)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "url-rejected-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var cleanupEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? acquisition = null;
+        Exception? observed = null;
+        var handoffFailure = new IOException("handoff failure");
+        var cleanupFailure = new IOException("cleanup failure");
+        try
+        {
+            Uri uri = new("https://example.invalid/rejected.bms");
+            var gateway = new RecordingPlaylistUrlDownloadGateway(root)
+            {
+                BeforeDelete = () => { cleanupEntered.TrySetResult(); releaseCleanup.Task.GetAwaiter().GetResult(); },
+                DeleteFailure = failHandoffAndCleanup ? cleanupFailure : null
+            };
+            gateway.AddResponse(uri, () => new AppHttpResponse(uri, new MemoryStream([1, 2, 3], writable: false)));
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+                () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
+                new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
+                ownedInstallSink: _ => failHandoffAndCleanup ? throw handoffFailure : false,
+                dialogService: new RecordingPlaylistUrlDialogService());
+            acquisition = workspace.RunSinglePlaylistUrlAsync(uri);
+            await TestUiDispatcherHost.AwaitNotificationAsync(cleanupEntered.Task, acquisition, "URL rejected cleanup");
+            Assert.IsFalse(acquisition.IsCompleted);
+            releaseCleanup.TrySetResult();
+            try { await acquisition; } catch (Exception failure) { observed = failure; }
+            Assert.AreEqual(1, gateway.DeleteCount);
+            Assert.AreEqual(failHandoffAndCleanup, File.Exists(Path.Combine(root, "rejected.bms")));
+            if (failHandoffAndCleanup)
+            {
+                var aggregate = observed as AggregateException;
+                Assert.IsNotNull(aggregate);
+                CollectionAssert.AreEqual(new Exception[] { handoffFailure, cleanupFailure }, aggregate.Flatten().InnerExceptions.ToArray());
+            }
+            else { Assert.IsNull(observed); }
+        }
+        finally
+        {
+            releaseCleanup.TrySetResult();
+            try
+            {
+                if (acquisition != null)
+                {
+                    try { await acquisition; }
+                    catch (AggregateException failure) when (failHandoffAndCleanup
+                        && failure.Flatten().InnerExceptions.Contains(handoffFailure)
+                        && failure.Flatten().InnerExceptions.Contains(cleanupFailure))
+                    { }
+                }
+            }
+            finally { Directory.Delete(root, recursive: true); }
+        }
+    }
+
+    /// <summary>単体・一括・APIの実取得と実導入・推定を通し、保留の正本、DB行、bytesを取得終端後も保ち、後の明示導入を成立させます。</summary>
+    /// <remarks>HTTPとAPI候補だけを固定します。空TITLEによる実推定の保留を必須とし、推定結果を注入しません。管理sessionの初期化を共有するため非並列です。</remarks>
+    [DataTestMethod]
+    [DataRow("single")]
+    [DataRow("url")]
+    [DataRow("api")]
+    [DoNotParallelize]
+    public async Task DownloadedChart_RealEstimationRetainsPendingBytesForLaterManualInstall(string ingress)
+    {
+        await using var fixture = new PackageInstallWorkflowOwnerTests.AutomaticContinuationFixture(true, false);
+        await fixture.InitializeAsync();
+        int estimationApplied = 0;
+        fixture.Observer.Applied = () => Interlocked.Increment(ref estimationApplied);
+        string staging = TempDirectoryPublisher.Get("url-pending");
+        try
+        {
+            var gateway = new RecordingPlaylistUrlDownloadGateway(staging);
+            Uri[] uris = [new("https://example.invalid/first.bms"), new("https://example.invalid/second.bms")];
+            byte[][] contents = [.. Enumerable.Range(0, 2).Select(index => Encoding.ASCII.GetBytes(
+                "#TITLE\n#ARTIST\n#BPM 120\n#PLAYLEVEL 1\n#WAV01 sound.wav\n#00111:01\n#GENRE distinct-" + index + "\n"))];
+            for (int index = 0; index < uris.Length; index++)
+            {
+                int captured = index;
+                gateway.AddResponse(uris[index], () => new AppHttpResponse(uris[captured], new MemoryStream(contents[captured], writable: false)));
+            }
+            string[] md5s = ["11111111111111111111111111111111", "22222222222222222222222222222222"];
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+                () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
+                new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
+                ownedInstallSink: fixture.Owner.TryEnqueue,
+                externalLookupService: new PlaylistExternalPackageLookupService([new BatchHandoffLookupProvider(md5s.Zip(uris).ToDictionary(pair => pair.First, pair => pair.Second))]),
+                dialogService: new RecordingPlaylistUrlDialogService(),
+                installCompletion: fixture.Owner.WaitForIdleAsync);
+            if (ingress == "single") { await workspace.RunSinglePlaylistUrlAsync(uris[0]); }
+            else if (ingress == "url") { await workspace.RunPlaylistUrlActionAsync(uris.Select(uri => CreatePlaylistUrlRow(uri.AbsoluteUri, null)), false); }
+            else { await workspace.RunPlaylistExternalPackageLookupAsync(md5s.Select(CreatePlaylistExternalPackageRow)); }
+            await fixture.Owner.WaitForIdleAsync();
+
+            Assert.IsNull(fixture.Failure, fixture.Failure?.Exception.ToString());
+            int expectedCount = ingress == "single" ? 1 : 2;
+            ChartPackage[] pending = [.. fixture.Library.ChartPackagesPending];
+            Assert.AreEqual(1, pending.Length, "同じ取得先の単体譜面は一つのパッケージとして保留します。");
+            Assert.AreEqual(expectedCount, pending.Sum(package => package.ChartEntries.Count));
+            Assert.IsTrue(estimationApplied > 0, "実推定の結果適用を通過して保留へ残ることを必須とします。");
+            Assert.AreEqual(0, fixture.Library.ChartPackagesInstalled.Count);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(1, db.Table<LR2SongDBExtended.install>().Count());
+                Assert.IsTrue(string.Equals(pending.Single().path, db.Table<LR2SongDBExtended.install>().Single().path, StringComparison.OrdinalIgnoreCase));
+            }
+            foreach (PackageChartEntry entry in pending.SelectMany(package => package.ChartEntries))
+            {
+                Assert.IsTrue(string.IsNullOrEmpty(entry.Chart.InstallDestination));
+                string source = entry.Chart.Path;
+                int index = string.Equals(Path.GetFileName(source), "first.bms", StringComparison.OrdinalIgnoreCase) ? 0 : 1;
+                Assert.IsTrue(File.Exists(source), "取得Taskとowner実idleの後も保留実体を保持します。");
+                CollectionAssert.AreEqual(contents[index], File.ReadAllBytes(source));
+                entry.ApplyInstallDestinationMetadata(fixture.Destination, "Song", "");
+            }
+            PendingInstallBatchResult result = fixture.Library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(pending);
+            Assert.IsTrue(result.SessionReceipt.DurableCommit);
+            Assert.AreEqual(0, fixture.Library.ChartPackagesPending.Count);
+            Assert.AreEqual(1, fixture.Library.ChartPackagesInstalled.Count);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+            {
+                foreach (Uri uri in uris.Take(expectedCount))
+                {
+                    string destination = Path.Combine(fixture.Destination, Path.GetFileName(uri.AbsolutePath));
+                    Assert.IsTrue(File.Exists(destination));
+                    Assert.IsNotNull(db.Find<LR2SongDB.song>(destination));
+                    Assert.IsTrue(fixture.Library.BmsCharts.Any(chart => string.Equals(chart.Path, destination, StringComparison.OrdinalIgnoreCase)));
+                    int index = Array.IndexOf(uris, uri);
+                    CollectionAssert.AreEqual(contents[index], File.ReadAllBytes(destination));
+                }
+            }
+        }
+        finally
+        {
+            await fixture.Owner.WaitForIdleAsync();
+            if (Directory.Exists(staging)) { Directory.Delete(staging, recursive: true); }
         }
     }
 
@@ -1585,7 +1820,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         IUiDialogService? dialogService = null,
         Func<Action, Task>? presentationScheduler = null,
         PlaylistExternalPackageLookupService? externalLookupService = null,
-        Func<Task>? installCompletion = null, Action<BMSPlaylist>? captureStore = null)
+        Func<Task>? installCompletion = null, Action<BMSPlaylist>? captureStore = null,
+        Func<DroppedInstallBatchRequest, bool>? ownedInstallSink = null)
     {
         PlaylistWorkspaceTestPorts.OwnedPlaylistStore ownedPlaylistStore =
             PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
@@ -1609,7 +1845,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             acquisitionWorkflow ?? PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             externalLookupService ?? PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             optionsProvider ?? PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            installSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
+            ownedInstallSink ?? (installSink == null ? PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink : request => installSink(Array.AsReadOnly(request.Paths))),
             browserSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
@@ -1760,6 +1996,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
 
         internal int DeleteCount { get; private set; }
 
+        internal Action? BeforeDelete { get; set; }
+
         internal void AddResponse(Uri uri, Func<AppHttpResponse> responseFactory)
         {
             responses[uri.AbsoluteUri] = responseFactory;
@@ -1797,6 +2035,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         public void DeleteFile(string path)
         {
             DeleteCount++;
+            BeforeDelete?.Invoke();
             if (DeleteFailure != null) { throw DeleteFailure; }
             File.Delete(path);
         }

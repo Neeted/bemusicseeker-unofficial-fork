@@ -2109,13 +2109,13 @@ public partial class MainWindowViewModel : ViewModel,
             () => PlaylistWorkspace.PlaylistTreeTables,
             LogPlaylistViewApply,
             LogPlaylistRetention,
-            paths =>
+            request =>
             {
                 if (PackageInstallWorkflow == null)
                 {
                     throw new InvalidOperationException("Package install workflow is not composed.");
                 }
-                return PackageInstallWorkflow.Enqueue(paths);
+                return PackageInstallWorkflow.TryEnqueue(request);
             },
             uri => ExternalShellGateway.Open(ExternalShellRequest.OpenUrl(uri.ToString())),
             LogExternalPlaylistImportWarning,

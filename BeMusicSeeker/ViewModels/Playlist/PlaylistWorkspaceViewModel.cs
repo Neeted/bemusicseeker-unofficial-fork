@@ -117,7 +117,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     /// <summary>
     /// Creates playlist workspace state with explicit search persistence boundaries.
     /// </summary>
-    /// <param name="playlistUrlInstallSink">取得済み path の導入受付。未受理は false を返し、通信成功と導入受理を区別します。</param>
+    /// <param name="playlistUrlInstallSink">所有入力付き要求の導入受付。受理時に待ち行列へ寿命を移し、未受理は false を返します。</param>
     /// <param name="keywordSearchFavoritesSettingsStore">The explicit normal/summary Favorites settings boundary.</param>
     internal PlaylistWorkspaceViewModel(
         Action<Action> dispatchPresentation,
@@ -130,7 +130,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         PlaylistUrlAcquisitionWorkflow playlistUrlAcquisitionWorkflow,
         PlaylistExternalPackageLookupService playlistExternalPackageLookupService,
         Func<PlaylistUrlAcquisitionOptionsSnapshot> playlistUrlAcquisitionOptionsProvider,
-        Func<IReadOnlyList<string>, bool> playlistUrlInstallSink,
+        Func<DroppedInstallBatchRequest, bool> playlistUrlInstallSink,
         Action<Uri> playlistUrlBrowserOpenSink,
         Action<Exception, string> externalPlaylistImportWarningLog,
         Action<string> externalPlaylistImportInfoLog,
