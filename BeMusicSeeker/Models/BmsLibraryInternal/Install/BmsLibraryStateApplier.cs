@@ -119,7 +119,7 @@ internal sealed partial class PackageLifecycleOwner
                 {
                     if (installDestinationChange.ClearInstallDestinationState)
                     {
-                        installDestinationChange.Entry.ClearInstallDestination();
+                        BmsLibraryPackageInstallService.ClearPendingInstallDestination(installDestinationChange.Entry);
                     }
                     else
                     {

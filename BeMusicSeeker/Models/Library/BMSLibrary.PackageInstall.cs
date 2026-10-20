@@ -937,6 +937,7 @@ public partial class BMSLibrary
             foreach (PackageChartEntry entry in package.ChartEntries ?? [])
             {
                 entry?.ClearInstallDestination();
+                entry?.DiscardOriginalResourceHealth();
             }
         }
     }
@@ -2835,24 +2836,8 @@ public partial class BMSLibrary
                     continue;
                 }
 
-                // Regrouping resolves a new package-level destination and
-                // warning projection.  Keep that work detached from the live
-                // entries until the owner has accepted the replacement and
-                // the install rows have been durably updated.
-                ChartFile storageProjection = ChartFileProjection.CaptureBasicSnapshot(
-                    sourceChart,
-                    includeWarningSnapshot: true);
-                ChartFile packageProjection = storageProjection == null
-                    ? sourceChart
-                    : ChartFileProjection.WithPackageState(
-                        storageProjection,
-                        sourceChart.InstallDestination,
-                        sourceChart.InstallDestinationTitle,
-                        sourceChart.InstallDestinationArtist,
-                        sourceChart.InstallDestinationSuggestions,
-                        sourceChart.Warnings);
-                var detachedEntry = PackageChartEntry.FromChart(
-                    ChartFileProjection.ToImmutableSnapshot(packageProjection));
+                // 置換とDB更新の受理前は元項目から切り離し、登録時の不変結果も同じ排他境界で引き継ぎます。
+                PackageChartEntry detachedEntry = sourceEntry.ToChartEntrySnapshot();
                 if (detachedEntry != null)
                 {
                     regroupedEntries.Add(detachedEntry);

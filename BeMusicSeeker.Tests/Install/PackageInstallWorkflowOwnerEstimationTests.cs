@@ -446,6 +446,19 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 Assert.IsTrue(failure.CommandResult.SessionReceipt.DurableCommit);
             }
             else { Assert.IsNull(failure, failure?.Exception.ToString()); }
+            foreach (ChartPackage package in library.ChartPackagesPending)
+            {
+                foreach (PackageChartEntry entry in package.ChartEntries)
+                {
+                    // 登録後取消で残る項目も、後から追加した音源ではなく登録時の不足へ戻します。
+                    string name = Path.GetFileName(entry.Chart.Path) == "a.bms" ? sounds[0] : sounds[1];
+                    File.WriteAllText(Path.Combine(source, name), "later audio");
+                    entry.SetInstallDestinationPathOnly(installed);
+                }
+                library.RemoveInstallDestination(package.ChartEntries, package);
+                Assert.IsTrue(package.ChartEntries.All(entry => entry.Chart.WAVHealth == 0
+                    && entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing)));
+            }
         }
         finally
         {

@@ -161,6 +161,11 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             ChartFile successfulFile = CreateChart(packageDirectoryPath, "successful.bms", "b");
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([failedFile, successfulFile]);
             package.path = packageDirectoryPath;
+            foreach (PackageChartEntry entry in package.ChartEntries)
+            {
+                BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
+                entry.SetInstallDestinationPathOnly(Path.Combine(tempDirectoryPath, "destination"));
+            }
             var fileMutationService = new RecordingDeleteFileMutationService(failedFile.Path);
             BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
@@ -192,6 +197,9 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             Assert.AreSame(package, library.ChartPackagesPending.Single());
             Assert.AreEqual(1, package.ChartEntries.Count);
             Assert.AreEqual(failedFile.Path, package.ChartEntries.Single().Chart.Path);
+            BmsLibraryPackageInstallService.ClearPendingInstallDestination(package.ChartEntries.Single());
+            Assert.AreEqual(0, package.ChartEntries.Single().Chart.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
+            Assert.AreEqual(string.Empty, package.ChartEntries.Single().Chart.InstallDestination);
             using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(1, verifySongDb.Table<LR2SongDBExtended.install>().Count());
             Assert.AreEqual(package.path, verifySongDb.Table<LR2SongDBExtended.install>().Single().path);

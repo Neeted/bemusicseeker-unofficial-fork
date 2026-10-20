@@ -33,6 +33,8 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     private bool hasResourceHealthProjection;
 
+    private ResourceHealthMaintenanceSnapshot originalResourceHealth;
+
     /// <summary>最後の評価完了時の不変配置です。画面を開く時点で捕捉し、後の導入先変更へ追従させません。</summary>
     internal ChartResourcePlacement ResourcePlacement { get; private set; }
 
@@ -146,7 +148,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         RaiseChartChanged();
     }
 
-    /// <summary>共通値と導入状態を同じ時点で捕捉したdetached項目を作ります。</summary>
+    /// <summary>共通値・導入状態と登録時の元配置結果を同じ時点で捕捉したdetached項目を作ります。不変の配置と元配置結果は共有します。</summary>
     internal PackageChartEntry ToChartEntrySnapshot()
     {
         lock (mutationGate)
@@ -155,6 +157,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
             if (currentChart == null) { return null; }
             PackageChartEntry snapshot = FromChart(currentChart);
             snapshot.ResourcePlacement = ResourcePlacement;
+            snapshot.originalResourceHealth = originalResourceHealth;
             return snapshot;
         }
     }
@@ -322,9 +325,42 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
     }
 
-    /// <summary>導入成功後、この項目に残る導入前の候補と一時警告を解除します。</summary>
+    /// <summary>登録入口で元配置の評価結果を一度だけ確定します。通常の再評価からは呼びません。</summary>
+    internal void InitializeOriginalResourceHealth(ResourceHealthMaintenanceSnapshot value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        lock (mutationGate)
+        {
+            if (originalResourceHealth != null)
+            {
+                throw new InvalidOperationException("Original resource health has already been initialized.");
+            }
+            originalResourceHealth = value;
+        }
+    }
+
+    /// <summary>消去前に登録時の必須結果を取得します。欠落を再評価や未判定へ置き換えません。</summary>
+    internal ResourceHealthMaintenanceSnapshot GetOriginalResourceHealth()
+    {
+        lock (mutationGate)
+        {
+            return originalResourceHealth ?? throw new InvalidOperationException("Original resource health has not been initialized.");
+        }
+    }
+
+    /// <summary>導入の確定後、保留の元配置にだけ必要な結果への参照を解放します。</summary>
+    internal void DiscardOriginalResourceHealth()
+    {
+        lock (mutationGate)
+        {
+            originalResourceHealth = null;
+        }
+    }
+
+    /// <summary>導入成功後、登録時の元配置結果を解放し、導入前の候補と一時警告を解除します。</summary>
     internal void ClearPostInstallState()
     {
+        DiscardOriginalResourceHealth();
         ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
         ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
         ClearResourceHealthProjection();

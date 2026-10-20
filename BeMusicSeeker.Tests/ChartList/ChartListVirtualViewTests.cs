@@ -2663,6 +2663,7 @@ public sealed class ChartListVirtualViewTests
                 "Installed",
                 "Artist",
                 []));
+        BmsLibraryPackageInstallService.InitializePendingResourceHealth(adapterlessBmsonEntry);
         var package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
 
         await viewModel.PendingPackages.ClearPackagesAsync([package]);
@@ -2692,6 +2693,7 @@ public sealed class ChartListVirtualViewTests
                 "Installed",
                 "Artist",
                 []));
+        BmsLibraryPackageInstallService.InitializePendingResourceHealth(adapterlessBmsonEntry);
         var package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
         try
         {
@@ -2746,6 +2748,7 @@ public sealed class ChartListVirtualViewTests
                 "Installed",
                 "Artist",
                 []));
+        BmsLibraryPackageInstallService.InitializePendingResourceHealth(adapterlessBmsonEntry);
         var package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
         try
         {
@@ -2931,6 +2934,7 @@ public sealed class ChartListVirtualViewTests
                 "Current",
                 "Artist",
                 []));
+        BmsLibraryPackageInstallService.InitializePendingResourceHealth(currentEntry);
         var package = ChartPackage.FromChartEntries([currentEntry]);
         try
         {

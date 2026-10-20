@@ -4404,9 +4404,8 @@ public partial class BMSLibrary : ObservableObject
     {
         foreach (PackageChartEntry entry in (entries ?? []).Where(entry => entry?.Chart != null))
         {
-            entry.ClearInstallDestination();
+            BmsLibraryPackageInstallService.ClearPendingInstallDestination(entry);
         }
-        RefreshPendingResourceHealth(entries, package);
     }
 
     private void ClearDeferredEstimateReasonForEntriesUnsafe(IEnumerable<PackageChartEntry> entries)
@@ -9317,8 +9316,18 @@ public partial class BMSLibrary : ObservableObject
             using (rwlockBMSFiles.GetReaderGuard())
             {
                 List<PackageChartEntry> entries = [.. chartEntries.Where(entry => entry?.Chart != null)];
-                CreateInstallEstimationService().ClearInstallDestinations(entries);
-                RefreshPendingResourceHealth(entries, package);
+                if (package != null)
+                {
+                    foreach (PackageChartEntry entry in entries)
+                    {
+                        BmsLibraryPackageInstallService.ClearPendingInstallDestination(entry);
+                    }
+                }
+                else
+                {
+                    CreateInstallEstimationService().ClearInstallDestinations(entries);
+                    RefreshPendingResourceHealth(entries, package);
+                }
             }
         }
     }

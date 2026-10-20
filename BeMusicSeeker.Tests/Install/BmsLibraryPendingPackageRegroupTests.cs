@@ -9,6 +9,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -212,8 +213,11 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
     /// <summary>手動編集は解決済みのパッケージ同梱を使い、パッケージクリアは対象の現在配置へ戻します。別の保留パッケージや通常所持の投影は変更しません。</summary>
-    [TestMethod]
-    public void SetAndClearPendingInstallDestination_RefreshesResolvedPackagePlacement()
+    [DataTestMethod]
+    [DataRow("packages")]
+    [DataRow("pending")]
+    [DataRow("correct")]
+    public void SetAndClearPendingInstallDestination_RefreshesResolvedPackagePlacement(string clearRoute)
     {
         WithTemporaryLibrary((root, db, library) =>
         {
@@ -234,7 +238,22 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.IsTrue(library.SetPendingInstallDestination(entry, destination));
             Assert.AreEqual(100, entry.Chart.WAVHealth);
             Assert.AreEqual(ChartResourcePlacementBasis.Destination, entry.ResourcePlacement.Basis);
-            new BeMusicSeeker.ViewModels.BmsLibraryPendingPackageStore().ClearPackages([package]);
+            File.Delete(Path.Combine(source, "tone.ogg"));
+            var store = new BeMusicSeeker.ViewModels.BmsLibraryPendingPackageStore();
+            var target = new BeMusicSeeker.ViewModels.ChartOperationTarget(entry.Chart, null,
+                BeMusicSeeker.ViewModels.ChartOperationSourceScope.PendingPackage, false, true, false,
+                BeMusicSeeker.ViewModels.ChartOperationCapabilities.UpdateInstallDestination | BeMusicSeeker.ViewModels.ChartOperationCapabilities.RepairInstalledLocation, entry);
+            if (clearRoute == "packages") { store.ClearPackages([package]); }
+            else if (clearRoute == "pending")
+            {
+                Assert.IsTrue(BeMusicSeeker.ViewModels.PendingInstallDestinationClearRequest.TryCreate([target], out PendingInstallDestinationClearRequest? request));
+                store.ClearPending(library, request);
+            }
+            else
+            {
+                Assert.IsTrue(BeMusicSeeker.ViewModels.RepairInstalledLocationRequest.TryCreate([target], out RepairInstalledLocationRequest? request));
+                store.ClearCorrect(library, request);
+            }
             Assert.AreEqual(100, entry.Chart.WAVHealth);
             Assert.AreEqual(ChartResourcePlacementBasis.Current, entry.ResourcePlacement.Basis);
             Assert.AreEqual(0, otherChanges);
@@ -1180,6 +1199,11 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 destinationDirectoryPath);
             ChartPackage normalPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "normal.bms", "Normal"), destinationDirectoryPath);
 
+            foreach (PackageChartEntry entry in strictWarningPackage.ChartEntries.Concat(normalPackage.ChartEntries))
+            {
+                BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
+            }
+
             File.WriteAllText(Path.Combine(sourceDirectoryPath, "sound_missing.ogg"), "bundled after regroup");
             string originalAudioReason = string.Format(BeMusicSeeker.Properties.Resources.Warning_InstallEstimationAudioMissing, @"C:\OriginalCandidate");
             GetOnlyEntry(strictWarningPackage).SetWarning(ChartWarningKind.InstallEstimationAudioMissing, originalAudioReason);
@@ -1188,7 +1212,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             resourceIndex.AddDir(destinationDirectoryPath, []);
             SetLibraryResourceIndex(library, resourceIndex);
             ApplySingleFileWarnings(strictWarningPackage, normalPackage);
-            SeedPendingPackages(library, songDbPath, strictWarningPackage, normalPackage);
+            SeedInitializedPendingPackages(library, songDbPath, strictWarningPackage, normalPackage);
             BmsLibraryPackageInstallService.RefreshPendingResourceHealth(strictWarningPackage.ChartEntries, strictWarningPackage, resourceIndex);
             Assert.AreEqual(0, GetOnlyEntry(strictWarningPackage).Chart.WAVHealth);
             Assert.IsTrue(GetOnlyEntry(strictWarningPackage).Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
@@ -1204,6 +1228,10 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.IsFalse(normalEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAudioMissing));
             Assert.IsFalse(strictWarningEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.SingleBmsFile));
             Assert.AreEqual(string.Empty, ChartWarningTestHelpers.BuildDigestText(normalEntry));
+            library.RemoveInstallDestination(regroupedPackage.ChartEntries, regroupedPackage);
+            Assert.AreEqual(0, strictWarningEntry.Chart.WAVHealth);
+            Assert.IsTrue(strictWarningEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.IsFalse(strictWarningEntry.Chart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
         });
     }
 
@@ -2851,6 +2879,16 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     private static void SeedPendingPackages(BMSLibrary library, string songDbPath, params ChartPackage[] packages)
+    {
+        // 本番の保留登録に相当するfixture境界で、元配置の初期評価を明示します。
+        foreach (PackageChartEntry entry in packages.SelectMany(package => package.ChartEntries))
+        {
+            BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
+        }
+        SeedInitializedPendingPackages(library, songDbPath, packages);
+    }
+
+    private static void SeedInitializedPendingPackages(BMSLibrary library, string songDbPath, params ChartPackage[] packages)
     {
         library.ChartPackagesPending = CreatePackageCollection(packages);
         // pending packageのschemaとseedだけを一つのtransactionへまとめ、本番の保存契約は変更せずfixtureのautocommit反復を減らす。

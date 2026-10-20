@@ -1577,6 +1577,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         };
         var entry = PackageChartEntry.FromChart((song));
+        var original = new ResourceHealthMaintenanceSnapshot { Path = song.Path, Hash = song.Md5, WavFilesDefined = 2, WavFilesExisting = 1 };
+        entry.InitializeOriginalResourceHealth(original);
         string destinationDirectory = Path.Combine("C:\\Installed", "Package");
         entry.ApplyInstallDestinationMetadata(destinationDirectory, "Resolved Title", "Resolved Artist");
         entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
@@ -1587,6 +1589,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
         Assert.AreEqual(ChartFileKind.Bmson, snapshot.Chart.Kind);
         Assert.AreEqual(destinationDirectory, snapshot.Chart.InstallDestination);
+        Assert.AreSame(original, snapshot.GetOriginalResourceHealth());
         Assert.IsTrue(snapshot.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed));
     }
 

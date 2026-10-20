@@ -778,6 +778,8 @@ public sealed class MainWindowPackageMaintenanceWpfTests
         File.WriteAllText(otherPath, "#TITLE Other Pending\r\n#ARTIST Other Author\r\n");
         var entry = PackageChartEntry.FromPath(sourcePath);
         var otherEntry = PackageChartEntry.FromPath(otherPath);
+        BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
+        BmsLibraryPackageInstallService.InitializePendingResourceHealth(otherEntry);
         var package = ChartPackage.FromChartEntries([entry]);
         package.path = source;
         var otherPackage = ChartPackage.FromChartEntries([otherEntry]);
@@ -807,6 +809,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 ChartFile otherBefore = otherEntry.Chart;
                 int otherProjectionVersion = otherEntry.ProjectionVersion;
                 Assert.AreEqual(string.Empty, row.InstallDestinationTitle);
+                Assert.AreEqual(0, row.Chart.WAVHealth);
                 var menu = (ContextMenu)window.FindResource("treeViewInstallPackageContextMenu");
                 menu.PlacementTarget = new TreeViewItem { DataContext = package };
                 MenuItem group = menu.Items.OfType<MenuItem>().Single(item => item.Items.OfType<MenuItem>().Any(child => Equals(child.Header, Resources.Estimate_install_loc)));
@@ -839,6 +842,8 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 AssertEvidence();
                 MenuItem clear = group.Items.OfType<MenuItem>().Single(item => Equals(item.Header, Resources.Clear_estimation));
+                Assert.AreEqual(100, row.Chart.WAVHealth);
+                File.WriteAllText(Path.Combine(source, "sound.wav"), "added after registration");
                 Task clearEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(clear));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(clearEvent, "real pending destination clear menu");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -847,6 +852,12 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual(string.Empty, row.InstallDestinationArtist);
                 Assert.AreEqual(0, row.Chart.InstallDestinationSuggestions.Count);
                 Assert.IsFalse(row.Chart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
+                Assert.AreEqual(0, row.Chart.WAVHealth);
+                Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+                StringAssert.Contains(row.WarningDigestText, Resources.WarningDigest_ResourceMissing);
+                LibraryChartRow refreshed = viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Single(value => value.path == sourcePath);
+                Assert.AreEqual(0, refreshed.Chart.WAVHealth);
+                StringAssert.Contains(refreshed.WarningDigestText, Resources.WarningDigest_ResourceMissing);
                 AssertOtherUnchanged();
                 Assert.AreEqual(string.Empty, otherRow.instl_dst);
                 Assert.AreEqual(string.Empty, otherRow.InstallDestinationTitle);

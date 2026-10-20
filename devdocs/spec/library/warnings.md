@@ -34,7 +34,15 @@
 
 一覧への所属判定は警告集合を変更せず、保守情報に基づく副作用のない索引で行います。BMSONは現在のMD5と一致する計算済みの保守情報を使い、未計算・旧ハッシュなら参照と現在のファイル状態から一時的に評価します。索引を優先し、必要な場合だけ実ファイルを確認します。
 
-保留の健康度とリソース警告は、設定済みの `INSTL DST`、未設定なら先頭候補、どちらもなければ現在の入力元配置を評価する一時状態です。設定先・候補では実際に持ち込む同梱資源を加算し、各譜面固有の使用集合を照合します。単一BMS・BMSONの親全体は同梱としません。推定・編集・候補選択・空編集・明示クリア・再グループ化の完了時に更新します。導入成功時に分類単位で解除し、通常・新規一覧では導入後の保守情報から表示します。保留の警告を所持カタログやDB行へ書き戻しません。
+保留の健康度とリソース警告は、設定済みの `INSTL DST`、未設定なら先頭候補、どちらもなければ入力元配置を基準とする一時状態です。設定先・候補では実際に持ち込む同梱資源を加算し、各譜面固有の使用集合を照合します。単一BMS・BMSONの親全体は同梱としません。推定・編集・候補選択・空編集・再グループ化の完了時には従来どおり評価し、明示クリアは後述の計算済み結果を復元します。導入成功時に分類単位で解除し、通常・新規一覧では導入後の保守情報から表示します。保留の警告を所持カタログやDB行へ書き戻しません。
+
+保留登録時には、既存の初期評価で計算した元配置の `ResourceHealthMaintenanceSnapshot` を項目に一件保持します。自動導入候補から設定・失敗・取消等により後で保留へ回る項目も同じ初期評価で確定します。起動時の保留復元ではDBからこの結果を読み戻さず、既存の起動時評価で確定します。候補切り替え・再推定・通常の健康度更新は、この元配置結果を上書きしません。
+
+保留の「インストール先をクリア」は、導入先・代表情報・候補・`InstallEstimation` 警告を消し、保存済みの音声・画像・動画の定義数/存在数と補助画像3役割の定義/存在値を復元します。`ResourceHealth` 警告は復元した値から再生成し、現在の警告無視設定を維持します。文字コード・修正状態・LR2互換性情報と、他分類の警告は現在値を維持します。配置は元の譜面ディレクトリの `Current` へ戻し、捕捉済み同梱索引と完全性を保持します。
+
+この復元では、譜面の再解析、要求キーの生成、`Chart.Resources` の再列挙、入力元の列挙・物理存在確認を行いません。登録後の外部ファイルの追加・削除はクリア後の健康度へ反映しません。各値の未判定nullと既知0件はそのまま復元し、初期結果自体の欠落を再計算・0件成功で救済しません。必要な初期化を登録入口で成立させ、当該項目の保存値を取得してから消去を始めます。
+
+元配置結果はdetached要求・同じ譜面の再グループ化・部分削除の残存項目へ不変参照として引き継ぎ、再編成後の現在健康度評価と分けます。保留の内部解除と所持フォルダ削除に伴う保留導入先の解除も同じ復元操作を使います。通常所持の再導入先クリアには適用せず、空編集では候補と推定警告を残し、先頭候補があればその健康度を評価します。導入・リソースのみ導入・清掃のみの成功確定後は元結果を破棄し、失敗・取消で保留に残る項目は保持します。永続化・候補別cache・背景再計算は追加しません。
 
 推定結果の反映には、評価で使った同梱と候補の照合入力を共有し、未取得の候補索引を反映時の最新索引で補いません。現在配置と通常所持の物理的な存在確認は既存の二値判定を維持します。I/Oで存在を確認できない場合もfalseとなる既存の限界があります。
 
@@ -102,6 +110,7 @@ LR2用パスを表現できないことを理由にBMS行を削除しません�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 保留の明示クリアで登録時健康度を復元、外部変更非反映、非健康度の現在値保持 | `PackageChartEntry`、`BmsLibraryPackageInstallService`、`PendingPackageWorkflowOwner`、`BMSLibrary` | `BmsLibraryPackageInstallServiceTests` が全資源/未判定/0件/不足・候補切り替え・登録後の外部変更・文字コード/LR2/警告分類を確認する。初期確定は同クラスと `BmsLibraryInitializationInstallTests`、detached/再編成/部分削除は既存Install系列へ分担し、実メニューから生成済み行への更新は `MainWindowPackageMaintenanceWpfTests` で確認する。クリアから解析・資源列挙・存在確認へ非到達、成功時の参照破棄は静的確認を併用する。 |
 | 種類、優先順位、要約の重複抑止、詳細、強調 | [`ChartWarning`](../../../BeMusicSeeker/Models/Chart/ChartWarning.cs)、[`ChartWarningCollection`](../../../BeMusicSeeker/Models/Chart/ChartWarning.cs)、[`ChartWarningProjectionFormatter`](../../../BeMusicSeeker/ViewModels/ChartList/ChartWarningProjectionFormatter.cs) | [`ChartWarningCollectionTests`](../../../BeMusicSeeker.Tests/Chart/ChartWarningCollectionTests.cs) |
 | 保留の配置優先・同梱合成・欠損と未確認・音源見送り理由 | `ChartResourcePlacement`、`BmsLibraryPackageInstallService`、`PackageChartEntry` | `BmsLibraryPackageInstallServiceTests.RefreshPendingResourceHealth_SelectsPlacementAndCombinesAllResourceKinds` と `RefreshPendingResourceHealth_DistinguishesUnknownZeroAndSingleFileScope` は全資源と配置・未確認・0件・単一ファイルを確認する。`BmsLibraryPendingPackageRegroupTests.SearchAndEdit_GroupAudioReasonRemainsIndependentOfCurrentHealth` は実推定と編集・再推定・クリアの配送を確認する。`TryRegroupPendingPackagesForSourceDirectories_ReevaluatesBundledResourcesAndPreservesOriginalAudioReason` は同梱範囲の変更による不足解消と元行だけの理由保持を確認し、要約の併記・順序・強調は `ChartWarningCollectionTests` へ分担する。 |
 | BMS・BMSON・保留の状態分離 | [`ChartFileProjection`](../../../BeMusicSeeker/Models/Chart/ChartFileProjection.cs)、[`ChartFileTransientState`](../../../BeMusicSeeker/Models/Chart/ChartFileTransientState.cs)、[`PackageChartEntry`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/PackageChartEntry.cs) | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs)、[`ChartInfoInstallFailureRetryTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInstallFailureRetryTests.cs) |

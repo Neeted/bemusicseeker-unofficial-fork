@@ -1017,7 +1017,7 @@ Automatic confirmation of `INSTL DST` requires a strong TITLE / ARTIST match and
 
 `Install as new` ignores the estimated destination and treats the package as an ordinary new installation. If a destination is configured, confirmation that it will not be used is always required. If no destination is configured, confirmation is shown by default to explain that the pending package is intentionally being installed as new, even if WARNINGs such as missing resources remain. Only the latter confirmation can be skipped by turning OFF `Show confirmation before installing as new` in Advanced settings. Rejected packages remain pending. **A typical use case is when the package shows something like `WAV 97%`, but that is known to be the original distribution state of the work.**
 
-`Clear install destination` clears `INSTL DST`, estimated-destination title / artist, install-destination-estimation warnings, and candidate suggestions for the selected rows. Use it when you want to redo estimation.
+`Clear install destination` clears `INSTL DST`, estimated-destination title / artist, install-destination-estimation warnings, and candidate suggestions for the selected rows. Resource health and missing-resource warnings return to the original-location results calculated when the package entered Pending, including restoration at startup. Clearing does not check files added or removed afterward. Use it when you want to redo estimation.
 
 ### Smart Overwrite
 

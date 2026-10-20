@@ -731,6 +731,23 @@ public sealed class BmsLibraryInitializationInstallTests
             Assert.IsTrue(missingEntry.Chart.WAVHealth.HasValue);
             Assert.AreEqual(100, healthyEntry.Chart.WAVHealth);
             Assert.IsFalse(healthyEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            var cache = new DirectoryResourceLookupCache();
+            string destination = Path.Combine(lr2RootPath, "candidate");
+            cache.AddDir(destination, ["missing.wav", "sound.wav"]);
+            cache.AddDir(directoryPackagePath, []);
+            foreach (PackageChartEntry entry in pendingPackage.ChartEntries)
+            {
+                entry.SetInstallDestinationPathOnly(destination);
+            }
+            BmsLibraryPackageInstallService.RefreshPendingResourceHealth(pendingPackage.ChartEntries, pendingPackage, cache, cache.GetEntryOrNull(directoryPackagePath));
+            Assert.AreEqual(100, missingEntry.Chart.WAVHealth);
+            File.WriteAllText(Path.Combine(directoryPackagePath, "missing.wav"), "later");
+            File.Delete(Path.Combine(directoryPackagePath, "sound.wav"));
+            new BeMusicSeeker.ViewModels.BmsLibraryPendingPackageStore().ClearPackages([pendingPackage]);
+            Assert.AreEqual(0, missingEntry.Chart.WAVHealth);
+            Assert.AreEqual(100, healthyEntry.Chart.WAVHealth);
+            Assert.IsTrue(missingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.IsFalse(healthyEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
         });
     }
 

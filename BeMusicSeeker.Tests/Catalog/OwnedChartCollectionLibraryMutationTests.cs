@@ -75,6 +75,19 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 [[], [], []], [[], [], []],
                 new Dictionary<uint, string[]> { [shared] = folders.ToArray() }, new Dictionary<uint, string[]>(), new Dictionary<uint, string[]>()));
             LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
+            string pendingDirectory = Path.Combine(root, "pending");
+            Directory.CreateDirectory(pendingDirectory);
+            string pendingPath = Path.Combine(pendingDirectory, "pending.bms");
+            File.WriteAllText(pendingPath, "#TITLE Pending\n#WAV01 shared.wav\n#00111:01\n");
+            var pending = PackageChartEntry.FromPath(pendingPath);
+            BmsLibraryPackageInstallService.InitializePendingResourceHealth(pending);
+            var package = ChartPackage.FromChartEntries([pending]);
+            package.path = pendingDirectory;
+            library.ChartPackagesPending = new[] { package };
+            pending.SetInstallDestinationPathOnly(folders[0]);
+            BmsLibraryPackageInstallService.RefreshPendingResourceHealth([pending], package, before.DirectoryLookupCache);
+            Assert.AreEqual(100, pending.Chart.WAVHealth);
+            File.WriteAllText(Path.Combine(pendingDirectory, "shared.wav"), "added after registration");
             var entryMutations = new List<string>();
             before.DirectoryLookupCache.EntryStoreMutationObserver = path => entryMutations.Add(path);
 
@@ -90,6 +103,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.IsTrue(Directory.Exists(folders[1]));
             Assert.IsFalse(Directory.Exists(folders[2]));
             Assert.IsTrue(File.Exists(Path.Combine(folders[1], "shared.wav")));
+            Assert.AreEqual(string.Empty, pending.Chart.InstallDestination);
+            Assert.AreEqual(0, pending.Chart.WAVHealth);
+            Assert.IsTrue(pending.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.AreEqual(ChartResourcePlacementBasis.Current, pending.ResourcePlacement.Basis);
             Assert.IsTrue(filesystem.DirectoryRecycleOptions.All(option => option ==
                 (recycle ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently)));
             LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();

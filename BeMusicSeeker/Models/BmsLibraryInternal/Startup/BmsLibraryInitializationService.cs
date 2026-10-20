@@ -2424,7 +2424,7 @@ internal sealed class BmsLibraryInitializationService
                     result.SingleFileWarningCount++;
                 }
             }
-            result.StrictWarningCount += BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjectionToEntries(pendingPackage.ChartEntries);
+            result.StrictWarningCount += BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjectionToEntries(pendingPackage.ChartEntries, initializeOriginal: true);
             BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(pendingPackage);
         }
         warningStopwatch.Stop();

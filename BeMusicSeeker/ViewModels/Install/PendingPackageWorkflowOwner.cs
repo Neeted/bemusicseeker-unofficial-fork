@@ -1847,9 +1847,7 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
     {
         foreach (PackageChartEntry entry in package?.ChartEntries ?? [])
         {
-            entry?.ClearInstallDestination();
+            if (entry != null) { BmsLibraryPackageInstallService.ClearPendingInstallDestination(entry); }
         }
-        // 明示クリア後は候補もなく、入力元の現在配置だけを対象パッケージ内で再評価します。
-        BmsLibraryPackageInstallService.RefreshPendingResourceHealth(package?.ChartEntries, package, null);
     }
 }

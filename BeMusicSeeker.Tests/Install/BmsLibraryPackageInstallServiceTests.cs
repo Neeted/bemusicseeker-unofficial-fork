@@ -454,6 +454,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 ChartPackage package = ChartPackageTestExtensions.CreatePackage(entries.ToArray());
                 package.path = sources[i];
                 package.delete_parent = false;
+                foreach (PackageChartEntry entry in entries)
+                {
+                    BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
+                }
                 packages.Add(package);
             }
             string existingPath = CreateBmsFile(existingDirectory, "existing.bms", "#TITLE Existing\r\n" + body);
@@ -1330,6 +1334,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             first.path = firstSource;
             second.path = secondSource;
             first.delete_parent = second.delete_parent = false;
+            foreach (PackageChartEntry entry in first.ChartEntries.Concat(second.ChartEntries))
+            {
+                BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
+            }
             var dialogs = new FileDbReportRecordingDialogs();
             IFileMutationService files = cleanupFails ? new FailingDestinationDeleteFileMutationService(secondSource)
                 : new RealFileMutationService();
@@ -2187,7 +2195,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     (pendingFirst));
                 var secondEntry = PackageChartEntry.FromChart(
                     (pendingSecond));
-                BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjectionToEntries([firstEntry, secondEntry]);
+                BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjectionToEntries([firstEntry, secondEntry], initializeOriginal: true);
                 Assert.AreEqual(50, firstEntry.Chart.WAVHealth);
                 Assert.AreEqual(50, secondEntry.Chart.WAVHealth);
                 Assert.IsTrue(firstEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
@@ -4764,6 +4772,20 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(missingEntry.Chart.WAVHealth.HasValue);
             Assert.AreEqual(100, healthyEntry.Chart.WAVHealth);
             Assert.IsFalse(healthyEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            BmsLibraryPackageInstallService.ClearPendingInstallDestination(missingEntry);
+            BmsLibraryPackageInstallService.ClearPendingInstallDestination(healthyEntry);
+            Assert.AreEqual(0, missingEntry.Chart.WAVHealth);
+            Assert.AreEqual(100, healthyEntry.Chart.WAVHealth);
+
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "missing.wav"), "now complete");
+            AutoInstallWorkflowResult complete = service.PrepareAutoInstallWorkflow([packageDirectoryPath], [], [], _ => false, 0.6);
+            foreach (PackageChartEntry entry in complete.AutoInstallCandidates.SelectMany(package => package.ChartEntries))
+            {
+                File.Delete(Path.Combine(packageDirectoryPath, "missing.wav"));
+                BmsLibraryPackageInstallService.ClearPendingInstallDestination(entry);
+                Assert.AreEqual(100, entry.Chart.WAVHealth);
+            }
+            Assert.IsTrue(complete.AutoInstallCandidates.Count > 0);
         });
     }
 
@@ -5903,7 +5925,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             string conflictDestinationDirectoryPath = Path.Combine(installRootPath, "conflict");
             string thirdDestinationDirectoryPath = Path.Combine(installRootPath, "third");
             string firstChartPath = CreateBmsFile(firstSourceDirectoryPath, "first.bms", "#TITLE Pending first");
-            string conflictChartPath = CreateBmsFile(conflictSourceDirectoryPath, "conflict.bms", "#TITLE Pending conflict");
+            string conflictChartPath = CreateBmsFile(conflictSourceDirectoryPath, "conflict.bms", "#TITLE Pending conflict\n#WAVAA missing.wav\n#00111:AA\n");
             string thirdChartPath = CreateBmsFile(thirdSourceDirectoryPath, "third.bms", "#TITLE Pending third");
             string conflictBundledFilePath = Path.Combine(conflictSourceDirectoryPath, "BGA");
             File.WriteAllText(conflictBundledFilePath, "conflicting bundled file");
@@ -5931,6 +5953,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             conflictPackage.path = conflictSourceDirectoryPath;
             thirdPackage.path = thirdSourceDirectoryPath;
             firstPackage.delete_parent = conflictPackage.delete_parent = thirdPackage.delete_parent = false;
+
+            BmsLibraryPackageInstallService.InitializePendingResourceHealth(conflictPackage.ChartEntries.Single());
 
             var library = new TestBmsLibrary(
                 songDbPath,
@@ -5982,6 +6006,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual("destination sentinel", File.ReadAllText(conflictSentinelPath));
             Assert.AreEqual(1, library.ChartPackagesPending.Count);
             Assert.AreSame(conflictPackage, library.ChartPackagesPending.Single());
+            File.WriteAllText(Path.Combine(conflictSourceDirectoryPath, "missing.wav"), "later audio");
+            library.RemoveInstallDestination(conflictPackage.ChartEntries, conflictPackage);
+            Assert.AreEqual(0, conflictPackage.ChartEntries.Single().Chart.WAVHealth);
             Assert.AreEqual(2, library.ChartPackagesInstalled.Count);
             using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(
