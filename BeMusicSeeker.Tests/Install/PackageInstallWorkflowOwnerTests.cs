@@ -1460,66 +1460,6 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
     }
 
-    /// <summary>抑制開始通知から取消が入った場合、導入への引渡しに先行して管理入力を回収し、完了や失敗の実行結果を通知しない。</summary>
-    [TestMethod]
-    public async Task CancelAll_FromSuppressionCallbackWinsBeforeHandoffAndDeletesIngress()
-    {
-
-        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
-        string songDbPath = Path.Combine(root, "song.db");
-        string ingressRoot = Path.Combine(root, "ingress");
-        Directory.CreateDirectory(root);
-        Directory.CreateDirectory(ingressRoot);
-        File.WriteAllBytes(songDbPath, []);
-        try
-        {
-            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
-            int mutationCalls = 0;
-            int completionPublished = 0;
-            int failurePublished = 0;
-            var owner = new PackageInstallWorkflowOwner(
-                new FileDbReportRecordingDialogs(),
-                new ChartFileOperationSynchronizer(),
-                new ChartMutationActivityOwner(),
-                new DelegatePackageInstallMutationPort((_, _, _, _) =>
-                {
-                    Interlocked.Increment(ref mutationCalls);
-                    return new PackageInstallCommandResult([], null);
-                }),
-                new NoOpChartMutationPlaybackPort(),
-                action =>
-                {
-                    action();
-                    return true;
-                });
-            owner.CompletionPublished += _ => Interlocked.Increment(ref completionPublished);
-            owner.FailurePublished += _ => Interlocked.Increment(ref failurePublished);
-            owner.RefreshSuppressionChanged += (_, args) =>
-            {
-                if (args.IsSuppressed)
-                {
-                    owner.CancelAll();
-                }
-            };
-            owner.AttachLibrary(library);
-
-            Assert.IsTrue(owner.TryEnqueue(CreateOwnedRequest(ingressRoot, "chart.bms")));
-
-            await owner.WaitForIdleAsync();
-            Assert.AreEqual(0, mutationCalls);
-            Assert.AreEqual(0, completionPublished);
-            Assert.AreEqual(0, failurePublished);
-            Assert.IsFalse(Directory.Exists(ingressRoot));
-        }
-        finally
-        {
-            if (Directory.Exists(root))
-            {
-                Directory.Delete(root, recursive: true);
-            }
-        }
-    }
-
     /// <summary>旧世代の失敗通知を保留して再接続した場合、画面への失敗を抑えつつ発送先実行時に診断を一度行う。</summary>
     [TestMethod]
     public async Task DelayedFailurePublication_ReportsDiagnosticsAfterGenerationChanges()
@@ -1781,12 +1721,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
     }
 
-    /// <summary>確定後の最終化失敗を型付きreceiptへ保持し、抑制終了が失敗した場合も元receiptを失敗通知へ渡して受付解放後に一度届ける。</summary>
-    // falseは最終化失敗の完了receipt、trueは抑制終了も失敗した失敗通知に同じreceiptを保持する。
-    [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task DurableFinalizationFailure_PublishesTypedCompletionWithoutRegisteredPackages(bool failSuppressionCleanup)
+    /// <summary>確定後の最終化失敗を型付きreceiptへ保持し、登録一覧が空でも受付解放後に一度届ける。</summary>
+    [TestMethod]
+    public async Task DurableFinalizationFailure_PublishesTypedCompletionWithoutRegisteredPackages()
     {
 
         string root = Path.Combine(
@@ -1831,26 +1768,12 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                     action();
                     return true;
                 });
-            var cleanupFailure = new IOException("drop-scope-cleanup-marker");
-            var failed = new TaskCompletionSource<PackageInstallFailure>(TaskCreationOptions.RunContinuationsAsynchronously);
-            owner.RefreshSuppressionChanged += (_, args) =>
-            {
-                if (failSuppressionCleanup && !args.IsSuppressed)
-                {
-                    throw cleanupFailure;
-                }
-            };
             void RecordTerminalAdmission()
             {
                 bool admissionAvailable = chartFileOperations.TryEnter(out IDisposable admission);
                 admission?.Dispose();
                 terminalAdmissions.Add(admissionAvailable);
             }
-            owner.FailurePublished += failure =>
-            {
-                RecordTerminalAdmission();
-                failed.TrySetResult(failure);
-            };
             owner.CompletionPublished += published =>
             {
                 RecordTerminalAdmission();
@@ -1859,27 +1782,12 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             owner.AttachLibrary(new TestBmsLibrary(songDbPath, null, null, string.Empty));
             owner.Enqueue([Path.Combine(root, "source.zip")]);
 
-            PackageInstallCompletionReceipt publishedReceipt;
-            if (failSuppressionCleanup)
-            {
-                await TestUiDispatcherHost.AwaitNotificationAsync(failed.Task, owner.WaitForIdleAsync(), "package-install.failure-publication");
-                PackageInstallFailure failure = await failed.Task;
-                Assert.AreSame(cleanupFailure, failure.Exception);
-                Assert.IsNotNull(failure.CommandResult);
-                Assert.AreSame(sessionReceipt, failure.CommandResult.SessionReceipt);
-                Assert.IsFalse(completion.Task.IsCompleted);
-                publishedReceipt = new PackageInstallCompletionReceipt(failure.Generation,
-                    failure.CommandResult.RegisteredPackages, failure.CommandResult);
-            }
-            else
-            {
-                await TestUiDispatcherHost.AwaitNotificationAsync(completion.Task, owner.WaitForIdleAsync(), "package-install.receipt-publication");
-                publishedReceipt = await completion.Task;
-            }
+            await TestUiDispatcherHost.AwaitNotificationAsync(completion.Task, owner.WaitForIdleAsync(), "package-install.receipt-publication");
+            PackageInstallCompletionReceipt publishedReceipt = await completion.Task;
             await owner.WaitForIdleAsync();
 
             CollectionAssert.AreEqual(new[] { true }, terminalAdmissions,
-                "型付き session の異常結果も workflow 終了処理の例外も、受付解放後に一度だけ通知する。");
+                "型付き session の異常結果を受付解放後に一度だけ通知する。");
             Assert.AreEqual(1, installCalls);
             Assert.IsTrue(publishedReceipt.HasDurableFinalizationFailure);
             Assert.IsTrue(publishedReceipt.HasDurableCommit);

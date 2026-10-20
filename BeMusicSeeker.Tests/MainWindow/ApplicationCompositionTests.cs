@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -946,6 +948,159 @@ public sealed partial class ApplicationCompositionTests
                 Directory.Delete(tempDirectory, recursive: true);
             }
         }
+    }
+
+    /// <summary>実取り込みの推定を停止しても確定済み保留行とツリーを公開し、先行推定の導入先を表示します。後続推定の終端までは共通受付と実Taskを保持します。</summary>
+    [TestMethod]
+    // 標準compositionの共有Resource通知購読から実処理の終端・Disposeまでを非並列で所有します。
+    [DoNotParallelize]
+    public void MainWindowCompositionShowsCommittedPendingPackagesDuringEstimation()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
+        string installed = Path.Combine(root, "Library", "Song");
+        Directory.CreateDirectory(installed);
+        string installedChart = Path.Combine(installed, "chart.bms");
+        const string chart = "#TITLE Song\r\n#ARTIST Artist\r\n#BPM 120\r\n#WAV01 sound.wav\r\n#00111:01\r\n";
+        File.WriteAllText(installedChart, chart, Encoding.ASCII);
+        File.WriteAllBytes(Path.Combine(installed, "sound.wav"), [1]);
+        string[] sources = [Path.Combine(root, "Input0"), Path.Combine(root, "Input1")];
+        for (int index = 0; index < sources.Length; index++)
+        {
+            Directory.CreateDirectory(sources[index]);
+            File.WriteAllText(Path.Combine(sources[index], "diff.bms"), chart + "#PLAYLEVEL " + (10 + index) + "\r\n", Encoding.ASCII);
+        }
+        string songDb = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDb, []);
+        var background = new ConcurrentQueue<Func<Task>>();
+        var observer = new PendingCompositionEstimationObserver();
+        try
+        {
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                {
+                    values.OperationModeLR2DB = false;
+                    values.StartupSelectInstallPending = false;
+                });
+                MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(settings, new FileDbReportRecordingDialogs());
+                ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
+                var options = new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    ScanBmsFilesOnStartup = true,
+                    KeepInstallablePackagesPending = true,
+                    PendingInstallEstimateMaxParallelPackages = 2
+                };
+                var library = new TestBmsLibrary(songDb, null, null, null, new FileDbReportRecordingDialogs(),
+                    new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options,
+                    CapturedChartFileScanner.FromFixture([installedChart],
+                        new Dictionary<string, IEnumerable<string>> { [installed] = ["sound.wav"] }, [installed]),
+                    observer, composition.OperationAdmission, composition.PlaylistOperationAdmission)
+                {
+                    SearchTargets = [Path.Combine(root, "Library")],
+                    StartupBackgroundTaskScheduler = (_, _, _, work) => { background.Enqueue(work); return true; }
+                };
+                var rowsApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var treeApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                System.ComponentModel.PropertyChangedEventHandler rowsHandler = (_, args) =>
+                {
+                    if (args.PropertyName == nameof(MainChartListViewModel.Rows)
+                        && viewModel.MainChartList.Rows.Count == 2) { rowsApplied.TrySetResult(); }
+                };
+                System.ComponentModel.PropertyChangedEventHandler treeHandler = (_, args) =>
+                {
+                    if (args.PropertyName == nameof(InstallTreeViewModel.ChartPackagesPending)
+                        && viewModel.InstallTree.ChartPackagesPending.Count == 2) { treeApplied.TrySetResult(); }
+                };
+                try
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        Task.Run(() => library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup)), "pending-composition.initialize");
+                    while (background.TryDequeue(out Func<Task>? work))
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(work(), "pending-composition.background");
+                    }
+                    ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
+                    viewModel.InstallTree.AttachLibrary(library);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        viewModel.RegularChartList.NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected), "pending-composition.navigate");
+                    viewModel.MainChartList.PropertyChanged += rowsHandler;
+                    viewModel.InstallTree.PropertyChanged += treeHandler;
+                    Assert.IsTrue(viewModel.PackageInstallWorkflow.Enqueue(sources));
+                    Task idle = viewModel.PackageInstallWorkflow.WaitForIdleAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        TestUiDispatcherHost.AwaitNotificationAsync(Task.WhenAll(observer.Evaluated.Select(signal => signal.Task)), idle,
+                            "pending-composition.evaluated"), "pending-composition.evaluated");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        TestUiDispatcherHost.AwaitNotificationAsync(Task.WhenAll(rowsApplied.Task, treeApplied.Task), idle,
+                            "pending-composition.presentation"), "pending-composition.presentation");
+                    using (LR2SongDBExtended connection = new BmsLibraryDbGateway(songDb).OpenSongDbReadOnly())
+                    {
+                        Assert.AreEqual(2, connection.Table<LR2SongDBExtended.install>().Count());
+                    }
+                    Assert.IsFalse(idle.IsCompleted);
+                    Assert.IsTrue(composition.OperationAdmission.IsActive);
+                    Assert.IsFalse(viewModel.PackageInstallWorkflow.Enqueue(sources));
+                    LibraryChartRow first = viewModel.MainChartList.Rows.Cast<LibraryChartRow>()
+                        .Single(row => row.path == Path.Combine(sources[0], "diff.bms"));
+                    Assert.AreEqual(string.Empty, first.instl_dst);
+                    var destinationChanged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    System.ComponentModel.PropertyChangedEventHandler destinationHandler = (_, _) =>
+                    {
+                        if (first.instl_dst == installed) { destinationChanged.TrySetResult(); }
+                    };
+                    first.PropertyChanged += destinationHandler;
+                    try
+                    {
+                        observer.Release[0].TrySetResult();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            TestUiDispatcherHost.AwaitNotificationAsync(Task.WhenAll(observer.FirstApplied.Task, destinationChanged.Task), idle,
+                                "pending-composition.destination"), "pending-composition.destination");
+                        Assert.AreEqual(installed, first.instl_dst);
+                        Assert.IsFalse(idle.IsCompleted);
+                        Assert.IsTrue(composition.OperationAdmission.IsActive);
+                    }
+                    finally { first.PropertyChanged -= destinationHandler; }
+                    observer.Release[1].TrySetResult();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(idle, "pending-composition.idle");
+                    Assert.IsFalse(composition.OperationAdmission.IsActive);
+                }
+                finally
+                {
+                    foreach (TaskCompletionSource signal in observer.Release) { signal.TrySetResult(); }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PackageInstallWorkflow.WaitForIdleAsync(), "pending-composition.cleanup-install");
+                    viewModel.MainChartList.PropertyChanged -= rowsHandler;
+                    viewModel.InstallTree.PropertyChanged -= treeHandler;
+                    viewModel.InstallTree.DetachLibrary();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.RegularChartList.StopAsync(), "pending-composition.cleanup-rows");
+                    viewModel.SettingDialog.Dispose();
+                    library.RequestShutdown("pending-composition-cleanup");
+                }
+            });
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    private sealed class PendingCompositionEstimationObserver : IInstallEstimationExecutionObserver
+    {
+        internal readonly TaskCompletionSource[] Evaluated = [NewSignal(), NewSignal()];
+        internal readonly TaskCompletionSource[] Release = [NewSignal(), NewSignal()];
+        internal readonly TaskCompletionSource FirstApplied = NewSignal();
+
+        public IDisposable BeginWorkItem(InstallEstimationWorkItemObservation observation) => new EvaluationScope();
+        public void ObserveEvaluationCompleted(InstallEstimationAppliedObservation observation)
+        {
+            Evaluated[observation.OrderIndex].TrySetResult();
+            Release[observation.OrderIndex].Task.GetAwaiter().GetResult();
+        }
+        public void ObserveResultApplied(InstallEstimationAppliedObservation observation)
+        {
+            if (observation.OrderIndex == 0) { FirstApplied.TrySetResult(); }
+        }
+        public void ObserveDispatchStopped() { }
+        public void ObserveProgress(InstallEstimationProgressObservation observation) { }
+        private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private sealed class EvaluationScope : IDisposable { public void Dispose() { } }
     }
 
     /// <summary>実構成のサマリー表示更新をshell経由で適用し、延期要求や未完了構築を残す接続漏れを検出します。</summary>

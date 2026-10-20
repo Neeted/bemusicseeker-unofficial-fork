@@ -69,16 +69,6 @@ internal sealed class BmsLibraryPackageInstallMutationPort : IPackageInstallMuta
     }
 }
 
-internal sealed class PackageInstallRefreshSuppressionChangedEventArgs : EventArgs
-{
-    internal PackageInstallRefreshSuppressionChangedEventArgs(bool isSuppressed)
-    {
-        IsSuppressed = isSuppressed;
-    }
-
-    internal bool IsSuppressed { get; }
-}
-
 internal sealed class PackageInstallCompletionReceipt : EventArgs
 {
     internal PackageInstallCompletionReceipt(
@@ -207,8 +197,6 @@ internal sealed class PackageInstallWorkflowOwner
     internal event Action<PackageInstallCompletionReceipt> CompletionPublished;
 
     internal event Action<PackageInstallFailure> FailurePublished;
-
-    internal event EventHandler<PackageInstallRefreshSuppressionChangedEventArgs> RefreshSuppressionChanged;
 
     /// <summary>
     /// Reports that the package-install owner received a cancellation request.
@@ -547,7 +535,6 @@ internal sealed class PackageInstallWorkflowOwner
 
         BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable activityLease = null;
-        bool suppressionStarted = false;
         bool mutationAllowed = true;
         var failures = new List<ExceptionDispatchInfo>();
         PackageInstallCommandResult commandResult = null;
@@ -563,8 +550,6 @@ internal sealed class PackageInstallWorkflowOwner
             }
             else
             {
-                suppressionStarted = true;
-                PublishRefreshSuppressionChanged(isSuppressed: true);
                 if (!request.TransferSourceOwnershipToInstaller())
                 {
                     mutationAllowed = false;
@@ -600,10 +585,6 @@ internal sealed class PackageInstallWorkflowOwner
             if (progressWriter is PackageInstallProgressWriter packageProgressWriter)
             {
                 packageProgressWriter.Seal();
-            }
-            if (suppressionStarted)
-            {
-                CaptureCleanupFailure(() => PublishRefreshSuppressionChanged(isSuppressed: false), failures);
             }
             if (activityLease != null)
             {
@@ -648,13 +629,6 @@ internal sealed class PackageInstallWorkflowOwner
                 throw new AggregateException(failures.Select(failure => failure.SourceException));
         }
         return (new PackageInstallCommandResult([], commandResult?.SessionReceipt), null);
-    }
-
-    private void PublishRefreshSuppressionChanged(bool isSuppressed)
-    {
-        RefreshSuppressionChanged?.Invoke(
-            this,
-            new PackageInstallRefreshSuppressionChangedEventArgs(isSuppressed));
     }
 
     private static void CaptureCleanupFailure(Action cleanup, List<ExceptionDispatchInfo> failures)

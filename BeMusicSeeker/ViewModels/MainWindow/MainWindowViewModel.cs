@@ -2302,7 +2302,6 @@ public partial class MainWindowViewModel : ViewModel,
         PackageInstallWorkflow = childComposition.PackageInstallWorkflow;
         PackageInstallWorkflow.CompletionPublished += PackageInstallWorkflowCompletionPublished;
         PackageInstallWorkflow.FailurePublished += PackageInstallWorkflowFailurePublished;
-        PackageInstallWorkflow.RefreshSuppressionChanged += PackageInstallWorkflowRefreshSuppressionChanged;
         MaintenanceRescanWorkflow = childComposition.MaintenanceRescanWorkflow;
         FolderAutoRenameWorkflow = childComposition.FolderAutoRenameWorkflow;
         FolderAutoRenameWorkflow.CompletionPublished += FolderAutoRenameWorkflowCompletionPublished;
@@ -4493,24 +4492,6 @@ public partial class MainWindowViewModel : ViewModel,
         {
             // 非同期receiverの通知失敗はPublish側の同期catchへ戻らないため、この境界で報告します。
             ReportPackageInstallWorkflowNotificationFailure(exception);
-        }
-    }
-
-    private void PackageInstallWorkflowRefreshSuppressionChanged(
-        object sender,
-        PackageInstallRefreshSuppressionChangedEventArgs e)
-    {
-        if (e?.IsSuppressed == true)
-        {
-            BeginUiUpdateSuppression(
-                UiRefreshChannel.LibraryMainView
-                | UiRefreshChannel.InstallTree
-                | UiRefreshChannel.LibraryFolderTree
-                | UiRefreshChannel.DuplicateTree);
-        }
-        else
-        {
-            EndUiUpdateSuppression();
         }
     }
 
