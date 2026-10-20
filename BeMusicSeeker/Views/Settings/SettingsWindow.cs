@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Markup;
 using System.Windows.Threading;
 using BeMusicSeeker.Models.Utils;
@@ -53,6 +54,8 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     private readonly SettingsWindowApplicationExitTerminal applicationExitTerminal;
 
     private readonly UserControl[] categoryPages;
+
+    private long? presentationRequestedTimestamp;
 
     /// <summary>
     /// Gets the reason selected for the current window close operation.
@@ -199,22 +202,57 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         this.applicationExitTerminal = applicationExitTerminal
             ?? throw new ArgumentNullException(nameof(applicationExitTerminal));
+        var construction = Stopwatch.StartNew();
         InitializeComponent();
-        categoryPages =
-        [
-            new GeneralSettingsPage(),
-            new AppearanceSettingsPage(),
-            new PlaybackSettingsPage(),
-            new AudioSettingsPage { PlaybackPanel = PlaybackPanel },
-            new RecordingSettingsPage(),
-            new PlaylistSettingsPage(),
-            new InstallSettingsPage(),
-            new BackupSettingsPage(),
-            new AdvancedSettingsPage(),
-            new RightClickSettingsPage(),
-            new AboutSettingsPage()
-        ];
-        settingsPageContent.Content = categoryPages[0];
+        categoryPages = new UserControl[11];
+        settingsPageContent.Content = GetOrCreateCategoryPage(0);
+        LogSettingsDialogPerformance("settings_window_construct", construction);
+    }
+
+    /// <summary>表示portが受け取った今回の表示要求時刻を、最初の描画の計測へ接続します。</summary>
+    /// <param name="timestamp">Stopwatch.GetTimestampで捕捉した表示要求時刻。</param>
+    internal void SetPresentationRequestedTimestamp(long timestamp)
+        => presentationRequestedTimestamp = timestamp;
+
+    private UserControl GetOrCreateCategoryPage(int index)
+    {
+        if (categoryPages[index] is UserControl existing)
+        {
+            return existing;
+        }
+
+        var construction = Stopwatch.StartNew();
+        LogSettingsDialogPerformance("settings_page_construct_start", null, "category=" + index);
+        try
+        {
+            UserControl page = index switch
+            {
+                0 => new GeneralSettingsPage(),
+                1 => new AppearanceSettingsPage(),
+                2 => new PlaybackSettingsPage(),
+                3 => new AudioSettingsPage { PlaybackPanel = PlaybackPanel },
+                4 => new RecordingSettingsPage(),
+                5 => new PlaylistSettingsPage(),
+                6 => new InstallSettingsPage(),
+                7 => new BackupSettingsPage(),
+                8 => new AdvancedSettingsPage(),
+                9 => new RightClickSettingsPage(),
+                10 => new AboutSettingsPage(),
+                _ => throw new ArgumentOutOfRangeException(nameof(index))
+            };
+            // 非表示の間も同じ編集元を保ち、再接続による未確定入力の上書きを防ぎます。
+            page.SetBinding(DataContextProperty, new Binding(nameof(DataContext))
+            {
+                Source = this,
+                Mode = BindingMode.OneWay
+            });
+            categoryPages[index] = page;
+            return page;
+        }
+        finally
+        {
+            LogSettingsDialogPerformance("settings_page_construct_end", construction, "category=" + index);
+        }
     }
 
     private static void ThrowApplicationExitTerminalUnavailable(SettingsWindow settingsWindow)
@@ -238,6 +276,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     /// <param name="e">content rendering event data。</param>
     protected override void OnContentRendered(EventArgs e)
     {
+        long firstRenderTimestamp = Stopwatch.GetTimestamp();
         base.OnContentRendered(e);
         if (presentationActivated || !IsVisible)
         {
@@ -247,19 +286,16 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         presentationActivated = true;
         settingDialogViewModel.SetPresentationActive(true);
+        if (presentationRequestedTimestamp is long requestedTimestamp)
+        {
+            LogSettingsDialogPerformance(
+                "settings_dialog_first_render",
+                null,
+                "requestToFirstRenderMs=" + Stopwatch.GetElapsedTime(requestedTimestamp, firstRenderTimestamp).TotalMilliseconds);
+        }
         var stopwatch = Stopwatch.StartNew();
         settingDialogViewModel.RefreshLr2PlayHistorySchemaStatusPresentation();
-        long handlerMs = stopwatch.ElapsedMilliseconds;
-        string detail =
-            "handlerMs=" + handlerMs
-            + " operationModeLR2DB=" + settingDialogViewModel.OperationModeLR2DB.ToString().ToLowerInvariant()
-            + " schemaStatus=" + (settingDialogViewModel.Lr2PlayHistorySchemaStatusSnapshot?.Status.ToString() ?? "Unknown");
-        Dispatcher.BeginInvoke(
-            DispatcherPriority.ContextIdle,
-            (Action)(() => LogSettingsDialogPerformance(
-                "settings_dialog_open",
-                stopwatch,
-                detail)));
+        LogSettingsDialogPerformance("settings_dialog_schema_presentation", stopwatch);
     }
 
     /// <summary>
@@ -301,9 +337,13 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             }
             finally
             {
-                // Each presentation gets a fresh Window while the ViewModel is shared by the shell.
-                // A closed Window must not retain a live binding graph into that shared edit session.
+                // 非表示のページも含めて、共有編集セッションとWindowへの接続を閉鎖時に解放します。
                 DataContext = null;
+                foreach (UserControl page in categoryPages.OfType<UserControl>())
+                {
+                    BindingOperations.ClearBinding(page, DataContextProperty);
+                    page.DataContext = null;
+                }
             }
         }
     }
@@ -466,13 +506,13 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     }
 
     /// <summary>
-    /// Refreshes the connected Appearance selector through its existing binding without creating a local value.
+    /// 作成済み外観ページの既存Bindingを更新し、未訪問ページは生成しません。
     /// </summary>
-    /// <param name="settingDialogViewModel">The shared settings edit session expected on the connected page.</param>
+    /// <param name="settingDialogViewModel">接続されたページが共有する設定編集セッション。</param>
     internal void RefreshAppearanceThemeSelection(SettingsDialogViewModel settingDialogViewModel)
     {
-        var appearancePage = (AppearanceSettingsPage)categoryPages[1];
-        if (appearancePage.IsLoaded && ReferenceEquals(appearancePage.DataContext, settingDialogViewModel))
+        if (categoryPages[1] is AppearanceSettingsPage appearancePage
+            && appearancePage.IsLoaded && ReferenceEquals(appearancePage.DataContext, settingDialogViewModel))
         {
             appearancePage.RefreshThemeSelection();
         }
@@ -493,7 +533,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             return;
         }
 
-        settingsPageContent.Content = categoryPages[settingsNavigation.SelectedIndex];
+        settingsPageContent.Content = GetOrCreateCategoryPage(settingsNavigation.SelectedIndex);
         settingsPageScrollViewer.ScrollToVerticalOffset(0d);
     }
 

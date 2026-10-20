@@ -7,9 +7,6 @@
     dictionaries.  These aliases keep Settings' existing resource names and
     its local implicit adoption without leaking a type-key style to MainWindow.
   -->
-  <ResourceDictionary.MergedDictionaries>
-    <ResourceDictionary Source="/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml" />
-  </ResourceDictionary.MergedDictionaries>
   <!-- 設定セクションの下余白。 -->
   <Thickness x:Key="SettingsSectionMargin">0,0,0,28</Thickness>
   <Style x:Key="SettingsTrackRepeatButtonStyle"

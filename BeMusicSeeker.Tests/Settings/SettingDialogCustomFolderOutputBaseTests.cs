@@ -6,9 +6,11 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -523,46 +525,105 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             "The active play-history filter must be re-applied when the selected target set keeps the same identity but changes content.");
     }
 
-    /// <summary>実 LR2 登録に通常・追加・ルート出力先が混在するとき、出力領域を譜面ディレクトリ候補から除いて手動ルートを残すことを確認します。</summary>
-    [TestMethod]
-    public void Lr2BmsDirectoryChoices_ExcludeCustomFolderOutputBases()
+    /// <summary>実LR2登録で現在/変更前の出力先を除き、親・兄弟と欠落登録・順序を保ちます。ROOT出力ありでは取得内のスナップショットを共有し、ROOT出力なし・候補0件では取得しません。</summary>
+    [DataTestMethod]
+    [DataRow(true)] // 現在/変更前ROOT出力を同じスナップショットで計算し、次の取得では入力変更を採用する。
+    [DataRow(false)] // ROOT出力が両方空なら取得せず、通常/追加出力の除外と残る候補を保つ。
+    public void Lr2BmsDirectoryChoices_ExcludeCustomFolderOutputBases(bool configureRootOutputs)
     {
-        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
         try
         {
-            string manualBmsRoot = Path.Combine(tempRootPath, "ManualBmsRoot");
-            string normalOutputBase = Path.Combine(tempRootPath, "NormalOutput");
-            string additionalOutputBase = Path.Combine(tempRootPath, "AdditionalOutput");
-            string rootOutputBase = Path.Combine(tempRootPath, "RootOutput");
-            string rootOutputChild = Path.Combine(rootOutputBase, "PlaylistOutput");
-            Directory.CreateDirectory(manualBmsRoot);
-            Directory.CreateDirectory(normalOutputBase);
-            Directory.CreateDirectory(additionalOutputBase);
-            Directory.CreateDirectory(rootOutputChild);
+            string manual = Path.Combine(root, "Manual");
+            string missing = Path.Combine(root, "Missing");
+            string oldNormal = Path.Combine(root, "Old", "Normal");
+            string newNormal = Path.Combine(root, "New", "Normal");
+            string oldAdditional = Path.Combine(root, "Old", "Additional");
+            string newAdditional = Path.Combine(root, "New", "Additional");
+            string oldRoot = Path.Combine(root, "Old", "Root");
+            string newRoot = Path.Combine(root, "New", "Root");
+            string oldOutside = Path.Combine(root, "Old", "Outside");
+            string newOutside = Path.Combine(root, "New", "Outside");
+            string changedOutside = Path.Combine(root, "New", "ChangedOutside");
+            string parent = Path.Combine(root, "Old");
+            string sibling = oldNormal + "Sibling";
+            string[] registered = [manual, missing, parent, oldNormal, Path.Combine(oldNormal, "Child"), sibling,
+                oldAdditional, Path.Combine(oldRoot, "Playlist"), oldOutside, newNormal,
+                Path.Combine(newNormal, "Child"), newAdditional, Path.Combine(newRoot, "Playlist"), newOutside, changedOutside];
+            foreach (string directory in registered.Where(path => path != missing)) { Directory.CreateDirectory(directory); }
+            LR2Config config = CreateConfig(root);
+            config.SetBMSSearchDirectories(registered);
+            testSettings.LR2CustomFolderOutputBaseDir = oldNormal;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = configureRootOutputs ? oldRoot : string.Empty;
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([oldAdditional]);
+            testSettings.BMSInstallDir = manual;
+            MainWindowViewModel owner = CreateViewModel(config);
+            owner.SettingDialog.Dispose();
+            var workspace = new CountingPlaylistSnapshotWorkspace(owner.PlaylistWorkspace)
+            {
+                Snapshots = [new PlaylistTablePresentationSnapshot(1, "Root", "Root", "R", "R", true,
+                    Path.Combine("..", "Outside"), string.Empty)]
+            };
+            using var dialog = new SettingsDialogViewModel(owner, workspace, owner.PlaylistWorkspace, owner.PlayHistory,
+                owner.LibraryFolderTree, new TestSettingsDialogPlayerFactoryPort(), new TestSettingsDialogPlaybackRuntimePort(),
+                owner.Lr2SongDbSyncWorkflow, new NoOpSettingsEditSession(testSettings),
+                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                externalShellGateway: ExternalShellGatewayPolicy.Current, applicationPathSnapshot: ApplicationPathPolicy.Current,
+                audioDeviceCatalog: new TestAudioDeviceCatalog(), audioSettingsGateway: new TestAudioSettingsGateway(),
+                audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
+            testSettings.LR2CustomFolderOutputBaseDir = newNormal;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = configureRootOutputs ? newRoot : string.Empty;
+            dialog.CustomFolderAdditionalOutputBaseDirList.Clear();
+            dialog.CustomFolderAdditionalOutputBaseDirList.Add(newAdditional);
+            string[] expectedWithRootOutputs = [manual, missing, parent, sibling, changedOutside];
+            string[] expectedWithoutRootOutputs = [manual, missing, parent, sibling,
+                Path.Combine(oldRoot, "Playlist"), oldOutside, Path.Combine(newRoot, "Playlist"), newOutside, changedOutside];
+            int expectedCaptureCount = configureRootOutputs ? 1 : 0;
+            workspace.CaptureCount = 0;
+            CollectionAssert.AreEqual(configureRootOutputs ? expectedWithRootOutputs : expectedWithoutRootOutputs,
+                dialog.LR2ConfigBMSDirectories);
+            Assert.AreEqual(expectedCaptureCount, workspace.CaptureCount, "必要なROOT計算だけで全登録ルートのスナップショットを共有します。");
+            workspace.CaptureCount = 0;
+            testSettings.BMSInstallDir = missing;
+            Assert.AreEqual(Resources.Error_InvalidBmsInstallDir, dialog.BmsInstallDirValidationMessage, "処理用の存在確認では欠落登録を有効にしません。");
+            Assert.AreEqual(expectedCaptureCount, workspace.CaptureCount);
+            workspace.CaptureCount = 0;
+            testSettings.BMSInstallDir = manual;
+            Assert.AreEqual(string.Empty, dialog.BmsInstallDirValidationMessage);
+            Assert.AreEqual(expectedCaptureCount, workspace.CaptureCount);
+            workspace.Snapshots = [new PlaylistTablePresentationSnapshot(1, "Root", "Root", "R", "R", true,
+                Path.Combine("..", "ChangedOutside"), string.Empty)];
+            workspace.CaptureCount = 0;
+            string[] expectedAfterRootChange = [manual, missing, parent, sibling, oldOutside, newOutside];
+            CollectionAssert.AreEqual(configureRootOutputs ? expectedAfterRootChange : expectedWithoutRootOutputs,
+                dialog.LR2ConfigBMSDirectories);
+            Assert.AreEqual(expectedCaptureCount, workspace.CaptureCount, "前回取得のスナップショットを永続キャッシュとして使い回しません。");
 
-            LR2Config config = CreateConfig(tempRootPath);
-            config.SetBMSSearchDirectories([manualBmsRoot, normalOutputBase, additionalOutputBase, rootOutputChild]);
-            testSettings.LR2CustomFolderOutputBaseDir = normalOutputBase;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs =
-                CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalOutputBase]);
-            testSettings.BMSInstallDir = manualBmsRoot;
-            MainWindowViewModel viewModel = CreateViewModel(config);
-            using SettingsDialogViewModel dialogLifetime = viewModel.SettingDialog;
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            // 欠落登録は変更検出に残るが、実処理候補は0件なので除外計算も全件取得も不要。
+            config.SetBMSSearchDirectories([missing]);
+            config.Save();
+            dialog.LR2ConfigXmlPath = testSettings.LR2ConfigXmlPath;
+            workspace.CaptureCount = 0;
+            CollectionAssert.AreEqual(new[] { missing }, dialog.LR2ConfigBMSDirectories);
+            Assert.AreEqual(expectedCaptureCount, workspace.CaptureCount);
+            testSettings.BMSInstallDir = missing;
+            workspace.CaptureCount = 0;
+            Assert.AreEqual(Resources.Error_InvalidBmsInstallDir, dialog.BmsInstallDirValidationMessage);
+            Assert.AreEqual(0, workspace.CaptureCount, "存在する候補が0件ならROOT設定があっても取得しません。");
 
-            CollectionAssert.Contains(dialog.LR2ConfigBMSDirectories, manualBmsRoot);
-            CollectionAssert.DoesNotContain(dialog.LR2ConfigBMSDirectories, normalOutputBase);
-            CollectionAssert.DoesNotContain(dialog.LR2ConfigBMSDirectories, additionalOutputBase);
-            CollectionAssert.DoesNotContain(dialog.LR2ConfigBMSDirectories, rootOutputChild);
-            CollectionAssert.Contains(dialog.AvailableBMSDirectories, manualBmsRoot);
-            CollectionAssert.DoesNotContain(dialog.AvailableBMSDirectories, normalOutputBase);
-            CollectionAssert.DoesNotContain(dialog.AvailableBMSDirectories, additionalOutputBase);
-            CollectionAssert.DoesNotContain(dialog.AvailableBMSDirectories, rootOutputChild);
+            // 空登録では表示用・実処理用のどちらも全件スナップショットを追加しない。
+            config.SetBMSSearchDirectories([]);
+            config.Save();
+            dialog.LR2ConfigXmlPath = testSettings.LR2ConfigXmlPath;
+            workspace.CaptureCount = 0;
+            Assert.AreEqual(0, dialog.LR2ConfigBMSDirectories.Count);
+            Assert.AreEqual(0, workspace.CaptureCount);
+            Assert.AreEqual(Resources.Error_InvalidBmsInstallDir, dialog.BmsInstallDirValidationMessage);
+            Assert.AreEqual(0, workspace.CaptureCount);
         }
         finally
         {
-            TryDeleteDirectory(tempRootPath);
+            TryDeleteDirectory(root);
         }
     }
 
@@ -1221,6 +1282,31 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         finally
         {
             TryDeleteDirectory(tempRootPath);
+        }
+    }
+
+    private sealed class CountingPlaylistSnapshotWorkspace(ISettingsDialogWorkspacePort inner) : ISettingsDialogWorkspacePort
+    {
+        internal IReadOnlyList<PlaylistTablePresentationSnapshot> Snapshots { get; set; } = [];
+        internal int CaptureCount { get; set; }
+        public bool HasPlaylistTables => true;
+        public long PlaylistCatalogVersion => inner.PlaylistCatalogVersion;
+        public IReadOnlyList<PlaylistTablePresentationSnapshot> CapturePlaylistPresentationSnapshots()
+        {
+            CaptureCount++;
+            return Snapshots;
+        }
+        public bool HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(string path)
+            => inner.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(path);
+        public void SchedulePlaylistUrlCompletionRefresh(string reason) => inner.SchedulePlaylistUrlCompletionRefresh(reason);
+        public Task ExportBeatorajaBmtAsync(string reason, string path, LibraryFileMutationCapability capability, bool forceProjection = false)
+            => inner.ExportBeatorajaBmtAsync(reason, path, capability, forceProjection);
+        public Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string name)
+            => inner.RunWithPlaylistOperationNotificationsAsync(operation, name);
+        public event EventHandler<PlaylistCatalogChangedEventArgs> PlaylistCatalogChanged
+        {
+            add => inner.PlaylistCatalogChanged += value;
+            remove => inner.PlaylistCatalogChanged -= value;
         }
     }
 

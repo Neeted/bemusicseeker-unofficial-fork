@@ -24,6 +24,7 @@
             </Grid>
           </settings:SettingsField>
         </UniformGrid>
+        <settings:SettingsStatusBanner Margin="0,0,0,8" Icon="i" Status="Information" Style="{StaticResource SettingsMultilineStringStatusBannerStyle}" Content="{Binding AudioDeviceListStatusMessage}" />
         <settings:SettingsStatusBanner Margin="0,0,0,8" Icon="i" Status="Information" Style="{StaticResource SettingsMultilineStringStatusBannerStyle}" Content="{Binding AudioOutputSelectionResetMessage}" />
         <settings:SettingsStatusBanner Margin="0,0,0,8" Icon="!" Status="Warning" Style="{StaticResource SettingsMultilineStringStatusBannerStyle}" Content="{Binding UnavailablePlayerDriverDescription}" />
         <settings:SettingsStatusBanner Margin="0,0,0,8" Icon="i" Status="Information" Style="{StaticResource SettingsMultilineStringStatusBannerStyle}" Content="{Binding AudioDeviceCapabilityStatusMessage}" />

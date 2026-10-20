@@ -414,7 +414,7 @@ internal static class TestUiDispatcherHost
                 application.Resources.MergedDictionaries.Add(new ResourceDictionary
                 {
                     Source = new Uri(
-                        "/BeMusicSeeker;component/Themes/CanonicalControls.xaml",
+                        "/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml",
                         UriKind.RelativeOrAbsolute)
                 });
                 ready.Set();

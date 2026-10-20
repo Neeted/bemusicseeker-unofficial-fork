@@ -203,17 +203,19 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>音声設定担当が所有するAudioDeviceCapabilityRateDescriptionを画面へ接続します。</summary>
     public string AudioDeviceCapabilityRateDescription => audioDeviceTestWorkflow.AudioDeviceCapabilityRateDescription;
 
+    /// <summary>音声一覧の取得中・取得失敗の状態を画面へ接続します。</summary>
+    public string AudioDeviceListStatusMessage => audioDeviceTestWorkflow.AudioDeviceListStatusMessage;
+
     internal bool IsScoreReloadPending => scoreReloadPending;
 
     internal bool IsFileDiffReloadPending => fileDiffReloadPending;
 
     /// <summary>
-    /// 設定画面の表示を要求し、表示用の音声デバイス情報を更新します。
+    /// 設定画面の表示を要求します。音声一覧は音声ページの初回表示時に取得します。
     /// </summary>
     /// <param name="deferPresentation">失敗後の再表示など、呼出元をモーダル表示で待たせない場合は true。</param>
     internal void RequestOpen(bool deferPresentation = false)
     {
-        audioDeviceTestWorkflow.RefreshDevices();
         presentationPort?.OpenSettingsDialog(deferPresentation);
     }
 
@@ -2418,14 +2420,24 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private List<string> GetLR2UserBmsSearchRootDirectories()
     {
-        return [.. lr2config.GetBMSSearchDirectoriesForChangeTracking()
-                .Where(directory => !IsUserVisibleBmsSearchRootExcludedPath(directory))];
+        List<string> directories = lr2config.GetBMSSearchDirectoriesForChangeTracking();
+        if (directories.Count == 0)
+        {
+            return directories;
+        }
+        IReadOnlyList<string> excluded = GetUserVisibleBmsSearchRootExcludedDirectories(includePreviousSettings: true);
+        return [.. directories.Where(directory => !ContainsSameOrChildDirectory(excluded, directory))];
     }
 
     private List<string> GetExistingLR2UserBmsSearchRootDirectories()
     {
-        return [.. lr2config.GetBMSSearchDirectoriesReadOnly()
-                .Where(directory => !IsUserVisibleBmsSearchRootExcludedPath(directory))];
+        List<string> directories = lr2config.GetBMSSearchDirectoriesReadOnly();
+        if (directories.Count == 0)
+        {
+            return directories;
+        }
+        IReadOnlyList<string> excluded = GetUserVisibleBmsSearchRootExcludedDirectories(includePreviousSettings: true);
+        return [.. directories.Where(directory => !ContainsSameOrChildDirectory(excluded, directory))];
     }
 
     internal bool IsManagedCustomFolderSearchRootPath(string path)
@@ -2446,14 +2458,19 @@ public partial class SettingsDialogViewModel : ViewModel
                 LR2CustomFolderAsRootOutputDir
             };
         paths.AddRange(CustomFolderAdditionalOutputBaseDirList);
-        paths.AddRange(CreateRootFolderOutputDirectories(LR2CustomFolderAsRootOutputDir));
+        bool hasRootOutput = !string.IsNullOrWhiteSpace(LR2CustomFolderAsRootOutputDir)
+            || (includePreviousSettings && !string.IsNullOrWhiteSpace(tempLR2CustomFolderAsRootOutputDir));
+        IReadOnlyList<PlaylistTablePresentationSnapshot> playlists = hasRootOutput && workspacePort.HasPlaylistTables
+            ? workspacePort.CapturePlaylistPresentationSnapshots()
+            : [];
+        paths.AddRange(CreateRootFolderOutputDirectories(LR2CustomFolderAsRootOutputDir, playlists));
 
         if (includePreviousSettings)
         {
             paths.Add(tempLR2CustomFolderOutputDir);
             paths.Add(tempLR2CustomFolderAsRootOutputDir);
             paths.AddRange(CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(tempLR2CustomFolderAdditionalOutputBaseDirs));
-            paths.AddRange(CreateRootFolderOutputDirectories(tempLR2CustomFolderAsRootOutputDir));
+            paths.AddRange(CreateRootFolderOutputDirectories(tempLR2CustomFolderAsRootOutputDir, playlists));
         }
 
         return CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(paths);
@@ -2465,8 +2482,18 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             return [];
         }
+        return CreateRootFolderOutputDirectories(rootOutputBaseDirectory, workspacePort.CapturePlaylistPresentationSnapshots());
+    }
 
-        return [.. workspacePort.CapturePlaylistPresentationSnapshots()
+    private static IEnumerable<string> CreateRootFolderOutputDirectories(
+        string rootOutputBaseDirectory,
+        IReadOnlyList<PlaylistTablePresentationSnapshot> playlists)
+    {
+        if (string.IsNullOrWhiteSpace(rootOutputBaseDirectory))
+        {
+            return [];
+        }
+        return [.. playlists
                 .Where(table => table != null && table.IsRootFolder && !string.IsNullOrWhiteSpace(table.OutputDirectory))
                 .Select(table => Path.Combine(rootOutputBaseDirectory, table.OutputDirectory))];
     }
@@ -4359,6 +4386,7 @@ public partial class SettingsDialogViewModel : ViewModel
             settingDialogViewModel.RaisePropertyChanged(nameof(settingDialogViewModel.LR2ConfigBMSDirectories));
             settingDialogViewModel.RaisePropertyChanged(nameof(settingDialogViewModel.AvailableBMSDirectories));
             settingDialogViewModel.RaiseLr2PathPresentationChanged();
+            settingDialogViewModel.RaisePropertyChanged(nameof(AudioDeviceListStatusMessage));
             settingDialogViewModel.RaiseValidationStateChanged();
             settingDialogViewModel.MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
         });
@@ -4678,8 +4706,8 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>固定した下書きでテストし、音声担当が解放完了まで追跡します。</summary>
     internal Task RunAudioDeviceTestAsync() => audioDeviceTestWorkflow.RunAudioDeviceTestAsync();
 
-    /// <summary>受理済みの音声テストが表示処理とnative後片付けを終えるTaskを取得します。</summary>
-    internal Task AudioDeviceTestCompletionTask => audioDeviceTestWorkflow.AudioDeviceTestCompletionTask;
+    /// <summary>音声一覧・能力照会・テストが実処理と表示終端を終えるTaskを取得します。終了時は先に表示を失効させます。</summary>
+    internal Task AudioSettingsCompletionTask => audioDeviceTestWorkflow.AudioSettingsCompletionTask;
 
     private void ClearTransientPlaylistUriValidationState()
     {

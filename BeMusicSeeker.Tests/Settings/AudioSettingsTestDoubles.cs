@@ -17,11 +17,16 @@ internal sealed class TestAudioDeviceCatalog : IAudioDeviceCatalog
 
     internal bool EncoderAvailable { get; set; } = true;
 
-    internal int RefreshCount { get; private set; }
+    private int refreshCount;
+
+    internal int RefreshCount => Volatile.Read(ref refreshCount);
+
+    internal Action? RefreshAction { get; set; }
 
     public void Refresh()
     {
-        RefreshCount++;
+        Interlocked.Increment(ref refreshCount);
+        RefreshAction?.Invoke();
     }
 
     public IReadOnlyList<AudioDeviceInfo> GetDevices(AudioDriver driver)

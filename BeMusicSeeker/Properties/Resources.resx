@@ -3891,4 +3891,10 @@ ON: すべての使用リソースがそろった場合のみ、自動新規イ�
   <data name="Playlist_import_result_skipped_url_header" xml:space="preserve">
     <value>同URLでスキップ:</value>
   </data>
+  <data name="AudioDeviceListLoading" xml:space="preserve">
+    <value>音声デバイス一覧を取得しています。設定の編集・保存・取消は引き続き行えます。</value>
+  </data>
+  <data name="AudioDeviceListRefreshFailed" xml:space="preserve">
+    <value>音声デバイス一覧を更新できませんでした。保持している候補と現在の選択を表示しています。</value>
+  </data>
 </root>

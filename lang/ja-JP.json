@@ -1,4 +1,6 @@
 {
+  "AudioDeviceListLoading": "音声デバイス一覧を取得しています。設定の編集・保存・取消は引き続き行えます。",
+  "AudioDeviceListRefreshFailed": "音声デバイス一覧を更新できませんでした。保持している候補と現在の選択を表示しています。",
   "Warning_InstallEstimationUnrelated": "候補 {0} は作品との関連性が確認できません。自動設定は行いません。",
   "Warning_InstallEstimationMetadataUnavailable": "候補 {0} との比較に使うTITLE/ARTISTが取得できないため、自動設定は行いません。",
   "WarningDigest_InstallEstimationUnrelated": "作品との関連性なし",

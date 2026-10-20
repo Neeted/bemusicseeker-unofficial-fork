@@ -15,7 +15,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SettingDialogOpenCommandTests
 {
-    /// <summary>保存済み音声値を変えずに Open を実行し、一回の表示要求と機器更新だけを行い勝手に保存する誤りを検出します。</summary>
+    /// <summary>保存済み音声値を変えずに Open を実行し、機器列挙なしで一回の表示要求だけを行い勝手に保存する誤りを検出します。</summary>
     [TestMethod]
     public void OpenCommand_PublishesExactlyOneOwnerRequest()
     {
@@ -37,7 +37,7 @@ public sealed class SettingDialogOpenCommandTests
         dialog.OpenCommand.Execute();
 
         CollectionAssert.AreEqual(new[] { "open" }, presentation.Requests);
-        Assert.AreEqual(1, catalog.RefreshCount);
+        Assert.AreEqual(0, catalog.RefreshCount);
         Assert.AreEqual(0, settingsSession.SaveCount);
     }
 

@@ -3000,5 +3000,10 @@ public class Resources
 
     /// <summary>プレイリストインポート画面の表示文言です。</summary>
     public static string Playlist_import_result_skipped_url_header => ResourceManager.GetString("Playlist_import_result_skipped_url_header", resourceCulture);
+    /// <summary>音声デバイス一覧の取得中に表示する状態文を取得します。</summary>
+    public static string AudioDeviceListLoading => ResourceManager.GetString("AudioDeviceListLoading", resourceCulture);
+
+    /// <summary>音声デバイス一覧の更新失敗時に表示する状態文を取得します。</summary>
+    public static string AudioDeviceListRefreshFailed => ResourceManager.GetString("AudioDeviceListRefreshFailed", resourceCulture);
 
 }

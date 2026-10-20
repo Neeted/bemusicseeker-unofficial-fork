@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -1637,18 +1638,24 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>言語を切り替えると実 Window title と Advanced の表示／Automation 名が別々の適切な翻訳へ更新されることを確認します。</summary>
+    /// <summary>一般ページの言語選択でWindowと分類名を更新し、未訪問ページの初回生成にも反映します。取消では保存済み言語と同じBindingへ戻します。</summary>
     [TestMethod]
     public void SettingsWindow_LanguageChangeUpdatesTitleAndAdvancedCategoryAutomationText()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string previousCulture = BeMusicSeeker.Properties.Resources.Culture?.Name ?? "ja-JP";
+            string previousTheme = Settings.Default.AppearanceTheme;
             SettingsWindow? window = null;
             try
             {
                 ResourceService.Current.ChangeCulture("en-US");
-                MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+                Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(settings =>
+                {
+                    settings.Lang = "en-US";
+                    settings.LangDisplayName = "English";
+                });
+                MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(values);
                 using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
                 window = new SettingsWindow { DataContext = owner.SettingDialog };
                 windowTest.ShowAndWaitForContentRendered(window);
@@ -1661,7 +1668,8 @@ public sealed class SettingsWindowPresentationTests
                 string originalTitle = window.Title;
                 object originalAdvancedLabel = advanced.Content;
 
-                ResourceService.Current.ChangeCulture("ja-JP");
+                var generalPage = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                ((ComboBox)generalPage.FindName("languageComboBox")).SelectedItem = "Default(日本語)";
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.AreEqual(Resources.Settings_window_title, window.Title);
@@ -1671,6 +1679,19 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreNotEqual(originalAdvancedLabel, advanced.Content);
                 Assert.AreNotEqual(window.Title, advanced.Content,
                     "The settings window identity must not reuse the Advanced category label.");
+                navigation.SelectedItem = window.FindName("navigationAbout");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var aboutPage = (AboutSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                Button releaseNotes = FindDescendants<Button>(aboutPage).Single(button =>
+                    Equals(button.Content, Resources.About_release_notes_button));
+                string japaneseReleaseNotes = (string)releaseNotes.Content;
+                ((Button)window.FindName("buttonCancel")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual("en-US", values.Lang);
+                Assert.AreEqual("English", owner.SettingDialog.Language);
+                Assert.AreEqual(Resources.Settings_window_title, window.Title);
+                Assert.AreEqual(Resources.About_release_notes_button, releaseNotes.Content);
+                Assert.AreNotEqual(japaneseReleaseNotes, releaseNotes.Content);
             }
             finally
             {
@@ -1679,6 +1700,8 @@ public sealed class SettingsWindowPresentationTests
                     window.CloseForOwnerShutdown();
                 }
                 ResourceService.Current.ChangeCulture(previousCulture);
+                Settings.Default.AppearanceTheme = previousTheme;
+                AppThemeService.ApplyTheme(previousTheme);
             }
         });
     }
@@ -2154,7 +2177,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 runtime.Release();
                 runtime.ReleaseSecond();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioDeviceTestCompletionTask, "audio-device-test-final-task");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "audio-device-test-final-task");
                 if (runtime.Started.Task.IsCompleted)
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(firstTestReleased.Task, "audio-device-test-cleanup-release");
@@ -2179,9 +2202,106 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>実 MainWindow Close は受理済み音声テストの終端まで保存と native runtime 停止を待ち、閉じた設定画面へ結果を戻さないことを確認します。</summary>
+    /// <summary>一覧取得をworkerで保留しても実ページの切替・編集・通常Closeを処理し、取得完了を待たずにDataContextを解除します。</summary>
+    /// <remarks>実DispatcherとBAMLの操作可否・Cancel/Close接続を確認し、保存値の条件網羅は音声一覧ownerテストに分担します。</remarks>
     [TestMethod]
-    public void MainWindow_OwnerShutdownWaitsForAcceptedAudioTestBeforeRuntimeShutdown()
+    public void AudioListRefresh_KeepsNavigationEditingAndOrdinaryCloseResponsive()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string previousTheme = Settings.Default.AppearanceTheme;
+            System.Globalization.CultureInfo? previousCulture = Resources.Culture;
+            using var release = new ManualResetEventSlim();
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var catalog = new TestAudioDeviceCatalog
+            {
+                RefreshAction = () => { started.TrySetResult(); release.Wait(); }
+            };
+            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            using SettingsDialogViewModel dialog = AudioDeviceListRefreshTests.CreateDialog(values, catalog,
+                new AudioOutputSelection(AudioDriver.WasapiExclusive, "missing", "Missing device"));
+            Logger logger = Ribbit.Logging.NLogWrapper.GetLogger(typeof(SettingsWindowPresentationTests));
+            FieldInfo fileLoggerProvider = typeof(Ribbit.Logging.NLogWrapper)
+                .GetField("_FileLogger", BindingFlags.Static | BindingFlags.NonPublic)
+                ?? throw new AssertFailedException("File logger provider is unavailable.");
+            object? previousFileLogger = fileLoggerProvider.GetValue(null);
+            LoggingConfiguration? previousLogging = LogManager.Configuration;
+            using var logs = new MemoryTarget { Layout = "${message}" };
+            SettingsWindow? window = null;
+            try
+            {
+                var configuration = new LoggingConfiguration();
+                configuration.AddRule(LogLevel.Info, LogLevel.Fatal, logs, logger.Name);
+                LogManager.Configuration = configuration;
+                fileLoggerProvider.SetValue(null, (Func<Logger>)(() => logger));
+                long requested = Stopwatch.GetTimestamp();
+                window = new SettingsWindow { DataContext = dialog };
+                window.SetPresentationRequestedTimestamp(requested);
+                dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
+                {
+                    if (request == "close") { window.CloseFromPresentation(); }
+                }));
+                window.Closed += (_, _) => closed.TrySetResult();
+                windowTest.ShowAndWaitForContentRendered(window);
+                Assert.AreEqual(0, catalog.RefreshCount);
+                var navigation = (ListBox)window.FindName("settingsNavigation");
+                navigation.SelectedItem = window.FindName("navigationAudio");
+                window.UpdateLayout();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(started.Task, "audio-list-window-started");
+                var page = (AudioSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                Assert.IsFalse(((Button)page.FindName("buttonPlayerTest")).IsEnabled);
+                Assert.IsTrue(((ComboBox)page.FindName("comboBoxPlayerDriver")).IsEnabled);
+                Assert.IsTrue(((Button)window.FindName("buttonOK")).IsEnabled);
+                Assert.IsTrue(((Button)window.FindName("buttonCancel")).IsEnabled);
+                navigation.SelectedItem = window.FindName("navigationGeneral");
+                window.UpdateLayout();
+                Assert.IsInstanceOfType<GeneralSettingsPage>(((ContentControl)window.FindName("settingsPageContent")).Content);
+                dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
+                Assert.IsTrue(dialog.HasPendingSettingChanges());
+                window.Close();
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "audio-list-ordinary-close");
+                Assert.IsNull(window.DataContext);
+                Assert.IsFalse(dialog.AudioSettingsCompletionTask.IsCompleted);
+                release.Set();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "audio-list-closed-consumer");
+                Assert.IsNull(window.DataContext);
+                Assert.AreEqual(1, catalog.RefreshCount);
+                Assert.IsTrue(logs.Logs.Any(message => message.Contains("settings_dialog_first_render")
+                    && message.Contains("requestToFirstRenderMs=")));
+                Assert.IsTrue(logs.Logs.Any(message => message.Contains("settings_audio_device_list_worker")));
+                Assert.IsTrue(logs.Logs.Any(message => message.Contains("settings_window_construct")));
+                Assert.IsTrue(logs.Logs.Any(message => message.Contains("settings_page_construct_start")));
+                Assert.IsTrue(logs.Logs.Any(message => message.Contains("settings_page_construct_end")));
+            }
+            finally
+            {
+                release.Set();
+                try
+                {
+                    if (window?.IsVisible == true) { window.CloseForOwnerShutdown(); }
+                    dialog.SetPresentationActive(false);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "audio-list-window-cleanup");
+                }
+                finally
+                {
+                    fileLoggerProvider.SetValue(null, previousFileLogger);
+                    LogManager.Configuration = previousLogging;
+                    Settings.Default.AppearanceTheme = previousTheme;
+                    AppThemeService.ApplyTheme(previousTheme);
+                    if (previousCulture is null) { Resources.Culture = null; }
+                    else { ResourceService.Current.ChangeCulture(previousCulture.Name); }
+                }
+            }
+        });
+    }
+
+    /// <summary>実MainWindow Closeは受理済み音声テストまたは一覧取得の実終端まで保存とruntime停止を待ち、閉じた設定画面へ結果を戻しません。</summary>
+    /// <remarks>実shellのClose接続を観測し、native列挙自体のlease保証は既存音声runtimeテストに委ねます。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MainWindow_OwnerShutdownWaitsForAcceptedAudioWorkBeforeRuntimeShutdown(bool enumerateDevices)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -2213,6 +2333,12 @@ public sealed class SettingsWindowPresentationTests
                 "owner-shutdown-settings-required");
             viewModel.SettingDialog.Dispose();
             var runtime = new GatedAudioDeviceTestRuntime();
+            using var releaseList = new ManualResetEventSlim();
+            var listStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var catalog = new TestAudioDeviceCatalog
+            {
+                RefreshAction = () => { listStarted.TrySetResult(); releaseList.Wait(); }
+            };
             var testReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var workflow = new AudioDeviceTestWorkflowOwner(
                 new NoOpAudioDeviceTestPlaybackPort(),
@@ -2234,7 +2360,7 @@ public sealed class SettingsWindowPresentationTests
                 audioDeviceTestWorkflow: workflow,
                 externalShellGateway: ExternalShellGatewayPolicy.Current,
                 applicationPathSnapshot: ApplicationPathPolicy.Current,
-                audioDeviceCatalog: new TestAudioDeviceCatalog(),
+                audioDeviceCatalog: catalog,
                 audioSettingsGateway: new TestAudioSettingsGateway());
             typeof(MainWindowViewModel).GetProperty(nameof(MainWindowViewModel.SettingDialog))!
                 .SetValue(viewModel, dialog);
@@ -2275,11 +2401,21 @@ public sealed class SettingsWindowPresentationTests
                     {
                         MainWindow shell = mainWindow ?? throw new AssertFailedException("The owner window was not created.");
                         SettingsWindow presentedSettings = settingsWindow ?? throw new AssertFailedException("The settings window was not created.");
-                        audioTestTask = dialog.RunAudioDeviceTestAsync();
-                        await Task.WhenAny(runtime.Started.Task, audioTestTask);
-                        Assert.IsTrue(runtime.Started.Task.IsCompleted,
-                            "The accepted test ended before the native runtime gate was reached.");
-                        await runtime.Started.Task;
+                        if (enumerateDevices)
+                        {
+                            ((ListBox)presentedSettings.FindName("settingsNavigation")).SelectedItem = presentedSettings.FindName("navigationAudio");
+                            presentedSettings.UpdateLayout();
+                            audioTestTask = dialog.AudioSettingsCompletionTask;
+                            await listStarted.Task;
+                        }
+                        else
+                        {
+                            audioTestTask = dialog.RunAudioDeviceTestAsync();
+                            await Task.WhenAny(runtime.Started.Task, audioTestTask);
+                            Assert.IsTrue(runtime.Started.Task.IsCompleted,
+                                "The accepted test ended before the native runtime gate was reached.");
+                            await runtime.Started.Task;
+                        }
                         shell.Close();
                         Assert.AreEqual(SettingsWindowCloseReason.OwnerShutdown, presentedSettings.CloseReason);
                         Assert.IsFalse(presentedSettings.IsVisible);
@@ -2287,13 +2423,14 @@ public sealed class SettingsWindowPresentationTests
                         await viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
                         await viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
                         Assert.IsFalse(audioTestTask.IsCompleted);
-                        Assert.IsTrue(dialog.IsAudioDeviceTestInProgress);
+                        Assert.AreEqual(!enumerateDevices, dialog.IsAudioDeviceTestInProgress);
                         Assert.IsFalse(BassAudioRuntime.OperationGate.AdmissionClosed);
                         Assert.IsFalse(lifetime.ShutdownRequested.Task.IsCompleted);
                         Assert.AreEqual(0, settingsSession.SaveCount);
 
                         runtime.Release();
-                        await testReleased.Task;
+                        releaseList.Set();
+                        if (!enumerateDevices) { await testReleased.Task; }
                         await audioTestTask;
                         await lifetime.ShutdownRequested.Task;
                         Assert.IsNull(dialog.AudioDeviceTestStatusMessage);
@@ -2305,6 +2442,7 @@ public sealed class SettingsWindowPresentationTests
                     {
                         runtime.Release();
                         runtime.ReleaseSecond();
+                        releaseList.Set();
                         if (settingsWindow?.IsVisible == true)
                         {
                             settingsWindow.CloseForOwnerShutdown();
@@ -2320,6 +2458,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 runtime.Release();
                 runtime.ReleaseSecond();
+                releaseList.Set();
                 try
                 {
                     if (audioTestTask != null)
@@ -2470,7 +2609,7 @@ public sealed class SettingsWindowPresentationTests
 
 
 
-    /// <summary>後から実 Appearance ページを開いて Dark を選ぶと設定と theme が変わり、取消では Light に戻って同じ binding が有効なまま反映することを確認します。</summary>
+    /// <summary>後から実 Appearance ページでDarkを選び、未訪問ページが現在のthemeとdraftで初めて生成され、取消でLightへ戻ることを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_AppearanceThemeBindingSurvivesDeferredPageConnectionAndCancelRollback()
     {
@@ -2507,6 +2646,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(BindingStatus.Active, themeBinding.Status);
                 Assert.AreEqual(BindingMode.TwoWay, themeBinding.ParentBinding.Mode);
                 Assert.AreEqual(false, selector.IsChecked);
+                Color lightTextColor = GetApplicationBrushColor("App.TextBrush");
 
                 selector.IsChecked = true;
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -2516,6 +2656,19 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(AppThemeService.Dark, Settings.Default.AppearanceTheme);
                 Assert.AreEqual(AppThemeService.Dark, GetAppliedApplicationTheme());
                 Assert.IsTrue(BindingOperations.IsDataBound(selector, ToggleButton.IsCheckedProperty));
+
+                settings.UsePlayeruBMplay = true;
+                navigation.SelectedItem = window.FindName("navigationPlayback");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var playbackPage = (PlaybackSettingsPage)pageHost.Content;
+                var playerSelector = (RadioButton)playbackPage.FindName("radioButtonPlayuBMplay");
+                Assert.AreSame(settings, playbackPage.DataContext);
+                Assert.AreEqual(true, playerSelector.IsChecked, "初回生成時に現在の編集値を表示します。");
+                Assert.AreNotEqual(lightTextColor, GetApplicationBrushColor("App.TextBrush"));
+                AssertBrushColor(playbackPage, "App.TextBrush", playerSelector.Foreground);
+                navigation.SelectedItem = window.FindName("navigationAppearance");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreSame(appearancePage, pageHost.Content);
 
                 ((Button)window.FindName("buttonCancel")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -5237,7 +5390,7 @@ public sealed class SettingsWindowPresentationTests
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             externalShellGateway: ExternalShellGatewayPolicy.Current,
             applicationPathSnapshot: composition.ApplicationPathSnapshot,
-            audioDeviceCatalog: new BassAudioDeviceCatalog(),
+            audioDeviceCatalog: new TestAudioDeviceCatalog(),
             audioSettingsGateway: new SettingsAudioGateway(() => values),
             audioDeviceTestWorkflow: workflow,
             operationAdmission: composition.OperationAdmission);

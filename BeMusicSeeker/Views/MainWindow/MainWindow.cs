@@ -1158,12 +1158,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     void ISettingDialogPresentationPort.OpenSettingsDialog(bool deferPresentation)
     {
+        long requestedTimestamp = Stopwatch.GetTimestamp();
         // 失敗後の再表示では、前の保存処理を次のモーダル画面の終了待ちにしない。
         RunOnUiThread(() =>
         {
             if (!IsShellClosingOrClosed())
             {
-                ShowSettingsWindow();
+                ShowSettingsWindow(requestedTimestamp);
             }
         }, deferExecution: deferPresentation);
     }
@@ -1210,7 +1211,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         });
     }
 
-    private void ShowSettingsWindow()
+    private void ShowSettingsWindow(long requestedTimestamp)
     {
         if (settingsWindow != null)
         {
@@ -1237,7 +1238,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             UiWindowDialogResult<SettingsWindowCloseReason> result = new UiDialogCoordinator()
                 .ShowWindowAsync(new UiWindowDialogRequest<SettingsWindow, SettingsWindowCloseReason>(
-                    () => settingsWindow = CreateSettingsWindowForPresentation(),
+                    () =>
+                    {
+                        settingsWindow = CreateSettingsWindowForPresentation();
+                        settingsWindow.SetPresentationRequestedTimestamp(requestedTimestamp);
+                        return settingsWindow;
+                    },
                     window => window.CloseReason,
                     this))
                 .GetAwaiter()
@@ -1647,7 +1653,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         var viewModel = base.DataContext as MainWindowViewModel;
         PlaylistPropertyDialog propertyDialog = activePlaylistPropertyDialog;
         PlaylistSummaryBulkEditDialog bulkEditDialog = activePlaylistSummaryBulkEditDialog;
-        Task settingsAudioTestTask = viewModel?.SettingDialog.AudioDeviceTestCompletionTask ?? Task.CompletedTask;
         Task propertyOperationTask = propertyDialog?.WaitForOperationCompletionAsync() ?? Task.CompletedTask;
         Task bulkApplyTask = bulkEditDialog?.WaitForApplyCompletionAsync() ?? Task.CompletedTask;
         Task propertyCleanupTask = playlistPropertyDialogCleanupTask ?? Task.CompletedTask;
@@ -1657,13 +1662,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         bulkEditDialog?.CloseForOwnerShutdown();
         settingsWindow?.CloseForOwnerShutdown();
         activePlaylistImportDialog?.Close();
+        // 表示を先に失効させ、一覧完了後や照会finallyから後続照会が開始されない状態で捕捉する。
+        viewModel?.SettingDialog.SetPresentationActive(false);
+        Task settingsAudioTask = viewModel?.SettingDialog.AudioSettingsCompletionTask ?? Task.CompletedTask;
         Task lampCleanupTask = playlistLampViewerWindowManager.DisposeAsync().AsTask();
         Task chartPropertiesReadTask = chartPropertiesWindowManager.CompleteShutdownAsync();
 
         // The dialog owns its operation and session lifetime.  Keep the owner alive until
         // the operation, forced close, DataContext detach, and workspace cleanup have all
         // reached their terminal signals.
-        await Task.WhenAll(propertyOperationTask, bulkApplyTask, settingsAudioTestTask,
+        await Task.WhenAll(propertyOperationTask, bulkApplyTask, settingsAudioTask,
             lampCleanupTask, propertyCleanupTask, bulkCleanupTask, chartPropertiesReadTask,
             playlistImportDialogCleanupTask).ConfigureAwait(true);
 

@@ -1,4 +1,6 @@
 {
+  "AudioDeviceListLoading": "正在获取音频设备列表。您可以继续编辑、保存或取消设置。",
+  "AudioDeviceListRefreshFailed": "无法更新音频设备列表。当前显示保留的设备和当前选择。",
   "Warning_InstallEstimationUnrelated": "无法确认候选 {0} 与此作品的相关性。不会自动设置安装位置。",
   "Warning_InstallEstimationMetadataUnavailable": "无法获取与候选 {0} 进行比较所需的 TITLE/ARTIST 信息，因此不会自动设置安装位置。",
   "WarningDigest_InstallEstimationUnrelated": "与作品无关",

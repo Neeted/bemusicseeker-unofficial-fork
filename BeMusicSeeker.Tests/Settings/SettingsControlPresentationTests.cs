@@ -222,10 +222,10 @@ public sealed class SettingsControlPresentationTests
                 var listBoxStyle = (Style)host.Resources["SettingsListBoxStyle"];
                 var listBoxItemStyle = (Style)host.Resources["SettingsListBoxItemStyle"];
                 var expanderStyle = (Style)host.Resources["SettingsExpanderStyle"];
-                var canonicalComboBoxItemStyle = (Style)host.Resources["App.Canonical.ComboBoxItemStyle"];
-                var canonicalListBoxStyle = (Style)host.Resources["App.Canonical.ListBoxStyle"];
-                var canonicalListBoxItemStyle = (Style)host.Resources["App.Canonical.ListBoxItemStyle"];
-                var canonicalExpanderStyle = (Style)host.Resources["App.Canonical.ExpanderStyle"];
+                var canonicalComboBoxItemStyle = (Style)host.FindResource("App.Canonical.ComboBoxItemStyle");
+                var canonicalListBoxStyle = (Style)host.FindResource("App.Canonical.ListBoxStyle");
+                var canonicalListBoxItemStyle = (Style)host.FindResource("App.Canonical.ListBoxItemStyle");
+                var canonicalExpanderStyle = (Style)host.FindResource("App.Canonical.ExpanderStyle");
                 AssertEffectiveTemplateRole(comboBoxItemStyle, canonicalComboBoxItemStyle, nameof(ComboBoxItem));
                 AssertEffectiveTemplateRole(listBoxStyle, canonicalListBoxStyle, nameof(ListBox));
                 AssertEffectiveTemplateRole(listBoxItemStyle, canonicalListBoxItemStyle, nameof(ListBoxItem));
@@ -509,14 +509,14 @@ public sealed class SettingsControlPresentationTests
                     Height = 56,
                     ItemsSource = new[] { "General", "Folder", "Custom Folder" },
                     SelectedIndex = 0,
-                    Style = (Style)topNavigationHost.Resources["App.Canonical.TopNavigationStyle"]
+                    Style = (Style)topNavigationHost.FindResource("App.Canonical.TopNavigationStyle")
                 };
                 var topNavigationContentText = new TextBlock { Text = "General content" };
                 var topNavigationContent = new ContentControl
                 {
                     Height = 80,
                     Content = topNavigationContentText,
-                    Style = (Style)topNavigationHost.Resources["App.Canonical.TopNavigationContentStyle"]
+                    Style = (Style)topNavigationHost.FindResource("App.Canonical.TopNavigationContentStyle")
                 };
                 var topNavigationPanel = new StackPanel();
                 topNavigationPanel.Children.Add(topNavigation);

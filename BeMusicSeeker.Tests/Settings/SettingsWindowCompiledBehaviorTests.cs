@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
@@ -19,6 +20,9 @@ using BeMusicSeeker.Views.Dialogs;
 using BeMusicSeeker.Views.Settings;
 using BeMusicSeeker.Views.Settings.Pages;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NLog;
+using NLog.Config;
+using NLog.Targets;
 using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
@@ -37,13 +41,14 @@ public sealed class SettingsWindowCompiledBehaviorTests
         TestUiDispatcherHost.Invoke(EnsureCanonicalApplicationResources);
     }
 
-    /// <summary>実 navigation の各項目を選んで compiled ページを表示し、同じ設定 draft へ接続して表示だけで未保存変更を作らないことを確認します。</summary>
+    /// <summary>実navigationの初回選択でだけページを構築し、再訪問で未確定入力を保持し、実閉鎖で全ページの編集元を解放します。</summary>
+    /// <remarks>構築診断と実BAMLのBinding・navigation・Closeを観測します。音声一覧と能力は固定結果とし、native処理の寿命は音声workflowのケースが分担します。</remarks>
     [TestMethod]
     public void EverySettingsNavigationPageMaterializesWithoutCreatingPendingChanges()
     {
-        TestUiDispatcherHost.Invoke(() =>
+        TestUiDispatcherHost.RunWindowTest(scope =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings settingsValues = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = Path.GetTempPath();
@@ -56,32 +61,105 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 values.UsePlayeruBMplay = false;
                 values.UsePlayerLR2body = false;
                 values.UsePlayerBMIIDXView = false;
-            }));
-            var window = new SettingsWindow
-            {
-                DataContext = owner.SettingDialog,
-                PlaybackPanel = owner.PlaybackPanel
-            };
+            });
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settingsValues);
+            owner.SettingDialog.Dispose();
+            using var dialog = new SettingsDialogViewModel(
+                owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
+                new TestSettingsDialogPlayerFactoryPort(), new TestSettingsDialogPlaybackRuntimePort(),
+                owner.Lr2SongDbSyncWorkflow, new NoOpSettingsEditSession(settingsValues),
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                audioDeviceTestWorkflow: new AudioDeviceTestWorkflowOwner(
+                    new NoOpAudioDeviceTestPlaybackPort(), new SuccessfulAudioDeviceTestRuntime(),
+                    new DelegateAudioDeviceCapabilityRuntime(request => new AudioDeviceCapabilityResult(
+                        request.Backend, request.DeviceIdentity, request.DeviceName,
+                        AudioDeviceCapabilityStatus.Unsupported, []))),
+                externalShellGateway: ExternalShellGatewayPolicy.Current,
+                applicationPathSnapshot: ApplicationPathPolicy.Current,
+                audioDeviceCatalog: new TestAudioDeviceCatalog(),
+                audioSettingsGateway: new SettingsAudioGateway(() => settingsValues));
+            Logger logger = Ribbit.Logging.NLogWrapper.GetLogger(typeof(SettingsWindowCompiledBehaviorTests));
+            FieldInfo fileLoggerProvider = typeof(Ribbit.Logging.NLogWrapper)
+                .GetField("_FileLogger", BindingFlags.Static | BindingFlags.NonPublic)
+                ?? throw new AssertFailedException("File logger provider is unavailable.");
+            object? previousFileLogger = fileLoggerProvider.GetValue(null);
+            LoggingConfiguration? previousLogging = LogManager.Configuration;
+            using var logs = new MemoryTarget { Layout = "${message}" };
+            SettingsWindow? window = null;
             try
             {
-                Materialize(window);
-                Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
+                var configuration = new LoggingConfiguration();
+                configuration.AddRule(LogLevel.Info, LogLevel.Fatal, logs, logger.Name);
+                LogManager.Configuration = configuration;
+                fileLoggerProvider.SetValue(null, (Func<Logger>)(() => logger));
+                window = new SettingsWindow
+                {
+                    DataContext = dialog,
+                    PlaybackPanel = owner.PlaybackPanel
+                };
+                scope.ShowAndWaitForContentRendered(window);
+                Assert.AreEqual(1, logs.Logs.Count(message => message.Contains("settings_page_construct_start")));
+                Assert.AreEqual(1, logs.Logs.Count(message => message.Contains("settings_page_construct_end")));
+                Assert.IsFalse(dialog.HasPendingSettingChanges());
 
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var content = (ContentControl)window.FindName("settingsPageContent");
+                int visitedCount = 0;
+                var pages = new List<FrameworkElement>();
                 foreach (object item in navigation.Items.Cast<object>().ToArray())
                 {
                     navigation.SelectedItem = item;
                     Materialize(window);
+                    visitedCount++;
+                    Assert.AreEqual(visitedCount, logs.Logs.Count(message => message.Contains("settings_page_construct_start")));
+                    Assert.AreEqual(visitedCount, logs.Logs.Count(message => message.Contains("settings_page_construct_end")));
                     Assert.IsNotNull(content.Content);
-                    Assert.AreSame(owner.SettingDialog, ((FrameworkElement)content.Content).DataContext);
-                    Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges(),
+                    var page = (FrameworkElement)content.Content;
+                    pages.Add(page);
+                    Assert.AreSame(dialog, page.DataContext);
+                    Assert.IsFalse(dialog.HasPendingSettingChanges(),
                         "ページを表示するだけで編集値を変更しません。");
+                }
+                navigation.SelectedItem = window.FindName("navigationPlaylist");
+                Materialize(window);
+                var playlistPage = (PlaylistSettingsPage)content.Content;
+                var urlEditor = (TextBox)playlistPage.FindName("tableListUrlTextBox");
+                Uri originalUrl = dialog.TableListURL;
+                urlEditor.Text = "uncommitted URL input";
+                Assert.AreEqual(originalUrl, dialog.TableListURL, "LostFocus前の入力はsourceへ未確定です。");
+                navigation.SelectedItem = window.FindName("navigationGeneral");
+                Materialize(window);
+                navigation.SelectedItem = window.FindName("navigationPlaylist");
+                Materialize(window);
+                Assert.AreSame(playlistPage, content.Content);
+                Assert.AreEqual(originalUrl, dialog.TableListURL);
+                Assert.AreEqual("uncommitted URL input",
+                    ((TextBox)((PlaylistSettingsPage)content.Content).FindName("tableListUrlTextBox")).Text);
+                Assert.AreEqual(navigation.Items.Count, logs.Logs.Count(message => message.Contains("settings_page_construct_start")));
+                var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                window.Closed += (_, _) => closed.TrySetResult();
+                window.CloseForOwnerShutdown();
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "settings-navigation-closed");
+                Materialize(window);
+                Assert.IsNull(window.DataContext);
+                foreach (FrameworkElement page in pages)
+                {
+                    Assert.IsNull(page.DataContext, "表示中・非表示の作成済みページをすべて解放します。");
                 }
             }
             finally
             {
-                owner.SettingDialog.Dispose();
+                try
+                {
+                    if (window?.IsVisible == true) { window.CloseForOwnerShutdown(); }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "settings-navigation-audio-cleanup");
+                }
+                finally
+                {
+                    fileLoggerProvider.SetValue(null, previousFileLogger);
+                    LogManager.Configuration = previousLogging;
+                }
             }
         });
     }
@@ -1225,9 +1303,6 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         Application application = Application.Current;
         Assert.IsNotNull(application);
-        AddCanonicalResourceIfMissing(
-            application,
-            "/BeMusicSeeker;component/Themes/CanonicalControls.xaml");
         AddCanonicalResourceIfMissing(
             application,
             "/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml");

@@ -1,4 +1,6 @@
 {
+  "AudioDeviceListLoading": "Chargement des périphériques audio. Vous pouvez continuer à modifier, enregistrer ou annuler les paramètres.",
+  "AudioDeviceListRefreshFailed": "Impossible d’actualiser la liste des périphériques audio. Les périphériques conservés et la sélection actuelle sont affichés.",
   "Warning_InstallEstimationUnrelated": "Aucun lien avec cette œuvre n’est établi pour le candidat {0}. La destination ne sera pas définie automatiquement.",
   "Warning_InstallEstimationMetadataUnavailable": "Les métadonnées TITLE/ARTIST nécessaires à la comparaison avec le candidat {0} sont indisponibles. La destination ne sera pas définie automatiquement.",
   "WarningDigest_InstallEstimationUnrelated": "Sans lien avec cette œuvre",

@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Ribbit.Media.Audio;
 
@@ -20,6 +22,16 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     private string audioDeviceTestDiagnosticMessage;
 
     private Task audioDeviceTestCompletionTask = Task.CompletedTask;
+
+    private Task audioDeviceListCompletionTask = Task.CompletedTask;
+
+    private Task audioDeviceCapabilityCompletionTask = Task.CompletedTask;
+
+    private bool hasVisitedAudioPage;
+
+    private bool isAudioDeviceListRefreshInProgress;
+
+    private bool audioDeviceListRefreshFailed;
 
     private AudioDeviceCapabilityResult audioDeviceCapabilityResult;
 
@@ -101,7 +113,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
         }
     }
 
-    /// <summary>画面の寿命を更新し、終了後の結果反映を切り離します。</summary>
+    /// <summary>画面の寿命と初回訪問を更新し、終了後の結果反映を切り離します。</summary>
     internal void SetPresentationActive(bool active)
     {
         bool opening = active && !isPresentationActive;
@@ -110,28 +122,137 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
         {
             InvalidateAudioDeviceCapabilities();
         }
-        else if (opening && isAudioSettingsPageVisible)
+        else if (opening)
         {
+            hasVisitedAudioPage = false;
+            AudioDeviceTestStatusMessage = null;
+            AudioDeviceTestDiagnosticMessage = null;
+            PresentAudioSettingsPage();
+        }
+    }
+
+    /// <summary>一覧の取得中または直近の更新失敗を示す翻訳文を取得します。</summary>
+    public string AudioDeviceListStatusMessage => isAudioDeviceListRefreshInProgress
+        ? Resources.AudioDeviceListLoading
+        : audioDeviceListRefreshFailed ? Resources.AudioDeviceListRefreshFailed : null;
+
+    private void PresentAudioSettingsPage()
+    {
+        if (!isPresentationActive || !isAudioSettingsPageVisible)
+        {
+            return;
+        }
+
+        if (!hasVisitedAudioPage)
+        {
+            hasVisitedAudioPage = true;
+            // 閉じた画面の列挙が残っていれば同じTaskを使い、追加取得を予約しない。
+            if (audioDeviceListCompletionTask.IsCompleted)
+            {
+                StartAudioDeviceListRefresh();
+            }
+        }
+        RaisePropertyChanged(nameof(AudioDeviceListStatusMessage));
+        RaiseAudioDeviceTestOperationPropertiesChanged();
+        if (audioDeviceListCompletionTask.IsCompleted)
+        {
+            RebuildAudioDeviceSelection();
             RequestAudioDeviceCapabilityQuery();
         }
     }
 
-    /// <summary>画面を開く際に出力先一覧を更新し、古い結果を失効させます。</summary>
-    internal void RefreshDevices()
+    private void StartAudioDeviceListRefresh()
     {
-        AudioDeviceTestStatusMessage = null;
-        AudioDeviceTestDiagnosticMessage = null;
+        Task priorQuery = audioDeviceCapabilityCompletionTask;
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // 失効通知やworker開始より先に登録し、再入・終了待機が実処理を取りこぼさないようにする。
+        audioDeviceListCompletionTask = completion.Task;
+        isAudioDeviceListRefreshInProgress = true;
+        audioDeviceListRefreshFailed = false;
         InvalidateAudioDeviceCapabilities();
-        audioDeviceCatalog.Refresh();
-        RestoreSelection();
+        RefreshAudioDeviceListAsync(priorQuery, completion).ObserveFault("settings audio device list refresh");
+    }
+
+    private async Task RefreshAudioDeviceListAsync(Task priorQuery, TaskCompletionSource completion)
+    {
+        try
+        {
+            // 旧照会の取消要求後もnativeの実終端を待つ。列挙用leaseは各enumeratorが所有する。
+            await priorQuery;
+            await Task.Run(() =>
+            {
+                var execution = Stopwatch.StartNew();
+                try
+                {
+                    audioDeviceCatalog.Refresh();
+                }
+                finally
+                {
+                    LogAudioDeviceListRefresh(execution);
+                }
+            });
+        }
+        catch (Exception exception)
+        {
+            audioDeviceListRefreshFailed = true;
+            try
+            {
+                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(exception,
+                    "Audio device list refresh failed; retaining current selection and last good devices.");
+            }
+            catch
+            {
+                // 診断の失敗は一覧状態と保存・閉鎖を変更しない。
+            }
+        }
+        finally
+        {
+            isAudioDeviceListRefreshInProgress = false;
+            try
+            {
+                if (isPresentationActive && isAudioSettingsPageVisible)
+                {
+                    RebuildAudioDeviceSelection();
+                    RaisePropertyChanged(nameof(AudioDeviceListStatusMessage));
+                }
+            }
+            finally
+            {
+                completion.TrySetResult();
+            }
+        }
+        if (isPresentationActive && isAudioSettingsPageVisible)
+        {
+            RaiseAudioDeviceTestOperationPropertiesChanged();
+            RequestAudioDeviceCapabilityQuery();
+        }
+    }
+
+    private static void LogAudioDeviceListRefresh(Stopwatch execution)
+    {
+        try
+        {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Info(
+                "settings_audio_device_list_worker elapsedMs=" + execution.ElapsedMilliseconds);
+        }
+        catch
+        {
+            // 性能記録は列挙結果を変更しない。
+        }
+    }
+
+    private void RebuildAudioDeviceSelection()
+    {
+        // 開始時の選択を復元せず、完了時点のdraftから候補を作る。明示編集のリセット理由も保持する。
+        playerDeviceNames = BuildPlayerDeviceNames(audioOutputSelectionDraft.Backend);
+        RefreshSelectionProperties();
     }
 
     /// <summary>保存済み選択の復元を明示編集と分け、Autoリセットを起こしません。</summary>
     internal void RestoreSelection()
     {
-        playerDeviceNames = BuildPlayerDeviceNames(audioOutputSelectionDraft.Backend);
         audioOutputSelectionResetMessage = null;
-        RefreshSelectionProperties();
+        RebuildAudioDeviceSelection();
     }
 
     /// <summary>保存・取消後に下書きの表示だけを再通知します。</summary>
@@ -165,6 +286,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     /// 現在の編集状態で機器テストを受け付けられるかを取得します。
     /// </summary>
     public bool IsAudioDeviceTestAvailable => !IsEditCompletionInProgress
+        && audioDeviceListCompletionTask.IsCompleted
         && IsRunning != true;
 
     /// <summary>機器テストボタンの開始を示す翻訳文を取得します。</summary>
@@ -259,8 +381,9 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     /// <summary>選択機器が受理した再生レートと保存済みの選択肢を取得します。</summary>
     public ReadOnlyDictionary<SampleRate, string> PlayerSampleRateNames => CreatePlayerSampleRateNames();
 
-    /// <summary>直近に受理したテストの表示処理とnative後片付けが完了するTaskを取得します。</summary>
-    internal Task AudioDeviceTestCompletionTask => audioDeviceTestCompletionTask;
+    /// <summary>一覧取得・能力照会・テストの実処理と表示終端を待つTaskを取得します。終了時は先に表示を失効させます。</summary>
+    internal Task AudioSettingsCompletionTask => Task.WhenAll(
+        audioDeviceListCompletionTask, audioDeviceCapabilityCompletionTask, audioDeviceTestCompletionTask);
 
     /// <summary>再生レート欄が機器情報の表示専用かどうかを取得します。</summary>
     public bool IsPlayerSampleRateReadOnly => !IsPlayerSampleRateSelectionEnabled;
@@ -739,7 +862,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
 
     internal Task RunAudioDeviceTestAsync()
     {
-        if (IsEditCompletionInProgress || IsRunning)
+        if (!IsAudioDeviceTestAvailable)
         {
             return Task.CompletedTask;
         }
@@ -758,9 +881,24 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
             PlayerMixerThreadCount);
         AudioDeviceTestStatusMessage = null;
         AudioDeviceTestDiagnosticMessage = null;
-        audioDeviceTestCompletionTask = RunAudioDeviceTestCoreAsync(request);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        audioDeviceTestCompletionTask = completion.Task;
+        PublishAudioDeviceTestCompletionAsync(request, completion).ObserveFault("settings audio device test");
         RaiseAudioDeviceTestOperationPropertiesChanged();
         return audioDeviceTestCompletionTask;
+    }
+
+    private async Task PublishAudioDeviceTestCompletionAsync(AudioDeviceTestRequest request, TaskCompletionSource completion)
+    {
+        try
+        {
+            await RunAudioDeviceTestCoreAsync(request);
+            completion.TrySetResult();
+        }
+        catch (Exception exception)
+        {
+            completion.TrySetException(exception);
+        }
     }
 
     private async Task RunAudioDeviceTestCoreAsync(AudioDeviceTestRequest request)
@@ -938,18 +1076,35 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
         if (!isAudioDeviceCapabilityQueryPending
             || isAudioDeviceCapabilityQueryBlocked
             || isAudioDeviceCapabilityQueryInProgress
+            || !audioDeviceListCompletionTask.IsCompleted
             || !isPresentationActive
             || !isAudioSettingsPageVisible)
         {
             return;
         }
-        _ = RunAudioDeviceCapabilityQueryAsync();
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        audioDeviceCapabilityCompletionTask = completion.Task;
+        PublishAudioDeviceCapabilityQueryCompletionAsync(completion).ObserveFault("settings audio device capability query");
+    }
+
+    private async Task PublishAudioDeviceCapabilityQueryCompletionAsync(TaskCompletionSource completion)
+    {
+        try
+        {
+            await RunAudioDeviceCapabilityQueryAsync();
+        }
+        finally
+        {
+            completion.TrySetResult();
+        }
+        RunPendingAudioDeviceCapabilityQuery();
     }
 
     private async Task RunAudioDeviceCapabilityQueryAsync()
     {
         if (!isAudioDeviceCapabilityQueryPending
             || isAudioDeviceCapabilityQueryInProgress
+            || !audioDeviceListCompletionTask.IsCompleted
             || !isPresentationActive
             || !isAudioSettingsPageVisible)
         {
@@ -1037,7 +1192,6 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
                 }
             }
             RaiseAudioDeviceTestOperationPropertiesChanged();
-            RunPendingAudioDeviceCapabilityQuery();
         }
     }
 
@@ -1318,10 +1472,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
             return;
         }
 
-        if (isPresentationActive)
-        {
-            RequestAudioDeviceCapabilityQuery();
-        }
+        PresentAudioSettingsPage();
     }
 
 }

@@ -1,4 +1,6 @@
 {
+  "AudioDeviceListLoading": "Loading audio devices. You can continue editing, saving, or canceling settings.",
+  "AudioDeviceListRefreshFailed": "Could not refresh the audio device list. Retained devices and the current selection are shown.",
   "Warning_InstallEstimationUnrelated": "Candidate {0} has no confirmed relation to this work. The destination will not be set automatically.",
   "Warning_InstallEstimationMetadataUnavailable": "TITLE/ARTIST metadata for comparison with candidate {0} is unavailable. The destination will not be set automatically.",
   "WarningDigest_InstallEstimationUnrelated": "Unrelated to this work",

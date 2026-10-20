@@ -50,11 +50,35 @@ JSONの欠落・アクセス・読取り失敗、シリアライザーの入力�
 
 候補探索は日本語を常に含み、正常辞書を破損・無効カルチャ・言語名なしのファイルと独立して扱います。完了した探索結果だけを共有スナップショットへ公開します。ディレクトリ欠落は日本語候補として完了し、既知のディレクトリ読取り・アクセス失敗は今回だけの日本語候補を返して探索済み状態を保存しません。予期しない故障や資源不足では未完了の候補を公開しません。
 
+### LR2検索ルート候補の取得
+
+登録内容の変更検出用取得は欠落した登録も保持し、実処理用取得は存在する登録だけを使います。それぞれの一回の取得で、現在・変更前の通常/追加/ROOT出力先の除外集合を一度だけ構築し、全ルートに適用します。候補が0件、または現在と対象の変更前ROOT出力先がどちらも空なら、プレイリスト全件スナップショットは取得しません。必要なROOT出力先計算には一回の取得結果を共有します。正規化、同一・子パス除外、親・兄弟パスの保持、登録の列挙順を維持します。別の取得には新しい入力を捕捉し、永続キャッシュは追加しません。
+
+### 初回表示とページの寿命
+
+設定画面は外枠と最初に表示する全般ページを作成し、残りのページは最初の選択時にUIスレッドで一度だけ生成します。同じウィンドウでは生成済みページを再利用し、未確定の`TextBox`入力も保持します。画面を閉じた後の全体ページキャッシュは持ちません。テーマ・言語を変更してから未訪問ページを開くと現在の資源と編集中の値を使います。未作成の外観ページを選択更新のためだけに生成しません。音声ページは生成時点の`PlaybackPanel`へ接続し、その後の変更は作成済みページだけへ渡します。
+
+共通コントロールのスタイルは`App`が読み込む辞書を参照し、設定用辞書で重複読込みしません。設定固有の暗黙スタイルは各設定ページと外枠の局所スコープに保ちます。「このソフトについて」の文化圏購読は表示中だけ保持し、分類変更時の本文スクロール先頭復帰、取消時の外観復元、閉鎖時の`DataContext`解除を維持します。
+
+表示窓口で要求を受信した時点の時刻を捕捉し、最初の`OnContentRendered`入口までを `settings_dialog_first_render` の `requestToFirstRenderMs` へ記録します。モーダル画面が閉じるまでの時間は含めません。ウィンドウ構築は `settings_window_construct`、各ページの構築開始・終端は `settings_page_construct_start` / `settings_page_construct_end`、描画後のスキーマ表示更新は `settings_dialog_schema_presentation`、一覧のバックグラウンド処理実行時間は `settings_audio_device_list_worker` として区別します。既存`NLogWrapper`を使い、診断の失敗は編集・列挙・閉鎖の結果へ加えません。絶対時間の改善値は対象環境での測定によって判断します。
+
+### 音声一覧の非同期取得
+
+設定表示要求ではネイティブ機器を列挙しません。当該ウィンドウの初回音声表示時に、既存音声管理主体が一覧取得タスクを登録し、古い能力照会を失効・取消要求してその実タスク終端を非同期に待ってから、列挙だけをバックグラウンド処理で行います。WPF要素・バインディング・編集中の値の読み書きと通知はUI側で行います。プロパティ取得とコンストラクターから列挙を開始しません。既存列挙処理の初期化確認・共有操作リース取得・ネイティブ列挙・解放は同じバックグラウンド処理内で完結し、方式別列挙は逐次のままです。
+
+初回訪問は表示が無効から有効へ遷移したときにリセットし、表示が有効で音声ページが可視の共通入口から開始します。可視通知と表示有効化の到着順に依存しません。同じウィンドウの再訪問では再列挙しません。開き直したウィンドウの初回音声表示は新しい更新機会ですが、前の取得が未完了なら同じタスクを再利用し、完了後の追加取得を予約しません。
+
+取得中は状態を出力欄へ表示し、出力先の変更、他設定の編集・保存・適用・取消、分類切替、通常閉鎖を許可します。一覧の取得をテスト実行中として扱わず、明示音声テストだけは一覧タスクの実終端まで受付不可にします。能力照会も実終端まで保留します。完了時に画面が有効かつ音声ページが可視なら、その時点で編集中の値から候補と選択を作り直し、開始時の選択を復元しません。明示編集によるAutoへのリセット理由は保持します。非表示ページと閉じた画面へ取得結果を通知せず、後の音声再表示は取得済みカタログと編集中の値を使います。
+
+未知の出力方式と未接続機器の識別子・名前を保持し、一時的なnull選択をAuto/Defaultへの編集として扱いません。下位カタログの方式別失敗と直近の正常一覧保持を維持します。外側の取得が失敗した場合も既存候補と現在選択を残し、ローカライズ済みの更新失敗状態を表示・診断します。正常な0件成功へ置き換えず、同じウィンドウの再訪問で成功表示へ変えません。取得中状態は実終端で解除し、明示テストと現在選択の能力照会は従来の受付条件へ戻します。失敗による恒久停止や自動再試行は追加せず、次のウィンドウの初回音声表示を次の更新機会とします。
+
+表示終了では結果反映と後続照会を無効にしますが、非取消ネイティブ処理を強制解放しません。音声管理主体が一覧・能力照会・テストそれぞれの実完了タスクを保持し、`MainWindow`の終了では表示を先に失効させてから `AudioSettingsCompletionTask` を取得し、バックグラウンド処理待ちと方式間を含む一覧実終端、既存照会・テストの解放まで待って音声基盤の終了へ進みます。表示フラグの解除を処理終端とは見なしません。
+
 ### 音声設定の編集と照会
 
 出力設定、音量、テスト、詳細な音声設定の順に表示します。詳細な音声設定は独立した設定セクションとして表示します。能力照会とテストに付随する技術的な診断だけを、各欄の閉じた詳細表示に置きます。WASAPI共有の手動バッファ入力とASIOのイベント駆動入力は表示せず、ASIO形式と共有mix条件は読取り専用にします。成功時は候補と機器情報だけを示し、照会状態は一か所、nativeの診断は閉じた詳細欄で確認できます。
 
-音声ページを表示すると、選択中の方式・機器の能力を一回照会します。表示中に方式・機器を利用者が変更した場合も照会し、実行中に続けて選択が変わったときは現在の選択だけを次に照会します。照会は通常再生を止めません。照会開始後の保存・取消は可能で、保存値は照会結果から変更しません。失敗・非対応は自動再試行せず、次のページ表示または選択変更まで結果を保持します。
+音声ページを表示すると、一覧取得の実終端を待って選択中の方式・機器の能力を一回照会します。表示中に方式・機器を利用者が変更した場合も照会し、実行中に続けて選択が変わったときは現在の選択だけを次に照会します。照会は通常再生を止めません。照会開始後の保存・取消は可能で、保存値は照会結果から変更しません。失敗・非対応は自動再試行せず、次のページ表示または選択変更まで結果を保持します。
 
 編集下書きでは driver または device を変更すると sample rate と format を Auto に戻し、sample rate を変更すると format だけを Auto に戻します。format の変更は rate を変えません。設定読込み、再Binding、一覧更新の一時的なnull、同じ値の通知、能力照会、テスト結果では下書きをリセットしません。リセット理由は出力欄の近くに表示し、取消は保存済み値へ戻します。
 
@@ -62,7 +86,7 @@ JSONの欠落・アクセス・読取り失敗、シリアライザーの入力�
 
 デバイステストの受付から音源と出力sessionの解放完了までは設定画面の全操作を無効にします。テストボタンは開始表示のまま無効になり、停止・取消の受付はありません。結果は要求と実値を分けて表示し、成功・失敗にかかわらず編集中の値や保存済み設定を書き戻しません。解放失敗が終端した場合は失敗結果を表示し、画面の操作制限を解除します。未解放native所有は音声session側に保持し、新しい音声要求は停止やnative初期化より前に解放未確認の失敗として拒否します。明示的なsession cleanupがnative解放を確認した後に受付を戻します。技術的な診断は折りたたんで表示します。
 
-アプリ所有者の終了では設定画面を先に閉じ、受理済みテストのTaskが結果処理とnative後片付けを完了してから音声Runtimeを終了します。閉じた画面へ結果を反映しません。
+アプリ所有者の終了では設定画面を先に閉じ、一覧・能力照会・受理済みテストのTaskが実処理とnative後片付けを完了してから音声Runtimeを終了します。閉じた画面へ結果を反映しません。
 
 外観ページの「既定のパネル画像を変更する」は再生パネルの画像を差し替える設定であり、譜面の `STAGEFILE` を変更しません。外部画像が有効でパスが不正な場合、全体検証・保存前検証のどちらも「外観」の不備として案内します。無効な場合は、その画像パスを検証の必要条件にしません。
 
@@ -243,6 +267,10 @@ Allでは必要な出力配置の移行と旧BMTの整理を一回行い、新�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 初回ページ生成と未確定入力の保持 | `SettingsWindow.GetOrCreateCategoryPage`、既存ナビゲーションと`ContentControl` | `SettingsWindowCompiledBehaviorTests.EverySettingsNavigationPageMaterializesWithoutCreatingPendingChanges`で本番の構築開始/終端診断、初回選択までの未生成、表示のみでの変更なし、sourceへ未確定の入力と同じページの再利用、実閉鎖後の表示中・非表示ページのDataContext解除を確認する。未訪問ページへの現在のテーマと編集値の反映は`SettingsWindowPresentationTests.SettingsWindow_AppearanceThemeBindingSurvivesDeferredPageConnectionAndCancelRollback`が分担する。 |
+| 一覧の初回非同期取得、表示終了と実終端、保存値の保持 | `AudioDeviceTestWorkflowOwner`、`SettingsDialogViewModel` | `AudioDeviceListRefreshTests`で可視/表示有効化の通知順、未完了タスクの再利用、現在の編集値、閉画面非通知、旧照会後の列挙、音声未訪問/列挙中/外側失敗時の他設定保存と新しい読取り元を確認する。`AudioDeviceCatalogTests`は方式別の直近正常一覧保持を担う。 |
+| 列挙中の実画面操作と終了接続 | `AudioSettingsPage`、`SettingsWindow`、`MainWindow` | `SettingsWindowPresentationTests.AudioListRefresh_KeepsNavigationEditingAndOrdinaryCloseResponsive`で実バインディング・Dispatcher・通常閉鎖、`MainWindow_OwnerShutdownWaitsForAcceptedAudioWorkBeforeRuntimeShutdown`の一覧/明示テストで音声基盤の終了前の実タスク待機を確認する。 |
+| ルート候補の除外と取得内の全件スナップショット共有 | `SettingsDialogViewModel`のルート取得と出力先計算 | `SettingDialogCustomFolderOutputBaseTests.Lr2BmsDirectoryChoices_ExcludeCustomFolderOutputBases`で実LR2登録、現在/変更前の各出力先、同一/子/親/兄弟、欠落登録、ROOT出力なし・候補0件での未取得、必要時一回のスナップショット共有と次の取得への変更反映を確認する。 |
 | 導入先自動設定の音源閾値、既定100、90～100・不正保存値、保存/取消 | `Settings`、`BmsLibraryOptionsSnapshot`、`SettingsDialogViewModel`、`AdvancedSettingsPage` | [`PortableSettingsPersistenceTests`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) が欠如・端点・97・範囲外値の実保存と新readerを、[`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCategoryPersistenceTests.cs) がcompiled選択・保存・取消を確認する。操作内捕捉と各譜面許可は[推定の対応表](../library/install-estimation.md#実装とテストの対応)に分担する。 |
 | 自動新規導入の完全性設定、既定OFF、実編集・取消・保存・再読込み | [`Settings`](../../../BeMusicSeeker/Properties/Settings.cs)、[`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`AdvancedSettingsPage`](../../../BeMusicSeeker/Views/Settings/Pages/AdvancedSettingsPage.xaml) | [`PortableSettingsPersistenceTests`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) の欠落キー既定値、[`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCategoryPersistenceTests.cs) の詳細設定の実Bindingと保存・新provider・取消を確認する。分類と同一操作の設定捕捉は[導入先推定の対応表](../library/install-estimation.md#実装とテストの対応)に分担する。 |
 | 起動設定の保存警告と必須失敗の分離 | [`ApplicationSettingsLifecycle`](../../../BeMusicSeeker/Models/Settings/ApplicationSettingsLifecycle.cs) | [`ApplicationSettingsLifecycleTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationSettingsLifecycleTests.cs)の`ValidSaveBlockedInputWarnsAndMaterializesCanonicalValuesWhileReadFailureIsFatal`、`VersionUpdateDistinguishesReadFailureFromPublicationFailure`は実XMLで両保存警告の通常完了・コールバック例外と、同じ値・バイト列・文化圏・テーマを確認します。`InitializeLegacyMigrationFailureIsFatalWithoutSaveWarningOrStoreRead`は実移行の公開失敗を警告へ変換せず停止することを分担します。 |
@@ -261,7 +289,7 @@ Allでは必要な出力配置の移行と旧BMTの整理を一回行い、新�
 | 初回・修復設定の保存、閉鎖、通知、初期化の順序 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `ApplySettingsAsync_InitialSettings_ClosesBeforeNotificationAndAwaitsInitialization`: 単独・LR2、初回通知の有無、表示終了と通知の待機、二重要求の拒否。 |
 | 通常保存後の実Closeと後続寿命 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindow_NormalSettingsCloseEndsModalBeforeActualFileDiffTerminates`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs): 実Closed、DataContext解除、modal復帰後も実走査Taskと親L/Pが生存し、解放後に終端する。条件行列は実Allと非WPFの責務境界へ分担する。 |
 | 初回設定の実表示と失敗後の再表示 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs)、[`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) の `MainWindow_InitialSettingsCloseBeforeRealCompletionMessageAndRecoverAfterInitialization`: 実際の通知、親ウィンドウ、モーダル表示の終了、失敗後の編集受付、終了要求時の再表示抑止。 |
-| 設定テスト中のアプリ終了と音声後片付け順序 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs)、[`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) の `MainWindow_OwnerShutdownWaitsForAcceptedAudioTestBeforeRuntimeShutdown`: MainWindow所有の実Windowを閉じ、Dispatcherを動かしたまま受理済み音声Taskとnative受付が終了前に失効しないこと、解放後のRuntime shutdown、閉画面への結果抑止を確認する。 |
+| 設定テスト中のアプリ終了と音声後片付け順序 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs)、[`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) の `MainWindow_OwnerShutdownWaitsForAcceptedAudioWorkBeforeRuntimeShutdown`: MainWindow所有の実Windowを閉じ、Dispatcherを動かしたまま受理済み音声Taskとnative受付が終了前に失効しないこと、解放後のRuntime shutdown、閉画面への結果抑止を確認する。 |
 | 初回保存・通知・初期化の失敗と再試行 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `ApplySettingsAsync_InitialSaveFailureKeepsDraftWithoutClosingOrInitializing`、`ApplySettingsAsync_InitialSettingsNoticeFailurePreservesSaveAndRequiredInitialization`、`ApplySettingsAsync_InitialInitializationFailureReopensAfterCleanupAndCanRetry`、`ApplySettingsAsync_InitialDirectoryFailureReopensOnceAfterCleanupAndCanRetry`: 保存失敗では入力保持、任意通知失敗では保存済み事実を保って必要初期化を継続し、初期化失敗では保存済み値と再試行受付を保持。 |
 | 設定部品とAutomation選択、実入力との接続 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | [`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs)で表示とAutomation選択を自動検証する。実フォーカスとキー操作は[ユーザーに推奨する実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分ける。 |
 | 変更範囲と検索ルートの比較 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | [`StartupSettingsSnapshotTests`](../../../BeMusicSeeker.Tests/Startup/StartupSettingsSnapshotTests.cs)、[`CustomFolderOutputSettingsSnapshotTests`](../../../BeMusicSeeker.Tests/Playlist/CustomFolderOutputSettingsSnapshotTests.cs) |
@@ -280,7 +308,7 @@ Allでは必要な出力配置の移行と旧BMTの整理を一回行い、新�
 | LR2の保存先とプレイヤー設定 | [`SettingsPlayerSettingsGateway`](../../../BeMusicSeeker/Models/Playback/PlayerSettingsGateway.cs) | [`PlayerSettingsGatewayTests`](../../../BeMusicSeeker.Tests/Playback/PlayerSettingsGatewayTests.cs) |
 | 履歴DBの状態と明示操作 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs) | [`Lr2PlayHistorySchemaUiTests`](../../../BeMusicSeeker.Tests/PlayHistory/Lr2PlayHistorySchemaUiTests.cs) |
 | 設定値の捕捉と追加パスの分離 | [`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) | [`BmsLibraryOptionsSnapshotTests`](../../../BeMusicSeeker.Tests/Library/BmsLibraryOptionsSnapshotTests.cs) |
-| 設定画面の単一要求、音声設定の取消と保存失敗 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | [`SettingDialogOpenCommandTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogOpenCommandTests.cs): 開く際の単一表示要求・機器再列挙・非保存、取消による利用不可方式の警告と消失機器の復元、閉鎖時の復元完了、機器識別情報の保持、保存失敗時の保存値と編集値の分離。取消の検証は共有テーマ・文化圏を所有し、復元する。 |
+| 設定画面の単一要求、音声設定の取消と保存失敗 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | [`SettingDialogOpenCommandTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogOpenCommandTests.cs): 開く際の単一表示要求・列挙なし・非保存、取消による利用不可方式の警告と消失機器の復元、閉鎖時の復元完了、機器識別情報の保持、保存失敗時の保存値と編集値の分離。取消の検証は共有テーマ・文化圏を所有し、復元する。 |
 | 推定・変更中の副作用前Busyとdraft・取消の維持 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`ApplicationComposition`](../../../BeMusicSeeker/ViewModels/MainWindow/ApplicationComposition.cs) | [`ApplicationCompositionTests`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionAdmissionTests.cs) の `StandardComposition_RejectsCatalogPlaybackAndSettingsBeforeSideEffectsWhileKeepingDraftAndSelection`: 標準構成の実保存・適用入口で保存0、draft保持、取消、終端後の明示保存を確認する。 |
 | 導入中のmode保存Busyと編集値保持 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) の `SaveOperationModeForRestart` | [`MainWindowViewHostTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewHostTests.cs) の `MainWindowOperationModeSaveWhilePackageRunsReportsBusyAndRetainsDraft`: 実導入実処理の共通受付中にmodeのdraftを編集し、実Busy通知の完了、確認・保存・再起動・追加停止・終了の抑止、編集直後からのXMLとdraft保持を確認する。保存先が保存不能でも保存例外通知を待たず、元実処理終端後の明示保存だけを実行する。 |
 | 保存後の実全再構築と受付寿命、初期化失敗・取消 | 標準設定port、`ApplicationComposition`、`MainWindowViewModel` | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)の`ApplySettingsAsync_DefaultAllReconstructionBorrowsLivePlaylistAdmissionUntilActualInitializationEnds`は、初回の`chart_info_backfill`・`maintenance_hydration`の実Task終端と共有L/Pの実解放を準備で待ち、旧IR通信を保持したまま実DB変更と出力配置保存から新store接続、同じL/Pでの実初期化終端、新規P変更の拒否と次の明示要求を確認する。同じ実All代表はClose待機中の保存値・適用配置公開、L/P生存と後処理未開始、閉鎖後の実走査・UI、元scan失敗・shutdownで保存事実と実Task回収・再提示不在を分担する。実ScoreOnly、`ApplySettingsAsync_FolderChange_CompletesRealFileDiffAfterClosing`の実DB/画面、`ApplySettingsAsync_AwaitsRequiredPlaylistOutputAndKeepsOptionalUrlCompletionIndependent`の限定出力へ段階選択を分担する。保存失敗・部分保存のdraftと元失敗はbehaviorケースへ維持する。 |
