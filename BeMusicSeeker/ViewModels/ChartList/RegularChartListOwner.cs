@@ -15,7 +15,6 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views.Dialogs;
 using Livet.EventListeners;
-using Ribbit.Util;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -66,6 +65,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
     private readonly Dictionary<NormalLibrarySortCacheKey, ChartListOrder> virtualOrderCache = [];
     private readonly Dictionary<VirtualChartSubsetSortCacheKey, ChartListOrder> virtualSubsetOrderCache = [];
     private readonly HashSet<Task> folderRenameTasks = [];
+    private readonly HashSet<Task> packageViewBuildTasks = [];
     private readonly NormalLibraryRowCache rowCache = new();
     private CancellationTokenSource currentCancellation;
     private long currentRequestId;
@@ -841,18 +841,21 @@ internal sealed partial class RegularChartListOwner : IDisposable
         BMSLibrary library,
         bool retireDetailSource,
         out RegularChartListRequestLease lease,
-        out PlaylistSourceRetirementRequest detailSourceRetirement)
+        out PlaylistSourceRetirementRequest detailSourceRetirement,
+        long? expectedRequestId = null)
     {
         CancellationTokenSource previousRequest;
         CancellationTokenSource prewarmCancellation = null;
         lock (syncRoot)
         {
-            if (disposed)
+            if (disposed || expectedRequestId.HasValue && currentRequestId != expectedRequestId.Value)
             {
                 lease = null;
                 detailSourceRetirement = null;
                 return false;
             }
+            // packageのUI入口予約より後に選択が変わっていない場合だけ、破棄とlease発行を一緒に確定する。
+            if (expectedRequestId.HasValue) { ResetDerivedCachesUnsafe(); }
             if (virtualSourceRowsLibraryReserved
                 && !ReferenceEquals(virtualSourceRowsLibrary, library))
             {
@@ -904,6 +907,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         return true;
     }
 
+    /// <summary>現在のleaseを取り消し、leaseを発行しない画面切替も古いUI入口予約から区別します。</summary>
     internal void InvalidatePendingRequest()
     {
         CancellationTokenSource previous;
@@ -911,7 +915,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
         {
             previous = currentCancellation;
             currentCancellation = null;
-            currentRequestId = 0L;
+            // leaseがないplaylist等への切替も、予約済みの古いUI入口と区別する。
+            currentRequestId = MainViewBuildRequestSequence.Next();
             regularRequestActive = false;
         }
         CancelAndDispose(previous);
@@ -1640,16 +1645,18 @@ internal sealed partial class RegularChartListOwner : IDisposable
     internal void ResetDerivedCaches()
     {
         InvalidatePendingRequest();
-        lock (syncRoot)
-        {
-            folderRows = null;
-            keywordRows = null;
-            modeRows = null;
-            folderSortSourceSnapshot = null;
-            folderSortResultSnapshot = null;
-            folderSortColumnName = null;
-            folderSortDirection = null;
-        }
+        lock (syncRoot) { ResetDerivedCachesUnsafe(); }
+    }
+
+    private void ResetDerivedCachesUnsafe()
+    {
+        folderRows = null;
+        keywordRows = null;
+        modeRows = null;
+        folderSortSourceSnapshot = null;
+        folderSortResultSnapshot = null;
+        folderSortColumnName = null;
+        folderSortDirection = null;
     }
 
     internal void ClearSortCache()
@@ -2535,6 +2542,10 @@ internal sealed partial class RegularChartListOwner : IDisposable
         {
             throw new ArgumentException("A library is required when bmson rows are included.", nameof(request));
         }
+        if (request.CurrentTreeMode is MainViewUpdateMode.NewlyInstalledFolderSelected or MainViewUpdateMode.PendingInstallFolderSelected)
+        {
+            throw new InvalidOperationException("Package views require ApplyMainLibraryViewAsync.");
+        }
         ChartListSortSpecification sort = CaptureSort();
         ChartListFilterSnapshot filters = request.Filters ?? ChartListFilterSnapshot.Default;
         string keywordFilter = filters.KeywordFilter;
@@ -2593,7 +2604,6 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 {
                     Library = request.Library,
                     SourceCharts = subset.SourceCharts,
-                    SourceEntries = subset.SourceEntries,
                     SourceProjectionMode = subset.SourceProjectionMode,
                     ApplyResourceHealthProjection = subset.ApplyResourceHealthProjection,
                     TreeMode = request.CurrentTreeMode,
@@ -2783,10 +2793,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
     {
         object parameter = request.CurrentTreeMode == MainViewUpdateMode.DuplicateFilterSelected
             ? request.TreeParameter ?? request.Parameter
-            : request.CurrentTreeMode == MainViewUpdateMode.NewlyInstalledFolderSelected
-                || request.CurrentTreeMode == MainViewUpdateMode.PendingInstallFolderSelected
-                    ? request.TreeParameter ?? request.Parameter
-                    : request.Parameter;
+            : request.Parameter;
         switch (request.CurrentTreeMode)
         {
             case MainViewUpdateMode.FileMissingFilterSelected:
@@ -2812,65 +2819,29 @@ internal sealed partial class RegularChartListOwner : IDisposable
             case MainViewUpdateMode.ChartInfoParseErrorFilterSelected:
                 source = RegularChartListSubsetSource.ForCharts(library?.ChartInfoParseFailedChartFiles, "chart_info_parse_error");
                 return true;
-            case MainViewUpdateMode.NewlyInstalledFolderSelected:
-                source = ResolvePackageSource(library?.ChartPackagesInstalled, parameter, "newly_installed_all", "newly_installed_package", applyResourceHealthProjection: true);
-                return true;
-            case MainViewUpdateMode.PendingInstallFolderSelected:
-                source = ResolvePackageSource(library?.ChartPackagesPending, parameter, "pending_install_all", "pending_install_package", applyResourceHealthProjection: false);
-                return true;
             default:
                 source = null;
                 return false;
         }
     }
 
-    private static RegularChartListSubsetSource ResolvePackageSource(
-        IEnumerable<ChartPackage> packages,
-        object parameter,
-        string allName,
-        string packageName,
-        bool applyResourceHealthProjection)
-    {
-        if (packages == null)
-        {
-            return RegularChartListSubsetSource.ForEntries([], allName, applyResourceHealthProjection);
-        }
-        IEnumerable<PackageChartEntry> entries = parameter is ChartPackage package
-            ? (package.ChartEntries ?? []).Where(entry => entry?.Chart != null).ToArray()
-            : CreatePackageEntrySnapshot(packages);
-        return RegularChartListSubsetSource.ForEntries(
-            entries,
-            parameter is ChartPackage ? packageName : allName,
-            applyResourceHealthProjection);
-    }
-
+    /// <summary>捕捉済みpackage所属を一巡し、各packageが返した固定entry列を一度だけ取得して連結します。</summary>
     internal static IReadOnlyList<PackageChartEntry> CreatePackageEntrySnapshot(IEnumerable<ChartPackage> packages)
     {
-        List<PackageChartEntry> snapshot = null;
-        RetryHelper.RetryIfError(delegate
+        // ChartEntries は未準備なら本来の発見処理も実行する。失敗を空の成功へ置き換えない。
+        IReadOnlyList<PackageChartEntry>[] entries = (packages ?? [])
+            .Where(package => package != null)
+            .Select(package => (IReadOnlyList<PackageChartEntry>)package.ChartEntries)
+            .ToArray();
+        if (entries.Length == 0) { return []; }
+        if (entries.Length == 1) { return entries[0]; }
+        var flattened = new PackageChartEntry[entries.Sum(snapshot => snapshot.Count)];
+        int position = 0;
+        foreach (IReadOnlyList<PackageChartEntry> snapshot in entries)
         {
-            snapshot = [];
-            foreach (ChartPackage package in packages ?? [])
-            {
-                try
-                {
-                    if (package != null)
-                    {
-                        snapshot.AddRange((package.ChartEntries ?? []).Where(entry => entry?.Chart != null));
-                    }
-                }
-                catch
-                {
-                }
-            }
-        }, delegate (Exception ex)
-        {
-            ExceptionDispatchInfo.Capture(ex).Throw();
-        }, delegate
-        {
-            Thread.Sleep(100);
-        }, 100u);
-        return snapshot ?? [];
+            foreach (PackageChartEntry entry in snapshot) { flattened[position++] = entry; }
+        }
+        return flattened;
     }
 
     internal static bool TryResolveDuplicateSource(
@@ -3374,6 +3345,20 @@ internal sealed partial class RegularChartListOwner : IDisposable
             return default;
         }
         request.DetailSourceRetirement = detailSourceRetirement;
+        RegularVirtualChartSubsetApplyResult result = BuildVirtualChartSubset(request, lease, out RegularChartListPresentationResult presentation);
+        if (presentation == null) { return default; }
+        RegularChartListTerminalResult terminal = TryCommitVirtual(lease, presentation);
+        return terminal.WasCommitted ? result.WithTerminal(terminal) : default;
+    }
+
+    private RegularVirtualChartSubsetApplyResult BuildVirtualChartSubset(
+        RegularVirtualChartSubsetApplyRequest request,
+        RegularChartListRequestLease lease,
+        out RegularChartListPresentationResult presentation,
+        bool captureProjectionVersions = true)
+    {
+        presentation = null;
+        if (lease.Token.IsCancellationRequested) { return default; }
         if (request.ApplyResourceHealthProjection)
         {
             request.Library?.GetResourceHealthIndexSnapshotForView(
@@ -3383,7 +3368,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         }
 
         Stopwatch stopwatch = request.Stopwatch ?? Stopwatch.StartNew();
-        mainChartList.RowProjection.CaptureVersions(request.Library);
+        if (captureProjectionVersions) { mainChartList.RowProjection.CaptureVersions(request.Library); }
         var scoreInput = new ChartListScoreInput(request.Library);
         int scorePosition = scoreInput.Position;
         var referenceInput = new ChartListReferenceInput(request.Library);
@@ -3467,9 +3452,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 request.ApplyResourceHealthProjection),
             distinctFolderCount, CreateSubsetFilter(request.KeywordFilter, request.ModeFilter), scoreInput, scorePosition,
             (kind, count) => mainChartList.RowProjection.NormalInputWorkObserver?.Invoke(kind, count), referenceInput, catalogRevision);
-        RegularChartListTerminalResult terminal = TryCommitVirtual(
-            lease,
-            RegularChartListPresentationResult.ForVirtual(
+        presentation = RegularChartListPresentationResult.ForVirtual(
                 new MainChartListRowsApplyRequest
                 {
                     Rows = rowsView,
@@ -3486,14 +3469,9 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 request.ColumnSelection,
                 request.Mode,
                 stopwatch,
-                request.DetailSourceRetirement));
-        if (!terminal.WasCommitted)
-        {
-            return default;
-        }
-
+                request.DetailSourceRetirement);
         return new RegularVirtualChartSubsetApplyResult(
-            terminal,
+            default,
             rowsView,
             order,
             sortCacheKey,
@@ -3963,9 +3941,11 @@ internal sealed partial class RegularChartListOwner : IDisposable
             mainChartList.UpdateSummaryText(normalRows);
         }
         if (!applied.WasApplied) { StartPendingLibraryChangeDelivery(); }
-        return applied.WasApplied
+        RegularChartListTerminalResult terminal = applied.WasApplied
             ? RegularChartListTerminalResult.Committed(applied.RowsApply)
             : RegularChartListTerminalResult.Stale();
+        if (applied.WasApplied) { presentation.Completion?.TrySetResult(terminal); }
+        return terminal;
     }
 
     internal Task StopAsync()
@@ -3974,7 +3954,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         CancellationTokenSource prewarmCancellation;
         Task prewarmCompletion;
         Task normalLibraryRefreshCompletion;
-        Task[] folderRenameTasksToDrain;
+        Task[] viewAndMutationTasksToDrain;
         PropertyChangedEventListener normalLibraryRefreshListenerToDispose;
         lock (normalLibraryRefreshApplyLock)
         {
@@ -4006,12 +3986,12 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 normalLibraryRefreshCompletion = Task.WhenAll(normalCandidateDeliveries.Append(normalLibraryRefreshDrainCompletion));
                 prewarmCancellation = virtualOrderPrewarmCancellation;
                 prewarmCompletion = virtualOrderPrewarmCompletion;
-                folderRenameTasksToDrain = [.. folderRenameTasks];
+                viewAndMutationTasksToDrain = [.. folderRenameTasks, .. packageViewBuildTasks];
                 shutdownCompletion = DrainShutdownAsync(
                     prewarmCompletion,
                     prewarmCancellation,
                     normalLibraryRefreshCompletion,
-                    folderRenameTasksToDrain);
+                    viewAndMutationTasksToDrain);
             }
         }
         mainChartList.AppliedColumnModeCommitted -= MainChartListAppliedColumnModeCommitted;
@@ -4160,7 +4140,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
     {
         CancellationTokenSource previous = currentCancellation;
         currentCancellation = null;
-        currentRequestId = 0L;
+        currentRequestId = MainViewBuildRequestSequence.Next();
         regularRequestActive = false;
         normalBuildCommits = null;
         normalBuildScoreChanges = null;
@@ -4400,7 +4380,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         Task prewarmCompletion,
         CancellationTokenSource prewarmCancellation,
         Task normalLibraryRefreshCompletion,
-        IReadOnlyList<Task> folderRenameTasks)
+        IReadOnlyList<Task> viewAndMutationTasks)
     {
         try
         {
@@ -4412,11 +4392,11 @@ internal sealed partial class RegularChartListOwner : IDisposable
             }
             try
             {
-                await Task.WhenAll(folderRenameTasks ?? []).ConfigureAwait(false);
+                await Task.WhenAll(viewAndMutationTasks ?? []).ConfigureAwait(false);
             }
             catch
             {
-                // rename の操作 fault は ObserveFault で既に観測済みのため、
+                // rename と package 構築の fault は ObserveFault で既に観測済みのため、
                 // shutdown は残りの resource の drain と解放を継続する。
             }
         }
@@ -4527,8 +4507,6 @@ internal sealed class RegularChartListSubsetSource
 
     internal IEnumerable<ChartFile> SourceCharts { get; private set; }
 
-    internal IEnumerable<PackageChartEntry> SourceEntries { get; private set; }
-
     internal ChartListSourceProjectionMode SourceProjectionMode { get; private set; }
 
     internal bool ApplyResourceHealthProjection { get; private set; }
@@ -4550,19 +4528,7 @@ internal sealed class RegularChartListSubsetSource
         };
     }
 
-    internal static RegularChartListSubsetSource ForEntries(
-        IEnumerable<PackageChartEntry> entries,
-        string name,
-        bool applyResourceHealthProjection)
-    {
-        return new RegularChartListSubsetSource
-        {
-            SourceEntries = entries ?? [],
-            SourceProjectionMode = ChartListSourceProjectionMode.PreserveSourceProjection,
-            ApplyResourceHealthProjection = applyResourceHealthProjection,
-            Name = name ?? string.Empty
-        };
-    }
+
 }
 
 internal enum RegularChartListEntryRoute
@@ -4648,6 +4614,9 @@ internal sealed class RegularChartListPresentationResult
         DetailSourceRetirement = detailSourceRetirement;
         Kind = kind;
     }
+
+    /// <summary>非同期package要求の採用終端です。配送待ちでも同じ候補と結果を呼出し元へ返します。</summary>
+    internal TaskCompletionSource<RegularChartListTerminalResult> Completion { get; set; }
 
     internal RegularChartListBuildResult Build { get; }
 
@@ -4875,6 +4844,12 @@ internal readonly struct RegularVirtualChartSubsetApplyResult
         OrderCacheLookupMs = orderCacheLookupMs;
         OrderBuildMs = orderBuildMs;
     }
+
+    /// <summary>UIの同じ要求leaseで採用した終端を、構築済みの計測結果へ結び付けます。</summary>
+    internal RegularVirtualChartSubsetApplyResult WithTerminal(RegularChartListTerminalResult terminal)
+        => new(terminal, RowsView, Order, SortCacheKey, SourceRowCount, KeywordCount, ModeCount,
+            DistinctFolderCount, SourceRowsSignature, SourceRowsMs, KeywordMs, ModeMs, SortMs,
+            SortCacheHit, OrderCacheLookupMs, OrderBuildMs);
 
     internal bool WasCommitted => Terminal.WasCommitted;
     internal RegularChartListTerminalResult Terminal { get; }

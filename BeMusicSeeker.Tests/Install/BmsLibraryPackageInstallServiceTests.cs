@@ -3396,13 +3396,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     MainViewUpdateMode.NewlyInstalledFolderSelected,
                     isPlaylistTreeActive: false,
                     includeBmsonRows: bmson);
-                RegularChartListEntryResult newlyInstalledView = owner.ApplyMainLibraryView(
+                RegularChartListEntryResult newlyInstalledView = owner.ApplyMainLibraryViewAsync(
                     newlyInstalledRoute,
                     library,
                     parameter: null,
                     treeParameter: installedPackage,
                     preserveSummary: false,
-                    Stopwatch.StartNew());
+                    Stopwatch.StartNew()).GetAwaiter().GetResult();
                 Assert.IsTrue(newlyInstalledView.WasCommitted);
                 Assert.AreEqual(1, table.Rows.Count);
                 ResourceHealthIndexSnapshot afterNewlyInstalledView = library.TryGetCurrentResourceHealthIndexSnapshotForView();

@@ -294,6 +294,7 @@ internal sealed partial class RegularChartListOwner
         }
         catch (Exception exception)
         {
+            presentation.Completion?.TrySetException(exception);
             CancellationTokenSource cancellation = null;
             lock (syncRoot)
             {

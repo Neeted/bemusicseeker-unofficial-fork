@@ -90,6 +90,12 @@ score lookupは所属と索引を共有し、可変な `BMSScore` の全値を�
 
 保守、重複の全体・群・フォルダ・一覧、導入済み・保留の全体・パッケージは対象集合の仮想表示を使います。BMS専用機能はBMSだけ、重複・導入対象はBMSとBMSONを扱います。重複の更新はモデルが群全体を置き換えた後に表示を再構築します。
 
+導入済み・保留の一覧要求は、UIで現在の経路・検索・並べ替え・列とパッケージ所属参照を捕捉し、派生cacheの破棄・要求leaseの取得・詳細source退役の準備までを済ませます。workerは同じleaseを使い、各パッケージの `ChartEntries` が返す固定列を一回取得してから必要なリソース健全性索引の準備、入力投影、既存の順序構築、検索・mode絞込み、folder集計を行います。未発見のパッケージは本来の発見処理を実行し、空の所属や一部成功へ置き換えません。UI所有の集合をworkerから列挙せず、表示準備のために全所持カタログを追加複製しません。初回に必要な健全性索引は全所持規模の準備を許し、同じ入力の索引と順序cacheは既存の条件で再利用します。
+
+採用は同じleaseの既存終端をUIで実行し、古いworkerが後から起動・完了しても新しい表示要求を取り消し・上書きしません。非UI呼出しによるUI入力捕捉の予約にも既存要求IDを持たせ、要求失効ではleaseの発行がない画面切替も識別します。予約後に選択が変わった場合は、新しいleaseの発行・派生cache破棄・詳細source退役を始めず不採用にします。返すTaskは必要な既存配送と実採用までを表し、未待機の呼出しでもfaultを観測します。停止は取消だけで終わらず、開始済みの実workerを回収します。固定待機による再試行とパッケージ単位の例外握り潰しは行いません。
+
+この境界は [`RegularChartListOwner.PackageViews`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.PackageViews.cs) と既存のsubset構築・採用が担当します。[`RegularChartViewBuildAndOrderingTests`](../../../BeMusicSeeker.Tests/ChartList/RegularChartViewBuildAndOrderingTests.cs) の `PackageViewAsync_PreservesWarningsFiltersOrderAndSubsetCounts` は新規・保留の全体/単一、BMS/BMSON、警告順と検索・mode・folder件数、健全性のcold準備とwarm再利用を確認し、背景所持16/128件で同じpackage投影数を保ちます。`PackageViewAsync_BlockedWorkerKeepsDispatcherResponsiveAndCannotOverwriteNewerView` は実Dispatcherと入力投影gateを使い、worker待機中のUI応答、新要求採用後の旧worker拒否、停止時の実Task回収を確認します。`PackageViewAsync_QueuedUiEntryDoesNotBeginAfterNewSelectionInvalidation` はUI入口の予約自体を保留してから新選択の失効だけを通し、旧予約がlease・投影・詳細退役を始めずRowsと派生cacheを保持することを実Dispatcherで確認します。全カタログの追加複製がなく健全性のcold準備もworker内であることは同じ入口から静的に確認します。
+
 現在の並べ替え・絞込みへ影響しないデータ更新では `Rows`・順序・選択を保ち、影響する実体化済み行を更新してから表示更新を送ります。表の `RefreshDisplay` はセル値のキャッシュを捨てて再描画します。検索適否や並び位置が変わる場合も、影響行の除去・挿入・置換に留め、無関係な行を作り直しません。
 
 導入先の操作結果は、変更状態の反映、実体化済み行のキャッシュ破棄、表の表示更新の順に適用します。パッケージ項目の変更通知の有無に依存して、この手順を省略しません。導入先と推定警告の変更が現在の並べ替え・絞込み・所属へ影響しない場合は、全件確認や対象集合でも `Rows` と選択を保ちます。更新のためだけに未訪問行を実体化せず、既存の入力行や全ライブラリを無条件に作り直しません。

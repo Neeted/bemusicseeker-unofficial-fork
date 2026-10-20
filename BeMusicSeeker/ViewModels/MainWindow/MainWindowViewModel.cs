@@ -3966,22 +3966,31 @@ public partial class MainWindowViewModel : ViewModel,
                 route.Mode, route.RequestedMode, activeTreeViewFilterMode,
                 ShouldUsePlaylistBuildCoalescingWindow(route.Mode, route.RequestedMode), CapturePlaylistOpenReadinessSnapshot());
         }
-        RegularChartListEntryResult regularResult = regularChartListOwner.ApplyMainLibraryView(
-            route,
-            files,
-            parameter,
-            activeTreeViewFilterParameter,
-            PlaylistWorkspace.IsPlaylistSummaryModeRequested,
-            viewBuildStopwatch,
-            filters);
-        if (regularResult.WasCommitted && regularResult.SortWasReset)
+        Task regularRefresh = ApplyRegularViewAsync();
+        regularRefresh.ObserveFault("refreshRegularChartRowsView");
+        return regularRefresh;
+
+        async Task ApplyRegularViewAsync()
         {
-            if (MainChartList.CurrentOperationContext.OperationSection != MainViewOperationSection.PlayHistory)
+            RegularChartListEntryResult regularResult = await regularChartListOwner.ApplyMainLibraryViewAsync(
+                route,
+                files,
+                parameter,
+                activeTreeViewFilterParameter,
+                PlaylistWorkspace.IsPlaylistSummaryModeRequested,
+                viewBuildStopwatch,
+                filters).ConfigureAwait(false);
+            if (regularResult.WasCommitted && regularResult.SortWasReset)
             {
-                SyncMainChartListSortPresentation();
+                await uiScheduler.InvokeAsync(() =>
+                {
+                    if (MainChartList.CurrentOperationContext.OperationSection != MainViewOperationSection.PlayHistory)
+                    {
+                        SyncMainChartListSortPresentation();
+                    }
+                }).ConfigureAwait(false);
             }
         }
-        return Task.CompletedTask;
     }
 
     private void LogPlayHistoryViewExecution(PlayHistoryViewExecutionResult execution)

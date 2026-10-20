@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -12,14 +13,15 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal sealed class MainChartRowProjectionOwner
 {
-    private readonly Dictionary<string, ChartFileTransientState> transientStatesByKey = new(StringComparer.Ordinal);
+    // UIの導入先更新とpackage workerの投影が重なる。値は不変なので、全件複製せず一キーの読書きだけを同期する。
+    private readonly ConcurrentDictionary<string, ChartFileTransientState> transientStatesByKey = new(StringComparer.Ordinal);
     private Func<ChartFile, ChartFileStatus> playbackStatusProvider;
     /// <summary>現在の再生状態の読取り口を、表示行の生成時へ直接渡します。</summary>
     internal void SetPlaybackStatusProvider(Func<ChartFile, ChartFileStatus> provider) => playbackStatusProvider = provider;
 
     private int chartInfoVersion;
 
-    /// <summary>通常一覧入力の実訪問・投影・確保件数を観測します。投影はBMS/BMSONの形式別も通知し、未指定時は計測状態を持ちません。</summary>
+    /// <summary>一覧入力の実訪問・投影・確保件数を観測します。投影はBMS/BMSONの形式別も通知し、未指定時は計測状態を持ちません。</summary>
     internal Action<string, int> NormalInputWorkObserver { get; set; }
 
     internal int ChartInfoVersion => Volatile.Read(ref chartInfoVersion);
@@ -96,7 +98,7 @@ internal sealed class MainChartRowProjectionOwner
         referenceInput ??= new(library);
         var keys = new HashSet<PlaylistEntryLookupKey>(CatalogReadSnapshot.LookupKeyComparer);
         List<ChartListSourceRow> rows = ChartListSourceRow.BuildPackageRows(
-            (entries ?? []).Select(entry => { RegisterReferenceKeys(keys, entry?.Chart); return entry; }),
+            (entries ?? []).Select(entry => { NormalInputWorkObserver?.Invoke("package_projection", 1); RegisterReferenceKeys(keys, entry?.Chart); return entry; }),
             includeResourceHealth ? row => ResolveResourceHealth(library, row) : null,
             row => referenceInput.Resolve(row.CapturedChart.Md5, row.CapturedChart.Sha256),
             GetTransientState,
@@ -220,7 +222,7 @@ internal sealed class MainChartRowProjectionOwner
             }
             else
             {
-                transientStatesByKey.Remove(key);
+                transientStatesByKey.TryRemove(key, out _);
             }
         }
     }
@@ -288,11 +290,11 @@ internal sealed class MainChartRowProjectionOwner
 
     private void PruneTransientStates(ISet<string> currentKeys)
     {
-        foreach (string key in transientStatesByKey.Keys.ToList())
+        foreach (string key in transientStatesByKey.Keys)
         {
             if (currentKeys?.Contains(key) != true)
             {
-                transientStatesByKey.Remove(key);
+                transientStatesByKey.TryRemove(key, out _);
             }
         }
     }
