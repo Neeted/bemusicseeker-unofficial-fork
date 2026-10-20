@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -863,12 +864,16 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 Header_url = new Uri(badHeaderPath)
             };
             playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { goodTable, badTable });
-            List<PlaylistSyncAttemptResult> syncResults = [];
+            var syncResults = new ConcurrentQueue<PlaylistExternalSyncOwner.PlaylistReloadTargetResult>();
 
-            PlaylistExternalSyncOwner.PlaylistReloadOperationResult results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([goodTable, badTable], syncResultCallback: syncResults.Add, reason: "test_partial_failure");
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([goodTable, badTable], syncResultCallback: syncResults.Enqueue, reason: "test_partial_failure");
 
             Assert.AreEqual(2, results.Count);
             Assert.AreEqual(2, syncResults.Count);
+            foreach (PlaylistExternalSyncOwner.PlaylistReloadTargetResult result in results)
+            {
+                Assert.AreSame(result, syncResults.Single(reported => ReferenceEquals(reported.SourceTable, result.SourceTable)));
+            }
             Assert.IsTrue(results.Any(result => result.SourceTable == goodTable && result.Succeeded));
             Assert.IsTrue(results.Any(result => result.SourceTable == badTable && !result.Succeeded));
             Assert.IsTrue(syncResults.Any(result => result.SourceTable == goodTable && result.Succeeded));

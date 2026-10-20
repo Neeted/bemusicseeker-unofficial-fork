@@ -404,7 +404,7 @@ internal sealed class PlaylistExternalSyncOwner
     /// 内蔵推薦は一操作内の原入力を共有し、実力変化の通知は反映成功後に行います。
     /// </summary>
     /// <param name="targets">再取得対象。</param>
-    /// <param name="syncResultCallback">table 単位の取得結果を通知する callback。</param>
+    /// <param name="syncResultCallback">対象の保存と必須参照反映後に、返却する同じ確定結果を通知する任意callback。派生出力の全体失敗は含めません。</param>
     /// <param name="progressCallback">進捗を通知する callback。</param>
     /// <param name="reason">ログと派生処理へ渡す理由。</param>
     /// <param name="cancellationToken">取得待機を取り消す token。</param>
@@ -416,7 +416,7 @@ internal sealed class PlaylistExternalSyncOwner
     /// <returns>対象ごとの確定参照・変更・失敗と、取消し・一括出力の全体失敗。取得中に退役した対象は再生成しません。</returns>
     internal async Task<PlaylistReloadOperationResult> ReloadPlaylistTargetsAsync(
         IEnumerable<BMSTable> targets,
-        Action<PlaylistSyncAttemptResult> syncResultCallback = null,
+        Action<PlaylistReloadTargetResult> syncResultCallback = null,
         Action<PlaylistSyncProgressSnapshot> progressCallback = null,
         string reason = "ReloadPlaylistTargetsAsync",
         CancellationToken cancellationToken = default,
@@ -605,11 +605,12 @@ internal sealed class PlaylistExternalSyncOwner
     }
 
     /// <summary>現在表を捕捉して取得し、最初の反映から派生出力・必要通知の実終端まで一つの局所権限で更新します。</summary>
+    /// <param name="syncResultCallback">各対象の保存と必須参照反映後に、最終結果と同じ確定結果を逐次渡す任意callback。</param>
     /// <param name="capability">同じ受理済み変更の生存権限。nullは通信前に非待機で受付を判定します。</param>
     /// <returns>確定参照と対象失敗を保持した結果。更新中状態の終端通知失敗も全体失敗として採用後に渡します。</returns>
     internal async Task<PlaylistReloadOperationResult> UpdateBMSTablesInternalAsync(
         bool reloadExtPlaylist = true,
-        Action<PlaylistSyncAttemptResult> syncResultCallback = null,
+        Action<PlaylistReloadTargetResult> syncResultCallback = null,
         Action<PlaylistSyncProgressSnapshot> progressCallback = null,
         CancellationToken cancellationToken = default,
         bool publishReferenceReceipts = false,
@@ -1008,7 +1009,7 @@ internal sealed class PlaylistExternalSyncOwner
     private async Task<PlaylistReloadTargetResult> ReloadPlaylistTargetCoreAsync(
         BMSTable table,
         Uri uri,
-        Action<PlaylistSyncAttemptResult> syncResultCallback,
+        Action<PlaylistReloadTargetResult> syncResultCallback,
         string reason,
         CancellationToken cancellationToken,
         bool requireCurrentTargetForApply = true,
@@ -1161,10 +1162,7 @@ internal sealed class PlaylistExternalSyncOwner
                 catch (Exception publicationFailure) { failure = CombineFailures([failure, publicationFailure]); }
             }
         }
-        InvokeSyncResultCallback(syncResultCallback, failure == null
-            ? PlaylistSyncAttemptResult.CreateSuccess(table, newTable, uri, updated)
-            : PlaylistSyncAttemptResult.CreateFailure(table, uri, failure), reason);
-        return new PlaylistReloadTargetResult
+        var result = new PlaylistReloadTargetResult
         {
             SourceTable = table,
             ResultTable = newTable,
@@ -1176,6 +1174,8 @@ internal sealed class PlaylistExternalSyncOwner
             IsHandledExternalLoadFailure = handledExternalLoadFailure,
             UpdateReceipt = updateReceipt
         };
+        InvokeSyncResultCallback(syncResultCallback, result, reason);
+        return result;
     }
 
     private void ReOutputCustomFoldersForPersistedReloads(
@@ -1255,8 +1255,8 @@ internal sealed class PlaylistExternalSyncOwner
     }
 
     private void InvokeSyncResultCallback(
-        Action<PlaylistSyncAttemptResult> syncResultCallback,
-        PlaylistSyncAttemptResult result,
+        Action<PlaylistReloadTargetResult> syncResultCallback,
+        PlaylistReloadTargetResult result,
         string reason)
     {
         if (syncResultCallback == null)
@@ -1273,7 +1273,7 @@ internal sealed class PlaylistExternalSyncOwner
                 ex,
                 "playlist_sync_result_callback_failed reason=" + FormatTextForLog(reason)
                 + " table=" + FormatTextForLog(result?.SourceTable?.name)
-                + " uri=" + FormatUriForLog(result?.PageUri));
+                + " uri=" + FormatUriForLog(result?.Uri));
         }
     }
 
@@ -1404,6 +1404,10 @@ internal sealed class PlaylistExternalSyncOwner
         return actual.Length switch { 0 => null, 1 => actual[0], _ => new AggregateException(actual).Flatten() };
     }
 
+    /// <summary>
+    /// 保存と必須参照反映後の一対象の確定結果です。同じインスタンスを逐次通知と最終集約で共有し、
+    /// 後続する一括派生出力の失敗では対象の成否を書き換えません。
+    /// </summary>
     internal sealed class PlaylistReloadTargetResult
     {
         internal BMSTable SourceTable { get; init; }

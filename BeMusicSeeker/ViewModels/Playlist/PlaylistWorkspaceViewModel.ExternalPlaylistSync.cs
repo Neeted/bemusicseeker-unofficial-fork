@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -72,31 +73,32 @@ public sealed partial class PlaylistWorkspaceViewModel
             PublishPlaylistProgressEvent(PlaylistExternalSyncQueued, new PlaylistExternalSyncRequestEventArgs(reason, version, fromReloadTables, publishReferenceReceipt, operationToken, request));
             bool succeeded = false;
             List<Exception> failures = [];
+            var adoptionFailures = new ConcurrentQueue<Exception>();
             try
             {
                 ReportRequestProgress(request, true);
                 BeginPlaylistSyncProgressOperation(ExternalPlaylistSyncProgressSource, request);
                 PlaylistExternalSyncOwner.PlaylistReloadOperationResult result = await playlists.ExternalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true,
-                    syncResultCallback: null,
+                    target => AdoptPlaylistReloadTarget(target, "external_playlist_sync", adoptionFailures,
+                        applyReferences: publishReferenceReceipt),
                     snapshot => ReportPlaylistSyncProgress(snapshot, ExternalPlaylistSyncProgressSource,
                         BeMusicSeeker.Properties.Resources.Statusbar_progress_task_external_playlist_sync, request),
                     cancellationToken: playlists.StartupReadiness.ShutdownToken,
                     publishReferenceReceipts: false, capability: authority).ConfigureAwait(false);
-                Exception reloadFailure = AdoptPlaylistReloadResults(result, applyReferences: publishReferenceReceipt);
-                if (reloadFailure != null) { failures.Add(reloadFailure); }
+                if (result.Exception is Exception reloadFailure) { failures.Add(reloadFailure); }
                 if (publishReferenceReceipt)
                 {
                     PublishPlaylistProgressEvent(PlaylistExternalSyncReferenceApplied,
                         new PlaylistExternalSyncReferenceAppliedEventArgs(reason, version, operationToken));
                 }
-                RequestPlaylistSummaryDataRefresh("external_playlist_sync");
                 RequestPlaylistDetailReloadRefresh();
                 // 例外を再送出しなくても、対象失敗を全件成功として公開しません。
-                succeeded = reloadFailure == null && result.All(target => target.Succeeded);
+                succeeded = failures.Count == 0 && adoptionFailures.IsEmpty && result.All(target => target.Succeeded);
             }
             catch (Exception failure) { failures.Add(failure); }
             finally
             {
+                failures.AddRange(adoptionFailures);
                 CapturePlaylistWorkflowFailure(() => EndPlaylistSyncProgressOperation(ExternalPlaylistSyncProgressSource, request), failures);
                 ReportRequestProgress(request, false);
                 CapturePlaylistWorkflowFailure(() => PublishPlaylistOperationNotificationReceipt(

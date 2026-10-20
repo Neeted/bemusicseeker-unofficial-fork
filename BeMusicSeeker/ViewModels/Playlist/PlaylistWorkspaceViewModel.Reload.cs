@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -130,6 +131,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             using LibraryFileMutationCapability capability = playlists.CreatePlaylistMutationCapability(admission);
             using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlists.OperationNotificationOwner.BeginSession();
             List<Exception> failures = [];
+            var adoptionFailures = new ConcurrentQueue<Exception>();
             try
             {
                 BeginPlaylistSyncProgressOperation(ManualPlaylistReloadProgressSource);
@@ -140,18 +142,15 @@ public sealed partial class PlaylistWorkspaceViewModel
                     + activeTables.Count);
                 results = await playlists.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
                     activeTables,
-                    syncResultCallback: null,
+                    target => AdoptPlaylistReloadTarget(target, "manual_playlist_resync", adoptionFailures),
                     snapshot => ReportPlaylistSyncProgress(snapshot, ManualPlaylistReloadProgressSource,
                         BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_manual_reload),
                     "manual_resync",
                     requireCurrentTargetForApply: true,
                     publishReferenceReceipts: false, capability: capability);
-                Exception reloadFailure = AdoptPlaylistReloadResults(results);
-                if (reloadFailure != null) { failures.Add(reloadFailure); }
-                RequestPlaylistSummaryDataRefresh(
-                    "manual_playlist_resync");
+                if (results.Exception is Exception reloadFailure) { failures.Add(reloadFailure); }
                 RequestPlaylistDetailReloadRefresh();
-                if (reloadFailure == null)
+                if (failures.Count == 0 && adoptionFailures.IsEmpty)
                 {
                     bool cleanupQueued = QueuePlaylistReloadCleanup(isFullReload, activeTables.Count);
                     WritePlaylistReloadLog(
@@ -174,6 +173,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             catch (Exception failure) { failures.Add(failure); }
             finally
             {
+                failures.AddRange(adoptionFailures);
                 CapturePlaylistWorkflowFailure(() => EndPlaylistSyncProgressOperation(ManualPlaylistReloadProgressSource), failures);
                 CapturePlaylistWorkflowFailure(() => PublishPlaylistOperationNotificationReceipt(
                     notificationSession, "manual playlist resync notification"), failures);
@@ -196,37 +196,39 @@ public sealed partial class PlaylistWorkspaceViewModel
             + (result.PageUri?.ToString() ?? string.Empty));
     }
 
-    private Exception AdoptPlaylistReloadResults(PlaylistExternalSyncOwner.PlaylistReloadOperationResult result,
-        bool applyReferences = true)
+    /// <summary>
+    /// 対象の確定直後に詳細の参照・STATUS・一覧更新要求を採用します。
+    /// 並列callbackの必須採用失敗は操作内に集め、全対象と必要出力の終端後に返します。
+    /// </summary>
+    private void AdoptPlaylistReloadTarget(PlaylistExternalSyncOwner.PlaylistReloadTargetResult target,
+        string reason, ConcurrentQueue<Exception> failures, bool applyReferences = true)
     {
-        List<Exception> failures = [];
-        if (result.Exception is Exception reloadFailure) { failures.Add(reloadFailure); }
-        foreach (PlaylistExternalSyncOwner.PlaylistReloadTargetResult target in result)
+        void Capture(Action action)
         {
-            if (!applyReferences || target.UpdateReceipt == null) { continue; }
-            try { ApplyReferenceReplaceReceipt(target.UpdateReceipt); }
-            catch (Exception failure) { failures.Add(failure); }
+            try { action(); }
+            catch (Exception failure) { failures.Enqueue(failure); }
         }
-        foreach (PlaylistExternalSyncOwner.PlaylistReloadTargetResult target in result)
+        if (applyReferences && target.UpdateReceipt != null)
         {
-            PlaylistSyncAttemptResult sync = target.IsHandledExternalLoadFailure
-                ? PlaylistSyncAttemptResult.CreateReportedExternalFailure(target.SourceTable, target.Uri, target.Exception)
-                : target.Exception == null
-                    ? PlaylistSyncAttemptResult.CreateSuccess(target.SourceTable, target.ResultTable, target.Uri, target.Updated)
-                    : PlaylistSyncAttemptResult.CreateFailure(target.SourceTable, target.Uri, target.Exception);
-            CapturePlaylistWorkflowFailure(() => RecordPlaylistSyncResult(sync), failures);
-            // 取得失敗の詳細は取得境界で記録済み。STATUSには分類だけを渡します。
-            if (!target.IsHandledExternalLoadFailure)
+            Capture(() => ApplyReferenceReplaceReceipt(target.UpdateReceipt));
+        }
+        PlaylistSyncAttemptResult sync = target.IsHandledExternalLoadFailure
+            ? PlaylistSyncAttemptResult.CreateReportedExternalFailure(target.SourceTable, target.Uri, target.Exception)
+            : target.Exception == null
+                ? PlaylistSyncAttemptResult.CreateSuccess(target.SourceTable, target.ResultTable, target.Uri, target.Updated)
+                : PlaylistSyncAttemptResult.CreateFailure(target.SourceTable, target.ResultTable, target.Uri, target.Exception);
+        Capture(() => RecordPlaylistSyncResult(sync));
+        // 取得失敗の詳細は取得境界で記録済み。STATUSには分類だけを渡します。
+        if (!target.IsHandledExternalLoadFailure)
+        {
+            try { LogPlaylistSyncFailure(sync); }
+            catch (Exception diagnosticFailure)
             {
-                try { LogPlaylistSyncFailure(sync); }
-                catch (Exception diagnosticFailure)
-                {
-                    try { Ribbit.Logging.NLogWrapper.FileLogger?.Warn(diagnosticFailure, "playlist_manual_resync_diagnostic_failed"); }
-                    catch { /* 診断の再通知で元の再取得結果を変えない。 */ }
-                }
+                try { Ribbit.Logging.NLogWrapper.FileLogger?.Warn(diagnosticFailure, "playlist_manual_resync_diagnostic_failed"); }
+                catch { /* 診断の再通知で元の再取得結果を変えない。 */ }
             }
         }
-        return failures.Count switch { 0 => null, 1 => failures[0], _ => new AggregateException(failures).Flatten() };
+        Capture(() => RequestPlaylistSummaryDataRefresh(reason));
     }
 
     private static void CapturePlaylistWorkflowFailure(Action action, ICollection<Exception> failures)
