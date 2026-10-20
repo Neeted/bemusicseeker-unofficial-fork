@@ -108,6 +108,8 @@ score lookupは所属と索引を共有し、可変な `BMSScore` の全値を�
 
 サマリーは表とentryの所属・読込み状態を保ち、所持hashの存在集合・entry lookup等の実依存だけを更新します。Title・health・memo・URLだけで全表を再集計せず、coldな任意索引を無関係な更新判定のために構築しません。非表示中の更新は次の表示要求へ渡し、全表の先行読込みを行いません。
 
+サマリー要求はshellがDispatcherのBackground優先度へ一回予約し、workspaceの既存延期状態でデータ更新を表示更新より優先します。予約済みの間に届いた要求はまとめ、世代の取消・古い結果の非採用はworkspaceが判断します。起動・表の再初期化で `PlaylistTree` を抑制する間だけ延期し、通常一覧や導入ツリーの抑制・再描画だけではサマリーを止めたり全表を再構築したりしません。予約と抑制の判定だけをshellのロック内で行い、行の構築・公開はロック外で実行します。終了時の拒否・予約取消でも予約状態を解放し、新しい構築を開始しません。
+
 詳細の局所更新では、変更したentryの入力と順序木の経路だけを置換します。末尾までの位置索引書換や、既実体化行全体の移動用bufferを作りません。編集中の順序キーを保ちながら最新の表示入力とdraftを使い、編集終了後に必要な行だけを再配置します。行・集合の通知は、sourceと表示状態の確定・ロック解放後に公開します。フォルダ編集・削除・dropの正規確定差分で更新済みなら、操作後の全詳細再表示を重ねません。選択folderの改名等で実選択が変わる場合は、追従先を評価します。
 
 集計表示の正本は `MainChartList.SummaryText` です。通常一覧とプレイリスト詳細は、初回の順序登録と同時にfolder別件数を求め、以後は対象folderだけを加減算します。空白だけのfolderは除外し、OrdinalIgnoreCaseで数えます。詳細の差分公開と編集終了のflushでも、採用中viewのRowCount/DistinctFolderCountから集計を更新します。編集中に所属変更をdeferしている間は採用中の集合を数えます。件数のためだけの全source再走査と非同期の再集計cacheは持ちません。フォルダ数が1以下なら曲数だけを表示する既存規則を維持します。専用の対象集合は、その表示に必要な範囲を集計します。
@@ -163,6 +165,8 @@ scoreの未反映範囲を必要とする要求は、その時点で必要な確
 コード描画には `CustomTablePalette` がテーマのリソースを描画用の色と線へ変換します。テーマ変更時は描画色とキャッシュを更新します。内蔵スクロールバーも共通の `ScrollBar.*` リソースへ従います。
 
 ## 実装とテストの対応
+
+[`ApplicationCompositionTests.MainWindowCompositionRoutesPlaylistSummaryRefreshThroughShellArbiter`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionTests.cs) は実Dispatcherで同時要求のデータ優先・一回適用を確認します。実導入記録削除の抑制中にもサマリーを公開し、別一覧の抑制終了でサマリーを再構築しないことを確認します。
 
 [`MainWindowCatalogProjectionTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowCatalogProjectionTests.cs) の `ManualReload_StandardCompositionConvergesNormalDetailAndSummary` は、標準構成の実初期化・走査保存・通知から表示までを通し、二配置の削除、最後の配置の削除、再加入後の通常所属・詳細の再解決・未所持絞込み・サマリーとエントリー保存値を確認します。外部のファイル発見だけを完全な捕捉入力へ置き換えます。
 

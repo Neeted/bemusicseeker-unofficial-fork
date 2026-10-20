@@ -572,7 +572,7 @@ public partial class MainWindowViewModel : ViewModel,
 
 
 
-    private UiRefreshChannel playlistPresentationRefreshApplyInFlight = UiRefreshChannel.None;
+    private bool playlistSummaryRefreshQueued;
 
     private readonly object lockUiSuppression = new();
 
@@ -946,125 +946,102 @@ public partial class MainWindowViewModel : ViewModel,
         return suppressed;
     }
 
-    private bool IsPlaylistSummaryPresentationRefreshDeferred(out bool applyReservation)
-        => TryReservePlaylistSummaryRefresh(out applyReservation);
-
-    private bool IsPlaylistSummaryDataRefreshDeferred(out bool applyReservation)
-        => TryReservePlaylistSummaryRefresh(out applyReservation);
-
-    /// <summary>日常の抑止と同時表示適用だけを調停します。起動完了ログや別maskを待ちません。</summary>
-    private bool TryReservePlaylistSummaryRefresh(out bool applyReservation)
+    /// <summary>サマリー要求を一回のUI予約へまとめます。再初期化で表を抑制する間だけ延期し、別一覧の抑制には従属しません。</summary>
+    private void SchedulePlaylistSummaryRefresh()
     {
+        if (IsRequiredInitializationShutdownRequested || !PlaylistWorkspace.HasDeferredPlaylistSummaryRefresh())
+        {
+            return;
+        }
         lock (lockUiSuppression)
         {
-            UiRefreshChannel mask = UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView;
-            bool deferred = suppressUiUpdateDepth > 0 || (playlistPresentationRefreshApplyInFlight & mask) != 0;
-            applyReservation = !deferred;
-            if (applyReservation) { playlistPresentationRefreshApplyInFlight |= mask; }
-            if (suppressUiUpdateDepth > 0) { pendingUiRefreshMask |= suppressedUiRefreshMask & mask; }
-            return deferred;
+            if (IsPlaylistSummaryRefreshDeferredUnsafe())
+            {
+                pendingUiRefreshMask |= UiRefreshChannel.PlaylistTree;
+                return;
+            }
+            if (playlistSummaryRefreshQueued) { return; }
+            playlistSummaryRefreshQueued = true;
         }
-    }
 
-    private void CompletePlaylistPresentationRefreshApply(UiRefreshChannel channel)
-    {
-        bool reservationCleared = false;
+        int callbackStarted = 0;
+        void ReleaseUnstartedReservation()
+        {
+            if (Interlocked.CompareExchange(ref callbackStarted, 1, 0) == 0)
+            {
+                lock (lockUiSuppression) { playlistSummaryRefreshQueued = false; }
+            }
+        }
+
+        IUiScheduledOperation operation;
         try
         {
-            while (true)
+            // UIからの要求もenqueueし、同じDispatcher turnのData/Presentation要求をworkspaceの既存状態へ集めます。
+            operation = uiScheduler.Schedule(() =>
             {
-                lock (startupBackgroundTaskProgressSynchronization)
+                Interlocked.Exchange(ref callbackStarted, 1);
+                try
                 {
-                    lock (startupInitializationCompletionLock)
-                    {
-                        lock (lockUiSuppression)
-                        {
-                            bool deferred = IsPlaylistSummaryRefreshDeferredNowUnsafe();
-                            bool pending = PlaylistWorkspace.HasDeferredPlaylistSummaryRefresh();
-                            if (deferred || !pending)
-                            {
-                                playlistPresentationRefreshApplyInFlight &= ~channel;
-                                reservationCleared = true;
-                                return;
-                            }
-                            // Keep the arbitration locks while draining.  A suppression
-                            // or startup transition on another thread must not enter the
-                            // gap between the decision and the actual deferred apply.
-                            PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(
-                                dataRefreshRequired: false,
-                                rebuildAsync: true);
-                        }
-                    }
+                    DrainQueuedPlaylistSummaryRefresh();
                 }
+                catch (Exception exception)
+                {
+                    NLogWrapper.FileLogger?.Error(exception, "playlist_summary_refresh_failed");
+                }
+            }, UiSchedulePriority.Background);
+            if (operation == null || !operation.IsAccepted)
+            {
+                ReleaseUnstartedReservation();
+                if (!IsRequiredInitializationShutdownRequested)
+                {
+                    throw new InvalidOperationException("The UI scheduler rejected the playlist-summary refresh.");
+                }
+                return;
+            }
+        }
+        catch
+        {
+            ReleaseUnstartedReservation();
+            throw;
+        }
+        operation.Completion.ObserveFault("playlist_summary_refresh_dispatch");
+        _ = operation.Completion.ContinueWith(
+            _ => ReleaseUnstartedReservation(),
+            CancellationToken.None,
+            TaskContinuationOptions.NotOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    /// <summary>予約済み要求をロック外で取り出し、処理中に届いた追加要求だけ次のUI予約へ渡します。</summary>
+    private void DrainQueuedPlaylistSummaryRefresh()
+    {
+        try
+        {
+            bool deferred;
+            lock (lockUiSuppression)
+            {
+                deferred = IsPlaylistSummaryRefreshDeferredUnsafe();
+                if (deferred) { pendingUiRefreshMask |= UiRefreshChannel.PlaylistTree; }
+            }
+            if (!deferred && !IsRequiredInitializationShutdownRequested)
+            {
+                PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(
+                    dataRefreshRequired: false,
+                    rebuildAsync: true);
             }
         }
         finally
         {
-            if (!reservationCleared)
-            {
-                lock (startupBackgroundTaskProgressSynchronization)
-                {
-                    lock (startupInitializationCompletionLock)
-                    {
-                        lock (lockUiSuppression)
-                        {
-                            playlistPresentationRefreshApplyInFlight &= ~channel;
-                        }
-                    }
-                }
-            }
+            lock (lockUiSuppression) { playlistSummaryRefreshQueued = false; }
         }
+        SchedulePlaylistSummaryRefresh();
     }
 
-    private void ApplyPlaylistSummaryDataRefreshAtomically(
-        PlaylistWorkspaceViewModel workspace,
-        bool rebuildAsync,
-        out bool applyReservation)
-    {
-        applyReservation = false;
-        lock (startupBackgroundTaskProgressSynchronization)
-        {
-            lock (startupInitializationCompletionLock)
-            {
-                lock (lockUiSuppression)
-                {
-                    bool deferred = IsPlaylistSummaryDataRefreshDeferred(out applyReservation);
-                    workspace.ApplyPlaylistSummaryDataRefresh(deferred, rebuildAsync);
-                }
-            }
-        }
-    }
+    // 呼出元はlockUiSuppressionを保持します。起動・表の再初期化による抑制だけを判定します。
+    private bool IsPlaylistSummaryRefreshDeferredUnsafe()
+        => suppressUiUpdateDepth > 0 && (suppressedUiRefreshMask & UiRefreshChannel.PlaylistTree) != 0;
 
-    private void ExecutePlaylistSummaryPresentationRefreshWithArbitration(
-        PlaylistWorkspaceViewModel workspace,
-        out bool applyReservation)
-    {
-        applyReservation = false;
-        lock (startupBackgroundTaskProgressSynchronization)
-        {
-            lock (startupInitializationCompletionLock)
-            {
-                lock (lockUiSuppression)
-                {
-                    bool deferred = IsPlaylistSummaryPresentationRefreshDeferred(out applyReservation);
-                    workspace.ApplyPlaylistSummaryPresentationRefresh(deferred);
-                }
-            }
-        }
-    }
-
-
-    // 呼出元は表示適用の既存調停lockを保持します。
-    private bool IsPlaylistSummaryRefreshDeferredNowUnsafe() => suppressUiUpdateDepth > 0;
-
-    private bool IsPlaylistTreePresentationDeferred(string reason)
-    {
-        if (TrySuppress(UiRefreshChannel.PlaylistTree))
-        {
-            return true;
-        }
-        return TrySuppress(UiRefreshChannel.PlaylistTree);
-    }
+    private bool IsPlaylistTreePresentationDeferred() => TrySuppress(UiRefreshChannel.PlaylistTree);
 
     private void PlaylistWorkspacePlaylistPresentationRefreshRequested(
         object sender,
@@ -1083,42 +1060,16 @@ public partial class MainWindowViewModel : ViewModel,
         switch (request.Kind)
         {
             case PlaylistPresentationRefreshKind.SummaryData:
-                bool dataApplyReservation = false;
-                try
-                {
-                    ApplyPlaylistSummaryDataRefreshAtomically(
-                        workspace,
-                        request.RebuildAsync,
-                        out dataApplyReservation);
-                }
-                finally
-                {
-                    if (dataApplyReservation)
-                    {
-                        CompletePlaylistPresentationRefreshApply(UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView);
-                    }
-                }
+                SchedulePlaylistSummaryRefresh();
                 return;
             case PlaylistPresentationRefreshKind.SummaryPresentation:
-                bool presentationApplyReservation = false;
-                try
-                {
-                    ExecutePlaylistSummaryPresentationRefreshWithArbitration(
-                        workspace,
-                        out presentationApplyReservation);
-                }
-                finally
-                {
-                    if (presentationApplyReservation)
-                    {
-                        CompletePlaylistPresentationRefreshApply(UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView);
-                    }
-                }
+                workspace.RequestDeferredPlaylistSummaryPresentationRefresh();
+                SchedulePlaylistSummaryRefresh();
                 return;
             case PlaylistPresentationRefreshKind.Tree:
                 workspace.ApplyPlaylistTreePresentationRefresh(
                     request.Reason,
-                    IsPlaylistTreePresentationDeferred(request.Reason));
+                    IsPlaylistTreePresentationDeferred());
                 return;
             case PlaylistPresentationRefreshKind.HydrationCompleted:
                 if (!workspace.TryBeginPlaylistHydrationNotification(
@@ -1145,7 +1096,7 @@ public partial class MainWindowViewModel : ViewModel,
                     request.HydrationCompletionReceipt,
                     () =>
                     {
-                        bool hydrationDeferred = IsPlaylistTreePresentationDeferred(request.Reason);
+                        bool hydrationDeferred = IsPlaylistTreePresentationDeferred();
                         workspace.ApplyPlaylistEntriesHydrationCompleted(
                             request.HydrationVersion,
                             hydrationDeferred,
@@ -1220,9 +1171,7 @@ public partial class MainWindowViewModel : ViewModel,
             }
             else if (playlistSummaryRefreshPending)
             {
-                PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(
-                    dataRefreshRequired: false,
-                    rebuildAsync: true);
+                SchedulePlaylistSummaryRefresh();
             }
         };
         if (!uiScheduler.IsAvailable && uiScheduler.CanExecuteInline)
@@ -1565,7 +1514,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
         stopwatchTotal.Stop();
         LogUiSuppression("ui_suppress flush_install_tree_ms=" + num + " flush_playlist_tree_ms=" + num2 + " flush_library_folder_tree_ms=" + num3 + " flush_duplicate_tree_ms=" + num4 + " flush_library_main_view_ms=" + num5 + " flush_total_ms=" + stopwatchTotal.ElapsedMilliseconds + " deferred_library_folder_tree=" + flag + " requested_mask=" + requestedMask + " flushed_mask=" + mask);
-        bool playlistSummaryDataRefreshRequired = (mask & (UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView)) != 0;
+        bool playlistSummaryDataRefreshRequired = (mask & UiRefreshChannel.PlaylistTree) != 0;
         PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(
             playlistSummaryDataRefreshRequired,
             rebuildAsync: true);
@@ -1759,10 +1708,6 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void RefreshNormalLibraryAfterSourceChanged(string reason)
     {
-        if (TrySuppress(UiRefreshChannel.LibraryMainView))
-        {
-            return;
-        }
         if (TrySuppress(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree))
         {
             return;
@@ -4392,17 +4337,12 @@ public partial class MainWindowViewModel : ViewModel,
     {
         string refreshReason = string.IsNullOrWhiteSpace(reason) ? "bms_files_duplicated_changed" : reason;
         InvalidateNormalLibrarySortDependency(MainViewDataDependency.Warning, NormalLibraryWarningChangedReason);
-        if (!TrySuppress(UiRefreshChannel.DuplicateTree)
-            && !TrySuppress(UiRefreshChannel.DuplicateTree))
+        if (!TrySuppress(UiRefreshChannel.DuplicateTree))
         {
             MaintenanceTree.ApplyDuplicateGroupsPresentation();
         }
         if (treeViewFilterTypeSelected == MainViewUpdateMode.DuplicateFilterSelected)
         {
-            if (TrySuppress(UiRefreshChannel.LibraryMainView))
-            {
-                return;
-            }
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
             {
                 return;

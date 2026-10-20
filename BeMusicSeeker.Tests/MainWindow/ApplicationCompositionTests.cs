@@ -1103,26 +1103,132 @@ public sealed partial class ApplicationCompositionTests
         private sealed class EvaluationScope : IDisposable { public void Dispose() { } }
     }
 
-    /// <summary>実構成のサマリー表示更新をshell経由で適用し、延期要求や未完了構築を残す接続漏れを検出します。</summary>
+    /// <summary>実構成の同時サマリー要求を一回のデータ構築へまとめ、導入記録操作が別一覧を抑制中でもUIへ採用します。</summary>
+    // trueは実記録削除の開始通知でworkerを保持し、shellのLibraryMainView/InstallTree抑制中を検証します。
     [TestMethod]
-    public void MainWindowCompositionRoutesPlaylistSummaryRefreshThroughShellArbiter()
+    // 標準compositionの共有Resource通知購読から全ownerの終了・Disposeまでを非並列で所有します。
+    [DoNotParallelize]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MainWindowCompositionRoutesPlaylistSummaryRefreshThroughShellArbiter(bool suppressPackageViews)
     {
-        TestUiDispatcherHost.Invoke(() =>
+        string root = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDb = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDb, []);
+        try
         {
-            var composition = new ApplicationComposition(
-                settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-            MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
-            PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
-            workspace.IsPlaylistSummaryMode = true;
-
-            long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
-            Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache([], dataGeneration));
-
-            workspace.RequestPlaylistSummaryPresentationRefresh();
-
-            Assert.IsFalse(workspace.HasDeferredPlaylistSummaryRefresh());
-            Assert.IsTrue(workspace.IsPlaylistSummaryDataBuildIdle);
-        });
+            new BmsLibraryDbGateway(songDb).EnsureAppOwnedSchema();
+            PlaylistPersistenceRepository.EnsureSchema(songDb);
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var scheduler = new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher);
+                var composition = new ApplicationComposition(
+                    settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: scheduler,
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+                PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
+                var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                EventHandler<PackageCatalogMutationPhaseEventArgs> phaseHandler = (_, args) =>
+                {
+                    if (args.Phase == PackageCatalogMutationPhase.RefreshSuppressionStarted)
+                    {
+                        entered.TrySetResult();
+                        release.Task.GetAwaiter().GetResult();
+                    }
+                };
+                int appliedCount = 0;
+                int appliedThreadId = 0;
+                System.ComponentModel.PropertyChangedEventHandler presentationHandler = (_, args) =>
+                {
+                    if (args.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryView))
+                    {
+                        appliedCount++;
+                        appliedThreadId = Environment.CurrentManagedThreadId;
+                    }
+                };
+                Task<PackageCatalogMutationResult>? removal = null;
+                try
+                {
+                    TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDb, testSettings, viewModel);
+                    TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDb, testSettings, library: library);
+                    var expectedTable = new BMSTable { playlist_id = 17, name = "Summary fixture", symbol = "S" };
+                    expectedTable.entries = [PlaylistSummaryAggregationTestSupport.CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null)];
+                    playlist.BMSTables = new ObservableCollection<BMSTable>([expectedTable]);
+                    var profile = new LibraryProfile(false, songDb, [root], null, null, false, false, false, false);
+                    IStartupLibraryApplicationPort applicationPort = viewModel;
+                    applicationPort.AttachStartupLibrary(library);
+                    applicationPort.AttachStartupServices(new StartupLibraryServices(profile, library, playlist));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        scheduler.InvokeAsync(() => { }, UiSchedulePriority.ContextIdle), "summary-composition.attach");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "summary-composition.attach-summary");
+                    workspace.IsPlaylistSummaryMode = true;
+                    long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
+                    Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache([], dataGeneration));
+                    var package = ChartPackage.FromChartEntries([]);
+                    package.path = Path.Combine(root, "Installed");
+                    library.ChartPackagesInstalled.Add(package);
+                    workspace.PropertyChanged += presentationHandler;
+                    viewModel.PackageCatalog.MutationPhasePublished += phaseHandler;
+                    if (suppressPackageViews)
+                    {
+                        removal = viewModel.PackageCatalog.RemovePackageAsync(PackageCatalogSection.Installed, package);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, removal, "summary-composition.suppression"),
+                            "summary-composition.suppression");
+                    }
+                    workspace.RequestPlaylistSummaryPresentationRefresh();
+                    long expectedGeneration = workspace.RequestPlaylistSummaryDataRefresh("summary-composition.data", rebuildAsync: false);
+                    workspace.RequestPlaylistSummaryPresentationRefresh();
+                    Assert.AreEqual(0, appliedCount, "同じUI turnの要求を同期適用しません。");
+                    Assert.IsTrue(workspace.HasDeferredPlaylistSummaryRefresh());
+                    // 小さい同期buildを含む予約を実Dispatcherで終え、通知が無い退行も待機停止せず表明します。
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        scheduler.InvokeAsync(() => { }, UiSchedulePriority.ContextIdle), "summary-composition.dispatch");
+                    Assert.AreEqual(1, appliedCount, "Dataを優先し、前後のPresentation要求を別々に適用しません。");
+                    Assert.AreEqual(TestUiDispatcherHost.Dispatcher.Thread.ManagedThreadId, appliedThreadId);
+                    Assert.AreEqual(expectedGeneration, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+                    Assert.IsFalse(workspace.HasDeferredPlaylistSummaryRefresh());
+                    Assert.IsTrue(workspace.IsPlaylistSummaryDataBuildIdle);
+                    PlaylistSummaryRow actualRow = workspace.PlaylistSummaryView.Cast<PlaylistSummaryRow>().Single();
+                    Assert.AreEqual(expectedTable.playlist_id, actualRow.PlaylistId);
+                    Assert.AreEqual(expectedTable.name, actualRow.Name);
+                    Assert.AreSame(expectedTable, actualRow.TableRef);
+                    Assert.AreEqual(1, actualRow.TotalCharts);
+                    Assert.AreEqual(0, actualRow.OwnedCharts);
+                    Assert.AreEqual(1, actualRow.MissingCharts);
+                    if (removal != null)
+                    {
+                        Assert.IsFalse(removal.IsCompleted);
+                        Assert.IsTrue(composition.OperationAdmission.IsActive);
+                        Assert.IsTrue(viewModel.IsLibraryOperationInProgress);
+                        release.TrySetResult();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(removal, "summary-composition.removal");
+                        Assert.IsTrue(removal.GetAwaiter().GetResult().Succeeded);
+                        Assert.IsFalse(library.ChartPackagesInstalled.Contains(package));
+                        Assert.IsFalse(composition.OperationAdmission.IsActive);
+                        Assert.IsFalse(viewModel.IsLibraryOperationInProgress);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            scheduler.InvokeAsync(() => { }, UiSchedulePriority.ContextIdle), "summary-composition.flush");
+                        Assert.AreEqual(expectedGeneration, workspace.CurrentPlaylistSummaryDataRebuildGeneration,
+                            "別一覧の抑制終了だけではサマリーデータを再構築しません。");
+                    }
+                }
+                finally
+                {
+                    release.TrySetResult();
+                    if (removal != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(removal, "summary-composition.cleanup-removal"); }
+                    workspace.PropertyChanged -= presentationHandler;
+                    viewModel.PackageCatalog.MutationPhasePublished -= phaseHandler;
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "summary-composition.cleanup");
+                    viewModel.SettingDialog.Dispose();
+                }
+            });
+        }
+        finally { Directory.Delete(root, recursive: true); }
     }
 
     /// <summary>workerからサマリー選択を要求すると実UI Dispatcherで一回だけ状態通知し、要求元workerでUI状態を書き換えません。</summary>
