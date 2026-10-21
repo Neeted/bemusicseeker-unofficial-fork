@@ -1399,7 +1399,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>方式変更とDB切替の同時Applyが、新DBの必要譜面情報を使って全表BMTを一度ずつ再生成し、実書込みまで待ちます。</summary>
-    /// <remarks>BMT出力仕様の設定保存契機を、実設定・初期化owner・SQLite・resolver・gzipの接続で確認します。既存の起動テストがデータ準備と受付終端を分担し、このケースは保存結果が初期化へ届くことを保証します。表間順序とgzipバイト列は固定しません。</remarks>
+    /// <remarks>BMT出力仕様の設定保存契機を、実設定・初期化owner・SQLite・resolver・gzipの接続で確認します。保存結果はXMLを直接読み、背景作業が読む稼働Settingsを再読込みせずにメモリだけの変更と旧値保存を検出します。既存の起動テストがデータ準備と受付終端を分担し、このケースは保存結果が初期化へ届くことを保証します。表間順序とgzipバイト列は固定しません。</remarks>
     [TestMethod]
     public void BmtHashModeAndDatabaseApply_ReprojectsInitializedTablesOnceAndAwaitsOutput()
     {
@@ -1539,9 +1539,13 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
                     Assert.IsTrue(owner.IsInitializationCompleted);
                     Assert.AreEqual(1, session.SaveCount);
-                    values.Reload();
-                    Assert.AreEqual("PreferSha256Only", values.BeatorajaBmtHashOutputMode);
-                    Assert.AreEqual(databaseB, values.LR2SongDBPath);
+                    XElement savedSettings = XDocument.Load(Path.Combine(root, "user.config"))
+                        .Element("configuration")?.Element("userSettings")?.Element(PortableSettingsProvider.SettingsSectionName)
+                        ?? throw new AssertFailedException("保存先に設定セクションがありません。");
+                    Assert.AreEqual("PreferSha256Only", savedSettings.Elements("setting")
+                        .Single(setting => (string?)setting.Attribute("name") == "BeatorajaBmtHashOutputMode").Element("value")?.Value);
+                    Assert.AreEqual(databaseB, savedSettings.Elements("setting")
+                        .Single(setting => (string?)setting.Attribute("name") == "LR2SongDBPath").Element("value")?.Value);
                     Assert.AreEqual(0, oldRequests);
                     Assert.AreEqual(1, newRequests);
                     Assert.AreEqual(2, Directory.GetFiles(output, "*.bmt").Length);

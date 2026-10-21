@@ -512,6 +512,172 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>本体・差分の単体右クリックは自動導入設定によらず元の共有URLをUI配送で一度開きます。取得失敗後の代替でも同じ見た目になる誤接続を、通信・保存・導入・確認・進捗・展開がないことで検出します。</summary>
+    [DataTestMethod]
+    [DataRow(false, false, "https://drive.google.com/file/d/main-id/view", "https://drive.google.com/file/d/main-id/view")]
+    [DataRow(false, true, "https://drive.google.com/file/d/main-id/view", "https://drive.google.com/file/d/main-id/view")]
+    [DataRow(true, false, "https://www.dropbox.com/scl/fi/diff-id/diff.zip?dl=0", "https://www.dropbox.com/scl/fi/diff-id/diff.zip?dl=0")]
+    [DataRow(true, true, "https://www.dropbox.com/scl/fi/diff-id/diff.zip?dl=0", "https://www.dropbox.com/scl/fi/diff-id/diff.zip?dl=0")]
+    public async Task ContextMenuSingleUrl_OpensOriginalUrlWithoutAcquisition(bool isDiff, bool autoInstall, string sourceUrl, string expectedBrowserUrl)
+    {
+        var gateway = new RecordingPlaylistUrlDownloadGateway(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")));
+        var dialogs = new RecordingPlaylistUrlDialogService();
+        var opened = new List<Uri>();
+        int installCount = 0, progressCount = 0, expansionCount = 0, dispatchCount = 0;
+        bool insideScheduler = false;
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+            () => new PlaylistUrlAcquisitionOptionsSnapshot { AutoInstall = autoInstall, ScanBmsFilesOnStartup = true },
+            acquisitionWorkflow: new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
+            installSink: _ => { installCount++; return true; },
+            browserSink: uri => { Assert.IsTrue(insideScheduler); opened.Add(uri); },
+            treeExpansionSink: () => expansionCount++, dialogService: dialogs,
+            presentationScheduler: action =>
+            {
+                dispatchCount++;
+                insideScheduler = true;
+                try { action(); }
+                finally { insideScheduler = false; }
+                return Task.CompletedTask;
+            });
+        workspace.PlaylistUrlDownloadStatusChanged += (_, _) => progressCount++;
+        PlaylistDetailRow row = CreatePlaylistUrlRow(isDiff ? "https://example.invalid/unused-main.zip" : sourceUrl,
+            isDiff ? sourceUrl : "https://example.invalid/unused-diff.zip");
+
+        await workspace.RunPlaylistUrlActionAsync([row], isDiff);
+
+        CollectionAssert.AreEqual(new[] { expectedBrowserUrl }, opened.Select(uri => uri.AbsoluteUri).ToArray());
+        Assert.AreEqual(1, dispatchCount);
+        Assert.AreEqual(0, gateway.RequestedUris.Count);
+        Assert.AreEqual(0, gateway.GetTemporaryDirectoryCount);
+        Assert.AreEqual(0, gateway.OpenWriteCount);
+        Assert.AreEqual(0, installCount);
+        Assert.AreEqual(0, dialogs.Confirmations.Count);
+        Assert.AreEqual(0, dialogs.Messages.Count);
+        Assert.AreEqual(0, progressCount);
+        Assert.AreEqual(0, expansionCount);
+    }
+
+    /// <summary>空行集合と空・相対・非HTTP(S)の指定列は右クリックで無作用です。空入力の誤配送とブラウザー経路のscheme検査漏れを検出します。</summary>
+    [TestMethod]
+    public async Task ContextMenuSingleUrl_InvalidOrEmptyInputHasNoEffects()
+    {
+        var gateway = new RecordingPlaylistUrlDownloadGateway(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")));
+        var dialogs = new RecordingPlaylistUrlDialogService();
+        int presentationCount = 0, installCount = 0, progressCount = 0, expansionCount = 0;
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+            () => new PlaylistUrlAcquisitionOptionsSnapshot { AutoInstall = true, ScanBmsFilesOnStartup = true },
+            acquisitionWorkflow: new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
+            installSink: _ => { installCount++; return true; },
+            treeExpansionSink: () => expansionCount++, dialogService: dialogs,
+            presentationScheduler: action => { presentationCount++; action(); return Task.CompletedTask; });
+        workspace.PlaylistUrlDownloadStatusChanged += (_, _) => progressCount++;
+        await workspace.RunPlaylistUrlActionAsync([], false);
+        foreach (string? text in new[] { null, "", "relative/package.zip", "file:///C:/secret.zip", "ftp://example.invalid/package.zip" })
+        {
+            await workspace.RunPlaylistUrlActionAsync([CreatePlaylistUrlRow(text, text)], false);
+            await workspace.RunPlaylistUrlActionAsync([CreatePlaylistUrlRow(text, text)], true);
+        }
+        Assert.AreEqual(0, presentationCount);
+        Assert.AreEqual(0, gateway.RequestedUris.Count);
+        Assert.AreEqual(0, gateway.GetTemporaryDirectoryCount);
+        Assert.AreEqual(0, gateway.OpenWriteCount);
+        Assert.AreEqual(0, installCount);
+        Assert.AreEqual(0, progressCount);
+        Assert.AreEqual(0, expansionCount);
+        Assert.AreEqual(0, dialogs.Confirmations.Count);
+        Assert.AreEqual(0, dialogs.Messages.Count);
+    }
+
+    /// <summary>右クリック要求はUI配送の実終端を待ちます。配送を開始しただけで成功として返す誤りを、解放前のTask未完了で検出します。</summary>
+    [TestMethod]
+    public async Task ContextMenuSingleUrl_AwaitsBrowserPresentation()
+    {
+        var released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int browserCount = 0;
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(), browserSink: _ => browserCount++,
+            presentationScheduler: async action => { entered.SetResult(); await released.Task; action(); });
+        Task request = workspace.RunPlaylistUrlActionAsync([CreatePlaylistUrlRow("https://example.invalid/package.zip", null)], false);
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, request, "context-menu.browser-presentation");
+            Assert.IsFalse(request.IsCompleted);
+            Assert.AreEqual(0, browserCount);
+        }
+        finally { released.TrySetResult(); await request; }
+        Assert.AreEqual(1, browserCount);
+    }
+
+    /// <summary>同じURLを持つ別二行でも複数行操作として確認し、回答前は未取得、承認後は重複を除いた一取得物を一度導入へ渡します。URL件数で単体ブラウザーへ戻す誤りを検出します。</summary>
+    [TestMethod]
+    public async Task ContextMenuDuplicateRows_ConfirmsAndImportsOnceWithoutBrowser()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var confirmation = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? request = null;
+        try
+        {
+            Uri uri = new("https://example.invalid/package.zip");
+            var gateway = new RecordingPlaylistUrlDownloadGateway(root);
+            gateway.AddResponse(uri, () => new AppHttpResponse(uri, new MemoryStream([1, 2, 3], writable: false)));
+            var dialogs = new RecordingPlaylistUrlDialogService { PendingConfirmation = confirmation };
+            int installCount = 0, browserCount = 0;
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+                acquisitionWorkflow: new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
+                installSink: paths => { installCount++; Assert.AreEqual(1, paths.Count); Assert.IsTrue(File.Exists(paths[0])); return true; },
+                browserSink: _ => browserCount++, dialogService: dialogs);
+            request = workspace.RunPlaylistUrlActionAsync([
+                CreatePlaylistUrlRow(uri.AbsoluteUri, null), CreatePlaylistUrlRow(uri.AbsoluteUri, null)], false);
+            Assert.AreEqual(1, dialogs.Confirmations.Count);
+            Assert.IsFalse(request.IsCompleted);
+            Assert.AreEqual(0, gateway.RequestedUris.Count);
+            Assert.AreEqual(0, installCount);
+            confirmation.SetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+            await request;
+            Assert.AreEqual(1, gateway.RequestedUris.Count);
+            Assert.AreEqual(1, gateway.OpenWriteCount);
+            Assert.AreEqual(1, installCount);
+            Assert.AreEqual(0, browserCount);
+        }
+        finally
+        {
+            confirmation.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
+            try { if (request != null) { await request; } }
+            finally { Directory.Delete(root, recursive: true); }
+        }
+    }
+
+    /// <summary>セルクリックの宣言サイズ超過は保存・導入・ブラウザー代替を行いません。共有したブラウザー配送へサイズ拒否を誤って流す退行を小さい応答で検出します。</summary>
+    [TestMethod]
+    public async Task WorkspaceSizeLimitDoesNotBrowserFallback()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            Uri uri = new("https://example.invalid/package.zip");
+            var gateway = new RecordingPlaylistUrlDownloadGateway(root);
+            gateway.AddResponse(uri, () =>
+            {
+                var message = new HttpResponseMessage { Content = new ByteArrayContent([]) };
+                message.Content.Headers.ContentLength = 512L * 1024 * 1024 + 1;
+                return new AppHttpResponse(uri, message, new MemoryStream());
+            });
+            int browserCount = 0, installCount = 0;
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+                () => new PlaylistUrlAcquisitionOptionsSnapshot { AutoInstall = true, ScanBmsFilesOnStartup = true },
+                acquisitionWorkflow: new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
+                installSink: _ => { installCount++; return true; }, browserSink: _ => browserCount++);
+            await workspace.RunSinglePlaylistUrlAsync(uri);
+            Assert.AreEqual(1, gateway.RequestedUris.Count);
+            Assert.AreEqual(0, gateway.OpenWriteCount);
+            Assert.AreEqual(0, installCount);
+            Assert.AreEqual(0, browserCount);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     /// <summary>起動走査を切った単独URLは表示dispatchを通してブラウザへ一回配送します。自動導入条件を無視する誤りとUI配送の接続漏れを検出します。</summary>
     [TestMethod]
     public async Task WorkspaceForwardsBrowserFallbackThroughPresentationDispatch()
@@ -706,29 +872,35 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
-    /// <summary>ブラウザsinkの実呼出し例外を要求Taskへ返します。表示先の失敗を成功扱いする誤りを検出します。</summary>
-    [TestMethod]
-    public async Task BrowserFallbackSinkExceptionIsNotSuppressed()
+    /// <summary>セルクリックと単体右クリックのブラウザsink例外を要求Taskへ返します。表示先の失敗を成功扱いする誤りを検出します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task BrowserFallbackSinkExceptionIsNotSuppressed(bool contextMenu)
     {
         PlaylistWorkspaceViewModel workspace = CreateWorkspace(
             action => action(),
             browserSink: _ => throw new InvalidOperationException("browser sink failure"));
 
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-            () => workspace.RunSinglePlaylistUrlAsync(new Uri("https://example.invalid/folder/")));
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => contextMenu
+            ? workspace.RunPlaylistUrlActionAsync([CreatePlaylistUrlRow("https://example.invalid/folder/", null)], false)
+            : workspace.RunSinglePlaylistUrlAsync(new Uri("https://example.invalid/folder/")));
     }
 
-    /// <summary>表示schedulerの失敗を要求Taskの終端まで伝播します。非同期配送を待たず成功を返す誤りを検出します。</summary>
-    [TestMethod]
-    public async Task BrowserFallbackPresentationFailureIsPropagatedThroughAwaitableScheduler()
+    /// <summary>セルクリックと単体右クリックの表示scheduler失敗を要求Taskの終端まで伝播します。非同期配送を待たず成功を返す誤りを検出します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task BrowserFallbackPresentationFailureIsPropagatedThroughAwaitableScheduler(bool contextMenu)
     {
         PlaylistWorkspaceViewModel workspace = CreateWorkspace(
             action => action(),
             presentationScheduler: _ => Task.FromException(
                 new InvalidOperationException("presentation dispatch failure")));
 
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-            () => workspace.RunSinglePlaylistUrlAsync(new Uri("https://example.invalid/folder/")));
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => contextMenu
+            ? workspace.RunPlaylistUrlActionAsync([CreatePlaylistUrlRow("https://example.invalid/folder/", null)], false)
+            : workspace.RunSinglePlaylistUrlAsync(new Uri("https://example.invalid/folder/")));
     }
 
     /// <summary>一括取得の確認後にブラウザ対象一件の結果通知を届け、statusを非稼働へ戻します。単独ブラウザdispatchへの混入と終端表示漏れを検出します。</summary>
@@ -989,7 +1161,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
-    /// <summary>実取得の通信待機中は本体・差分URLを操作不可にし、MD5なしの行では外部検索も不可であることを確認します。受理済みdownloadの稼働をURLメニューへ反映しない誤りを検出します。</summary>
+    /// <summary>実取得の通信待機中はURLメニューを不可にし、単体右クリックを投入してもブラウザーを開きません。稼働中の入口抑止漏れを検出し、MD5なし外部検索も不可に保ちます。</summary>
     [TestMethod]
     public async Task PlaylistUrlContextMenuAvailability_DisablesActionsWhileDownloading()
     {
@@ -999,6 +1171,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
         var gateway = new BlockingPlaylistUrlDownloadGateway(temporaryDirectory);
+        int browserCount = 0;
         Task? acquisition = null;
         try
         {
@@ -1013,6 +1186,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceViewModel workspace = CreateWorkspace(
                 action => action(),
                 acquisitionWorkflow: acquisitionWorkflow,
+                browserSink: _ => browserCount++,
                 dialogService: dialogs);
 
             acquisition = workspace.RunPlaylistUrlBatchAsync(
@@ -1027,6 +1201,11 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             Assert.IsFalse(availability.CanOpenUrl);
             Assert.IsFalse(availability.CanOpenDiffUrl);
             Assert.IsFalse(availability.CanFindExternalPackage);
+
+            await workspace.RunPlaylistUrlActionAsync([row], false);
+            await workspace.RunPlaylistUrlActionAsync([row], true);
+            Assert.AreEqual(0, browserCount);
+            Assert.AreEqual(1, dialogs.Confirmations.Count);
 
             gateway.Response.TrySetResult(new AppHttpResponse(
                 new Uri("https://example.invalid/running.zip"),

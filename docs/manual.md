@@ -524,7 +524,7 @@ Right-clicking a chart row or playlist row opens operations for the selected row
 #### Opening External Pages and Programs
 
 - `Open web pages`: Enabled items from `Settings > Right-click settings` are shown in their configured order. The defaults are BMS-IR, Mocha, MinIR, rianIR, STELLAVERSE IR, and Kaleid IR; BMS-IR is BMS-only. Each entry is hidden when its URL template requires a missing MD5 or SHA-256.
-- `Open main URL` / `Open diff URL`: Opens the main URL / diff URL obtained from a playlist or URL completion. When multiple rows are selected, these actions are shown as `Import selected main URLs` / `Import selected diff URLs`; after confirmation, only URLs that can be downloaded as supported files are passed to install processing. URLs that need to open in a browser are skipped without opening them, and progress is shown in the status bar.
+- `Open main URL in browser` / `Open diff URL in browser`: Opens the main URL / diff URL obtained from a playlist or URL completion in a browser. When multiple rows are selected, these actions are shown as `Import selected main URLs` / `Import selected diff URLs`; after confirmation, only URLs that can be downloaded as supported files are passed to install processing. URLs that need to open in a browser are skipped without opening them, and progress is shown in the status bar.
 - `Find source via external API`: In playlist detail, sends the selected rows' MD5 values to external APIs and looks for main-package source candidates. It does not use `URL1` / `URL2`, so rows with empty URLs can still be targets when an MD5 is available.
 - `Open in Explorer`: Opens the folder containing the chart file in Explorer.
 - `Open install destination`: Opens the folder recorded as `INSTL DST` or as the install destination.
@@ -571,7 +571,7 @@ Right-clicking a chart row or playlist row opens operations for the selected row
 - `Remove from list`: Removes the target from the new / pending / installed package display. Distinguish this from operations that delete actual files.
 - `Remove metadata parse failure record`: Shown on the parse errors screen. Deletes the saved parse failure record and returns the item to the set of files to be parsed again.
 
-In playlist detail for unowned charts, configured `Open web pages` entries, `Open main URL`, `Open diff URL`, `Find source via external API`, `Open in chart viewer`, `Update ranking data`, and `Remove entry` remain available where their row capabilities allow them. Hash-based actions, such as web pages and external APIs, require the corresponding MD5 or SHA-256. Main and additional-chart URL actions require a valid URL; `Remove entry` requires no hash.
+In playlist detail for unowned charts, configured `Open web pages` entries, `Open main URL in browser`, `Open diff URL in browser`, `Find source via external API`, `Open in chart viewer`, `Update ranking data`, and `Remove entry` remain available where their row capabilities allow them. Hash-based actions, such as web pages and external APIs, require the corresponding MD5 or SHA-256. Main and additional-chart URL actions require a valid URL; `Remove entry` requires no hash.
 
 #### Rename to Invalid Extension
 
@@ -764,7 +764,7 @@ Edit levels, folders, URL1 / URL2, comments, and similar fields in the detail li
 
 ### Downloading Main Packages and Additional Charts
 
-Open main-package and additional-chart URLs from the `URL1` / `URL2` columns. [URL completion](#url1url2-completion) may fill empty URLs. To automatically retrieve and install files by clicking a single URL cell, turn ON `Try automatic download and installation when clicking the URL1/URL2 columns` under `Install` and `Scan BMS files and component files at startup` under `Advanced settings` → `Initialization`. If either is OFF, clicking opens the URL in a browser. The single-row `Open main URL` / `Open diff URL` context-menu commands open a browser.
+Open main-package and additional-chart URLs from the `URL1` / `URL2` columns. [URL completion](#url1url2-completion) may fill empty URLs. To automatically retrieve and install files by clicking a single URL cell, turn ON `Try automatic download and installation when clicking the URL1/URL2 columns` under `Install` and `Scan BMS files and component files at startup` under `Advanced settings` → `Initialization`. If either is OFF, clicking opens the URL in a browser. The single-row `Open main URL in browser` / `Open diff URL in browser` context-menu commands open a browser.
 
 #### Importing Multiple URLs
 

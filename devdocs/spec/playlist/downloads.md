@@ -22,9 +22,11 @@
 
 ### 単体URLと複数行
 
-右クリックの「本体URLを開く」「差分URLを開く」はブラウザーで開く操作で、自動導入しません。列クリック等の単体操作は、`AutoInstall` が有効で起動時ファイル検査を省略していなければ、自動取得を先に試みます。対応ファイルを得たら導入へ渡します。サイズ上限超過と導入未受理ではブラウザーを開きません。許可済みHTTP(S)の通常取得失敗や未対応ページだけはブラウザーで開けます。
+右クリックの「本体URLをブラウザで開く」「差分URLをブラウザで開く」は、有効行が1行なら指定列の元の絶対HTTP(S) URLをブラウザーで一度開きます。`AutoInstall` に依存せず、取得用の共有URL正規化、通信、一時保存、導入、確認、取得進捗、ツリー展開を始めません。0行、空・相対・非HTTP(S) URLは無作用です。ブラウザー起動は既存のUI配送を使い、その終端を待ち、起動・配送の失敗は呼出元の通知経路へ返します。取得中の入口抑止とメニュー可否は維持します。
 
-複数行の本体・差分取込みは、開始時の行を固定し、選んだ列だけを使います。空・非絶対URI・非プレイリスト行を除き、URL文字列の完全一致で重複を除きます。解決後はDrive/MediaFireのファイルID、その他はフラグメントを除いた正規化URIで同じ実体を除きます。
+URLセルクリックの単体操作は、`AutoInstall` が有効で起動時ファイル検査を省略していなければ、自動取得を先に試みます。対応ファイルを得たら導入へ渡します。サイズ上限超過と不対応スキーム、導入未受理ではブラウザーを開きません。自動取得条件を満たさない場合も、通常取得失敗や未対応ページの場合も、許可済みHTTP(S)の元URLをブラウザーで開きます。
+
+有効行が2行以上の右クリックは「選択中の本体URLを取り込む」「選択中の差分URLを取り込む」となり、開始時の行を固定し、選んだ列だけを使います。空・非絶対URI・非プレイリスト行を除き、URL文字列の完全一致で重複を除きます。重複除去後が1URLでも複数行の確認・一括取得として扱います。解決後はDrive/MediaFireのファイルID、その他はフラグメントを除いた正規化URIで同じ実体を除きます。
 
 開始前に確認し、50件以上では一時領域の空き容量と取得・展開時間、本体が大きくなりやすい点を追加警告します。逐次取得して進捗を表示し、取消後は新しいURLを開始しません。進行中の接続・HTML読取り・保存にも取消を渡し、実処理が観測して終わるまで待ちます。
 
@@ -105,6 +107,9 @@ TSVとStellaの開始済み取得はともに終端まで待ちます。複数�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 単体右クリックの元URL配送と取得なし | `PlaylistWorkspaceViewModel.PlaylistUrlAcquisition` | `PlaylistUrlAcquisitionOwnershipTests.ContextMenuSingleUrl_*` は本体・差分、自動導入ON/OFF、元の共有URL、UI配送一回、取得・保存・導入等の無作用、空・不正入力、配送待機を確認する。起動・配送の例外伝播は `BrowserFallbackSinkExceptionIsNotSuppressed` / `BrowserFallbackPresentationFailureIsPropagatedThroughAwaitableScheduler` でセルクリックと分担する。 |
+| 複数行の重複除去と取得中抑止、セルクリックの維持 | 同上 | `ContextMenuDuplicateRows_ConfirmsAndImportsOnceWithoutBrowser` は同じURLの別二行で確認前未取得・一回取得と引渡しを確認する。既存の取消・入力所有権・二取得物の集約は維持する。`PlaylistUrlContextMenuAvailability_DisablesActionsWhileDownloading` は通信待機中の単体右クリックも抑止し、`WorkspaceSizeLimitDoesNotBrowserFallback` は宣言サイズ超過を小さい応答で確認する。 |
+| 実メニューの表示とセル・右クリックの別配送 | `MainWindowPlaylistWorkspaceTerminals`、`MainWindow` | `MainWindowPlaylistWorkspaceWpfTests.PlaylistUrlBulkImport_IsOwnedByWorkspaceAndShellForwarded` は通常・未所持の実メニューの表示・Click、単体・複数行の固定行と列区分、選択外行、セルの別入口への配送を確認する。辞書整合は `LocalizationResourceParityTests`、取得用URL正規化は `MainWindowContextMenuResourceTests` に分担する。 |
 | 進捗・結果・診断の失敗、通常通信と内部故障、未引渡し入力の回収 | `PlaylistWorkspaceViewModel.PlaylistUrlAcquisition`、`PlaylistUrlAcquisitionWorkflow`、`PlaylistExternalPackageLookupService` | `PlaylistUrlAcquisitionOwnershipTests` の単体・一括引渡し、結果表示失敗後の次要求、`DownloadFailureReclaimsUnpublishedInputAndPreservesUnresolvedCleanup`、`PlaylistExternalPackageLookupServiceTests` の通常期限切れ・内部故障・回収不能。確認失敗と導入利用終端の既存保証を維持する。 |
 | URI境界・共有ページ・サイズ・保存 | [`PlaylistUrlAcquisitionWorkflow`](../../../BeMusicSeeker/Models/Playlist/PlaylistUrlAcquisitionWorkflow.cs) | [`PlaylistUrlAcquisitionOwnershipTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlAcquisitionOwnershipTests.cs) |
 | API候補・優先順・重複・取消 | [`PlaylistExternalPackageLookupService`](../../../BeMusicSeeker/Models/Playlist/PlaylistExternalPackageLookupService.cs) | [`PlaylistExternalPackageLookupServiceTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistExternalPackageLookupServiceTests.cs) |

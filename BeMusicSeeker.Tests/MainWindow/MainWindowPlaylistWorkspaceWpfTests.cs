@@ -2345,7 +2345,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         });
     }
 
-    /// <summary>compiled混在URL操作が選択順と通常・差分区分を保持し、単独downloadセルも元URLへ配送して、所有完了イベントでだけツリーを展開し終了時に購読解除します。</summary>
+    /// <summary>実WPFの通常・未所持メニューの表示とClick接続を通し、単体右クリックの固定行、本体・差分区分、複数行の選択順と選択外の対象決定を確認します。セルクリックを別入口へ渡す接続もここで保証し、取得判断の条件網羅は責務側へ分担します。</summary>
     [TestMethod]
     public void PlaylistUrlBulkImport_IsOwnedByWorkspaceAndShellForwarded()
     {
@@ -2424,6 +2424,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         Assert.AreSame(secondRow, availabilityCalls[0].Rows[1]);
 
                         MenuItem openUrl = FindMenuItem(menu, "tableContextMenuItemOpenURL");
+                        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Import_Selected_Url, openUrl.Header);
+                        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Import_Selected_Url_diff,
+                            FindMenuItem(menu, "tableContextMenuItemOpenURLdiff").Header);
                         RoutedEventArgs openArgs = RaiseMenuClick(openUrl);
                         Assert.IsTrue(openArgs.Handled);
                         Assert.AreEqual(1, bulkCalls.Count);
@@ -2453,6 +2456,54 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         Assert.AreEqual(2, externalLookupCalls[0].Count);
                         Assert.AreSame(firstRow, externalLookupCalls[0][0]);
                         Assert.AreSame(secondRow, externalLookupCalls[0][1]);
+
+                        // OpenedとClickの実接続を通し、画面固有の行範囲・メニュー名の切替を観測します。
+                        foreach (string menuKey in new[] { "tableContextMenu", "tableContextMenuPlaylistMissing" })
+                        {
+                            var singleMenu = (ContextMenu)window.FindResource(menuKey);
+                            table.SelectRowsByPredicate(row => ReferenceEquals(row, firstRow));
+                            foreach (PlaylistDetailRow context in new[] { firstRow, secondRow })
+                            {
+                                singleMenu.PlacementTarget = new FrameworkElement { DataContext = context };
+                                OpenContextMenu(singleMenu);
+                                Assert.AreSame(context, availabilityCalls[^1].Context);
+                                CollectionAssert.AreEqual(new object[] { context }, availabilityCalls[^1].Rows.ToArray());
+                                foreach ((string name, bool isDiff, string header) in new[]
+                                {
+                                    ("tableContextMenuItemOpenURL", false, BeMusicSeeker.Properties.Resources.Open_Url),
+                                    ("tableContextMenuItemOpenURLdiff", true, BeMusicSeeker.Properties.Resources.Open_Url_diff)
+                                })
+                                {
+                                    MenuItem item = FindMenuItem(singleMenu, name);
+                                    Assert.AreEqual(header, item.Header);
+                                    int previousCalls = bulkCalls.Count;
+                                    Assert.IsTrue(RaiseMenuClick(item).Handled);
+                                    Assert.AreEqual(previousCalls + 1, bulkCalls.Count);
+                                    Assert.AreEqual(isDiff, bulkCalls[^1].IsDiff);
+                                    CollectionAssert.AreEqual(new object[] { context }, bulkCalls[^1].Rows.ToArray());
+                                    Assert.AreEqual(0, singleUrls.Count, "単体右クリックをセルクリックの入口へ配送しません。");
+                                }
+                            }
+                        }
+
+                        table.SelectRowsByPredicate(_ => true);
+                        var missingMenu = (ContextMenu)window.FindResource("tableContextMenuPlaylistMissing");
+                        missingMenu.PlacementTarget = new FrameworkElement { DataContext = firstRow };
+                        OpenContextMenu(missingMenu);
+                        foreach ((string name, bool isDiff, string header) in new[]
+                        {
+                            ("tableContextMenuItemOpenURL", false, BeMusicSeeker.Properties.Resources.Import_Selected_Url),
+                            ("tableContextMenuItemOpenURLdiff", true, BeMusicSeeker.Properties.Resources.Import_Selected_Url_diff)
+                        })
+                        {
+                            MenuItem item = FindMenuItem(missingMenu, name);
+                            Assert.AreEqual(header, item.Header);
+                            int previousCalls = bulkCalls.Count;
+                            Assert.IsTrue(RaiseMenuClick(item).Handled);
+                            Assert.AreEqual(previousCalls + 1, bulkCalls.Count);
+                            Assert.AreEqual(isDiff, bulkCalls[^1].IsDiff);
+                            CollectionAssert.AreEqual(new object[] { firstRow, secondRow }, bulkCalls[^1].Rows.ToArray());
+                        }
 
                         expansionEventSource.Publish();
                         Assert.AreEqual(1, expansionCalls);

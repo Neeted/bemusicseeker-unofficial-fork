@@ -45,7 +45,7 @@
 詳細はログを確認してください。</value>
   </data>
   <data name="Open_Url" xml:space="preserve">
-    <value>本体URLを開く</value>
+    <value>本体URLをブラウザで開く</value>
   </data>
   <data name="Import_Selected_Url" xml:space="preserve">
     <value>選択中の本体URLを取り込む</value>
@@ -1266,7 +1266,7 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>MD5-URLマッピングTSV取得URIが正しくありません。</value>
   </data>
   <data name="Open_Url_diff" xml:space="preserve">
-    <value>差分URLを開く</value>
+    <value>差分URLをブラウザで開く</value>
   </data>
   <data name="Find_external_package_from_playlist_md5" xml:space="preserve">
     <value>外部APIから入手先を探す</value>

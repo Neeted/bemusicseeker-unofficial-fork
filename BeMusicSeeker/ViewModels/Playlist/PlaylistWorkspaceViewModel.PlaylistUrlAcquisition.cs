@@ -123,8 +123,16 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
+    /// <summary>右クリック時の有効行を固定し、単体は元URLをブラウザーへ、複数行は確認付き一括取得へ渡します。</summary>
+    /// <param name="rows">選択順の有効行。空の場合は何もしません。</param>
+    /// <param name="isDiffUrl">差分URLを使う場合はtrue。</param>
+    /// <returns>ブラウザー配送または一括取得の終端まで待つTask。</returns>
     internal Task RunPlaylistUrlActionAsync(IEnumerable<object> rows, bool isDiffUrl)
     {
+        if (IsPlaylistUrlDownloadRunning)
+        {
+            return Task.CompletedTask;
+        }
         List<object> rowSnapshot = [.. (rows ?? []).Where(row => row != null)];
         if (rowSnapshot.Count <= 1)
         {
@@ -133,7 +141,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 : isDiffUrl
                     ? GridRowResolver.GetUrlDiff(rowSnapshot[0])
                     : GridRowResolver.GetUrl(rowSnapshot[0]);
-            return RunSinglePlaylistUrlAsync(url);
+            return OpenPlaylistUrlInBrowserAsync(url);
         }
         return RunPlaylistUrlBatchAsync(
             PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets(rowSnapshot, isDiffUrl),
@@ -188,6 +196,9 @@ public sealed partial class PlaylistWorkspaceViewModel
             canFindExternalPackage);
     }
 
+    /// <summary>URLセルの単体クリックとして、自動導入条件に応じた取得またはブラウザー配送を行います。</summary>
+    /// <param name="url">セルの元URL。</param>
+    /// <returns>取得・導入引渡しまたはブラウザー配送の終端まで待つTask。</returns>
     internal async Task RunSinglePlaylistUrlAsync(Uri url)
     {
         if (url == null || !url.IsAbsoluteUri || IsPlaylistUrlDownloadRunning)
@@ -234,8 +245,17 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
         }
 
-        await playlistUrlAcquisitionPresentationScheduler(
-            () => playlistUrlBrowserOpenSink(url)).ConfigureAwait(true);
+        await OpenPlaylistUrlInBrowserAsync(url).ConfigureAwait(true);
+    }
+
+    /// <summary>取得用の正規化をせず、元の絶対HTTP(S) URLを既存のUI配送で開き、配送先の失敗も呼出元へ返します。</summary>
+    private Task OpenPlaylistUrlInBrowserAsync(Uri url)
+    {
+        if (url == null || !url.IsAbsoluteUri || !PlaylistUrlAcquisitionWorkflow.IsHttpOrHttpsUri(url))
+        {
+            return Task.CompletedTask;
+        }
+        return playlistUrlAcquisitionPresentationScheduler(() => playlistUrlBrowserOpenSink(url));
     }
 
     internal async Task RunPlaylistUrlBatchAsync(IEnumerable<Uri> urls, bool isDiffUrl)

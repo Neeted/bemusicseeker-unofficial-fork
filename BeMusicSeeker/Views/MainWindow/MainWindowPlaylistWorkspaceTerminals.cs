@@ -290,7 +290,7 @@ internal sealed class MainWindowPlaylistTablesReloadTerminal
 }
 
 /// <summary>
-/// Narrows playlist URL cells and context-menu actions to the playlist workspace owner.
+/// URLセルクリックと右クリック操作をプレイリストワークスペースの別々の入口へ渡します。
 /// </summary>
 internal sealed class MainWindowPlaylistUrlAcquisitionTerminal
 {
@@ -303,12 +303,12 @@ internal sealed class MainWindowPlaylistUrlAcquisitionTerminal
     private readonly Func<object, IReadOnlyList<object>, PlaylistUrlContextMenuAvailability> captureAvailability;
 
     /// <summary>
-    /// Initializes the playlist URL terminal.
+    /// URLセルクリックと右クリックを、それぞれのワークスペース入口へ接続します。
     /// </summary>
-    /// <param name="runSinglePlaylistUrlAsync">Owner operation for one URL cell.</param>
-    /// <param name="runPlaylistUrlActionAsync">Owner operation for one exact row snapshot.</param>
-    /// <param name="runExternalPackageLookupAsync">Owner operation for one exact row snapshot.</param>
-    /// <param name="captureAvailability">Owner availability query for one row scope.</param>
+    /// <param name="runSinglePlaylistUrlAsync">自動取得条件を判定する単体URLセルの入口。</param>
+    /// <param name="runPlaylistUrlActionAsync">有効行の固定スナップショットを受け取る入口。</param>
+    /// <param name="runExternalPackageLookupAsync">有効行の固定スナップショットを受け取る入口。</param>
+    /// <param name="captureAvailability">有効行の範囲に対するメニュー可否の問合せ。</param>
     internal MainWindowPlaylistUrlAcquisitionTerminal(
         Func<Uri, Task> runSinglePlaylistUrlAsync,
         Func<IReadOnlyList<object>, bool, Task> runPlaylistUrlActionAsync,
@@ -326,27 +326,27 @@ internal sealed class MainWindowPlaylistUrlAcquisitionTerminal
     }
 
     /// <summary>
-    /// Runs one URL through the existing workspace acquisition route.
+    /// URLセルのクリックを自動取得条件を持つ既存入口へ渡します。
     /// </summary>
-    /// <param name="url">The exact URL resolved by the compiled cell.</param>
-    /// <returns>The owner operation task.</returns>
+    /// <param name="url">実セルから解決した元URL。</param>
+    /// <returns>所有者の操作終端まで待つTask。</returns>
     internal Task RunSinglePlaylistUrlAsync(Uri url)
         => runSinglePlaylistUrlAsync(url);
 
     /// <summary>
-    /// Runs a URL or diff-URL action using the exact effective row snapshot.
+    /// 本体・差分の右クリック操作を固定行で渡し、所有者が単体のブラウザー起動と複数行の一括取得を判断します。
     /// </summary>
-    /// <param name="rows">The effective selected rows in their compiled order.</param>
-    /// <param name="isDiffUrl">Whether the diff URL column/menu was selected.</param>
-    /// <returns>The owner operation task.</returns>
+    /// <param name="rows">画面上の選択順を保った有効行。</param>
+    /// <param name="isDiffUrl">差分URLメニューが選択された場合はtrue。</param>
+    /// <returns>所有者の操作終端まで待つTask。</returns>
     internal Task RunPlaylistUrlActionAsync(IReadOnlyList<object> rows, bool isDiffUrl)
         => runPlaylistUrlActionAsync(rows ?? throw new ArgumentNullException(nameof(rows)), isDiffUrl);
 
     /// <summary>
     /// Runs the external-package lookup using the exact effective row snapshot.
     /// </summary>
-    /// <param name="rows">The effective selected rows in their compiled order.</param>
-    /// <returns>The owner operation task.</returns>
+    /// <param name="rows">画面上の選択順を保った有効行。</param>
+    /// <returns>所有者の操作終端まで待つTask。</returns>
     internal Task RunExternalPackageLookupAsync(IReadOnlyList<object> rows)
         => runExternalPackageLookupAsync(rows ?? throw new ArgumentNullException(nameof(rows)));
 
