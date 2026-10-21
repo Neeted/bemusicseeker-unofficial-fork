@@ -1203,7 +1203,8 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>General の standalone 選択と Playback の internal／LR2 説明が、それぞれの実ページと Automation に適切な翻訳で届くことを確認します。</summary>
+    /// <summary>General の standalone 選択、Playback の internal／LR2 説明と Backup の保存先注意が実ページの対象controlへ届くことを確認します。</summary>
+    /// <remarks>実Windowのページ遷移とcontrolへのBinding反映を確認し、保存や削除範囲の判断はBackupTestsへ分担します。</remarks>
     [TestMethod]
     public void SettingsWindow_OperationAndPlayerDescriptionsAppearOnTheirOwningPages()
     {
@@ -1235,6 +1236,13 @@ public sealed class SettingsWindowPresentationTests
                     .Single(row => Equals(row.Header, "LR2"));
                 Assert.AreEqual(Resources.Player_Internal_desc, internalPlayer.Description);
                 Assert.AreEqual(Resources.Settings_player_lr2_description, lr2Player.Description);
+
+                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationBackup");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var backupPage = (BackupSettingsPage)pageHost.Content;
+                SettingsPathPicker destination = FindDescendants<SettingsPathPicker>(backupPage)
+                    .Single(picker => Equals(picker.Label, Resources.Backup_lr2backup_saveto));
+                Assert.AreEqual(Resources.Backup_destination_description, destination.Description);
             }
             finally
             {

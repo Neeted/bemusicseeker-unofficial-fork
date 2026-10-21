@@ -1203,5 +1203,8 @@
   "Playlist_import_estimation_group": "난이도 추정표",
   "Playlist_import_recommendation_group": "추천",
   "Playlist_import_input_description": "한 줄에 절대 URL 또는 파일 경로를 하나씩 입력하세요. 유효한 줄을 선택에 추가합니다.",
-  "Playlist_import_result_skipped_url_header": "같은 URL로 건너뜀:"
+  "Playlist_import_result_skipped_url_header": "같은 URL로 건너뜀:",
+  "Warn_LR2BackupOptimizationIncomplete": "LR2 백업은 저장되었지만 데이터베이스 최적화를 완료하지 못했습니다.",
+  "Error_DirectoryLinkCopyNotAllowedFormat": "폴더 링크(정션 등)는 복사할 수 없습니다: {0}",
+  "Backup_destination_description": "이 기능 전용 폴더를 지정해 주세요. 저장 위치 바로 아래에 있는 오늘 또는 이전 날짜 형식(yyyy-MM-dd)의 폴더는 생성한 프로그램이나 내용에 관계없이 백업 세대 정리 중 삭제될 수 있습니다."
 }

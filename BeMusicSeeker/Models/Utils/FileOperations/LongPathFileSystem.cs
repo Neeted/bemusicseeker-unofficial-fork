@@ -241,7 +241,12 @@ internal static class LongPathFileSystem
         File.Copy(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath), overwrite);
     }
 
-    public static void CopyDirectory(string sourcePath, string destinationPath, bool overwrite)
+    /// <summary>ディレクトリを再帰コピーします。指定時は各ディレクトリの内容列挙・宛先作成前に再解析ポイントを拒否します。</summary>
+    /// <param name="sourcePath">コピー元ディレクトリ。</param>
+    /// <param name="destinationPath">コピー先ディレクトリ。</param>
+    /// <param name="overwrite">既存のコピー先への上書きを許可するか。</param>
+    /// <param name="rejectDirectoryReparsePoints">ディレクトリへのリンクを辿らず、コピー全体を失敗させるか。既定では従来どおり辿ります。</param>
+    public static void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, bool rejectDirectoryReparsePoints = false)
     {
         ThrowIfSamePath(sourcePath, destinationPath);
         ThrowIfDestinationIsInsideSourceDirectory(sourcePath, destinationPath);
@@ -250,11 +255,15 @@ internal static class LongPathFileSystem
             throw new IOException("Destination directory already exists.");
         }
 
+        if (rejectDirectoryReparsePoints && (GetAttributes(sourcePath) & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new IOException(string.Format(Properties.Resources.Error_DirectoryLinkCopyNotAllowedFormat, sourcePath));
+        }
         CreateDirectory(destinationPath);
         foreach (string sourceDirectoryPath in GetDirectories(sourcePath))
         {
             string destinationChildPath = Path.Combine(destinationPath, Path.GetFileName(sourceDirectoryPath));
-            CopyDirectory(sourceDirectoryPath, destinationChildPath, overwrite);
+            CopyDirectory(sourceDirectoryPath, destinationChildPath, overwrite, rejectDirectoryReparsePoints);
         }
         foreach (string sourceFilePath in GetFiles(sourcePath))
         {

@@ -2011,8 +2011,11 @@ playlist:"Satellite Sub"
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>復元すると現在のプレイリストをバックアップの内容で置き換えます。残したいプレイリストは復元前に別のファイルへバックアップしてください。</p></div>
 <p><code>プレイリストの復元</code> を押し、確認後に保存した SQL ファイルを選びます。復元後はアプリが終了するため、再起動してください。</p>
 <h3 id="lr2-関連ファイルの自動バックアップ">LR2 関連ファイルの自動バックアップ</h3>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>この機能専用の保存先フォルダを指定してください。保存先直下の今日以前の日付形式（<code>yyyy-MM-dd</code>）のフォルダは、作成元や内容に関係なく、世代整理で削除されることがあります。</p></div>
 <p>LR2 連携モードで、<code>バックアップ</code> の <code>LR2のバックアップと最適化</code> を ON にします。既存の保存先フォルダを指定し、対象の <code>config.xml</code>、<code>song.db</code>、スコア DB を選びます。保存間隔は毎日・毎週・毎月、保持する世代数は <code>1</code>～<code>10</code> です。</p>
 <p>条件を満たす起動時に、指定先の <code>yyyy-MM-dd</code> フォルダへ保存します。同日には再保存せず、保持数を超えた古い世代は削除します。バックアップ成功後に DB の最適化も行います。設定保存直後には実行しないため、作業直前に必要な控えは手動で作ってください。</p>
+<p>未来の日付フォルダは、今日がその日付に達するまで保存間隔・保持世代数・削除の対象に含めません。そのため、保存先のフォルダ総数が設定した保持数を超える場合があります。</p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>スコア DB をバックアップ対象に選択していて、<code>Score</code> フォルダ自身や配下にフォルダへのリンク（ジャンクションなど）がある場合、その回のバックアップ全体が失敗します。保存後に DB の最適化を完了できなかった場合は警告を表示し、保存済みのバックアップは保持します。</p></div>
 <p>復元する場合は、BeMusicSeeker と LR2 を終了し、必要な日付フォルダのファイルを元の場所へ戻します。</p>
 <h3 id="アプリ設定と-bms-ライブラリの保護">アプリ設定と BMS ライブラリの保護</h3>
 <p>アプリを終了した状態で、<code>config/user.config</code> と、スタンドアローンモードの <code>data/song.db</code> を控えてください。復元はアプリを終了してから元の場所へ戻します。LR2 連携では <code>song.db</code>、利用中の LR2 設定ファイル（<code>config.xml</code> または <code>config.xmh</code>）、各プレイヤーの <code>score.db</code> も保護します。</p>

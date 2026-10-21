@@ -3972,4 +3972,13 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Details_show_diag_new_install_description" xml:space="preserve">
     <value>インストール先が未設定の保留パッケージを新規として導入する際の確認です。インストール先が設定済みの場合は、OFFでも確認を省略できません。</value>
   </data>
+  <data name="Warn_LR2BackupOptimizationIncomplete" xml:space="preserve">
+    <value>LR2のバックアップは保存されましたが、データベースの最適化を完了できませんでした。</value>
+  </data>
+  <data name="Error_DirectoryLinkCopyNotAllowedFormat" xml:space="preserve">
+    <value>フォルダへのリンク（ジャンクションなど）はコピーできません: {0}</value>
+  </data>
+  <data name="Backup_destination_description" xml:space="preserve">
+    <value>この機能専用のフォルダを指定してください。保存先直下の今日以前の日付形式（yyyy-MM-dd）のフォルダは、作成元や内容に関係なく、世代整理で削除されることがあります。</value>
+  </data>
 </root>

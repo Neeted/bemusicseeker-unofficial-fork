@@ -1203,5 +1203,8 @@
   "Playlist_import_estimation_group": "Difficulty estimation",
   "Playlist_import_recommendation_group": "Recommendations",
   "Playlist_import_input_description": "Enter one absolute URL or file path per line. Valid lines are added to the selection.",
-  "Playlist_import_result_skipped_url_header": "Skipped (same URL):"
+  "Playlist_import_result_skipped_url_header": "Skipped (same URL):",
+  "Warn_LR2BackupOptimizationIncomplete": "The LR2 backup was saved, but database optimization could not be completed.",
+  "Error_DirectoryLinkCopyNotAllowedFormat": "Folder links (such as junctions) cannot be copied: {0}",
+  "Backup_destination_description": "Choose a folder dedicated to this feature. Folders directly inside it named with a date on or before today (yyyy-MM-dd) may be deleted during backup rotation, regardless of who created them or what they contain."
 }

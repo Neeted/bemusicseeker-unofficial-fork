@@ -204,37 +204,15 @@ internal sealed class StartupLibraryConstructionOwner
     /// 最適化用の列挙・公開後の最適化と任意診断の失敗では、実公開済みの保存結果を変更しません。
     /// </summary>
     /// <param name="startupSettings">今回の起動で捕捉した設定。</param>
-    /// <returns>公開前の保存失敗または世代削除警告を伝える通知。</returns>
+    /// <returns>公開前の保存失敗、世代削除警告、または保存後の最適化未完了を伝える通知。</returns>
     internal static async Task<IReadOnlyList<UiMessageRequest>> PrepareBackupAsync(StartupSettingsSnapshot startupSettings)
     {
         List<UiMessageRequest> notifications = [];
         if (startupSettings.OperationModeLR2DB && startupSettings.IsLR2BackupEnabled)
         {
             Backup.Target lR2BackupTarget = startupSettings.LR2BackupTarget;
-            string songDBPath = null;
-            List<string> scoreDBPaths = [];
-            if (lR2BackupTarget.HasFlag(Backup.Target.SongDB) && LongPathFileSystem.FileExists(startupSettings.LR2SongDBPath))
-            {
-                songDBPath = startupSettings.LR2SongDBPath;
-            }
             string scoreDirectoryPath = Path.Combine(startupSettings.LR2RootPath, "LR2files", "Database", "Score");
-            if (lR2BackupTarget.HasFlag(Backup.Target.ScoreDB))
-            {
-                try
-                {
-                    if (LongPathFileSystem.DirectoryExists(scoreDirectoryPath))
-                    {
-                        scoreDBPaths = [.. LongPathFileSystem.EnumerateFiles(scoreDirectoryPath, "*.db", SearchOption.AllDirectories)];
-                    }
-                }
-                catch (Exception exception)
-                {
-                    scoreDBPaths = [];
-                    ReportOptionalBackupFailureBestEffort(exception, $"Score DB optimization enumeration failed: path={scoreDirectoryPath}");
-                }
-            }
-            Backup.BackupSaveResult backupSaveResult = null;
-            backupSaveResult = await Task.Run(delegate
+            (Backup.BackupSaveResult backupSaveResult, bool optimizationFailed) = await Task.Run(() =>
             {
                 try
                 {
@@ -246,24 +224,37 @@ internal sealed class StartupLibraryConstructionOwner
                         startupSettings.LR2ConfigXmlPath,
                         startupSettings.LR2SongDBPath,
                         scoreDirectoryPath);
-                    if (result.Saved)
+                    if (!result.Saved)
                     {
-                        try
-                        {
-                            Backup.RebuildDatabase(songDBPath, scoreDBPaths);
-                        }
-                        catch (Exception exception)
-                        {
-                            ReportOptionalBackupFailureBestEffort(exception, $"Startup backup optimization failed: songPath={songDBPath}, scoreDirectoryPath={scoreDirectoryPath}");
-                        }
+                        return (result, false);
                     }
-                    return result;
+
+                    try
+                    {
+                        string songDBPath = lR2BackupTarget.HasFlag(Backup.Target.SongDB)
+                            && LongPathFileSystem.FileExists(startupSettings.LR2SongDBPath)
+                            ? startupSettings.LR2SongDBPath : null;
+                        // 列挙途中の失敗で一部のDBだけを最適化しないよう、全件を先に実体化します。
+                        List<string> scoreDBPaths = lR2BackupTarget.HasFlag(Backup.Target.ScoreDB)
+                            && LongPathFileSystem.DirectoryExists(scoreDirectoryPath)
+                            ? [.. LongPathFileSystem.EnumerateFiles(scoreDirectoryPath, "*.db", SearchOption.AllDirectories)] : [];
+                        return (result, !Backup.RebuildDatabase(songDBPath, scoreDBPaths));
+                    }
+                    catch (Exception exception)
+                    {
+                        ReportOptionalBackupFailureBestEffort(exception, $"Startup backup optimization failed: songPath={startupSettings.LR2SongDBPath}, scoreDirectoryPath={scoreDirectoryPath}");
+                        return (result, true);
+                    }
                 }
                 catch (Exception ex)
                 {
-                    return Backup.BackupSaveResult.Failure(ex);
+                    return (Backup.BackupSaveResult.Failure(ex), false);
                 }
             }).LoggingAndPropagate("Initialize");
+            if (optimizationFailed)
+            {
+                notifications.Add(new(BeMusicSeeker.Properties.Resources.Warn_LR2BackupOptimizationIncomplete, BeMusicSeeker.Properties.Resources.Warning, UiDialogButton.OK, UiDialogIcon.Exclamation, UiDialogDefaultResult.OK));
+            }
             if (backupSaveResult != null)
             {
                 foreach (string warning in backupSaveResult.Warnings)

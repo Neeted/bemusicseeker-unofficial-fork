@@ -1203,5 +1203,8 @@
   "Playlist_import_estimation_group": "Estimation de difficulté",
   "Playlist_import_recommendation_group": "Recommandations",
   "Playlist_import_input_description": "Saisissez une URL absolue ou un chemin par ligne. Les lignes valides sont ajoutées à la sélection.",
-  "Playlist_import_result_skipped_url_header": "Ignorées (même URL) :"
+  "Playlist_import_result_skipped_url_header": "Ignorées (même URL) :",
+  "Warn_LR2BackupOptimizationIncomplete": "La sauvegarde de LR2 a été enregistrée, mais l’optimisation des bases de données n’a pas pu être terminée.",
+  "Error_DirectoryLinkCopyNotAllowedFormat": "Les liens vers des dossiers (comme les jonctions) ne peuvent pas être copiés : {0}",
+  "Backup_destination_description": "Choisissez un dossier réservé à cette fonction. Les sous-dossiers directs dont le nom est une date antérieure ou égale à aujourd’hui (yyyy-MM-dd) peuvent être supprimés lors de la rotation des sauvegardes, quels que soient leur origine et leur contenu."
 }

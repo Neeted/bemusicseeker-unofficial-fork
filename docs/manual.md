@@ -1276,9 +1276,17 @@ Click `Restore playlists`, confirm, and select the saved SQL file. The applicati
 
 ### Automatic LR2 File Backups
 
+> [!CAUTION]
+> Choose a destination folder dedicated to this feature. Folders directly inside it named with a date on or before today (`yyyy-MM-dd`) may be deleted during backup rotation, regardless of who created them or what they contain.
+
 In LR2 linked mode, enable `Backup and optimize LR2 data` in `Backup`. Choose an existing destination folder and select `config.xml`, `song.db`, and score databases as needed. Schedule choices are daily, weekly, and monthly; retention is `1`–`10` generations.
 
 When the schedule is due at startup, files are saved in a `yyyy-MM-dd` folder under the destination. A date is saved only once; older generations exceeding retention are removed. Successful backup also optimizes the databases. Saving the setting does not run a backup immediately, so make manual copies when you need protection just before an operation.
+
+Folders dated in the future are excluded from scheduling, retention counts, and deletion until the current date reaches them. The total number of folders may therefore exceed the configured retention count.
+
+> [!CAUTION]
+> If score databases are selected for backup and the `Score` folder itself or any folder inside it is a folder link (such as a junction), the entire backup attempt fails. If database optimization cannot be completed after saving, a warning is shown and the saved backup is retained.
 
 To restore, close BeMusicSeeker and LR2, then copy the required date folder's files back to their original locations.
 

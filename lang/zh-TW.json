@@ -1203,5 +1203,8 @@
   "Playlist_import_estimation_group": "難度估計表",
   "Playlist_import_recommendation_group": "推薦",
   "Playlist_import_input_description": "請每行輸入一個絕對 URL 或檔案路徑。有效行會加入選取項目。",
-  "Playlist_import_result_skipped_url_header": "同 URL 略過:"
+  "Playlist_import_result_skipped_url_header": "同 URL 略過:",
+  "Warn_LR2BackupOptimizationIncomplete": "LR2 備份已儲存，但未能完成資料庫最佳化。",
+  "Error_DirectoryLinkCopyNotAllowedFormat": "無法複製資料夾連結（如接合點）: {0}",
+  "Backup_destination_description": "請指定此功能專用的資料夾。儲存位置下直接包含的、以今天或更早日期命名（yyyy-MM-dd）的資料夾，在清理備份時可能會遭到刪除，無論其建立來源或內容為何。"
 }

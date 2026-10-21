@@ -124,6 +124,7 @@ public class Backup : ObservableObject
     /// 選択対象を一時ディレクトリへ全てコピーしてから日付世代として公開し、古い世代を削除します。
     /// 公開前の失敗では既存世代と主原因を保持し、公開後の削除失敗は保存成功と警告を返します。
     /// 後片付けの存在確認・削除と任意診断の失敗では公開結果を変更しません。
+    /// ディレクトリ再解析ポイントはコピー前に拒否し、未来日付の世代は間隔・保持・削除の対象外とします。
     /// </summary>
     /// <param name="dstDir">バックアップ出力先ディレクトリ。</param>
     /// <param name="span">前回バックアップから必要な経過時間。日単位で最低 1 日とします。</param>
@@ -163,13 +164,14 @@ public class Backup : ObservableObject
                 }
             }
             var minimumInterval = TimeSpan.FromDays(Math.Max(1, span.Days));
+            DateTime today = DateTime.Today;
             generations = [.. (from directory in LongPathFileSystem.EnumerateDirectories(dstDir, "*", SearchOption.TopDirectoryOnly)
                                select Path.GetFileName(directory) into name
                                where backupFolderRegex.Match(name).Success
                                select DateTime.ParseExact(name, dateFormat, DateTimeFormatInfo.InvariantInfo, DateTimeStyles.None) into date
+                               where date <= today
                                orderby date descending
                                select date)];
-            DateTime today = DateTime.Today;
             if (generations.Count > 0 && today - generations[0] < minimumInterval)
             {
                 return new BackupSaveResult(saved: false, warnings: []);
@@ -188,7 +190,7 @@ public class Backup : ObservableObject
                 }
                 else if (LongPathFileSystem.DirectoryExists(source))
                 {
-                    LongPathFileSystem.CopyDirectory(source, destination, overwrite: true);
+                    LongPathFileSystem.CopyDirectory(source, destination, overwrite: true, rejectDirectoryReparsePoints: true);
                 }
                 else
                 {

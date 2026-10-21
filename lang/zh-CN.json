@@ -1203,5 +1203,8 @@
   "Playlist_import_estimation_group": "难度估计表",
   "Playlist_import_recommendation_group": "推荐",
   "Playlist_import_input_description": "请每行输入一个绝对 URL 或文件路径。有效行将添加到选择中。",
-  "Playlist_import_result_skipped_url_header": "同 URL 跳过:"
+  "Playlist_import_result_skipped_url_header": "同 URL 跳过:",
+  "Warn_LR2BackupOptimizationIncomplete": "LR2 备份已保存，但未能完成数据库优化。",
+  "Error_DirectoryLinkCopyNotAllowedFormat": "无法复制文件夹链接（如联接点）: {0}",
+  "Backup_destination_description": "请指定此功能专用的文件夹。保存位置下直接包含的、以今天或更早日期命名（yyyy-MM-dd）的文件夹，在清理备份时可能会被删除，无论其创建来源或内容如何。"
 }

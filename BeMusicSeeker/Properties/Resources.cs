@@ -3081,4 +3081,13 @@ public class Resources
     /// <summary>音声デバイス一覧の更新失敗時に表示する状態文を取得します。</summary>
     public static string AudioDeviceListRefreshFailed => ResourceManager.GetString("AudioDeviceListRefreshFailed", resourceCulture);
 
+    /// <summary>LR2バックアップの保存後に最適化を完了できなかった場合の警告を取得します。</summary>
+    public static string Warn_LR2BackupOptimizationIncomplete => ResourceManager.GetString("Warn_LR2BackupOptimizationIncomplete", resourceCulture);
+
+    /// <summary>コピーを拒否したフォルダリンクのパスを示す書式を取得します。</summary>
+    public static string Error_DirectoryLinkCopyNotAllowedFormat => ResourceManager.GetString("Error_DirectoryLinkCopyNotAllowedFormat", resourceCulture);
+
+    /// <summary>専用バックアップ保存先と世代整理の削除範囲の説明を取得します。</summary>
+    public static string Backup_destination_description => ResourceManager.GetString("Backup_destination_description", resourceCulture);
+
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -334,7 +335,7 @@ public sealed class BackupTests
         });
     }
 
-    /// <summary>保存後に元ファイルを変更して同日に再保存し、既存世代を上書きせず正常な省略を返すことを確認します。</summary>
+    /// <summary>保存後に元ファイルを変更し未来世代を混在させても、同日は既存世代と未来内容を上書きせず正常に省略します。</summary>
     [TestMethod]
     public void SaveBackupsWithResult_SameDaySaveSkipsWithoutOverwriting()
     {
@@ -342,28 +343,36 @@ public sealed class BackupTests
         {
             Assert.IsTrue(Backup.SaveBackupsWithResult(root, TimeSpan.Zero, 1, [source]).Saved);
             WriteAllText(source, "changed-source");
+            string future = Path.Combine(root, DateTime.Today.AddYears(1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            Directory.CreateDirectory(future);
+            WriteAllText(Path.Combine(future, "sentinel.db"), "future-content");
 
             Backup.BackupSaveResult result = Backup.SaveBackupsWithResult(root, TimeSpan.Zero, 1, [source]);
 
             Assert.IsFalse(result.Saved);
             Assert.IsNull(result.FailureException);
             Assert.AreEqual("source-content", ReadAllText(Path.Combine(TodayPath(root), "song.db")));
-            Assert.AreEqual(1, Directory.GetDirectories(root).Length);
+            Assert.AreEqual("future-content", ReadAllText(Path.Combine(future, "sentinel.db")));
+            Assert.AreEqual(2, Directory.GetDirectories(root).Length);
         });
     }
 
-    /// <summary>最新世代から設定間隔が経過していない場合、世代の内容と集合を保って保存を省略することを確認します。</summary>
+    /// <summary>未来世代を除いた最新世代から設定間隔が経過していない場合、過去・未来の内容と集合を保って省略します。</summary>
     [TestMethod]
     public void SaveBackupsWithResult_NotDueLeavesGenerationsUntouched()
     {
         WithBackupTree((root, source) =>
         {
             string[] old = CreateOldGenerations(root);
+            string future = Path.Combine(root, DateTime.Today.AddYears(1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            Directory.CreateDirectory(future);
+            WriteAllText(Path.Combine(future, "sentinel.db"), "future-content");
             Backup.BackupSaveResult result = Backup.SaveBackupsWithResult(root, TimeSpan.FromDays(7), 1, [source]);
             Assert.IsFalse(result.Saved);
             Assert.IsNull(result.FailureException);
             AssertOldGenerations(old);
-            CollectionAssert.AreEquivalent(old, Directory.GetDirectories(root));
+            Assert.AreEqual("future-content", ReadAllText(Path.Combine(future, "sentinel.db")));
+            CollectionAssert.AreEquivalent(old.Append(future).ToArray(), Directory.GetDirectories(root));
         });
     }
 
@@ -571,6 +580,183 @@ public sealed class BackupTests
             AssertOldScoreGenerations(old);
             CollectionAssert.AreEquivalent(old, Directory.GetDirectories(root));
         });
+    }
+
+    /// <summary>未来世代を間隔・保持枠・削除から除外し、未来のみでも過去との混在でも今日を保存して内容を保持します。保持数0は1へ補正します。</summary>
+    [TestMethod]
+    [DataRow(false, 0)]
+    [DataRow(false, 3)]
+    [DataRow(true, 1)]
+    [DataRow(true, 3)]
+    public void SaveBackupsWithResult_FutureGenerationsDoNotBlockSaveOrConsumeRetention(bool includePast, int generationCount)
+    {
+        WithBackupTree((root, source) =>
+        {
+            string[] old = includePast ? CreateOldGenerations(root) : [];
+            string future = Path.Combine(root, DateTime.Today.AddYears(1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            Directory.CreateDirectory(future);
+            WriteAllText(Path.Combine(future, "sentinel.db"), "future-content");
+
+            Backup.BackupSaveResult result = Backup.SaveBackupsWithResult(root, TimeSpan.Zero, generationCount, [source]);
+
+            Assert.IsTrue(result.Saved);
+            Assert.IsNull(result.FailureException);
+            Assert.AreEqual(0, result.Warnings.Count);
+            Assert.AreEqual("source-content", ReadAllText(Path.Combine(TodayPath(root), "song.db")));
+            Assert.AreEqual("future-content", ReadAllText(Path.Combine(future, "sentinel.db")));
+            int retainedPast = Math.Min(old.Length, Math.Max(1, generationCount) - 1);
+            Assert.AreEqual(retainedPast + 2, Directory.GetDirectories(root).Length);
+            for (int index = 0; index < old.Length; index++)
+            {
+                Assert.AreEqual(index < retainedPast, Directory.Exists(old[index]));
+                if (index < retainedPast)
+                {
+                    Assert.AreEqual("old-content", ReadAllText(Path.Combine(old[index], "sentinel.db")));
+                }
+            }
+        });
+    }
+
+    /// <summary>日付形式だけが一致する無効日付は従来どおり解析失敗とし、旧世代と無効名の内容を保持して公開しません。</summary>
+    [TestMethod]
+    public void SaveBackupsWithResult_InvalidCalendarDateFailsWithoutChangingGenerations()
+    {
+        WithBackupTree((root, source) =>
+        {
+            string[] old = CreateOldGenerations(root);
+            string invalid = Path.Combine(root, "9999-99-99");
+            Directory.CreateDirectory(invalid);
+            WriteAllText(Path.Combine(invalid, "sentinel.db"), "invalid-date-content");
+
+            Backup.BackupSaveResult result = Backup.SaveBackupsWithResult(root, TimeSpan.Zero, 1, [source]);
+
+            Assert.IsFalse(result.Saved);
+            Assert.IsInstanceOfType<FormatException>(result.FailureException);
+            AssertOldGenerations(old);
+            Assert.AreEqual("invalid-date-content", ReadAllText(Path.Combine(invalid, "sentinel.db")));
+            CollectionAssert.AreEquivalent(old.Append(invalid).ToArray(), Directory.GetDirectories(root));
+        });
+    }
+
+    /// <summary>Score自身と深い子孫の内向き・外向きジャンクションを保存失敗として拒否し、先にコピーした設定も公開せず、旧世代・リンク・先の内容を保持してstageを回収します。</summary>
+    [TestMethod]
+    [TestCategory("ProcessIntegration")]
+    [DataRow("score-root")]
+    [DataRow("descendant-inside")]
+    [DataRow("descendant-outside")]
+    public void SaveSelectedBackupsWithResult_DirectoryLinkFailsBeforePublication(string scenario)
+    {
+        WithSelectedBackupTree((root, config, song, score) =>
+        {
+            string[] old = CreateOldGenerations(root);
+            string? scoreParent = Path.GetDirectoryName(score);
+            Assert.IsNotNull(scoreParent);
+            string target = scenario == "descendant-inside" ? Path.Combine(score, "target") : Path.Combine(scoreParent, "external");
+            Directory.CreateDirectory(target);
+            string sentinel = Path.Combine(target, "sentinel.db");
+            WriteAllText(sentinel, "target-content");
+            string link = scenario == "score-root" ? score : Path.Combine(score, "deep", "child", "link");
+            if (scenario == "score-root")
+            {
+                Directory.Delete(score, recursive: true);
+            }
+            string? linkParent = Path.GetDirectoryName(link);
+            Assert.IsNotNull(linkParent);
+            Directory.CreateDirectory(linkParent);
+            try
+            {
+                CreateDirectoryJunction(link, target);
+                Backup.BackupSaveResult result = Backup.SaveSelectedBackupsWithResult(root, TimeSpan.Zero, 1,
+                    Backup.Target.Config | Backup.Target.ScoreDB, config, song, score);
+
+                Assert.IsFalse(result.Saved);
+                Assert.IsNotNull(result.FailureException);
+                Assert.AreEqual(string.Format(Properties.Resources.Error_DirectoryLinkCopyNotAllowedFormat, link), result.FailureException.Message);
+                Assert.AreEqual(0, result.Warnings.Count);
+                AssertOldGenerations(old);
+                CollectionAssert.AreEquivalent(old, Directory.GetDirectories(root));
+                Assert.IsTrue((File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0);
+                Assert.AreEqual("target-content", ReadAllText(sentinel));
+            }
+            finally
+            {
+                // 再帰清掃にリンク先を渡さず、リンク自体を先に除去します。
+                if (Directory.Exists(link) && (File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0)
+                {
+                    Directory.Delete(link);
+                }
+            }
+        });
+    }
+
+    /// <summary>選択済みScoreのジャンクションも同日・間隔未到達なら辿らず省略し、未選択リンクは設定だけの保存を妨げません。</summary>
+    [TestMethod]
+    [TestCategory("ProcessIntegration")]
+    [DataRow("today")]
+    [DataRow("not-due")]
+    [DataRow("unselected")]
+    public void SaveSelectedBackupsWithResult_DirectoryLinkDoesNotAffectSkippedOrUnselectedScore(string scenario)
+    {
+        WithSelectedBackupTree((root, config, song, score) =>
+        {
+            string link = Path.Combine(score, "link");
+            string? scoreParent = Path.GetDirectoryName(score);
+            Assert.IsNotNull(scoreParent);
+            string target = Path.Combine(scoreParent, "external");
+            Directory.CreateDirectory(target);
+            WriteAllText(Path.Combine(target, "sentinel.db"), "target-content");
+            string? existing = scenario == "unselected" ? null : Path.Combine(root,
+                DateTime.Today.AddDays(scenario == "today" ? 0 : -1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            if (existing != null)
+            {
+                Directory.CreateDirectory(existing);
+                WriteAllText(Path.Combine(existing, "sentinel.db"), "existing-content");
+            }
+            try
+            {
+                CreateDirectoryJunction(link, target);
+                Backup.BackupSaveResult result = Backup.SaveSelectedBackupsWithResult(root, TimeSpan.FromDays(7), 1,
+                    scenario == "unselected" ? Backup.Target.Config : Backup.Target.ScoreDB, config, song, score);
+
+                Assert.AreEqual(scenario == "unselected", result.Saved);
+                Assert.IsNull(result.FailureException);
+                Assert.AreEqual(0, result.Warnings.Count);
+                Assert.AreEqual(1, Directory.GetDirectories(root).Length);
+                if (existing != null)
+                {
+                    Assert.AreEqual("existing-content", ReadAllText(Path.Combine(existing, "sentinel.db")));
+                }
+                else
+                {
+                    CollectionAssert.AreEquivalent(new[] { "config.xml" }, Directory.GetFileSystemEntries(TodayPath(root)).Select(Path.GetFileName).ToArray());
+                    Assert.AreEqual("config-content", ReadAllText(Path.Combine(TodayPath(root), "config.xml")));
+                }
+                Assert.IsTrue((File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0);
+                Assert.AreEqual("target-content", ReadAllText(Path.Combine(target, "sentinel.db")));
+            }
+            finally
+            {
+                if (Directory.Exists(link))
+                {
+                    Directory.Delete(link);
+                }
+            }
+        });
+    }
+
+    private static void CreateDirectoryJunction(string link, string target)
+    {
+        PowerShellTestProcess.Run(
+                    PowerShellTestProcess.FindRepositoryRoot(),
+                    "$ErrorActionPreference = 'Stop'; New-Item -ItemType Junction -Path $env:BMS_TEST_JUNCTION_PATH -Target $env:BMS_TEST_JUNCTION_TARGET | Out-Null",
+                    "directory junction fixture",
+                    new Dictionary<string, string>
+                    {
+                        ["BMS_TEST_JUNCTION_PATH"] = link,
+                        ["BMS_TEST_JUNCTION_TARGET"] = target
+                    });
+        Assert.IsTrue((File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0);
+        Assert.AreEqual(target, new DirectoryInfo(link).ResolveLinkTarget(returnFinalTarget: true)?.FullName, ignoreCase: true);
     }
 
     private static void WithBackupTree(Action<string, string> test)

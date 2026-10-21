@@ -1203,5 +1203,8 @@
   "Playlist_import_estimation_group": "難度推定表",
   "Playlist_import_recommendation_group": "リコメンド",
   "Playlist_import_input_description": "絶対URLまたはファイルパスを1行に一つ入力してください。有効な行を選択に追加します。",
-  "Playlist_import_result_skipped_url_header": "同URLでスキップ:"
+  "Playlist_import_result_skipped_url_header": "同URLでスキップ:",
+  "Warn_LR2BackupOptimizationIncomplete": "LR2のバックアップは保存されましたが、データベースの最適化を完了できませんでした。",
+  "Error_DirectoryLinkCopyNotAllowedFormat": "フォルダへのリンク（ジャンクションなど）はコピーできません: {0}",
+  "Backup_destination_description": "この機能専用のフォルダを指定してください。保存先直下の今日以前の日付形式（yyyy-MM-dd）のフォルダは、作成元や内容に関係なく、世代整理で削除されることがあります。"
 }
