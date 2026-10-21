@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -66,6 +68,21 @@ internal sealed class PackageInstallDestinationMap
                 + (sourcePath ?? string.Empty));
         }
         return destinationPath;
+    }
+
+    /// <summary>ディレクトリ型の入力階層を保つ譜面相対パスを返し、推定時の資源配置と実導入の配置を揃えます。単独ファイルとルート外の譜面は従来どおりファイル名を使います。</summary>
+    internal static string GetRelativeChartPath(string sourceRootPath, string chartPath)
+    {
+        if (string.IsNullOrWhiteSpace(chartPath)) { return string.Empty; }
+        if (!string.IsNullOrWhiteSpace(sourceRootPath) && LongPathFileSystem.DirectoryExists(sourceRootPath))
+        {
+            string normalizedRoot = sourceRootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (chartPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                return chartPath.Substring(normalizedRoot.Length);
+            }
+        }
+        return Path.GetFileName(chartPath);
     }
 
     private static void AddDestination(

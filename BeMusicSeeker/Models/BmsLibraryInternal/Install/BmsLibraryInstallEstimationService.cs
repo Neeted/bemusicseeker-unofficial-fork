@@ -591,19 +591,20 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
     private static int CountBundled(IReadOnlyCollection<ChartResourceSnapshot.ResourceReference> references, ISet<uint> bundled)
         => bundled == null ? 0 : references.Count(reference => bundled.Contains(reference.RelativePathHash));
 
-    /// <summary>各対象譜面の確認結果から完全性と設定許可を別々に集約します。設定外値を丸めません。</summary>
+    /// <summary>実導入と同じ相対配置で各譜面の候補・同梱音源を照合し、完全性と設定許可を別々に集約します。設定外値を丸めません。</summary>
     private void EvaluateAudioPermission(InstallEstimationResult result, PackageInstallEstimationSnapshot snapshot, string directory,
         DirectoryResourceLookupCache.Entry bundled, DirectoryResourceLookupCache cache)
     {
-        var placement = new ChartResourcePlacement(ChartResourcePlacementBasis.Destination, directory, bundled, cache?.GetEntryOrNull(directory),
-            result.PendingBundledResourcesComplete);
+        DirectoryResourceLookupCache.Entry candidate = cache?.GetEntryOrNull(directory);
         result.AudioAutoApplyThreshold = options.InstallDestinationAutoApplyMinAudioHealth;
         bool allowed = result.AudioAutoApplyThreshold is >= 90 and <= 100 && snapshot?.SourceSurfaceScanLimitExceeded != true;
         InstallAudioCompleteness completeness = InstallAudioCompleteness.Complete;
-        IEnumerable<ChartResourceSnapshot> chartResources = snapshot?.TargetChartResources?.Count > 0
-            ? snapshot.TargetChartResources : new[] { snapshot?.DefinedResources };
-        foreach (ChartResourceSnapshot resources in chartResources)
+        IEnumerable<(ChartResourceSnapshot Resources, string RelativeDirectory)> chartResources = snapshot?.TargetChartResources?.Count > 0
+            ? snapshot.TargetChartResources : new[] { (snapshot?.DefinedResources, string.Empty) };
+        foreach ((ChartResourceSnapshot resources, string relativeDirectory) in chartResources)
         {
+            var placement = new ChartResourcePlacement(ChartResourcePlacementBasis.Destination, Path.Combine(directory, relativeDirectory), bundled, candidate,
+                result.PendingBundledResourcesComplete, relativeDirectory);
             InstallAudioEvaluation evaluation = placement.EvaluateAudioResources(resources);
             allowed &= evaluation.MeetsThreshold(result.AudioAutoApplyThreshold);
             if (evaluation.Completeness == InstallAudioCompleteness.Unverifiable) { completeness = InstallAudioCompleteness.Unverifiable; }

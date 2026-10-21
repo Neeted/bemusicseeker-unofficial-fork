@@ -243,20 +243,8 @@ internal sealed class BmsLibraryPackageInstallService
 
     private static string BuildDestinationChartPath(string sourceRootPath, string destinationDirectory, ChartFile chart)
     {
-        string chartPath = chart?.Path;
-        if (string.IsNullOrWhiteSpace(chartPath))
-        {
-            return string.Empty;
-        }
-        if (!string.IsNullOrWhiteSpace(sourceRootPath) && LongPathFileSystem.DirectoryExists(sourceRootPath))
-        {
-            string normalizedRootDirectory = sourceRootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            string relativePath = chartPath.StartsWith(normalizedRootDirectory, StringComparison.OrdinalIgnoreCase)
-                ? chartPath.Substring(normalizedRootDirectory.Length)
-                : Path.GetFileName(chartPath);
-            return Path.Combine(destinationDirectory, relativePath);
-        }
-        return Path.Combine(destinationDirectory, Path.GetFileName(chartPath));
+        string relativePath = PackageInstallDestinationMap.GetRelativeChartPath(sourceRootPath, chart?.Path);
+        return string.IsNullOrWhiteSpace(relativePath) ? string.Empty : Path.Combine(destinationDirectory, relativePath);
     }
 
     private static string ResolveChartDestinationPath(
@@ -696,7 +684,7 @@ internal sealed class BmsLibraryPackageInstallService
         return warnings;
     }
 
-    /// <summary>保留の導入先・候補・推定警告を消去し、登録時の健康度12値を復元します。現在の検査属性と同梱文脈を保ち、物理評価は行いません。</summary>
+    /// <summary>保留の導入先・候補・推定警告を消去し、登録時の健康度12値を復元します。現在の検査属性、同梱文脈と譜面相対配置を保ち、物理評価は行いません。</summary>
     internal static void ClearPendingInstallDestination(PackageChartEntry entry)
     {
         ResourceHealthMaintenanceSnapshot original = entry.GetOriginalResourceHealth();
@@ -720,13 +708,13 @@ internal sealed class BmsLibraryPackageInstallService
         };
         ChartResourcePlacement prior = entry.ResourcePlacement;
         var placement = new ChartResourcePlacement(ChartResourcePlacementBasis.Current, Path.GetDirectoryName(chart.Path),
-            prior?.BundledResources, bundledComplete: prior?.BundledResourcesComplete ?? true);
+            prior?.BundledResources, bundledComplete: prior?.BundledResourcesComplete ?? true, relativeDirectory: prior?.RelativeDirectory ?? string.Empty);
         using IDisposable deferredNotification = entry.DeferPropertyChangedNotifications();
         entry.ClearInstallDestination();
         ApplyCalculatedPendingResourceHealth(entry, restored, placement);
     }
 
-    /// <summary>一操作の同梱索引と候補索引を共有し、現在の導入先に対応する健康度を完了時に更新します。</summary>
+    /// <summary>一操作の同梱・候補索引を共有し、実導入と同じ譜面相対配置で健康度を更新します。パッケージを伴わない同じ項目の再評価では捕捉済みの配置文脈を引き継ぎます。</summary>
     internal static void RefreshPendingResourceHealth(IEnumerable<PackageChartEntry> entries, ChartPackage package, DirectoryResourceLookupCache cache, DirectoryResourceLookupCache.Entry capturedBundled = null, bool capturedBundledComplete = true)
     {
         List<PackageChartEntry> targets = [.. (entries ?? []).Where(entry => entry?.Chart != null)];
@@ -739,8 +727,10 @@ internal sealed class BmsLibraryPackageInstallService
         DirectoryResourceLookupCache.Entry bundled = capturedBundled ?? surface?.BundledResources;
         foreach (PackageChartEntry entry in targets)
         {
+            string relativeDirectory = package == null ? entry.ResourcePlacement?.RelativeDirectory ?? string.Empty
+                : Path.GetDirectoryName(PackageInstallDestinationMap.GetRelativeChartPath(package.path, entry.Chart.Path)) ?? string.Empty;
             var placement = ChartResourcePlacement.Select(entry.Chart, bundled ?? entry.ResourcePlacement?.BundledResources, cache,
-                bundled != null ? bundledComplete : entry.ResourcePlacement?.BundledResourcesComplete ?? bundledComplete);
+                bundled != null ? bundledComplete : entry.ResourcePlacement?.BundledResourcesComplete ?? bundledComplete, relativeDirectory);
             ApplyPendingResourceHealthProjection(entry, out _, placement);
         }
     }

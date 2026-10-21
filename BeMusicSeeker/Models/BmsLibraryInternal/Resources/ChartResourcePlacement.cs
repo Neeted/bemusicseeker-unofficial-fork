@@ -29,18 +29,21 @@ internal readonly record struct InstallAudioEvaluation(InstallAudioCompleteness 
         && (Required == 0 || 100L * Existing >= (long)threshold * Required);
 }
 
-/// <summary>一操作で捕捉した不変の配置文脈です。同梱・候補の変更不能な索引を共有し、行ごとに複製しません。</summary>
+/// <summary>一操作で捕捉した不変の配置文脈です。同梱・候補の索引を共有し、索引ルートから譜面までの相対位置を両方の照合へ適用します。</summary>
 internal sealed class ChartResourcePlacement(
     ChartResourcePlacementBasis basis,
     string directory,
     DirectoryResourceLookupCache.Entry bundled = null,
     DirectoryResourceLookupCache.Entry candidate = null,
-    bool bundledComplete = true)
+    bool bundledComplete = true,
+    string relativeDirectory = "")
 {
     /// <summary>確認基準です。</summary>
     internal ChartResourcePlacementBasis Basis { get; } = basis;
     /// <summary>資源を配置したとみなすディレクトリです。</summary>
     internal string Directory { get; } = directory;
+    /// <summary>同梱・候補索引のルートから譜面までの相対ディレクトリです。現在配置への復元や同じ項目の再評価にも引き継ぎます。</summary>
+    internal string RelativeDirectory { get; } = relativeDirectory ?? string.Empty;
 
     /// <summary>捕捉した同梱だけの索引です。現在配置や候補の物理存在とは独立しています。</summary>
     internal DirectoryResourceLookupCache.Entry BundledResources => bundled;
@@ -62,7 +65,7 @@ internal sealed class ChartResourcePlacement(
             };
             return extensions.Length == 0 ? null : ChartResourceExistence.ExistsWithCompatibleExtensions(Directory, key, extensions);
         }
-        uint hash = ChartResourceKeyHash.GetLookupHash(key);
+        uint hash = ChartResourceKeyHash.GetLookupHash(string.IsNullOrEmpty(RelativeDirectory) ? key : Path.Combine(RelativeDirectory, key));
         bool Contains(DirectoryResourceLookupCache.Entry entry) => kind switch
         {
             ChartResourceKind.Audio => entry?.ContainsAudioRelativePathHash(hash) == true,
@@ -105,14 +108,14 @@ internal sealed class ChartResourcePlacement(
             existing ?? 0, resources.AudioReferenceCount);
     }
 
-    /// <summary>設定先、先頭候補、現在配置の順で選びます。入力元親全体を同梱とはみなしません。</summary>
-    internal static ChartResourcePlacement Select(ChartFile chart, DirectoryResourceLookupCache.Entry bundled, DirectoryResourceLookupCache cache, bool bundledComplete = true)
+    /// <summary>設定先、先頭候補、現在配置の順で選びます。導入先には譜面相対配置を適用し、入力元は実際の譜面親を使います。索引は導入先ルートのまま共有します。</summary>
+    internal static ChartResourcePlacement Select(ChartFile chart, DirectoryResourceLookupCache.Entry bundled, DirectoryResourceLookupCache cache, bool bundledComplete = true, string relativeDirectory = "")
     {
         bool configured = !string.IsNullOrWhiteSpace(chart.InstallDestination);
         string destination = configured ? chart.InstallDestination : chart.InstallDestinationSuggestions.FirstOrDefault();
         return string.IsNullOrWhiteSpace(destination)
-            ? new(ChartResourcePlacementBasis.Current, Path.GetDirectoryName(chart.Path), bundled, bundledComplete: bundledComplete)
+            ? new(ChartResourcePlacementBasis.Current, Path.GetDirectoryName(chart.Path), bundled, bundledComplete: bundledComplete, relativeDirectory: relativeDirectory)
             : new(configured ? ChartResourcePlacementBasis.Destination : ChartResourcePlacementBasis.FirstCandidate,
-                destination, bundled, cache?.GetEntryOrNull(destination), bundledComplete);
+                Path.Combine(destination, relativeDirectory ?? string.Empty), bundled, cache?.GetEntryOrNull(destination), bundledComplete, relativeDirectory);
     }
 }

@@ -30,6 +30,10 @@ BMS/PMSの未定義WAV/BMP IDとBMSONの参照先ヘッダーのないBGA/LAYER/
 
 通常の導入推定では、候補のリソース `C` とパッケージが持ち込む `BundledResources` の集合 `S` の和集合を評価します。手動推定では既所持だけのパッケージも同じ入口を使います。再導入先の修正では、候補のリソースだけを評価します。
 
+各譜面の音源充足は、実導入と同じパッケージ内相対階層を保った最終譜面ディレクトリで判定します。候補と同梱の両索引をその位置に揃え、親直下にある同名音源で子譜面の不足を満たしたことにしません。単独譜面は導入先直下を使います。推定入力には各譜面の使用集合と相対配置を一緒に保持し、既存の物理配置や入力受理範囲は変えません。
+
+保留項目の健康度と不足警告も同じ相対配置で評価し、自動許可の判定と一致させます。設定先、先頭候補、入力元の優先順は維持し、候補と同梱は導入先ルートの索引を共有します。パッケージを伴わない同じ項目の再評価や導入先のクリアでも、捕捉済みの同梱・完全性・相対配置を引き継ぎます。入力元へ戻す場合は実際の譜面親を使い、相対位置を二重に付けません。配置表示の更新で登録時の元健康度を書き換えません。
+
 ディレクトリ単位のパッケージは、そのルートだけを再帰的に調べます。一ルートあたりの訪問上限は50000件です。上限を越えた時点で止め、部分結果を推定に使わず `SourceSurfaceScanLimitExceeded` を付けます。複数パッケージの合計件数ではありません。全件を先に取得する方式ではなく、訪問中に上限を確認します。
 
 列挙の失敗分類、継続条件と不完全性は[上限付き入力元列挙](../core/path-length-and-io.md#推定用探索の上限)に従います。
@@ -322,6 +326,7 @@ ownerから完了・失敗receiverまで、成功として公開できる初段�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| パッケージ内の子譜面の最終配置における音源充足・保留表示と自動導入 | `PackageInstallEstimationSnapshotBuilder`、`PackageInstallDestinationMap`、`ChartResourcePlacement`、`BmsLibraryInstallEstimationService`、`BmsLibraryPackageInstallService.RefreshPendingResourceHealth` | [`BmsLibraryInstallEstimationServiceTests.Estimate_NestedPackageChartRequiresAudioAtFinalRelativePlacement`](../../../BeMusicSeeker.Tests/Install/BmsLibraryInstallEstimationServiceTests.cs) は候補・同梱それぞれの親だけの音源を拒み、子音源を認める4条件を、実パッケージの推定入力から同じ項目への適用・健康度再評価まで確認する。自動許可と件数・健康度・不足警告の一致、最終子配置、候補と元健康度の保持を確認し、同梱子音源の代表条件ではクリア後の配置文脈も確認する。[`PackageInstallWorkflowOwnerTests.AutomaticContinuation_NestedChartUsesFinalAudioPlacement`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerAutomaticContinuationTests.cs) は実取り込みから、親だけの場合の元FS・保留・install保持、正確な子項目の件数1/0・健康度0・不足警告・候補保持と、子にある場合の階層を保つ導入・song・所持反映を確認する。閾値境界と兄弟譜面の不足条件は既存の推定サービス系列が分担する。 |
 | 取り込み後の正常な自動推定だけからの導入、設定OFF・対象限定・再グループ化 | `BMSLibrary`、`BMSLibrary.PackageInstall`、`BmsLibraryPackageInstallService` | [`PackageInstallWorkflowOwnerAutomaticContinuationTests`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerAutomaticContinuationTests.cs) の `AutomaticContinuation_UsesCapturedSettingsAndRegroupedSource` は設定ON/OFF・元削除ON/OFF・推定中の反転と次操作、再グループ化後の同梱物・実ファイル・SQLite・所持集合・保留／導入済みを確認する。`AutomaticContinuation_DoesNotExpandIntoUntrackedRegroupedSibling` は既存の未所持兄弟混在時の全体保留を確認する。混在分類は `PackageInstallWorkflowOwnerEstimationTests`、自動設定の条件表は `BmsLibraryInstallEstimationServiceTests`、再グループ化の条件表は `BmsLibraryPendingPackageRegroupTests` へ分担する。 |
 | 手動推定・復元・候補編集からの非起動 | `PendingPackageWorkflowOwner`、`BMSLibrary` | `PackageInstallWorkflowOwnerTests.AutomaticContinuation_DoesNotRunAfterManualEstimation` は新設定有効の実モデルの手動推定後も物理導入・保留除去しないことを確認する。手動owner、候補編集・修正・復元は既存の `PendingPackageWorkflowOwnerTests`、`BmsLibraryPendingPackageRegroupTests`、`BmsLibraryPackageLifecycleTests`、`BmsLibraryInitializationInstallTests` が分担する。 |
 | 後段の取消・対象別競合・停止と受付寿命 | `BMSLibrary.PackageInstall`、`BmsLibraryPackageInstallService`、`PackageInstallWorkflowOwner` | `PackageInstallWorkflowOwnerAutomaticContinuationTests` の `AutomaticContinuation_WaitsForStopAndCancelsOnlyBetweenPackages` は実停止Taskと物理処理の到達点で制御し、停止前の未書込み、現パッケージ完了・次の未開始保留、部分成功と受付終端を確認する。LR2有効行は停止Task中の追加P保持、取消後の必要同期とL/P解放も確認する。`AutomaticContinuation_ExcludesOnlyPlaylistBusyTargetWithoutReplay` は交差Xの未実行と独立A/Bの一括確定、P解放後の非再実行を確認する。推定失敗・取消の全joinは既存の `PackageInstallWorkflowOwnerEstimationTests`、管理・借用入力は既存のarchive系列が分担する。 |

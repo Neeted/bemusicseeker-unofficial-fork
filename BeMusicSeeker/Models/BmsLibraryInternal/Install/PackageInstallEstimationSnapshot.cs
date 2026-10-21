@@ -98,8 +98,8 @@ internal sealed class PackageInstallEstimationSnapshot
     /// <summary>取得済みの使用集合です。未捕捉のnullを正常な0件へ補完しません。</summary>
     public ChartResourceSnapshot DefinedResources { get; set; }
 
-    /// <summary>集約充足率で個別譜面の不足を隠さないため、同じ対象群の取得済み使用集合を保持します。</summary>
-    public IReadOnlyList<ChartResourceSnapshot> TargetChartResources { get; set; } = [];
+    /// <summary>個別譜面の不足を隠さないため、取得済み使用集合と、導入先ルートから実際の譜面配置までの相対ディレクトリを保持します。</summary>
+    public IReadOnlyList<(ChartResourceSnapshot Resources, string RelativeDirectory)> TargetChartResources { get; set; } = [];
 
     public InstallEstimationMetadataProfile TargetMetadataProfile { get; set; } = InstallEstimationMetadataProfile.Empty;
 
@@ -186,6 +186,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
 {
     internal const int DefaultSourceSurfaceMaxVisitedFileSystemEntries = 50000;
 
+    /// <summary>捕捉済みの使用集合と同梱索引に、実導入と同じパッケージ内の譜面相対配置を付けて推定入力を作ります。</summary>
     internal static PackageInstallEstimationSnapshot Build(ChartPackage package, IEnumerable<PackageChartEntry> targetEntries, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false, ChartResourceSnapshot definedResources = null)
     {
         List<PackageChartEntry> normalizedTargetEntries = NormalizeEntries(targetEntries);
@@ -195,7 +196,8 @@ internal static class PackageInstallEstimationSnapshotBuilder
             RepresentativeChart = representativeEntry?.Chart,
             DefinedResources = definedResources ?? ChartResourceSnapshot.CreateAggregate(normalizedTargetEntries.Select(entry => entry.Chart)),
             TargetMetadataProfile = BuildTargetMetadataProfile(normalizedTargetEntries),
-            TargetChartResources = normalizedTargetEntries.Select(entry => ChartResourceSnapshot.Create(entry.Chart)).ToArray(),
+            TargetChartResources = normalizedTargetEntries.Select(entry => (ChartResourceSnapshot.Create(entry.Chart),
+                Path.GetDirectoryName(PackageInstallDestinationMap.GetRelativeChartPath(package?.path, entry.Chart.Path)) ?? string.Empty)).ToArray(),
             BundledResources = installSurfaceSnapshot?.BundledResources?.Clone(),
             SourceCandidateResources = installSurfaceSnapshot?.SourceCandidateResources?.Clone() ?? new DirectoryResourceLookupCache.Entry(),
             SourceDirectory = installSurfaceSnapshot?.SourceDirectory ?? ResolveSourceDirectory(package?.path),
@@ -216,7 +218,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
     }
 
     /// <summary>
-    /// Builds a loose-chart estimation snapshot without treating the representative chart's parent as a package surface.
+    /// 単独譜面は導入先直下に配置し、代表譜面の親を同梱範囲とみなさず推定入力を作ります。
     /// </summary>
     internal static PackageInstallEstimationSnapshot BuildForLooseEntries(IEnumerable<PackageChartEntry> targetEntries)
     {
@@ -229,7 +231,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
             RepresentativeChart = representativeEntry?.Chart,
             DefinedResources = ChartResourceSnapshot.CreateAggregate(normalizedTargetEntries.Select(entry => entry.Chart)),
             TargetMetadataProfile = BuildTargetMetadataProfile(normalizedTargetEntries),
-            TargetChartResources = normalizedTargetEntries.Select(entry => ChartResourceSnapshot.Create(entry.Chart)).ToArray(),
+            TargetChartResources = normalizedTargetEntries.Select(entry => (ChartResourceSnapshot.Create(entry.Chart), string.Empty)).ToArray(),
             BundledResources = sourceSurfaceSnapshot.BundledResources.Clone(),
             SourceCandidateResources = sourceSurfaceSnapshot.SourceCandidateResources.Clone(),
             SourceDirectory = sourceSurfaceSnapshot.SourceDirectory,

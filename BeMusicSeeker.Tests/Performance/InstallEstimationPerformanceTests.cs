@@ -155,7 +155,7 @@ public sealed class InstallEstimationPerformanceTests
             RepresentativeChart = chart,
             SourceDirectory = @"C:\Pending",
             DefinedResources = resources,
-            TargetChartResources = [resources],
+            TargetChartResources = [(resources, string.Empty)],
             TargetMetadataProfile = InstallEstimationMetadataNormalizer.BuildProfile([("Target Work", "Composer X", chart.Path)]),
             BundledResources = new DirectoryResourceLookupCache.Entry(
                 resources.AudioReferences.Take(suppliedCount).Select(reference => reference.RelativePathHash), [], []),

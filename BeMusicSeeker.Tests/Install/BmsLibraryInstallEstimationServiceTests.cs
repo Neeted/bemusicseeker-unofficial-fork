@@ -14,6 +14,74 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryInstallEstimationServiceTests
 {
+    /// <summary>パッケージの子譜面は最終子配置の音源だけで充足させ、候補・同梱の親だけの音源を自動許可と同じ項目の健康度・不足警告で拒みます。候補と元健康度を保ち、同梱子音源の代表条件ではクリア後も相対配置を失いません。</summary>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void Estimate_NestedPackageChartRequiresAudioAtFinalRelativePlacement(bool bundled, bool audioInChild)
+    {
+        WithWorkspace((root, _) =>
+        {
+            string source = Path.Combine(root, "Source");
+            string child = Path.Combine(source, "sub");
+            Directory.CreateDirectory(child);
+            string chartPath = Path.Combine(child, "new.bms");
+            File.WriteAllText(chartPath, "#TITLE Song\n#ARTIST Artist\n#WAV01 tone.wav\n#00111:01\n", Encoding.ASCII);
+            var entry = PackageChartEntry.FromPath(chartPath);
+            var package = ChartPackage.FromChartEntries([entry]);
+            package.path = source;
+            string relativeAudio = audioInChild ? Path.Combine("sub", "tone.wav") : "tone.wav";
+            if (bundled) { File.WriteAllBytes(Path.Combine(source, relativeAudio), [1]); }
+            BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
+            ResourceHealthMaintenanceSnapshot original = entry.GetOriginalResourceHealth();
+            PackageInstallSurfaceSnapshot surface = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(source);
+            PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.Build(package, [entry], surface, false);
+            string destination = Path.Combine(root, "Destination");
+            var cache = new DirectoryResourceLookupCache();
+            cache.AddDir(destination, bundled ? [] : new[] { relativeAudio });
+            var service = new BmsLibraryInstallEstimationService(new BmsLibraryOptionsSnapshot { InstallDestinationAutoApplyMinAudioHealth = 100 });
+
+            InstallEstimationResult result = service.EvaluateInstalledChartHashDestination(destination, [entry], _ => snapshot.TargetMetadataProfile, snapshot, cache);
+
+            Assert.IsTrue(result.HasViableDestination);
+            Assert.AreEqual(destination, result.SelectedCandidate.DirectoryPath);
+            Assert.AreEqual(audioInChild ? InstallAudioCompleteness.Complete : InstallAudioCompleteness.Missing, result.AudioCompleteness);
+            Assert.AreEqual(audioInChild, result.AudioAutoApplyAllowed);
+            Assert.AreEqual(audioInChild, result.ShouldAutoApplyDestination);
+
+            entry.ApplyInstallEstimationResult(result);
+            BmsLibraryPackageInstallService.RefreshPendingResourceHealth([entry], package, cache, snapshot.BundledResources, snapshot.SourceSurfaceIsComplete);
+
+            ResourceHealthMaintenanceSnapshot health = entry.Chart.ResourceHealthMaintenanceSnapshot;
+            Assert.AreEqual(1, health.WavFilesDefined);
+            Assert.AreEqual(audioInChild ? 1 : 0, health.WavFilesExisting);
+            Assert.AreEqual(audioInChild ? 100 : 0, entry.Chart.WAVHealth);
+            Assert.AreEqual(!audioInChild, entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.AreEqual(Path.Combine(destination, "sub"), entry.ResourcePlacement.Directory);
+            Assert.AreEqual(audioInChild ? destination : string.Empty, entry.Chart.InstallDestination);
+            CollectionAssert.AreEqual(audioInChild ? Array.Empty<string>() : new[] { destination }, entry.Chart.InstallDestinationSuggestions.ToArray());
+            Assert.AreSame(original, entry.GetOriginalResourceHealth());
+            Assert.AreEqual(1, original.WavFilesDefined);
+            Assert.AreEqual(bundled && audioInChild ? 1 : 0, original.WavFilesExisting);
+
+            if (bundled && audioInChild)
+            {
+                // 入力元へ戻す代表条件だけで、同梱と相対位置の保持およびCurrent基準の二重prefix防止を確認する。
+                ChartResourcePlacement prior = entry.ResourcePlacement;
+                BmsLibraryPackageInstallService.ClearPendingInstallDestination(entry);
+                Assert.AreEqual(child, entry.ResourcePlacement.Directory);
+                Assert.AreEqual("sub", entry.ResourcePlacement.RelativeDirectory);
+                Assert.AreEqual(true, entry.ResourcePlacement.Exists("tone", ChartResourceKind.Audio));
+                Assert.AreSame(prior.BundledResources, entry.ResourcePlacement.BundledResources);
+                Assert.AreEqual(prior.BundledResourcesComplete, entry.ResourcePlacement.BundledResourcesComplete);
+                Assert.AreEqual(100, entry.Chart.WAVHealth);
+                Assert.AreSame(original, entry.GetOriginalResourceHealth());
+            }
+        });
+    }
+
     /// <summary>対象群の和集合90%でBothを選びつつ、各譜面の最終音源許可は不足する兄弟を個別に拒否します。</summary>
     [TestMethod]
     public void Estimate_GroupSourceUnionDoesNotHideIndividualAudioDeficit()
@@ -28,7 +96,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         {
             RepresentativeChart = first,
             DefinedResources = ChartResourceSnapshot.CreateAggregate([first, second]),
-            TargetChartResources = [ChartResourceSnapshot.Create(first), ChartResourceSnapshot.Create(second)],
+            TargetChartResources = [(ChartResourceSnapshot.Create(first), string.Empty), (ChartResourceSnapshot.Create(second), string.Empty)],
             TargetMetadataProfile = InstallEstimationMetadataNormalizer.BuildProfile([("Song", "Artist", "a")]),
             SourceDirectory = @"C:\Source",
             BundledResources = cache.GetEntryOrNull(@"C:\Source")
@@ -107,7 +175,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         {
             RepresentativeChart = chart,
             DefinedResources = resources,
-            TargetChartResources = [resources],
+            TargetChartResources = [(resources, string.Empty)],
             TargetMetadataProfile = InstallEstimationMetadataNormalizer.BuildProfile([("abc", "abc", "target")]),
             SourceDirectory = @"C:\Source",
             BundledResources = cache.GetEntryOrNull(@"C:\Source")

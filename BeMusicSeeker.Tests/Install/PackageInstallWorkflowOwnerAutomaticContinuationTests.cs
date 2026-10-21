@@ -18,6 +18,59 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class PackageInstallWorkflowOwnerTests
 {
+    /// <summary>既所持の親譜面から解決した候補でも、子譜面の実配置で音源閾値を満たさなければ元FS・保留・installと候補を保ち、子項目の健康度0・不足警告へ揃えます。子配置に音源がある場合だけ階層を保って導入し、song・所持集合へ反映します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task AutomaticContinuation_NestedChartUsesFinalAudioPlacement(bool audioInChild)
+    {
+        await using var fixture = new AutomaticContinuationFixture(true, false, nestedAudio: audioInChild);
+        string child = fixture.WriteInput(Path.Combine("Input", "sub"), "new.bms", "new");
+        string source = Path.Combine(fixture.Root, "Input");
+        string existingSource = Path.Combine(source, "owned.bms");
+        File.Copy(Path.Combine(fixture.Destination, "owned.bms"), existingSource);
+        string sourceChart = Path.Combine(child, "new.bms");
+        byte[] sourceBytes = File.ReadAllBytes(sourceChart);
+        byte[] existingBytes = File.ReadAllBytes(existingSource);
+        await fixture.InitializeAsync();
+
+        Assert.IsTrue(fixture.Owner.Enqueue([source]));
+        await fixture.Owner.WaitForIdleAsync();
+
+        Assert.IsNull(fixture.Failure, fixture.Failure?.Exception.ToString());
+        Assert.AreEqual(audioInChild ? 0 : 1, fixture.Library.ChartPackagesPending.Count);
+        Assert.AreEqual(audioInChild ? 1 : 0, fixture.Library.ChartPackagesInstalled.Count);
+        string destinationChart = Path.Combine(fixture.Destination, "sub", "new.bms");
+        Assert.AreEqual(audioInChild, File.Exists(destinationChart));
+        Assert.IsFalse(File.Exists(Path.Combine(fixture.Destination, "new.bms")), "子譜面を候補直下へ平坦化しません。");
+        Assert.AreEqual(audioInChild, fixture.Library.BmsCharts.Any(chart => chart.Path == destinationChart));
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly();
+        Assert.AreEqual(audioInChild, db.Find<LR2SongDB.song>(destinationChart) != null);
+        Assert.AreEqual(audioInChild ? 0 : 1, db.Table<LR2SongDBExtended.install>().Count());
+        if (audioInChild)
+        {
+            Assert.IsNotNull(fixture.Result);
+            CollectionAssert.AreEqual(sourceBytes, File.ReadAllBytes(destinationChart));
+            Assert.IsTrue(File.Exists(Path.Combine(fixture.Destination, "sub", "sound.wav")));
+            Assert.IsTrue(fixture.Result.EstimatedInstallReceipt?.DurableCommit == true);
+        }
+        else
+        {
+            Assert.AreEqual(source, fixture.Library.ChartPackagesPending.Single().path);
+            PackageChartEntry pendingChild = fixture.Library.ChartPackagesPending.Single().ChartEntries.Single(entry => entry.Chart.Path == sourceChart);
+            Assert.AreEqual(1, pendingChild.Chart.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
+            Assert.AreEqual(0, pendingChild.Chart.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
+            Assert.AreEqual(0, pendingChild.Chart.WAVHealth);
+            Assert.IsTrue(pendingChild.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            CollectionAssert.AreEqual(new[] { fixture.Destination }, pendingChild.Chart.InstallDestinationSuggestions.ToArray());
+            Assert.AreEqual(source, db.Table<LR2SongDBExtended.install>().Single().path);
+            CollectionAssert.AreEqual(sourceBytes, File.ReadAllBytes(sourceChart));
+            CollectionAssert.AreEqual(existingBytes, File.ReadAllBytes(existingSource));
+            // 導入0件の正常終端は完了通知を発行しないため、保留・DB・FSを上で直接観測します。
+            Assert.IsNull(fixture.Result);
+        }
+    }
+
     /// <summary>開始時の自動導入・元削除設定を推定中の変更から分離し、再グループ化後のディレクトリと同梱物を導入します。次操作だけが変更後設定を使います。</summary>
     [TestMethod]
     [DataRow(true, false)]
@@ -439,20 +492,30 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         internal PackageInstallCommandResult? Result { get; private set; }
         private readonly ConcurrentQueue<Func<Task>> background = new();
 
+        /// <summary>実FSと捕捉する走査結果を同じ内容で準備し、必要な場合だけ最終子配置にも音源を置きます。</summary>
         internal AutomaticContinuationFixture(bool enabled, bool deleteSource, bool holdPlayback = false,
-            ChartFileOperationSynchronizer? operationAdmission = null, ChartFileOperationSynchronizer? playlistOperationAdmission = null, IUiScheduler? uiScheduler = null)
+            ChartFileOperationSynchronizer? operationAdmission = null, ChartFileOperationSynchronizer? playlistOperationAdmission = null, IUiScheduler? uiScheduler = null, bool nestedAudio = false)
         {
             Directory.CreateDirectory(Destination);
             string installed = Path.Combine(Destination, "owned.bms");
             File.WriteAllText(installed, CreateValidBmsText("Song"), Encoding.ASCII);
-            foreach (string sound in new[] { "sound.wav", "a.wav", "b.wav", "previous.wav" })
-            { File.WriteAllBytes(Path.Combine(Destination, sound), [1]); }
+            List<string> sounds = ["sound.wav", "a.wav", "b.wav", "previous.wav"];
+            if (nestedAudio)
+            {
+                Directory.CreateDirectory(Path.Combine(Destination, "sub"));
+                sounds.Add(Path.Combine("sub", "sound.wav"));
+            }
+            foreach (string sound in sounds)
+            {
+                string path = Path.Combine(Destination, sound);
+                File.WriteAllBytes(path, [1]);
+            }
             File.WriteAllBytes(Database, []);
             Options = CreateOptions(enabled, deleteSource);
             ChartFileOperationSynchronizer admission = operationAdmission ?? new ChartFileOperationSynchronizer();
             Library = new TestBmsLibrary(Database, null, null, Files, new FileDbReportRecordingDialogs(),
                 uiScheduler ?? new TestUiScheduler(() => null), () => Options,
-                CapturedChartFileScanner.FromFixture([installed], new Dictionary<string, IEnumerable<string>> { [Destination] = ["sound.wav", "a.wav", "b.wav", "previous.wav"] }, [Destination]),
+                CapturedChartFileScanner.FromFixture([installed], new Dictionary<string, IEnumerable<string>> { [Destination] = sounds }, [Destination]),
                 Observer, admission, playlistOperationAdmission, rootFileEnumerator: new FastRootFileEnumerator())
             {
                 SearchTargets = [LibraryRoot],
@@ -472,6 +535,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             LR2CustomFolderOutputBaseDir = managed,
             ScanBmsFilesOnStartup = true,
             AutoInstallAfterAutomaticEstimation = enabled,
+            InstallDestinationAutoApplyMinAudioHealth = 100,
             DeletePendingPackageSourceAfterInstall = deleteSource,
             KeepInstallablePackagesPending = keepNewPending,
             BMSInstallDir = LibraryRoot,
