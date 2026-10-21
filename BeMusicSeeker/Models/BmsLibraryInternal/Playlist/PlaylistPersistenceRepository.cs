@@ -531,7 +531,7 @@ internal sealed class PlaylistPersistenceRepository
         return string.Join(separator, [playlistDump, courseDump, entryDump]);
     }
 
-    /// <summary>三表をSQLから復元し、旧形式のbmt_sortとis_bmt_outputだけを補正して他列の原値を保ちます。途中失敗では旧三表を保持します。</summary>
+    /// <summary>三表をSQLから復元し、旧BMT設定の二列だけを補正して出力状態を無効化します。途中失敗では旧三表と出力状態を保持します。</summary>
     internal void LoadPlaylistDump(string sql)
     {
         if (sql == null)
@@ -565,6 +565,8 @@ internal sealed class PlaylistPersistenceRepository
                         table.bmt_sort, table.is_bmt_output, table.playlist_id);
                 }
             }
+            // 同じID・ハッシュ・更新日時のバックアップでも、復元前の出力を現行とは扱いません。
+            db.Execute("DELETE FROM playlist_custom_folder_output_status;");
             db.Commit();
         }
         catch

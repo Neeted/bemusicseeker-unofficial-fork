@@ -903,7 +903,7 @@ public partial class BMSPlaylist : ObservableObject
             },
             (tables, reason, capability) => BmtOutput.ExportTablesAsync(tables, reason, capability),
             ApplyCachedPlaylistUrlCompletionToTables,
-            ReOutputCustomFoldersAfterExternalReload,
+            ReOutputCustomFoldersAfterContentReplacement,
             capability => AcquirePlaylistMutationLease("external_playlist_mutation", capability: capability),
             PublishReferenceTableUpdates);
         externalSyncOwner = externalSyncOwnerLocal;
@@ -1195,6 +1195,7 @@ public partial class BMSPlaylist : ObservableObject
 
     /// <summary>
     /// 復元の DB ロック・transaction・ヘッダー読込を worker で実行し、UI 一覧適用と必要出力・公開の実終端までPを保持します。
+    /// 復元前の物理配置・出力状態にかかわらず、復元した内容でカスタムフォルダ本文とLR2行を再生成します。
     /// commit 後の読込・UI 失敗は復元 DB を保持したまま伝播し、再試行や巻戻しを行いません。
     /// 必須公開・出力後の任意URL補完予約や診断失敗は局所で終え、復元成功を取り消しません。
     /// </summary>
@@ -1253,7 +1254,8 @@ public partial class BMSPlaylist : ObservableObject
                 {
                     bool rootOutputSearchRootsChanged = SyncRootFolderOutputDirectoriesToLr2Config();
                     await HydrateRequiredAsync("RestorePlaylist", exportBeatorajaBmt: true,
-                        verifyRootOutputDirectoryRows: rootOutputSearchRootsChanged, authority).ConfigureAwait(false);
+                        verifyRootOutputDirectoryRows: rootOutputSearchRootsChanged, authority,
+                        forceCustomFolderOutput: true).ConfigureAwait(false);
                 }
                 catch (Exception exception)
                 {
@@ -1284,7 +1286,7 @@ public partial class BMSPlaylist : ObservableObject
         });
     }
 
-    private async Task<Lr2SongDbSyncPreparedDataSurface> HydrateRequiredAsync(string reason, bool exportBeatorajaBmt, bool verifyRootOutputDirectoryRows, LibraryFileMutationCapability capability, bool prepareAllCustomFolders = false, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot settings = null, bool forceBeatorajaBmtProjection = false)
+    private async Task<Lr2SongDbSyncPreparedDataSurface> HydrateRequiredAsync(string reason, bool exportBeatorajaBmt, bool verifyRootOutputDirectoryRows, LibraryFileMutationCapability capability, bool prepareAllCustomFolders = false, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot settings = null, bool forceBeatorajaBmtProjection = false, bool forceCustomFolderOutput = false)
     {
         OperationProgressRequest progressRequest = null;
         ExceptionDispatchInfo referenceFailure = null;
@@ -1305,6 +1307,12 @@ public partial class BMSPlaylist : ObservableObject
                 preparedSurface = await Task.Run(() => ReOutputAllCustomFoldersForLr2SongDbSyncUnderExistingReservation(
                     reason, capability, (stage, processed, total) => PublishCustomFolderOutputRepairProgress(
                         CustomFolderOutputRepairProgressReporter, processed, total, stage, progressRequest), settings)).ConfigureAwait(false);
+            }
+            else if (forceCustomFolderOutput)
+            {
+                List<BMSTable> tables;
+                using (rwlockBMSTables.GetReaderGuard()) { tables = [.. BMSTables]; }
+                await Task.Run(() => ReOutputCustomFoldersAfterContentReplacement(tables, reason, capability)).ConfigureAwait(false);
             }
             else
             {
@@ -2306,7 +2314,8 @@ public partial class BMSPlaylist : ObservableObject
         return result;
     }
 
-    private void ReOutputCustomFoldersAfterExternalReload(
+    /// <summary>外部再取得・SQL復元で置換された内容を、既存の配置や時刻による省略をせず本文とLR2行へ反映します。</summary>
+    private void ReOutputCustomFoldersAfterContentReplacement(
         IReadOnlyList<BMSTable> bmsTables,
         string reason, LibraryFileMutationCapability capability = null)
     {
@@ -2341,14 +2350,14 @@ public partial class BMSPlaylist : ObservableObject
         PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderOutputPreparation preparation =
             customFolderOutputMaintenanceOwner.PrepareTables(
                 activeTables,
-                "playlist_external_reload_custom_folder_output",
+                "playlist_content_replacement_custom_folder_output",
                 forceWriteAllFiles: true,
                 throwOnProjectionFailure: true,
                 settings: settings);
 
         CustomFolderBatchOutputResult result;
         using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(
-            "ExternalPlaylistReloadCustomFolderOutput", capability: capability))
+            "PlaylistContentReplacementCustomFolderOutput", capability: capability))
         using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
         {
             // Projection, physical materialization, and LR2 folder-row sync all run
@@ -2356,7 +2365,7 @@ public partial class BMSPlaylist : ObservableObject
             result = customFolderOutputMaintenanceOwner.ReOutputPreparedTablesAsync(
                 preparation,
                 reason,
-                "playlist_external_reload_custom_folder_output",
+                "playlist_content_replacement_custom_folder_output",
                 buildPreparedDataSurface: false,
                 yieldBetweenTables: false,
                 syncMaterialization: request => SyncCustomFolderRowsBatch(request, mutationCapability))
@@ -2367,7 +2376,7 @@ public partial class BMSPlaylist : ObservableObject
         if (result.HasUnverifiedFiles)
         {
             throw new InvalidOperationException(
-                "Custom-folder output could not verify one or more existing files after external playlist reload.");
+                "Custom-folder output could not verify one or more existing files after playlist content replacement.");
         }
     }
 

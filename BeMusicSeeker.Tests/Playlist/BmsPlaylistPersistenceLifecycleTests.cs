@@ -1091,6 +1091,110 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>接頭辞変更後の同じID・更新日時・ハッシュを持つ表へSQLを復元し、実出力の検索条件とfolder行が復元済み項目に一致するまで待つことを確認します。</summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task PlaylistRestore_RebuildsCurrentOutputAfterPrefixOnlyChange()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "playlist-restore-output-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsPlaylist? playlist = null;
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string bmsRoot = Path.Combine(directory, "BMS");
+            Directory.CreateDirectory(bmsRoot);
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2RootPath = Path.Combine(directory, "LR2");
+            testSettings.LR2CustomFolderOutputBaseDir = Path.Combine(bmsRoot, "CustomFolder");
+            testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(directory, "RootOutput");
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            LR2Config config = CreateLr2Config(testSettings.LR2RootPath, bmsRoot);
+            var table = new BMSTable
+            {
+                playlist_id = 8012,
+                name = "RestorePrefix",
+                symbol = "RP",
+                Output_dir = "RestorePrefix",
+                compat_prefix = "A",
+                folder_sort_key = LR2SongDBExtended.playlist.CustomFolderSortType.NONE,
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                entries = [CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "A1")],
+                Folder_order = ["A1"]
+            };
+            table.entries.Single().playlist_id = table.playlist_id;
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+                setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                setup.InsertOrReplace(table.entries.Single(), typeof(LR2SongDBExtended.playlist_entry));
+                setup.InsertOrReplace(new LR2SongDB.song
+                {
+                    path = Path.Combine(bmsRoot, "chart.bms"),
+                    hash = table.entries.Single().md5,
+                    title = "Restored song"
+                }, typeof(LR2SongDB.song));
+            }
+            var synchronization = new TestLr2PlaylistFolderSynchronizationPort(songDbPath)
+            {
+                PhysicalSurfaceFactory = () => Directory.Exists(testSettings.LR2CustomFolderOutputBaseDir)
+                    ? CustomFolderOutputPhysicalSurface.FromEntries(
+                        Directory.GetFiles(testSettings.LR2CustomFolderOutputBaseDir, "*.lr2folder", SearchOption.AllDirectories)
+                            .Select(path => new FileInfo(path))
+                            .Select(file => new RootFileEnumerationEntry(file.FullName, file.LastWriteTimeUtc, file.Length)),
+                        discoveryComplete: true)
+                    : CustomFolderOutputPhysicalSurface.Empty
+            };
+            playlist = new TestBmsPlaylist(songDbPath, () => config, synchronization, settings: testSettings)
+            {
+                BMSTables = new ObservableCollection<BMSTable>([table]),
+                StartupBackgroundTaskScheduler = (_, _, _, _) => false
+            };
+            playlist.ReOutputCustomFoldersAndCommitHeadersToDB([table], "restore_prefix_initial_output");
+            string sql = playlist.GetPlaylistDump();
+            DateTime lastUpdate = table.last_update;
+            string outputPath = Path.Combine(testSettings.LR2CustomFolderOutputBaseDir, table.Output_dir, "0000.lr2folder");
+            StringAssert.Contains(File.ReadAllText(outputPath, Encoding.GetEncoding("shift_jis")), "#TITLE A1");
+
+            playlist.CommitPlaylistHeaderEdits(new Dictionary<BMSTable, PlaylistHeaderEdit>
+            {
+                [table] = new PlaylistHeaderEdit { Fields = PlaylistHeaderFields.CompatPrefix, CompatPrefix = "B" }
+            }, capability: null);
+            playlist.ReOutputCustomFoldersAndCommitHeadersToDB([table], "restore_prefix_changed_output");
+            Assert.AreEqual(lastUpdate, table.last_update);
+            StringAssert.Contains(File.ReadAllText(outputPath, Encoding.GetEncoding("shift_jis")), "#TITLE B1");
+            await playlist.ReloadTablesAsync(exportBeatorajaBmt: false);
+            CustomFolderOutputStatusRow beforeRestore = new PlaylistPersistenceRepository(songDbPath)
+                .ReadCustomFolderOutputStatusRows()[table.playlist_id!.Value];
+            Assert.AreEqual(lastUpdate.Ticks, beforeRestore.LastUpdateTicks);
+            Assert.AreEqual(table.header_sha256 ?? string.Empty, beforeRestore.HeaderSha256);
+            Assert.AreEqual(table.data_sha256 ?? string.Empty, beforeRestore.DataSha256);
+
+            await playlist.RestorePlaylistDumpAsync(sql);
+
+            BMSTable restored = playlist.BMSTables.Single();
+            Assert.AreEqual("A", restored.compat_prefix);
+            Assert.AreEqual(lastUpdate, restored.last_update);
+            Assert.AreEqual("A1", restored.entries.Single().folder);
+            string output = File.ReadAllText(outputPath, Encoding.GetEncoding("shift_jis"));
+            StringAssert.Contains(output, "#TITLE A1");
+            string command = output.Split(["\r\n", "\n"], StringSplitOptions.None)
+                .Single(line => line.StartsWith("#COMMAND ", StringComparison.Ordinal))["#COMMAND ".Length..];
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            Assert.AreEqual("A1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ?;", table.playlist_id));
+            Assert.AreEqual("A1", verify.Table<LR2SongDB.folder>().Single(row => row.path == outputPath).title);
+            CollectionAssert.AreEqual(new[] { table.entries.Single().md5 },
+                verify.Query<LR2SongDB.song>("SELECT song.* FROM song WHERE " + command).Select(row => row.hash).ToArray());
+        }
+        finally
+        {
+            playlist?.RequestShutdown("restore_prefix_test_cleanup");
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     // 復元確定後の出力先 I/O 失敗を、復元呼出元と必須準備の待機側へ同じ例外で伝える。
     /// <summary>実DBへの復元確定後に出力先I/Oを失敗させ、復元内容を保持しつつ呼出元と必須準備待機を同じ例外で終端させて待機の残留を検出します。</summary>
     [TestMethod]
