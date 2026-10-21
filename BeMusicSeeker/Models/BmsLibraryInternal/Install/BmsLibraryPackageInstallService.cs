@@ -2333,7 +2333,7 @@ internal sealed class BmsLibraryPackageInstallService
 
     /// <summary>
     /// 登録済みBMSルートと配下を除外して入力を発見し、捕捉した完全性設定で自動新規導入と保留へ分類します。
-    /// 全定義による発見・グループ化を終えてから、使用資源の件数と警告を確定します。
+    /// 全定義による発見・グループ化を終え、同一または捕捉済みの親に包含されるパッケージをまとめてから、使用資源の件数と警告を確定します。
     /// </summary>
     /// <param name="requireCompleteUsedResourcesForAutoInstall">音声に加え、使用画像・動画・補助画像も必須にする場合はtrue。今回の操作で捕捉済みの値を渡します。</param>
     public AutoInstallWorkflowResult PrepareAutoInstallWorkflow(
@@ -2406,11 +2406,16 @@ internal sealed class BmsLibraryPackageInstallService
 
         List<string> libraryDirectories = [.. (registeredBmsRoots ?? []).Where(dir => !string.IsNullOrWhiteSpace(dir))];
         List<ChartPackage> pendingPackages = [.. (currentPendingPackages ?? []).Where(pkg => pkg != null)];
+        // 親フォルダと配下譜面の両入力が同じパッケージを発見するため、作成時に正規化した物理パスで一回にまとめる。
+        // 先行導入後の所有判定へ二重に渡すと、既に消費した入力を保留として登録してしまう。
         discoveredPackages = [.. discoveredPackages
-            .Where(pkg => pkg != null && !libraryDirectories.Any(dir =>
+            .Where(pkg => pkg != null)
+            .DistinctBy(pkg => pkg.path, StringComparer.OrdinalIgnoreCase)
+            .Where(pkg => !libraryDirectories.Any(dir =>
                 LongPathFileSystem.IsSameOrDescendantDirectoryPath(pkg.path, dir)))
             .Where(newPkg => !pendingPackages.Any(oldPkg => !string.IsNullOrWhiteSpace(oldPkg.path) && newPkg.path.Equals(oldPkg.path, StringComparison.OrdinalIgnoreCase)))
             .Where(newPkg => !pendingPackages.Any(oldPkg => !string.IsNullOrWhiteSpace(oldPkg.path) && LongPathFileSystem.DirectoryExists(oldPkg.path) && newPkg.path.StartsWith(oldPkg.path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))];
+        RemovePackagesContainedInDiscoveredDirectories(discoveredPackages);
         List<string> distinctWorkflowRegroupEligibleSourceDirectories = [.. result.RegroupEligibleSourceDirectories
             .Where(sourceDirectoryPath => !string.IsNullOrWhiteSpace(sourceDirectoryPath))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
@@ -2518,6 +2523,40 @@ internal sealed class BmsLibraryPackageInstallService
         totalStopwatch.Stop();
         result.TotalMs = totalStopwatch.ElapsedMilliseconds;
         return result;
+    }
+
+    /// <summary>既存保留・登録ルートの除外後、実際に全譜面を捕捉した親がある子だけを同じ要求から除きます。入力順に依存せず、親の通常分類を維持します。</summary>
+    private static void RemovePackagesContainedInDiscoveredDirectories(List<ChartPackage> packages)
+    {
+        if (packages.Count < 2) { return; }
+        var directoryPackages = packages
+            .Where(package => LongPathFileSystem.DirectoryExists(package.path))
+            .ToDictionary(package => package.path, StringComparer.OrdinalIgnoreCase);
+        Dictionary<ChartPackage, HashSet<string>> chartPathsByAncestor = [];
+        packages.RemoveAll(IsContained);
+
+        bool IsContained(ChartPackage package)
+        {
+            List<PackageChartEntry> entries = null;
+            // 全packageの組合せを比較せず、実際に重なる祖先だけの譜面集合を操作内で共有する。
+            for (string ancestor = Path.GetDirectoryName(package.path); !string.IsNullOrEmpty(ancestor); ancestor = Path.GetDirectoryName(ancestor))
+            {
+                if (!directoryPackages.TryGetValue(ancestor, out ChartPackage parent)) { continue; }
+                entries ??= package.ChartEntries;
+                if (entries.Count == 0) { return false; }
+                if (!chartPathsByAncestor.TryGetValue(parent, out HashSet<string> chartPaths))
+                {
+                    chartPaths = new HashSet<string>(parent.ChartEntries.Select(entry => entry?.Chart?.Path)
+                        .Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
+                    chartPathsByAncestor.Add(parent, chartPaths);
+                }
+                if (entries.All(entry => !string.IsNullOrWhiteSpace(entry?.Chart?.Path) && chartPaths.Contains(entry.Chart.Path)))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
     }
 
     /// <summary>取得済みの使用音源件数で完全性を判断し、要求0件も充足として扱います。</summary>

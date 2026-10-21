@@ -28,6 +28,92 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed partial class BmsLibraryPackageInstallServiceTests
 {
+    /// <summary>親フォルダと音源付き配下譜面を両入力順で渡し、直下譜面は一回だけ導入します。子階層譜面を含む親は既存規則で一件保留し、子だけの導入による実体欠落を防ぎます。</summary>
+    /// <remarks>実取り込み入口から発見・物理配置・SQLite確定まで接続し、単独BMSONと隣接資源の受理条件は既存の発見テストに分担します。</remarks>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void InstallChartPackagesAuto_OverlappingDirectoryAndChartInputsInstallOnceWithoutStalePending(bool nested, bool chartFirst)
+    {
+        WithTemporarySongDb((songDbPath, root) =>
+        {
+            string installRoot = Path.Combine(root, "Library");
+            Directory.CreateDirectory(installRoot);
+            string source = Path.Combine(root, "Song");
+            string sourceChart = CreateBmsFile(source, "Song.bms", BmsLibraryInitializationTestSupport.CreateValidBmsText("Song"));
+            byte[] chartBytes = File.ReadAllBytes(sourceChart);
+            byte[] audioBytes = [1, 2, 3];
+            File.WriteAllBytes(Path.Combine(source, "sound.wav"), audioBytes);
+            string selectedChart = sourceChart;
+            string childDirectory = Path.Combine(source, "Child");
+            byte[] childBytes = [];
+            if (nested)
+            {
+                selectedChart = CreateBmsFile(childDirectory, "child.bms",
+                    BmsLibraryInitializationTestSupport.CreateValidBmsText("Song").Replace("sound.wav", "child.wav") + "#GENRE Child\n");
+                childBytes = File.ReadAllBytes(selectedChart);
+                File.WriteAllBytes(Path.Combine(childDirectory, "child.wav"), audioBytes);
+            }
+            var library = new TestBmsLibrary(songDbPath, null, null, new RealFileMutationService(),
+                new RecordingDialogService(), new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = installRoot,
+                    FolderNameFormat = "%TITLE%",
+                    KeepInstallablePackagesPending = false
+                })
+            {
+                BmsCharts = [],
+                BmsonCharts = [],
+                SearchTargets = [installRoot],
+                ChartPackagesPending = CreatePackageCollection([]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+            try
+            {
+                string[] inputs = chartFirst ? [selectedChart, source] : [source, selectedChart];
+                PackageInstallCommandResult result = library.InstallChartPackagesAutoWithProgressAsync(inputs,
+                    CancellationToken.None, new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
+
+                Assert.IsTrue(result.HasDurableCommit);
+                Assert.IsFalse(result.HasRequiredFailure);
+                Assert.AreEqual(nested ? 0 : 1, result.RegisteredPackages.Count);
+                Assert.AreEqual(nested ? 0 : 1, library.ChartPackagesInstalled.Count);
+                string destination = Path.Combine(installRoot, "Song");
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                if (nested)
+                {
+                    CollectionAssert.AreEqual(chartBytes, File.ReadAllBytes(sourceChart));
+                    CollectionAssert.AreEqual(childBytes, File.ReadAllBytes(selectedChart));
+                    CollectionAssert.AreEqual(audioBytes, File.ReadAllBytes(Path.Combine(source, "sound.wav")));
+                    CollectionAssert.AreEqual(audioBytes, File.ReadAllBytes(Path.Combine(childDirectory, "child.wav")));
+                    Assert.IsFalse(Directory.Exists(destination));
+                    Assert.AreEqual(0, library.BmsCharts.Count);
+                    Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count());
+                    ChartPackage pending = library.ChartPackagesPending.Single();
+                    Assert.AreEqual(source, pending.path);
+                    CollectionAssert.AreEquivalent(new[] { sourceChart, selectedChart }, pending.ChartEntries.Select(entry => entry.Chart.Path).ToArray());
+                    Assert.AreEqual(source, db.Table<LR2SongDBExtended.install>().Single().path);
+                }
+                else
+                {
+                    string destinationChart = Path.Combine(destination, "Song.bms");
+                    CollectionAssert.AreEqual(chartBytes, File.ReadAllBytes(destinationChart));
+                    CollectionAssert.AreEqual(audioBytes, File.ReadAllBytes(Path.Combine(destination, "sound.wav")));
+                    Assert.IsFalse(Directory.Exists(source));
+                    Assert.AreEqual(0, library.ChartPackagesPending.Count);
+                    Assert.AreEqual(destinationChart, library.BmsCharts.Single().Path);
+                    Assert.AreEqual(destinationChart, library.ChartPackagesInstalled.Single().ChartEntries.Single().Chart.Path);
+                    Assert.AreEqual(destinationChart, db.Table<LR2SongDB.song>().Single().path);
+                    Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
+                }
+            }
+            finally { library.RequestShutdown("overlapping-package-input-test"); }
+        });
+    }
+
     /// <summary>
     /// 導入先の既存直下txt、後続パッケージが初めて配置するtxt、直下なしで子だけにtxtがある条件で、
     /// 入力Txtに依存せずDB・所持正本・導入済み項目が実配置に一致し、直後のLR2差分読込みで再解析しないことを保証します。
