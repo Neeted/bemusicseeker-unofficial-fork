@@ -2657,6 +2657,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>通常Folderは保存と実Close後に実差分を同じL/Pで処理し、DBと画面へ今回の譜面を反映します。</summary>
+    /// <remarks>初期化後の独立保守は設定終端直後に受付を再取得できるため、Close時に当該設定leaseの終端Taskを捕捉して解放を区別します。</remarks>
     [TestMethod]
     public void ApplySettingsAsync_FolderChange_CompletesRealFileDiffAfterClosing()
     {
@@ -2688,7 +2689,19 @@ public sealed partial class SettingDialogEditCompletionTests
                     defaultBmsPlayerFactory: () => { defaultPlayerCount++; return new RecordingPlaybackPlayer(); });
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []) { InitialSearchTargets = [root] };
                 var owner = new MainWindowViewModel(composition, factory);
-                var presentation = new RecordingSettingsDialogPresentationPort();
+                Task? settingsLibraryTerminal = null;
+                Task? settingsPlaylistTerminal = null;
+                var presentation = new RecordingSettingsDialogPresentationPort
+                {
+                    WaitForClose = () =>
+                    {
+                        settingsLibraryTerminal = composition.OperationAdmission.WaitForIdleAsync();
+                        settingsPlaylistTerminal = composition.PlaylistOperationAdmission.WaitForIdleAsync();
+                        Assert.IsFalse(settingsLibraryTerminal.IsCompleted);
+                        Assert.IsFalse(settingsPlaylistTerminal.IsCompleted);
+                        return Task.CompletedTask;
+                    }
+                };
                 owner.SettingDialog.AttachPresentationPort(presentation);
                 Task? apply = null;
                 try
@@ -2710,6 +2723,10 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.IsTrue(composition.OperationAdmission.IsActive);
                     Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
                     CollectionAssert.Contains(presentation.Requests, "close");
+                    Assert.IsNotNull(settingsLibraryTerminal);
+                    Assert.IsNotNull(settingsPlaylistTerminal);
+                    Assert.IsFalse(settingsLibraryTerminal.IsCompleted);
+                    Assert.IsFalse(settingsPlaylistTerminal.IsCompleted);
                     Assert.AreEqual(1, session.SaveCount);
                     release.Set();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "folder-settings-terminal");
@@ -2720,8 +2737,8 @@ public sealed partial class SettingDialogEditCompletionTests
                     using (LR2SongDBExtended db = new BmsLibraryDbGateway(composition.ApplicationPathSnapshot.StandaloneSongDbPath).OpenSongDbReadOnly())
                     { Assert.AreEqual("Folder B", db.Table<LR2SongDB.song>().Single(row => row.path == chartB).title); }
                     Assert.IsTrue(owner.MainChartList.Rows.OfType<LibraryChartRow>().Any(row => row.Title == "Folder B"));
-                    Assert.IsFalse(composition.OperationAdmission.IsActive);
-                    Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+                    Assert.IsTrue(settingsLibraryTerminal.IsCompletedSuccessfully);
+                    Assert.IsTrue(settingsPlaylistTerminal.IsCompletedSuccessfully);
                 }
                 finally
                 {

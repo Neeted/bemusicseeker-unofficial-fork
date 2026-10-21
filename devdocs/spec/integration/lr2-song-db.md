@@ -122,9 +122,13 @@ LR2に見せるjukeboxルートと、本アプリが譜面・リソースを走�
 
 楽曲行の処理開始時に、現行パーサー版の譜面情報と、再試行期限を考慮した解析失敗MD5集合を取得します。各ワーカーは既存の `ChartFileSnapshot` とこれらの値を共通評価器へ渡します。ワーカー内で追加の譜面読込みやDB照会を行いません。不足・古い譜面情報も、専用パーサーを新設せず共通の補完処理を使います。
 
-今回のファイル差分がDBへ確定したBMSパスと走査面は、変更不能な`LibraryFileInitializationResult`として後段へ直接渡します。親L/Pが必須処理・cleanupまで生存し、競合する正本変更を受付けないため、共有証票の公開・取得・消費・破棄や因果を推測する全体版照合を行いません。再初期化・差分再読込みも同じ結果引渡しを使います。手動同期は過去の結果を使いません。確定パスのファイル読取り・DB現行性照会を省き、別パスの同一MD5を連動して省略しません。
+今回のファイル差分がDBへ確定したBMSパスと走査面は、変更不能な`LibraryFileInitializationResult`として後段へ直接渡します。親L/Pが必須処理・cleanupまで生存し、競合する正本変更を受付けないため、共有証票の公開・取得・消費・破棄や因果を推測する全体版照合を行いません。再初期化・差分再読込みも同じ結果引渡しを使います。手動同期は過去の結果を使いません。確定パスの比較は現行の `OrdinalIgnoreCase` を維持し、別パスの同一MD5を連動して除外しません。DB保存キーの完全一致とは区別します。
 
-確定パスも現行の譜面処理対象数・進捗の分母に含め、読取り・解析を省いた結果として1,000件単位（末尾は残件数）で回収します。全件が確定パスでも専用の一括スキップ経路は設けません。
+`Run` は有効な現在の楽曲行から、今回直接渡された確定パスに一致する行だけを、総数・初期進捗・実行状態の確定前に一度除外します。現在の入力にない確定パスは件数から差し引きません。既存の対象行リストの構成を置き換え、残存行の相対順を維持して連続採番します。全パスの再整列や新たな全件コピーは増やしません。除外対象には先行処理枠、読取り候補、計算結果、チャンクを作らず、reader・worker・writerへ流しません。
+
+有効候補数を `A`、入力行に一致した除外数を `E`、譜面処理対象数を `T = A - E`、従来のフォルダ処理分を `F` とします。入口の診断は `A`・`E`・`T` を記録します。全体の `TotalCount` / `total_count` は `F + T`、譜面段階の分母は最初から `T` とし、確定済み `ProcessedCount` / `processed_cursor`、段階境界、チャンク位置、結果・ログも同じ対象集合に揃えます。`SongRowProcessedCount` は投入後に処理した件数、`SongRowSkippedCount` はそのうち基本入力を非採用にした件数だけを示し、投入前除外と合算しません。処理中の確定パス用カウンターは持ちません。保存cursorを次要求の再開位置には使いません。
+
+全件が確定パスの場合と元の譜面入力が0件の場合は、ともに `T = 0` として扱います。譜面段階の開始は `T > 0` だけで判定し、空のパイプライン、スキップ用チャンク、不要な譜面段階の状態・進捗通知を作りません。全 `ChartPaths`、祖先・フォルダ候補、現在の所属集合と利用者保存列は保持し、必要なフォルダ生成・検証・確定、`final_validation`、writer解放後の必須終端投影・完了保存へ進みます。必要な `final_validation` / `sync_state_saving` の既存の不定進捗は維持し、存在しない譜面作業を表示しません。0件を全体成功の証明にせず、不完全なフォルダ入力、親権限終了、終了取消、DB失敗は従来の非成功結果を保ちます。非除外対象は従来どおり1,000件単位（末尾は残件数）、同じ並列度で処理します。
 
 複数の読み手は、順序回収までの先行数を制限する枠を取得してから対象を採番します。採番済みで未回収の項目は必ず枠を確保済みとし、先頭の不足番号が後続結果で埋まった枠を待つ循環を防ぎます。受渡し前の末尾到達・終了取消・中断・例外では読み手が取得済みの枠だけを返し、受渡し後は書き手が番号順に回収した時点で返します。枠は一度だけ返し、過剰返却の例外を無視しません。
 
@@ -159,7 +163,7 @@ sequenceDiagram
     end
 ```
 
-採番済みなのに枠を持たない先頭項目を作りません。ワーカーは追加の譜面読取り・DB照会を行わず、確定済みパスの省略も既存の順序回収へ通します。
+採番済みなのに枠を持たない先頭項目を作りません。ワーカーは追加の譜面読取り・DB照会を行わず、投入前除外後の対象だけを既存の順序回収へ通します。
 
 ### 局所変更と性能
 
@@ -195,7 +199,10 @@ DB確定後の必須反映失敗・未回復の物理失敗など、既存の整
 | 完全なフォルダ集合・衝突・一括確定 | [`Lr2FolderTableReconciliationService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2FolderTableReconciliationService.cs) | [`Lr2FolderTableReconciliationServiceTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2FolderTableReconciliationServiceTests.cs)、[`Lr2FolderRowGeneratorTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2FolderRowGeneratorTests.cs) |
 | 同期状態と生成列の永続化 | [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs)、[`Lr2SongDbWriter`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbWriter.cs) | [`BmsLibraryLr2SongDbSyncTests`](../../../BeMusicSeeker.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs)、[`Lr2SongDbSyncServiceTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncServiceTests.cs)、[`Lr2SongDbWriterTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbWriterTests.cs) |
 | 操作内の確定結果の直接引渡し | [`LibraryFileInitializationResult`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/LibraryFileInitializationResult.cs) | [`Lr2SongDbSyncCommittedInputTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncCommittedInputTests.cs) |
-| 確定入力の空・単件・チャンク境界・順序枠超過と保存結果 | [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs) の `UpsertSongRows` | [`Lr2SongDbSyncCommittedInputTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncCommittedInputTests.cs) の `CommittedInputSongRows_CompleteAcrossChunkAndOrderingWindowBoundaries` は読取りなしの生成成功、確定処理位置、保存行と利用者列、`Running`・完了時刻未設定・完了進捗不在を確認する。要求全体の `Completed` は要求調整処理の投影・状態保存で分担する。確定入力と読取り対象の混在は `CommittedInputSongRowsSkipReaderAndCurrentnessRead` が確認する。 |
+| 確定パスの投入前除外と混在入力 | `Lr2SongDbSyncService.Run` | [`Lr2SongDbSyncCommittedInputTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncCommittedInputTests.cs) の `CommittedInputSongRowsSkipReaderAndCurrentnessRead` は大小文字比較、入力外の確定パス、別パス同MD5、基本入力非採用を分担し、読取り・保存・入口集計・対象数と確定位置を確認する。 |
+| 全件除外と元0件のフォルダ・進捗 | `Lr2SongDbSyncService.Run`、`Lr2SongDbSyncStatusMapper` | `CommittedInputSongRows_ExcludeAllAndKeepFoldersWithoutSongStages` はフォルダありの全件除外で譜面読取り・解析・パイプライン・チャンク・譜面通知の不在と、全ChartPathsからの祖先・フォルダ、最終検証、保存行・利用者列、`Running`・完了時刻未設定を確認する。`SyncService_EmptyInputOmitsCountedStages` は元0件のフォルダ有無を分担する。 |
+| 非除外のチャンク境界と順序枠超過 | `Lr2SongDbSyncService.UpsertSongRows` | [`Lr2SongDbSyncServiceTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncServiceTests.cs) の `SyncService_RealSongUpdatesKeepFiniteRoleAcrossChunkCommits` は実更新1001件・10001件で連続チャンク位置・順序回収・末尾・全保存・利用者列・確定位置を確認する。取消・必須反映故障は既存の実更新ケースが分担する。 |
+| 実ファイル確定から0件同期の実終端・失敗 | `StartupLibraryInitializationWorkflowOwner`、`Lr2SongDbSyncRequestCoordinator` | [`StartupRequiredInitializationTests`](../../../BeMusicSeeker.Tests/Startup/StartupRequiredInitializationTests.cs) の `RequiredInitialization_HoldsBothAdmissionsUntilLr2TerminalAndWritesSavedOutputs` は実ファイル確定・直接入力・同じ親L/Pから実coordinator・SQLiteのフォルダと完了保存まで確認する。実生産した状態をmapper・進捗hubへ渡し、架空の譜面表示を防いで最終検証・保存の不定進捗を維持する。`BmsLibraryLr2SongDbSyncTests.ReloadFileDiff_PassesCommittedInputAfterCapturedSurfaceFilesystemChanges` は捕捉後FS変更でも直接確定入力を維持し、全件除外の成功、不完全フォルダ入力、完了保存DB失敗を実終端まで確認する。 |
 | 採番と順序枠の所有権 | [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs) の `UpsertSongRows` | 採番より前の枠取得、全退出経路の返却条件、番号順回収時の返却を静的に確認する。境界件数のテストでは本番のCPU別並列度を使い、特定のスレッド切替順を強制しない。 |
 | 実確定後の必須引渡しと任意通知の故障分離 | [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs) | [`Lr2SongDbSyncServiceTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncServiceTests.cs) の `SyncService_RequiredCommittedCallbackFailureKeepsDurableFactsAndCursor` は正常譜面の実解析で詳細・互換性事実を確定し、両引渡しの失敗を分担する。進捗・性能診断も失敗する条件で元のスタック、保存行・利用者列・確定処理位置を保持することを確認する。他の必須引渡しも試み、確定済みDBを巻き戻さず未完了とする。 |
 | 所有する取消・所有しない取消と必須引渡し故障の競合 | [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs) の `UpsertSongRows` | [`Lr2SongDbSyncServiceTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncServiceTests.cs) の `SyncService_PipelineCancellationRacePreservesGenuineCauseAndCommittedPrefix` は、正常な先行・末尾譜面から先行分の詳細を実生成し、所有取消後の詳細・互換性引渡し故障と、所有者の取消前に先着する読取り側の取消例外の3条件を確認する。後者は後発の終了要求・詳細引渡し故障でも先着原因のメッセージ・トークン・スタックを保持する。各条件で全必須引渡しを一回試み、全読取り・引渡しの終端、`Failed`、確定済みチャンク・利用者列・処理位置、未確定末尾と未完了状態の保持、確定後の巻戻し不在を確認する。終了要求フラグだけが先着する条件は含まない。 |

@@ -285,14 +285,14 @@ internal static class Lr2SongDbSyncRequestCoordinator
                 + " lr2FolderCandidates=" + input.Lr2FolderFilePaths.Count
                 + " lr2FolderDiscoveryComplete=" + input.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant()
                 + " textFileDirs=" + input.TextFileDirectories.Count
-                + " songRows=" + input.SongRows.Count
+                + " songRowInputRows=" + input.SongRows.Count
                 + " folderTableGenerated=" + (result.FolderTableReconciliationResult?.GeneratedCount ?? 0)
                 + " folderTableUpserted=" + (result.FolderTableReconciliationResult?.UpsertedCount ?? 0)
                 + " folderTableDeleted=" + (result.FolderTableReconciliationResult?.DeletedCount ?? 0)
                 + " folderTableExistingRows=" + (result.FolderTableReconciliationResult?.ExistingRowCount ?? 0)
                 + " lr2FolderProcessed=" + result.Lr2FolderFileProcessedCount
                 + " songRowProcessed=" + result.SongRowProcessedCount
-                + " songRowSkipped=" + result.SongRowSkippedCount
+                + " songRowBasicInputSkipped=" + result.SongRowSkippedCount
                 + " songRowParseFailed=" + result.SongRowParseFailureCount
                 + " songRowChartInfoApplied=" + result.SongRowChartInfoAppliedCount
                 + " songRowLr2CompatibilityApplied=" + result.SongRowLr2CompatibilityAppliedCount

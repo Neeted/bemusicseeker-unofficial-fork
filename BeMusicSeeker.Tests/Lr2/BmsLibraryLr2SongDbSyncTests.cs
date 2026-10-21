@@ -2552,9 +2552,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     /// <summary>
     /// 確定済み取込み入力を同期へ渡し、準備中に譜面と定義FSが変わっても旧タイトル・作者を保存して後発定義を混入させない。
     /// </summary>
-    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
-    [TestMethod]
-    public async Task ReloadFileDiff_PassesCommittedInputAfterCapturedSurfaceFilesystemChanges()
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。全件除外でも不完全folderと完了保存DB故障は非成功を保つ。</remarks>
+    [DataTestMethod]
+    [DataRow("completed")]
+    [DataRow("incomplete_folder")]
+    [DataRow("completed_status_failure")]
+    public async Task ReloadFileDiff_PassesCommittedInputAfterCapturedSurfaceFilesystemChanges(string outcome)
     {
         LibraryFileInitializationResult? initializationInput = null;
         Lr2SongDbSyncPreparedDataSurface? preparedInput = null;
@@ -2590,7 +2593,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 startupRequiredFileScanReason: null,
                 optionsSnapshotProvider: () => options,
                 applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
-                chartFileScanner: chartFileScanner, settings: testSettings)
+                chartFileScanner: chartFileScanner, settings: testSettings, uiScheduler: new TestUiScheduler(() => null))
             {
                 SearchTargets = [rootDirectory],
                 BmsCharts = []
@@ -2634,16 +2637,31 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             // The native LR2 grouped scan is intentionally unavailable in this fixture.
             // Replace that incomplete physical result with the existing typed immutable
             // capture path so the queued coordinator must reuse this explicit surface.
+            SongTableFileCheckResult scanSurface = CreateCompleteLr2ScanSurface(
+                [rootDirectory], [rootDirectory], [], [rootDirectory]);
+            scanSurface.Lr2ScanLr2FolderFileDiscoveryComplete = outcome != "incomplete_folder";
             initializationInput = new(InvokeCaptureLr2SongDbSyncScanSurface(
-                library,
-                options,
-                [rootDirectory],
-                CreateCompleteLr2ScanSurface(
-                    [rootDirectory],
-                    [rootDirectory],
-                    [],
-                    [rootDirectory])));
+                library, options, [rootDirectory], scanSurface));
             fileResult = new(initializationInput.ScanSurface, fileResult.CommittedBmsPaths);
+            Assert.IsTrue(fileResult.CommittedBmsPaths.Contains(chartPath));
+            if (outcome == "completed_status_failure")
+            {
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(scope.SongDbPath, setup =>
+                {
+                    BmsLibraryDbGateway.EnsureLr2SongDbSyncStatusSchema(setup);
+                    setup.Execute("CREATE TRIGGER deny_completed_sync BEFORE INSERT ON lr2_song_db_sync_status"
+                        + " WHEN NEW.status = 'Completed' BEGIN SELECT RAISE(ABORT, 'completed status failure'); END;");
+                });
+            }
+            var statuses = new System.Collections.Concurrent.ConcurrentQueue<Lr2SongDbSyncStatusSnapshot>();
+            library.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(BMSLibrary.Lr2SongDbSyncStatusVersion))
+                {
+                    statuses.Enqueue(library.GetLr2SongDbSyncStatusSnapshot());
+                }
+            };
+            Exception? terminalFailure = null;
             var preparationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             using var releasePreparation = new ManualResetEventSlim();
             Task<Lr2SongDbSyncStatusSnapshot> queuedOperation = library.QueueLr2SongDbSyncAsync(
@@ -2666,14 +2684,40 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             finally
             {
                 releasePreparation.Set();
-                await queuedOperation;
+                try { await queuedOperation; }
+                catch (Exception ex) { terminalFailure = ex; }
             }
 
+            Assert.IsFalse(library.OperationAdmission.IsActive);
+            Assert.IsFalse(synchronizationOwner.PlaylistOperationAdmission.IsActive);
+            Assert.IsFalse(synchronizationOwner.Running);
+            Assert.IsFalse(statuses.IsEmpty);
+            Assert.IsFalse(statuses.Any(snapshot => snapshot.Stage?.StartsWith("song_rows", StringComparison.Ordinal) == true));
+            if (outcome == "completed") { Assert.IsNull(terminalFailure); }
+            else { Assert.IsNotNull(terminalFailure); }
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
             LR2SongDBExtended.lr2_song_db_sync_status status =
                 verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(status);
-            Assert.AreEqual("Completed", status.status);
+            Assert.AreEqual(outcome == "completed" ? "Completed" : "Failed", status.status);
+            Assert.AreEqual(1, status.total_count, "全体件数はフォルダ分だけです。");
+            if (outcome == "completed")
+            {
+                Assert.AreEqual(1, status.processed_cursor);
+                Assert.IsNotNull(status.completed_at);
+                Assert.IsTrue(statuses.Any(snapshot => snapshot.Stage == "final_validation"));
+                Assert.IsTrue(statuses.Any(snapshot => snapshot.Stage == "sync_state_saving"));
+                Assert.IsNotNull(verify.Find<LR2SongDB.folder>(ToFolderPath(rootDirectory)));
+            }
+            else { Assert.IsNull(status.completed_at); }
+            if (outcome == "completed_status_failure")
+            {
+                Assert.IsNotNull(terminalFailure);
+                StringAssert.Contains(terminalFailure.Message, "completed status failure");
+                Assert.AreEqual(1, status.processed_cursor);
+                Assert.IsTrue(statuses.Any(snapshot => snapshot.Stage == "sync_state_saving"));
+                Assert.IsNotNull(verify.Find<LR2SongDB.folder>(ToFolderPath(rootDirectory)));
+            }
             LR2SongDB.song persistedSong = verify.Table<LR2SongDB.song>().Single(row =>
                 string.Equals(row?.path, chartPath, StringComparison.OrdinalIgnoreCase));
             Assert.AreEqual("Captured", persistedSong.title);

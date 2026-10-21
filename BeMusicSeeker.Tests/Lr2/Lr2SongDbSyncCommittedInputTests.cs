@@ -16,80 +16,105 @@ namespace BeMusicSeeker.Tests;
 public sealed class Lr2SongDbSyncCommittedInputTests
 {
     /// <summary>
-    /// 今回確定済みの一件だけ再読取りを省き、混在する未確定の一件は実読取り・解析・保存を通して対象全体を省略する誤りを検出します。
+    /// 今回の確定パスだけを大小文字を区別せず除外し、別パス同MD5と基本入力失敗を処理対象へ残します。
     /// </summary>
-    /// <remarks>実SQLiteの保存と結果読戻しを観測し、保存・カーソル更新を代替しません。</remarks>
+    /// <remarks>実SQLiteの保存・進捗・入口集計を確認し、入力外の確定パスや除外位置による過剰除外・採番欠落を検出します。</remarks>
     [TestMethod]
     public void CommittedInputSongRowsSkipReaderAndCurrentnessRead()
     {
         using var scope = TestDatabaseScope.Create();
-        string skippedPath = Path.Combine(scope.DirectoryPath, "skipped.bms");
         string processedPath = Path.Combine(scope.DirectoryPath, "processed.bms");
         File.WriteAllText(processedPath, "#TITLE receipt processed\r\n");
-        ChartFileSnapshot processedSnapshot = ChartFileContentReader.ReadSnapshot(processedPath);
-        ChartFile skippedFile = ((ChartTestValues.Empty() with
+        ChartFile processedFile = CreateSyncTestFile(processedPath, ChartFileContentReader.ReadSnapshot(processedPath));
+        ChartFile CreateRow(string name) => processedFile with
         {
-            Path = skippedPath,
-            Date = 123456
-        })) with
-        { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Favorite = null };
-        ChartFile processedFile = CreateSyncTestFile(processedPath, processedSnapshot);
+            Path = Path.Combine(scope.DirectoryPath, name + ".bms"),
+            Title = "keep",
+            RawTitle = "keep",
+            Favorite = 7,
+            Tag = "user",
+            AddDate = 123
+        };
+        ChartFile[] excluded = [CreateRow("first"), CreateRow("middle"), CreateRow("last")];
+        ChartFile failed = CreateRow("failed");
+        ChartFile otherPathSameMd5 = CreateRow("same-md5");
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
-        songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(processedFile), typeof(LR2SongDB.song));
-        int skippedReaderCalls = 0;
-        int processedReaderCalls = 0;
+        ChartFile[] rows = [excluded[0], processedFile, excluded[1], failed, otherPathSameMd5, excluded[2]];
+        songDb.RunInTransaction(() =>
+        {
+            foreach (ChartFile file in rows)
+            {
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+            }
+        });
+        var reads = new ConcurrentQueue<string>();
+        var committedPaths = new List<string>();
+        var progressEvents = new ConcurrentQueue<Lr2SongDbSyncProgress>();
+        var logs = new ConcurrentQueue<string>();
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "receipt-reader-gate",
             RunId = "receipt-reader-gate",
-            SongRows = [skippedFile, processedFile],
-            CommittedBmsPaths = new HashSet<string>([skippedFile.Path], StringComparer.OrdinalIgnoreCase),
+            SongRows = rows,
+            CommittedBmsPaths = new HashSet<string>(excluded.Select(file => file.Path.ToUpperInvariant())
+                .Append(Path.Combine(scope.DirectoryPath, "outside.bms")), StringComparer.OrdinalIgnoreCase),
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
+            Lr2CompatibilityFactsCommitted = facts => committedPaths.AddRange(facts.Select(fact => fact.Path)),
             ChartFileBufferReader = path =>
             {
-                if (string.Equals(path, skippedPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    skippedReaderCalls++;
-                }
-                else
-                {
-                    processedReaderCalls++;
-                }
-                return ChartFileContentReader.ReadBuffer(path);
+                reads.Enqueue(path);
+                if (path == failed.Path) { throw new InvalidOperationException("basic input failure"); }
+                // 同MD5でも別パスの対象は通常の読取り・解析へ渡します。
+                return new ChartFileReadBuffer(path, File.ReadAllBytes(processedPath), File.GetLastWriteTimeUtc(processedPath));
             },
-            StartedAtUtc = new DateTime(2026, 6, 9, 0, 0, 0, DateTimeKind.Utc)
+            ProgressReporter = progressEvents.Enqueue,
+            LogInstallPerformance = logs.Enqueue
         });
 
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(2, result.SongRowProcessedCount);
+        Assert.AreEqual(3, result.TotalCount);
+        Assert.AreEqual(3, result.ProcessedCount);
+        Assert.AreEqual(3, result.SongRowProcessedCount);
         Assert.AreEqual(1, result.SongRowSkippedCount);
-        Assert.AreEqual(0, skippedReaderCalls);
-        Assert.AreEqual(1, processedReaderCalls);
-        Assert.AreEqual(0L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", skippedPath));
+        CollectionAssert.AreEquivalent(new[] { processedPath, failed.Path, otherPathSameMd5.Path }, reads.ToArray());
+        CollectionAssert.AreEqual(new[] { processedPath, otherPathSameMd5.Path }, committedPaths);
+        Assert.IsTrue(progressEvents.Where(progress => progress.Stage == "song_rows")
+            .All(progress => progress.TotalCount == 3 && progress.StageTotalCount == 3));
+        Assert.IsTrue(logs.Any(line => line.Contains("input_summary")
+            && line.Contains("songRowCandidates=6") && line.Contains("committedPathExcluded=3") && line.Contains("songRows=3")));
+        Assert.AreEqual(1, logs.Count(line => line.Contains(" chunk_start ")));
+        foreach (ChartFile file in excluded.Append(failed))
+        {
+            Assert.AreEqual("keep", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", file.Path));
+            Assert.AreEqual(7, songDb.ExecuteScalar<int>("SELECT favorite FROM song WHERE path = ?;", file.Path));
+        }
         Assert.AreEqual("receipt processed", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", processedPath));
+        Assert.AreEqual("receipt processed", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", otherPathSameMd5.Path));
+        LR2SongDBExtended.lr2_song_db_sync_status status = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+        Assert.AreEqual(3, status.total_count);
+        Assert.AreEqual(3, status.processed_cursor);
     }
 
     /// <summary>
-    /// 空・単件・チャンク境界・順序枠超過の確定入力を再解析せず生成成功・カーソル・件数を保ち、全体の完了保存は要求coordinatorへ残して、末尾の処理欠落と利用者列の上書きを検出します。
+    /// 全件の確定入力を投入前に除外して譜面処理・通知を出さず、フォルダ生成・最終検証と保存行・利用者列を保持します。
     /// </summary>
     /// <remarks>実SQLiteの保存と結果読戻しを観測し、保存・カーソル更新を代替しません。</remarks>
-    /// <param name="rowCount">0と1、1000件の境界と末尾1001件、順序枠を超える10001件を分担します。</param>
+    /// <param name="rowCount">単件と複数の全件除外を確認します。実チャンクと順序枠の保証は非除外の実更新テストが担います。</param>
     [DataTestMethod]
-    [DataRow(0)]
     [DataRow(1)]
-    [DataRow(1000)]
-    [DataRow(1001)]
-    [DataRow(10001)]
-    public void CommittedInputSongRows_CompleteAcrossChunkAndOrderingWindowBoundaries(int rowCount)
+    [DataRow(3)]
+    public void CommittedInputSongRows_ExcludeAllAndKeepFoldersWithoutSongStages(int rowCount)
     {
         using var scope = TestDatabaseScope.Create();
+        string chartDirectory = Path.Combine(scope.DirectoryPath, "Charts");
+        Directory.CreateDirectory(chartDirectory);
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         ChartFile[] songRows = [.. Enumerable.Range(0, rowCount).Select(index =>
         {
             ChartFile file = ((ChartTestValues.Empty() with {
-                Path = Path.Combine(scope.DirectoryPath, "committed-" + index + ".bms"),
+                Path = Path.Combine(chartDirectory, "committed-" + index + ".bms"),
                 Tag = "user-tag",
                 AddDate = 123456,
                 Date = 234567
@@ -112,16 +137,21 @@ public sealed class Lr2SongDbSyncCommittedInputTests
             throw;
         }
 
-        // 10,001件は現行の順序枠上限を超え、最後の部分チャンクも含む。
-        // 実譜面を作らず、今回の確定入力が読取りや解析へ流入する誤りを回数で検出する。
+        // 除外した譜面だけのフォルダも、全ChartPathsと祖先メタデータから生成します。
         var progressEvents = new ConcurrentQueue<Lr2SongDbSyncProgress>();
         int readerCalls = 0;
         int chartInfoResolverCalls = 0;
+        var logs = new ConcurrentQueue<string>();
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "receipt-chunk-boundaries",
             RunId = "receipt-chunk-boundaries",
             SongRows = songRows,
+            RootDirectories = [scope.DirectoryPath],
+            ChartPaths = songRows.Select(file => file.Path).ToArray(),
+            NormalFolderDirectoryPaths = [scope.DirectoryPath, chartDirectory],
+            DirectoryEntries = CreateDirectoryEntryMap(scope.DirectoryPath, chartDirectory),
+            LogInstallPerformance = logs.Enqueue,
             CommittedBmsPaths = new HashSet<string>(songRows.Select(chart => chart.Path), StringComparer.OrdinalIgnoreCase),
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
             ChartFileBufferReader = _ =>
@@ -139,41 +169,29 @@ public sealed class Lr2SongDbSyncCommittedInputTests
         });
 
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(rowCount, result.TotalCount);
-        Assert.AreEqual(rowCount, result.ProcessedCount);
-        Assert.AreEqual(rowCount, result.SongRowProcessedCount);
-        Assert.AreEqual(rowCount, result.SongRowSkippedCount);
+        Assert.AreEqual(2, result.TotalCount);
+        Assert.AreEqual(2, result.ProcessedCount);
+        Assert.AreEqual(0, result.SongRowProcessedCount);
+        Assert.AreEqual(0, result.SongRowSkippedCount);
         Assert.AreEqual(0, result.SongRowParseFailureCount);
         Assert.AreEqual(0, result.SongRowChartInfoAppliedCount);
         Assert.AreEqual(0, result.SongRowLr2CompatibilityAppliedCount);
         Assert.AreEqual(0, readerCalls);
         Assert.AreEqual(0, chartInfoResolverCalls);
 
-        Lr2SongDbSyncProgress[] songProgress = [.. progressEvents.Where(progress => progress.Stage == "song_rows")];
-        if (rowCount > 0)
-        {
-            Assert.IsTrue(songProgress.Length > 0);
-            Assert.IsTrue(songProgress.All(progress => progress.StageTotalCount == rowCount
-                && progress.TotalCount == rowCount
-                && progress.StageProcessedCount >= 0
-                && progress.StageProcessedCount <= rowCount));
-            int[] expectedCursors = [.. Enumerable.Range(0, ((rowCount + 999) / 1000) + 1)
-                .Select(chunk => Math.Min(chunk * 1000, rowCount))];
-            int[] actualCursors = [.. songProgress.Select(progress => progress.ProcessedCursor).Distinct().OrderBy(cursor => cursor)];
-            CollectionAssert.AreEqual(expectedCursors, actualCursors);
-        }
-        else
-        {
-            Assert.AreEqual(0, songProgress.Length);
-        }
+        Assert.IsFalse(progressEvents.Any(progress => progress.Stage.StartsWith("song_rows", StringComparison.Ordinal)));
+        Assert.IsTrue(progressEvents.Any(progress => progress.Stage == "final_validation" && progress.ProcessedCursor == 2));
+        Assert.IsFalse(logs.Any(line => line.Contains(" pipeline_start ") || line.Contains(" chunk_start ")));
+        Assert.IsNotNull(songDb.Find<LR2SongDB.folder>(ToFolderPath(chartDirectory)));
+        Assert.IsNotNull(songDb.Find<LR2SongDB.folder>(ToFolderPath(scope.DirectoryPath)));
 
         LR2SongDBExtended.lr2_song_db_sync_status completed = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(
             Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual(Lr2SongDbSyncStatusKind.Running.ToString(), completed.status);
         Assert.IsNull(completed.completed_at);
         Assert.IsFalse(progressEvents.Any(progress => progress.Stage == Lr2SongDbSyncService.CompletedStage));
-        Assert.AreEqual(rowCount, completed.total_count);
-        Assert.AreEqual(rowCount, completed.processed_cursor);
+        Assert.AreEqual(2, completed.total_count);
+        Assert.AreEqual(2, completed.processed_cursor);
         LR2SongDB.song[] persisted = [.. songDb.Table<LR2SongDB.song>()];
         CollectionAssert.AreEquivalent(songRows.Select(file => file.Path).ToArray(), persisted.Select(row => row.path).ToArray());
         Assert.IsTrue(persisted.All(row => row.title == "receipt committed"

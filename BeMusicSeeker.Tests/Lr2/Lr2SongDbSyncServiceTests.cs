@@ -158,23 +158,23 @@ public sealed class Lr2SongDbSyncServiceTests
     }
 
     /// <summary>
-    /// 1001楽曲の実更新を複数チャンクで保存しても進捗の対象数と範囲を保持し、解析結果と利用者設定が全行へ反映される。
+    /// チャンク境界の1001件と順序枠上限を超える10001件を実更新し、順序回収・末尾・保存位置と利用者設定を保持する。
     /// </summary>
     /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
-    [TestMethod]
-    public void SyncService_RealSongUpdatesKeepFiniteRoleAcrossChunkCommits()
+    [DataTestMethod]
+    [DataRow(1001)]
+    [DataRow(10001)]
+    public void SyncService_RealSongUpdatesKeepFiniteRoleAcrossChunkCommits(int targetCount)
     {
         using var scope = TestDatabaseScope.Create();
         string directory = Path.Combine(scope.DirectoryPath, "ChunkProgress");
         Directory.CreateDirectory(directory);
-        const int targetCount = 1001;
         var songs = new List<ChartFile>(targetCount);
         for (int index = 0; index < targetCount; index++)
         {
             string path = Path.Combine(directory, index + ".bms");
-            File.WriteAllText(path, "#PLAYER 1\r\n#TITLE Current " + index
-                + "\r\n#BPM 120\r\n#WAV01 sound.wav\r\n#00111:01\r\n", Encoding.ASCII);
-            ChartFile song = CreateSyncTestFile(path, ChartFileContentReader.ReadSnapshot(path));
+            // 読取り依存だけを固定バイト列へ置換し、1万個の物理ファイル準備を保証へ混ぜません。
+            ChartFile song = ChartTestValues.Empty() with { Path = path, Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
             song = song with { Title = "Old " + index, RawTitle = "Old " + index };
             song = song with { Tag = "User tag" };
             song = song with { Favorite = 7 };
@@ -193,12 +193,18 @@ public sealed class Lr2SongDbSyncServiceTests
         var events = new ConcurrentQueue<Lr2SongDbSyncProgress>();
         var beforeCommit = new List<Lr2SongDbSyncProgress?>();
         var afterCommit = new List<Lr2SongDbSyncProgress?>();
+        var logs = new ConcurrentQueue<string>();
         Func<CatalogChartInfoWriteRequest, CatalogChartInfoWriteReceipt> writer = CreateDirectChartInfoWriter(songDb);
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
+            LogInstallPerformance = logs.Enqueue,
             Signature = "real-chunk-progress",
             RunId = "real-chunk-progress",
             SongRows = songs,
+            ChartFileBufferReader = path => new ChartFileReadBuffer(path,
+                Encoding.ASCII.GetBytes("#PLAYER 1\r\n#TITLE Current " + Path.GetFileNameWithoutExtension(path)
+                    + "\r\n#BPM 120\r\n#WAV01 sound.wav\r\n#00111:01\r\n"),
+                new DateTime(2026, 6, 9, 0, 0, 0, DateTimeKind.Utc)),
             ChartInfoChunkWriter = request =>
             {
                 beforeCommit.Add(Volatile.Read(ref latest));
@@ -214,7 +220,13 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(targetCount, result.SongRowProcessedCount);
-        Assert.IsTrue(beforeCommit.Count > 1, "実更新が複数チャンクで保存される。");
+        Assert.AreEqual((targetCount + 999) / 1000, beforeCommit.Count);
+        string[] chunkStarts = [.. logs.Where(line => line.Contains(" chunk_start "))];
+        Assert.AreEqual(beforeCommit.Count, chunkStarts.Length);
+        for (int chunk = 0; chunk < chunkStarts.Length; chunk++)
+        {
+            StringAssert.Contains(chunkStarts[chunk], " offset=" + (chunk * 1000) + " count=" + Math.Min(1000, targetCount - chunk * 1000));
+        }
         Assert.AreEqual(beforeCommit.Count, afterCommit.Count);
         foreach (Lr2SongDbSyncProgress? progress in beforeCommit.Concat(afterCommit))
         {
@@ -227,6 +239,16 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.IsTrue(songEvents.All(progress => progress.StageTotalCount == targetCount
             && progress.StageProcessedCount >= 0 && progress.StageProcessedCount <= targetCount));
         Assert.IsTrue(songEvents.Any(progress => progress.StageProcessedCount == targetCount));
+        int[] expectedCursors = [.. Enumerable.Range(0, beforeCommit.Count + 1).Select(chunk => Math.Min(chunk * 1000, targetCount))];
+        CollectionAssert.AreEqual(expectedCursors, songEvents.Select(progress => progress.ProcessedCursor).Distinct().ToArray());
+        Assert.AreEqual(targetCount, result.TotalCount);
+        Assert.AreEqual(targetCount, result.ProcessedCount);
+        Assert.AreEqual(0, result.SongRowSkippedCount);
+        LR2SongDBExtended.lr2_song_db_sync_status durable = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+        Assert.AreEqual(targetCount, durable.total_count);
+        Assert.AreEqual(targetCount, durable.processed_cursor);
+        Assert.AreEqual("Running", durable.status);
+        Assert.IsNull(durable.completed_at);
         Assert.IsFalse(events.Any(progress => progress.Stage == "song_rows_saving"));
         using var observation = new SQLite.SQLiteConnection(scope.SongDbPath,
             SQLite.SQLiteOpenFlags.ReadOnly | SQLite.SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
@@ -281,8 +303,10 @@ public sealed class Lr2SongDbSyncServiceTests
     /// 空入力の生成に成功しても有件数の段階通知を出さず、存在しない作業量を表示する誤りを検出する。
     /// </summary>
     /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
-    [TestMethod]
-    public void SyncService_EmptyInputOmitsCountedStages()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void SyncService_EmptyInputOmitsCountedStages(bool withFolder)
     {
         using var scope = TestDatabaseScope.Create();
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
@@ -290,6 +314,9 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
+            RootDirectories = withFolder ? [scope.DirectoryPath] : [],
+            NormalFolderDirectoryPaths = withFolder ? [scope.DirectoryPath] : [],
+            DirectoryEntries = withFolder ? CreateDirectoryEntryMap(scope.DirectoryPath) : [],
             Signature = "empty-folder-projection",
             RunId = "empty-folder-projection",
             StartedAtUtc = new DateTime(2026, 6, 8, 8, 0, 0, DateTimeKind.Utc),
@@ -303,14 +330,25 @@ public sealed class Lr2SongDbSyncServiceTests
         });
 
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.IsFalse(progressEvents.Any(progress => progress.StageTotalCount > 0));
-        foreach (string stage in new[] { "lr2folder_files", "directory_metadata", "normal_folder_roots", "normal_folders",
+        Assert.IsTrue(progressEvents.Any(progress => progress.Stage == "final_validation"));
+        Assert.AreEqual(withFolder ? 1 : 0, result.TotalCount);
+        Assert.AreEqual(result.TotalCount, result.ProcessedCount);
+        Assert.IsFalse(progressEvents.Any(progress => progress.Stage.StartsWith("song_rows", StringComparison.Ordinal)));
+        if (withFolder)
+        {
+            Assert.IsNotNull(songDb.Find<LR2SongDB.folder>(ToFolderPath(scope.DirectoryPath)));
+        }
+        else
+        {
+            Assert.IsFalse(progressEvents.Any(progress => progress.StageTotalCount > 0));
+            foreach (string stage in new[] { "lr2folder_files", "directory_metadata", "normal_folder_roots", "normal_folders",
             "folder_projection_candidates", "custom_folder_rows", "custom_folder_parents", "folder_reconciliation",
             "folder_reconciliation_completed", "song_rows", "song_rows_completed" })
-        {
-            Assert.IsFalse(progressEvents.Any(progress => progress.Stage == stage), stage);
+            {
+                Assert.IsFalse(progressEvents.Any(progress => progress.Stage == stage), stage);
+            }
+            Assert.AreEqual(0, result.FolderTableReconciliationResult.GeneratedCount);
         }
-        Assert.AreEqual(0, result.FolderTableReconciliationResult.GeneratedCount);
     }
 
     /// <summary>

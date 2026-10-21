@@ -33,10 +33,15 @@ public sealed class StartupRequiredInitializationTests
         StartupRequiredOperationLease accepted = owner.AcquireRequiredOperation(fixture.Library.OperationAdmission,
             fixture.Library.Lr2Synchronization.PlaylistOperationAdmission);
         int scoreNotifications = 0;
+        var lr2Statuses = new ConcurrentQueue<Lr2SongDbSyncStatusSnapshot>();
         // queue登録はcatalog wakeから見えてよい。ここでは親へ渡したscore純通知action自体の実行時点を検証します。
         System.ComponentModel.PropertyChangedEventHandler scoreObserver = (_, args) =>
         {
             if (args.PropertyName == nameof(BMSLibrary.ScoreSnapshotVersion)) { Interlocked.Increment(ref scoreNotifications); }
+            if (args.PropertyName == nameof(BMSLibrary.Lr2SongDbSyncStatusVersion))
+            {
+                lr2Statuses.Enqueue(fixture.Library.GetLr2SongDbSyncStatusSnapshot());
+            }
         };
         fixture.Library.PropertyChanged += scoreObserver;
         var outputProgress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
@@ -107,6 +112,35 @@ public sealed class StartupRequiredInitializationTests
             StartupRequiredInitializationResult result = await operation;
             Assert.IsNull(result.Lr2Failure);
             Assert.AreSame(runtime.Input, result.FileResult);
+            Assert.IsFalse(lr2Statuses.Any(status => status.Stage?.StartsWith("song_rows", StringComparison.Ordinal) == true));
+            Assert.IsTrue(lr2Statuses.Any(status => status.Stage == "final_validation"));
+            Assert.IsTrue(lr2Statuses.Any(status => status.Stage == "sync_state_saving"));
+            // 実生産した0件同期の状態だけを表示へ渡し、架空の譜面工程と最終検証・保存工程を区別します。
+            using var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+            foreach (Lr2SongDbSyncStatusSnapshot snapshot in lr2Statuses)
+            {
+                Lr2SongDbSyncRuntimeStatus presentation = Lr2SongDbSyncStatusMapper.Create(snapshot, DateTime.UtcNow);
+                Assert.IsFalse(presentation.ProgressText.Contains(Resources.Lr2_song_db_sync_stage_song_rows));
+                hub.UpdateLr2SongDbSyncStatus(presentation);
+                if (snapshot.Stage is "final_validation" or "sync_state_saving")
+                {
+                    Assert.IsFalse(presentation.HasProgress);
+                    OperationProgressRow row = hub.Rows.Single(item => item.Key == "lr2");
+                    Assert.IsTrue(row.HasGauge);
+                    Assert.IsTrue(row.IsIndeterminate);
+                    StringAssert.Contains(row.Detail, snapshot.Stage == "final_validation"
+                        ? Resources.Lr2_song_db_sync_stage_final_validation : Resources.Lr2_song_db_sync_stage_sync_state_saving);
+                }
+            }
+            Assert.IsTrue(fixture.Library.OperationAdmission.IsActive);
+            Assert.IsTrue(fixture.Library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(fixture.SongDbPath).OpenSongDbReadOnly();
+            LR2SongDBExtended.lr2_song_db_sync_status durable = readback.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+            Assert.AreEqual("Completed", durable.status);
+            Assert.IsNotNull(durable.completed_at);
+            Assert.AreEqual(durable.total_count, durable.processed_cursor);
+            Assert.IsTrue(readback.Table<LR2SongDB.folder>().Any());
+            Assert.AreEqual("saved chart", readback.Find<LR2SongDB.song>(fixture.ChartPath).title);
         }
         finally
         {
