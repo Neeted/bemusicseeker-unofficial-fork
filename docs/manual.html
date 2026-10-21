@@ -1602,7 +1602,8 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Turning a playlist's <code>BMT OUTPUT</code> OFF removes its managed <code>.bmt</code> and registered URL at the next output. Before disabling output globally, enable <code>Keep existing .bmt files when output is disabled</code> if you want to preserve them.</p></div>
 <p>With the keep-existing-files option enabled, disabling global output stops automatic re-export while retaining the existing <code>.bmt</code> files and registered URLs.</p>
 <h3 id="import-external-playlist">Import External Playlist</h3>
-<p>Right-click the playlist tree root and choose <code>Import playlists</code>. Choose candidates on the left, review the selection on the right, then press <code>Import</code> to load them together.</p>
+<p>Register multiple playlists together from the table list, URLs, or JSON files. Right-click the playlist tree root and choose <code>Import playlists</code>.</p>
+<p><img alt="Import playlists" src="img/プレイリストをインポート.png"/></p>
 <div class="table-scroll"><table>
 <thead>
 <tr>
@@ -1613,11 +1614,11 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <tbody>
 <tr>
 <td>Table list</td>
-<td>Check individual tables. Search by name, symbol, category, or URL, or use <code>All</code> beside the search box to select or clear all matching tables.</td>
+<td>Search by name, symbol, category, or part of a URL, then check the tables to import.</td>
 </tr>
 <tr>
 <td>Built-in tables</td>
-<td>Choose EASY / NORMAL / HARD / FC difficulty estimates and the three recommendation types. Use category checkboxes to select or clear a group.</td>
+<td>Check the <a href="#built-in-difficulty-estimates-and-recommendations">built-in difficulty estimates and recommendations</a> to import.</td>
 </tr>
 <tr>
 <td>URL / file</td>
@@ -1625,15 +1626,10 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 </tr>
 </tbody>
 </table></div>
-<p>The default difficulty table list retrieval URI is managed by <a href="https://darksabun.club/table/tablelist.html">DARKSABUN</a>. Built-in tables and URL / file input remain available while the list is loading or if retrieval fails.</p>
-<p>The table list starts with upper categories such as <code>SP</code> expanded and the categories immediately above table names, such as <code>General</code>, collapsed. All built-in categories start expanded. Click a category name or the empty part of its row once to expand or collapse it. Use the checkbox on its left to select or clear the group. A dash means that only some matching tables are selected; clicking it selects the rest. This operation keeps selections that are hidden by the current search or filters.</p>
-<p>You can search for a full URL or part of its domain or path. Search updates after you stop typing for about half a second and expands the categories containing matches. Clearing the search restores their previous expansion state. Changing the display filters also preserves the normal expansion state.</p>
-<p>Selections stay on the right when you change tabs or search conditions. The same URL appears once in the selection. Use <code>Remove</code> for individual items or <code>Clear all</code> for the whole selection. Closing the window discards the current selection.</p>
-<p>The table list and built-in tables share display filters and initially hide tables whose URLs are already registered. You can show those tables or also hide candidates with existing names. Items needing attention show <code>Same URL</code> or <code>Matching name</code> to the right of their names. The counts below the selection list show selected items, candidates to run, and matching URLs. Hover over a shortened name to see it in full.</p>
-<p>URL / file input adds valid lines to the selection. If any lines are invalid, the app reports those lines and keeps the full input so you can correct them and press <code>Add to selection</code> again. URLs already selected keep their position, and only new URLs are appended. The input box clears when all lines are valid.</p>
-<p><code>Same URL</code> indicates a match with a registered URL. Before starting, the app checks the latest registered page and header URLs and skips matching URLs without loading them. <code>Matching name</code> means that the displayed name matches an existing table. These candidates remain eligible for import; duplicates are determined from the actual table names after loading. If any items are skipped or fail, the result dialog shows separate counts for successful imports, duplicate URLs, duplicate names, and failures, along with samples of the skipped or failed items.</p>
-<p>If another operation is running, playlist preparation is incomplete, or all selected URLs are already registered, the window stays open with the reason and selection intact. The request is not scheduled for later; press <code>Import</code> again when appropriate.</p>
-<p>Externally synced playlists can be updated by re-fetching the original difficulty table. After importing, check the sync result in the playlist summary <code>STATUS</code> column.</p>
+<p>Use category checkboxes, or <code>All</code> in the table list, to select or clear all tables matching the display conditions. <code>Hide registered URLs</code> is ON by default. To also hide candidates whose names match existing tables, turn on <code>Hide matching names</code>.</p>
+<p>Selections stay on the right when you change tabs or search conditions. Use <code>Remove</code> for individual items or <code>Clear all</code> for the whole selection. Review the selection, then press <code>Import</code>.</p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Items marked <code>Same URL</code> are skipped. <code>Matching name</code> warns of a possible duplicate name; the item is skipped if the loaded table name duplicates another table. Check the result dialog for skipped or failed items.</p></div>
+<p>Open registered tables from the playlist tree. Reload externally synced playlists to update them from the original difficulty tables. Check the sync result in the <a href="#playlist-summary">playlist summary</a> <code>STATUS</code> column.</p>
 <h3 id="built-in-difficulty-estimates-and-recommendations">Built-in Difficulty Estimates and Recommendations</h3>
 <p>The built-in difficulty estimates and recommendations integrate <a href="https://github.com/naktazdim/walkure-offline/">Walkure Offline</a>, the offline version of <a href="http://walkure.net/hakkyou/index.html">Walkure's Insane BMS difficulty estimates and recommendations</a>. No internet connection, LR2 player ID, or score upload is required.</p>
 <p>Right-click the playlist tree root, open <code>Import playlists</code>, and choose the <code>Built-in tables</code> tab. Select multiple types to register them in one import.</p>

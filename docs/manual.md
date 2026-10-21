@@ -848,31 +848,24 @@ With the keep-existing-files option enabled, disabling global output stops autom
 
 ### Import External Playlist
 
-Right-click the playlist tree root and choose `Import playlists`. Choose candidates on the left, review the selection on the right, then press `Import` to load them together.
+Register multiple playlists together from the table list, URLs, or JSON files. Right-click the playlist tree root and choose `Import playlists`.
+
+![Import playlists](img/プレイリストをインポート.png)
 
 | Tab | How to choose |
 | --- | --- |
-| Table list | Check individual tables. Search by name, symbol, category, or URL, or use `All` beside the search box to select or clear all matching tables. |
-| Built-in tables | Choose EASY / NORMAL / HARD / FC difficulty estimates and the three recommendation types. Use category checkboxes to select or clear a group. |
+| Table list | Search by name, symbol, category, or part of a URL, then check the tables to import. |
+| Built-in tables | Check the [built-in difficulty estimates and recommendations](#built-in-difficulty-estimates-and-recommendations) to import. |
 | URL / file | Enter one table URL or JSON file path per line, then press `Add to selection`. The file picker appends a path to the input box. |
 
-The default difficulty table list retrieval URI is managed by [DARKSABUN](https://darksabun.club/table/tablelist.html). Built-in tables and URL / file input remain available while the list is loading or if retrieval fails.
+Use category checkboxes, or `All` in the table list, to select or clear all tables matching the display conditions. `Hide registered URLs` is ON by default. To also hide candidates whose names match existing tables, turn on `Hide matching names`.
 
-The table list starts with upper categories such as `SP` expanded and the categories immediately above table names, such as `General`, collapsed. All built-in categories start expanded. Click a category name or the empty part of its row once to expand or collapse it. Use the checkbox on its left to select or clear the group. A dash means that only some matching tables are selected; clicking it selects the rest. This operation keeps selections that are hidden by the current search or filters.
+Selections stay on the right when you change tabs or search conditions. Use `Remove` for individual items or `Clear all` for the whole selection. Review the selection, then press `Import`.
 
-You can search for a full URL or part of its domain or path. Search updates after you stop typing for about half a second and expands the categories containing matches. Clearing the search restores their previous expansion state. Changing the display filters also preserves the normal expansion state.
+> [!CAUTION]
+> Items marked `Same URL` are skipped. `Matching name` warns of a possible duplicate name; the item is skipped if the loaded table name duplicates another table. Check the result dialog for skipped or failed items.
 
-Selections stay on the right when you change tabs or search conditions. The same URL appears once in the selection. Use `Remove` for individual items or `Clear all` for the whole selection. Closing the window discards the current selection.
-
-The table list and built-in tables share display filters and initially hide tables whose URLs are already registered. You can show those tables or also hide candidates with existing names. Items needing attention show `Same URL` or `Matching name` to the right of their names. The counts below the selection list show selected items, candidates to run, and matching URLs. Hover over a shortened name to see it in full.
-
-URL / file input adds valid lines to the selection. If any lines are invalid, the app reports those lines and keeps the full input so you can correct them and press `Add to selection` again. URLs already selected keep their position, and only new URLs are appended. The input box clears when all lines are valid.
-
-`Same URL` indicates a match with a registered URL. Before starting, the app checks the latest registered page and header URLs and skips matching URLs without loading them. `Matching name` means that the displayed name matches an existing table. These candidates remain eligible for import; duplicates are determined from the actual table names after loading. If any items are skipped or fail, the result dialog shows separate counts for successful imports, duplicate URLs, duplicate names, and failures, along with samples of the skipped or failed items.
-
-If another operation is running, playlist preparation is incomplete, or all selected URLs are already registered, the window stays open with the reason and selection intact. The request is not scheduled for later; press `Import` again when appropriate.
-
-Externally synced playlists can be updated by re-fetching the original difficulty table. After importing, check the sync result in the playlist summary `STATUS` column.
+Open registered tables from the playlist tree. Reload externally synced playlists to update them from the original difficulty tables. Check the sync result in the [playlist summary](#playlist-summary) `STATUS` column.
 
 ### Built-in Difficulty Estimates and Recommendations
 
