@@ -1416,7 +1416,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
-    /// <summary>実上書き確認後に既存songのlevelだけを変更し、日時・title・tagを保持して未登録の行は追加しません。列全体の置換と欠損行の暗黙登録を検出します。</summary>
+    /// <summary>実上書きでは既存songのlevelだけを変え、続く文字コード補正とDB再読込みでも上書き値を保持します。元ファイル・詳細値への巻戻り、利用者列の消失、未登録行の追加を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistTableLevelOverwriteWorkflow_UpdatesOnlyExistingSongLevel()
@@ -1426,20 +1426,33 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         try
         {
             string songDbPath = CreateTempSongDbPath(tempDirectory);
+            new BmsLibraryDbGateway(songDbPath).EnsureAppOwnedSchema();
             string chartPath = Path.Combine(tempDirectory, "chart.bms");
             string missingPath = Path.Combine(tempDirectory, "missing.bms");
-            const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             const string missingMd5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-            ChartFile file = ChartTestValues.Empty() with
+            const string correctedTitle = "文字コード補正後のタイトル";
+            File.WriteAllText(chartPath,
+                "#TITLE " + correctedTitle + "\r\n#ARTIST artist\r\n#BPM 120\r\n#PLAYLEVEL 3\r\n#00111:01\r\n",
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            byte[] originalBytes = File.ReadAllBytes(chartPath);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            ChartFile file = BmsChartFileParser.ParseSnapshot(snapshot) with
             {
-                Path = chartPath,
-                Level = 3,
                 Date = 123456,
                 AddDate = 98765,
                 Tag = "keep-tag"
             };
-            file = file with { Md5 = md5 };
-            file = file with { Title = "KeepTitle", RawTitle = "KeepTitle" };
+            file = ChartFileProjection.WithChartInfo(file,
+                ChartInfoParser.ParseBytes(snapshot.Bytes, chartPath, snapshot.Md5, snapshot.Sha256));
+            file = ChartFileProjection.WithMaintenance(file, new ResourceHealthMaintenanceSnapshot
+            {
+                Path = chartPath,
+                Hash = file.Md5,
+                Encoding = "shift_jis",
+                EncodingFixed = false
+            });
+            Assert.AreEqual(3, file.ChartInfo.level);
+            Assert.AreNotEqual(correctedTitle, file.RawTitle);
             ChartFile missingFile = ChartTestValues.Empty() with
             {
                 Path = missingPath,
@@ -1461,7 +1474,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             {
                 entries =
                 [
-                    CreateEntryWithLevel(md5, 12),
+                    CreateEntryWithLevel(file.Md5, 12),
                     CreateEntryWithLevel(missingMd5, 11)
                 ]
             };
@@ -1473,14 +1486,37 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             var workflow = new PlaylistTableLevelOverwriteWorkflowOwner(dialogs, () => library);
             await workflow.OverwriteAsync(table);
 
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-            LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single(candidate => candidate.path == chartPath);
-            Assert.AreEqual(12, row.level);
-            Assert.AreEqual("KeepTitle", row.title);
-            Assert.AreEqual(123456, row.date);
-            Assert.AreEqual(98765, row.adddate);
-            Assert.AreEqual("keep-tag", row.tag);
-            Assert.AreEqual(0, verify.Table<LR2SongDB.song>().Count(candidate => candidate.path == missingPath));
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            {
+                LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single(candidate => candidate.path == chartPath);
+                Assert.AreEqual(12, row.level);
+                Assert.AreEqual(file.RawTitle, row.title);
+                Assert.AreEqual(123456, row.date);
+                Assert.AreEqual(98765, row.adddate);
+                Assert.AreEqual("keep-tag", row.tag);
+                Assert.AreEqual(0, verify.Table<LR2SongDB.song>().Count(candidate => candidate.path == missingPath));
+            }
+
+            library.SetBMSFilesEncoding(library.BmsCharts.Where(chart => chart.Path == chartPath), "utf-8");
+
+            ChartFile current = library.BmsCharts.Single(chart => chart.Path == chartPath);
+            Assert.AreEqual(correctedTitle, current.RawTitle);
+            Assert.AreEqual(12.0, current.Level);
+            Assert.AreEqual("12", current.LevelText);
+            Assert.AreEqual(3, current.ChartInfo.level);
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            {
+                LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single(candidate => candidate.path == chartPath);
+                ChartFile reloaded = ChartSongStorageMapping.FromBmsRow(row);
+                Assert.AreEqual(correctedTitle, row.title);
+                Assert.AreEqual(12, row.level);
+                Assert.AreEqual(12.0, reloaded.Level);
+                Assert.AreEqual("12", reloaded.LevelText);
+                Assert.AreEqual(98765, row.adddate);
+                Assert.AreEqual("keep-tag", row.tag);
+                Assert.AreEqual(0, verify.Table<LR2SongDB.song>().Count(candidate => candidate.path == missingPath));
+            }
+            CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(chartPath));
         }
         finally
         {

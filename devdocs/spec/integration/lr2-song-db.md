@@ -40,6 +40,8 @@ LR2に見せるjukeboxルートと、本アプリが譜面・リソースを走�
 
 `date` は譜面ファイルの更新時刻をUnix秒で保存します。新しい行の `adddate` が未設定なら、同期時点のLR2形式時刻で初期化します。`level`、`judge`、`date`、`folder`、`parent` 等は現在の入力から生成します。日時の0や負値も有効なUnix秒として扱います。
 
+共通現在値を `song` 行へ保存する際の `level` は、その現在値を優先します。レベル上書き後に文字コードを補正しても、取得済み譜面情報に残る元の表記レベルで上書き値を戻しません。元ファイルと解析済み詳細は変更せず、保存後の再読込みも確定済みレベルを使います。回帰確認は `BmsPlaylistMigrationAndRegistrationTests.PlaylistTableLevelOverwriteWorkflow_UpdatesOnlyExistingSongLevel` で、実上書き、メタデータの再読解、SQLite再読込みを連続して行います。
+
 `folder` と `parent` はLR2互換のCRC32です。対象ディレクトリまたはその親のパスに末尾の `\` とNULを付け、Shift_JISのバイト列から計算します。パスをShift_JISで表せない、またはWindowsパスとして解釈できない場合も管理対象のBMS行は削除せず、両列を `NULL` にして互換性警告を付けます。計算は `LR2CRC32` と `Lr2SongFolderParentNormalizer` を正本とします。
 
 新規追加と `UpsertSongs` では、この正規化を保存前に行います。相対パスの補正は、絶対パス化とCRC計算の両方が成功した場合だけ `song.path` に反映します。計算できないパスだけを中途半端に更新したり、警告対象を次の走査で削除・再追加したりしません。

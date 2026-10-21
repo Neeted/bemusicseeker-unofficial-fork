@@ -83,7 +83,6 @@ internal static class ChartSongStorageMapping
             favorite = chart.Favorite,
             adddate = chart.AddDate,
             txt = chart.Txt,
-            level = chart.Level.HasValue ? (int?)chart.Level.Value : null,
             mode = chart.Mode,
             difficulty = chart.Difficulty,
             judge = chart.Judge,
@@ -98,6 +97,8 @@ internal static class ChartSongStorageMapping
         {
             Lr2SongRowEnricher.EnrichFromChartInfo(row, chart.ChartInfo);
         }
+        // レベル上書き後の共通現在値を優先し、詳細解析に残る元の表記レベルへ戻しません。
+        row.level = chart.Level.HasValue ? (int?)chart.Level.Value : null;
         Lr2SongRowEnricher.EnrichGeneratedSong(row);
         return row;
     }
