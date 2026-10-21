@@ -689,7 +689,8 @@ public sealed class MainWindowViewHostTests
         finally { window.Loaded -= position; }
     }
 
-    /// <summary>実描画に伴う必須UI終端は成功公開より前にplayerへ所有HWNDを接続し、実Close終端後にWindowとhostを解放します。</summary>
+    /// <summary>描画準備後のhost接続入口ではL/P解放済みかつ成功未公開であり、成功propertyの実通知時には接続済みの所有HWNDがあることを確認します。</summary>
+    /// <remarks>必須UI全体の終端・失敗・任意処理順はStartupProgressテストが分担し、このケースは実Attachと成功公開の順序を直接観測します。</remarks>
     [TestMethod]
     public void MainWindowRenderedInitializationAttachesCreatedPlaybackHost()
     {
@@ -705,7 +706,12 @@ public sealed class MainWindowViewHostTests
             Exception? bodyFailure = null;
             ApplicationComposition? composition = null;
             Task? activation = null;
-            var ui = new MainWindowViewModelStartupProgressTests.CompletionUiScheduler(new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
+            var ui = new WpfUiScheduler(() => Dispatcher.CurrentDispatcher);
+            ExternalPlayerHwndHost? playbackHost = null;
+            var completionPublished = new TaskCompletionSource<(bool HostAttached, IExternalPlayerWindowHost? WindowHost, IntPtr Handle)>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            PropertyChangedEventHandler? completionObserver = null;
+            RoutedEventHandler? beginActivation = null;
             var player = new FakeBmsPlayer(onAttach: _ =>
             {
                 Assert.IsNotNull(composition);
@@ -727,7 +733,27 @@ public sealed class MainWindowViewHostTests
                 viewModel = CreatePlaybackHostViewModel(composition, settings, directory.Path);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
+                completionObserver = (_, args) =>
+                {
+                    if (args.PropertyName == nameof(MainWindowViewModel.IsInitializationCompleted) && viewModel.IsInitializationCompleted)
+                    {
+                        completionPublished.TrySetResult((player.HostAttached.Task.IsCompleted, player.WindowHost, playbackHost?.Handle ?? IntPtr.Zero));
+                    }
+                };
+                viewModel.PropertyChanged += completionObserver;
                 window = ownership.CreateWindow(() => new MainWindow(viewModel));
+                beginActivation = (sender, _) =>
+                {
+                    if (activation != null) { return; }
+                    var loadedWindow = (MainWindow)sender;
+                    loadedWindow.UpdateLayout();
+                    PlaybackPanelView playbackView = GetNamedElement<PlaybackPanelView>(loadedWindow, "playbackPanelView");
+                    playbackHost = (ExternalPlayerHwndHost)playbackView.FindName("externalPlayerHost");
+                    Assert.AreNotEqual(IntPtr.Zero, playbackHost.Handle, "実hostを生成してから起動要求を開始します。");
+                    // 基底のContentRenderedより先に同じ一回受付へ渡し、実要求Taskを所有します。
+                    activation = viewModel.ShellActivationWorkflow.ActivateRenderedShell(() => { }, _ => { }, () => false);
+                };
+                window.Loaded += beginActivation;
                 window.Closed += (_, _) =>
                 {
                     closed = true;
@@ -735,19 +761,21 @@ public sealed class MainWindowViewHostTests
                 };
                 Assert.IsFalse(viewModel.IsInitializationCompleted);
                 Assert.IsFalse(player.HostAttached.Task.IsCompleted);
-                ui.IsCompletionBoundary = () => !composition.OperationAdmission.IsActive && !composition.PlaylistOperationAdmission.IsActive
-                    && viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked;
-                ui.Arm();
-                activation = viewModel.ShellActivationWorkflow.ActivateRenderedShell(() => { }, _ => { }, () => false);
                 ShowMainWindow(scope, window);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(ui.Entered.Task, activation, "rendered-host-required-ui"), "rendered-host-required-ui");
-                Assert.IsFalse(viewModel.IsInitializationCompleted);
-                ui.Release.TrySetResult();
+                Assert.IsNotNull(activation, "実host生成後に開始した要求Taskを所有します。");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(completionPublished.Task, activation, "rendered-host-success-publication"),
+                    "rendered-host-success-publication");
+                (bool HostAttached, IExternalPlayerWindowHost? WindowHost, nint Handle) published = completionPublished.Task.GetAwaiter().GetResult();
+                Assert.IsTrue(published.HostAttached, "成功公開の瞬間に実Attachが完了しています。");
+                Assert.IsNotNull(published.WindowHost);
+                Assert.AreNotEqual(IntPtr.Zero, published.Handle);
+                Assert.AreEqual(published.Handle, published.WindowHost.ParentHandle.NativeValue);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(activation, "rendered-playback-activation-terminal");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(player.HostAttached.Task, "rendered-playback-host-attachment");
                 Assert.IsTrue(viewModel.IsInitializationCompleted);
                 PlaybackPanelView playbackView = GetNamedElement<PlaybackPanelView>(window, "playbackPanelView");
                 var host = (ExternalPlayerHwndHost)playbackView.FindName("externalPlayerHost");
+                Assert.AreEqual(published.Handle, host.Handle);
                 Assert.AreEqual(Visibility.Collapsed, host.Visibility);
                 ExternalPlayerHostObservation.AssertOwnedChild(host.Handle, window);
                 Assert.IsNotNull(player.WindowHost);
@@ -765,9 +793,13 @@ public sealed class MainWindowViewHostTests
             }
             finally
             {
-                ui.Release.TrySetResult();
                 try { if (activation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(activation, "rendered-host-activation-cleanup"); } }
-                finally { ownership?.DisposeAfterBodyFailure(bodyFailure); }
+                finally
+                {
+                    if (window != null && beginActivation != null) { window.Loaded -= beginActivation; }
+                    if (viewModel != null && completionObserver != null) { viewModel.PropertyChanged -= completionObserver; }
+                    ownership?.DisposeAfterBodyFailure(bodyFailure);
+                }
             }
         });
     }
