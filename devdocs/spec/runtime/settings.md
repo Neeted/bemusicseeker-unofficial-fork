@@ -42,6 +42,23 @@
 
 詳細設定のインストールでは、保留維持、全使用リソース要求、複数候補の自動確定の3項目を `SettingsCheckBoxOption` で表示します。既存の標準CheckBoxと設定値への直接Bindingを内容に残し、説明と余白だけを共通化します。説明は常時表示し、ラベル文字の左端に揃えて本文幅で折り返し、他の設定説明と同じテーマ対応の薄い文字色を使います。ラベル・順序・保存・取消・標準のキーボード操作は維持し、説明部品にフォーカス対象や設定状態を増やしません。
 
+### 起動時のソートキャッシュ準備範囲
+
+詳細設定の初期化設定で、通常ライブラリ一覧の起動後に事前生成するソートキャッシュの範囲を選びます。保存キーはユーザー設定の整数 `StartupSortCachePrewarmPriority`、キー欠落時の既定値は `1` です。
+
+| 値 | 表示 | 対象優先度 | 現行定義での昇降順の合計 |
+| --- | --- | --- | ---: |
+| 0 | 準備しない | なし | 0 |
+| 1 | 基本のみ（既定） | 1 | 8 |
+| 2 | 標準 | 1～2 | 42 |
+| 3 | すべて | 1～3 | 78 |
+
+未準備の列も選択時に通常どおり整列・キャッシュします。対象列と順序は[一覧仕様](../ui/table-view.md)の列優先度を正本とし、件数を実装へ固定しません。変更は[次回起動](startup.md#起動後のソートキャッシュ準備)から適用し、この設定の保存だけで再初期化やキャッシュの削除・追加生成は開始しません。
+
+編集・変更判定・保存済み比較値・取消の復元には既存の設定編集セッションを使います。言語変更は選択値を維持して選択肢の表示名を更新します。共通の `SettingsField`、`ComboBox` と警告用 `SettingsStatusBanner` がテーマへ追従します。
+
+保存済み値が0～3外なら補正せず無選択と警告を表示します。setterへのnull・範囲外入力では共有値を変更しません。有効値の明示選択まで、未編集や別項目だけの変更も含め設定全体の保存を止めます。`CanSaveSettings`、各保存用検証、`SaveSettings`、`SaveSettingsForInitialInitialize`、`ApplySettingsAsync` と保存直前の境界を揃え、拒否時の保存回数・再初期化回数は0、保存済みbytesは不変です。必須起動の検査はこの任意設定を条件に加えず、範囲外値の実行は起動後処理の失敗として扱います。
+
 ### 言語辞書と資源の代替
 
 表示文字列は、指定カルチャのJSON、指定カルチャの埋込み資源、日本語の埋込み資源の順で解決します。利用者が編集した日本語JSONも優先します。UTF-8/BOM、任意キー、大小文字を区別する辞書と既存の `DataContractJsonSerializer` による受理を維持し、辞書の整合検査を実行時の追加拒否条件にはしません。
@@ -275,6 +292,8 @@ Allでは必要な出力配置の移行と旧BMTの整理を一回行い、新�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 起動時ソート準備の保存・復元と不正値の保存拒否 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`Settings`](../../../BeMusicSeeker/Properties/Settings.cs) | [`PortableSettingsPersistenceTests.StartupSortCachePriorityRoundTripsWithoutNormalizingInvalidValues`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) はキー欠落1と0～3/-1/4の実provider保存→新readerを確認する。[`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `StartupSortCachePriority_SaveAndCancelUseExistingEditSessionWithoutReinitializing` と `StartupSortCachePriority_InvalidSavedValueBlocksEverySaveBoundary` は4値保存・dirty解除・取消通知、未編集/他項目編集での全保存拒否・bytes保持・明示修正後保存と再初期化0を確認する。 |
+| ソート準備範囲の実選択・取消・翻訳 | [`AdvancedSettingsPage`](../../../BeMusicSeeker/Views/Settings/Pages/AdvancedSettingsPage.xaml) | [`SettingsWindowCompiledBehaviorTests.AdvancedPageStartupSortCachePriorityBindsRestoresAndLocalizesSelection`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs) は実 `ComboBox` とViewModelの双方向、取消による復元、言語切替の値保持と表示更新、代表不正値の無選択・警告を確認する。辞書整合は `LocalizationResourceParityTests`、テーマは既存共通部品検証と `DynamicResource`の静的確認へ分担する。 |
 | 初回ページ生成と未確定入力の保持 | `SettingsWindow.GetOrCreateCategoryPage`、既存ナビゲーションと`ContentControl` | `SettingsWindowCompiledBehaviorTests.EverySettingsNavigationPageMaterializesWithoutCreatingPendingChanges`で本番の構築開始/終端診断、初回選択までの未生成、表示のみでの変更なし、sourceへ未確定の入力と同じページの再利用、実閉鎖後の表示中・非表示ページのDataContext解除を確認する。未訪問ページへの現在のテーマと編集値の反映は`SettingsWindowPresentationTests.SettingsWindow_AppearanceThemeBindingSurvivesDeferredPageConnectionAndCancelRollback`が分担する。 |
 | 一覧の初回非同期取得、表示終了と実終端、保存値の保持 | `AudioDeviceTestWorkflowOwner`、`SettingsDialogViewModel` | `AudioDeviceListRefreshTests`で可視/表示有効化の通知順、未完了タスクの再利用、現在の編集値、閉画面非通知、旧照会後の列挙、音声未訪問/列挙中/外側失敗時の他設定保存と新しい読取り元を確認する。`AudioDeviceCatalogTests`は方式別の直近正常一覧保持を担う。 |
 | 列挙中の実画面操作と終了接続 | `AudioSettingsPage`、`SettingsWindow`、`MainWindow` | `SettingsWindowPresentationTests.AudioListRefresh_KeepsNavigationEditingAndOrdinaryCloseResponsive`で実バインディング・Dispatcher・通常閉鎖、`MainWindow_OwnerShutdownWaitsForAcceptedAudioWorkBeforeRuntimeShutdown`の一覧/明示テストで音声基盤の終了前の実タスク待機を確認する。 |

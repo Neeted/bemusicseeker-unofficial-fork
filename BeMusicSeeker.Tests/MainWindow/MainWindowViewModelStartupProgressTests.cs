@@ -26,6 +26,142 @@ namespace BeMusicSeeker.Tests;
 public sealed class MainWindowViewModelStartupProgressTests
 {
 
+    /// <summary>Reload前3/後0の起動を実warmupまで通し、保存3の後も同ownerの全再初期化は0、新compositionは3を使うことを確認します。</summary>
+    /// <remarks>実scheduler・起動接続の診断と実cache生成を観測します。設定捕捉から実MainWindow・descriptor・warmupへの接続を保証し、保守との本番順序は対象外です。既存受付portで保守要求を登録前に保持し、warmup観測後・失敗時finallyに一度だけ元schedulerへ渡して実workも回収します。保存拒否・永続化互換は設定系列へ分担します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void StartupSortCachePriority_CapturesAfterReloadAndSurvivesFullReinitialization()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            FieldInfo loggerProvider = typeof(NLogWrapper).GetField("_FileLogger", BindingFlags.Static | BindingFlags.NonPublic)
+                ?? throw new AssertFailedException("File logger provider is unavailable.");
+            object? previousLogger = loggerProvider.GetValue(null);
+            LoggingConfiguration? previousConfiguration = LogManager.Configuration;
+            using var log = new MemoryTarget { Layout = "${message}" };
+            try
+            {
+                var configuration = new LoggingConfiguration();
+                configuration.AddRule(LogLevel.Info, LogLevel.Fatal, log);
+                LogManager.Configuration = configuration;
+                loggerProvider.SetValue(null, (Func<Logger>)(() => LogManager.GetLogger("startup-range-test")));
+                int savedPriority;
+                using (var fixture = new CompletionFixture(isolateSortWarmup: true, settingsSessionFactory: values => new PriorityReloadSettingsSession(values, savedPriority: 0, beforeReloadPriority: 3)))
+                {
+                    fixture.OptionalRelease.TrySetResult();
+                    Task<bool> initial = fixture.Start();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(initial, "startup-range-initial");
+                    Assert.IsTrue(initial.GetAwaiter().GetResult());
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.SortWarmupCompletion.Task, "startup-range-warmup");
+                    Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Completed, fixture.SortWarmupCompletion.Task.GetAwaiter().GetResult().Kind);
+                    CollectionAssert.AreEqual(new[] { "virtual_order_prewarm selected maxPriority=0 descriptorCount=0" },
+                        log.Logs.Where(message => message.StartsWith("virtual_order_prewarm selected", StringComparison.Ordinal)).ToArray());
+                    fixture.ReleaseDeferredMaintenance();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "startup-range-background");
+                    fixture.Owner.SettingDialog.StartupSortCachePrewarmPriority = 3;
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Owner.SettingDialog.ApplySettingsAsync(), "startup-range-save");
+                    savedPriority = fixture.Settings.StartupSortCachePrewarmPriority;
+                    Assert.AreEqual(3, savedPriority);
+                    Assert.AreEqual(1, log.Logs.Count(message => message.StartsWith("virtual_order_prewarm selected", StringComparison.Ordinal)), "設定保存だけでwarmupを追加しません。");
+                    fixture.ArmSortWarmupGate();
+                    Task reinitialize = fixture.Owner.ReinitializeLibraryAsync();
+                    fixture.Track(reinitialize);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reinitialize, "startup-range-reinitialize");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.SortWarmupCompletion.Task, "startup-range-reinitialize-warmup");
+                    Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Completed, fixture.SortWarmupCompletion.Task.GetAwaiter().GetResult().Kind);
+                    CollectionAssert.AreEqual(new[] { "virtual_order_prewarm selected maxPriority=0 descriptorCount=0", "virtual_order_prewarm selected maxPriority=0 descriptorCount=0" },
+                        log.Logs.Where(message => message.StartsWith("virtual_order_prewarm selected", StringComparison.Ordinal)).ToArray());
+                    fixture.ReleaseDeferredMaintenance();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "startup-range-reinitialize-background");
+                }
+                using (var restarted = new CompletionFixture(isolateSortWarmup: true, settingsSessionFactory: values => new PriorityReloadSettingsSession(values, savedPriority, beforeReloadPriority: 0)))
+                {
+                    restarted.OptionalRelease.TrySetResult();
+                    Task<bool> initial = restarted.Start();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(initial, "startup-range-restart");
+                    Assert.IsTrue(initial.GetAwaiter().GetResult());
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(restarted.SortWarmupCompletion.Task, "startup-range-restart-warmup");
+                    Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Completed, restarted.SortWarmupCompletion.Task.GetAwaiter().GetResult().Kind);
+                    string[] selected = log.Logs.Where(message => message.StartsWith("virtual_order_prewarm selected", StringComparison.Ordinal)).ToArray();
+                    Assert.AreEqual(3, selected.Length);
+                    Assert.AreEqual("virtual_order_prewarm selected maxPriority=3 descriptorCount=78", selected[2]);
+                    RegularChartListOwner regular = GetPrivateField<RegularChartListOwner>(restarted.Owner, "regularChartListOwner");
+                    IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors = RegularChartListOwner.CreateVirtualOrderPrewarmDescriptors(3);
+                    Assert.AreEqual(78, descriptors.Count);
+                    foreach (VirtualNormalLibrarySortDescriptor descriptor in descriptors)
+                    {
+                        NormalLibrarySortCacheKey key = regular.CreateVirtualOrderKey(regular.SourceGeneration, regular.SortKeyGeneration,
+                            descriptor.ColumnName, descriptor.Direction, 0, new RegularChartListExternalVersions(restarted.Library.ScoreSnapshotVersion,
+                                restarted.Library.ChartInfoIndexVersion, restarted.Library.MaintenanceHydrationCompletedVersion));
+                        Assert.IsTrue(regular.TryGetVirtualOrder(key, out _), descriptor.ColumnName + " " + descriptor.Direction);
+                    }
+                    restarted.ReleaseDeferredMaintenance();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(restarted.WaitForBackgroundTerminalAsync(), "startup-range-restart-background");
+                }
+            }
+            finally
+            {
+                loggerProvider.SetValue(null, previousLogger);
+                LogManager.Configuration = previousConfiguration;
+            }
+        });
+    }
+
+    /// <summary>範囲外の保存値でも実必須起動は成功・操作解禁し、後続warmupだけをvirtual_orderの元例外付きFailedとして終えます。</summary>
+    /// <remarks>保守との本番順序は対象外とし、既存受付portで保守要求を登録前に保持します。warmup観測後・失敗時finallyに元schedulerへ一度だけ渡して実workを回収し、実必須起動とdescriptor失敗の接続を観測します。</remarks>
+    [DataTestMethod]
+    [DataRow(-1)]
+    [DataRow(4)]
+    [DoNotParallelize]
+    public void StartupSortCachePriority_InvalidValueFailsOnlyOptionalWarmup(int priority)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            using var fixture = new CompletionFixture(isolateSortWarmup: true, settingsSessionFactory: values => new PriorityReloadSettingsSession(values, priority, 1));
+            fixture.OptionalRelease.TrySetResult();
+            StartupPostInitializationWarmupOwner warmup = GetPrivateField<StartupPostInitializationWarmupOwner>(fixture.Owner, "startupPostInitializationWarmupOwner");
+            FieldInfo callbackField = typeof(StartupPostInitializationWarmupOwner).GetField("completed", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new AssertFailedException("Warmup completion callback is unavailable.");
+            var original = (Action<StartupPostInitializationWarmupCompletion>)(callbackField.GetValue(warmup)
+                ?? throw new AssertFailedException("Warmup completion callback is missing."));
+            var completions = new List<StartupPostInitializationWarmupCompletion>();
+            // 実接続を置換せず、既存の終端callbackへ到達した結果を観測します。fixtureの終了まで同じownerが所有します。
+            callbackField.SetValue(warmup, (Action<StartupPostInitializationWarmupCompletion>)(completion => { completions.Add(completion); original(completion); }));
+            Task<bool> initialization = fixture.Start();
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "invalid-range-required-startup");
+            Assert.IsTrue(initialization.GetAwaiter().GetResult());
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.SortWarmupCompletion.Task, "invalid-range-warmup-terminal");
+            fixture.ReleaseDeferredMaintenance();
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "invalid-range-optional-terminal");
+            Assert.IsTrue(fixture.Owner.IsInitializationCompleted);
+            Assert.IsTrue(fixture.Owner.HasActiveLibraryProfile);
+            Assert.IsFalse(fixture.Owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
+            Assert.AreEqual(priority, fixture.Settings.StartupSortCachePrewarmPriority);
+            Assert.AreEqual(1, completions.Count);
+            Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Failed, completions[0].Kind);
+            Assert.AreEqual("virtual_order", completions[0].FailedStage);
+            Assert.IsInstanceOfType<ArgumentOutOfRangeException>(completions[0].Exception);
+            RegularChartListOwner regular = GetPrivateField<RegularChartListOwner>(fixture.Owner, "regularChartListOwner");
+            Assert.IsFalse(regular.IsVirtualOrderPrewarmRunning);
+        });
+    }
+
+    /// <summary>Reload前後を意図的に変え、起動捕捉の時期を識別します。保存は次の構成へ渡す確定値を保持します。</summary>
+    private sealed class PriorityReloadSettingsSession : ISettingsEditSession
+    {
+        private int savedPriority;
+        public Settings Values { get; }
+        internal PriorityReloadSettingsSession(Settings values, int savedPriority, int beforeReloadPriority)
+        {
+            Values = values;
+            this.savedPriority = savedPriority;
+            Values.StartupSortCachePrewarmPriority = beforeReloadPriority;
+        }
+        public void Reload() => Values.StartupSortCachePrewarmPriority = savedPriority;
+        public void Save() => savedPriority = Values.StartupSortCachePrewarmPriority;
+        public void SaveOperationModeForRestart(bool mode, string identity) => throw new AssertFailedException("Unexpected mode restart.");
+    }
+
     /// <summary>UI操作禁止を同じ値で繰り返し設定しても、真偽の実遷移だけを各一回通知して重複更新を防ぎます。</summary>
     [TestMethod]
     public void StartupProgress_InteractionBlockPublishesOnlyForStateTransitions()
@@ -1490,6 +1626,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         private readonly string directory = Path.Combine(Path.GetTempPath(), "StartupCompletion-" + Guid.NewGuid().ToString("N"));
         private readonly List<Task> tasks = [];
         private Func<string, string, string, Func<Task>, bool>? wrappedScheduler;
+        private readonly bool isolateSortWarmup;
         internal Settings Settings { get; }
         internal ApplicationComposition Composition { get; }
         internal IApplicationLifetimePort Lifetime { get; }
@@ -1503,14 +1640,43 @@ public sealed class MainWindowViewModelStartupProgressTests
         internal StartupBackgroundTaskSchedulerOwner Scheduler => GetPrivateField<StartupBackgroundTaskSchedulerOwner>(Owner, "startupBackgroundTaskScheduler");
         internal TaskCompletionSource OptionalEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal TaskCompletionSource OptionalRelease { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly object maintenanceRequestGate = new();
+        private Func<bool>? deferredMaintenanceRequest;
+        private bool maintenanceRequestReleased;
+        internal TaskCompletionSource<StartupPostInitializationWarmupCompletion> SortWarmupCompletion { get; private set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal void ArmSortWarmupGate()
+        {
+            lock (maintenanceRequestGate)
+            {
+                Assert.IsNull(deferredMaintenanceRequest, "前回の保守要求を回収してから次の起動へ進みます。");
+                maintenanceRequestReleased = false;
+                SortWarmupCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+        }
+        /// <summary>保持した実要求を一度だけ元schedulerへ渡します。拒否を完了として扱わず失敗にします。</summary>
+        internal void ReleaseDeferredMaintenance()
+        {
+            Func<bool>? submit;
+            lock (maintenanceRequestGate)
+            {
+                maintenanceRequestReleased = true;
+                submit = deferredMaintenanceRequest;
+                deferredMaintenanceRequest = null;
+            }
+            if (submit != null && !submit())
+            {
+                throw new AssertFailedException("保留した保守要求が元schedulerに拒否されました。");
+            }
+        }
         private readonly TaskCompletionSource<Task> optionalWork = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal Task OptionalWork => optionalWork.Task.Unwrap();
         internal bool OptionalStartedAfterCompletion { get; private set; }
         internal int CompletionNotifications { get; private set; }
         internal CompletionFixture(IStartupLibraryInitializationFailurePresenter? failurePresenter = null,
             Func<IBMSPlayer>? defaultPlayer = null, bool lr2Mode = false, IApplicationLifetimePort? lifetime = null,
-            Action<Exception>? settingsFailureReporter = null)
+            Action<Exception>? settingsFailureReporter = null, Func<Settings, ISettingsEditSession>? settingsSessionFactory = null, bool isolateSortWarmup = false)
         {
+            this.isolateSortWarmup = isolateSortWarmup;
             Lifetime = lifetime ?? new TestApplicationLifetime(firstStartup: true);
             Directory.CreateDirectory(directory);
             string lr2DatabaseDirectory = Path.Combine(directory, "LR2files", "Database");
@@ -1563,7 +1729,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             StartupLibraryConstructionTestSupport.CreateSongDatabase(songDb);
             new BmsLibraryDbGateway(songDb).EnsureAppOwnedSchema();
             PlaylistPersistenceRepository.EnsureSchema(songDb);
-            Composition = new ApplicationComposition(settingsEditSession: new NoOpSettingsEditSession(Settings), reportSettingsApplyFailure: settingsFailureReporter,
+            Composition = new ApplicationComposition(settingsEditSession: settingsSessionFactory?.Invoke(Settings) ?? new NoOpSettingsEditSession(Settings), reportSettingsApplyFailure: settingsFailureReporter,
                 uiScheduler: Ui, applicationLifetime: Lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 applicationPathSnapshot: path, fileDbMutationDialogService: Dialogs, settingsDialogService: Dialogs,
                 defaultBmsPlayerFactory: defaultPlayer);
@@ -1575,6 +1741,19 @@ public sealed class MainWindowViewModelStartupProgressTests
                 getLr2Config: lr2Mode ? () => new LR2Config(lr2Config) : null, library: Library);
             Owner = new MainWindowViewModel(Composition, new CompletionLibraryFactory(Library, Playlist),
                 startupLibraryInitializationFailurePresenter: failurePresenter ?? new CallbackFailurePresenter(_ => { }));
+            if (isolateSortWarmup)
+            {
+                StartupPostInitializationWarmupOwner warmup = GetPrivateField<StartupPostInitializationWarmupOwner>(Owner, "startupPostInitializationWarmupOwner");
+                FieldInfo callbackField = typeof(StartupPostInitializationWarmupOwner).GetField("completed", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new AssertFailedException("Warmup completion callback is unavailable.");
+                var original = (Action<StartupPostInitializationWarmupCompletion>)(callbackField.GetValue(warmup)
+                    ?? throw new AssertFailedException("Warmup completion callback is missing."));
+                callbackField.SetValue(warmup, (Action<StartupPostInitializationWarmupCompletion>)(completion =>
+                {
+                    try { original(completion); SortWarmupCompletion.TrySetResult(completion); }
+                    catch (Exception failure) { SortWarmupCompletion.TrySetException(failure); throw; }
+                }));
+            }
             Owner.SettingDialog.AttachPresentationPort(Presentation);
             Owner.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             Owner.PropertyChanged += (_, args) =>
@@ -1589,14 +1768,29 @@ public sealed class MainWindowViewModelStartupProgressTests
             if (OptionsFailure != null) { throw OptionsFailure; }
             if (Library?.StartupBackgroundTaskScheduler is { } scheduler && scheduler != wrappedScheduler)
             {
-                wrappedScheduler = (name, reason, dependency, work) => scheduler(name, reason, dependency,
-                    name == "chart_info_backfill" ? () =>
+                wrappedScheduler = (name, reason, dependency, work) =>
+                {
+                    if (isolateSortWarmup && name == "maintenance_hydration")
                     {
-                        Task actualWork = RunOptionalWorkAsync(work);
-                        optionalWork.TrySetResult(actualWork);
-                        return actualWork;
+                        lock (maintenanceRequestGate)
+                        {
+                            if (!maintenanceRequestReleased)
+                            {
+                                Assert.IsNull(deferredMaintenanceRequest, "同じ初期化の保守要求を重複保持しません。");
+                                deferredMaintenanceRequest = () => scheduler(name, reason, dependency, work);
+                                return true;
+                            }
+                        }
                     }
-                : work);
+                    return scheduler(name, reason, dependency,
+                        name == "chart_info_backfill" ? () =>
+                        {
+                            Task actualWork = RunOptionalWorkAsync(work);
+                            optionalWork.TrySetResult(actualWork);
+                            return actualWork;
+                        }
+                    : work);
+                };
                 Library.StartupBackgroundTaskScheduler = wrappedScheduler;
             }
             return BmsLibraryOptionsSnapshot.CreateCurrent(Settings);
@@ -1650,11 +1844,15 @@ public sealed class MainWindowViewModelStartupProgressTests
             OptionsFailure = null;
             Ui.Release.TrySetResult();
             OptionalRelease.TrySetResult();
-            try { TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(tasks), "startup-completion-fixture-accepted-tasks"); }
+            try { ReleaseDeferredMaintenance(); }
             finally
             {
-                try { TestUiDispatcherHost.AwaitTaskOnDispatcher(Owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "startup-completion-fixture-shutdown"); }
-                finally { Owner.SettingDialog.Dispose(); Directory.Delete(directory, recursive: true); }
+                try { TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(tasks), "startup-completion-fixture-accepted-tasks"); }
+                finally
+                {
+                    try { TestUiDispatcherHost.AwaitTaskOnDispatcher(Owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "startup-completion-fixture-shutdown"); }
+                    finally { Owner.SettingDialog.Dispose(); Directory.Delete(directory, recursive: true); }
+                }
             }
         }
     }

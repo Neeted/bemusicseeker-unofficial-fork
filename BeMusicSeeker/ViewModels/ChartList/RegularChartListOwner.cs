@@ -47,7 +47,6 @@ internal sealed partial class RegularChartListOwner : IDisposable
 
     internal event EventHandler<RegularChartMutationRefreshSuppressionChangedEventArgs> RefreshSuppressionChanged;
 
-    private const int StartupVirtualOrderPrewarmMaxPriority = 3;
     private readonly object syncRoot = new();
     private readonly object normalLibraryRefreshApplyLock = new();
     private readonly object duplicateChartGroupsRefreshLock = new();
@@ -1759,11 +1758,6 @@ internal sealed partial class RegularChartListOwner : IDisposable
         return true;
     }
 
-    internal static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualOrderPrewarmDescriptors()
-    {
-        return CreateVirtualOrderPrewarmDescriptors(StartupVirtualOrderPrewarmMaxPriority);
-    }
-
     internal static int ResolveVirtualOrderPrewarmDegree(int descriptorCount)
     {
         if (descriptorCount <= 1)
@@ -1802,6 +1796,11 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 + " runId=" + lease.RunId
                 + " descriptorCount=" + descriptorCount
                 + " degree=" + degree);
+            if (descriptorCount == 0)
+            {
+                log("virtual_order_prewarm skipped reason=" + (reason ?? string.Empty) + " descriptorCount=0");
+                return;
+            }
             IReadOnlyList<ChartListSourceRow> sourceRows = GetOrCreateVirtualNormalLibrarySourceRows(
                 library,
                 includeBmsonRows,
@@ -1914,8 +1913,14 @@ internal sealed partial class RegularChartListOwner : IDisposable
         }
     }
 
-    private static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateVirtualOrderPrewarmDescriptors(int maxPrewarmPriority)
+    /// <summary>指定した上限優先度までの通常一覧ソートを、既存の優先度内順序で昇降順とも選びます。0は準備しません。</summary>
+    /// <exception cref="ArgumentOutOfRangeException">上限が0～3の範囲外です。</exception>
+    internal static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateVirtualOrderPrewarmDescriptors(int maxPrewarmPriority)
     {
+        if (maxPrewarmPriority is < 0 or > 3)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxPrewarmPriority), maxPrewarmPriority, "Prewarm priority must be between 0 and 3.");
+        }
         return [.. ChartListOrder.GetVirtualSortColumnMetadata()
             .Select((column, index) => new { Column = column, Index = index })
             .Where(item => item.Column.PrewarmPriority > 0)

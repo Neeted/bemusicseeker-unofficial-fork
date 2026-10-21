@@ -289,6 +289,11 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             return;
         }
+        if (!IsStartupSortCachePrewarmPriorityValid)
+        {
+            await ShowUiMessageAsync(StartupSortCachePrewarmWarning, Resources.Error, MessageBoxImage.Hand, "Settings prewarm validation");
+            return;
+        }
 
         bool reopenAfterTermination = false;
         bool initialSetup = false;
@@ -816,6 +821,8 @@ public partial class SettingsDialogViewModel : ViewModel
     private double tempCustomTableRowHeight;
 
     private double tempCustomTableHeaderHeight;
+
+    private int tempStartupSortCachePrewarmPriority;
 
     private readonly IReadOnlyList<AppearanceThemeOption> appearanceThemeOptions;
 
@@ -3759,6 +3766,44 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>列定義の優先度に対応する、次回起動時の準備範囲の選択肢です。</summary>
+    public IReadOnlyList<KeyValuePair<int, string>> StartupSortCachePrewarmOptions =>
+    [
+        new(0, Resources.Startup_sort_cache_none),
+        new(1, Resources.Startup_sort_cache_basic),
+        new(2, Resources.Startup_sort_cache_standard),
+        new(3, Resources.Startup_sort_cache_all)
+    ];
+
+    /// <summary>次回起動時の準備範囲を編集します。不正な保存値は無選択とし、nullや範囲外の入力では共有値を変更しません。</summary>
+    public int? StartupSortCachePrewarmPriority
+    {
+        get => IsStartupSortCachePrewarmPriorityValid ? ApplicationSettings.StartupSortCachePrewarmPriority : null;
+        set
+        {
+            if (value is >= 0 and <= 3 && ApplicationSettings.StartupSortCachePrewarmPriority != value.Value)
+            {
+                ApplicationSettings.StartupSortCachePrewarmPriority = value.Value;
+                RaisePropertyChanged(nameof(StartupSortCachePrewarmPriority));
+                RaisePropertyChanged(nameof(StartupSortCachePrewarmWarning));
+                RaiseValidationStateChanged();
+            }
+        }
+    }
+
+    /// <summary>不正な保存値の明示修正が必要なことを表示します。</summary>
+    public string StartupSortCachePrewarmWarning => IsStartupSortCachePrewarmPriorityValid
+        ? string.Empty
+        : string.Format(Resources.Startup_sort_cache_invalid, ApplicationSettings.StartupSortCachePrewarmPriority);
+
+    private bool IsStartupSortCachePrewarmPriorityValid => ApplicationSettings.StartupSortCachePrewarmPriority is >= 0 and <= 3;
+
+    private bool CheckStartupSortCachePrewarmPriority(out string errMsg)
+    {
+        errMsg = StartupSortCachePrewarmWarning;
+        return IsStartupSortCachePrewarmPriorityValid;
+    }
+
     /// <summary>利用者が明示選択できる90～100%を1%刻みで提供します。</summary>
     public IReadOnlyList<KeyValuePair<int, string>> InstallDestinationAutoApplyMinAudioHealthOptions { get; } =
         Array.AsReadOnly(Enumerable.Range(90, 11).Select(value => new KeyValuePair<int, string>(value, value + "%")).ToArray());
@@ -4417,6 +4462,9 @@ public partial class SettingsDialogViewModel : ViewModel
         resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
         {
             settingDialogViewModel.RaisePropertyChanged(nameof(InstallDestinationAutoApplyMinAudioHealthWarning));
+            settingDialogViewModel.RaisePropertyChanged(nameof(StartupSortCachePrewarmOptions));
+            settingDialogViewModel.RaisePropertyChanged(nameof(StartupSortCachePrewarmPriority));
+            settingDialogViewModel.RaisePropertyChanged(nameof(StartupSortCachePrewarmWarning));
             foreach (AppearanceThemeOption option in settingDialogViewModel.appearanceThemeOptions)
             {
                 option.RefreshDisplayName();
@@ -6370,6 +6418,7 @@ public partial class SettingsDialogViewModel : ViewModel
         tempLR2BackupTarget = ApplicationSettings.LR2BackupTarget;
         tempLR2BackupSpan = ApplicationSettings.LR2BackupSpan;
         tempLR2BackupNum = ApplicationSettings.LR2BackupNum;
+        tempStartupSortCachePrewarmPriority = ApplicationSettings.StartupSortCachePrewarmPriority;
         tempUseExternalPanelImage = ApplicationSettings.UseExternalPanelImage;
         tempAppearanceTheme = AppThemeService.NormalizeTheme(ApplicationSettings.AppearanceTheme);
         tempCustomTableFontSize = ApplicationSettings.CustomTableFontSize;
@@ -6507,6 +6556,7 @@ public partial class SettingsDialogViewModel : ViewModel
             || tempLR2BackupTarget != ApplicationSettings.LR2BackupTarget
             || tempLR2BackupSpan != ApplicationSettings.LR2BackupSpan
             || tempLR2BackupNum != ApplicationSettings.LR2BackupNum
+            || tempStartupSortCachePrewarmPriority != ApplicationSettings.StartupSortCachePrewarmPriority
             || tempUseExternalPanelImage != ApplicationSettings.UseExternalPanelImage
             || !string.Equals(AppThemeService.NormalizeTheme(tempAppearanceTheme), AppThemeService.NormalizeTheme(ApplicationSettings.AppearanceTheme), StringComparison.Ordinal)
             || !tempCustomTableFontSize.Equals(ApplicationSettings.CustomTableFontSize)
@@ -6959,18 +7009,22 @@ public partial class SettingsDialogViewModel : ViewModel
         return false;
     }
 
+    /// <summary>保存対象の設定全体を検証し、任意の起動後ソート準備の不正値も保存不可にします。</summary>
     public bool CheckValidation()
     {
         return CheckValidation(out string errMsg);
     }
 
+    /// <summary>変更範囲の保存検証を行います。起動後ソート準備の不正値は変更の有無にかかわらず拒否します。</summary>
     public bool CheckValidationForSave()
     {
         return CheckValidationForSave(out string errMsg);
     }
 
+    /// <summary>変更範囲の保存検証を行い、起動後ソート準備の不正値を含むエラーを返します。</summary>
     public bool CheckValidationForSave(out string errMsg)
     {
+        if (!CheckStartupSortCachePrewarmPriority(out errMsg)) { return false; }
         if (!CheckRightClickActionSettings(out errMsg))
         {
             return false;
@@ -6984,8 +7038,10 @@ public partial class SettingsDialogViewModel : ViewModel
         return CheckValidation(out errMsg);
     }
 
+    /// <summary>保存直前の検証を行い、任意の起動後ソート準備も有効値の明示選択まで保存不可にします。</summary>
     internal bool CheckValidationBeforeSave(out string errMsg)
     {
+        if (!CheckStartupSortCachePrewarmPriority(out errMsg)) { return false; }
         if (!CheckRightClickActionSettings(out errMsg))
         {
             return false;
@@ -7181,8 +7237,14 @@ public partial class SettingsDialogViewModel : ViewModel
     /// </summary>
     /// <param name="errMsg">検証エラーがあった場合、その理由を示すエラーメッセージが格納されます。</param>
     /// <returns>すべての設定が有効であると判定された場合は <c>true</c>。無効な項目が含まれる場合は <c>false</c>。</returns>
-    public bool CheckValidation(out string errMsg)
+    public bool CheckValidation(out string errMsg) => CheckValidation(out errMsg, validateStartupSortCache: true);
+
+    /// <summary>必須初期化に必要な設定を検証します。任意の起動後ソート準備の不正値は、その実行段階の失敗へ分離します。</summary>
+    internal bool CheckValidationForInitialization(out string errMsg) => CheckValidation(out errMsg, validateStartupSortCache: false);
+
+    private bool CheckValidation(out string errMsg, bool validateStartupSortCache)
     {
+        if (validateStartupSortCache && !CheckStartupSortCachePrewarmPriority(out errMsg)) { return false; }
         bool result = true;
         errMsg = string.Empty;
         if (!CheckRightClickActionSettings(out string rightClickError))
@@ -7353,12 +7415,14 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>
     /// 検証済みの設定ダイアログ入力を `ApplicationSettings` メモリ領域から
     /// 実際の永続化記憶域（または構成ファイル）へ保存し、必要な事後処理（バックアップなど）を実行します。
+    /// 起動後ソート準備が不正なら、保存と後続処理を開始しません。
     /// </summary>
     public async Task SaveSettings()
     {
         await SaveSettingsCore(runPostSaveActions: true);
     }
 
+    /// <summary>初回初期化用に保存して比較値を更新します。起動後ソート準備が不正なら永続化と比較値更新を行いません。</summary>
     public async Task SaveSettingsForInitialInitialize()
     {
         if (await SaveSettingsCore(runPostSaveActions: false)) { backupSavedSettings(); }
@@ -7369,6 +7433,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private async Task<bool> SaveSettingsCore(bool runPostSaveActions, bool validate)
     {
+        if (!IsStartupSortCachePrewarmPriorityValid) { return false; }
         if (!TryBeginBothSettingsAdmissions(out IDisposable lease, out LibraryFileMutationLease playlistLease))
         {
             await ShowUiMessageAsync(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
@@ -7435,6 +7500,7 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <param name="afterPersistence">通常設定の実Closeとmodal cleanup。永続化失敗では開始せず、完了後も生存する同じ権限を後続へ渡します。</param>
     private async Task<SettingsPostSaveImpact> SaveSettingsUnderAdmissionAsync(bool runPostSaveActions, bool validate, LibraryFileMutationCapability capability, LibraryFileMutationCapability playlistCapability = null, bool fullInitialization = false, Func<Task> afterPersistence = null)
     {
+        if (!IsStartupSortCachePrewarmPriorityValid) { return SettingsPostSaveImpact.None; }
         var totalStopwatch = Stopwatch.StartNew();
         bool rightClickSettingsChanged = rightClickActionSettingsEditor.IsDirty;
         if (!rightClickActionSettingsEditor.TryPrepareSave(out string rightClickJson, out _))
@@ -7692,6 +7758,7 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationSettings.LR2BackupTarget = tempLR2BackupTarget;
         ApplicationSettings.LR2BackupSpan = tempLR2BackupSpan;
         ApplicationSettings.LR2BackupNum = tempLR2BackupNum;
+        ApplicationSettings.StartupSortCachePrewarmPriority = tempStartupSortCachePrewarmPriority;
         ApplicationSettings.UseExternalPanelImage = tempUseExternalPanelImage;
         string restoredAppearanceTheme = AppThemeService.NormalizeTheme(tempAppearanceTheme);
         ApplicationSettings.AppearanceTheme = restoredAppearanceTheme;
@@ -7797,6 +7864,8 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(LR2BackupTarget));
         RaisePropertyChanged(nameof(LR2BackupSpan));
         RaisePropertyChanged(nameof(LR2BackupNum));
+        RaisePropertyChanged(nameof(StartupSortCachePrewarmPriority));
+        RaisePropertyChanged(nameof(StartupSortCachePrewarmWarning));
         RaisePropertyChanged(nameof(UseExternalPanelImage));
         RaisePropertyChanged(nameof(AppearanceTheme));
         RaisePropertyChanged(nameof(IsLightAppearanceTheme));

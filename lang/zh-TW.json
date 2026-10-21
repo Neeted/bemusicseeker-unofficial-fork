@@ -1,4 +1,11 @@
 {
+  "Startup_sort_cache_label": "啟動時排序快取準備範圍",
+  "Startup_sort_cache_description": "未預先產生快取的欄位在選取時仍可正常排序。變更將從下次啟動時生效。",
+  "Startup_sort_cache_none": "不準備",
+  "Startup_sort_cache_basic": "僅基本（預設）",
+  "Startup_sort_cache_standard": "標準",
+  "Startup_sort_cache_all": "全部",
+  "Startup_sort_cache_invalid": "已儲存的值（{0}）無效。請選取準備範圍後儲存設定。",
   "AudioDeviceListLoading": "正在取得音訊裝置清單。您可以繼續編輯、儲存或取消設定。",
   "AudioDeviceListRefreshFailed": "無法更新音訊裝置清單。目前顯示保留的裝置和目前的選擇。",
   "PackageInstallReport_InputCleanupFailure": "清理匯入用暫存輸入失敗：{0}",

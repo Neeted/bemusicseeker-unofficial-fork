@@ -496,6 +496,7 @@ hr {
 <li class="toc-level-3"><a href="#backup">Backup</a></li>
 <li class="toc-level-3"><details open><summary><a href="#advanced">Advanced</a></summary><ul>
 <li class="toc-level-4"><a href="#advanced-settings-reference">Advanced Settings Reference</a></li>
+<li class="toc-level-4"><a href="#startup-sort-cache-preparation">Startup Sort Cache Preparation</a></li>
 </ul></details></li>
 <li class="toc-level-3"><details open><summary><a href="#right-click-settings">Right-click settings</a></summary><ul>
 <li class="toc-level-4"><a href="#registering-web-pages">Registering Web Pages</a></li>
@@ -676,7 +677,10 @@ hr {
 <li><a href="#playlist-settings">Playlist Settings</a></li>
 <li><a href="#install">Install</a></li>
 <li><a href="#backup">Backup</a></li>
-<li><a href="#advanced">Advanced</a></li>
+<li><a href="#advanced">Advanced</a><ul>
+<li><a href="#startup-sort-cache-preparation">Startup Sort Cache Preparation</a></li>
+</ul>
+</li>
 <li><a href="#right-click-settings">Right-click settings</a></li>
 </ul>
 </li>
@@ -1067,6 +1071,12 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <td>Optimize database reading. Normally leave this ON.</td>
 </tr>
 <tr>
+<td>Initialization</td>
+<td>Startup sort cache preparation</td>
+<td>Basic only</td>
+<td>Choose which columns to sort in advance after startup. See the <a href="#startup-sort-cache-preparation">column comparison</a>. Changes apply from the next application start.</td>
+</tr>
+<tr>
 <td>LR2 Integration</td>
 <td>Update LR2IR ranking cache on startup</td>
 <td>OFF</td>
@@ -1135,6 +1145,36 @@ Depending on library size, disk speed, and Everything availability, this may tak
 </tbody>
 </table></div>
 <p>See <a href="#smart-overwrite">Smart Overwrite</a> for same-name files during additional-chart installation and duplicate-folder merging.</p>
+<h4 id="startup-sort-cache-preparation">Startup Sort Cache Preparation</h4>
+<p>In <code>Advanced</code> → <code>Initialization</code>, use <code>Startup sort cache preparation</code> to choose how much sorting to prepare in advance for the regular library list after startup. The results are cached for use when you select a prepared column. The default is <code>Basic only</code>, and changes apply from the next application start.</p>
+<p>Both ascending and descending orders are prepared. <code>Standard</code> includes every column in <code>Basic only</code>, and <code>All</code> includes every column in <code>Standard</code>, adding the columns shown below.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Columns sorted in advance</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>None</td>
+<td>No sorting is prepared in advance.</td>
+</tr>
+<tr>
+<td>Basic only (default)</td>
+<td><code>TITLE</code>, <code>FOLDER</code>, <code>PATH</code>, <code>ARTIST</code>.</td>
+</tr>
+<tr>
+<td>Standard</td>
+<td><strong>In addition to Basic only:</strong> <code>CLEAR</code>, <code>DJ LEVEL</code> / <code>RATE</code>, <code>BP</code>, <code>JUDGE</code> / <code>JUDGE%</code>, <code>NOTES</code>, <code>LONG</code>, <code>SCRATCH</code>, <code>MAINBPM</code>, <code>MINBPM</code>, <code>MAXBPM</code>, <code>SOFLAN</code>, <code>TOTAL</code>, <code>T/N</code>, <code>DURATION</code>, <code>DENSITY</code>, <code>PEAK</code>, <code>END</code>.</td>
+</tr>
+<tr>
+<td>All</td>
+<td><strong>In addition to Standard:</strong> <code>GENRE</code>, <code>KEYS</code>, <code>TAG</code>, <code>MD5 HASH</code>, <code>SHA256 HASH</code>, <code>INSTL DST</code>, <code>INSTL DST TITLE</code>, <code>INSTL DST ARTIST</code>, <code>PLAYLIST</code>, <code>SCORE</code>, <code>COMBO</code>, <code>RANKING</code>, <code>RANK UPDATE</code>, <code>T-SCORE</code>, <code>ΔMAX</code>, <code>LEVEL</code>, <code>DIFFICULTY</code>, <code>FEATURE</code>.</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>DJ LEVEL</code> / <code>RATE</code> and <code>JUDGE</code> / <code>JUDGE%</code> are grouped because each pair uses the same sort order. Resource health columns <code>WAV</code>, <code>BGA</code>, and <code>MOVIE</code>, along with <code>ENCODING</code> and <code>WARNING</code>, are sorted when selected. Columns outside the prepared range, or all columns when <code>None</code> is selected, can still be sorted normally.</p>
 <h3 id="right-click-settings">Right-click settings</h3>
 <p><img alt="Right-click Settings" src="img/設定_右クリック設定.PNG"/></p>
 <p>Edit <code>Open web pages</code> and <code>Open with a program</code> entries shared by normal lists, playlists, and Play Log. Add or delete entries and change names, enabled states, and order.</p>

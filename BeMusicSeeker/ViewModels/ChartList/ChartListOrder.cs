@@ -15,306 +15,261 @@ internal sealed class ChartListOrder
             nameof(LibraryChartRow.Title),
             row => row?.Title ?? string.Empty,
             "virtual_title_order",
-            MainViewDataDependency.IdentitySortKey,
-            prewarmByDefault: true),
+            MainViewDataDependency.IdentitySortKey),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.path),
             row => row?.Path ?? string.Empty,
             "virtual_path_order",
-            MainViewDataDependency.IdentitySortKey,
-            prewarmByDefault: true),
+            MainViewDataDependency.IdentitySortKey),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.Folder),
             row => row?.Folder ?? string.Empty,
             "virtual_folder_order",
-            MainViewDataDependency.IdentitySortKey,
-            prewarmByDefault: true),
+            MainViewDataDependency.IdentitySortKey),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.Artist),
             row => row?.Artist ?? string.Empty,
             "virtual_artist_order",
-            MainViewDataDependency.IdentitySortKey,
-            prewarmByDefault: true),
+            MainViewDataDependency.IdentitySortKey),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.genre),
             row => row?.Genre ?? string.Empty,
             "virtual_genre_order",
-            MainViewDataDependency.IdentitySortKey,
-            prewarmByDefault: true),
+            MainViewDataDependency.IdentitySortKey),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.mode),
             row => row?.Mode,
             "virtual_mode_order",
             typeof(int?).Name,
-            MainViewDataDependency.IdentitySortKey,
-            prewarmByDefault: true),
+            MainViewDataDependency.IdentitySortKey),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.WarningDigestText),
             row => row?.WarningDigestText ?? string.Empty,
             "virtual_warning_digest_order",
-            MainViewDataDependency.Warning,
-            prewarmByDefault: false),
+            MainViewDataDependency.Warning),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.tag),
             row => row?.Tag ?? string.Empty,
             "virtual_tag_order",
-            MainViewDataDependency.IdentitySortKey,
-            prewarmByDefault: true),
+            MainViewDataDependency.IdentitySortKey),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.hash),
             row => row?.Hash ?? string.Empty,
             "virtual_hash_order",
-            MainViewDataDependency.IdentitySortKey,
-            prewarmByDefault: true),
+            MainViewDataDependency.IdentitySortKey),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.sha256),
             row => row?.Sha256 ?? string.Empty,
             "virtual_sha256_order",
-            MainViewDataDependency.IdentitySortKey,
-            prewarmByDefault: true),
+            MainViewDataDependency.IdentitySortKey),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.instl_dst),
             row => row?.InstallDestination ?? string.Empty,
             "virtual_instl_dst_order",
             MainViewDataDependency.InstallDestination,
-            prewarmByDefault: false,
             null,
             "instl_dst"),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.InstallDestinationTitle),
             row => row?.InstallDestinationTitle ?? string.Empty,
             "virtual_install_destination_title_order",
-            MainViewDataDependency.InstallDestination,
-            prewarmByDefault: false),
+            MainViewDataDependency.InstallDestination),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.InstallDestinationArtist),
             row => row?.InstallDestinationArtist ?? string.Empty,
             "virtual_install_destination_artist_order",
-            MainViewDataDependency.InstallDestination,
-            prewarmByDefault: false),
+            MainViewDataDependency.InstallDestination),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.RefTablesSymbols),
             row => row?.RefTablesSymbols ?? string.Empty,
             "virtual_ref_tables_symbols_order",
-            MainViewDataDependency.ReferenceTables,
-            prewarmByDefault: true),
+            MainViewDataDependency.ReferenceTables),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.WAVHealth),
             row => row?.WAVHealth,
             "virtual_wav_health_order",
             typeof(int?).Name,
-            MainViewDataDependency.Maintenance,
-            prewarmByDefault: false),
+            MainViewDataDependency.Maintenance),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.BGAHealth),
             row => row?.BGAHealth,
             "virtual_bga_health_order",
             typeof(int?).Name,
-            MainViewDataDependency.Maintenance,
-            prewarmByDefault: false),
+            MainViewDataDependency.Maintenance),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.MovieHealth),
             row => row?.MovieHealth,
             "virtual_movie_health_order",
             typeof(int?).Name,
-            MainViewDataDependency.Maintenance,
-            prewarmByDefault: false),
+            MainViewDataDependency.Maintenance),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.encoding),
             row => row?.EncodingName ?? string.Empty,
             "virtual_encoding_order",
-            MainViewDataDependency.Maintenance,
-            prewarmByDefault: false),
+            MainViewDataDependency.Maintenance),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.level),
             row => row?.LevelValue ?? TryParseLevel(row?.Level),
             "virtual_level_order",
             typeof(double?).Name,
             MainViewDataDependency.IdentitySortKey,
-            prewarmByDefault: false,
             nameof(LibraryChartRow.Level)),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.clear),
             row => row?.Clear,
             "virtual_clear_order",
             typeof(ClearType).Name,
-            MainViewDataDependency.Score,
-            prewarmByDefault: true),
+            MainViewDataDependency.Score),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.rateDouble),
             row => row?.RateDouble,
             "virtual_rate_order",
             typeof(double?).Name,
             MainViewDataDependency.Score,
-            prewarmByDefault: true,
             nameof(LibraryChartRow.rank)),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.score),
             row => row?.Score,
             "virtual_score_order",
             typeof(int?).Name,
-            MainViewDataDependency.Score,
-            prewarmByDefault: true),
+            MainViewDataDependency.Score),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.maxcombo),
             row => row?.MaxCombo,
             "virtual_maxcombo_order",
             typeof(int?).Name,
-            MainViewDataDependency.Score,
-            prewarmByDefault: true),
+            MainViewDataDependency.Score),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.minbp),
             row => row?.MinBp,
             "virtual_minbp_order",
             typeof(int?).Name,
-            MainViewDataDependency.Score,
-            prewarmByDefault: true),
+            MainViewDataDependency.Score),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.rankingString),
             row => row?.RankingString ?? string.Empty,
             "virtual_ranking_string_order",
-            MainViewDataDependency.Score,
-            prewarmByDefault: false),
+            MainViewDataDependency.Score),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.rankingLastupdate),
             row => row?.RankingLastUpdate,
             "virtual_ranking_lastupdate_order",
             typeof(DateTime?).Name,
-            MainViewDataDependency.Score,
-            prewarmByDefault: false),
+            MainViewDataDependency.Score),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.stddevVal),
             row => row?.StdDevVal,
             "virtual_stddev_order",
             typeof(double?).Name,
-            MainViewDataDependency.Score,
-            prewarmByDefault: false),
+            MainViewDataDependency.Score),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.scoreDifficulty),
             row => row?.ScoreDifficulty,
             "virtual_score_difficulty_order",
             typeof(double?).Name,
-            MainViewDataDependency.Score,
-            prewarmByDefault: false),
+            MainViewDataDependency.Score),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.ChartLevelSortKey),
             row => row?.ChartLevelSortKey,
             "virtual_chart_level_order",
             typeof(double?).Name,
-            MainViewDataDependency.ChartInfo,
-            prewarmByDefault: true),
+            MainViewDataDependency.ChartInfo),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.ChartDifficultySortKey),
             row => row?.ChartDifficultySortKey,
             "virtual_chart_difficulty_order",
             typeof(int?).Name,
-            MainViewDataDependency.ChartInfo,
-            prewarmByDefault: true),
+            MainViewDataDependency.ChartInfo),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.ChartMainBpmSortKey),
             row => row?.ChartMainBpmSortKey,
             "virtual_chart_main_bpm_order",
             typeof(double?).Name,
-            MainViewDataDependency.ChartInfo,
-            prewarmByDefault: true),
+            MainViewDataDependency.ChartInfo),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.ChartMaxBpmSortKey),
             row => row?.ChartMaxBpmSortKey,
             "virtual_chart_max_bpm_order",
             typeof(double?).Name,
-            MainViewDataDependency.ChartInfo,
-            prewarmByDefault: true),
+            MainViewDataDependency.ChartInfo),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.ChartMinBpmSortKey),
             row => row?.ChartMinBpmSortKey,
             "virtual_chart_min_bpm_order",
             typeof(double?).Name,
-            MainViewDataDependency.ChartInfo,
-            prewarmByDefault: true),
+            MainViewDataDependency.ChartInfo),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.ChartDurationSortKey),
             row => row?.ChartDurationSortKey,
             "virtual_chart_duration_order",
             typeof(int?).Name,
-            MainViewDataDependency.ChartInfo,
-            prewarmByDefault: true),
+            MainViewDataDependency.ChartInfo),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.ChartJudgeSortKey),
             row => row?.ChartJudgeSortKey,
             "virtual_chart_judge_order",
             typeof(int?).Name,
-            MainViewDataDependency.ChartInfo,
-            prewarmByDefault: true),
+            MainViewDataDependency.ChartInfo),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.ChartFeatureSortKey),
             row => row?.ChartFeatureSortKey,
             "virtual_chart_feature_order",
             typeof(int?).Name,
-            MainViewDataDependency.ChartInfo,
-            prewarmByDefault: true),
+            MainViewDataDependency.ChartInfo),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.ChartNotes),
             row => row?.ChartNotes,
             "virtual_chart_notes_order",
             typeof(int?).Name,
-            MainViewDataDependency.ChartInfo,
-            prewarmByDefault: true),
+            MainViewDataDependency.ChartInfo),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.ChartLongNotes),
             row => row?.ChartLongNotes,
             "virtual_chart_long_notes_order",
             typeof(int?).Name,
-            MainViewDataDependency.ChartInfo,
-            prewarmByDefault: true),
+            MainViewDataDependency.ChartInfo),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.ChartScratchNotes),
             row => row?.ChartScratchNotes,
             "virtual_chart_scratch_notes_order",
             typeof(int?).Name,
-            MainViewDataDependency.ChartInfo,
-            prewarmByDefault: true),
+            MainViewDataDependency.ChartInfo),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.ChartTotalSortKey),
             row => row?.ChartTotalSortKey,
             "virtual_chart_total_order",
             typeof(double?).Name,
-            MainViewDataDependency.ChartInfo,
-            prewarmByDefault: true),
+            MainViewDataDependency.ChartInfo),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.ChartTotalPerNoteSortKey),
             row => row?.ChartTotalPerNoteSortKey,
             "virtual_chart_total_per_note_order",
             typeof(double?).Name,
-            MainViewDataDependency.ChartInfo,
-            prewarmByDefault: true),
+            MainViewDataDependency.ChartInfo),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.ChartDensitySortKey),
             row => row?.ChartDensitySortKey,
             "virtual_chart_density_order",
             typeof(double?).Name,
-            MainViewDataDependency.ChartInfo,
-            prewarmByDefault: true),
+            MainViewDataDependency.ChartInfo),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.ChartPeakDensitySortKey),
             row => row?.ChartPeakDensitySortKey,
             "virtual_chart_peak_density_order",
             typeof(double?).Name,
-            MainViewDataDependency.ChartInfo,
-            prewarmByDefault: true),
+            MainViewDataDependency.ChartInfo),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.ChartEndDensitySortKey),
             row => row?.ChartEndDensitySortKey,
             "virtual_chart_end_density_order",
             typeof(double?).Name,
-            MainViewDataDependency.ChartInfo,
-            prewarmByDefault: true),
+            MainViewDataDependency.ChartInfo),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.ChartSoflanCount),
             row => row?.ChartSoflanCount,
             "virtual_chart_soflan_count_order",
             typeof(int?).Name,
-            MainViewDataDependency.ChartInfo,
-            prewarmByDefault: true)
+            MainViewDataDependency.ChartInfo)
     ];
 
     private ChartListOrder(
@@ -438,13 +393,6 @@ internal sealed class ChartListOrder
             definition.PropertyTypeName,
             definition.StringSortKind);
         return true;
-    }
-
-    internal static IReadOnlyList<string> GetDefaultPrewarmColumnNames()
-    {
-        return [.. columnDefinitions
-            .Where(definition => definition.PrewarmByDefault)
-            .Select(definition => definition.NormalizedColumnName)];
     }
 
     internal static bool TryGetVirtualSortColumnMetadata(string columnName, out ChartListOrderColumnMetadata metadata)
@@ -599,7 +547,6 @@ internal readonly struct ChartListOrderColumnDefinition
         string propertyTypeName,
         string stringSortKind,
         MainViewDataDependency dependency,
-        bool prewarmByDefault,
         string[] aliases)
     {
         NormalizedColumnName = normalizedColumnName ?? string.Empty;
@@ -632,14 +579,12 @@ internal readonly struct ChartListOrderColumnDefinition
 
     internal int PrewarmPriority { get; }
 
-    internal bool PrewarmByDefault => PrewarmPriority > 0;
-
+    /// <summary>文字列の比較規則・依存・別名を登録し、起動時の準備優先度は列名の共通定義から決定します。</summary>
     internal static ChartListOrderColumnDefinition String(
         string normalizedColumnName,
         Func<ChartListSourceRow, string> keySelector,
         string sortProfile,
         MainViewDataDependency dependency,
-        bool prewarmByDefault,
         string propertyTypeName = null,
         params string[] aliases)
     {
@@ -652,17 +597,16 @@ internal readonly struct ChartListOrderColumnDefinition
             propertyTypeName ?? nameof(String),
             "ordinal_ignore_case",
             dependency,
-            prewarmByDefault,
             aliases);
     }
 
+    /// <summary>比較可能な値の規則・依存・別名を登録し、起動時の準備優先度は列名の共通定義から決定します。</summary>
     internal static ChartListOrderColumnDefinition Comparable(
         string normalizedColumnName,
         Func<ChartListSourceRow, IComparable> keySelector,
         string sortProfile,
         string propertyTypeName,
         MainViewDataDependency dependency,
-        bool prewarmByDefault,
         params string[] aliases)
     {
         return new ChartListOrderColumnDefinition(
@@ -674,7 +618,6 @@ internal readonly struct ChartListOrderColumnDefinition
             propertyTypeName,
             "typed",
             dependency,
-            prewarmByDefault,
             aliases);
     }
 

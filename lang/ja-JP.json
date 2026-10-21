@@ -1,4 +1,11 @@
 {
+  "Startup_sort_cache_label": "起動時のソートキャッシュ準備範囲",
+  "Startup_sort_cache_description": "事前生成しない列も、選択したときは通常どおりソートできます。変更は次回起動時から適用されます。",
+  "Startup_sort_cache_none": "準備しない",
+  "Startup_sort_cache_basic": "基本のみ（既定）",
+  "Startup_sort_cache_standard": "標準",
+  "Startup_sort_cache_all": "すべて",
+  "Startup_sort_cache_invalid": "保存された値（{0}）は無効です。準備範囲を選択すると設定を保存できます。",
   "AudioDeviceListLoading": "音声デバイス一覧を取得しています。設定の編集・保存・取消は引き続き行えます。",
   "AudioDeviceListRefreshFailed": "音声デバイス一覧を更新できませんでした。保持している候補と現在の選択を表示しています。",
   "PackageInstallReport_InputCleanupFailure": "取り込み用一時入力の回収に失敗: {0}",

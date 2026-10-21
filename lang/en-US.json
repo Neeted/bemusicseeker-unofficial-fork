@@ -1,4 +1,11 @@
 {
+  "Startup_sort_cache_label": "Startup sort cache preparation",
+  "Startup_sort_cache_description": "Columns that are not prepared can still be sorted normally when selected. Changes apply from the next application start.",
+  "Startup_sort_cache_none": "None",
+  "Startup_sort_cache_basic": "Basic only (default)",
+  "Startup_sort_cache_standard": "Standard",
+  "Startup_sort_cache_all": "All",
+  "Startup_sort_cache_invalid": "The saved value ({0}) is invalid. Select a preparation range to save settings.",
   "AudioDeviceListLoading": "Loading audio devices. You can continue editing, saving, or canceling settings.",
   "AudioDeviceListRefreshFailed": "Could not refresh the audio device list. Retained devices and the current selection are shown.",
   "PackageInstallReport_InputCleanupFailure": "Failed to clean up temporary import input: {0}",

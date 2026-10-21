@@ -12,6 +12,40 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class StartupPostInitializationWarmupOwnerTests
 {
+    /// <summary>準備なしでも他の4段階を終えて実sort段階を正常終了し、範囲外値はvirtual_orderの元例外を持つ失敗とlease終端になります。</summary>
+    [DataTestMethod]
+    [DataRow(0)]
+    [DataRow(-1)]
+    [DataRow(4)]
+    public async Task SelectedPriority_ConnectsActualDescriptorAndSortStage(int priority)
+    {
+        using RegularChartListOwner sortOwner = RegularChartListOwnerTestSupport.CreateOwner(new MainChartListViewModel(), RegularChartListOwnerTestSupport.CreateWorkspaceForOwner());
+        Exception descriptorFailure = null;
+        var harness = new Harness();
+        harness.VirtualStage = lease =>
+        {
+            try
+            {
+                IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors = RegularChartListOwner.CreateVirtualOrderPrewarmDescriptors(priority);
+                sortOwner.RunVirtualOrderPrewarm(lease, null, false, descriptors, "test_range");
+            }
+            catch (ArgumentOutOfRangeException failure) { descriptorFailure = failure; throw; }
+        };
+        StartupPostInitializationWarmupOwner owner = harness.CreateOwner();
+        Assert.IsTrue(owner.Schedule(new StartupPostInitializationWarmupRequest("selected_priority", 17L, 4L)));
+        await harness.RunQueuedAsync();
+        CollectionAssert.AreEqual(new[] { "real_path", "overlay", "primary", "playlist_hash", "virtual" }, harness.StageOrder);
+        Assert.AreEqual(1, harness.Completions.Count);
+        Assert.IsTrue(harness.Lease.Completion.IsCompleted);
+        Assert.AreEqual(1, harness.OwnedCancellations[0].DisposeCount);
+        Assert.AreEqual(priority == 0 ? StartupPostInitializationWarmupCompletionKind.Completed : StartupPostInitializationWarmupCompletionKind.Failed, harness.Completions[0].Kind);
+        if (priority != 0)
+        {
+            Assert.AreEqual("virtual_order", harness.Completions[0].FailedStage);
+            Assert.AreSame(descriptorFailure, harness.Completions[0].Exception);
+        }
+    }
+
     /// <summary>
     /// 保証：受理した事前計算は依存する実パス・重ね合わせ・一覧・ハッシュを先に行って仮想一覧へ進み、終端と取消資源を一度だけ確定する。
     /// </summary>
@@ -679,6 +713,7 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         internal string FailureStage { get; set; } = string.Empty;
         internal Exception Failure { get; set; }
         internal Action<string> AfterStage { get; set; }
+        internal Action<RegularChartListPrewarmLease> VirtualStage { get; set; }
         internal int AcquireCount { get; private set; }
         internal int QueueCount { get; private set; }
         internal int CancelLeaseCount { get; private set; }
@@ -745,7 +780,7 @@ public sealed class StartupPostInitializationWarmupOwnerTests
                 (_, _, _) => RecordStage("overlay"),
                 (_, _, _) => RecordStage("primary"),
                 (_, _, _) => RecordStage("playlist_hash"),
-                (_, _) => RecordStage("virtual"),
+                (lease, _) => { RecordStage("virtual"); VirtualStage?.Invoke(lease); },
                 (name, expectedGeneration, ownerSequence) =>
                 {
                     if (GateNextReservation

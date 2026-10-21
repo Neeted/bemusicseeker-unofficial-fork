@@ -86,6 +86,14 @@ chart_info backfillと候補要約、保守、installable、IR・順位、URL補
 
 公開モデル初期化も同じ名前付き保存データ・走査投影手順へのadapterです。意味を持つcontinuation入力は全開始Taskを回収します。走査の正常・空・incomplete・例外では先行列挙・mtimeの全開始Taskとcleanupを回収してから返します。警告は今回の小さい局所結果として受付外へ持ち出し、元失敗を後発の通知取消で隠しません。
 
+### 起動後のソートキャッシュ準備
+
+[ソートキャッシュ準備範囲](settings.md#起動時のソートキャッシュ準備範囲)は `MainWindowViewModel` の構築中に、設定ダイアログ内の `Reload()` が終わった後、一度だけ読み取り専用値として捕捉します。起動後の処理は編集中・保存後の共有設定を読み直しません。同じプロセスの全体再初期化も捕捉値を維持し、新しいプロセスの構成で初めて保存済みの変更を使います。
+
+`StartupPostInitializationWarmupOwner` の既存仮想順序段階から、捕捉した優先度を通常一覧ownerの事前生成対象の選定へ渡します。選択した上限と対象件数を既存の `virtual_order_prewarm` 診断へ残します。0ならソート入力行の取得・順序計算の前にその段階を正常終了し、実パス、導入先重ね合わせ、所持主ハッシュ、プレイリスト用ハッシュの他4段階は維持します。
+
+0～3外は選定境界で例外とし、既存の任意起動後処理の `Failed`、失敗段階 `virtual_order`、元例外と実行権の終端へ接続します。別値への補正は行わず、必須初期化の成功・操作解禁条件へ追加しません。scheduler、要求の集約、取消・終了、並列上限4の寿命・方針は既存のままです。
+
 ### 登録ディレクトリの検査
 
 `InitializeAsync` は設定を捕捉した後、出力検索ルートの自動修復より前に、全ての登録BMSルートを作業スレッドで検査します。LR2連携では通常・追加・ルート形式の出力基点も含めます。起動時走査を無効にしていても省略しません。
@@ -236,6 +244,8 @@ flowchart TB
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| ソート準備範囲のReload後捕捉と次回起動からの適用 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | [`MainWindowViewModelStartupProgressTests.StartupSortCachePriority_CapturesAfterReloadAndSurvivesFullReinitialization`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) はReload前3/後0を実起動後warmupへ通し、保存3→同ownerの全体再初期化0→新構成3と実際の78件の順序準備を確認する。設定捕捉から`MainWindowViewModel`・実際の対象選定・準備処理への接続を対象とし、保守との本番順序は保証しない。既存の受付窓口で保守要求を実スケジューラーへの登録前に保持し、準備処理の観測後・失敗時の `finally`に一度だけ元スケジューラーへ渡して実処理も回収する。 |
+| 準備なしと不正値の任意warmup終端 | [`StartupPostInitializationWarmupOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupPostInitializationWarmupOwner.cs)、[`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs) | [`StartupPostInitializationWarmupOwnerTests.SelectedPriority_ConnectsActualDescriptorAndSortStage`](../../../BeMusicSeeker.Tests/Startup/StartupPostInitializationWarmupOwnerTests.cs) は実事前生成対象の選定とsort段階を接続し、0でも他4段階・Completed、-1/4でFailed・virtual_order・元例外・実行権の終端を確認する。`MainWindowViewModelStartupProgressTests.StartupSortCachePriority_InvalidValueFailsOnlyOptionalWarmup` は-1/4で実必須起動の成功・操作解禁後に同じFailed結果と実行権の終端へ接続することを確認する（先行maintenance_hydrationは同じ受付窓口での保留を使う）。既存系列が取消・重複・shutdownとscheduler世代を担う。 |
 | 正常DB読取り後の走査失敗と利用開始 | [`LibraryFileScanPipelineOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/LibraryFileScanPipelineOwner.cs)、`MainWindowViewModel.InitializeAsync` | [`MainWindowViewModelStartupProgressTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) の `StartupScan_NewPortableDatabaseFailureWarnsAndStartsWithSavedEmptyCatalog` と `StartupScan_RootDeletedAfterDatabaseReadWarnsAndKeepsSavedCatalog` は、実標準構成・空／非空DB、DB読取り後のルート消失、未採用候補の不在、警告と利用開始・次受付を確認する。初期の必須検査・DB読取り・保存失敗の既存回帰は維持する。 |
 | 手動差分の走査中のルート消失 | `BMSLibrary.ReloadFileDiff`、`LibraryFileScanPipelineOwner` | [`BmsLibraryDirectoryAvailabilityTests`](../../../BeMusicSeeker.Tests/Library/BmsLibraryDirectoryAvailabilityTests.cs)で実ルートを走査中に移動し、今回のスキップ警告、既存BMS・bmson・folderの保存値、所持目録、未登録候補の非追加を確認する。初期必須検査・出力先検査の失敗は同テスト群の既存ケースへ分担する。 |
 | 必須実終端・親解放・必須UI/host・成功公開・任意開始の統合 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs)、[`ISettingsDialogStatePort`](../../../BeMusicSeeker/ViewModels/Settings/ISettingsDialogPorts.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowViewModelStartupProgressTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) の実起動UI gate、UI失敗と次受付、UI/置換中の終了、解禁後の初回案内失敗、閏年警告再入、解禁後外部同期Busy、任意work保持と独立folder read。旧private ready/失敗提示ケースを置換する。設定は`SettingDialogEditCompletionTests`のInitialLr2とDefaultAllが実接続を分担し、DefaultAllは成功・必須UI失敗・終了で保存Closeと親終端を確認する。hostは`MainWindowViewHostTests.MainWindowRenderedInitializationAttachesCreatedPlaybackHost`が実接続を分担する。 |

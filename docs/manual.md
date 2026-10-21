@@ -27,6 +27,7 @@ This manual explains BeMusicSeeker Unofficial Fork, from registering your librar
     - [Install](#install)
     - [Backup](#backup)
     - [Advanced](#advanced)
+        - [Startup Sort Cache Preparation](#startup-sort-cache-preparation)
     - [Right-click settings](#right-click-settings)
 - [Startup / Reload / Progress Display](#startup--reload--progress-display)
     - [Automatic Updates](#automatic-updates)
@@ -342,6 +343,7 @@ If startup scanning is OFF, [reload the library](#library-reload) before estimat
 | Initialization | Do not check playlist updates at startup | OFF | Skips external playlist update checks on startup. Reload playlists manually if needed. |
 | Initialization | Set initial selection to Install > Pending at startup | ON | Opens the pending package screen as the initial view after startup. Intended for users who want to prioritize new installs and pending cleanup. |
 | Initialization | Enable song.db access optimization PRAGMAs | ON | Optimize database reading. Normally leave this ON. |
+| Initialization | Startup sort cache preparation | Basic only | Choose which columns to sort in advance after startup. See the [column comparison](#startup-sort-cache-preparation). Changes apply from the next application start. |
 | LR2 Integration | Update LR2IR ranking cache on startup | OFF | Reads LR2IR ranking data after startup and updates display data such as `RANKING`, `RANK UPDATE`, `T-SCORE`, and `ΔMAX`. This may be heavy during the first build or after changing LR2ID, so enable it only when needed. |
 | LR2 Integration | Estimate offline score rankings | OFF | Estimates ranks for charts whose local score is higher than the LR2IR score when LR2IR ranking cache data is applied. To apply this during startup, also enable `Update LR2IR ranking cache on startup`. |
 | LR2 Integration | Download LR2IR scores and detect unsent IR scores | OFF | Retrieves LR2IR score information and detects unsent state from differences with local scores. |
@@ -355,6 +357,21 @@ If startup scanning is OFF, [reload the library](#library-reload) before estimat
 | Install | During smart overwrite, keep *.bmx/*.pmx/*.txt by automatically adding numbers to their names instead of overwriting them | OFF | In [Smart Overwrite](#smart-overwrite), protected extensions are not overwritten and are kept with sequentially numbered names. |
 
 See [Smart Overwrite](#smart-overwrite) for same-name files during additional-chart installation and duplicate-folder merging.
+
+#### Startup Sort Cache Preparation
+
+In `Advanced` → `Initialization`, use `Startup sort cache preparation` to choose how much sorting to prepare in advance for the regular library list after startup. The results are cached for use when you select a prepared column. The default is `Basic only`, and changes apply from the next application start.
+
+Both ascending and descending orders are prepared. `Standard` includes every column in `Basic only`, and `All` includes every column in `Standard`, adding the columns shown below.
+
+| Setting | Columns sorted in advance |
+| --- | --- |
+| None | No sorting is prepared in advance. |
+| Basic only (default) | `TITLE`, `FOLDER`, `PATH`, `ARTIST`. |
+| Standard | **In addition to Basic only:** `CLEAR`, `DJ LEVEL` / `RATE`, `BP`, `JUDGE` / `JUDGE%`, `NOTES`, `LONG`, `SCRATCH`, `MAINBPM`, `MINBPM`, `MAXBPM`, `SOFLAN`, `TOTAL`, `T/N`, `DURATION`, `DENSITY`, `PEAK`, `END`. |
+| All | **In addition to Standard:** `GENRE`, `KEYS`, `TAG`, `MD5 HASH`, `SHA256 HASH`, `INSTL DST`, `INSTL DST TITLE`, `INSTL DST ARTIST`, `PLAYLIST`, `SCORE`, `COMBO`, `RANKING`, `RANK UPDATE`, `T-SCORE`, `ΔMAX`, `LEVEL`, `DIFFICULTY`, `FEATURE`. |
+
+`DJ LEVEL` / `RATE` and `JUDGE` / `JUDGE%` are grouped because each pair uses the same sort order. Resource health columns `WAV`, `BGA`, and `MOVIE`, along with `ENCODING` and `WARNING`, are sorted when selected. Columns outside the prepared range, or all columns when `None` is selected, can still be sorted normally.
 
 ### Right-click settings
 

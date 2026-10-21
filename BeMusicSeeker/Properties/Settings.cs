@@ -52,6 +52,16 @@ internal sealed class Settings : ApplicationSettingsBase
 
     public static Settings Default => defaultInstance;
 
+    /// <summary>次回起動時に準備するソートキャッシュの上限優先度です。0は準備なし、1～3は列定義の優先度を使います。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("1")]
+    public int StartupSortCachePrewarmPriority
+    {
+        get => (int)this[nameof(StartupSortCachePrewarmPriority)];
+        set => this[nameof(StartupSortCachePrewarmPriority)] = value;
+    }
+
     [UserScopedSetting]
     [DebuggerNonUserCode]
     [DefaultSettingValue("True")]

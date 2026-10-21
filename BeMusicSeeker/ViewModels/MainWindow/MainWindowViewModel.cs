@@ -205,7 +205,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     Task<LeapYearFolderRepairApproval> ISettingsDialogStatePort.PrepareLibraryInitializationAsync()
     {
-        if (!SettingDialog.CheckValidation(out _)) { return Task.FromResult<LeapYearFolderRepairApproval>(null); }
+        if (!SettingDialog.CheckValidationForInitialization(out _)) { return Task.FromResult<LeapYearFolderRepairApproval>(null); }
         StartupSettingsSnapshot settings = GetStartupSettingsSnapshot();
         return startupLibraryInitializationWorkflowOwner.PrepareLeapYearFolderRepairAsync(
             settings.OperationModeLR2DB ? settings.LR2SongDBPath : applicationComposition.ApplicationPathSnapshot.StandaloneSongDbPath,
@@ -583,6 +583,9 @@ public partial class MainWindowViewModel : ViewModel,
     private readonly StartupBackgroundTaskSchedulerOwner startupBackgroundTaskScheduler;
 
     private readonly StartupPostInitializationWarmupOwner startupPostInitializationWarmupOwner;
+
+    // 設定ダイアログ構築時のReload後に一度だけ捕捉し、同じプロセスの全体再初期化でも維持します。
+    private readonly int startupSortCachePrewarmPriority;
 
     private Stopwatch startupInitializationCompleteStopwatch;
 
@@ -2361,7 +2364,9 @@ public partial class MainWindowViewModel : ViewModel,
             (lease, reason) =>
             {
                 IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors =
-                    RegularChartListOwner.CreateDefaultVirtualOrderPrewarmDescriptors();
+                    RegularChartListOwner.CreateVirtualOrderPrewarmDescriptors(startupSortCachePrewarmPriority);
+                NLogWrapper.FileLogger?.Info("virtual_order_prewarm selected maxPriority=" + startupSortCachePrewarmPriority
+                    + " descriptorCount=" + descriptors.Count);
                 bool includeBmsonRows = ShouldIncludeBmsonLibraryRowsInMainView(
                     MainViewUpdateMode.FolderFilterSelected,
                     MainViewUpdateMode.FolderFilterSelected);
@@ -2451,6 +2456,7 @@ public partial class MainWindowViewModel : ViewModel,
             playbackRuntimePort: PlaybackPanel,
             lr2SongDbSyncWorkflow: Lr2SongDbSyncWorkflow,
             requestOperationModeRestart: ShellShutdownWorkflow.RequestOperationModeRestartAsync);
+        startupSortCachePrewarmPriority = applicationComposition.SettingsEditSession.Values.StartupSortCachePrewarmPriority;
     }
 
     private void MainChartListSortRequested(object sender, MainChartListSortRequestedEventArgs request)
@@ -3432,7 +3438,7 @@ public partial class MainWindowViewModel : ViewModel,
                 startupCustomFolderSettings);
             startupLr2Config = config;
             string startupValidationErrorMessage = BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath;
-            if (!configValid || !SettingDialog.CheckValidation(out startupValidationErrorMessage))
+            if (!configValid || !SettingDialog.CheckValidationForInitialization(out startupValidationErrorMessage))
             {
                 return new(StartupInitializationOutcome.SettingsRequired, startupSettings, ValidationFailure: startupValidationErrorMessage ?? string.Empty);
             }

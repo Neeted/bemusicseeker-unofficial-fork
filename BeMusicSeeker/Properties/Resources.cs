@@ -43,6 +43,27 @@ public class Resources
         }
     }
 
+    /// <summary>起動時のソートキャッシュ準備範囲の表示文言です。</summary>
+    public static string Startup_sort_cache_label => ResourceManager.GetString("Startup_sort_cache_label", resourceCulture);
+
+    /// <summary>起動時のソートキャッシュ準備範囲の表示文言です。</summary>
+    public static string Startup_sort_cache_description => ResourceManager.GetString("Startup_sort_cache_description", resourceCulture);
+
+    /// <summary>起動時のソートキャッシュ準備範囲の表示文言です。</summary>
+    public static string Startup_sort_cache_none => ResourceManager.GetString("Startup_sort_cache_none", resourceCulture);
+
+    /// <summary>起動時のソートキャッシュ準備範囲の表示文言です。</summary>
+    public static string Startup_sort_cache_basic => ResourceManager.GetString("Startup_sort_cache_basic", resourceCulture);
+
+    /// <summary>起動時のソートキャッシュ準備範囲の表示文言です。</summary>
+    public static string Startup_sort_cache_standard => ResourceManager.GetString("Startup_sort_cache_standard", resourceCulture);
+
+    /// <summary>起動時のソートキャッシュ準備範囲の表示文言です。</summary>
+    public static string Startup_sort_cache_all => ResourceManager.GetString("Startup_sort_cache_all", resourceCulture);
+
+    /// <summary>起動時のソートキャッシュ準備範囲の表示文言です。</summary>
+    public static string Startup_sort_cache_invalid => ResourceManager.GetString("Startup_sort_cache_invalid", resourceCulture);
+
     /// <summary>譜面プロパティの表示文言です。</summary>
     public static string ChartPropertiesUnusedDefinitions => ResourceManager.GetString("ChartPropertiesUnusedDefinitions", resourceCulture);
 

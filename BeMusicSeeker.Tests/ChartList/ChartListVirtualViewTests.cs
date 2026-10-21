@@ -2283,14 +2283,43 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(degree <= Math.Max(1, Environment.ProcessorCount - 1));
     }
 
+    /// <summary>準備範囲0/1/2/3で対象列と既存の優先度内順を固定し、各昇降順・aliasの非重複と範囲外の拒否を確認します。</summary>
+    [TestMethod]
+    public void VirtualOrderPrewarmDescriptors_SelectExplicitPriorityColumnsAndRejectInvalidBounds()
+    {
+        string[][] priorities =
+        [
+            ["WAVHealth", "BGAHealth", "MovieHealth", "encoding", "WarningDigestText", "level"],
+            ["Title", "Folder", "path", "Artist"],
+            ["clear", "rateDouble", "minbp", "ChartJudgeSortKey", "ChartNotes", "ChartLongNotes", "ChartScratchNotes", "ChartMainBpmSortKey", "ChartMinBpmSortKey", "ChartMaxBpmSortKey", "ChartSoflanCount", "ChartTotalSortKey", "ChartTotalPerNoteSortKey", "ChartDurationSortKey", "ChartDensitySortKey", "ChartPeakDensitySortKey", "ChartEndDensitySortKey"],
+            ["genre", "mode", "tag", "hash", "sha256", "instl_dst", "InstallDestinationTitle", "InstallDestinationArtist", "RefTablesSymbols", "score", "maxcombo", "rankingString", "rankingLastupdate", "stddevVal", "scoreDifficulty", "ChartLevelSortKey", "ChartDifficultySortKey", "ChartFeatureSortKey"]
+        ];
+        ChartListOrderColumnMetadata[] metadata = [.. ChartListOrder.GetVirtualSortColumnMetadata()];
+        for (int priority = 0; priority <= 3; priority++)
+        {
+            CollectionAssert.AreEquivalent(priorities[priority], metadata.Where(column => column.PrewarmPriority == priority).Select(column => column.NormalizedColumnName).ToArray());
+            VirtualNormalLibrarySortDescriptor[] descriptors = [.. RegularChartListOwner.CreateVirtualOrderPrewarmDescriptors(priority)];
+            string[] expectedColumns = priorities.Skip(1).Take(priority).SelectMany(columns => columns).ToArray();
+            Assert.AreEqual(new[] { 0, 8, 42, 78 }[priority], descriptors.Length);
+            CollectionAssert.AreEqual(expectedColumns.SelectMany(column => new[] { column, column }).ToArray(), descriptors.Select(descriptor => descriptor.ColumnName).ToArray());
+            CollectionAssert.AreEqual(expectedColumns.SelectMany(_ => new[] { ListSortDirection.Ascending, ListSortDirection.Descending }).ToArray(), descriptors.Select(descriptor => descriptor.Direction).ToArray());
+            Assert.AreEqual(descriptors.Length, descriptors.Select(descriptor => (descriptor.ColumnName, descriptor.Direction)).Distinct().Count());
+            Assert.IsFalse(descriptors.Any(descriptor => descriptor.ColumnName == "rank"));
+        }
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => RegularChartListOwner.CreateVirtualOrderPrewarmDescriptors(-1));
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => RegularChartListOwner.CreateVirtualOrderPrewarmDescriptors(4));
+    }
+
     /// <summary>本番が選んだ全予備sortをsourceだけで構築し、件数確認でも実体行を生成しないことで予備計算の全件生成を検出します。</summary>
     [TestMethod]
-    public void DefaultVirtualOrderPrewarmDescriptors_DoNotRequireRowRealization()
+    public void AllVirtualOrderPrewarmDescriptors_DoNotRequireRowRealization()
     {
         List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(CreateSampleSortFiles());
         int createdCount = 0;
 
-        foreach (VirtualNormalLibrarySortDescriptor descriptor in RegularChartListOwner.CreateDefaultVirtualOrderPrewarmDescriptors())
+        IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors = RegularChartListOwner.CreateVirtualOrderPrewarmDescriptors(3);
+        Assert.AreEqual(78, descriptors.Count);
+        foreach (VirtualNormalLibrarySortDescriptor descriptor in descriptors)
         {
             Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, descriptor.ColumnName, descriptor.Direction, out ChartListOrder order));
             var view = new ChartListVirtualView(sourceRows, order, row =>

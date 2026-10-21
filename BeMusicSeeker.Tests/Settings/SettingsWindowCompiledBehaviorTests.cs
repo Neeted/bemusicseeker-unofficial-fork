@@ -219,6 +219,62 @@ public sealed class SettingsWindowCompiledBehaviorTests
         });
     }
 
+    /// <summary>実ComboBoxの4値選択をVMへ渡し、取消の復元・言語変更後の値保持と表示更新、不正値の無選択・警告を確認します。</summary>
+    /// <remarks>BAMLのBindingとResourceService通知を実Windowで観測し、保存拒否の条件網羅は編集sessionの系列へ分担します。</remarks>
+    [TestMethod]
+    public void AdvancedPageStartupSortCachePriorityBindsRestoresAndLocalizesSelection()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string previousCulture = Resources.Culture?.Name ?? "ja-JP";
+            MainWindowViewModel? owner = null;
+            SettingsWindow? window = null;
+            try
+            {
+                ResourceService.Current.ChangeCulture("en-US");
+                Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(settings => settings.StartupSortCachePrewarmPriority = 4);
+                owner = MainWindowViewModelTestFactory.Create(values);
+                window = new SettingsWindow { DataContext = owner.SettingDialog, PlaybackPanel = owner.PlaybackPanel };
+                scope.ShowAndWaitForContentRendered(window);
+                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAdvanced");
+                Materialize(window);
+                var page = (AdvancedSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                ComboBox selector = FindLogicalDescendants<ComboBox>(page).Single(control => GetBindingPath(control, Selector.SelectedValueProperty) == nameof(SettingsDialogViewModel.StartupSortCachePrewarmPriority));
+                SettingsStatusBanner warning = FindLogicalDescendants<SettingsStatusBanner>(page).Single(control => GetBindingPath(control, ContentControl.ContentProperty) == nameof(SettingsDialogViewModel.StartupSortCachePrewarmWarning));
+                Assert.AreEqual(-1, selector.SelectedIndex);
+                Assert.IsNull(selector.SelectedValue);
+                Assert.AreEqual(string.Format(Resources.Startup_sort_cache_invalid, 4), warning.Content);
+                Assert.IsTrue(warning.IsVisible);
+                foreach (int priority in new[] { 0, 1, 2, 3 })
+                {
+                    selector.SetCurrentValue(Selector.SelectedValueProperty, priority);
+                    Materialize(window);
+                    Assert.AreEqual(priority, values.StartupSortCachePrewarmPriority);
+                    Assert.AreEqual(priority, owner.SettingDialog.StartupSortCachePrewarmPriority);
+                }
+                string english = ((KeyValuePair<int, string>)selector.SelectedItem).Value;
+                ResourceService.Current.ChangeCulture("ja-JP");
+                Materialize(window);
+                Assert.AreEqual(3, selector.SelectedValue);
+                Assert.AreEqual(Resources.Startup_sort_cache_all, ((KeyValuePair<int, string>)selector.SelectedItem).Value);
+                Assert.AreNotEqual(english, ((KeyValuePair<int, string>)selector.SelectedItem).Value);
+                owner.SettingDialog.ResetSettings();
+                Materialize(window);
+                Assert.AreEqual(-1, selector.SelectedIndex);
+                Assert.IsNull(selector.SelectedValue);
+                Assert.AreEqual(string.Format(Resources.Startup_sort_cache_invalid, 4), warning.Content);
+                Assert.IsTrue(warning.IsVisible);
+                Assert.AreEqual(4, values.StartupSortCachePrewarmPriority);
+            }
+            finally
+            {
+                window?.CloseForOwnerShutdown();
+                owner?.SettingDialog.Dispose();
+                ResourceService.Current.ChangeCulture(previousCulture);
+            }
+        });
+    }
+
     /// <summary>新規導入の確認欄を実操作して値を変え Reset で戻し、別の導入確認値を巻き込む誤りや復元が control に届かない不備を検出します。</summary>
     [TestMethod]
     public void AdvancedPageNewPackageConfirmationBindsDefaultAndRestoresIndependently()

@@ -1,4 +1,11 @@
 {
+  "Startup_sort_cache_label": "启动时排序缓存准备范围",
+  "Startup_sort_cache_description": "未预先生成缓存的列在选中时仍可正常排序。更改将从下次启动时生效。",
+  "Startup_sort_cache_none": "不准备",
+  "Startup_sort_cache_basic": "仅基本（默认）",
+  "Startup_sort_cache_standard": "标准",
+  "Startup_sort_cache_all": "全部",
+  "Startup_sort_cache_invalid": "已保存的值（{0}）无效。请选择准备范围后保存设置。",
   "AudioDeviceListLoading": "正在获取音频设备列表。您可以继续编辑、保存或取消设置。",
   "AudioDeviceListRefreshFailed": "无法更新音频设备列表。当前显示保留的设备和当前选择。",
   "PackageInstallReport_InputCleanupFailure": "清理导入用临时输入失败：{0}",

@@ -3912,4 +3912,25 @@ ON: すべての使用リソースがそろった場合のみ、自動新規イ�
   <data name="PackageInstallReport_InputCleanupFailure" xml:space="preserve">
     <value>取り込み用一時入力の回収に失敗: {0}</value>
   </data>
+  <data name="Startup_sort_cache_label" xml:space="preserve">
+    <value>起動時のソートキャッシュ準備範囲</value>
+  </data>
+  <data name="Startup_sort_cache_description" xml:space="preserve">
+    <value>事前生成しない列も、選択したときは通常どおりソートできます。変更は次回起動時から適用されます。</value>
+  </data>
+  <data name="Startup_sort_cache_none" xml:space="preserve">
+    <value>準備しない</value>
+  </data>
+  <data name="Startup_sort_cache_basic" xml:space="preserve">
+    <value>基本のみ（既定）</value>
+  </data>
+  <data name="Startup_sort_cache_standard" xml:space="preserve">
+    <value>標準</value>
+  </data>
+  <data name="Startup_sort_cache_all" xml:space="preserve">
+    <value>すべて</value>
+  </data>
+  <data name="Startup_sort_cache_invalid" xml:space="preserve">
+    <value>保存された値（{0}）は無効です。準備範囲を選択すると設定を保存できます。</value>
+  </data>
 </root>

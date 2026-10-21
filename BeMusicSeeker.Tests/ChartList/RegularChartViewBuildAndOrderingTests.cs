@@ -726,6 +726,71 @@ public sealed class RegularChartViewBuildAndOrderingTests
         });
     }
 
+    /// <summary>各準備範囲の対象外列を実ownerへ要求し、昇降順の結果・cache登録再利用・カタログ更新後の失効を確認します。0ではsourceもorderも作りません。</summary>
+    /// <remarks>小DBと実カタログを使い、比較規則の網羅と取消・並列上限は既存系列へ分担します。</remarks>
+    [DataTestMethod]
+    [DataRow(0, "Title")]
+    [DataRow(1, "ChartNotes")]
+    [DataRow(2, "mode")]
+    [DataRow(3, "level")]
+    public void VirtualOrderPrewarm_UnpreparedColumnsRemainDemandSortedAndInvalidated(int priority, string column)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            var library = new TestBmsLibrary(songDbPath);
+            CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
+            ChartFile MakeChart(string title, int value) => new(ChartFileKind.Bms, @"C:\Charts\" + title + ".bms", title, null,
+                title, title, "", "", "Folder", "", value.ToString(), value, value,
+                new ChartDetails { notes = value });
+            catalog.ReplaceCharts([MakeChart("Bravo", 9), MakeChart("Alpha", 7)], []);
+            var table = new MainChartListViewModel();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
+            Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(library, out RegularChartListPrewarmLease lease));
+            using (lease)
+            {
+                owner.RunVirtualOrderPrewarm(lease, library, false, RegularChartListOwner.CreateVirtualOrderPrewarmDescriptors(priority), "test_range");
+            }
+            Assert.IsTrue(lease.Completion.IsCompleted);
+            if (priority == 0) { Assert.AreEqual(0, owner.CacheCount); }
+            var request = new RegularVirtualNormalLibraryApplyRequest
+            {
+                Library = library,
+                IncludeBmsonRows = false,
+                TreeFilter = RegularNormalLibraryTreeFilter.Create(RegularChartFolderFilterKind.Directory, string.Empty),
+                KeywordFilter = string.Empty,
+                ModeFilter = ChartModeFilter.All,
+                SortColumnName = column,
+                SortDirection = ListSortDirection.Ascending,
+                ExternalVersions = new RegularChartListExternalVersions(0, 0, 0),
+                ColumnSelection = new MainChartListColumnSelection(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD), false, 0L,
+                    MainViewUpdateMode.FolderFilterSelected, Visibility.Collapsed, new PlaylistSummaryColumnSettings()),
+                Mode = MainViewUpdateMode.FolderFilterSelected,
+                Stopwatch = Stopwatch.StartNew(),
+                Reason = "test_range"
+            };
+            foreach (ListSortDirection direction in new[] { ListSortDirection.Ascending, ListSortDirection.Descending })
+            {
+                request.SortDirection = direction;
+                RegularVirtualNormalLibraryApplyResult first = owner.TryApplyVirtualNormalLibrary(request);
+                Assert.IsTrue(first.WasCommitted);
+                Assert.IsFalse(first.SortCacheHit);
+                if (priority == 0 && direction == ListSortDirection.Ascending) { Assert.IsFalse(first.SourceRowsCacheHit); }
+                CollectionAssert.AreEqual(direction == ListSortDirection.Ascending ? new[] { "Alpha", "Bravo" } : new[] { "Bravo", "Alpha" },
+                    first.RowsView.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
+                NormalLibrarySortCacheKey key = owner.CreateVirtualOrderKey(owner.SourceGeneration, owner.SortKeyGeneration, column, direction, 2, request.ExternalVersions);
+                Assert.IsTrue(owner.TryGetVirtualOrder(key, out _));
+                RegularVirtualNormalLibraryApplyResult reused = owner.TryApplyVirtualNormalLibrary(request);
+                Assert.IsTrue(reused.SortCacheHit);
+                Assert.IsTrue(reused.SourceRowsCacheHit);
+            }
+            catalog.ReplaceCharts([MakeChart("Zulu", 6), MakeChart("Charlie", 4)], []);
+            RegularVirtualNormalLibraryApplyResult updated = owner.TryApplyVirtualNormalLibrary(request);
+            Assert.IsTrue(updated.WasCommitted);
+            Assert.IsFalse(updated.SortCacheHit);
+            CollectionAssert.AreEqual(new[] { "Zulu", "Charlie" }, updated.RowsView.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
+        });
+    }
+
     /// <summary>通常一覧のfolder絞込みとtitle降順を終端へ確定し、同条件の次要求はsourceとorderを再利用して、絞込み欠けと不要再計算を検出します。</summary>
     [TestMethod]
     public void VirtualNormalLibraryApply_OwnsSourceOrderFilterAndTerminalReuse()

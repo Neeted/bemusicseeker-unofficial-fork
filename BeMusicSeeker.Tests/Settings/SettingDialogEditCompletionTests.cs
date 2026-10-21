@@ -39,6 +39,96 @@ public sealed partial class SettingDialogEditCompletionTests
     // MSTest が各ケース開始前に注入する。fixture cleanup の診断に使用する。
     public TestContext TestContext { get; set; } = null!;
 
+    /// <summary>準備範囲の4値だけの編集を保存・取消し、dirty解除とreset通知を確認します。保存は再初期化を開始しません。</summary>
+    [TestMethod]
+    public async Task StartupSortCachePriority_SaveAndCancelUseExistingEditSessionWithoutReinitializing()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings values = CreateValidStandaloneSettings(root);
+            var session = new CountingSettingsEditSession(values);
+            int initializeCount = 0;
+            MainWindowViewModel owner = CreateViewModel(session, false, initializeOwner: _ => { initializeCount++; return Task.FromResult(true); });
+            SetActiveLibraryProfile(owner, true);
+            using SettingsDialogViewModel dialog = owner.SettingDialog;
+            foreach (int priority in new[] { 0, 1, 2, 3 })
+            {
+                dialog.StartupSortCachePrewarmPriority = priority;
+                Assert.IsTrue(dialog.HasPendingSettingChanges());
+                Assert.IsTrue(dialog.CanSaveSettings);
+                await dialog.ApplySettingsAsync();
+                Assert.AreEqual(priority, values.StartupSortCachePrewarmPriority);
+                Assert.IsFalse(dialog.HasPendingSettingChanges());
+            }
+            Assert.AreEqual(4, session.SaveCount);
+            Assert.AreEqual(0, initializeCount);
+            var changed = new List<string>();
+            dialog.PropertyChanged += (_, args) => changed.Add(args.PropertyName ?? "");
+            dialog.StartupSortCachePrewarmPriority = 0;
+            dialog.ResetSettings();
+            Assert.AreEqual(3, dialog.StartupSortCachePrewarmPriority);
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
+            Assert.IsTrue(changed.Count(name => name == nameof(SettingsDialogViewModel.StartupSortCachePrewarmPriority)) >= 2);
+            Assert.AreEqual(4, session.SaveCount);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>不正な保存値-1/4は未編集・別項目編集でも全validationと実Save/初回Save/Applyを拒否し、実ファイルbytes・保存回数・再初期化を保ちます。有効選択後だけ保存します。</summary>
+    [DataTestMethod]
+    [DataRow(-1, false)]
+    [DataRow(-1, true)]
+    [DataRow(4, false)]
+    [DataRow(4, true)]
+    public async Task StartupSortCachePriority_InvalidSavedValueBlocksEverySaveBoundary(int priority, bool editOther)
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            string path = Path.Combine(root, "user.config");
+            Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(path));
+            values.StartupSortCachePrewarmPriority = priority;
+            values.Save();
+            byte[] saved = File.ReadAllBytes(path);
+            var session = new CountingSettingsEditSession(values) { PersistOwnedValues = true };
+            int initializeCount = 0;
+            var dialogs = new RecordingRootDialogService();
+            MainWindowViewModel owner = CreateViewModel(session, false, initializeOwner: _ => { initializeCount++; return Task.FromResult(true); }, dialogs: dialogs);
+            SetActiveLibraryProfile(owner, true);
+            using SettingsDialogViewModel dialog = owner.SettingDialog;
+            Assert.IsNull(dialog.StartupSortCachePrewarmPriority);
+            Assert.AreEqual(string.Format(Resources.Startup_sort_cache_invalid, priority), dialog.StartupSortCachePrewarmWarning);
+            dialog.StartupSortCachePrewarmPriority = null;
+            dialog.StartupSortCachePrewarmPriority = -2;
+            dialog.StartupSortCachePrewarmPriority = 5;
+            Assert.AreEqual(priority, values.StartupSortCachePrewarmPriority);
+            if (editOther) { dialog.ShowNewPackageInstallConfirmMsg = !dialog.ShowNewPackageInstallConfirmMsg; }
+            Assert.IsFalse(dialog.CanSaveSettings);
+            Assert.IsFalse(dialog.CheckValidation());
+            Assert.IsFalse(dialog.CheckValidation(out _));
+            Assert.IsFalse(dialog.CheckValidationForSave());
+            Assert.IsFalse(dialog.CheckValidationForSave(out _));
+            Assert.IsFalse(dialog.CheckValidationBeforeSave(out _));
+            await dialog.SaveSettings();
+            await dialog.SaveSettingsForInitialInitialize();
+            await dialog.ApplySettingsAsync();
+            Assert.AreEqual(0, session.SaveCount);
+            Assert.AreEqual(0, initializeCount);
+            CollectionAssert.AreEqual(saved, File.ReadAllBytes(path));
+            Assert.AreEqual(priority, PortableSettingsPersistenceTests.OpenSettings(path).StartupSortCachePrewarmPriority);
+            dialog.StartupSortCachePrewarmPriority = 2;
+            Assert.IsTrue(dialog.CanSaveSettings);
+            Assert.AreEqual(string.Empty, dialog.StartupSortCachePrewarmWarning);
+            await dialog.ApplySettingsAsync();
+            Assert.AreEqual(1, session.SaveCount);
+            Assert.AreEqual(0, initializeCount);
+            Assert.AreEqual(2, PortableSettingsPersistenceTests.OpenSettings(path).StartupSortCachePrewarmPriority);
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     /// <summary>culture 変更で表示カタログを一回更新し、二度 Dispose した後は更新しないことを確認して、共有リソースへの購読漏れを検出します。</summary>
     [TestMethod]
     public void DisposedSettingsDialogStopsListeningToResourceServiceCultureChanges()

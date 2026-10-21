@@ -1,4 +1,11 @@
 {
+  "Startup_sort_cache_label": "Préparation du cache de tri au démarrage",
+  "Startup_sort_cache_description": "Les colonnes non préparées peuvent toujours être triées normalement à la sélection. Les modifications prennent effet au prochain démarrage.",
+  "Startup_sort_cache_none": "Aucune",
+  "Startup_sort_cache_basic": "Colonnes de base (par défaut)",
+  "Startup_sort_cache_standard": "Standard",
+  "Startup_sort_cache_all": "Toutes",
+  "Startup_sort_cache_invalid": "La valeur enregistrée ({0}) est invalide. Sélectionnez une étendue de préparation pour enregistrer les paramètres.",
   "AudioDeviceListLoading": "Chargement des périphériques audio. Vous pouvez continuer à modifier, enregistrer ou annuler les paramètres.",
   "AudioDeviceListRefreshFailed": "Impossible d’actualiser la liste des périphériques audio. Les périphériques conservés et la sélection actuelle sont affichés.",
   "PackageInstallReport_InputCleanupFailure": "Échec du nettoyage de l’entrée temporaire d’importation : {0}",

@@ -86,6 +86,23 @@ public sealed class PortableSettingsPersistenceTests
         }
     }
 
+    /// <summary>欠落時は基本のみの1を使い、0～3と範囲外の-1/4を実providerから新readerへ補正せず保存・再読込みします。</summary>
+    [TestMethod]
+    public void StartupSortCachePriorityRoundTripsWithoutNormalizingInvalidValues()
+    {
+        using var files = new SettingsFiles();
+        Assert.AreEqual(1, OpenSettings(files.Path).StartupSortCachePrewarmPriority);
+        File.WriteAllText(files.Path, Config());
+        Assert.AreEqual(1, OpenSettings(files.Path).StartupSortCachePrewarmPriority);
+        foreach (int priority in new[] { 0, 1, 2, 3, -1, 4 })
+        {
+            Settings values = OpenSettings(files.Path);
+            values.StartupSortCachePrewarmPriority = priority;
+            values.Save();
+            Assert.AreEqual(priority, OpenSettings(files.Path).StartupSortCachePrewarmPriority);
+        }
+    }
+
     /// <summary>不正 XML と必須構造の欠損を外部編集として置き、読込みと保存を Read 失敗にし元 bytes を既定値で上書きしないことを確認します。</summary>
     [DataTestMethod]
     [DataRow("<configuration>")]

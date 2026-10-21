@@ -497,6 +497,7 @@ hr {
 <li class="toc-level-3"><a href="#バックアップ">バックアップ</a></li>
 <li class="toc-level-3"><details open><summary><a href="#詳細">詳細</a></summary><ul>
 <li class="toc-level-4"><a href="#詳細設定の参照表">詳細設定の参照表</a></li>
+<li class="toc-level-4"><a href="#起動時のソートキャッシュ準備範囲">起動時のソートキャッシュ準備範囲</a></li>
 </ul></details></li>
 <li class="toc-level-3"><details open><summary><a href="#右クリック設定">右クリック設定</a></summary><ul>
 <li class="toc-level-4"><a href="#web-ページの登録">Web ページの登録</a></li>
@@ -678,7 +679,10 @@ hr {
 <li><a href="#プレイリスト設定">プレイリスト設定</a></li>
 <li><a href="#インストール">インストール</a></li>
 <li><a href="#バックアップ">バックアップ</a></li>
-<li><a href="#詳細">詳細</a></li>
+<li><a href="#詳細">詳細</a><ul>
+<li><a href="#起動時のソートキャッシュ準備範囲">起動時のソートキャッシュ準備範囲</a></li>
+</ul>
+</li>
 <li><a href="#右クリック設定">右クリック設定</a></li>
 </ul>
 </li>
@@ -1069,6 +1073,12 @@ hr {
 <td>DB 読み込みを最適化します。通常は ON のまま使います。</td>
 </tr>
 <tr>
+<td>初期化</td>
+<td>起動時のソートキャッシュ準備範囲</td>
+<td>基本のみ</td>
+<td>起動後に事前ソートする列の範囲を選びます。<a href="#起動時のソートキャッシュ準備範囲">対象列の比較</a> を参照してください。変更は次回起動から適用します。</td>
+</tr>
+<tr>
 <td>LR2連携</td>
 <td>起動時にLR2IRランキングキャッシュを更新する</td>
 <td>OFF</td>
@@ -1137,6 +1147,36 @@ hr {
 </tbody>
 </table></div>
 <p>差分導入や重複マージの同名ファイルの扱いは、<a href="#スマート上書き">スマート上書き</a> を参照してください。</p>
+<h4 id="起動時のソートキャッシュ準備範囲">起動時のソートキャッシュ準備範囲</h4>
+<p><code>詳細</code> → <code>初期化</code> の <code>起動時のソートキャッシュ準備範囲</code> で、通常ライブラリ一覧の並べ替えを起動後にどこまで事前準備するか選びます。事前ソートの結果をキャッシュして、対象列を選んだときに利用します。既定は <code>基本のみ</code> で、変更は次回のアプリ起動から適用されます。</p>
+<p>各列の昇順・降順を準備します。<code>標準</code> は <code>基本のみ</code> の対象を、<code>すべて</code> は <code>標準</code> の対象をすべて含み、次の列を追加します。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>設定</th>
+<th>事前ソートする列</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>準備しない</td>
+<td>事前ソートを行いません。</td>
+</tr>
+<tr>
+<td>基本のみ（既定）</td>
+<td><code>TITLE</code>、<code>FOLDER</code>、<code>PATH</code>、<code>ARTIST</code>。</td>
+</tr>
+<tr>
+<td>標準</td>
+<td><strong>基本のみの対象に加えて</strong>、<code>CLEAR</code>、<code>DJ LEVEL</code> / <code>RATE</code>、<code>BP</code>、<code>JUDGE</code> / <code>JUDGE%</code>、<code>NOTES</code>、<code>LONG</code>、<code>SCRATCH</code>、<code>MAINBPM</code>、<code>MINBPM</code>、<code>MAXBPM</code>、<code>SOFLAN</code>、<code>TOTAL</code>、<code>T/N</code>、<code>DURATION</code>、<code>DENSITY</code>、<code>PEAK</code>、<code>END</code>。</td>
+</tr>
+<tr>
+<td>すべて</td>
+<td><strong>標準の対象に加えて</strong>、<code>GENRE</code>、<code>KEYS</code>、<code>TAG</code>、<code>MD5 HASH</code>、<code>SHA256 HASH</code>、<code>INSTL DST</code>、<code>INSTL DST TITLE</code>、<code>INSTL DST ARTIST</code>、<code>PLAYLIST</code>、<code>SCORE</code>、<code>COMBO</code>、<code>RANKING</code>、<code>RANK UPDATE</code>、<code>T-SCORE</code>、<code>ΔMAX</code>、<code>LEVEL</code>、<code>DIFFICULTY</code>、<code>FEATURE</code>。</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>DJ LEVEL</code> / <code>RATE</code> と <code>JUDGE</code> / <code>JUDGE%</code> は、それぞれ同じ並べ替え順を使うためまとめて記載しています。健康度の <code>WAV</code>・<code>BGA</code>・<code>MOVIE</code>、<code>ENCODING</code>、<code>WARNING</code> は、列を選んだときにソートします。事前準備の対象外の列や <code>準備しない</code> を選んだ場合も、通常どおりソートできます。</p>
 <h3 id="右クリック設定">右クリック設定</h3>
 <p><img alt="設定 右クリック設定" src="img/設定_右クリック設定.PNG"/></p>
 <p>通常一覧、プレイリスト、プレイログで使う <code>Webページを開く</code> と <code>プログラムから開く</code> を編集します。各一覧で項目を追加・削除し、名前、有効状態、順序を変更できます。</p>
