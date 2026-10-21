@@ -19,6 +19,8 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private long externalTableListLoadVersion;
 
+    private bool externalTableListLoadShutdownRequested;
+
     /// <summary>
     /// インポート画面の候補に使う外部カタログを取得します。
     /// </summary>
@@ -54,7 +56,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         && !IsWriteLockHeldBMSTables && !IsWriteLockHeldAnyBMSTable;
 
     /// <summary>
-    /// 起動後の任意カタログを取得し、成功・空・失敗を画面へ通知します。
+    /// 起動後の任意カタログを取得し、成功・空・失敗を画面へ通知します。終了受付の閉鎖後は通信・表示を開始しません。
     /// </summary>
     /// <param name="tableListUrl">取得先として捕捉したカタログURI。</param>
     /// <param name="fetchTableInfoAsync">非同期カタログ取得の境界。</param>
@@ -72,11 +74,14 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         CancellationTokenSource previousCancellation;
-        CancellationTokenSource currentCancellation = new();
-        CancellationToken currentToken = currentCancellation.Token;
+        CancellationTokenSource currentCancellation;
+        CancellationToken currentToken;
         long requestVersion;
         lock (externalTableListLoadSyncRoot)
         {
+            if (externalTableListLoadShutdownRequested) { return; }
+            currentCancellation = new();
+            currentToken = currentCancellation.Token;
             previousCancellation = externalTableListLoadCancellation;
             externalTableListLoadCancellation = currentCancellation;
             requestVersion = ++externalTableListLoadVersion;
@@ -89,6 +94,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 requestVersion,
                 currentCancellation,
                 PlaylistImportCatalogState.Loading).ConfigureAwait(false);
+            currentToken.ThrowIfCancellationRequested();
             IReadOnlyList<BMSTableSimple> tableInfo = await fetchTableInfoAsync(
                 tableListUrl,
                 currentToken).ConfigureAwait(false);
@@ -130,13 +136,14 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     /// <summary>
-    /// 協調終了時に任意カタログの取得を取り消します。
+    /// 協調終了時に同じ画面寿命での取得受付を不可逆に閉じ、登録済み取得へ取消を届けます。未開始仕事の後着登録も拒否します。
     /// </summary>
     internal void CancelExternalTableCollectionLoadForShutdown()
     {
         CancellationTokenSource cancellation;
         lock (externalTableListLoadSyncRoot)
         {
+            externalTableListLoadShutdownRequested = true;
             cancellation = externalTableListLoadCancellation;
             externalTableListLoadCancellation = null;
             externalTableListLoadVersion++;

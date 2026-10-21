@@ -4900,7 +4900,7 @@ public partial class BMSLibrary : ObservableObject
 
     /// <summary>
     /// BMS ライブラリの初期化を行います。song.db からの譜面データ読み込み、ファイルスキャン、
-    /// スコア / 保守情報の取得を統合的に実行します。閏年判断は受付前、終端通知は公開処理と受付の解放後です。
+    /// スコア / メンテナンス情報の取得を統合的に実行します。閏年判断は受付前、終端通知は公開処理と受付の解放後です。
     /// 復元した保留は明示的な手動推定で扱います。
     /// </summary>
     /// <param name="tasksContinuation">初期化中に並行で実行する追加タスクのリスト。</param>
@@ -8658,7 +8658,7 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>
-    /// 指定した所持譜面と明示した保留項目の文字コードを確定します。保留は保守情報だけを保存し、同じ項目へ反映します。
+    /// 指定した所持譜面と明示した保留項目の文字コードを確定します。保留はメンテナンス情報だけを保存し、同じ項目へ反映します。
     /// </summary>
     internal void SetBMSFilesEncoding(IEnumerable<ChartFile> charts, string encoding = "", LibraryFileMutationCapability capability = null,
         IReadOnlyList<PackageChartEntry> pendingEntries = null)

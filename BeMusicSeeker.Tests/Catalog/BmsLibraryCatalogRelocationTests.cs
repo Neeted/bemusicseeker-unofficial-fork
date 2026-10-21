@@ -191,7 +191,7 @@ public sealed class BmsLibraryCatalogRelocationTests
     }
 
     /// <summary>
-    /// 複数譜面の移転は利用者列・実保守情報・digest対応・フォルダ属性を保存し、仮の保守情報を新しい行として保存しない。
+    /// 複数譜面の移転は利用者列・実メンテナンス情報・digest対応・フォルダ属性を保存し、仮のメンテナンス情報を新しい行として保存しない。
     /// </summary>
     /// <remarks>実ライブラリの移転から実DBの保存列を読み戻し、利用者設定とmetadataの保存互換性を確認する。</remarks>
     [TestMethod]

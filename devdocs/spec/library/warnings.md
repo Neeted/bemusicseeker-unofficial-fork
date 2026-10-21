@@ -16,11 +16,11 @@
 
 警告は不変の `ChartWarning` の集合です。所持カタログの共通現在値、保留の `PackageChartEntry`、一時的な `ChartFile` の投影が、それぞれ担当する種類を保持します。自由文や表示用の別名プロパティ、DB保存行を状態の正本にしません。BMS・BMSONとも共通値と専門状態の投影から表示します。
 
-通常一覧と導入直後の新規一覧のリソース不足は、保守情報から作る `ResourceHealthIndexSnapshot` を表示時に投影します。DBに保存する警告ではありません。LR2互換性は保守行の互換性情報から別の `Lr2Compatibility` 分類へ投影し、リソース状態の索引や無視設定へ混ぜません。
+通常一覧と導入直後の新規一覧のリソース不足は、メンテナンス情報から作る `ResourceHealthIndexSnapshot` を表示時に投影します。DBに保存する警告ではありません。LR2互換性は保守行の互換性情報から別の `Lr2Compatibility` 分類へ投影し、リソース状態の索引や無視設定へ混ぜません。
 
 一覧の管理主体は、リソース状態を投影する表示の準備で索引を現在の入力へ合わせます。行の読取りや診断ログは索引を構築しません。未構築・失効状態のまま警告なしとして表示や警告順を確定しないため、行を再利用する表示と、警告・保守の表示だけの更新も同じ準備を行います。詳細は[一覧表示](../ui/table-view.md#絞込みと画面更新)に従います。
 
-保守情報の既定値や、BMSON解析直後の文字コードだけの行は仮の値です。要求数と存在数が揃うまで計算済みのリソース状態として扱いません。DB由来の一部カテゴリだけの結果は、そのカテゴリの表示に使えます。
+メンテナンス情報の既定値や、BMSON解析直後の文字コードだけの行は仮の値です。要求数と存在数が揃うまで計算済みのリソース状態として扱いません。DB由来の一部カテゴリだけの結果は、そのカテゴリの表示に使えます。
 
 ### 要約・詳細・強調
 
@@ -32,9 +32,9 @@
 
 ### リソース状態の評価
 
-一覧への所属判定は警告集合を変更せず、保守情報に基づく副作用のない索引で行います。BMSONは現在のMD5と一致する計算済みの保守情報を使い、未計算・旧ハッシュなら参照と現在のファイル状態から一時的に評価します。索引を優先し、必要な場合だけ実ファイルを確認します。
+一覧への所属判定は警告集合を変更せず、メンテナンス情報に基づく副作用のない索引で行います。BMSONは現在のMD5と一致する計算済みのメンテナンス情報を使い、未計算・旧ハッシュなら参照と現在のファイル状態から一時的に評価します。索引を優先し、必要な場合だけ実ファイルを確認します。
 
-保留の健康度とリソース警告は、設定済みの `INSTL DST`、未設定なら先頭候補、どちらもなければ入力元配置を基準とする一時状態です。設定先・候補では実際に持ち込む同梱資源を加算し、各譜面固有の使用集合を照合します。単一BMS・BMSONの親全体は同梱としません。推定・編集・候補選択・空編集・再グループ化の完了時には従来どおり評価し、明示クリアは後述の計算済み結果を復元します。導入成功時に分類単位で解除し、通常・新規一覧では導入後の保守情報から表示します。保留の警告を所持カタログやDB行へ書き戻しません。
+保留の健康度とリソース警告は、設定済みの `INSTL DST`、未設定なら先頭候補、どちらもなければ入力元配置を基準とする一時状態です。設定先・候補では実際に持ち込む同梱資源を加算し、各譜面固有の使用集合を照合します。単一BMS・BMSONの親全体は同梱としません。推定・編集・候補選択・空編集・再グループ化の完了時には従来どおり評価し、明示クリアは後述の計算済み結果を復元します。導入成功時に分類単位で解除し、通常・新規一覧では導入後のメンテナンス情報から表示します。保留の警告を所持カタログやDB行へ書き戻しません。
 
 保留登録時には、既存の初期評価で計算した元配置の `ResourceHealthMaintenanceSnapshot` を項目に一件保持します。自動導入候補から設定・失敗・取消等により後で保留へ回る項目も同じ初期評価で確定します。起動時の保留復元ではDBからこの結果を読み戻さず、既存の起動時評価で確定します。候補切り替え・再推定・通常の健康度更新は、この元配置結果を上書きしません。
 
@@ -50,7 +50,7 @@
 
 不足警告の分数は使用ファイルキーの存在数／要求数です。未使用定義の欠損と未定義の使用IDは不足警告へ含めません。これはBMS/PMSのWAV/BMP IDと、BMSONのBGA/LAYER/POORイベントのヘッダー未定義IDに共通です。定義済みの不正パスや空nameは照合不能として扱い、架空のファイル名で不足件数を作りません。
 
-起動時の保守情報読込みはDBの結果を適用するもので、全リソースの再検査ではありません。不足分を追加した後は、選択譜面または全譜面の再スキャンで再評価します。計算結果が既存行と同じならDBを書き直しません。所持currentに反映する保守・警告の実変更はカタログ版と対象差分を同時確定し、登録済みの同じ結果で該当行を更新します。通常一覧とplaylistは同じ現在値・専門警告の投影を使い、検査事実に保存した古いfull譜面を表示値の正本にしません。
+起動時のメンテナンス情報読込みはDBの結果を適用するもので、全リソースの再検査ではありません。不足分を追加した後は、選択譜面または全譜面の再スキャンで再評価します。計算結果が既存行と同じならDBを書き直しません。所持currentに反映する保守・警告の実変更はカタログ版と対象差分を同時確定し、登録済みの同じ結果で該当行を更新します。通常一覧とplaylistは同じ現在値・専門警告の投影を使い、検査事実に保存した古いfull譜面を表示値の正本にしません。
 
 保留の選択再スキャンでは、要求に保持した同じ `PackageChartEntry` へDB確定後の結果を反映し、既に生成した表示行も更新します。配置先・候補がなければ入力元の健康度とLR2警告を採用します。配置先・候補がある場合、DBには入力元の結果を保存し、表示は捕捉済みの同梱文脈と現行の候補索引で配置の健康度を再評価します。資源参照が未取得なら既存の取得入口で読み直し、古い参照へ戻しません。登録時の元配置結果、導入先・候補・所属を変えず、配置再評価では現在の文字コードと修正済み状態を保持します。選択保留のリソース再調査は文字コードの自動検出で利用者指定や未確定状態を上書きせず、非CP932のBMSでもsong行を新設しません。入力元の保存件数・警告が同値でも、成功評価を同じentryへ渡して新しい資源参照で配置を再評価します。この配送のために同値DB書込みや所持カタログ版の更新を増やしません。
 
@@ -105,7 +105,7 @@
 | `DuplicateChart` | 重複の種類だけを設定・解除する |
 | `ZeroNoteMismatch` | BMSの詳細情報が0ノートで、本文に可視ノートらしい記述がある場合に付ける。情報未生成または0でなくなれば解除する |
 | `ChartInfoParseFailure` | 解析エラー画面の表示用行へ付け、通常の元行を変更しない |
-| `Lr2Compatibility` | 評価済みの保守情報から分類単位で生成する。未評価の仮データを付けただけでは既存の直接警告を消さない |
+| `Lr2Compatibility` | 評価済みのメンテナンス情報から分類単位で生成する。未評価の仮データを付けただけでは既存の直接警告を消さない |
 | パッケージ構造・既所持 | 発見・復元時に対象項目へ付ける。リソース状態と排他的にしない |
 
 LR2互換性では、譜面の完全パスとリソース名のCP932表現、LR2の従来の長さ制限を区別します。アプリ自身が長パスを読めるなら登録を続けます。親参照はLR2非対応の理由にせず、移動時に再解析が必要な情報として保持します。親参照がない場合は、保存した相対パスの最大バイト長と移動後のディレクトリで軽量に再評価できます。
@@ -125,7 +125,7 @@ LR2用パスを表現できないことを理由にBMS行を削除しません�
 | 選択保留の再スキャンと既存表示行、入力元と導入先の分離 | `ChartResourceHealthRequest`、`SelectedChartResourceHealthWorkflowOwner`、`LibraryMutationOwner`、`PackageChartEntry` | `SelectedChartResourceHealthWorkflowOwnerTests.RescanAsync_RealStoreUpdatesPendingCurrentAndExistingRow` は保留のみ・所持混在で実再調査・保存・現在値・既存表示行を確認する。単体譜面の推定先では入力元100%と表示0%を区別し、新しい参照・LR2警告解除・自動検出と異なる文字コード・未確定の修正印・登録時結果・非選択項目・所属保持を確認する。非CP932入力で保留のsong非新設と所持の再復号保存を併せて確認する。`RescanAsync_WhenOnlyResourceReferencesChange_ReevaluatesPendingDestinationWithoutWritingSameValues` は入力元件数・警告が同値の参照変更で、同値DB書込みと所持版更新を増やさず候補表示を再評価することを確認する。配置優先の条件分岐と表示行単独の追従は既存Install系列と `ChartListVirtualViewTests` が分担する。 |
 | 選択保留の保存前DB値との比較、所持索引の維持 | `BmsLibraryDbGateway`、`CatalogMaintenanceOwner`、`BmsLibraryMaintenanceService` | `SelectedChartResourceHealthWorkflowOwnerTests.RescanAsync_UsesStoredSourceValuesAndKeepsOwnedIndex` は保存前値・配置表示・今回入力元の三者を分け、音源削除、音源追加、保存同値、未登録、別hashの5条件を確認する。保存同値はSQLiteのINSERT/UPDATE拒否で観測し、全条件で非選択所持を含む有効な索引を再構築しない取得から先に観測して同じsnapshotと投影を維持する。 |
 | 子階層の保留再スキャンと捕捉同梱の保持 | `ChartResourcePlacement`、`BmsLibraryPackageInstallService`、`LibraryMutationOwner` | `SelectedChartResourceHealthWorkflowOwnerTests.RescanAsync_NestedPendingChartKeepsCapturedBundledPlacement` は入力元の子音源を削除し、DB1/0と捕捉同梱による同じentry・既存行の1/1を区別する。packageを渡さない再評価でも導入先の子ディレクトリ、相対位置、同梱完全性、候補、元配置、所属を保持する。候補/同梱と親/子の条件分岐は導入推定系列へ分担する。 |
-| 現在の保守情報、差分更新と再評価 | [`ResourceHealthIndexOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ResourceHealth/ResourceHealthIndexOwner.cs)、[`ResourceHealthWarningProjection`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ResourceHealth/ResourceHealthWarningProjection.cs) | [`ResourceHealthIndexOwnerTests`](../../../BeMusicSeeker.Tests/ResourceHealth/ResourceHealthIndexOwnerTests.cs)、[`ResourceHealthFullOwnedTargetFreshnessTests`](../../../BeMusicSeeker.Tests/ResourceHealth/ResourceHealthFullOwnedTargetFreshnessTests.cs) |
+| 現在のメンテナンス情報、差分更新と再評価 | [`ResourceHealthIndexOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ResourceHealth/ResourceHealthIndexOwner.cs)、[`ResourceHealthWarningProjection`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ResourceHealth/ResourceHealthWarningProjection.cs) | [`ResourceHealthIndexOwnerTests`](../../../BeMusicSeeker.Tests/ResourceHealth/ResourceHealthIndexOwnerTests.cs)、[`ResourceHealthFullOwnedTargetFreshnessTests`](../../../BeMusicSeeker.Tests/ResourceHealth/ResourceHealthFullOwnedTargetFreshnessTests.cs) |
 | LR2のパス・リソース互換性 | [`Lr2SongRowEnricher`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongRowEnricher.cs) | [`BmsLibraryLr2SongDbSyncTests`](../../../BeMusicSeeker.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs)、[`ChartWarningCollectionTests`](../../../BeMusicSeeker.Tests/Chart/ChartWarningCollectionTests.cs) |
 | BMSの追加、相対パス補正、表現不能なパスの行の保持 | [`Lr2SongRowEnricher`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongRowEnricher.cs)、[`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) | [`BmsLibraryInitializationInstallTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationInstallTests.cs)、[`BmsLibraryInitializationLoadTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationLoadTests.cs) |
 

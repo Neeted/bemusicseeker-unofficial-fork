@@ -608,7 +608,7 @@ public sealed class CatalogMutationOwnerTests
     }
 
     /// <summary>
-    /// ある所有を削除して同じパスへ別所有を移転するとき、移転した行とtokenを保持して削除した保守情報を引き継がない。
+    /// ある所有を削除して同じパスへ別所有を移転するとき、移転した行とtokenを保持して削除したメンテナンス情報を引き継がない。
     /// </summary>
     [TestMethod]
     public void ApplyCatalogMutation_SamePathDifferentOwnersKeepsRelocatedOwnerRow()

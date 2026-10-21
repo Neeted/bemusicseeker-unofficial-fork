@@ -461,16 +461,6 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return;
         }
-        long operationToken;
-        long schedulerGeneration;
-        lock (startupBackgroundTaskProgressSynchronization)
-        {
-            lock (startupInitializationCompletionLock)
-            {
-                operationToken = startupCompletionContinuationToken;
-                schedulerGeneration = startupBackgroundTaskScheduler.CurrentGeneration;
-            }
-        }
         if (!startupBackgroundTaskScheduler.IsFullyIdle)
         {
             return;
@@ -491,20 +481,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return;
         }
-        // worker の複合終端は待たせず、表示だけを通常の UI 排出へ渡します。
-        // 行を消すときにも送出時の操作を検査し、新操作の親行を旧終端で消しません。
-        DispatchStartupProgressPresentation(() =>
-        {
-            if (!IsCurrentStartupPostInitializationCallback(
-                    operationToken,
-                    schedulerGeneration,
-                    IsStartupCompletionTokenCurrent,
-                    startupBackgroundTaskScheduler.IsCurrentGeneration))
-            {
-                return;
-            }
-            ProgressHub?.CompleteStartupBackgroundInitializationPresentation();
-        });
+        // 終了待機用markerは全追跡の終端を維持し、起動親の寿命は起動所属の集計で決めます。
         LogUiSuppression("startup_post_initialization_maintenance_complete");
         if (Net10PerformanceLog.IsEnabled && startupPerformanceInteraction.InteractionId > 0L)
         {
@@ -540,6 +517,7 @@ public partial class MainWindowViewModel : ViewModel,
             }
             startupPostInitializationWarmupCompleted = true;
         }
+        startupBackgroundTaskScheduler.CompleteAdditionalWarmup(operationToken, schedulerGeneration);
         LogMainViewBuild("post_startup_warmup terminal reason=" + completion.Request.Reason
             + " operationToken=" + operationToken
             + " schedulerGeneration=" + schedulerGeneration
@@ -1841,6 +1819,7 @@ public partial class MainWindowViewModel : ViewModel,
             startupPostInitializationWarmupScheduled = true;
             schedulerGeneration = startupBackgroundTaskScheduler.CurrentGeneration;
         }
+        startupBackgroundTaskScheduler.RegisterAdditionalWarmup(operationToken, schedulerGeneration);
         startupPostInitializationWarmupOwner.Schedule(
             new StartupPostInitializationWarmupRequest(
                 reason,
@@ -2224,6 +2203,8 @@ public partial class MainWindowViewModel : ViewModel,
         ProgressHub = childComposition.ProgressHub;
         startupBackgroundTaskScheduler.ProgressChanged += status =>
             DispatchStartupProgressPresentation(() => ProgressHub.UpdateBackgroundTaskProgress(status));
+        startupBackgroundTaskScheduler.AdditionalProgressChanged += status =>
+            DispatchStartupProgressPresentation(() => ProgressHub.UpdateAdditionalProgress(status));
         ChartMutationActivity = childComposition.ChartMutationActivity;
         ChartMutationActivity.ActivityChanged += ChartMutationActivityChanged;
         PlaybackPanel = childComposition.PlaybackPanel;
@@ -3207,6 +3188,35 @@ public partial class MainWindowViewModel : ViewModel,
             if (IsRequiredInitializationShutdownRequested) { return result; }
             if (!IsStartupCompletionTokenCurrent(operationToken)) { return result; }
             TryLogStartupReadyOperable(operationToken);
+            long additionalGeneration = startupBackgroundTaskScheduler.CurrentGeneration;
+            using (startupBackgroundTaskScheduler.BeginAdmissionScope(operationToken, additionalGeneration))
+            {
+                if (result.OperationKind is StartupProgressOperationKind.Startup or StartupProgressOperationKind.FullReinitialize)
+                {
+                    ProgressHub.BeginStartupBackgroundInitializationPresentation(operationToken, additionalGeneration);
+                    startupBackgroundTaskScheduler.BeginAdditionalProgress(operationToken, additionalGeneration);
+                }
+                files.ScheduleInitializationFollowUp(result.RequiredResult?.FileResult.FollowUp, result.RequiredResult?.ChartInfo);
+                tables.SchedulePlaylistUrlCompletionRefresh("initialization_completed");
+                if (result.OperationKind != StartupProgressOperationKind.ScoreOnly)
+                {
+                    PlaylistWorkspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
+                }
+                if (result.OperationKind is StartupProgressOperationKind.Startup or StartupProgressOperationKind.FullReinitialize)
+                {
+                    ScheduleStartupPostInitializationWarmup("required_ui_completed", operationToken);
+                }
+                if (result.OperationKind == StartupProgressOperationKind.Startup)
+                {
+                    // 未開始要求には取得資源がないため、終了受付はShellShutdownの通知でだけ閉じます。
+                    startupBackgroundTaskScheduler.Queue("external_table_catalog", "Initialize", null,
+                        () => PlaylistWorkspace.LoadExternalTableCollectionAsync(result.Settings.TableListURL, BMSPlaylist.GetBMSTableInfoAsync));
+                    if (!result.Settings.SkipInitPlaylistLoad) { PlaylistWorkspace.QueueExternalPlaylistSync("Initialize", false, true, 0); }
+                }
+                startupBackgroundTaskScheduler.MarkRequiredInitializationSchedulingComplete();
+                startupBackgroundTaskScheduler.MarkPostInitializationSchedulingComplete();
+                startupBackgroundTaskScheduler.Start();
+            }
             await startupLibraryInitializationWorkflowOwner.PresentCompletionNotificationsAsync(
                 result.RepairNotification, result.ShowRootWarning, firstStartup, FileDbMutationDialogs,
                 () => IsRequiredInitializationShutdownRequested, () => IsStartupCompletionTokenCurrent(operationToken), result.BackupNotifications, result.RequiredResult?.Lr2Failure);
@@ -3215,31 +3225,6 @@ public partial class MainWindowViewModel : ViewModel,
                 if (result.Failure != null) { return result; }
                 throw new OperationCanceledException();
             }
-            if (!IsStartupCompletionTokenCurrent(operationToken)) { return result; }
-            if (result.OperationKind is StartupProgressOperationKind.Startup or StartupProgressOperationKind.FullReinitialize)
-            {
-                ProgressHub.BeginStartupBackgroundInitializationPresentation(operationToken, startupBackgroundTaskScheduler.CurrentGeneration);
-            }
-            files.ScheduleInitializationFollowUp(result.RequiredResult?.FileResult.FollowUp, result.RequiredResult?.ChartInfo);
-            tables.SchedulePlaylistUrlCompletionRefresh("initialization_completed");
-            if (result.OperationKind != StartupProgressOperationKind.ScoreOnly)
-            {
-                PlaylistWorkspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
-            }
-            if (result.OperationKind is StartupProgressOperationKind.Startup or StartupProgressOperationKind.FullReinitialize)
-            {
-                ScheduleStartupPostInitializationWarmup("required_ui_completed", operationToken);
-            }
-            if (result.OperationKind == StartupProgressOperationKind.Startup)
-            {
-                startupBackgroundTaskScheduler.Queue("external_table_catalog", "Initialize", null,
-                    () => PlaylistWorkspace.LoadExternalTableCollectionAsync(result.Settings.TableListURL, BMSPlaylist.GetBMSTableInfoAsync),
-                    _ => PlaylistWorkspace.CancelExternalTableCollectionLoadForShutdown());
-                if (!result.Settings.SkipInitPlaylistLoad) { PlaylistWorkspace.QueueExternalPlaylistSync("Initialize", false, true, 0); }
-            }
-            startupBackgroundTaskScheduler.MarkRequiredInitializationSchedulingComplete();
-            startupBackgroundTaskScheduler.MarkPostInitializationSchedulingComplete();
-            startupBackgroundTaskScheduler.Start();
             return result;
         }
         catch (OperationCanceledException) when (IsRequiredInitializationShutdownRequested && result.Failure == null)

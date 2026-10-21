@@ -85,7 +85,7 @@ DB行の識別、走査結果への収束、移転に伴う保存値の引継ぎ
 
 旧・新のどちらかが複数なら引き継ぎません。既存の移転先Bがある `{A, B} → {B}` では、同MD5でもBの保存値をAで上書きしません。旧キーの保存値を捕捉できた一対一の組だけを、DB確定後に新しい完全一致キーへ復元します。
 
-引継ぎは `Lr2SongUserColumns` の三列に限定します。新しいパス・時刻・フォルダCRC・生成メタデータ・保守情報は現在の入力から作り、旧行全体を移植しません。BMSONへこのBMS専用の引継ぎを拡張せず、別パスの保守情報も自動移植しません。復元失敗は伝播し、複数分割をまたぐ原子性、再試行、再起動後の保存値回復を追加保証しません。
+引継ぎは `Lr2SongUserColumns` の三列に限定します。新しいパス・時刻・フォルダCRC・生成メタデータ・メンテナンス情報は現在の入力から作り、旧行全体を移植しません。BMSONへこのBMS専用の引継ぎを拡張せず、別パスのメンテナンス情報も自動移植しません。復元失敗は伝播し、複数分割をまたぐ原子性、再試行、再起動後の保存値回復を追加保証しません。
 
 ## 実装とテストの対応
 
@@ -95,7 +95,7 @@ DB行の識別、走査結果への収束、移転に伴う保存値の引継ぎ
 | 所持集合・参照解決・同一物理ファイルの結果共有 | [`OwnedChartCollectionState`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/OwnedChartCollectionState.cs)、[`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.cs) | [`OwnedChartCollectionProjectionTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionProjectionTests.cs)、[`OwnedChartCollectionReferenceIndexTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionReferenceIndexTests.cs)、[`OwnedChartCollectionLibraryMutationTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionLibraryMutationTests.cs)、[`BmsLibraryDuplicateServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) |
 | 実導入の確定パスと未収束時の保留 | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs) | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) |
 | 走査の収束・再適用・個別解析失敗 | [`LibraryFileScanPipelineOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/LibraryFileScanPipelineOwner.cs)、[`FileScanParseCommitOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/FileScanParseCommitOwner.cs) | [`BmsLibraryInitializationFileScanTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationFileScanTests.cs)、[`BmsLibraryInitializationInlineChartInfoTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationInlineChartInfoTests.cs)、[`Lr2SongDbWriterTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbWriterTests.cs) |
-| 一対一の保存値引継ぎ・既存移転先・曖昧な候補 | [`FileScanParseCommitOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/FileScanParseCommitOwner.cs) | [`BmsLibraryInitializationFileScanTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationFileScanTests.cs) の `ApplyFileScanDiff_MovedBmsWithSameMd5PreservesUserSongColumns`、`ApplyFileScanDiff_MovedBmsWithExistingDestinationPreservesDestinationUserColumns`、旧・新候補が複数の各テスト。通常表記と大文字小文字だけの差分、DB・メモリ・保守情報、二回目の走査を確認します。 |
+| 一対一の保存値引継ぎ・既存移転先・曖昧な候補 | [`FileScanParseCommitOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/FileScanParseCommitOwner.cs) | [`BmsLibraryInitializationFileScanTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationFileScanTests.cs) の `ApplyFileScanDiff_MovedBmsWithSameMd5PreservesUserSongColumns`、`ApplyFileScanDiff_MovedBmsWithExistingDestinationPreservesDestinationUserColumns`、旧・新候補が複数の各テスト。通常表記と大文字小文字だけの差分、DB・メモリ・メンテナンス情報、二回目の走査を確認します。 |
 | 導入先の一時状態と表示行の完全一致 | [`InstallDestinationStateOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/InstallDestinationStateOwner.cs) | [`InstallDestinationStateOwnerTests`](../../../BeMusicSeeker.Tests/Install/InstallDestinationStateOwnerTests.cs)、[`ChartListVirtualViewTests`](../../../BeMusicSeeker.Tests/ChartList/ChartListVirtualViewTests.cs) |
 
 ## 関連資料

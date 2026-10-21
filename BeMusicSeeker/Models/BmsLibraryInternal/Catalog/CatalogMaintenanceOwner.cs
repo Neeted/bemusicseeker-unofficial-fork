@@ -9,7 +9,7 @@ using BeMusicSeeker.Models.Utils;
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// 保守評価とDB保守情報の読込みを所有します。不変の変更事実を
+/// 保守評価とDBメンテナンス情報の読込みを所有します。不変の変更事実を
 /// <see cref="CatalogMutationOwner"/>へ渡し、永続確定後の共通現在値と健全性の反映を接続します。
 /// </summary>
 internal sealed class CatalogMaintenanceOwner

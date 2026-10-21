@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -185,7 +186,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             changedProperties);
     }
 
-    /// <summary>実起動の必須UIを保持し、親解放→UI実終端→初回完了・解禁→任意登録閉鎖と開始の順を観測します。</summary>
+    /// <summary>実起動の必須UI前はHTTP未開始、成功公開・解禁後は完了通知とHTTP本文を保持しても両索引準備が始まります。同期省略時のcatalog登録・受付識別・実親終端を標準接続で確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void StartupRequiredUi_ActualTaskOwnsCompletionBeforeOptionalWorkStarts()
@@ -193,23 +194,81 @@ public sealed class MainWindowViewModelStartupProgressTests
         TestUiDispatcherHost.Invoke(() =>
         {
             using var fixture = new CompletionFixture();
+            var server = new SingleRequestHttpServer(System.Text.Encoding.UTF8.GetBytes("[]"), holdBody: true);
+            fixture.Settings.TableListURL = server.Address;
+            var noticeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var noticeRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var playlistIndexEntered = new TaskCompletionSource<StartupBackgroundTaskProgressSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var chartIndexEntered = new TaskCompletionSource<StartupBackgroundTaskProgressSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var requests = new ConcurrentQueue<StartupBackgroundTaskProgressSnapshot>();
+            void ObserveRequest(StartupBackgroundTaskProgressSnapshot status)
+            {
+                requests.Enqueue(status);
+                if (!status.IsRunning) { return; }
+                if (status.Name == "playlist_library_index_prewarm") { playlistIndexEntered.TrySetResult(status); }
+                if (status.Name == "playlist_virtual_order_prewarm") { chartIndexEntered.TrySetResult(status); }
+            }
+            fixture.Scheduler.ProgressChanged += ObserveRequest;
+            fixture.Dialogs.MessageObservedAsync = _ => { noticeEntered.TrySetResult(); return noticeRelease.Task; };
             fixture.Ui.Arm();
             Task<bool> initialization = fixture.Start();
-            AwaitArrival(fixture.Ui.Entered.Task, initialization, "startup-required-ui");
-            fixture.AssertBeforeUiCompletion();
-            Assert.IsFalse(initialization.IsCompleted);
-            fixture.Ui.Release.TrySetResult();
-            TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "startup-required-ui-terminal");
-            Assert.IsTrue(initialization.GetAwaiter().GetResult());
-            Assert.IsTrue(fixture.Owner.IsInitializationCompleted);
-            Assert.IsTrue(fixture.Owner.HasActiveLibraryProfile);
-            Assert.IsFalse(fixture.Lifetime.IsFirstStartup);
-            Assert.IsFalse(fixture.Owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
-            Assert.IsFalse(fixture.Owner.IsLibraryOperationInProgress, "実成功公開後の通知・任意work・完了余韻でBusyを延ばしません。");
-            AwaitArrival(fixture.OptionalEntered.Task, fixture.OptionalWork, "startup-optional-arrival");
-            Assert.IsTrue(fixture.OptionalStartedAfterCompletion);
-            Assert.IsFalse(fixture.OptionalWork.IsCompleted, "任意workを保持したまま必須起動が終端します。");
-            Assert.AreEqual(1, fixture.CompletionNotifications);
+            try
+            {
+                AwaitArrival(fixture.Ui.Entered.Task, initialization, "startup-required-ui");
+                fixture.AssertBeforeUiCompletion();
+                Assert.IsFalse(initialization.IsCompleted);
+                Assert.AreEqual(string.Empty, server.RequestMethod);
+                fixture.Ui.Release.TrySetResult();
+                AwaitArrival(noticeEntered.Task, initialization, "startup-notice-held");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(server.WaitForPhaseAsync(server.HeadersSent.Task, "catalog HTTP before notice completion"), "catalog-http-arrival");
+                Assert.IsFalse(initialization.IsCompleted, "InitializeAsyncは実通知Taskを引き続き待ちます。");
+                Assert.IsTrue(fixture.Owner.IsInitializationCompleted);
+                Assert.IsFalse(fixture.Owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
+                Assert.IsTrue(fixture.Settings.SkipInitPlaylistLoad);
+                StartupAdditionalProgressSnapshot additional = fixture.Scheduler.CaptureAdditionalProgressSnapshot();
+                Assert.AreNotEqual(0, additional.OperationToken);
+                StartupBackgroundTaskProgressSnapshot catalog = requests.Single(status => status.Name == "external_table_catalog" && status.IsRunning);
+                Assert.AreEqual(additional.Generation, catalog.Request.Generation);
+                Assert.AreEqual(additional.OperationToken, catalog.Request.OperationToken);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                OperationProgressRow child = fixture.Owner.ProgressHub.Rows.Single(row => row.Key.StartsWith("background:external_table_catalog"));
+                Assert.AreEqual("startup_background", child.ParentKey);
+                Task backgroundTerminal = fixture.WaitForBackgroundTerminalAsync();
+                AwaitArrival(Task.WhenAll(playlistIndexEntered.Task, chartIndexEntered.Task), backgroundTerminal, "startup-indexes-before-http-release");
+                Assert.IsFalse(server.ReleaseBody.Task.IsCompleted);
+                Assert.IsFalse(requests.Any(status => status.Name == "external_table_catalog" && !status.IsRunning), "両索引はHTTP実終端を待たずに開始します。");
+                foreach (StartupBackgroundTaskProgressSnapshot index in new[] { playlistIndexEntered.Task.GetAwaiter().GetResult(), chartIndexEntered.Task.GetAwaiter().GetResult() })
+                {
+                    Assert.AreEqual(additional.OperationToken, index.Request.OperationToken);
+                    Assert.AreEqual(additional.Generation, index.Request.Generation);
+                }
+                noticeRelease.TrySetResult();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "startup-required-ui-terminal");
+                Assert.IsTrue(initialization.GetAwaiter().GetResult());
+                Assert.IsTrue(fixture.Owner.IsInitializationCompleted);
+                Assert.IsTrue(fixture.Owner.HasActiveLibraryProfile);
+                Assert.IsFalse(fixture.Lifetime.IsFirstStartup);
+                Assert.IsFalse(fixture.Owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
+                Assert.IsFalse(fixture.Owner.IsLibraryOperationInProgress, "実成功公開後の通知・任意work・完了余韻でBusyを延ばしません。");
+                AwaitArrival(fixture.OptionalEntered.Task, fixture.OptionalWork, "startup-optional-arrival");
+                Assert.IsTrue(fixture.OptionalStartedAfterCompletion);
+                Assert.IsFalse(fixture.OptionalWork.IsCompleted, "任意workを保持したまま必須起動が終端します。");
+                Assert.AreEqual(1, fixture.CompletionNotifications);
+                server.ReleaseBody.TrySetResult();
+                fixture.OptionalRelease.TrySetResult();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(backgroundTerminal, "startup-own-parent-terminal");
+                Assert.IsFalse(fixture.Owner.ProgressHub.IsStartupBackgroundInitializationActive);
+            }
+            finally
+            {
+                fixture.Scheduler.ProgressChanged -= ObserveRequest;
+                noticeRelease.TrySetResult();
+                fixture.Ui.Release.TrySetResult();
+                fixture.OptionalRelease.TrySetResult();
+                server.ReleaseBody.TrySetResult();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "catalog-startup-cleanup");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(server.DisposeAsync().AsTask(), "catalog-http-cleanup");
+            }
         });
     }
 
@@ -485,7 +544,8 @@ public sealed class MainWindowViewModelStartupProgressTests
                 {
                     AwaitArrival(entered.Task, initialization, "startup-completion-notice-entered");
                     Assert.IsFalse(initialization.IsCompleted, "表示の成否を分離しても実通知Taskの待機は省略しません。");
-                    Assert.IsFalse(optionalEntered.IsCompleted);
+                    AwaitArrival(optionalEntered, optionalWork, "startup-notice-pending-optional-arrival");
+                    Assert.IsTrue(fixture.OptionalStartedAfterCompletion);
                     release.TrySetException(failure);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "startup-initial-completion-notice-failure");
                     Assert.IsTrue(initialization.GetAwaiter().GetResult(), "完了案内だけの失敗を必須初期化の失敗にしません。");
@@ -513,6 +573,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 finally
                 {
                     release.TrySetResult();
+                    fixture.OptionalRelease.TrySetResult();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "startup-notice-cleanup");
                 }
             });
@@ -656,6 +717,9 @@ public sealed class MainWindowViewModelStartupProgressTests
                 if (request.MessageBoxText != Resources.Warn_LR2LeapYearBugDetected || observed) { return; }
                 Assert.AreEqual(1, fixture.Dialogs.ConfirmationCount);
                 observed = true;
+                // 通知前から開始した旧後続を回収し、新規L/Pを受理できる条件で再入します。
+                fixture.OptionalRelease.TrySetResult();
+                await fixture.WaitForBackgroundTerminalAsync();
                 Assert.IsFalse(fixture.Composition.OperationAdmission.IsActive);
                 Assert.IsFalse(fixture.Composition.PlaylistOperationAdmission.IsActive);
                 fixture.Ui.Arm();
@@ -680,6 +744,62 @@ public sealed class MainWindowViewModelStartupProgressTests
             TestUiDispatcherHost.AwaitTaskOnDispatcher(next, "startup-warning-new-terminal");
             Assert.IsTrue(next.GetAwaiter().GetResult());
             Assert.AreEqual(2, fixture.CompletionNotifications);
+        });
+    }
+
+    /// <summary>実起動から業務token=0の外部同期を開始してHTTPを保持し、専用件数通知が受付時の起動識別を保って追加親の一行だけになることを確認します。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void StartupExternalSync_DedicatedProgressKeepsStartupOriginWithBusinessTokenZero()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            using var fixture = new CompletionFixture();
+            var server = new SingleRequestHttpServer(System.Text.Encoding.UTF8.GetBytes("{}"), holdBody: true);
+            fixture.Settings.SkipInitPlaylistLoad = false;
+            var queued = new TaskCompletionSource<PlaylistExternalSyncRequestEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+            fixture.Owner.PlaylistWorkspace.PlaylistExternalSyncQueued += (_, args) => queued.TrySetResult(args);
+            using (var db = new LR2SongDBExtended(fixture.Library.InitializationSongDbPath))
+            {
+                db.Insert(new LR2SongDBExtended.playlist
+                {
+                    name = "startup sync origin",
+                    header_url = server.Address.AbsoluteUri,
+                    is_external_sync = true,
+                    ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders,
+                    output_dir = "Network"
+                });
+            }
+            Task<bool> startup = fixture.Start();
+            try
+            {
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(startup, "external-sync-origin-startup");
+                Assert.IsTrue(startup.GetAwaiter().GetResult());
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(server.WaitForPhaseAsync(server.HeadersSent.Task, "external sync HTTP"), "external-sync-http");
+                Assert.IsTrue(queued.Task.IsCompletedSuccessfully);
+                PlaylistExternalSyncRequestEventArgs accepted = queued.Task.GetAwaiter().GetResult();
+                StartupAdditionalProgressSnapshot additional = fixture.Scheduler.CaptureAdditionalProgressSnapshot();
+                Assert.AreEqual(0, accepted.OperationToken);
+                Assert.IsNotNull(accepted.ProgressRequest);
+                Assert.AreEqual(additional.OperationToken, accepted.ProgressRequest.OperationToken);
+                Assert.AreNotEqual(0, accepted.ProgressRequest.OperationToken);
+                Assert.AreEqual(additional.Generation, accepted.ProgressRequest.Generation);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                OperationProgressRow[] rows = fixture.Owner.ProgressHub.Rows.Where(row =>
+                    row.Key.StartsWith("playlist:external_playlist_sync") || row.Key.StartsWith("background:external_playlist_sync")).ToArray();
+                Assert.AreEqual(1, rows.Length);
+                Assert.IsTrue(rows[0].Key.StartsWith("playlist:"));
+                Assert.AreEqual("startup_background", rows[0].ParentKey);
+                Assert.AreEqual(1d, rows[0].Maximum);
+            }
+            finally
+            {
+                server.ReleaseBody.TrySetResult();
+                fixture.OptionalRelease.TrySetResult();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(startup, "external-sync-origin-cleanup");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "external-sync-origin-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(server.DisposeAsync().AsTask(), "external-sync-origin-server-cleanup");
+            }
         });
     }
 

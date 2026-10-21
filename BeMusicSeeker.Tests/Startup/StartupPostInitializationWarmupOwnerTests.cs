@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.ViewModels;
@@ -12,6 +13,51 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class StartupPostInitializationWarmupOwnerTests
 {
+    /// <summary>実schedulerの予約とowner完了を接続し、正常・予約拒否・開始前取消・失敗のどれもwarmup一段階だけを終端します。lease回収の細かな競合は既存ownerケースが担います。</summary>
+    [DataTestMethod]
+    [DataRow("completed")]
+    [DataRow("rejected")]
+    [DataRow("cancelled")]
+    [DataRow("failed")]
+    public async Task SchedulerConnection_WarmupIsOneStageForEveryTerminal(string disposition)
+    {
+        var idle = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        StartupBackgroundTaskSchedulerOwner scheduler = null;
+        scheduler = new(() => disposition == "rejected", _ => { }, _ => { }, _ => { }, value => value,
+            (_, _) => { if (scheduler.IsFullyIdle) { idle.TrySetResult(); } }, new object());
+        scheduler.Reset(false);
+        long generation = scheduler.CurrentGeneration;
+        scheduler.BeginAdditionalProgress(19, generation);
+        scheduler.RegisterAdditionalWarmup(19, generation);
+        RegularChartListPrewarmLease lease = null;
+        int completions = 0;
+        var owner = new StartupPostInitializationWarmupOwner(
+            () => lease = new(1, CancellationToken.None, null), lease => lease.Dispose(),
+            (_, _, _) => { }, (_, _, _) => { }, (_, _, _) => { }, (_, _, _) => { },
+            (_, _) => { if (disposition == "failed") { throw new IOException("warmup failed"); } },
+            scheduler.Reserve, (reservation, reason, work, discard) => scheduler.QueueReserved(reservation, reason, work, discard),
+            scheduler.CancelQueued, completion =>
+            {
+                Interlocked.Increment(ref completions);
+                scheduler.CompleteAdditionalWarmup(completion.Request.OperationToken, completion.Request.SchedulerGeneration);
+            }, (_, _) => { });
+        using (scheduler.BeginAdmissionScope(19, generation))
+        {
+            Assert.AreEqual(disposition != "rejected", owner.Schedule(new("test", 19, generation)));
+        }
+        if (disposition == "cancelled") { owner.Reset("before_start"); }
+        scheduler.MarkRequiredInitializationSchedulingComplete();
+        scheduler.MarkPostInitializationSchedulingComplete();
+        scheduler.Start();
+        await idle.Task;
+        StartupAdditionalProgressSnapshot snapshot = scheduler.CaptureAdditionalProgressSnapshot();
+        Assert.AreEqual(1, snapshot.Total);
+        Assert.AreEqual(1, snapshot.Terminated);
+        Assert.IsTrue(snapshot.IsComplete);
+        Assert.AreEqual(1, completions);
+        if (lease != null) { Assert.IsTrue(lease.Completion.IsCompleted); }
+    }
+
     /// <summary>準備なしでも他の4段階を終えて実sort段階を正常終了し、範囲外値はvirtual_orderの元例外を持つ失敗とlease終端になります。</summary>
     [DataTestMethod]
     [DataRow(0)]

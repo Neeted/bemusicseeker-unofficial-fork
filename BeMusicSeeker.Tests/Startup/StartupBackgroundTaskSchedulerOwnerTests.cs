@@ -15,6 +15,218 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class StartupBackgroundTaskSchedulerOwnerTests
 {
+    /// <summary>実受付の置換を一件に集約し、失敗・破棄・同じ起動からの派生を実終端で数えます。受付scope外の手動仕事は集計せず、独立仕事が残っていても追加親は終端します。</summary>
+    [TestMethod]
+    public async Task AdditionalProgress_CountsLogicalWorkAndTerminalStatesWithoutLeakingScope()
+    {
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        owner.Reset(false);
+        long generation = owner.CurrentGeneration;
+        int replacedRuns = 0;
+        using (owner.BeginAdmissionScope(17, generation))
+        {
+            owner.Queue("external_table_catalog", "first", null, () => { replacedRuns++; return Task.CompletedTask; });
+        }
+        owner.BeginAdditionalProgress(17, generation);
+        var snapshots = new ConcurrentQueue<StartupAdditionalProgressSnapshot>();
+        owner.AdditionalProgressChanged += _ => throw new InvalidOperationException("display failure");
+        owner.AdditionalProgressChanged += snapshots.Enqueue;
+        var independentEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var independentRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var groupTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        owner.AdditionalProgressChanged += snapshot => { if (snapshot.IsComplete) { groupTerminal.TrySetResult(); } };
+        using (owner.BeginAdmissionScope(17, generation))
+        {
+            owner.Queue("external_table_catalog", "latest", null, () => throw new IOException("catalog failure"));
+            owner.Queue("playlist_library_index_prewarm", "index", null, () =>
+            {
+                Assert.AreEqual(17, owner.CaptureProgressRequest("derived", 1).OperationToken);
+                owner.Queue("library_folder_tree_refresh", "derived", null, () => Task.CompletedTask);
+                return Task.CompletedTask;
+            });
+            StartupBackgroundTaskReservation reservation = Reserve(owner, "playlist_url_completion");
+            Assert.IsTrue(owner.QueueReserved(reservation, "cancel", () => Task.CompletedTask));
+            reservation = Reserve(owner, "playlist_url_completion");
+            Assert.IsTrue(owner.QueueReserved(reservation, "replacement", () => Task.CompletedTask));
+            Assert.IsTrue(owner.CancelQueued(reservation, "before_start"));
+        }
+        Assert.AreEqual(0, owner.CaptureProgressRequest("manual", 1).OperationToken);
+        Assert.AreEqual(3, owner.CaptureAdditionalProgressSnapshot().Total);
+        Assert.AreEqual(1, owner.CaptureAdditionalProgressSnapshot().Terminated);
+        Assert.IsFalse(owner.CaptureAdditionalProgressSnapshot().IsComplete);
+        owner.Queue("independent", "manual", null, async () =>
+        {
+            independentEntered.TrySetResult();
+            await independentRelease.Task;
+        });
+        owner.MarkRequiredInitializationSchedulingComplete();
+        owner.MarkPostInitializationSchedulingComplete();
+        owner.Start();
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(Task.WhenAll(independentEntered.Task, groupTerminal.Task), WaitForFullyIdleAsync(owner), "additional terminal");
+            StartupAdditionalProgressSnapshot final = owner.CaptureAdditionalProgressSnapshot();
+            Assert.AreEqual(4, final.Total);
+            Assert.AreEqual(4, final.Terminated);
+            Assert.IsTrue(final.IsComplete);
+            Assert.IsFalse(owner.IsFullyIdle);
+            Assert.AreEqual(0, replacedRuns);
+            Assert.IsTrue(snapshots.Any(snapshot => snapshot.Total == 4));
+            StringAssert.Contains(owner.BuildSummaryLog(0), "external_table_catalog{queued=2,started=1,completed=0,failed=1");
+        }
+        finally { independentRelease.TrySetResult(); await WaitForFullyIdleAsync(owner); }
+    }
+
+    /// <summary>同じ起動識別の順位を保持しても、必須入力と起動仕事の実終端後にメンテナンス・GC・追加集計を終えます。独立順位は全体終端に残し、必要な依存を飛ばしません。</summary>
+    [TestMethod]
+    public async Task AdditionalProgress_GarbageCollectionIgnoresIndependentRankingButWaitsForStartupAndRequiredWork()
+    {
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        owner.Reset(false);
+        long generation = owner.CurrentGeneration;
+        const long token = 19;
+        owner.BeginAdditionalProgress(token, generation);
+        var rankingEntered = new TaskCompletionSource<OperationProgressRequest>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requiredEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var startupEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var rankingRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requiredRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var startupRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var additionalTerminal = new TaskCompletionSource<StartupAdditionalProgressSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        owner.AdditionalProgressChanged += snapshot => { if (snapshot.IsComplete) { additionalTerminal.TrySetResult(snapshot); } };
+        int maintenanceRuns = 0, gcRuns = 0;
+        using (owner.BeginAdmissionScope(token, generation))
+        {
+            owner.Queue("ranking_refresh_deferred", "startup", null, async () =>
+            {
+                rankingEntered.TrySetResult(owner.CaptureProgressRequest("ranking_refresh_deferred", 1));
+                await rankingRelease.Task;
+            });
+            owner.Queue("chart_info_hydration", "required", null, async () =>
+            {
+                requiredEntered.TrySetResult();
+                await requiredRelease.Task;
+            });
+            owner.Queue("external_table_catalog", "startup", null, async () =>
+            {
+                startupEntered.TrySetResult();
+                await startupRelease.Task;
+            });
+            owner.Queue("maintenance_hydration", "startup", null, () => Task.CompletedTask);
+            owner.Queue("installable_maintenance", "startup", "chart_info_hydration,maintenance_hydration", () =>
+            {
+                Interlocked.Increment(ref maintenanceRuns);
+                return Task.CompletedTask;
+            });
+            owner.Queue("post_initialize_gc", "startup", null, () =>
+            {
+                Interlocked.Increment(ref gcRuns);
+                return Task.CompletedTask;
+            });
+        }
+        owner.MarkRequiredInitializationSchedulingComplete();
+        owner.MarkPostInitializationSchedulingComplete();
+        owner.Start();
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(Task.WhenAll(rankingEntered.Task, requiredEntered.Task, startupEntered.Task), WaitForFullyIdleAsync(owner), "startup and independent ranking");
+            Assert.AreEqual(token, rankingEntered.Task.Result.OperationToken);
+            Assert.AreEqual(generation, rankingEntered.Task.Result.Generation);
+            Assert.AreEqual(0, Volatile.Read(ref maintenanceRuns));
+            Assert.AreEqual(0, Volatile.Read(ref gcRuns));
+            requiredRelease.TrySetResult();
+            startupRelease.TrySetResult();
+            await TestUiDispatcherHost.AwaitNotificationAsync(additionalTerminal.Task, WaitForFullyIdleAsync(owner), "startup additional terminal before ranking");
+            StartupAdditionalProgressSnapshot completed = await additionalTerminal.Task;
+            Assert.AreEqual(4, completed.Total);
+            Assert.AreEqual(4, completed.Terminated);
+            Assert.AreEqual(1, maintenanceRuns);
+            Assert.AreEqual(1, gcRuns);
+            Assert.IsFalse(rankingRelease.Task.IsCompleted);
+            Assert.IsFalse(owner.IsIdle);
+            Assert.IsFalse(owner.IsFullyIdle);
+        }
+        finally
+        {
+            rankingRelease.TrySetResult();
+            requiredRelease.TrySetResult();
+            startupRelease.TrySetResult();
+            await WaitForFullyIdleAsync(owner);
+        }
+    }
+
+    /// <summary>HTTP・両索引準備の実workerを同時保持し、追加3/全体4/各レーン1を超えず、全対象終端後だけGCを開始します。実DBの排他は別の受付回帰が担います。</summary>
+    [TestMethod]
+    public async Task AdditionalProgress_IndependentLanesRunTogetherAndGcWaitsForActualTerminals()
+    {
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        owner.Reset(false);
+        long generation = owner.CurrentGeneration;
+        owner.BeginAdditionalProgress(18, generation);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int active = 0, maximum = 0, postActive = 0, postMaximum = 0, entered = 0, gcRuns = 0;
+        int activeAtGcStart = -1;
+        var activeByName = new ConcurrentDictionary<string, int>();
+        var maximumByName = new ConcurrentDictionary<string, int>();
+        void Queue(string name, bool additional)
+        {
+            owner.Queue(name, "parallel", null, async () =>
+            {
+                int inLane = activeByName.AddOrUpdate(name, 1, (_, value) => value + 1);
+                maximumByName.AddOrUpdate(name, inLane, (_, value) => Math.Max(value, inLane));
+                UpdateMaximum(ref maximum, Interlocked.Increment(ref active));
+                if (additional) { UpdateMaximum(ref postMaximum, Interlocked.Increment(ref postActive)); }
+                if (Interlocked.Increment(ref entered) == 4) { allEntered.TrySetResult(); }
+                await release.Task;
+                activeByName.AddOrUpdate(name, 0, (_, value) => value - 1);
+                if (additional) { Interlocked.Decrement(ref postActive); }
+                Interlocked.Decrement(ref active);
+                if (name == StartupPostInitializationWarmupOwner.SchedulerTaskName) { owner.CompleteAdditionalWarmup(18, generation); }
+            });
+        }
+        using (owner.BeginAdmissionScope(18, generation))
+        {
+            owner.RegisterAdditionalWarmup(18, generation);
+            Queue("external_table_catalog", true);
+            Queue("playlist_library_index_prewarm", true);
+            Queue(StartupPostInitializationWarmupOwner.SchedulerTaskName, true);
+            owner.Queue("post_initialize_gc", "last", null, () =>
+            {
+                activeAtGcStart = Volatile.Read(ref active);
+                Interlocked.Increment(ref gcRuns);
+                return Task.CompletedTask;
+            });
+        }
+        Queue("required", false);
+        owner.MarkRequiredInitializationSchedulingComplete();
+        owner.MarkPostInitializationSchedulingComplete();
+        owner.Start();
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(allEntered.Task, WaitForFullyIdleAsync(owner), "all independent lanes");
+            Assert.AreEqual(3, Volatile.Read(ref postActive));
+            Assert.AreEqual(4, Volatile.Read(ref active));
+            Assert.AreEqual(0, Volatile.Read(ref gcRuns));
+            using (owner.BeginAdmissionScope(18, generation))
+            {
+                Queue("external_table_catalog", true);
+                Queue("playlist_library_index_prewarm", true);
+            }
+            Assert.AreEqual(new StartupBackgroundWorkSnapshot(3, 4), owner.CaptureWorkSnapshot());
+            release.TrySetResult();
+            await WaitForFullyIdleAsync(owner);
+            Assert.AreEqual(1, gcRuns);
+            Assert.AreEqual(0, activeAtGcStart);
+            Assert.IsTrue(maximumByName.Values.All(value => value == 1), "同じレーンの実workerを重ねて開始しません。");
+            Assert.AreEqual(4, maximum);
+            Assert.AreEqual(3, postMaximum);
+            Assert.AreEqual(6, owner.CaptureAdditionalProgressSnapshot().Total);
+            Assert.AreEqual(6, owner.CaptureAdditionalProgressSnapshot().Terminated);
+        }
+        finally { release.TrySetResult(); await WaitForFullyIdleAsync(owner); }
+    }
+
     /// <summary>
     /// reset前に開始した子Taskの進捗は元世代を維持し、observer失敗を隔離して同名要求の開始・終端を二重表示しない。
     /// </summary>
@@ -199,7 +411,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     }
 
     /// <summary>
-    /// resetを跨いでqueue済み処理を実行しても受付時の世代・operation tokenを維持し、新しい要求として表示しない。
+    /// resetを跨ぐ旧queueは受付識別を維持し、新世代で明示的に同名置換した場合だけ新仕事として一件集計します。
     /// </summary>
     [TestMethod]
     public async Task Reset_QueuedExecutionPreservesAcceptedRequestIdentity()
@@ -209,8 +421,11 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         owner.ProgressChanged += notifications.Enqueue;
         owner.Reset(false, 41);
         long acceptedGeneration = owner.CurrentGeneration;
+        owner.BeginAdditionalProgress(41, acceptedGeneration);
         owner.Queue("playlist_library_index_prewarm", "accepted", null, () => Task.CompletedTask);
+        Assert.AreEqual(1, owner.CaptureAdditionalProgressSnapshot().Total);
         owner.Reset(false, 42);
+        owner.BeginAdditionalProgress(42, owner.CurrentGeneration);
         Assert.AreNotEqual(acceptedGeneration, owner.CurrentGeneration);
         owner.Start();
         await WaitForFullyIdleAsync(owner);
@@ -220,6 +435,24 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.IsTrue(execution.All(snapshot => snapshot.Request?.OperationToken == 41));
         Assert.AreEqual(execution[0].Request, execution[1].Request);
         Assert.IsTrue(owner.IsFullyIdle);
+        Assert.AreEqual(0, owner.CaptureAdditionalProgressSnapshot().Total);
+        Assert.AreEqual(0, owner.CaptureAdditionalProgressSnapshot().Terminated);
+        owner.Reset(false, 43);
+        owner.BeginAdditionalProgress(43, owner.CurrentGeneration);
+        owner.Queue("playlist_library_index_prewarm", "old_pending", null, () => throw new AssertFailedException("置換前の仕事は実行しません。"));
+        owner.Reset(false, 44);
+        owner.BeginAdditionalProgress(44, owner.CurrentGeneration);
+        owner.Queue("playlist_library_index_prewarm", "current_replacement", null, () => Task.CompletedTask);
+        owner.MarkRequiredInitializationSchedulingComplete();
+        owner.MarkPostInitializationSchedulingComplete();
+        owner.Start();
+        await WaitForFullyIdleAsync(owner);
+        StartupAdditionalProgressSnapshot replaced = owner.CaptureAdditionalProgressSnapshot();
+        Assert.AreEqual(1, replaced.Total);
+        Assert.AreEqual(1, replaced.Terminated);
+        Assert.IsTrue(replaced.IsComplete);
+        Assert.IsTrue(notifications.Last().Request?.OperationToken == 44);
+        StringAssert.Contains(owner.BuildSummaryLog(0), "playlist_library_index_prewarm{queued=2,started=1,completed=1,failed=0");
     }
 
     /// <summary>

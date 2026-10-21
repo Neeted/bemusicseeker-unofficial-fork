@@ -26,7 +26,7 @@ internal sealed record ResourceHealthMaintenanceSnapshot
     internal int? Lr2ResourceMaxRelativeCp932Bytes { get; init; }
     internal bool? Lr2ResourceHasParentTraversal { get; init; }
 
-    /// <summary>保守情報がDB読込み、計算、未計算のいずれから得られたかを表します。</summary>
+    /// <summary>メンテナンス情報がDB読込み、計算、未計算のいずれから得られたかを表します。</summary>
     internal MaintenanceInfoOrigin Origin { get; init; }
 
     /// <summary>既存の文字コード修正状態を保存時にも保持します。</summary>

@@ -517,7 +517,7 @@ internal sealed class CatalogMutationOwner
     }
 
     /// <summary>
-    /// 所持集合から保守情報の順に既存の排他を取り、親操作のLR2入力行とパスを捕捉します。
+    /// 所持集合からメンテナンス情報の順に既存の排他を取り、親操作のLR2入力行とパスを捕捉します。
     /// 戻り値は不変で、管理主体や排他を保持せず使用できます。
     /// </summary>
     internal Lr2SongDbSyncInputRowSnapshot CaptureLr2SynchronizationInputRowSnapshot()
@@ -781,7 +781,7 @@ internal sealed class CatalogMutationOwner
         ];
     }
 
-    /// <summary>移転によって変わるLR2互換性だけを再評価し、未取得の保守情報は作成しません。</summary>
+    /// <summary>移転によって変わるLR2互換性だけを再評価し、未取得のメンテナンス情報は作成しません。</summary>
     private static ResourceHealthMaintenanceSnapshot RefreshRelocatedMaintenanceInfo(ResourceHealthMaintenanceSnapshot value, string newPath)
     {
         ChartResourceSnapshot resources = null;

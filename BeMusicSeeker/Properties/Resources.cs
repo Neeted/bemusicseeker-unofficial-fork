@@ -2889,7 +2889,7 @@ public class Resources
     /// <summary>選択プレイリストの再同期の進捗行を識別する文言を取得します。</summary>
     public static string Statusbar_progress_task_playlist_manual_reload => ResourceManager.GetString("Statusbar_progress_task_playlist_manual_reload", resourceCulture);
 
-    /// <summary>外部表一覧の読込みの進捗行を識別する文言を取得します。</summary>
+    /// <summary>難易度表リストの取得の進捗行を識別する文言を取得します。</summary>
     public static string Statusbar_progress_task_external_table_catalog => ResourceManager.GetString("Statusbar_progress_task_external_table_catalog", resourceCulture);
 
     /// <summary>プレイリスト索引の準備の進捗行を識別する文言を取得します。</summary>

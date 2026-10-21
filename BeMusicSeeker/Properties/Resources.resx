@@ -507,7 +507,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
 続行しますか？</value>
   </data>
   <data name="Maintenance_rescan_progress_label_format" xml:space="preserve">
-    <value>保守情報の再検査 {0}/{1}</value>
+    <value>メンテナンス情報の再検査 {0}/{1}</value>
   </data>
   <data name="Maintenance_rescan_complete" xml:space="preserve">
     <value>再スキャン完了</value>
@@ -1491,7 +1491,7 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>全再初期化</value>
   </data>
   <data name="Statusbar_progress_phase_library_db_load" xml:space="preserve">
-    <value>目録DBの読込み</value>
+    <value>カタログDB読込み</value>
   </data>
   <data name="Statusbar_progress_phase_file_enumeration" xml:space="preserve">
     <value>譜面・リソースの探索</value>
@@ -1506,10 +1506,10 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>プレイリスト参照の反映</value>
   </data>
   <data name="Statusbar_progress_phase_maintenance" xml:space="preserve">
-    <value>保守情報の読込み</value>
+    <value>メンテナンス情報の読込み</value>
   </data>
   <data name="Statusbar_progress_phase_installable_maintenance" xml:space="preserve">
-    <value>導入可能譜面の保守情報更新</value>
+    <value>導入可能譜面のメンテナンス情報更新</value>
   </data>
   <data name="Statusbar_progress_phase_score_hydration" xml:space="preserve">
     <value>スコアの読込み・反映</value>
@@ -3521,7 +3521,7 @@ uBMplayが正常に動作するか確認してください。</value>
     <value>選択プレイリストの再同期</value>
   </data>
   <data name="Statusbar_progress_task_external_table_catalog" xml:space="preserve">
-    <value>外部表一覧の読込み</value>
+    <value>難易度表リストの取得</value>
   </data>
   <data name="Statusbar_progress_task_playlist_index" xml:space="preserve">
     <value>プレイリスト索引の準備</value>

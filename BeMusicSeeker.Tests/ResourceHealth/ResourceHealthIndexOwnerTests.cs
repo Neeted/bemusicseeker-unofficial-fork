@@ -527,7 +527,7 @@ public class ResourceHealthIndexOwnerTests
     }
 
     /// <summary>
-    /// 遅延取得した保守情報の元データを公開後に変更しても、公開済みの欠落警告と抑止設定を変えない。
+    /// 遅延取得したメンテナンス情報の元データを公開後に変更しても、公開済みの欠落警告と抑止設定を変えない。
     /// </summary>
     [TestMethod]
     public void Apply_LazyFullInputDetachesMaintenanceFromStorageOwner()

@@ -60,8 +60,18 @@ public sealed class MainWindowProgressStatusBarWpfTests
                 host.UpdateLayout();
                 Assert.IsTrue(fixture.Owner.ProgressHub.IsStartupBackgroundInitializationActive);
                 Assert.IsTrue(statusBar.IsVisible);
-                Assert.IsTrue(FindVisualChildren<ProgressBar>(rows).Any(bar =>
-                    ((OperationProgressRow)bar.DataContext).Key == "startup_background" && bar.IsIndeterminate && bar.IsVisible));
+                ProgressBar parent = FindVisualChildren<ProgressBar>(rows).Single(bar =>
+                    ((OperationProgressRow)bar.DataContext).Key == "startup_background");
+                var parentRow = (OperationProgressRow)parent.DataContext;
+                Assert.IsFalse(parent.IsIndeterminate);
+                Assert.IsTrue(parent.IsVisible);
+                Assert.AreEqual(parentRow.Value, parent.Value);
+                Assert.AreEqual(parentRow.Maximum, parent.Maximum);
+                Assert.IsTrue(parent.Maximum > parent.Value);
+                StringAssert.Contains(parentRow.Label, "[" + parent.Value + "/" + parent.Maximum + "]");
+                TextBlock child = FindVisualChildren<TextBlock>(rows).First(text =>
+                    text.DataContext is OperationProgressRow { ParentKey: "startup_background" } && text.Inlines.Count > 0);
+                Assert.AreEqual(20d, ((Grid)VisualTreeHelper.GetParent(child)).Margin.Left);
                 fixture.OptionalRelease.TrySetResult();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.OptionalWork, "binding-optional-terminal");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "binding-scheduler-terminal");

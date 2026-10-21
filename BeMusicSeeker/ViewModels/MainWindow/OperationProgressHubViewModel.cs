@@ -24,6 +24,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
     private bool playlistProgressSourcesAttached;
     private long startupBackgroundOperationToken;
     private long startupBackgroundOriginGeneration;
+    private StartupAdditionalProgressSnapshot additionalProgress;
     private int rowsPresentationFailureActive;
     private readonly ConcurrentDictionary<string, long> playlistUiVersions = new();
     private long playlistUiVersionSeed;
@@ -89,7 +90,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
         });
     }
 
-    /// <summary>起動後グループが既存の複合終端まで存続しているかを取得します。</summary>
+    /// <summary>現起動に属する追加仕事が実終端まで存続しているかを取得します。</summary>
     public bool IsStartupBackgroundInitializationActive => startupBackgroundOperationToken != 0;
 
     /// <summary>起動後グループの親ラベルを取得します。</summary>
@@ -100,11 +101,20 @@ public sealed class OperationProgressHubViewModel : ViewModel
     {
         startupBackgroundOperationToken = operationToken;
         startupBackgroundOriginGeneration = generation;
+        additionalProgress = null;
         RaiseRowsChanged();
     }
 
-    /// <summary>既存の複合終端で後続グループ親行を消します。</summary>
-    internal void CompleteStartupBackgroundInitializationPresentation() { startupBackgroundOperationToken = 0; RaiseRowsChanged(); }
+    /// <summary>受付主体の段階集計を投影します。旧操作・世代・遅延した通知は採用しません。</summary>
+    internal void UpdateAdditionalProgress(StartupAdditionalProgressSnapshot snapshot)
+    {
+        if (snapshot.OperationToken == 0 || snapshot.Generation != backgroundGeneration || snapshot.Generation != startupBackgroundOriginGeneration
+            || snapshot.OperationToken != startupBackgroundOperationToken
+            || (additionalProgress != null && snapshot.Revision <= additionalProgress.Revision)) { return; }
+        additionalProgress = snapshot;
+        if (snapshot.IsComplete) { startupBackgroundOperationToken = 0; }
+        RaiseRowsChanged();
+    }
 
     /// <summary>新しい操作が開始されたとき旧後続グループ親行を消します。</summary>
     internal void ResetStartupBackgroundInitializationPresentation() { startupBackgroundOperationToken = 0; RaiseRowsChanged(); }
@@ -140,6 +150,11 @@ public sealed class OperationProgressHubViewModel : ViewModel
                 return;
             }
 
+            if (request?.Snapshot?.Request is { } origin && origin.Generation != backgroundGeneration)
+            {
+                ((ICollection<KeyValuePair<string, long>>)playlistUiVersions).Remove(new(key, version));
+                return;
+            }
             if (request?.Snapshot?.IsActive == true)
             {
                 playlistStatuses[key] = request.Snapshot;
@@ -175,7 +190,11 @@ public sealed class OperationProgressHubViewModel : ViewModel
             rows.AddRange(StartupProgress.DetailRows);
             if (IsStartupBackgroundInitializationActive)
             {
-                rows.Add(new("startup_background", StartupBackgroundInitializationLabel, string.Empty, IsIndeterminate: true));
+                int total = additionalProgress?.Total ?? 0;
+                int terminated = additionalProgress?.Terminated ?? 0;
+                rows.Add(new("startup_background", StartupProgressWorkflowOwner.FormatStartupProgressCountLabel(
+                    StartupBackgroundInitializationLabel, terminated, total, string.Empty), string.Empty,
+                    terminated, Math.Max(1, total), IsIndeterminate: false));
             }
 
             foreach (StartupBackgroundTaskProgressSnapshot status in backgroundStatuses.Values.OrderBy(x => x.Name, StringComparer.Ordinal).ThenBy(x => x.Version))
@@ -282,6 +301,8 @@ public sealed class OperationProgressHubViewModel : ViewModel
     {
         backgroundGeneration = generation;
         backgroundStatuses.Clear();
+        foreach (string key in playlistStatuses.Where(pair => pair.Value.Request != null && pair.Value.Request.Generation != generation)
+            .Select(pair => pair.Key).ToArray()) { playlistStatuses.Remove(key); }
         RaiseRowsChanged();
     }
 

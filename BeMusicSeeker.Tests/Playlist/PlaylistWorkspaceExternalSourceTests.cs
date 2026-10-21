@@ -1242,11 +1242,40 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         }
     }
 
-    /// <summary>終了取消を実fetch tokenへ伝えて取得Taskを終了し、旧catalogを公開して終了後の表示を更新しません。</summary>
-    [TestMethod]
-    public async Task ExternalTableListCatalog_ShutdownCancelsAndDoesNotPublishStaleCatalog()
+    /// <summary>終了が受付前なら後着fetchを開始せず、登録後のUI待機中ならfetch前に終端し、実fetch中ならtokenへ取消を届けます。どの順序も実Taskを回収し、終了後の後発要求と表示更新を拒否します。</summary>
+    [DataTestMethod]
+    [DataRow("before_registration")]
+    [DataRow("before_fetch")]
+    [DataRow("during_fetch")]
+    public async Task ExternalTableListCatalog_ShutdownCancelsAndDoesNotPublishStaleCatalog(string shutdownPhase)
     {
-        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        var uiEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var uiRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int uiApplications = 0;
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, restoreUiApplyScheduler: async action =>
+        {
+            if (Interlocked.Increment(ref uiApplications) == 1 && shutdownPhase == "before_fetch")
+            {
+                uiEntered.TrySetResult();
+                await uiRelease.Task.ConfigureAwait(false);
+            }
+            action();
+        });
+        bool shutdownIssued = false;
+        int fetchCount = 0;
+        var statesAfterShutdown = new ConcurrentQueue<PlaylistImportCatalogState>();
+        workspace.PropertyChanged += (_, args) =>
+        {
+            if (shutdownIssued && args.PropertyName == nameof(workspace.ExternalTableListState))
+            {
+                statesAfterShutdown.Enqueue(workspace.ExternalTableListState);
+            }
+        };
+        void Shutdown()
+        {
+            shutdownIssued = true;
+            workspace.CancelExternalTableCollectionLoadForShutdown();
+        }
         var cancellationObserved = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         BMSTableSimple[] staleCatalog = new[]
@@ -1259,10 +1288,12 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             }
         };
 
+        if (shutdownPhase == "before_registration") { Shutdown(); }
         Task loadTask = workspace.LoadExternalTableCollectionAsync(
             new Uri("https://example.test/catalog"),
             async (_, cancellationToken) =>
             {
+                Interlocked.Increment(ref fetchCount);
                 using CancellationTokenRegistration registration = cancellationToken.Register(
                     () => cancellationObserved.TrySetResult(true));
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
@@ -1271,17 +1302,39 @@ public sealed class PlaylistWorkspaceExternalSourceTests
 
         try
         {
-            Assert.IsFalse(loadTask.IsCompleted);
-            workspace.CancelExternalTableCollectionLoadForShutdown();
-            // 取消の伝播を通知で確認する。workerの割当て時間は取消契約に含めない。
-            await TestUiDispatcherHost.AwaitNotificationAsync(cancellationObserved.Task, loadTask, "external catalog shutdown cancellation");
+            Assert.AreEqual(shutdownPhase == "during_fetch" ? 1 : 0, Volatile.Read(ref fetchCount));
+            if (shutdownPhase == "before_fetch")
+            {
+                await TestUiDispatcherHost.AwaitNotificationAsync(uiEntered.Task, loadTask, "external catalog UI before fetch");
+            }
+            if (shutdownPhase != "before_registration")
+            {
+                Assert.IsFalse(loadTask.IsCompleted);
+                Shutdown();
+            }
+            uiRelease.TrySetResult();
+            if (shutdownPhase == "during_fetch")
+            {
+                // 取消の伝播を通知で確認する。workerの割当て時間は取消契約に含めない。
+                await TestUiDispatcherHost.AwaitNotificationAsync(cancellationObserved.Task, loadTask, "external catalog shutdown cancellation");
+            }
             await loadTask.ConfigureAwait(false);
+            await workspace.LoadExternalTableCollectionAsync(new Uri("https://example.test/after-shutdown"), (_, _) =>
+            {
+                Interlocked.Increment(ref fetchCount);
+                return Task.FromResult<IReadOnlyList<BMSTableSimple>>(staleCatalog);
+            });
 
+            Assert.AreEqual(shutdownPhase == "during_fetch" ? 1 : 0, Volatile.Read(ref fetchCount));
+            Assert.IsTrue(loadTask.IsCompletedSuccessfully);
+            Assert.AreEqual(PlaylistImportCatalogState.NotStarted, workspace.ExternalTableListState);
+            Assert.IsTrue(statesAfterShutdown.All(state => state == PlaylistImportCatalogState.NotStarted));
             Assert.IsNull(workspace.BMSExternalTableListExt);
         }
         finally
         {
-            workspace.CancelExternalTableCollectionLoadForShutdown();
+            Shutdown();
+            uiRelease.TrySetResult();
             await loadTask.ConfigureAwait(false);
         }
     }

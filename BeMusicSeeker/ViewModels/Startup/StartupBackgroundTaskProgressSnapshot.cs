@@ -16,3 +16,13 @@ internal sealed record StartupBackgroundTaskProgressSnapshot(
     bool IsPostInitialization,
     bool IsRunning,
     OperationProgressRequest Request = null);
+
+/// <summary>現起動の論理仕事と実終端を投影する変更不能な集計です。成功件数ではありません。</summary>
+/// <param name="OperationToken">登録元の起動操作。</param>
+/// <param name="Generation">登録元のscheduler世代。</param>
+/// <param name="Revision">同世代の通知順序。</param>
+/// <param name="Total">受理済み論理仕事数。warmupは一連で一件です。</param>
+/// <param name="Terminated">正常・失敗・開始前破棄で実終端した仕事数。</param>
+/// <param name="IsComplete">登録閉鎖・開始と対象仕事の実終端がすべて成立したか。</param>
+internal sealed record StartupAdditionalProgressSnapshot(long OperationToken, long Generation,
+    long Revision, int Total, int Terminated, bool IsComplete);

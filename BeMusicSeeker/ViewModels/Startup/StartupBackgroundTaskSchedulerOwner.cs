@@ -53,6 +53,20 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 {
     private readonly AsyncLocal<StartupBackgroundTaskProgressSnapshot> progressContext = new();
 
+    private readonly AsyncLocal<OperationProgressRequest> admissionContext = new();
+    private long additionalOperationToken;
+    private long additionalRevision;
+    private int additionalTotal;
+    private int additionalTerminated;
+    private int additionalOutstanding;
+    private bool warmupRegistered;
+    private bool warmupTerminated;
+
+    private sealed class AdmissionScope(Action restore) : IDisposable
+    {
+        public void Dispose() => restore();
+    }
+
     private const int ReservationStateQueued = 1;
     private const int ReservationStateRunning = 2;
     private const int ReservationStateTerminal = 3;
@@ -88,6 +102,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         internal Func<Task> Work;
 
         internal Action<string> Discard;
+
+        internal bool AdditionalTracked;
     }
 
     private sealed class Metric
@@ -157,6 +173,9 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private int runningRequiredCount;
 
+    // 全体終端のrequired分類と、起動後の排他開始が待つ必須入力を分けます。
+    private int runningRequiredIdleBarrierCount;
+
     private int runningPostInitializationCount;
 
     private int runningPostInitializationIdleOnlyCount;
@@ -200,6 +219,104 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     /// <summary>要求の実行開始・終端を捕捉した世代と分類付きで通知します。購読先の失敗は局所診断し、他の購読先と処理を継続します。</summary>
     internal event Action<StartupBackgroundTaskProgressSnapshot> ProgressChanged;
 
+    /// <summary>起動由来の受付・実終端をlock外で通知します。購読失敗は実仕事を変更しません。</summary>
+    internal event Action<StartupAdditionalProgressSnapshot> AdditionalProgressChanged;
+
+    /// <summary>同期的な一括受付に起動識別を付け、終了時に呼出し元の文脈へ戻します。awaitを跨いで保持しません。</summary>
+    internal IDisposable BeginAdmissionScope(long operationToken, long expectedGeneration)
+    {
+        OperationProgressRequest previous = admissionContext.Value;
+        admissionContext.Value = new(expectedGeneration, operationToken, string.Empty, 0);
+        return new AdmissionScope(() => admissionContext.Value = previous);
+    }
+
+    /// <summary>現起動の追加仕事集計を開始します。旧要求の識別を付け直しません。</summary>
+    internal void BeginAdditionalProgress(long operationToken, long expectedGeneration)
+    {
+        lock (syncRoot)
+        {
+            if (generation != expectedGeneration) { return; }
+            additionalOperationToken = operationToken;
+            foreach (Request request in queue) { EnrollAdditionalUnsafe(request); }
+        }
+        PublishAdditionalProgress();
+    }
+
+    /// <summary>warmupの一連を予約前に一件登録します。予約拒否も既存の完了通知で収束させます。</summary>
+    internal void RegisterAdditionalWarmup(long operationToken, long expectedGeneration)
+    {
+        lock (syncRoot)
+        {
+            if (generation != expectedGeneration || additionalOperationToken != operationToken || warmupRegistered) { return; }
+            warmupRegistered = true;
+            additionalTotal++;
+        }
+        PublishAdditionalProgress();
+    }
+
+    /// <summary>既存warmup ownerの一度だけの終端を現起動の段階へ反映します。</summary>
+    internal void CompleteAdditionalWarmup(long operationToken, long expectedGeneration)
+    {
+        lock (syncRoot)
+        {
+            if (generation != expectedGeneration || additionalOperationToken != operationToken || !warmupRegistered || warmupTerminated) { return; }
+            warmupTerminated = true;
+            additionalTerminated++;
+        }
+        PublishAdditionalProgress();
+        TryStartWorkers();
+    }
+
+    /// <summary>診断回数を使わず、受付と実終端から現起動の集計を取得します。</summary>
+    internal StartupAdditionalProgressSnapshot CaptureAdditionalProgressSnapshot()
+    {
+        lock (syncRoot)
+        {
+            return new(additionalOperationToken, generation, ++additionalRevision, additionalTotal, additionalTerminated,
+                started && postInitializationSchedulingComplete && requiredInitializationSchedulingComplete
+                && additionalOutstanding == 0 && additionalTotal == additionalTerminated);
+        }
+    }
+
+    private bool IsAdditionalRequest(OperationProgressRequest request) => request != null
+        && additionalOperationToken != 0 && request.OperationToken == additionalOperationToken && request.Generation == generation;
+
+    private void EnrollAdditionalUnsafe(Request request, bool countStage = true)
+    {
+        if (request.AdditionalTracked || !request.IsPostInitialization || !IsAdditionalRequest(request.ProgressRequest)) { return; }
+        request.AdditionalTracked = true;
+        additionalOutstanding++;
+        if (countStage && request.Name != StartupPostInitializationWarmupOwner.SchedulerTaskName) { additionalTotal++; }
+    }
+
+    private bool TransferAdditionalUnsafe(Request previous, OperationProgressRequest replacement)
+    {
+        if (!previous.AdditionalTracked || !IsAdditionalRequest(previous.ProgressRequest) || !IsAdditionalRequest(replacement)) { return false; }
+        previous.AdditionalTracked = false;
+        additionalOutstanding--;
+        return true;
+    }
+
+    private void TerminateAdditionalUnsafe(Request request)
+    {
+        if (!request.AdditionalTracked || !IsAdditionalRequest(request.ProgressRequest)) { return; }
+        request.AdditionalTracked = false;
+        additionalOutstanding--;
+        if (request.Name != StartupPostInitializationWarmupOwner.SchedulerTaskName) { additionalTerminated++; }
+    }
+
+    private void PublishAdditionalProgress()
+    {
+        StartupAdditionalProgressSnapshot snapshot = CaptureAdditionalProgressSnapshot();
+        Action<StartupAdditionalProgressSnapshot> handlers = AdditionalProgressChanged;
+        if (handlers == null) { return; }
+        foreach (Action<StartupAdditionalProgressSnapshot> handler in handlers.GetInvocationList())
+        {
+            try { handler(snapshot); }
+            catch (Exception exception) { LogExceptionDiagnostic(exception, "startup additional progress notification failed"); }
+        }
+    }
+
     /// <summary>要求受付側の既存世代を捕捉し、要求ごとの実行境界を通知する窓口を返します。</summary>
     /// <param name="name">要求を識別する処理名。</param>
     /// <returns>モデルの要求版と実行中フラグを受け取る通知。文脈がなければ表示を通知しません。</returns>
@@ -207,6 +324,11 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     internal Action<int, bool> CaptureExecutionProgressReporter(string name)
     {
         StartupBackgroundTaskProgressSnapshot context = progressContext.Value;
+        OperationProgressRequest admission = admissionContext.Value;
+        if (admission != null)
+        {
+            context = new(name, admission.Generation, 0, IsPostInitializationTask(name), false, admission);
+        }
         return (requestVersion, running) =>
         {
             if (context != null)
@@ -224,7 +346,9 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     internal OperationProgressRequest CaptureProgressRequest(string source, long requestVersion)
     {
         StartupBackgroundTaskProgressSnapshot context = progressContext.Value;
-        return new(context?.Generation ?? CurrentGeneration, context?.Request?.OperationToken ?? 0, source, requestVersion);
+        OperationProgressRequest admission = admissionContext.Value;
+        return new(admission?.Generation ?? context?.Generation ?? CurrentGeneration,
+            admission?.OperationToken ?? context?.Request?.OperationToken ?? 0, source, requestVersion);
     }
 
     /// <summary>捕捉済みの機能要求の実行境界を、その要求のまま表示先へ通知します。</summary>
@@ -493,6 +617,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         string replacedLog = null;
         string queuedLog = null;
         Request discardedReplacedRequest = null;
+        bool transferAdditionalStage = false;
         lock (progressSynchronization)
         {
             lock (syncRoot)
@@ -512,6 +637,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                     {
                         if (existing.Reservation != null)
                         {
+                            transferAdditionalStage = TransferAdditionalUnsafe(existing, CaptureProgressRequest("scheduler:" + normalizedName, requestVersion));
                             queue.Remove(existing);
                             existing.ReservationState = ReservationStateTerminal;
                             RecordDiscardedUnsafe(existing, "replaced_by_general_queue");
@@ -526,7 +652,12 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                             existing.IsPostInitialization = isPostInitialization;
                             existing.Priority = priority;
                             existing.Version = requestVersion;
-                            existing.ProgressRequest = CaptureProgressRequest("scheduler:" + normalizedName, requestVersion);
+                            existing.Generation = generation;
+                            OperationProgressRequest nextProgress = CaptureProgressRequest("scheduler:" + normalizedName, requestVersion);
+                            bool retainStage = existing.AdditionalTracked && IsAdditionalRequest(nextProgress) && IsAdditionalRequest(existing.ProgressRequest);
+                            if (!retainStage) { TerminateAdditionalUnsafe(existing); }
+                            existing.ProgressRequest = nextProgress;
+                            if (!retainStage) { EnrollAdditionalUnsafe(existing); }
                             existing.Work = work;
                             existing.Discard = discard;
                             replacedLog = "startup_background_task skipped name=" + normalizedName + " version=" + requestVersion + " generation=" + existing.Generation + " reason=" + normalizedReason + " kind=" + FormatRequestKind(isPostInitialization) + " coalesceKey=" + normalizedName + " replaced=true";
@@ -535,7 +666,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                     currentReservationByName.Remove(normalizedName);
                     if (existing == null)
                     {
-                        queue.Add(new Request
+                        var added = new Request
                         {
                             Name = normalizedName,
                             Reason = normalizedReason,
@@ -551,7 +682,9 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                             ReservationState = 0,
                             Work = work,
                             Discard = discard
-                        });
+                        };
+                        EnrollAdditionalUnsafe(added, !transferAdditionalStage);
+                        queue.Add(added);
                     }
                     queuedLog = "startup_background_task queue name=" + normalizedName + " version=" + requestVersion + " generation=" + generation + " reason=" + normalizedReason + " kind=" + FormatRequestKind(isPostInitialization) + " dependency=" + (normalizedDependency ?? "(none)") + " lane=" + normalizedLane + " priority=" + priority;
                     shouldStartWorker = started;
@@ -572,6 +705,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             InvokeDiscard(discardedReplacedRequest, "replaced_by_general_queue");
         }
         WriteDiagnostic(logInfo, queuedLog);
+        PublishAdditionalProgress();
         if (shouldStartWorker)
         {
             TryStartWorkers();
@@ -622,6 +756,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         Request discardedReplacedRequest = null;
         string replacedLog = null;
         string queuedLog = null;
+        bool transferAdditionalStage = false;
         lock (progressSynchronization)
         {
             lock (syncRoot)
@@ -656,6 +791,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                         latestRequestVersionByName[normalizedName] = requestVersion;
                         if (existing != null)
                         {
+                            transferAdditionalStage = TransferAdditionalUnsafe(existing, CaptureProgressRequest("scheduler:" + normalizedName, requestVersion));
                             queue.Remove(existing);
                             existing.ReservationState = ReservationStateTerminal;
                             RecordDiscardedUnsafe(existing, "replaced_by_reserved_queue");
@@ -667,7 +803,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                                 + " replaced=true";
                             existing = null;
                         }
-                        queue.Add(new Request
+                        var added = new Request
                         {
                             Name = normalizedName,
                             Reason = normalizedReason,
@@ -683,7 +819,9 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                             ReservationState = ReservationStateQueued,
                             Work = work,
                             Discard = discard
-                        });
+                        };
+                        EnrollAdditionalUnsafe(added, !transferAdditionalStage);
+                        queue.Add(added);
                         queuedLog = "startup_background_task reserved_submit name=" + normalizedName
                             + " reservationId=" + reservation.ReservationId
                             + " version=" + requestVersion
@@ -715,6 +853,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             WriteDiagnostic(logInfo, replacedLog);
         }
         WriteDiagnostic(logInfo, queuedLog);
+        PublishAdditionalProgress();
         if (shouldStartWorker)
         {
             TryStartWorkers();
@@ -755,6 +894,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             }
         }
         WriteDiagnostic(logInfo, "startup_background_task scheduler_start");
+        PublishAdditionalProgress();
         if (shouldStartWorker)
         {
             TryStartWorkers();
@@ -777,6 +917,9 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 postInitializationSchedulingComplete = false;
                 requiredInitializationSchedulingComplete = false;
                 generation++;
+                additionalOperationToken = 0;
+                additionalTotal = additionalTerminated = additionalOutstanding = 0;
+                warmupRegistered = warmupTerminated = false;
                 // 同期の操作開始入口から流すため、後で旧子Taskへ現在世代を付け直しません。
                 progressContext.Value = new StartupBackgroundTaskProgressSnapshot(string.Empty, generation, 0, false, false,
                     new(generation, operationToken, string.Empty, 0));
@@ -792,6 +935,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 metrics.Clear();
                 foreach (Request request in queue)
                 {
+                    // 集計所属だけを閉じ、旧受付の進捗識別と実仕事は維持します。
+                    request.AdditionalTracked = false;
                     RecordQueuedUnsafe(request.Name, request.Reason, request.Dependency, request.Lane);
                 }
                 started = startImmediately;
@@ -878,6 +1023,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 notifyIdle = started && IsFullyIdleUnsafe();
             }
         }
+        PublishAdditionalProgress();
         if (notifyIdle)
         {
             NotifyIdleChanged();
@@ -903,6 +1049,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 requiredInitializationSchedulingComplete = true;
             }
         }
+        PublishAdditionalProgress();
         TryStartWorkers();
         return true;
     }
@@ -1114,6 +1261,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                     else
                     {
                         runningRequiredCount++;
+                        if (RequiresPostInitializationIdleBarrier(request)) { runningRequiredIdleBarrierCount++; }
                     }
                     runningCountByLane.TryGetValue(request.Lane, out int runningInLane);
                     runningCountByLane[request.Lane] = runningInLane + 1;
@@ -1161,6 +1309,16 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private bool CanStartRequestUnsafe(Request request)
     {
+        // GCは所属する起動後workerとwarmup予約の実終端を待ちます。
+        // 名前依存では未登録仕事や派生要求を正しく扱えません。
+        if (request.Name == "post_initialize_gc"
+            && ((IsAdditionalRequest(request.ProgressRequest) ? additionalOutstanding > 1
+                : runningPostInitializationCount > 0
+                    || queue.Any(candidate => candidate != request && candidate.IsPostInitialization && candidate.Name != "post_initialize_gc"))
+                || (warmupRegistered && !warmupTerminated)))
+        {
+            return false;
+        }
         if (runningCount >= GetTotalConcurrency()
             || !CanStartInLaneUnsafe(request.Lane))
         {
@@ -1168,7 +1326,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         }
         if (!request.IsPostInitialization)
         {
-            if (runningPostInitializationIdleOnlyCount > 0)
+            if (runningPostInitializationIdleOnlyCount > 0 && RequiresPostInitializationIdleBarrier(request))
             {
                 return false;
             }
@@ -1181,8 +1339,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         if (IsPostInitializationIdleOnly(request.Name)
             && ((!shutdownRequested
                     && (!postInitializationSchedulingComplete || !requiredInitializationSchedulingComplete))
-                || runningRequiredCount > 0
-                || queue.Any(candidate => !candidate.IsPostInitialization)))
+                || runningRequiredIdleBarrierCount > 0
+                || queue.Any(RequiresPostInitializationIdleBarrier)))
         {
             return false;
         }
@@ -1195,6 +1353,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         {
             try
             {
+                admissionContext.Value = null;
                 progressContext.Value = new(request.Name, request.ProgressRequest.Generation, request.Version, request.IsPostInitialization, true, request.ProgressRequest);
                 var stopwatch = Stopwatch.StartNew();
                 RecordStarted(request);
@@ -1237,6 +1396,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 {
                     lock (syncRoot)
                     {
+                        TerminateAdditionalUnsafe(request);
                         if (request.Reservation != null)
                         {
                             request.ReservationState = ReservationStateTerminal;
@@ -1258,6 +1418,10 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                         else
                         {
                             runningRequiredCount = Math.Max(0, runningRequiredCount - 1);
+                            if (RequiresPostInitializationIdleBarrier(request))
+                            {
+                                runningRequiredIdleBarrierCount = Math.Max(0, runningRequiredIdleBarrierCount - 1);
+                            }
                         }
                         idleRevision++;
                         if (!string.IsNullOrWhiteSpace(request.Lane)
@@ -1338,6 +1502,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private void RecordDiscardedUnsafe(Request request, string reason)
     {
+        TerminateAdditionalUnsafe(request);
         if (request.Reservation != null)
         {
             request.ReservationState = ReservationStateTerminal;
@@ -1414,6 +1579,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private void NotifyIdleChanged()
     {
+        PublishAdditionalProgress();
         try
         {
             long notificationGeneration;
@@ -1510,6 +1676,14 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             || name.StartsWith("beatoraja_bmt_", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool RequiresPostInitializationIdleBarrier(Request request)
+    {
+        // 順位は独立した通信・保存・公開であり、起動入力や索引準備の終端ではありません。
+        // 正本への確定は既存Lの受理済み継続で直列化し、scheduler全体の終端追跡には残します。
+        return !request.IsPostInitialization
+            && !string.Equals(request.Name, "ranking_refresh_deferred", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool IsPostInitializationIdleOnly(string name)
     {
         return string.Equals(name, "post_initialize_gc", StringComparison.OrdinalIgnoreCase)
@@ -1524,6 +1698,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private static int GetPriority(string name)
     {
+        if (name == "external_table_catalog") { return 0; }
         if (string.Equals(name, "playlist_library_index_prewarm", StringComparison.OrdinalIgnoreCase))
         {
             return 15;
@@ -1587,6 +1762,9 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private static string GetBaseLane(string name)
     {
+        if (name == "external_table_catalog") { return "catalog_http"; }
+        if (name == "playlist_library_index_prewarm") { return "playlist_index"; }
+        if (name == "playlist_virtual_order_prewarm") { return "chart_list_index"; }
         if (string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase))
         {
             return "read_hydration";
@@ -1625,7 +1803,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private static int GetTotalConcurrency() => 4;
 
-    private static int GetPostInitializationConcurrency() => 1;
+    private static int GetPostInitializationConcurrency() => 3;
 
     private bool IsRequiredWorkIdleUnsafe()
     {

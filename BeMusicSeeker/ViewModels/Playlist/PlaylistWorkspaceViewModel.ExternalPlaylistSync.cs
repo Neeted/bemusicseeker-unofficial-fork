@@ -69,7 +69,8 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             int version = System.Threading.Interlocked.Increment(ref externalSyncProgressSeed);
             OperationProgressRequest request = ProgressRequestFactory?.Invoke(ExternalPlaylistSyncProgressSource, version);
-            if (request != null) { request = request with { OperationToken = operationToken }; }
+            // 必須同期の業務token=0でも、受付時の起動由来の表示識別は保持します。
+            if (request != null && operationToken != 0) { request = request with { OperationToken = operationToken }; }
             PublishPlaylistProgressEvent(PlaylistExternalSyncQueued, new PlaylistExternalSyncRequestEventArgs(reason, version, fromReloadTables, publishReferenceReceipt, operationToken, request));
             bool succeeded = false;
             List<Exception> failures = [];
