@@ -492,7 +492,14 @@ hr {
 <li class="toc-level-3"><details open><summary><a href="#playlist-settings">Playlist Settings</a></summary><ul>
 <li class="toc-level-4"><a href="#play-log-folder-display-presets">Play Log FOLDER Display Presets</a></li>
 </ul></details></li>
-<li class="toc-level-3"><a href="#install">Install</a></li>
+<li class="toc-level-3"><details open><summary><a href="#install">Install</a></summary><ul>
+<li class="toc-level-4"><a href="#installation-destination">Installation destination</a></li>
+<li class="toc-level-4"><a href="#new-folder-naming">New folder naming</a></li>
+<li class="toc-level-4"><a href="#import-and-new-installation">Import and new installation</a></li>
+<li class="toc-level-4"><a href="#automatic-destination-estimation">Automatic destination estimation</a></li>
+<li class="toc-level-4"><a href="#overwriting-and-source-package-cleanup">Overwriting and source package cleanup</a></li>
+<li class="toc-level-4"><a href="#confirmation-messages">Confirmation messages</a></li>
+</ul></details></li>
 <li class="toc-level-3"><a href="#backup">Backup</a></li>
 <li class="toc-level-3"><details open><summary><a href="#advanced">Advanced</a></summary><ul>
 <li class="toc-level-4"><a href="#advanced-settings-reference">Advanced Settings Reference</a></li>
@@ -675,7 +682,15 @@ hr {
 <li><a href="#audio">Audio</a></li>
 <li><a href="#recording">Recording</a></li>
 <li><a href="#playlist-settings">Playlist Settings</a></li>
-<li><a href="#install">Install</a></li>
+<li><a href="#install">Install</a><ul>
+<li><a href="#installation-destination">Installation destination</a></li>
+<li><a href="#new-folder-naming">New folder naming</a></li>
+<li><a href="#import-and-new-installation">Import and new installation</a></li>
+<li><a href="#automatic-destination-estimation">Automatic destination estimation</a></li>
+<li><a href="#overwriting-and-source-package-cleanup">Overwriting and source package cleanup</a></li>
+<li><a href="#confirmation-messages">Confirmation messages</a></li>
+</ul>
+</li>
 <li><a href="#backup">Backup</a></li>
 <li><a href="#advanced">Advanced</a><ul>
 <li><a href="#startup-sort-cache-preparation">Startup Sort Cache Preparation</a></li>
@@ -994,18 +1009,128 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <p>Click <code>Add</code> or <code>Edit</code>, enter a preset name, and select several playlists. Use these presets in the <a href="#display-target-and-folder">Play Log Display Target and FOLDER</a> drop-down.</p>
 <h3 id="install">Install</h3>
 <p><img alt="Install Settings" src="img/設定_インストール.PNG"/></p>
+<p>Configure the installation destination, folder naming, import, destination estimation, overwriting and source cleanup, and confirmation messages. Scroll vertically to reach the lower settings.</p>
+<h4 id="installation-destination">Installation destination</h4>
 <p>Select a new-install destination from the registered BMS directories and configure new-folder naming. Custom folder output destinations are excluded from the choices. See <a href="#install--pending-packages">Install / Pending Packages</a> for installation steps.</p>
+<h4 id="new-folder-naming">New folder naming</h4>
 <p><code>Folder name format</code> supports <code>%ARTIST%</code> (artist) and <code>%TITLE%</code> (title); include at least one of them. The default is <code>[%ARTIST%] %TITLE%</code>. For example, artist <code>Artist</code> and title <code>Song</code> produce <code>[Artist] Song</code> with the default format. This format is used both when creating folders during installation and by <code>Automatic folder renaming</code>.</p>
 <p><code>Restrict usable characters to Shift_JIS set</code> is ON by default. It replaces unsupported folder-name characters with characters representable in Shift_JIS to prioritize compatibility. It applies both to folder creation during installation and to automatic folder renaming.</p>
+<h4 id="import-and-new-installation">Import and new installation</h4>
+<p><img alt="Install Settings: Import and Estimation" src="img/設定_インストール_自動処理.PNG"/></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Try automatic download and installation when clicking the URL1/URL2 columns</td>
+<td>OFF</td>
+<td>Clicking a URL1/URL2 cell in a single row tries automatic retrieval and installation instead of opening a browser. Also enable startup BMS file scanning under <code>Advanced settings</code> → <code>Initialization</code>. This does not affect multi-row URL import.</td>
+</tr>
+<tr>
+<td>Add packages to pending instead of automatically installing them, even when identified as new</td>
+<td>OFF</td>
+<td>Review packages in Pending even when identified as new. Use this to check destinations for owned works with changed chart hashes, or to keep difficulty table packages together. New packages held by this setting are not estimated automatically; run estimation manually as needed.</td>
+</tr>
+<tr>
+<td>Require all used resources for automatic new installation</td>
+<td>OFF</td>
+<td>When OFF, complete used audio meets the resource requirement for automatic new installation even if images or videos are missing. When ON, all used resources are required; incomplete packages remain pending. Non-audio shortages skip automatic searches for new candidates. After checking the missing resources, use <code>Install as new</code> from Pending if acceptable.</td>
+</tr>
+</tbody>
+</table></div>
+<h4 id="automatic-destination-estimation">Automatic destination estimation</h4>
+<p><img alt="Install Settings: Automatic Destination Estimation" src="img/設定_インストール_自動推定.PNG"/></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Automatically select the top candidate with a strong title and artist match, even when multiple candidates remain</td>
+<td>OFF</td>
+<td>When candidates remain tied, select the top candidate if it meets the automatic selection conditions. When OFF, review and select a candidate. A uniquely determined candidate is selected automatically regardless of this setting.</td>
+</tr>
+<tr>
+<td>Minimum audio completeness for automatic destination selection</td>
+<td>100%</td>
+<td>Automatic selection requires each chart’s audio completeness, combining the candidate destination and bundled files, to meet this value. Choose 90–100% in 1% steps. Missing-resource warnings remain, and this does not change the conditions for allowing new installation.</td>
+</tr>
+<tr>
+<td>Install automatically when estimation after import determines a destination</td>
+<td>OFF</td>
+<td>After packages are added to Pending, install without confirmation those whose destination is determined by that automatic estimation. Manual estimation is excluded. Other settings control overwriting and source package deletion.</td>
+</tr>
+</tbody>
+</table></div>
+<p>See <a href="#install-destination-estimation">Install-Destination Estimation</a> for reviewing candidates and running manual estimation.</p>
+<h4 id="overwriting-and-source-package-cleanup">Overwriting and source package cleanup</h4>
+<p><img alt="Install Settings: Overwriting and Confirmation" src="img/設定_インストール_ファイルと確認.PNG"/></p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Installation moves, overwrites, or deletes actual files. Make a separate copy before proceeding if you want to keep the original distribution. Moved source files are removed even when source package cleanup is OFF.</p></div>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Enable smart overwrite</td>
+<td>ON</td>
+<td>Compare the size and modification time of same-name files during differential installation, resource overwrites in owned packages, and duplicate folder merges. When OFF, overwrite with the source file. See <a href="#smart-overwrite">Smart Overwrite</a> for the comparison rules.</td>
+</tr>
+<tr>
+<td>Keep same-name .bmx/.pmx/.txt files with numbered names during smart overwrite</td>
+<td>OFF</td>
+<td>Only when smart overwrite is ON, install applicable same-name files with numbered names as needed. Identical content is not duplicated.</td>
+</tr>
+<tr>
+<td>Delete owned charts remaining in the source package after normal installation</td>
+<td>OFF</td>
+<td>Clean up owned charts remaining after installation and empty source folders. Unowned or unclassified remnants are retained. Moved files do not remain at the source even when OFF.</td>
+</tr>
+</tbody>
+</table></div>
+<h4 id="confirmation-messages">Confirmation messages</h4>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Show a confirmation message for differential installation</td>
+<td>ON</td>
+<td>Confirm before operations that insert files into existing folders, such as differential installation to an estimated destination.</td>
+</tr>
+<tr>
+<td>Show a confirmation message when installing a pending package as new</td>
+<td>ON</td>
+<td>Confirm when installing a pending package as new with no destination set. If a destination is already set, confirmation is required even when OFF.</td>
+</tr>
+</tbody>
+</table></div>
 <h3 id="backup">Backup</h3>
 <p><img alt="Backup Settings" src="img/設定_バックアップ.PNG"/></p>
 <p>Back up or restore playlists and configure automatic backups of LR2 files. See <a href="#backup--uninstall">Backup / Uninstall</a> for operations, destinations, and restoration.</p>
 <h3 id="advanced">Advanced</h3>
 <p><img alt="Settings Advanced" src="img/設定_詳細.PNG"/></p>
-<p>Change advanced settings such as confirmation messages, initialization, LR2 integration, and install assistance.</p>
+<p>Configure message display, initialization, LR2 integration, and dangerous operations. Installation settings and installation confirmation messages are grouped under <a href="#install">Install</a>.</p>
 <p>If startup scanning is OFF, <a href="#library-reload">reload the library</a> before estimating install destinations.</p>
 <h4 id="advanced-settings-reference">Advanced Settings Reference</h4>
-<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Source-package deletion and overwrite settings affect actual files. Moved source files are removed even when deletion is OFF; make a separate copy first if you want to keep the original package.</p></div>
 <div class="table-scroll"><table>
 <thead>
 <tr>
@@ -1021,18 +1146,6 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <td>Show confirmation message on registering to the chart viewer</td>
 <td>ON</td>
 <td>Shows a confirmation before chart viewer registration operations.</td>
-</tr>
-<tr>
-<td>Message Display</td>
-<td>Show confirmation message on diff install</td>
-<td>ON</td>
-<td>Shows a confirmation before operations that insert files into existing folders, such as differential install to an estimated destination.</td>
-</tr>
-<tr>
-<td>Message Display</td>
-<td>Show confirmation before installing as new</td>
-<td>ON</td>
-<td>Confirms before installing a pending package with no destination as new. A configured destination always requires confirmation, even when this is OFF.</td>
 </tr>
 <tr>
 <td>Message Display</td>
@@ -1094,57 +1207,8 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <td>OFF</td>
 <td>Retrieves LR2IR score information and detects unsent state from differences with local scores.</td>
 </tr>
-<tr>
-<td>Install</td>
-<td>Try to run installation automatically after download</td>
-<td>OFF</td>
-<td>Try automatic retrieval and installation from a single URL-cell click. Also enable startup BMS file scanning. Nested archives may require manual extraction. Multi-row URL import attempts installation regardless of this setting.</td>
-</tr>
-<tr>
-<td>Install</td>
-<td>Add to pending instead of auto-installing even for new entries</td>
-<td>OFF</td>
-<td>Even if enough resources are present for a new work, do not install automatically; always make it possible to confirm it in the pending list.</td>
-</tr>
-<tr>
-<td>Install</td>
-<td>Require all used resources for automatic new installation</td>
-<td>OFF</td>
-<td>When OFF, complete used audio permits automatic new installation even if images, videos, or auxiliary images are missing. When ON, these are required too; non-audio shortages keep the package pending and skip searching for new candidates. Candidates known from owned charts still undergo TITLE/ARTIST matching. Missing audio keeps it pending and triggers estimation with either setting.</td>
-</tr>
-<tr>
-<td>Install</td>
-<td>Even if multiple candidates remain, use the first candidate as the install destination when its title and artist match strongly</td>
-<td>OFF</td>
-<td>Automatically set the first candidate when TITLE / ARTIST match strongly. Multiple-candidate warnings may remain.</td>
-</tr>
-<tr>
-<td>Install</td>
-<td>Automatically install when automatic estimation during import determines the installation destination</td>
-<td>OFF</td>
-<td>Installs packages without a confirmation dialog when automatic estimation after adding them to Pending determines their destination. Manually started estimation is excluded. Overwriting and source package deletion follow the existing settings.</td>
-</tr>
-<tr>
-<td>Install</td>
-<td>Delete the source package after a normal installation even if it still contains already-owned charts</td>
-<td>OFF</td>
-<td>Clean up remaining already-owned charts and empty source folders after installation. Unowned or unidentifiable remnants are retained. Moved source files are removed even when OFF.</td>
-</tr>
-<tr>
-<td>Install</td>
-<td>Optimize bundled file overwrite by comparing modified date and size on diff install</td>
-<td>ON</td>
-<td>Enables <a href="#smart-overwrite">Smart Overwrite</a>.</td>
-</tr>
-<tr>
-<td>Install</td>
-<td>During smart overwrite, keep <em>.bmx/</em>.pmx/*.txt by automatically adding numbers to their names instead of overwriting them</td>
-<td>OFF</td>
-<td>In <a href="#smart-overwrite">Smart Overwrite</a>, protected extensions are not overwritten and are kept with sequentially numbered names.</td>
-</tr>
 </tbody>
 </table></div>
-<p>See <a href="#smart-overwrite">Smart Overwrite</a> for same-name files during additional-chart installation and duplicate-folder merging.</p>
 <h4 id="startup-sort-cache-preparation">Startup Sort Cache Preparation</h4>
 <p>In <code>Advanced</code> → <code>Initialization</code>, use <code>Startup sort cache preparation</code> to choose how much sorting to prepare in advance for the regular library list after startup. The results are cached for use when you select a prepared column. The default is <code>Basic only</code>, and changes apply from the next application start.</p>
 <p>Both ascending and descending orders are prepared. <code>Standard</code> includes every column in <code>Basic only</code>, and <code>All</code> includes every column in <code>Standard</code>, adding the columns shown below.</p>
@@ -1475,7 +1539,7 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <p>Right-click the playlist tree root and select <code>Create new</code>. With external sync OFF, drag chart rows onto the playlist itself or a folder to add them. Play-log rows corresponding to owned charts can also be added.</p>
 <p>Edit levels, folders, URL1 / URL2, comments, and similar fields in the detail list. Drag charts to another folder to move them within the same playlist. Adding to the root of a folder-based playlist selects a suitable folder and creates one if necessary. <code>Remove entry</code> removes a row from the playlist.</p>
 <h3 id="downloading-main-packages-and-additional-charts">Downloading Main Packages and Additional Charts</h3>
-<p>Open main-package and additional-chart URLs from the <code>URL1</code> / <code>URL2</code> columns. <a href="#url1url2-completion">URL completion</a> may fill empty URLs. To automatically retrieve and install files by clicking a single URL cell, turn ON both <code>Try to run installation automatically after download</code> and <code>Scan BMS files and component files at startup</code> in <code>Advanced settings</code>. If either is OFF, clicking opens the URL in a browser. The single-row <code>Open main URL</code> / <code>Open diff URL</code> context-menu commands open a browser.</p>
+<p>Open main-package and additional-chart URLs from the <code>URL1</code> / <code>URL2</code> columns. <a href="#url1url2-completion">URL completion</a> may fill empty URLs. To automatically retrieve and install files by clicking a single URL cell, turn ON <code>Try automatic download and installation when clicking the URL1/URL2 columns</code> under <code>Install</code> and <code>Scan BMS files and component files at startup</code> under <code>Advanced settings</code> → <code>Initialization</code>. If either is OFF, clicking opens the URL in a browser. The single-row <code>Open main URL</code> / <code>Open diff URL</code> context-menu commands open a browser.</p>
 <h4 id="importing-multiple-urls">Importing Multiple URLs</h4>
 <p>Select several rows and choose <code>Import selected main URLs</code> / <code>Import selected diff URLs</code> from the context menu. After confirmation, duplicate URLs are removed, downloads run in order, and automatic installation is attempted regardless of the single-download setting. Cancel through the progress display; files downloaded before cancellation still proceed to installation. Completion reports retrieved, skipped, size-limit, failed, and unprocessed counts.</p>
 <p>Supported charts are <code>.bme</code>, <code>.bms</code>, <code>.bml</code>, <code>.pms</code>, and <code>.bmson</code>; archives are <code>.zip</code>, <code>.7z</code>, <code>.rar</code>, and <code>.lzh</code>. Automatic downloads are limited to <code>512 MiB</code> per file. Supported sources include direct links and some distribution pages on Google Drive, Dropbox, OneDrive, MediaFire, manbow, <code>venue.bmssearch.net</code>, and <code>bmssearch.net/bmses</code>. Bulk import skips Google Drive shared folders, MEGA, AXFC, and pages requiring login, CAPTCHA, or JavaScript interaction. Download those in a browser and <a href="#installation-steps">install by drag and drop</a>.</p>
@@ -1734,10 +1798,10 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <p>Supported inputs are BMS / bmson charts, work folders, and <code>.zip</code>, <code>.7z</code>, <code>.rar</code>, or <code>.lzh</code> archives. New works go to the new-install destination; additional charts for existing works can be installed from Pending.</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Installation moves charts and bundled resources from the source package and may delete source files or folders. Make a separate copy before drag and drop if you want to keep the original distribution.</p></div>
 <h3 id="installation-steps">Installation Steps</h3>
-<p>To install packages as soon as automatic estimation during import determines their destination, turn ON <code>Automatically install when automatic estimation during import determines the installation destination</code> in Advanced settings before importing. Eligible packages are installed without a confirmation dialog, and results appear in <code>New</code>. This setting is OFF by default.</p>
+<p>To install packages as soon as automatic estimation during import determines their destination, turn ON <code>Install automatically when estimation after import determines a destination</code> under <code>Install</code> → <code>Automatic destination estimation</code> before importing. Eligible packages are installed without a confirmation dialog, and results appear in <code>New</code>. This setting is OFF by default.</p>
 <ol>
 <li>Drag and drop a BMS work, differential chart, or a folder / archive containing them onto the window.</li>
-<li>New unowned works with all used audio files present are normally installed to the <code>New install destination</code> configured in the settings dialog. To require images and videos too, turn ON <code>Require all used resources for automatic new installation</code> in Advanced settings. If <code>Add to pending instead of auto-installing even for new entries</code> is enabled, they remain in Pending even when judged as new.</li>
+<li>New unowned works with all used audio files present are normally installed to the <code>New install destination</code> configured in the settings dialog. To require images and videos too, turn ON <code>Require all used resources for automatic new installation</code> under <code>Install</code> → <code>Import and new installation</code>. If <code>Add packages to pending instead of automatically installing them, even when identified as new</code> is enabled, they remain in Pending even when judged as new.</li>
 <li>Items with missing used audio files are added to <code>Pending</code>, and install-destination estimation is performed. When the setting above keeps a package pending solely for missing images or videos, searching for new candidates is skipped. Candidates known from owned charts still undergo TITLE/ARTIST matching, and the destination is set when the conditions are met. You can estimate its destination manually from Pending.</li>
 <li>For packages still pending, check <code>WARNING</code>, <code>TITLE</code>, <code>ARTIST</code>, <code>INSTL DST TITLE</code>, <code>INSTL DST ARTIST</code>, and related columns. If necessary, manually enter <code>INSTL DST</code> or choose it from the suggested candidates.</li>
 <li>Select rows that look correct, then run <code>Install</code> -&gt; <code>Install to estimated install destination</code> from the context menu.</li>
@@ -1828,10 +1892,10 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>Automatic confirmation of <code>INSTL DST</code> requires a strong TITLE / ARTIST match and each chart’s used-audio coverage from the package and candidate together to meet the configured threshold (100% by default). If audio is missing, you can still inspect and select a candidate manually. Missing images or videos alone do not prevent automatic confirmation. Enabling automatic selection among multiple candidates keeps the same audio requirement.</p>
 <p>With automatic installation during import enabled, packages whose destinations were determined by that import’s automatic estimation are installed after estimation completes successfully. Manually started estimation only sets destinations. If charts from the same source folder are grouped into one package and any unowned chart was not automatically assigned a destination by this import, the entire package remains pending.</p>
 <p><code>Install to estimated install destination</code> installs pending packages whose <code>INSTL DST</code> is set into their estimated destinations, one package at a time in list order. Check results in New after installation. Packages whose charts all have an empty <code>INSTL DST</code> remain in Pending. Same-name collisions among bundled files are handled according to <a href="#smart-overwrite">Smart Overwrite</a> in the settings dialog.</p>
-<p><code>Install as new</code> ignores the estimated destination and treats the package as an ordinary new installation. If a destination is configured, confirmation that it will not be used is always required. If no destination is configured, confirmation is shown by default to explain that the pending package is intentionally being installed as new, even if WARNINGs such as missing resources remain. Only the latter confirmation can be skipped by turning OFF <code>Show confirmation before installing as new</code> in Advanced settings. Rejected packages remain pending. <strong>A typical use case is when the package shows something like <code>WAV 97%</code>, but that is known to be the original distribution state of the work.</strong></p>
+<p><code>Install as new</code> ignores the estimated destination and treats the package as an ordinary new installation. If a destination is configured, confirmation that it will not be used is always required. If no destination is configured, confirmation is shown by default to explain that the pending package is intentionally being installed as new, even if WARNINGs such as missing resources remain. Only the latter confirmation can be skipped by turning OFF <code>Show a confirmation message when installing a pending package as new</code> under <code>Install</code> → <code>Confirmation messages</code>. Rejected packages remain pending. <strong>A typical use case is when the package shows something like <code>WAV 97%</code>, but that is known to be the original distribution state of the work.</strong></p>
 <p><code>Clear install destination</code> clears <code>INSTL DST</code>, estimated-destination title / artist, install-destination-estimation warnings, and candidate suggestions for the selected rows. Resource health and missing-resource warnings return to the original-location results calculated when the package entered Pending, including restoration at startup. Clearing does not check files added or removed afterward. Use it when you want to redo estimation.</p>
 <h3 id="smart-overwrite">Smart Overwrite</h3>
-<p>Control same-name audio, BGA, images, readme files, and other resources during additional-chart installation, resource overwrite for owned packages, and duplicate-folder merging. Configure it in <code>Advanced settings</code>; the default is ON.</p>
+<p>Control same-name audio, BGA, images, readme files, and other resources during additional-chart installation, resource overwrite for owned packages, and duplicate-folder merging. Configure it under <code>Install</code> → <code>Overwriting and source package cleanup</code>; the default is ON.</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>These operations can overwrite destination files and delete source files. Make copies of the destination and source package if you need to preserve particular audio or images. Comparisons use size and modification time, not audio quality.</p></div>
 <div class="table-scroll"><table>
 <thead>
@@ -1860,7 +1924,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 </tbody>
 </table></div>
 <p>If equal-size files differ by more than <code>2</code> seconds, the newer file is kept. Different-size files are also compared by modification time. When OFF, same-name destination files are overwritten by the source.</p>
-<p>Enable <code>During smart overwrite, keep *.bmx/*.pmx/*.txt by automatically adding numbers to their names instead of overwriting them</code> to retain overwrite candidates ending in <code>.bmx</code>, <code>.pmx</code>, or <code>.txt</code> under available names such as <code>name(1).txt</code>. If an identical numbered file already exists, the source is deleted.</p>
+<p>Enable <code>Keep same-name .bmx/.pmx/.txt files with numbered names during smart overwrite</code> to retain overwrite candidates ending in <code>.bmx</code>, <code>.pmx</code>, or <code>.txt</code> under available names such as <code>name(1).txt</code>. If an identical numbered file already exists, the source is deleted.</p>
 <p>BMS / PMS / bmson chart files use adjusted names such as <code>chart_.bms</code> on same-name collisions regardless of this setting. For file/folder type conflicts, see <a href="#file-moving-or-merging-fails">File Moving or Merging Fails</a>.</p>
 <h3 id="advanced-features">Advanced Features</h3>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Permanent package deletion bypasses the Recycle Bin, and resource overwrite can replace existing files. Check the package and destination and keep any files you need before proceeding.</p></div>

@@ -25,6 +25,12 @@ This manual explains BeMusicSeeker Unofficial Fork, from registering your librar
     - [Recording](#recording)
     - [Playlist Settings](#playlist-settings)
     - [Install](#install)
+        - [Installation destination](#installation-destination)
+        - [New folder naming](#new-folder-naming)
+        - [Import and new installation](#import-and-new-installation)
+        - [Automatic destination estimation](#automatic-destination-estimation)
+        - [Overwriting and source package cleanup](#overwriting-and-source-package-cleanup)
+        - [Confirmation messages](#confirmation-messages)
     - [Backup](#backup)
     - [Advanced](#advanced)
         - [Startup Sort Cache Preparation](#startup-sort-cache-preparation)
@@ -307,11 +313,59 @@ Click `Add` or `Edit`, enter a preset name, and select several playlists. Use th
 
 ![Install Settings](img/設定_インストール.PNG)
 
+Configure the installation destination, folder naming, import, destination estimation, overwriting and source cleanup, and confirmation messages. Scroll vertically to reach the lower settings.
+
+#### Installation destination
+
 Select a new-install destination from the registered BMS directories and configure new-folder naming. Custom folder output destinations are excluded from the choices. See [Install / Pending Packages](#install--pending-packages) for installation steps.
+
+#### New folder naming
 
 `Folder name format` supports `%ARTIST%` (artist) and `%TITLE%` (title); include at least one of them. The default is `[%ARTIST%] %TITLE%`. For example, artist `Artist` and title `Song` produce `[Artist] Song` with the default format. This format is used both when creating folders during installation and by `Automatic folder renaming`.
 
 `Restrict usable characters to Shift_JIS set` is ON by default. It replaces unsupported folder-name characters with characters representable in Shift_JIS to prioritize compatibility. It applies both to folder creation during installation and to automatic folder renaming.
+
+#### Import and new installation
+
+![Install Settings: Import and Estimation](img/設定_インストール_自動処理.PNG)
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| Try automatic download and installation when clicking the URL1/URL2 columns | OFF | Clicking a URL1/URL2 cell in a single row tries automatic retrieval and installation instead of opening a browser. Also enable startup BMS file scanning under `Advanced settings` → `Initialization`. This does not affect multi-row URL import. |
+| Add packages to pending instead of automatically installing them, even when identified as new | OFF | Review packages in Pending even when identified as new. Use this to check destinations for owned works with changed chart hashes, or to keep difficulty table packages together. New packages held by this setting are not estimated automatically; run estimation manually as needed. |
+| Require all used resources for automatic new installation | OFF | When OFF, complete used audio meets the resource requirement for automatic new installation even if images or videos are missing. When ON, all used resources are required; incomplete packages remain pending. Non-audio shortages skip automatic searches for new candidates. After checking the missing resources, use `Install as new` from Pending if acceptable. |
+
+#### Automatic destination estimation
+
+![Install Settings: Automatic Destination Estimation](img/設定_インストール_自動推定.PNG)
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| Automatically select the top candidate with a strong title and artist match, even when multiple candidates remain | OFF | When candidates remain tied, select the top candidate if it meets the automatic selection conditions. When OFF, review and select a candidate. A uniquely determined candidate is selected automatically regardless of this setting. |
+| Minimum audio completeness for automatic destination selection | 100% | Automatic selection requires each chart’s audio completeness, combining the candidate destination and bundled files, to meet this value. Choose 90–100% in 1% steps. Missing-resource warnings remain, and this does not change the conditions for allowing new installation. |
+| Install automatically when estimation after import determines a destination | OFF | After packages are added to Pending, install without confirmation those whose destination is determined by that automatic estimation. Manual estimation is excluded. Other settings control overwriting and source package deletion. |
+
+See [Install-Destination Estimation](#install-destination-estimation) for reviewing candidates and running manual estimation.
+
+#### Overwriting and source package cleanup
+
+![Install Settings: Overwriting and Confirmation](img/設定_インストール_ファイルと確認.PNG)
+
+> [!CAUTION]
+> Installation moves, overwrites, or deletes actual files. Make a separate copy before proceeding if you want to keep the original distribution. Moved source files are removed even when source package cleanup is OFF.
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| Enable smart overwrite | ON | Compare the size and modification time of same-name files during differential installation, resource overwrites in owned packages, and duplicate folder merges. When OFF, overwrite with the source file. See [Smart Overwrite](#smart-overwrite) for the comparison rules. |
+| Keep same-name .bmx/.pmx/.txt files with numbered names during smart overwrite | OFF | Only when smart overwrite is ON, install applicable same-name files with numbered names as needed. Identical content is not duplicated. |
+| Delete owned charts remaining in the source package after normal installation | OFF | Clean up owned charts remaining after installation and empty source folders. Unowned or unclassified remnants are retained. Moved files do not remain at the source even when OFF. |
+
+#### Confirmation messages
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| Show a confirmation message for differential installation | ON | Confirm before operations that insert files into existing folders, such as differential installation to an estimated destination. |
+| Show a confirmation message when installing a pending package as new | ON | Confirm when installing a pending package as new with no destination set. If a destination is already set, confirmation is required even when OFF. |
 
 ### Backup
 
@@ -323,20 +377,15 @@ Back up or restore playlists and configure automatic backups of LR2 files. See [
 
 ![Settings Advanced](img/設定_詳細.PNG)
 
-Change advanced settings such as confirmation messages, initialization, LR2 integration, and install assistance.
+Configure message display, initialization, LR2 integration, and dangerous operations. Installation settings and installation confirmation messages are grouped under [Install](#install).
 
 If startup scanning is OFF, [reload the library](#library-reload) before estimating install destinations.
 
 #### Advanced Settings Reference
 
-> [!CAUTION]
-> Source-package deletion and overwrite settings affect actual files. Moved source files are removed even when deletion is OFF; make a separate copy first if you want to keep the original package.
-
 | Group | Setting | Default | Description |
 | --- | --- | --- | --- |
 | Message Display | Show confirmation message on registering to the chart viewer | ON | Shows a confirmation before chart viewer registration operations. |
-| Message Display | Show confirmation message on diff install | ON | Shows a confirmation before operations that insert files into existing folders, such as differential install to an estimated destination. |
-| Message Display | Show confirmation before installing as new | ON | Confirms before installing a pending package with no destination as new. A configured destination always requires confirmation, even when this is OFF. |
 | Message Display | Show a confirmation message when merging or cleaning up in “Duplicate file check” | ON | Shows a confirmation before duplicate-file-check operations that merge folders or clean up same-folder duplicate-hash charts. |
 | Message Display | Show Recommend update messages | ON | Shows a notification when a recommendation update is applied and the estimated skill changes. |
 | Initialization | Scan BMS files and component files at startup | ON | Check owned-file changes on startup. When OFF, reload the library manually before using install-destination estimation. |
@@ -347,16 +396,6 @@ If startup scanning is OFF, [reload the library](#library-reload) before estimat
 | LR2 Integration | Update LR2IR ranking cache on startup | OFF | Reads LR2IR ranking data after startup and updates display data such as `RANKING`, `RANK UPDATE`, `T-SCORE`, and `ΔMAX`. This may be heavy during the first build or after changing LR2ID, so enable it only when needed. |
 | LR2 Integration | Estimate offline score rankings | OFF | Estimates ranks for charts whose local score is higher than the LR2IR score when LR2IR ranking cache data is applied. To apply this during startup, also enable `Update LR2IR ranking cache on startup`. |
 | LR2 Integration | Download LR2IR scores and detect unsent IR scores | OFF | Retrieves LR2IR score information and detects unsent state from differences with local scores. |
-| Install | Try to run installation automatically after download | OFF | Try automatic retrieval and installation from a single URL-cell click. Also enable startup BMS file scanning. Nested archives may require manual extraction. Multi-row URL import attempts installation regardless of this setting. |
-| Install | Add to pending instead of auto-installing even for new entries | OFF | Even if enough resources are present for a new work, do not install automatically; always make it possible to confirm it in the pending list. |
-| Install | Require all used resources for automatic new installation | OFF | When OFF, complete used audio permits automatic new installation even if images, videos, or auxiliary images are missing. When ON, these are required too; non-audio shortages keep the package pending and skip searching for new candidates. Candidates known from owned charts still undergo TITLE/ARTIST matching. Missing audio keeps it pending and triggers estimation with either setting. |
-| Install | Even if multiple candidates remain, use the first candidate as the install destination when its title and artist match strongly | OFF | Automatically set the first candidate when TITLE / ARTIST match strongly. Multiple-candidate warnings may remain. |
-| Install | Automatically install when automatic estimation during import determines the installation destination | OFF | Installs packages without a confirmation dialog when automatic estimation after adding them to Pending determines their destination. Manually started estimation is excluded. Overwriting and source package deletion follow the existing settings. |
-| Install | Delete the source package after a normal installation even if it still contains already-owned charts | OFF | Clean up remaining already-owned charts and empty source folders after installation. Unowned or unidentifiable remnants are retained. Moved source files are removed even when OFF. |
-| Install | Optimize bundled file overwrite by comparing modified date and size on diff install | ON | Enables [Smart Overwrite](#smart-overwrite). |
-| Install | During smart overwrite, keep *.bmx/*.pmx/*.txt by automatically adding numbers to their names instead of overwriting them | OFF | In [Smart Overwrite](#smart-overwrite), protected extensions are not overwritten and are kept with sequentially numbered names. |
-
-See [Smart Overwrite](#smart-overwrite) for same-name files during additional-chart installation and duplicate-folder merging.
 
 #### Startup Sort Cache Preparation
 
@@ -725,7 +764,7 @@ Edit levels, folders, URL1 / URL2, comments, and similar fields in the detail li
 
 ### Downloading Main Packages and Additional Charts
 
-Open main-package and additional-chart URLs from the `URL1` / `URL2` columns. [URL completion](#url1url2-completion) may fill empty URLs. To automatically retrieve and install files by clicking a single URL cell, turn ON both `Try to run installation automatically after download` and `Scan BMS files and component files at startup` in `Advanced settings`. If either is OFF, clicking opens the URL in a browser. The single-row `Open main URL` / `Open diff URL` context-menu commands open a browser.
+Open main-package and additional-chart URLs from the `URL1` / `URL2` columns. [URL completion](#url1url2-completion) may fill empty URLs. To automatically retrieve and install files by clicking a single URL cell, turn ON `Try automatic download and installation when clicking the URL1/URL2 columns` under `Install` and `Scan BMS files and component files at startup` under `Advanced settings` → `Initialization`. If either is OFF, clicking opens the URL in a browser. The single-row `Open main URL` / `Open diff URL` context-menu commands open a browser.
 
 #### Importing Multiple URLs
 
@@ -972,10 +1011,10 @@ Supported inputs are BMS / bmson charts, work folders, and `.zip`, `.7z`, `.rar`
 
 ### Installation Steps
 
-To install packages as soon as automatic estimation during import determines their destination, turn ON `Automatically install when automatic estimation during import determines the installation destination` in Advanced settings before importing. Eligible packages are installed without a confirmation dialog, and results appear in `New`. This setting is OFF by default.
+To install packages as soon as automatic estimation during import determines their destination, turn ON `Install automatically when estimation after import determines a destination` under `Install` → `Automatic destination estimation` before importing. Eligible packages are installed without a confirmation dialog, and results appear in `New`. This setting is OFF by default.
 
 1. Drag and drop a BMS work, differential chart, or a folder / archive containing them onto the window.
-2. New unowned works with all used audio files present are normally installed to the `New install destination` configured in the settings dialog. To require images and videos too, turn ON `Require all used resources for automatic new installation` in Advanced settings. If `Add to pending instead of auto-installing even for new entries` is enabled, they remain in Pending even when judged as new.
+2. New unowned works with all used audio files present are normally installed to the `New install destination` configured in the settings dialog. To require images and videos too, turn ON `Require all used resources for automatic new installation` under `Install` → `Import and new installation`. If `Add packages to pending instead of automatically installing them, even when identified as new` is enabled, they remain in Pending even when judged as new.
 3. Items with missing used audio files are added to `Pending`, and install-destination estimation is performed. When the setting above keeps a package pending solely for missing images or videos, searching for new candidates is skipped. Candidates known from owned charts still undergo TITLE/ARTIST matching, and the destination is set when the conditions are met. You can estimate its destination manually from Pending.
 4. For packages still pending, check `WARNING`, `TITLE`, `ARTIST`, `INSTL DST TITLE`, `INSTL DST ARTIST`, and related columns. If necessary, manually enter `INSTL DST` or choose it from the suggested candidates.
 5. Select rows that look correct, then run `Install` -> `Install to estimated install destination` from the context menu.
@@ -1055,13 +1094,13 @@ With automatic installation during import enabled, packages whose destinations w
 
 `Install to estimated install destination` installs pending packages whose `INSTL DST` is set into their estimated destinations, one package at a time in list order. Check results in New after installation. Packages whose charts all have an empty `INSTL DST` remain in Pending. Same-name collisions among bundled files are handled according to [Smart Overwrite](#smart-overwrite) in the settings dialog.
 
-`Install as new` ignores the estimated destination and treats the package as an ordinary new installation. If a destination is configured, confirmation that it will not be used is always required. If no destination is configured, confirmation is shown by default to explain that the pending package is intentionally being installed as new, even if WARNINGs such as missing resources remain. Only the latter confirmation can be skipped by turning OFF `Show confirmation before installing as new` in Advanced settings. Rejected packages remain pending. **A typical use case is when the package shows something like `WAV 97%`, but that is known to be the original distribution state of the work.**
+`Install as new` ignores the estimated destination and treats the package as an ordinary new installation. If a destination is configured, confirmation that it will not be used is always required. If no destination is configured, confirmation is shown by default to explain that the pending package is intentionally being installed as new, even if WARNINGs such as missing resources remain. Only the latter confirmation can be skipped by turning OFF `Show a confirmation message when installing a pending package as new` under `Install` → `Confirmation messages`. Rejected packages remain pending. **A typical use case is when the package shows something like `WAV 97%`, but that is known to be the original distribution state of the work.**
 
 `Clear install destination` clears `INSTL DST`, estimated-destination title / artist, install-destination-estimation warnings, and candidate suggestions for the selected rows. Resource health and missing-resource warnings return to the original-location results calculated when the package entered Pending, including restoration at startup. Clearing does not check files added or removed afterward. Use it when you want to redo estimation.
 
 ### Smart Overwrite
 
-Control same-name audio, BGA, images, readme files, and other resources during additional-chart installation, resource overwrite for owned packages, and duplicate-folder merging. Configure it in `Advanced settings`; the default is ON.
+Control same-name audio, BGA, images, readme files, and other resources during additional-chart installation, resource overwrite for owned packages, and duplicate-folder merging. Configure it under `Install` → `Overwriting and source package cleanup`; the default is ON.
 
 > [!CAUTION]
 > These operations can overwrite destination files and delete source files. Make copies of the destination and source package if you need to preserve particular audio or images. Comparisons use size and modification time, not audio quality.
@@ -1075,7 +1114,7 @@ Control same-name audio, BGA, images, readme files, and other resources during a
 
 If equal-size files differ by more than `2` seconds, the newer file is kept. Different-size files are also compared by modification time. When OFF, same-name destination files are overwritten by the source.
 
-Enable `During smart overwrite, keep *.bmx/*.pmx/*.txt by automatically adding numbers to their names instead of overwriting them` to retain overwrite candidates ending in `.bmx`, `.pmx`, or `.txt` under available names such as `name(1).txt`. If an identical numbered file already exists, the source is deleted.
+Enable `Keep same-name .bmx/.pmx/.txt files with numbered names during smart overwrite` to retain overwrite candidates ending in `.bmx`, `.pmx`, or `.txt` under available names such as `name(1).txt`. If an identical numbered file already exists, the source is deleted.
 
 BMS / PMS / bmson chart files use adjusted names such as `chart_.bms` on same-name collisions regardless of this setting. For file/folder type conflicts, see [File Moving or Merging Fails](#file-moving-or-merging-fails).
 

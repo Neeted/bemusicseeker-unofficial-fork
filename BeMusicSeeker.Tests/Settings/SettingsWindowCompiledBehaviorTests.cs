@@ -277,7 +277,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
 
     /// <summary>新規導入の確認欄を実操作して値を変え Reset で戻し、別の導入確認値を巻き込む誤りや復元が control に届かない不備を検出します。</summary>
     [TestMethod]
-    public void AdvancedPageNewPackageConfirmationBindsDefaultAndRestoresIndependently()
+    public void InstallPageNewPackageConfirmationBindsDefaultAndRestoresIndependently()
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
@@ -306,10 +306,10 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     PlaybackPanel = owner.PlaybackPanel
                 };
                 scope.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAdvanced");
+                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationInstall");
                 Materialize(window);
 
-                var page = (AdvancedSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (InstallSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
                 CheckBox confirmation = FindLogicalDescendants<CheckBox>(page).Single(checkBox =>
                     GetBindingPath(checkBox, ToggleButton.IsCheckedProperty)
                         == nameof(SettingsDialogViewModel.ShowNewPackageInstallConfirmMsg));

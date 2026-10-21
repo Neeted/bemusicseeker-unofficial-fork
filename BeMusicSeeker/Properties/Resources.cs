@@ -43,6 +43,39 @@ public class Resources
         }
     }
 
+    /// <summary>インストール設定のセクション見出しです。</summary>
+    public static string Settings_install_destination_section => ResourceManager.GetString("Settings_install_destination_section", resourceCulture);
+
+    /// <summary>インストール設定のセクション見出しです。</summary>
+    public static string Settings_install_import_section => ResourceManager.GetString("Settings_install_import_section", resourceCulture);
+
+    /// <summary>インストール設定のセクション見出しです。</summary>
+    public static string Settings_install_estimation_section => ResourceManager.GetString("Settings_install_estimation_section", resourceCulture);
+
+    /// <summary>インストール設定のセクション見出しです。</summary>
+    public static string Settings_install_file_handling_section => ResourceManager.GetString("Settings_install_file_handling_section", resourceCulture);
+
+    /// <summary>インストール設定の説明文です。</summary>
+    public static string Settings_install_file_handling_description => ResourceManager.GetString("Settings_install_file_handling_description", resourceCulture);
+
+    /// <summary>インストール設定のセクション見出しです。</summary>
+    public static string Settings_install_confirmation_section => ResourceManager.GetString("Settings_install_confirmation_section", resourceCulture);
+
+    /// <summary>インストール設定の説明文です。</summary>
+    public static string Details_test_download_and_install_description => ResourceManager.GetString("Details_test_download_and_install_description", resourceCulture);
+
+    /// <summary>インストール設定の説明文です。</summary>
+    public static string Details_test_smart_component_overwrite_description => ResourceManager.GetString("Details_test_smart_component_overwrite_description", resourceCulture);
+
+    /// <summary>インストール設定の説明文です。</summary>
+    public static string Details_test_keep_smart_overwrite_protected_by_rename_description => ResourceManager.GetString("Details_test_keep_smart_overwrite_protected_by_rename_description", resourceCulture);
+
+    /// <summary>インストール設定の説明文です。</summary>
+    public static string Details_test_delete_pending_source_after_install_description => ResourceManager.GetString("Details_test_delete_pending_source_after_install_description", resourceCulture);
+
+    /// <summary>インストール設定の説明文です。</summary>
+    public static string Details_show_diag_new_install_description => ResourceManager.GetString("Details_show_diag_new_install_description", resourceCulture);
+
     /// <summary>保留譜面の操作バーに表示する推定の短縮名です。</summary>
     public static string Pending_install_estimate => ResourceManager.GetString("Pending_install_estimate", resourceCulture);
 

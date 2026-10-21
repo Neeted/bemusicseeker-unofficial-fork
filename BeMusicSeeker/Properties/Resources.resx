@@ -87,13 +87,13 @@
     <value>起動時にLR2IRランキングキャッシュを更新する</value>
   </data>
   <data name="Details_test_delete_pending_source_after_install" xml:space="preserve">
-    <value>通常インストール時、既所持譜面が残っていても元パッケージを削除する</value>
+    <value>通常インストール後、元パッケージに残る既所持譜面を削除する</value>
   </data>
   <data name="Details_test_smart_component_overwrite" xml:space="preserve">
-    <value>差分インストール時に更新日時とサイズを比較して同梱ファイルの上書きを最適化する</value>
+    <value>スマート上書きを有効にする</value>
   </data>
   <data name="Details_test_keep_smart_overwrite_protected_by_rename" xml:space="preserve">
-    <value>スマート上書き時、*.bmx/*.pmx/*.txt は上書きせず自動採番で保持する</value>
+    <value>スマート上書き時、同名の .bmx/.pmx/.txt を連番名で保持する</value>
   </data>
   <data name="Msg_confirm_disable_startup_file_scan" xml:space="preserve">
     <value>起動時に BMS ファイルと構成ファイルの変更を確認しなくなります。
@@ -718,13 +718,13 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>ウィンドウ位置を保存</value>
   </data>
   <data name="Details_show_diag_diff_install" xml:space="preserve">
-    <value>差分インストールの確認メッセージを表示する</value>
+    <value>差分インストール時に確認メッセージを表示する</value>
   </data>
   <data name="Details_show_diag_duplicate_file_check" xml:space="preserve">
     <value>重複ファイルチェックのマージ/整理時に確認メッセージを表示する</value>
   </data>
   <data name="Details_test_download_and_install" xml:space="preserve">
-    <value>ダウンロード実行後に自動的にインストールを試みる</value>
+    <value>URL1/URL2列のクリックで自動ダウンロード・インストールを試みる</value>
   </data>
   <data name="Full_scan_check" xml:space="preserve">
     <value>構成ファイルフルスキャン</value>
@@ -830,7 +830,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>記号: </value>
   </data>
   <data name="Install_new_folder" xml:space="preserve">
-    <value>フォルダの新規作成</value>
+    <value>新規フォルダの命名</value>
   </data>
   <data name="Backup_lr2backup_saveto" xml:space="preserve">
     <value>保存先: </value>
@@ -1290,7 +1290,7 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>既所持譜面のみのパッケージをリソースのみ上書きする</value>
   </data>
   <data name="Install_new_folder_desc" xml:space="preserve">
-    <value>※設定はリネーム機能でも使用されます</value>
+    <value>フォルダ名の書式と文字制限は、フォルダの自動リネームにも使用します。</value>
   </data>
   <data name="PlaylistProp_pageuri" xml:space="preserve">
     <value>ページURI: </value>
@@ -1933,7 +1933,7 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>新規判定でも自動インストールせず保留に追加する</value>
   </data>
   <data name="Details_auto_apply_ambiguous_install_destination" xml:space="preserve">
-    <value>複数候補が残っても、第1候補のタイトル・アーティストの一致度が高い場合は、その候補をインストール先に設定する</value>
+    <value>複数候補が残っても、タイトル・アーティストが強く一致する第1候補を自動設定する</value>
   </data>
   <data name="Success" xml:space="preserve">
     <value>成功</value>
@@ -3482,7 +3482,7 @@ uBMplayが正常に動作するか確認してください。</value>
     <value>候補を選択…</value>
   </data>
   <data name="Details_show_diag_new_install" xml:space="preserve">
-    <value>新規としてインストールの確認メッセージを表示する</value>
+    <value>保留から新規としてインストールする際に確認メッセージを表示する</value>
   </data>
   <data name="Confirm_NewPackageInstall" xml:space="preserve">
     <value>このパッケージは自動では新規インストールされず、保留されています。
@@ -3695,8 +3695,9 @@ uBMplayが正常に動作するか確認してください。</value>
     <value>自動新規インストールにすべての使用リソースを要求する</value>
   </data>
   <data name="Details_require_complete_used_resources_for_auto_install_description" xml:space="preserve">
-    <value>OFF: 使用音源がそろっていれば、BGA・動画・補助画像が不足していても自動新規インストールの対象にします。
-ON: すべての使用リソースがそろった場合のみ、自動新規インストールの対象にし、不足があれば保留に追加します。保留画面で不足を確認し、未制作のBGA・動画などで問題ないと判断した場合は、「新規としてインストール」を実行できます。</value>
+    <value>OFF：使用音源がそろえば、画像・動画などが不足していても自動新規導入の対象にします。
+ON：すべての使用リソースを要求し、不足時は保留にします。非音声だけの不足では、新たな候補の自動探索を省略します。
+不足を確認して問題なければ、保留から「新規としてインストール」を実行できます。</value>
   </data>
   <data name="ChartProperties" xml:space="preserve">
     <value>譜面プロパティ</value>
@@ -3771,14 +3772,13 @@ ON: すべての使用リソースがそろった場合のみ、自動新規イ�
     <value>照合入力を取得できず確認不能</value>
   </data>
   <data name="Details_test_keep_installable_pending_description" xml:space="preserve">
-    <value>新規と判定されたパッケージを、導入前に保留画面で確認したい場合に使います。
-① #BMP定義やARTIST名の修正などで全同梱譜面のハッシュが変わった既所持作品について、既所持フォルダへまとめられるか確認する場合。
-② 同梱譜面が削除された難易度表パッケージなどを、新規インストールで別フォルダに分けたくない場合。
-自動でのインストール先推定は行いません。必要に応じてパッケージを選択し、「インストール」→「インストール先を推定」を実行してください。</value>
+    <value>新規と判定したパッケージも自動導入せず、保留で確認します。
+例：譜面ハッシュが変わった既所持作品の導入先確認。
+例：難易度表パッケージなどを別フォルダに分けたくない場合。
+この設定で保留にした新規対象は自動推定しません。必要に応じて手動で推定してください。</value>
   </data>
   <data name="Details_auto_apply_ambiguous_install_destination_description" xml:space="preserve">
-    <value>同じ構成のBMS作品が複数フォルダにあるなど、候補が同率で残る場合の設定です。ONでは、自動確定の条件を満たす第1候補をインストール先に設定します。OFFでは、候補を確認して選択します。
-既所持譜面を手掛かりに候補を比較できる場合は、追加差分による譜面数の違いなどで候補を絞れます。候補が一意に決まる場合、この設定に関わらずインストール先を自動確定します。</value>
+    <value>候補が同率で複数残る場合に、自動確定条件を満たす第1候補を設定します。OFFでは候補を確認して選択します。候補が一意に決まる場合は、この設定に関係なく自動設定します。</value>
   </data>
   <data name="Estimate_install_loc_keep_unrelated" xml:space="preserve">
     <value>インストール先を推定（無関係候補を残す）</value>
@@ -3787,7 +3787,7 @@ ON: すべての使用リソースがそろった場合のみ、自動新規イ�
     <value>導入先の自動設定に必要な最低音源充足率</value>
   </data>
   <data name="Details_install_destination_min_audio_health_description" xml:space="preserve">
-    <value>各譜面の音源充足率がこの値以上の場合に導入先を自動設定します。欠損警告は残ります。新規インストールの許可条件とは別の設定です。</value>
+    <value>候補先と同梱分を合わせた各譜面の音源充足率が、指定値以上であることを自動設定の条件にします。欠損警告は残ります。新規インストールの許可条件とは別です。</value>
   </data>
   <data name="Details_install_destination_min_audio_health_invalid" xml:space="preserve">
     <value>保存値 {0}% は範囲外です。導入先は自動設定されません。90～100%から選び直してください。</value>
@@ -3898,10 +3898,10 @@ ON: すべての使用リソースがそろった場合のみ、自動新規イ�
     <value>音声デバイス一覧を更新できませんでした。保持している候補と現在の選択を表示しています。</value>
   </data>
   <data name="Details_auto_install_after_automatic_estimation" xml:space="preserve">
-    <value>取り込み時の自動推定でインストール先が確定したら、自動インストールする</value>
+    <value>取り込み後の自動推定で導入先が確定したら、自動インストールする</value>
   </data>
   <data name="Details_auto_install_after_automatic_estimation_description" xml:space="preserve">
-    <value>保留への追加に続く自動推定でインストール先が確定したパッケージを、確認画面を表示せずにインストールします。手動で開始した推定は対象外です。上書きと元パッケージの削除は既存の設定に従います。</value>
+    <value>保留追加後の自動推定で、今回の導入先が確定した対象を確認なしで導入します。手動推定は対象外です。上書きと元パッケージの削除は他の設定に従います。</value>
   </data>
   <data name="PackageInstallReport_Unprocessed" xml:space="preserve">
     <value>自動インストール未実行: {0} 件</value>
@@ -3938,5 +3938,38 @@ ON: すべての使用リソースがそろった場合のみ、自動新規イ�
   </data>
   <data name="Pending_install_clear" xml:space="preserve">
     <value>クリア</value>
+  </data>
+  <data name="Settings_install_destination_section" xml:space="preserve">
+    <value>インストール先</value>
+  </data>
+  <data name="Settings_install_import_section" xml:space="preserve">
+    <value>取り込み・新規インストール</value>
+  </data>
+  <data name="Settings_install_estimation_section" xml:space="preserve">
+    <value>導入先の自動推定</value>
+  </data>
+  <data name="Settings_install_file_handling_section" xml:space="preserve">
+    <value>上書き・元パッケージの整理</value>
+  </data>
+  <data name="Settings_install_file_handling_description" xml:space="preserve">
+    <value>インストールではファイルの移動・上書き・削除が発生する場合があります。元の配布物を残す場合は、操作前にコピーしてください。</value>
+  </data>
+  <data name="Settings_install_confirmation_section" xml:space="preserve">
+    <value>確認メッセージ</value>
+  </data>
+  <data name="Details_test_download_and_install_description" xml:space="preserve">
+    <value>単一行のURL1/URL2セルをクリックしたとき、ブラウザーで開く代わりに自動取得・導入を試みます。起動時のBMSファイルスキャンも有効にしてください。複数行のURL取り込みには影響しません。</value>
+  </data>
+  <data name="Details_test_smart_component_overwrite_description" xml:space="preserve">
+    <value>差分導入・既所持パッケージのリソース上書き・重複フォルダマージで、同名ファイルのサイズと更新日時を比較して残す側を決めます。OFFでは導入元の同名ファイルで上書きします。</value>
+  </data>
+  <data name="Details_test_keep_smart_overwrite_protected_by_rename_description" xml:space="preserve">
+    <value>スマート上書きがONのときだけ適用します。同名の対象ファイルは上書きせず、必要に応じて連番付きの名前で導入します。同内容の重複は増やしません。</value>
+  </data>
+  <data name="Details_test_delete_pending_source_after_install_description" xml:space="preserve">
+    <value>導入後に残った既所持譜面と空の元フォルダを整理します。未所持や判定できない残存物は削除しません。OFFでも移動した元ファイルは残りません。</value>
+  </data>
+  <data name="Details_show_diag_new_install_description" xml:space="preserve">
+    <value>インストール先が未設定の保留パッケージを新規として導入する際の確認です。インストール先が設定済みの場合は、OFFでも確認を省略できません。</value>
   </data>
 </root>

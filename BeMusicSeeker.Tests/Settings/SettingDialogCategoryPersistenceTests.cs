@@ -28,11 +28,11 @@ public sealed partial class SettingDialogEditCompletionTests
     [DataRow("Audio", "PlayerResamplingQuality")]
     [DataRow("Recording", "EncoderAmplifier")]
     [DataRow("Backup", "LR2BackupNum")]
-    [DataRow("Advanced", "KeepInstallablePackagesPending")]
-    [DataRow("Advanced", "RequireCompleteUsedResourcesForAutoInstall")]
-    [DataRow("Advanced", "AutoApplyAmbiguousInstallDestination")]
-    [DataRow("Advanced", "AutoInstallAfterAutomaticEstimation")]
-    [DataRow("Advanced", "InstallDestinationAutoApplyMinAudioHealth")]
+    [DataRow("Install", "KeepInstallablePackagesPending")]
+    [DataRow("Install", "RequireCompleteUsedResourcesForAutoInstall")]
+    [DataRow("Install", "AutoApplyAmbiguousInstallDestination")]
+    [DataRow("Install", "AutoInstallAfterAutomaticEstimation")]
+    [DataRow("Install", "InstallDestinationAutoApplyMinAudioHealth")]
     [DataRow("RightClick", "RightClickActionSettingsEditor.SelectedWebAction.Name")]
     public void CompiledCategoryEditor_SaveReachesFreshProviderLiveSettingsAndNewDialog(string category, string bindingPath)
     {
@@ -90,18 +90,20 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual(89, owner.SettingDialog.InstallDestinationAutoApplyMinAudioHealth);
                     Assert.IsFalse(string.IsNullOrEmpty(owner.SettingDialog.InstallDestinationAutoApplyMinAudioHealthWarning));
                 }
-                object expected = category switch
+                object expected = bindingPath switch
                 {
-                    "Advanced" when bindingPath == "InstallDestinationAutoApplyMinAudioHealth" => 97,
-                    "General" => TestApplicationContext.CreateCultureCatalog().Cultures.Single(pair => pair.Value == "en-US").Key,
-                    "Install" => "%ARTIST% - %TITLE%",
-                    "Playlist" or "Playback" or "Advanced" => true,
-                    "Appearance" => 31d,
-                    "Audio" => 4,
-                    "Recording" => (double)1.3f,
-                    "Backup" => 5,
-                    "RightClick" => "Saved custom action",
-                    _ => throw new AssertFailedException(category)
+                    "InstallDestinationAutoApplyMinAudioHealth" => 97,
+                    "Language" => TestApplicationContext.CreateCultureCatalog().Cultures.Single(pair => pair.Value == "en-US").Key,
+                    "FolderNameFormat" => "%ARTIST% - %TITLE%",
+                    "OverwritePlaylistUrlsWithCompletion" or "IsSaveLR2bodyWindowPosition"
+                        or "KeepInstallablePackagesPending" or "RequireCompleteUsedResourcesForAutoInstall"
+                        or "AutoApplyAmbiguousInstallDestination" or "AutoInstallAfterAutomaticEstimation" => true,
+                    "CustomTableRowHeight" => 31d,
+                    "PlayerResamplingQuality" => 4,
+                    "EncoderAmplifier" => (double)1.3f,
+                    "LR2BackupNum" => 5,
+                    "RightClickActionSettingsEditor.SelectedWebAction.Name" => "Saved custom action",
+                    _ => throw new AssertFailedException(bindingPath)
                 };
                 Assert.AreNotEqual(before, expected);
                 EditCategoryControl(window, category, bindingPath, expected);
@@ -113,9 +115,9 @@ public sealed partial class SettingDialogEditCompletionTests
                 TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "category saved Window close");
                 Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
                 Assert.IsNull(window.DataContext);
-                AssertCategoryRuntime(owner, category, bindingPath);
+                AssertCategoryRuntime(owner, bindingPath);
                 Settings fresh = PortableSettingsPersistenceTests.OpenSettings(config);
-                AssertCategoryPersisted(fresh, category, bindingPath);
+                AssertCategoryPersisted(fresh, bindingPath);
                 Assert.AreEqual(untouched, fresh.EncodeFileNameFormat);
                 freshOwner = CreateViewModel(new SettingsEditSession(fresh), firstStartup: false);
                 SetActiveLibraryProfile(freshOwner, true);
@@ -129,8 +131,8 @@ public sealed partial class SettingDialogEditCompletionTests
                 reopened.Closed += (_, _) => cancelled.TrySetResult();
                 freshOwner.SettingDialog.CancelCommand.Execute();
                 TestUiDispatcherHost.AwaitPresentationOnDispatcher(cancelled.Task, "category Cancel close");
-                AssertCategoryRuntime(freshOwner, category, bindingPath);
-                AssertCategoryPersisted(PortableSettingsPersistenceTests.OpenSettings(config), category, bindingPath);
+                AssertCategoryRuntime(freshOwner, bindingPath);
+                AssertCategoryPersisted(PortableSettingsPersistenceTests.OpenSettings(config), bindingPath);
                 reopened = OpenSettingsWindow(scope, freshOwner.SettingDialog);
                 freshPresentation.CurrentWindow = reopened;
                 Assert.AreEqual(expected, ReadCategoryEditor(reopened, category, bindingPath));
@@ -214,24 +216,27 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>本番compositionが実稼働側へ渡す窓口と同じactionの読取りから、保存後の指定値を確認します。</summary>
-    private static void AssertCategoryRuntime(MainWindowViewModel owner, string category, string bindingPath)
+    private static void AssertCategoryRuntime(MainWindowViewModel owner, string bindingPath)
     {
         ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
         object ReadField(object target, string name) => target.GetType().GetField(name, BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(target)
             ?? throw new AssertFailedException("runtime field unavailable: " + name);
-        switch (category)
+        switch (bindingPath)
         {
-            case "General": Assert.AreEqual("en-US", Resources.Culture?.Name); break;
-            case "Install": Assert.AreEqual("%ARTIST% - %TITLE%", composition.BmsLibraryOptionsProvider().FolderNameFormat); break;
-            case "Playlist": Assert.IsTrue(composition.PlaylistUrlCompletionOptionsProvider().OverwritePlaylistUrlsWithCompletion); break;
-            case "Appearance": Assert.AreEqual(31d, composition.MainWindowViewSettingsStore.CustomTableRowHeight); break;
-            case "Playback": Assert.IsTrue(((IPlayerSettingsGateway)ReadField(composition, "playerSettingsGateway")).CaptureSnapshot().IsSaveLR2bodyWindowPosition); break;
-            case "Audio": Assert.AreEqual(4, ((IPlayerSettingsGateway)ReadField(composition, "playerSettingsGateway")).CaptureSnapshot().SampleRateConversionQuality); break;
-            case "Recording": Assert.AreEqual(1.3f, ((IAudioSettingsGateway)ReadField(composition, "audioSettingsGateway")).CaptureEncodingSettings().EncoderAmplifier); break;
-            case "Backup": Assert.AreEqual(5, composition.StartupSettingsProvider().LR2BackupNum); break;
-            case "Advanced" when bindingPath == "InstallDestinationAutoApplyMinAudioHealth":
+            case "Language": Assert.AreEqual("en-US", Resources.Culture?.Name); break;
+            case "FolderNameFormat": Assert.AreEqual("%ARTIST% - %TITLE%", composition.BmsLibraryOptionsProvider().FolderNameFormat); break;
+            case "OverwritePlaylistUrlsWithCompletion": Assert.IsTrue(composition.PlaylistUrlCompletionOptionsProvider().OverwritePlaylistUrlsWithCompletion); break;
+            case "CustomTableRowHeight": Assert.AreEqual(31d, composition.MainWindowViewSettingsStore.CustomTableRowHeight); break;
+            case "IsSaveLR2bodyWindowPosition": Assert.IsTrue(((IPlayerSettingsGateway)ReadField(composition, "playerSettingsGateway")).CaptureSnapshot().IsSaveLR2bodyWindowPosition); break;
+            case "PlayerResamplingQuality": Assert.AreEqual(4, ((IPlayerSettingsGateway)ReadField(composition, "playerSettingsGateway")).CaptureSnapshot().SampleRateConversionQuality); break;
+            case "EncoderAmplifier": Assert.AreEqual(1.3f, ((IAudioSettingsGateway)ReadField(composition, "audioSettingsGateway")).CaptureEncodingSettings().EncoderAmplifier); break;
+            case "LR2BackupNum": Assert.AreEqual(5, composition.StartupSettingsProvider().LR2BackupNum); break;
+            case "InstallDestinationAutoApplyMinAudioHealth":
                 Assert.AreEqual(97, composition.BmsLibraryOptionsProvider().InstallDestinationAutoApplyMinAudioHealth); break;
-            case "Advanced":
+            case "KeepInstallablePackagesPending":
+            case "RequireCompleteUsedResourcesForAutoInstall":
+            case "AutoApplyAmbiguousInstallDestination":
+            case "AutoInstallAfterAutomaticEstimation":
                 Assert.IsTrue(bindingPath switch
                 {
                     "RequireCompleteUsedResourcesForAutoInstall" => composition.BmsLibraryOptionsProvider().RequireCompleteUsedResourcesForAutoInstall,
@@ -240,26 +245,29 @@ public sealed partial class SettingDialogEditCompletionTests
                     "AutoInstallAfterAutomaticEstimation" => composition.BmsLibraryOptionsProvider().AutoInstallAfterAutomaticEstimation,
                     _ => throw new AssertFailedException(bindingPath)
                 }); break;
-            case "RightClick": AssertCustomWebActions(((RightClickActionSettingsStore)ReadField(owner.SelectedChartExternalActions, "rightClickActionSettingsStore")).Load()); break;
+            case "RightClickActionSettingsEditor.SelectedWebAction.Name": AssertCustomWebActions(((RightClickActionSettingsStore)ReadField(owner.SelectedChartExternalActions, "rightClickActionSettingsStore")).Load()); break;
         }
     }
 
-    /// <summary>同じSettings instanceの再確認と分け、新providerの実永続値をカテゴリごとに確認します。</summary>
-    private static void AssertCategoryPersisted(Settings settings, string category, string bindingPath)
+    /// <summary>同じSettings instanceの再確認と分け、新providerの実永続値をBinding先ごとに確認します。</summary>
+    private static void AssertCategoryPersisted(Settings settings, string bindingPath)
     {
-        switch (category)
+        switch (bindingPath)
         {
-            case "General": Assert.AreEqual("en-US", settings.Lang); break;
-            case "Install": Assert.AreEqual("%ARTIST% - %TITLE%", settings.FolderNameFormat); break;
-            case "Playlist": Assert.IsTrue(settings.OverwritePlaylistUrlsWithCompletion); break;
-            case "Appearance": Assert.AreEqual(31d, settings.CustomTableRowHeight); break;
-            case "Playback": Assert.IsTrue(settings.IsSaveLR2bodyWindowPosition); break;
-            case "Audio": Assert.AreEqual(4, settings.PlayerResamplingQuality); break;
-            case "Recording": Assert.AreEqual(1.3f, settings.EncoderAmplifier); break;
-            case "Backup": Assert.AreEqual(5, settings.LR2BackupNum); break;
-            case "Advanced" when bindingPath == "InstallDestinationAutoApplyMinAudioHealth":
+            case "Language": Assert.AreEqual("en-US", settings.Lang); break;
+            case "FolderNameFormat": Assert.AreEqual("%ARTIST% - %TITLE%", settings.FolderNameFormat); break;
+            case "OverwritePlaylistUrlsWithCompletion": Assert.IsTrue(settings.OverwritePlaylistUrlsWithCompletion); break;
+            case "CustomTableRowHeight": Assert.AreEqual(31d, settings.CustomTableRowHeight); break;
+            case "IsSaveLR2bodyWindowPosition": Assert.IsTrue(settings.IsSaveLR2bodyWindowPosition); break;
+            case "PlayerResamplingQuality": Assert.AreEqual(4, settings.PlayerResamplingQuality); break;
+            case "EncoderAmplifier": Assert.AreEqual(1.3f, settings.EncoderAmplifier); break;
+            case "LR2BackupNum": Assert.AreEqual(5, settings.LR2BackupNum); break;
+            case "InstallDestinationAutoApplyMinAudioHealth":
                 Assert.AreEqual(97, settings.InstallDestinationAutoApplyMinAudioHealth); break;
-            case "Advanced":
+            case "KeepInstallablePackagesPending":
+            case "RequireCompleteUsedResourcesForAutoInstall":
+            case "AutoApplyAmbiguousInstallDestination":
+            case "AutoInstallAfterAutomaticEstimation":
                 Assert.IsTrue(bindingPath switch
                 {
                     "RequireCompleteUsedResourcesForAutoInstall" => settings.RequireCompleteUsedResourcesForAutoInstall,
@@ -268,7 +276,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     "AutoInstallAfterAutomaticEstimation" => settings.AutoInstallAfterAutomaticEstimation,
                     _ => throw new AssertFailedException(bindingPath)
                 }); break;
-            case "RightClick": AssertCustomWebActions(new RightClickActionSettingsStore(() => settings).Load()); break;
+            case "RightClickActionSettingsEditor.SelectedWebAction.Name": AssertCustomWebActions(new RightClickActionSettingsStore(() => settings).Load()); break;
         }
     }
 
