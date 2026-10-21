@@ -372,7 +372,7 @@
   "Msg_move_to_recycle": "Le fichier de chart sera déplacé vers la Corbeille et retiré de la liste.\nContinuer ?",
   "Confirm_DeletePendingFolderWhenNoBms": "Supprimer également le dossier s’il ne contient plus aucun fichier BMS.",
   "Msg_failed_save_playlist": "Échec de l’enregistrement du fichier.",
-  "Backup_desc": "* Une sauvegarde sera effectuée au démarrage selon les conditions ci-dessus",
+  "Backup_desc": "Les sauvegardes sont enregistrées au démarrage selon la fréquence configurée.",
   "Msg_register_chart": "Les charts sélectionnés seront enregistrés dans le visualiseur de charts.\nContinuer ?",
   "Record_setting_samplerate": "Fréquence d’échantillonnage :",
   "Num_folders": " dossiers",

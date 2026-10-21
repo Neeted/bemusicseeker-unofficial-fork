@@ -617,7 +617,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>保存に失敗しました。</value>
   </data>
   <data name="Backup_desc" xml:space="preserve">
-    <value>※上記条件で起動時にバックアップが取得されます</value>
+    <value>設定したスケジュールに従って、起動時にバックアップを保存します。</value>
   </data>
   <data name="Msg_register_chart" xml:space="preserve">
     <value>選択中の複数の譜面を譜面ビューアに登録します

@@ -382,7 +382,7 @@
   "Msg_move_to_recycle": "譜面ファイルをごみ箱へ移動し一覧から削除します\nよろしいですか？",
   "Confirm_DeletePendingFolderWhenNoBms": "対象フォルダにBMSファイルが含まれなくなる場合フォルダごと削除する。",
   "Msg_failed_save_playlist": "保存に失敗しました。",
-  "Backup_desc": "※上記条件で起動時にバックアップが取得されます",
+  "Backup_desc": "設定したスケジュールに従って、起動時にバックアップを保存します。",
   "Msg_register_chart": "選択中の複数の譜面を譜面ビューアに登録します\n続行しますか？",
   "Record_setting_samplerate": "サンプルレート:",
   "Num_folders": "フォルダ",

@@ -372,7 +372,7 @@
   "Msg_move_to_recycle": "The chart file will be moved to the Recycle Bin and removed from the list.\nContinue?",
   "Confirm_DeletePendingFolderWhenNoBms": "Delete the containing folder as well when it would no longer contain any BMS files.",
   "Msg_failed_save_playlist": "Failed to save the file.",
-  "Backup_desc": "* Backup will be executed at startup under the above condition",
+  "Backup_desc": "Backups are saved at startup according to the configured schedule.",
   "Msg_register_chart": "The selected charts will be registered with the chart viewer.\nContinue?",
   "Record_setting_samplerate": "Sample rate:",
   "Num_folders": " folders",

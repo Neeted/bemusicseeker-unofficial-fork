@@ -372,7 +372,7 @@
   "Msg_move_to_recycle": "譜面檔案將移至資源回收筒並從清單中刪除。\n是否繼續？",
   "Confirm_DeletePendingFolderWhenNoBms": "當目標資料夾將不再包含任何 BMS 檔案時，一併刪除整個資料夾。",
   "Msg_failed_save_playlist": "檔案儲存失敗。",
-  "Backup_desc": "* 滿足上述條件時，將在啟動時自動執行備份",
+  "Backup_desc": "啟動時會依照設定的排程儲存備份。",
   "Msg_register_chart": "將把所選譜面註冊至譜面檢視器。\n是否繼續？",
   "Record_setting_samplerate": "取樣率：",
   "Num_folders": " 個資料夾",

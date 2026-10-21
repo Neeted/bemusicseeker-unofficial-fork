@@ -372,7 +372,7 @@
   "Msg_move_to_recycle": "채보 파일을 휴지통으로 이동하고 목록에서 삭제합니다.\n계속하시겠습니까?",
   "Confirm_DeletePendingFolderWhenNoBms": "대상 폴더에 BMS 파일이 남지 않게 되는 경우 폴더째 삭제합니다.",
   "Msg_failed_save_playlist": "파일을 저장하지 못했습니다.",
-  "Backup_desc": "* 위 조건을 만족하는 경우 시작 시 백업이 실행됩니다",
+  "Backup_desc": "설정한 주기에 따라 시작 시 백업을 저장합니다.",
   "Msg_register_chart": "선택한 채보를 채보 뷰어에 등록합니다.\n계속하시겠습니까?",
   "Record_setting_samplerate": "샘플 레이트:",
   "Num_folders": " 폴더",

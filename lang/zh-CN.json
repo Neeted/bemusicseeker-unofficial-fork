@@ -372,7 +372,7 @@
   "Msg_move_to_recycle": "谱面文件将移至回收站并从列表中删除。\n是否继续？",
   "Confirm_DeletePendingFolderWhenNoBms": "当目标文件夹将不再包含任何 BMS 文件时，同时删除整个文件夹。",
   "Msg_failed_save_playlist": "文件保存失败。",
-  "Backup_desc": "* 满足上述条件时，将在启动时自动执行备份",
+  "Backup_desc": "启动时会按照设定的计划保存备份。",
   "Msg_register_chart": "将把所选谱面注册到谱面查看器。\n是否继续？",
   "Record_setting_samplerate": "采样率：",
   "Num_folders": " 个文件夹",
