@@ -573,12 +573,13 @@ internal sealed class BmsLibraryMaintenanceService
         }
     }
 
-    /// <summary>評価を完了してから一つの不変要求を確定します。保存同値の警告差はDBを書かず現在値へ返し、取消時も評価済み対象を従来どおり確定します。</summary>
+    /// <summary>評価を完了してから一つの不変要求を確定します。明示した選択保留は文字コードを維持してsongを保存せず、成功評価を保存差分と独立して返します。取消時も評価済み対象を従来どおり確定します。選択保留の辞書はキーの有無で対象を区別し、値がnullなら対応する保存前行がありません。</summary>
     public MaintenanceWorkflowResult UpdateMaintenanceInfo(IEnumerable<ChartFile> charts, bool forceUpdate,
         Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> durableWrite, IBmsLibraryDialogService dialogService,
         ResourceHealthLookupContext resourceLookupContext = null, Action<string> progressLogger = null,
         Action<MaintenanceWorkflowProgress> progressReporter = null, CancellationToken cancellationToken = default,
-        Action durableCommitCompleted = null, Action<Action> postCommitEffectsSink = null)
+        Action durableCommitCompleted = null, Action<Action> postCommitEffectsSink = null,
+        IReadOnlyDictionary<string, ResourceHealthMaintenanceSnapshot> selectedPendingSnapshots = null)
     {
         if (durableWrite == null)
         {
@@ -598,7 +599,7 @@ internal sealed class BmsLibraryMaintenanceService
                 {
                     progressReporter?.Invoke(progress);
                 }
-            }, cancellationToken);
+            }, cancellationToken, selectedPendingSnapshots);
         ApplyDurableWrite(durableWrite, pending.CreateRequest(result.ChangedCharts));
         durableCommitCompleted?.Invoke();
         Action effects = () => { if (terminalProgress != null) { progressReporter?.Invoke(terminalProgress); } };
@@ -637,7 +638,8 @@ internal sealed class BmsLibraryMaintenanceService
         ResourceHealthLookupContext resourceLookupContext = null,
         Action<string> progressLogger = null,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyDictionary<string, ResourceHealthMaintenanceSnapshot> selectedPendingSnapshots = null)
     {
         var result = new MaintenanceWorkflowResult();
         if (charts == null || durableWrite == null)
@@ -646,7 +648,7 @@ internal sealed class BmsLibraryMaintenanceService
         }
 
         var stopwatch = Stopwatch.StartNew();
-        List<MaintenanceWorkflowTarget> targets = CreateSnapshotPipelineTargets(charts, forceUpdate);
+        List<MaintenanceWorkflowTarget> targets = CreateSnapshotPipelineTargets(charts, forceUpdate, selectedPendingSnapshots);
         result.CheckedFileCount = targets.Count;
         result.BmsResourceTargetCount = targets.Count(target => target.Kind == ChartFileKind.Bms && (forceUpdate || GetResourceHealthSnapshot(target.Chart)?.IsInformationChecked != true));
         result.BmsonResourceTargetCount = targets.Count(target => target.Kind == ChartFileKind.Bmson);
@@ -769,7 +771,11 @@ internal sealed class BmsLibraryMaintenanceService
                 {
                     unchangedInChunk++;
                 }
-                if (itemResult.ReloadedBmsChart != null)
+                if (item.Target.IsSelectedPending && itemResult.CurrentChart != null)
+                {
+                    result.EvaluatedPendingCharts.Add(itemResult.CurrentChart);
+                }
+                if (!item.Target.IsSelectedPending && itemResult.ReloadedBmsChart != null)
                 {
                     reloadedFiles.Add(itemResult.ReloadedBmsChart);
                 }
@@ -1023,11 +1029,17 @@ internal sealed class BmsLibraryMaintenanceService
         return result;
     }
 
-    private static List<MaintenanceWorkflowTarget> CreateSnapshotPipelineTargets(IEnumerable<ChartFile> charts, bool forceUpdate)
+    private static List<MaintenanceWorkflowTarget> CreateSnapshotPipelineTargets(IEnumerable<ChartFile> charts, bool forceUpdate,
+        IReadOnlyDictionary<string, ResourceHealthMaintenanceSnapshot> selectedPendingSnapshots)
         => [.. (charts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))
             .Where(chart => forceUpdate || GetResourceHealthSnapshot(chart)?.IsInformationChecked != true
                 || (chart.Kind == ChartFileKind.Bms && string.IsNullOrWhiteSpace(chart.EncodingName)))
-            .Select(chart => new MaintenanceWorkflowTarget(chart))];
+            .Select(chart =>
+            {
+                ResourceHealthMaintenanceSnapshot saved = null;
+                bool isSelectedPending = chart.Token == null && selectedPendingSnapshots?.TryGetValue(chart.Path, out saved) == true;
+                return new MaintenanceWorkflowTarget(chart, isSelectedPending, saved);
+            })];
 
     private static MaintenanceWorkflowCandidate ReadMaintenanceWorkflowCandidate(
         MaintenanceWorkflowTarget target,
@@ -1050,7 +1062,7 @@ internal sealed class BmsLibraryMaintenanceService
 
     private static MaintenanceEvaluationResult EvaluateMaintenanceTarget(MaintenanceWorkflowTarget target,
         ChartFileSnapshot snapshot, ResourceHealthLookupContext lookupContext, bool forceUpdate)
-        => EvaluateMaintenance(target.Chart, snapshot, lookupContext, forceUpdate);
+        => EvaluateMaintenance(target.Chart, snapshot, lookupContext, forceUpdate, resourceOnly: target.IsSelectedPending, savedSnapshot: target.SavedSnapshot);
 
     /// <summary>基本解析で捕捉した同じ入力と共通値を使って、導入・走査用の短命な保守結果を返します。</summary>
     internal static MaintenanceEvaluationResult EvaluateMaintenanceForInline(ChartFile chart, ChartFileSnapshot snapshot,
@@ -1058,7 +1070,8 @@ internal sealed class BmsLibraryMaintenanceService
         => EvaluateMaintenance(chart, snapshot, lookupContext ?? new ResourceHealthLookupContext(null), forceUpdate, detectedEncoding, reuseCapturedResources: true);
 
     private static MaintenanceEvaluationResult EvaluateMaintenance(ChartFile chart, ChartFileSnapshot snapshot,
-        ResourceHealthLookupContext lookup, bool forceUpdate, BmsEncodingDetectionResult detectedEncoding = null, bool reuseCapturedResources = false)
+        ResourceHealthLookupContext lookup, bool forceUpdate, BmsEncodingDetectionResult detectedEncoding = null,
+        bool reuseCapturedResources = false, bool resourceOnly = false, ResourceHealthMaintenanceSnapshot savedSnapshot = null)
     {
         var result = new MaintenanceEvaluationResult();
         ResourceHealthMaintenanceSnapshot before = GetResourceHealthSnapshot(chart);
@@ -1111,10 +1124,10 @@ internal sealed class BmsLibraryMaintenanceService
         after = after with
         {
             FilesWarningIgnored = !forceUpdate && before?.FilesWarningIgnored == true,
-            Encoding = chart.Kind == ChartFileKind.Bms ? before?.Encoding : "utf-8",
+            Encoding = chart.Kind == ChartFileKind.Bms ? before?.Encoding ?? (resourceOnly ? chart.EncodingName : null) : "utf-8",
             EncodingFixed = before?.EncodingFixed == true
         };
-        if (chart.Kind == ChartFileKind.Bms && (forceUpdate || string.IsNullOrWhiteSpace(after.Encoding)))
+        if (!resourceOnly && chart.Kind == ChartFileKind.Bms && (forceUpdate || string.IsNullOrWhiteSpace(after.Encoding)))
         {
             long encodingStart = Stopwatch.GetTimestamp();
             ChartFileSnapshot input = snapshot ?? ChartFileContentReader.ReadSnapshot(chart.Path);
@@ -1144,8 +1157,9 @@ internal sealed class BmsLibraryMaintenanceService
             result.EncodingReloadElapsedTicks = reloaded ? result.EncodingElapsedTicks : 0;
         }
         result.MaintenanceInfo = after;
-        // 取得の由来は保存しないため、保存列の変更判定へ混ぜません。
-        result.MaintenanceInfoChanged = !Equals(before is null ? null : before with { Origin = after.Origin }, after);
+        // 選択保留の表示は推定配置の一時値なので、保存前DB行だけを差分の比較元にします。取得の由来は保存列へ混ぜません。
+        ResourceHealthMaintenanceSnapshot comparison = resourceOnly ? savedSnapshot : before;
+        result.MaintenanceInfoChanged = !Equals(comparison is null ? null : comparison with { Origin = after.Origin }, after);
         result.CurrentChart = ChartFileProjection.WithMaintenance(parsed with { Resources = null }, after);
         result.CacheHitCount = lookup?.CacheHitCount ?? 0;
         result.ResourceIndexHitCount = lookup?.ResourceIndexHitCount ?? 0;
@@ -1189,9 +1203,11 @@ internal sealed class BmsLibraryMaintenanceService
         Failed
     }
 
-    private sealed class MaintenanceWorkflowTarget(ChartFile chart)
+    private sealed class MaintenanceWorkflowTarget(ChartFile chart, bool isSelectedPending, ResourceHealthMaintenanceSnapshot savedSnapshot)
     {
         internal ChartFile Chart { get; } = chart;
+        internal bool IsSelectedPending { get; } = isSelectedPending;
+        internal ResourceHealthMaintenanceSnapshot SavedSnapshot { get; } = savedSnapshot;
         internal ChartFileKind Kind => Chart.Kind;
         internal string Path => Chart.Path;
     }

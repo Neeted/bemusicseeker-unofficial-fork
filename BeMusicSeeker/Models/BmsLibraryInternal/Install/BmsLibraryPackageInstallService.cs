@@ -637,6 +637,10 @@ internal sealed class BmsLibraryPackageInstallService
         ChartFile chart = entry.Chart;
         ResourceHealthMaintenanceSnapshot result = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart, placement: placement);
         ResourceHealthMaintenanceSnapshot captured = BmsLibraryMaintenanceService.GetResourceHealthSnapshot(chart);
+        if (result != null && captured != null)
+        {
+            result = result with { Encoding = captured.Encoding, EncodingFixed = captured.EncodingFixed };
+        }
         // 全定義を消費した時点の計算済みLR2診断は、配置の存在確認が未判定でも引き継ぎます。DB由来の古い診断は再利用しません。
         // 所持譜面の手動再スキャンは別入口で本文を再解析し、全定義から再評価します。
         return result != null && captured?.Origin == MaintenanceInfoOrigin.Calculated && captured.Lr2WarningFlags.HasValue && chart.Kind == ChartFileKind.Bms
@@ -661,7 +665,7 @@ internal sealed class BmsLibraryPackageInstallService
         using IDisposable deferredNotification = entry.DeferPropertyChangedNotifications();
         ChartFile chart = entry.Chart;
         entry.ApplyCurrentChart(chart with { Resources = chart.Resources.Where(reference => reference.IsUsed || reference.Usage == ChartResourceUsage.InputDiagnostic).ToImmutableList() });
-        return ApplyCalculatedPendingResourceHealth(entry, maintenanceInfo, placement);
+        return entry.ApplyCalculatedResourceHealth(ChartFileProjection.WithMaintenance(entry.Chart, maintenanceInfo), placement);
     }
 
     /// <summary>登録入口の既存評価で元配置の結果を確定し、その警告を返します。</summary>
@@ -669,18 +673,6 @@ internal sealed class BmsLibraryPackageInstallService
     {
         IReadOnlyList<ChartWarning> warnings = ApplyPendingResourceHealthProjection(entry, out ResourceHealthMaintenanceSnapshot health);
         entry.InitializeOriginalResourceHealth(health);
-        return warnings;
-    }
-
-    /// <summary>計算済みの値だけから保守値・警告・表示と配置を揃えます。資源の取得や列挙は行いません。</summary>
-    private static IReadOnlyList<ChartWarning> ApplyCalculatedPendingResourceHealth(PackageChartEntry entry, ResourceHealthMaintenanceSnapshot maintenanceInfo, ChartResourcePlacement placement)
-    {
-        IReadOnlyList<ChartWarning> warnings = BmsLibraryMaintenanceService.BuildResourceHealthWarnings(maintenanceInfo);
-        ChartFile evaluated = ChartFileProjection.WithMaintenance(entry.Chart, maintenanceInfo);
-        using IDisposable deferredNotification = entry.DeferPropertyChangedNotifications();
-        entry.ApplyCurrentChart(evaluated);
-        entry.ReplaceWarningsByCategory(ChartWarningCategory.Lr2Compatibility, evaluated.Warnings.Where(warning => warning.Category == ChartWarningCategory.Lr2Compatibility));
-        entry.ReplaceResourceHealthProjection(maintenanceInfo, warnings, placement);
         return warnings;
     }
 
@@ -711,7 +703,7 @@ internal sealed class BmsLibraryPackageInstallService
             prior?.BundledResources, bundledComplete: prior?.BundledResourcesComplete ?? true, relativeDirectory: prior?.RelativeDirectory ?? string.Empty);
         using IDisposable deferredNotification = entry.DeferPropertyChangedNotifications();
         entry.ClearInstallDestination();
-        ApplyCalculatedPendingResourceHealth(entry, restored, placement);
+        entry.ApplyCalculatedResourceHealth(ChartFileProjection.WithMaintenance(entry.Chart, restored), placement);
     }
 
     /// <summary>一操作の同梱・候補索引を共有し、実導入と同じ譜面相対配置で健康度を更新します。パッケージを伴わない同じ項目の再評価では捕捉済みの配置文脈を引き継ぎます。</summary>

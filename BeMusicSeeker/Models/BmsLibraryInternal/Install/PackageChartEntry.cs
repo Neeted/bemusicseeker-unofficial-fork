@@ -148,6 +148,20 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         RaiseChartChanged();
     }
 
+    /// <summary>計算済みの現在値と健康度・LR2警告を一緒に反映します。登録時結果を変えず、未取得の資源結果を古い参照で補完しません。</summary>
+    internal IReadOnlyList<ChartWarning> ApplyCalculatedResourceHealth(ChartFile value, ChartResourcePlacement placement)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ResourceHealthMaintenanceSnapshot health = value.ResourceHealthMaintenanceSnapshot;
+        IReadOnlyList<ChartWarning> warnings = BmsLibraryMaintenanceService.BuildResourceHealthWarnings(health);
+        using IDisposable deferred = DeferPropertyChangedNotifications();
+        ApplyCurrentChart(value);
+        ReplaceWarningsByCategory(ChartWarningCategory.Lr2Compatibility,
+            value.Warnings.Where(warning => warning.Category == ChartWarningCategory.Lr2Compatibility));
+        ReplaceResourceHealthProjection(health, warnings, placement);
+        return warnings;
+    }
+
     /// <summary>保存済みの文字コードとメタデータだけを採用し、登録時結果・現在の健康度投影・導入状態を保持します。</summary>
     internal void ApplyCommittedEncoding(ChartFile value)
     {

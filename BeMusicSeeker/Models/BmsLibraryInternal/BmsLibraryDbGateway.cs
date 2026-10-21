@@ -451,6 +451,28 @@ internal sealed class BmsLibraryDbGateway(
         return metrics;
     }
 
+    /// <summary>指定した完全一致パスの保守行だけを読取り専用接続で捕捉します。表がなければ空を返し、接続・SQLの失敗は呼出し元へ返します。資源評価中の接続保持やスキーマ変更を行いません。</summary>
+    internal IReadOnlyDictionary<string, ResourceHealthMaintenanceSnapshot> LoadMaintenanceSnapshotsByPath(IEnumerable<string> paths)
+    {
+        List<string> keys = [.. (paths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.Ordinal)];
+        var result = new Dictionary<string, ResourceHealthMaintenanceSnapshot>(StringComparer.Ordinal);
+        if (keys.Count == 0) { return result; }
+        using LR2SongDBExtended songDb = OpenSongDbReadOnly();
+        string tableName = SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName();
+        if (!TableExists(songDb, tableName)) { return result; }
+        for (int offset = 0; offset < keys.Count; offset += ChartInfoLookupChunkSize)
+        {
+            List<string> chunk = [.. keys.Skip(offset).Take(ChartInfoLookupChunkSize)];
+            string placeholders = string.Join(", ", chunk.Select(_ => "?"));
+            string sql = "SELECT * FROM " + tableName + " WHERE path IN (" + placeholders + ");";
+            foreach (LR2SongDBExtended.maintenance row in songDb.Query<LR2SongDBExtended.maintenance>(sql, [.. chunk.Cast<object>()]))
+            {
+                result[row.path] = MaintenanceStorageMapping.ToCommon(row);
+            }
+        }
+        return result;
+    }
+
     /// <summary>捕捉済みの共通保守値を、既存DB境界で保存列へ変換します。</summary>
     public void UpsertMaintenanceInfos(IEnumerable<ResourceHealthMaintenanceSnapshot> maintenanceInfos)
     {

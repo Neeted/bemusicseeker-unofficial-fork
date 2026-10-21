@@ -1597,6 +1597,7 @@ internal sealed partial class LibraryMutationOwner
     /// <summary>
     /// 確定済み maintenance target を canonical writer と共通 semantic 反映へ渡し、
     /// lease 解放後に実行する公開 action を組み立てます。
+    /// 明示された保留項目はDB確定後に同じentryへ反映し、所持全体のdispatchへ追加しません。
     /// </summary>
     internal MaintenanceWorkflowResult ApplyCatalogMaintenanceCore(
         ResourceMaintenanceTargetSet maintenanceTargets,
@@ -1607,7 +1608,8 @@ internal sealed partial class LibraryMutationOwner
         string resourceHealthMutationReason,
         out List<ChartFile> currentMaintenanceTargetCharts,
         out Action postCommitEffect,
-        Action<Action> postLeaseNotificationObserver = null)
+        Action<Action> postLeaseNotificationObserver = null,
+        IReadOnlyList<PackageChartEntry> pendingEntries = null)
     {
         postCommitEffect = null;
         CatalogWriteFailureFact deferredFailureFact = null;
@@ -1620,9 +1622,12 @@ internal sealed partial class LibraryMutationOwner
             resourceHealthIndexUpdateMode,
             resourceHealthMutationReason,
             captureFailureFact: fact => deferredFailureFact = fact,
-            postCommitEffectsObserver: action => catalogPostCommitEffects = action);
+            postCommitEffectsObserver: action => catalogPostCommitEffects = action,
+            selectedPendingPaths: (pendingEntries ?? []).Where(entry => entry.Chart.Token == null)
+                .Select(entry => entry.Chart.Path).ToHashSet(StringComparer.Ordinal));
         MaintenanceWorkflowResult workflowResult;
         currentMaintenanceTargetCharts = [.. maintenanceTargets.Charts];
+        ApplyPendingResourceHealth(pendingEntries, receipt.WorkflowResult.EvaluatedPendingCharts);
         resourceHealthMutationReason = receipt.Reason;
         ResourceHealthIndexMutation resourceHealthMutation;
         Action duplicateChartGroupsPostLeaseNotification;
@@ -2288,6 +2293,31 @@ internal sealed partial class LibraryMutationOwner
             installResult.InstalledTargetSet = targets;
         }
         return targets;
+    }
+
+    /// <summary>必要なDB保存を終えた入力元の再調査結果を、保存同値でも選択保留へ反映します。導入先・候補がある項目は新しい参照で配置を再評価します。</summary>
+    private void ApplyPendingResourceHealth(IReadOnlyList<PackageChartEntry> entries, IReadOnlyList<ChartFile> values)
+    {
+        if (entries == null || entries.Count == 0) { return; }
+        var pendingByPath = new Dictionary<string, ChartFile>(StringComparer.Ordinal);
+        foreach (ChartFile value in values ?? [])
+        {
+            if (value.Token == null) { pendingByPath[value.Path] = value; }
+        }
+        DirectoryResourceLookupCache cache = resourceIndexOwner.CaptureSnapshot().DirectoryLookupCache;
+        foreach (PackageChartEntry entry in entries)
+        {
+            ChartFile current = entry.Chart;
+            if (current.Token != null || !pendingByPath.TryGetValue(current.Path, out ChartFile value)) { continue; }
+            ChartResourcePlacement placement = entry.ResourcePlacement;
+            using IDisposable deferred = entry.DeferPropertyChangedNotifications();
+            entry.ApplyCalculatedResourceHealth(value, placement);
+            if (!string.IsNullOrWhiteSpace(current.InstallDestination) || current.InstallDestinationSuggestions.Count > 0)
+            {
+                BmsLibraryPackageInstallService.RefreshPendingResourceHealth([entry], null, cache,
+                    placement?.BundledResources, placement?.BundledResourcesComplete ?? true);
+            }
+        }
     }
 
     /// <summary>DB確定済みの文字コード変更を、要求で指定された保留項目だけへ接続します。所持識別への逆照合は行いません。</summary>

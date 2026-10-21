@@ -7,6 +7,9 @@ internal sealed class MaintenanceWorkflowResult
     /// <summary>保存が必要な値の確定後に反映する現在値です。保存同値でDB書込みを要しない警告投影だけの変更も含みます。</summary>
     internal List<ChartFile> ChangedCharts { get; } = [];
 
+    /// <summary>この操作で明示された選択保留の成功評価です。保存同値でも配置の再評価へ渡し、必要なDB保存に失敗した場合は公開しません。</summary>
+    internal List<ChartFile> EvaluatedPendingCharts { get; } = [];
+
     /// <summary>保存値または警告投影に更新があるかを表します。DB書込みの有無とは別に、保存同値の警告表示変更も含みます。</summary>
     public bool HasUpdates { get; set; }
 
@@ -110,6 +113,7 @@ internal sealed class MaintenanceWorkflowResultFacts
     private MaintenanceWorkflowResultFacts(MaintenanceWorkflowResult source)
     {
         ChangedCharts = System.Array.AsReadOnly([.. source?.ChangedCharts ?? []]);
+        EvaluatedPendingCharts = System.Array.AsReadOnly([.. source?.EvaluatedPendingCharts ?? []]);
         HasUpdates = source?.HasUpdates == true;
         CheckedFileCount = source?.CheckedFileCount ?? 0;
         BmsResourceTargetCount = source?.BmsResourceTargetCount ?? 0;
@@ -204,6 +208,9 @@ internal sealed class MaintenanceWorkflowResultFacts
     /// <summary>保存が必要な値の確定後に反映する共通現在値を、不変の対象集合として保持します。DB書込みを要しない保存同値の警告投影変更も含みます。</summary>
     internal IReadOnlyList<ChartFile> ChangedCharts { get; }
 
+    /// <summary>必要な保存を終えた選択保留の全成功評価です。DB書込みや所持版更新の要否には使いません。</summary>
+    internal IReadOnlyList<ChartFile> EvaluatedPendingCharts { get; }
+
     internal static MaintenanceWorkflowResultFacts From(MaintenanceWorkflowResult source)
     {
         return new MaintenanceWorkflowResultFacts(source);
@@ -257,6 +264,7 @@ internal sealed class MaintenanceWorkflowResultFacts
             TotalMs = TotalMs
         };
         result.ChangedCharts.AddRange(ChangedCharts);
+        result.EvaluatedPendingCharts.AddRange(EvaluatedPendingCharts);
         return result;
     }
 }

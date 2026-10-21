@@ -13,9 +13,11 @@ namespace BeMusicSeeker.ViewModels;
 
 internal interface ISelectedChartResourceHealthStore
 {
+    /// <summary>所持の捕捉値と選択した保留項目を、受理済み権限と共に再調査へ渡します。</summary>
     MaintenanceWorkflowResult RescanResourceHealthCharts(
         BMSLibrary library,
-        IReadOnlyList<ChartFile> charts, LibraryFileMutationCapability capability);
+        IReadOnlyList<ChartFile> charts, LibraryFileMutationCapability capability,
+        IReadOnlyList<PackageChartEntry> pendingEntries);
 
     void SetChartResourceWarningsIgnored(
         BMSLibrary library,
@@ -100,7 +102,7 @@ internal sealed class SelectedChartResourceHealthWorkflowOwner
             using IDisposable accepted = admission;
             using LibraryFileMutationCapability capability = gate.CreateMutationCapability(admission);
             MaintenanceWorkflowResult workflowResult = await Task.Run(
-                () => store.RescanResourceHealthCharts(library, request.Charts, capability));
+                () => store.RescanResourceHealthCharts(library, request.Charts, capability, request.PendingEntries));
             if (workflowResult == null)
             {
                 return SelectedChartResourceHealthWorkflowResult.Failed(
@@ -190,9 +192,10 @@ internal sealed class BmsLibrarySelectedChartResourceHealthStore : ISelectedChar
 {
     public MaintenanceWorkflowResult RescanResourceHealthCharts(
         BMSLibrary library,
-        IReadOnlyList<ChartFile> charts, LibraryFileMutationCapability capability)
+        IReadOnlyList<ChartFile> charts, LibraryFileMutationCapability capability,
+        IReadOnlyList<PackageChartEntry> pendingEntries)
     {
-        return library.RescanResourceHealthCharts(charts, capability: capability);
+        return library.RescanResourceHealthCharts(charts, capability: capability, pendingEntries: pendingEntries);
     }
 
     public void SetChartResourceWarningsIgnored(

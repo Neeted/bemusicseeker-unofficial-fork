@@ -8307,7 +8307,8 @@ public partial class BMSLibrary : ObservableObject
         ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode = ResourceHealthIndexUpdateMode.DeltaOnUpdates,
         string resourceHealthMutationReason = null,
         LibraryFileMutationCapability capability = null,
-        Action<Action> postLeaseNotificationObserver = null)
+        Action<Action> postLeaseNotificationObserver = null,
+        IReadOnlyList<PackageChartEntry> pendingEntries = null)
     {
         if (charts == null)
         {
@@ -8340,7 +8341,8 @@ public partial class BMSLibrary : ObservableObject
                     resourceHealthIndexUpdateMode,
                     resourceHealthMutationReason,
                     out _,
-                    out postCommitEffect);
+                    out postCommitEffect,
+                    pendingEntries: pendingEntries);
             }
         }
         catch
@@ -8572,18 +8574,23 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="charts">再スキャン対象。</param>
     /// <param name="progressReporter">section 単位の進捗通知。</param>
     /// <param name="cancellationToken">section 境界で確認するキャンセル token。</param>
+    /// <param name="pendingEntries">選択した保留項目。現在値を計算入力にし、DB確定後に同じ項目へ反映します。</param>
     /// <returns>再スキャン結果。</returns>
     internal MaintenanceWorkflowResult RescanResourceHealthCharts(
         IEnumerable<ChartFile> charts,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
-        CancellationToken cancellationToken = default, LibraryFileMutationCapability capability = null)
+        CancellationToken cancellationToken = default, LibraryFileMutationCapability capability = null,
+        IReadOnlyList<PackageChartEntry> pendingEntries = null)
     {
+        IEnumerable<ChartFile> targets = pendingEntries == null ? charts
+            : (charts ?? []).Where(chart => chart?.Token != null)
+                .Concat(pendingEntries.Select(entry => entry.Chart).Where(chart => chart.Token == null));
         MaintenanceWorkflowResult result = ApplyCatalogMaintenance(
-            charts,
+            targets,
             forceUpdate: true,
             progressReporter: progressReporter,
             cancellationToken: cancellationToken,
-            resourceHealthMutationReason: "resource_health_rescan", capability: capability);
+            resourceHealthMutationReason: "resource_health_rescan", capability: capability, pendingEntries: pendingEntries);
         return result;
     }
 

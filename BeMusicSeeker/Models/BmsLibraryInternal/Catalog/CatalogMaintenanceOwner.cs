@@ -170,7 +170,7 @@ internal sealed class CatalogMaintenanceOwner
         }
     }
 
-    /// <summary>保守結果を現在値へ確定し、更新がなければ既存の健全性索引を完了後の入力版へ接続します。</summary>
+    /// <summary>保守結果を現在値へ確定し、更新がなければ既存の健全性索引を完了後の入力版へ接続します。明示した選択保留は資源だけを再調査し、成功結果を保存差分と独立して返します。保留の保存差分は同path/hashのDB行と比較し、配置表示を比較元にしません。</summary>
     internal CatalogMaintenanceOperationReceipt ApplyMaintenance(
         ResourceMaintenanceTargetSet targetSet,
         bool forceUpdate,
@@ -181,7 +181,8 @@ internal sealed class CatalogMaintenanceOwner
         IBmsLibraryDialogService dialogServiceOverride = null,
         Action<string> logPerformanceOverride = null,
         Action<CatalogWriteFailureFact> captureFailureFact = null,
-        Action<Action> postCommitEffectsObserver = null)
+        Action<Action> postCommitEffectsObserver = null,
+        IReadOnlySet<string> selectedPendingPaths = null)
     {
         List<ChartFile> targetCharts = [.. (targetSet.Charts ?? [])
             .Where(chart => chart != null)];
@@ -194,13 +195,15 @@ internal sealed class CatalogMaintenanceOwner
         lock (ownedCollectionOwner.Gate)
         {
             targetCharts = [.. targetCharts.Select(chart =>
-                ownedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart))
-                    ?? (chart.Token == null ? chart : null)).Where(chart => chart != null)];
+                chart.Token == null && selectedPendingPaths?.Contains(chart.Path) == true ? chart
+                    : ownedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart))
+                        ?? (chart.Token == null ? chart : null)).Where(chart => chart != null)];
         }
         if (targetCharts.Count == 0)
         {
             return CatalogMaintenanceOperationReceipt.NotApplied;
         }
+        bool onlySelectedPendingTargets = targetCharts.All(chart => chart.Token == null && selectedPendingPaths?.Contains(chart.Path) == true);
         string mutationReason = string.IsNullOrWhiteSpace(reason) ? "maintenance" : reason;
         MaintenanceWorkflowResult workflowResult;
         int baseInputVersion;
@@ -220,6 +223,15 @@ internal sealed class CatalogMaintenanceOwner
                 indexCurrentBeforeUpdate = inputMutation.BaseIndexCurrent;
                 try
                 {
+                    List<ChartFile> pendingTargets = [.. targetCharts.Where(chart => chart.Token == null && selectedPendingPaths?.Contains(chart.Path) == true)];
+                    IReadOnlyDictionary<string, ResourceHealthMaintenanceSnapshot> savedByPath = dbGateway.LoadMaintenanceSnapshotsByPath(pendingTargets.Select(chart => chart.Path));
+                    var selectedPendingSnapshots = new Dictionary<string, ResourceHealthMaintenanceSnapshot>(StringComparer.Ordinal);
+                    foreach (ChartFile chart in pendingTargets)
+                    {
+                        // ハッシュの表記差は既存の内容識別契約に従い、保存差分へ混ぜません。未登録・別内容も選択キーを残します。
+                        selectedPendingSnapshots[chart.Path] = savedByPath.TryGetValue(chart.Path, out ResourceHealthMaintenanceSnapshot saved)
+                            && string.Equals(saved.Hash, chart.Md5, StringComparison.OrdinalIgnoreCase) ? saved with { Hash = chart.Md5 } : null;
+                    }
                     workflowResult = maintenanceService.UpdateMaintenanceInfo(
                         targetCharts,
                         forceUpdate,
@@ -233,11 +245,12 @@ internal sealed class CatalogMaintenanceOwner
                         effects =>
                         {
                             postCommitEffects = effects;
-                        });
+                        }, selectedPendingSnapshots);
                     if (workflowResult?.HasUpdates == true)
                     {
                         basicValuesChanged = ApplyCommittedCurrentValues(workflowResult.ChangedCharts);
-                        targetCharts = RefreshCurrentTargets(targetCharts);
+                        targetCharts = RefreshCurrentTargets(targetCharts.Where(chart =>
+                            chart.Token != null || selectedPendingPaths?.Contains(chart.Path) != true));
                         currentTargetSet = targetSet.WithCharts(targetCharts);
                     }
                 }
@@ -254,9 +267,9 @@ internal sealed class CatalogMaintenanceOwner
                     inputMutation.Dispose();
                 }
                 targetInputVersion = inputMutation.TargetInputVersion;
-                if (workflowResult?.HasUpdates == false)
+                if (workflowResult?.HasUpdates == false || onlySelectedPendingTargets)
                 {
-                    // 入力保護の開始・終了だけで版は進むため、同値でも現在索引の版接続を保ちます。
+                    // 入力保護だけでも版が進むため、同値または所持を変えない選択保留だけの更新では現在索引を次の版へ接続します。
                     resourceHealthOwner.RebaseAfterInputMutation(inputMutation, new ResourceHealthIndexCurrentVersion(targetInputVersion));
                 }
             }
