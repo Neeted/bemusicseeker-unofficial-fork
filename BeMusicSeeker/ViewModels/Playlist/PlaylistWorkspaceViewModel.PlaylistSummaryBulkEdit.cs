@@ -58,9 +58,11 @@ public sealed partial class PlaylistWorkspaceViewModel
             ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
     }
 
+    // 集約編集のXML書込みも、他のセクションが確定した最新の登録を基にします。
     private LR2Config GetLr2Config()
     {
-        return getLr2Config();
+        LR2Config current = getLr2Config();
+        return current == null ? null : new LR2Config(current.ConfigFilePath);
     }
 
     // 属性の旧値は編集入口が所有し、保存境界の失敗だけで戻します。確定後の出力失敗は保存済み値を保ちます。
@@ -1223,8 +1225,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         IReadOnlyDictionary<BMSTable, string> outputDirPathBeforeByTable,
         CustomFolderOutputSettingsSnapshot settings)
     {
+        if (settings?.OperationModeLR2DB != true) { return; }
         LR2Config lr2config = GetLr2Config();
-        if (settings?.OperationModeLR2DB != true || lr2config == null)
+        if (lr2config == null)
         {
             return;
         }
@@ -1487,8 +1490,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             },
             "playlist summary root folder notification");
 
-        LR2Config lr2config = GetLr2Config();
-        if (settings.OperationModeLR2DB && lr2config != null)
+        LR2Config lr2config = settings.OperationModeLR2DB ? GetLr2Config() : null;
+        if (lr2config != null)
         {
             List<string> bmsSearchDirectories = lr2config.GetBMSSearchDirectoriesForChangeTracking();
             if (isRootFolder)

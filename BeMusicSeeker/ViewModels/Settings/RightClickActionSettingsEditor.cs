@@ -15,7 +15,7 @@ namespace BeMusicSeeker.ViewModels;
 /// 右クリックの Web / program action を設定ダイアログ内の draft として保持します。
 /// 編集中は <see cref="Settings.RightClickActionsJson"/> を変更せず、検証成功後だけ親ダイアログが保存します。
 /// </summary>
-public sealed class RightClickActionSettingsEditor : ViewModel
+public sealed partial class RightClickActionSettingsEditor : ViewModel
 {
     private readonly ObservableCollection<RightClickWebActionEditorRow> webActions = [];
 

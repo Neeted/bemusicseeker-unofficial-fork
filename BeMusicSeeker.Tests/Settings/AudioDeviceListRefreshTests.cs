@@ -13,12 +13,12 @@ using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
 
-/// <summary>実ownerの一覧取得とdraft・照会・保存の境界を、workerのgateで順序制御します。</summary>
+/// <summary>実ownerの一覧取得と局所候補・照会・保存の境界を、workerのgateで順序制御します。</summary>
 [TestClass]
-[DoNotParallelize] // 取消・保存の外観復元と共有音声runtimeの受付を準備から解放まで所有する。
+[DoNotParallelize] // 共有音声runtimeの受付を準備から解放まで所有する。
 public sealed class AudioDeviceListRefreshTests
 {
-    /// <summary>可視通知の到着順によらず初回だけ取得し、列挙中の編集とCloseを許可し、旧結果を閉画面へ通知しません。再表示中なら同じTaskから現在draftを表示します。</summary>
+    /// <summary>可視通知の到着順によらず初回だけ取得し、列挙中の編集とCloseを許可し、旧結果を閉画面へ通知しません。再表示は確定値から開始し、その表示での新しい候補を同じ取得Taskへ接続します。</summary>
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
@@ -71,6 +71,9 @@ public sealed class AudioDeviceListRefreshTests
                 if (reopenBeforeCompletion)
                 {
                     dialog.SetPresentationActive(true);
+                    Assert.AreEqual("current", dialog.PlayerDevice, "有効な選択の自動保存を再表示でも保持します。");
+                    dialog.PlayerDevice = "current";
+                    resetReason = dialog.AudioOutputSelectionResetMessage;
                     dialog.SetAudioSettingsPageVisible(true);
                 }
                 Assert.AreEqual(1, catalog.RefreshCount);
@@ -224,7 +227,7 @@ public sealed class AudioDeviceListRefreshTests
                 }
                 dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
                 bool savedOtherValue = dialog.ShowRecommUpdatedMsg;
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SaveSettings(), "save-during-audio-list");
+
                 Settings reader = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
                 Assert.AreEqual(savedOtherValue, reader.ShowRecommUpdatedMsg);
                 Assert.AreEqual((int)selection.Backend, (int)reader.PlayerDriver);

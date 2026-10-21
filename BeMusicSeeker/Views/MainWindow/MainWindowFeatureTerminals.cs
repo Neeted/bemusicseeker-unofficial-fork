@@ -167,28 +167,6 @@ internal sealed class MainWindowColumnResetTerminal
 }
 
 /// <summary>
-/// Owns removal of one library search root after the compiled context-menu route resolves its path.
-/// </summary>
-internal sealed class MainWindowRootFolderUnregisterTerminal
-{
-    private readonly Func<string, Task> unregister;
-
-    internal MainWindowRootFolderUnregisterTerminal(Func<string, Task> unregister)
-    {
-        this.unregister = unregister ?? throw new ArgumentNullException(nameof(unregister));
-    }
-
-    internal Task UnregisterAsync(string path) => unregister(path);
-
-    internal static MainWindowRootFolderUnregisterTerminal Create(MainWindowViewModel viewModel)
-    {
-        ArgumentNullException.ThrowIfNull(viewModel);
-        return new MainWindowRootFolderUnregisterTerminal(
-            viewModel.SettingDialog.RequestRemoveBmsSearchRootAsync);
-    }
-}
-
-/// <summary>
 /// Owns chart-target and library-folder auto-rename requests from the compiled shell menus.
 /// </summary>
 internal sealed class MainWindowFolderAutoRenameTerminal

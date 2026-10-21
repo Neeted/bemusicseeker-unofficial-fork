@@ -13,19 +13,23 @@ internal sealed class OperationModeRestartRequest
     /// <summary>
     /// 動作モードと、同じ終端保存境界で保持する履歴表示 target identity を指定します。
     /// </summary>
-    /// <param name="operationMode">再起動後に選択する動作モード。</param>
+    /// <param name="environment">保存し後継へ渡す環境の最小組。</param>
     /// <param name="historyIdentity">再起動後に選択する履歴表示 target identity。</param>
-    internal OperationModeRestartRequest(bool operationMode, string historyIdentity)
+    internal OperationModeRestartRequest(EnvironmentSettingsChange environment, string historyIdentity, Func<Task> beforeShutdown = null)
     {
-        OperationMode = operationMode;
         HistoryIdentity = historyIdentity;
+        Environment = environment ?? throw new ArgumentNullException(nameof(environment));
+        BeforeShutdown = beforeShutdown;
     }
-
-    /// <summary>再起動後に選択する動作モードを取得します。</summary>
-    internal bool OperationMode { get; }
 
     /// <summary>保存する履歴表示対象の識別子を取得します。</summary>
     internal string HistoryIdentity { get; }
+
+    /// <summary>確定する環境の最小組です。</summary>
+    internal EnvironmentSettingsChange Environment { get; }
+
+    /// <summary>保存・再起動受理後、終了開始前に終端を待つ既存BMT処理と結果通知です。</summary>
+    internal Func<Task> BeforeShutdown { get; }
 }
 
 /// <summary>

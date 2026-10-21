@@ -2,6 +2,7 @@ using System;
 using System.CodeDom.Compiler;
 using System.Configuration;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using BeMusicSeeker.Models;
@@ -20,6 +21,58 @@ namespace BeMusicSeeker.Properties;
 [SettingsProvider(typeof(PortableSettingsProvider))]
 internal sealed class Settings : ApplicationSettingsBase
 {
+    /// <summary>指定した項目だけを保存し、全保存の成功後に確定値を公開します。未確定入力はこのオブジェクトへ置きません。</summary>
+    internal void Commit(params (string Name, object Value)[] changes)
+    {
+        SettingsPropertyValueCollection selected = [];
+        foreach ((string name, object value) in changes)
+        {
+            if (!Equals(this[name], value))
+            {
+                selected.Add(new SettingsPropertyValue(Properties[name]) { PropertyValue = value });
+            }
+        }
+        if (selected.Count == 0) { return; }
+        Properties[selected.Cast<SettingsPropertyValue>().First().Name].Provider.SetPropertyValues(Context, selected);
+        Publish(selected.Cast<SettingsPropertyValue>().Select(item => (item.Name, item.PropertyValue)).ToArray());
+    }
+
+    /// <summary>二媒体の保存担当が、対象項目を確定readerへ公開せず保存します。保存済み事実の所有と公開時機は呼出元が担当します。</summary>
+    internal void Persist(params (string Name, object Value)[] changes)
+    {
+        if (changes.Length == 0) { return; }
+        SettingsPropertyValueCollection selected = [];
+        foreach ((string name, object value) in changes)
+        { selected.Add(new SettingsPropertyValue(Properties[name]) { PropertyValue = value }); }
+        Properties[changes[0].Name].Provider.SetPropertyValues(Context, selected);
+    }
+
+    /// <summary>必要な媒体が全部保存された後、対象だけを確定readerへ公開します。媒体の再読込みは行いません。</summary>
+    internal void Publish(params (string Name, object Value)[] changes)
+    {
+        foreach ((string name, object value) in changes)
+        {
+            this[name] = value;
+            PropertyValues[name].IsDirty = false;
+        }
+    }
+
+    /// <summary>画面外で変更した項目だけを保存し、別のwrapperが保存した無関係な値を上書きしません。</summary>
+    public override void Save()
+    {
+        var saving = new System.ComponentModel.CancelEventArgs();
+        OnSettingsSaving(this, saving);
+        if (saving.Cancel) { return; }
+        SettingsPropertyValueCollection selected = [];
+        foreach (SettingsPropertyValue item in PropertyValues)
+        {
+            if (item.IsDirty) { selected.Add(item); }
+        }
+        if (selected.Count == 0) { return; }
+        Properties[selected.Cast<SettingsPropertyValue>().First().Name].Provider.SetPropertyValues(Context, selected);
+        foreach (SettingsPropertyValue item in selected) { item.IsDirty = false; }
+    }
+
     internal const double DefaultTreeViewWidth = 250d;
 
     internal const double MinTreeViewWidth = 160d;

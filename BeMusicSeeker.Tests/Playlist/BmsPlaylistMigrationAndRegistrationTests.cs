@@ -805,9 +805,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", targetPath));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist WHERE playlist_id = ?;", table.playlist_id));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist_entry WHERE playlist_id = ?;", table.playlist_id));
-            CollectionAssert.DoesNotContain(
-                config.GetBMSSearchDirectoriesForChangeTracking(),
-                targetDir);
+            // 保存結果は新しいXML readerから確認します。
             var reloadedConfig = new LR2Config(Path.Combine(lr2RootPath, "LR2files", "Config", "config.xml"));
             CollectionAssert.DoesNotContain(
                 reloadedConfig.GetBMSSearchDirectoriesForChangeTracking(),

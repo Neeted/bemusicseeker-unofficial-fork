@@ -1322,7 +1322,7 @@ public sealed class AudioContractsTests
         Assert.AreEqual("BASS_ERROR_NOPLAY", BassNativeErrorFormatter.Format(Errors.NotPlaying));
     }
 
-    /// <summary>利用者が変更した音量をruntimeへ届け、Closeで最大voice観測の解除とFreeまで実行する。</summary>
+    /// <summary>保存済み音量を変えず利用者の音量previewをruntimeへ直接届け、Closeで最大voice観測の解除とFreeまで実行する。</summary>
     [TestMethod]
     public void InternalPlayer_DelegatesVolumeAndCloseLifecycleToPlaybackRuntime()
     {
@@ -1330,19 +1330,19 @@ public sealed class AudioContractsTests
         int originalVolume = settings.uBMplayVolume;
         try
         {
-            settings.uBMplayVolume = 123;
             var events = new List<string>();
             var runtime = new RecordingAudioPlaybackRuntime(events);
             var player = new InternalBMSAutoPlayerSoundOnly(
                 new SettingsPlayerSettingsGateway(() => settings),
                 runtime);
 
-            player.VolumeChanged();
+            player.VolumeChanged(37);
             player.CloseProcess();
 
             CollectionAssert.AreEqual(
-                new[] { "volume:123", "clear-max-voices", "free" },
+                new[] { "volume:37", "clear-max-voices", "free" },
                 events);
+            Assert.AreEqual(originalVolume, settings.uBMplayVolume);
         }
         finally
         {
@@ -2343,6 +2343,7 @@ public sealed class AudioContractsTests
 
     private sealed class ObservedPlaybackDialogs(List<string> events) : IPlaybackDialogService
     {
+        public void NotifySettingsSaveFailure(Exception exception) => throw new AssertFailedException("Unexpected volume save failure.", exception);
         internal TaskCompletionSource<Exception> Failure { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal int Notifications { get; private set; }
         internal int TemporaryFilesRemainNotifications { get; private set; }

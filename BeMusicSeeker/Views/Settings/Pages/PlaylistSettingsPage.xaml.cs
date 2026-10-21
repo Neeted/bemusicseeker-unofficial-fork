@@ -35,7 +35,7 @@ public partial class PlaylistSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            settingsWindow.HandleBrowseLr2CustomFolderOutputDirectory();
+            await settingsWindow.HandleBrowseLr2CustomFolderOutputDirectory();
         }
         catch (Exception exception)
         {
@@ -48,7 +48,7 @@ public partial class PlaylistSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            settingsWindow.HandleBrowseLr2CustomFolderAsRootOutputDirectory();
+            await settingsWindow.HandleBrowseLr2CustomFolderAsRootOutputDirectory();
         }
         catch (Exception exception)
         {
@@ -61,7 +61,7 @@ public partial class PlaylistSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            settingsWindow.HandleAddCustomFolderAdditionalOutputBase();
+            await settingsWindow.HandleAddCustomFolderAdditionalOutputBase();
         }
         catch (Exception exception)
         {
@@ -74,7 +74,7 @@ public partial class PlaylistSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            GetViewModel().RemoveSelectedCustomFolderAdditionalOutputBaseDir();
+            await settingsWindow.ConfirmAdditionalOutputOperationAsync(rename: false);
         }
         catch (Exception exception)
         {
@@ -87,7 +87,7 @@ public partial class PlaylistSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            GetViewModel().RenameSelectedCustomFolderAdditionalOutputBaseDir();
+            await settingsWindow.ConfirmAdditionalOutputOperationAsync(rename: true);
         }
         catch (Exception exception)
         {

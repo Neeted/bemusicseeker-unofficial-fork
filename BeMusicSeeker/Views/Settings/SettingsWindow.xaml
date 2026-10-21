@@ -16,12 +16,13 @@
  KeyDown="SettingsWindowKeyDown">
   <views:ThemedWindow.Resources>
     <ResourceDictionary>
+      <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
       <ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="SettingsControls.xaml" />
       </ResourceDictionary.MergedDictionaries>
     </ResourceDictionary>
   </views:ThemedWindow.Resources>
-  <Grid x:Name="settingDialogRootGrid" IsEnabled="{Binding IsEditCompletionEnabled}">
+  <Grid x:Name="settingDialogRootGrid" Button.Click="settingsSectionButtonClick" LostFocus="settingsInputLostFocus" PreviewKeyDown="settingsInputPreviewKeyDown" PreviewKeyUp="settingsInputPreviewKeyUp" PreviewMouseUp="settingsInputMouseLeftButtonUp">
     <Border Style="{StaticResource App.Canonical.NativeWindowContentStyle}" Padding="0">
       <Grid x:Name="settingDialogOperationGrid" TextElement.Foreground="{DynamicResource App.TextBrush}">
         <Grid SnapsToDevicePixels="True">
@@ -89,10 +90,16 @@
                             AutomationProperties.AutomationId="SettingsSelectedPageContent" />
           </ScrollViewer>
           <Border Grid.Row="3" Background="{DynamicResource App.SeparatorBrush}" />
-          <StackPanel x:Name="settingsFooter" Grid.Row="4" Margin="24,16" HorizontalAlignment="Right" Orientation="Horizontal">
-            <Button x:Name="buttonOK" Style="{StaticResource SettingsPrimaryButtonStyle}" MinWidth="112" Margin="0,0,8,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Save_and_close, Mode=OneWay}" AutomationProperties.AutomationId="SettingsSaveAndClose" Click="buttonOKClick" />
-            <Button x:Name="buttonCancel" Style="{StaticResource SettingsQuietButtonStyle}" MinWidth="88" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCancel" IsEnabled="{Binding IsEditCancellationEnabled}" Click="buttonCancelClick" />
+          <Grid Grid.Row="4">
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+            <StackPanel Margin="24,8">
+              <TextBlock TextWrapping="Wrap" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_use_on_start}" Visibility="{Binding IsInitialEnvironment, Converter={StaticResource BooleanToVisibilityConverter}}" />
+            </StackPanel>
+          <StackPanel x:Name="settingsFooter" Grid.Row="1" Margin="24,16" HorizontalAlignment="Right" Orientation="Horizontal">
+            <Button x:Name="buttonOK" Style="{StaticResource SettingsPrimaryButtonStyle}" MinWidth="112" Margin="0,0,8,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_start_environment, Mode=OneWay}" AutomationProperties.AutomationId="SettingsStartEnvironment" Visibility="{Binding IsInitialEnvironment, Converter={StaticResource BooleanToVisibilityConverter}}" Click="buttonOKClick" />
+            <Button x:Name="buttonCancel" Style="{StaticResource SettingsQuietButtonStyle}" MinWidth="88" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Close, Mode=OneWay}" AutomationProperties.AutomationId="SettingsClose" IsEnabled="{Binding IsEditCancellationEnabled}" Click="buttonCancelClick" />
           </StackPanel>
+          </Grid>
         </Grid>
       </Grid>
       </Grid>

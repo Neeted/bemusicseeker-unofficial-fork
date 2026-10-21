@@ -325,91 +325,27 @@ public sealed class MainWindowTreePresentationWpfTests
             zeroNoteRecheckTerminal: terminal);
     }
 
-    /// <summary>実フォルダメニューの登録解除で選択したrootのパスを一回渡すことを確認し、別フォルダの解除や対象パスの欠落を検出します。</summary>
+    /// <summary>実compiledツリーメニューに旧ルート編集入口がなく、残る再読込・再初期化が既通知失敗を一回消費することを確認します。</summary>
     [TestMethod]
-    public void RootFolderUnregisterUsesActualCompiledMenuRoute()
+    public void LibraryMenuKeepsReloadRoutesAndOmitsRootEditing()
     {
-        int calls = 0;
-        string? requestedPath = null;
-        var terminal = new MainWindowRootFolderUnregisterTerminal(path =>
-        {
-            calls++;
-            requestedPath = path;
-            return Task.CompletedTask;
-        });
-
-        MainWindowPresentationTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
-            (_, window) =>
-            {
-                var menu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
-                menu.PlacementTarget = new TreeViewItem { Header = @"C:\\wave6e-root" };
-                MenuItem unregister = menu.Items
-                    .OfType<MenuItem>()
-                    .Single(item => BindingOperations.GetBinding(item, HeaderedItemsControl.HeaderProperty) is Binding binding
-                        && string.Equals(binding.Path?.Path, "Resources.Cancel_root_folder", StringComparison.Ordinal));
-
-                RaiseMenuClick(unregister);
-
-                Assert.AreEqual(1, calls);
-                Assert.AreEqual(@"C:\\wave6e-root", requestedPath);
-            },
-            rootFolderUnregisterTerminal: terminal);
-    }
-
-    /// <summary>再読込・再初期化・登録解除が欠損rootの既通知失敗を返しても、実メニューは各一回呼出して未処理例外にしないことを確認し、shell終端で通知済み失敗を再送する誤りを検出します。</summary>
-    [TestMethod]
-    public void DirectoryPreflightFailureIsConsumedByLibraryShellTerminals()
-    {
-        var failure = new LibraryDirectoryPreflightException(
-            LibraryDirectoryPreflightUse.BmsRoot,
-            @"C:\missing-bms-root",
-            LibraryDirectoryPreflightFailureCause.NotFound,
-            "missing");
+        var failure = new LibraryDirectoryPreflightException(LibraryDirectoryPreflightUse.BmsRoot,
+            @"C:\missing-bms-root", LibraryDirectoryPreflightFailureCause.NotFound, "missing");
         int reloadCalls = 0;
         int reinitializeCalls = 0;
-        int unregisterCalls = 0;
-        var reloadTerminal = new MainWindowLibraryReloadMenuTerminal(
-            () =>
-            {
-                reloadCalls++;
-                return Task.FromException(failure);
-            },
-            () =>
-            {
-                reinitializeCalls++;
-                return Task.FromException(failure);
-            });
-        var unregisterTerminal = new MainWindowRootFolderUnregisterTerminal(_ =>
+        var terminal = new MainWindowLibraryReloadMenuTerminal(
+            () => { reloadCalls++; return Task.FromException(failure); },
+            () => { reinitializeCalls++; return Task.FromException(failure); });
+        MainWindowPresentationTestHarness.RunConstructorOnly(MainWindowViewModelTestFactory.CreateIsolatedSettings(), (_, window) =>
         {
-            unregisterCalls++;
-            return Task.FromException(failure);
-        });
-
-        MainWindowPresentationTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
-            (_, window) =>
-            {
-                var menu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
-                MenuItem[] reloadCommands = menu.Items.OfType<MenuItem>().Take(2).ToArray();
-                RaiseMenuClick(reloadCommands[0]);
-                RaiseMenuClick(reloadCommands[1]);
-
-                menu.PlacementTarget = new TreeViewItem { Header = @"C:\missing-bms-root" };
-                MenuItem unregister = menu.Items
-                    .OfType<MenuItem>()
-                    .Single(item => BindingOperations.GetBinding(item, HeaderedItemsControl.HeaderProperty) is Binding binding
-                        && string.Equals(binding.Path?.Path, "Resources.Cancel_root_folder", StringComparison.Ordinal));
-                RaiseMenuClick(unregister);
-                TestUiDispatcherHost.ProcessQueuedPresentation();
-
-                Assert.AreEqual(1, reloadCalls);
-                Assert.AreEqual(1, reinitializeCalls);
-                Assert.AreEqual(1, unregisterCalls);
-            },
-            allowStartupUiInteraction: true,
-            libraryReloadMenuTerminal: reloadTerminal,
-            rootFolderUnregisterTerminal: unregisterTerminal);
+            var menu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
+            MenuItem[] items = menu.Items.OfType<MenuItem>().ToArray();
+            Assert.IsFalse(items.Any(item => BindingOperations.GetBinding(item, HeaderedItemsControl.HeaderProperty) is Binding binding
+                && binding.Path.Path is "Resources.Cancel_root_folder" or "Resources.Add_root_folder"));
+            RaiseMenuClick(items[0]); RaiseMenuClick(items[1]);
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            Assert.AreEqual(1, reloadCalls); Assert.AreEqual(1, reinitializeCalls);
+        }, allowStartupUiInteraction: true, libraryReloadMenuTerminal: terminal);
     }
 
     /// <summary>保留を起動時に選ぶ利用者設定で構成した実MainWindowが保留rootを選択することを確認し、初期選択の設定を無視する接続漏れを検出します。</summary>
@@ -541,14 +477,13 @@ internal static class MainWindowPresentationTestHarness
         MainWindowInstallTreeTerminal? installTreeTerminal = null,
         MainWindowZeroNoteRecheckTerminal? zeroNoteRecheckTerminal = null,
         MainWindowColumnResetTerminal? columnResetTerminal = null,
-        MainWindowRootFolderUnregisterTerminal? rootFolderUnregisterTerminal = null,
         IUiDialogService? playlistWorkspaceDialogService = null)
     {
         ArgumentNullException.ThrowIfNull(test);
         RunConstructorOnly(settings, (_, viewModel, window) => test(viewModel, window),
             allowStartupUiInteraction, libraryReloadMenuTerminal, regularLibraryTreeTerminal,
             maintenanceTreeTerminal, installTreeTerminal, zeroNoteRecheckTerminal,
-            columnResetTerminal, rootFolderUnregisterTerminal, playlistWorkspaceDialogService);
+            columnResetTerminal, playlistWorkspaceDialogService);
     }
 
     /// <summary>表示する実親Windowを、終了処理を所有する同じscopeで追跡します。</summary>
@@ -562,7 +497,6 @@ internal static class MainWindowPresentationTestHarness
         MainWindowInstallTreeTerminal? installTreeTerminal = null,
         MainWindowZeroNoteRecheckTerminal? zeroNoteRecheckTerminal = null,
         MainWindowColumnResetTerminal? columnResetTerminal = null,
-        MainWindowRootFolderUnregisterTerminal? rootFolderUnregisterTerminal = null,
         IUiDialogService? playlistWorkspaceDialogService = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -593,7 +527,6 @@ internal static class MainWindowPresentationTestHarness
                     installTreeTerminal: installTreeTerminal,
                     zeroNoteRecheckTerminal: zeroNoteRecheckTerminal,
                     columnResetTerminal: columnResetTerminal,
-                    rootFolderUnregisterTerminal: rootFolderUnregisterTerminal,
                     folderAutoRenameTerminal: null,
                     duplicateMaintenanceTerminal: null,
                     maintenanceRescanTerminal: null,

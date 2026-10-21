@@ -145,18 +145,8 @@ RANKING/RANK UPDATE/T-SCORE/ΔMAXの表示を更新できますが、
 プレビューが不完全となる場合があります。</value>
   </data>
   <data name="Msg_init_settings" xml:space="preserve">
-    <value>初回起動時は、「設定」画面で言語と動作モードを選び、必要な項目を入力してください。
-
-スタンドアローン（LR2 と連携しない）:
-一般: BMS ディレクトリ
-インストール: 新規インストール先
-
-LR2 連携:
-一般: LR2 ディレクトリ
-プレイリスト: カスタムフォルダ出力先
-インストール: 新規インストール先
-
-必須項目を入力して「保存して閉じる」を押すまで、BMSファイルのスキャンは開始できません。</value>
+    <value>初回起動時は設定画面で言語と動作モードを選び、環境・BMSディレクトリ・新規インストール先をそれぞれ確定してください。LR2連携ではカスタムフォルダ出力先も確定します。
+保存済みの必須項目を確認して「この環境で開始」を押すと、初期化とスキャンを開始します。</value>
   </data>
   <data name="InitialSetupLanguageDialogTitle" xml:space="preserve">
     <value>初回設定を始めます</value>
@@ -166,11 +156,6 @@ LR2 連携:
   </data>
   <data name="Export" xml:space="preserve">
     <value>エクスポート</value>
-  </data>
-  <data name="Msg_initsetting_completed" xml:space="preserve">
-    <value>設定を保存しました。
-これからBMSファイルの初回スキャンを開始します。
-初回は全ファイルを確認するため、ライブラリ規模によって時間がかかる場合があります。</value>
   </data>
   <data name="Tooltip_rewind" xml:space="preserve">
     <value>巻き戻し</value>
@@ -917,9 +902,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
 自動リネームを行います
 続行するとこの操作は取り消しできません</value>
   </data>
-  <data name="Cancel_root_folder" xml:space="preserve">
-    <value>ルートフォルダの登録解除</value>
-  </data>
   <data name="AddDate" xml:space="preserve">
     <value>追加日時</value>
   </data>
@@ -993,9 +975,6 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
   </data>
   <data name="Create_new" xml:space="preserve">
     <value>新規作成</value>
-  </data>
-  <data name="Add_root_folder" xml:space="preserve">
-    <value>ルートフォルダを追加</value>
   </data>
   <data name="PlaylistProp_output_dst" xml:space="preserve">
     <value>出力先</value>
@@ -1168,9 +1147,9 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>BMSインストール先を登録済みのBMSディレクトリから選択してください。カスタムフォルダ出力先はインストール先として使用できません。</value>
   </data>
   <data name="Confirm_RestartForOperationModeChange" xml:space="preserve">
-    <value>LR2連携モードの切り替えを反映するため、アプリケーションを再起動します。
-動作モードのみ保存し、他の未保存の設定変更は保存されません。
-よろしいですか?</value>
+    <value>環境設定を保存してアプリケーションを再起動します。
+環境に必要なBMT処理と結果通知の後に終了します。
+続行しますか？</value>
   </data>
   <data name="Error_RestartApplicationFailed" xml:space="preserve">
     <value>設定は保存されましたが、アプリケーションの自動再起動に失敗しました。
@@ -1384,9 +1363,6 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   </data>
   <data name="Cancel" xml:space="preserve">
     <value>キャンセル</value>
-  </data>
-  <data name="Save_and_close" xml:space="preserve">
-    <value>保存して閉じる</value>
   </data>
   <data name="Close" xml:space="preserve">
     <value>閉じる</value>
@@ -3035,7 +3011,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="Operation_Mode_Standalone" xml:space="preserve"><value>スタンドアローン</value></data>
   <data name="Operation_Mode_LR2" xml:space="preserve"><value>LR2 連携</value></data>
   <data name="LR2_integration" xml:space="preserve"><value>LR2 連携</value></data>
-  <data name="Settings_appearance_theme_description" xml:space="preserve"><value>設定画面を含むアプリ全体の配色を選択します。変更はすぐにプレビューされます。</value></data>
+  <data name="Settings_appearance_theme_description" xml:space="preserve"><value>設定画面を含むアプリケーション全体の配色を選びます。選択時に保存して反映します。</value></data>
   <data name="Settings_appearance_theme_light_description" xml:space="preserve"><value>明るい背景で表示します。</value></data>
   <data name="Settings_appearance_theme_dark_description" xml:space="preserve"><value>暗い背景で表示します。</value></data>
   <data name="Settings_appearance_table_description" xml:space="preserve"><value>ライブラリ一覧の文字と行の密度を調整します。</value></data>
@@ -3063,7 +3039,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="Enable" xml:space="preserve"><value>有効</value></data>
   <data name="Install_shift_jis_description" xml:space="preserve"><value>フォルダ名をShift_JISで表現できる文字に置き換え、互換性を優先します。</value></data>
   <data name="Settings_danger_zone" xml:space="preserve"><value>危険な操作</value></data>
-  <data name="Settings_danger_zone_description" xml:space="preserve"><value>次の操作は保存していない設定とは別に即時実行され、データを削除する場合があります。</value></data>
+  <data name="Settings_danger_zone_description" xml:space="preserve"><value>次の操作は設定の確定とは別に実行し、データを削除する場合があります。</value></data>
   <data name="Settings_uninstall_application_data" xml:space="preserve"><value>BeMusicSeeker 関連データを削除...</value></data>
   <data name="About_application_icon" xml:space="preserve"><value>BeMusicSeeker アプリケーションアイコン</value></data>
   <data name="About_application_name" xml:space="preserve"><value>BeMusicSeeker Unofficial Fork</value></data>
@@ -3981,4 +3957,17 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Backup_destination_description" xml:space="preserve">
     <value>この機能専用のフォルダを指定してください。保存先直下の今日以前の日付形式（yyyy-MM-dd）のフォルダは、作成元や内容に関係なく、世代整理で削除されることがあります。</value>
   </data>
+  <data name="Settings_confirm_bms_roots" xml:space="preserve"><value>BMSディレクトリを変更</value></data>
+  <data name="Settings_confirm_bmt" xml:space="preserve"><value>BMT出力を変更・再更新</value></data>
+  <data name="Settings_confirm_environment" xml:space="preserve"><value>環境を確定（稼働中は再起動）</value></data>
+  <data name="Settings_start_environment" xml:space="preserve"><value>この環境で開始</value></data>
+  <data name="Settings_cancel_changes" xml:space="preserve"><value>この変更を取り消す</value></data>
+  <data name="Settings_processing_retry" xml:space="preserve"><value>設定は保存済みですが、処理が完了していません。同じ確定ボタンで再試行してください。</value></data>
+  <data name="Settings_repair_related_save" xml:space="preserve"><value>関連する保存が未完了です。同じセクションで内容を修正するか、再試行して保存を完了してください。</value></data>
+  <data name="Settings_replacement_install" xml:space="preserve"><value>一覧から外れる導入先の代替</value></data>
+  <data name="Settings_use_on_start" xml:space="preserve"><value>保存済みの設定は「この環境で開始」で使用します。</value></data>
+  <data name="Settings_confirm_record" xml:space="preserve"><value>この項目を確定</value></data>
+  <data name="Settings_environment" xml:space="preserve"><value>環境</value></data>
+  <data name="Settings_open_bms_roots" xml:space="preserve"><value>BMS一覧を編集</value></data>
+  <data name="Settings_retry" xml:space="preserve"><value>再試行</value></data>
 </root>

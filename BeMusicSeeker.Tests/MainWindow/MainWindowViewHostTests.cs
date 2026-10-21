@@ -1174,112 +1174,6 @@ public sealed class MainWindowViewHostTests
         });
     }
 
-    /// <summary>実導入中のmode保存はBusy通知で終端し、編集済みdraftとXMLを保ち、元worker終端後の明示保存だけを実行します。</summary>
-    [DataTestMethod]
-    [DataRow(false)] // 書込み可能なXMLでも実導入の受付中は保存しません。
-    [DataRow(true)] // XMLをlockしてもBusy拒否が先行し保存失敗へ進みません。
-    public void MainWindowOperationModeSaveWhilePackageRunsReportsBusyAndRetainsDraft(bool saveBlocked)
-    {
-        using var directory = new TestTemporaryDirectory("mode-save-busy");
-        Settings settings = CreatePlaybackHostSettings(directory.Path);
-        settings.ShowScoreViewerRegisterConfirmMsg = false;
-        settings.Save();
-        string settingsPath = Path.Combine(directory.Path, "user.config");
-        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var release = new ManualResetEventSlim();
-        TestUiDispatcherHost.Invoke(() =>
-        {
-            MainWindowViewModel? viewModel = null;
-            FileStream? blocker = null;
-            int workerCount = 0;
-            var player = new FakeBmsPlayer();
-            var lifetime = new RecordingApplicationLifetime();
-            var session = new PersistentSettingsEditSession(settings);
-            var dialogs = new AcceptedModeDialogService();
-            var failures = new List<Exception>();
-            try
-            {
-                var composition = new ApplicationComposition(
-                    settingsEditSession: session,
-                    defaultBmsPlayerFactory: () => player,
-                    uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
-                    applicationLifetime: lifetime,
-                    applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe")),
-                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                    settingsDialogService: dialogs,
-                    reportSettingsApplyFailure: failures.Add,
-                    packageInstallMutationPort: new DelegatePackageInstallMutationPort((_, _, _, _) =>
-                    {
-                        Interlocked.Increment(ref workerCount);
-                        entered.TrySetResult();
-                        release.Wait();
-                        return new PackageInstallCommandResult([], null);
-                    }));
-                viewModel = composition.CreateMainWindowViewModel();
-                viewModel.StartupUpdateWorkflow.NotifyClosing();
-                BMSLibrary library = composition.CreateBmsLibrary(new LibraryProfile(false,
-                    composition.ApplicationPathSnapshot.StandaloneSongDbPath, [], () => null!, null,
-                    false, false, false, false, "mode-save-busy"));
-                viewModel.PackageInstallWorkflow.AttachLibrary(library);
-                viewModel.PackageInstallWorkflow.EnqueueSingle(Path.Combine(directory.Path, "pending.zip"));
-                Task idle = viewModel.PackageInstallWorkflow.WaitForIdleAsync();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(entered.Task, idle), "mode-busy-worker-arrival");
-                Assert.IsTrue(entered.Task.IsCompleted, "実workerへ到達せず操作が終端しました。");
-                Assert.IsFalse(idle.IsCompleted);
-                Assert.IsTrue(composition.OperationAdmission.IsActive);
-                // 初回設定ではmodeはdraftであり、編集中も実導入の受付を解除しません。
-                viewModel.SettingDialog.OperationModeLR2DB = true;
-                viewModel.SettingDialog.ShowScoreViewerRegisterConfirmMsg = true;
-                byte[] beforeSave = File.ReadAllBytes(settingsPath);
-                bool beforeMode = settings.OperationModeLR2DB;
-                int stopsBeforeSave = player.CloseProcessCount;
-                if (saveBlocked) { blocker = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite); }
-
-                viewModel.SettingDialog.SaveOperationModeForRestart(viewModel.SettingDialog.OperationModeLR2DB);
-
-                Assert.AreEqual(1, dialogs.Messages.Count);
-                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, dialogs.Messages.Single().MessageBoxText);
-                Assert.AreEqual(0, dialogs.ConfirmationCount);
-                Assert.AreEqual(0, session.ModeSaveCount);
-                Assert.AreEqual(0, session.SaveCount);
-                Assert.AreEqual(0, lifetime.RestartCount);
-                Assert.AreEqual(0, lifetime.RequestShutdownCount);
-                Assert.AreEqual(stopsBeforeSave, player.CloseProcessCount, "Busy保存は先行導入の停止に加えてplayerを停止しません。");
-                Assert.AreEqual(0, failures.Count);
-                Assert.IsFalse(viewModel.ShellShutdownWorkflow.IsShutdownPreparationStarted);
-                Assert.AreEqual(beforeMode, settings.OperationModeLR2DB);
-                Assert.IsTrue(viewModel.SettingDialog.OperationModeLR2DB);
-                Assert.IsTrue(viewModel.SettingDialog.ShowScoreViewerRegisterConfirmMsg);
-                CollectionAssert.AreEqual(beforeSave, File.ReadAllBytes(settingsPath));
-                Assert.IsFalse(idle.IsCompleted);
-                Assert.IsTrue(composition.OperationAdmission.IsActive);
-                blocker?.Dispose();
-                blocker = null;
-                release.Set();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(idle, "mode-busy-worker-terminal");
-                Assert.AreEqual(1, workerCount);
-                Assert.AreEqual(0, session.ModeSaveCount, "Busy保存は元処理の終端後も再実行しません。");
-                Assert.IsFalse(composition.OperationAdmission.IsActive);
-                viewModel.SettingDialog.SaveOperationModeForRestart(viewModel.SettingDialog.OperationModeLR2DB);
-                Assert.AreEqual(1, session.ModeSaveCount);
-                Assert.AreEqual(0, session.SaveCount);
-                Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(settingsPath).OperationModeLR2DB);
-                Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(settingsPath).ShowScoreViewerRegisterConfirmMsg);
-            }
-            finally
-            {
-                release.Set();
-                blocker?.Dispose();
-                if (viewModel != null)
-                {
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PackageInstallWorkflow.WaitForIdleAsync(), "mode-busy-worker-cleanup");
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "mode-busy-close");
-                    viewModel.SettingDialog.Dispose();
-                    viewModel.RegularChartList.Dispose();
-                }
-            }
-        });
-    }
 
     /// <summary>実設定のモード切替はplayer終了をUI停止せず待ち、モードと履歴を保存して新プロセス開始後に旧Windowを終端します。</summary>
     [TestMethod]
@@ -1313,6 +1207,14 @@ public sealed class MainWindowViewHostTests
         var settings = (Settings)System.Configuration.SettingsBase.Synchronized(
             PortableSettingsPersistenceTests.OpenSettings(settingsPath));
         settings.OperationModeLR2DB = false;
+        string linkedDatabase = Path.Combine(directory.Path, "LR2files", "Database", "song.db");
+        string linkedConfig = Path.Combine(directory.Path, "LR2files", "Config", "config.xml");
+        Directory.CreateDirectory(Path.GetDirectoryName(linkedDatabase)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(linkedConfig)!);
+        File.WriteAllBytes(linkedDatabase, []);
+        File.WriteAllText(linkedConfig, "<config><system /><jukebox /></config>");
+        settings.LR2SongDBPath = linkedDatabase;
+        settings.LR2ConfigXmlPath = linkedConfig;
         settings.PlayHistorySelectedDisplayTargetIdentity = "history-initial";
         settings.BMSRootPath = directory.Path;
         settings.StandaloneBmsRootPaths = directory.Path;
@@ -1469,6 +1371,7 @@ public sealed class MainWindowViewHostTests
                 // 後続要求に先立つ受理済みL保守は上の準備で実work終端まで回収済みです。
                 Assert.IsFalse(composition.OperationAdmission.IsActive, "受理済み起動保守の準備終端後にmode保存を要求します。");
                 viewModel.SettingDialog.OperationModeLR2DB = true;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.SettingDialog.CommitEnvironmentAsync(), "environment confirmation");
                 if (operationModeSaveFailure)
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(
@@ -1476,7 +1379,7 @@ public sealed class MainWindowViewHostTests
                         "MainWindowViewHostTests.mode-restart-save-failure");
                 }
                 Assert.AreEqual(
-                    !closeDuringConfirmation && !operationModeSaveFailure,
+                    true,
                     viewModel.SettingDialog.OperationModeLR2DB,
                     $"確認回数={settingsDialogs.ConfirmationCount}, モード保存回数={settingsSession.ModeSaveCount}, "
                         + $"編集完了中={viewModel.SettingDialog.IsEditCompletionInProgress}, "
@@ -1500,7 +1403,7 @@ public sealed class MainWindowViewHostTests
                     Assert.AreEqual(0, lifetime.RequestShutdownCount);
                     CollectionAssert.AreEqual(originalSettingsBytes, File.ReadAllBytes(settingsPath));
                     Assert.IsFalse(settings.OperationModeLR2DB);
-                    Assert.IsFalse(viewModel.SettingDialog.OperationModeLR2DB);
+                    Assert.IsTrue(viewModel.SettingDialog.OperationModeLR2DB);
                     Assert.IsTrue(viewModel.SettingDialog.ShowScoreViewerRegisterConfirmMsg);
                 }
                 // 待機中の Close 再入も同じ terminal を共有します。
@@ -1529,7 +1432,7 @@ public sealed class MainWindowViewHostTests
                 Settings persisted = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
                 Assert.AreEqual(!closeDuringConfirmation && !operationModeSaveFailure, persisted.OperationModeLR2DB);
                 Assert.AreEqual("history-initial", persisted.PlayHistorySelectedDisplayTargetIdentity);
-                Assert.AreEqual(operationModeSaveFailure || closeDuringConfirmation, persisted.ShowScoreViewerRegisterConfirmMsg);
+                Assert.IsTrue(persisted.ShowScoreViewerRegisterConfirmMsg);
 
                 if (!windowClosed)
                 {
@@ -1641,10 +1544,10 @@ public sealed class MainWindowViewHostTests
             inner.Save();
         }
 
-        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+        public void SaveEnvironmentForRestart(EnvironmentSettingsChange environment, string historyIdentity)
         {
             ModeSaveCount++;
-            inner.SaveOperationModeForRestart(operationMode, historyIdentity);
+            inner.SaveEnvironmentForRestart(environment, historyIdentity);
         }
     }
 
@@ -1767,14 +1670,14 @@ public sealed class MainWindowViewHostTests
         public void ChangePlayside() { }
         public void IncreaseHighSpeed() { }
         public void DecreaseHighSpeed() { }
-        public void VolumeChanged() { }
+        public void VolumeChanged(int volume) { }
     }
 
     private sealed class RecordingSettingsEditSession : ISettingsEditSession
     {
-        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+        public void SaveEnvironmentForRestart(EnvironmentSettingsChange environment, string historyIdentity)
         {
-            Values.OperationModeLR2DB = operationMode;
+            environment.Commit(Values);
             Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
             Save();
             Reload();

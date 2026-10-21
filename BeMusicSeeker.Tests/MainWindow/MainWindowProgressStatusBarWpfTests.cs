@@ -39,7 +39,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
             var terminals = new MainWindowProgressStatusBarTerminals(() => { }, () => { }, () => { });
             MainWindow window = ownership.CreateWindow(() => new MainWindow(fixture.Owner, settingsWindowCreated: null, libraryReloadMenuTerminal: null,
                 regularLibraryTreeTerminal: null, maintenanceTreeTerminal: null, installTreeTerminal: null,
-                zeroNoteRecheckTerminal: null, columnResetTerminal: null, rootFolderUnregisterTerminal: null,
+                zeroNoteRecheckTerminal: null, columnResetTerminal: null,
                 folderAutoRenameTerminal: null, duplicateMaintenanceTerminal: null, maintenanceRescanTerminal: null,
                 packageCatalogTerminal: null, pendingInstallEstimationTerminal: null, pendingInstallationTerminal: null,
                 installedLocationRepairTerminal: null, pendingBulkMaintenanceTerminal: null, mainChartCellEditTerminal: null,
@@ -281,7 +281,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
                     installTreeTerminal: null,
                     zeroNoteRecheckTerminal: null,
                     columnResetTerminal: null,
-                    rootFolderUnregisterTerminal: null,
+
                     folderAutoRenameTerminal: null,
                     duplicateMaintenanceTerminal: null,
                     maintenanceRescanTerminal: null,

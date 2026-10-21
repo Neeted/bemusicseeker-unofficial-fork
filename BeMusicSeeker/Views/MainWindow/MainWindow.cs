@@ -103,7 +103,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private readonly MainWindowColumnResetTerminal columnResetTerminal;
 
-    private readonly MainWindowRootFolderUnregisterTerminal rootFolderUnregisterTerminal;
 
     private readonly MainWindowFolderAutoRenameTerminal folderAutoRenameTerminal;
 
@@ -266,45 +265,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    private async void addRootFolderMenuItemClick(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            if (base.DataContext is not MainWindowViewModel { SettingDialog: { } settingDialogViewModel } viewModel)
-            {
-                return;
-            }
-
-            UiFolderPickerResult result = await new UiDialogCoordinator()
-                .PickFolderAsync(new UiFolderPickerRequest(
-                    selectedPath: viewModel.LibraryFolderTree.BMSParentFolderList?.FirstOrDefault(),
-                    multiselect: false,
-                    owner: this));
-            ThrowIfPickerFailed(result.Status, result.Error, "Main window add root folder picker");
-            if (result.Status == UiDialogStatus.Accepted)
-            {
-                try
-                {
-                    await settingDialogViewModel.AddBmsSearchRootPathFromMainWindowPicker(result.FolderPath);
-                }
-                catch (LibraryDirectoryPreflightException)
-                {
-                    // MainWindowViewModel が cleanup 後に warning を表示するため、
-                    // shell terminal では同じ失敗を再通知しない。
-                }
-                catch (Exception exception)
-                {
-                    await NotifyMainWindowOperationFailureAsync(exception, "addRootFolderMenuItemClick",
-                        SettingsFailureMessage.Format(exception));
-                }
-            }
-        }
-        catch (Exception exception)
-        {
-            await NotifyMainWindowOperationFailureAsync(exception, "addRootFolderMenuItemClick");
-        }
-    }
-
     private ContextMenu _lastOpenedContextMenu;
 
     private PlayHistoryDateSearchTerm playHistoryDateSearchSnapshot;
@@ -397,7 +357,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             null,
             null,
             null,
-            null,
             playlistWorkspaceDialogService,
             mainWindowForegroundTerminal,
             chartPropertiesManagerFactory)
@@ -415,7 +374,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="installTreeTerminal">install tree selection terminal。</param>
     /// <param name="zeroNoteRecheckTerminal">zero-note recheck terminal。</param>
     /// <param name="columnResetTerminal">column reset terminal。</param>
-    /// <param name="rootFolderUnregisterTerminal">library search-root removal terminal。</param>
     internal MainWindow(
         MainWindowViewModel viewModel,
         Action<SettingsWindow>? settingsWindowCreated,
@@ -424,8 +382,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MainWindowMaintenanceTreeTerminal? maintenanceTreeTerminal,
         MainWindowInstallTreeTerminal? installTreeTerminal,
         MainWindowZeroNoteRecheckTerminal? zeroNoteRecheckTerminal,
-        MainWindowColumnResetTerminal? columnResetTerminal,
-        MainWindowRootFolderUnregisterTerminal? rootFolderUnregisterTerminal)
+        MainWindowColumnResetTerminal? columnResetTerminal)
         : this(
             viewModel,
             settingsWindowCreated,
@@ -435,7 +392,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             installTreeTerminal,
             zeroNoteRecheckTerminal,
             columnResetTerminal,
-            rootFolderUnregisterTerminal,
             null,
             null,
             null,
@@ -463,7 +419,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="installTreeTerminal">install tree selection terminal。</param>
     /// <param name="zeroNoteRecheckTerminal">zero-note recheck terminal。</param>
     /// <param name="columnResetTerminal">column reset terminal。</param>
-    /// <param name="rootFolderUnregisterTerminal">library search-root removal terminal。</param>
     /// <param name="folderAutoRenameTerminal">chart and folder auto-rename terminal。</param>
     /// <param name="duplicateMaintenanceTerminal">duplicate-folder maintenance terminal。</param>
     /// <param name="maintenanceRescanTerminal">full resource-health rescan terminal。</param>
@@ -490,7 +445,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MainWindowInstallTreeTerminal? installTreeTerminal,
         MainWindowZeroNoteRecheckTerminal? zeroNoteRecheckTerminal,
         MainWindowColumnResetTerminal? columnResetTerminal,
-        MainWindowRootFolderUnregisterTerminal? rootFolderUnregisterTerminal,
         MainWindowFolderAutoRenameTerminal? folderAutoRenameTerminal,
         MainWindowDuplicateMaintenanceTerminal? duplicateMaintenanceTerminal,
         MainWindowMaintenanceRescanTerminal? maintenanceRescanTerminal,
@@ -520,7 +474,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         this.installTreeTerminal = installTreeTerminal ?? MainWindowInstallTreeTerminal.Create(viewModel);
         this.zeroNoteRecheckTerminal = zeroNoteRecheckTerminal ?? MainWindowZeroNoteRecheckTerminal.Create(viewModel);
         this.columnResetTerminal = columnResetTerminal ?? MainWindowColumnResetTerminal.Create(viewModel);
-        this.rootFolderUnregisterTerminal = rootFolderUnregisterTerminal ?? MainWindowRootFolderUnregisterTerminal.Create(viewModel);
         this.folderAutoRenameTerminal = folderAutoRenameTerminal ?? MainWindowFolderAutoRenameTerminal.Create(viewModel);
         this.duplicateMaintenanceTerminal = duplicateMaintenanceTerminal ?? MainWindowDuplicateMaintenanceTerminal.Create(viewModel);
         this.maintenanceRescanTerminal = maintenanceRescanTerminal ?? MainWindowMaintenanceRescanTerminal.Create(viewModel);
@@ -1654,6 +1607,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         PlaylistPropertyDialog propertyDialog = activePlaylistPropertyDialog;
         PlaylistSummaryBulkEditDialog bulkEditDialog = activePlaylistSummaryBulkEditDialog;
         Task propertyOperationTask = propertyDialog?.WaitForOperationCompletionAsync() ?? Task.CompletedTask;
+        Task settingsOperationTask = settingsWindow?.WaitForOperationCompletionAsync() ?? Task.CompletedTask;
         Task bulkApplyTask = bulkEditDialog?.WaitForApplyCompletionAsync() ?? Task.CompletedTask;
         Task propertyCleanupTask = playlistPropertyDialogCleanupTask ?? Task.CompletedTask;
         Task bulkCleanupTask = playlistSummaryBulkEditDialogCleanupTask ?? Task.CompletedTask;
@@ -1671,7 +1625,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         // The dialog owns its operation and session lifetime.  Keep the owner alive until
         // the operation, forced close, DataContext detach, and workspace cleanup have all
         // reached their terminal signals.
-        await Task.WhenAll(propertyOperationTask, bulkApplyTask, settingsAudioTask,
+        await Task.WhenAll(propertyOperationTask, bulkApplyTask, settingsAudioTask, settingsOperationTask,
             lampCleanupTask, propertyCleanupTask, bulkCleanupTask, chartPropertiesReadTask,
             playlistImportDialogCleanupTask).ConfigureAwait(true);
 
@@ -5477,36 +5431,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     }
 
     /// <summary>
-    /// BMS検索フォルダコンテキストメニュー「BMS検索フォルダから除外」実行時の処理。
-    /// ユーザー確認ダイアログ表示後、アプリケーション設定のBMSルートフォルダー一覧から該当のパスを除外して保存します。
+    /// 選択した検索フォルダ配下の一括自動リネーム要求を機能担当へ渡します。
+    /// 競合時は要求を開始せず、確認・対象検査・実処理の受付と寿命は自動リネーム担当に委ねます。
     /// </summary>
-    private async void treeViewLibraryFolderContextMenuItemUnregisterRootFolder(object sender, RoutedEventArgs e)
-    {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem placementTarget } }))
-        {
-            return;
-        }
-        string path = placementTarget.Header.ToString();
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-        try
-        {
-            await rootFolderUnregisterTerminal.UnregisterAsync(path);
-        }
-        catch (LibraryDirectoryPreflightException)
-        {
-            // MainWindowViewModel が cleanup 後に warning を表示するため、
-            // shell terminal では汎用 persistence failure を重ねない。
-        }
-        catch (Exception exception)
-        {
-            await NotifyMainWindowOperationFailureAsync(exception, "treeViewLibraryFolderContextMenuItemUnregisterRootFolder",
-                SettingsFailureMessage.Format(exception));
-        }
-    }
-
     private async void treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick(object sender, RoutedEventArgs e)
     {
         try

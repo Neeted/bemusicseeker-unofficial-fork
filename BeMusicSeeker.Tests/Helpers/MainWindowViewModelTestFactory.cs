@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -14,9 +15,11 @@ namespace BeMusicSeeker.Tests;
 
 internal static class MainWindowViewModelTestFactory
 {
+    private static readonly ConcurrentBag<string> isolatedSettingsDirectories = [];
+
     /// <summary>
     /// 明示された設定、または他の testhost と共有しない既定値で画面 owner を構成する。
-    /// 永続化は NoOpSettingsEditSession が抑止するため、既定の専用 path にファイルは作られない。
+    /// 項目保存で生成した専用ファイルは、当該testhostの全処理・画面終端後に回収します。
     /// </summary>
     internal static MainWindowViewModel Create(Settings? settings = null, BeMusicSeeker.Views.Dialogs.IUiDialogService? fileDbMutationDialogs = null)
     {
@@ -33,12 +36,25 @@ internal static class MainWindowViewModelTestFactory
     /// <summary>テストホスト間で共有しないポータブル設定インスタンスを作成します。</summary>
     internal static Settings CreateIsolatedSettings(Action<Settings>? configure = null)
     {
-        Settings settings = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(
-            Path.GetTempPath(),
-            "BmsViewModelSettings-" + Guid.NewGuid().ToString("N"),
-            "user.config"));
+        string directory = Path.Combine(Path.GetTempPath(), "BmsViewModelSettings-" + Guid.NewGuid().ToString("N"));
+        isolatedSettingsDirectories.Add(directory);
+        Settings settings = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory, "user.config"));
         configure?.Invoke(settings);
         return settings;
+    }
+
+    /// <summary>このtesthostが生成した設定専用ディレクトリだけを、全テストと共有画面の終端後に回収します。</summary>
+    internal static void CleanupIsolatedSettingsDirectories()
+    {
+        string temporaryRoot = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar);
+        while (isolatedSettingsDirectories.TryTake(out string? ownedDirectory))
+        {
+            string fullPath = Path.GetFullPath(ownedDirectory);
+            if (!string.Equals(Path.GetDirectoryName(fullPath), temporaryRoot, StringComparison.OrdinalIgnoreCase)
+                || !Path.GetFileName(fullPath).StartsWith("BmsViewModelSettings-", StringComparison.Ordinal))
+            { throw new InvalidOperationException("設定fixture所有外の削除を拒否しました: " + fullPath); }
+            if (Directory.Exists(fullPath)) { Directory.Delete(fullPath, recursive: true); }
+        }
     }
 
     /// <summary>独立fixture、または既存実画面と同じcompositionのL/Pでライブラリを作成します。</summary>
@@ -106,9 +122,9 @@ internal static class MainWindowViewModelTestFactory
 
 internal sealed class NoOpSettingsEditSession : ISettingsEditSession
 {
-    public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+    public void SaveEnvironmentForRestart(EnvironmentSettingsChange environment, string historyIdentity)
     {
-        Values.OperationModeLR2DB = operationMode;
+        environment.Commit(Values);
         Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
         Save();
         Reload();

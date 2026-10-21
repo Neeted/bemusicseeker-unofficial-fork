@@ -11,9 +11,11 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -28,6 +30,113 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlaybackPanelViewModelTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+
+    /// <summary>主画面のcompiled音量メニューもpreviewを確定設定へ漏らさず、マウス操作終端と終了開始で最終音量だけを保存します。</summary>
+    /// <remarks>実Popupのbindingとイベント配送を観測し、音量通知から音声runtimeへの接続は設定画面とAudioContractsの代表ケースへ分担します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void PlaybackPanelView_VolumeMenuCommitsOnMouseCompletionAndShutdown()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            Dispatcher previousDispatcher = Livet.DispatcherHelper.UIDispatcher;
+            Livet.DispatcherHelper.UIDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+            string directory = Path.Combine(Path.GetTempPath(), "MainVolume-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            string path = Path.Combine(directory, "user.config");
+            Settings values = PortableSettingsPersistenceTests.OpenSettings(path);
+            values.uBMplayVolume = 50;
+            values.Save();
+            var player = new FakeBmsPlayer();
+            PlaybackPanelViewModel panel = CreatePanel(player, new SettingsPlaybackSettingsStore(() => values));
+            var view = new PlaybackPanelView { DataContext = panel };
+            var window = new Window { Content = view, Width = 640, Height = 360, ShowInTaskbar = false };
+            ContextMenu? menu = null;
+            IEnumerable<DependencyObject> Descendants(DependencyObject item)
+            {
+                for (int index = 0; index < VisualTreeHelper.GetChildrenCount(item); index++)
+                {
+                    DependencyObject child = VisualTreeHelper.GetChild(item, index);
+                    yield return child;
+                    foreach (DependencyObject descendant in Descendants(child)) { yield return descendant; }
+                }
+            }
+            try
+            {
+                scope.ShowAndWaitForContentRendered(window);
+                DropDownMenuButton dropdown = Descendants(view).OfType<DropDownMenuButton>().Single();
+                menu = dropdown.DropDownContextMenu;
+                menu.PlacementTarget = dropdown;
+                menu.IsOpen = true;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Slider slider = Descendants(menu).OfType<Slider>().Single(item => item.Name == "playerVolumeSlider");
+                slider.SetCurrentValue(Slider.ValueProperty, 37d);
+                Assert.AreEqual(37, panel.PlayerVolume);
+                Assert.AreEqual(50, values.uBMplayVolume);
+                Assert.AreEqual(37, player.LastVolume);
+                slider.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0,
+                    System.Windows.Input.MouseButton.Left)
+                { RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent });
+                Assert.AreEqual(37, PortableSettingsPersistenceTests.OpenSettings(path).uBMplayVolume);
+                slider.SetCurrentValue(Slider.ValueProperty, 44d);
+                Assert.AreEqual(37, values.uBMplayVolume);
+                panel.BeginShutdown();
+                Assert.AreEqual(44, PortableSettingsPersistenceTests.OpenSettings(path).uBMplayVolume);
+            }
+            finally
+            {
+                try
+                {
+                    if (menu != null) { menu.IsOpen = false; }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(panel.CloseForShutdown(), "main-volume-terminal");
+                    view.DisposePlayerHost();
+                    window.Content = null;
+                    window.Close();
+                    Directory.Delete(directory, recursive: true);
+                }
+                finally { Livet.DispatcherHelper.UIDispatcher = previousDispatcher; }
+            }
+        });
+    }
+
+    /// <summary>player方式の確定は現Task・曲・playerを維持し、次の明示開始でだけ捕捉済みfactoryを使います。</summary>
+    [TestMethod]
+    public async Task ConfirmedPlayerFactoryIsUsedOnlyAtNextPlaybackStart()
+    {
+        string[] paths = [Path.GetTempFileName(), Path.GetTempFileName()];
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = new PreloadBmsPlayer { Completion = completion.Task };
+        var second = new PreloadBmsPlayer { Completion = completion.Task };
+        var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
+        var panel = new PlaybackPanelViewModel(first, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("再生失敗"), new ChartFileOperationSynchronizer());
+        int created = 0;
+        try
+        {
+            await panel.StartAtIndex(0);
+            ChartFile? current = panel.NowPlayingChart;
+            ((ISettingsDialogPlaybackRuntimePort)panel).UsePlayerForNextPlayback(() => { created++; return second; });
+            Assert.AreEqual(0, created);
+            Assert.AreEqual(0, first.CloseProcessCount);
+            Assert.AreSame(current, panel.NowPlayingChart);
+            Assert.IsTrue(panel.IsPlaying);
+            await panel.Start(forceNewPlay: false);
+            Assert.AreEqual(0, created, "一時停止は次の再生開始に含めません。");
+            Assert.AreSame(current, panel.NowPlayingChart);
+            await panel.StartAtIndex(1);
+            Assert.AreEqual(1, created);
+            Assert.AreEqual(1, first.CloseProcessCount);
+            CollectionAssert.AreEqual(new[] { paths[1] }, second.Starts.ToArray());
+            Assert.AreEqual(paths[1], panel.NowPlayingChart?.Path);
+        }
+        finally
+        {
+            completion.TrySetResult();
+            panel.BeginShutdown();
+            await panel.CloseForShutdown();
+            foreach (string path in paths) { File.Delete(path); }
+        }
+    }
 
     /// <summary>
     /// 実一時コピーを二件残留させ、元名復元と変更受付の解放後に一度だけ通知します。
@@ -1120,7 +1229,7 @@ public sealed class PlaybackPanelViewModelTests
         panel.BeginPlayback(playingFile, 0);
 
         var settingsRuntime = (ISettingsDialogPlaybackRuntimePort)panel;
-        settingsRuntime.ApplyPlayerSettingsAsync(replacement).GetAwaiter().GetResult();
+        panel.ReplacePlayerAsync(replacement, clearPlaybackStatus: true).GetAwaiter().GetResult();
 
         Assert.AreEqual(1, first.CloseProcessCount);
         Assert.AreSame(host, replacement.WindowHost);
@@ -1151,7 +1260,7 @@ public sealed class PlaybackPanelViewModelTests
         PlaybackPanelViewModel panel = CreatePanel(first);
 
         Task replacementTask =
-            ((ISettingsDialogPlaybackRuntimePort)panel).ApplyPlayerSettingsAsync(replacement);
+            panel.ReplacePlayerAsync(replacement, clearPlaybackStatus: true);
 
         closeEntered.Wait();
         Assert.IsFalse(replacementTask.IsCompleted);
@@ -1173,8 +1282,8 @@ public sealed class PlaybackPanelViewModelTests
 
         try
         {
-            ((ISettingsDialogPlaybackRuntimePort)panel)
-                .ApplyPlayerSettingsAsync(replacement)
+            panel
+                .ReplacePlayerAsync(replacement, clearPlaybackStatus: true)
                 .GetAwaiter()
                 .GetResult();
             Assert.Fail("Expected replacement preparation to fail.");
@@ -3869,6 +3978,8 @@ public sealed class PlaybackPanelViewModelTests
 
         public int PlayerVolume { get; set; }
 
+        public void CommitPlayerVolume() { }
+
         public bool UsesLr2Database { get; set; }
     }
 
@@ -4027,7 +4138,8 @@ public sealed class PlaybackPanelViewModelTests
 
         public void DecreaseHighSpeed() => RecordCommand("DecreaseHighSpeed");
 
-        public void VolumeChanged() => RecordCommand("VolumeChanged");
+        internal int LastVolume { get; private set; }
+        public void VolumeChanged(int volume) { LastVolume = volume; RecordCommand("VolumeChanged"); }
 
         private void RecordCommand(string command)
         {
@@ -4108,6 +4220,7 @@ public sealed class PlaybackPanelViewModelTests
 
     private sealed class FakePlaybackDialogService : IPlaybackDialogService
     {
+        public void NotifySettingsSaveFailure(Exception exception) => throw new AssertFailedException("Unexpected volume save failure.", exception);
         internal Func<string, Task>? TemporaryFilesRemainNotification { get; set; }
         internal int TemporaryFilesRemainNotificationCount { get; private set; }
 

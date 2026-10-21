@@ -910,7 +910,8 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         SendReleaseKeyEvent(KeyCode.KEY1);
     }
 
-    public void VolumeChanged()
+    /// <summary>外部プレイヤーの実行中音量は変更しません。次の起動では保存済みの音量を使います。</summary>
+    public void VolumeChanged(int volume)
     {
     }
 

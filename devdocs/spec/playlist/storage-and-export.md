@@ -211,6 +211,8 @@ SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行
 | 新規draftの初回登録と出力失敗後の同ID再保存、同時編集の三境界 | `PlaylistPropertySaveService`、`PlaylistPropertyEditSession` | [`PlaylistWorkspaceActionWorkflowTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)の`CreatePlaylistPropertyDialog_OutputFailureResavesRegisteredDraftWithoutDuplicateId`と`PlaylistPropertySave_RejectsAStaleDetachedSessionWithoutOverwritingConcurrentChanges`。属性・参照・本番項目追加の版を観測する。 |
 | 借用した読取りの解放、参照先の確定と操作の受付 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistWorkspaceActionWorkflowTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs) |
 
+設定画面のBMT出力はBMT組の明示確定から全表再更新し、通常・ルート出力先はフォルダ選択と既存確認から、追加先は追加・削除・改名から必要な変更だけ確定して既存移行を実行します。両者は[設定変更](../runtime/settings.md)の局所保存単位に従い、他セクションの候補や通常項目保存を出力の開始条件にしません。
+
 ## 関連資料
 
 [LR2出力](lr2-custom-folders.md)、[BMT出力](bmt-export.md)、[プロパティ画面](../ui/playlist-properties.md)、[データと索引](../core/data-and-indexes.md)を参照します。

@@ -49,6 +49,8 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
 
     private bool viewOperationInProgress;
 
+    private TaskCompletionSource viewOperationCompletion;
+
     private readonly IUiDialogService dialogService;
 
     private readonly SettingsWindowApplicationExitTerminal applicationExitTerminal;
@@ -204,6 +206,9 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             ?? throw new ArgumentNullException(nameof(applicationExitTerminal));
         var construction = Stopwatch.StartNew();
         InitializeComponent();
+        DataContextChanged += SettingsDataContextChanged;
+        AddHandler(System.Windows.Controls.Primitives.Thumb.DragCompletedEvent,
+            new System.Windows.Controls.Primitives.DragCompletedEventHandler(settingsSliderDragCompleted));
         categoryPages = new UserControl[11];
         settingsPageContent.Content = GetOrCreateCategoryPage(0);
         LogSettingsDialogPerformance("settings_window_construct", construction);
@@ -323,6 +328,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     {
         try
         {
+            PlaybackPanel?.CompleteVolumeAdjustment();
             if (presentationActivated && base.DataContext is SettingsDialogViewModel settingDialogViewModel)
             {
                 presentationActivated = false;
@@ -349,7 +355,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     }
 
     /// <summary>
-    /// ViewModel の Apply、Cancel、または通常 presentation close request を rollback なしで完了します。
+    /// 初期化完了または通常表示担当の終了要求で画面を閉じます。保存済み項目は復元しません。
     /// </summary>
     internal void CloseFromPresentation()
     {
@@ -357,14 +363,14 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         if (closeReason == SettingsWindowCloseReason.None)
         {
             closeReason = GetSettingDialogViewModel().IsEditCompletionInProgress
-                ? SettingsWindowCloseReason.Apply
+                ? SettingsWindowCloseReason.InitializationCompleted
                 : SettingsWindowCloseReason.Presentation;
         }
         Close();
     }
 
     /// <summary>
-    /// owner shell の terminal shutdown に伴う close を Cancel guard と rollback の対象外にします。
+    /// shell終了では表示を失効させ、通常閉鎖のguardを通さず閉じます。受理Taskは既存の終了担当が別に待ちます。
     /// </summary>
     internal void CloseForOwnerShutdown()
     {
@@ -387,7 +393,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         }
 
         userCancellationQueued = true;
-        closeReason = SettingsWindowCloseReason.Cancel;
+        closeReason = SettingsWindowCloseReason.UserClose;
         Dispatcher.InvokeAsync((Func<Task>)(() =>
         {
             userCancellationQueued = false;
@@ -400,7 +406,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         presentationCloseObserved = false;
         try
         {
-            settingDialogViewModel.CancelCommand.Execute();
+            settingDialogViewModel.CloseCommand.Execute();
         }
         catch (Exception exception)
         {
@@ -436,17 +442,17 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         }
 
         viewOperationInProgress = true;
-        settingDialogOperationGrid.IsEnabled = false;
+        viewOperationCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     private void EndViewOperation()
     {
-        if (DataContext != null)
-        {
-            settingDialogOperationGrid.IsEnabled = true;
-        }
         viewOperationInProgress = false;
+        viewOperationCompletion?.TrySetResult();
     }
+
+    /// <summary>所有者終了が、設定画面から開始した受理済み処理と通知の実終端を回収します。</summary>
+    internal Task WaitForOperationCompletionAsync() => viewOperationCompletion?.Task ?? Task.CompletedTask;
 
     /// <summary>
     /// 非同期処理の完了と利用者の閉じる操作の抑止を接続します。
@@ -469,11 +475,11 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     }
 
     /// <summary>
-    /// ViewModel の終了要求でのみ設定画面を閉じ、保存後の処理まで追跡します。
+    /// 確定済み環境の初期化と必須公開を追跡し、成功した表示終了要求でのみ閉じます。
     /// </summary>
-    /// <param name="operation">ViewModel が所有する設定の保存・後続処理。</param>
+    /// <param name="operation">ViewModel が所有する初期化・必須公開処理。</param>
     /// <returns>設定の反映と画面側の後片付けの完了を表すタスク。</returns>
-    internal async Task RunApplyOperationAsync(Func<Task> operation)
+    internal async Task RunInitializationOperationAsync(Func<Task> operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
         closeReason = SettingsWindowCloseReason.None;
@@ -541,7 +547,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     {
         try
         {
-            await RunApplyOperationAsync(() => GetSettingDialogViewModel().ApplySettingsAsync());
+            await RunInitializationOperationAsync(() => GetSettingDialogViewModel().StartConfirmedEnvironmentAsync());
         }
         catch (Exception exception)
         {
@@ -551,7 +557,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
 
     private async void buttonCancelClick(object sender, RoutedEventArgs e)
     {
-        closeReason = SettingsWindowCloseReason.Cancel;
+        closeReason = SettingsWindowCloseReason.UserClose;
         await CompleteUserCancellationAsync(GetSettingDialogViewModel());
     }
 
@@ -818,7 +824,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PlaylistWorkspaceViewModel playlistWorkspace = PlaylistWorkspace
             ?? throw new InvalidOperationException("Playlist workspace is unavailable.");
-        playlistWorkspace.StartBeatorajaTableUrlImport(settingDialogViewModel.BeatorajaRootPath);
+        playlistWorkspace.StartBeatorajaTableUrlImport(settingDialogViewModel.ConfirmedBeatorajaRootPath);
     }
 
     /// <summary>Owns the stage image picker route for the Appearance page.</summary>
@@ -863,40 +869,40 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         PickDirectoryForSetting(nameof(SettingsDialogViewModel.EncoderExeDir), null, BeMusicSeeker.Properties.Resources.Record_setting_encoder_dir_dialog);
     }
 
-    /// <summary>Owns the standard custom-folder output picker route.</summary>
-    internal void HandleBrowseLr2CustomFolderOutputDirectory()
-    {
-        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        PickRootFolderForSetting(
-            nameof(settingDialogViewModel.LR2CustomFolderOutputDir),
-            FirstNonEmpty(settingDialogViewModel.LR2CustomFolderOutputDir, settingDialogViewModel.LR2RootPath));
-    }
+    /// <summary>通常出力先の実選択と既存確認・保存・移行の終端を所有します。</summary>
+    internal Task HandleBrowseLr2CustomFolderOutputDirectory()
+        => SelectOutputDirectoryAsync(nameof(SettingsDialogViewModel.LR2CustomFolderOutputDir), "normal");
 
-    /// <summary>Owns the root custom-folder output picker route.</summary>
-    internal void HandleBrowseLr2CustomFolderAsRootOutputDirectory()
+    /// <summary>ROOT出力先の実選択と既存確認・保存・移行の終端を所有します。</summary>
+    internal Task HandleBrowseLr2CustomFolderAsRootOutputDirectory()
+        => SelectOutputDirectoryAsync(nameof(SettingsDialogViewModel.LR2CustomFolderAsRootOutputDir), "root");
+
+    private async Task SelectOutputDirectoryAsync(string property, string section)
     {
-        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        PickRootFolderForSetting(
-            nameof(settingDialogViewModel.LR2CustomFolderAsRootOutputDir),
-            FirstNonEmptyOrDirectoryOfSecond(settingDialogViewModel.LR2CustomFolderAsRootOutputDir, settingDialogViewModel.LR2CustomFolderOutputDir));
+        SettingsDialogViewModel settings = GetSettingDialogViewModel();
+        if (viewOperationInProgress || !settings.IsEditCompletionEnabled) { return; }
+        await RunViewOperationAsync(async () =>
+        {
+            string initial = section == "normal" ? FirstNonEmpty(settings.LR2CustomFolderOutputDir, settings.LR2RootPath)
+                : FirstNonEmptyOrDirectoryOfSecond(settings.LR2CustomFolderAsRootOutputDir, settings.LR2CustomFolderOutputDir);
+            UiFolderPickerResult result = await dialogService.PickFolderAsync(new UiFolderPickerRequest(null, initial, false, this));
+            ThrowIfPickerFailed(result.Status, result.Error, property + " folder picker");
+            if (result.Status != UiDialogStatus.Accepted) { return; }
+            string previous = section == "normal" ? settings.LR2CustomFolderOutputDir : settings.LR2CustomFolderAsRootOutputDir;
+            settings.SetRootFolderPathFromPicker(property, result.FolderPath);
+            string candidate = section == "normal" ? settings.LR2CustomFolderOutputDir : settings.LR2CustomFolderAsRootOutputDir;
+            // 無効選択で保持した以前の入力や同値選択から、失敗済み要求を暗黙に再開しません。
+            if (string.Equals(previous, candidate, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(candidate, result.FolderPath, StringComparison.Ordinal)) { return; }
+            await settings.CommitOutputSettingsAsync(section);
+        });
     }
 
     /// <summary>Owns the install-directory picker route for the Install page.</summary>
     internal void HandleAddBmsInstallDirectory()
     {
-        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        UiFolderPickerResult result = dialogService
-            .PickFolderAsync(new UiFolderPickerRequest(
-                selectedPath: settingDialogViewModel.AvailableBMSDirectories?.FirstOrDefault(),
-                multiselect: false,
-                owner: Window.GetWindow(this)))
-            .GetAwaiter()
-            .GetResult();
-        ThrowIfPickerFailed(result.Status, result.Error, "BMS install directory picker");
-        if (result.Status == UiDialogStatus.Accepted)
-        {
-            settingDialogViewModel.AddBmsSearchRootPathFromPicker(nameof(settingDialogViewModel.BMSInstallDir), result.FolderPath);
-        }
+        settingsNavigation.SelectedIndex = 0;
+
     }
 
     /// <summary>Owns the LR2 backup path picker route for the Backup page.</summary>
@@ -1100,28 +1106,38 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         }
     }
 
-    /// <summary>Owns the additional custom-folder output picker route.</summary>
-    internal void HandleAddCustomFolderAdditionalOutputBase()
+    /// <summary>追加出力先の実選択と必要な登録変更だけを確定し、終端を所有します。</summary>
+    internal async Task HandleAddCustomFolderAdditionalOutputBase()
     {
-        if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
+        SettingsDialogViewModel settings = GetSettingDialogViewModel();
+        if (viewOperationInProgress || !settings.IsEditCompletionEnabled) { return; }
+        await RunViewOperationAsync(async () =>
         {
-            return;
-        }
-        UiFolderPickerResult result = dialogService.PickFolderAsync(new UiFolderPickerRequest(
-            BeMusicSeeker.Properties.Resources.Playlist_output_additional,
-            settingDialogViewModel.SelectedCustomFolderAdditionalOutputBaseDir ?? settingDialogViewModel.LR2CustomFolderOutputDir,
-            multiselect: true,
-            Window.GetWindow(this)))
-            .GetAwaiter()
-            .GetResult();
-        ThrowIfPickerFailed(result.Status, result.Error, "Custom folder additional output base picker");
-        if (result.Status == UiDialogStatus.Accepted)
+            UiFolderPickerResult result = await dialogService.PickFolderAsync(new UiFolderPickerRequest(
+                BeMusicSeeker.Properties.Resources.Playlist_output_additional,
+                settings.SelectedCustomFolderAdditionalOutputBaseDir ?? settings.LR2CustomFolderOutputDir, true, this));
+            ThrowIfPickerFailed(result.Status, result.Error, "Custom folder additional output base picker");
+            if (result.Status != UiDialogStatus.Accepted) { return; }
+            string[] previous = settings.CustomFolderAdditionalOutputBaseDirList.ToArray();
+            foreach (string directory in result.FolderPaths) { settings.AddCustomFolderAdditionalOutputBaseDir(directory); }
+            if (previous.SequenceEqual(settings.CustomFolderAdditionalOutputBaseDirList, StringComparer.OrdinalIgnoreCase)) { return; }
+            await settings.CommitOutputSettingsAsync("additional");
+        });
+    }
+
+    /// <summary>追加先の削除・改名操作とその登録変更の実Taskを追跡します。</summary>
+    internal async Task ConfirmAdditionalOutputOperationAsync(bool rename)
+    {
+        SettingsDialogViewModel settings = GetSettingDialogViewModel();
+        if (viewOperationInProgress || !settings.IsEditCompletionEnabled) { return; }
+        await RunViewOperationAsync(async () =>
         {
-            foreach (string directory in result.FolderPaths)
-            {
-                settingDialogViewModel.AddCustomFolderAdditionalOutputBaseDir(directory);
-            }
-        }
+            string[] previous = settings.CustomFolderAdditionalOutputBaseDirList.ToArray();
+            if (rename) { settings.RenameSelectedCustomFolderAdditionalOutputBaseDir(); }
+            else { settings.RemoveSelectedCustomFolderAdditionalOutputBaseDir(); }
+            if (previous.SequenceEqual(settings.CustomFolderAdditionalOutputBaseDirList, StringComparer.OrdinalIgnoreCase)) { return; }
+            await settings.CommitOutputSettingsAsync("additional");
+        });
     }
 
     /// <summary>Opens a new play-history display preset editor owned by this Window.</summary>
@@ -1172,11 +1188,11 @@ internal enum SettingsWindowCloseReason
     /// <summary>No close has been requested.</summary>
     None,
 
-    /// <summary>Settings were applied successfully.</summary>
-    Apply,
+    /// <summary>確定済み環境の初期化と必須公開が完了しました。</summary>
+    InitializationCompleted,
 
-    /// <summary>The user completed the Cancel rollback route.</summary>
-    Cancel,
+    /// <summary>利用者が保存済み値を保って閉じました。</summary>
+    UserClose,
 
     /// <summary>The ViewModel requested a close outside a view-originated completion handler.</summary>
     Presentation,

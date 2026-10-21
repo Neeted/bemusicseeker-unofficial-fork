@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -28,37 +27,13 @@ using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// Holds editable settings state for the settings dialog before values are applied to the application settings store.
+/// 通常項目の確定値と、実操作に必要な各セクションの局所候補を設定画面へ接続します。
 /// </summary>
 public partial class SettingsDialogViewModel : ViewModel
 {
     /// <summary>
-    /// Describes which application areas must be restarted or reloaded after settings are saved.
+    /// 既存の型付き初期化と局所操作の結果を接続します。
     /// </summary>
-    [Flags]
-    public enum RestartMode
-    {
-        /// <summary>
-        /// No restart or reload is required.
-        /// </summary>
-        None = 0,
-
-        /// <summary>
-        /// Folder-backed library data must be reloaded.
-        /// </summary>
-        FolderOnly = 1,
-
-        /// <summary>
-        /// A full application restart or full reload is required.
-        /// </summary>
-        All = 2,
-
-        /// <summary>
-        /// Score data must be reloaded.
-        /// </summary>
-        ScoreOnly = 4
-    }
-
     private readonly ISettingsDialogStatePort statePort;
 
     private readonly ISettingsDialogWorkspacePort workspacePort;
@@ -81,7 +56,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private ViewModelCommand openCommand;
 
-    private ViewModelCommand cancelCommand;
+    private ViewModelCommand closeCommand;
 
     private bool isEditCompletionInProgress;
 
@@ -123,14 +98,14 @@ public partial class SettingsDialogViewModel : ViewModel
     public ViewModelCommand OpenCommand => openCommand ??= new ViewModelCommand(() => RequestOpen());
 
     /// <summary>
-    /// Gets the command that restores the saved settings snapshot and closes the dialog.
+    /// 保存済み値を保ち、残る局所候補を破棄して画面を閉じる要求です。
     /// </summary>
-    public ViewModelCommand CancelCommand => cancelCommand ??= new ViewModelCommand(ExecuteCancelCommand);
+    public ViewModelCommand CloseCommand => closeCommand ??= new ViewModelCommand(ExecuteCloseCommand);
 
     internal IExternalShellGateway ExternalShellGateway => externalShellGateway;
 
     /// <summary>
-    /// Gets a value indicating whether an apply operation is currently completing.
+    /// 受理した局所操作の実終端を待っているかを示します。
     /// </summary>
     public bool IsEditCompletionInProgress
     {
@@ -147,28 +122,43 @@ public partial class SettingsDialogViewModel : ViewModel
             RaisePropertyChanged(nameof(IsEditCompletionEnabled));
             RaisePropertyChanged(nameof(IsEditCancellationEnabled));
             RaisePropertyChanged(nameof(IsAudioOutputSelectionEnabled));
-            audioDeviceTestWorkflow.SetSaving(value);
+            RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));
+            RaisePropertyChanged(nameof(IsScoreProcessingRetryRequired));
+            RaisePropertyChanged(nameof(CanRetryScoreSettings));
+            RaisePropertyChanged(nameof(IsBmsProcessingRetryRequired));
+            RaisePropertyChanged(nameof(IsAudioDeviceTestAvailable));
+            RaiseEnvironmentAvailabilityChanged();
         }
     }
 
     /// <summary>
-    /// Gets a value indicating whether the settings editor can accept another completion command.
+    /// ライブラリ・出力の実処理を伴う次の局所確定を受け付けられるかを示します。独立同期確定の可否は分けて公開します。
     /// </summary>
     public bool IsEditCompletionEnabled => !IsEditCompletionInProgress && !IsAudioDeviceTestInProgress;
 
+    private bool environmentTransitionInProgress;
+
+    /// <summary>音声テストと環境の開始・再起動以外では、実資源を共有しない同期の局所編集・確定を受け付けます。</summary>
+    public bool IsIndependentSectionEnabled => !environmentTransitionInProgress && !IsAudioDeviceTestInProgress;
+
+    private void SetEnvironmentTransitionInProgress(bool value)
+    {
+        environmentTransitionInProgress = value;
+        audioDeviceTestWorkflow.SetSaving(value);
+        RaisePropertyChanged(nameof(IsIndependentSectionEnabled));
+    }
+
     /// <summary>
-    /// Gets a value indicating whether the settings editor can be cancelled without leaving a failed score or file-diff reload pending.
+    /// 受理中の局所処理または音声テストを残さず、通常閉鎖できるかを示します。
     /// </summary>
     public bool IsEditCancellationEnabled => !IsEditCompletionInProgress
-        && !IsAudioDeviceTestInProgress
-        && !scoreReloadPending
-        && !fileDiffReloadPending;
+        && !IsAudioDeviceTestInProgress;
 
     /// <summary>音声設定担当が所有するIsAudioDeviceTestInProgressを画面へ接続します。</summary>
     public bool IsAudioDeviceTestInProgress => audioDeviceTestWorkflow.IsAudioDeviceTestInProgress;
 
     /// <summary>音声設定担当が所有するIsAudioDeviceTestAvailableを画面へ接続します。</summary>
-    public bool IsAudioDeviceTestAvailable => audioDeviceTestWorkflow.IsAudioDeviceTestAvailable;
+    public bool IsAudioDeviceTestAvailable => !IsEditCompletionInProgress && audioDeviceTestWorkflow.IsAudioDeviceTestAvailable;
 
     /// <summary>音声設定担当が所有するAudioDeviceTestButtonContentを画面へ接続します。</summary>
     public string AudioDeviceTestButtonContent => audioDeviceTestWorkflow.AudioDeviceTestButtonContent;
@@ -216,6 +206,7 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <param name="deferPresentation">失敗後の再表示など、呼出元をモーダル表示で待たせない場合は true。</param>
     internal void RequestOpen(bool deferPresentation = false)
     {
+        if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress) { return; }
         presentationPort?.OpenSettingsDialog(deferPresentation);
     }
 
@@ -245,144 +236,17 @@ public partial class SettingsDialogViewModel : ViewModel
         presentationPort?.CloseSettingsDialog();
     }
 
-    private void RefreshPresentationAppearance()
-    {
-        presentationPort?.RefreshAppearanceSelection();
-    }
-
-    private void ExecuteCancelCommand()
+    private void ExecuteCloseCommand()
     {
         if (IsEditCompletionInProgress
-            || IsAudioDeviceTestInProgress
-            || scoreReloadPending
-            || fileDiffReloadPending)
+            || IsAudioDeviceTestInProgress)
         {
             return;
         }
 
         SetAudioSettingsPageVisible(false);
 
-        var stopwatch = Stopwatch.StartNew();
-        bool reset = false;
-        if (HasPendingSettingChanges())
-        {
-            reset = true;
-            ResetSettings();
-            RefreshPresentationAppearance();
-        }
-
         ClosePresentation();
-        LogSettingsPerformance(
-            "settings_cancel",
-            stopwatch,
-            "reset=" + reset.ToString().ToLowerInvariant());
-    }
-
-    /// <summary>
-    /// 検証済み初期化の限定候補確認後にL/Pを非待機取得し、設定の保存から必要な後続処理・cleanupの実終端まで追跡します。Busyではdraftを保持します。
-    /// 保存と適用配置の公開後に実表示を終了し、同じ生存権限で後続へ進みます。
-    /// 初期構成の不足だけは受付解放後に既存の再編集案内へ戻します。
-    /// </summary>
-    internal async Task ApplySettingsAsync()
-    {
-        if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress)
-        {
-            return;
-        }
-        if (!IsStartupSortCachePrewarmPriorityValid)
-        {
-            await ShowUiMessageAsync(StartupSortCachePrewarmWarning, Resources.Error, MessageBoxImage.Hand, "Settings prewarm validation");
-            return;
-        }
-
-        bool reopenAfterTermination = false;
-        bool initialSetup = false;
-        StartupInitializationResult initializationResult = null;
-        SettingsPostSaveImpact savedFollowUp = SettingsPostSaveImpact.None;
-        Exception operationFailure = null;
-        LeapYearFolderRepairNotification repairNotification = null;
-        try
-        {
-            if (operationAdmission.IsAdmissionClosed) { return; }
-            if (!operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation)
-            {
-                if (operationAdmission.IsAdmissionClosed) { return; }
-                await ShowUiMessageAsync(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
-                    BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "Settings apply admission");
-                return;
-            }
-            LeapYearFolderRepairApproval approval = null;
-            bool initial = initialSetup = !statePort.HasActiveLibraryProfile;
-            RestartMode restart = initial ? RestartMode.None : IsNeedRestartForSaved();
-            bool fullInitialization = initial || restart.HasFlag(RestartMode.All)
-                || restart.HasFlag(RestartMode.ScoreOnly) && restart.HasFlag(RestartMode.FolderOnly);
-            if (fullInitialization && !statePort.IsLibraryOperationInProgress && CheckValidation(out _))
-            {
-                IsEditCompletionInProgress = true;
-                try { approval = await statePort.PrepareLibraryInitializationAsync(); }
-                catch (OperationCanceledException) when (operationAdmission.IsAdmissionClosed) { return; }
-                finally { IsEditCompletionInProgress = false; }
-            }
-            if (!TryBeginBothSettingsAdmissions(out IDisposable admission, out LibraryFileMutationLease playlistLease))
-            {
-                if (operationAdmission.IsAdmissionClosed) { return; }
-                await ShowUiMessageAsync(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
-                    BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "Settings apply admission");
-                return;
-            }
-            using LibraryFileMutationLease playlistOperation = playlistLease;
-            using LibraryFileMutationCapability playlistCapability = playlistLease?.CreateMutationCapability();
-            await CompleteAcceptedSettingsOperationAsync(admission,
-                capability => ApplySettingsUnderAdmissionAsync(capability, () => reopenAfterTermination = true, result => initializationResult = result,
-                    playlistCapability, approval, notification => repairNotification = notification, impact => savedFollowUp = impact), playlistCapability, playlistLease);
-        }
-        catch (LibraryDirectoryPreflightException)
-        {
-            // 受付解放後の専用警告で通知済みです。汎用の設定失敗を重ねません。
-        }
-        catch (OperationCanceledException) when (operationAdmission.IsAdmissionClosed) { return; }
-        catch (Exception exception) { operationFailure = exception; }
-        try
-        {
-            if (initializationResult != null && initializationResult.Outcome != StartupInitializationOutcome.ShutdownRequested)
-            {
-                initializationResult = await CompleteRequiredSettingsInitializationAsync(
-                    initializationResult with { RepairNotification = repairNotification });
-                operationFailure ??= initializationResult.Failure;
-            }
-            else if (repairNotification != null) { await statePort.PresentLeapYearFolderRepairAsync(repairNotification); }
-            await CompleteSavedSettingsFollowUpAsync(savedFollowUp,
-                scheduleUrlCompletion: initializationResult == null && operationFailure == null,
-                isCompletionCurrent: () => initializationResult == null || statePort.IsInitializationCompletionCurrent(initializationResult.OperationToken));
-        }
-        catch (OperationCanceledException) when (operationAdmission.IsAdmissionClosed && operationFailure == null) { return; }
-        catch (Exception exception)
-        {
-            if (operationFailure == null) { operationFailure = exception; }
-            else { Task.FromException(exception).ObserveFault("Settings termination notification"); }
-        }
-        if (operationFailure is LibraryDirectoryPreflightException directoryFailure)
-        {
-            try { await statePort.PresentLibraryDirectoryWarningAsync(directoryFailure); }
-            catch (Exception presentationFailure)
-            {
-                Task.FromException(presentationFailure).ObserveFault("Settings directory warning notification");
-                reportApplyFailure(directoryFailure);
-            }
-            operationFailure = null;
-        }
-        if (operationFailure != null)
-        {
-            reportApplyFailure(operationFailure);
-            if (initialSetup && initializationResult?.Outcome == StartupInitializationOutcome.SettingsRequired
-                && !statePort.HasActiveLibraryProfile) { reopenAfterTermination = true; }
-        }
-        // 型付き処理失敗は設定修復へ読み替えません。結果取得前の既存案内は保ち、再編集は外側受付の解放と通知後に戻します。
-        if (reopenAfterTermination && !operationAdmission.IsAdmissionClosed)
-        {
-            try { RequestOpen(deferPresentation: true); }
-            catch (Exception exception) { reportApplyFailure(exception); }
-        }
     }
 
     /// <summary>受理済み設定変更の実処理とcleanupまでL/Pを所有し、専用ディレクトリ失敗は両受付の解放後に通知して再伝播します。</summary>
@@ -426,178 +290,6 @@ public partial class SettingsDialogViewModel : ViewModel
     }
 
     /// <summary>取得済み受付内で検証・保存、実Closeと必要な再初期化の終端まで処理します。</summary>
-    private async Task ApplySettingsUnderAdmissionAsync(LibraryFileMutationCapability capability, Action recordReopenAfterTermination, Action<StartupInitializationResult> recordInitializationAfterTermination, LibraryFileMutationCapability playlistCapability = null,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<SettingsPostSaveImpact> savedFollowUpObserver = null)
-    {
-        IsEditCompletionInProgress = true;
-        var totalStopwatch = Stopwatch.StartNew();
-        long validationMs = 0L;
-        long saveMs = 0L;
-        string outcome = "unknown";
-        RestartMode needRestart = RestartMode.None;
-        bool shouldInitializeAfterSave = false;
-        bool reopenAfterInitialFailure = false;
-        try
-        {
-            if (statePort.IsLibraryOperationInProgress)
-            {
-                outcome = "blocked_operation";
-                totalStopwatch.Stop();
-                ShowUiMessage(
-                    BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization,
-                    BeMusicSeeker.Properties.Resources.Warning,
-                    MessageBoxImage.Exclamation,
-                    "Settings apply blocked notification");
-                ResetSettings();
-                RefreshPresentationAppearance();
-                return;
-            }
-
-            if (statePort.HasActiveLibraryProfile && !HasPendingSettingChanges() && !HasPendingRuntimePlacement())
-            {
-                outcome = "no_changes";
-                ClosePresentation();
-                return;
-            }
-
-            shouldInitializeAfterSave = !statePort.HasActiveLibraryProfile;
-            string errMsg;
-            var validationStopwatch = Stopwatch.StartNew();
-            bool isValid = shouldInitializeAfterSave
-                ? CheckValidation(out errMsg)
-                : CheckValidationBeforeSave(out errMsg);
-            validationMs = validationStopwatch.ElapsedMilliseconds;
-            LogSettingsPerformance(
-                "settings_validation",
-                validationStopwatch,
-                "valid=" + isValid.ToString().ToLowerInvariant()
-                + " initial=" + shouldInitializeAfterSave.ToString().ToLowerInvariant());
-            if (!isValid)
-            {
-                outcome = "invalid";
-                totalStopwatch.Stop();
-                await ShowUiMessageAsync(
-                    BeMusicSeeker.Properties.Resources.Msg_invalid_setting + Environment.NewLine + Environment.NewLine + errMsg,
-                    BeMusicSeeker.Properties.Resources.Error,
-                    MessageBoxImage.Hand,
-                    "Settings validation notification");
-                return;
-            }
-
-            totalStopwatch.Stop();
-            bool customFolderOutputChangesConfirmed = ConfirmCustomFolderOutputChangesBeforeSave();
-            totalStopwatch.Start();
-            if (!customFolderOutputChangesConfirmed)
-            {
-                outcome = "custom_folder_output_changes_cancelled";
-                return;
-            }
-
-            needRestart = shouldInitializeAfterSave ? RestartMode.None : IsNeedRestartForSaved();
-            var saveStopwatch = Stopwatch.StartNew();
-            if (shouldInitializeAfterSave)
-            {
-                SettingsPostSaveImpact savedImpact = await SaveSettingsUnderAdmissionAsync(runPostSaveActions: false, validate: false, capability, playlistCapability);
-                backupSavedSettings();
-                saveMs = saveStopwatch.ElapsedMilliseconds;
-                reopenAfterInitialFailure = true;
-                if (presentationPort != null)
-                {
-                    await presentationPort.CloseSettingsDialogAsync();
-                }
-                if (applicationLifetime.IsFirstStartup)
-                {
-                    totalStopwatch.Stop();
-                    await ShowInitialSettingsCompletionMessageAsync();
-                    totalStopwatch.Start();
-                }
-                StartupInitializationResult initializationResult = await statePort.InitializeLibraryAsync(capability, leapYearRepairApproval, repairNotificationObserver,
-                    forceBeatorajaBmtProjection: savedImpact.HasFlag(SettingsPostSaveImpact.BeatorajaBmtReprojection));
-                StartupInitializationOutcome initializationOutcome = initializationResult.Outcome;
-                if (initializationOutcome != StartupInitializationOutcome.ShutdownRequested) { recordInitializationAfterTermination(initializationResult); }
-                if (initializationOutcome == StartupInitializationOutcome.Succeeded)
-                {
-                    outcome = "saved_initial";
-                }
-                else
-                {
-                    outcome = initializationOutcome == StartupInitializationOutcome.ShutdownRequested
-                        ? "saved_shutdown_requested"
-                        : "saved_initialization_failed";
-                }
-                reopenAfterInitialFailure = initializationOutcome == StartupInitializationOutcome.SettingsRequired;
-            }
-            else
-            {
-                SettingsPostSaveImpact savedImpact = await SaveSettingsUnderAdmissionAsync(runPostSaveActions: true, validate: false, capability, playlistCapability,
-                    fullInitialization: needRestart.HasFlag(RestartMode.All) || needRestart.HasFlag(RestartMode.ScoreOnly) && needRestart.HasFlag(RestartMode.FolderOnly),
-                    afterPersistence: () => presentationPort?.CloseSettingsDialogAsync() ?? Task.CompletedTask);
-                savedFollowUpObserver?.Invoke(savedImpact);
-                saveMs = saveStopwatch.ElapsedMilliseconds;
-                StartupInitializationOutcome initializationOutcome = StartupInitializationOutcome.Succeeded;
-                if (needRestart.HasFlag(RestartMode.All)
-                    || (needRestart.HasFlag(RestartMode.ScoreOnly) && needRestart.HasFlag(RestartMode.FolderOnly)))
-                {
-                    StartupInitializationResult initializationResult = await statePort.InitializeLibraryAsync(capability, leapYearRepairApproval, repairNotificationObserver,
-                        forceBeatorajaBmtProjection: savedImpact.HasFlag(SettingsPostSaveImpact.BeatorajaBmtReprojection));
-                    initializationOutcome = initializationResult.Outcome;
-                    if (initializationOutcome != StartupInitializationOutcome.ShutdownRequested) { recordInitializationAfterTermination(initializationResult); }
-                }
-                else if (needRestart.HasFlag(RestartMode.ScoreOnly))
-                {
-                    StartupInitializationResult initializationResult = await ReloadScoresOnlyAsync(capability);
-                    initializationOutcome = initializationResult.Outcome;
-                    recordInitializationAfterTermination(initializationResult);
-                }
-                else if (needRestart.HasFlag(RestartMode.FolderOnly))
-                {
-                    StartupInitializationResult initializationResult = await ReloadFileDiffAsync(capability);
-                    initializationOutcome = initializationResult.Outcome;
-                    recordInitializationAfterTermination(initializationResult);
-                }
-                if (initializationOutcome == StartupInitializationOutcome.Succeeded)
-                {
-                    outcome = "saved";
-                }
-                else
-                {
-                    outcome = initializationOutcome == StartupInitializationOutcome.ShutdownRequested
-                        ? "saved_shutdown_requested"
-                        : "saved_initialization_failed";
-                }
-            }
-        }
-        catch (LibraryDirectoryPreflightException)
-        {
-            outcome = "directory_preflight_failed";
-            totalStopwatch.Stop();
-            throw;
-        }
-        catch (Exception)
-        {
-            outcome = "failed";
-            totalStopwatch.Stop();
-            throw;
-        }
-        finally
-        {
-            IsEditCompletionInProgress = false;
-            LogSettingsPerformance(
-                "settings_apply",
-                totalStopwatch,
-                "outcome=" + outcome
-                + " initial=" + shouldInitializeAfterSave.ToString().ToLowerInvariant()
-                + " restartMode=" + needRestart
-                + " validationMs=" + validationMs
-                + " saveMs=" + saveMs);
-            if (reopenAfterInitialFailure)
-            {
-                // この段階は外側受付の内側なので再表示の必要性だけ渡し、実表示は終端側が行います。
-                recordReopenAfterTermination();
-            }
-        }
-    }
-
     private Task<StartupInitializationResult> ReloadScoresOnlyAsync(LibraryFileMutationCapability capability)
     {
         return ReloadScoresOnlyCoreAsync(capability);
@@ -634,6 +326,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
 
         scoreReloadPending = value;
+        RaisePropertyChanged(nameof(IsScoreProcessingRetryRequired));
         RaisePropertyChanged(nameof(IsEditCancellationEnabled));
         RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
     }
@@ -646,6 +339,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
 
         fileDiffReloadPending = value;
+        RaisePropertyChanged(nameof(IsBmsProcessingRetryRequired));
         RaisePropertyChanged(nameof(IsEditCancellationEnabled));
         RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
     }
@@ -666,13 +360,11 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly PropertyChangedEventListener resourceServiceEventListener;
 
-    private bool tempOperationModeLR2DB;
 
     private bool scoreReloadPending;
 
     private bool fileDiffReloadPending;
 
-    private string tempLR2RootPath;
 
     private readonly Dictionary<string, PlayerResolution> lr2bodyResolutions = new()
         {
@@ -726,13 +418,9 @@ public partial class SettingsDialogViewModel : ViewModel
             }
         };
 
-    private PlayerResolution tempLR2bodyResolution;
 
-    private string tempBMSRootPath;
 
-    private string tempLR2SongDBPath;
 
-    private string tempLR2ConfigXmlPath;
 
     private Lr2PlayHistorySchemaStatusSnapshot lr2PlayHistorySchemaStatusSnapshot;
 
@@ -740,188 +428,105 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool? lr2PlayHistorySchemaCheckOperationMode;
 
-    private bool tempUseBeatorajaScoreDb;
 
-    private string tempBeatorajaRootPath;
 
-    private string tempBeatorajaPlayerId;
 
-    private string tempBeatorajaScoreDbPath;
 
-    private bool tempEnableBeatorajaBmtOutput;
 
-    private bool tempKeepBeatorajaBmtFilesWhenOutputDisabled;
 
-    private string tempBeatorajaBmtHashOutputMode;
 
-    private string tempBeatorajaBmtTablePath;
 
-    private bool tempRegisterBeatorajaBmtUrls;
 
-    private string tempuBMplayPath;
 
-    private string tempBMIIDXViewPath;
 
-    private bool tempUsePlayeruBMplay;
 
-    private bool tempUsePlayerLR2body;
 
-    private bool tempUsePlayerBMIIDXView;
 
-    private bool tempIsSaveLR2bodyWindowPosition;
 
-    private string tempLR2CustomFolderOutputDir;
 
-    private string tempLR2CustomFolderAdditionalOutputBaseDirs;
 
-    private int tempPlaylistDefaultIgnoreFolderOutput;
 
-    private string tempBMSInstallDir;
 
-    private string tempLR2CustomFolderAsRootOutputDir;
 
-    private Uri tempTableListURL;
 
     private string tableListUriValidationMessage = string.Empty;
 
-    private bool tempEnablePlaylistUrlCompletion;
 
-    private bool tempOverwritePlaylistUrlsWithCompletion;
 
-    private bool tempEnableStellaFullPlaylistUrlCompletion;
 
-    private string tempPlaylistMd5UrlMappingTsvUri;
 
     private string playlistMd5UrlMappingTsvUriValidationMessage = string.Empty;
 
-    private string tempPlayHistoryDisplayTargetSetsJson;
 
-    private string tempPlayHistoryDisplayTargetSetDraftsJson;
 
     private PlayHistoryFolderDisplayPresetEditor selectedPlayHistoryFolderDisplayPreset;
 
-    private bool isPlayHistoryFolderDisplayPresetPlaylistOptionsDirty = true;
 
-    private bool tempIsLR2BackupEnabled;
 
-    private string tempLR2BackupPath;
 
-    private Backup.Target tempLR2BackupTarget;
 
-    private int tempLR2BackupSpan;
 
-    private int tempLR2BackupNum;
 
-    private bool tempUseExternalPanelImage;
 
-    private string tempAppearanceTheme;
 
-    private double tempCustomTableFontSize;
 
-    private double tempCustomTableRowHeight;
 
-    private double tempCustomTableHeaderHeight;
 
-    private int tempStartupSortCachePrewarmPriority;
 
     private readonly IReadOnlyList<AppearanceThemeOption> appearanceThemeOptions;
 
     private readonly IReadOnlyList<BeatorajaBmtHashOutputModeOption> beatorajaBmtHashOutputModeOptions;
 
-    private bool tempShowScoreViewerRegisterConfirmMsg;
 
-    private bool tempShowDiffBMSInstallConfirmMsg;
-    private bool tempShowNewPackageInstallConfirmMsg;
 
-    private bool tempShowDuplicateFileCheckConfirmMsg;
 
-    private bool tempShowRecommUpdatedMsg;
 
-    private bool tempScanBmsFilesOnStartup;
 
-    private bool tempSkipInitPlaylistLoad;
 
-    private bool tempStartupSelectInstallPending;
 
-    private bool tempEnableReadOptimizedPragmas;
 
-    private bool tempEstimateOfflineScoreRanking;
 
-    private bool tempUpdateLr2IrRankingCacheOnStartup;
 
-    private bool tempEnableDownloadLr2IrScoreAndDetectUnsent;
 
-    private bool tempEnableAutoInstall;
 
-    private bool tempKeepInstallablePackagesPending;
 
-    private bool tempRequireCompleteUsedResourcesForAutoInstall;
 
-    private bool tempAutoApplyAmbiguousInstallDestination;
 
-    private bool tempAutoInstallAfterAutomaticEstimation;
 
-    private int tempInstallDestinationAutoApplyMinAudioHealth;
 
-    private bool tempDeletePendingPackageSourceAfterInstall;
 
-    private bool tempEnableSmartComponentOverwrite;
 
-    private bool tempKeepSmartOverwriteProtectedFilesByRenaming;
 
-    private string tempStagefilePath;
 
     private static readonly string defaultFolderNameFormat = "[%ARTIST%] %TITLE%";
 
-    private string tempFolderNameFormat;
 
-    private bool tempUseOnlyShiftJISChars;
 
-    private SampleRate tempEncoderSampleRate;
 
-    private int tempEncoderIndex;
 
-    private SampleFormat tempEncoderFormat;
 
-    private AudioNormalization tempEncoderNormalization;
 
-    private float tempEncoderQuality;
 
-    private float tempEncoderAmplifier;
 
-    private string tempEncoderExeDir;
 
     private static readonly string defaultEncodeFileNameFormat = "[%ARTIST%] %TITLE%";
 
-    private string tempEncodeFileNameFormat;
 
-    private AudioOutputSelection savedAudioOutputSelection;
 
-    private SampleRate tempPlayerSampleRate;
 
-    private SampleFormat tempPlayerFormat;
 
-    private float tempPlayerBufferSize;
 
-    private int tempPlayerResamplingQuality;
 
-    private int tempPlayerMixerThreadCount;
 
-    private bool tempPlayerWASAPIParam;
 
     private bool operationModeLR2DB;
 
-    private bool isBMSDirectoryAdded;
 
-    private bool isBMSDirectoryRemoved;
 
     private ListenerCommand<string> _RemoveDirCommand;
 
-    private bool isSearchRootsChanged;
 
-    private string tempLR2ConfigBmsSearchRoots;
 
-    private string tempStandaloneBmsRootPaths;
 
     private string selectedStandaloneBmsRootPath;
 
@@ -933,13 +538,10 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly Dictionary<string, string> pendingCustomFolderAdditionalOutputBaseRenames = new(StringComparer.OrdinalIgnoreCase);
 
-    private string tempLanguage;
 
-    private string tempLanguageDisplayName;
 
     /// <summary>
-    /// 選択modeをdraftへ保持します。稼働profileではL/P非待機受付後に確認・最小保存・再起動要求へ進み、
-    /// Busyでは編集値を残して未開始とします。明示取消・再起動要求失敗では元modeへ戻します。
+    /// 環境セクションの候補modeを保持します。保存・再起動は環境の明示確定だけが開始します。
     /// </summary>
     public bool OperationModeLR2DB
     {
@@ -955,17 +557,13 @@ public partial class SettingsDialogViewModel : ViewModel
                 {
                     return;
                 }
-                if (!statePort.HasActiveLibraryProfile)
-                {
-                    SetOperationModeSelection(value);
-                    return;
-                }
-                ConfirmAndRestartForOperationModeChange(value);
+                SetOperationModeSelection(value);
             }
         }
     }
 
-    public bool CanUseLr2Features => OperationModeLR2DB;
+    /// <summary>実操作の可否は確定済み環境だけから判定します。</summary>
+    public bool CanUseLr2Features => ApplicationSettings.OperationModeLR2DB;
 
     /// <summary>Gets whether the standalone library composition is selected.</summary>
     public bool IsStandaloneOperationMode => !OperationModeLR2DB;
@@ -974,9 +572,7 @@ public partial class SettingsDialogViewModel : ViewModel
     /// 設定画面から LR2 の派生データ再同期を要求できる状態かどうかを返します。
     /// </summary>
     public bool CanRequestLr2SongDbSyncDataResync => statePort.HasActiveLibraryProfile
-        && OperationModeLR2DB
-        && !scoreReloadPending
-        && !fileDiffReloadPending
+        && ApplicationSettings.OperationModeLR2DB && !scoreReloadPending && !fileDiffReloadPending
         && !statePort.IsLibraryOperationInProgress;
 
     /// <summary>
@@ -992,12 +588,11 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(IsLr2SongDbSyncDataResyncBlockedByLibraryOperation));
     }
 
-    public bool IsOperationModeChanged => tempOperationModeLR2DB != OperationModeLR2DB;
+    public bool IsOperationModeChanged => ApplicationSettings.OperationModeLR2DB != OperationModeLR2DB;
 
     /// <summary>Gets the dialog-local right-click action editor.</summary>
     public RightClickActionSettingsEditor RightClickActionSettingsEditor => rightClickActionSettingsEditor;
 
-    public bool CanSaveSettings => CheckValidationForSave();
 
     /// <summary>LR2 ディレクトリ未設定時に表示する、保存を阻止しない警告です。</summary>
     public string Lr2RootPathValidationMessage => OperationModeLR2DB && string.IsNullOrWhiteSpace(LR2RootPath)
@@ -1035,9 +630,16 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void RaiseValidationStateChanged()
     {
-        RaisePropertyChanged(nameof(CanSaveSettings));
+        RaiseEnvironmentAvailabilityChanged();
+        RaisePropertyChanged(nameof(CanRetryScoreSettings));
+        RaisePropertyChanged(nameof(CanRetryImageSettings));
+        RaisePropertyChanged(nameof(CanRetryExternalPlayerSettings));
+        RaisePropertyChanged(nameof(HasNormalOutputChanges));
+        RaisePropertyChanged(nameof(HasRootOutputChanges));
+        RaisePropertyChanged(nameof(HasAdditionalOutputChanges));
         RaisePropertyChanged(nameof(Lr2RootPathValidationMessage));
         RaisePropertyChanged(nameof(Lr2RootPathValidationStatus));
+        RaisePropertyChanged(nameof(RequiresReplacementBmsInstallDir));
         RaisePropertyChanged(nameof(BmsInstallDirValidationMessage));
         RaisePropertyChanged(nameof(BmsInstallDirValidationStatus));
         RaisePropertyChanged(nameof(CustomFolderOutputDirValidationMessage));
@@ -1058,12 +660,11 @@ public partial class SettingsDialogViewModel : ViewModel
     private void SetOperationModeSelection(bool value)
     {
         operationModeLR2DB = value;
-        RefreshParsedLr2ConfigState(showSelectionError: false);
         RaisePropertyChanged("OperationModeLR2DB");
         RaisePropertyChanged(nameof(IsStandaloneOperationMode));
         RaisePropertyChanged(nameof(IsOperationModeChanged));
         RaisePropertyChanged(nameof(CanUseLr2Features));
-        RaisePropertyChanged(nameof(AvailableBMSDirectories));
+        RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
         RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
         RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));
         RaisePropertyChanged(nameof(BMSInstallDir));
@@ -1072,103 +673,14 @@ public partial class SettingsDialogViewModel : ViewModel
         ResetLr2PlayHistorySchemaStatus();
     }
 
-    private void ConfirmAndRestartForOperationModeChange(bool value)
-    {
-        bool previousValue = operationModeLR2DB;
-        SetOperationModeSelection(value);
-        if (!TryBeginBothSettingsAdmissions(out IDisposable lease, out LibraryFileMutationLease playlistLease))
-        {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
-                BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation);
-            return;
-        }
-        bool handedOff = false;
-        try
-        {
-            if (!ShowUiConfirmation(
-                BeMusicSeeker.Properties.Resources.Confirm_RestartForOperationModeChange,
-                BeMusicSeeker.Properties.Resources.Confirm,
-                MessageBoxImage.Question,
-                MessageBoxButton.OKCancel,
-                "Operation mode restart confirmation"))
-            {
-                SetOperationModeSelection(previousValue);
-                return;
-            }
-            IsEditCompletionInProgress = true;
-            _ = RestartForOperationModeChangeAsync(
-                new OperationModeRestartRequest(
-                    value,
-                    playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity),
-                previousValue, lease, playlistLease);
-            handedOff = true;
-        }
-        finally
-        {
-            if (!handedOff) { playlistLease.Dispose(); lease.Dispose(); }
-        }
-    }
-
-    private async Task RestartForOperationModeChangeAsync(
-        OperationModeRestartRequest request,
-        bool previousValue,
-        IDisposable operationLease,
-        IDisposable playlistLease)
-    {
-        using IDisposable acceptedPlaylist = playlistLease;
-        using IDisposable operation = operationLease;
-        bool accepted = false;
-        try
-        {
-            accepted = await requestOperationModeRestart(request).ConfigureAwait(true);
-            if (!accepted)
-            {
-                RestoreOperationModeAfterRestartRejection(previousValue);
-            }
-        }
-        catch (Exception exception)
-        {
-            RestoreOperationModeAfterRestartRejection(previousValue);
-            reportApplyFailure(exception);
-        }
-        finally
-        {
-            if (!accepted)
-            {
-                IsEditCompletionInProgress = false;
-            }
-        }
-    }
-
-    private void RestoreOperationModeAfterRestartRejection(bool previousValue)
-    {
-        ApplicationSettings.OperationModeLR2DB = previousValue;
-        SetOperationModeSelection(previousValue);
-    }
-
-    public string LR2bodyPath
-    {
-        get
-        {
-            if (!string.IsNullOrWhiteSpace(LR2RootPath))
-            {
-                string path = Path.Combine(LR2RootPath, "LR2body.exe");
-                string text = Path.Combine(LR2RootPath, "LRHbody.exe");
-                if (!string.IsNullOrWhiteSpace(LR2ConfigXmlPath) && LR2ConfigXmlPath.EndsWith(".xmh", StringComparison.OrdinalIgnoreCase) && File.Exists(text))
-                {
-                    return Path.Combine(LR2RootPath, text);
-                }
-                return Path.Combine(LR2RootPath, path);
-            }
-            return string.Empty;
-        }
-    }
+    /// <summary>再生に使う実行ファイルを確定環境から導出します。</summary>
+    public string LR2bodyPath => StartupSettingsSnapshot.CreateCurrent(ApplicationSettings).LR2bodyPath;
 
     public string LR2RootPath
     {
         get
         {
-            return ApplicationSettings.LR2RootPath;
+            return environmentLR2RootPath;
         }
         set
         {
@@ -1178,11 +690,10 @@ public partial class SettingsDialogViewModel : ViewModel
                 // candidate first prevents a failed pick from mixing old child paths with a new root.
                 // Always adopt the freshly parsed config: LR2 may update the same file while this
                 // settings draft is open, and retaining the old XDocument would overwrite it on save.
-                ApplicationSettings.LR2RootPath = value;
-                ApplicationSettings.LR2SongDBPath = songDbPath;
-                ApplicationSettings.LR2ConfigXmlPath = configPath;
+                environmentLR2RootPath = value;
+                environmentLR2SongDBPath = songDbPath;
+                environmentLR2ConfigXmlPath = configPath;
                 isLr2ConfigPathParsed = true;
-                lr2config = OperationModeLR2DB ? parsedConfig : null;
                 SetLr2PathSelectionErrorWithoutNotification(string.Empty);
             }
             else
@@ -1209,31 +720,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         set
         {
-            PlayerResolutionSettingsAdapter.SaveToSettings(ApplicationSettings, value);
-        }
-    }
-
-    public string BMSRootPath
-    {
-        get
-        {
-            return ApplicationSettings.BMSRootPath;
-        }
-        set
-        {
-            if (!(ApplicationSettings.BMSRootPath == value))
-            {
-                if (IsBMSRootPathValid(value))
-                {
-                    ApplicationSettings.BMSRootPath = value;
-                }
-                else
-                {
-                    ApplicationSettings.BMSRootPath = null;
-                }
-                RaisePropertyChanged("BMSRootPath");
-                RaiseValidationStateChanged();
-            }
+            TryCommitSetting(nameof(LR2bodyResolution), (nameof(Settings.LR2bodyResolution), new System.Windows.Point(value.Width, value.Height)));
         }
     }
 
@@ -1242,8 +729,7 @@ public partial class SettingsDialogViewModel : ViewModel
     public ObservableCollection<string> CustomFolderAdditionalOutputBaseDirList { get; } = [];
 
     /// <summary>
-    /// 設定ダイアログで編集する play history FOLDER 表示プリセットの draft 一覧です。
-    /// OK まで user.config へ保存しないことで、Cancel 時の設定復元コストを抑えます。
+    /// 履歴FOLDER表示プリセットのrecord候補一覧です。選択recordの明示確定で保存します。
     /// </summary>
     public ObservableCollection<PlayHistoryFolderDisplayPresetEditor> PlayHistoryFolderDisplayPresets { get; } = [];
 
@@ -1251,7 +737,6 @@ public partial class SettingsDialogViewModel : ViewModel
     /// 選択中プリセットへ追加できる playlist 候補です。
     /// プレイリスト table source の再読み込みに追従するため、選択中プリセットから都度再構築します。
     /// </summary>
-    public ObservableCollection<PlayHistoryFolderPresetPlaylistOption> PlayHistoryFolderDisplayPresetPlaylistOptions { get; } = [];
 
     /// <summary>
     /// 設定ダイアログで現在編集している play history FOLDER 表示プリセットです。
@@ -1273,7 +758,6 @@ public partial class SettingsDialogViewModel : ViewModel
             if (!ReferenceEquals(selectedPlayHistoryFolderDisplayPreset, value))
             {
                 selectedPlayHistoryFolderDisplayPreset = value;
-                MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
                 RaisePropertyChanged();
                 RaisePropertyChanged(nameof(CanEditPlayHistoryFolderDisplayPreset));
                 RaisePropertyChanged(nameof(CanRemovePlayHistoryFolderDisplayPreset));
@@ -1313,7 +797,7 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            if (!OperationModeLR2DB)
+            if (!ApplicationSettings.OperationModeLR2DB)
             {
                 return SelectedStandaloneBmsRootPath;
             }
@@ -1326,7 +810,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         set
         {
-            if (!OperationModeLR2DB)
+            if (!ApplicationSettings.OperationModeLR2DB)
             {
                 SelectedStandaloneBmsRootPath = value;
                 RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
@@ -1340,7 +824,10 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    public bool IsBmsSearchRootEditorEnabled => !OperationModeLR2DB || lr2config != null;
+    /// <summary>通常の導入先選択に使う最新の確定BMS一覧です。</summary>
+    public IReadOnlyList<string> ConfirmedBMSDirectories => GetConfirmedBmsRoots();
+
+    public bool IsBmsSearchRootEditorEnabled => IsEditCompletionEnabled && (!ApplicationSettings.OperationModeLR2DB || lr2config != null);
 
     internal Lr2PlayHistorySchemaStatusSnapshot Lr2PlayHistorySchemaStatusSnapshot => lr2PlayHistorySchemaStatusSnapshot;
 
@@ -1375,7 +862,7 @@ public partial class SettingsDialogViewModel : ViewModel
     /// UI では状態別にボタンを分けず、現在の schema 状態に応じて同じ操作境界へ集約します。
     /// </summary>
     public bool CanInstallOrRepairLr2PlayHistorySchema =>
-        OperationModeLR2DB
+        ApplicationSettings.OperationModeLR2DB
         && !string.IsNullOrWhiteSpace(Lr2PlayHistoryScoreDbPath)
         && (lr2PlayHistorySchemaStatusSnapshot == null || CanInstallLr2PlayHistorySchema || CanRepairLr2PlayHistorySchema);
 
@@ -1403,7 +890,7 @@ public partial class SettingsDialogViewModel : ViewModel
     /// Advanced の Danger zone から LR2 play history schema のアンインストール操作を開始できるかを返します。
     /// destructive な選択は押下後の確認ダイアログへ閉じ込めます。
     /// </summary>
-    public bool CanUninstallLr2PlayHistorySchema => OperationModeLR2DB && !string.IsNullOrWhiteSpace(Lr2PlayHistoryScoreDbPath);
+    public bool CanUninstallLr2PlayHistorySchema => ApplicationSettings.OperationModeLR2DB && !string.IsNullOrWhiteSpace(Lr2PlayHistoryScoreDbPath);
 
     /// <summary>履歴schema変更をL/Pで副作用前に受理し、必要スコア再読込み・通知の実終端まで保持します。</summary>
     internal async Task InstallOrRepairLr2PlayHistorySchemaAsync()
@@ -1441,7 +928,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
 
         string scoreDbPath = Lr2PlayHistoryScoreDbPath;
-        bool isLr2LinkedProfile = OperationModeLR2DB;
+        bool isLr2LinkedProfile = ApplicationSettings.OperationModeLR2DB;
         UiDialogResult confirmation = await schemaDialogs.ConfirmAsync(new UiConfirmationRequest(
             BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_play_history_schema_install_or_repair
                 + Environment.NewLine
@@ -1462,7 +949,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             Lr2PlayHistorySchemaCheckResult result = await Task.Run(() =>
                 InstallOrRepairLr2PlayHistorySchemaCore(scoreDbPath, isLr2LinkedProfile));
-            if (isLr2LinkedProfile != OperationModeLR2DB
+            if (isLr2LinkedProfile != ApplicationSettings.OperationModeLR2DB
                 || !string.Equals(scoreDbPath, Lr2PlayHistoryScoreDbPath, StringComparison.OrdinalIgnoreCase))
             {
                 return null;
@@ -1577,7 +1064,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
 
         string scoreDbPath = Lr2PlayHistoryScoreDbPath;
-        bool isLr2LinkedProfile = OperationModeLR2DB;
+        bool isLr2LinkedProfile = ApplicationSettings.OperationModeLR2DB;
         if (schemaWindowDialogs == null)
         {
             throw new InvalidOperationException("LR2 play history schema dialog port is not configured.");
@@ -1595,7 +1082,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             Lr2PlayHistorySchemaCheckResult result = await Task.Run(() =>
                 UninstallLr2PlayHistorySchemaCore(scoreDbPath, isLr2LinkedProfile, uninstallMode));
-            if (isLr2LinkedProfile != OperationModeLR2DB
+            if (isLr2LinkedProfile != ApplicationSettings.OperationModeLR2DB
                 || !string.Equals(scoreDbPath, Lr2PlayHistoryScoreDbPath, StringComparison.OrdinalIgnoreCase))
             {
                 return null;
@@ -1638,7 +1125,7 @@ public partial class SettingsDialogViewModel : ViewModel
     private async Task RefreshLr2PlayHistorySchemaStatusAsync(bool force)
     {
         string expectedScoreDbPath = Lr2PlayHistoryScoreDbPath;
-        bool expectedOperationMode = OperationModeLR2DB;
+        bool expectedOperationMode = ApplicationSettings.OperationModeLR2DB;
         if (!force && HasFreshLr2PlayHistorySchemaCheckResult(expectedScoreDbPath, expectedOperationMode))
         {
             return;
@@ -1646,7 +1133,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
         Lr2PlayHistorySchemaCheckResult result = await Task.Run(() =>
             CheckLr2PlayHistorySchemaCore(expectedScoreDbPath, expectedOperationMode));
-        if (expectedOperationMode == OperationModeLR2DB
+        if (expectedOperationMode == ApplicationSettings.OperationModeLR2DB
             && string.Equals(expectedScoreDbPath, Lr2PlayHistoryScoreDbPath, StringComparison.OrdinalIgnoreCase))
         {
             ApplyLr2PlayHistorySchemaCheckResult(result);
@@ -1663,7 +1150,7 @@ public partial class SettingsDialogViewModel : ViewModel
     private void ResetLr2PlayHistorySchemaStatus()
     {
         string nextScoreDbPath = ResolveLr2PlayHistoryScoreDbPath();
-        bool nextOperationMode = OperationModeLR2DB;
+        bool nextOperationMode = ApplicationSettings.OperationModeLR2DB;
         if (lr2PlayHistorySchemaStatusSnapshot != null
             && lr2PlayHistorySchemaCheckOperationMode == nextOperationMode
             && string.Equals(lr2PlayHistoryScoreDbPath ?? string.Empty, nextScoreDbPath ?? string.Empty, StringComparison.OrdinalIgnoreCase))
@@ -1724,7 +1211,7 @@ public partial class SettingsDialogViewModel : ViewModel
             return;
         }
 
-        if (!OperationModeLR2DB
+        if (!ApplicationSettings.OperationModeLR2DB
             || !string.Equals(snapshot.ScoreDbPath, Lr2PlayHistoryScoreDbPath, StringComparison.OrdinalIgnoreCase))
         {
             return;
@@ -1732,7 +1219,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
         lr2PlayHistoryScoreDbPath = snapshot.ScoreDbPath;
         lr2PlayHistorySchemaStatusSnapshot = snapshot;
-        lr2PlayHistorySchemaCheckOperationMode = OperationModeLR2DB;
+        lr2PlayHistorySchemaCheckOperationMode = ApplicationSettings.OperationModeLR2DB;
         RaiseLr2PlayHistorySchemaStatusChanged();
     }
 
@@ -1743,7 +1230,7 @@ public partial class SettingsDialogViewModel : ViewModel
             ? ResolveLr2PlayHistoryScoreDbPath()
             : snapshot.ScoreDbPath;
         lr2PlayHistorySchemaStatusSnapshot = snapshot.IsReset ? null : snapshot;
-        lr2PlayHistorySchemaCheckOperationMode = OperationModeLR2DB;
+        lr2PlayHistorySchemaCheckOperationMode = ApplicationSettings.OperationModeLR2DB;
         RaiseLr2PlayHistorySchemaStatusChanged();
     }
 
@@ -1785,7 +1272,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private string ResolveLr2PlayHistoryScoreDbPath()
     {
-        if (!OperationModeLR2DB)
+        if (!ApplicationSettings.OperationModeLR2DB)
         {
             return null;
         }
@@ -1882,16 +1369,16 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return ApplicationSettings.LR2SongDBPath;
+            return environmentLR2SongDBPath;
         }
         set
         {
-            string previousPath = ApplicationSettings.LR2SongDBPath;
+            string previousPath = environmentLR2SongDBPath;
             if (IsLR2SongDBPathValid(value))
             {
                 if (!string.Equals(previousPath, value, StringComparison.Ordinal))
                 {
-                    ApplicationSettings.LR2SongDBPath = value;
+                    environmentLR2SongDBPath = value;
                 }
                 SetLr2PathSelectionError(string.Empty);
             }
@@ -1914,11 +1401,11 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return ApplicationSettings.LR2ConfigXmlPath;
+            return environmentLR2ConfigXmlPath;
         }
         set
         {
-            string previousPath = ApplicationSettings.LR2ConfigXmlPath;
+            string previousPath = environmentLR2ConfigXmlPath;
             bool previousParsed = isLr2ConfigPathParsed;
             LR2Config previousConfig = lr2config;
             string previousError = Lr2PathSelectionError;
@@ -1926,10 +1413,9 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 if (!string.Equals(previousPath, value, StringComparison.Ordinal))
                 {
-                    ApplicationSettings.LR2ConfigXmlPath = value;
+                    environmentLR2ConfigXmlPath = value;
                 }
                 isLr2ConfigPathParsed = true;
-                lr2config = OperationModeLR2DB ? parsedConfig : null;
                 SetLr2PathSelectionError(string.Empty);
             }
             else
@@ -1938,7 +1424,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 // value and its parsed object intact while exposing an explicit validation failure.
                 SetLr2PathSelectionError(BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath);
             }
-            if (string.Equals(previousPath, ApplicationSettings.LR2ConfigXmlPath, StringComparison.Ordinal)
+            if (string.Equals(previousPath, environmentLR2ConfigXmlPath, StringComparison.Ordinal)
                 && previousParsed == isLr2ConfigPathParsed
                 && ReferenceEquals(previousConfig, lr2config)
                 && string.Equals(previousError, Lr2PathSelectionError, StringComparison.Ordinal))
@@ -1948,7 +1434,7 @@ public partial class SettingsDialogViewModel : ViewModel
             RaisePropertyChanged("LR2ConfigXmlPath");
             RaiseLr2PathPresentationChanged();
             RaisePropertyChanged(nameof(LR2bodyPath));
-            RaisePropertyChanged(nameof(AvailableBMSDirectories));
+            RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
             RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
             RaisePropertyChanged(nameof(BMSInstallDir));
             RaiseValidationStateChanged();
@@ -2054,69 +1540,75 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return ApplicationSettings.UseBeatorajaScoreDb;
+            return scoreUseBeatorajaScoreDb;
         }
         set
         {
-            if (ApplicationSettings.UseBeatorajaScoreDb != value)
+            if (scoreUseBeatorajaScoreDb != value)
             {
-                ApplicationSettings.UseBeatorajaScoreDb = value;
+                scoreUseBeatorajaScoreDb = value;
                 RaisePropertyChanged("UseBeatorajaScoreDb");
                 RaiseValidationStateChanged();
+                OnScoreSelectionChanged();
             }
         }
     }
 
+    /// <summary>環境セクションのroot候補です。選択時に同区分のplayerと派生パスだけを解決し、スコア候補は変更しません。</summary>
     public string BeatorajaRootPath
     {
         get
         {
-            return ApplicationSettings.BeatorajaRootPath;
+            return environmentBeatorajaRootPath;
         }
         set
         {
             string path = value ?? string.Empty;
-            if (ApplicationSettings.BeatorajaRootPath == path)
+            if (environmentBeatorajaRootPath == path)
             {
                 return;
             }
-            ApplicationSettings.BeatorajaRootPath = path;
-            RefreshBeatorajaDerivedSettings();
+            environmentBeatorajaRootPath = path;
+            RefreshEnvironmentBeatorajaCandidate();
             RaisePropertyChanged("BeatorajaRootPath");
-            RaisePropertyChanged(nameof(AvailableBeatorajaPlayers));
-            RaisePropertyChanged(nameof(BeatorajaPlayerId));
-            RaisePropertyChanged(nameof(BeatorajaScoreDbPath));
-            RaisePropertyChanged(nameof(BeatorajaBmtTablePath));
             RaiseValidationStateChanged();
         }
     }
 
+    /// <summary>最新確定rootのplayer一覧です。別rootで未検証になった選択候補も、明示確定まで保持します。</summary>
     public List<string> AvailableBeatorajaPlayers
     {
         get
         {
-            return BeatorajaConfigService.GetPlayerIds(ApplicationSettings.BeatorajaRootPath);
+            List<string> players = BeatorajaConfigService.GetPlayerIds(ApplicationSettings.BeatorajaRootPath);
+            if (!string.IsNullOrWhiteSpace(scoreBeatorajaPlayerId) && !players.Contains(scoreBeatorajaPlayerId, StringComparer.OrdinalIgnoreCase))
+            { players.Add(scoreBeatorajaPlayerId); }
+            return players;
         }
     }
 
+    /// <summary>スコアセクションのplayer候補です。一覧再構成の一時nullでは破棄せず、確定時に最新rootで検証します。</summary>
     public string BeatorajaPlayerId
     {
         get
         {
-            return ApplicationSettings.BeatorajaPlayerId;
+            return scoreBeatorajaPlayerId;
         }
         set
         {
-            string playerId = value ?? string.Empty;
-            if (ApplicationSettings.BeatorajaPlayerId == playerId)
+            if (value == null) { return; }
+            string playerId = value;
+            if (scoreBeatorajaPlayerId == playerId)
             {
                 return;
             }
-            ApplicationSettings.BeatorajaPlayerId = playerId;
+            scoreBeatorajaPlayerId = playerId;
             RefreshBeatorajaDerivedSettings();
+            RaisePropertyChanged(nameof(AvailableBeatorajaPlayers));
             RaisePropertyChanged("BeatorajaPlayerId");
             RaisePropertyChanged(nameof(BeatorajaScoreDbPath));
             RaiseValidationStateChanged();
+            OnScoreSelectionChanged();
         }
     }
 
@@ -2124,7 +1616,7 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return ApplicationSettings.BeatorajaScoreDbPath;
+            return scoreBeatorajaScoreDbPath;
         }
         set
         {
@@ -2137,26 +1629,13 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return ApplicationSettings.EnableBeatorajaBmtOutput;
+            return bmtEnableBeatorajaBmtOutput;
         }
         set
         {
-            if (ApplicationSettings.EnableBeatorajaBmtOutput != value)
+            if (bmtEnableBeatorajaBmtOutput != value)
             {
-                if (value
-                    && !ApplicationSettings.EnableBeatorajaBmtOutput
-                    && workspacePort.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(BeatorajaRootPath)
-                    && !ShowUiConfirmation(
-                        BeMusicSeeker.Properties.Resources.Confirm_enable_beatoraja_bmt_output_before_table_url_import,
-                        BeMusicSeeker.Properties.Resources.Confirm,
-                        MessageBoxImage.Exclamation,
-                        MessageBoxButton.OKCancel,
-                        "beatoraja BMT output enable before Table URL import confirmation"))
-                {
-                    RaisePropertyChanged("EnableBeatorajaBmtOutput");
-                    return;
-                }
-                ApplicationSettings.EnableBeatorajaBmtOutput = value;
+                bmtEnableBeatorajaBmtOutput = value;
                 RaisePropertyChanged("EnableBeatorajaBmtOutput");
                 RaiseValidationStateChanged();
             }
@@ -2167,13 +1646,13 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return ApplicationSettings.KeepBeatorajaBmtFilesWhenOutputDisabled;
+            return bmtKeepBeatorajaBmtFilesWhenOutputDisabled;
         }
         set
         {
-            if (ApplicationSettings.KeepBeatorajaBmtFilesWhenOutputDisabled != value)
+            if (bmtKeepBeatorajaBmtFilesWhenOutputDisabled != value)
             {
-                ApplicationSettings.KeepBeatorajaBmtFilesWhenOutputDisabled = value;
+                bmtKeepBeatorajaBmtFilesWhenOutputDisabled = value;
                 RaisePropertyChanged("KeepBeatorajaBmtFilesWhenOutputDisabled");
                 RaiseValidationStateChanged();
             }
@@ -2184,7 +1663,7 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return ApplicationSettings.BeatorajaBmtTablePath;
+            return BeatorajaConfigService.GetTablePath(ApplicationSettings.BeatorajaRootPath);
         }
         set
         {
@@ -2197,13 +1676,13 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return ApplicationSettings.RegisterBeatorajaBmtUrls;
+            return bmtRegisterBeatorajaBmtUrls;
         }
         set
         {
-            if (ApplicationSettings.RegisterBeatorajaBmtUrls != value)
+            if (bmtRegisterBeatorajaBmtUrls != value)
             {
-                ApplicationSettings.RegisterBeatorajaBmtUrls = value;
+                bmtRegisterBeatorajaBmtUrls = value;
                 RaisePropertyChanged("RegisterBeatorajaBmtUrls");
                 RaiseValidationStateChanged();
             }
@@ -2227,8 +1706,8 @@ public partial class SettingsDialogViewModel : ViewModel
             if (lr2ConfigValue != value)
             {
                 lr2ConfigValue = value;
-                RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
-                RaisePropertyChanged(nameof(AvailableBMSDirectories));
+                RaiseBmsListPropertyChanged(nameof(LR2ConfigBMSDirectories));
+                RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
                 RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
                 RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));
                 RaisePropertyChanged(nameof(LR2CustomFolderOutputDir));
@@ -2240,9 +1719,9 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void RefreshParsedLr2ConfigState(bool showSelectionError, bool? useLr2Mode = null)
     {
-        isLr2ConfigPathParsed = LR2Config.TryLoad(ApplicationSettings.LR2ConfigXmlPath, out LR2Config parsedConfig);
+        isLr2ConfigPathParsed = LR2Config.TryLoad(environmentLR2ConfigXmlPath, out LR2Config parsedConfig);
         lr2config = isLr2ConfigPathParsed && (useLr2Mode ?? OperationModeLR2DB) ? parsedConfig : null;
-        SetLr2PathSelectionError(showSelectionError && !string.IsNullOrWhiteSpace(ApplicationSettings.LR2ConfigXmlPath) && !isLr2ConfigPathParsed
+        SetLr2PathSelectionError(showSelectionError && !string.IsNullOrWhiteSpace(environmentLR2ConfigXmlPath) && !isLr2ConfigPathParsed
             ? BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath
             : string.Empty);
     }
@@ -2266,41 +1745,33 @@ public partial class SettingsDialogViewModel : ViewModel
 
     public string uBMplayPath
     {
-        get
-        {
-            return ApplicationSettings.uBMplayPath;
-        }
+        get => externalPlayeruBMplayPath;
         set
         {
-            if (!(ApplicationSettings.uBMplayPath == value))
+            if (externalPlayeruBMplayPath == value) { return; }
+            if (IsuBMplayPathValid(value))
             {
-                if (IsuBMplayPathValid(value))
-                {
-                    ApplicationSettings.uBMplayPath = value;
-                }
-                RaisePropertyChanged("uBMplayPath");
-                RaiseValidationStateChanged();
+                externalPlayeruBMplayPath = value;
+                CommitExternalPlayerSettings();
             }
+            RaisePropertyChanged(nameof(uBMplayPath));
+            RaiseValidationStateChanged();
         }
     }
 
     public string BMIIDXViewPath
     {
-        get
-        {
-            return ApplicationSettings.BMIIDXViewPath;
-        }
+        get => externalPlayerBMIIDXViewPath;
         set
         {
-            if (!(ApplicationSettings.BMIIDXViewPath == value))
+            if (externalPlayerBMIIDXViewPath == value) { return; }
+            if (IsBMIIDXViewPathValid(value))
             {
-                if (IsBMIIDXViewPathValid(value))
-                {
-                    ApplicationSettings.BMIIDXViewPath = value;
-                }
-                RaisePropertyChanged("BMIIDXViewPath");
-                RaiseValidationStateChanged();
+                externalPlayerBMIIDXViewPath = value;
+                CommitExternalPlayerSettings();
             }
+            RaisePropertyChanged(nameof(BMIIDXViewPath));
+            RaiseValidationStateChanged();
         }
     }
 
@@ -2308,17 +1779,19 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return ApplicationSettings.UsePlayeruBMplay;
+            return externalPlayerUsePlayeruBMplay;
         }
         set
         {
+            if (value == externalPlayerUsePlayeruBMplay) { return; }
             if (value)
             {
                 SetPlayerSelection(usePlayeruBMplay: true, usePlayerLR2body: false, usePlayerBMIIDXView: false);
+                CommitExternalPlayerSettings();
             }
-            else if (ApplicationSettings.UsePlayeruBMplay)
+            else if (externalPlayerUsePlayeruBMplay)
             {
-                SetPlayerSelection(usePlayeruBMplay: false, usePlayerLR2body: ApplicationSettings.UsePlayerLR2body, usePlayerBMIIDXView: ApplicationSettings.UsePlayerBMIIDXView);
+                SetPlayerSelection(usePlayeruBMplay: false, usePlayerLR2body: externalPlayerUsePlayerLR2body, usePlayerBMIIDXView: externalPlayerUsePlayerBMIIDXView);
             }
         }
     }
@@ -2327,17 +1800,19 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return ApplicationSettings.UsePlayerLR2body;
+            return externalPlayerUsePlayerLR2body;
         }
         set
         {
+            if (value == externalPlayerUsePlayerLR2body) { return; }
             if (value)
             {
                 SetPlayerSelection(usePlayeruBMplay: false, usePlayerLR2body: true, usePlayerBMIIDXView: false);
+                CommitExternalPlayerSettings();
             }
-            else if (ApplicationSettings.UsePlayerLR2body)
+            else if (externalPlayerUsePlayerLR2body)
             {
-                SetPlayerSelection(usePlayeruBMplay: ApplicationSettings.UsePlayeruBMplay, usePlayerLR2body: false, usePlayerBMIIDXView: ApplicationSettings.UsePlayerBMIIDXView);
+                SetPlayerSelection(usePlayeruBMplay: externalPlayerUsePlayeruBMplay, usePlayerLR2body: false, usePlayerBMIIDXView: externalPlayerUsePlayerBMIIDXView);
             }
         }
     }
@@ -2346,17 +1821,19 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return ApplicationSettings.UsePlayerBMIIDXView;
+            return externalPlayerUsePlayerBMIIDXView;
         }
         set
         {
+            if (value == externalPlayerUsePlayerBMIIDXView) { return; }
             if (value)
             {
                 SetPlayerSelection(usePlayeruBMplay: false, usePlayerLR2body: false, usePlayerBMIIDXView: true);
+                CommitExternalPlayerSettings();
             }
-            else if (ApplicationSettings.UsePlayerBMIIDXView)
+            else if (externalPlayerUsePlayerBMIIDXView)
             {
-                SetPlayerSelection(usePlayeruBMplay: ApplicationSettings.UsePlayeruBMplay, usePlayerLR2body: ApplicationSettings.UsePlayerLR2body, usePlayerBMIIDXView: false);
+                SetPlayerSelection(usePlayeruBMplay: externalPlayerUsePlayeruBMplay, usePlayerLR2body: externalPlayerUsePlayerLR2body, usePlayerBMIIDXView: false);
             }
         }
     }
@@ -2365,35 +1842,37 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return !ApplicationSettings.UsePlayeruBMplay
-                && !ApplicationSettings.UsePlayerLR2body
-                && !ApplicationSettings.UsePlayerBMIIDXView;
+            return !externalPlayerUsePlayeruBMplay
+                && !externalPlayerUsePlayerLR2body
+                && !externalPlayerUsePlayerBMIIDXView;
         }
         set
         {
-            if (value)
+            if (value && !UseInternalPlayer)
             {
                 SetPlayerSelection(usePlayeruBMplay: false, usePlayerLR2body: false, usePlayerBMIIDXView: false);
+                CommitExternalPlayerSettings();
             }
         }
     }
 
     private void SetPlayerSelection(bool usePlayeruBMplay, bool usePlayerLR2body, bool usePlayerBMIIDXView)
     {
-        if (ApplicationSettings.UsePlayeruBMplay == usePlayeruBMplay
-            && ApplicationSettings.UsePlayerLR2body == usePlayerLR2body
-            && ApplicationSettings.UsePlayerBMIIDXView == usePlayerBMIIDXView)
+        if (externalPlayerUsePlayeruBMplay == usePlayeruBMplay
+            && externalPlayerUsePlayerLR2body == usePlayerLR2body
+            && externalPlayerUsePlayerBMIIDXView == usePlayerBMIIDXView)
         {
             return;
         }
-        ApplicationSettings.UsePlayeruBMplay = usePlayeruBMplay;
-        ApplicationSettings.UsePlayerLR2body = usePlayerLR2body;
-        ApplicationSettings.UsePlayerBMIIDXView = usePlayerBMIIDXView;
+        externalPlayerUsePlayeruBMplay = usePlayeruBMplay;
+        externalPlayerUsePlayerLR2body = usePlayerLR2body;
+        externalPlayerUsePlayerBMIIDXView = usePlayerBMIIDXView;
         RaisePropertyChanged(nameof(UseInternalPlayer));
         RaisePropertyChanged(nameof(UsePlayeruBMplay));
         RaisePropertyChanged(nameof(UsePlayerLR2body));
         RaisePropertyChanged(nameof(UsePlayerBMIIDXView));
         RaiseValidationStateChanged();
+        RaisePropertyChanged(nameof(CanRetryExternalPlayerSettings));
     }
 
     public bool IsSaveLR2bodyWindowPosition
@@ -2406,7 +1885,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.IsSaveLR2bodyWindowPosition != value)
             {
-                ApplicationSettings.IsSaveLR2bodyWindowPosition = value;
+                if (!TryCommitSetting(nameof(IsSaveLR2bodyWindowPosition), (nameof(Settings.IsSaveLR2bodyWindowPosition), value))) { return; }
                 RaisePropertyChanged("IsSaveLR2bodyWindowPosition");
             }
         }
@@ -2434,18 +1913,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             return directories;
         }
-        IReadOnlyList<string> excluded = GetUserVisibleBmsSearchRootExcludedDirectories(includePreviousSettings: true);
-        return [.. directories.Where(directory => !ContainsSameOrChildDirectory(excluded, directory))];
-    }
-
-    private List<string> GetExistingLR2UserBmsSearchRootDirectories()
-    {
-        List<string> directories = lr2config.GetBMSSearchDirectoriesReadOnly();
-        if (directories.Count == 0)
-        {
-            return directories;
-        }
-        IReadOnlyList<string> excluded = GetUserVisibleBmsSearchRootExcludedDirectories(includePreviousSettings: true);
+        IReadOnlyList<string> excluded = GetUserVisibleBmsSearchRootExcludedDirectories();
         return [.. directories.Where(directory => !ContainsSameOrChildDirectory(excluded, directory))];
     }
 
@@ -2456,32 +1924,18 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool IsUserVisibleBmsSearchRootExcludedPath(string path)
     {
-        return ContainsSameOrChildDirectory(GetUserVisibleBmsSearchRootExcludedDirectories(includePreviousSettings: true), path);
+        return ContainsSameOrChildDirectory(GetUserVisibleBmsSearchRootExcludedDirectories(), path);
     }
 
-    private IReadOnlyList<string> GetUserVisibleBmsSearchRootExcludedDirectories(bool includePreviousSettings)
+    private IReadOnlyList<string> GetUserVisibleBmsSearchRootExcludedDirectories()
     {
-        var paths = new List<string>
-            {
-                LR2CustomFolderOutputDir,
-                LR2CustomFolderAsRootOutputDir
-            };
-        paths.AddRange(CustomFolderAdditionalOutputBaseDirList);
-        bool hasRootOutput = !string.IsNullOrWhiteSpace(LR2CustomFolderAsRootOutputDir)
-            || (includePreviousSettings && !string.IsNullOrWhiteSpace(tempLR2CustomFolderAsRootOutputDir));
-        IReadOnlyList<PlaylistTablePresentationSnapshot> playlists = hasRootOutput && workspacePort.HasPlaylistTables
-            ? workspacePort.CapturePlaylistPresentationSnapshots()
-            : [];
-        paths.AddRange(CreateRootFolderOutputDirectories(LR2CustomFolderAsRootOutputDir, playlists));
-
-        if (includePreviousSettings)
+        var paths = new List<string> { ApplicationSettings.LR2CustomFolderOutputBaseDir, ApplicationSettings.LR2CustomFolderOutputBaseDirRootType };
+        paths.AddRange(CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs));
+        if (!string.IsNullOrWhiteSpace(ApplicationSettings.LR2CustomFolderOutputBaseDirRootType) && workspacePort.HasPlaylistTables)
         {
-            paths.Add(tempLR2CustomFolderOutputDir);
-            paths.Add(tempLR2CustomFolderAsRootOutputDir);
-            paths.AddRange(CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(tempLR2CustomFolderAdditionalOutputBaseDirs));
-            paths.AddRange(CreateRootFolderOutputDirectories(tempLR2CustomFolderAsRootOutputDir, playlists));
+            paths.AddRange(CreateRootFolderOutputDirectories(ApplicationSettings.LR2CustomFolderOutputBaseDirRootType,
+                workspacePort.CapturePlaylistPresentationSnapshots()));
         }
-
         return CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(paths);
     }
 
@@ -2524,7 +1978,7 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            if (OperationModeLR2DB)
+            if (ApplicationSettings.OperationModeLR2DB)
             {
                 return LR2ConfigBMSDirectories;
             }
@@ -2536,23 +1990,23 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return ApplicationSettings.LR2CustomFolderOutputBaseDir;
+            return outputLR2CustomFolderOutputBaseDir;
         }
         set
         {
-            if (value != null && !(ApplicationSettings.LR2CustomFolderOutputBaseDir == value))
+            if (value != null && !(outputLR2CustomFolderOutputBaseDir == value))
             {
-                if (ValidateCustomFolderOutputBaseDir(value, out string errMsg))
+                if (ValidateCustomFolderOutputBaseDir(value, out string errMsg, target: CopyOutputPlacement(CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings), normal: value)))
                 {
-                    ApplicationSettings.LR2CustomFolderOutputBaseDir = value;
+                    outputLR2CustomFolderOutputBaseDir = value;
                 }
                 else
                 {
                     ShowSettingValidationError(errMsg);
                 }
                 RaisePropertyChanged("LR2CustomFolderOutputDir");
-                RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
-                RaisePropertyChanged(nameof(AvailableBMSDirectories));
+                RaiseBmsListPropertyChanged(nameof(LR2ConfigBMSDirectories));
+                RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
                 RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
                 RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
                 RaiseValidationStateChanged();
@@ -2572,7 +2026,7 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 if (IsBMSInstallDirValid(value))
                 {
-                    ApplicationSettings.BMSInstallDir = value;
+                    if (!TryCommitSetting(nameof(BMSInstallDir), (nameof(Settings.BMSInstallDir), value))) { return; }
                 }
                 RaisePropertyChanged("BMSInstallDir");
                 RaiseValidationStateChanged();
@@ -2584,23 +2038,23 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return ApplicationSettings.LR2CustomFolderOutputBaseDirRootType;
+            return outputLR2CustomFolderOutputBaseDirRootType;
         }
         set
         {
-            if (value != null && !(ApplicationSettings.LR2CustomFolderOutputBaseDirRootType == value))
+            if (value != null && !(outputLR2CustomFolderOutputBaseDirRootType == value))
             {
-                if (ValidateCustomFolderAsRootOutputBaseDir(value, out string errMsg))
+                if (ValidateCustomFolderAsRootOutputBaseDir(value, out string errMsg, target: CopyOutputPlacement(CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings), root: value)))
                 {
-                    ApplicationSettings.LR2CustomFolderOutputBaseDirRootType = value;
+                    outputLR2CustomFolderOutputBaseDirRootType = value;
                 }
                 else
                 {
                     ShowSettingValidationError(errMsg);
                 }
                 RaisePropertyChanged("LR2CustomFolderAsRootOutputDir");
-                RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
-                RaisePropertyChanged(nameof(AvailableBMSDirectories));
+                RaiseBmsListPropertyChanged(nameof(LR2ConfigBMSDirectories));
+                RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
                 RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
                 RaiseValidationStateChanged();
             }
@@ -2700,26 +2154,9 @@ public partial class SettingsDialogViewModel : ViewModel
         int nextValue = (int)BMSPlaylist.NormalizeNewPlaylistIgnoreFolderOutputDefault((int)mask);
         if (ApplicationSettings.PlaylistDefaultIgnoreFolderOutput != nextValue)
         {
-            ApplicationSettings.PlaylistDefaultIgnoreFolderOutput = nextValue;
+            if (!TryCommitSetting(propertyName, (nameof(Settings.PlaylistDefaultIgnoreFolderOutput), nextValue))) { return; }
             RaisePropertyChanged(propertyName);
         }
-    }
-
-    private void RaiseDefaultCustomFolderOutputPropertiesChanged()
-    {
-        RaisePropertyChanged(nameof(DefaultOutputAllSongsFolder));
-        RaisePropertyChanged(nameof(DefaultOutputUserFolder));
-        RaisePropertyChanged(nameof(DefaultOutputLevelFolder));
-        RaisePropertyChanged(nameof(DefaultOutputAlphabetFolder));
-        RaisePropertyChanged(nameof(DefaultOutputClearFolder));
-        RaisePropertyChanged(nameof(DefaultOutputDJLevelFolder));
-        RaisePropertyChanged(nameof(DefaultOutputCategoryAllFolder));
-        RaisePropertyChanged(nameof(DefaultOutputOtherFolder));
-        RaisePropertyChanged(nameof(DefaultOutputRandomFolder));
-        RaisePropertyChanged(nameof(DefaultOutputBpmSortFolder));
-        RaisePropertyChanged(nameof(DefaultOutputBpSortFolder));
-        RaisePropertyChanged(nameof(DefaultOutputPlayCountSortFolder));
-        RaisePropertyChanged(nameof(DefaultOutputLastPlaySortFolder));
     }
 
     private void ShowSettingValidationError(string errMsg)
@@ -2731,20 +2168,21 @@ public partial class SettingsDialogViewModel : ViewModel
         ShowUiMessage(errMsg, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
     }
 
-    private bool ConfirmCustomFolderOutputChangesBeforeSave()
+    private bool ConfirmCustomFolderOutputChangesBeforeSave(CustomFolderOutputSettingsSnapshot target = null)
     {
         IReadOnlyList<string> warningSearchRoots = GetCustomFolderOutputWarningSearchRoots();
         IReadOnlyList<CustomFolderOutputBaseJukeboxAdoptionConflict> conflicts =
-            CollectCustomFolderOutputBaseJukeboxAdoptionConflicts(warningSearchRoots);
+            CollectCustomFolderOutputBaseJukeboxAdoptionConflicts(CreateCurrentCustomFolderOutputBaseCandidates(target), warningSearchRoots,
+                GetPreviousNonNormalManagedCustomFolderSearchRootDirectories(), ApplicationSettings.LR2CustomFolderOutputBaseDir);
         var removedSearchRoots = conflicts
             .Where(conflict => !conflict.IsNormalOutput)
             .Select(conflict => conflict.JukeboxRootPath)
             .ToList();
-        if (!CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(tempLR2CustomFolderOutputDir, LR2CustomFolderOutputDir)
+        if (!CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(ApplicationSettings.LR2CustomFolderOutputBaseDir, target?.LR2CustomFolderOutputBaseDir ?? LR2CustomFolderOutputDir)
             && warningSearchRoots.Any(root =>
-                CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(root, tempLR2CustomFolderOutputDir)))
+                CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(root, ApplicationSettings.LR2CustomFolderOutputBaseDir)))
         {
-            removedSearchRoots.Add(tempLR2CustomFolderOutputDir);
+            removedSearchRoots.Add(ApplicationSettings.LR2CustomFolderOutputBaseDir);
         }
 
         var messages = new List<string>();
@@ -2772,19 +2210,9 @@ public partial class SettingsDialogViewModel : ViewModel
             "Custom folder output settings confirmation");
     }
 
-    // XML自体の不備は設定全体の検証で通知します。表示用のBMS一覧は管理領域を除外するため使いません。
+    // XML自体の不備は当該セクションの検証で通知します。表示用のBMS一覧は管理領域を除外するため使いません。
     private LR2Config GetCustomFolderValidationConfig()
-    {
-        if (!OperationModeLR2DB)
-        {
-            return null;
-        }
-        if (lr2config != null)
-        {
-            return lr2config;
-        }
-        return LR2Config.TryLoad(ApplicationSettings.LR2ConfigXmlPath, out LR2Config config) ? config : null;
-    }
+        => LR2Config.TryLoad(ApplicationSettings.LR2ConfigXmlPath, out LR2Config config) ? config : null;
 
     private IReadOnlyList<string> GetCustomFolderOutputWarningSearchRoots()
     {
@@ -2794,10 +2222,8 @@ public partial class SettingsDialogViewModel : ViewModel
             return [];
         }
 
-        // 同じ編集内で登録を先に削除しても、保存済みの検索領域を管理領域へ採用する確認は省きません。
-        // 検証は編集中の登録を使い、警告だけは保存済み登録と現在の登録の両方を比較元にします。
-        string[] savedSearchRoots = (tempLR2ConfigBmsSearchRoots ?? string.Empty)
-            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        // 未確定のBMS一覧は使わず、確定readerと最新ディスク上の登録から管理領域への採用を確認します。
+        string[] savedSearchRoots = GetConfirmedBmsRoots().ToArray();
         return CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(
             savedSearchRoots.Concat(config.GetBMSSearchDirectoriesForChangeTracking()));
     }
@@ -2809,41 +2235,7 @@ public partial class SettingsDialogViewModel : ViewModel
             CreateCurrentCustomFolderOutputBaseCandidates(),
             jukeboxRoots,
             GetPreviousNonNormalManagedCustomFolderSearchRootDirectories(),
-            tempLR2CustomFolderOutputDir);
-    }
-
-    private bool HasCustomFolderOutputBaseJukeboxAdoptionConflicts()
-    {
-        return CollectCustomFolderOutputBaseJukeboxAdoptionConflicts(GetCustomFolderOutputWarningSearchRoots()).Count > 0;
-    }
-
-    private bool ValidateLR2BmsSearchRootsDoNotOverlap(out string errMsg)
-    {
-        errMsg = string.Empty;
-        if (!OperationModeLR2DB || (lr2config == null && !IsLR2ConfigXmlPathValid()))
-        {
-            return true;
-        }
-
-        LR2Config config;
-        try
-        {
-            config = lr2config ?? new LR2Config(ApplicationSettings.LR2ConfigXmlPath);
-        }
-        catch
-        {
-            return true;
-        }
-
-        IReadOnlyList<NestedBmsSearchRootConflict> conflicts =
-            CollectNestedBmsSearchRootConflicts(config.GetBMSSearchDirectoriesForChangeTracking());
-        if (conflicts.Count == 0)
-        {
-            return true;
-        }
-
-        errMsg = BuildNestedBmsSearchRootConflictMessage(conflicts);
-        return false;
+            ApplicationSettings.LR2CustomFolderOutputBaseDir);
     }
 
     internal static IReadOnlyList<NestedBmsSearchRootConflict> CollectNestedBmsSearchRootConflicts(IEnumerable<string> roots)
@@ -2890,14 +2282,14 @@ public partial class SettingsDialogViewModel : ViewModel
         return FormatResource(BeMusicSeeker.Properties.Resources.Validation_NestedBmsSearchRootPathsFormat, conflictLines);
     }
 
-    private IReadOnlyList<CustomFolderOutputBaseCandidate> CreateCurrentCustomFolderOutputBaseCandidates()
+    private IReadOnlyList<CustomFolderOutputBaseCandidate> CreateCurrentCustomFolderOutputBaseCandidates(CustomFolderOutputSettingsSnapshot target = null)
     {
         var candidates = new List<CustomFolderOutputBaseCandidate>
             {
-                new(BeMusicSeeker.Properties.Resources.Label_NormalOutputBase, LR2CustomFolderOutputDir, isNormalOutput: true),
-                new(BeMusicSeeker.Properties.Resources.Label_RootOutputBase, LR2CustomFolderAsRootOutputDir)
+                new(BeMusicSeeker.Properties.Resources.Label_NormalOutputBase, target?.LR2CustomFolderOutputBaseDir ?? LR2CustomFolderOutputDir, isNormalOutput: true),
+                new(BeMusicSeeker.Properties.Resources.Label_RootOutputBase, target?.LR2CustomFolderOutputBaseDirRootType ?? LR2CustomFolderAsRootOutputDir)
             };
-        foreach (string path in CustomFolderAdditionalOutputBaseDirList)
+        foreach (string path in GetOutputAdditionalPaths(target))
         {
             candidates.Add(new CustomFolderOutputBaseCandidate(BeMusicSeeker.Properties.Resources.Label_AdditionalOutputBaseFolder, path));
         }
@@ -2908,10 +2300,10 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         var paths = new List<string>
             {
-                tempLR2CustomFolderAsRootOutputDir
+                ApplicationSettings.LR2CustomFolderOutputBaseDirRootType
             };
-        paths.AddRange(CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(tempLR2CustomFolderAdditionalOutputBaseDirs));
-        paths.AddRange(CreateRootFolderOutputDirectories(tempLR2CustomFolderAsRootOutputDir));
+        paths.AddRange(CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs));
+        paths.AddRange(CreateRootFolderOutputDirectories(ApplicationSettings.LR2CustomFolderOutputBaseDirRootType));
         return CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(paths);
     }
 
@@ -3060,7 +2452,7 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            if (!IsTableListURLValid())
+            if (!IsTableListURLValid(ApplicationSettings.TableListURL))
             {
                 return new Uri(Settings.DefaultTableListUrl);
             }
@@ -3072,7 +2464,7 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 if (IsTableListURLValid(value))
                 {
-                    ApplicationSettings.TableListURL = value;
+                    if (!TryCommitSetting(nameof(TableListURL), (nameof(Settings.TableListURL), value))) { return; }
                     tableListUriValidationMessage = string.Empty;
                 }
                 else
@@ -3099,7 +2491,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.EnablePlaylistUrlCompletion != value)
             {
-                ApplicationSettings.EnablePlaylistUrlCompletion = value;
+                if (!TryCommitSetting(nameof(EnablePlaylistUrlCompletion), (nameof(Settings.EnablePlaylistUrlCompletion), value))) { return; }
                 RaisePropertyChanged("EnablePlaylistUrlCompletion");
                 RaiseValidationStateChanged();
             }
@@ -3116,7 +2508,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.OverwritePlaylistUrlsWithCompletion != value)
             {
-                ApplicationSettings.OverwritePlaylistUrlsWithCompletion = value;
+                if (!TryCommitSetting(nameof(OverwritePlaylistUrlsWithCompletion), (nameof(Settings.OverwritePlaylistUrlsWithCompletion), value))) { return; }
                 RaisePropertyChanged("OverwritePlaylistUrlsWithCompletion");
             }
         }
@@ -3132,7 +2524,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.EnableStellaFullPlaylistUrlCompletion != value)
             {
-                ApplicationSettings.EnableStellaFullPlaylistUrlCompletion = value;
+                if (!TryCommitSetting(nameof(EnableStellaFullPlaylistUrlCompletion), (nameof(Settings.EnableStellaFullPlaylistUrlCompletion), value))) { return; }
                 RaisePropertyChanged("EnableStellaFullPlaylistUrlCompletion");
             }
         }
@@ -3157,7 +2549,7 @@ public partial class SettingsDialogViewModel : ViewModel
             }
             if (IsPlaylistMd5UrlMappingTsvUriValid(normalizedValue))
             {
-                ApplicationSettings.PlaylistMd5UrlMappingTsvUri = normalizedValue;
+                if (!TryCommitSetting(nameof(PlaylistMd5UrlMappingTsvUri), (nameof(Settings.PlaylistMd5UrlMappingTsvUri), normalizedValue))) { return; }
                 playlistMd5UrlMappingTsvUriValidationMessage = string.Empty;
             }
             else
@@ -3173,6 +2565,7 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>Gets the inline validation message for the playlist metadata mapping URI editor.</summary>
     public string PlaylistMd5UrlMappingTsvUriValidationMessage => playlistMd5UrlMappingTsvUriValidationMessage;
 
+    /// <summary>バックアップ方針だけを保存し、LR2連携での有効化成功後に次回起動からの適用を案内します。</summary>
     public bool IsLR2BackupEnabled
     {
         get
@@ -3183,9 +2576,14 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.IsLR2BackupEnabled != value)
             {
-                ApplicationSettings.IsLR2BackupEnabled = value;
+                if (!TryCommitSetting(nameof(IsLR2BackupEnabled), (nameof(Settings.IsLR2BackupEnabled), value))) { return; }
                 RaisePropertyChanged("IsLR2BackupEnabled");
                 RaiseValidationStateChanged();
+                if (value && ApplicationSettings.OperationModeLR2DB && !operationAdmission.IsAdmissionClosed)
+                {
+                    ShowUiMessage(Resources.Msg_LR2ConfigBackupEnabledNextStartup, Resources.Confirm, MessageBoxImage.Asterisk,
+                        "LR2 backup enabled notification");
+                }
             }
         }
     }
@@ -3202,11 +2600,11 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 if (IsLR2BackupPathValid(value))
                 {
-                    ApplicationSettings.LR2BackupPath = value;
+                    if (!TryCommitSetting(nameof(LR2BackupPath), (nameof(Settings.LR2BackupPath), value))) { return; }
                 }
                 else
                 {
-                    ApplicationSettings.LR2BackupPath = null;
+                    if (!TryCommitSetting(nameof(LR2BackupPath), (nameof(Settings.LR2BackupPath), null))) { return; }
                 }
                 RaisePropertyChanged("LR2BackupPath");
                 RaiseValidationStateChanged();
@@ -3224,7 +2622,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.LR2BackupTarget != value)
             {
-                ApplicationSettings.LR2BackupTarget = value;
+                if (!TryCommitSetting(nameof(LR2BackupTarget), (nameof(Settings.LR2BackupTarget), value))) { return; }
                 RaisePropertyChanged("LR2BackupTarget");
             }
         }
@@ -3234,9 +2632,9 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            if (!IsLR2BackupSpanValid())
+            if (!IsLR2BackupSpanValid(ApplicationSettings.LR2BackupSpan))
             {
-                ApplicationSettings.LR2BackupSpan = 7;
+                return 7;
             }
             return ApplicationSettings.LR2BackupSpan;
         }
@@ -3246,7 +2644,7 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 if (IsLR2BackupSpanValid(value))
                 {
-                    ApplicationSettings.LR2BackupSpan = value;
+                    if (!TryCommitSetting(nameof(LR2BackupSpan), (nameof(Settings.LR2BackupSpan), value))) { return; }
                 }
                 RaisePropertyChanged("LR2BackupSpan");
             }
@@ -3257,9 +2655,9 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            if (!IsLR2BackupNumValid())
+            if (!IsLR2BackupNumValid(ApplicationSettings.LR2BackupNum))
             {
-                ApplicationSettings.LR2BackupNum = 1;
+                return 1;
             }
             return ApplicationSettings.LR2BackupNum;
         }
@@ -3269,7 +2667,7 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 if (IsLR2BackupNumValid(value))
                 {
-                    ApplicationSettings.LR2BackupNum = value;
+                    if (!TryCommitSetting(nameof(LR2BackupNum), (nameof(Settings.LR2BackupNum), value))) { return; }
                 }
                 RaisePropertyChanged("LR2BackupNum");
             }
@@ -3280,15 +2678,16 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return ApplicationSettings.UseExternalPanelImage;
+            return imageUseExternalPanelImage;
         }
         set
         {
-            if (ApplicationSettings.UseExternalPanelImage != value)
+            if (imageUseExternalPanelImage != value)
             {
-                ApplicationSettings.UseExternalPanelImage = value;
+                imageUseExternalPanelImage = value;
                 RaisePropertyChanged("UseExternalPanelImage");
                 RaiseValidationStateChanged();
+                CommitImageSettings();
             }
         }
     }
@@ -3367,14 +2766,14 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            return BmtTableExportService.NormalizeHashOutputMode(ApplicationSettings.BeatorajaBmtHashOutputMode).ToString();
+            return BmtTableExportService.NormalizeHashOutputMode(bmtBeatorajaBmtHashOutputMode).ToString();
         }
         set
         {
             string normalizedValue = BmtTableExportService.NormalizeHashOutputMode(value).ToString();
-            if (ApplicationSettings.BeatorajaBmtHashOutputMode != normalizedValue)
+            if (bmtBeatorajaBmtHashOutputMode != normalizedValue)
             {
-                ApplicationSettings.BeatorajaBmtHashOutputMode = normalizedValue;
+                bmtBeatorajaBmtHashOutputMode = normalizedValue;
                 RaisePropertyChanged("BeatorajaBmtHashOutputMode");
                 RaiseValidationStateChanged();
             }
@@ -3397,7 +2796,7 @@ public partial class SettingsDialogViewModel : ViewModel
             string normalizedTheme = AppThemeService.NormalizeTheme(value);
             if (ApplicationSettings.AppearanceTheme != normalizedTheme)
             {
-                ApplicationSettings.AppearanceTheme = normalizedTheme;
+                if (!TryCommitSetting(nameof(AppearanceTheme), (nameof(Settings.AppearanceTheme), normalizedTheme))) { return; }
                 AppThemeService.ApplyTheme(normalizedTheme);
                 RaisePropertyChanged("AppearanceTheme");
                 RaisePropertyChanged(nameof(IsLightAppearanceTheme));
@@ -3443,7 +2842,7 @@ public partial class SettingsDialogViewModel : ViewModel
             double normalizedValue = Settings.NormalizeRange(value, Settings.MinCustomTableFontSize, Settings.MaxCustomTableFontSize, Settings.DefaultCustomTableFontSize);
             if (!ApplicationSettings.CustomTableFontSize.Equals(normalizedValue))
             {
-                ApplicationSettings.CustomTableFontSize = normalizedValue;
+                if (!TryCommitSetting(nameof(CustomTableFontSize), (nameof(Settings.CustomTableFontSize), normalizedValue))) { return; }
                 RaisePropertyChanged("CustomTableFontSize");
             }
         }
@@ -3460,7 +2859,7 @@ public partial class SettingsDialogViewModel : ViewModel
             double normalizedValue = Settings.NormalizeRange(value, Settings.MinCustomTableRowHeight, Settings.MaxCustomTableRowHeight, Settings.DefaultCustomTableRowHeight);
             if (!ApplicationSettings.CustomTableRowHeight.Equals(normalizedValue))
             {
-                ApplicationSettings.CustomTableRowHeight = normalizedValue;
+                if (!TryCommitSetting(nameof(CustomTableRowHeight), (nameof(Settings.CustomTableRowHeight), normalizedValue))) { return; }
                 RaisePropertyChanged("CustomTableRowHeight");
             }
         }
@@ -3477,7 +2876,7 @@ public partial class SettingsDialogViewModel : ViewModel
             double normalizedValue = Settings.NormalizeRange(value, Settings.MinCustomTableHeaderHeight, Settings.MaxCustomTableHeaderHeight, Settings.DefaultCustomTableHeaderHeight);
             if (!ApplicationSettings.CustomTableHeaderHeight.Equals(normalizedValue))
             {
-                ApplicationSettings.CustomTableHeaderHeight = normalizedValue;
+                if (!TryCommitSetting(nameof(CustomTableHeaderHeight), (nameof(Settings.CustomTableHeaderHeight), normalizedValue))) { return; }
                 RaisePropertyChanged("CustomTableHeaderHeight");
             }
         }
@@ -3500,7 +2899,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.ShowScoreViewerRegisterConfirmMsg != value)
             {
-                ApplicationSettings.ShowScoreViewerRegisterConfirmMsg = value;
+                if (!TryCommitSetting(nameof(ShowScoreViewerRegisterConfirmMsg), (nameof(Settings.ShowScoreViewerRegisterConfirmMsg), value))) { return; }
                 RaisePropertyChanged("ShowScoreViewerRegisterConfirmMsg");
             }
         }
@@ -3516,7 +2915,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.ShowDiffBMSInstallConfirmMsg != value)
             {
-                ApplicationSettings.ShowDiffBMSInstallConfirmMsg = value;
+                if (!TryCommitSetting(nameof(ShowDiffBMSInstallConfirmMsg), (nameof(Settings.ShowDiffBMSInstallConfirmMsg), value))) { return; }
                 RaisePropertyChanged("ShowDiffBMSInstallConfirmMsg");
             }
         }
@@ -3533,7 +2932,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.ShowNewPackageInstallConfirmMsg != value)
             {
-                ApplicationSettings.ShowNewPackageInstallConfirmMsg = value;
+                if (!TryCommitSetting(nameof(ShowNewPackageInstallConfirmMsg), (nameof(Settings.ShowNewPackageInstallConfirmMsg), value))) { return; }
                 RaisePropertyChanged("ShowNewPackageInstallConfirmMsg");
             }
         }
@@ -3549,7 +2948,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.ShowDuplicateFileCheckConfirmMsg != value)
             {
-                ApplicationSettings.ShowDuplicateFileCheckConfirmMsg = value;
+                if (!TryCommitSetting(nameof(ShowDuplicateFileCheckConfirmMsg), (nameof(Settings.ShowDuplicateFileCheckConfirmMsg), value))) { return; }
                 RaisePropertyChanged("ShowDuplicateFileCheckConfirmMsg");
             }
         }
@@ -3565,7 +2964,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.ShowRecommUpdatedMsg != value)
             {
-                ApplicationSettings.ShowRecommUpdatedMsg = value;
+                if (!TryCommitSetting(nameof(ShowRecommUpdatedMsg), (nameof(Settings.ShowRecommUpdatedMsg), value))) { return; }
                 RaisePropertyChanged("ShowRecommUpdatedMsg");
             }
         }
@@ -3591,7 +2990,7 @@ public partial class SettingsDialogViewModel : ViewModel
                     return;
                 }
             }
-            ApplicationSettings.ScanBmsFilesOnStartup = value;
+            if (!TryCommitSetting(nameof(ScanBmsFilesOnStartup), (nameof(Settings.ScanBmsFilesOnStartup), value))) { return; }
             RaisePropertyChanged("ScanBmsFilesOnStartup");
         }
     }
@@ -3616,7 +3015,7 @@ public partial class SettingsDialogViewModel : ViewModel
                     return;
                 }
             }
-            ApplicationSettings.SkipInitPlaylistLoad = value;
+            if (!TryCommitSetting(nameof(SkipInitPlaylistLoad), (nameof(Settings.SkipInitPlaylistLoad), value))) { return; }
             RaisePropertyChanged("SkipInitPlaylistLoad");
         }
     }
@@ -3631,7 +3030,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.StartupSelectInstallPending != value)
             {
-                ApplicationSettings.StartupSelectInstallPending = value;
+                if (!TryCommitSetting(nameof(StartupSelectInstallPending), (nameof(Settings.StartupSelectInstallPending), value))) { return; }
                 RaisePropertyChanged("StartupSelectInstallPending");
             }
         }
@@ -3647,7 +3046,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.EnableReadOptimizedPragmas != value)
             {
-                ApplicationSettings.EnableReadOptimizedPragmas = value;
+                if (!TryCommitSetting(nameof(EnableReadOptimizedPragmas), (nameof(Settings.EnableReadOptimizedPragmas), value))) { return; }
                 RaisePropertyChanged("EnableReadOptimizedPragmas");
             }
         }
@@ -3672,7 +3071,7 @@ public partial class SettingsDialogViewModel : ViewModel
                     return;
                 }
             }
-            ApplicationSettings.EstimateOfflineScoreRanking = value;
+            if (!TryCommitSetting(nameof(EstimateOfflineScoreRanking), (nameof(Settings.EstimateOfflineScoreRanking), value))) { return; }
             RaisePropertyChanged("EstimateOfflineScoreRanking");
         }
     }
@@ -3687,7 +3086,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.EnableDownloadLr2IrScoreAndDetectUnsent != value)
             {
-                ApplicationSettings.EnableDownloadLr2IrScoreAndDetectUnsent = value;
+                if (!TryCommitSetting(nameof(EnableDownloadLr2IrScoreAndDetectUnsent), (nameof(Settings.EnableDownloadLr2IrScoreAndDetectUnsent), value))) { return; }
                 RaisePropertyChanged("EnableDownloadLr2IrScoreAndDetectUnsent");
             }
         }
@@ -3712,7 +3111,7 @@ public partial class SettingsDialogViewModel : ViewModel
                     return;
                 }
             }
-            ApplicationSettings.UpdateLr2IrRankingCacheOnStartup = value;
+            if (!TryCommitSetting(nameof(UpdateLr2IrRankingCacheOnStartup), (nameof(Settings.UpdateLr2IrRankingCacheOnStartup), value))) { return; }
             RaisePropertyChanged("UpdateLr2IrRankingCacheOnStartup");
         }
     }
@@ -3727,7 +3126,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.AutoInstall != value)
             {
-                ApplicationSettings.AutoInstall = value;
+                if (!TryCommitSetting(nameof(EnableAutoInstall), (nameof(Settings.AutoInstall), value))) { return; }
                 RaisePropertyChanged("EnableAutoInstall");
             }
         }
@@ -3743,7 +3142,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.KeepInstallablePackagesPending != value)
             {
-                ApplicationSettings.KeepInstallablePackagesPending = value;
+                if (!TryCommitSetting(nameof(KeepInstallablePackagesPending), (nameof(Settings.KeepInstallablePackagesPending), value))) { return; }
                 RaisePropertyChanged("KeepInstallablePackagesPending");
             }
         }
@@ -3760,7 +3159,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.RequireCompleteUsedResourcesForAutoInstall != value)
             {
-                ApplicationSettings.RequireCompleteUsedResourcesForAutoInstall = value;
+                if (!TryCommitSetting(nameof(RequireCompleteUsedResourcesForAutoInstall), (nameof(Settings.RequireCompleteUsedResourcesForAutoInstall), value))) { return; }
                 RaisePropertyChanged("RequireCompleteUsedResourcesForAutoInstall");
             }
         }
@@ -3783,7 +3182,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (value is >= 0 and <= 3 && ApplicationSettings.StartupSortCachePrewarmPriority != value.Value)
             {
-                ApplicationSettings.StartupSortCachePrewarmPriority = value.Value;
+                if (!TryCommitSetting(nameof(StartupSortCachePrewarmPriority), (nameof(Settings.StartupSortCachePrewarmPriority), value.Value))) { return; }
                 RaisePropertyChanged(nameof(StartupSortCachePrewarmPriority));
                 RaisePropertyChanged(nameof(StartupSortCachePrewarmWarning));
                 RaiseValidationStateChanged();
@@ -3798,12 +3197,6 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool IsStartupSortCachePrewarmPriorityValid => ApplicationSettings.StartupSortCachePrewarmPriority is >= 0 and <= 3;
 
-    private bool CheckStartupSortCachePrewarmPriority(out string errMsg)
-    {
-        errMsg = StartupSortCachePrewarmWarning;
-        return IsStartupSortCachePrewarmPriorityValid;
-    }
-
     /// <summary>利用者が明示選択できる90～100%を1%刻みで提供します。</summary>
     public IReadOnlyList<KeyValuePair<int, string>> InstallDestinationAutoApplyMinAudioHealthOptions { get; } =
         Array.AsReadOnly(Enumerable.Range(90, 11).Select(value => new KeyValuePair<int, string>(value, value + "%")).ToArray());
@@ -3816,7 +3209,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (value is >= 90 and <= 100 && ApplicationSettings.InstallDestinationAutoApplyMinAudioHealth != value.Value)
             {
-                ApplicationSettings.InstallDestinationAutoApplyMinAudioHealth = value.Value;
+                if (!TryCommitSetting(nameof(InstallDestinationAutoApplyMinAudioHealth), (nameof(Settings.InstallDestinationAutoApplyMinAudioHealth), value.Value))) { return; }
                 RaisePropertyChanged(nameof(InstallDestinationAutoApplyMinAudioHealth));
                 RaisePropertyChanged(nameof(InstallDestinationAutoApplyMinAudioHealthWarning));
             }
@@ -3837,7 +3230,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.AutoInstallAfterAutomaticEstimation != value)
             {
-                ApplicationSettings.AutoInstallAfterAutomaticEstimation = value;
+                if (!TryCommitSetting(nameof(AutoInstallAfterAutomaticEstimation), (nameof(Settings.AutoInstallAfterAutomaticEstimation), value))) { return; }
                 RaisePropertyChanged(nameof(AutoInstallAfterAutomaticEstimation));
             }
         }
@@ -3853,7 +3246,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.AutoApplyAmbiguousInstallDestination != value)
             {
-                ApplicationSettings.AutoApplyAmbiguousInstallDestination = value;
+                if (!TryCommitSetting(nameof(AutoApplyAmbiguousInstallDestination), (nameof(Settings.AutoApplyAmbiguousInstallDestination), value))) { return; }
                 RaisePropertyChanged("AutoApplyAmbiguousInstallDestination");
             }
         }
@@ -3875,7 +3268,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.DeletePendingPackageSourceAfterInstall != value)
             {
-                ApplicationSettings.DeletePendingPackageSourceAfterInstall = value;
+                if (!TryCommitSetting(nameof(DeletePendingPackageSourceAfterInstall), (nameof(Settings.DeletePendingPackageSourceAfterInstall), value))) { return; }
                 RaisePropertyChanged("DeletePendingPackageSourceAfterInstall");
             }
         }
@@ -3891,7 +3284,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.EnableSmartComponentOverwrite != value)
             {
-                ApplicationSettings.EnableSmartComponentOverwrite = value;
+                if (!TryCommitSetting(nameof(EnableSmartComponentOverwrite), (nameof(Settings.EnableSmartComponentOverwrite), value))) { return; }
                 RaisePropertyChanged("EnableSmartComponentOverwrite");
             }
         }
@@ -3907,7 +3300,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.KeepSmartOverwriteProtectedFilesByRenaming != value)
             {
-                ApplicationSettings.KeepSmartOverwriteProtectedFilesByRenaming = value;
+                if (!TryCommitSetting(nameof(KeepSmartOverwriteProtectedFilesByRenaming), (nameof(Settings.KeepSmartOverwriteProtectedFilesByRenaming), value))) { return; }
                 RaisePropertyChanged("KeepSmartOverwriteProtectedFilesByRenaming");
             }
         }
@@ -3915,21 +3308,17 @@ public partial class SettingsDialogViewModel : ViewModel
 
     public string StagefilePath
     {
-        get
-        {
-            return ApplicationSettings.StagefilePath;
-        }
+        get => imageStagefilePath;
         set
         {
-            if (!(ApplicationSettings.StagefilePath == value))
+            if (imageStagefilePath == value) { return; }
+            if (IsStagefilePathValid(value))
             {
-                if (IsStagefilePathValid(value))
-                {
-                    ApplicationSettings.StagefilePath = value;
-                }
-                RaisePropertyChanged("StagefilePath");
-                RaiseValidationStateChanged();
+                imageStagefilePath = value;
+                CommitImageSettings();
             }
+            RaisePropertyChanged(nameof(StagefilePath));
+            RaiseValidationStateChanged();
         }
     }
 
@@ -3950,11 +3339,11 @@ public partial class SettingsDialogViewModel : ViewModel
                 value = value.RemoveInvalidFileNameChars();
                 if (IsFolderNameFormatValid(value))
                 {
-                    ApplicationSettings.FolderNameFormat = value;
+                    if (!TryCommitSetting(nameof(FolderNameFormat), (nameof(Settings.FolderNameFormat), value))) { return; }
                 }
                 else
                 {
-                    ApplicationSettings.FolderNameFormat = defaultFolderNameFormat;
+                    if (!TryCommitSetting(nameof(FolderNameFormat), (nameof(Settings.FolderNameFormat), defaultFolderNameFormat))) { return; }
                     ShowUiMessage(BeMusicSeeker.Properties.Resources.Error_InvalidFolderNameFormat, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation);
                 }
                 RaisePropertyChanged("FolderNameFormat");
@@ -3977,7 +3366,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 {
                     ShowUiMessage(BeMusicSeeker.Properties.Resources.Warn_DisableShiftJisFolderNames, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation);
                 }
-                ApplicationSettings.UseOnlyShiftJISChars = value;
+                if (!TryCommitSetting(nameof(UseOnlyShiftJISChars), (nameof(Settings.UseOnlyShiftJISChars), value))) { return; }
                 RaisePropertyChanged("UseOnlyShiftJISChars");
             }
         }
@@ -4050,7 +3439,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.EncoderSampleRate != value)
             {
-                ApplicationSettings.EncoderSampleRate = value;
+                if (!TryCommitSetting(nameof(EncoderSampleRate), (nameof(Settings.EncoderSampleRate), value))) { return; }
                 RaisePropertyChanged("EncoderSampleRate");
             }
         }
@@ -4064,7 +3453,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (!EncoderChecker(ApplicationSettings.Encoder))
             {
-                ApplicationSettings.Encoder = EncoderType.WAVE;
+                return (int)EncoderType.WAVE;
             }
             return (int)ApplicationSettings.Encoder;
         }
@@ -4074,7 +3463,7 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 if (EncoderChecker((EncoderType)value))
                 {
-                    ApplicationSettings.Encoder = (EncoderType)value;
+                    if (!TryCommitSetting(nameof(EncoderIndex), (nameof(Settings.Encoder), (EncoderType)value))) { return; }
                 }
                 else
                 {
@@ -4127,7 +3516,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.EncoderFormat != value)
             {
-                ApplicationSettings.EncoderFormat = value;
+                if (!TryCommitSetting(nameof(EncoderFormat), (nameof(Settings.EncoderFormat), value))) { return; }
                 RaisePropertyChanged("EncoderFormat");
             }
         }
@@ -4159,7 +3548,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (audioSettingsGateway.EncoderNormalization != value)
             {
-                audioSettingsGateway.EncoderNormalization = value;
+                if (!TryCommitSetting(nameof(EncoderNormalization), (nameof(Settings.EncoderNormalization), BassAudioMapping.ToBassNormalization(value)))) { return; }
                 RaisePropertyChanged("EncoderNormalization");
             }
         }
@@ -4175,7 +3564,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.EncoderQuality != value)
             {
-                ApplicationSettings.EncoderQuality = value;
+                if (!TryCommitSetting(nameof(EncoderQuality), (nameof(Settings.EncoderQuality), value))) { return; }
                 RaisePropertyChanged("EncoderQuality");
             }
         }
@@ -4191,7 +3580,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (ApplicationSettings.EncoderAmplifier != value)
             {
-                ApplicationSettings.EncoderAmplifier = value;
+                if (!TryCommitSetting(nameof(EncoderAmplifier), (nameof(Settings.EncoderAmplifier), value))) { return; }
                 RaisePropertyChanged("EncoderAmplifier");
             }
         }
@@ -4207,7 +3596,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (!(ApplicationSettings.EncoderExeDir == value))
             {
-                ApplicationSettings.EncoderExeDir = value;
+                if (!TryCommitSetting(nameof(EncoderExeDir), (nameof(Settings.EncoderExeDir), value))) { return; }
                 RaisePropertyChanged("EncoderExeDir");
                 RaisePropertyChanged(nameof(EncoderIndex));
             }
@@ -4233,7 +3622,7 @@ public partial class SettingsDialogViewModel : ViewModel
                     value = defaultEncodeFileNameFormat;
                 }
                 value = value.RemoveInvalidFileNameChars();
-                ApplicationSettings.EncodeFileNameFormat = value;
+                if (!TryCommitSetting(nameof(EncodeFileNameFormat), (nameof(Settings.EncodeFileNameFormat), value))) { return; }
                 RaisePropertyChanged("EncodeFileNameFormat");
             }
         }
@@ -4258,31 +3647,31 @@ public partial class SettingsDialogViewModel : ViewModel
     public string UnavailablePlayerDriverDescription => audioDeviceTestWorkflow.UnavailablePlayerDriverDescription;
 
     /// <summary>音声設定担当が所有するPlayerDriverIndexを画面へ接続します。</summary>
-    public int PlayerDriverIndex { get => audioDeviceTestWorkflow.PlayerDriverIndex; set => audioDeviceTestWorkflow.PlayerDriverIndex = value; }
+    public int PlayerDriverIndex { get => audioDeviceTestWorkflow.PlayerDriverIndex; set { int previous = audioDeviceTestWorkflow.PlayerDriverIndex; audioDeviceTestWorkflow.PlayerDriverIndex = value; if (!Equals(previous, audioDeviceTestWorkflow.PlayerDriverIndex)) { CommitAudioSettings(); } } }
 
     /// <summary>音声設定担当が所有するPlayerDeviceNamesを画面へ接続します。</summary>
     public List<AudioDeviceInfo> PlayerDeviceNames => audioDeviceTestWorkflow.PlayerDeviceNames;
 
     /// <summary>音声設定担当が所有するPlayerDeviceを画面へ接続します。</summary>
-    public string PlayerDevice { get => audioDeviceTestWorkflow.PlayerDevice; set => audioDeviceTestWorkflow.PlayerDevice = value; }
+    public string PlayerDevice { get => audioDeviceTestWorkflow.PlayerDevice; set { string previous = audioDeviceTestWorkflow.PlayerDevice; audioDeviceTestWorkflow.PlayerDevice = value; if (!Equals(previous, audioDeviceTestWorkflow.PlayerDevice)) { CommitAudioSettings(); } } }
 
     /// <summary>音声設定担当が所有するSelectedPlayerDeviceを画面へ接続します。</summary>
-    public AudioDeviceInfo? SelectedPlayerDevice { get => audioDeviceTestWorkflow.SelectedPlayerDevice; set => audioDeviceTestWorkflow.SelectedPlayerDevice = value; }
+    public AudioDeviceInfo? SelectedPlayerDevice { get => audioDeviceTestWorkflow.SelectedPlayerDevice; set { AudioDeviceInfo? previous = audioDeviceTestWorkflow.SelectedPlayerDevice; audioDeviceTestWorkflow.SelectedPlayerDevice = value; if (!Equals(previous, audioDeviceTestWorkflow.SelectedPlayerDevice)) { CommitAudioSettings(); } } }
 
     /// <summary>音声設定担当が所有するPlayerSampleRateを画面へ接続します。</summary>
-    public SampleRate PlayerSampleRate { get => audioDeviceTestWorkflow.PlayerSampleRate; set => audioDeviceTestWorkflow.PlayerSampleRate = value; }
+    public SampleRate PlayerSampleRate { get => audioDeviceTestWorkflow.PlayerSampleRate; set { SampleRate previous = audioDeviceTestWorkflow.PlayerSampleRate; audioDeviceTestWorkflow.PlayerSampleRate = value; if (!Equals(previous, audioDeviceTestWorkflow.PlayerSampleRate)) { CommitAudioSettings(); } } }
 
     /// <summary>音声設定担当が所有するSelectedPlayerSampleRateを画面へ接続します。</summary>
-    public SampleRate? SelectedPlayerSampleRate { get => audioDeviceTestWorkflow.SelectedPlayerSampleRate; set => audioDeviceTestWorkflow.SelectedPlayerSampleRate = value; }
+    public SampleRate? SelectedPlayerSampleRate { get => audioDeviceTestWorkflow.SelectedPlayerSampleRate; set { SampleRate? previous = audioDeviceTestWorkflow.SelectedPlayerSampleRate; audioDeviceTestWorkflow.SelectedPlayerSampleRate = value; if (!Equals(previous, audioDeviceTestWorkflow.SelectedPlayerSampleRate)) { CommitAudioSettings(); } } }
 
     /// <summary>音声設定担当が所有するPlayerFormatを画面へ接続します。</summary>
-    public SampleFormat PlayerFormat { get => audioDeviceTestWorkflow.PlayerFormat; set => audioDeviceTestWorkflow.PlayerFormat = value; }
+    public SampleFormat PlayerFormat { get => audioDeviceTestWorkflow.PlayerFormat; set { SampleFormat previous = audioDeviceTestWorkflow.PlayerFormat; audioDeviceTestWorkflow.PlayerFormat = value; if (!Equals(previous, audioDeviceTestWorkflow.PlayerFormat)) { CommitAudioSettings(); } } }
 
     /// <summary>音声設定担当が所有するSelectedPlayerFormatを画面へ接続します。</summary>
-    public SampleFormat? SelectedPlayerFormat { get => audioDeviceTestWorkflow.SelectedPlayerFormat; set => audioDeviceTestWorkflow.SelectedPlayerFormat = value; }
+    public SampleFormat? SelectedPlayerFormat { get => audioDeviceTestWorkflow.SelectedPlayerFormat; set { SampleFormat? previous = audioDeviceTestWorkflow.SelectedPlayerFormat; audioDeviceTestWorkflow.SelectedPlayerFormat = value; if (!Equals(previous, audioDeviceTestWorkflow.SelectedPlayerFormat)) { CommitAudioSettings(); } } }
 
     /// <summary>音声設定担当が所有するPlayerBufferSizeを画面へ接続します。</summary>
-    public float PlayerBufferSize { get => audioDeviceTestWorkflow.PlayerBufferSize; set => audioDeviceTestWorkflow.PlayerBufferSize = value; }
+    public float PlayerBufferSize { get => audioDeviceTestWorkflow.PlayerBufferSize; set { float previous = audioDeviceTestWorkflow.PlayerBufferSize; audioDeviceTestWorkflow.PlayerBufferSize = value; if (!Equals(previous, audioDeviceTestWorkflow.PlayerBufferSize)) { CommitAudioSettings(); } } }
 
     /// <summary>音声設定担当が所有するPlayerResamplingQualityを画面へ接続します。</summary>
     public int PlayerResamplingQuality { get => audioDeviceTestWorkflow.PlayerResamplingQuality; set => audioDeviceTestWorkflow.PlayerResamplingQuality = value; }
@@ -4297,7 +3686,7 @@ public partial class SettingsDialogViewModel : ViewModel
     public ReadOnlyDictionary<int, string> PlayerMixerThreadCountNames => audioDeviceTestWorkflow.PlayerMixerThreadCountNames;
 
     /// <summary>音声設定担当が所有するPlayerWASAPIParamを画面へ接続します。</summary>
-    public bool PlayerWASAPIParam { get => audioDeviceTestWorkflow.PlayerWASAPIParam; set => audioDeviceTestWorkflow.PlayerWASAPIParam = value; }
+    public bool PlayerWASAPIParam { get => audioDeviceTestWorkflow.PlayerWASAPIParam; set { bool previous = audioDeviceTestWorkflow.PlayerWASAPIParam; audioDeviceTestWorkflow.PlayerWASAPIParam = value; if (!Equals(previous, audioDeviceTestWorkflow.PlayerWASAPIParam)) { CommitAudioSettings(); } } }
 
     public ListenerCommand<string> RemoveDirCommand
     {
@@ -4334,14 +3723,13 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 return;
             }
-            ApplicationSettings.Lang = text;
-            ApplicationSettings.LangDisplayName = value;
+            if (!TryCommitSetting(nameof(Language), (nameof(Settings.Lang), text), (nameof(Settings.LangDisplayName), value))) { return; }
             ResourceService.Current.ChangeCulture(text);
             RaisePropertyChanged("Language");
         }
     }
 
-    /// <summary>設定の表示・draft操作を保ち、保存・適用・即時検索ルート変更へ共通受付を接続します。</summary>
+    /// <summary>確定値と各セクションの候補を分け、必要な局所操作だけを既存の処理担当へ接続します。</summary>
     /// <param name="operationAdmission">構成で推定・変更と共有する論理受付。</param>
     internal SettingsDialogViewModel(
         ISettingsDialogStatePort statePort,
@@ -4411,7 +3799,7 @@ public partial class SettingsDialogViewModel : ViewModel
             ?? new ApplicationDataUninstallWorkflowOwner(this.schemaDialogs, new Lr2ApplicationDataUninstallStore());
         this.audioDeviceTestWorkflow = audioDeviceTestWorkflow
             ?? throw new ArgumentNullException(nameof(audioDeviceTestWorkflow));
-        this.audioDeviceTestWorkflow.ConfigurePresentation(() => ApplicationSettings, this.audioDeviceCatalog);
+        this.audioDeviceTestWorkflow.ConfigurePresentation(() => ApplicationSettings, this.audioDeviceCatalog, this.reportApplyFailure);
         this.audioDeviceTestWorkflow.PropertyChanged += AudioSettingsPropertyChanged;
         appearanceThemeOptions =
         [
@@ -4436,7 +3824,10 @@ public partial class SettingsDialogViewModel : ViewModel
             ref publishedPlaylistCatalogVersion,
             Interlocked.Read(ref latestPlaylistCatalogVersion));
         libraryOperationAvailabilityChangedHandler = (_, _) =>
+        {
             settingDialogViewModel.RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
+            settingDialogViewModel.RaiseEnvironmentAvailabilityChanged();
+        };
         statePort.LibraryOperationAvailabilityChanged += libraryOperationAvailabilityChangedHandler;
         lr2PlayHistorySchemaStatusChangedHandler = snapshot =>
             settingDialogViewModel.ApplyLr2PlayHistorySchemaStatusSnapshot(snapshot);
@@ -4449,7 +3840,6 @@ public partial class SettingsDialogViewModel : ViewModel
             settingDialogViewModel.RaiseLr2PathPresentationChanged();
             settingDialogViewModel.RaisePropertyChanged(nameof(AudioDeviceListStatusMessage));
             settingDialogViewModel.RaiseValidationStateChanged();
-            settingDialogViewModel.MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
         });
         resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
         {
@@ -4475,7 +3865,9 @@ public partial class SettingsDialogViewModel : ViewModel
             }
             playHistoryPort.RefreshDisplayTargetCatalog(queueRefreshWhenSelectionChanges: false);
         });
+        // 起動構成が捕捉する値は保存済み設定の読込み後に揃えます。画面の再表示では再読込みしません。
         this.settingsEditSession.Reload();
+        RefreshSectionCandidates();
         rightClickActionSettingsEditor = new RightClickActionSettingsEditor(ApplicationSettings.RightClickActionsJson);
         rightClickActionSettingsEditor.PropertyChanged += RightClickActionSettingsEditorPropertyChanged;
         resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
@@ -4485,13 +3877,15 @@ public partial class SettingsDialogViewModel : ViewModel
         RefreshParsedLr2ConfigState(showSelectionError: false, useLr2Mode: ApplicationSettings.OperationModeLR2DB);
         RefreshStandaloneBmsRootPathsFromSettings();
         RefreshBeatorajaDerivedSettings();
-        backupSavedSettings();
+        InitializeSectionEditors();
         ResetLr2PlayHistorySchemaStatus();
+        this.operationAdmission.AvailabilityChanged += SettingsOperationAvailabilityChanged;
+        this.customFolderOutputPort.OutputOperationAvailabilityChanged += SettingsOperationAvailabilityChanged;
     }
 
     private bool IsLR2RootPathValid()
     {
-        return IsLR2RootPathValid(ApplicationSettings.LR2RootPath);
+        return IsLR2RootPathValid(environmentLR2RootPath);
     }
 
     private bool IsLR2RootPathValid(string value)
@@ -4518,7 +3912,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool IsLR2PlayerRootPathValid()
     {
-        return IsLR2PlayerRootPathValid(ApplicationSettings.LR2RootPath);
+        return IsLR2PlayerRootPathValid(environmentLR2RootPath);
     }
 
     private bool IsLR2PlayerRootPathValid(string value)
@@ -4534,17 +3928,6 @@ public partial class SettingsDialogViewModel : ViewModel
         return Directory.Exists(value)
             && (File.Exists(path) || File.Exists(path2))
             && (IsLR2ConfigXmlPathValid(value2) || IsLR2ConfigXmlPathValid(value3));
-    }
-
-    private bool IsBMSRootPathValid()
-    {
-        return IsBMSRootPathValid(ApplicationSettings.BMSRootPath);
-    }
-
-    private bool IsBMSRootPathValid(string value)
-    {
-        return LongPathFileSystem.DirectoryExists(value)
-            && Lr2CompatibilityEvaluator.IsLegacyRootPathCompatible(value);
     }
 
     private IReadOnlyList<string> GetStandaloneBmsRootPathsForCurrentSession()
@@ -4666,7 +4049,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 StandaloneBmsRootPathList.Add(path);
             }
             RaisePropertyChanged(nameof(StandaloneBmsRootPathList));
-            RaisePropertyChanged(nameof(AvailableBMSDirectories));
+            RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
             RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
         }
         if (selectedChanged)
@@ -4676,17 +4059,11 @@ public partial class SettingsDialogViewModel : ViewModel
         RaiseValidationStateChanged();
     }
 
-    private void PersistStandaloneBmsRootPathsToSettings()
-    {
-        ApplicationSettings.StandaloneBmsRootPaths = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
-        string firstRoot = DeserializeStandaloneBmsRootPaths(ApplicationSettings.StandaloneBmsRootPaths).FirstOrDefault();
-        ApplicationSettings.BMSRootPath = string.IsNullOrWhiteSpace(firstRoot) ? null : firstRoot;
-    }
 
     private void RefreshCustomFolderAdditionalOutputBaseDirsFromSettings()
     {
         IReadOnlyList<string> paths = CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(
-            ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs);
+            outputLR2CustomFolderAdditionalOutputBaseDirs);
         bool pathsChanged = !CustomFolderAdditionalOutputBaseDirList.SequenceEqual(paths, StringComparer.OrdinalIgnoreCase);
         string selectedPath = paths.FirstOrDefault();
         bool selectedChanged = !string.Equals(selectedCustomFolderAdditionalOutputBaseDir, selectedPath, StringComparison.OrdinalIgnoreCase);
@@ -4714,45 +4091,16 @@ public partial class SettingsDialogViewModel : ViewModel
         RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
     }
 
-    /// <summary>
-    /// 選択中プリセットに対応する playlist 候補リストを再構築します。
-    /// playlist tree の再読み込み後でも draft の選択状態を維持するため、保存済み参照と現在の playlist snapshot を照合します。
-    /// </summary>
-    internal void RefreshPlayHistoryFolderDisplayPresetPlaylistOptions()
-    {
-        isPlayHistoryFolderDisplayPresetPlaylistOptionsDirty = false;
-        PlayHistoryFolderDisplayPresetPlaylistOptions.Clear();
-        PlayHistoryFolderDisplayPresetEditor preset = SelectedPlayHistoryFolderDisplayPreset;
-        if (preset != null)
-        {
-            var selectionIndex = PlayHistoryFolderDisplayPresetSelectionIndex.Create(preset.Targets);
-            foreach (PlaylistTablePresentationSnapshot table in GetPlayHistoryFolderDisplayPresetTables())
-            {
-                PlayHistoryFolderDisplayPresetPlaylistOptions.Add(new PlayHistoryFolderPresetPlaylistOption(
-                    table,
-                    selectionIndex.Matches(table),
-                    ApplyPlayHistoryFolderDisplayPresetPlaylistSelection));
-            }
-        }
-        RaisePropertyChanged(nameof(PlayHistoryFolderDisplayPresetPlaylistOptions));
-    }
-
-    internal void RefreshPlayHistoryFolderDisplayPresetPlaylistOptionsIfDirty()
-    {
-        if (isPlayHistoryFolderDisplayPresetPlaylistOptionsDirty)
-        {
-            RefreshPlayHistoryFolderDisplayPresetPlaylistOptions();
-        }
-    }
-
-    private void MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty()
-    {
-        isPlayHistoryFolderDisplayPresetPlaylistOptionsDirty = true;
-    }
-
     internal void SetPresentationActive(bool active)
     {
         bool presentationOpening = active && !isPresentationActive;
+        if (presentationOpening)
+        {
+            long openingCatalogVersion = workspacePort.PlaylistCatalogVersion;
+            InitializeSectionEditors();
+            // 候補の再構築で通知した版を記録します。その後のcatalog変更は通常の差分通知へ残します。
+            Interlocked.Exchange(ref publishedPlaylistCatalogVersion, openingCatalogVersion);
+        }
         isPresentationActive = active;
         audioDeviceTestWorkflow.SetPresentationActive(active);
         if (presentationOpening)
@@ -4760,7 +4108,6 @@ public partial class SettingsDialogViewModel : ViewModel
             ClearTransientPlaylistUriValidationState();
             ObservePlaylistCatalogVersion(workspacePort.PlaylistCatalogVersion);
             PublishPlaylistCatalogPresentationIfNeeded();
-            RefreshPlayHistoryFolderDisplayPresetPlaylistOptionsIfDirty();
         }
     }
 
@@ -4768,7 +4115,7 @@ public partial class SettingsDialogViewModel : ViewModel
     internal void SetAudioSettingsPageVisible(bool visible) => audioDeviceTestWorkflow.SetAudioSettingsPageVisible(visible);
 
     /// <summary>固定した下書きでテストし、音声担当が解放完了まで追跡します。</summary>
-    internal Task RunAudioDeviceTestAsync() => audioDeviceTestWorkflow.RunAudioDeviceTestAsync();
+    internal Task RunAudioDeviceTestAsync() => IsEditCompletionInProgress ? Task.CompletedTask : audioDeviceTestWorkflow.RunAudioDeviceTestAsync();
 
     /// <summary>音声一覧・能力照会・テストが実処理と表示終端を終えるTaskを取得します。終了時は先に表示を失効させます。</summary>
     internal Task AudioSettingsCompletionTask => audioDeviceTestWorkflow.AudioSettingsCompletionTask;
@@ -4807,10 +4154,8 @@ public partial class SettingsDialogViewModel : ViewModel
             return;
         }
 
-        RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
-        RaisePropertyChanged(nameof(AvailableBMSDirectories));
-        MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
-        RefreshPlayHistoryFolderDisplayPresetPlaylistOptionsIfDirty();
+        RaiseBmsListPropertyChanged(nameof(LR2ConfigBMSDirectories));
+        RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
         Interlocked.Exchange(ref publishedPlaylistCatalogVersion, latestVersion);
     }
 
@@ -4830,18 +4175,7 @@ public partial class SettingsDialogViewModel : ViewModel
             PlayHistoryFolderDisplayPresets.Add(new PlayHistoryFolderDisplayPresetEditor(targetSet.Name, targetSet.Targets));
         }
         selectedPlayHistoryFolderDisplayPreset = PlayHistoryFolderDisplayPresets.FirstOrDefault();
-        PlayHistoryFolderDisplayPresetPlaylistOptions.Clear();
-        MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
         RaisePlayHistoryFolderDisplayPresetPropertiesChanged();
-    }
-
-    private string SerializePlayHistoryFolderDisplayPresets()
-    {
-        HashSet<int> existingPlaylistIds = [.. GetPlayHistoryFolderDisplayPresetTables()
-                .Select(table => table.PlaylistId.Value)];
-        return PlayHistoryDisplayTargetSetStore.Serialize(
-            PlayHistoryFolderDisplayPresets
-                .Select(preset => FilterPlayHistoryFolderDisplayPresetTargets(preset.ToTargetSet(), existingPlaylistIds)));
     }
 
     private static PlayHistoryDisplayTargetSet FilterPlayHistoryFolderDisplayPresetTargets(
@@ -4863,45 +4197,6 @@ public partial class SettingsDialogViewModel : ViewModel
         };
     }
 
-    private string SerializePlayHistoryFolderDisplayPresetDraftsForChangeTracking()
-    {
-        return PlayHistoryDisplayTargetSetStore.SerializeDraftsForChangeTracking(PlayHistoryFolderDisplayPresets.Select(preset => preset.ToTargetSet()));
-    }
-
-    /// <summary>
-    /// play history FOLDER 表示プリセットの draft を設定へ保存し、必要な場合だけ表示対象 dropdown を再構築します。
-    /// 保存済み JSON と保存用に正規化した draft の差分だけを見るため、無関係な設定保存で PlayHistory 表示を再 filter しません。
-    /// </summary>
-    /// <returns>保存済み表示対象セットが変更された場合は <c>true</c>。</returns>
-    internal bool PersistPlayHistoryFolderDisplayPresetsIfChanged()
-    {
-        string serializedDisplayTargetSets = SerializePlayHistoryFolderDisplayPresets();
-        bool playHistoryDisplayTargetSetsChanged =
-            !string.Equals(tempPlayHistoryDisplayTargetSetsJson, serializedDisplayTargetSets, StringComparison.Ordinal);
-        playHistoryDisplaySettingsStore.DisplayTargetSetsJson = serializedDisplayTargetSets;
-        if (playHistoryDisplayTargetSetsChanged)
-        {
-            playHistoryPort.RefreshDisplayTargetSetsFromSettings(
-                serializedDisplayTargetSets,
-                queueRefreshWhenSelectionChanges: true);
-        }
-        return playHistoryDisplayTargetSetsChanged;
-    }
-
-    /// <summary>
-    /// 新しい play history FOLDER 表示プリセットを draft に追加します。
-    /// </summary>
-    public void AddPlayHistoryFolderDisplayPreset()
-    {
-        PlayHistoryFolderDisplayPresetEditSession session = CreatePlayHistoryFolderDisplayPresetEditSession(null);
-        PlayHistoryFolderPresetPlaylistOption firstOption = session.PlaylistOptions.FirstOrDefault();
-        if (firstOption != null)
-        {
-            firstOption.IsSelected = true;
-        }
-        TryApplyPlayHistoryFolderDisplayPresetEditSession(session, out _);
-    }
-
     /// <summary>
     /// 選択中の play history FOLDER 表示プリセットを draft から削除します。
     /// </summary>
@@ -4912,20 +4207,16 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             return;
         }
+        IEnumerable<PlayHistoryDisplayTargetSet> confirmed = PlayHistoryDisplayTargetSetStore.Deserialize(ApplicationSettings.PlayHistoryDisplayTargetSetsJson)
+            .Where(item => !string.Equals(item.Name, preset.Name, StringComparison.OrdinalIgnoreCase));
+        string json = PlayHistoryDisplayTargetSetStore.Serialize(confirmed);
+        if (!TryCommitSetting(nameof(PlayHistoryFolderDisplayPresets), (nameof(Settings.PlayHistoryDisplayTargetSetsJson), json))) { return; }
+        playHistoryPort.RefreshDisplayTargetSetsFromSettings(json, queueRefreshWhenSelectionChanges: true);
         int index = PlayHistoryFolderDisplayPresets.IndexOf(preset);
         PlayHistoryFolderDisplayPresets.Remove(preset);
         SelectedPlayHistoryFolderDisplayPreset = PlayHistoryFolderDisplayPresets.Count == 0
             ? null
             : PlayHistoryFolderDisplayPresets[Math.Max(0, Math.Min(index, PlayHistoryFolderDisplayPresets.Count - 1))];
-        RaisePlayHistoryFolderDisplayPresetPropertiesChanged();
-    }
-
-    /// <summary>
-    /// チェックボックス一覧の選択状態を選択中プリセットへ反映します。
-    /// </summary>
-    public void EditSelectedPlayHistoryFolderDisplayPreset()
-    {
-        ApplyPlayHistoryFolderDisplayPresetPlaylistSelection();
         RaisePlayHistoryFolderDisplayPresetPropertiesChanged();
     }
 
@@ -4950,7 +4241,7 @@ public partial class SettingsDialogViewModel : ViewModel
     }
 
     /// <summary>
-    /// 別ウィンドウの編集セッションを設定ダイアログの draft へ反映します。
+    /// 別ウィンドウの一record候補だけを保存し、成功後に一覧と実表示へ反映します。
     /// </summary>
     /// <param name="session">編集セッション。</param>
     /// <param name="errMsg">反映できない場合の理由。</param>
@@ -4963,6 +4254,16 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         PlayHistoryDisplayTargetSet targetSet = session.ToTargetSet();
         PlayHistoryFolderDisplayPresetEditor preset = session.SourcePreset;
+        var confirmed = PlayHistoryDisplayTargetSetStore.Deserialize(ApplicationSettings.PlayHistoryDisplayTargetSetsJson).ToList();
+        int confirmedIndex = preset == null ? -1 : confirmed.FindIndex(item => string.Equals(item.Name, preset.Name, StringComparison.OrdinalIgnoreCase));
+        var existingIds = GetPlayHistoryFolderDisplayPresetTables().Select(item => item.PlaylistId.Value).ToHashSet();
+        PlayHistoryDisplayTargetSet saved = FilterPlayHistoryFolderDisplayPresetTargets(targetSet, existingIds);
+        if (confirmedIndex < 0) { confirmed.Add(saved); } else { confirmed[confirmedIndex] = saved; }
+        string json = PlayHistoryDisplayTargetSetStore.Serialize(confirmed);
+        if (!TryCommitSetting(nameof(PlayHistoryFolderDisplayPresets), (nameof(Settings.PlayHistoryDisplayTargetSetsJson), json)))
+        { errMsg = Resources.Msg_error_unexpected; return false; }
+        playHistoryPort.RefreshDisplayTargetSetsFromSettings(json, queueRefreshWhenSelectionChanges: true);
+
         if (preset == null)
         {
             preset = new PlayHistoryFolderDisplayPresetEditor(targetSet.Name, targetSet.Targets);
@@ -4978,30 +4279,8 @@ public partial class SettingsDialogViewModel : ViewModel
             }
         }
         SelectedPlayHistoryFolderDisplayPreset = preset;
-        PlayHistoryFolderDisplayPresetPlaylistOptions.Clear();
-        MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
         RaisePlayHistoryFolderDisplayPresetPropertiesChanged();
         return true;
-    }
-
-    private void ApplyPlayHistoryFolderDisplayPresetPlaylistSelection(PlayHistoryFolderPresetPlaylistOption option)
-    {
-        ApplyPlayHistoryFolderDisplayPresetPlaylistSelection();
-    }
-
-    private void ApplyPlayHistoryFolderDisplayPresetPlaylistSelection()
-    {
-        PlayHistoryFolderDisplayPresetEditor preset = SelectedPlayHistoryFolderDisplayPreset;
-        if (preset == null)
-        {
-            return;
-        }
-        preset.Targets.Clear();
-        foreach (PlayHistoryFolderPresetPlaylistOption option in PlayHistoryFolderDisplayPresetPlaylistOptions.Where(option => option.IsSelected))
-        {
-            preset.Targets.Add(option.ToReference());
-        }
-        RaiseValidationStateChanged();
     }
 
     private string CreateUniquePlayHistoryFolderDisplayPresetName()
@@ -5054,34 +4333,6 @@ public partial class SettingsDialogViewModel : ViewModel
         return true;
     }
 
-    private bool ValidatePlayHistoryFolderDisplayPresets(out string errMsg)
-    {
-        errMsg = string.Empty;
-        bool result = true;
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (PlayHistoryFolderDisplayPresetEditor preset in PlayHistoryFolderDisplayPresets)
-        {
-            string name = preset?.Name?.Trim();
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                errMsg += FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Error_PlayHistoryFolderPresetNameEmpty) + Environment.NewLine;
-                result = false;
-                continue;
-            }
-            if (!names.Add(name))
-            {
-                errMsg += FormatPlaylistValidationMessage(FormatResource(BeMusicSeeker.Properties.Resources.Error_PlayHistoryFolderPresetDuplicateName, name)) + Environment.NewLine;
-                result = false;
-            }
-            if (preset.Targets.Count == 0)
-            {
-                errMsg += FormatPlaylistValidationMessage(FormatResource(BeMusicSeeker.Properties.Resources.Error_PlayHistoryFolderPresetNoPlaylist, name)) + Environment.NewLine;
-                result = false;
-            }
-        }
-        return result;
-    }
-
     private void RaisePlayHistoryFolderDisplayPresetPropertiesChanged()
     {
         RaisePropertyChanged(nameof(PlayHistoryFolderDisplayPresets));
@@ -5132,9 +4383,9 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private void PersistCustomFolderAdditionalOutputBaseDirsToSettings()
+    private void UpdateAdditionalOutputCandidate()
     {
-        ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs =
+        outputLR2CustomFolderAdditionalOutputBaseDirs =
             CustomFolderOutputBaseRegistry.SerializeBaseDirectories(CustomFolderAdditionalOutputBaseDirList);
     }
 
@@ -5143,8 +4394,8 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(CustomFolderAdditionalOutputBaseDirList));
         RaisePropertyChanged(nameof(SelectedCustomFolderAdditionalOutputBaseDir));
         RaisePropertyChanged(nameof(SelectedCustomFolderAdditionalOutputBaseName));
-        RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
-        RaisePropertyChanged(nameof(AvailableBMSDirectories));
+        RaiseBmsListPropertyChanged(nameof(LR2ConfigBMSDirectories));
+        RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
         RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
         RaisePropertyChanged(nameof(PlaylistPropertyOutputBaseOptions));
         RaiseValidationStateChanged();
@@ -5155,44 +4406,14 @@ public partial class SettingsDialogViewModel : ViewModel
             LR2CustomFolderOutputDir,
             CustomFolderAdditionalOutputBaseDirList);
 
-    private void ApplyRuntimeSearchRootsForCurrentMode()
-    {
-        if (!searchRootRuntimePort.IsLibraryAttached)
-        {
-            return;
-        }
-        if (ApplicationSettings.OperationModeLR2DB && lr2config != null)
-        {
-            searchRootRuntimePort.ApplySearchTargets(
-                lr2config.GetBMSSearchDirectoriesForChangeTracking());
-            return;
-        }
-        searchRootRuntimePort.ApplySearchTargets(GetStandaloneBmsRootPathsForCurrentSession());
-    }
-
-    private bool IsLR2SongDBPathValid()
-    {
-        return IsLR2SongDBPathValid(ApplicationSettings.LR2SongDBPath);
-    }
-
     private bool IsLR2SongDBPathValid(string value)
     {
         return File.Exists(value);
     }
 
-    private bool IsLR2ConfigXmlPathValid()
-    {
-        return isLr2ConfigPathParsed;
-    }
-
     private bool IsLR2ConfigXmlPathValid(string value)
     {
         return LR2Config.TryLoad(value, out _);
-    }
-
-    private bool IsBeatorajaScoreDbPathValid()
-    {
-        return BeatorajaConfigService.IsPlayerScoreDbPathValid(ApplicationSettings.BeatorajaRootPath, ApplicationSettings.BeatorajaPlayerId);
     }
 
     private bool IsBeatorajaScoreDbPathValid(string value)
@@ -5202,44 +4423,9 @@ public partial class SettingsDialogViewModel : ViewModel
             && File.Exists(value);
     }
 
-    private bool IsBeatorajaBmtTablePathValid()
-    {
-        return IsBeatorajaBmtTablePathValid(ApplicationSettings.BeatorajaBmtTablePath);
-    }
-
-    private bool IsBeatorajaBmtTablePathValid(string value)
-    {
-        return string.IsNullOrWhiteSpace(value) || Directory.Exists(value);
-    }
-
-    private bool IsBeatorajaRootPathValid()
-    {
-        return BeatorajaConfigService.IsBeatorajaRootPathValid(ApplicationSettings.BeatorajaRootPath);
-    }
-
     private void RefreshBeatorajaDerivedSettings()
     {
-        if (!BeatorajaConfigService.IsBeatorajaRootPathValid(ApplicationSettings.BeatorajaRootPath))
-        {
-            ApplicationSettings.BeatorajaScoreDbPath = string.Empty;
-            ApplicationSettings.BeatorajaBmtTablePath = string.Empty;
-            return;
-        }
-        List<string> playerIds = BeatorajaConfigService.GetPlayerIds(ApplicationSettings.BeatorajaRootPath);
-        if (string.IsNullOrWhiteSpace(ApplicationSettings.BeatorajaPlayerId) || !playerIds.Contains(ApplicationSettings.BeatorajaPlayerId, StringComparer.OrdinalIgnoreCase))
-        {
-            string configuredPlayerId = BeatorajaConfigService.GetConfiguredPlayerId(ApplicationSettings.BeatorajaRootPath);
-            ApplicationSettings.BeatorajaPlayerId = playerIds.Contains(configuredPlayerId, StringComparer.OrdinalIgnoreCase)
-                ? configuredPlayerId
-                : (playerIds.FirstOrDefault() ?? string.Empty);
-        }
-        ApplicationSettings.BeatorajaScoreDbPath = BeatorajaConfigService.GetScoreDbPath(ApplicationSettings.BeatorajaRootPath, ApplicationSettings.BeatorajaPlayerId);
-        ApplicationSettings.BeatorajaBmtTablePath = BeatorajaConfigService.GetTablePath(ApplicationSettings.BeatorajaRootPath);
-    }
-
-    private bool IsuBMplayPathValid()
-    {
-        return IsuBMplayPathValid(ApplicationSettings.uBMplayPath);
+        scoreBeatorajaScoreDbPath = BeatorajaConfigService.GetScoreDbPath(ApplicationSettings.BeatorajaRootPath, scoreBeatorajaPlayerId);
     }
 
     private bool IsuBMplayPathValid(string value)
@@ -5247,19 +4433,9 @@ public partial class SettingsDialogViewModel : ViewModel
         return File.Exists(value);
     }
 
-    private bool IsBMIIDXViewPathValid()
-    {
-        return IsuBMplayPathValid(ApplicationSettings.BMIIDXViewPath);
-    }
-
     private bool IsBMIIDXViewPathValid(string value)
     {
         return File.Exists(value);
-    }
-
-    private bool IsLR2CustomFolderOutputDirValid()
-    {
-        return IsLR2CustomFolderOutputDirValid(ApplicationSettings.LR2CustomFolderOutputBaseDir);
     }
 
     private bool IsLR2CustomFolderOutputDirValid(string value)
@@ -5278,16 +4454,12 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             return false;
         }
-        if (OperationModeLR2DB && lr2config != null)
-        {
-            return GetExistingLR2UserBmsSearchRootDirectories().Contains(value, StringComparer.OrdinalIgnoreCase);
-        }
-        return NormalizeStandaloneBmsRootPaths(StandaloneBmsRootPathList).Contains(value, StringComparer.OrdinalIgnoreCase);
+        return NormalizeStandaloneBmsRootPaths(GetConfirmedBmsRoots()).Contains(value, StringComparer.OrdinalIgnoreCase);
     }
 
     private bool IsLR2CustomFolderAsRootOutputDirValid()
     {
-        return IsLR2CustomFolderAsRootOutputDirValid(ApplicationSettings.LR2CustomFolderOutputBaseDirRootType);
+        return IsLR2CustomFolderAsRootOutputDirValid(outputLR2CustomFolderOutputBaseDirRootType);
     }
 
     private bool IsLR2CustomFolderAsRootOutputDirValid(string value)
@@ -5295,19 +4467,9 @@ public partial class SettingsDialogViewModel : ViewModel
         return ValidateCustomFolderAsRootOutputBaseDir(value, out _);
     }
 
-    private bool IsTableListURLValid()
-    {
-        return IsTableListURLValid(ApplicationSettings.TableListURL);
-    }
-
     private bool IsTableListURLValid(Uri value)
     {
         return value != null && Uri.TryCreate(value.OriginalString, UriKind.RelativeOrAbsolute, out value);
-    }
-
-    private bool IsPlaylistMd5UrlMappingTsvUriValid()
-    {
-        return IsPlaylistMd5UrlMappingTsvUriValid(ApplicationSettings.PlaylistMd5UrlMappingTsvUri);
     }
 
     private bool IsPlaylistMd5UrlMappingTsvUriValid(string value)
@@ -5319,19 +4481,9 @@ public partial class SettingsDialogViewModel : ViewModel
         return PlaylistUrlCompletionSupport.TryResolveSourceUri(value, out Uri _);
     }
 
-    private bool IsLR2BackupPathValid()
-    {
-        return IsLR2BackupPathValid(ApplicationSettings.LR2BackupPath);
-    }
-
     private bool IsLR2BackupPathValid(string value)
     {
         return Directory.Exists(value);
-    }
-
-    private bool IsLR2BackupSpanValid()
-    {
-        return IsLR2BackupSpanValid(ApplicationSettings.LR2BackupSpan);
     }
 
     private bool IsLR2BackupSpanValid(int value)
@@ -5339,19 +4491,9 @@ public partial class SettingsDialogViewModel : ViewModel
         return value > 0;
     }
 
-    private bool IsLR2BackupNumValid()
-    {
-        return IsLR2BackupNumValid(ApplicationSettings.LR2BackupNum);
-    }
-
     private bool IsLR2BackupNumValid(int value)
     {
         return value > 0;
-    }
-
-    private bool IsStagefilePathValid()
-    {
-        return IsStagefilePathValid(ApplicationSettings.StagefilePath);
     }
 
     private bool IsStagefilePathValid(string value)
@@ -5426,81 +4568,6 @@ public partial class SettingsDialogViewModel : ViewModel
         SetSettingProperty(propertyName, path);
     }
 
-    /// <summary>
-    /// メイン画面で選んだ検索ルートをL/Pで判定し、保存・ライブラリ反映まで所有します。
-    /// </summary>
-    /// <param name="path">選択したディレクトリ。<c>null</c>は何もしません。</param>
-    /// <returns>保存・実行対象の適用・必要な差分再読込みの終端まで完了しないTask。Busyでは副作用前に拒否します。</returns>
-    /// <remarks>
-    /// 保存してから実行時の検索対象を適用し、両方の成功後に差分再読込みを行います。
-    /// 各段階の失敗は伝播し、後段を実行しません。設定画面内のdraft追加は別の入口で維持します。
-    /// </remarks>
-    public async Task AddBmsSearchRootPathFromMainWindowPicker(string path)
-    {
-        if (path == null) { return; }
-        if (!TryBeginBothSettingsAdmissions(out IDisposable lease, out LibraryFileMutationLease playlistLease))
-        {
-            await ShowUiMessageAsync(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
-                BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "Search root change admission");
-            return;
-        }
-        using LibraryFileMutationLease playlistOperation = playlistLease;
-        using LibraryFileMutationCapability playlistCapability = playlistLease.CreateMutationCapability();
-        StartupInitializationResult result = null;
-        await CompleteAcceptedSettingsOperationAsync(lease,
-            async capability => result = await AddBmsSearchRootPathUnderAdmissionAsync(path, capability), playlistCapability, playlistLease, () => result);
-    }
-
-    /// <summary>受理済み検索ルート変更を、保存・モデル反映・再読込みの終端まで実行します。</summary>
-    private async Task<StartupInitializationResult> AddBmsSearchRootPathUnderAdmissionAsync(string path, LibraryFileMutationCapability capability)
-    {
-        if (path == null)
-        {
-            return null;
-        }
-        try
-        {
-            AddBmsSearchRootPaths([path], null, saveImmediately: true);
-            if (isSearchRootsChanged)
-            {
-                if (!ApplicationSettings.OperationModeLR2DB)
-                {
-                    PersistStandaloneBmsRootPathsToSettings();
-                    settingsEditSession.Save();
-                }
-                ApplyRuntimeSearchRootsForCurrentMode();
-                if (isBMSDirectoryAdded)
-                {
-                    return await ReloadFileDiffAsync(capability);
-                }
-                else
-                {
-                    searchRootRuntimePort.InvalidateLibraryFolderCache();
-                }
-            }
-            else
-            {
-                searchRootRuntimePort.InvalidateLibraryFolderCache();
-            }
-        }
-        finally
-        {
-            isSearchRootsChanged = false;
-            isBMSDirectoryAdded = false;
-            isBMSDirectoryRemoved = false;
-        }
-        return null;
-    }
-
-    public void AddBmsSearchRootPathFromPicker(string propertyName, string path)
-    {
-        if (path == null)
-        {
-            return;
-        }
-        AddBmsSearchRootPaths([path], ToSettingDialogPropertyPath(propertyName), saveImmediately: false);
-    }
-
     private void SetSettingProperty(string propertyName, string value)
     {
         if (string.IsNullOrWhiteSpace(propertyName))
@@ -5513,11 +4580,6 @@ public partial class SettingsDialogViewModel : ViewModel
         MethodInfo setter = property.GetSetMethod()
             ?? throw new InvalidOperationException("Setting dialog property is not writable: " + propertyName);
         setter.Invoke(this, [value]);
-    }
-
-    private static string ToSettingDialogPropertyPath(string propertyName)
-    {
-        return string.IsNullOrWhiteSpace(propertyName) ? null : propertyName;
     }
 
     public void AddCustomFolderAdditionalOutputBaseDir(string path)
@@ -5535,7 +4597,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 CustomFolderAdditionalOutputBaseDirList.Add(normalizedPath);
             }
             SelectedCustomFolderAdditionalOutputBaseDir = normalizedPath;
-            PersistCustomFolderAdditionalOutputBaseDirsToSettings();
+            UpdateAdditionalOutputCandidate();
             RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
         }
         catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
@@ -5574,7 +4636,7 @@ public partial class SettingsDialogViewModel : ViewModel
             CustomFolderAdditionalOutputBaseDirList.Add(path);
         }
         SelectedCustomFolderAdditionalOutputBaseDir = CustomFolderAdditionalOutputBaseDirList.FirstOrDefault();
-        PersistCustomFolderAdditionalOutputBaseDirsToSettings();
+        UpdateAdditionalOutputCandidate();
         RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
     }
 
@@ -5606,7 +4668,7 @@ public partial class SettingsDialogViewModel : ViewModel
             }
             TrackCustomFolderAdditionalOutputBaseRename(oldName, newName);
             SelectedCustomFolderAdditionalOutputBaseDir = newPath;
-            PersistCustomFolderAdditionalOutputBaseDirsToSettings();
+            UpdateAdditionalOutputCandidate();
             RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
         }
         catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
@@ -5649,7 +4711,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_CustomFolderOutputBaseNameEmpty);
         }
-        string defaultName = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(LR2CustomFolderOutputDir);
+        string defaultName = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(ApplicationSettings.LR2CustomFolderOutputBaseDir);
         if (!string.IsNullOrWhiteSpace(defaultName)
             && string.Equals(name, defaultName, StringComparison.OrdinalIgnoreCase))
         {
@@ -5661,26 +4723,27 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_AdditionalOutputBaseNameDuplicate);
         }
-        ValidateCustomFolderAdditionalOutputBaseSearchRootPath(path, oldPath);
+        ValidateCustomFolderAdditionalOutputBaseSearchRootPath(path, oldPath,
+            CopyOutputPlacement(CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings), additional: outputLR2CustomFolderAdditionalOutputBaseDirs));
     }
 
-    private bool ValidateCustomFolderAdditionalOutputBaseDirs(out string errMsg)
+    private bool ValidateCustomFolderAdditionalOutputBaseDirs(out string errMsg, CustomFolderOutputSettingsSnapshot target = null)
     {
         errMsg = string.Empty;
         try
         {
             HashSet<string> names = new(StringComparer.OrdinalIgnoreCase);
-            string defaultName = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(LR2CustomFolderOutputDir);
+            string defaultName = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(target?.LR2CustomFolderOutputBaseDir ?? LR2CustomFolderOutputDir);
             if (!string.IsNullOrWhiteSpace(defaultName))
             {
                 names.Add(defaultName);
             }
 
-            List<string> normalizedPaths = [.. CustomFolderAdditionalOutputBaseDirList
+            List<string> normalizedPaths = [.. GetOutputAdditionalPaths(target)
                     .Select(CustomFolderOutputBaseRegistry.NormalizeDirectoryPath)
                     .Where(path => !string.IsNullOrWhiteSpace(path))];
             IReadOnlyList<string> previousAdditionalOutputBasePaths =
-                CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(tempLR2CustomFolderAdditionalOutputBaseDirs);
+                CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs);
             foreach (string path in normalizedPaths)
             {
                 string name = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(path);
@@ -5697,7 +4760,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 string oldPath = previousAdditionalOutputBasePaths.Contains(path, StringComparer.OrdinalIgnoreCase)
                     ? path
                     : null;
-                ValidateCustomFolderAdditionalOutputBaseSearchRootPath(path, oldPath);
+                ValidateCustomFolderAdditionalOutputBaseSearchRootPath(path, oldPath, target);
             }
 
             for (int leftIndex = 0; leftIndex < normalizedPaths.Count; leftIndex++)
@@ -5727,7 +4790,7 @@ public partial class SettingsDialogViewModel : ViewModel
         return ValidateCustomFolderOutputBaseDir(LR2CustomFolderOutputDir, out errMsg, includeSection);
     }
 
-    private bool ValidateCustomFolderOutputBaseDir(string path, out string errMsg, bool includeSection = true)
+    private bool ValidateCustomFolderOutputBaseDir(string path, out string errMsg, bool includeSection = true, CustomFolderOutputSettingsSnapshot target = null)
     {
         errMsg = string.Empty;
         try
@@ -5740,18 +4803,18 @@ public partial class SettingsDialogViewModel : ViewModel
                 throw new ArgumentException(BeMusicSeeker.Properties.Resources.Validation_NormalOutputBaseNameEmpty);
             }
             ValidateOutputBasesDoNotOverlap(normalizedPath, label,
-                LR2CustomFolderAsRootOutputDir, BeMusicSeeker.Properties.Resources.Label_RootOutputBase);
-            foreach (string additionalPath in CustomFolderAdditionalOutputBaseDirList)
+                target?.LR2CustomFolderOutputBaseDirRootType ?? LR2CustomFolderAsRootOutputDir, BeMusicSeeker.Properties.Resources.Label_RootOutputBase);
+            foreach (string additionalPath in GetOutputAdditionalPaths(target))
             {
                 ValidateOutputBasesDoNotOverlap(normalizedPath, label,
                     additionalPath, BeMusicSeeker.Properties.Resources.Label_AdditionalOutputBaseFolder);
             }
 
-            ValidatePreviousOutputBase(normalizedPath, label, tempLR2CustomFolderOutputDir,
+            ValidatePreviousOutputBase(normalizedPath, label, ApplicationSettings.LR2CustomFolderOutputBaseDir,
                 BeMusicSeeker.Properties.Resources.Label_PreviousNormalOutputBase);
-            ValidatePreviousOutputBase(normalizedPath, label, tempLR2CustomFolderAsRootOutputDir,
+            ValidatePreviousOutputBase(normalizedPath, label, ApplicationSettings.LR2CustomFolderOutputBaseDirRootType,
                 BeMusicSeeker.Properties.Resources.Label_PreviousRootOutputBase, allowSameDirectory: false);
-            foreach (string previousAdditionalPath in CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(tempLR2CustomFolderAdditionalOutputBaseDirs))
+            foreach (string previousAdditionalPath in CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs))
             {
                 ValidatePreviousOutputBase(normalizedPath, label, previousAdditionalPath,
                     BeMusicSeeker.Properties.Resources.Label_PreviousAdditionalOutputBase, allowSameDirectory: false);
@@ -5768,7 +4831,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private string GetCustomFolderOutputDirValidationMessage()
     {
-        if (!OperationModeLR2DB)
+        if (!ApplicationSettings.OperationModeLR2DB)
         {
             return string.Empty;
         }
@@ -5815,7 +4878,7 @@ public partial class SettingsDialogViewModel : ViewModel
         return ValidateCustomFolderAsRootOutputBaseDir(LR2CustomFolderAsRootOutputDir, out errMsg, includeSection);
     }
 
-    private bool ValidateCustomFolderAsRootOutputBaseDir(string path, out string errMsg, bool includeSection = true)
+    private bool ValidateCustomFolderAsRootOutputBaseDir(string path, out string errMsg, bool includeSection = true, CustomFolderOutputSettingsSnapshot target = null)
     {
         errMsg = string.Empty;
         try
@@ -5828,13 +4891,13 @@ public partial class SettingsDialogViewModel : ViewModel
                 throw new ArgumentException(BeMusicSeeker.Properties.Resources.Validation_RootOutputBaseNameEmpty);
             }
             ValidateOutputBasesDoNotOverlap(normalizedPath, label,
-                LR2CustomFolderOutputDir, BeMusicSeeker.Properties.Resources.Label_NormalOutputBase);
-            foreach (string additionalPath in CustomFolderAdditionalOutputBaseDirList)
+                target?.LR2CustomFolderOutputBaseDir ?? LR2CustomFolderOutputDir, BeMusicSeeker.Properties.Resources.Label_NormalOutputBase);
+            foreach (string additionalPath in GetOutputAdditionalPaths(target))
             {
                 ValidateOutputBasesDoNotOverlap(normalizedPath, label,
                     additionalPath, BeMusicSeeker.Properties.Resources.Label_AdditionalOutputBaseFolder);
             }
-            ValidatePreviousOutputBase(normalizedPath, label, tempLR2CustomFolderAsRootOutputDir,
+            ValidatePreviousOutputBase(normalizedPath, label, ApplicationSettings.LR2CustomFolderOutputBaseDirRootType,
                 BeMusicSeeker.Properties.Resources.Label_PreviousRootOutputBase);
             ValidateOutputBaseAgainstBmsRoots(normalizedPath, label, allowRegisteredChildren: true);
             return true;
@@ -5848,7 +4911,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private string GetCustomFolderRootOutputDirValidationMessage()
     {
-        if (!OperationModeLR2DB)
+        if (!ApplicationSettings.OperationModeLR2DB)
         {
             return string.Empty;
         }
@@ -5861,13 +4924,13 @@ public partial class SettingsDialogViewModel : ViewModel
             : errMsg;
     }
 
-    private void ValidateCustomFolderAdditionalOutputBaseSearchRootPath(string path, string oldPath)
+    private void ValidateCustomFolderAdditionalOutputBaseSearchRootPath(string path, string oldPath, CustomFolderOutputSettingsSnapshot target = null)
     {
         string label = BeMusicSeeker.Properties.Resources.Label_AdditionalOutputBaseFolder;
         CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(path, label);
-        ValidateOutputBasesDoNotOverlap(path, label, LR2CustomFolderOutputDir, BeMusicSeeker.Properties.Resources.Label_NormalOutputBase);
-        ValidateOutputBasesDoNotOverlap(path, label, LR2CustomFolderAsRootOutputDir, BeMusicSeeker.Properties.Resources.Label_RootOutputBase);
-        foreach (string otherPath in CustomFolderAdditionalOutputBaseDirList)
+        ValidateOutputBasesDoNotOverlap(path, label, target?.LR2CustomFolderOutputBaseDir ?? LR2CustomFolderOutputDir, BeMusicSeeker.Properties.Resources.Label_NormalOutputBase);
+        ValidateOutputBasesDoNotOverlap(path, label, target?.LR2CustomFolderOutputBaseDirRootType ?? LR2CustomFolderAsRootOutputDir, BeMusicSeeker.Properties.Resources.Label_RootOutputBase);
+        foreach (string otherPath in GetOutputAdditionalPaths(target))
         {
             if (!CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(otherPath, path)
                 && !CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(otherPath, oldPath))
@@ -5892,14 +4955,14 @@ public partial class SettingsDialogViewModel : ViewModel
 
     public void AddBmsSearchRootPaths(IEnumerable<string> paths)
     {
-        AddBmsSearchRootPaths(paths, null, saveImmediately: false);
+        AddBmsSearchRootPaths(paths, null);
     }
 
-    private void AddBmsSearchRootPaths(IEnumerable<string> paths, string settingPropertyPath, bool saveImmediately)
+    private void AddBmsSearchRootPaths(IEnumerable<string> paths, string settingPropertyPath)
     {
-        if (OperationModeLR2DB)
+        if (ApplicationSettings.OperationModeLR2DB)
         {
-            AddBMSDirectoriesToLR2Config(paths, settingPropertyPath, saveImmediately);
+            AddBMSDirectoriesToLR2Config(paths, settingPropertyPath);
             return;
         }
         AddStandaloneBmsRootPathsCore(paths, settingPropertyPath);
@@ -5937,10 +5000,8 @@ public partial class SettingsDialogViewModel : ViewModel
                 GetType().GetProperty(settingPropertyPath).GetSetMethod().Invoke(this, [requestedPath]);
             }
             string after = SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList);
-            isSearchRootsChanged = !string.Equals(before, after, StringComparison.OrdinalIgnoreCase);
-            isBMSDirectoryAdded = isSearchRootsChanged;
             RaisePropertyChanged(nameof(StandaloneBmsRootPathList));
-            RaisePropertyChanged(nameof(AvailableBMSDirectories));
+            RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
             RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
             RaiseValidationStateChanged();
         }
@@ -5950,7 +5011,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private void AddBMSDirectoriesToLR2Config(IEnumerable<string> paths, string settingPropertyPath, bool saveImmediately)
+    private void AddBMSDirectoriesToLR2Config(IEnumerable<string> paths, string settingPropertyPath)
     {
         if (lr2config == null)
         {
@@ -5970,7 +5031,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_LR2UnicodePathUnsupported + Environment.NewLine + string.Join(Environment.NewLine, nonSjisPaths));
             }
             ThrowIfLr2IncompatibleStandaloneBmsRoots(requestedPaths);
-            IReadOnlyList<string> managedCustomFolderOutputRoots = GetUserVisibleBmsSearchRootExcludedDirectories(includePreviousSettings: true);
+            IReadOnlyList<string> managedCustomFolderOutputRoots = GetUserVisibleBmsSearchRootExcludedDirectories();
             string conflictingPath = requestedPaths.FirstOrDefault(path =>
                 managedCustomFolderOutputRoots.Any(root => CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, root)));
             if (!string.IsNullOrWhiteSpace(conflictingPath))
@@ -5978,166 +5039,32 @@ public partial class SettingsDialogViewModel : ViewModel
                 throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_ManagedCustomFolderOutputCannotBeAddedAsBmsRoot + Environment.NewLine + conflictingPath);
             }
             lr2config.AddBMSSearchDirectories(requestedPaths);
-            isSearchRootsChanged = true;
-            isBMSDirectoryAdded = true;
             selectedLR2ConfigBmsDirectory = requestedPath;
-            RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
-            RaisePropertyChanged(nameof(AvailableBMSDirectories));
+            RaiseBmsListPropertyChanged(nameof(LR2ConfigBMSDirectories));
+            RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
             RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
             RaiseValidationStateChanged();
             if (!string.IsNullOrWhiteSpace(settingPropertyPath))
             {
                 GetType().GetProperty(settingPropertyPath).GetSetMethod().Invoke(this, [requestedPath]);
             }
-            if (saveImmediately)
-            {
-                lr2config.Save();
-            }
         }
         catch (ArgumentException ex)
         {
-            if (saveImmediately)
-            {
-                throw;
-            }
             ShowUiMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
         }
         catch (Exception ex)
         {
-            if (saveImmediately)
-            {
-                throw;
-            }
             ShowUiMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
         }
     }
 
     /// <summary>検索ルート登録解除を副作用前にL/Pで判定し、確認・保存・同権限の再読込みまで所有します。</summary>
-    internal async Task RequestRemoveBmsSearchRootAsync(string dir)
-    {
-        if (string.IsNullOrWhiteSpace(dir)) { return; }
-        if (!TryBeginBothSettingsAdmissions(out IDisposable lease, out LibraryFileMutationLease playlistLease))
-        {
-            await ShowUiMessageAsync(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
-                BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "Search root change admission");
-            return;
-        }
-        using LibraryFileMutationLease playlistOperation = playlistLease;
-        using LibraryFileMutationCapability playlistCapability = playlistLease.CreateMutationCapability();
-        StartupInitializationResult result = null;
-        await CompleteAcceptedSettingsOperationAsync(lease,
-            async capability => result = await RequestRemoveBmsSearchRootUnderAdmissionAsync(dir, capability), playlistCapability, playlistLease, () => result);
-    }
-
-    /// <summary>受理済み検索ルート変更を、保存・モデル反映・再読込みの終端まで実行します。</summary>
-    private async Task<StartupInitializationResult> RequestRemoveBmsSearchRootUnderAdmissionAsync(string dir, LibraryFileMutationCapability capability)
-    {
-        if (string.IsNullOrWhiteSpace(dir))
-        {
-            return null;
-        }
-
-        UiDialogResult confirmation = await schemaDialogs.ConfirmAsync(new UiConfirmationRequest(
-            BeMusicSeeker.Properties.Resources.Msg_unregister_root_folder,
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Question,
-            MessageBoxResult.Cancel));
-        if (!ToUiConfirmationDecision(
-            confirmation,
-            "treeViewLibraryFolderContextMenuItemUnregisterRootFolder"))
-        {
-            return null;
-        }
-
-        return await RemoveBmsSearchRootAndSaveAsync(dir, capability);
-    }
-
-    private async Task<StartupInitializationResult> RemoveBmsSearchRootAndSaveAsync(string dir, LibraryFileMutationCapability capability)
-    {
-        if (string.IsNullOrWhiteSpace(dir))
-        {
-            return null;
-        }
-        StartupInitializationResult result = null;
-        if (ApplicationSettings.OperationModeLR2DB)
-        {
-            Exception removalFailure = RemoveBMSDirectoryFromLR2Config(dir, saveImmediately: true);
-            if (removalFailure != null)
-            {
-                await PresentBmsSearchRootRemovalFailureAsync(removalFailure);
-                return null;
-            }
-            if (isSearchRootsChanged)
-            {
-                ApplyRuntimeSearchRootsForCurrentMode();
-                if (isBMSDirectoryRemoved)
-                {
-                    result = await ReloadFileDiffAsync(capability);
-                }
-                else
-                {
-                    searchRootRuntimePort.InvalidateLibraryFolderCache();
-                }
-                isSearchRootsChanged = false;
-                isBMSDirectoryRemoved = false;
-            }
-            else
-            {
-                searchRootRuntimePort.InvalidateLibraryFolderCache();
-            }
-            return result;
-        }
-        List<string> previousStandaloneRoots = [.. StandaloneBmsRootPathList];
-        string previousStandaloneSelection = SelectedStandaloneBmsRootPath;
-        string previousStandaloneSerializedPaths = ApplicationSettings.StandaloneBmsRootPaths;
-        string previousLegacyBmsRootPath = ApplicationSettings.BMSRootPath;
-        Exception standaloneRemovalFailure = RemoveStandaloneBmsRootPath(dir);
-        if (standaloneRemovalFailure != null)
-        {
-            await PresentBmsSearchRootRemovalFailureAsync(standaloneRemovalFailure);
-            return null;
-        }
-        if (isSearchRootsChanged)
-        {
-            try
-            {
-                PersistStandaloneBmsRootPathsToSettings();
-                settingsEditSession.Save();
-            }
-            catch
-            {
-                RestoreStandaloneBmsRootRemovalState(
-                    previousStandaloneRoots,
-                    previousStandaloneSelection,
-                    previousStandaloneSerializedPaths,
-                    previousLegacyBmsRootPath);
-                throw;
-            }
-            ApplyRuntimeSearchRootsForCurrentMode();
-            if (isBMSDirectoryRemoved)
-            {
-                result = await ReloadFileDiffAsync(capability);
-            }
-            else
-            {
-                searchRootRuntimePort.InvalidateLibraryFolderCache();
-            }
-            isSearchRootsChanged = false;
-            isBMSDirectoryRemoved = false;
-        }
-        else
-        {
-            searchRootRuntimePort.InvalidateLibraryFolderCache();
-        }
-        return result;
-    }
-
     private void RemoveBMSDirectoryFromSearchRoots(string dir)
     {
-        if (OperationModeLR2DB)
+        if (ApplicationSettings.OperationModeLR2DB)
         {
-            Exception removalFailure = RemoveBMSDirectoryFromLR2Config(dir, saveImmediately: false);
+            Exception removalFailure = RemoveBMSDirectoryFromLR2Config(dir);
             if (removalFailure != null)
             {
                 ShowUiMessage(removalFailure.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
@@ -6160,10 +5087,6 @@ public partial class SettingsDialogViewModel : ViewModel
         try
         {
             string normalizedDir = TrimDirectorySeparatorUnlessRoot(Path.GetFullPath(dir.Trim()));
-            if (!string.IsNullOrWhiteSpace(ApplicationSettings.BMSInstallDir) && IsSameOrChildPath(ApplicationSettings.BMSInstallDir, normalizedDir))
-            {
-                throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveBmsInstallDir);
-            }
             string before = SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList);
             List<string> remaining = [.. StandaloneBmsRootPathList.Where(path => !string.Equals(path, normalizedDir, StringComparison.OrdinalIgnoreCase))];
             StandaloneBmsRootPathList.Clear();
@@ -6173,10 +5096,8 @@ public partial class SettingsDialogViewModel : ViewModel
             }
             SelectedStandaloneBmsRootPath = StandaloneBmsRootPathList.FirstOrDefault();
             string after = SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList);
-            isSearchRootsChanged = !string.Equals(before, after, StringComparison.OrdinalIgnoreCase);
-            isBMSDirectoryRemoved = isSearchRootsChanged;
             RaisePropertyChanged(nameof(StandaloneBmsRootPathList));
-            RaisePropertyChanged(nameof(AvailableBMSDirectories));
+            RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
             RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
             RaisePropertyChanged(nameof(BMSInstallDir));
             RaiseValidationStateChanged();
@@ -6188,7 +5109,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private Exception RemoveBMSDirectoryFromLR2Config(string dir, bool saveImmediately)
+    private Exception RemoveBMSDirectoryFromLR2Config(string dir)
     {
         if (dir == null)
         {
@@ -6212,28 +5133,20 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveRootCustomFolderOutputDir);
             }
-            if (BMSInstallDir != null && (BMSInstallDir + Path.DirectorySeparatorChar).StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveBmsInstallDir);
-            }
-            bool removed = saveImmediately
-                ? lr2config.RemoveBMSSearchDirectoriesAndSave([dir])
-                : lr2config.RemoveBMSSearchDirectories([dir]);
+            bool removed = lr2config.RemoveBMSSearchDirectories([dir]);
             if (removed)
             {
-                isSearchRootsChanged = true;
                 if (string.Equals(selectedLR2ConfigBmsDirectory, dir, StringComparison.OrdinalIgnoreCase))
                 {
                     selectedLR2ConfigBmsDirectory = LR2ConfigBMSDirectories.FirstOrDefault();
                 }
-                RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
-                RaisePropertyChanged(nameof(AvailableBMSDirectories));
+                RaiseBmsListPropertyChanged(nameof(LR2ConfigBMSDirectories));
+                RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
                 RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
                 RaisePropertyChanged(nameof(BMSInstallDir));
                 RaiseValidationStateChanged();
                 if (searchRootRuntimePort.HasOwnedChartUnderRealPath(dir))
                 {
-                    isBMSDirectoryRemoved = true;
                 }
             }
             return null;
@@ -6244,1233 +5157,11 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private void RestoreStandaloneBmsRootRemovalState(
-        IReadOnlyList<string> previousRoots,
-        string previousSelection,
-        string previousSerializedPaths,
-        string previousLegacyBmsRootPath)
-    {
-        StandaloneBmsRootPathList.Clear();
-        foreach (string path in previousRoots ?? [])
-        {
-            StandaloneBmsRootPathList.Add(path);
-        }
-        ApplicationSettings.StandaloneBmsRootPaths = previousSerializedPaths;
-        ApplicationSettings.BMSRootPath = previousLegacyBmsRootPath;
-        SelectedStandaloneBmsRootPath = previousSelection;
-        RaisePropertyChanged(nameof(StandaloneBmsRootPathList));
-        RaisePropertyChanged(nameof(AvailableBMSDirectories));
-        RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
-        RaisePropertyChanged(nameof(BMSInstallDir));
-        RaiseValidationStateChanged();
-        isSearchRootsChanged = false;
-        isBMSDirectoryRemoved = false;
-    }
-
-    private Task PresentBmsSearchRootRemovalFailureAsync(Exception exception)
-    {
-        TryLogSettingsLocalFailure(exception, "BMS search root removal");
-        return ShowUiMessageAsync(exception.Message, BeMusicSeeker.Properties.Resources.Error,
-            MessageBoxImage.Hand, "treeViewLibraryFolderContextMenuItemUnregisterRootFolder failure notification");
-    }
-
-    [Flags]
-    private enum SettingsPostSaveImpact
-    {
-        None = 0,
-        CustomFolderSearchRootSync = 1,
-        PlayerRuntime = 2,
-        Lr2BackupEnabledNotice = 4,
-        PlaylistUrlCompletion = 8,
-        Lr2CoreSync = 16,
-        ExternalLr2FolderRowsSync = 32,
-        BeatorajaBmtExport = 64,
-        BeatorajaBmtReprojection = 128
-    }
-
-    [Flags]
-    private enum SettingsSnapshotRefreshScope
-    {
-        None = 0,
-        StandaloneSearchRoots = 1,
-        Lr2SearchRoots = 2,
-        CustomFolderOutputBase = 4,
-        PlayHistoryDisplayPreset = 8,
-        OperationMode = 16,
-        ValidationState = 32,
-        Full = StandaloneSearchRoots | Lr2SearchRoots | CustomFolderOutputBase | PlayHistoryDisplayPreset | OperationMode | ValidationState
-    }
-
-    private static SettingsSnapshotRefreshScope BuildSettingsSnapshotRefreshScope(
-        bool operationModeChanged,
-        bool standaloneSearchRootsChanged,
-        bool lr2SearchRootsChanged,
-        bool customFolderOutputBaseSettingsChanged,
-        bool playHistoryFolderDisplayPresetDraftsChanged,
-        bool beatorajaDerivedSettingsSourceChanged,
-        bool lr2ConfigBoundaryChanged)
-    {
-        SettingsSnapshotRefreshScope scope = SettingsSnapshotRefreshScope.None;
-        if (operationModeChanged)
-        {
-            scope |= SettingsSnapshotRefreshScope.Full;
-        }
-        if (standaloneSearchRootsChanged)
-        {
-            scope |= SettingsSnapshotRefreshScope.StandaloneSearchRoots | SettingsSnapshotRefreshScope.ValidationState;
-        }
-        if (lr2SearchRootsChanged)
-        {
-            scope |= SettingsSnapshotRefreshScope.Lr2SearchRoots | SettingsSnapshotRefreshScope.ValidationState;
-        }
-        if (lr2ConfigBoundaryChanged)
-        {
-            scope |= SettingsSnapshotRefreshScope.Lr2SearchRoots | SettingsSnapshotRefreshScope.ValidationState;
-        }
-        if (customFolderOutputBaseSettingsChanged)
-        {
-            scope |= SettingsSnapshotRefreshScope.CustomFolderOutputBase | SettingsSnapshotRefreshScope.Lr2SearchRoots | SettingsSnapshotRefreshScope.ValidationState;
-        }
-        if (playHistoryFolderDisplayPresetDraftsChanged)
-        {
-            scope |= SettingsSnapshotRefreshScope.PlayHistoryDisplayPreset | SettingsSnapshotRefreshScope.ValidationState;
-        }
-        if (beatorajaDerivedSettingsSourceChanged)
-        {
-            scope |= SettingsSnapshotRefreshScope.ValidationState;
-        }
-        return scope;
-    }
-
-    private void backupSavedSettings()
-    {
-        backupSavedSettingsCore(SettingsSnapshotRefreshScope.Full);
-    }
-
-    private void backupSavedSettingsCore(SettingsSnapshotRefreshScope scope)
-    {
-        var totalStopwatch = Stopwatch.StartNew();
-        long standaloneRootsMs = 0L;
-        long customFolderBasesMs = 0L;
-        long lr2RootsSnapshotMs = 0L;
-        long standaloneRootsSnapshotMs = 0L;
-        long playHistoryPresetRefreshMs = 0L;
-        long playHistoryPresetSnapshotMs = 0L;
-        operationModeLR2DB = ApplicationSettings.OperationModeLR2DB;
-        var stepStopwatch = Stopwatch.StartNew();
-        if (scope.HasFlag(SettingsSnapshotRefreshScope.StandaloneSearchRoots))
-        {
-            RefreshStandaloneBmsRootPathsFromSettings();
-        }
-        standaloneRootsMs = stepStopwatch.ElapsedMilliseconds;
-        stepStopwatch.Restart();
-        if (scope.HasFlag(SettingsSnapshotRefreshScope.CustomFolderOutputBase))
-        {
-            RefreshCustomFolderAdditionalOutputBaseDirsFromSettings();
-        }
-        customFolderBasesMs = stepStopwatch.ElapsedMilliseconds;
-        tempOperationModeLR2DB = ApplicationSettings.OperationModeLR2DB;
-        tempLR2RootPath = ApplicationSettings.LR2RootPath;
-        tempLR2SongDBPath = ApplicationSettings.LR2SongDBPath;
-        tempLR2ConfigXmlPath = ApplicationSettings.LR2ConfigXmlPath;
-        tempUseBeatorajaScoreDb = ApplicationSettings.UseBeatorajaScoreDb;
-        tempBeatorajaRootPath = ApplicationSettings.BeatorajaRootPath;
-        tempBeatorajaPlayerId = ApplicationSettings.BeatorajaPlayerId;
-        tempBeatorajaScoreDbPath = ApplicationSettings.BeatorajaScoreDbPath;
-        tempEnableBeatorajaBmtOutput = ApplicationSettings.EnableBeatorajaBmtOutput;
-        tempKeepBeatorajaBmtFilesWhenOutputDisabled = ApplicationSettings.KeepBeatorajaBmtFilesWhenOutputDisabled;
-        tempBeatorajaBmtHashOutputMode = BeatorajaBmtHashOutputMode;
-        tempBeatorajaBmtTablePath = ApplicationSettings.BeatorajaBmtTablePath;
-        tempRegisterBeatorajaBmtUrls = ApplicationSettings.RegisterBeatorajaBmtUrls;
-        tempBMSRootPath = ApplicationSettings.BMSRootPath;
-        stepStopwatch.Restart();
-        if (scope.HasFlag(SettingsSnapshotRefreshScope.Lr2SearchRoots))
-        {
-            tempLR2ConfigBmsSearchRoots = SerializeLR2ConfigBmsSearchRoots();
-        }
-        lr2RootsSnapshotMs = stepStopwatch.ElapsedMilliseconds;
-        stepStopwatch.Restart();
-        if (scope.HasFlag(SettingsSnapshotRefreshScope.StandaloneSearchRoots))
-        {
-            tempStandaloneBmsRootPaths = SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList);
-        }
-        standaloneRootsSnapshotMs = stepStopwatch.ElapsedMilliseconds;
-        tempuBMplayPath = ApplicationSettings.uBMplayPath;
-        tempBMIIDXViewPath = ApplicationSettings.BMIIDXViewPath;
-        tempUsePlayeruBMplay = ApplicationSettings.UsePlayeruBMplay;
-        tempUsePlayerLR2body = ApplicationSettings.UsePlayerLR2body;
-        tempUsePlayerBMIIDXView = ApplicationSettings.UsePlayerBMIIDXView;
-        tempLR2bodyResolution = LR2bodyResolution;
-        tempIsSaveLR2bodyWindowPosition = ApplicationSettings.IsSaveLR2bodyWindowPosition;
-        tempLR2CustomFolderOutputDir = ApplicationSettings.LR2CustomFolderOutputBaseDir;
-        tempLR2CustomFolderAdditionalOutputBaseDirs = ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-        tempLR2CustomFolderAsRootOutputDir = ApplicationSettings.LR2CustomFolderOutputBaseDirRootType;
-        tempPlaylistDefaultIgnoreFolderOutput = ApplicationSettings.PlaylistDefaultIgnoreFolderOutput;
-        tempBMSInstallDir = ApplicationSettings.BMSInstallDir;
-        tempTableListURL = ApplicationSettings.TableListURL;
-        tempEnablePlaylistUrlCompletion = ApplicationSettings.EnablePlaylistUrlCompletion;
-        tempOverwritePlaylistUrlsWithCompletion = ApplicationSettings.OverwritePlaylistUrlsWithCompletion;
-        tempEnableStellaFullPlaylistUrlCompletion = ApplicationSettings.EnableStellaFullPlaylistUrlCompletion;
-        tempPlaylistMd5UrlMappingTsvUri = ApplicationSettings.PlaylistMd5UrlMappingTsvUri;
-        tempPlayHistoryDisplayTargetSetsJson = playHistoryDisplaySettingsStore.DisplayTargetSetsJson;
-        tempIsLR2BackupEnabled = ApplicationSettings.IsLR2BackupEnabled;
-        tempLR2BackupPath = ApplicationSettings.LR2BackupPath;
-        tempLR2BackupTarget = ApplicationSettings.LR2BackupTarget;
-        tempLR2BackupSpan = ApplicationSettings.LR2BackupSpan;
-        tempLR2BackupNum = ApplicationSettings.LR2BackupNum;
-        tempStartupSortCachePrewarmPriority = ApplicationSettings.StartupSortCachePrewarmPriority;
-        tempUseExternalPanelImage = ApplicationSettings.UseExternalPanelImage;
-        tempAppearanceTheme = AppThemeService.NormalizeTheme(ApplicationSettings.AppearanceTheme);
-        tempCustomTableFontSize = ApplicationSettings.CustomTableFontSize;
-        tempCustomTableRowHeight = ApplicationSettings.CustomTableRowHeight;
-        tempCustomTableHeaderHeight = ApplicationSettings.CustomTableHeaderHeight;
-        tempStagefilePath = ApplicationSettings.StagefilePath;
-        tempFolderNameFormat = ApplicationSettings.FolderNameFormat;
-        tempUseOnlyShiftJISChars = ApplicationSettings.UseOnlyShiftJISChars;
-        tempShowScoreViewerRegisterConfirmMsg = ApplicationSettings.ShowScoreViewerRegisterConfirmMsg;
-        tempShowDiffBMSInstallConfirmMsg = ApplicationSettings.ShowDiffBMSInstallConfirmMsg;
-        tempShowNewPackageInstallConfirmMsg = ApplicationSettings.ShowNewPackageInstallConfirmMsg;
-        tempShowDuplicateFileCheckConfirmMsg = ApplicationSettings.ShowDuplicateFileCheckConfirmMsg;
-        tempShowRecommUpdatedMsg = ApplicationSettings.ShowRecommUpdatedMsg;
-        tempScanBmsFilesOnStartup = ApplicationSettings.ScanBmsFilesOnStartup;
-        tempSkipInitPlaylistLoad = ApplicationSettings.SkipInitPlaylistLoad;
-        tempStartupSelectInstallPending = ApplicationSettings.StartupSelectInstallPending;
-        tempEnableReadOptimizedPragmas = ApplicationSettings.EnableReadOptimizedPragmas;
-        tempEstimateOfflineScoreRanking = ApplicationSettings.EstimateOfflineScoreRanking;
-        tempUpdateLr2IrRankingCacheOnStartup = ApplicationSettings.UpdateLr2IrRankingCacheOnStartup;
-        tempEnableDownloadLr2IrScoreAndDetectUnsent = ApplicationSettings.EnableDownloadLr2IrScoreAndDetectUnsent;
-        tempEnableAutoInstall = ApplicationSettings.AutoInstall;
-        tempKeepInstallablePackagesPending = ApplicationSettings.KeepInstallablePackagesPending;
-        tempRequireCompleteUsedResourcesForAutoInstall = ApplicationSettings.RequireCompleteUsedResourcesForAutoInstall;
-        tempAutoApplyAmbiguousInstallDestination = ApplicationSettings.AutoApplyAmbiguousInstallDestination;
-        tempAutoInstallAfterAutomaticEstimation = ApplicationSettings.AutoInstallAfterAutomaticEstimation;
-        tempInstallDestinationAutoApplyMinAudioHealth = ApplicationSettings.InstallDestinationAutoApplyMinAudioHealth;
-        tempDeletePendingPackageSourceAfterInstall = ApplicationSettings.DeletePendingPackageSourceAfterInstall;
-        tempEnableSmartComponentOverwrite = ApplicationSettings.EnableSmartComponentOverwrite;
-        tempKeepSmartOverwriteProtectedFilesByRenaming = ApplicationSettings.KeepSmartOverwriteProtectedFilesByRenaming;
-        tempEncoderSampleRate = ApplicationSettings.EncoderSampleRate;
-        tempEncoderIndex = (int)ApplicationSettings.Encoder;
-        tempEncoderFormat = ApplicationSettings.EncoderFormat;
-        tempEncoderNormalization = audioSettingsGateway.EncoderNormalization;
-        tempEncoderExeDir = ApplicationSettings.EncoderExeDir;
-        tempEncoderAmplifier = ApplicationSettings.EncoderAmplifier;
-        tempEncoderQuality = ApplicationSettings.EncoderQuality;
-        tempEncodeFileNameFormat = ApplicationSettings.EncodeFileNameFormat;
-        savedAudioOutputSelection = AudioDriverPolicy.NormalizePersistedSelection(
-            audioSettingsGateway.CaptureOutputSelection());
-        audioDeviceTestWorkflow.OutputSelection = savedAudioOutputSelection;
-        tempPlayerSampleRate = ApplicationSettings.PlayerSampleRate;
-        tempPlayerFormat = ApplicationSettings.PlayerFormat;
-        tempPlayerBufferSize = ApplicationSettings.PlayerBufferSize;
-        tempPlayerResamplingQuality = ApplicationSettings.PlayerResamplingQuality;
-        tempPlayerMixerThreadCount = ApplicationSettings.PlayerMixerThreadCount;
-        audioDeviceTestWorkflow.RefreshPlaybackSettingDrafts();
-        tempPlayerWASAPIParam = ApplicationSettings.PlayerWASAPIParam;
-        tempLanguage = ApplicationSettings.Lang;
-        tempLanguageDisplayName = ApplicationSettings.LangDisplayName;
-        if (!rightClickActionSettingsEditor.IsInvalidPersistedSettings)
-        {
-            rightClickActionSettingsEditor.AcceptSavedSnapshot(ApplicationSettings.RightClickActionsJson);
-        }
-        stepStopwatch.Restart();
-        if (scope.HasFlag(SettingsSnapshotRefreshScope.PlayHistoryDisplayPreset))
-        {
-            RefreshPlayHistoryFolderDisplayPresetsFromSettings();
-        }
-        playHistoryPresetRefreshMs = stepStopwatch.ElapsedMilliseconds;
-        stepStopwatch.Restart();
-        if (scope.HasFlag(SettingsSnapshotRefreshScope.PlayHistoryDisplayPreset))
-        {
-            tempPlayHistoryDisplayTargetSetDraftsJson = SerializePlayHistoryFolderDisplayPresetDraftsForChangeTracking();
-        }
-        playHistoryPresetSnapshotMs = stepStopwatch.ElapsedMilliseconds;
-        isSearchRootsChanged = false;
-        isBMSDirectoryAdded = false;
-        isBMSDirectoryRemoved = false;
-        if (scope.HasFlag(SettingsSnapshotRefreshScope.OperationMode))
-        {
-            RaisePropertyChanged(nameof(IsOperationModeChanged));
-        }
-        if (scope.HasFlag(SettingsSnapshotRefreshScope.ValidationState))
-        {
-            RaiseValidationStateChanged();
-        }
-        LogSettingsPerformance(
-            "settings_backup_snapshot",
-            totalStopwatch,
-            "scope=" + scope
-            + " standaloneRootsMs=" + standaloneRootsMs
-            + " customFolderBasesMs=" + customFolderBasesMs
-            + " lr2RootsSnapshotMs=" + lr2RootsSnapshotMs
-            + " standaloneRootsSnapshotMs=" + standaloneRootsSnapshotMs
-            + " playHistoryPresetRefreshMs=" + playHistoryPresetRefreshMs
-            + " playHistoryPresetSnapshotMs=" + playHistoryPresetSnapshotMs);
-    }
-
-    internal bool HasPendingSettingChanges()
-    {
-        return HasSettingValueChanges()
-            || rightClickActionSettingsEditor.IsDirty
-            || tempOperationModeLR2DB != operationModeLR2DB
-            || HasSearchRootSettingsChanged()
-            || HasCustomFolderAdditionalOutputBaseDirsChanged()
-            || HasPlayHistoryFolderDisplayPresetDraftsChanged()
-            || scoreReloadPending
-            || fileDiffReloadPending;
-    }
-
-    private bool HasSettingValueChanges()
-    {
-        return rightClickActionSettingsEditor.IsDirty
-            || HasPathSettingValueChanged(tempLR2RootPath, ApplicationSettings.LR2RootPath, value => IsLR2RootPathValid(value) || IsLR2PlayerRootPathValid(value))
-            || HasPathSettingValueChanged(tempLR2SongDBPath, ApplicationSettings.LR2SongDBPath, IsLR2SongDBPathValid)
-            || HasPathSettingValueChanged(tempLR2ConfigXmlPath, ApplicationSettings.LR2ConfigXmlPath, IsLR2ConfigXmlPathValid)
-            || tempUseBeatorajaScoreDb != ApplicationSettings.UseBeatorajaScoreDb
-            || !string.Equals(tempBeatorajaRootPath, ApplicationSettings.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(tempBeatorajaPlayerId, ApplicationSettings.BeatorajaPlayerId, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(tempBeatorajaScoreDbPath, ApplicationSettings.BeatorajaScoreDbPath, StringComparison.OrdinalIgnoreCase)
-            || tempEnableBeatorajaBmtOutput != ApplicationSettings.EnableBeatorajaBmtOutput
-            || tempKeepBeatorajaBmtFilesWhenOutputDisabled != ApplicationSettings.KeepBeatorajaBmtFilesWhenOutputDisabled
-            || !string.Equals(tempBeatorajaBmtHashOutputMode, BeatorajaBmtHashOutputMode, StringComparison.Ordinal)
-            || !string.Equals(tempBeatorajaBmtTablePath, ApplicationSettings.BeatorajaBmtTablePath, StringComparison.OrdinalIgnoreCase)
-            || tempRegisterBeatorajaBmtUrls != ApplicationSettings.RegisterBeatorajaBmtUrls
-            || HasPathSettingValueChanged(tempBMSRootPath, ApplicationSettings.BMSRootPath, IsBMSRootPathValid)
-            || HasPathSettingValueChanged(tempuBMplayPath, ApplicationSettings.uBMplayPath, IsuBMplayPathValid)
-            || HasPathSettingValueChanged(tempBMIIDXViewPath, ApplicationSettings.BMIIDXViewPath, IsBMIIDXViewPathValid)
-            || tempUsePlayeruBMplay != ApplicationSettings.UsePlayeruBMplay
-            || tempUsePlayerLR2body != ApplicationSettings.UsePlayerLR2body
-            || tempUsePlayerBMIIDXView != ApplicationSettings.UsePlayerBMIIDXView
-            || tempLR2bodyResolution != LR2bodyResolution
-            || tempIsSaveLR2bodyWindowPosition != ApplicationSettings.IsSaveLR2bodyWindowPosition
-            || HasCustomFolderOutputBaseSettingsChanged()
-            || tempPlaylistDefaultIgnoreFolderOutput != ApplicationSettings.PlaylistDefaultIgnoreFolderOutput
-            || !string.Equals(tempBMSInstallDir, ApplicationSettings.BMSInstallDir, StringComparison.OrdinalIgnoreCase)
-            || !IsSameUri(tempTableListURL, ApplicationSettings.TableListURL)
-            || tempEnablePlaylistUrlCompletion != ApplicationSettings.EnablePlaylistUrlCompletion
-            || tempOverwritePlaylistUrlsWithCompletion != ApplicationSettings.OverwritePlaylistUrlsWithCompletion
-            || tempEnableStellaFullPlaylistUrlCompletion != ApplicationSettings.EnableStellaFullPlaylistUrlCompletion
-            || !string.Equals(tempPlaylistMd5UrlMappingTsvUri, ApplicationSettings.PlaylistMd5UrlMappingTsvUri, StringComparison.Ordinal)
-            || !string.Equals(tempPlayHistoryDisplayTargetSetsJson, playHistoryDisplaySettingsStore.DisplayTargetSetsJson, StringComparison.Ordinal)
-            || tempIsLR2BackupEnabled != ApplicationSettings.IsLR2BackupEnabled
-            || HasPathSettingValueChanged(tempLR2BackupPath, ApplicationSettings.LR2BackupPath, IsLR2BackupPathValid)
-            || tempLR2BackupTarget != ApplicationSettings.LR2BackupTarget
-            || tempLR2BackupSpan != ApplicationSettings.LR2BackupSpan
-            || tempLR2BackupNum != ApplicationSettings.LR2BackupNum
-            || tempStartupSortCachePrewarmPriority != ApplicationSettings.StartupSortCachePrewarmPriority
-            || tempUseExternalPanelImage != ApplicationSettings.UseExternalPanelImage
-            || !string.Equals(AppThemeService.NormalizeTheme(tempAppearanceTheme), AppThemeService.NormalizeTheme(ApplicationSettings.AppearanceTheme), StringComparison.Ordinal)
-            || !tempCustomTableFontSize.Equals(ApplicationSettings.CustomTableFontSize)
-            || !tempCustomTableRowHeight.Equals(ApplicationSettings.CustomTableRowHeight)
-            || !tempCustomTableHeaderHeight.Equals(ApplicationSettings.CustomTableHeaderHeight)
-            || HasPathSettingValueChanged(tempStagefilePath, ApplicationSettings.StagefilePath, IsStagefilePathValid)
-            || !string.Equals(tempFolderNameFormat, ApplicationSettings.FolderNameFormat, StringComparison.Ordinal)
-            || tempUseOnlyShiftJISChars != ApplicationSettings.UseOnlyShiftJISChars
-            || tempShowScoreViewerRegisterConfirmMsg != ApplicationSettings.ShowScoreViewerRegisterConfirmMsg
-            || tempShowDiffBMSInstallConfirmMsg != ApplicationSettings.ShowDiffBMSInstallConfirmMsg
-            || tempShowNewPackageInstallConfirmMsg != ApplicationSettings.ShowNewPackageInstallConfirmMsg
-            || tempShowDuplicateFileCheckConfirmMsg != ApplicationSettings.ShowDuplicateFileCheckConfirmMsg
-            || tempShowRecommUpdatedMsg != ApplicationSettings.ShowRecommUpdatedMsg
-            || tempScanBmsFilesOnStartup != ApplicationSettings.ScanBmsFilesOnStartup
-            || tempSkipInitPlaylistLoad != ApplicationSettings.SkipInitPlaylistLoad
-            || tempStartupSelectInstallPending != ApplicationSettings.StartupSelectInstallPending
-            || tempEnableReadOptimizedPragmas != ApplicationSettings.EnableReadOptimizedPragmas
-            || tempEstimateOfflineScoreRanking != ApplicationSettings.EstimateOfflineScoreRanking
-            || tempUpdateLr2IrRankingCacheOnStartup != ApplicationSettings.UpdateLr2IrRankingCacheOnStartup
-            || tempEnableDownloadLr2IrScoreAndDetectUnsent != ApplicationSettings.EnableDownloadLr2IrScoreAndDetectUnsent
-            || tempEnableAutoInstall != ApplicationSettings.AutoInstall
-            || tempKeepInstallablePackagesPending != ApplicationSettings.KeepInstallablePackagesPending
-            || tempRequireCompleteUsedResourcesForAutoInstall != ApplicationSettings.RequireCompleteUsedResourcesForAutoInstall
-            || tempAutoApplyAmbiguousInstallDestination != ApplicationSettings.AutoApplyAmbiguousInstallDestination
-            || tempAutoInstallAfterAutomaticEstimation != ApplicationSettings.AutoInstallAfterAutomaticEstimation
-            || tempInstallDestinationAutoApplyMinAudioHealth != ApplicationSettings.InstallDestinationAutoApplyMinAudioHealth
-            || tempDeletePendingPackageSourceAfterInstall != ApplicationSettings.DeletePendingPackageSourceAfterInstall
-            || tempEnableSmartComponentOverwrite != ApplicationSettings.EnableSmartComponentOverwrite
-            || tempKeepSmartOverwriteProtectedFilesByRenaming != ApplicationSettings.KeepSmartOverwriteProtectedFilesByRenaming
-            || tempEncoderSampleRate != ApplicationSettings.EncoderSampleRate
-            || tempEncoderIndex != (int)ApplicationSettings.Encoder
-            || tempEncoderFormat != ApplicationSettings.EncoderFormat
-            || tempEncoderNormalization != audioSettingsGateway.EncoderNormalization
-            || !string.Equals(tempEncoderExeDir, ApplicationSettings.EncoderExeDir, StringComparison.OrdinalIgnoreCase)
-            || tempEncoderAmplifier != ApplicationSettings.EncoderAmplifier
-            || tempEncoderQuality != ApplicationSettings.EncoderQuality
-            || !string.Equals(tempEncodeFileNameFormat, ApplicationSettings.EncodeFileNameFormat, StringComparison.Ordinal)
-            || savedAudioOutputSelection != audioDeviceTestWorkflow.OutputSelection
-            || tempPlayerSampleRate != ApplicationSettings.PlayerSampleRate
-            || tempPlayerFormat != ApplicationSettings.PlayerFormat
-            || tempPlayerBufferSize != ApplicationSettings.PlayerBufferSize
-            || tempPlayerResamplingQuality != audioDeviceTestWorkflow.PlayerResamplingQuality
-            || tempPlayerMixerThreadCount != audioDeviceTestWorkflow.PlayerMixerThreadCount
-            || tempPlayerWASAPIParam != ApplicationSettings.PlayerWASAPIParam
-            || !string.Equals(tempLanguage, ApplicationSettings.Lang, StringComparison.Ordinal)
-            || !string.Equals(tempLanguageDisplayName, ApplicationSettings.LangDisplayName, StringComparison.Ordinal);
-    }
-
-    private bool HasSearchRootSettingsChanged()
-    {
-        return OperationModeLR2DB ? HasLR2ConfigBmsSearchRootsChanged() : HasStandaloneBmsRootPathsChanged();
-    }
-
-    private bool HasLR2ConfigBmsSearchRootsChanged()
-    {
-        return !string.Equals(tempLR2ConfigBmsSearchRoots, SerializeLR2ConfigBmsSearchRoots(), StringComparison.OrdinalIgnoreCase);
-    }
-
-    private bool HasStandaloneBmsRootPathsChanged()
-    {
-        return !string.Equals(tempStandaloneBmsRootPaths, SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList), StringComparison.OrdinalIgnoreCase);
-    }
-
-    private string SerializeLR2ConfigBmsSearchRoots()
-    {
-        return lr2config == null ? string.Empty : SerializeBmsRootPathsForChangeTracking(lr2config.GetBMSSearchDirectoriesForChangeTracking());
-    }
-
-    private bool HasCustomFolderOutputBaseSettingsChanged()
-    {
-        return !string.Equals(tempLR2CustomFolderOutputDir, ApplicationSettings.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(tempLR2CustomFolderAsRootOutputDir, ApplicationSettings.LR2CustomFolderOutputBaseDirRootType, StringComparison.OrdinalIgnoreCase)
-            || HasCustomFolderAdditionalOutputBaseDirsChanged();
-    }
-
-    private bool HasCustomFolderAdditionalOutputBaseDirsChanged()
-    {
-        return !string.Equals(tempLR2CustomFolderAdditionalOutputBaseDirs, ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal);
-    }
-
-    private bool HasPlayHistoryFolderDisplayPresetDraftsChanged()
-    {
-        return !string.Equals(tempPlayHistoryDisplayTargetSetDraftsJson, SerializePlayHistoryFolderDisplayPresetDraftsForChangeTracking(), StringComparison.Ordinal);
-    }
-
-    private static bool IsSameUri(Uri left, Uri right)
-    {
-        return string.Equals(left?.OriginalString ?? string.Empty, right?.OriginalString ?? string.Empty, StringComparison.Ordinal);
-    }
-
-    private static bool HasPathSettingValueChanged(string savedValue, string currentValue, Func<string, bool> isValidSavedValue)
-    {
-        if (string.Equals(savedValue, currentValue, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-        if (string.IsNullOrWhiteSpace(savedValue) && string.IsNullOrWhiteSpace(currentValue))
-        {
-            return false;
-        }
-        return true;
-    }
-
-    private SettingsPostSaveImpact BuildSettingsPostSaveImpact(bool customFolderSearchRootSyncNeeded)
-    {
-        SettingsPostSaveImpact impact = SettingsPostSaveImpact.None;
-        if (customFolderSearchRootSyncNeeded)
-        {
-            impact |= SettingsPostSaveImpact.CustomFolderSearchRootSync;
-        }
-
-        bool playerSelectionChanged = tempUsePlayeruBMplay != ApplicationSettings.UsePlayeruBMplay
-            || tempUsePlayerLR2body != ApplicationSettings.UsePlayerLR2body
-            || tempUsePlayerBMIIDXView != ApplicationSettings.UsePlayerBMIIDXView;
-        bool playerRuntimePathChanged =
-            (ApplicationSettings.UsePlayeruBMplay
-                && HasPathSettingValueChanged(tempuBMplayPath, ApplicationSettings.uBMplayPath, value => true))
-            || (ApplicationSettings.UsePlayerBMIIDXView
-                && HasPathSettingValueChanged(tempBMIIDXViewPath, ApplicationSettings.BMIIDXViewPath, value => true))
-            || (ApplicationSettings.UsePlayerLR2body
-                && (HasPathSettingValueChanged(tempLR2RootPath, ApplicationSettings.LR2RootPath, value => true)
-                    || HasPathSettingValueChanged(tempLR2ConfigXmlPath, ApplicationSettings.LR2ConfigXmlPath, value => true)));
-        bool forceInternalPlayerForStandaloneModeChange =
-            !ApplicationSettings.OperationModeLR2DB
-            && tempOperationModeLR2DB != ApplicationSettings.OperationModeLR2DB;
-        if (playerSelectionChanged
-            || playerRuntimePathChanged
-            || forceInternalPlayerForStandaloneModeChange)
-        {
-            impact |= SettingsPostSaveImpact.PlayerRuntime;
-        }
-
-        if (ApplicationSettings.OperationModeLR2DB && ApplicationSettings.IsLR2BackupEnabled && tempIsLR2BackupEnabled != ApplicationSettings.IsLR2BackupEnabled)
-        {
-            impact |= SettingsPostSaveImpact.Lr2BackupEnabledNotice;
-        }
-        if (tempEnablePlaylistUrlCompletion != ApplicationSettings.EnablePlaylistUrlCompletion
-            || tempOverwritePlaylistUrlsWithCompletion != ApplicationSettings.OverwritePlaylistUrlsWithCompletion
-            || tempEnableStellaFullPlaylistUrlCompletion != ApplicationSettings.EnableStellaFullPlaylistUrlCompletion
-            || !string.Equals(tempPlaylistMd5UrlMappingTsvUri, ApplicationSettings.PlaylistMd5UrlMappingTsvUri, StringComparison.Ordinal))
-        {
-            impact |= SettingsPostSaveImpact.PlaylistUrlCompletion;
-        }
-
-        bool lr2CoreSyncInputChanged =
-            tempOperationModeLR2DB != ApplicationSettings.OperationModeLR2DB
-            || !string.Equals(tempLR2RootPath, ApplicationSettings.LR2RootPath, StringComparison.OrdinalIgnoreCase);
-        bool normalOutputBaseDirChanged =
-            !string.Equals(tempLR2CustomFolderOutputDir, ApplicationSettings.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase);
-        bool rootOutputBaseDirChanged =
-            !string.Equals(tempLR2CustomFolderAsRootOutputDir, ApplicationSettings.LR2CustomFolderOutputBaseDirRootType, StringComparison.OrdinalIgnoreCase);
-        bool additionalOutputBaseDirsChanged =
-            !string.Equals(tempLR2CustomFolderAdditionalOutputBaseDirs, ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal);
-        if (ApplicationSettings.OperationModeLR2DB && lr2CoreSyncInputChanged)
-        {
-            impact |= SettingsPostSaveImpact.Lr2CoreSync;
-        }
-        else if (ApplicationSettings.OperationModeLR2DB
-            && (normalOutputBaseDirChanged || rootOutputBaseDirChanged || additionalOutputBaseDirsChanged))
-        {
-            impact |= SettingsPostSaveImpact.ExternalLr2FolderRowsSync;
-        }
-
-        bool bmtHashModeChanged = !string.Equals(tempBeatorajaBmtHashOutputMode, BeatorajaBmtHashOutputMode, StringComparison.Ordinal);
-        if (tempEnableBeatorajaBmtOutput != ApplicationSettings.EnableBeatorajaBmtOutput
-            || tempKeepBeatorajaBmtFilesWhenOutputDisabled != ApplicationSettings.KeepBeatorajaBmtFilesWhenOutputDisabled
-            || tempRegisterBeatorajaBmtUrls != ApplicationSettings.RegisterBeatorajaBmtUrls
-            || bmtHashModeChanged
-            || !string.Equals(tempBeatorajaRootPath, ApplicationSettings.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(tempBeatorajaBmtTablePath, ApplicationSettings.BeatorajaBmtTablePath, StringComparison.OrdinalIgnoreCase))
-        {
-            impact |= SettingsPostSaveImpact.BeatorajaBmtExport;
-        }
-
-        if (bmtHashModeChanged)
-        {
-            impact |= SettingsPostSaveImpact.BeatorajaBmtReprojection;
-        }
-
-        return impact;
-    }
-
-    private static bool HasPostSaveImpact(SettingsPostSaveImpact impact)
-    {
-        return impact != SettingsPostSaveImpact.None;
-    }
-
-    private async Task necessaryStepsAfterSaved(SettingsPostSaveImpact impact, LibraryFileMutationCapability capability, LibraryFileMutationCapability playlistCapability = null, bool fullInitialization = false)
-    {
-        var totalStopwatch = Stopwatch.StartNew();
-        long customFolderSearchRootSyncMs = 0L;
-        long playerRuntimeMs = 0L;
-        long lr2GeneratedDataSyncMs = 0L;
-        long beatorajaBmtExportMs = 0L;
-        bool tablesAvailable = workspacePort.HasPlaylistTables;
-        try
-        {
-            if (!tablesAvailable)
-            {
-                return;
-            }
-            CustomFolderOutputSettingsSnapshot customFolderOutputSettingsAfterSave = null;
-            if (impact.HasFlag(SettingsPostSaveImpact.CustomFolderSearchRootSync))
-            {
-                customFolderOutputSettingsAfterSave = customFolderOutputPort.CustomFolderOutputSettings
-                    ?? throw new InvalidOperationException("Custom-folder output settings provider returned null after settings save.");
-            }
-            if (customFolderOutputSettingsAfterSave?.OperationModeLR2DB == true)
-            {
-                var stepStopwatch = Stopwatch.StartNew();
-                CustomFolderOutputBaseSearchRootSyncPlan normalOutputBaseRootSyncPlan = default;
-                CustomFolderOutputBaseSearchRootSyncResult normalOutputBaseRootSyncResult = default;
-                bool rootOutputBaseRootSyncChanged = false;
-                await workspacePort.RunWithPlaylistOperationNotificationsAsync(
-                    async () =>
-                    {
-                        try
-                        {
-                            await Task.Run(delegate
-                            {
-                                normalOutputBaseRootSyncPlan = PrepareCustomFolderNormalOutputBaseSearchRootSyncWithSettings(customFolderOutputSettingsAfterSave);
-                                if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderOutputDir) && !string.IsNullOrWhiteSpace(customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDir) && tempLR2CustomFolderOutputDir != customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDir)
-                                {
-                                    customFolderOutputPort.ChangeCustomFolderBaseDirectoryWithSettings(
-                                        tempLR2CustomFolderOutputDir,
-                                        customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDir,
-                                        tempLR2CustomFolderAdditionalOutputBaseDirs,
-                                        customFolderOutputSettingsAfterSave.LR2CustomFolderAdditionalOutputBaseDirs,
-                                        customFolderOutputSettingsAfterSave, capability: playlistCapability);
-                                }
-                                customFolderOutputPort.ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
-                                    tempLR2CustomFolderAdditionalOutputBaseDirs,
-                                    pendingCustomFolderAdditionalOutputBaseRenames,
-                                    customFolderOutputSettingsAfterSave, capability: playlistCapability);
-                                normalOutputBaseRootSyncResult = CompleteCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
-                                    normalOutputBaseRootSyncPlan,
-                                    customFolderOutputSettingsAfterSave);
-                                if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderAsRootOutputDir) && !string.IsNullOrWhiteSpace(customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDirRootType) && tempLR2CustomFolderAsRootOutputDir != customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDirRootType)
-                                {
-                                    customFolderOutputPort.ChangeCustomFolderBaseDirectoryRootWithSettings(
-                                        tempLR2CustomFolderAsRootOutputDir,
-                                        customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDirRootType,
-                                        customFolderOutputSettingsAfterSave, capability: playlistCapability);
-                                }
-                                rootOutputBaseRootSyncChanged = SyncCustomFolderOutputRootAfterSettingsChange(
-                                    customFolderOutputSettingsAfterSave);
-                            }).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            NLogWrapper.FileLogger?.Error(ex, "necessaryStepsAfterSaved failed");
-                            throw;
-                        }
-                    },
-                    "custom folder output base sync notification");
-                ApplyCustomFolderNormalOutputBaseSearchRootSyncResult(normalOutputBaseRootSyncResult);
-                if (rootOutputBaseRootSyncChanged)
-                {
-                    isSearchRootsChanged = true;
-                    isBMSDirectoryAdded = true;
-                    isBMSDirectoryRemoved = true;
-                    ApplyRuntimeSearchRootsForCurrentMode();
-                    RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
-                    RaisePropertyChanged(nameof(AvailableBMSDirectories));
-                    RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
-                    RaiseValidationStateChanged();
-                }
-                customFolderSearchRootSyncMs = stepStopwatch.ElapsedMilliseconds;
-            }
-            var playerRuntimeStopwatch = Stopwatch.StartNew();
-            bool forceInternalPlayerForStandaloneModeChange =
-                !ApplicationSettings.OperationModeLR2DB
-                && tempOperationModeLR2DB != ApplicationSettings.OperationModeLR2DB;
-            if (!fullInitialization && impact.HasFlag(SettingsPostSaveImpact.PlayerRuntime))
-            {
-                IBMSPlayer replacementPlayer = forceInternalPlayerForStandaloneModeChange
-                    ? playerFactoryPort.CreateDefaultBmsPlayer()
-                    : playerFactoryPort.CreateBmsPlayerForSettings(StartupSettingsSnapshot.CreateCurrent(ApplicationSettings));
-                await playbackRuntimePort.ApplyPlayerSettingsAsync(replacementPlayer);
-            }
-            if (!fullInitialization) { playbackRuntimePort.NotifySettingsChanged(); }
-            playerRuntimeMs = playerRuntimeStopwatch.ElapsedMilliseconds;
-            var lr2GeneratedDataSyncStopwatch = Stopwatch.StartNew();
-            if (!fullInitialization && impact.HasFlag(SettingsPostSaveImpact.Lr2CoreSync))
-            {
-                await lr2SongDbSyncWorkflow.SyncFolderDataAfterSettingsChangeAsync("SettingDialog.SaveSettings", capability, playlistCapability);
-            }
-            else if (!fullInitialization && impact.HasFlag(SettingsPostSaveImpact.ExternalLr2FolderRowsSync))
-            {
-                await lr2SongDbSyncWorkflow.SyncExternalFolderRowsAfterCustomFolderOutputBaseSettingsChangeAsync("SettingDialog.SaveSettings", capability, playlistCapability);
-            }
-            lr2GeneratedDataSyncMs = lr2GeneratedDataSyncStopwatch.ElapsedMilliseconds;
-            var beatorajaBmtExportStopwatch = Stopwatch.StartNew();
-            if (impact.HasFlag(SettingsPostSaveImpact.BeatorajaBmtExport))
-            {
-                bool preserveDisabledBmtOutput = !ApplicationSettings.EnableBeatorajaBmtOutput && ApplicationSettings.KeepBeatorajaBmtFilesWhenOutputDisabled;
-                if (BeatorajaConfigService.IsBeatorajaRootPathValid(tempBeatorajaRootPath)
-                    && !string.IsNullOrWhiteSpace(tempBeatorajaBmtTablePath)
-                    && !preserveDisabledBmtOutput
-                    && (!string.Equals(tempBeatorajaRootPath, ApplicationSettings.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
-                        || !ApplicationSettings.EnableBeatorajaBmtOutput
-                        || !ApplicationSettings.RegisterBeatorajaBmtUrls))
-                {
-                    try
-                    {
-                        BeatorajaConfigService.SyncTableUrls(
-                            tempBeatorajaRootPath,
-                            [],
-                            BmtTableExportService.ReadManagedTableUrls(tempBeatorajaBmtTablePath).Select(entry => entry.Url));
-                    }
-                    catch (Exception ex)
-                    {
-                        NLogWrapper.FileLogger?.Warn(ex, "beatoraja_old_table_url_cleanup_failed root=" + (tempBeatorajaRootPath ?? string.Empty));
-                    }
-                }
-                if (!fullInitialization)
-                {
-                    await workspacePort.ExportBeatorajaBmtAsync("SettingDialog.SaveSettings", tempBeatorajaBmtTablePath, playlistCapability,
-                        forceProjection: impact.HasFlag(SettingsPostSaveImpact.BeatorajaBmtReprojection));
-                }
-            }
-            beatorajaBmtExportMs = beatorajaBmtExportStopwatch.ElapsedMilliseconds;
-        }
-        finally
-        {
-            LogSettingsPerformance(
-                "settings_post_save",
-                totalStopwatch,
-                "impact=" + impact
-                + " tablesAvailable=" + tablesAvailable.ToString().ToLowerInvariant()
-                + " customFolderSearchRootSyncMs=" + customFolderSearchRootSyncMs
-                + " playerRuntimeMs=" + playerRuntimeMs
-                + " lr2GeneratedDataSyncMs=" + lr2GeneratedDataSyncMs
-                + " beatorajaBmtExportMs=" + beatorajaBmtExportMs);
-        }
-    }
 
 
-    private CustomFolderOutputBaseSearchRootSyncPlan PrepareCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
-        CustomFolderOutputSettingsSnapshot settings)
-    {
-        if (settings == null)
-        {
-            throw new ArgumentNullException(nameof(settings));
-        }
-        if (!settings.OperationModeLR2DB || lr2config == null)
-        {
-            return default;
-        }
-
-        CustomFolderOutputBaseSearchRootSyncPlan plan = CustomFolderOutputBaseSearchRootSyncService.PrepareNormalOutputBaseRoots(
-            lr2config,
-            tempLR2CustomFolderOutputDir,
-            settings.LR2CustomFolderOutputBaseDir,
-            tempLR2CustomFolderAdditionalOutputBaseDirs,
-            settings.LR2CustomFolderAdditionalOutputBaseDirs,
-            []);
-        if (plan.Changed)
-        {
-            lr2config.Save();
-        }
-        return plan;
-    }
 
 
-    private CustomFolderOutputBaseSearchRootSyncResult CompleteCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
-        CustomFolderOutputBaseSearchRootSyncPlan plan,
-        CustomFolderOutputSettingsSnapshot settings)
-    {
-        if (settings == null)
-        {
-            throw new ArgumentNullException(nameof(settings));
-        }
-        if (!settings.OperationModeLR2DB || lr2config == null)
-        {
-            return default;
-        }
 
-        CustomFolderOutputBaseSearchRootSyncResult result =
-            CustomFolderOutputBaseSearchRootSyncService.CompleteAdditionalOutputBaseRootSync(
-                lr2config,
-                plan);
-        if (!result.Changed)
-        {
-            return result;
-        }
-
-        lr2config.Save();
-        return result;
-    }
-
-    private void ApplyCustomFolderNormalOutputBaseSearchRootSyncResult(CustomFolderOutputBaseSearchRootSyncResult result)
-    {
-        if (!result.Changed)
-        {
-            return;
-        }
-
-        isSearchRootsChanged = true;
-        isBMSDirectoryAdded |= result.AddedCount > 0;
-        isBMSDirectoryRemoved |= result.RemovedCount > 0;
-        if (!string.IsNullOrWhiteSpace(selectedLR2ConfigBmsDirectory)
-            && !lr2config.GetBMSSearchDirectories().Contains(selectedLR2ConfigBmsDirectory, StringComparer.OrdinalIgnoreCase))
-        {
-            selectedLR2ConfigBmsDirectory = LR2ConfigBMSDirectories.FirstOrDefault();
-        }
-        ApplyRuntimeSearchRootsForCurrentMode();
-        RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
-        RaisePropertyChanged(nameof(AvailableBMSDirectories));
-        RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
-        RaiseValidationStateChanged();
-    }
-
-    private bool SyncCustomFolderOutputRootAfterSettingsChange(
-        CustomFolderOutputSettingsSnapshot settings)
-    {
-        if (settings == null)
-        {
-            throw new ArgumentNullException(nameof(settings));
-        }
-        if (!settings.OperationModeLR2DB || lr2config == null || !workspacePort.HasPlaylistTables)
-        {
-            return false;
-        }
-        return customFolderOutputPort.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
-            tempLR2CustomFolderAsRootOutputDir,
-            settings);
-    }
-
-    private int ApplyCustomFolderAdditionalOutputBaseRegistrationChanges()
-    {
-        return customFolderOutputPort.ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
-            tempLR2CustomFolderAdditionalOutputBaseDirs,
-            pendingCustomFolderAdditionalOutputBaseRenames,
-            customFolderOutputPort.CustomFolderOutputSettings
-                ?? throw new InvalidOperationException("Custom-folder output settings provider returned null."));
-    }
-
-    private bool CheckRightClickActionSettings(out string errMsg)
-    {
-        if (rightClickActionSettingsEditor.TryPrepareSave(out _, out string editorError))
-        {
-            errMsg = string.Empty;
-            return true;
-        }
-
-        errMsg = FormatSettingValidationMessage(
-            BeMusicSeeker.Properties.Resources.RightClick_actions,
-            editorError);
-        return false;
-    }
-
-    /// <summary>保存対象の設定全体を検証し、任意の起動後ソート準備の不正値も保存不可にします。</summary>
-    public bool CheckValidation()
-    {
-        return CheckValidation(out string errMsg);
-    }
-
-    /// <summary>変更範囲の保存検証を行います。起動後ソート準備の不正値は変更の有無にかかわらず拒否します。</summary>
-    public bool CheckValidationForSave()
-    {
-        return CheckValidationForSave(out string errMsg);
-    }
-
-    /// <summary>変更範囲の保存検証を行い、起動後ソート準備の不正値を含むエラーを返します。</summary>
-    public bool CheckValidationForSave(out string errMsg)
-    {
-        if (!CheckStartupSortCachePrewarmPriority(out errMsg)) { return false; }
-        if (!CheckRightClickActionSettings(out errMsg))
-        {
-            return false;
-        }
-
-        if (!HasValidationRelevantSettingChanges())
-        {
-            errMsg = string.Empty;
-            return true;
-        }
-        return CheckValidation(out errMsg);
-    }
-
-    /// <summary>保存直前の検証を行い、任意の起動後ソート準備も有効値の明示選択まで保存不可にします。</summary>
-    internal bool CheckValidationBeforeSave(out string errMsg)
-    {
-        if (!CheckStartupSortCachePrewarmPriority(out errMsg)) { return false; }
-        if (!CheckRightClickActionSettings(out errMsg))
-        {
-            return false;
-        }
-
-        if (HasValidationRelevantSettingChanges())
-        {
-            return CheckValidation(out errMsg);
-        }
-        return CheckCurrentRequiredSettingsForSave(out errMsg);
-    }
-
-    private bool CheckCurrentRequiredSettingsForSave(out string errMsg)
-    {
-        bool result = true;
-        errMsg = string.Empty;
-        if (OperationModeLR2DB)
-        {
-            if (!IsLR2SongDBPathValid() || !IsLR2ConfigXmlPathValid())
-            {
-                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath) + Environment.NewLine;
-                result = false;
-            }
-            else if (!ValidateLR2BmsSearchRootsDoNotOverlap(out string nestedBmsRootErrMsg))
-            {
-                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, nestedBmsRootErrMsg) + Environment.NewLine;
-                result = false;
-            }
-            if (string.IsNullOrWhiteSpace(LR2CustomFolderOutputDir))
-            {
-                errMsg += FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Error_CustomFolderOutputPathNotSet) + Environment.NewLine;
-                result = false;
-            }
-            else if (!ValidateCustomFolderOutputBaseDir(out string outputBaseDirErrMsg))
-            {
-                errMsg = errMsg + outputBaseDirErrMsg + Environment.NewLine;
-                result = false;
-            }
-            if (string.IsNullOrWhiteSpace(LR2CustomFolderAsRootOutputDir))
-            {
-                errMsg += FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Error_CustomFolderRootOutputPathNotSet) + Environment.NewLine;
-                result = false;
-            }
-            else if (!ValidateCustomFolderAsRootOutputBaseDir(out string rootOutputBaseDirErrMsg))
-            {
-                errMsg = errMsg + rootOutputBaseDirErrMsg + Environment.NewLine;
-                result = false;
-            }
-            if (!ValidateCustomFolderAdditionalOutputBaseDirs(out string additionalOutputBaseErrMsg))
-            {
-                errMsg = errMsg + additionalOutputBaseErrMsg + Environment.NewLine;
-                result = false;
-            }
-        }
-        else
-        {
-            IReadOnlyList<string> standaloneRoots = NormalizeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
-            if (standaloneRoots.Count == 0)
-            {
-                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidStandaloneBmsRootPaths) + Environment.NewLine;
-                result = false;
-            }
-            else
-            {
-                List<string> incompatibleRoots = GetLr2IncompatibleStandaloneBmsRootPaths(standaloneRoots);
-                if (incompatibleRoots.Count > 0)
-                {
-                    errMsg += FormatSettingValidationMessage(
-                        BeMusicSeeker.Properties.Resources.General,
-                        BeMusicSeeker.Properties.Resources.Error_Lr2IncompatibleBmsRootPath + Environment.NewLine + string.Join(Environment.NewLine, incompatibleRoots)) + Environment.NewLine;
-                    result = false;
-                }
-            }
-        }
-        if ((UseBeatorajaScoreDb || EnableBeatorajaBmtOutput) && !IsBeatorajaRootPathValid())
-        {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaRootPath) + Environment.NewLine;
-            result = false;
-        }
-        if (UseBeatorajaScoreDb && !IsBeatorajaScoreDbPathValid())
-        {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaScoreDbPath) + Environment.NewLine;
-            result = false;
-        }
-        if (EnableBeatorajaBmtOutput && IsBeatorajaRootPathValid() && string.IsNullOrWhiteSpace(BeatorajaConfigService.GetTablePath(ApplicationSettings.BeatorajaRootPath)))
-        {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaBmtTablePath) + Environment.NewLine;
-            result = false;
-        }
-        if (UseExternalPanelImage && !IsStagefilePathValid())
-        {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Appearance, BeMusicSeeker.Properties.Resources.Error_InvalidStagefilePath) + Environment.NewLine;
-            result = false;
-        }
-        if (UsePlayeruBMplay && !IsuBMplayPathValid())
-        {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidUBMPlayExecutablePath) + Environment.NewLine;
-            result = false;
-        }
-        else if (UsePlayerLR2body)
-        {
-            if (!IsLR2PlayerRootPathValid())
-            {
-                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidLR2RootPath) + Environment.NewLine;
-                result = false;
-            }
-            if (!IsLR2ConfigXmlPathValid())
-            {
-                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath) + Environment.NewLine;
-                result = false;
-            }
-            if (!File.Exists(LR2bodyPath))
-            {
-                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, FormatResource(BeMusicSeeker.Properties.Resources.Error_LR2ExecutableNotFoundFormat, LR2bodyPath)) + Environment.NewLine;
-                result = false;
-            }
-            if ((int)LR2bodyResolution.Width <= 0 || (int)LR2bodyResolution.Height <= 0)
-            {
-                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidLR2WindowSize) + Environment.NewLine;
-                result = false;
-            }
-        }
-        else if (UsePlayerBMIIDXView && !IsBMIIDXViewPathValid())
-        {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidBMIIDXViewPath) + Environment.NewLine;
-            result = false;
-        }
-        if (string.IsNullOrWhiteSpace(TableListURL.ToString()))
-        {
-            errMsg += FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Error_TableListUrlNotSet) + Environment.NewLine;
-            result = false;
-        }
-        if (EnablePlaylistUrlCompletion && !IsPlaylistMd5UrlMappingTsvUriValid())
-        {
-            errMsg += FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri) + Environment.NewLine;
-            result = false;
-        }
-        if (!IsBMSInstallDirValid())
-        {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Install, BeMusicSeeker.Properties.Resources.Error_InvalidBmsInstallDir) + Environment.NewLine;
-            result = false;
-        }
-        if (!IsFolderNameFormatValid())
-        {
-            FolderNameFormat = defaultFolderNameFormat;
-        }
-        if (OperationModeLR2DB && IsLR2BackupEnabled && !IsLR2BackupPathValid())
-        {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Details, BeMusicSeeker.Properties.Resources.Error_LR2BackupPathNotSet) + Environment.NewLine;
-            result = false;
-        }
-        return result;
-    }
-
-    private bool HasValidationRelevantSettingChanges()
-    {
-        return !AudioResamplingQuality.IsValid(audioDeviceTestWorkflow.PlayerResamplingQuality)
-            || !BassMixerThreadConfigurator.IsValidRealtimeThreadCount(audioDeviceTestWorkflow.PlayerMixerThreadCount)
-            || rightClickActionSettingsEditor.IsDirty
-            || tempOperationModeLR2DB != operationModeLR2DB
-            || HasSearchRootSettingsChanged()
-            || HasCustomFolderOutputBaseSettingsChanged()
-            || HasPlayHistoryFolderDisplayPresetDraftsChanged()
-            || HasPathSettingValueChanged(tempLR2RootPath, ApplicationSettings.LR2RootPath, value => true)
-            || HasPathSettingValueChanged(tempLR2SongDBPath, ApplicationSettings.LR2SongDBPath, value => true)
-            || HasPathSettingValueChanged(tempLR2ConfigXmlPath, ApplicationSettings.LR2ConfigXmlPath, value => true)
-            || tempUseBeatorajaScoreDb != ApplicationSettings.UseBeatorajaScoreDb
-            || !string.Equals(tempBeatorajaRootPath, ApplicationSettings.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(tempBeatorajaPlayerId, ApplicationSettings.BeatorajaPlayerId, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(tempBeatorajaScoreDbPath, ApplicationSettings.BeatorajaScoreDbPath, StringComparison.OrdinalIgnoreCase)
-            || tempEnableBeatorajaBmtOutput != ApplicationSettings.EnableBeatorajaBmtOutput
-            || !string.Equals(tempBeatorajaBmtTablePath, ApplicationSettings.BeatorajaBmtTablePath, StringComparison.OrdinalIgnoreCase)
-            || HasPathSettingValueChanged(tempBMSRootPath, ApplicationSettings.BMSRootPath, value => true)
-            || HasPathSettingValueChanged(tempuBMplayPath, ApplicationSettings.uBMplayPath, value => true)
-            || HasPathSettingValueChanged(tempBMIIDXViewPath, ApplicationSettings.BMIIDXViewPath, value => true)
-            || tempUsePlayeruBMplay != ApplicationSettings.UsePlayeruBMplay
-            || tempUsePlayerLR2body != ApplicationSettings.UsePlayerLR2body
-            || tempUsePlayerBMIIDXView != ApplicationSettings.UsePlayerBMIIDXView
-            || !string.Equals(tempBMSInstallDir, ApplicationSettings.BMSInstallDir, StringComparison.OrdinalIgnoreCase)
-            || !IsSameUri(tempTableListURL, ApplicationSettings.TableListURL)
-            || tempEnablePlaylistUrlCompletion != ApplicationSettings.EnablePlaylistUrlCompletion
-            || !string.Equals(tempPlaylistMd5UrlMappingTsvUri, ApplicationSettings.PlaylistMd5UrlMappingTsvUri, StringComparison.Ordinal)
-            || tempIsLR2BackupEnabled != ApplicationSettings.IsLR2BackupEnabled
-            || HasPathSettingValueChanged(tempLR2BackupPath, ApplicationSettings.LR2BackupPath, value => true)
-            || tempUseExternalPanelImage != ApplicationSettings.UseExternalPanelImage
-            || HasPathSettingValueChanged(tempStagefilePath, ApplicationSettings.StagefilePath, value => true)
-            || !string.Equals(tempFolderNameFormat, ApplicationSettings.FolderNameFormat, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// 現在画面に入力されている各種設定値（パスやオプションなど）が正しいフォーマットであり、
-    /// アプリケーションから正常にアクセス可能かどうかを検証します。
-    /// </summary>
-    /// <param name="errMsg">検証エラーがあった場合、その理由を示すエラーメッセージが格納されます。</param>
-    /// <returns>すべての設定が有効であると判定された場合は <c>true</c>。無効な項目が含まれる場合は <c>false</c>。</returns>
-    public bool CheckValidation(out string errMsg) => CheckValidation(out errMsg, validateStartupSortCache: true);
-
-    /// <summary>必須初期化に必要な設定を検証します。任意の起動後ソート準備の不正値は、その実行段階の失敗へ分離します。</summary>
-    internal bool CheckValidationForInitialization(out string errMsg) => CheckValidation(out errMsg, validateStartupSortCache: false);
-
-    private bool CheckValidation(out string errMsg, bool validateStartupSortCache)
-    {
-        if (validateStartupSortCache && !CheckStartupSortCachePrewarmPriority(out errMsg)) { return false; }
-        bool result = true;
-        errMsg = string.Empty;
-        if (!CheckRightClickActionSettings(out string rightClickError))
-        {
-            errMsg += rightClickError + Environment.NewLine;
-            result = false;
-        }
-        if (!AudioResamplingQuality.IsValid(audioDeviceTestWorkflow.PlayerResamplingQuality))
-        {
-            errMsg += FormatSettingValidationMessage(
-                BeMusicSeeker.Properties.Resources.Device_setting,
-                BeMusicSeeker.Properties.Resources.Error_InvalidAudioResamplingQuality) + Environment.NewLine;
-            result = false;
-        }
-        if (!BassMixerThreadConfigurator.IsValidRealtimeThreadCount(audioDeviceTestWorkflow.PlayerMixerThreadCount))
-        {
-            errMsg += FormatSettingValidationMessage(
-                BeMusicSeeker.Properties.Resources.Device_setting,
-                BeMusicSeeker.Properties.Resources.Error_InvalidAudioMixerThreadCount) + Environment.NewLine;
-            result = false;
-        }
-        if (OperationModeLR2DB)
-        {
-            if (!IsLR2SongDBPathValid() || !IsLR2ConfigXmlPathValid())
-            {
-                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath) + Environment.NewLine;
-                result = false;
-            }
-            else if (!ValidateLR2BmsSearchRootsDoNotOverlap(out string nestedBmsRootErrMsg))
-            {
-                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, nestedBmsRootErrMsg) + Environment.NewLine;
-                result = false;
-            }
-        }
-        else
-        {
-            IReadOnlyList<string> standaloneRoots = NormalizeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
-            if (standaloneRoots.Count == 0)
-            {
-                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidStandaloneBmsRootPaths) + Environment.NewLine;
-                result = false;
-            }
-            else
-            {
-                List<string> incompatibleRoots = GetLr2IncompatibleStandaloneBmsRootPaths(standaloneRoots);
-                if (incompatibleRoots.Count > 0)
-                {
-                    errMsg += FormatSettingValidationMessage(
-                        BeMusicSeeker.Properties.Resources.General,
-                        BeMusicSeeker.Properties.Resources.Error_Lr2IncompatibleBmsRootPath + Environment.NewLine + string.Join(Environment.NewLine, incompatibleRoots)) + Environment.NewLine;
-                    result = false;
-                }
-            }
-        }
-        if ((UseBeatorajaScoreDb || EnableBeatorajaBmtOutput) && !IsBeatorajaRootPathValid())
-        {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaRootPath) + Environment.NewLine;
-            result = false;
-        }
-        if (UseBeatorajaScoreDb && !IsBeatorajaScoreDbPathValid())
-        {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaScoreDbPath) + Environment.NewLine;
-            result = false;
-        }
-        if (EnableBeatorajaBmtOutput && IsBeatorajaRootPathValid() && string.IsNullOrWhiteSpace(BeatorajaConfigService.GetTablePath(ApplicationSettings.BeatorajaRootPath)))
-        {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaBmtTablePath) + Environment.NewLine;
-            result = false;
-        }
-        if (UseExternalPanelImage && !IsStagefilePathValid())
-        {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Appearance, BeMusicSeeker.Properties.Resources.Error_InvalidStagefilePath) + Environment.NewLine;
-            result = false;
-        }
-        if (UsePlayeruBMplay && !IsuBMplayPathValid())
-        {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidUBMPlayExecutablePath) + Environment.NewLine;
-            result = false;
-        }
-        else if (UsePlayerLR2body)
-        {
-            if (!IsLR2PlayerRootPathValid())
-            {
-                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidLR2RootPath) + Environment.NewLine;
-                result = false;
-            }
-            if (!IsLR2ConfigXmlPathValid())
-            {
-                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath) + Environment.NewLine;
-                result = false;
-            }
-            if (!File.Exists(LR2bodyPath))
-            {
-                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, FormatResource(BeMusicSeeker.Properties.Resources.Error_LR2ExecutableNotFoundFormat, LR2bodyPath)) + Environment.NewLine;
-                result = false;
-            }
-            if ((int)LR2bodyResolution.Width <= 0 || (int)LR2bodyResolution.Height <= 0)
-            {
-                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidLR2WindowSize) + Environment.NewLine;
-                result = false;
-            }
-        }
-        else if (UsePlayerBMIIDXView && !IsBMIIDXViewPathValid())
-        {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidBMIIDXViewPath) + Environment.NewLine;
-            result = false;
-        }
-        if (OperationModeLR2DB)
-        {
-            if (string.IsNullOrWhiteSpace(LR2CustomFolderOutputDir))
-            {
-                errMsg += FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Error_CustomFolderOutputPathNotSet) + Environment.NewLine;
-                result = false;
-            }
-            else if (!ValidateCustomFolderOutputBaseDir(out string outputBaseDirErrMsg))
-            {
-                errMsg = errMsg + outputBaseDirErrMsg + Environment.NewLine;
-                result = false;
-            }
-            if (string.IsNullOrWhiteSpace(LR2CustomFolderAsRootOutputDir))
-            {
-                errMsg += FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Error_CustomFolderRootOutputPathNotSet) + Environment.NewLine;
-                result = false;
-            }
-            else if (!ValidateCustomFolderAsRootOutputBaseDir(out string rootOutputBaseDirErrMsg))
-            {
-                errMsg = errMsg + rootOutputBaseDirErrMsg + Environment.NewLine;
-                result = false;
-            }
-            if (!ValidateCustomFolderAdditionalOutputBaseDirs(out string additionalOutputBaseErrMsg))
-            {
-                errMsg = errMsg + additionalOutputBaseErrMsg + Environment.NewLine;
-                result = false;
-            }
-        }
-        if (string.IsNullOrWhiteSpace(TableListURL.ToString()))
-        {
-            errMsg += FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Error_TableListUrlNotSet) + Environment.NewLine;
-            result = false;
-        }
-        if (EnablePlaylistUrlCompletion && !IsPlaylistMd5UrlMappingTsvUriValid())
-        {
-            errMsg += FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri) + Environment.NewLine;
-            result = false;
-        }
-        if (!ValidatePlayHistoryFolderDisplayPresets(out string playHistoryPresetErrMsg))
-        {
-            errMsg += playHistoryPresetErrMsg;
-            result = false;
-        }
-        if (!IsBMSInstallDirValid())
-        {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Install, BeMusicSeeker.Properties.Resources.Error_InvalidBmsInstallDir) + Environment.NewLine;
-            result = false;
-        }
-        if (!IsFolderNameFormatValid())
-        {
-            FolderNameFormat = defaultFolderNameFormat;
-        }
-        if (OperationModeLR2DB && IsLR2BackupEnabled && !IsLR2BackupPathValid())
-        {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Details, BeMusicSeeker.Properties.Resources.Error_LR2BackupPathNotSet) + Environment.NewLine;
-            result = false;
-        }
-        return result;
-    }
-
-    /// <summary>
-    /// 検証済みの設定ダイアログ入力を `ApplicationSettings` メモリ領域から
-    /// 実際の永続化記憶域（または構成ファイル）へ保存し、必要な事後処理（バックアップなど）を実行します。
-    /// 起動後ソート準備が不正なら、保存と後続処理を開始しません。
-    /// </summary>
-    public async Task SaveSettings()
-    {
-        await SaveSettingsCore(runPostSaveActions: true);
-    }
-
-    /// <summary>初回初期化用に保存して比較値を更新します。起動後ソート準備が不正なら永続化と比較値更新を行いません。</summary>
-    public async Task SaveSettingsForInitialInitialize()
-    {
-        if (await SaveSettingsCore(runPostSaveActions: false)) { backupSavedSettings(); }
-    }
-
-    private Task<bool> SaveSettingsCore(bool runPostSaveActions) =>
-        SaveSettingsCore(runPostSaveActions, validate: false);
-
-    private async Task<bool> SaveSettingsCore(bool runPostSaveActions, bool validate)
-    {
-        if (!IsStartupSortCachePrewarmPriorityValid) { return false; }
-        if (!TryBeginBothSettingsAdmissions(out IDisposable lease, out LibraryFileMutationLease playlistLease))
-        {
-            await ShowUiMessageAsync(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
-                BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "Settings save admission");
-            return false;
-        }
-        SettingsPostSaveImpact followUp;
-        using (lease)
-        {
-            using LibraryFileMutationLease playlistOperation = playlistLease;
-            using LibraryFileMutationCapability playlistCapability = playlistLease?.CreateMutationCapability();
-            using LibraryFileMutationCapability primaryCapability = operationAdmission.CreateMutationCapability(lease);
-            using LibraryFileMutationCapability capability = primaryCapability.WithPlaylistCapability(playlistCapability);
-            followUp = await SaveSettingsUnderAdmissionAsync(runPostSaveActions, validate, capability, playlistCapability);
-        }
-        if (runPostSaveActions) { await CompleteSavedSettingsFollowUpAsync(followUp, scheduleUrlCompletion: true); }
-        return true;
-    }
-
-    /// <summary>保存の確定値から捕捉した後続だけを親受付の解放後に通知・登録します。</summary>
-    private async Task CompleteSavedSettingsFollowUpAsync(SettingsPostSaveImpact impact, bool scheduleUrlCompletion, Func<bool> isCompletionCurrent = null)
-    {
-        if (operationAdmission.IsAdmissionClosed || isCompletionCurrent?.Invoke() == false) { return; }
-        if (impact.HasFlag(SettingsPostSaveImpact.Lr2BackupEnabledNotice))
-        {
-            await ShowUiMessageAsync(BeMusicSeeker.Properties.Resources.Msg_LR2ConfigBackupEnabledNextStartup,
-                BeMusicSeeker.Properties.Resources.Confirm, MessageBoxImage.Asterisk, "Settings backup enabled notification");
-        }
-        // 保存事実の通知失敗は公開済み必須成功を取り消しません。未公開・終了では今回の新規任意投入をしません。
-        if (!operationAdmission.IsAdmissionClosed && isCompletionCurrent?.Invoke() != false && scheduleUrlCompletion && impact.HasFlag(SettingsPostSaveImpact.PlaylistUrlCompletion))
-        {
-            try { workspacePort.SchedulePlaylistUrlCompletionRefresh("SettingDialog.SaveSettings"); }
-            catch (Exception exception) { TryLogSettingsLocalFailure(exception, "Settings URL completion scheduling"); }
-        }
-    }
-
-    /// <summary>既存のL/Pを非待機で揃えます。一部取得の拒否・例外ではLを解放し、成功時は呼出元が実処理終端まで両方を所有します。</summary>
     private bool TryBeginBothSettingsAdmissions(out IDisposable libraryLease, out LibraryFileMutationLease playlistLease)
     {
         playlistLease = null;
@@ -7497,490 +5188,6 @@ public partial class SettingsDialogViewModel : ViewModel
     }
 
     /// <summary>設定とXMLを永続化して適用配置を公開し、指定した実表示終端を待ってから必要な保存後処理を行います。</summary>
-    /// <param name="afterPersistence">通常設定の実Closeとmodal cleanup。永続化失敗では開始せず、完了後も生存する同じ権限を後続へ渡します。</param>
-    private async Task<SettingsPostSaveImpact> SaveSettingsUnderAdmissionAsync(bool runPostSaveActions, bool validate, LibraryFileMutationCapability capability, LibraryFileMutationCapability playlistCapability = null, bool fullInitialization = false, Func<Task> afterPersistence = null)
-    {
-        if (!IsStartupSortCachePrewarmPriorityValid) { return SettingsPostSaveImpact.None; }
-        var totalStopwatch = Stopwatch.StartNew();
-        bool rightClickSettingsChanged = rightClickActionSettingsEditor.IsDirty;
-        if (!rightClickActionSettingsEditor.TryPrepareSave(out string rightClickJson, out _))
-        {
-            LogSettingsPerformance(
-                "settings_save",
-                totalStopwatch,
-                "rightClickSettingsValid=false");
-            return SettingsPostSaveImpact.None;
-        }
-        bool userConfigSaved = false;
-        bool lr2ConfigSaved = false;
-        long userConfigSaveMs = 0L;
-        long lr2ConfigSaveMs = 0L;
-        bool customFolderSearchRootSyncNeeded = false;
-        bool customFolderOutputBaseJukeboxAdoptionNeeded = false;
-        bool searchRootsChanged = false;
-        bool settingValueChanges = false;
-        bool operationModeChanged = false;
-        bool validationPassed = false;
-        SettingsPostSaveImpact postSaveImpact = SettingsPostSaveImpact.None;
-        bool postSaveNeeded = false;
-        long postSaveMs = 0L;
-        long backupSnapshotMs = 0L;
-        if (!validate || CheckValidationForSave())
-        {
-            validationPassed = true;
-            if (rightClickSettingsChanged)
-            {
-                ApplicationSettings.RightClickActionsJson = rightClickJson;
-            }
-            settingValueChanges = HasSettingValueChanges();
-            operationModeChanged = tempOperationModeLR2DB != operationModeLR2DB;
-            searchRootsChanged = HasSearchRootSettingsChanged();
-            bool standaloneSearchRootsChanged = !OperationModeLR2DB && searchRootsChanged;
-            bool lr2SearchRootsChanged = OperationModeLR2DB && searchRootsChanged;
-            bool customFolderOutputBaseSettingsChanged = OperationModeLR2DB && HasCustomFolderOutputBaseSettingsChanged();
-            bool customFolderAdditionalOutputBaseDirsChanged = HasCustomFolderAdditionalOutputBaseDirsChanged();
-            bool playHistoryFolderDisplayPresetDraftsChanged = HasPlayHistoryFolderDisplayPresetDraftsChanged();
-            bool beatorajaDerivedSettingsSourceChanged = HasBeatorajaDerivedSettingsSourceChanged();
-            bool lr2ConfigBoundaryChanged = OperationModeLR2DB
-                && (!string.Equals(tempLR2RootPath, ApplicationSettings.LR2RootPath, StringComparison.OrdinalIgnoreCase)
-                    || !string.Equals(tempLR2ConfigXmlPath, ApplicationSettings.LR2ConfigXmlPath, StringComparison.OrdinalIgnoreCase)
-                    || tempOperationModeLR2DB != operationModeLR2DB
-                    || lr2SearchRootsChanged
-                    || customFolderOutputBaseSettingsChanged);
-            SettingsSnapshotRefreshScope snapshotRefreshScope = BuildSettingsSnapshotRefreshScope(
-                operationModeChanged,
-                standaloneSearchRootsChanged,
-                lr2SearchRootsChanged,
-                customFolderOutputBaseSettingsChanged,
-                playHistoryFolderDisplayPresetDraftsChanged,
-                beatorajaDerivedSettingsSourceChanged,
-                lr2ConfigBoundaryChanged);
-            if (standaloneSearchRootsChanged)
-            {
-                PersistStandaloneBmsRootPathsToSettings();
-            }
-            if (customFolderAdditionalOutputBaseDirsChanged)
-            {
-                PersistCustomFolderAdditionalOutputBaseDirsToSettings();
-            }
-            if (playHistoryFolderDisplayPresetDraftsChanged)
-            {
-                PersistPlayHistoryFolderDisplayPresetsIfChanged();
-            }
-            if (beatorajaDerivedSettingsSourceChanged)
-            {
-                RefreshBeatorajaDerivedSettings();
-            }
-            if (operationModeChanged)
-            {
-                ApplicationSettings.OperationModeLR2DB = operationModeLR2DB;
-            }
-            customFolderOutputBaseJukeboxAdoptionNeeded = HasCustomFolderOutputBaseJukeboxAdoptionConflicts();
-            customFolderSearchRootSyncNeeded = lr2ConfigBoundaryChanged
-                || customFolderOutputBaseSettingsChanged
-                || customFolderOutputBaseJukeboxAdoptionNeeded;
-            postSaveImpact = BuildSettingsPostSaveImpact(customFolderSearchRootSyncNeeded);
-            postSaveNeeded = HasPostSaveImpact(postSaveImpact);
-            bool userConfigNeedsSave = HasPendingRuntimePlacement()
-                || settingValueChanges
-                || rightClickSettingsChanged
-                || operationModeChanged
-                || standaloneSearchRootsChanged
-                || customFolderAdditionalOutputBaseDirsChanged
-                || playHistoryFolderDisplayPresetDraftsChanged
-                || beatorajaDerivedSettingsSourceChanged;
-            if (userConfigNeedsSave)
-            {
-                var userConfigStopwatch = Stopwatch.StartNew();
-                AudioOutputSelection previousOutputSelection = AudioDriverPolicy.NormalizePersistedSelection(
-                    audioSettingsGateway.CaptureOutputSelection());
-                int previousResamplingQuality = ApplicationSettings.PlayerResamplingQuality;
-                int previousMixerThreadCount = ApplicationSettings.PlayerMixerThreadCount;
-                audioDeviceTestWorkflow.ApplyPlaybackSettingDraftsToSettings();
-                try
-                {
-                    audioSettingsGateway.ApplyOutputSelection(
-                        AudioDriverPolicy.NormalizePersistedSelection(audioDeviceTestWorkflow.OutputSelection));
-                    settingsEditSession.Save();
-                }
-                catch
-                {
-                    audioSettingsGateway.ApplyOutputSelection(previousOutputSelection);
-                    ApplicationSettings.PlayerResamplingQuality = previousResamplingQuality;
-                    ApplicationSettings.PlayerMixerThreadCount = previousMixerThreadCount;
-                    throw;
-                }
-                userConfigSaveMs = userConfigStopwatch.ElapsedMilliseconds;
-                userConfigSaved = true;
-            }
-            LogSettingsPerformance(
-                "settings_change_classification",
-                null,
-                "runPostSaveActions=" + runPostSaveActions.ToString().ToLowerInvariant()
-                + " settingValueChanges=" + settingValueChanges.ToString().ToLowerInvariant()
-                + " operationModeChanged=" + operationModeChanged.ToString().ToLowerInvariant()
-                + " searchRootsChanged=" + searchRootsChanged.ToString().ToLowerInvariant()
-                + " standaloneSearchRootsChanged=" + standaloneSearchRootsChanged.ToString().ToLowerInvariant()
-                + " lr2SearchRootsChanged=" + lr2SearchRootsChanged.ToString().ToLowerInvariant()
-                + " customFolderOutputBaseSettingsChanged=" + customFolderOutputBaseSettingsChanged.ToString().ToLowerInvariant()
-                + " customFolderAdditionalOutputBaseDirsChanged=" + customFolderAdditionalOutputBaseDirsChanged.ToString().ToLowerInvariant()
-                + " customFolderOutputBaseJukeboxAdoptionNeeded=" + customFolderOutputBaseJukeboxAdoptionNeeded.ToString().ToLowerInvariant()
-                + " playHistoryFolderDisplayPresetDraftsChanged=" + playHistoryFolderDisplayPresetDraftsChanged.ToString().ToLowerInvariant()
-                + " beatorajaDerivedSettingsSourceChanged=" + beatorajaDerivedSettingsSourceChanged.ToString().ToLowerInvariant()
-                + " lr2ConfigBoundaryChanged=" + lr2ConfigBoundaryChanged.ToString().ToLowerInvariant()
-                + " postSaveImpact=" + postSaveImpact);
-            bool lr2ConfigNeedsSave = false;
-            if (lr2ConfigBoundaryChanged && operationModeLR2DB && lr2config != null)
-            {
-                lr2ConfigNeedsSave = lr2config.EnsureDatabaseAutoReloadManualOnly();
-            }
-            if ((lr2SearchRootsChanged || lr2ConfigNeedsSave) && lr2config != null)
-            {
-                var lr2ConfigStopwatch = Stopwatch.StartNew();
-                try
-                {
-                    lr2config.Save();
-                }
-                catch (Exception exception) when (userConfigSaved)
-                {
-                    throw new PartialSettingsSaveException(ApplicationSettings.LR2ConfigXmlPath, exception);
-                }
-                lr2ConfigSaveMs = lr2ConfigStopwatch.ElapsedMilliseconds;
-                lr2ConfigSaved = true;
-            }
-            // 保存段階が完了するまで未保存配置をruntimeへ公開しません。以降の失敗では確定値を保持します。
-            publishOutputPlacement();
-            if (afterPersistence != null) { await afterPersistence(); }
-            if (runPostSaveActions)
-            {
-                var postSaveStopwatch = Stopwatch.StartNew();
-                if (searchRootsChanged)
-                {
-                    ApplyRuntimeSearchRootsForCurrentMode();
-                }
-                if (postSaveNeeded)
-                {
-                    await necessaryStepsAfterSaved(postSaveImpact, capability, playlistCapability, fullInitialization);
-                }
-                postSaveMs = postSaveStopwatch.ElapsedMilliseconds;
-                var backupSnapshotStopwatch = Stopwatch.StartNew();
-                backupSavedSettingsCore(snapshotRefreshScope);
-                backupSnapshotMs = backupSnapshotStopwatch.ElapsedMilliseconds;
-            }
-        }
-        LogSettingsPerformance(
-            "settings_save",
-            totalStopwatch,
-            "validationPassed=" + validationPassed.ToString().ToLowerInvariant()
-            + " runPostSaveActions=" + runPostSaveActions.ToString().ToLowerInvariant()
-            + " settingValueChanges=" + settingValueChanges.ToString().ToLowerInvariant()
-            + " operationModeChanged=" + operationModeChanged.ToString().ToLowerInvariant()
-            + " searchRootsChanged=" + searchRootsChanged.ToString().ToLowerInvariant()
-            + " customFolderSearchRootSyncNeeded=" + customFolderSearchRootSyncNeeded.ToString().ToLowerInvariant()
-            + " postSaveImpact=" + postSaveImpact
-            + " postSaveNeeded=" + postSaveNeeded.ToString().ToLowerInvariant()
-            + " postSaveMs=" + postSaveMs
-            + " backupSnapshotMs=" + backupSnapshotMs
-            + " userConfigSaved=" + userConfigSaved.ToString().ToLowerInvariant()
-            + " userConfigSaveMs=" + userConfigSaveMs
-            + " lr2ConfigSaved=" + lr2ConfigSaved.ToString().ToLowerInvariant()
-            + " lr2ConfigSaveMs=" + lr2ConfigSaveMs);
-        return validationPassed ? postSaveImpact : SettingsPostSaveImpact.None;
-    }
-
-    private bool HasBeatorajaDerivedSettingsSourceChanged()
-    {
-        return tempUseBeatorajaScoreDb != ApplicationSettings.UseBeatorajaScoreDb
-            || tempEnableBeatorajaBmtOutput != ApplicationSettings.EnableBeatorajaBmtOutput
-            || !string.Equals(tempBeatorajaRootPath, ApplicationSettings.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(tempBeatorajaPlayerId, ApplicationSettings.BeatorajaPlayerId, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private bool HasPendingRuntimePlacement()
-    {
-        return ApplicationSettings.PropertyValues[nameof(Settings.LR2bodyWindowPlacement)]?.IsDirty == true;
-    }
-
-    /// <summary>動作モードだけをLとPの非待機受付で判定して保存します。他のdraftは保存せず、Busyでは副作用を始めません。</summary>
-    public void SaveOperationModeForRestart(bool operationMode)
-    {
-        if (!TryBeginBothSettingsAdmissions(out IDisposable lease, out LibraryFileMutationLease playlistLease))
-        {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation);
-            return;
-        }
-        using IDisposable operation = lease;
-        using LibraryFileMutationLease playlistOperation = playlistLease;
-
-        string playHistorySelectedDisplayTargetIdentity = playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity;
-        settingsEditSession.SaveOperationModeForRestart(operationMode, playHistorySelectedDisplayTargetIdentity);
-    }
-
-    public void ResetSettings()
-    {
-        rightClickActionSettingsEditor.DiscardChanges();
-        operationModeLR2DB = tempOperationModeLR2DB;
-        ApplicationSettings.LR2ConfigXmlPath = tempLR2ConfigXmlPath;
-        ApplicationSettings.OperationModeLR2DB = tempOperationModeLR2DB;
-        ApplicationSettings.LR2RootPath = tempLR2RootPath;
-        ApplicationSettings.LR2SongDBPath = tempLR2SongDBPath;
-        ApplicationSettings.UseBeatorajaScoreDb = tempUseBeatorajaScoreDb;
-        ApplicationSettings.BeatorajaRootPath = tempBeatorajaRootPath;
-        ApplicationSettings.BeatorajaPlayerId = tempBeatorajaPlayerId;
-        ApplicationSettings.BeatorajaScoreDbPath = tempBeatorajaScoreDbPath;
-        ApplicationSettings.EnableBeatorajaBmtOutput = tempEnableBeatorajaBmtOutput;
-        ApplicationSettings.KeepBeatorajaBmtFilesWhenOutputDisabled = tempKeepBeatorajaBmtFilesWhenOutputDisabled;
-        ApplicationSettings.BeatorajaBmtHashOutputMode = tempBeatorajaBmtHashOutputMode;
-        ApplicationSettings.BeatorajaBmtTablePath = tempBeatorajaBmtTablePath;
-        ApplicationSettings.RegisterBeatorajaBmtUrls = tempRegisterBeatorajaBmtUrls;
-        ApplicationSettings.BMSRootPath = tempBMSRootPath;
-        ApplicationSettings.StandaloneBmsRootPaths = tempStandaloneBmsRootPaths;
-        ApplicationSettings.uBMplayPath = tempuBMplayPath;
-        ApplicationSettings.BMIIDXViewPath = tempBMIIDXViewPath;
-        ApplicationSettings.UsePlayeruBMplay = tempUsePlayeruBMplay;
-        ApplicationSettings.UsePlayerLR2body = tempUsePlayerLR2body;
-        ApplicationSettings.UsePlayerBMIIDXView = tempUsePlayerBMIIDXView;
-        ApplicationSettings.LR2CustomFolderOutputBaseDir = tempLR2CustomFolderOutputDir;
-        ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs = tempLR2CustomFolderAdditionalOutputBaseDirs;
-        ApplicationSettings.LR2CustomFolderOutputBaseDirRootType = tempLR2CustomFolderAsRootOutputDir;
-        ApplicationSettings.PlaylistDefaultIgnoreFolderOutput = tempPlaylistDefaultIgnoreFolderOutput;
-        ApplicationSettings.BMSInstallDir = tempBMSInstallDir;
-        ApplicationSettings.TableListURL = tempTableListURL;
-        ApplicationSettings.EnablePlaylistUrlCompletion = tempEnablePlaylistUrlCompletion;
-        ApplicationSettings.OverwritePlaylistUrlsWithCompletion = tempOverwritePlaylistUrlsWithCompletion;
-        ApplicationSettings.EnableStellaFullPlaylistUrlCompletion = tempEnableStellaFullPlaylistUrlCompletion;
-        ApplicationSettings.PlaylistMd5UrlMappingTsvUri = tempPlaylistMd5UrlMappingTsvUri;
-        playHistoryDisplaySettingsStore.DisplayTargetSetsJson = tempPlayHistoryDisplayTargetSetsJson;
-        PlayerResolutionSettingsAdapter.SaveToSettings(ApplicationSettings, tempLR2bodyResolution);
-        ApplicationSettings.IsSaveLR2bodyWindowPosition = tempIsSaveLR2bodyWindowPosition;
-        ApplicationSettings.IsLR2BackupEnabled = tempIsLR2BackupEnabled;
-        ApplicationSettings.LR2BackupPath = tempLR2BackupPath;
-        ApplicationSettings.LR2BackupTarget = tempLR2BackupTarget;
-        ApplicationSettings.LR2BackupSpan = tempLR2BackupSpan;
-        ApplicationSettings.LR2BackupNum = tempLR2BackupNum;
-        ApplicationSettings.StartupSortCachePrewarmPriority = tempStartupSortCachePrewarmPriority;
-        ApplicationSettings.UseExternalPanelImage = tempUseExternalPanelImage;
-        string restoredAppearanceTheme = AppThemeService.NormalizeTheme(tempAppearanceTheme);
-        ApplicationSettings.AppearanceTheme = restoredAppearanceTheme;
-        AppThemeService.ApplyTheme(restoredAppearanceTheme);
-        ApplicationSettings.CustomTableFontSize = tempCustomTableFontSize;
-        ApplicationSettings.CustomTableRowHeight = tempCustomTableRowHeight;
-        ApplicationSettings.CustomTableHeaderHeight = tempCustomTableHeaderHeight;
-        ApplicationSettings.StagefilePath = tempStagefilePath;
-        ApplicationSettings.FolderNameFormat = tempFolderNameFormat;
-        ApplicationSettings.UseOnlyShiftJISChars = tempUseOnlyShiftJISChars;
-        ApplicationSettings.ShowScoreViewerRegisterConfirmMsg = tempShowScoreViewerRegisterConfirmMsg;
-        ApplicationSettings.ShowDiffBMSInstallConfirmMsg = tempShowDiffBMSInstallConfirmMsg;
-        ApplicationSettings.ShowNewPackageInstallConfirmMsg = tempShowNewPackageInstallConfirmMsg;
-        ApplicationSettings.ShowDuplicateFileCheckConfirmMsg = tempShowDuplicateFileCheckConfirmMsg;
-        ApplicationSettings.ShowRecommUpdatedMsg = tempShowRecommUpdatedMsg;
-        ApplicationSettings.ScanBmsFilesOnStartup = tempScanBmsFilesOnStartup;
-        ApplicationSettings.SkipInitPlaylistLoad = tempSkipInitPlaylistLoad;
-        ApplicationSettings.StartupSelectInstallPending = tempStartupSelectInstallPending;
-        ApplicationSettings.EnableReadOptimizedPragmas = tempEnableReadOptimizedPragmas;
-        ApplicationSettings.EstimateOfflineScoreRanking = tempEstimateOfflineScoreRanking;
-        ApplicationSettings.UpdateLr2IrRankingCacheOnStartup = tempUpdateLr2IrRankingCacheOnStartup;
-        ApplicationSettings.EnableDownloadLr2IrScoreAndDetectUnsent = tempEnableDownloadLr2IrScoreAndDetectUnsent;
-        ApplicationSettings.AutoInstall = tempEnableAutoInstall;
-        ApplicationSettings.KeepInstallablePackagesPending = tempKeepInstallablePackagesPending;
-        ApplicationSettings.RequireCompleteUsedResourcesForAutoInstall = tempRequireCompleteUsedResourcesForAutoInstall;
-        ApplicationSettings.AutoApplyAmbiguousInstallDestination = tempAutoApplyAmbiguousInstallDestination;
-        ApplicationSettings.AutoInstallAfterAutomaticEstimation = tempAutoInstallAfterAutomaticEstimation;
-        ApplicationSettings.InstallDestinationAutoApplyMinAudioHealth = tempInstallDestinationAutoApplyMinAudioHealth;
-        ApplicationSettings.DeletePendingPackageSourceAfterInstall = tempDeletePendingPackageSourceAfterInstall;
-        ApplicationSettings.EnableSmartComponentOverwrite = tempEnableSmartComponentOverwrite;
-        ApplicationSettings.KeepSmartOverwriteProtectedFilesByRenaming = tempKeepSmartOverwriteProtectedFilesByRenaming;
-        ApplicationSettings.ScanBmsFilesOnStartup = tempScanBmsFilesOnStartup;
-        ApplicationSettings.EncoderSampleRate = tempEncoderSampleRate;
-        ApplicationSettings.Encoder = (EncoderType)tempEncoderIndex;
-        ApplicationSettings.EncoderFormat = tempEncoderFormat;
-        audioSettingsGateway.EncoderNormalization = tempEncoderNormalization;
-        ApplicationSettings.EncoderExeDir = tempEncoderExeDir;
-        ApplicationSettings.EncoderAmplifier = tempEncoderAmplifier;
-        ApplicationSettings.EncoderQuality = tempEncoderQuality;
-        ApplicationSettings.EncodeFileNameFormat = tempEncodeFileNameFormat;
-        audioDeviceTestWorkflow.OutputSelection = savedAudioOutputSelection;
-        audioDeviceTestWorkflow.RestoreSelection();
-        ApplicationSettings.PlayerSampleRate = tempPlayerSampleRate;
-        ApplicationSettings.PlayerFormat = tempPlayerFormat;
-        ApplicationSettings.PlayerBufferSize = tempPlayerBufferSize;
-        ApplicationSettings.PlayerResamplingQuality = tempPlayerResamplingQuality;
-        ApplicationSettings.PlayerMixerThreadCount = tempPlayerMixerThreadCount;
-        ApplicationSettings.PlayerWASAPIParam = tempPlayerWASAPIParam;
-        ApplicationSettings.Lang = tempLanguage;
-        ApplicationSettings.LangDisplayName = tempLanguageDisplayName;
-        ResourceService.Current.ChangeCulture(tempLanguage);
-        RefreshParsedLr2ConfigState(showSelectionError: true);
-        RefreshStandaloneBmsRootPathsFromSettings();
-        RefreshCustomFolderAdditionalOutputBaseDirsFromSettings();
-        ResetPlayHistoryFolderDisplayPresetsForCancel();
-        RaisePropertyChanged(nameof(OperationModeLR2DB));
-        RaisePropertyChanged(nameof(IsStandaloneOperationMode));
-        RaisePropertyChanged(nameof(CanUseLr2Features));
-        RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
-        RaisePropertyChanged(nameof(LR2RootPath));
-        RaisePropertyChanged(nameof(BMSRootPath));
-        RaisePropertyChanged(nameof(StandaloneBmsRootPathList));
-        RaisePropertyChanged(nameof(SelectedStandaloneBmsRootPath));
-        RaisePropertyChanged(nameof(AvailableBMSDirectories));
-        RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
-        RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));
-        RaisePropertyChanged(nameof(LR2SongDBPath));
-        RaisePropertyChanged(nameof(LR2ConfigXmlPath));
-        RaiseLr2PathPresentationChanged();
-        RaisePropertyChanged(nameof(UseBeatorajaScoreDb));
-        RaisePropertyChanged(nameof(BeatorajaRootPath));
-        RaisePropertyChanged(nameof(AvailableBeatorajaPlayers));
-        RaisePropertyChanged(nameof(BeatorajaPlayerId));
-        RaisePropertyChanged(nameof(BeatorajaScoreDbPath));
-        RaisePropertyChanged(nameof(EnableBeatorajaBmtOutput));
-        RaisePropertyChanged(nameof(KeepBeatorajaBmtFilesWhenOutputDisabled));
-        RaisePropertyChanged(nameof(BeatorajaBmtHashOutputMode));
-        RaisePropertyChanged(nameof(BeatorajaBmtTablePath));
-        RaisePropertyChanged(nameof(RegisterBeatorajaBmtUrls));
-        RaisePropertyChanged(nameof(uBMplayPath));
-        RaisePropertyChanged(nameof(BMIIDXViewPath));
-        RaisePropertyChanged(nameof(UsePlayeruBMplay));
-        RaisePropertyChanged(nameof(UsePlayerLR2body));
-        RaisePropertyChanged(nameof(UsePlayerBMIIDXView));
-        RaisePropertyChanged(nameof(UseInternalPlayer));
-        RaisePropertyChanged(nameof(LR2bodyResolution));
-        RaisePropertyChanged(nameof(IsSaveLR2bodyWindowPosition));
-        RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
-        RaisePropertyChanged(nameof(LR2CustomFolderOutputDir));
-        RaisePropertyChanged(nameof(BMSInstallDir));
-        RaisePropertyChanged(nameof(LR2CustomFolderAsRootOutputDir));
-        RaiseDefaultCustomFolderOutputPropertiesChanged();
-        RaisePropertyChanged(nameof(TableListURL));
-        RaisePropertyChanged(nameof(EnablePlaylistUrlCompletion));
-        RaisePropertyChanged(nameof(OverwritePlaylistUrlsWithCompletion));
-        RaisePropertyChanged(nameof(EnableStellaFullPlaylistUrlCompletion));
-        RaisePropertyChanged(nameof(PlaylistMd5UrlMappingTsvUri));
-        RaisePropertyChanged(nameof(PlayHistoryFolderDisplayPresets));
-        RaisePropertyChanged(nameof(SelectedPlayHistoryFolderDisplayPreset));
-        RaisePropertyChanged(nameof(PlayHistoryFolderDisplayPresetPlaylistOptions));
-        RaisePropertyChanged(nameof(IsLR2BackupEnabled));
-        RaisePropertyChanged(nameof(LR2BackupPath));
-        RaisePropertyChanged(nameof(LR2BackupTarget));
-        RaisePropertyChanged(nameof(LR2BackupSpan));
-        RaisePropertyChanged(nameof(LR2BackupNum));
-        RaisePropertyChanged(nameof(StartupSortCachePrewarmPriority));
-        RaisePropertyChanged(nameof(StartupSortCachePrewarmWarning));
-        RaisePropertyChanged(nameof(UseExternalPanelImage));
-        RaisePropertyChanged(nameof(AppearanceTheme));
-        RaisePropertyChanged(nameof(IsLightAppearanceTheme));
-        RaisePropertyChanged(nameof(IsDarkAppearanceTheme));
-        RaisePropertyChanged(nameof(CustomTableFontSize));
-        RaisePropertyChanged(nameof(CustomTableRowHeight));
-        RaisePropertyChanged(nameof(CustomTableHeaderHeight));
-        RaisePropertyChanged(nameof(StagefilePath));
-        RaisePropertyChanged(nameof(FolderNameFormat));
-        RaisePropertyChanged(nameof(UseOnlyShiftJISChars));
-        RaisePropertyChanged(nameof(ShowScoreViewerRegisterConfirmMsg));
-        RaisePropertyChanged(nameof(ShowDiffBMSInstallConfirmMsg));
-        RaisePropertyChanged(nameof(ShowNewPackageInstallConfirmMsg));
-        RaisePropertyChanged(nameof(ShowDuplicateFileCheckConfirmMsg));
-        RaisePropertyChanged(nameof(ShowRecommUpdatedMsg));
-        RaisePropertyChanged(nameof(ScanBmsFilesOnStartup));
-        RaisePropertyChanged(nameof(SkipInitPlaylistLoad));
-        RaisePropertyChanged(nameof(StartupSelectInstallPending));
-        RaisePropertyChanged(nameof(EnableReadOptimizedPragmas));
-        RaisePropertyChanged(nameof(EstimateOfflineScoreRanking));
-        RaisePropertyChanged(nameof(UpdateLr2IrRankingCacheOnStartup));
-        RaisePropertyChanged(nameof(EnableDownloadLr2IrScoreAndDetectUnsent));
-        RaisePropertyChanged(nameof(EnableAutoInstall));
-        RaisePropertyChanged(nameof(KeepInstallablePackagesPending));
-        RaisePropertyChanged(nameof(RequireCompleteUsedResourcesForAutoInstall));
-        RaisePropertyChanged(nameof(AutoApplyAmbiguousInstallDestination));
-        RaisePropertyChanged(nameof(AutoInstallAfterAutomaticEstimation));
-        RaisePropertyChanged(nameof(InstallDestinationAutoApplyMinAudioHealth));
-        RaisePropertyChanged(nameof(InstallDestinationAutoApplyMinAudioHealthWarning));
-        RaisePropertyChanged(nameof(DeletePendingPackageSourceAfterInstall));
-        RaisePropertyChanged(nameof(EnableSmartComponentOverwrite));
-        RaisePropertyChanged(nameof(KeepSmartOverwriteProtectedFilesByRenaming));
-        RaisePropertyChanged(nameof(EncoderSampleRate));
-        RaisePropertyChanged(nameof(EncoderIndex));
-        RaisePropertyChanged(nameof(EncoderNormalization));
-        RaisePropertyChanged(nameof(EncoderFormat));
-        RaisePropertyChanged(nameof(EncoderExeDir));
-        RaisePropertyChanged(nameof(EncoderAmplifier));
-        RaisePropertyChanged(nameof(EncoderQuality));
-        RaisePropertyChanged(nameof(EncodeFileNameFormat));
-        audioDeviceTestWorkflow.RefreshSelectionProperties();
-        RaisePropertyChanged(nameof(UnavailablePlayerDriverDescription));
-        RaisePropertyChanged(nameof(PlayerDevice));
-        RaisePropertyChanged(nameof(PlayerDeviceNames));
-        RaisePropertyChanged(nameof(SelectedPlayerDevice));
-        RaisePropertyChanged(nameof(PlayerSampleRate));
-        RaisePropertyChanged(nameof(PlayerFormat));
-        RaisePropertyChanged(nameof(AudioOutputSelectionResetMessage));
-        RaisePropertyChanged(nameof(PlayerBufferSize));
-        RaisePropertyChanged(nameof(PlayerResamplingQuality));
-        RaisePropertyChanged(nameof(PlayerMixerThreadCount));
-        RaisePropertyChanged(nameof(PlayerWASAPIParam));
-        RaisePropertyChanged(nameof(Languages));
-        RaisePropertyChanged(nameof(IsOperationModeChanged));
-        RaiseValidationStateChanged();
-        backupSavedSettings();
-        ResetLr2PlayHistorySchemaStatus();
-    }
-
-    /// <summary>
-    /// キャンセル時に play history FOLDER 表示プリセットの draft と settings 値を保存済み snapshot へ戻します。
-    /// ResetSettings 全体は audio device なども復元するため、この helper は preset UI の回帰テストから副作用なしで呼べる境界にしています。
-    /// </summary>
-    internal void ResetPlayHistoryFolderDisplayPresetsForCancel()
-    {
-        playHistoryDisplaySettingsStore.DisplayTargetSetsJson = tempPlayHistoryDisplayTargetSetsJson;
-        RefreshPlayHistoryFolderDisplayPresetsFromSettings();
-        tempPlayHistoryDisplayTargetSetDraftsJson = SerializePlayHistoryFolderDisplayPresetDraftsForChangeTracking();
-    }
-
-    public RestartMode IsNeedRestartForSaved()
-    {
-        RestartMode restartMode = scoreReloadPending ? RestartMode.ScoreOnly : RestartMode.None;
-        if (fileDiffReloadPending)
-        {
-            restartMode |= RestartMode.FolderOnly;
-        }
-        bool scoreSourceChanged = tempUseBeatorajaScoreDb != ApplicationSettings.UseBeatorajaScoreDb
-            || !string.Equals(tempBeatorajaRootPath, ApplicationSettings.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(tempBeatorajaPlayerId, ApplicationSettings.BeatorajaPlayerId, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(tempBeatorajaScoreDbPath, ApplicationSettings.BeatorajaScoreDbPath, StringComparison.OrdinalIgnoreCase);
-        if (tempOperationModeLR2DB != OperationModeLR2DB)
-        {
-            return RestartMode.All;
-        }
-        if (OperationModeLR2DB)
-        {
-            if (tempLR2SongDBPath != ApplicationSettings.LR2SongDBPath)
-            {
-                return RestartMode.All;
-            }
-            if (tempLR2ConfigXmlPath != ApplicationSettings.LR2ConfigXmlPath)
-            {
-                restartMode |= RestartMode.FolderOnly;
-            }
-            if (HasLR2ConfigBmsSearchRootsChanged())
-            {
-                restartMode |= RestartMode.FolderOnly;
-            }
-            if (HasCustomFolderOutputBaseSettingsChanged())
-            {
-                restartMode |= RestartMode.FolderOnly;
-            }
-        }
-        else if (HasStandaloneBmsRootPathsChanged())
-        {
-            restartMode |= RestartMode.FolderOnly;
-        }
-        if (scoreSourceChanged)
-        {
-            restartMode |= RestartMode.ScoreOnly;
-        }
-        return restartMode;
-    }
-
     private bool ShowUiConfirmation(
         string messageBoxText,
         string caption,
@@ -8002,11 +5209,6 @@ public partial class SettingsDialogViewModel : ViewModel
             .GetResult();
         return ToUiConfirmationDecision(result, routeName);
     }
-
-    private Task ShowInitialSettingsCompletionMessageAsync()
-        => ShowUiMessageAsync(BeMusicSeeker.Properties.Resources.Msg_initsetting_completed,
-            BeMusicSeeker.Properties.Resources.Information, MessageBoxImage.Asterisk,
-            "Initial settings completion notification");
 
     private async Task ShowUiMessageAsync(
         string messageBoxText,
@@ -8091,27 +5293,17 @@ public partial class SettingsDialogViewModel : ViewModel
         return new SettingsDialogUiDialogDisplayException(message, result.Exception);
     }
 
-    private static void LogSettingsPerformance(string action, Stopwatch stopwatch, string detail = null)
-    {
-        try
-        {
-            stopwatch?.Stop();
-            Ribbit.Logging.NLogWrapper.FileLogger?.Info(
-                (action ?? "settings_dialog")
-                + " elapsedMs=" + (stopwatch?.ElapsedMilliseconds ?? 0L)
-                + (string.IsNullOrWhiteSpace(detail) ? string.Empty : " " + detail));
-        }
-        catch
-        {
-        }
-    }
-
     private void AudioSettingsPropertyChanged(object sender, PropertyChangedEventArgs args)
     {
         RaisePropertyChanged(args.PropertyName);
+        RaisePropertyChanged(nameof(CanRetryAudioSettings));
         if (args.PropertyName == nameof(IsAudioDeviceTestInProgress))
         {
             RaisePropertyChanged(nameof(IsEditCompletionEnabled));
+            RaisePropertyChanged(nameof(IsEditCancellationEnabled));
+            RaisePropertyChanged(nameof(IsIndependentSectionEnabled));
+            RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));
+            RaiseEnvironmentAvailabilityChanged();
         }
     }
 
@@ -8119,6 +5311,8 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         if (disposing)
         {
+            operationAdmission.AvailabilityChanged -= SettingsOperationAvailabilityChanged;
+            customFolderOutputPort.OutputOperationAvailabilityChanged -= SettingsOperationAvailabilityChanged;
             audioDeviceTestWorkflow.PropertyChanged -= AudioSettingsPropertyChanged;
             audioDeviceTestWorkflow.Dispose();
             workspacePort.PlaylistCatalogChanged -= playlistCatalogChangedHandler;

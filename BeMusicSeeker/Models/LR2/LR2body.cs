@@ -561,7 +561,8 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         return windowHost ?? throw new InvalidOperationException("LR2の再生ホストが接続されていません。");
     }
 
-    public void VolumeChanged()
+    /// <summary>外部プレイヤーの実行中音量は変更しません。次の起動では保存済みの音量を使います。</summary>
+    public void VolumeChanged(int volume)
     {
     }
 

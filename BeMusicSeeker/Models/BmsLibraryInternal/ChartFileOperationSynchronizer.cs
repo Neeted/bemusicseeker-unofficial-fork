@@ -21,6 +21,18 @@ internal sealed class ChartFileOperationSynchronizer
 
     private bool admissionClosed;
 
+    /// <summary>受付開始・解放・閉鎖を、内部lockの外から表示条件へ通知します。購読の失敗は受理済み操作へ影響させません。</summary>
+    internal event EventHandler AvailabilityChanged;
+
+    private void PublishAvailabilityChanged()
+    {
+        foreach (EventHandler handler in AvailabilityChanged?.GetInvocationList() ?? [])
+        {
+            try { handler(this, EventArgs.Empty); }
+            catch (Exception failure) { System.Diagnostics.Debug.WriteLine(failure); }
+        }
+    }
+
     /// <summary>このownerの受理済み要求が実終端まで受付を所有しているかを返します。</summary>
     internal bool IsActive => Volatile.Read(ref activeLease) != null;
 
@@ -42,14 +54,16 @@ internal sealed class ChartFileOperationSynchronizer
                 return false;
             }
             lease = CreateLeaseUnsafe();
-            return true;
         }
+        PublishAvailabilityChanged();
+        return true;
     }
 
     /// <summary>新規要求の受付を不可逆に閉じます。受理済みlease・借用能力・必須背景継続は終端まで保持します。</summary>
     internal void CloseAdmission()
     {
         lock (syncRoot) { admissionClosed = true; }
+        PublishAvailabilityChanged();
     }
 
     /// <summary>終了による受付閉鎖を、他操作による一時的なBusyと区別します。新しい状態や予約は作りません。</summary>
@@ -68,12 +82,14 @@ internal sealed class ChartFileOperationSynchronizer
         while (true)
         {
             Task completion;
+            IDisposable acquired = null;
             lock (syncRoot)
             {
                 // この入口は登録済みの必須処理の継続であり、Close後の新規要求ではありません。
-                if (activeLease == null) { return CreateLeaseUnsafe(); }
+                if (activeLease == null) { acquired = CreateLeaseUnsafe(); }
                 completion = activeLease.Task;
             }
+            if (acquired != null) { PublishAvailabilityChanged(); return acquired; }
             await completion.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
     }
@@ -104,13 +120,16 @@ internal sealed class ChartFileOperationSynchronizer
 
     private void Release(TaskCompletionSource<bool> token)
     {
+        bool released = false;
         lock (syncRoot)
         {
             if (ReferenceEquals(activeLease, token))
             {
                 activeLease = null;
                 token.TrySetResult(true);
+                released = true;
             }
         }
+        if (released) { PublishAvailabilityChanged(); }
     }
 }

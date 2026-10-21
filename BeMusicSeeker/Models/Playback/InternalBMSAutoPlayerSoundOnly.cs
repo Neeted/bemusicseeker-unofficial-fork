@@ -925,9 +925,9 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
     {
     }
 
-    public void VolumeChanged()
+    /// <summary>保存済み設定を変更せず、現在再生の音量だけを即時更新します。</summary>
+    public void VolumeChanged(int volume)
     {
-        PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
-        audioPlaybackRuntime.SetVolume(settings.PlayerVolume);
+        audioPlaybackRuntime.SetVolume(volume);
     }
 }

@@ -257,7 +257,7 @@
                 <HeaderedItemsControl.Header>
                   <DockPanel Width="150">
                     <TextBlock DockPanel.Dock="Right" Margin="5,0,0,0" HorizontalAlignment="Right" Text="{Binding PlayerVolume, Converter={StaticResource addStringToEndConverter}, ConverterParameter=%|}" />
-                    <Slider Style="{DynamicResource SimpleSlider}" DockPanel.Dock="Left" VerticalAlignment="Bottom" Margin="0" AutoToolTipPlacement="TopLeft" Maximum="100" LargeChange="10" SmallChange="1" Height="15" RenderTransformOrigin="0.5,0.5" Background="#FF4492F0" Value="{Binding PlayerVolume, Mode=TwoWay}" />
+                    <Slider x:Name="playerVolumeSlider" Thumb.DragCompleted="PlayerVolumeDragCompleted" PreviewMouseLeftButtonUp="PlayerVolumeMouseLeftButtonUp" PreviewKeyUp="PlayerVolumeKeyUp" LostKeyboardFocus="PlayerVolumeLostKeyboardFocus" Unloaded="PlayerVolumeUnloaded" Style="{DynamicResource SimpleSlider}" DockPanel.Dock="Left" VerticalAlignment="Bottom" Margin="0" AutoToolTipPlacement="TopLeft" Maximum="100" LargeChange="10" SmallChange="1" Height="15" RenderTransformOrigin="0.5,0.5" Background="#FF4492F0" Value="{Binding PlayerVolume, Mode=TwoWay}" />
                   </DockPanel>
                 </HeaderedItemsControl.Header>
               </MenuItem>

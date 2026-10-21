@@ -28,6 +28,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     private readonly IPlaybackSettingsStore playbackSettings;
 
     private readonly IPlaybackDialogService playbackDialogs;
+    private readonly Action<Exception> reportSettingsSaveFailure;
 
     private readonly Action<Exception> warnInvalidChart;
 
@@ -146,6 +147,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         internal bool ExitClaimed { get; set; }
     }
 
+    /// <summary>再生操作・候補設定・通知を接続します。音量の項目保存失敗は再生失敗と分けて通知します。</summary>
     internal PlaybackPanelViewModel(
         IBMSPlayer player,
         IPlaybackUiDispatcher uiDispatcher,
@@ -153,12 +155,14 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         IPlaybackSettingsStore playbackSettings,
         IPlaybackDialogService playbackDialogs,
         Action<Exception> warnInvalidChart,
-        ChartFileOperationSynchronizer chartFileOperations)
+        ChartFileOperationSynchronizer chartFileOperations,
+        Action<Exception> reportSettingsSaveFailure = null)
     {
         this.uiDispatcher = uiDispatcher ?? throw new ArgumentNullException(nameof(uiDispatcher));
         this.playbackQueue = playbackQueue ?? throw new ArgumentNullException(nameof(playbackQueue));
         this.playbackSettings = playbackSettings ?? throw new ArgumentNullException(nameof(playbackSettings));
         this.playbackDialogs = playbackDialogs ?? throw new ArgumentNullException(nameof(playbackDialogs));
+        this.reportSettingsSaveFailure = reportSettingsSaveFailure ?? playbackDialogs.NotifySettingsSaveFailure;
         this.warnInvalidChart = warnInvalidChart ?? throw new ArgumentNullException(nameof(warnInvalidChart));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         InitializePlayer(player);
@@ -211,6 +215,8 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }, routeName);
 
     /// <summary>試聴同士の受理済み開始は順次実行し、推定・変更中の新しい開始は副作用前に拒否します。</summary>
+    private Func<IBMSPlayer> nextPlayerFactory;
+
     private async Task RunPlaybackSelectionAsync(Func<Task> selectAndStart, bool stopIfBusy = false,
         (long Generation, IBMSPlayer Player, ChartFile File)? naturalExit = null)
     {
@@ -269,6 +275,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         // sessionGate は通常の player control 中にも保持されるため、UI の終了受付では待たない。
         // observation の current 判定もこの flag を見るので、generation の更新は不要。
         shutdownStarted = true;
+        CompleteVolumeAdjustment();
         ViewModelCommand[] commands = [nextCommand, previousCommand, restartCommand, startCommand,
             stopCommand, fastForwardStartCommand, fastForwardEndCommand, fastBackwardStartCommand,
             fastBackwardEndCommand, showInfoCommand, showEffectCommand, changePlaysideCommand,
@@ -1498,6 +1505,18 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         ChartFile bmsFile = candidate.File;
         ChartFile playbackChart = candidate.Chart;
 
+        Func<IBMSPlayer> createPlayer;
+        lock (sessionGate) { createPlayer = nextPlayerFactory; nextPlayerFactory = null; }
+        if (createPlayer != null)
+        {
+            try { await ReplacePlayerAsync(createPlayer()).ConfigureAwait(false); }
+            catch
+            {
+                lock (sessionGate) { nextPlayerFactory ??= createPlayer; }
+                throw;
+            }
+        }
+
         long generation = BeginPlayback(bmsFile, index);
         if (shutdownStarted)
         {
@@ -2056,7 +2075,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     internal string BmsPlayerHeaderArtist => bmsPlayerHeaderArtist;
 
     /// <summary>
-    /// Gets or sets the internal player volume stored in application settings.
+    /// 現在再生へ即時反映する音量候補です。保存済み値は操作終端まで変更しません。
     /// </summary>
     public int PlayerVolume
     {
@@ -2067,7 +2086,25 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             {
                 playbackSettings.PlayerVolume = value;
                 RaisePropertyChanged(nameof(PlayerVolume));
-                bmsPlayer?.VolumeChanged();
+                bmsPlayer?.VolumeChanged(value);
+            }
+        }
+    }
+
+    /// <summary>音量操作の最終値だけを保存し、保存失敗では表示と現在再生を最新の確定音量へ戻します。同値の終端通知は保存しません。</summary>
+    internal void CompleteVolumeAdjustment()
+    {
+        try { playbackSettings.CommitPlayerVolume(); }
+        catch (Exception failure)
+        {
+            RaisePropertyChanged(nameof(PlayerVolume));
+            try { bmsPlayer?.VolumeChanged(playbackSettings.PlayerVolume); }
+            catch (Exception restoreFailure) { Task.FromException(restoreFailure).ObserveFault("PlaybackPanel.VolumeRestore"); }
+            if (shutdownStarted) { Task.FromException(failure).ObserveFault("PlaybackPanel.VolumeSaveDuringShutdown"); }
+            else
+            {
+                try { reportSettingsSaveFailure(failure); }
+                catch (Exception notificationFailure) { Task.FromException(notificationFailure).ObserveFault("PlaybackPanel.VolumeSaveFailureNotification"); }
             }
         }
     }
@@ -2159,8 +2196,11 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         RaisePlayerHeaderPropertiesChanged();
     }
 
-    Task ISettingsDialogPlaybackRuntimePort.ApplyPlayerSettingsAsync(IBMSPlayer replacementPlayer)
-        => ReplacePlayerAsync(replacementPlayer, clearPlaybackStatus: true);
+    void ISettingsDialogPlaybackRuntimePort.UsePlayerForNextPlayback(Func<IBMSPlayer> createPlayer)
+    {
+        ArgumentNullException.ThrowIfNull(createPlayer);
+        lock (sessionGate) { nextPlayerFactory = createPlayer; }
+    }
 
     void ISettingsDialogPlaybackRuntimePort.NotifySettingsChanged()
         => NotifySettingsChanged();

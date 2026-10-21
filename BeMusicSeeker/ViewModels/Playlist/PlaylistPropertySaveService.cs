@@ -670,7 +670,8 @@ internal sealed class PlaylistPropertySaveService
         {
             try
             {
-                LR2Config config = getLr2Config() ?? throw new InvalidOperationException("LR2 configuration is not available.");
+                // 当該登録だけを最新XMLへ変更し、別の局所確定を保持します。
+                LR2Config config = new((getLr2Config() ?? throw new InvalidOperationException("LR2 configuration is not available.")).ConfigFilePath);
                 IEnumerable<string> directories = config.GetBMSSearchDirectoriesForChangeTracking();
                 if (pending.WasRootFolder) { directories = directories.Except([pending.OldOutputDirectory], StringComparer.OrdinalIgnoreCase); }
                 if (pending.IsRootFolder) { directories = directories.Union([pending.NewOutputDirectory], StringComparer.OrdinalIgnoreCase); }

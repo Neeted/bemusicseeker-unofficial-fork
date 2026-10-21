@@ -53,6 +53,11 @@ public sealed class DialogPresentationTests
                 AssertSentinelStyle(sentinelHost.SentinelButton, sentinelHost.SentinelStyle);
                 windowTest.ShowAndWaitForContentRendered(fixture.HostWindow);
                 fixture.HostWindow.UpdateLayout();
+                if (fixture.HostWindow is SettingsWindow)
+                {
+                    foreach (Expander details in FindVisualDescendants<Expander>(fixture.HostWindow).ToArray()) { details.IsExpanded = true; }
+                    fixture.HostWindow.UpdateLayout();
+                }
                 AssertSentinelStyle(sentinelHost.SentinelButton, sentinelHost.SentinelStyle);
                 AssertCanonicalPresentation(fixture);
                 AssertApplicationResourcesDoNotImplicitlyAdoptCanonicalStyle(fixture, windowTest);
@@ -581,13 +586,20 @@ public sealed class DialogPresentationTests
         return CreateNativeFixture(
             window,
             [
-                ButtonWithAutomationId("SettingsSaveAndClose", DialogButtonRole.Primary, "settings save and close"),
-                ButtonWithAutomationId("SettingsCancel", DialogButtonRole.Quiet, "settings cancel"),
+                ButtonWithAutomationId("SettingsStartEnvironment", DialogButtonRole.Primary, "settings start confirmed environment"),
+                ButtonWithAutomationId("SettingsClose", DialogButtonRole.Quiet, "settings close"),
+                ButtonWithAutomationId("SettingsConfirmenvironment", DialogButtonRole.Primary, "settings confirm environment"),
+                ButtonWithAutomationId("SettingsCancelenvironment", DialogButtonRole.Quiet, "settings discard environment candidate"),
                 ButtonWithAutomationId("SettingsAddBmsSearchRoot", DialogButtonRole.Neutral, "settings add BMS root"),
                 ButtonWithAutomationId("SettingsRemoveBmsSearchRoot", DialogButtonRole.Quiet, "settings remove BMS root"),
+                ButtonWithAutomationId("SettingsConfirmbms", DialogButtonRole.Neutral, "settings confirm BMS roots"),
+                ButtonWithAutomationId("SettingsCancelbms", DialogButtonRole.Quiet, "settings discard BMS root candidates"),
                 ButtonWithAutomationId("SettingsResyncLr2SongDb", DialogButtonRole.Neutral, "settings resync song database"),
                 ButtonWithAutomationId("SettingsInstallOrRepairLr2PlayHistorySchema", DialogButtonRole.Neutral, "settings install or repair schema"),
                 ButtonWithAutomationId("SettingsImportBeatorajaTableUrls", DialogButtonRole.Quiet, "settings import table URLs"),
+                ButtonWithAutomationId("SettingsRetryScore", DialogButtonRole.Quiet, "settings retry score source"),
+                ButtonWithAutomationId("SettingsConfirmbmt", DialogButtonRole.Neutral, "settings confirm BMT output"),
+                ButtonWithAutomationId("SettingsCancelbmt", DialogButtonRole.Quiet, "settings discard BMT candidates"),
             ],
             allowsSettingsControlAliases: true,
             cleanup: owner.SettingDialog.Dispose);

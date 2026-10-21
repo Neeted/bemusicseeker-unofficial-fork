@@ -24,6 +24,50 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class ShellShutdownWorkflowOwnerTests
 {
+    /// <summary>環境保存後のBMT・通知継続を外部Closeも回収し、その終端前に後継起動しません。</summary>
+    [TestMethod]
+    public async Task EnvironmentRestartContinuationIsJoinedByConcurrentCloseBeforeSuccessorStarts()
+    {
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        var events = new List<string>();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var session = new RecordingSettingsEditSession(() => events.Add("save"));
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, settingsEditSession: session,
+            startApplicationRestart: () => { events.Add("successor"); return Task.CompletedTask; });
+        owner.OperationModeRestartRequested += () => events.Add("close-request");
+        Task<bool>? request = null;
+        Task<ShellShutdownWorkflowCompletionReceipt>? close = null;
+        try
+        {
+            request = owner.RequestOperationModeRestartAsync(new OperationModeRestartRequest(EnvironmentSettingsChange.Capture(session.Values) with { OperationModeLR2DB = true }, "environment", beforeShutdown: async () =>
+            {
+                events.Add("bmt");
+                entered.TrySetResult();
+                await release.Task;
+                events.Add("notification-terminal");
+            }));
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, request, "environment-bmt-start");
+            close = owner.RequestWindowCloseAsync();
+            Assert.IsFalse(close.IsCompleted);
+            CollectionAssert.AreEqual(new[] { "save", "bmt" }, events.ToArray());
+            release.TrySetResult();
+            Assert.IsTrue(await request);
+            Assert.IsTrue((await close).PreparationSucceeded);
+            await owner.CompleteTerminalShutdownAsync();
+            Assert.IsTrue(events.IndexOf("notification-terminal") < events.IndexOf("close-request"));
+            Assert.IsTrue(events.IndexOf("notification-terminal") < events.IndexOf("successor"));
+        }
+        finally
+        {
+            release.TrySetResult();
+            if (request != null) { await request; }
+            if (close != null) { await close; }
+            await owner.CompleteTerminalShutdownAsync();
+            viewModel.SettingDialog.Dispose();
+        }
+    }
+
     /// <summary>閉じる要求を連続しても同じ準備Taskと終端結果を共有し、二重停止を開始しません。</summary>
     [TestMethod]
     public async Task RepeatedWindowCloseRequestsShareOnePreparationAndCompletion()
@@ -550,7 +594,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         {
             await modeRequestRelease.Task.ConfigureAwait(false);
             return await owner.RequestOperationModeRestartAsync(
-                new OperationModeRestartRequest(true, "history-close-wins")).ConfigureAwait(false);
+                new OperationModeRestartRequest(EnvironmentSettingsChange.Capture(settingsSession.Values) with { OperationModeLR2DB = true }, "history-close-wins")).ConfigureAwait(false);
         });
 
         Task<ShellShutdownWorkflowCompletionReceipt> close = owner.RequestWindowCloseAsync();
@@ -591,7 +635,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.IsTrue(startupUpdate.Start());
         await startupUpdate.WaitForTerminalAsync();
         Assert.IsTrue(startupUpdate.IsShutdownPreparationStarted);
-        Assert.IsFalse(await owner.RequestOperationModeRestartAsync(new OperationModeRestartRequest(true, "later-mode")));
+        Assert.IsFalse(await owner.RequestOperationModeRestartAsync(new OperationModeRestartRequest(EnvironmentSettingsChange.Capture(settingsSession.Values) with { OperationModeLR2DB = true }, "later-mode")));
         Assert.AreEqual(0, settingsSession.SaveCount);
         Assert.AreEqual(1, proceeded);
         Assert.AreEqual(0, aborted);
@@ -650,7 +694,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
             Assert.IsTrue(startupUpdate.Start());
             await TestUiDispatcherHost.AwaitNotificationAsync(launchEntered.Task, startupUpdate.WaitForIdleAsync(), "shell-shutdown.update-launch");
             Assert.IsTrue(await owner.RequestOperationModeRestartAsync(
-                new OperationModeRestartRequest(true, "history-mode-wins")));
+                new OperationModeRestartRequest(EnvironmentSettingsChange.Capture(settingsSession.Values) with { OperationModeLR2DB = true }, "history-mode-wins")));
             Assert.IsNotNull(close);
         }
         finally
@@ -1335,7 +1379,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
             {
                 // 再起動の最小保存で、この未確定draftをXMLへ混ぜてはいけません。
                 viewModel.SettingDialog.ShowScoreViewerRegisterConfirmMsg = true;
-                modeRequest = owner.RequestOperationModeRestartAsync(new OperationModeRestartRequest(true, "history-initial"));
+                modeRequest = owner.RequestOperationModeRestartAsync(new OperationModeRestartRequest(EnvironmentSettingsChange.Capture(settingsSession.Values) with { OperationModeLR2DB = true }, "history-initial"));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(modeRequest, "composed-restart.mode-admission");
                 Assert.IsTrue(modeRequest.Result);
                 Assert.IsNotNull(close);
@@ -1373,7 +1417,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
                 Settings persisted = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
                 Assert.IsTrue(persisted.OperationModeLR2DB);
                 Assert.AreEqual("history-initial", persisted.PlayHistorySelectedDisplayTargetIdentity);
-                Assert.IsFalse(persisted.ShowScoreViewerRegisterConfirmMsg);
+                Assert.IsTrue(persisted.ShowScoreViewerRegisterConfirmMsg, "画面外で確定した項目も終端保存で保持します。");
             }
             finally
             {
@@ -1421,10 +1465,10 @@ public sealed class ShellShutdownWorkflowOwnerTests
         public Settings Values => inner.Values;
         public void Reload() => inner.Reload();
         public void Save() { SaveCount++; inner.Save(); }
-        public void SaveOperationModeForRestart(bool mode, string historyIdentity)
+        public void SaveEnvironmentForRestart(EnvironmentSettingsChange environment, string historyIdentity)
         {
             ModeSaveCount++;
-            inner.SaveOperationModeForRestart(mode, historyIdentity);
+            inner.SaveEnvironmentForRestart(environment, historyIdentity);
         }
     }
 
@@ -1662,7 +1706,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         public void ChangePlayside() { }
         public void IncreaseHighSpeed() { }
         public void DecreaseHighSpeed() { }
-        public void VolumeChanged() { }
+        public void VolumeChanged(int volume) { }
     }
 
     private sealed class AsyncCloseBmsPlayer(Action onClose) : FakeBmsPlayer(onClose), INextSongPreloadPlayer
@@ -1683,9 +1727,9 @@ public sealed class ShellShutdownWorkflowOwnerTests
 
     private sealed class RecordingSettingsEditSession : ISettingsEditSession
     {
-        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+        public void SaveEnvironmentForRestart(EnvironmentSettingsChange environment, string historyIdentity)
         {
-            Values.OperationModeLR2DB = operationMode;
+            environment.Commit(Values);
             Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
             Save();
             Reload();

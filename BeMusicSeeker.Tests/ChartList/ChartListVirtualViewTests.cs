@@ -3995,7 +3995,7 @@ public sealed class ChartListVirtualViewTests
         {
         }
 
-        public void VolumeChanged()
+        public void VolumeChanged(int volume)
         {
         }
 

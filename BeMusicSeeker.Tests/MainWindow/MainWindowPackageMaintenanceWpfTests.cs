@@ -2024,7 +2024,7 @@ internal static class MainWindowPackageMaintenanceTestHarness
                     installTreeTerminal: installTreeTerminal,
                     zeroNoteRecheckTerminal: null,
                     columnResetTerminal: null,
-                    rootFolderUnregisterTerminal: null,
+
                     folderAutoRenameTerminal,
                     duplicateMaintenanceTerminal,
                     maintenanceRescanTerminal,

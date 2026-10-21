@@ -23,13 +23,15 @@ public sealed class Lr2PlayHistorySchemaUiTests
     /// <summary>
     /// 現在のLR2スコアDBに一致する検査通知だけを採用し、別パス/非LR2通知を除外する。resetとDispose後は表示状態を保持しない。
     /// </summary>
-    /// <remarks>実設定画面VMと構成を使い、受付/状態購読と機能窓口の接続を確認する。共有設定のedit sessionを使うため並列実行しない。</remarks>
+    /// <remarks>実設定画面VMと専用設定を使い、確定モード・状態購読と機能窓口の接続を確認する。共有構成を使うため並列実行しない。</remarks>
     [DoNotParallelize]
     [TestMethod]
     public void SettingDialogSchemaStatusReceipt_FiltersPathAndClearsOnResetAndDispose()
     {
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
         using SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
+        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(value => value.OperationModeLR2DB = true);
+        var settingsSession = new SchemaSettingsSession(values);
         var statePort = new TestSettingsDialogStatePort(
             owner,
             () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded)));
@@ -42,7 +44,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             new ApplicationComposition(uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()),
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
-            settingsEditSession: SettingsEditSession.CreateDefault(),
+            settingsEditSession: settingsSession,
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             externalShellGateway: ExternalShellGatewayPolicy.Current,
@@ -75,6 +77,16 @@ public sealed class Lr2PlayHistorySchemaUiTests
         Assert.AreSame(matchingSnapshot, settingDialog.Lr2PlayHistorySchemaStatusSnapshot);
 
         SetPrivateField(settingDialog, "operationModeLR2DB", false);
+        var candidateUnchangedSnapshot = Lr2PlayHistorySchemaStatusSnapshot.FromResult(new Lr2PlayHistorySchemaCheckResult
+        {
+            Status = Lr2PlayHistorySchemaStatus.Repairable,
+            ScoreDbPath = scoreDbPath,
+            Message = "confirmed LR2 despite candidate mode"
+        });
+        statePort.NotifyLr2PlayHistorySchemaStatusChanged(candidateUnchangedSnapshot);
+        Assert.AreSame(candidateUnchangedSnapshot, settingDialog.Lr2PlayHistorySchemaStatusSnapshot,
+            "未確定のモード候補は稼働中LR2の通知を拒否しません。");
+        values.OperationModeLR2DB = false;
         statePort.NotifyLr2PlayHistorySchemaStatusChanged(
             Lr2PlayHistorySchemaStatusSnapshot.FromResult(
                 new Lr2PlayHistorySchemaCheckResult
@@ -83,8 +95,9 @@ public sealed class Lr2PlayHistorySchemaUiTests
                     ScoreDbPath = scoreDbPath,
                     Message = "non-lr2"
                 }));
-        Assert.AreSame(matchingSnapshot, settingDialog.Lr2PlayHistorySchemaStatusSnapshot);
+        Assert.AreSame(candidateUnchangedSnapshot, settingDialog.Lr2PlayHistorySchemaStatusSnapshot);
         SetPrivateField(settingDialog, "operationModeLR2DB", true);
+        values.OperationModeLR2DB = true;
 
         statePort.NotifyLr2PlayHistorySchemaStatusChanged(Lr2PlayHistorySchemaStatusSnapshot.Reset);
         Assert.IsNull(settingDialog.Lr2PlayHistorySchemaStatusSnapshot);
@@ -92,6 +105,15 @@ public sealed class Lr2PlayHistorySchemaUiTests
         settingDialog.Dispose();
         statePort.NotifyLr2PlayHistorySchemaStatusChanged(matchingSnapshot);
         Assert.IsNull(settingDialog.Lr2PlayHistorySchemaStatusSnapshot);
+    }
+
+    private sealed class SchemaSettingsSession(Settings values) : ISettingsEditSession
+    {
+        public Settings Values => values;
+        public void Reload() { }
+        public void Save() => throw new AssertFailedException("通知の受信で保存しません。");
+        public void SaveEnvironmentForRestart(EnvironmentSettingsChange environment, string identity)
+            => throw new AssertFailedException("通知の受信で環境を変更しません。");
     }
 
     /// <summary>

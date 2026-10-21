@@ -1388,52 +1388,6 @@ public sealed partial class ApplicationCompositionTests
         Assert.AreEqual("all", values.PlayHistorySelectedDisplayTargetIdentity);
     }
 
-    // 実終了経路はプロセス全体のLR2 DBロック・音声・一時領域を扱うため、同一hostの通常処理と並行させない。
-    /// <summary>設定の初回表示・モード保存再読込み・再表示・終端保存を一つのsessionで順序通り実行し、途中で編集値や保存主体を切り替えません。</summary>
-    [TestMethod]
-    [DoNotParallelize]
-    public async Task CompositionSettingsLifecycleSharesSessionAcrossOpenEditReloadRedisplayAndShutdown()
-    {
-        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
-            {
-                values.OperationModeLR2DB = true;
-                values.PlayHistorySelectedDisplayTargetIdentity = "all";
-            });
-        var session = new FakeSettingsEditSession { Values = values };
-        var composition = new ApplicationComposition(
-            settingsEditSession: session,
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-
-        MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
-
-        Assert.AreEqual(1, session.ReloadCount);
-        Assert.AreSame(values, composition.SettingsEditSession.Values);
-
-        viewModel.SettingDialog.SaveOperationModeForRestart(operationMode: false);
-
-        Assert.IsFalse(values.OperationModeLR2DB);
-        Assert.AreEqual(2, session.ReloadCount);
-        Assert.AreEqual(1, session.SaveCount);
-
-        SettingsDialogViewModel redisplayed = composition.CreateSettingDialogViewModel(
-            viewModel,
-            viewModel.PlaylistWorkspace,
-            viewModel.PlaylistWorkspace,
-            viewModel.PlayHistory,
-            viewModel.LibraryFolderTree,
-            composition,
-            viewModel.PlaybackPanel,
-            viewModel.Lr2SongDbSyncWorkflow);
-        Assert.IsFalse(redisplayed.OperationModeLR2DB);
-        Assert.AreEqual(3, session.ReloadCount);
-
-        await viewModel.ShellShutdownWorkflow.CompleteTerminalShutdownAsync();
-
-        Assert.AreEqual(2, session.SaveCount);
-        CollectionAssert.AreEqual(
-            new[] { "reload", "save", "reload", "reload", "save" },
-            session.Calls);
-    }
 
     /// <summary>グローバルと注入sessionの追加出力先を異なる値にすると設定画面は注入先だけを表示し、グローバル参照の混入を検出します。</summary>
     [TestMethod]
@@ -1765,9 +1719,9 @@ public sealed partial class ApplicationCompositionTests
 
     private sealed class FakeSettingsEditSession : ISettingsEditSession
     {
-        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+        public void SaveEnvironmentForRestart(EnvironmentSettingsChange environment, string historyIdentity)
         {
-            Values.OperationModeLR2DB = operationMode;
+            environment.Commit(Values);
             Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
             Save();
             Reload();

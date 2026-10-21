@@ -520,7 +520,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             keywordSearchFavoritesSettingsStore: keywordSearchFavoritesSettingsStore,
             packageInstallMutationPort: packageInstallMutationPort ?? this.packageInstallMutationPort,
             exitForUnrestoredDestination: applicationLifetime.ExitForUnrestoredDestination,
-            playlistOperationAdmission: PlaylistOperationAdmission);
+            playlistOperationAdmission: PlaylistOperationAdmission,
+            reportPlaybackSettingsSaveFailure: reportSettingsApplyFailure);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -739,7 +740,8 @@ internal sealed class MainWindowChildComposition
         IKeywordSearchFavoritesSettingsStore keywordSearchFavoritesSettingsStore = null,
         IPackageInstallMutationPort packageInstallMutationPort = null,
         Action<Exception> exitForUnrestoredDestination = null,
-        ChartFileOperationSynchronizer playlistOperationAdmission = null)
+        ChartFileOperationSynchronizer playlistOperationAdmission = null,
+        Action<Exception> reportPlaybackSettingsSaveFailure = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -757,7 +759,8 @@ internal sealed class MainWindowChildComposition
             playbackSettingsStore,
             new WpfPlaybackDialogService(new UiDialogCoordinator()),
             exception => NLogWrapper.TraceLogger?.Warn(exception),
-            chartFileOperations);
+            chartFileOperations,
+            reportPlaybackSettingsSaveFailure);
         ChartFilters = new ChartListFilterViewModel(
             keywordSearchHistorySettingsStore,
             keywordSearchFavoritesSettingsStore);

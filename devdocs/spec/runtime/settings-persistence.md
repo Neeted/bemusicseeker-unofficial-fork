@@ -20,6 +20,14 @@
 
 `AutoInstallAfterAutomaticEstimation` はキー欠損時にfalseを使い、既存利用者の自動導入を更新だけで有効にしません。保存したtrue・falseは、新しいproviderでも同じ値へ復元します。操作と編集の契約は[設定仕様](settings.md#取り込み後の自動推定に続く導入)を参照します。
 
+### 項目保存と公開
+
+`Settings.Commit` は対象項目だけをproviderへ直接渡し、成功後に対象だけを既存readerへ公開します。同値は保存せず、保存失敗では確定値を変更しません。全体 `Reload` は保存処理に使いません。二媒体を扱う局所担当は選択保存と公開を分け、全媒体成功後に整合組を公開します。
+
+LR2 XMLの検索登録は最新文書のユーザールートと管理出力rootを保ち、関連する登録変更を同じ文書の一回保存へまとめます。日常の表プロパティ変更・集約編集・削除・root同期も書込み時に最新文書を読み、局所確定前から保持した文書で別の登録を戻しません。
+
+同じ媒体の読取りから置換までをproviderの短い保存境界で直列化します。実処理・通知待ちの間は保持しません。起動移行、終了、位置捕捉、右クリックなど画面外の `Save` も変更済み項目だけを渡し、別wrapperが直近に保存した無関係な値と未知キーを保ちます。
+
 ### 起動時の回復
 
 最初の設定値取得より前に、設定ファイルを検証します。XMLの構文が壊れている場合に限り、元ファイルを衝突しない `user.config.broken-*` へ移動して保全し、設定を初期化する旨と保全先を警告した後に最小構造を作ります。既存の保全ファイルを上書きしません。壊れたXMLから一部の設定や表示言語だけを救出せず、同じ起動中に古い設定を自動移入しません。
@@ -46,11 +54,11 @@
 
 ### 保存失敗と実行中の設定
 
-設定画面で保存に失敗した場合、画面、入力、保存前の比較値を保持します。保存後の再読込み・反映・画面終了は行いません。音声の一時的な切替など必要な変更は元へ戻し、次の保存要求を明示的な再試行として扱います。取消では元の保存済み値へ戻します。
+通常項目の保存失敗は当該項目の確定値・表示・次回入力を旧値に保ち、他項目を戻しません。局所グループは候補を保って明示再試行を待ちます。音量のpreviewは再生設定ストア内に保持し、操作終端で音量キーだけを保存します。保存失敗では最新の確定音量を表示と現在再生へ反映します。
 
-利用者設定の保存に成功した後でLR2設定XMLの保存に失敗した場合は、部分的な保存として失敗を示します。既に保存した利用者設定まで無条件に巻き戻しません。
+LR2 XMLとuser.configの両方が必要な場合、成功済み媒体を巻き戻さず、全媒体成功まで稼働readerへ混成組を公開しません。操作担当の寿命で保存済み事実と未了段階を持ち、同内容は未了媒体だけを再試行します。候補修正は成功済み媒体にも修正を保存でき、Window再表示で事実を消しません。修復まで関連変更だけを拒否し、無関係な通常項目保存では暗黙再開しません。
 
-再生位置の変更はメモリー上に保持し、停止、次曲、プレイヤー変更のたびに保存しません。通常の保存ではその変更も含めます。設定取消で実行中に得た再生位置を取り消しません。正常終了では最終位置を取得してから一回保存します。保存失敗は診断・通知しつつ終了を進め、強制終了時の最終位置の永続化は保証しません。
+再生位置の変更はメモリー上に保持し、停止、次曲、プレイヤー変更のたびに保存しません。局所項目保存には混ぜず、画面外の保存で変更済み項目として渡します。設定を閉じても実行中に得た再生位置を取り消しません。正常終了では最終位置を取得してから一回保存します。保存失敗は診断・通知しつつ終了を進め、強制終了時の最終位置の永続化は保証しません。
 
 ## 実装とテストの対応
 
@@ -60,6 +68,7 @@
 | 自動推定後導入のキー欠損と有効・無効の保存 | [`Settings`](../../../BeMusicSeeker/Properties/Settings.cs)、`PortableSettingsProvider` | `PortableSettingsPersistenceTests.MissingFileAndIndividualKeyUseDefaults` は新規と旧設定の欠損時OFF、`SaveRoundTripsThroughFreshGeneratedSettingsAndPreservesUnknownKeys` はON/OFFを新providerで読み戻すことを確認する。 |
 | 起動時の致命的失敗・警告・回復 | [`ApplicationSettingsLifecycle`](../../../BeMusicSeeker/Models/Settings/ApplicationSettingsLifecycle.cs) | [`ApplicationSettingsLifecycleTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationSettingsLifecycleTests.cs) |
 | 旧設定の移入と正規化 | [`LegacyUserConfigMigrator`](../../../BeMusicSeeker/Properties/LegacyUserConfigMigrator.cs) | [`PortableSettingsMigrationTests`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsMigrationTests.cs)、[`PlayerPanelStateSettingsCompatibilityTests`](../../../BeMusicSeeker.Tests/Playback/PlayerPanelStateSettingsCompatibilityTests.cs) |
+| LR2 XMLの一回保存・後の確定登録の保全 | [局所出力確定](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)、[`PlaylistCustomFolderOutputMaintenanceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistCustomFolderOutputMaintenanceOwner.cs)、[表プロパティ保存](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertySaveService.cs)、[集約編集](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.PlaylistSummaryBulkEdit.cs)、[表削除](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistRemovalWorkflowOwner.cs) | [`SettingDialogEditCompletionTests.OutputConfirmation_RepairsPartialMediaAndCleanupWithoutRepeatingSuccessfulProjection`](../../../BeMusicSeeker.Tests/Settings/SettingDialogOutputConfirmationTests.cs) は同値再試行と、後で保存したユーザールートを日常root同期でも維持することを実XMLで確認する。表操作の保存・出力は [`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)、[`PlaylistWorkspaceActionWorkflowTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)、[`PlaylistSummaryBulkEditTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs) が分担する。 |
 | 保存時の画面と値の保持 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | [`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) |
 
 ## 関連資料

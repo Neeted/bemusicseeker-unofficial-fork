@@ -62,12 +62,13 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 values.UsePlayerLR2body = false;
                 values.UsePlayerBMIIDXView = false;
             });
+            settingsValues.Save();
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settingsValues);
             owner.SettingDialog.Dispose();
             using var dialog = new SettingsDialogViewModel(
                 owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
                 new TestSettingsDialogPlayerFactoryPort(), new TestSettingsDialogPlaybackRuntimePort(),
-                owner.Lr2SongDbSyncWorkflow, new NoOpSettingsEditSession(settingsValues),
+                owner.Lr2SongDbSyncWorkflow, new SettingsEditSession(settingsValues),
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 audioDeviceTestWorkflow: new AudioDeviceTestWorkflowOwner(
@@ -79,6 +80,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 applicationPathSnapshot: ApplicationPathPolicy.Current,
                 audioDeviceCatalog: new TestAudioDeviceCatalog(),
                 audioSettingsGateway: new SettingsAudioGateway(() => settingsValues));
+            var persistedRequests = new CountingSettingsProvider(settingsValues.Properties[nameof(Settings.PlayerDriver)].Provider);
+            foreach (System.Configuration.SettingsProperty property in settingsValues.Properties) { property.Provider = persistedRequests; }
             Logger logger = Ribbit.Logging.NLogWrapper.GetLogger(typeof(SettingsWindowCompiledBehaviorTests));
             FieldInfo fileLoggerProvider = typeof(Ribbit.Logging.NLogWrapper)
                 .GetField("_FileLogger", BindingFlags.Static | BindingFlags.NonPublic)
@@ -101,7 +104,6 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 scope.ShowAndWaitForContentRendered(window);
                 Assert.AreEqual(1, logs.Logs.Count(message => message.Contains("settings_page_construct_start")));
                 Assert.AreEqual(1, logs.Logs.Count(message => message.Contains("settings_page_construct_end")));
-                Assert.IsFalse(dialog.HasPendingSettingChanges());
 
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var content = (ContentControl)window.FindName("settingsPageContent");
@@ -118,9 +120,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     var page = (FrameworkElement)content.Content;
                     pages.Add(page);
                     Assert.AreSame(dialog, page.DataContext);
-                    Assert.IsFalse(dialog.HasPendingSettingChanges(),
-                        "ページを表示するだけで編集値を変更しません。");
                 }
+                Assert.AreEqual(0, persistedRequests.SetRequests, "開く・全lazy page接続は実providerへの保存要求0です。");
                 navigation.SelectedItem = window.FindName("navigationPlaylist");
                 Materialize(window);
                 var playlistPage = (PlaylistSettingsPage)content.Content;
@@ -210,7 +211,6 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.AreEqual(nameof(SettingsDialogViewModel.UsePlayeruBMplay), GetBindingPath(ubmplayPlayer, ToggleButton.IsCheckedProperty));
                 Assert.AreEqual(nameof(SettingsDialogViewModel.UsePlayerBMIIDXView), GetBindingPath(bmiidxPlayer, ToggleButton.IsCheckedProperty));
                 Assert.AreEqual(nameof(SettingsDialogViewModel.UsePlayerLR2body), GetBindingPath(lr2Player, ToggleButton.IsCheckedProperty));
-                Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
             }
             finally
             {
@@ -258,13 +258,9 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.AreEqual(3, selector.SelectedValue);
                 Assert.AreEqual(Resources.Startup_sort_cache_all, ((KeyValuePair<int, string>)selector.SelectedItem).Value);
                 Assert.AreNotEqual(english, ((KeyValuePair<int, string>)selector.SelectedItem).Value);
-                owner.SettingDialog.ResetSettings();
-                Materialize(window);
-                Assert.AreEqual(-1, selector.SelectedIndex);
-                Assert.IsNull(selector.SelectedValue);
-                Assert.AreEqual(string.Format(Resources.Startup_sort_cache_invalid, 4), warning.Content);
-                Assert.IsTrue(warning.IsVisible);
-                Assert.AreEqual(4, values.StartupSortCachePrewarmPriority);
+                Assert.AreEqual(3, values.StartupSortCachePrewarmPriority);
+                Assert.AreEqual(3, selector.SelectedValue);
+                Assert.IsFalse(warning.IsVisible);
             }
             finally
             {
@@ -331,11 +327,9 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.IsFalse(settings.ShowDiffBMSInstallConfirmMsg);
                 Assert.IsTrue(diffConfirmation.IsChecked == false);
 
-                owner.SettingDialog.ResetSettings();
-                Materialize(window);
-                Assert.IsTrue(confirmation.IsChecked == true);
-                Assert.IsTrue(owner.SettingDialog.ShowNewPackageInstallConfirmMsg);
-                Assert.IsTrue(settings.ShowNewPackageInstallConfirmMsg);
+                Assert.IsTrue(confirmation.IsChecked == false);
+                Assert.IsFalse(owner.SettingDialog.ShowNewPackageInstallConfirmMsg);
+                Assert.IsFalse(settings.ShowNewPackageInstallConfirmMsg);
                 Assert.IsTrue(diffConfirmation.IsChecked == false);
                 Assert.IsFalse(settings.ShowDiffBMSInstallConfirmMsg);
             }
@@ -435,8 +429,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 playerMixerThreadCount.SelectedValue = 3;
                 Materialize(window);
                 Assert.AreEqual(3, owner.SettingDialog.PlayerMixerThreadCount);
-                Assert.AreEqual(2, settings.PlayerMixerThreadCount,
-                    "Editing the next-playback value must not change the value captured by a new player start before save.");
+                Assert.AreEqual(3, settings.PlayerMixerThreadCount, "独立した並列度は項目確定で保存します。");
                 Assert.AreEqual(Resources.AudioDeviceTestStartButton, testButton.Content);
                 Assert.AreEqual(nameof(SettingsDialogViewModel.AudioDeviceTestButtonContent),
                     testButton.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path.Path);
@@ -762,7 +755,6 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 var programActions = (ListBox)page.FindName("programActionsListBox");
                 Assert.AreEqual(0, webActions.Items.Count);
                 Assert.AreEqual(0, programActions.Items.Count);
-                Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
                 Assert.IsNotNull(owner.SettingDialog.RightClickActionSettingsEditor);
             }
             finally
@@ -1009,8 +1001,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
 
                 scoreDb.IsChecked = true;
                 Materialize(window);
-                Assert.IsFalse(owner.SettingDialog.CheckValidation(out string englishValidationError));
-                StringAssert.Contains(englishValidationError, Resources.Error_InvalidBeatorajaRootPath);
+                Assert.IsFalse(MainWindowViewModelTestFactory.GetComposition(owner).StartupSettingsProvider().UseBeatorajaScoreDb, "スコア候補を選ぶだけでは確定値を変更しません。");
 
                 ResourceService.Current.ChangeCulture("ja-JP");
                 Materialize(window);
@@ -1029,8 +1020,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 AssertHashOptionDisplayNames(japaneseOptions);
 
                 Materialize(window);
-                Assert.IsFalse(owner.SettingDialog.CheckValidation(out string japaneseValidationError));
-                StringAssert.Contains(japaneseValidationError, Resources.Error_InvalidBeatorajaRootPath);
+                Assert.IsFalse(MainWindowViewModelTestFactory.GetComposition(owner).StartupSettingsProvider().UseBeatorajaScoreDb, "スコア候補を選ぶだけでは確定値を変更しません。");
             }
             finally
             {
@@ -1231,7 +1221,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.AreEqual(Resources.Add_BMSDirectory, add.Content);
                 Assert.AreEqual(Resources.Remove_BMSDirectory, remove.Content);
 
-                owner.SettingDialog.AddBmsSearchRootPathFromPicker(nameof(SettingsDialogViewModel.BMSRootPath), addedRoot);
+                owner.SettingDialog.AddBmsSearchRootPaths([addedRoot]);
                 Materialize(window);
                 Assert.AreEqual(3, roots.Items.Count);
                 Assert.IsTrue(roots.Items.Cast<string>().Any(path => string.Equals(path, addedRoot, StringComparison.OrdinalIgnoreCase)));
@@ -1310,7 +1300,6 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.IsTrue(saveRequest.AddExtension);
                 Assert.AreSame(window, dialogs.LastConfirmationRequest.Owner);
 
-                Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
             }
             finally
             {
@@ -1413,4 +1402,23 @@ public sealed class SettingsWindowCompiledBehaviorTests
         }
     }
 
+    /// <summary>保存判断と媒体処理を実providerへ通したまま、UI初期接続による保存要求だけを数えます。</summary>
+    private sealed class CountingSettingsProvider : System.Configuration.SettingsProvider
+    {
+        private readonly System.Configuration.SettingsProvider inner;
+        internal CountingSettingsProvider(System.Configuration.SettingsProvider inner)
+        {
+            this.inner = inner;
+            Initialize(nameof(CountingSettingsProvider), new System.Collections.Specialized.NameValueCollection());
+        }
+        internal int SetRequests { get; private set; }
+        public override string ApplicationName { get => inner.ApplicationName; set => inner.ApplicationName = value; }
+        public override System.Configuration.SettingsPropertyValueCollection GetPropertyValues(System.Configuration.SettingsContext context, System.Configuration.SettingsPropertyCollection properties)
+            => inner.GetPropertyValues(context, properties);
+        public override void SetPropertyValues(System.Configuration.SettingsContext context, System.Configuration.SettingsPropertyValueCollection values)
+        {
+            SetRequests++;
+            inner.SetPropertyValues(context, values);
+        }
+    }
 }

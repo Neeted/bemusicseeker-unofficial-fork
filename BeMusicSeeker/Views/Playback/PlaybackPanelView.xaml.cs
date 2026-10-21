@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -43,6 +44,27 @@ public partial class PlaybackPanelView : UserControl
         DataContextChanged += PlaybackPanelDataContextChanged;
         Loaded += PlaybackPanelLoaded;
         Unloaded += PlaybackPanelUnloaded;
+    }
+
+    private void PlayerVolumeDragCompleted(object sender, DragCompletedEventArgs e) => CompletePlayerVolumeInput(sender);
+    private void PlayerVolumeMouseLeftButtonUp(object sender, MouseButtonEventArgs e) => CompletePlayerVolumeInput(sender);
+    private void PlayerVolumeLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e) => CompletePlayerVolumeInput(sender);
+    private void PlayerVolumeUnloaded(object sender, RoutedEventArgs e) => CompletePlayerVolumeInput(sender);
+
+    private void PlayerVolumeKeyUp(object sender, KeyEventArgs e)
+    {
+        if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End or Key.PageUp or Key.PageDown)
+        { CompletePlayerVolumeInput(sender); }
+    }
+
+    private static void CompletePlayerVolumeInput(object sender)
+    {
+        if (sender is Slider { DataContext: PlaybackPanelViewModel panel } slider)
+        {
+            slider.GetBindingExpression(Slider.ValueProperty)?.UpdateSource();
+            panel.CompleteVolumeAdjustment();
+            slider.GetBindingExpression(Slider.ValueProperty)?.UpdateTarget();
+        }
     }
 
     public event RoutedEventHandler PlaybackStarting;
@@ -241,6 +263,7 @@ public partial class PlaybackPanelView : UserControl
             || e.PropertyName == nameof(PlaybackPanelViewModel.StagefilePath))
         {
             ResetPanelImage();
+            RefreshArtwork(expectedPanel.DisplayedChart);
         }
         if (e.PropertyName == nameof(PlaybackPanelViewModel.DisplayedChart))
         {

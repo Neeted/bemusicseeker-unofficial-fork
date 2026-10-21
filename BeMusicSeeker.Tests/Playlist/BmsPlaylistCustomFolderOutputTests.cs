@@ -2411,8 +2411,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             config.Save();
             await playlist.ReloadTablesAsync(exportBeatorajaBmt: false);
 
-            CollectionAssert.Contains(config.GetBMSSearchDirectories(), outputDirectory);
-            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), settingsRootOutputBaseDir);
+            var persistedConfig = new LR2Config(config.ConfigFilePath);
+            CollectionAssert.Contains(persistedConfig.GetBMSSearchDirectories(), outputDirectory);
+            CollectionAssert.DoesNotContain(persistedConfig.GetBMSSearchDirectories(), settingsRootOutputBaseDir);
             Assert.AreEqual(outputFileTimestamp, File.GetLastWriteTimeUtc(outputFile));
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder outputDirectoryRow = verify.Table<LR2SongDB.folder>().Single(row => row.path == outputDirectoryRowPath);
@@ -3623,7 +3624,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 "受付時の適用配置へ接続し、古い編集時の基点のcleanupを再開しません。");
             Assert.IsTrue(File.Exists(Path.Combine(newOutputDirectory, "0001.lr2folder")));
             Assert.IsFalse(Directory.Exists(Path.Combine(initialRootOutputBaseDir, table.Output_dir)));
-            CollectionAssert.Contains(config.GetBMSSearchDirectoriesForChangeTracking(), newOutputDirectory);
             var reloadedConfig = new LR2Config(Path.Combine(tempDirectory, "LR2files", "Config", "config.xml"));
             CollectionAssert.Contains(reloadedConfig.GetBMSSearchDirectoriesForChangeTracking(), newOutputDirectory);
 

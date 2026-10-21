@@ -247,7 +247,7 @@ internal sealed class PlaylistRemovalWorkflowOwner
     {
         if (settings.OperationModeLR2DB && table.is_root_folder && !string.IsNullOrWhiteSpace(table.Output_dir))
         {
-            LR2Config lr2config = lr2ConfigProvider() ?? throw new InvalidOperationException("LR2 config provider is not configured.");
+            LR2Config lr2config = new((lr2ConfigProvider() ?? throw new InvalidOperationException("LR2 config provider is not configured.")).ConfigFilePath);
             lr2config.RemoveBMSSearchDirectories([ResolveCustomFolderOutputDirectory(table,
                 "playlist remove custom folder output directory notification", settings)]);
             lr2config.Save();

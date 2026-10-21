@@ -13,6 +13,8 @@ namespace BeMusicSeeker.Properties;
 /// <summary>Reads and atomically persists the portable user settings document without presenting UI.</summary>
 public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSettingsProvider
 {
+    // 同じ媒体を使う別wrapperの読取り・置換が交錯しないよう、短い保存区間だけを直列化します。
+    private static readonly object persistenceGate = new();
     private readonly string settingsPath;
 
     /// <summary>Uses the application-owned portable configuration path.</summary>
@@ -98,6 +100,14 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
 
     /// <summary>Persists all supplied values or throws with the path and original cause; failed publication preserves the target.</summary>
     public override void SetPropertyValues(SettingsContext context, SettingsPropertyValueCollection collection)
+    {
+        lock (persistenceGate)
+        {
+            SetPropertyValuesCore(context, collection);
+        }
+    }
+
+    private void SetPropertyValuesCore(SettingsContext context, SettingsPropertyValueCollection collection)
     {
         try
         {

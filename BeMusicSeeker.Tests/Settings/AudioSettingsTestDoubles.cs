@@ -107,9 +107,9 @@ internal sealed class CountingAudioSettingsEditSession : ISettingsEditSession
         SaveCount++;
     }
 
-    public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+    public void SaveEnvironmentForRestart(EnvironmentSettingsChange environment, string historyIdentity)
     {
-        Values.OperationModeLR2DB = operationMode;
+        environment.Commit(Values);
         Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
         Save();
         Reload();

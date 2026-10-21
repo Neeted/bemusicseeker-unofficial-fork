@@ -76,4 +76,14 @@ internal sealed class WpfPlaybackDialogService : IPlaybackDialogService
         }
         throw result.Exception ?? new InvalidOperationException("Playback failure notification was not shown: " + result.Status);
     }
+
+    /// <inheritdoc />
+    public void NotifySettingsSaveFailure(Exception exception)
+    {
+        UiDialogResult result = dialogs.ShowMessageAsync(new UiMessageRequest(
+            SettingsFailureMessage.Format(exception), Resources.Error, MessageBoxButton.OK,
+            MessageBoxImage.Hand, MessageBoxResult.OK)).GetAwaiter().GetResult();
+        if (result.Status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser) { return; }
+        throw result.Exception ?? new InvalidOperationException("Playback settings save failure notification was not shown: " + result.Status);
+    }
 }

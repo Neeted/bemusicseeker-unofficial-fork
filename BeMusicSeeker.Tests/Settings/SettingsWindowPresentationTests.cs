@@ -42,6 +42,494 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class SettingsWindowPresentationTests
 {
+    private static void AssertPlaylistUriValidationClearedOnReopen(PlaylistUriCompletionRoute completionRoute)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            SettingsDialogViewModel settings = owner.SettingDialog;
+            var presentationPort = new RecordingPresentationPort();
+            settings.AttachPresentationPort(presentationPort);
+            Uri tableListUriBefore = settings.TableListURL;
+            string mappingUriBefore = settings.PlaylistMd5UrlMappingTsvUri;
+            SettingsWindow? firstPresentation = null;
+            SettingsWindow? reopenedPresentation = null;
+            try
+            {
+                firstPresentation = new SettingsWindow { DataContext = settings };
+                presentationPort.CloseAction = firstPresentation!.CloseFromPresentation;
+                windowTest.ShowAndWaitForContentRendered(firstPresentation!);
+                SeedTransientPlaylistUriValidation(settings);
+
+                var navigation = (ListBox)firstPresentation!.FindName("settingsNavigation");
+                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationPlaylist");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationGeneral");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationPlaylist");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsFalse(string.IsNullOrWhiteSpace(settings.TableListUriValidationMessage));
+                Assert.IsFalse(string.IsNullOrWhiteSpace(settings.PlaylistMd5UrlMappingTsvUriValidationMessage));
+
+                var firstClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                EventHandler firstClosedHandler = (_, _) => firstClosed.TrySetResult();
+                firstPresentation!.Closed += firstClosedHandler;
+                try
+                {
+                    switch (completionRoute)
+                    {
+                        case PlaylistUriCompletionRoute.CancelButton:
+                            ((Button)firstPresentation!.FindName("buttonCancel"))
+                                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                            break;
+                        case PlaylistUriCompletionRoute.NativeClose:
+                            firstPresentation!.Close();
+                            break;
+                        default:
+                            Assert.Fail("Unsupported URI completion route: " + completionRoute);
+                            break;
+                    }
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(firstClosed.Task, "settings-first-presentation-closed");
+                }
+                finally { firstPresentation.Closed -= firstClosedHandler; }
+                Assert.IsFalse(settings.IsEditCompletionInProgress);
+                Assert.AreEqual(1, presentationPort.CloseRequestCount);
+                Assert.AreEqual(
+                    SettingsWindowCloseReason.UserClose,
+                    firstPresentation!.CloseReason);
+                Assert.IsNull(firstPresentation!.DataContext);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(settings.TableListUriValidationMessage),
+                    "Closing a presentation must not hide the transient message before the next activation.");
+                firstPresentation = null;
+
+                var changedProperties = new List<string>();
+                PropertyChangedEventHandler propertyChanged = (_, e) => changedProperties.Add(e.PropertyName ?? string.Empty);
+                settings.PropertyChanged += propertyChanged;
+                try
+                {
+                    reopenedPresentation = new SettingsWindow { DataContext = settings };
+                    presentationPort.CloseAction = reopenedPresentation!.CloseFromPresentation;
+                    windowTest.ShowAndWaitForContentRendered(reopenedPresentation!);
+                }
+                finally
+                {
+                    settings.PropertyChanged -= propertyChanged;
+                }
+
+                Assert.AreEqual(string.Empty, settings.TableListUriValidationMessage);
+                Assert.AreEqual(string.Empty, settings.PlaylistMd5UrlMappingTsvUriValidationMessage);
+                CollectionAssert.Contains(changedProperties, nameof(settings.TableListUriValidationMessage));
+                CollectionAssert.Contains(changedProperties, nameof(settings.PlaylistMd5UrlMappingTsvUriValidationMessage));
+                Assert.AreEqual(tableListUriBefore, settings.TableListURL);
+                Assert.AreEqual(mappingUriBefore, settings.PlaylistMd5UrlMappingTsvUri);
+                var reopenedClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                EventHandler reopenedClosedHandler = (_, _) => reopenedClosed.TrySetResult();
+                reopenedPresentation!.Closed += reopenedClosedHandler;
+                try
+                {
+                    ((Button)reopenedPresentation!.FindName("buttonCancel"))
+                        .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(reopenedClosed.Task, "settings-reopened-presentation-closed");
+                }
+                finally { reopenedPresentation.Closed -= reopenedClosedHandler; }
+                Assert.AreEqual(2, presentationPort.CloseRequestCount);
+                Assert.AreEqual(SettingsWindowCloseReason.UserClose, reopenedPresentation!.CloseReason);
+                Assert.IsNull(reopenedPresentation!.DataContext);
+                reopenedPresentation = null;
+            }
+            finally
+            {
+                if (firstPresentation?.IsVisible == true)
+                {
+                    firstPresentation.CloseFromPresentation();
+                }
+
+                if (reopenedPresentation?.IsVisible == true)
+                {
+                    reopenedPresentation.CloseFromPresentation();
+                }
+            }
+        });
+    }
+
+    /// <summary>一覧取得をworkerで保留しても実ページの切替・編集・通常Closeを処理し、取得完了を待たずにDataContextを解除します。</summary>
+    /// <remarks>実DispatcherとBAMLの操作可否・Cancel/Close接続を確認し、保存値の条件網羅は音声一覧ownerテストに分担します。</remarks>
+    [TestMethod]
+    public void AudioListRefresh_KeepsNavigationEditingAndOrdinaryCloseResponsive()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string previousTheme = Settings.Default.AppearanceTheme;
+            System.Globalization.CultureInfo? previousCulture = Resources.Culture;
+            using var release = new ManualResetEventSlim();
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var catalog = new TestAudioDeviceCatalog
+            {
+                RefreshAction = () => { started.TrySetResult(); release.Wait(); }
+            };
+            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            using SettingsDialogViewModel dialog = AudioDeviceListRefreshTests.CreateDialog(values, catalog,
+                new AudioOutputSelection(AudioDriver.WasapiExclusive, "missing", "Missing device"));
+            Logger logger = Ribbit.Logging.NLogWrapper.GetLogger(typeof(SettingsWindowPresentationTests));
+            FieldInfo fileLoggerProvider = typeof(Ribbit.Logging.NLogWrapper)
+                .GetField("_FileLogger", BindingFlags.Static | BindingFlags.NonPublic)
+                ?? throw new AssertFailedException("File logger provider is unavailable.");
+            object? previousFileLogger = fileLoggerProvider.GetValue(null);
+            LoggingConfiguration? previousLogging = LogManager.Configuration;
+            using var logs = new MemoryTarget { Layout = "${message}" };
+            SettingsWindow? window = null;
+            try
+            {
+                var configuration = new LoggingConfiguration();
+                configuration.AddRule(LogLevel.Info, LogLevel.Fatal, logs, logger.Name);
+                LogManager.Configuration = configuration;
+                fileLoggerProvider.SetValue(null, (Func<Logger>)(() => logger));
+                long requested = Stopwatch.GetTimestamp();
+                window = new SettingsWindow { DataContext = dialog };
+                window.SetPresentationRequestedTimestamp(requested);
+                dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
+                {
+                    if (request == "close") { window.CloseFromPresentation(); }
+                }));
+                window.Closed += (_, _) => closed.TrySetResult();
+                windowTest.ShowAndWaitForContentRendered(window);
+                Assert.AreEqual(0, catalog.RefreshCount);
+                var navigation = (ListBox)window.FindName("settingsNavigation");
+                navigation.SelectedItem = window.FindName("navigationAudio");
+                window.UpdateLayout();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(started.Task, "audio-list-window-started");
+                var page = (AudioSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                Assert.IsFalse(((Button)page.FindName("buttonPlayerTest")).IsEnabled);
+                Assert.IsTrue(((ComboBox)page.FindName("comboBoxPlayerDriver")).IsEnabled);
+                Assert.IsTrue(((Button)window.FindName("buttonOK")).IsEnabled);
+                Assert.IsTrue(((Button)window.FindName("buttonCancel")).IsEnabled);
+                navigation.SelectedItem = window.FindName("navigationGeneral");
+                window.UpdateLayout();
+                Assert.IsInstanceOfType<GeneralSettingsPage>(((ContentControl)window.FindName("settingsPageContent")).Content);
+                dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
+                window.Close();
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "audio-list-ordinary-close");
+                Assert.IsNull(window.DataContext);
+                Assert.IsFalse(dialog.AudioSettingsCompletionTask.IsCompleted);
+                release.Set();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "audio-list-closed-consumer");
+                Assert.IsNull(window.DataContext);
+                Assert.AreEqual(1, catalog.RefreshCount);
+                Assert.IsTrue(logs.Logs.Any(message => message.Contains("settings_dialog_first_render")
+                    && message.Contains("requestToFirstRenderMs=")));
+                Assert.IsTrue(logs.Logs.Any(message => message.Contains("settings_audio_device_list_worker")));
+                Assert.IsTrue(logs.Logs.Any(message => message.Contains("settings_window_construct")));
+                Assert.IsTrue(logs.Logs.Any(message => message.Contains("settings_page_construct_start")));
+                Assert.IsTrue(logs.Logs.Any(message => message.Contains("settings_page_construct_end")));
+            }
+            finally
+            {
+                release.Set();
+                try
+                {
+                    if (window?.IsVisible == true) { window.CloseForOwnerShutdown(); }
+                    dialog.SetPresentationActive(false);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "audio-list-window-cleanup");
+                }
+                finally
+                {
+                    fileLoggerProvider.SetValue(null, previousFileLogger);
+                    LogManager.Configuration = previousLogging;
+                    Settings.Default.AppearanceTheme = previousTheme;
+                    AppThemeService.ApplyTheme(previousTheme);
+                    if (previousCulture is null) { Resources.Culture = null; }
+                    else { ResourceService.Current.ChangeCulture(previousCulture.Name); }
+                }
+            }
+        });
+    }
+
+    /// <summary>実アプリ由来データ削除の確認中は Close を拒否し、取消や store 失敗では Window と draft を保って schema 操作へ誤配送しないことを確認します。</summary>
+    [TestMethod]
+    // gate 付き確認取消と、承認後の store 失敗を比較する。
+    [DataRow(false)]
+    [DataRow(true)]
+    public void AdvancedDangerZone_ApplicationDataActualButtonPreservesCancelAndFailureContracts(bool storeFailure)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = true;
+                values.LR2SongDBPath = "song.db";
+            });
+            var dialogs = new DangerDialogService { HoldConfirmation = !storeFailure };
+            var schemaDialog = new DangerSchemaDialogPort();
+            var store = new DangerApplicationDataStore
+            {
+                Failure = storeFailure ? new InvalidOperationException("store failure") : null
+            };
+            DangerDialogContext context = CreateDangerDialog(values, dialogs, schemaDialog, store);
+            bool draftValue = !context.Settings.ShowRecommUpdatedMsg;
+            context.Settings.ShowRecommUpdatedMsg = draftValue;
+            var presentation = new RecordingPresentationPort();
+            context.Settings.AttachPresentationPort(presentation);
+            var window = new SettingsWindow { DataContext = context.Settings };
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(window);
+                ClickAdvancedDangerButton(window, Resources.Settings_uninstall_application_data);
+                Assert.AreEqual(0, schemaDialog.CallCount);
+
+                if (!storeFailure)
+                {
+                    Assert.IsTrue(dialogs.ConfirmationStarted.Task.IsCompletedSuccessfully);
+                    Assert.IsTrue(((Grid)window.FindName("settingDialogOperationGrid")).IsEnabled, "無関係な通常項目は操作可能です。");
+                    window.Close();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(0, presentation.CloseRequestCount);
+                    dialogs.CompleteConfirmation(MessageBoxResult.Cancel);
+                }
+
+                AwaitViewOperationTerminal(window);
+
+                Assert.IsTrue(window.IsVisible);
+                Assert.AreEqual(draftValue, context.Settings.ShowRecommUpdatedMsg);
+                Assert.AreEqual(storeFailure ? 1 : 0, store.CallCount);
+                Assert.AreEqual(storeFailure ? 1 : 0, dialogs.Messages.Count);
+                if (storeFailure)
+                {
+                    StringAssert.Contains(dialogs.Messages[0].MessageBoxText, Resources.Msg_failed_uninstall);
+                }
+            }
+            finally
+            {
+                dialogs.CompleteConfirmation(MessageBoxResult.Cancel);
+                AwaitViewOperationTerminal(window);
+                if (window.IsVisible)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                context.Settings.Dispose();
+            }
+        });
+    }
+
+    /// <summary>実 schema 削除ボタンは成功時だけ DB 削除・履歴無効化・再読込みへ進み、不正な結果は失敗通知にして DB と draft を保つことを確認します。</summary>
+    [TestMethod]
+    // 不正な削除結果と、TablesAndTriggers の成功を比較する。
+    [DataRow(false)]
+    [DataRow(true)]
+    public void AdvancedDangerZone_SchemaUninstallActualButtonPreservesFailureAndSuccessOwnerContracts(bool success)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string scope = CreateDangerSchemaScope(out Settings values, out string scoreDbPath);
+            SettingsWindow? window = null;
+            DangerDialogContext? context = null;
+            try
+            {
+                var dialogs = new DangerDialogService();
+                var schemaDialog = new DangerSchemaDialogPort
+                {
+                    ImmediateResult = success
+                        ? Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers
+                        : (Lr2PlayHistorySchemaUninstallMode)(-1)
+                };
+                var store = new DangerApplicationDataStore();
+                context = CreateDangerDialog(values, dialogs, schemaDialog, store);
+                bool draftValue = !context.Settings.ShowRecommUpdatedMsg;
+                context.Settings.ShowRecommUpdatedMsg = draftValue;
+                window = new SettingsWindow { DataContext = context.Settings };
+                windowTest.ShowAndWaitForContentRendered(window);
+                ClickAdvancedDangerButton(window, Resources.Lr2_play_history_schema_uninstall);
+                AwaitViewOperationTerminal(window);
+
+                Assert.AreEqual(1, schemaDialog.CallCount);
+                Assert.AreEqual(0, store.CallCount);
+                Assert.IsTrue(window.IsVisible);
+                Assert.AreEqual(draftValue, context.Settings.ShowRecommUpdatedMsg);
+                if (success)
+                {
+                    Assert.AreEqual(1, context.PlayHistory.InvalidationCount);
+                    Assert.AreEqual(1, context.ReloadCount());
+                    AssertInstalledSchema(scoreDbPath, expectedInstalled: false);
+                    Assert.AreEqual(Resources.Msg_success_lr2_play_history_schema_uninstall, dialogs.Messages.Single().MessageBoxText);
+                }
+                else
+                {
+                    Assert.AreEqual(0, context.PlayHistory.InvalidationCount);
+                    Assert.AreEqual(0, context.ReloadCount());
+                    AssertInstalledSchema(scoreDbPath, expectedInstalled: true);
+                    StringAssert.Contains(dialogs.Messages.Single().MessageBoxText, Resources.Msg_error_unexpected);
+                }
+            }
+            finally
+            {
+                if (window?.IsVisible == true)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                context?.Settings.Dispose();
+                Directory.Delete(scope, recursive: true);
+            }
+        });
+    }
+
+    /// <summary>schema 取消待ちを gate で保持した間は native Close を拒否し、取消後に操作を復帰して DB と draft を変更しないことを確認します。</summary>
+    [TestMethod]
+    public void AdvancedDangerZone_SchemaUninstallActualButtonBlocksNativeCloseUntilCancel()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string scope = CreateDangerSchemaScope(out Settings values, out string scoreDbPath);
+            SettingsWindow? window = null;
+            DangerDialogContext? context = null;
+            var schemaDialog = new DangerSchemaDialogPort { HoldResult = true };
+            try
+            {
+                var dialogs = new DangerDialogService();
+                var store = new DangerApplicationDataStore();
+                context = CreateDangerDialog(values, dialogs, schemaDialog, store);
+                bool draftValue = !context.Settings.ShowRecommUpdatedMsg;
+                context.Settings.ShowRecommUpdatedMsg = draftValue;
+                var presentation = new RecordingPresentationPort();
+                context.Settings.AttachPresentationPort(presentation);
+                window = new SettingsWindow { DataContext = context.Settings };
+                windowTest.ShowAndWaitForContentRendered(window);
+                ClickAdvancedDangerButton(window, Resources.Lr2_play_history_schema_uninstall);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(schemaDialog.Started.Task, "settings-schema-dialog-started");
+                Assert.IsTrue(((Grid)window.FindName("settingDialogOperationGrid")).IsEnabled, "無関係な通常項目は操作可能です。");
+                window.Close();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(0, presentation.CloseRequestCount);
+                Assert.AreEqual(0, store.CallCount);
+
+                schemaDialog.Complete(UiInteractionStatus.CancelledByUser);
+                AwaitViewOperationTerminal(window);
+
+                Assert.IsTrue(window.IsVisible);
+                Assert.AreEqual(draftValue, context.Settings.ShowRecommUpdatedMsg);
+                Assert.AreEqual(0, context.PlayHistory.InvalidationCount);
+                Assert.AreEqual(0, context.ReloadCount());
+                AssertInstalledSchema(scoreDbPath, expectedInstalled: true);
+            }
+            finally
+            {
+                schemaDialog.Complete(UiInteractionStatus.CancelledByUser);
+                if (window != null) { AwaitViewOperationTerminal(window); }
+                if (window?.IsVisible == true)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                context?.Settings.Dispose();
+                Directory.Delete(scope, recursive: true);
+            }
+        });
+    }
+
+    /// <summary>実 schema 操作の確認取消では DB を変えず、承認では実 DB を導入して表示・再読込み・成功通知を更新し、未保存draftを保ちます。成功通知のFailed/Task faultでも成功済みDBと必要再読込みを保ち、重複通知しません。</summary>
+    [TestMethod]
+    // 確認取消と、承認後の実 schema 導入を比較する。
+    [DataRow(false, "accepted")]
+    [DataRow(true, "accepted")]
+    [DataRow(true, "failed-result")]
+    [DataRow(true, "task-fault")]
+    public void GeneralSchema_InstallOrRepairActualButtonPreservesCancelAndSuccessOwnerContracts(bool accept, string noticeOutcome)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string scope = CreateDangerSchemaScope(out Settings values, out string scoreDbPath);
+            SettingsWindow? window = null;
+            DangerDialogContext? context = null;
+            try
+            {
+                Lr2PlayHistorySchemaCheckResult resetResult = new Lr2PlayHistorySchemaService().Uninstall(
+                    scoreDbPath,
+                    isLr2LinkedProfile: true,
+                    Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers);
+                Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, resetResult.Status);
+
+                var dialogs = new DangerDialogService
+                {
+                    ImmediateConfirmationResult = accept ? MessageBoxResult.OK : MessageBoxResult.Cancel,
+                    MessageResult = noticeOutcome == "failed-result"
+                        ? UiDialogResult.Failed(new IOException("schema success notice failed"))
+                        : UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+                    MessageTaskFailure = noticeOutcome == "task-fault"
+                        ? new IOException("schema success notice Task failed") : null
+                };
+                context = CreateDangerDialog(
+                    values,
+                    dialogs,
+                    new DangerSchemaDialogPort(),
+                    new DangerApplicationDataStore());
+                bool draftValue = !context.Settings.ShowRecommUpdatedMsg;
+                context.Settings.ShowRecommUpdatedMsg = draftValue;
+                window = new SettingsWindow { DataContext = context.Settings };
+                windowTest.ShowAndWaitForContentRendered(window);
+
+                var generalPage = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                SettingsField schemaField = FindDescendants<SettingsField>(generalPage)
+                    .Single(field => Equals(field.Header, Resources.Lr2_play_history_schema_label));
+                SettingsStatusBanner schemaBanner = FindDescendants<SettingsStatusBanner>(schemaField)
+                    .Single(candidate => candidate.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path
+                        == nameof(SettingsDialogViewModel.Lr2PlayHistorySchemaStatusText));
+                Button installOrRepairButton = FindDescendants<Button>(schemaField)
+                    .Single(candidate => candidate.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path
+                        == nameof(SettingsDialogViewModel.Lr2PlayHistorySchemaInstallOrRepairButtonText));
+
+                Assert.IsTrue(installOrRepairButton.IsEnabled,
+                    "The compiled General page install/repair button must be enabled for a NotInstalled schema.");
+                installOrRepairButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, installOrRepairButton));
+
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialogs.ConfirmationStarted.Task, "settings-schema-confirmation");
+                Assert.IsNotNull(dialogs.LastConfirmationRequest);
+                StringAssert.Contains(dialogs.LastConfirmationRequest.MessageBoxText, scoreDbPath);
+                AwaitViewOperationTerminal(window);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                Assert.AreEqual(1, dialogs.ConfirmationCount);
+                Assert.IsTrue(window.IsVisible);
+                Assert.AreEqual(draftValue, context.Settings.ShowRecommUpdatedMsg);
+                Assert.AreEqual(0, context.SettingsSession.SaveCount);
+
+                if (accept)
+                {
+                    AssertInstalledSchema(scoreDbPath, expectedInstalled: true);
+                    Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, context.Settings.Lr2PlayHistorySchemaStatusSnapshot.Status);
+                    Assert.IsFalse(context.Settings.CanInstallOrRepairLr2PlayHistorySchema);
+                    Assert.IsFalse(installOrRepairButton.IsEnabled);
+                    AssertSchemaBannerState(schemaBanner, "i", "Information");
+                    Assert.AreEqual(1, context.PlayHistory.InvalidationCount);
+                    Assert.AreEqual("lr2_play_history_schema_install_or_repair", context.PlayHistory.LastInvalidationReason);
+                    Assert.AreEqual(1, context.ReloadCount());
+                    Assert.AreEqual(1, dialogs.Messages.Count);
+                    Assert.AreEqual(Resources.Msg_success_lr2_play_history_schema_install_or_repair, dialogs.Messages.Single().MessageBoxText);
+                }
+                else
+                {
+                    AssertInstalledSchema(scoreDbPath, expectedInstalled: false);
+                    Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, context.Settings.Lr2PlayHistorySchemaStatusSnapshot.Status);
+                    Assert.IsTrue(context.Settings.CanInstallOrRepairLr2PlayHistorySchema);
+                    Assert.IsTrue(installOrRepairButton.IsEnabled);
+                    AssertSchemaBannerState(schemaBanner, "!", "Warning");
+                    Assert.AreEqual(0, context.PlayHistory.InvalidationCount);
+                    Assert.IsNull(context.PlayHistory.LastInvalidationReason);
+                    Assert.AreEqual(0, context.ReloadCount());
+                    Assert.AreEqual(0, dialogs.Messages.Count);
+                }
+            }
+            finally
+            {
+                if (window?.IsVisible == true)
+                {
+                    AwaitViewOperationTerminal(window);
+                    window.CloseForOwnerShutdown();
+                }
+                context?.Settings.Dispose();
+                Directory.Delete(scope, recursive: true);
+            }
+        });
+    }
+
+
     [TestInitialize]
     public void MaterializeCanonicalApplicationResources()
     {
@@ -306,11 +794,11 @@ public sealed class SettingsWindowPresentationTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 RightClickActionSettingsEditor editor = owner.SettingDialog.RightClickActionSettingsEditor;
-                Assert.IsTrue(editor.IsDirty);
+                Assert.IsFalse(editor.IsDirty);
                 Assert.IsFalse(editor.IsInvalidPersistedSettings);
                 Assert.IsTrue(editor.TryPrepareSave(out string restoredJson, out string error), error);
                 Assert.AreEqual(RightClickActionSettingsDefaults.SerializedJson, restoredJson);
-                Assert.AreEqual(originalJson, settings.RightClickActionsJson);
+                Assert.AreEqual(RightClickActionSettingsDefaults.SerializedJson, settings.RightClickActionsJson);
                 Assert.AreEqual(0, dialogs.ConfirmationRequests.Count);
             }
             finally
@@ -320,62 +808,12 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>既定へ復元した右クリック draft を native Close で取り消し、元 JSON と clean 状態へ戻して close 要求を一回送ることを確認します。</summary>
-    [TestMethod]
-    public void SettingsWindow_RightClickRestoreDefaultsIsDiscardedByNativeClose()
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            const string originalJson = "{\"webActions\":[{\"id\":\"custom\",\"name\":\"Custom\",\"urlTemplate\":\"https://example.test/{md5}\",\"enabled\":true,\"chartKind\":\"All\"}],\"programActions\":[{\"id\":\"viewer\",\"name\":\"Viewer\",\"executablePath\":\"C:\\\\Tools\\\\viewer.exe\",\"argumentTemplate\":\"{filePath}\",\"enabled\":true}]}";
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
-            {
-                values.RightClickActionsJson = originalJson;
-                values.OperationModeLR2DB = false;
-                values.BMSRootPath = Path.GetTempPath();
-                values.StandaloneBmsRootPaths = Path.GetTempPath();
-                values.BMSInstallDir = Path.GetTempPath();
-                values.ScanBmsFilesOnStartup = false;
-                values.SkipInitPlaylistLoad = true;
-            });
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
-            using BeMusicSeeker.ViewModels.SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
-            var presentation = new RecordingPresentationPort();
-            owner.SettingDialog.AttachPresentationPort(presentation);
-            var window = new SettingsWindow { DataContext = owner.SettingDialog };
-            presentation.CloseAction = window.CloseFromPresentation;
-            try
-            {
-                windowTest.ShowAndWaitForContentRendered(window);
-                owner.SettingDialog.RightClickActionSettingsEditor.RestoreDefaults();
-                Assert.IsTrue(owner.SettingDialog.RightClickActionSettingsEditor.IsDirty);
-
-                window.Close();
-                TestUiDispatcherHost.ProcessQueuedPresentation();
-
-                Assert.AreEqual(1, presentation.CloseRequestCount);
-                Assert.AreEqual(originalJson, settings.RightClickActionsJson);
-                Assert.IsFalse(owner.SettingDialog.RightClickActionSettingsEditor.IsDirty);
-                Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
-            }
-            finally
-            {
-                owner.SettingDialog.Dispose();
-            }
-        });
-    }
 
     /// <summary>URI の一時エラーを持つ未変更画面を取消ボタンで閉じ、再表示時だけ両エラーを通知付きで解除し保存 URI を保つことを確認します。</summary>
     [TestMethod]
     public void PlaylistUriValidation_CancelWithoutDraftChangesStartsNextPresentationClean()
     {
         AssertPlaylistUriValidationClearedOnReopen(PlaylistUriCompletionRoute.CancelButton);
-    }
-
-    /// <summary>URI の一時エラーを持つ未変更画面を保存ボタンで閉じ、再表示時だけ両エラーを解除して保存 URI を保つことを確認します。</summary>
-    [TestMethod]
-    public void PlaylistUriValidation_SaveWithoutDraftChangesStartsNextPresentationClean()
-    {
-        AssertPlaylistUriValidationClearedOnReopen(PlaylistUriCompletionRoute.SaveButton);
     }
 
     /// <summary>URI の一時エラーを持つ未変更画面を native Close で閉じ、次の表示で両エラーを解除して以前の表示状態を引き継がないことを確認します。</summary>
@@ -432,10 +870,7 @@ public sealed class SettingsWindowPresentationTests
             });
                 MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
                 using BeMusicSeeker.ViewModels.SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
-                var dialogs = new RecordingSettingsRouteDialogService(
-                    installDirectory,
-                    searchRoot,
-                    additionalOutputBase);
+                var dialogs = new RecordingSettingsRouteDialogService(searchRoot, additionalOutputBase);
                 window = new SettingsWindow(dialogs)
                 {
                     DataContext = owner.SettingDialog,
@@ -447,7 +882,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.IsNotNull(window.PlaylistWorkspace.PlaylistTreeTables);
                 window.HandleAddBmsInstallDirectory();
                 window.HandleAddBmsSearchRootPathsAsync().GetAwaiter().GetResult();
-                window.HandleAddCustomFolderAdditionalOutputBase();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.HandleAddCustomFolderAdditionalOutputBase(), "additional-output-route-terminal");
                 window.HandlePlaylistBackupAsync().GetAwaiter().GetResult();
 
                 dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.No);
@@ -462,10 +897,9 @@ public sealed class SettingsWindowPresentationTests
 
                 window.HandleAddPlayHistoryFolderDisplayPreset();
 
-                Assert.AreEqual(3, dialogs.FolderRequests.Count);
-                Assert.IsFalse(dialogs.FolderRequests[0].Multiselect);
+                Assert.AreEqual(2, dialogs.FolderRequests.Count);
+                Assert.IsTrue(dialogs.FolderRequests[0].Multiselect);
                 Assert.IsTrue(dialogs.FolderRequests[1].Multiselect);
-                Assert.IsTrue(dialogs.FolderRequests[2].Multiselect);
                 Assert.IsTrue(dialogs.FolderRequests.All(request => ReferenceEquals(window, request.Owner)));
                 Assert.AreEqual(1, dialogs.SaveFileRequests.Count);
                 Assert.AreEqual("BeMusicSeeker_backup.sql", dialogs.SaveFileRequests[0].FileName);
@@ -481,7 +915,6 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(typeof(PlayHistoryFolderDisplayPresetEditDialog), dialogs.LastWindowType);
                 Assert.AreSame(window, dialogs.LastWindowOwner);
                 Assert.IsInstanceOfType<PlayHistoryFolderDisplayPresetEditDialog>(dialogs.LastCreatedWindow);
-                CollectionAssert.Contains(owner.SettingDialog.AvailableBMSDirectories, installDirectory);
                 CollectionAssert.Contains(owner.SettingDialog.AvailableBMSDirectories, searchRoot);
                 CollectionAssert.Contains(owner.SettingDialog.CustomFolderAdditionalOutputBaseDirList, additionalOutputBase);
             }
@@ -1255,293 +1688,9 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>実 schema 操作の確認取消では DB を変えず、承認では実 DB を導入して表示・再読込み・成功通知を更新し、未保存draftを保ちます。成功通知のFailed/Task faultでも成功済みDBと必要再読込みを保ち、重複通知しません。</summary>
-    [TestMethod]
-    // 確認取消と、承認後の実 schema 導入を比較する。
-    [DataRow(false, "accepted")]
-    [DataRow(true, "accepted")]
-    [DataRow(true, "failed-result")]
-    [DataRow(true, "task-fault")]
-    public void GeneralSchema_InstallOrRepairActualButtonPreservesCancelAndSuccessOwnerContracts(bool accept, string noticeOutcome)
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            string scope = CreateDangerSchemaScope(out Settings values, out string scoreDbPath);
-            SettingsWindow? window = null;
-            DangerDialogContext? context = null;
-            try
-            {
-                Lr2PlayHistorySchemaCheckResult resetResult = new Lr2PlayHistorySchemaService().Uninstall(
-                    scoreDbPath,
-                    isLr2LinkedProfile: true,
-                    Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers);
-                Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, resetResult.Status);
 
-                var dialogs = new DangerDialogService
-                {
-                    ImmediateConfirmationResult = accept ? MessageBoxResult.OK : MessageBoxResult.Cancel,
-                    MessageResult = noticeOutcome == "failed-result"
-                        ? UiDialogResult.Failed(new IOException("schema success notice failed"))
-                        : UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
-                    MessageTaskFailure = noticeOutcome == "task-fault"
-                        ? new IOException("schema success notice Task failed") : null
-                };
-                context = CreateDangerDialog(
-                    values,
-                    dialogs,
-                    new DangerSchemaDialogPort(),
-                    new DangerApplicationDataStore());
-                bool draftValue = !context.Settings.ShowRecommUpdatedMsg;
-                context.Settings.ShowRecommUpdatedMsg = draftValue;
-                window = new SettingsWindow { DataContext = context.Settings };
-                windowTest.ShowAndWaitForContentRendered(window);
 
-                var generalPage = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
-                SettingsField schemaField = FindDescendants<SettingsField>(generalPage)
-                    .Single(field => Equals(field.Header, Resources.Lr2_play_history_schema_label));
-                SettingsStatusBanner schemaBanner = FindDescendants<SettingsStatusBanner>(schemaField)
-                    .Single(candidate => candidate.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path
-                        == nameof(SettingsDialogViewModel.Lr2PlayHistorySchemaStatusText));
-                Button installOrRepairButton = FindDescendants<Button>(schemaField)
-                    .Single(candidate => candidate.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path
-                        == nameof(SettingsDialogViewModel.Lr2PlayHistorySchemaInstallOrRepairButtonText));
 
-                Assert.IsTrue(installOrRepairButton.IsEnabled,
-                    "The compiled General page install/repair button must be enabled for a NotInstalled schema.");
-                installOrRepairButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, installOrRepairButton));
-
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialogs.ConfirmationStarted.Task, "settings-schema-confirmation");
-                Assert.IsNotNull(dialogs.LastConfirmationRequest);
-                StringAssert.Contains(dialogs.LastConfirmationRequest.MessageBoxText, scoreDbPath);
-                AwaitViewOperationTerminal(window);
-                TestUiDispatcherHost.ProcessQueuedPresentation();
-
-                Assert.AreEqual(1, dialogs.ConfirmationCount);
-                Assert.IsTrue(window.IsVisible);
-                Assert.AreEqual(draftValue, context.Settings.ShowRecommUpdatedMsg);
-                Assert.IsTrue(context.Settings.HasPendingSettingChanges());
-                Assert.AreEqual(0, context.SettingsSession.SaveCount);
-
-                if (accept)
-                {
-                    AssertInstalledSchema(scoreDbPath, expectedInstalled: true);
-                    Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, context.Settings.Lr2PlayHistorySchemaStatusSnapshot.Status);
-                    Assert.IsFalse(context.Settings.CanInstallOrRepairLr2PlayHistorySchema);
-                    Assert.IsFalse(installOrRepairButton.IsEnabled);
-                    AssertSchemaBannerState(schemaBanner, "i", "Information");
-                    Assert.AreEqual(1, context.PlayHistory.InvalidationCount);
-                    Assert.AreEqual("lr2_play_history_schema_install_or_repair", context.PlayHistory.LastInvalidationReason);
-                    Assert.AreEqual(1, context.ReloadCount());
-                    Assert.AreEqual(1, dialogs.Messages.Count);
-                    Assert.AreEqual(Resources.Msg_success_lr2_play_history_schema_install_or_repair, dialogs.Messages.Single().MessageBoxText);
-                }
-                else
-                {
-                    AssertInstalledSchema(scoreDbPath, expectedInstalled: false);
-                    Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, context.Settings.Lr2PlayHistorySchemaStatusSnapshot.Status);
-                    Assert.IsTrue(context.Settings.CanInstallOrRepairLr2PlayHistorySchema);
-                    Assert.IsTrue(installOrRepairButton.IsEnabled);
-                    AssertSchemaBannerState(schemaBanner, "!", "Warning");
-                    Assert.AreEqual(0, context.PlayHistory.InvalidationCount);
-                    Assert.IsNull(context.PlayHistory.LastInvalidationReason);
-                    Assert.AreEqual(0, context.ReloadCount());
-                    Assert.AreEqual(0, dialogs.Messages.Count);
-                }
-            }
-            finally
-            {
-                if (window?.IsVisible == true)
-                {
-                    AwaitViewOperationTerminal(window);
-                    window.CloseForOwnerShutdown();
-                }
-                context?.Settings.Dispose();
-                Directory.Delete(scope, recursive: true);
-            }
-        });
-    }
-
-    /// <summary>schema 取消待ちを gate で保持した間は native Close を拒否し、取消後に操作を復帰して DB と draft を変更しないことを確認します。</summary>
-    [TestMethod]
-    public void AdvancedDangerZone_SchemaUninstallActualButtonBlocksNativeCloseUntilCancel()
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            string scope = CreateDangerSchemaScope(out Settings values, out string scoreDbPath);
-            SettingsWindow? window = null;
-            DangerDialogContext? context = null;
-            var schemaDialog = new DangerSchemaDialogPort { HoldResult = true };
-            try
-            {
-                var dialogs = new DangerDialogService();
-                var store = new DangerApplicationDataStore();
-                context = CreateDangerDialog(values, dialogs, schemaDialog, store);
-                bool draftValue = !context.Settings.ShowRecommUpdatedMsg;
-                context.Settings.ShowRecommUpdatedMsg = draftValue;
-                var presentation = new RecordingPresentationPort();
-                context.Settings.AttachPresentationPort(presentation);
-                window = new SettingsWindow { DataContext = context.Settings };
-                windowTest.ShowAndWaitForContentRendered(window);
-                ClickAdvancedDangerButton(window, Resources.Lr2_play_history_schema_uninstall);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(schemaDialog.Started.Task, "settings-schema-dialog-started");
-                Assert.IsFalse(((Grid)window.FindName("settingDialogOperationGrid")).IsEnabled);
-                window.Close();
-                TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual(0, presentation.CloseRequestCount);
-                Assert.AreEqual(0, store.CallCount);
-
-                schemaDialog.Complete(UiInteractionStatus.CancelledByUser);
-                AwaitViewOperationTerminal(window);
-
-                Assert.IsTrue(window.IsVisible);
-                Assert.AreEqual(draftValue, context.Settings.ShowRecommUpdatedMsg);
-                Assert.IsTrue(context.Settings.HasPendingSettingChanges());
-                Assert.AreEqual(0, context.PlayHistory.InvalidationCount);
-                Assert.AreEqual(0, context.ReloadCount());
-                AssertInstalledSchema(scoreDbPath, expectedInstalled: true);
-            }
-            finally
-            {
-                schemaDialog.Complete(UiInteractionStatus.CancelledByUser);
-                if (window != null) { AwaitViewOperationTerminal(window); }
-                if (window?.IsVisible == true)
-                {
-                    window.CloseForOwnerShutdown();
-                }
-                context?.Settings.Dispose();
-                Directory.Delete(scope, recursive: true);
-            }
-        });
-    }
-
-    /// <summary>実 schema 削除ボタンは成功時だけ DB 削除・履歴無効化・再読込みへ進み、不正な結果は失敗通知にして DB と draft を保つことを確認します。</summary>
-    [TestMethod]
-    // 不正な削除結果と、TablesAndTriggers の成功を比較する。
-    [DataRow(false)]
-    [DataRow(true)]
-    public void AdvancedDangerZone_SchemaUninstallActualButtonPreservesFailureAndSuccessOwnerContracts(bool success)
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            string scope = CreateDangerSchemaScope(out Settings values, out string scoreDbPath);
-            SettingsWindow? window = null;
-            DangerDialogContext? context = null;
-            try
-            {
-                var dialogs = new DangerDialogService();
-                var schemaDialog = new DangerSchemaDialogPort
-                {
-                    ImmediateResult = success
-                        ? Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers
-                        : (Lr2PlayHistorySchemaUninstallMode)(-1)
-                };
-                var store = new DangerApplicationDataStore();
-                context = CreateDangerDialog(values, dialogs, schemaDialog, store);
-                bool draftValue = !context.Settings.ShowRecommUpdatedMsg;
-                context.Settings.ShowRecommUpdatedMsg = draftValue;
-                window = new SettingsWindow { DataContext = context.Settings };
-                windowTest.ShowAndWaitForContentRendered(window);
-                ClickAdvancedDangerButton(window, Resources.Lr2_play_history_schema_uninstall);
-                AwaitViewOperationTerminal(window);
-
-                Assert.AreEqual(1, schemaDialog.CallCount);
-                Assert.AreEqual(0, store.CallCount);
-                Assert.IsTrue(window.IsVisible);
-                Assert.AreEqual(draftValue, context.Settings.ShowRecommUpdatedMsg);
-                Assert.IsTrue(context.Settings.HasPendingSettingChanges());
-                if (success)
-                {
-                    Assert.AreEqual(1, context.PlayHistory.InvalidationCount);
-                    Assert.AreEqual(1, context.ReloadCount());
-                    AssertInstalledSchema(scoreDbPath, expectedInstalled: false);
-                    Assert.AreEqual(Resources.Msg_success_lr2_play_history_schema_uninstall, dialogs.Messages.Single().MessageBoxText);
-                }
-                else
-                {
-                    Assert.AreEqual(0, context.PlayHistory.InvalidationCount);
-                    Assert.AreEqual(0, context.ReloadCount());
-                    AssertInstalledSchema(scoreDbPath, expectedInstalled: true);
-                    StringAssert.Contains(dialogs.Messages.Single().MessageBoxText, Resources.Msg_error_unexpected);
-                }
-            }
-            finally
-            {
-                if (window?.IsVisible == true)
-                {
-                    window.CloseForOwnerShutdown();
-                }
-                context?.Settings.Dispose();
-                Directory.Delete(scope, recursive: true);
-            }
-        });
-    }
-
-    /// <summary>実アプリ由来データ削除の確認中は Close を拒否し、取消や store 失敗では Window と draft を保って schema 操作へ誤配送しないことを確認します。</summary>
-    [TestMethod]
-    // gate 付き確認取消と、承認後の store 失敗を比較する。
-    [DataRow(false)]
-    [DataRow(true)]
-    public void AdvancedDangerZone_ApplicationDataActualButtonPreservesCancelAndFailureContracts(bool storeFailure)
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
-            {
-                values.OperationModeLR2DB = true;
-                values.LR2SongDBPath = "song.db";
-            });
-            var dialogs = new DangerDialogService { HoldConfirmation = !storeFailure };
-            var schemaDialog = new DangerSchemaDialogPort();
-            var store = new DangerApplicationDataStore
-            {
-                Failure = storeFailure ? new InvalidOperationException("store failure") : null
-            };
-            DangerDialogContext context = CreateDangerDialog(values, dialogs, schemaDialog, store);
-            bool draftValue = !context.Settings.ShowRecommUpdatedMsg;
-            context.Settings.ShowRecommUpdatedMsg = draftValue;
-            var presentation = new RecordingPresentationPort();
-            context.Settings.AttachPresentationPort(presentation);
-            var window = new SettingsWindow { DataContext = context.Settings };
-            try
-            {
-                windowTest.ShowAndWaitForContentRendered(window);
-                ClickAdvancedDangerButton(window, Resources.Settings_uninstall_application_data);
-                Assert.AreEqual(0, schemaDialog.CallCount);
-
-                if (!storeFailure)
-                {
-                    Assert.IsTrue(dialogs.ConfirmationStarted.Task.IsCompletedSuccessfully);
-                    Assert.IsFalse(((Grid)window.FindName("settingDialogOperationGrid")).IsEnabled);
-                    window.Close();
-                    TestUiDispatcherHost.ProcessQueuedPresentation();
-                    Assert.AreEqual(0, presentation.CloseRequestCount);
-                    dialogs.CompleteConfirmation(MessageBoxResult.Cancel);
-                }
-
-                AwaitViewOperationTerminal(window);
-
-                Assert.IsTrue(window.IsVisible);
-                Assert.AreEqual(draftValue, context.Settings.ShowRecommUpdatedMsg);
-                Assert.IsTrue(context.Settings.HasPendingSettingChanges());
-                Assert.AreEqual(storeFailure ? 1 : 0, store.CallCount);
-                Assert.AreEqual(storeFailure ? 1 : 0, dialogs.Messages.Count);
-                if (storeFailure)
-                {
-                    StringAssert.Contains(dialogs.Messages[0].MessageBoxText, Resources.Msg_failed_uninstall);
-                }
-            }
-            finally
-            {
-                dialogs.CompleteConfirmation(MessageBoxResult.Cancel);
-                AwaitViewOperationTerminal(window);
-                if (window.IsVisible)
-                {
-                    window.CloseForOwnerShutdown();
-                }
-                context.Settings.Dispose();
-            }
-        });
-    }
 
     /// <summary>実削除ボタンから成功・終了通知、設定 Window の Close、標準 shell の停止準備・保存・終了要求まで順に接続されることを確認します。</summary>
     [TestMethod]
@@ -1695,11 +1844,11 @@ public sealed class SettingsWindowPresentationTests
                 string japaneseReleaseNotes = (string)releaseNotes.Content;
                 ((Button)window.FindName("buttonCancel")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual("en-US", values.Lang);
-                Assert.AreEqual("English", owner.SettingDialog.Language);
+                Assert.AreEqual("ja-JP", values.Lang);
+                Assert.AreEqual("Default(日本語)", owner.SettingDialog.Language);
                 Assert.AreEqual(Resources.Settings_window_title, window.Title);
                 Assert.AreEqual(Resources.About_release_notes_button, releaseNotes.Content);
-                Assert.AreNotEqual(japaneseReleaseNotes, releaseNotes.Content);
+                Assert.AreEqual(japaneseReleaseNotes, releaseNotes.Content);
             }
             finally
             {
@@ -1820,6 +1969,8 @@ public sealed class SettingsWindowPresentationTests
             {
                 windowTest.ShowAndWaitForContentRendered(window);
                 var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                foreach (Expander details in FindDescendants<Expander>(page).ToArray()) { details.IsExpanded = true; }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 string[] statusProperties =
                 [
                     nameof(SettingsDialogViewModel.Lr2SongDbPathStatusText),
@@ -1994,315 +2145,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>実音声テスト中は編集・保存・取消・重複・native Close を拒否して dispatcher を進め、終了後に操作を復帰し owner Close 後の次結果は表示しないことを確認します。</summary>
-    [TestMethod]
-    public void SettingsWindow_BlocksUserOperationsKeepsDispatcherResponsiveAndSuppressesResultAfterOwnerShutdown()
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            BassAudioRuntime.Initialize();
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
-            {
-                values.OperationModeLR2DB = false;
-                values.BMSRootPath = Path.GetTempPath();
-                values.StandaloneBmsRootPaths = Path.GetTempPath();
-                values.BMSInstallDir = Path.GetTempPath();
-                values.ScanBmsFilesOnStartup = false;
-                values.SkipInitPlaylistLoad = true;
-                values.UsePlayeruBMplay = false;
-                values.UsePlayerLR2body = false;
-                values.UsePlayerBMIIDXView = false;
-            });
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
-            using BeMusicSeeker.ViewModels.SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
-            owner.SettingDialog.Dispose();
-            var runtime = new GatedAudioDeviceTestRuntime();
-            var workflow = new AudioDeviceTestWorkflowOwner(
-                new NoOpAudioDeviceTestPlaybackPort(),
-                runtime,
-                new DelegateAudioDeviceCapabilityRuntime(request => new AudioDeviceCapabilityResult(
-                    request.Backend,
-                    request.DeviceIdentity,
-                    request.DeviceName,
-                    AudioDeviceCapabilityStatus.Available,
-                    [SampleRate.SAMPLE_RATE_44100Hz])));
-            var settingsEditSession = new CountingAudioSettingsEditSession(settings);
-            var dialog = new SettingsDialogViewModel(
-                owner,
-                owner.PlaylistWorkspace,
-                owner.PlaylistWorkspace,
-                owner.PlayHistory,
-                owner.LibraryFolderTree,
-                new TestSettingsDialogPlayerFactoryPort(),
-                new TestSettingsDialogPlaybackRuntimePort(),
-                owner.Lr2SongDbSyncWorkflow,
-                settingsEditSession,
-                schemaDialogs: new UiDialogCoordinator(),
-                applicationLifetime: TestApplicationContext.CreateLifetime(),
-                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                audioDeviceTestWorkflow: workflow,
-                externalShellGateway: ExternalShellGatewayPolicy.Current,
-                applicationPathSnapshot: ApplicationPathPolicy.Current,
-                audioDeviceCatalog: new TestAudioDeviceCatalog(),
-                audioSettingsGateway: new TestAudioSettingsGateway());
-            var capabilityReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var firstTestReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var secondTestReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            int releasedOperations = 0;
-            workflow.OperationReleased += () =>
-            {
-                int release = Interlocked.Increment(ref releasedOperations);
-                if (release == 1)
-                {
-                    capabilityReleased.TrySetResult();
-                }
-                else if (release == 2)
-                {
-                    firstTestReleased.TrySetResult();
-                }
-                else if (release == 3)
-                {
-                    secondTestReleased.TrySetResult();
-                }
-            };
-            var resultDisplayed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var secondTestPresentationEnded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            dialog.PropertyChanged += (_, args) =>
-            {
-                if (args.PropertyName == nameof(SettingsDialogViewModel.AudioDeviceTestStatusMessage)
-                    && dialog.AudioDeviceTestStatusMessage != null)
-                {
-                    resultDisplayed.TrySetResult();
-                }
-                if (args.PropertyName == nameof(SettingsDialogViewModel.IsAudioDeviceTestInProgress)
-                    && !dialog.IsAudioDeviceTestInProgress
-                    && runtime.CallCount == 2)
-                {
-                    secondTestPresentationEnded.TrySetResult();
-                }
-            };
-            var window = new SettingsWindow
-            {
-                DataContext = dialog,
-                PlaybackPanel = owner.PlaybackPanel
-            };
-            try
-            {
-                windowTest.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAudio");
-                window.UpdateLayout();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    capabilityReleased.Task,
-                    "audio-settings-capability-query-release");
 
-                var testButton = (Button)((AudioSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content)
-                    .FindName("buttonPlayerTest");
-                Assert.IsTrue(testButton.IsEnabled);
-                testButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, testButton));
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(runtime.Started.Task, "audio-device-test-runtime-start");
-
-                var root = (Grid)window.FindName("settingDialogRootGrid");
-                var saveButton = (Button)window.FindName("buttonOK");
-                var cancelButton = (Button)window.FindName("buttonCancel");
-                var page = (AudioSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
-                var driverSelector = (ComboBox)page.FindName("comboBoxPlayerDriver");
-                var rateSelector = (ComboBox)page.FindName("comboBoxPlayerSampleRate");
-                var formatSelector = (ComboBox)page.FindName("comboBoxPlayerFormat");
-                var audioNavigation = (ListBox)window.FindName("settingsNavigation");
-
-                Assert.IsTrue(window.IsEnabled);
-                Assert.IsFalse(root.IsEnabled);
-                Assert.IsFalse(saveButton.IsEnabled);
-                Assert.IsFalse(cancelButton.IsEnabled);
-                Assert.IsFalse(testButton.IsEnabled);
-                Assert.IsFalse(driverSelector.IsEnabled);
-                Assert.IsFalse(rateSelector.IsEnabled);
-                Assert.IsFalse(formatSelector.IsEnabled);
-                Assert.IsFalse(audioNavigation.IsEnabled);
-                Assert.IsFalse(dialog.IsEditCompletionEnabled);
-                Assert.IsFalse(dialog.IsEditCancellationEnabled);
-                Assert.IsTrue(dialog.IsAudioDeviceTestInProgress);
-
-                var dispatcherProgressed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                window.Dispatcher.BeginInvoke(
-                    DispatcherPriority.Background,
-                    (Action)(() => dispatcherProgressed.TrySetResult()));
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    dispatcherProgressed.Task,
-                    "audio-device-test-dispatcher-progress");
-
-                window.Close();
-                Assert.IsTrue(window.IsVisible, "User close must be rejected while the device test owns audio resources.");
-                dialog.CancelCommand.Execute();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    dialog.ApplySettingsAsync(),
-                    "audio-device-test-blocked-save");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    dialog.RunAudioDeviceTestAsync(),
-                    "audio-device-test-duplicate-rejected");
-                Assert.AreEqual(0, settingsEditSession.SaveCount);
-                Assert.AreEqual(1, runtime.CallCount);
-                Assert.IsTrue(window.IsVisible);
-                Assert.IsTrue(dialog.IsAudioDeviceTestInProgress);
-
-                runtime.Release();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(firstTestReleased.Task, "audio-device-test-operation-release");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(resultDisplayed.Task, "audio-device-test-result-display");
-
-                Assert.IsFalse(dialog.IsAudioDeviceTestInProgress);
-                Assert.IsTrue(root.IsEnabled);
-                Assert.IsTrue(saveButton.IsEnabled);
-                Assert.IsTrue(cancelButton.IsEnabled);
-                Assert.IsTrue(testButton.IsEnabled);
-                Assert.IsTrue(dialog.IsEditCompletionEnabled);
-                Assert.IsTrue(dialog.IsEditCancellationEnabled);
-                Assert.AreEqual(1, runtime.CallCount);
-
-                testButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, testButton));
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    runtime.SecondStarted.Task,
-                    "audio-device-test-runtime-start-before-owner-shutdown");
-                Assert.IsTrue(dialog.IsAudioDeviceTestInProgress);
-                Assert.IsNull(dialog.AudioDeviceTestStatusMessage);
-
-                window.CloseForOwnerShutdown();
-                Assert.IsFalse(window.IsVisible);
-                Assert.AreEqual(SettingsWindowCloseReason.OwnerShutdown, window.CloseReason);
-                Assert.IsNull(window.DataContext);
-
-                runtime.ReleaseSecond();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    secondTestReleased.Task,
-                    "audio-device-test-operation-release-after-owner-shutdown");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    secondTestPresentationEnded.Task,
-                    "audio-device-test-presentation-end-after-owner-shutdown");
-                Assert.IsFalse(dialog.IsAudioDeviceTestInProgress);
-                Assert.AreEqual(2, runtime.CallCount);
-                Assert.IsNull(dialog.AudioDeviceTestStatusMessage);
-            }
-            finally
-            {
-                runtime.Release();
-                runtime.ReleaseSecond();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "audio-device-test-final-task");
-                if (runtime.Started.Task.IsCompleted)
-                {
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(firstTestReleased.Task, "audio-device-test-cleanup-release");
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(resultDisplayed.Task, "audio-device-test-cleanup-result");
-                }
-                if (runtime.SecondStarted.Task.IsCompleted)
-                {
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                        secondTestReleased.Task,
-                        "audio-device-test-cleanup-second-release");
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                        secondTestPresentationEnded.Task,
-                        "audio-device-test-cleanup-second-presentation-end");
-                }
-                if (window.IsVisible)
-                {
-                    window.CloseForOwnerShutdown();
-                }
-                dialog.Dispose();
-                owner.SettingDialog.Dispose();
-            }
-        });
-    }
-
-    /// <summary>一覧取得をworkerで保留しても実ページの切替・編集・通常Closeを処理し、取得完了を待たずにDataContextを解除します。</summary>
-    /// <remarks>実DispatcherとBAMLの操作可否・Cancel/Close接続を確認し、保存値の条件網羅は音声一覧ownerテストに分担します。</remarks>
-    [TestMethod]
-    public void AudioListRefresh_KeepsNavigationEditingAndOrdinaryCloseResponsive()
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            string previousTheme = Settings.Default.AppearanceTheme;
-            System.Globalization.CultureInfo? previousCulture = Resources.Culture;
-            using var release = new ManualResetEventSlim();
-            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var catalog = new TestAudioDeviceCatalog
-            {
-                RefreshAction = () => { started.TrySetResult(); release.Wait(); }
-            };
-            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings();
-            using SettingsDialogViewModel dialog = AudioDeviceListRefreshTests.CreateDialog(values, catalog,
-                new AudioOutputSelection(AudioDriver.WasapiExclusive, "missing", "Missing device"));
-            Logger logger = Ribbit.Logging.NLogWrapper.GetLogger(typeof(SettingsWindowPresentationTests));
-            FieldInfo fileLoggerProvider = typeof(Ribbit.Logging.NLogWrapper)
-                .GetField("_FileLogger", BindingFlags.Static | BindingFlags.NonPublic)
-                ?? throw new AssertFailedException("File logger provider is unavailable.");
-            object? previousFileLogger = fileLoggerProvider.GetValue(null);
-            LoggingConfiguration? previousLogging = LogManager.Configuration;
-            using var logs = new MemoryTarget { Layout = "${message}" };
-            SettingsWindow? window = null;
-            try
-            {
-                var configuration = new LoggingConfiguration();
-                configuration.AddRule(LogLevel.Info, LogLevel.Fatal, logs, logger.Name);
-                LogManager.Configuration = configuration;
-                fileLoggerProvider.SetValue(null, (Func<Logger>)(() => logger));
-                long requested = Stopwatch.GetTimestamp();
-                window = new SettingsWindow { DataContext = dialog };
-                window.SetPresentationRequestedTimestamp(requested);
-                dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
-                {
-                    if (request == "close") { window.CloseFromPresentation(); }
-                }));
-                window.Closed += (_, _) => closed.TrySetResult();
-                windowTest.ShowAndWaitForContentRendered(window);
-                Assert.AreEqual(0, catalog.RefreshCount);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                navigation.SelectedItem = window.FindName("navigationAudio");
-                window.UpdateLayout();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(started.Task, "audio-list-window-started");
-                var page = (AudioSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
-                Assert.IsFalse(((Button)page.FindName("buttonPlayerTest")).IsEnabled);
-                Assert.IsTrue(((ComboBox)page.FindName("comboBoxPlayerDriver")).IsEnabled);
-                Assert.IsTrue(((Button)window.FindName("buttonOK")).IsEnabled);
-                Assert.IsTrue(((Button)window.FindName("buttonCancel")).IsEnabled);
-                navigation.SelectedItem = window.FindName("navigationGeneral");
-                window.UpdateLayout();
-                Assert.IsInstanceOfType<GeneralSettingsPage>(((ContentControl)window.FindName("settingsPageContent")).Content);
-                dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
-                Assert.IsTrue(dialog.HasPendingSettingChanges());
-                window.Close();
-                TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "audio-list-ordinary-close");
-                Assert.IsNull(window.DataContext);
-                Assert.IsFalse(dialog.AudioSettingsCompletionTask.IsCompleted);
-                release.Set();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "audio-list-closed-consumer");
-                Assert.IsNull(window.DataContext);
-                Assert.AreEqual(1, catalog.RefreshCount);
-                Assert.IsTrue(logs.Logs.Any(message => message.Contains("settings_dialog_first_render")
-                    && message.Contains("requestToFirstRenderMs=")));
-                Assert.IsTrue(logs.Logs.Any(message => message.Contains("settings_audio_device_list_worker")));
-                Assert.IsTrue(logs.Logs.Any(message => message.Contains("settings_window_construct")));
-                Assert.IsTrue(logs.Logs.Any(message => message.Contains("settings_page_construct_start")));
-                Assert.IsTrue(logs.Logs.Any(message => message.Contains("settings_page_construct_end")));
-            }
-            finally
-            {
-                release.Set();
-                try
-                {
-                    if (window?.IsVisible == true) { window.CloseForOwnerShutdown(); }
-                    dialog.SetPresentationActive(false);
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "audio-list-window-cleanup");
-                }
-                finally
-                {
-                    fileLoggerProvider.SetValue(null, previousFileLogger);
-                    LogManager.Configuration = previousLogging;
-                    Settings.Default.AppearanceTheme = previousTheme;
-                    AppThemeService.ApplyTheme(previousTheme);
-                    if (previousCulture is null) { Resources.Culture = null; }
-                    else { ResourceService.Current.ChangeCulture(previousCulture.Name); }
-                }
-            }
-        });
-    }
 
     /// <summary>実MainWindow Closeは受理済み音声テストまたは一覧取得の実終端まで保存とruntime停止を待ち、閉じた設定画面へ結果を戻しません。</summary>
     /// <remarks>実shellのClose接続を観測し、native列挙自体のlease保証は既存音声runtimeテストに委ねます。</remarks>
@@ -2619,7 +2462,7 @@ public sealed class SettingsWindowPresentationTests
 
     /// <summary>後から実 Appearance ページでDarkを選び、未訪問ページが現在のthemeとdraftで初めて生成され、取消でLightへ戻ることを確認します。</summary>
     [TestMethod]
-    public void SettingsWindow_AppearanceThemeBindingSurvivesDeferredPageConnectionAndCancelRollback()
+    public void SettingsWindow_AppearanceThemeBindingSurvivesDeferredPageConnectionAndClose()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -2681,10 +2524,10 @@ public sealed class SettingsWindowPresentationTests
                 ((Button)window.FindName("buttonCancel")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
-                Assert.AreEqual(AppThemeService.Light, settings.AppearanceTheme);
-                Assert.AreEqual(AppThemeService.Light, Settings.Default.AppearanceTheme);
-                Assert.AreEqual(AppThemeService.Light, GetAppliedApplicationTheme());
-                Assert.AreEqual(false, selector.IsChecked);
+                Assert.AreEqual(AppThemeService.Dark, settings.AppearanceTheme);
+                Assert.AreEqual(AppThemeService.Dark, Settings.Default.AppearanceTheme);
+                Assert.AreEqual(AppThemeService.Dark, GetAppliedApplicationTheme());
+                Assert.AreEqual(true, selector.IsChecked);
                 Assert.IsTrue(BindingOperations.IsDataBound(selector, ToggleButton.IsCheckedProperty));
                 Assert.AreEqual(BindingStatus.Active, selector.GetBindingExpression(ToggleButton.IsCheckedProperty)?.Status);
             }
@@ -2799,7 +2642,7 @@ public sealed class SettingsWindowPresentationTests
 
     /// <summary>実 Slider の値が main と playlist summary の実 table へ preview され、既定復元と取消で両 table が対応する設定値へ戻ることを確認します。</summary>
     [TestMethod]
-    public void SettingsWindow_AppearanceControlsPreviewThroughMainViewSettingsAndCancelRollback()
+    public void SettingsWindow_AppearanceControlsPersistThroughMainViewSettingsAndClose()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -2859,6 +2702,9 @@ public sealed class SettingsWindowPresentationTests
                 sliders["CustomTableFontSize"].Value = 14d;
                 sliders["CustomTableRowHeight"].Value = 31d;
                 sliders["CustomTableHeaderHeight"].Value = 37d;
+                Assert.AreEqual(savedFontSize, owner.ViewSettings.CustomTableFontSize);
+                foreach (Slider slider in sliders.Values)
+                { slider.RaiseEvent(new System.Windows.Controls.Primitives.DragCompletedEventArgs(0, 0, false) { RoutedEvent = System.Windows.Controls.Primitives.Thumb.DragCompletedEvent, Source = slider }); }
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.AreEqual(14d, owner.ViewSettings.CustomTableFontSize);
@@ -2887,15 +2733,15 @@ public sealed class SettingsWindowPresentationTests
 
                 ((Button)window.FindName("buttonCancel")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual(savedFontSize, owner.ViewSettings.CustomTableFontSize);
-                Assert.AreEqual(savedRowHeight, owner.ViewSettings.CustomTableRowHeight);
-                Assert.AreEqual(savedHeaderHeight, owner.ViewSettings.CustomTableHeaderHeight);
-                Assert.AreEqual(savedFontSize, mainTable!.TextFontSize);
-                Assert.AreEqual(savedRowHeight, mainTable!.RowHeight);
-                Assert.AreEqual(savedHeaderHeight, mainTable!.HeaderHeight);
-                Assert.AreEqual(savedFontSize, playlistSummaryTable!.TextFontSize);
-                Assert.AreEqual(savedRowHeight, playlistSummaryTable!.RowHeight);
-                Assert.AreEqual(savedHeaderHeight, playlistSummaryTable!.HeaderHeight);
+                Assert.AreEqual(Settings.DefaultCustomTableFontSize, owner.ViewSettings.CustomTableFontSize);
+                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, owner.ViewSettings.CustomTableRowHeight);
+                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, owner.ViewSettings.CustomTableHeaderHeight);
+                Assert.AreEqual(Settings.DefaultCustomTableFontSize, mainTable!.TextFontSize);
+                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, mainTable!.RowHeight);
+                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, mainTable!.HeaderHeight);
+                Assert.AreEqual(Settings.DefaultCustomTableFontSize, playlistSummaryTable!.TextFontSize);
+                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, playlistSummaryTable!.RowHeight);
+                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, playlistSummaryTable!.HeaderHeight);
 
             }
             catch (Exception exception)
@@ -3075,6 +2921,8 @@ public sealed class SettingsWindowPresentationTests
                 };
                 windowTest.ShowAndWaitForContentRendered(window);
                 var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                foreach (Expander details in FindDescendants<Expander>(page).ToArray()) { details.IsExpanded = true; }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 SettingsPathPicker configPathPicker = FindDescendants<SettingsPathPicker>(page).Single(picker =>
                     picker.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == nameof(settings.LR2ConfigXmlPath));
                 TextBox configPathTextBox = FindDescendants<TextBox>(configPathPicker).Single();
@@ -3347,6 +3195,9 @@ public sealed class SettingsWindowPresentationTests
                 MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
                 using SettingsDialogViewModel ownedDialogLifetime = mainViewModel.SettingDialog;
                 settings = mainViewModel.SettingDialog;
+                MainWindowViewModelTestFactory.GetComposition(mainViewModel).SettingsEditSession.Values.LR2RootPath = root;
+                MainWindowViewModelTestFactory.GetComposition(mainViewModel).SettingsEditSession.Values.LR2SongDBPath = standardSong;
+                MainWindowViewModelTestFactory.GetComposition(mainViewModel).SettingsEditSession.Values.LR2ConfigXmlPath = standardConfig;
                 settings.LR2RootPath = root;
                 settings.OperationModeLR2DB = true;
                 Assert.AreEqual(standardSong, settings.LR2SongDBPath);
@@ -3370,6 +3221,13 @@ public sealed class SettingsWindowPresentationTests
                 windowTest.ShowAndWaitForContentRendered(window);
 
                 var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                Expander pathDetails = FindDescendants<Expander>(page).Single(details => details.Content is DependencyObject contents
+                    && FindDescendants<SettingsPathPicker>(contents).Any(candidate =>
+                        candidate.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.LR2SongDBPath)));
+                Assert.IsFalse(pathDetails.IsExpanded);
+                pathDetails.IsExpanded = true;
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 SettingsPathPicker[] lr2PathPickers = FindDescendants<SettingsPathPicker>(page)
                     .Where(picker => picker.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path
                         is nameof(SettingsDialogViewModel.LR2RootPath)
@@ -3380,6 +3238,8 @@ public sealed class SettingsWindowPresentationTests
 
                 SettingsPathPicker picker = lr2PathPickers.Single(candidate =>
                     candidate.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == propertyName);
+                picker.ApplyTemplate();
+                picker.UpdateLayout();
                 Assert.IsTrue(picker.IsPathReadOnly);
                 Assert.IsTrue(FindDescendants<TextBox>(picker).Single().IsReadOnly);
                 Button browseButton = FindDescendants<Button>(picker)
@@ -3452,95 +3312,6 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>root 由来と個別設定由来の両 path status が言語変更へ追従し、表示更新を理由に root／DB／config の選択を変更しないことを確認します。</summary>
-    [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void SettingsWindow_Lr2PathSourceStatusUpdatesWhenLanguageChanges(bool useIndividualPaths)
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            string scope = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingsLr2StatusCulture_" + Guid.NewGuid().ToString("N"));
-            string previousCulture = Resources.Culture?.Name ?? "ja-JP";
-            SettingsWindow? window = null;
-            SettingsDialogViewModel? settings = null;
-            try
-            {
-                string root = Path.Combine(scope, "root");
-                string standardSong = Path.Combine(root, "LR2files", "Database", "song.db");
-                string standardConfig = Path.Combine(root, "LR2files", "Config", "config.xml");
-                Directory.CreateDirectory(Path.GetDirectoryName(standardSong)!);
-                Directory.CreateDirectory(Path.GetDirectoryName(standardConfig)!);
-                File.WriteAllBytes(standardSong, []);
-                File.WriteAllText(standardConfig, "<config><system /><jukebox /></config>");
-                File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
-
-                MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-                using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
-                settings = owner.SettingDialog;
-                settings.LR2RootPath = root;
-                settings.OperationModeLR2DB = true;
-                if (useIndividualPaths)
-                {
-                    string individualSong = Path.Combine(scope, "songs.db");
-                    string individualConfig = Path.Combine(scope, "config.xmh");
-                    File.Copy(standardSong, individualSong);
-                    File.Copy(standardConfig, individualConfig);
-                    settings.SetFilePathFromPicker(nameof(settings.LR2SongDBPath), individualSong);
-                    settings.SetFilePathFromPicker(nameof(settings.LR2ConfigXmlPath), individualConfig);
-                }
-                string songPath = settings.LR2SongDBPath;
-                string configPath = settings.LR2ConfigXmlPath;
-                ResourceService.Current.ChangeCulture("en-US");
-                window = new SettingsWindow
-                {
-                    DataContext = settings,
-                    Width = 820,
-                    Height = 600
-                };
-                windowTest.ShowAndWaitForContentRendered(window);
-                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
-                SettingsStatusBanner songStatus = FindDescendants<SettingsStatusBanner>(page).Single(banner =>
-                    banner.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path
-                        == nameof(SettingsDialogViewModel.Lr2SongDbPathStatusText));
-                SettingsStatusBanner configStatus = FindDescendants<SettingsStatusBanner>(page).Single(banner =>
-                    banner.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path
-                        == nameof(SettingsDialogViewModel.Lr2ConfigPathStatusText));
-                string englishStatus = useIndividualPaths
-                    ? Resources.Settings_path_detected_from_individual_setting
-                    : Resources.Settings_path_detected_from_lr2_root;
-                Assert.AreEqual(englishStatus, songStatus.Content);
-                Assert.AreEqual(englishStatus, configStatus.Content);
-
-                ResourceService.Current.ChangeCulture("ja-JP");
-                TestUiDispatcherHost.ProcessQueuedPresentation();
-
-                string japaneseStatus = useIndividualPaths
-                    ? Resources.Settings_path_detected_from_individual_setting
-                    : Resources.Settings_path_detected_from_lr2_root;
-                Assert.AreNotEqual(englishStatus, japaneseStatus);
-                Assert.AreEqual(japaneseStatus, songStatus.Content);
-                Assert.AreEqual(japaneseStatus, configStatus.Content);
-                Assert.AreEqual(root, settings.LR2RootPath);
-                Assert.AreEqual(songPath, settings.LR2SongDBPath);
-                Assert.AreEqual(configPath, settings.LR2ConfigXmlPath);
-            }
-            finally
-            {
-                if (window?.IsVisible == true)
-                {
-                    window.CloseForOwnerShutdown();
-                }
-                settings?.ResetSettings();
-                settings?.Dispose();
-                ResourceService.Current.ChangeCulture(previousCulture);
-                if (Directory.Exists(scope))
-                {
-                    Directory.Delete(scope, recursive: true);
-                }
-            }
-        });
-    }
 
     /// <summary>個別 path の警告確認を gate で保持しても dispatcher の別処理を進め、取消後は file picker を開始せず実 Task を完了することを確認します。</summary>
     [TestMethod]
@@ -3657,6 +3428,8 @@ public sealed class SettingsWindowPresentationTests
                 {
                     windowTest.ShowAndWaitForContentRendered(window);
                     var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                    foreach (Expander details in FindDescendants<Expander>(page).ToArray()) { details.IsExpanded = true; }
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                     SettingsPathPicker picker = FindDescendants<SettingsPathPicker>(page).Single(candidate =>
                         candidate.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path
                             == nameof(SettingsDialogViewModel.LR2SongDBPath));
@@ -3808,16 +3581,19 @@ public sealed class SettingsWindowPresentationTests
         DangerDialogService dialogs,
         DangerSchemaDialogPort schemaDialog,
         DangerApplicationDataStore store,
-        IApplicationLifetimePort? applicationLifetime = null)
+        IApplicationLifetimePort? applicationLifetime = null,
+        DangerWorkspacePort? workspace = null,
+        DangerStatePort? statePort = null,
+        Action<Exception>? reportFailure = null)
     {
         int reloadCount = 0;
-        var statePort = new DangerStatePort(
+        statePort ??= new DangerStatePort(
             reloadScoresOnly: () =>
             {
                 reloadCount++;
                 return Task.CompletedTask;
             });
-        var workspace = new DangerWorkspacePort();
+        workspace ??= new DangerWorkspacePort();
         var playHistory = new DangerPlayHistoryPort();
         var settings = new SettingsDialogViewModel(
             statePort,
@@ -3829,6 +3605,7 @@ public sealed class SettingsWindowPresentationTests
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
             settingsEditSession,
+            reportApplyFailure: reportFailure,
             schemaDialogs: dialogs,
             schemaWindowDialogs: schemaDialog,
             applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(dialogs, store),
@@ -3971,19 +3748,7 @@ public sealed class SettingsWindowPresentationTests
     /// <summary>compiled schema操作の必須処理後に画面の操作受付が復帰した通知を待ちます。</summary>
     private static void AwaitViewOperationTerminal(SettingsWindow window)
     {
-        var grid = (Grid)window.FindName("settingDialogOperationGrid");
-        if (grid.IsEnabled) { return; } // 同期完了した操作は呼出し復帰時に既に終端です。
-        var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        DependencyPropertyChangedEventHandler ended = (_, _) =>
-        {
-            if (grid.IsEnabled) { terminal.TrySetResult(); }
-        };
-        grid.IsEnabledChanged += ended;
-        try
-        {
-            TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal.Task, "settings-view-operation-guard-reopened");
-        }
-        finally { grid.IsEnabledChanged -= ended; }
+        TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "settings-view-operation-terminal");
     }
 
     private static void AssertInstalledSchema(string scoreDbPath, bool expectedInstalled)
@@ -3994,132 +3759,6 @@ public sealed class SettingsWindowPresentationTests
         Assert.AreEqual(expectedInstalled, objectCount > 0);
     }
 
-    private static void AssertPlaylistUriValidationClearedOnReopen(PlaylistUriCompletionRoute completionRoute)
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            SettingsDialogViewModel settings = owner.SettingDialog;
-            if (completionRoute == PlaylistUriCompletionRoute.SaveButton)
-            {
-                typeof(MainWindowViewModel)
-                    .GetField("hasActiveLibraryProfile", BindingFlags.Instance | BindingFlags.NonPublic)!
-                    .SetValue(owner, true);
-            }
-
-            var presentationPort = new RecordingPresentationPort();
-            settings.AttachPresentationPort(presentationPort);
-            Uri tableListUriBefore = settings.TableListURL;
-            string mappingUriBefore = settings.PlaylistMd5UrlMappingTsvUri;
-            SettingsWindow? firstPresentation = null;
-            SettingsWindow? reopenedPresentation = null;
-            try
-            {
-                firstPresentation = new SettingsWindow { DataContext = settings };
-                presentationPort.CloseAction = firstPresentation!.CloseFromPresentation;
-                windowTest.ShowAndWaitForContentRendered(firstPresentation!);
-                SeedTransientPlaylistUriValidation(settings);
-
-                Assert.IsFalse(settings.HasPendingSettingChanges(),
-                    "Invalid URI input must not mutate the settings draft.");
-                var navigation = (ListBox)firstPresentation!.FindName("settingsNavigation");
-                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationPlaylist");
-                TestUiDispatcherHost.ProcessQueuedPresentation();
-                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationGeneral");
-                TestUiDispatcherHost.ProcessQueuedPresentation();
-                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationPlaylist");
-                TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.IsFalse(string.IsNullOrWhiteSpace(settings.TableListUriValidationMessage));
-                Assert.IsFalse(string.IsNullOrWhiteSpace(settings.PlaylistMd5UrlMappingTsvUriValidationMessage));
-
-                var firstClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                EventHandler firstClosedHandler = (_, _) => firstClosed.TrySetResult();
-                firstPresentation!.Closed += firstClosedHandler;
-                try
-                {
-                    switch (completionRoute)
-                    {
-                        case PlaylistUriCompletionRoute.CancelButton:
-                            ((Button)firstPresentation!.FindName("buttonCancel"))
-                                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                            break;
-                        case PlaylistUriCompletionRoute.SaveButton:
-                            ((Button)firstPresentation!.FindName("buttonOK"))
-                                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                            break;
-                        case PlaylistUriCompletionRoute.NativeClose:
-                            firstPresentation!.Close();
-                            break;
-                        default:
-                            Assert.Fail("Unsupported URI completion route: " + completionRoute);
-                            break;
-                    }
-                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(firstClosed.Task, "settings-first-presentation-closed");
-                }
-                finally { firstPresentation.Closed -= firstClosedHandler; }
-                Assert.IsFalse(settings.IsEditCompletionInProgress);
-                Assert.IsFalse(settings.HasPendingSettingChanges());
-                Assert.AreEqual(1, presentationPort.CloseRequestCount);
-                Assert.AreEqual(
-                    completionRoute == PlaylistUriCompletionRoute.SaveButton
-                        ? SettingsWindowCloseReason.Apply
-                        : SettingsWindowCloseReason.Cancel,
-                    firstPresentation!.CloseReason);
-                Assert.IsNull(firstPresentation!.DataContext);
-                Assert.IsFalse(string.IsNullOrWhiteSpace(settings.TableListUriValidationMessage),
-                    "Closing a presentation must not hide the transient message before the next activation.");
-                firstPresentation = null;
-
-                var changedProperties = new List<string>();
-                PropertyChangedEventHandler propertyChanged = (_, e) => changedProperties.Add(e.PropertyName ?? string.Empty);
-                settings.PropertyChanged += propertyChanged;
-                try
-                {
-                    reopenedPresentation = new SettingsWindow { DataContext = settings };
-                    presentationPort.CloseAction = reopenedPresentation!.CloseFromPresentation;
-                    windowTest.ShowAndWaitForContentRendered(reopenedPresentation!);
-                }
-                finally
-                {
-                    settings.PropertyChanged -= propertyChanged;
-                }
-
-                Assert.AreEqual(string.Empty, settings.TableListUriValidationMessage);
-                Assert.AreEqual(string.Empty, settings.PlaylistMd5UrlMappingTsvUriValidationMessage);
-                CollectionAssert.Contains(changedProperties, nameof(settings.TableListUriValidationMessage));
-                CollectionAssert.Contains(changedProperties, nameof(settings.PlaylistMd5UrlMappingTsvUriValidationMessage));
-                Assert.AreEqual(tableListUriBefore, settings.TableListURL);
-                Assert.AreEqual(mappingUriBefore, settings.PlaylistMd5UrlMappingTsvUri);
-                Assert.IsFalse(settings.HasPendingSettingChanges());
-                var reopenedClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                EventHandler reopenedClosedHandler = (_, _) => reopenedClosed.TrySetResult();
-                reopenedPresentation!.Closed += reopenedClosedHandler;
-                try
-                {
-                    ((Button)reopenedPresentation!.FindName("buttonCancel"))
-                        .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(reopenedClosed.Task, "settings-reopened-presentation-closed");
-                }
-                finally { reopenedPresentation.Closed -= reopenedClosedHandler; }
-                Assert.AreEqual(2, presentationPort.CloseRequestCount);
-                Assert.AreEqual(SettingsWindowCloseReason.Cancel, reopenedPresentation!.CloseReason);
-                Assert.IsNull(reopenedPresentation!.DataContext);
-                reopenedPresentation = null;
-            }
-            finally
-            {
-                if (firstPresentation?.IsVisible == true)
-                {
-                    firstPresentation.CloseFromPresentation();
-                }
-
-                if (reopenedPresentation?.IsVisible == true)
-                {
-                    reopenedPresentation.CloseFromPresentation();
-                }
-            }
-        });
-    }
 
     private static void SeedTransientPlaylistUriValidation(SettingsDialogViewModel settings)
     {
@@ -4433,267 +4072,6 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>初回保存は実設定 modal を閉じてから owned 完了案内と初期化へ進み、設定再要求なら fresh modal を開き、成功／終了要求なら旧画面を再表示しないことを確認します。</summary>
-    [DataTestMethod]
-    // 初期化成功・設定再要求・終了要求で modal 再表示の条件を分ける。
-    [DataRow(true, false)]
-    [DataRow(false, false)]
-    [DataRow(false, true)]
-    [DoNotParallelize]
-    public void MainWindow_InitialSettingsCloseBeforeRealCompletionMessageAndRecoverAfterInitialization(
-        bool initializationSucceeds,
-        bool shutdownRequested)
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            string root = Path.Combine(Path.GetTempPath(), "BmsInitialSettings-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(root);
-            var events = new List<string>();
-            var lifetime = new DangerApplicationLifetime(events, firstStartup: true);
-            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
-            {
-                values.OperationModeLR2DB = false;
-                values.BMSRootPath = string.Empty;
-                values.StandaloneBmsRootPaths = string.Empty;
-                values.BMSInstallDir = string.Empty;
-                values.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
-                values.EnablePlaylistUrlCompletion = false;
-                values.ScanBmsFilesOnStartup = false;
-                values.SkipInitPlaylistLoad = true;
-                values.UseBeatorajaScoreDb = false;
-                values.EnableBeatorajaBmtOutput = false;
-                values.UseExternalPanelImage = false;
-                values.UsePlayeruBMplay = false;
-                values.UsePlayerLR2body = false;
-                values.UsePlayerBMIIDXView = false;
-                values.IsLR2BackupEnabled = false;
-                values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
-            });
-            var session = new DangerSettingsEditSession(values, events);
-            var initializeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var initializeReleased = new TaskCompletionSource<StartupInitializationOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var reopened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var failures = new List<Exception>();
-            var windows = new List<SettingsWindow>();
-            MainWindow? mainWindow = null;
-            MainWindowViewModel? viewModel = null;
-            Window? notificationWindow = null;
-            Task? applyTask = null;
-            int notificationCount = 0;
-            int initializeCount = 0;
-            Visibility previousOverlay = Visibility.Collapsed;
-            ExceptionDispatchInfo? bodyFailure = null;
-            MainWindowTestLifetime? ownership = null;
-            Window? previousMainWindow = Application.Current.MainWindow;
-            var dialogs = new UiDialogCoordinator(new UiDialogOwnerResolver(), modal =>
-            {
-                notificationWindow = modal;
-                windowTest.PrepareForOwnedPresentation(modal);
-                modal.ContentRendered += (_, _) =>
-                {
-                    try
-                    {
-                        notificationCount++;
-                        Assert.IsTrue(modal.IsVisible);
-                        Assert.AreSame(mainWindow, modal.Owner);
-                        Assert.AreEqual(1, windows.Count);
-                        Assert.IsFalse(windows[0].IsVisible);
-                        Assert.IsNull(windows[0].DataContext);
-                        Assert.AreEqual(previousOverlay, mainWindow!.PlaybackOverlayVisibility);
-                        Assert.AreEqual(0, initializeCount);
-                        Assert.IsTrue(FindDescendants<TextBlock>(modal)
-                            .Any(text => text.Text == Resources.Msg_initsetting_completed));
-                        Button ok = FindDescendants<Button>(modal).Single(button =>
-                            AutomationProperties.GetAutomationId(button) == "ThemedMessageBoxOK");
-                        ok.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                    }
-                    catch (Exception exception)
-                    {
-                        failures.Add(exception);
-                        modal.Close();
-                    }
-                };
-                return UiDialogOwnerResolver.PushActiveModal(modal);
-            });
-            try
-            {
-                var composition = new ApplicationComposition(
-                    settingsEditSession: session,
-                    reportSettingsApplyFailure: failures.Add,
-                    uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
-                    applicationLifetime: lifetime,
-                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                    settingsDialogService: dialogs);
-                viewModel = composition.CreateMainWindowViewModelForTest();
-                ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
-                // 初回の設定不備までを実際の起動入口で終え、保存後の初期化だけをゲート付き入力に置換する。
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    viewModel.ShellActivationWorkflow.ActivateRenderedShell(() => { }, _ => { }, () => false),
-                    "initial-settings-required");
-                viewModel.SettingDialog.Dispose();
-                values.BMSRootPath = root;
-                values.StandaloneBmsRootPaths = root;
-                values.BMSInstallDir = root;
-                SettingsDialogViewModel settings = composition.CreateSettingDialogViewModel(
-                    new TestSettingsDialogStatePort(viewModel, async () =>
-                    {
-                        initializeCount++;
-                        Assert.AreEqual(1, notificationCount);
-                        Assert.IsFalse(notificationWindow!.IsVisible);
-                        Assert.IsFalse(windows[0].IsVisible);
-                        initializeStarted.TrySetResult();
-                        // 初期化の内部ではなく、返された結果に対する設定画面の方針を検証する。
-                        return new StartupInitializationResult(await initializeReleased.Task);
-                    }),
-                    viewModel.PlaylistWorkspace,
-                    viewModel.PlaylistWorkspace,
-                    viewModel.PlayHistory,
-                    viewModel.LibraryFolderTree,
-                    new TestSettingsDialogPlayerFactoryPort(),
-                    new TestSettingsDialogPlaybackRuntimePort(),
-                    viewModel.Lr2SongDbSyncWorkflow);
-                typeof(MainWindowViewModel).GetProperty(nameof(MainWindowViewModel.SettingDialog))!
-                    .SetValue(viewModel, settings);
-                settings.ShowRecommUpdatedMsg = !settings.ShowRecommUpdatedMsg;
-                bool savedValue = settings.ShowRecommUpdatedMsg;
-                Assert.IsTrue(settings.CheckValidation(out string validationError), validationError);
-                mainWindow = ownership.CreateWindow(() => new MainWindow(viewModel, window =>
-                {
-                    windows.Add(window);
-                    windowTest.PrepareForOwnedPresentation(window);
-                    window.ContentRendered += async (_, _) =>
-                    {
-                        try
-                        {
-                            if (windows.Count == 1)
-                            {
-                                applyTask = window.RunApplyOperationAsync(settings.ApplySettingsAsync);
-                                await applyTask;
-                                if (window.IsVisible)
-                                {
-                                    Assert.Fail("初回設定の保存後に旧設定ウィンドウが残っています。");
-                                }
-                            }
-                            else
-                            {
-                                Assert.IsTrue(applyTask!.IsCompleted);
-                                Assert.IsTrue(settings.IsEditCompletionEnabled);
-                                Assert.IsTrue(settings.IsEditCancellationEnabled);
-                                Assert.AreEqual(savedValue, settings.ShowRecommUpdatedMsg);
-                                Assert.IsFalse(settings.HasPendingSettingChanges());
-                                Assert.AreSame(mainWindow, window.Owner);
-                                reopened.TrySetResult();
-                                window.CloseForOwnerShutdown();
-                            }
-                        }
-                        catch (Exception exception)
-                        {
-                            failures.Add(exception);
-                            reopened.TrySetException(exception);
-                            window.CloseForOwnerShutdown();
-                        }
-                    };
-                }));
-                Application.Current.MainWindow = mainWindow;
-                windowTest.PrepareForOwnedPresentation(mainWindow);
-                mainWindow.Show();
-                mainWindow.UpdateLayout();
-                previousOverlay = mainWindow.PlaybackOverlayVisibility;
-
-                settings.OpenCommand.Execute();
-
-                Assert.IsNotNull(applyTask);
-                Assert.AreEqual(1, windows.Count);
-                Assert.IsFalse(windows[0].IsVisible);
-                Assert.IsNull(windows[0].DataContext);
-                Assert.AreEqual(SettingsWindowCloseReason.Apply, windows[0].CloseReason);
-                Assert.AreEqual(previousOverlay, mainWindow.PlaybackOverlayVisibility);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    Task.WhenAny(initializeStarted.Task, applyTask!), "initial-settings-notification");
-                Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
-                Assert.IsTrue(initializeStarted.Task.IsCompletedSuccessfully);
-                Assert.IsFalse(applyTask!.IsCompleted);
-                Assert.IsTrue(settings.IsEditCompletionInProgress);
-                initializeReleased.SetResult(shutdownRequested
-                    ? StartupInitializationOutcome.ShutdownRequested
-                    : initializationSucceeds ? StartupInitializationOutcome.Succeeded : StartupInitializationOutcome.SettingsRequired);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(applyTask!, "initial-settings-apply");
-                if (!initializationSucceeds && !shutdownRequested)
-                {
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reopened.Task, "initial-settings-reopened");
-                }
-                // Apply自身と必要な再表示の通知を回収済み。一般idleは終了証明にしません。
-                Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
-                Assert.AreEqual(initializationSucceeds || shutdownRequested ? 1 : 2, windows.Count);
-                Assert.AreEqual(1, session.SaveCount);
-                Assert.AreEqual(1, notificationCount);
-                Assert.AreEqual(1, initializeCount);
-                Assert.IsTrue(settings.IsEditCompletionEnabled);
-                Assert.IsFalse(((Grid)windows[0].FindName("settingDialogOperationGrid")).IsEnabled);
-                Assert.AreEqual(previousOverlay, mainWindow.PlaybackOverlayVisibility);
-            }
-            catch (Exception exception)
-            {
-                bodyFailure = ExceptionDispatchInfo.Capture(exception);
-            }
-            finally
-            {
-                try
-                {
-                    initializeReleased.TrySetResult(StartupInitializationOutcome.Succeeded);
-                    if (notificationWindow?.IsVisible == true)
-                    {
-                        notificationWindow.Close();
-                    }
-                    foreach (SettingsWindow window in windows.Where(window => window.IsVisible).ToArray())
-                    {
-                        window.CloseForOwnerShutdown();
-                    }
-                    if (applyTask != null)
-                    {
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(applyTask, "initial-settings-apply-cleanup");
-                    }
-                    if (mainWindow != null)
-                    {
-                        ownership?.Dispose();
-                    }
-                }
-                catch (Exception cleanupFailure)
-                {
-                    if (bodyFailure != null)
-                    {
-                        bodyFailure.SourceException.Data["CleanupFailure"] = cleanupFailure.ToString();
-                    }
-                    else
-                    {
-                        bodyFailure = ExceptionDispatchInfo.Capture(cleanupFailure);
-                    }
-                }
-                finally
-                {
-                    try { ownership?.DisposeAfterBodyFailure(bodyFailure?.SourceException); }
-                    catch (Exception cleanupFailure) { bodyFailure = ExceptionDispatchInfo.Capture(cleanupFailure); }
-                    Application.Current.MainWindow = previousMainWindow;
-                    try
-                    {
-                        Directory.Delete(root, recursive: true);
-                    }
-                    catch (Exception cleanupFailure)
-                    {
-                        if (bodyFailure != null)
-                        {
-                            bodyFailure.SourceException.Data["DirectoryCleanupFailure"] = cleanupFailure.ToString();
-                        }
-                        else
-                        {
-                            bodyFailure = ExceptionDispatchInfo.Capture(cleanupFailure);
-                        }
-                    }
-                }
-            }
-            bodyFailure?.Throw();
-        });
-    }
 
     /// <summary>起動後続を回収した通常保存で、実Close、DataContext解除、modal復帰後も実Folder Taskと親L/Pが生存し、main上で終端します。</summary>
     [TestMethod]
@@ -4733,6 +4111,7 @@ public sealed class SettingsWindowPresentationTests
             SettingsWindow? settings = null;
             Task? apply = null;
             bool closed = false;
+            var observed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             ExceptionDispatchInfo? failure = null;
             try
             {
@@ -4743,13 +4122,40 @@ public sealed class SettingsWindowPresentationTests
                 var next = CapturedChartFileScanner.FromFixture([chart], new Dictionary<string, IEnumerable<string>> { [added] = [] }, [root]);
                 next.ScanObserved = () => { entered.TrySetResult(); release.Wait(); };
                 scanner.Current = next;
-                owner.SettingDialog.StandaloneBmsRootPathList.Add(added);
                 main = ownership.CreateWindow(() => new MainWindow(owner, window =>
                 {
                     settings = window;
                     windowTest.PrepareForOwnedPresentation(window);
                     window.Closed += (_, _) => closed = true;
-                    window.ContentRendered += (_, _) => apply = window.RunApplyOperationAsync(owner.SettingDialog.ApplySettingsAsync);
+                    window.ContentRendered += async (_, _) =>
+                    {
+                        try
+                        {
+                            owner.SettingDialog.StandaloneBmsRootPathList.Add(added);
+                            apply = window.RunViewOperationAsync(owner.SettingDialog.CommitBmsRootsAsync);
+                            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, apply, "same-settings-scan");
+                            Assert.IsFalse(closed);
+                            Assert.IsTrue(window.IsVisible);
+                            Assert.AreSame(owner.SettingDialog, window.DataContext);
+                            Assert.IsFalse(apply.IsCompleted);
+                            Assert.IsTrue(composition.OperationAdmission.IsActive);
+                            Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
+                            bool ordinary = !owner.SettingDialog.ShowRecommUpdatedMsg;
+                            owner.SettingDialog.ShowRecommUpdatedMsg = ordinary;
+                            Assert.AreEqual(ordinary, values.ShowRecommUpdatedMsg);
+                            window.Close();
+                            Assert.IsTrue(window.IsVisible, "当該処理中の利用者Closeを拒否します。");
+                            release.Set();
+                            await apply;
+                            Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                            Assert.IsFalse(composition.OperationAdmission.IsActive);
+                            Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+                            Assert.IsTrue(window.IsVisible);
+                            window.CloseFromPresentation();
+                        }
+                        catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); window.CloseForOwnerShutdown(); }
+                        finally { release.Set(); observed.TrySetResult(); }
+                    };
                 }));
                 Application.Current.MainWindow = main;
                 windowTest.PrepareForOwnedPresentation(main);
@@ -4775,24 +4181,13 @@ public sealed class SettingsWindowPresentationTests
                 }
                 Visibility previousOverlay = main.PlaybackOverlayVisibility;
                 owner.SettingDialog.OpenCommand.Execute();
-                Assert.IsNotNull(apply);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, apply!, "normal-settings-post-close-scan"), "normal-settings-post-close-scan");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(observed.Task, "same-settings-operation-and-close");
+                failure?.Throw();
                 Assert.IsTrue(closed);
                 Assert.IsNotNull(settings);
-                Assert.IsNull(settings!.DataContext);
+                Assert.IsNull(settings.DataContext);
                 Assert.IsFalse(settings.IsVisible);
-                Assert.AreEqual(SettingsWindowCloseReason.Apply, settings.CloseReason);
-                Assert.AreEqual(previousOverlay, main.PlaybackOverlayVisibility, "modal cleanup済みのmainから後続を追います。");
-                Assert.IsFalse(apply!.IsCompleted);
-                Assert.IsTrue(owner.SettingDialog.IsEditCompletionInProgress);
-                Assert.IsTrue(composition.OperationAdmission.IsActive);
-                Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
-                Assert.IsTrue(values.StandaloneBmsRootPaths.Contains(added, StringComparison.Ordinal));
-                release.Set();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "normal-settings-post-close-terminal");
-                Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
-                Assert.IsFalse(composition.OperationAdmission.IsActive);
-                Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+                Assert.AreEqual(previousOverlay, main.PlaybackOverlayVisibility);
             }
             catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
             finally
@@ -5141,7 +4536,7 @@ public sealed class SettingsWindowPresentationTests
             window.Close();
             window.Dispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
 
-            Assert.AreEqual(0, presentation.CloseRequestCount);
+            Assert.AreEqual(1, presentation.CloseRequestCount);
         });
     }
 
@@ -5189,10 +4584,172 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>BMTの実P受付を保持するcompiledボタン操作中も独立した画像確定は保存でき、CloseとownerのjoinはBMTの実終端を待ちます。</summary>
+    /// <remarks>全表の実ファイル投影はSettingDialogEditCompletionTestsが分担し、このケースはP内の外部処理だけをgateで固定して実Windowの配送・別カテゴリ保存・寿命を保証します。</remarks>
+    [TestMethod]
+    public void BmtButtonWhileOutputIsPending_AllowsIndependentImageConfirmationAndPreservesOwnerJoin()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string root = Path.Combine(Path.GetTempPath(), "SettingsIndependent-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            string image = Path.Combine(root, "panel.png");
+            File.WriteAllBytes(image, Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jCZYAAAAASUVORK5CYII="));
+            string configPath = Path.Combine(root, "user.config");
+            Settings values = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            values.OperationModeLR2DB = false;
+            values.EnableBeatorajaBmtOutput = false;
+            values.UseExternalPanelImage = false;
+            values.StagefilePath = image;
+            values.Save();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(values);
+            owner.SettingDialog.Dispose();
+            ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var workspace = new DangerWorkspacePort { ExportOperation = () => { entered.TrySetResult(); return release.Task; } };
+            DangerDialogContext context = CreateDangerDialog(owner, new DangerSettingsEditSession(values, []), composition,
+                new DangerDialogService(), new DangerSchemaDialogPort(), new DangerApplicationDataStore(), workspace: workspace);
+            using SettingsDialogViewModel settings = context.Settings;
+            var window = new SettingsWindow { DataContext = settings };
+            Task? join = null;
+            try
+            {
+                scope.ShowAndWaitForContentRendered(window);
+                var general = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                FindDescendants<Button>(general).Single(button => Equals(button.Tag, "confirm:bmt"))
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(entered.Task, "BMT-section-accepted-P");
+                join = window.WaitForOperationCompletionAsync();
+                Assert.IsFalse(join.IsCompleted);
+                Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
+                Assert.IsTrue(settings.IsAudioOutputSelectionEnabled);
+                Assert.IsFalse(settings.IsEditCompletionEnabled);
+                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAppearance");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var appearance = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                FindDescendants<CheckBox>(appearance).Single(check => check.Name == "checkBoxUseExternalPanelImage")
+                    .SetCurrentValue(ToggleButton.IsCheckedProperty, true);
+                Assert.IsTrue(values.UseExternalPanelImage);
+                Settings fresh = PortableSettingsPersistenceTests.OpenSettings(configPath);
+                Assert.IsTrue(fresh.UseExternalPanelImage, "独立した局所確定はP待機中も実providerへ保存します。");
+                window.Close();
+                Assert.IsTrue(window.IsVisible);
+                window.CloseForOwnerShutdown();
+                Assert.IsNull(window.DataContext);
+                Assert.IsFalse(join.IsCompleted, "表示の失効は受理済みTaskの終端ではありません。");
+            }
+            finally
+            {
+                release.TrySetResult();
+                if (join != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(join, "BMT-owner-join"); }
+                if (window.IsVisible) { window.CloseForOwnerShutdown(); }
+                Directory.Delete(root, recursive: true);
+            }
+            Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+        });
+    }
+
+    /// <summary>保存後の各実処理失敗を当該欄にも表示し、閉鎖・再表示後も維持します。同値の明示再試行は保存し直さず、成功時だけ案内を解消します。</summary>
+    /// <remarks>実providerとcompiledボタン・bannerを接続します。Score/FileDiffの実モデル反映とBMTの実ファイル投影はEditCompletion系列が分担し、ここでは実処理portの失敗・成功を固定します。</remarks>
+    [DataTestMethod]
+    [DataRow("score", nameof(SettingsDialogViewModel.IsScoreProcessingRetryRequired))]
+    [DataRow("bms", nameof(SettingsDialogViewModel.IsBmsProcessingRetryRequired))]
+    [DataRow("bmt", nameof(SettingsDialogViewModel.IsBmtProcessingRetryRequired))]
+    public void SectionProcessingFailure_ShowsRetryAfterReopenAndClearsOnlyAfterExplicitSuccess(string section, string stateProperty)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string root = Path.Combine(Path.GetTempPath(), "SettingsSectionRetry-" + Guid.NewGuid().ToString("N"));
+            string added = Path.Combine(root, "added");
+            Directory.CreateDirectory(added);
+            string config = Path.Combine(root, "user.config");
+            Settings values = PortableSettingsPersistenceTests.OpenSettings(config);
+            values.OperationModeLR2DB = false;
+            values.BMSRootPath = root;
+            values.StandaloneBmsRootPaths = root;
+            values.BMSInstallDir = root;
+            values.UseBeatorajaScoreDb = true;
+            values.EnableBeatorajaBmtOutput = false;
+            values.KeepBeatorajaBmtFilesWhenOutputDisabled = true;
+            values.Save();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(values);
+            owner.SettingDialog.Dispose();
+            bool fail = true;
+            int operations = 0;
+            Task<StartupInitializationResult> Reload(StartupProgressOperationKind kind)
+            {
+                operations++;
+                return Task.FromResult(new StartupInitializationResult(fail ? StartupInitializationOutcome.OperationFailed : StartupInitializationOutcome.Succeeded,
+                    Failure: fail ? new IOException("section processing failed") : null, OperationKind: kind));
+            }
+            var statePort = new DangerStatePort(() => Reload(StartupProgressOperationKind.ScoreOnly))
+            { ReloadFileDiff = () => Reload(StartupProgressOperationKind.ReloadFileDiff) };
+            var workspace = new DangerWorkspacePort
+            { ExportOperation = () => { operations++; return fail ? Task.FromException(new IOException("BMT processing failed")) : Task.CompletedTask; } };
+            var failures = new List<Exception>();
+            DangerDialogContext context = CreateDangerDialog(owner, new DangerSettingsEditSession(values, []),
+                MainWindowViewModelTestFactory.GetComposition(owner), new DangerDialogService(), new DangerSchemaDialogPort(), new DangerApplicationDataStore(),
+                workspace: workspace, statePort: statePort, reportFailure: failures.Add);
+            using SettingsDialogViewModel settings = context.Settings;
+            SettingsWindow? window = null;
+            void ClickConfirm()
+            {
+                var page = (FrameworkElement)((ContentControl)window!.FindName("settingsPageContent")).Content;
+                FindDescendants<Button>(page).Single(button => Equals(button.Tag, (section == "score" ? "retry:" : "confirm:") + section))
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                AwaitViewOperationTerminal(window);
+            }
+            void AssertRetryBanner()
+            {
+                var page = (FrameworkElement)((ContentControl)window!.FindName("settingsPageContent")).Content;
+                SettingsStatusBanner banner = FindDescendants<SettingsStatusBanner>(page).Single(item =>
+                    item.GetBindingExpression(UIElement.VisibilityProperty)?.ParentBinding.Path.Path == stateProperty);
+                Assert.AreEqual(Visibility.Visible, banner.Visibility);
+                Assert.AreEqual(Resources.Settings_processing_retry, banner.Content);
+            }
+            try
+            {
+                window = new SettingsWindow { DataContext = settings };
+                scope.ShowAndWaitForContentRendered(window);
+                if (section == "score")
+                {
+                    FindDescendants<CheckBox>(window).Single(check => check.Name == "useBeatorajaScoreDbCheckBox")
+                        .SetCurrentValue(ToggleButton.IsCheckedProperty, false);
+                    AwaitViewOperationTerminal(window);
+                }
+                else if (section == "bms") { settings.StandaloneBmsRootPathList.Add(added); }
+                else { settings.KeepBeatorajaBmtFilesWhenOutputDisabled = false; }
+                if (section != "score") { ClickConfirm(); }
+                Assert.AreEqual(1, failures.Count);
+                AssertRetryBanner();
+                Settings fresh = PortableSettingsPersistenceTests.OpenSettings(config);
+                if (section == "score") { Assert.IsFalse(fresh.UseBeatorajaScoreDb); }
+                else if (section == "bms") { StringAssert.Contains(fresh.StandaloneBmsRootPaths, added); }
+                else { Assert.IsFalse(fresh.KeepBeatorajaBmtFilesWhenOutputDisabled); }
+                window.CloseForOwnerShutdown();
+                window = new SettingsWindow { DataContext = settings };
+                scope.ShowAndWaitForContentRendered(window);
+                AssertRetryBanner();
+                fail = false;
+                using (var blockedSettings = new FileStream(config, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) { ClickConfirm(); }
+                Assert.AreEqual(2, operations);
+                Assert.AreEqual(1, failures.Count, "成功媒体を再保存せず同じ操作だけを再試行します。");
+                Assert.AreEqual(false, typeof(SettingsDialogViewModel).GetProperty(stateProperty)!.GetValue(settings));
+                Assert.IsTrue(settings.IsEditCancellationEnabled);
+            }
+            finally
+            {
+                if (window?.IsVisible == true) { window.CloseForOwnerShutdown(); }
+                Directory.Delete(root, recursive: true);
+            }
+        });
+    }
+
     /// <summary>Apply gate 中の native Close は取消し、実 Task 内の presentation Close に限って Apply 理由で終了することを Closing／Closed の順に観測します。</summary>
     [TestMethod]
     [DoNotParallelize]
-    public void ApplyOperation_RejectsNativeCloseUntilPresentationSuccessAuthorizesApplyClose()
+    public void InitializationOperation_RejectsNativeCloseUntilSuccessfulPresentationCompletion()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -5211,7 +4768,7 @@ public sealed class SettingsWindowPresentationTests
                 window.Closing += (_, args) => closeCancellations.Add(args.Cancel);
                 window.Closed += (_, _) => closed = true;
 
-                applyOperation = window.RunApplyOperationAsync(async () =>
+                applyOperation = window.RunInitializationOperationAsync(async () =>
                 {
                     SetEditCompletionInProgress(settings, true);
                     try
@@ -5235,7 +4792,7 @@ public sealed class SettingsWindowPresentationTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(applyOperation, "settings-view-operation-terminal");
 
                 Assert.IsTrue(applyOperation.IsCompletedSuccessfully);
-                Assert.AreEqual(SettingsWindowCloseReason.Apply, window.CloseReason);
+                Assert.AreEqual(SettingsWindowCloseReason.InitializationCompleted, window.CloseReason);
                 Assert.IsTrue(closed);
                 CollectionAssert.AreEqual(new[] { true, false }, closeCancellations);
             }
@@ -5481,9 +5038,9 @@ public sealed class SettingsWindowPresentationTests
 
     private sealed class ManualResyncSettingsEditSession : ISettingsEditSession
     {
-        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+        public void SaveEnvironmentForRestart(EnvironmentSettingsChange environment, string historyIdentity)
         {
-            Values.OperationModeLR2DB = operationMode;
+            environment.Commit(Values);
             Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
             Save();
             Reload();
@@ -5660,6 +5217,7 @@ public sealed class SettingsWindowPresentationTests
     private sealed class DangerStatePort : ISettingsDialogStatePort
     {
         private readonly Func<Task> reloadScoresOnly;
+        internal Func<Task<StartupInitializationResult>>? ReloadFileDiff { get; init; }
 
         internal DangerStatePort(Func<Task> reloadScoresOnly)
         {
@@ -5692,7 +5250,8 @@ public sealed class SettingsWindowPresentationTests
 
         public Task PresentLibraryDirectoryWarningAsync(BeMusicSeeker.Models.BmsLibraryInternal.LibraryDirectoryPreflightException failure) => Task.CompletedTask;
 
-        public Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
+        public Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null)
+            => ReloadFileDiff?.Invoke() ?? Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
         public event EventHandler LibraryOperationAvailabilityChanged
         {
@@ -5755,9 +5314,9 @@ public sealed class SettingsWindowPresentationTests
 
     private sealed class DangerSettingsEditSession : ISettingsEditSession
     {
-        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+        public void SaveEnvironmentForRestart(EnvironmentSettingsChange environment, string historyIdentity)
         {
-            Values.OperationModeLR2DB = operationMode;
+            environment.Commit(Values);
             Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
             Save();
             Reload();
@@ -5788,6 +5347,7 @@ public sealed class SettingsWindowPresentationTests
 
     private sealed class DangerWorkspacePort : ISettingsDialogWorkspacePort
     {
+        internal Func<Task>? ExportOperation { get; init; }
         public bool HasPlaylistTables => true;
 
         public long PlaylistCatalogVersion => 0;
@@ -5800,9 +5360,9 @@ public sealed class SettingsWindowPresentationTests
         {
         }
 
-        public Task ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability, bool forceProjection = false)
+        public Task ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability, bool forceProjection = false, BeatorajaBmtOptionsSnapshot? options = null)
         {
-            return Task.CompletedTask;
+            return ExportOperation?.Invoke() ?? Task.CompletedTask;
         }
 
         public Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string operationName) => operation();
@@ -6012,7 +5572,6 @@ public sealed class SettingsWindowPresentationTests
     private enum PlaylistUriCompletionRoute
     {
         CancelButton,
-        SaveButton,
         NativeClose
     }
 

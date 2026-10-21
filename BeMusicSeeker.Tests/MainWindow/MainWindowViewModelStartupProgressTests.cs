@@ -60,7 +60,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                     fixture.ReleaseDeferredMaintenance();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "startup-range-background");
                     fixture.Owner.SettingDialog.StartupSortCachePrewarmPriority = 3;
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Owner.SettingDialog.ApplySettingsAsync(), "startup-range-save");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Owner.SettingDialog.StartConfirmedEnvironmentAsync(), "startup-range-save");
                     savedPriority = fixture.Settings.StartupSortCachePrewarmPriority;
                     Assert.AreEqual(3, savedPriority);
                     Assert.AreEqual(1, log.Logs.Count(message => message.StartsWith("virtual_order_prewarm selected", StringComparison.Ordinal)), "設定保存だけでwarmupを追加しません。");
@@ -160,7 +160,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         }
         public void Reload() => Values.StartupSortCachePrewarmPriority = savedPriority;
         public void Save() => savedPriority = Values.StartupSortCachePrewarmPriority;
-        public void SaveOperationModeForRestart(bool mode, string identity) => throw new AssertFailedException("Unexpected mode restart.");
+        public void SaveEnvironmentForRestart(EnvironmentSettingsChange environment, string identity) => throw new AssertFailedException("Unexpected mode restart.");
     }
 
     /// <summary>UI操作禁止を同じ値で繰り返し設定しても、真偽の実遷移だけを各一回通知して重複更新を防ぎます。</summary>
@@ -701,7 +701,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         TestUiDispatcherHost.Invoke(() =>
         {
             using var fixture = new CompletionFixture(lr2Mode: true);
-            Assert.IsTrue(fixture.Owner.SettingDialog.CheckValidation(out string validationFailure), validationFailure);
+            Assert.IsTrue(fixture.Owner.SettingDialog.CheckValidationForInitialization(out string validationFailure), validationFailure);
             string folder = Path.Combine(fixture.Settings.BMSInstallDir, "Leap");
             Directory.CreateDirectory(folder);
             Directory.SetLastWriteTime(folder, new DateTime(2024, 2, 29, 12, 0, 0));
@@ -1403,10 +1403,10 @@ public sealed class MainWindowViewModelStartupProgressTests
         });
     }
 
-    /// <summary>実Score適用のUI失敗はpendingと保存済み値を保持しURLを登録せず、次の明示Applyだけが成功後に実URL workへ進みます。保存通知だけの失敗は成立済み成功を保持します。</summary>
+    /// <summary>バックアップ項目の保存通知故障は保存済み値を保ち、独立したScore確定の必須UI失敗はpendingと確定値を保持します。Scoreの成功後だけ既存URL方針の後続を登録し、次の明示確定で再試行します。</summary>
     [DataTestMethod]
-    [DataRow(true)] // 必須UI失敗ではpendingを残し、次の明示ApplyまでURL workを開始しません。
-    [DataRow(false)] // 保存通知だけの失敗では成立済み成功とURL workを維持します。
+    [DataRow(true)] // 必須UI失敗ではpendingを残し、次の明示確定までURL workを開始しません。
+    [DataRow(false)] // 別項目の保存通知故障はScore成功とURL workを変えません。
     [DoNotParallelize]
     public void SettingsScoreCompletion_RequiredUiFailureAndSavedNoticeFailureKeepDistinctFollowUp(bool uiFails)
     {
@@ -1451,27 +1451,29 @@ public sealed class MainWindowViewModelStartupProgressTests
             };
             SettingsDialogViewModel dialog = fixture.Owner.SettingDialog;
             dialog.BeatorajaPlayerId = "saved-score-player";
-            dialog.EnablePlaylistUrlCompletion = true;
-            dialog.PlaylistMd5UrlMappingTsvUri = string.Empty;
-            dialog.EnableStellaFullPlaylistUrlCompletion = false;
+            // 通常項目の確定をScoreへ混ぜず、後続が採用する既存の確定方針をfixtureへ与えます。
+            fixture.Settings.EnablePlaylistUrlCompletion = true;
+            fixture.Settings.PlaylistMd5UrlMappingTsvUri = string.Empty;
+            fixture.Settings.EnableStellaFullPlaylistUrlCompletion = false;
             dialog.LR2BackupPath = fixture.Settings.BMSRootPath;
-            dialog.IsLR2BackupEnabled = true;
-            Assert.AreEqual(SettingsDialogViewModel.RestartMode.ScoreOnly, dialog.IsNeedRestartForSaved());
             fixture.Dialogs.MessageObservedAsync = request =>
             {
                 notices.Add(request);
                 return Task.FromException(noticeFailure);
             };
+            dialog.IsLR2BackupEnabled = true;
+            Assert.IsTrue(fixture.Settings.IsLR2BackupEnabled);
+            Assert.AreEqual(1, notices.Count, "バックアップ案内はその項目の保存直後に通知します。");
             fixture.Ui.IsCompletionBoundary = () => !fixture.Composition.OperationAdmission.IsActive
                 && !fixture.Composition.PlaylistOperationAdmission.IsActive && fixture.Owner.IsLibraryOperationInProgress;
             fixture.Ui.Arm();
-            Task apply = dialog.ApplySettingsAsync();
+            Task apply = dialog.CommitScoreSettingsAsync();
             fixture.Track(apply);
             try
             {
                 AwaitArrival(fixture.Ui.Entered.Task, apply, "settings-score-required-ui");
                 Assert.IsFalse(apply.IsCompleted);
-                Assert.AreEqual(0, notices.Count, "保存案内は必須UIの終端より前に表示しません。");
+                Assert.AreEqual(1, notices.Count, "Scoreは別項目の案内を再表示しません。");
                 Assert.IsTrue(dialog.IsScoreReloadPending, "core成功だけでは必要UIまでのpendingを解除しません。");
                 Assert.AreEqual(0, registrations);
                 Assert.AreEqual("saved-score-player", fixture.Settings.BeatorajaPlayerId);
@@ -1481,22 +1483,20 @@ public sealed class MainWindowViewModelStartupProgressTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "settings-score-terminal");
                 Assert.AreEqual(uiFails ? 1 : 0, failures.Count);
                 if (uiFails) { Assert.AreSame(uiFailure, failures.Single()); }
-                Assert.AreEqual(1, notices.Count, "必須UIの成否にかかわらず、確定した保存の案内を一回試みます。");
+                Assert.AreEqual(1, notices.Count, "必須UIの成否にかかわらず、別項目の保存案内を重ねません。");
                 Assert.AreEqual(Resources.Msg_LR2ConfigBackupEnabledNextStartup, notices.Single().MessageBoxText);
                 Assert.AreEqual(Resources.Confirm, notices.Single().Caption);
                 Assert.AreEqual(System.Windows.MessageBoxImage.Asterisk, notices.Single().Icon);
                 Assert.AreEqual(uiFails, dialog.IsScoreReloadPending);
-                Assert.AreEqual(uiFails, dialog.HasPendingSettingChanges());
                 if (uiFails)
                 {
                     Assert.AreEqual(0, registrations, "保存済みURL変更でも必須UI失敗時は新規登録しません。");
                     Assert.AreEqual(0, starts);
                     dialog.RequestOpen();
-                    Task retry = dialog.ApplySettingsAsync();
+                    Task retry = dialog.CommitScoreSettingsAsync();
                     fixture.Track(retry);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(retry, "settings-score-next-explicit-apply");
                     Assert.IsFalse(dialog.IsScoreReloadPending);
-                    Assert.IsFalse(dialog.HasPendingSettingChanges());
                     Assert.AreEqual(1, failures.Count);
                     Assert.AreEqual(1, notices.Count, "確定済み保存の案内を再試行で重ねません。");
                 }
@@ -1633,6 +1633,8 @@ public sealed class MainWindowViewModelStartupProgressTests
                 BMSLibrary createdLibrary = factory.CreatedLibrary ?? throw new AssertFailedException("実ライブラリが構成されませんでした。");
                 string[] owned = createdLibrary.CreateOwnedChartInfoFullBackfillTargetSnapshotForDiagnostics().Select(chart => chart.Path).ToArray();
                 CollectionAssert.AreEqual(deleteRootAfterDatabaseRead ? new[] { savedPath } : Array.Empty<string>(), owned);
+                // 警告と保存済みcatalogは必須起動の終端で検査します。次操作の受付は、同じLを使う起動後保守の実終端後に確認します。
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(WaitForStartupBackgroundTerminalAsync(owner), "startup-scan-background-terminal");
                 Assert.IsTrue(composition.OperationAdmission.TryEnter(out IDisposable admission));
                 admission.Dispose();
             }
@@ -1685,6 +1687,24 @@ public sealed class MainWindowViewModelStartupProgressTests
     private static void AwaitArrival(Task arrival, Task initialization, string name)
     {
         TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(arrival, initialization, name), name);
+    }
+
+    /// <summary>次の明示操作の準備として実schedulerの後続終端通知を待ちます。必須起動成功の条件には使いません。</summary>
+    private static async Task WaitForStartupBackgroundTerminalAsync(MainWindowViewModel owner)
+    {
+        StartupBackgroundTaskSchedulerOwner scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(owner, "startupBackgroundTaskScheduler");
+        var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Changed(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+        {
+            if (!owner.ProgressHub.IsStartupBackgroundInitializationActive && scheduler.IsFullyIdle) { terminal.TrySetResult(); }
+        }
+        owner.ProgressHub.PropertyChanged += Changed;
+        try
+        {
+            if (!owner.ProgressHub.IsStartupBackgroundInitializationActive && scheduler.IsFullyIdle) { return; }
+            await terminal.Task;
+        }
+        finally { owner.ProgressHub.PropertyChanged -= Changed; }
     }
 
     /// <summary>この終端領域だけで使う実UI Taskのgateです。Arm後の受付外の必須UI一回を保持します。</summary>
@@ -1930,21 +1950,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             return task;
         }
         /// <summary>実schedulerの全後続終端が既存Hubへ届く通知だけを待ちます。必須成功の条件には使いません。</summary>
-        internal async Task WaitForBackgroundTerminalAsync()
-        {
-            var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            void Changed(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
-            {
-                if (!Owner.ProgressHub.IsStartupBackgroundInitializationActive && Scheduler.IsFullyIdle) { terminal.TrySetResult(); }
-            }
-            Owner.ProgressHub.PropertyChanged += Changed;
-            try
-            {
-                if (!Owner.ProgressHub.IsStartupBackgroundInitializationActive && Scheduler.IsFullyIdle) { return; }
-                await terminal.Task;
-            }
-            finally { Owner.ProgressHub.PropertyChanged -= Changed; }
-        }
+        internal Task WaitForBackgroundTerminalAsync() => WaitForStartupBackgroundTerminalAsync(Owner);
         internal void Track(Task task) => tasks.Add(task);
         internal void AssertBeforeUiCompletion()
         {

@@ -1,43 +1,30 @@
 using System;
-using System.Configuration;
 using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models;
 
-/// <summary>
-/// Provides the mutable application-settings object used by one settings-dialog edit session.
-/// </summary>
+/// <summary>構成が共有する確定値の読取りと、起動・終了の既存保存入口です。設定候補は各セクションが別に所有します。</summary>
 internal interface ISettingsEditSession
 {
-    /// <summary>
-    /// Gets the in-memory settings values edited by the dialog.
-    /// The current UI contract intentionally shares this object with runtime consumers until
-    /// those consumers receive their own workflow snapshots. Implementations that provide an
-    /// isolated values object are not supported by the remaining runtime settings readers yet.
-    /// </summary>
+    /// <summary>確定値を読む既存wrapper。設定画面の候補を保管せず、実処理は開始時snapshotを捕捉します。</summary>
     Settings Values { get; }
 
+    /// <summary>構成開始時に一度、保存済み設定を読み込みます。画面の再表示・局所確定・通常保存からは呼びません。</summary>
     void Reload();
 
+    /// <summary>画面外で変更済みの項目だけを保存します。</summary>
     void Save();
 
-    /// <summary>Persists only the confirmed mode and runtime identity/placement, then reloads after success.</summary>
-    void SaveOperationModeForRestart(bool operationMode, string historyIdentity);
+    /// <summary>既存の環境再起動要求の対象だけを保存し、成功後に公開します。</summary>
+    void SaveEnvironmentForRestart(EnvironmentSettingsChange environment, string historyIdentity);
 }
 
-/// <summary>
-/// Adapts the existing user-config settings object to the settings-dialog composition boundary.
-/// It deliberately preserves the existing shared in-memory edit behavior; only the persistence
-/// and construction boundary moves here.
-/// </summary>
+/// <summary>既存構成へ確定設定と起動・終了保存を接続します。編集全体のcopy・差分・復元は所有しません。</summary>
 internal sealed class SettingsEditSession : ISettingsEditSession
 {
     private readonly Settings values;
 
-    internal static SettingsEditSession CreateDefault()
-    {
-        return new SettingsEditSession(Settings.Default);
-    }
+    internal static SettingsEditSession CreateDefault() => new(Settings.Default);
 
     internal SettingsEditSession(Settings values)
     {
@@ -46,38 +33,15 @@ internal sealed class SettingsEditSession : ISettingsEditSession
 
     public Settings Values => values;
 
-    public void Reload()
-    {
-        values.Reload();
-    }
+    public void Reload() => values.Reload();
 
-    /// <summary>Publishes the restart selection without saving unrelated dialog drafts.</summary>
-    public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
-    {
-        var selectedValues = new SettingsPropertyValueCollection();
-        void Add(string name, object value)
-        {
-            selectedValues.Add(new SettingsPropertyValue(values.Properties[name]) { PropertyValue = value });
-        }
-        Add(nameof(Settings.OperationModeLR2DB), operationMode);
-        Add(nameof(Settings.PlayHistorySelectedDisplayTargetIdentity), historyIdentity);
-        // Placement belongs to runtime, so reloading must not discard a completed player capture.
-        Add(nameof(Settings.LR2bodyWindowPlacement), values.LR2bodyWindowPlacement);
-        values.Properties[nameof(Settings.OperationModeLR2DB)].Provider.SetPropertyValues(values.Context, selectedValues);
-        values.Reload();
-    }
+    public void Save() => values.Save();
 
-    public void Save()
+    /// <inheritdoc />
+    public void SaveEnvironmentForRestart(EnvironmentSettingsChange environment, string historyIdentity)
     {
-        values.Save();
+        // 環境を一回保存し、その後の終端保存が現在選択中の履歴表示を保持します。
+        environment.Commit(values);
+        values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
     }
-}
-
-/// <summary>Reports the second file failure after user.config was already saved successfully.</summary>
-/// <remarks>部分保存失敗の表示と診断に未保存ファイルのパスと原因例外が必要なため、標準の簡略コンストラクターは提供しません。</remarks>
-internal sealed class PartialSettingsSaveException(string filePath, Exception cause)
-    : Exception("Application settings were saved, but LR2 configuration could not be saved: " + filePath, cause)
-{
-    /// <summary>Gets the LR2 configuration path that remains unsaved.</summary>
-    internal string FilePath { get; } = filePath;
 }

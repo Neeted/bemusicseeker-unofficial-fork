@@ -5,7 +5,7 @@
              xmlns:settings="clr-namespace:BeMusicSeeker.Views.Settings"
              xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels"
              x:Name="page" HorizontalContentAlignment="Stretch">
-  <UserControl.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries><ResourceDictionary Source="../SettingsControls.xaml" /></ResourceDictionary.MergedDictionaries></ResourceDictionary></UserControl.Resources>
+  <UserControl.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries><ResourceDictionary Source="../SettingsControls.xaml" /></ResourceDictionary.MergedDictionaries><BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" /></ResourceDictionary></UserControl.Resources>
   <StackPanel>
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme, Mode=OneWay}"
                               Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_appearance_theme_description, Mode=OneWay}">
@@ -26,27 +26,27 @@
       <StackPanel>
         <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_font_size, Mode=OneWay}">
           <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="84" /></Grid.ColumnDefinitions>
-            <Slider Minimum="8" Maximum="18" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding CustomTableFontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-            <TextBlock Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" TextAlignment="Right" Text="{Binding CustomTableFontSize, StringFormat={}{0:F0} pt}" />
+            <Slider x:Name="sliderCustomTableFontSize" Minimum="8" Maximum="18" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding CustomTableFontSize, Mode=TwoWay, UpdateSourceTrigger=Explicit}" />
+            <TextBlock Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" TextAlignment="Right" Text="{Binding Value, ElementName=sliderCustomTableFontSize, StringFormat={}{0:F0} pt}" />
           </Grid>
         </settings:SettingsField>
         <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_row_height, Mode=OneWay}">
           <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="84" /></Grid.ColumnDefinitions>
-            <Slider Minimum="16" Maximum="40" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding CustomTableRowHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-            <TextBlock Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" TextAlignment="Right" Text="{Binding CustomTableRowHeight, StringFormat={}{0:F0} px}" />
+            <Slider x:Name="sliderCustomTableRowHeight" Minimum="16" Maximum="40" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding CustomTableRowHeight, Mode=TwoWay, UpdateSourceTrigger=Explicit}" />
+            <TextBlock Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" TextAlignment="Right" Text="{Binding Value, ElementName=sliderCustomTableRowHeight, StringFormat={}{0:F0} px}" />
           </Grid>
         </settings:SettingsField>
         <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_header_height, Mode=OneWay}">
           <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="84" /></Grid.ColumnDefinitions>
-            <Slider Minimum="18" Maximum="48" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding CustomTableHeaderHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-            <TextBlock Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" TextAlignment="Right" Text="{Binding CustomTableHeaderHeight, StringFormat={}{0:F0} px}" />
+            <Slider x:Name="sliderCustomTableHeaderHeight" Minimum="18" Maximum="48" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding CustomTableHeaderHeight, Mode=TwoWay, UpdateSourceTrigger=Explicit}" />
+            <TextBlock Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" TextAlignment="Right" Text="{Binding Value, ElementName=sliderCustomTableHeaderHeight, StringFormat={}{0:F0} px}" />
           </Grid>
         </settings:SettingsField>
         <Button HorizontalAlignment="Right" Style="{StaticResource SettingsQuietButtonStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_reset_defaults, Mode=OneWay}" Click="resetCustomTableAppearanceDefaultsButtonClick" />
       </StackPanel>
     </settings:SettingsSection>
 
-    <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Change_stage_file, Mode=OneWay}">
+    <settings:SettingsSection IsEnabled="{Binding IsIndependentSectionEnabled}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Change_stage_file, Mode=OneWay}"><StackPanel>
       <StackPanel>
         <CheckBox x:Name="checkBoxUseExternalPanelImage" IsChecked="{Binding UseExternalPanelImage}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Change_stage_file, Mode=OneWay}" />
         <settings:SettingsPathPicker Margin="24,10,0,0" IsEnabled="{Binding IsChecked, ElementName=checkBoxUseExternalPanelImage}"
@@ -55,6 +55,6 @@
                                      BrowseText="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}"
                                      BrowseRequested="browseStagefilePathButtonClick" />
       </StackPanel>
-    </settings:SettingsSection>
+    <Button Tag="retry:image" Style="{StaticResource SettingsQuietButtonStyle}" HorizontalAlignment="Left" Margin="0,12,0,0" IsEnabled="{Binding IsIndependentSectionEnabled}" Visibility="{Binding CanRetryImageSettings, Converter={StaticResource BooleanToVisibilityConverter}}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_retry, Mode=OneWay}" /></StackPanel></settings:SettingsSection>
   </StackPanel>
 </UserControl>

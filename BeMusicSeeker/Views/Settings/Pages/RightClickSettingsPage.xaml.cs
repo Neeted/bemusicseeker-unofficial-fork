@@ -20,6 +20,9 @@ public partial class RightClickSettingsPage : UserControl
             ?? throw new InvalidOperationException("Right-click settings editor is unavailable.");
     }
 
+    private SettingsDialogViewModel GetSettings() => DataContext as SettingsDialogViewModel
+        ?? throw new InvalidOperationException("Settings view model is unavailable.");
+
     private SettingsWindow GetSettingsWindow()
     {
         return Window.GetWindow(this) as SettingsWindow
@@ -28,21 +31,21 @@ public partial class RightClickSettingsPage : UserControl
 
     private void addWebActionButtonClicked(object sender, RoutedEventArgs e) => GetEditor().AddWebAction();
 
-    private void deleteWebActionButtonClicked(object sender, RoutedEventArgs e) => GetEditor().DeleteSelectedWebAction();
+    private void deleteWebActionButtonClicked(object sender, RoutedEventArgs e) => GetSettings().CommitRightClickRecord(true, "delete");
 
-    private void moveWebActionUpButtonClicked(object sender, RoutedEventArgs e) => GetEditor().MoveSelectedWebActionUp();
+    private void moveWebActionUpButtonClicked(object sender, RoutedEventArgs e) => GetSettings().CommitRightClickRecord(true, "up");
 
-    private void moveWebActionDownButtonClicked(object sender, RoutedEventArgs e) => GetEditor().MoveSelectedWebActionDown();
+    private void moveWebActionDownButtonClicked(object sender, RoutedEventArgs e) => GetSettings().CommitRightClickRecord(true, "down");
 
     private void addProgramActionButtonClicked(object sender, RoutedEventArgs e) => GetEditor().AddProgramAction();
 
-    private void deleteProgramActionButtonClicked(object sender, RoutedEventArgs e) => GetEditor().DeleteSelectedProgramAction();
+    private void deleteProgramActionButtonClicked(object sender, RoutedEventArgs e) => GetSettings().CommitRightClickRecord(false, "delete");
 
-    private void moveProgramActionUpButtonClicked(object sender, RoutedEventArgs e) => GetEditor().MoveSelectedProgramActionUp();
+    private void moveProgramActionUpButtonClicked(object sender, RoutedEventArgs e) => GetSettings().CommitRightClickRecord(false, "up");
 
-    private void moveProgramActionDownButtonClicked(object sender, RoutedEventArgs e) => GetEditor().MoveSelectedProgramActionDown();
+    private void moveProgramActionDownButtonClicked(object sender, RoutedEventArgs e) => GetSettings().CommitRightClickRecord(false, "down");
 
-    private void restoreDefaultsButtonClicked(object sender, RoutedEventArgs e) => GetEditor().RestoreDefaults();
+    private void restoreDefaultsButtonClicked(object sender, RoutedEventArgs e) => GetSettings().CommitRightClickRecord(true, "defaults");
 
     private async void browseProgramExecutableButtonClicked(object sender, RoutedEventArgs e)
     {

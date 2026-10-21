@@ -59,12 +59,16 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
 
     private AudioOutputSelection audioOutputSelectionDraft;
 
-    private int playerResamplingQualityDraft;
+    private SampleRate candidatePlayerSampleRate;
+    private SampleFormat candidatePlayerFormat;
+    private float candidatePlayerBufferSize;
+    private bool candidatePlayerWASAPIParam;
 
-    private int playerMixerThreadCountDraft;
+
 
     private List<AudioDeviceInfo> playerDeviceNames;
 
+    private Action<Exception> reportSettingsFailure;
     private Func<Settings> getSettings;
     private Settings ApplicationSettings => getSettings();
     private IAudioDeviceCatalog audioDeviceCatalog;
@@ -72,29 +76,67 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     private bool IsEditCompletionInProgress;
 
     /// <summary>保存担当から下書きへのアクセスと画面の依存を一度だけ接続します。</summary>
-    internal void ConfigurePresentation(Func<Settings> getSettings, IAudioDeviceCatalog catalog)
+    internal void ConfigurePresentation(Func<Settings> getSettings, IAudioDeviceCatalog catalog, Action<Exception> reportSettingsFailure = null)
     {
         this.getSettings = getSettings;
+        this.reportSettingsFailure = reportSettingsFailure;
         audioDeviceCatalog = catalog;
-        RefreshPlaybackSettingDrafts();
+        ResetOutputCandidatesToConfirmedSettings();
         OperationReleased += AudioWorkflowOperationReleased;
         Ribbit.Media.BassAudioPlayer.AudioSessionReleased += AudioOutputSessionReleased;
     }
 
-    /// <summary>保存後または取消時の音声設定を、設定画面で編集するdraftへ反映します。</summary>
-    internal void RefreshPlaybackSettingDrafts()
+    /// <summary>表示開始・取消時に音声出力の候補だけを確定値へ戻します。</summary>
+    internal void ResetOutputCandidatesToConfirmedSettings()
     {
-        playerResamplingQualityDraft = ApplicationSettings.PlayerResamplingQuality;
-        playerMixerThreadCountDraft = ApplicationSettings.PlayerMixerThreadCount;
+        candidatePlayerSampleRate = ApplicationSettings.PlayerSampleRate;
+        candidatePlayerFormat = ApplicationSettings.PlayerFormat;
+        candidatePlayerBufferSize = ApplicationSettings.PlayerBufferSize;
+        candidatePlayerWASAPIParam = ApplicationSettings.PlayerWASAPIParam;
         RaisePropertyChanged(nameof(PlayerResamplingQuality));
         RaisePropertyChanged(nameof(PlayerMixerThreadCount));
+        RaisePropertyChanged(nameof(PlayerSampleRate));
+        RaisePropertyChanged(nameof(PlayerFormat));
+        RaisePropertyChanged(nameof(PlayerBufferSize));
+        RaisePropertyChanged(nameof(PlayerWASAPIParam));
     }
 
-    /// <summary>保存直前に品質と並列度のdraftを永続設定の候補へ反映します。</summary>
-    internal void ApplyPlaybackSettingDraftsToSettings()
+    private bool SaveIndependentAudioSetting(string name, int value)
     {
-        ApplicationSettings.PlayerResamplingQuality = playerResamplingQualityDraft;
-        ApplicationSettings.PlayerMixerThreadCount = playerMixerThreadCountDraft;
+        try { ApplicationSettings.Commit((name, value)); return true; }
+        catch (Exception failure)
+        {
+            RaisePropertyChanged(name);
+            if (reportSettingsFailure != null) { reportSettingsFailure(failure); }
+            else { Ribbit.Logging.NLogWrapper.FileLogger?.Warn(failure, "Audio setting save failed"); }
+            return false;
+        }
+    }
+
+    /// <summary>選択UIで成立した音声の組だけを保存対象にします。保存済みの利用不能値は編集されるまで保持します。</summary>
+    internal bool CanCommitOutputSettings => AudioDriverPolicy.IndexOf(audioOutputSelectionDraft.Backend) >= 0
+        && (audioOutputSelectionDraft.IsDefault || SelectedPlayerDevice is { IsAvailable: true }) && float.IsFinite(candidatePlayerBufferSize) && candidatePlayerBufferSize >= 0;
+
+    /// <summary>現在の音声候補が最新確定値と異なるかを示します。</summary>
+    internal bool HasOutputSettingsChanges => BassAudioMapping.ToBassDriver(audioOutputSelectionDraft.Backend) != ApplicationSettings.PlayerDriver
+        || audioOutputSelectionDraft.DeviceIdentity != ApplicationSettings.PlayerDevice
+        || audioOutputSelectionDraft.DeviceName != ApplicationSettings.PlayerDeviceName
+        || candidatePlayerSampleRate != ApplicationSettings.PlayerSampleRate || candidatePlayerFormat != ApplicationSettings.PlayerFormat
+        || candidatePlayerBufferSize != ApplicationSettings.PlayerBufferSize || candidatePlayerWASAPIParam != ApplicationSettings.PlayerWASAPIParam;
+
+    /// <summary>音声の関連組だけを保存します。現再生のTaskやnative playerは切り替えません。</summary>
+    internal void CommitOutputSettings()
+    {
+        if (!CanCommitOutputSettings || !HasOutputSettingsChanges) { return; }
+        AudioOutputSelection selection = AudioDriverPolicy.NormalizePersistedSelection(audioOutputSelectionDraft);
+        ApplicationSettings.Commit(
+            (nameof(Settings.PlayerDriver), BassAudioMapping.ToBassDriver(selection.Backend)),
+            (nameof(Settings.PlayerDevice), selection.DeviceIdentity),
+            (nameof(Settings.PlayerDeviceName), selection.DeviceName),
+            (nameof(Settings.PlayerSampleRate), candidatePlayerSampleRate),
+            (nameof(Settings.PlayerFormat), candidatePlayerFormat),
+            (nameof(Settings.PlayerBufferSize), candidatePlayerBufferSize),
+            (nameof(Settings.PlayerWASAPIParam), candidatePlayerWASAPIParam));
     }
 
     /// <summary>保存・取消後に受け渡す現在の出力先です。</summary>
@@ -695,14 +737,14 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     {
         get
         {
-            return ApplicationSettings.PlayerSampleRate;
+            return candidatePlayerSampleRate;
         }
         set
         {
-            if (ApplicationSettings.PlayerSampleRate != value)
+            if (candidatePlayerSampleRate != value)
             {
-                ApplicationSettings.PlayerSampleRate = value;
-                ApplicationSettings.PlayerFormat = SampleFormat.AUTO;
+                candidatePlayerSampleRate = value;
+                candidatePlayerFormat = SampleFormat.AUTO;
                 audioOutputSelectionResetMessage =
                     BeMusicSeeker.Properties.Resources.AudioSampleRateSelectionResetMessage;
                 RaisePropertyChanged(nameof(AudioOutputSelectionResetMessage));
@@ -733,13 +775,13 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     {
         get
         {
-            return ApplicationSettings.PlayerFormat;
+            return candidatePlayerFormat;
         }
         set
         {
-            if (ApplicationSettings.PlayerFormat != value)
+            if (candidatePlayerFormat != value)
             {
-                ApplicationSettings.PlayerFormat = value;
+                candidatePlayerFormat = value;
                 audioOutputSelectionResetMessage = null;
                 RaisePropertyChanged(nameof(AudioOutputSelectionResetMessage));
                 RaisePropertyChanged(nameof(PlayerFormat));
@@ -766,13 +808,13 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     {
         get
         {
-            return ApplicationSettings.PlayerBufferSize;
+            return candidatePlayerBufferSize;
         }
         set
         {
-            if (ApplicationSettings.PlayerBufferSize != value)
+            if (candidatePlayerBufferSize != value)
             {
-                ApplicationSettings.PlayerBufferSize = value;
+                candidatePlayerBufferSize = value;
                 RaisePropertyChanged("PlayerBufferSize");
                 InvalidateAudioDeviceTestResult();
             }
@@ -782,12 +824,12 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     /// <summary>音声のサンプルレート変換品質を取得または設定します。</summary>
     public int PlayerResamplingQuality
     {
-        get => playerResamplingQualityDraft;
+        get => ApplicationSettings.PlayerResamplingQuality;
         set
         {
-            if (playerResamplingQualityDraft != value)
+            if (AudioResamplingQuality.IsValid(value) && ApplicationSettings.PlayerResamplingQuality != value)
             {
-                playerResamplingQualityDraft = value;
+                if (!SaveIndependentAudioSetting(nameof(Settings.PlayerResamplingQuality), value)) { return; }
                 RaisePropertyChanged(nameof(PlayerResamplingQuality));
                 InvalidateAudioDeviceTestResult();
             }
@@ -815,12 +857,12 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     /// <summary>通常再生用SRCミキサーのnative thread数を取得または設定します。</summary>
     public int PlayerMixerThreadCount
     {
-        get => playerMixerThreadCountDraft;
+        get => ApplicationSettings.PlayerMixerThreadCount;
         set
         {
-            if (playerMixerThreadCountDraft != value)
+            if (BassMixerThreadConfigurator.IsValidRealtimeThreadCount(value) && ApplicationSettings.PlayerMixerThreadCount != value)
             {
-                playerMixerThreadCountDraft = value;
+                if (!SaveIndependentAudioSetting(nameof(Settings.PlayerMixerThreadCount), value)) { return; }
                 RaisePropertyChanged(nameof(PlayerMixerThreadCount));
                 InvalidateAudioDeviceTestResult();
             }
@@ -845,13 +887,13 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     {
         get
         {
-            return ApplicationSettings.PlayerWASAPIParam;
+            return candidatePlayerWASAPIParam;
         }
         set
         {
-            if (ApplicationSettings.PlayerWASAPIParam != value)
+            if (candidatePlayerWASAPIParam != value)
             {
-                ApplicationSettings.PlayerWASAPIParam = value;
+                candidatePlayerWASAPIParam = value;
                 RaisePropertyChanged("PlayerWASAPIParam");
                 RaisePropertyChanged(nameof(IsPlayerBufferControlEnabled));
                 InvalidateAudioDeviceTestResult();
@@ -871,10 +913,10 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
             audioOutputSelectionDraft.Backend,
             audioOutputSelectionDraft.DeviceIdentity,
             audioOutputSelectionDraft.DeviceName,
-            ApplicationSettings.PlayerSampleRate,
-            ApplicationSettings.PlayerFormat,
-            ApplicationSettings.PlayerBufferSize,
-            ApplicationSettings.PlayerWASAPIParam,
+            candidatePlayerSampleRate,
+            candidatePlayerFormat,
+            candidatePlayerBufferSize,
+            candidatePlayerWASAPIParam,
             ApplicationSettings.uBMplayVolume,
             playSound: true,
             PlayerResamplingQuality,
@@ -1236,8 +1278,8 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
 
     private void ResetAudioOutputConditions(string resetMessage)
     {
-        ApplicationSettings.PlayerSampleRate = SampleRate.AUTO;
-        ApplicationSettings.PlayerFormat = SampleFormat.AUTO;
+        candidatePlayerSampleRate = SampleRate.AUTO;
+        candidatePlayerFormat = SampleFormat.AUTO;
         audioOutputSelectionResetMessage = resetMessage;
         RaisePropertyChanged(nameof(AudioOutputSelectionResetMessage));
         RaisePropertyChanged(nameof(PlayerSampleRate));

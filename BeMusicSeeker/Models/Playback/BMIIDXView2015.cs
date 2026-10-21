@@ -370,7 +370,8 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
         SendPressAndReleaseKeyEvent(KeyCode.SUBTRACT);
     }
 
-    public void VolumeChanged()
+    /// <summary>外部プレイヤーの実行中音量は変更しません。次の起動では保存済みの音量を使います。</summary>
+    public void VolumeChanged(int volume)
     {
     }
 

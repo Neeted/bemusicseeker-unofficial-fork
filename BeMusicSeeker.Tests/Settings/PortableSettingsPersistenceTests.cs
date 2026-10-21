@@ -13,6 +13,68 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PortableSettingsPersistenceTests
 {
+    /// <summary>局所保存は成功した対象だけを既存readerへ公開し、別wrapperの直近保存・未知キーと、同値保存時の媒体を保持します。</summary>
+    [TestMethod]
+    public void CommitPublishesOnlySelectedValuesAndKeepsLatestUnrelatedValues()
+    {
+        using var files = new SettingsFiles();
+        File.WriteAllText(files.Path, Config("Lang", "en-US").Replace("</BeMusicSeeker", "<setting name=\"FutureKey\" serializeAs=\"String\"><value>retain</value></setting></BeMusicSeeker"));
+        Settings first = OpenSettings(files.Path);
+        Settings second = OpenSettings(files.Path);
+        _ = first.PlayerMixerThreadCount;
+        _ = second.Lang;
+        first.Commit((nameof(Settings.Lang), "fr-FR"));
+        second.Commit((nameof(Settings.PlayerMixerThreadCount), 3));
+        Assert.AreEqual("fr-FR", first.Lang);
+        Assert.AreEqual("en-US", second.Lang, "対象外のreader値を再読込みしません。");
+        Assert.AreEqual("fr-FR", OpenSettings(files.Path).Lang);
+        Assert.AreEqual(3, OpenSettings(files.Path).PlayerMixerThreadCount);
+        Assert.AreEqual("retain", XDocument.Load(files.Path).Descendants("setting").Single(e => (string?)e.Attribute("name") == "FutureKey").Element("value")!.Value);
+        byte[] before = File.ReadAllBytes(files.Path);
+        using (File.Open(files.Path, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            second.Commit((nameof(Settings.PlayerMixerThreadCount), 3));
+        }
+        CollectionAssert.AreEqual(before, File.ReadAllBytes(files.Path));
+    }
+
+    /// <summary>一組の保存失敗は確定readerと媒体の両方を旧値に保ち、以後の無関係な画面外保存に失敗候補を混ぜません。</summary>
+    [TestMethod]
+    public void CommitFailureDoesNotPublishOrLeakIntoLaterRuntimeSave()
+    {
+        using var files = new SettingsFiles();
+        File.WriteAllText(files.Path, Config("Lang", "en-US"));
+        Settings settings = OpenSettings(files.Path);
+        using (File.Open(files.Path, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Assert.ThrowsException<PortableSettingsException>(() => settings.Commit(
+                (nameof(Settings.Lang), "fr-FR"), (nameof(Settings.PlayerMixerThreadCount), 3)));
+        }
+        Assert.AreEqual("en-US", settings.Lang);
+        Assert.AreEqual(1, settings.PlayerMixerThreadCount);
+        settings.ShowNewPackageInstallConfirmMsg = false;
+        settings.Save();
+        Settings loaded = OpenSettings(files.Path);
+        Assert.AreEqual("en-US", loaded.Lang);
+        Assert.AreEqual(1, loaded.PlayerMixerThreadCount);
+        Assert.IsFalse(loaded.ShowNewPackageInstallConfirmMsg);
+    }
+
+    /// <summary>画面外の古いwrapperからの保存は、自身が変更した項目だけを更新し別項目の最新保存を維持します。</summary>
+    [TestMethod]
+    public void RuntimeSaveDoesNotOverwriteLatestConfirmedSettingFromAnotherWrapper()
+    {
+        using var files = new SettingsFiles();
+        Settings first = OpenSettings(files.Path);
+        Settings runtime = OpenSettings(files.Path);
+        _ = runtime.Lang;
+        first.Commit((nameof(Settings.Lang), "fr-FR"));
+        runtime.PlayerMixerThreadCount = 3;
+        runtime.Save();
+        Assert.AreEqual("fr-FR", OpenSettings(files.Path).Lang);
+        Assert.AreEqual(3, OpenSettings(files.Path).PlayerMixerThreadCount);
+    }
+
     /// <summary>利用者の言語・音声品質・確認設定と全有効 thread 数を保存し新 wrapper で読み戻し、未知キー保持と一時ファイル回収を確認します。</summary>
     [TestMethod]
     public void SaveRoundTripsThroughFreshGeneratedSettingsAndPreservesUnknownKeys()

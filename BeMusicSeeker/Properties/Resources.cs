@@ -231,7 +231,6 @@ public class Resources
 
     public static string Add_ignore => ResourceManager.GetString("Add_ignore", resourceCulture);
 
-    public static string Add_root_folder => ResourceManager.GetString("Add_root_folder", resourceCulture);
 
     public static string AddDate => ResourceManager.GetString("AddDate", resourceCulture);
 
@@ -291,7 +290,6 @@ public class Resources
 
     public static string Close => ResourceManager.GetString("Close", resourceCulture);
 
-    public static string Cancel_root_folder => ResourceManager.GetString("Cancel_root_folder", resourceCulture);
 
     public static string Change_stage_file => ResourceManager.GetString("Change_stage_file", resourceCulture);
 
@@ -943,7 +941,6 @@ public class Resources
 
     public static string Msg_init_settings_check => ResourceManager.GetString("Msg_init_settings_check", resourceCulture);
 
-    public static string Msg_initsetting_completed => ResourceManager.GetString("Msg_initsetting_completed", resourceCulture);
 
     public static string Msg_invalid_setting => ResourceManager.GetString("Msg_invalid_setting", resourceCulture);
 
@@ -1309,7 +1306,6 @@ public class Resources
 
     public static string Save_data_file => ResourceManager.GetString("Save_data_file", resourceCulture);
 
-    public static string Save_and_close => ResourceManager.GetString("Save_and_close", resourceCulture);
 
     public static string Save_header_file => ResourceManager.GetString("Save_header_file", resourceCulture);
 
@@ -3090,4 +3086,30 @@ public class Resources
     /// <summary>専用バックアップ保存先と世代整理の削除範囲の説明を取得します。</summary>
     public static string Backup_destination_description => ResourceManager.GetString("Backup_destination_description", resourceCulture);
 
+    /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
+    public static string Settings_confirm_bms_roots => ResourceManager.GetString("Settings_confirm_bms_roots", resourceCulture);
+    /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
+    public static string Settings_confirm_bmt => ResourceManager.GetString("Settings_confirm_bmt", resourceCulture);
+    /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
+    public static string Settings_confirm_environment => ResourceManager.GetString("Settings_confirm_environment", resourceCulture);
+    /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
+    public static string Settings_start_environment => ResourceManager.GetString("Settings_start_environment", resourceCulture);
+    /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
+    public static string Settings_cancel_changes => ResourceManager.GetString("Settings_cancel_changes", resourceCulture);
+    /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
+    public static string Settings_repair_related_save => ResourceManager.GetString("Settings_repair_related_save", resourceCulture);
+    /// <summary>保存後に未完了となった局所処理の再試行案内を取得します。</summary>
+    public static string Settings_processing_retry => ResourceManager.GetString("Settings_processing_retry", resourceCulture);
+    /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
+    public static string Settings_replacement_install => ResourceManager.GetString("Settings_replacement_install", resourceCulture);
+    /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
+    public static string Settings_use_on_start => ResourceManager.GetString("Settings_use_on_start", resourceCulture);
+    /// <summary>選択recordだけを確定する操作名です。</summary>
+    public static string Settings_confirm_record => ResourceManager.GetString("Settings_confirm_record", resourceCulture);
+    /// <summary>設定画面の環境とBMS編集の操作名です。</summary>
+    public static string Settings_environment => ResourceManager.GetString("Settings_environment", resourceCulture);
+    /// <summary>設定画面の環境とBMS編集の操作名です。</summary>
+    public static string Settings_open_bms_roots => ResourceManager.GetString("Settings_open_bms_roots", resourceCulture);
+    /// <summary>未完了の設定保存・処理を明示的に再試行する文言です。</summary>
+    public static string Settings_retry => ResourceManager.GetString(nameof(Settings_retry), resourceCulture);
 }

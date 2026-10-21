@@ -5,6 +5,7 @@
              xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels"
              xmlns:settings="clr-namespace:BeMusicSeeker.Views.Settings"
              HorizontalContentAlignment="Stretch"
+             IsEnabled="{Binding IsIndependentSectionEnabled}"
              AutomationProperties.AutomationId="RightClickSettingsPage">
   <UserControl.Resources>
     <ResourceDictionary>
@@ -29,7 +30,7 @@
 
     <settings:SettingsSection Margin="0,20,0,0"
                               Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_web_actions, Mode=OneWay}"
-                              Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_web_actions_description, Mode=OneWay}">
+                              Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_web_actions_description, Mode=OneWay}"><StackPanel>
       <settings:SettingsListEditor Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_web_actions, Mode=OneWay}">
         <Grid>
           <Grid.RowDefinitions>
@@ -112,11 +113,11 @@
           </Grid>
         </Grid>
       </settings:SettingsListEditor>
-    </settings:SettingsSection>
+    <StackPanel Orientation="Horizontal"><Button Tag="confirm:web" AutomationProperties.AutomationId="SettingsConfirmweb" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_confirm_record}" /><Button Tag="cancel:web" Style="{StaticResource SettingsQuietButtonStyle}" AutomationProperties.AutomationId="SettingsCancelweb" Margin="8,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_cancel_changes}" /></StackPanel></StackPanel></settings:SettingsSection>
 
     <settings:SettingsSection Margin="0,28,0,0"
                               Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_program_actions, Mode=OneWay}"
-                              Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_program_actions_description, Mode=OneWay}">
+                              Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_program_actions_description, Mode=OneWay}"><StackPanel>
       <settings:SettingsListEditor Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_program_actions, Mode=OneWay}">
         <Grid>
           <Grid.RowDefinitions>
@@ -212,6 +213,6 @@
           </Grid>
         </Grid>
       </settings:SettingsListEditor>
-    </settings:SettingsSection>
+    <StackPanel Orientation="Horizontal"><Button Tag="confirm:program" AutomationProperties.AutomationId="SettingsConfirmprogram" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_confirm_record}" /><Button Tag="cancel:program" Style="{StaticResource SettingsQuietButtonStyle}" AutomationProperties.AutomationId="SettingsCancelprogram" Margin="8,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_cancel_changes}" /></StackPanel></StackPanel></settings:SettingsSection>
   </StackPanel>
 </UserControl>

@@ -95,7 +95,8 @@ internal interface ISettingsDialogWorkspacePort
 
     /// <summary>同じP権限で全表BMTの生成・旧配置回収・設定反映の実終端を待ち、元失敗を伝播します。</summary>
     /// <param name="forceProjection">同じ全表出力で、署名一致による生成省略を迂回するか。</param>
-    Task ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability, bool forceProjection = false);
+    /// <param name="options">環境確定が捕捉した新環境の条件。省略時だけ当該担当が現在の確定値を捕捉します。</param>
+    Task ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability, bool forceProjection = false, BeatorajaBmtOptionsSnapshot options = null);
 
     Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string operationName);
 
@@ -116,31 +117,42 @@ internal interface ISettingsDialogCustomFolderOutputPort
 {
     /// <summary>予約せず限定前段の可否を読み取ります。実受付は確認後に再判定します。</summary>
     bool CanBeginOutputOperation { get; }
+    /// <summary>共有Pの受付状態が変わったことを表示条件へ通知します。</summary>
+    event EventHandler OutputOperationAvailabilityChanged;
     /// <summary>設定の出力配置変更・全体同期が既存Pを非待機取得します。Busyはnull、呼出元が通知・cleanup終端まで保持します。</summary>
     LibraryFileMutationLease TryBeginOutputOperation();
 
     CustomFolderOutputSettingsSnapshot CustomFolderOutputSettings { get; }
 
+    /// <summary>通常出力の実移行を行い、成立結果と未了の旧先整理を局所保存担当へ返します。</summary>
+    /// <param name="migrationObserver">新先投影・DB同期の成立を旧先整理前に受け取る担当。整理結果は同じreceiptへ更新され、例外後も未了だけを次の明示修復へ持ち出します。</param>
     void ChangeCustomFolderBaseDirectoryWithSettings(
         string outputDirBaseBefore,
         string outputDirBaseAfter,
         string additionalOutputBaseDirsBefore,
         string additionalOutputBaseDirsAfter,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null);
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null);
 
+    /// <summary>ルート型の実移行を行い、成立結果と未了の旧先整理を局所保存担当へ返します。</summary>
+    /// <param name="migrationObserver">新先投影・DB同期の成立を旧先整理前に受け取る担当。整理の例外後も同じreceiptで未了だけを保持します。</param>
     void ChangeCustomFolderBaseDirectoryRootWithSettings(
         string outputDirBaseBefore,
         string outputDirBaseAfter,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null);
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null);
 
-    bool SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+    /// <summary>捕捉済み登録からルート型の最終一覧を返します。文書・保存境界を共有せず、設定担当が通常出力と一回のXML保存へまとめます。</summary>
+    IReadOnlyList<string> PrepareCustomFolderOutputSearchRoots(
         string previousRootOutputBaseDirectory,
-        CustomFolderOutputSettingsSnapshot settings);
+        CustomFolderOutputSettingsSnapshot settings, IReadOnlyList<string> currentDirectories);
 
+    /// <summary>実登録の対応と追加出力を変更し、成立結果と未了の旧先整理を局所保存担当へ返します。</summary>
+    /// <param name="migrationObserver">登録と新先投影・DB同期の成立を旧先整理前に受け取る担当。整理の例外後も同じreceiptで未了だけを保持します。</param>
     int ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
         string previousAdditionalOutputBaseDirectories,
         IReadOnlyDictionary<string, string> pendingRenames,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null);
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null);
+    /// <summary>捕捉済みの成立出力を保ち、未了の旧先整理だけを明示再試行します。</summary>
+    void RetryCustomFolderMigrationCleanup(CustomFolderMigrationReceipt receipt, LibraryFileMutationCapability capability);
 }
 
 internal interface ISettingsDialogPlayHistoryPort
@@ -175,7 +187,8 @@ internal interface ISettingsDialogPlayerFactoryPort
 internal interface ISettingsDialogPlaybackRuntimePort : IAudioDeviceTestPlaybackPort
 {
 
-    Task ApplyPlayerSettingsAsync(IBMSPlayer replacementPlayer);
+    /// <summary>現再生を維持し、次の明示再生またはNext開始で捕捉済みの方式へ切り替えます。</summary>
+    void UsePlayerForNextPlayback(Func<IBMSPlayer> createPlayer);
 
     void NotifySettingsChanged();
 }

@@ -14,10 +14,10 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class ApplicationCompositionTests
 {
-    /// <summary>実初期化後の共有受付がBusyならカタログ変更・再読込・再生開始・設定保存を開始せずdraftと選択を保ち、解放後は明示操作を通すことを確認し、構成された各入口の受付迂回を検出します。</summary>
+    /// <summary>実初期化後のBusyはカタログ変更・再読込・再生開始とライブラリ依存の局所確定を副作用前に拒否し、無関係な項目保存と候補・選択を維持します。解放後の明示操作で共有受付を確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
-    public async Task StandardComposition_RejectsCatalogPlaybackAndSettingsBeforeSideEffectsWhileKeepingDraftAndSelection()
+    public async Task StandardComposition_RejectsDependentOperationsWhileSavingOrdinaryItemsAndKeepingCandidates()
     {
 
         string root = StartupLibraryConstructionTestSupport.CreateTemporaryRoot();
@@ -95,135 +95,27 @@ public sealed partial class ApplicationCompositionTests
             Assert.AreEqual(stopsBeforeBusy, player.CloseProcessCount);
             Assert.IsNull(viewModel.PlaybackPanel.NowPlayingChart);
             viewModel.SettingDialog.KeepInstallablePackagesPending = !before;
-            await viewModel.SettingDialog.SaveSettings();
-            await viewModel.SettingDialog.ApplySettingsAsync();
-            await viewModel.SettingDialog.AddBmsSearchRootPathFromMainWindowPicker(Path.GetDirectoryName(path));
-            await viewModel.SettingDialog.RequestRemoveBmsSearchRootAsync(Path.GetDirectoryName(path));
+            Assert.AreEqual(!before, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config")).KeepInstallablePackagesPending);
+            viewModel.SettingDialog.BeatorajaPlayerId = "pending-score-player";
+
+            await viewModel.SettingDialog.CommitScoreSettingsAsync();
+            viewModel.SettingDialog.AddBmsSearchRootPaths([Path.GetDirectoryName(path)]);
+            await viewModel.SettingDialog.CommitBmsRootsAsync();
+
             Assert.AreEqual(0, session.SaveCount);
-            Assert.AreEqual(!before, viewModel.SettingDialog.KeepInstallablePackagesPending, "Busyでもdraftを捨てません。");
+            Assert.AreEqual(!before, viewModel.SettingDialog.KeepInstallablePackagesPending, "Busyでも通常項目の保存値を保ちます。");
             Assert.IsFalse(viewModel.SettingDialog.IsEditCompletionInProgress);
             Assert.AreSame(rows, viewModel.MainChartList.Rows);
             viewModel.MainChartList.SelectedIndex = -1;
             viewModel.MainChartList.SelectedIndex = 0;
             Assert.AreEqual(0, viewModel.MainChartList.SelectedIndex);
-            viewModel.SettingDialog.CancelCommand.Execute();
-            Assert.AreEqual(before, viewModel.SettingDialog.KeepInstallablePackagesPending);
+            viewModel.SettingDialog.CloseCommand.Execute();
+            Assert.AreEqual(!before, viewModel.SettingDialog.KeepInstallablePackagesPending);
             lease?.Dispose();
             await viewModel.PlaybackPanel.StartAtIndex(0);
             Assert.IsTrue(player.Commands.Any(command => command == "PlayStart:" + path));
-            viewModel.SettingDialog.SaveOperationModeForRestart(false);
-            Assert.AreEqual(1, session.SaveCount);
-        }
-        finally
-        {
-            lease?.Dispose();
-            try { await TestUiDispatcherHost.Dispatcher.Invoke(() => viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync()); }
-            finally { viewModel.SettingDialog.Dispose(); Directory.Delete(root, recursive: true); }
-        }
-    }
-    /// <summary>
-    /// 稼働profileでLまたはPがBusyならmode選択と保存を未開始で終え、draft・XML・稼働値を保ちます。
-    /// 解放後も拒否要求を再実行せず、次の明示保存だけを一回保存し、受付迂回やdraftの混入を検出します。
-    /// </summary>
-    /// <remarks>実初期化で稼働profileへ到達し、標準構成の受付共有を確認します。実Closeと確認競合はMainWindowViewHostTestsが分担します。</remarks>
-    [DataTestMethod]
-    [DataRow("library")]
-    [DataRow("playlist")]
-    [DoNotParallelize]
-    public async Task StandardComposition_OperationModeBusyPreservesDraftUntilNextExplicitSave(string admission)
-    {
-        string root = StartupLibraryConstructionTestSupport.CreateTemporaryRoot();
-        string path = Path.Combine(root, "admission.bms");
-        File.WriteAllText(path, "#PLAYER 1\n#TITLE Admission\n#BPM 120\n#00111:01\n");
-        BeMusicSeeker.Properties.Settings values = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config"));
-        values.OperationModeLR2DB = false;
-        values.BMSRootPath = root;
-        values.StandaloneBmsRootPaths = root;
-        values.BMSInstallDir = root;
-        values.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
-        values.EnablePlaylistUrlCompletion = false;
-        values.ScanBmsFilesOnStartup = true;
-        values.StartupSelectInstallPending = false;
-        values.SkipInitPlaylistLoad = true;
-        values.UseBeatorajaScoreDb = false;
-        values.EnableBeatorajaBmtOutput = false;
-        values.UseExternalPanelImage = false;
-        values.UsePlayeruBMplay = false;
-        values.UsePlayerLR2body = false;
-        values.UsePlayerBMIIDXView = false;
-        values.IsLR2BackupEnabled = false;
-        values.ShowScoreViewerRegisterConfirmMsg = true;
-        values.Save();
-        var session = new AdmissionModeSettingsSession(values);
-        var player = new PlaybackPanelViewModelTests.FakeBmsPlayer();
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
-        var lifetime = new AdmissionModeLifetime();
-        var composition = new ApplicationComposition(settingsEditSession: session,
-            defaultBmsPlayerFactory: () => player, uiScheduler: new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-            applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-            applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
-            chartFileScanner: CapturedChartFileScanner.FromFixture([path], new Dictionary<string, IEnumerable<string>> { [root] = [] }, [root]),
-            rootFileEnumerator: new FastRootFileEnumerator(),
-            fileDbMutationDialogService: dialogs, settingsDialogService: dialogs);
-        var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []) { InitialSearchTargets = [root] };
-        MainWindowViewModel viewModel = TestUiDispatcherHost.Dispatcher.Invoke(() => new MainWindowViewModel(composition, factory));
-        IDisposable? lease = null;
-        try
-        {
-            Task<bool> initialize = TestUiDispatcherHost.Dispatcher.Invoke(() => viewModel.InitializeAsync());
-            Assert.IsTrue(await initialize);
-            Assert.IsTrue(viewModel.IsInitializationCompleted);
-            Assert.IsTrue(viewModel.MainChartList.Rows.OfType<LibraryChartRow>().Any(row => row.Title == "Admission"), "予約だけでなく今回の必須表示が反映されています。");
-
-            // 独立後続の終了はBusy検証の準備だけに使い、必須成功の条件にはしません。
-            StartupBackgroundTaskSchedulerOwner scheduler = typeof(MainWindowViewModel)
-                .GetField("startupBackgroundTaskScheduler", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetValue(viewModel)
-                as StartupBackgroundTaskSchedulerOwner ?? throw new InvalidOperationException("Actual startup scheduler is unavailable.");
-            var backgroundTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            void BackgroundChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
-            {
-                if (!viewModel.ProgressHub.IsStartupBackgroundInitializationActive && scheduler.IsFullyIdle) { backgroundTerminal.TrySetResult(); }
-            }
-            viewModel.ProgressHub.PropertyChanged += BackgroundChanged;
-            try
-            {
-                if (viewModel.ProgressHub.IsStartupBackgroundInitializationActive || !scheduler.IsFullyIdle) { await backgroundTerminal.Task; }
-            }
-            finally { viewModel.ProgressHub.PropertyChanged -= BackgroundChanged; }
-            byte[] before = File.ReadAllBytes(Path.Combine(root, "user.config"));
-            bool appliedMode = composition.CustomFolderOutputSettingsProvider().OperationModeLR2DB;
-            values.ShowScoreViewerRegisterConfirmMsg = false;
-            ChartFileOperationSynchronizer blocker = admission == "library"
-                ? composition.OperationAdmission : composition.PlaylistOperationAdmission;
-            Assert.IsTrue(blocker.TryEnter(out lease));
-            TestUiDispatcherHost.Invoke(() =>
-            {
-                viewModel.SettingDialog.OperationModeLR2DB = true;
-                Assert.IsTrue(viewModel.SettingDialog.OperationModeLR2DB);
-                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, dialogs.LastMessageRequest.MessageBoxText);
-                viewModel.SettingDialog.SaveOperationModeForRestart(true);
-            });
-            Assert.IsFalse(values.OperationModeLR2DB);
-            Assert.AreEqual(appliedMode, composition.CustomFolderOutputSettingsProvider().OperationModeLR2DB);
-            Assert.IsFalse(viewModel.SettingDialog.ShowScoreViewerRegisterConfirmMsg);
-            Assert.IsNull(dialogs.LastConfirmationRequest);
-            Assert.AreEqual(0, session.ModeSaveCount);
-            Assert.AreEqual(0, session.SaveCount);
-            Assert.AreEqual(0, lifetime.RestartCount);
-            Assert.AreEqual(0, lifetime.MarkCount);
-            Assert.IsFalse(viewModel.ShellShutdownWorkflow.IsShutdownPreparationStarted);
-            Assert.IsFalse(viewModel.SettingDialog.IsEditCompletionInProgress);
-            CollectionAssert.AreEqual(before, File.ReadAllBytes(Path.Combine(root, "user.config")));
-            if (admission == "playlist") { Assert.IsFalse(composition.OperationAdmission.IsActive); }
-            lease?.Dispose();
-            lease = null;
-            Assert.AreEqual(0, session.ModeSaveCount, "受付解放後に拒否要求を自動再実行しません。");
-            TestUiDispatcherHost.Invoke(() => viewModel.SettingDialog.SaveOperationModeForRestart(true));
-            Assert.AreEqual(1, session.ModeSaveCount);
-            Assert.AreEqual(0, session.SaveCount);
-            Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config")).OperationModeLR2DB);
-            Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config")).ShowScoreViewerRegisterConfirmMsg,
-                "modeだけの明示保存は未保存の別draftをXMLへ混ぜません。");
+            Assert.AreEqual("pending-score-player", viewModel.SettingDialog.BeatorajaPlayerId);
+            Assert.AreNotEqual("pending-score-player", PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config")).BeatorajaPlayerId);
         }
         finally
         {
@@ -233,41 +125,11 @@ public sealed partial class ApplicationCompositionTests
         }
     }
 
-    private sealed class AdmissionModeLifetime : IApplicationLifetimePort
-    {
-        internal int RestartCount { get; private set; }
-        internal int MarkCount { get; private set; }
-        public bool IsFirstStartup => false;
-        public void CompleteFirstStartup() { }
-        public void MarkCoordinatedShutdownStarted(string reason) => MarkCount++;
-        public void ExitForUnrestoredDestination(System.Exception failure)
-        => throw new System.InvalidOperationException("Unexpected unrestored destination exit.", failure);
 
-        public void RequestShutdown() { }
-        public Task RestartApplicationAsync() { RestartCount++; return Task.CompletedTask; }
-    }
-
-    /// <summary>mode保存を実設定sessionへ委譲し、通常保存とmode専用保存の受付回数を区別します。</summary>
-    private sealed class AdmissionModeSettingsSession : ISettingsEditSession
-    {
-        private readonly SettingsEditSession inner;
-        internal AdmissionModeSettingsSession(BeMusicSeeker.Properties.Settings values) => inner = new(values);
-        internal int ModeSaveCount { get; private set; }
-        internal int SaveCount { get; private set; }
-        public BeMusicSeeker.Properties.Settings Values => inner.Values;
-        public void Reload() => inner.Reload();
-        public void Save() { SaveCount++; inner.Save(); }
-        public void SaveOperationModeForRestart(bool mode, string historyIdentity)
-        {
-            ModeSaveCount++;
-            inner.SaveOperationModeForRestart(mode, historyIdentity);
-        }
-    }
-
-    /// <summary>実LR2同期の受付保持中は既存の試聴を止めず新規再生・保存・適用を拒否し、XMLとdraftを保って次の明示保存だけを通すことを確認し、同期受付の共有漏れや拒否時の編集破棄を検出します。</summary>
+    /// <summary>実LR2同期の受付保持中は既存試聴を保ち新規再生を拒否します。無関係な通常項目は実保存でき、終了時に別の保存や再読込みを合成しません。</summary>
     [TestMethod]
     [DoNotParallelize]
-    public async Task StandardComposition_ActualLr2KeepsExistingPlaybackAndRejectsNewStartsAndSavesWithoutDiscardingDraft()
+    public async Task StandardComposition_ActualLr2KeepsPlaybackAndAllowsIndependentOrdinarySettings()
     {
 
         using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
@@ -324,24 +186,23 @@ public sealed partial class ApplicationCompositionTests
             byte[] xmlBeforeBusy = File.ReadAllBytes(configPath);
             int reloadsBeforeBusy = session.ReloadCount;
             await viewModel.PlaybackPanel.StartAtIndex(0);
-            await viewModel.SettingDialog.SaveSettings();
-            await viewModel.SettingDialog.ApplySettingsAsync();
+
             Assert.IsFalse((await viewModel.PackageCatalog.ClearAllAsync(PackageCatalogSection.Pending)).Succeeded);
             Assert.AreEqual(playStarts, player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
             Assert.AreEqual(stops, player.CloseProcessCount);
             Assert.AreEqual(0, session.SaveCount);
-            CollectionAssert.AreEqual(xmlBeforeBusy, File.ReadAllBytes(configPath), "Busy保存・適用は所有XMLを変更しません。");
-            Assert.AreEqual(reloadsBeforeBusy, session.ReloadCount, "拒否された保存・適用は再読込みも始めません。");
-            Assert.AreEqual(editedValue, values.KeepInstallablePackagesPending, "編集後の値へBusy保存・適用自身が追加変更を行いません。");
+            CollectionAssert.AreEqual(xmlBeforeBusy, File.ReadAllBytes(configPath), "新規再生拒否は保存済み通常項目を変更しません。");
+            Assert.AreEqual(reloadsBeforeBusy, session.ReloadCount, "新規再生拒否で設定を再読込みしません。");
+            Assert.AreEqual(editedValue, values.KeepInstallablePackagesPending, "実行中の同期が後から保存した通常項目を戻しません。");
             Assert.AreEqual(!before, viewModel.SettingDialog.KeepInstallablePackagesPending, "Busyでも編集値を保持します。");
             viewModel.MainChartList.SelectedIndex = -1;
             viewModel.MainChartList.SelectedIndex = 0;
             release.Set();
             await operation;
             Assert.IsFalse(composition.OperationAdmission.IsActive);
-            await viewModel.SettingDialog.SaveSettings();
-            Assert.AreEqual(1, session.SaveCount);
-            Assert.AreEqual(!before, values.KeepInstallablePackagesPending, "終端後の明示保存で同じ編集値を反映します。");
+
+            Assert.AreEqual(0, session.SaveCount);
+            Assert.AreEqual(!before, values.KeepInstallablePackagesPending, "通常項目は同期の終端を待たず保存済みです。");
             Assert.AreEqual(!before, PortableSettingsPersistenceTests.OpenSettings(configPath).KeepInstallablePackagesPending);
         }
         finally
@@ -422,10 +283,10 @@ public sealed partial class ApplicationCompositionTests
     }
 
 
-    /// <summary>生成設定を捕捉した後でdraftを変えても今回のUNSENTファイルと行を保持し、次の明示同期で除去して両完了を保存することを確認し、実行途中の設定再読込や旧定義残留を検出します。</summary>
+    /// <summary>生成設定を捕捉した後で独立項目を確定しても今回のUNSENTファイルと行を保持し、次の明示同期で除去して両完了を保存することを確認し、実行途中の設定再読込や旧定義残留を検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
-    public async Task StandardComposition_Lr2UsesCapturedGenerationOptionAndAdoptsDraftOnNextExplicitRequest()
+    public async Task StandardComposition_Lr2UsesCapturedGenerationOptionAndAdoptsConfirmedOptionOnNextRequest()
     {
 
         using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
@@ -483,13 +344,13 @@ public sealed partial class ApplicationCompositionTests
             first = Task.Run(() => runtime.QueueAsync("capture-output-A", force: true, prepareGeneratedData: true, capability: capability));
             await Task.WhenAny(captured.Task, first);
             if (!captured.Task.IsCompleted) { await first; Assert.Fail("設定入力捕捉へ到達しませんでした。"); }
-            values.EnableDownloadLr2IrScoreAndDetectUnsent = false;
+            values.Commit((nameof(BeMusicSeeker.Properties.Settings.EnableDownloadLr2IrScoreAndDetectUnsent), false));
             releaseCapture.Set();
             await first;
             Assert.IsTrue(File.Exists(Path.Combine(outputA, "CapturedTable", "0001.lr2folder")), "受理したAを生成処理が消費します。");
             Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed,
                 library.GetLr2SongDbSyncStatusSnapshot().Status,
-                "非配置optionのdraft編集は今回捕捉した生成入力を変えません。");
+                "非配置optionの項目保存は今回捕捉した生成入力を変えません。");
             {
                 string[] files = Directory.GetFiles(Path.Combine(outputA, "CapturedTable"), "*.lr2folder", SearchOption.AllDirectories);
                 Assert.IsTrue(files.Any(path => File.ReadAllText(path, System.Text.Encoding.GetEncoding("shift_jis")).Contains("#TITLE UNSENT SONGS", StringComparison.Ordinal)),
@@ -509,7 +370,7 @@ public sealed partial class ApplicationCompositionTests
             {
                 string[] files = Directory.GetFiles(Path.Combine(outputA, "CapturedTable"), "*.lr2folder", SearchOption.AllDirectories);
                 Assert.IsFalse(files.Any(path => File.ReadAllText(path, System.Text.Encoding.GetEncoding("shift_jis")).Contains("#TITLE UNSENT SONGS", StringComparison.Ordinal)),
-                    "次の明示要求ではdraft B=falseを消費して管理定義を除去します。");
+                    "次の明示要求では確定値B=falseを消費して管理定義を除去します。");
                 Assert.IsFalse(verify.Table<BeMusicSeeker.Models.LR2.LR2SongDB.folder>().Any(row => row.title == "UNSENT SONGS"));
                 Assert.AreEqual("Completed", verify.Find<BeMusicSeeker.Models.LR2.LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName).status);
             }

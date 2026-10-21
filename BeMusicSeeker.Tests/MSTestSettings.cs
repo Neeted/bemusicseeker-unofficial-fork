@@ -42,5 +42,6 @@ public sealed class MSTestSettings
     public static void Cleanup()
     {
         TestUiDispatcherHost.ShutdownApplication();
+        MainWindowViewModelTestFactory.CleanupIsolatedSettingsDirectories();
     }
 }

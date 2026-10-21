@@ -1410,6 +1410,17 @@ public partial class BMSPlaylist : ObservableObject
         }
     }
 
+    /// <summary>設定担当が所有する一文書の登録から、表に必要なルート型登録の最終一覧だけを返します。XMLは保存しません。</summary>
+    internal IReadOnlyList<string> PrepareCustomFolderOutputSearchRoots(string previousRootOutputBaseDirectory,
+        IReadOnlyList<string> currentDirectories, CustomFolderOutputSettingsSnapshot settings)
+    {
+        using (rwlockBMSTables.GetReaderGuard())
+        {
+            return customFolderOutputMaintenanceOwner.PrepareCustomFolderOutputSearchRoots(previousRootOutputBaseDirectory,
+                currentDirectories, settings);
+        }
+    }
+
     /// <summary>読取りに必要な項目を準備します。親変更の必要出力・参照公開の完了通知は行いません。</summary>
     internal Task EnsureAllPlaylistEntriesLoadedAsync(string reason)
     {
@@ -1978,13 +1989,14 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     /// <summary>捕捉設定と生存権限で通常形式の出力基点を変更します。設定の外側受付を取り直さず、物理変更と保存を終えます。</summary>
+    /// <param name="migrationObserver">新先投影・DB同期の成立時に、整理前のreceiptを渡します。旧先整理の例外後も局所保存担当が未了だけを所有します。</param>
     /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
     internal void ChangeCustomFolderBaseDirectoryWithSettings(
         string outputDirBaseBefore,
         string outputDirBaseAfter,
         string additionalOutputBaseDirsBefore,
         string additionalOutputBaseDirsAfter,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null)
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null)
     {
         using LibraryFileMutationLease admission = AcquirePlaylistMutationLease("ChangeCustomFolderBaseDirectoryWithSettings", capability: capability);
         using LibraryFileMutationCapability authority = admission.CreateMutationCapability();
@@ -2028,7 +2040,7 @@ public partial class BMSPlaylist : ObservableObject
             "setting_custom_folder_output_base_dir_changed",
             wasRootFolderBeforeByTable: outputDirPathBeforeByTable.Keys.ToDictionary(table => table, _ => false),
             outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
-            settings: settings, capability: authority);
+            settings: settings, capability: authority, migrationObserver: migrationObserver);
     }
 
     /// <summary>
@@ -2047,11 +2059,12 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     /// <summary>捕捉設定と生存権限でルート形式の出力基点を変更し、元のファイル・DB結果を維持します。</summary>
+    /// <param name="migrationObserver">新先投影・DB同期の成立時に、旧先整理前のreceiptを渡します。</param>
     /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
     internal void ChangeCustomFolderBaseDirectoryRootWithSettings(
         string outputDirBaseBefore,
         string outputDirBaseAfter,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null)
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null)
     {
         using LibraryFileMutationLease admission = AcquirePlaylistMutationLease("ChangeCustomFolderBaseDirectoryRootWithSettings", capability: capability);
         using LibraryFileMutationCapability authority = admission.CreateMutationCapability();
@@ -2074,7 +2087,7 @@ public partial class BMSPlaylist : ObservableObject
             wasRootFolderBeforeByTable: outputDirPathBeforeByTable.Keys.ToDictionary(table => table, _ => true),
             rootOutputBaseDirBefore: outputDirBaseBefore,
             outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
-            settings: settings, capability: authority);
+            settings: settings, capability: authority, migrationObserver: migrationObserver);
     }
 
     /// <summary>
@@ -2082,13 +2095,14 @@ public partial class BMSPlaylist : ObservableObject
     /// </summary>
     /// <param name="previousAdditionalOutputBaseDirectories">変更前の追加出力先定義。</param>
     /// <param name="pendingRenames">編集中に確定した登録名の変更。</param>
+    /// <param name="migrationObserver">実登録・新先出力の成立時に、旧先整理前のreceiptを渡します。</param>
     /// <param name="settings">変更後のカスタムフォルダ出力設定。</param>
     /// <returns>変更したプレイリスト数。</returns>
     /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
     internal int ApplyCustomFolderAdditionalOutputBaseRegistrationChangesWithSettings(
         string previousAdditionalOutputBaseDirectories,
         IReadOnlyDictionary<string, string> pendingRenames,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null)
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null)
     {
         using LibraryFileMutationLease admission = AcquirePlaylistMutationLease("ApplyCustomFolderAdditionalOutputBaseRegistrationChangesWithSettings", capability: capability);
         using LibraryFileMutationCapability authority = admission.CreateMutationCapability();
@@ -2179,7 +2193,7 @@ public partial class BMSPlaylist : ObservableObject
                 outputDirPathBeforeByTable,
                 "setting_custom_folder_output_base_registration_changed",
                 outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
-                settings: settings, capability: authority);
+                settings: settings, capability: authority, migrationObserver: migrationObserver);
         }
         return changedTables.Count;
     }
@@ -4841,6 +4855,19 @@ public partial class BMSPlaylist : ObservableObject
         }
     }
 
+    /// <summary>設定操作が保持する成立済み移行の旧先整理だけを、同じ明示要求のPで再試行します。</summary>
+    internal void RetryCustomFolderMigrationCleanup(CustomFolderMigrationReceipt receipt, LibraryFileMutationCapability capability)
+    {
+        ArgumentNullException.ThrowIfNull(receipt);
+        if (receipt.CleanupCompleted) { return; }
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("settings migration cleanup", capability: capability);
+        using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
+        PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderBatchOutputResult result =
+            customFolderOutputMaintenanceOwner.CompletePreparedMigrationCleanup(receipt,
+                request => SyncCustomFolderRowsBatch(request, authority), refreshProtection: true);
+        customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, null);
+    }
+
     /// <summary>
     /// カスタムフォルダ出力先を複数プレイリスト分まとめて移行し、プレイリスト本体のヘッダ情報だけを永続化します。
     /// DB確定後の移行・公開失敗は確定後の分類で返し、保存済みヘッダーを復元しません。
@@ -4850,6 +4877,7 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="reason">性能ログに残す理由。</param>
     /// <param name="progressCallback">処理済み件数、全件数、処理中プレイリスト名を通知する callback。</param>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTables"/> が <see langword="null"/> の場合。</exception>
+    /// <param name="migrationObserver">新先の実投影・DB同期の成立を旧先整理前に通知します。整理結果は同じreceiptへ更新し、例外後も操作担当が未了だけを保持します。</param>
     internal void MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
         IEnumerable<BMSTable> bmsTables,
         IReadOnlyDictionary<BMSTable, string> outputDirPathBeforeByTable,
@@ -4858,7 +4886,7 @@ public partial class BMSPlaylist : ObservableObject
         IReadOnlyDictionary<BMSTable, bool> wasRootFolderBeforeByTable = null,
         string rootOutputBaseDirBefore = null,
         IReadOnlyDictionary<BMSTable, string> outputBaseDirPathBeforeByTable = null,
-        CustomFolderOutputSettingsSnapshot settings = null, LibraryFileMutationCapability capability = null)
+        CustomFolderOutputSettingsSnapshot settings = null, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null)
     {
         using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB", capability: capability);
         using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
@@ -4906,10 +4934,15 @@ public partial class BMSPlaylist : ObservableObject
             {
                 CompleteRequiredReferenceAndOutputs(() => ApplyCommittedPlaylistReferenceHeaders(referenceHeaders), () =>
                 {
-                    CustomFolderBatchOutputResult result = customFolderOutputMaintenanceOwner.MigratePreparedCustomFolderOutputDirectories(
+                    CustomFolderBatchOutputResult result = customFolderOutputMaintenanceOwner.MaterializePreparedCustomFolderMigration(
                         preparation,
                         reason,
                         request => SyncCustomFolderRowsBatch(request, mutationCapability));
+                    var receipt = new CustomFolderMigrationReceipt(preparation);
+                    // 新先の実投影・DB同期の成立は、旧先の物理/DB整理が例外になる前に操作担当へ渡します。
+                    migrationObserver?.Invoke(receipt);
+                    customFolderOutputMaintenanceOwner.CompletePreparedMigrationCleanup(receipt,
+                        request => SyncCustomFolderRowsBatch(request, mutationCapability), result);
                     customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback);
                 });
             }

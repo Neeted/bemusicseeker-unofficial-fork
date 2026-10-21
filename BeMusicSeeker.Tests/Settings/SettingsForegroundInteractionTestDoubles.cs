@@ -107,7 +107,7 @@ internal sealed class RecordingPlaybackPlayer : IBMSPlayer
     {
     }
 
-    public void VolumeChanged()
+    public void VolumeChanged(int volume)
     {
         VolumeChangedCount++;
     }
@@ -166,12 +166,12 @@ internal sealed class TestSettingsDialogPlaybackRuntimePort : ISettingsDialogPla
 
     internal IBMSPlayer? LastReplacementPlayer { get; private set; }
 
-    public Task ApplyPlayerSettingsAsync(IBMSPlayer replacementPlayer)
+    public void UsePlayerForNextPlayback(Func<IBMSPlayer> createPlayer)
     {
         ApplyCount++;
-        LastReplacementPlayer = replacementPlayer;
+        LastReplacementPlayer = null;
         sequence?.Add("apply");
-        return Task.CompletedTask;
+        return;
     }
 
     public void NotifySettingsChanged()

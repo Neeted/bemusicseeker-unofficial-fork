@@ -176,9 +176,10 @@ internal sealed class PlaylistBmtOutputOwner
     /// <summary>全表の必要出力を同じPで直接待ちます。管理台帳の全量cleanupはこの全体要求だけが行います。</summary>
     /// <param name="capability">外側が公開とcleanup終端まで保持する生存P権限。nullは新規非待機受付です。</param>
     /// <param name="forceProjection">署名一致による生成省略を迂回し、同じ全表出力で再生成するか。</param>
+    /// <param name="options">環境確定で捕捉済みの新環境入力。省略時だけ現在の確定値を要求受付前に捕捉します。</param>
     internal Task ExportAllAsync(string reason, string cleanupTablePath = null,
-        OperationProgressRequest originatingRequest = null, LibraryFileMutationCapability capability = null, bool forceProjection = false)
-        => ExecuteAsync([], [], reason, ExportScope.AllTables, cleanupTablePath, originatingRequest, capability, forceProjection);
+        OperationProgressRequest originatingRequest = null, LibraryFileMutationCapability capability = null, bool forceProjection = false, BeatorajaBmtOptionsSnapshot options = null)
+        => ExecuteAsync([], [], reason, ExportScope.AllTables, cleanupTablePath, originatingRequest, capability, forceProjection, options);
 
     /// <summary>確定した変更表と削除表だけを一括出力します。部分集合で他の管理表をstale削除せず、出力無効時はBMTのI/Oを行いません。</summary>
     /// <param name="capability">変更元が保持する生存P権限。内部継続は取得し直さず借用します。</param>
@@ -222,12 +223,12 @@ internal sealed class PlaylistBmtOutputOwner
 
     private async Task ExecuteAsync(IEnumerable<BMSTable> tables, IEnumerable<BMSTable> removedTables,
         string reason, ExportScope scope, string cleanupTablePath, OperationProgressRequest originatingRequest,
-        LibraryFileMutationCapability capability, bool forceProjection = false)
+        LibraryFileMutationCapability capability, bool forceProjection = false, BeatorajaBmtOptionsSnapshot capturedOptions = null)
     {
         using LibraryFileMutationLease accepted = capability != null ? mutationAdmission.Borrow(capability)
             : mutationAdmission.TryEnter(out IDisposable lease) ? (LibraryFileMutationLease)lease
             : throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
-        BeatorajaBmtOptionsSnapshot options = GetOptions();
+        BeatorajaBmtOptionsSnapshot options = capturedOptions ?? GetOptions();
         IReadOnlyList<BMSTable> changed = scope == ExportScope.AllTables ? GetTablesSnapshot()
             : [.. (tables ?? []).Where(table => table != null).Distinct()];
         IReadOnlyList<BMSTable> removed = [.. removedTables.Where(table => table != null).Distinct()];
