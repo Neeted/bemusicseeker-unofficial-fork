@@ -123,6 +123,88 @@ public sealed class CustomTableEditingTests
         });
     }
 
+    /// <summary>左右移動先へのF2/文字入力がそのセルの編集を開始し、編集中の左右は文字列・現在セル・横位置・確定件数を変更しないことを確認します。</summary>
+    /// <remarks>文字入力のルーティング、実TextBoxの生成と編集終端の接続を既存のWindow寿命で確認し、スクロール条件の組合せはNavigationTestsへ分担します。</remarks>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void HorizontalNavigation_EditStartsAtDestinationAndEditingKeepsArrowKeys(bool typeToEdit)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var target = new CustomTableColumn("target", "target", new CustomTableColumnSettings.ColumnLayout { Width = 320 }, 2,
+                string.Empty, TextAlignment.Left, _ => "original", editPropertyName: "target");
+            var table = new CustomTableView
+            {
+                Width = 200d,
+                Height = 90d,
+                Columns =
+                [
+                    new CustomTableColumn("first", "first", new CustomTableColumnSettings.ColumnLayout { Width = 100 }, 0,
+                        string.Empty, TextAlignment.Left, _ => "first"),
+                    new CustomTableColumn("middle", "middle", new CustomTableColumnSettings.ColumnLayout { Width = 120 }, 1,
+                        string.Empty, TextAlignment.Left, _ => "middle"),
+                    target
+                ],
+                ItemsSource = new object[] { new() },
+                SelectedIndex = 0
+            };
+            var popup = (Popup)(typeof(CustomTableView).GetField("editSuggestionPopup", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(table)
+                ?? throw new InvalidOperationException("候補Popupが見つかりません。"));
+            scope.TrackPopup(popup);
+            scope.ShowAndWaitForContentRendered(new Window { Width = 240d, Height = 140d, Content = table });
+            var completed = new List<CustomTableCellEditEndedEventArgs>();
+            table.CellEditEnded += (_, args) => completed.Add(args);
+            for (int i = 0; i < 3; i++)
+            {
+                Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            }
+            Assert.IsTrue(table.IsCurrentCell(0, target));
+            Assert.AreEqual(220d, table.HorizontalOffset);
+            try
+            {
+                if (typeToEdit)
+                {
+                    var composition = new TextComposition(InputManager.Current, table, "入力");
+                    var args = new TextCompositionEventArgs(Keyboard.PrimaryDevice, composition)
+                    {
+                        RoutedEvent = TextCompositionManager.PreviewTextInputEvent,
+                        Source = table
+                    };
+                    table.RaiseEvent(args);
+                    Assert.IsTrue(args.Handled);
+                }
+                else
+                {
+                    Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                TextBox editor = table.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).Single();
+                string expectedText = typeToEdit ? "入力" : "original";
+                Assert.AreEqual(expectedText, editor.Text);
+                foreach (Key key in new[] { Key.Left, Key.Right })
+                {
+                    Assert.IsFalse(table.HandleKeyDown(key, ModifierKeys.None));
+                    Assert.IsTrue(table.IsCurrentCell(0, target));
+                    Assert.AreEqual(expectedText, editor.Text);
+                    Assert.AreEqual(220d, table.HorizontalOffset);
+                    Assert.AreEqual(0, completed.Count);
+                }
+                Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+                Assert.AreEqual(1, completed.Count);
+                Assert.IsTrue(completed[0].Commit);
+                Assert.AreEqual("target", completed[0].EditPropertyName);
+                Assert.AreSame(target, completed[0].Hit.Column);
+                Assert.AreEqual(expectedText, completed[0].Text);
+            }
+            finally
+            {
+                table.HandleKeyDown(Key.Escape, ModifierKeys.None);
+                table.ItemsSource = null;
+            }
+        });
+    }
+
     private const string CandidateA = @"C:\BMS\A";
     private const string CandidateB = @"C:\BMS\B";
 

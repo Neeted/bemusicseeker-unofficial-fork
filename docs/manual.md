@@ -506,7 +506,7 @@ Click a column header to sort. Many columns can be displayed, including `TITLE`,
 
 ### Selecting and Editing Rows
 
-Click for one row, `Ctrl + click` to toggle individual rows, `Shift + click` for a range, and `Ctrl + A` for all rows. Use arrow keys to move and `Shift + Up / Down` to extend the range. Press F2 or type to edit an editable cell. A normal click opens a URL cell; another click, F2, or typing edits its URL.
+Click for one row, `Ctrl + click` to toggle individual rows, `Shift + click` for a range, and `Ctrl + A` for all rows. Use Up / Down to move between rows and `Shift + Up / Down` to extend the range. While not editing, Left / Right moves to the previous or next visible cell in the same row without changing the selected rows. Movement stops at the first or last column and scrolls horizontally to reveal an off-screen destination. Up / Down keeps the same column. Press F2 or type to edit the current editable cell; while editing, Left / Right remains available in the text box. A normal click opens a URL cell; another click, F2, or typing edits its URL.
 
 ### Copy Operations
 

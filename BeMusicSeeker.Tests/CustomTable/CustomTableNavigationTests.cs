@@ -1,0 +1,301 @@
+using System;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
+using System.Windows.Media;
+using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace BeMusicSeeker.Tests;
+
+/// <remarks>実表のキー受付・現在セル・配置とスクロールの接続が対象のためWPFを使います。Windowや利用者設定は使わず、条件はテスト所有の行と列で作ります。</remarks>
+[TestClass]
+public sealed class CustomTableNavigationTests
+{
+    /// <summary>表示順と非表示を反映して現在セルだけを移し、複数選択・現在行・選択通知・範囲基点を保つことを確認し、左右を行選択へ接続する誤りを検出します。</summary>
+    [TestMethod]
+    public void HorizontalKeys_FollowVisibleOrderAndPreserveSelectionAndRangeAnchor()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            var settings = new CustomTableColumnSettings();
+            foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+            {
+                layout.Visibility = Visibility.Hidden;
+            }
+            settings.ChartJudge.Visibility = Visibility.Visible;
+            settings.ChartJudge.DisplayIndex = 0;
+            settings.Title.Visibility = Visibility.Visible;
+            settings.Title.DisplayIndex = 1;
+            settings.Artist.Visibility = Visibility.Visible;
+            settings.Artist.DisplayIndex = 2;
+            CustomTableColumn[] columns = [.. CustomTableColumnFactory.CreateMainColumns(settings)];
+            CollectionAssert.AreEqual(new[] { "ChartJudge", "Title", "Artist" }, columns.Select(column => column.Id).ToArray());
+            CustomTableView table = CreateTable(columns);
+            object[] rows = (object[])table.ItemsSource;
+            table.SelectRowsByPredicate(row => ReferenceEquals(row, rows[0]) || ReferenceEquals(row, rows[2]), row => ReferenceEquals(row, rows[2]));
+            int notifications = 0;
+            table.SelectionChanged += (_, _) => notifications++;
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            AssertCurrentCell(table, 2, "Title");
+            Assert.IsTrue(table.HandleKeyDown(Key.Left, ModifierKeys.None));
+            AssertCurrentCell(table, 2, "ChartJudge");
+            Assert.IsTrue(table.HandleKeyDown(Key.Left, ModifierKeys.None));
+            Assert.AreEqual(2, table.SelectedIndex);
+            CollectionAssert.AreEqual(new[] { rows[0], rows[2] }, table.GetSelectedRowsSnapshot().ToArray());
+            Assert.AreEqual(0, notifications);
+            Assert.IsTrue(table.HandleKeyDown(Key.Down, ModifierKeys.Shift));
+            CollectionAssert.AreEqual(new[] { rows[2], rows[3] }, table.GetSelectedRowsSnapshot().ToArray());
+            AssertCurrentCell(table, 3, "ChartJudge");
+            Assert.AreEqual(1, notifications);
+            // Shift下で基点2と現在行3を分けてから左右を操作し、基点を現在行へリセットする誤りを検出します。
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            AssertCurrentCell(table, 3, "Title");
+            Assert.IsTrue(table.HandleKeyDown(Key.Left, ModifierKeys.None));
+            AssertCurrentCell(table, 3, "ChartJudge");
+            Assert.AreEqual(3, table.SelectedIndex);
+            CollectionAssert.AreEqual(new[] { rows[2], rows[3] }, table.GetSelectedRowsSnapshot().ToArray());
+            Assert.AreEqual(1, notifications);
+            Assert.IsTrue(table.HandleKeyDown(Key.Up, ModifierKeys.Shift));
+            CollectionAssert.AreEqual(new[] { rows[2] }, table.GetSelectedRowsSnapshot().ToArray());
+            AssertCurrentCell(table, 2, "ChartJudge");
+            Assert.AreEqual(2, table.SelectedIndex);
+            Assert.AreEqual(2, notifications);
+            table.ItemsSource = null;
+        });
+    }
+
+    /// <summary>現在セルなし・古い行・列/データ差替えでは方向別の端から始め、端列では画面外でもスクロールせず、修飾付き入力は受理しないことを確認します。</summary>
+    [TestMethod]
+    public void HorizontalKeys_StartAtDirectionalEdgeAndKeepBoundaryAndModifiedInputsUnchanged()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            CustomTableView table = CreateTable(CreateColumns(100, 120, 320, 80, 80));
+            table.SelectedIndex = 0;
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            AssertCurrentCell(table, 0, "C0");
+            ScrollBar scroll = HorizontalScrollBar(table);
+            scroll.Value = 400d;
+            Assert.IsTrue(table.HandleKeyDown(Key.Left, ModifierKeys.None));
+            Assert.AreEqual(400d, table.HorizontalOffset);
+            AssertCurrentCell(table, 0, "C0");
+            foreach (ModifierKeys modifier in new[] { ModifierKeys.Control, ModifierKeys.Shift, ModifierKeys.Alt })
+            {
+                Assert.IsFalse(table.HandleKeyDown(Key.Right, modifier));
+                Assert.IsFalse(table.HandleKeyDown(Key.Left, modifier));
+            }
+            Assert.AreEqual(400d, table.HorizontalOffset);
+            AssertCurrentCell(table, 0, "C0");
+            // SelectedIndexの外部変更は現在セルを作り直さないため、旧行のヒットを基点にしてはいけません。
+            table.SelectedIndex = 1;
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            AssertCurrentCell(table, 1, "C0");
+            table.SelectedIndex = 2;
+            Assert.IsTrue(table.HandleKeyDown(Key.Left, ModifierKeys.None));
+            AssertCurrentCell(table, 2, "C4");
+            scroll.Value = 0d;
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            Assert.AreEqual(0d, table.HorizontalOffset);
+            AssertCurrentCell(table, 2, "C4");
+            table.Columns = CreateColumns(100, 120, 320, 80, 80);
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            AssertCurrentCell(table, 2, "C0");
+            table.ItemsSource = new object[] { new(), new(), new(), new() };
+            Assert.IsTrue(table.HandleKeyDown(Key.Left, ModifierKeys.None));
+            AssertCurrentCell(table, 2, "C4");
+            // 縦の手動スクロールでも識別を保ち、外向きの端入力では再表示しません。
+            table.Columns = CreateColumns(100, 120, 320);
+            table.SelectedIndex = 0;
+            table.Height = 70d;
+            table.Measure(new Size(200d, 70d));
+            table.Arrange(new Rect(0d, 0d, 200d, 70d));
+            table.UpdateLayout();
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == System.Windows.Controls.Orientation.Vertical);
+            vertical.Value = 2d;
+            AssertCurrentCell(table, 0, "C0");
+            Assert.IsTrue(table.HandleKeyDown(Key.Left, ModifierKeys.None));
+            Assert.AreEqual(2d, vertical.Value);
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            Assert.AreEqual(0d, vertical.Value);
+            AssertCurrentCell(table, 0, "C1");
+            Assert.AreEqual(0, table.SelectedIndex);
+            table.ItemsSource = null;
+        });
+    }
+
+    /// <summary>未選択・空行・表示列なしは不受理で現在セルと横位置を変えず、未配置の幅ゼロでも非有限値や無効な現在セルを作らないことを確認します。</summary>
+    [TestMethod]
+    public void HorizontalKeys_RejectMissingTargetsAndKeepZeroWidthSafe()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            CustomTableView table = CreateTable(CreateColumns(100, 120, 320));
+            table.SelectedIndex = 0;
+            Assert.IsTrue(table.HandleKeyDown(Key.Left, ModifierKeys.None));
+            double offset = table.HorizontalOffset;
+            table.ClearSelection();
+            Assert.IsFalse(table.HandleKeyDown(Key.Left, ModifierKeys.None));
+            Assert.IsFalse(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            AssertCurrentCell(table, 0, "C2");
+            Assert.AreEqual(offset, table.HorizontalOffset);
+            table.ItemsSource = Array.Empty<object>();
+            offset = table.HorizontalOffset;
+            Assert.IsFalse(table.HandleKeyDown(Key.Left, ModifierKeys.None));
+            Assert.IsFalse(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            Assert.AreEqual(offset, table.HorizontalOffset);
+            table.ItemsSource = new object[] { new() };
+            table.SelectedIndex = 0;
+            table.Columns = Array.Empty<CustomTableColumn>();
+            offset = table.HorizontalOffset;
+            Assert.IsFalse(table.HandleKeyDown(Key.Left, ModifierKeys.None));
+            Assert.IsFalse(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            Assert.AreEqual(offset, table.HorizontalOffset);
+            var unarranged = new CustomTableView { Columns = CreateColumns(100, 120), ItemsSource = new object[] { new() }, SelectedIndex = 0 };
+            foreach (Key key in new[] { Key.Left, Key.Right })
+            {
+                unarranged.HandleKeyDown(key, ModifierKeys.None);
+                Assert.IsTrue(double.IsFinite(unarranged.HorizontalOffset));
+                Assert.IsFalse(unarranged.VisibleColumns.Any(column => unarranged.IsCurrentCell(0, column)));
+            }
+            unarranged.ItemsSource = null;
+            table.ItemsSource = null;
+        });
+    }
+
+    /// <summary>狭列は必要最小量、広列は左右の進入方向の端を表示し、上下は同じ列を保って部分可視を維持・完全画面外を再表示することを確認し、一律左寄せや先頭列への退行を検出します。</summary>
+    [TestMethod]
+    public void Navigation_RevealsNarrowAndWideColumnsAndKeepsColumnAcrossRows()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            CustomTableView table = CreateTable(CreateColumns(100, 120, 320, 80, 80));
+            Assert.AreEqual(200d, table.SurfaceWidth);
+            table.SelectedIndex = 0;
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            Assert.AreEqual(0d, table.HorizontalOffset);
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            AssertCurrentCell(table, 0, "C1");
+            Assert.AreEqual(20d, table.HorizontalOffset);
+            Assert.IsTrue(table.HandleKeyDown(Key.Down, ModifierKeys.None));
+            Assert.AreEqual(20d, table.HorizontalOffset);
+            AssertCurrentCell(table, 1, "C1");
+            ScrollBar scroll = HorizontalScrollBar(table);
+            scroll.Value = 300d;
+            Assert.IsTrue(table.HandleKeyDown(Key.Up, ModifierKeys.None));
+            Assert.AreEqual(100d, table.HorizontalOffset);
+            AssertCurrentCell(table, 0, "C1");
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            Assert.AreEqual(220d, table.HorizontalOffset);
+            AssertCurrentCell(table, 0, "C2");
+            scroll.Value = 300d;
+            Assert.IsTrue(table.HandleKeyDown(Key.Down, ModifierKeys.None));
+            Assert.AreEqual(300d, table.HorizontalOffset);
+            AssertCurrentCell(table, 1, "C2");
+            scroll.Value = 0d;
+            Assert.IsTrue(table.HandleKeyDown(Key.Down, ModifierKeys.Shift));
+            Assert.AreEqual(220d, table.HorizontalOffset);
+            AssertCurrentCell(table, 2, "C2");
+            // 列の右端が画面左端に一致する完全画面外の条件は別の広列で作ります。
+            table.Columns = CreateColumns(100, 120, 320, 400);
+            table.SelectedIndex = 0;
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            scroll.Value = 540d;
+            Assert.IsTrue(table.HandleKeyDown(Key.Down, ModifierKeys.None));
+            Assert.AreEqual(340d, table.HorizontalOffset);
+            AssertCurrentCell(table, 1, "C2");
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            Assert.AreEqual(540d, table.HorizontalOffset);
+            Assert.IsTrue(table.HandleKeyDown(Key.Left, ModifierKeys.None));
+            Assert.AreEqual(340d, table.HorizontalOffset);
+            AssertCurrentCell(table, 1, "C2");
+            scroll.Value = 0d;
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            AssertCurrentCell(table, 1, "C3");
+            Assert.AreEqual(540d, table.HorizontalOffset);
+            // 消えた列は引き継がず、上下の既存方針に従って先頭列へ戻します。
+            table.Columns = CreateColumns(100, 120);
+            Assert.IsTrue(table.HandleKeyDown(Key.Up, ModifierKeys.None));
+            AssertCurrentCell(table, 0, "C0");
+            table.ItemsSource = null;
+        });
+    }
+
+    /// <summary>スクロールバーを入力元にした左右は表のPreview経路で受理されず、現在セルと選択・横位置を保つことを確認し、表が子のキーを奪う誤りを検出します。</summary>
+    [TestMethod]
+    public void PreviewHorizontalKey_FromScrollBarDoesNotNavigateTable()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            CustomTableView table = CreateTable(CreateColumns(100, 120, 320));
+            table.SelectedIndex = 0;
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            var source = new NavigationInputSource(table);
+            foreach (ScrollBar scroll in table.Children.OfType<ScrollBar>())
+            {
+                foreach (Key key in new[] { Key.Left, Key.Right })
+                {
+                    var args = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key) { RoutedEvent = Keyboard.PreviewKeyDownEvent, Source = scroll };
+                    scroll.RaiseEvent(args);
+                    Assert.IsFalse(args.Handled);
+                    AssertCurrentCell(table, 0, "C0");
+                    Assert.AreEqual(0, table.SelectedIndex);
+                    Assert.AreEqual(0d, table.HorizontalOffset);
+                }
+            }
+            table.ItemsSource = null;
+        });
+    }
+
+    // KeyEventArgsは非nullの入力元を要求します。描画先やHWNDは使わず、入力元以外の実表とルーティングを動かします。
+    private sealed class NavigationInputSource(Visual root) : PresentationSource
+    {
+        public override Visual RootVisual { get; set; } = root;
+
+        public override bool IsDisposed => false;
+
+        protected override CompositionTarget GetCompositionTargetCore()
+            => throw new NotSupportedException("この入力元では描画先を使用しません。");
+    }
+
+    private static CustomTableColumn[] CreateColumns(params int[] widths)
+    {
+        return widths.Select((width, index) => new CustomTableColumn(
+            "C" + index, "C" + index, new CustomTableColumnSettings.ColumnLayout { Width = width }, index,
+            string.Empty, TextAlignment.Left, _ => string.Empty)).ToArray();
+    }
+
+    private static CustomTableView CreateTable(CustomTableColumn[] columns)
+    {
+        var table = new CustomTableView
+        {
+            Width = 200d,
+            Height = 130d,
+            Columns = columns,
+            ItemsSource = new object[] { new(), new(), new(), new() }
+        };
+        table.Measure(new Size(200d, 130d));
+        table.Arrange(new Rect(0d, 0d, 200d, 130d));
+        table.UpdateLayout();
+        return table;
+    }
+
+    private static ScrollBar HorizontalScrollBar(CustomTableView table)
+        => table.Children.OfType<ScrollBar>().Single(scroll => scroll.Orientation == System.Windows.Controls.Orientation.Horizontal);
+
+    private static void AssertCurrentCell(CustomTableView table, int rowIndex, string columnId)
+    {
+        foreach (int row in Enumerable.Range(0, table.RowCount))
+        {
+            foreach (CustomTableColumn column in table.VisibleColumns)
+            {
+                Assert.AreEqual(row == rowIndex && column.Id == columnId, table.IsCurrentCell(row, column), $"row={row}, column={column.Id}");
+            }
+        }
+    }
+}

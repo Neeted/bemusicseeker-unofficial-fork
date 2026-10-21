@@ -1464,6 +1464,10 @@ public sealed class CustomTableView : Grid
 
     private void CustomTableViewPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key is Key.Left or Key.Right && FindVisualParent<ScrollBar>(e.OriginalSource as DependencyObject) != null)
+        {
+            return;
+        }
         ModifierKeys modifiers = e.KeyboardDevice.Modifiers;
         if (activeEditor == null
             && (e.Key is Key.Apps or Key.Return
@@ -1477,7 +1481,7 @@ public sealed class CustomTableView : Grid
 
     /// <summary>
     /// 表が受け付けるキー操作を、入力キーと修飾キーの組み合わせから実行します。
-    /// OSの修飾キー状態は入口で取得し、選択・編集・行操作へ同じ入力値を渡します。
+    /// OSの修飾キー状態は入口で取得し、現在セル移動・選択・編集・行操作へ同じ入力値を渡します。
     /// </summary>
     /// <param name="key">処理するキー。</param>
     /// <param name="modifiers">キー入力時の修飾キー。</param>
@@ -1533,6 +1537,10 @@ public sealed class CustomTableView : Grid
         }
         switch (key)
         {
+            case Key.Left when modifiers == ModifierKeys.None:
+                return MoveCurrentCellHorizontally(-1);
+            case Key.Right when modifiers == ModifierKeys.None:
+                return MoveCurrentCellHorizontally(1);
             case Key.F2:
                 return TryBeginEditCurrentCell(null);
             case Key.Up:
@@ -1725,6 +1733,52 @@ public sealed class CustomTableView : Grid
         catch { /* 通知と診断の失敗をコピーの元原因へ合成しません。 */ }
     }
 
+    private bool MoveCurrentCellHorizontally(int direction)
+    {
+        int rowIndex = selectionModel.CurrentIndex;
+        if (rowIndex < 0 || rowIndex >= RowCount || !selectionModel.IsSelected(rowIndex) || SurfaceWidth <= 0d)
+        {
+            return false;
+        }
+        IReadOnlyList<CustomTableColumnLayoutEntry> entries = GetColumnLayoutSnapshot().Entries;
+        int currentIndex = -1;
+        if (currentCellHit?.Kind == CustomTableHitKind.Cell
+            && currentCellHit.RowIndex == rowIndex
+            && ReferenceEquals(currentCellHit.Row, ItemsSource[rowIndex]))
+        {
+            for (int i = 0; i < entries.Count; i++)
+            {
+                if (entries[i].Column?.IsVisible == true
+                    && string.Equals(entries[i].Column.Id, currentCellHit.Column?.Id, StringComparison.Ordinal))
+                {
+                    currentIndex = i;
+                    break;
+                }
+            }
+        }
+        int nextIndex = currentIndex < 0 ? (direction > 0 ? 0 : entries.Count - 1) : currentIndex + direction;
+        while (nextIndex >= 0 && nextIndex < entries.Count && entries[nextIndex].Column?.IsVisible != true)
+        {
+            nextIndex += direction;
+        }
+        if (nextIndex < 0 || nextIndex >= entries.Count)
+        {
+            // 端での入力は受け付けますが、手動スクロールも現在セルも維持します。
+            return currentIndex >= 0;
+        }
+        CustomTableColumnLayoutEntry target = entries[nextIndex];
+        EnsureRowVisible(rowIndex);
+        EnsureColumnVisible(target, direction);
+        if (!TryCreateCellHit(rowIndex, target.Column.Id, out CustomTableHitTestResult hit))
+        {
+            return false;
+        }
+        currentCellHit = hit;
+        CloseCellToolTip();
+        RequestRedraw("current_cell");
+        return true;
+    }
+
     private void EnsureCurrentCellForCurrentRow()
     {
         int rowIndex = selectionModel.CurrentIndex;
@@ -1733,16 +1787,63 @@ public sealed class CustomTableView : Grid
             currentCellHit = null;
             return;
         }
-        string columnId = currentCellHit?.Column?.Id;
-        if (!TryCreateCellHit(rowIndex, columnId, out CustomTableHitTestResult hit))
+        IReadOnlyList<CustomTableColumnLayoutEntry> entries = GetColumnLayoutSnapshot().Entries;
+        CustomTableColumnLayoutEntry? first = null;
+        CustomTableColumnLayoutEntry? target = null;
+        foreach (CustomTableColumnLayoutEntry entry in entries)
         {
-            CustomTableColumn firstColumn = VisibleColumns.FirstOrDefault();
-            if (firstColumn != null)
+            if (entry.Column?.IsVisible != true)
             {
-                TryCreateCellHit(rowIndex, firstColumn.Id, out hit);
+                continue;
+            }
+            first ??= entry;
+            if (string.Equals(entry.Column.Id, currentCellHit?.Column?.Id, StringComparison.Ordinal))
+            {
+                target = entry;
+                break;
             }
         }
-        currentCellHit = hit;
+        target ??= first;
+        currentCellHit = null;
+        if (target is CustomTableColumnLayoutEntry column)
+        {
+            EnsureColumnVisible(column, direction: 0);
+            TryCreateCellHit(rowIndex, column.Column.Id, out CustomTableHitTestResult hit);
+            currentCellHit = hit;
+        }
+    }
+
+    private void EnsureColumnVisible(CustomTableColumnLayoutEntry column, int direction)
+    {
+        double viewportWidth = SurfaceWidth;
+        if (viewportWidth <= 0d)
+        {
+            return;
+        }
+        double left = column.TableX;
+        double right = left + column.Width;
+        double offset = HorizontalOffset;
+        double nextOffset = offset;
+        if (column.Width > viewportWidth)
+        {
+            if (direction > 0 || (direction == 0 && left >= offset + viewportWidth))
+            {
+                nextOffset = left;
+            }
+            else if (direction < 0 || right <= offset)
+            {
+                nextOffset = right - viewportWidth;
+            }
+        }
+        else if (left < offset)
+        {
+            nextOffset = left;
+        }
+        else if (right > offset + viewportWidth)
+        {
+            nextOffset = right - viewportWidth;
+        }
+        horizontalScrollBar.Value = Math.Clamp(nextOffset, horizontalScrollBar.Minimum, horizontalScrollBar.Maximum);
     }
 
     private void EnsureRowVisible(int rowIndex)
