@@ -8651,9 +8651,10 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>
-    /// 指定された BMS ファイル群のエンコーディングを上書き設定し、song.db と maintenance テーブルに反映します。
+    /// 指定した所持譜面と明示した保留項目の文字コードを確定します。保留は保守情報だけを保存し、同じ項目へ反映します。
     /// </summary>
-    internal void SetBMSFilesEncoding(IEnumerable<ChartFile> charts, string encoding = "", LibraryFileMutationCapability capability = null)
+    internal void SetBMSFilesEncoding(IEnumerable<ChartFile> charts, string encoding = "", LibraryFileMutationCapability capability = null,
+        IReadOnlyList<PackageChartEntry> pendingEntries = null)
     {
         if (charts == null)
         {
@@ -8679,10 +8680,12 @@ public partial class BMSLibrary : ObservableObject
         {
             using (rwlockBMSFiles.GetWriterGuard())
             {
-                result = catalogMaintenanceOwner.ApplyEncoding(charts, encoding);
+                result = catalogMaintenanceOwner.ApplyEncoding(charts, encoding, pendingEntries);
             }
         }
-        libraryMutationOwner.DispatchWarningPresentationChanged("encoding_changed", changedCharts: result.ChangedCharts, basicValuesChanged: result.SongsToUpsert.Count > 0);
+        libraryMutationOwner.ApplyPendingEncoding(pendingEntries, result.ChangedCharts);
+        libraryMutationOwner.DispatchWarningPresentationChanged("encoding_changed",
+            changedCharts: result.ChangedCharts.Where(chart => chart.Token != null).ToArray(), basicValuesChanged: result.SongsToUpsert.Count > 0);
     }
 
     /// <summary>

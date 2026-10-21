@@ -70,6 +70,7 @@ internal sealed class CatalogMutationOwner
         }
     }
 
+    /// <summary>一つのトランザクションで保守変更を確定します。文字コード限定更新は同内容の非文字コード列を保持し、別内容は未判定から保存します。</summary>
     internal CatalogMaintenanceWriteReceipt ApplyMaintenanceWriteUnderGuard(CatalogMaintenanceWriteRequest request)
     {
         if (request == null || !request.HasChanges)
@@ -84,7 +85,7 @@ internal sealed class CatalogMutationOwner
         int deletedMaintenanceCount = 0;
         dbGateway.ExecuteSongDbTransaction(songDb =>
         {
-            if (request.MaintenanceInfos.Count > 0 || request.StaleMaintenancePaths.Count > 0)
+            if (request.MaintenanceInfos.Count > 0 || request.StaleMaintenancePaths.Count > 0 || request.EncodingOnlyInfos.Count > 0)
             {
                 BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
             }
@@ -95,6 +96,23 @@ internal sealed class CatalogMutationOwner
             foreach (ResourceHealthMaintenanceSnapshot value in request.MaintenanceInfos)
             {
                 songDb.InsertOrReplace(MaintenanceStorageMapping.ToStorage(value), typeof(LR2SongDBExtended.maintenance));
+            }
+            foreach (ResourceHealthMaintenanceSnapshot value in request.EncodingOnlyInfos)
+            {
+                int updated = songDb.Execute(
+                    "UPDATE maintenance SET encoding = ?, is_encoding_fixed = ? WHERE path = ? AND hash = ? COLLATE NOCASE;",
+                    value.Encoding, value.EncodingFixed, value.Path, value.Hash);
+                if (updated == 0)
+                {
+                    // 未登録・別内容の行へ推定先や旧内容の健康度を引き継がず、未判定の文字コード行だけを作ります。
+                    songDb.InsertOrReplace(new LR2SongDBExtended.maintenance
+                    {
+                        path = value.Path,
+                        hash = value.Hash,
+                        encoding = value.Encoding,
+                        is_encoding_fixed = value.EncodingFixed
+                    });
+                }
             }
             foreach (ChartFile chart in request.Songs)
             {
@@ -114,7 +132,7 @@ internal sealed class CatalogMutationOwner
         });
         return new CatalogMaintenanceWriteReceipt(
             applied: true,
-            request.MaintenanceInfos.Count,
+            request.MaintenanceInfos.Count + request.EncodingOnlyInfos.Count,
             request.Songs.Count(chart => chart.Kind == ChartFileKind.Bms),
             request.Songs.Count(chart => chart.Kind == ChartFileKind.Bmson),
             deletedMaintenanceCount);

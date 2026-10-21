@@ -2520,10 +2520,14 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     /// <summary>
-    /// 実入力のメタデータと指定文字コードが一致すれば譜面・保守の保存対象を増やさず、未修正状態も変えないことで同値の不要更新を検出する。
+    /// 同一メタデータとShift_JISでは空指定・同一文字コード指定とも未確定の修正印だけを確定し、既に確定済みなら完全な同値更新を省略する。
     /// </summary>
     [TestMethod]
-    public void ApplyEncoding_SkipsEntireUpdateWhenDecodedMetadataAndEncodingMatch()
+    [DataRow("", false)]
+    [DataRow("shift_jis", false)]
+    [DataRow("", true)]
+    [DataRow("shift_jis", true)]
+    public void ApplyEncoding_MatchingMetadataAndEncodingOnlyCommitsMissingFixedMark(string requestedEncoding, bool alreadyFixed)
     {
 
         var service = new BmsLibraryMaintenanceService();
@@ -2536,7 +2540,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         File.WriteAllText(
             bmsFilePath,
             "#TITLE " + expectedTitle + "\r\n#ARTIST " + expectedArtist + "\r\n#GENRE " + expectedGenre + "\r\n",
-            Encoding.GetEncoding("gb2312", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
+            Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
         try
         {
             ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -2544,16 +2548,20 @@ public sealed class BmsLibraryMaintenanceServiceTests
             file = file with { Title = expectedTitle, RawTitle = expectedTitle };
             file = file with { Artist = expectedArtist, RawArtist = expectedArtist };
             file = file with { Genre = expectedGenre };
-            var info = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5, Encoding = "gb2312", EncodingFixed = false };
+            var info = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5, Encoding = "shift_jis", EncodingFixed = alreadyFixed };
             file = ChartFileProjection.WithMaintenance(file, info);
 
-            MaintenanceEncodingUpdateResult result = service.ApplyEncoding([file], "gb2312");
+            MaintenanceEncodingUpdateResult result = service.ApplyEncoding([file], requestedEncoding);
             if (result.ChangedCharts.Count > 0) { file = result.ChangedCharts.Single(); }
 
             Assert.AreEqual(0, result.SongsToUpsert.Count);
-            Assert.AreEqual(0, result.MaintenanceInfosToUpsert.Count);
-            Assert.AreEqual("gb2312", file.ResourceHealthMaintenanceSnapshot.Encoding);
-            Assert.IsFalse(file.ResourceHealthMaintenanceSnapshot.EncodingFixed);
+            Assert.AreEqual(alreadyFixed ? 0 : 1, result.MaintenanceInfosToUpsert.Count);
+            Assert.AreEqual(alreadyFixed ? 0 : 1, result.ChangedCharts.Count);
+            Assert.AreEqual("shift_jis", file.ResourceHealthMaintenanceSnapshot.Encoding);
+            Assert.IsTrue(file.ResourceHealthMaintenanceSnapshot.EncodingFixed);
+            Assert.AreEqual(expectedTitle, file.RawTitle);
+            Assert.AreEqual(expectedArtist, file.RawArtist);
+            Assert.AreEqual(expectedGenre, file.Genre);
         }
         finally
         {

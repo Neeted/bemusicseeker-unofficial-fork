@@ -340,8 +340,9 @@ internal sealed class CatalogMaintenanceOwner
         }
     }
 
-    /// <summary>文字コードの変更を共通値で準備し、DB成功後に現在値へ反映します。</summary>
-    internal MaintenanceEncodingUpdateResult ApplyEncoding(IEnumerable<ChartFile> charts, string encoding)
+    /// <summary>所持の現行値と明示した保留項目から文字コード変更を準備し、DB成功後に所持現在値を反映します。保留はsong行を新設しません。</summary>
+    internal MaintenanceEncodingUpdateResult ApplyEncoding(IEnumerable<ChartFile> charts, string encoding,
+        IReadOnlyList<PackageChartEntry> pendingEntries = null)
     {
         MaintenanceEncodingUpdateResult result;
         bool durable = false;
@@ -352,24 +353,29 @@ internal sealed class CatalogMaintenanceOwner
                 List<ChartFile> targets;
                 lock (ownedCollectionOwner.Gate)
                 {
-                    targets = [.. (charts ?? []).Select(chart => ownedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart)))
+                    targets = [.. (charts ?? []).Where(chart => chart?.Token != null)
+                        .Select(chart => ownedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart)))
                         .Where(chart => chart != null)];
                 }
+                targets.AddRange((pendingEntries ?? []).Select(entry => entry.Chart).Where(chart => chart.Token == null));
                 result = maintenanceService.ApplyEncoding(targets, encoding);
+                result.SongsToUpsert.RemoveAll(chart => chart.Token == null);
                 if (result.ChangedCharts.Count == 0)
                 {
                     return result;
                 }
 
                 CatalogMaintenanceWriteReceipt receipt = catalogMutationOwner.ApplyMaintenanceWriteUnderGuard(new(
-                    result.MaintenanceInfosToUpsert, result.SongsToUpsert, currentValues: result.ChangedCharts));
+                    result.ChangedCharts.Where(chart => chart.Token != null).Select(chart => chart.ResourceHealthMaintenanceSnapshot),
+                    result.SongsToUpsert, currentValues: result.ChangedCharts,
+                    encodingOnlyInfos: result.ChangedCharts.Where(chart => chart.Token == null).Select(chart => chart.ResourceHealthMaintenanceSnapshot)));
                 if (!receipt.Applied)
                 {
                     throw new InvalidOperationException("Encoding changes were not persisted.");
                 }
 
                 durable = true;
-                ApplyCommittedCurrentValues(result.ChangedCharts);
+                ApplyCommittedCurrentValues(result.ChangedCharts.Where(chart => chart.Token != null));
             }
         }
         catch (Exception exception)

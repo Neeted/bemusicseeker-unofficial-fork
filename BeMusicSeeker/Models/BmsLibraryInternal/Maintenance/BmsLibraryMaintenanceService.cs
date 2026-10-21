@@ -489,7 +489,7 @@ internal sealed class BmsLibraryMaintenanceService
                 updated = BmsChartFileParser.ApplyMetadataEncoding(snapshot, chart, nextEncoding);
 
             }
-            if (!HasSameDecodedMetadataText(chart, updated) || !string.Equals(info.Encoding, nextEncoding, StringComparison.Ordinal))
+            if (!info.EncodingFixed || !HasSameDecodedMetadataText(chart, updated) || !string.Equals(info.Encoding, nextEncoding, StringComparison.Ordinal))
             {
                 updated = ChartFileProjection.WithMaintenance(updated, info with { Encoding = nextEncoding, EncodingFixed = true });
                 if (!HasSameDecodedMetadataText(chart, updated))

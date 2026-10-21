@@ -148,6 +148,37 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         RaiseChartChanged();
     }
 
+    /// <summary>保存済みの文字コードとメタデータだけを採用し、登録時結果・現在の健康度投影・導入状態を保持します。</summary>
+    internal void ApplyCommittedEncoding(ChartFile value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        lock (mutationGate)
+        {
+            ChartFile projection = Chart;
+            ResourceHealthMaintenanceSnapshot health = chart.ResourceHealthMaintenanceSnapshot ?? value.ResourceHealthMaintenanceSnapshot;
+            chart = chart with
+            {
+                Title = value.Title,
+                Subtitle = value.Subtitle,
+                Artist = value.Artist,
+                RawTitle = value.RawTitle,
+                RawSubtitle = value.RawSubtitle,
+                RawArtist = value.RawArtist,
+                Subartist = value.Subartist,
+                Genre = value.Genre,
+                EncodingName = value.EncodingName,
+                ResourceHealthMaintenanceSnapshot = health with
+                { Encoding = value.ResourceHealthMaintenanceSnapshot.Encoding, EncodingFixed = value.ResourceHealthMaintenanceSnapshot.EncodingFixed }
+            };
+            if (hasResourceHealthProjection)
+            {
+                resourceHealthProjectionState = ChartFileTransientState.FromResourceHealthChart(
+                    projection with { EncodingName = value.EncodingName });
+            }
+        }
+        RaiseChartChanged();
+    }
+
     /// <summary>共通値・導入状態と登録時の元配置結果を同じ時点で捕捉したdetached項目を作ります。不変の配置と元配置結果は共有します。</summary>
     internal PackageChartEntry ToChartEntrySnapshot()
     {

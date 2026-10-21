@@ -1192,6 +1192,147 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         });
     }
 
+    /// <summary>保留だけ・所持混在で明示再復号と修正印確定を実DBまで確認します。同一path/hash行の非文字コード列を維持し、未登録・別hashでは未判定行を保存して、推定先健康度の永続化・song新設・元配置結果と所属の変更を検出します。</summary>
+    [TestMethod]
+    [DataRow(true, false, "existing")]
+    [DataRow(false, false, "absent")]
+    [DataRow(true, true, "different_hash")]
+    [DataRow(false, true, "existing")]
+    [DataRow(true, false, "absent")]
+    [DataRow(false, false, "different_hash")]
+    public async Task ApplyEncoding_RealStoreUpdatesSelectedPendingEntriesWithoutChangingPlacement(bool decode, bool includeOwned, string storedState)
+    {
+        await WithTemporarySongDbAsync(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string source = Path.Combine(root, "Pending");
+            string destination = Path.Combine(root, "Destination");
+            Directory.CreateDirectory(source);
+            Directory.CreateDirectory(destination);
+            const string title = "日本語の譜面";
+            string pendingPath = Path.Combine(source, "pending.bms");
+            File.WriteAllText(pendingPath, "#TITLE " + title + "\n#ARTIST 作曲者\n#WAV01 tone.wav\n#00111:01\n", System.Text.Encoding.GetEncoding("shift_jis"));
+            ChartFile parsed = PackageChartEntry.FromPath(pendingPath).Chart;
+            ResourceHealthMaintenanceSnapshot initial = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(parsed) with
+            { Encoding = decode ? "utf-8" : "shift_jis", EncodingFixed = false };
+            ChartFile pending = ChartFileProjection.WithMaintenance(parsed, initial);
+            if (decode) { pending = pending with { Title = "before", RawTitle = "before" }; }
+            var entry = PackageChartEntry.FromChart(pending);
+            BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
+            ResourceHealthMaintenanceSnapshot original = entry.GetOriginalResourceHealth();
+            Assert.AreEqual(0, original.GetWavHealth());
+            var package = ChartPackage.FromChartEntries([entry]);
+            package.path = pendingPath;
+            entry.ApplyCurrentChart(entry.Chart with { InstallDestinationSuggestions = [destination] });
+            entry.ApplyInstallDestinationMetadata(destination, "配置先", "配置先作者");
+            var cache = new DirectoryResourceLookupCache();
+            cache.AddDir(destination, ["tone.wav"]);
+            BmsLibraryPackageInstallService.RefreshPendingResourceHealth([entry], package, cache);
+            ResourceHealthMaintenanceSnapshot currentHealth = entry.Chart.ResourceHealthMaintenanceSnapshot with
+            { Encoding = decode ? "utf-8" : "shift_jis", EncodingFixed = false };
+            entry.ApplyCurrentChart(ChartFileProjection.WithMaintenance(entry.Chart, currentHealth));
+            entry.ReplaceResourceHealthProjection(currentHealth, BmsLibraryMaintenanceService.BuildResourceHealthWarnings(currentHealth), entry.ResourcePlacement);
+            ChartFile before = entry.Chart;
+            Assert.AreEqual(100, before.WAVHealth);
+            ChartResourcePlacement placement = entry.ResourcePlacement;
+            string ownedPath = Path.Combine(root, "owned.bms");
+            File.Copy(pendingPath, ownedPath);
+            ChartFile owned = ChartFileProjection.WithMaintenance(parsed with { Path = ownedPath }, initial with { Path = ownedPath });
+            if (decode) { owned = owned with { Title = "before", RawTitle = "before" }; }
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(),
+                new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
+            { BmsCharts = includeOwned ? [owned] : [], BmsonCharts = [], ChartPackagesPending = [package] };
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+            {
+                db.CreateTable<LR2SongDBExtended.install>();
+                db.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
+            });
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertSongs(library.BmsCharts);
+            ResourceHealthMaintenanceSnapshot stored = initial with
+            {
+                Hash = storedState == "different_hash" ? new string('f', 32) : initial.Hash.ToUpperInvariant(),
+                WavFilesDefined = 3,
+                WavFilesExisting = 1,
+                BgaFilesDefined = 2,
+                BgaFilesExisting = 0,
+                MovieFilesDefined = 5,
+                MovieFilesExisting = 4,
+                StagefileDefined = true,
+                StagefileExisting = false,
+                BannerDefined = true,
+                BannerExisting = true,
+                BackbmpDefined = false,
+                BackbmpExisting = null,
+                FilesWarningIgnored = true,
+                Lr2WarningFlags = (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong,
+                Lr2ResourceMaxRelativeCp932Bytes = 300,
+                Lr2ResourceHasParentTraversal = true
+            };
+            if (storedState != "absent") { gateway.UpsertMaintenanceInfos([stored]); }
+            var targets = new List<ChartOperationTarget>
+            {
+                new(before, null, ChartOperationSourceScope.PendingPackage, false, true, false,
+                    ChartOperationCapabilities.RunBmsEncodingFix, entry)
+            };
+            if (includeOwned)
+            {
+                targets.Add(new(library.BmsCharts.Single(), null, ChartOperationSourceScope.Library, true, false, false,
+                    ChartOperationCapabilities.RunBmsEncodingFix));
+            }
+            var owner = new SelectedChartMutationWorkflowOwner(() => library, library.OperationAdmission,
+                new ChartMutationActivityOwner(), new RecordingPresentation(), AcceptedMessageDialogs(),
+                AcceptedMessageDialogs(), new BmsLibrarySelectedChartMutationStore());
+            try
+            {
+                SelectedChartMutationResult result = owner.ApplyEncoding(new SelectedChartEncodingRequest(targets, decode ? "shift_jis" : string.Empty));
+                Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
+                ChartFile current = entry.Chart;
+                Assert.AreEqual(title, current.RawTitle);
+                Assert.AreEqual("shift_jis", current.EncodingName);
+                Assert.IsTrue(current.ResourceHealthMaintenanceSnapshot.EncodingFixed);
+                Assert.AreSame(original, entry.GetOriginalResourceHealth());
+                Assert.AreSame(placement, entry.ResourcePlacement);
+                Assert.AreEqual(before.WAVHealth, current.WAVHealth);
+                CollectionAssert.AreEqual(before.Warnings.ToArray(), current.Warnings.ToArray());
+                Assert.AreEqual(before.InstallDestination, current.InstallDestination);
+                CollectionAssert.AreEqual(before.InstallDestinationSuggestions.ToArray(), current.InstallDestinationSuggestions.ToArray());
+                Assert.AreSame(package, library.ChartPackagesPending.Single());
+                Assert.AreSame(entry, package.ChartEntries.Single());
+                Assert.IsNull(current.Token);
+                Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
+                Assert.AreEqual(includeOwned ? 1 : 0, library.BmsCharts.Count);
+                using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
+                LR2SongDBExtended.maintenance saved = read.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == pendingPath);
+                Assert.AreEqual("shift_jis", saved.encoding);
+                Assert.IsTrue(saved.is_encoding_fixed);
+                ResourceHealthMaintenanceSnapshot expectedStored = storedState == "existing"
+                    ? stored with { Encoding = "shift_jis", EncodingFixed = true }
+                    : new ResourceHealthMaintenanceSnapshot
+                    {
+                        Path = pendingPath,
+                        Hash = parsed.Md5,
+                        Encoding = "shift_jis",
+                        EncodingFixed = true,
+                        Origin = MaintenanceInfoOrigin.Calculated
+                    };
+                Assert.AreEqual(expectedStored, MaintenanceStorageMapping.ToCommon(saved),
+                    "同一内容の既存行は非文字コード列を保持し、未登録・別内容は健康度と警告を未判定にします。");
+                Assert.AreEqual(includeOwned ? 1 : 0, read.Table<LR2SongDB.song>().Count());
+                Assert.AreEqual(pendingPath, read.Table<LR2SongDBExtended.install>().Single().path);
+                if (includeOwned)
+                {
+                    Assert.AreEqual(title, library.BmsCharts.Single().RawTitle);
+                    Assert.IsTrue(library.BmsCharts.Single().ResourceHealthMaintenanceSnapshot.EncodingFixed);
+                    Assert.IsTrue(read.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == ownedPath).is_encoding_fixed);
+                }
+            }
+            finally { library.RequestShutdown("pending-encoding-test"); }
+            return Task.CompletedTask;
+        });
+    }
+
     private static SelectedChartMutationWorkflowOwner CreateOwner(
         RecordingPresentation presentation,
         FakeUiDialogService dialogs,
@@ -1428,7 +1569,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         public void SetBMSFilesEncoding(
             BMSLibrary library,
             IReadOnlyList<ChartFile> bmsFiles,
-            string encoding)
+            string encoding, IReadOnlyList<PackageChartEntry> pendingEntries)
         {
             EncodingCallCount++;
             ThrowIfConfigured();

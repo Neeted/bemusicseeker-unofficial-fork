@@ -2290,6 +2290,24 @@ internal sealed partial class LibraryMutationOwner
         return targets;
     }
 
+    /// <summary>DB確定済みの文字コード変更を、要求で指定された保留項目だけへ接続します。所持識別への逆照合は行いません。</summary>
+    internal void ApplyPendingEncoding(IReadOnlyList<PackageChartEntry> entries, IReadOnlyList<ChartFile> values)
+    {
+        var pendingByPath = new Dictionary<string, ChartFile>(StringComparer.Ordinal);
+        foreach (ChartFile value in values ?? [])
+        {
+            if (value.Token == null) { pendingByPath[value.Path] = value; }
+        }
+        foreach (PackageChartEntry entry in entries ?? [])
+        {
+            ChartFile current = entry.Chart;
+            if (current.Token == null && pendingByPath.TryGetValue(current.Path, out ChartFile value))
+            {
+                entry.ApplyCommittedEncoding(value);
+            }
+        }
+    }
+
     /// <summary>
     /// warning presentation の変更を common mutation dispatch へ渡します。
     /// </summary>

@@ -106,10 +106,12 @@ internal interface ISelectedChartMutationStore
         BMSLibrary library,
         ChartLibraryMoveRequest request);
 
+    /// <summary>所持の捕捉値と選択した保留項目を、同じ受理済み操作で保存へ渡します。</summary>
     void SetBMSFilesEncoding(
         BMSLibrary library,
         IReadOnlyList<ChartFile> charts,
-        string encoding);
+        string encoding,
+        IReadOnlyList<PackageChartEntry> pendingEntries);
 }
 
 internal sealed class SelectedChartDeleteRequest
@@ -247,16 +249,19 @@ internal sealed class SelectedChartEncodingRequest
         IEnumerable<ChartOperationTarget> targets,
         string encoding)
     {
-        Charts = (targets ?? [])
+        ChartOperationTarget[] eligible = [.. (targets ?? [])
             .Where(target => target?.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix) == true
-                && ChartFileKindResolver.IsBmsChartFile(target.Chart))
-            .Select(target => target.Chart)
-            .Where(ChartFileKindResolver.IsBmsChartFile)
-            .ToArray();
+                && ChartFileKindResolver.IsBmsChartFile(target.Chart))];
+        Charts = [.. eligible.Select(target => target.Chart)];
+        PendingEntries = [.. eligible.Where(target => target.IsPending && target.PackageEntry != null)
+            .Select(target => target.PackageEntry).Distinct()];
         Encoding = encoding ?? string.Empty;
     }
 
     internal IReadOnlyList<ChartFile> Charts { get; }
+
+    /// <summary>選択時の保留項目参照です。所持tokenへの逆照合や全保留検索には使いません。</summary>
+    internal IReadOnlyList<PackageChartEntry> PendingEntries { get; }
 
     internal string Encoding { get; }
 
@@ -642,7 +647,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
         try
         {
             using LibraryFileMutationCapability capability = chartFileOperations.CreateMutationCapability(operationGate);
-            store.ForAcceptedOperation(capability).SetBMSFilesEncoding(RequireLibrary(), request.Charts, request.Encoding);
+            store.ForAcceptedOperation(capability).SetBMSFilesEncoding(RequireLibrary(), request.Charts, request.Encoding, request.PendingEntries);
             PublishMutationApplied(encodingChanged: true);
             return SelectedChartMutationResult.Completed;
         }
@@ -930,8 +935,9 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
     public void SetBMSFilesEncoding(
         BMSLibrary library,
         IReadOnlyList<ChartFile> charts,
-        string encoding)
+        string encoding,
+        IReadOnlyList<PackageChartEntry> pendingEntries)
     {
-        library.SetBMSFilesEncoding(charts, encoding, capability);
+        library.SetBMSFilesEncoding(charts, encoding, capability, pendingEntries);
     }
 }

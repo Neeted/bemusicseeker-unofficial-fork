@@ -4103,7 +4103,7 @@ public sealed class PlaybackPanelViewModelTests
         public LibraryMutationSessionReceipt RenameLibraryChartsWithReceipt(BMSLibrary library, IReadOnlyList<LibraryFileExtensionRenameBatch> batches) => throw new NotSupportedException();
         public void RenamePendingCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts, string newExtension) => throw new NotSupportedException();
         public LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(BMSLibrary library, ChartLibraryMoveRequest request) => throw new NotSupportedException();
-        public void SetBMSFilesEncoding(BMSLibrary library, IReadOnlyList<ChartFile> bmsFiles, string encoding) => throw new NotSupportedException();
+        public void SetBMSFilesEncoding(BMSLibrary library, IReadOnlyList<ChartFile> bmsFiles, string encoding, IReadOnlyList<PackageChartEntry> pendingEntries) => throw new NotSupportedException();
     }
 
     private sealed class FakePlaybackDialogService : IPlaybackDialogService

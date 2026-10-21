@@ -7,21 +7,26 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// <summary>保守評価が確定する不変の共通値です。保存行への変換はDB境界で行います。</summary>
 internal sealed class CatalogMaintenanceWriteRequest
 {
+    /// <summary>通常の保守値と保留の文字コード限定更新を、同じ保存境界へ渡す変更不能な要求に捕捉します。</summary>
     internal CatalogMaintenanceWriteRequest(IEnumerable<ResourceHealthMaintenanceSnapshot> maintenanceInfos = null,
         IEnumerable<ChartFile> songs = null, IEnumerable<string> staleMaintenancePaths = null,
-        IEnumerable<ChartFile> currentValues = null)
+        IEnumerable<ChartFile> currentValues = null,
+        IEnumerable<ResourceHealthMaintenanceSnapshot> encodingOnlyInfos = null)
     {
         MaintenanceInfos = Array.AsReadOnly([.. (maintenanceInfos ?? []).Where(value => value != null && !string.IsNullOrWhiteSpace(value.Path))]);
         Songs = Array.AsReadOnly([.. (songs ?? []).Where(value => value != null && !string.IsNullOrWhiteSpace(value.Path))]);
         StaleMaintenancePaths = Array.AsReadOnly([.. (staleMaintenancePaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Select(path => path.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)]);
         CurrentValues = Array.AsReadOnly([.. (currentValues ?? []).Where(value => value != null)]);
+        EncodingOnlyInfos = Array.AsReadOnly([.. (encodingOnlyInfos ?? []).Where(value => value != null && !string.IsNullOrWhiteSpace(value.Path))]);
     }
     internal IReadOnlyList<ResourceHealthMaintenanceSnapshot> MaintenanceInfos { get; }
     internal IReadOnlyList<ChartFile> Songs { get; }
     internal IReadOnlyList<string> StaleMaintenancePaths { get; }
     internal IReadOnlyList<ChartFile> CurrentValues { get; }
-    internal bool HasChanges => MaintenanceInfos.Count > 0 || Songs.Count > 0 || StaleMaintenancePaths.Count > 0;
+    /// <summary>保留の文字コードだけを保存する対象です。Path・Hash・Encoding・EncodingFixed以外を保存へ流用しません。</summary>
+    internal IReadOnlyList<ResourceHealthMaintenanceSnapshot> EncodingOnlyInfos { get; }
+    internal bool HasChanges => MaintenanceInfos.Count > 0 || Songs.Count > 0 || StaleMaintenancePaths.Count > 0 || EncodingOnlyInfos.Count > 0;
 }
 
 internal sealed class CatalogMaintenanceWriteReceipt
