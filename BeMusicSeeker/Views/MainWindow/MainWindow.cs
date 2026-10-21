@@ -7615,31 +7615,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             ChartOperationCapabilities capability = isInstalledLocationRepair
                 ? ChartOperationCapabilities.RepairInstalledLocation
                 : ChartOperationCapabilities.UpdateInstallDestination;
-            RepairInstalledLocationRequest repairRequest = null;
+            List<ChartOperationTarget> targets = GetSelectedChartTargets(capability, isPendingSection: !isInstalledLocationRepair);
+            if (targets.Count == 0)
+            {
+                return;
+            }
             if (isInstalledLocationRepair)
             {
-                List<ChartOperationTarget> targets = GetSelectedChartTargets(capability);
-                RepairInstalledLocationRequest.TryCreate(targets, out repairRequest);
+                if (RepairInstalledLocationRequest.TryCreate(targets, out RepairInstalledLocationRequest repairRequest))
+                {
+                    e.Handled = true;
+                    await installedLocationRepairTerminal.ClearCorrectAsync(repairRequest);
+                }
             }
-            PendingInstallDestinationClearRequest pendingInstallRequest = null;
-            if (!isInstalledLocationRepair)
-            {
-                List<ChartOperationTarget> pendingTargets = GetSelectedChartTargets(capability, isPendingSection: true);
-                PendingInstallDestinationClearRequest.TryCreate(pendingTargets, out pendingInstallRequest);
-            }
-            if ((repairRequest?.HasTargets == true) || (pendingInstallRequest?.HasTargets == true))
+            else
             {
                 e.Handled = true;
-                if (isInstalledLocationRepair)
-                {
-                    await installedLocationRepairTerminal
-                        .ClearCorrectAsync(repairRequest);
-                }
-                else
-                {
-                    await pendingInstallEstimationTerminal
-                        .ClearPendingAsync(pendingInstallRequest);
-                }
+                await ClearSelectedPendingChartsAsync(targets);
             }
         }
         catch (Exception exception)
@@ -8095,12 +8087,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        var request = PendingInstallPackageOperationRequest.CreateManualInstall(targets);
-        if (base.DataContext is not MainWindowViewModel viewModel)
+        if (base.DataContext is not MainWindowViewModel)
         {
             return;
         }
         e.Handled = true;
+        await ManualInstallSelectedPendingChartsAsync(targets);
+    }
+
+    /// <summary>選択譜面の導入要求と完了後の選択・ツリー反映をメニューと操作バーで共用します。</summary>
+    private async Task ManualInstallSelectedPendingChartsAsync(IReadOnlyList<ChartOperationTarget> targets)
+    {
+        var request = PendingInstallPackageOperationRequest.CreateManualInstall(targets);
         PackageCatalogSelectionPlan selectionPlan = treeViewItemInstallPending.IsSelected
             ? PackageCatalogSelectionPlan.None
             : CaptureNextSiblingOrRoot(
@@ -8159,11 +8157,78 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        var request = PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch(targets, candidatePolicy);
-        var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
-        await pendingInstallEstimationTerminal
-            .SearchPendingAsync(request);
+        await SearchSelectedPendingChartsAsync(targets, candidatePolicy);
+    }
+
+    /// <summary>選択譜面の推定要求を作成し、既存の推定終端へ渡します。</summary>
+    private Task SearchSelectedPendingChartsAsync(IReadOnlyList<ChartOperationTarget> targets, InstallEstimationCandidatePolicy candidatePolicy)
+        => pendingInstallEstimationTerminal.SearchPendingAsync(
+            PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch(targets, candidatePolicy));
+
+    /// <summary>選択譜面の導入先解除を、配置先修復と分離した保留用終端へ渡します。</summary>
+    private Task ClearSelectedPendingChartsAsync(IReadOnlyList<ChartOperationTarget> targets)
+        => PendingInstallDestinationClearRequest.TryCreate(targets, out PendingInstallDestinationClearRequest request)
+            ? pendingInstallEstimationTerminal.ClearPendingAsync(request)
+            : Task.CompletedTask;
+
+    /// <summary>操作バーの実行時に、現在表示中の保留一覧と変更活動・選択を再確認します。</summary>
+    private List<ChartOperationTarget> GetPendingInstallBarTargets(string action)
+    {
+        if (base.DataContext is not MainWindowViewModel viewModel
+            || !viewModel.MainChartList.IsPendingInstallViewActive
+            || viewModel.PlaylistWorkspace.IsPlaylistSummaryMode
+            || viewModel.PlayHistory.IsViewActive
+            || ShouldBlockChartPackageMutationInteraction(action))
+        {
+            return [];
+        }
+        return GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true);
+    }
+
+    private async void pendingInstallEstimateClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            List<ChartOperationTarget> targets = GetPendingInstallBarTargets("pending_install_bar_estimate");
+            if (targets.Count == 0) { return; }
+            e.Handled = true;
+            await SearchSelectedPendingChartsAsync(targets, InstallEstimationCandidatePolicy.RelatedOnly);
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "pendingInstallEstimateClick");
+        }
+    }
+
+    private async void pendingInstallExecuteClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            List<ChartOperationTarget> targets = GetPendingInstallBarTargets("pending_install_bar_install");
+            if (targets.Count == 0) { return; }
+            e.Handled = true;
+            await ManualInstallSelectedPendingChartsAsync(targets);
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "pendingInstallExecuteClick");
+        }
+    }
+
+    private async void pendingInstallClearClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            List<ChartOperationTarget> targets = GetPendingInstallBarTargets("pending_install_bar_clear");
+            if (targets.Count == 0) { return; }
+            e.Handled = true;
+            await ClearSelectedPendingChartsAsync(targets);
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "pendingInstallClearClick");
+        }
     }
 
     private async void tableContextMenuItemDeleteInstallPackagesClick(object sender, RoutedEventArgs e)

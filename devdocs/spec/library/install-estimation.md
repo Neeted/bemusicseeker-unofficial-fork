@@ -14,6 +14,12 @@
 
 操作の受付分類・競合結果・必要継続の寿命は[競合ポリシー](../core/operation-concurrency-policy.md)を正本とします。以下は入力・処理・資源所有と結果の固有契約です。
 
+### 保留一覧の選択譜面操作
+
+保留ルートと個別パッケージの操作バーは、中央一覧の選択譜面だけを既存の右クリック操作と同じ要求・終端へ渡します。「推定」は `RelatedOnly` の導入先検索だけを行い、自動導入へ続けません。「インストール」は選択譜面用の `ManualInstall`、「クリア」は保留譜面の導入先解除を実行します。未選択の兄弟を要求へ追加せず、同一パッケージ内の実処理範囲は既存のワークフローに従います。
+
+メニューの無関係候補保持・新規導入は維持し、導入済み譜面の配置先修復は保留用解除から分離します。導入後は既存の `MainWindowPendingPackageMutationViewTerminal` とツリー選択planで画面を反映します。表示・選択・アクセシビリティは[一覧の操作バー](../ui/table-view.md#保留譜面の操作バー)、受付・Busyは[競合ポリシー](../core/operation-concurrency-policy.md)に従います。
+
 ### 入力とリソースキー
 
 対象はパッケージまたは単独の譜面です。[取得済みの共通リソース結果](chart-model.md#譜面情報とリソース保守)の使用参照を `ChartResourceSnapshot` へ索引化し、複数譜面では検索キーを和集合にして音声・画像・動画・任意画像を分けます。分母は使用IDから解決した種別別のユニークな要求ファイルキー数です。未使用定義を含めず、同じファイルへの複数ID参照は一件とします。抽出条件は[軽量解析の使用リソース](parser-compatibility.md#軽量解析の使用リソース)に従います。原文・用途・解析状態は失わず保持し、未取得を保存主体やファイルから隠れて補完しません。
@@ -323,6 +329,8 @@ ownerから完了・失敗receiverまで、成功として公開できる初段�
 確認は共通論理受付の取得後、モデルの物理変更リース取得前に解決し、既定の応答を No にします。ボタンを選ばず閉じた場合も承認せず、拒否されたパッケージは導入先の有無によらず変更せず、入力元・DB・保留を保持します。複数選択では承認されたパッケージだけを既存の一括導入経路へ渡します。
 
 ## 実装とテストの対応
+
+[`MainWindowPackageMaintenanceWpfTests.PendingInstallBar_UsesCurrentBoundSelectionAndPreservesMultipleRowsAfterFocusRequest`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPendingInstallBarWpfTests.cs) は実Button.Clickから `RelatedOnly`・選択譜面用 `ManualInstall`・保留解除への配送と実変更活動中の拒否、完了後の実view terminalによる選択解除とツリーplanを確認します。既存の `CompiledSelectedChartRoutesPreservePendingTargetAndHandledBeforeCompletion` はメニューの `KeepUnrelated`→通常推定・新規導入・配置先修復・元entry/tokenと完了前Handledを維持します。実推定/解除の行反映、receipt、導入本体の保証は既存の下表へ分担します。
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |

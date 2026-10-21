@@ -1,4 +1,6 @@
 {
+  "Pending_install_estimate": "Estimer",
+  "Pending_install_clear": "Effacer",
   "Startup_sort_cache_label": "Préparation du cache de tri au démarrage",
   "Startup_sort_cache_description": "Les colonnes non préparées peuvent toujours être triées normalement à la sélection. Les modifications prennent effet au prochain démarrage.",
   "Startup_sort_cache_none": "Aucune",

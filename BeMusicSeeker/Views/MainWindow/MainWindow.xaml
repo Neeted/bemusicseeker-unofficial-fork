@@ -1126,6 +1126,63 @@
               <TextBlock DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="14" VerticalAlignment="Center" Margin="5,0" Foreground="{DynamicResource App.TextBrush}" TextTrimming="CharacterEllipsis" Visibility="{Binding PlaylistWorkspace.IsPlaylistSummaryMode, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" Text="{Binding PlaylistWorkspace.GridHeaderText}" />
             </DockPanel>
           </Border>
+          <Border x:Name="pendingInstallOperationBar" Grid.Row="2" Grid.Column="1" Background="{DynamicResource App.SurfaceBrush}" BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="0,0,0,1" Padding="4,3">
+            <Border.Style>
+              <Style TargetType="{x:Type Border}">
+                <Setter Property="Visibility" Value="Collapsed" />
+                <Style.Triggers>
+                  <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                      <Condition Binding="{Binding MainChartList.IsPendingInstallViewActive}" Value="True" />
+                      <Condition Binding="{Binding PlaylistWorkspace.IsPlaylistSummaryMode}" Value="False" />
+                      <Condition Binding="{Binding PlayHistory.IsViewActive}" Value="False" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Visibility" Value="Visible" />
+                  </MultiDataTrigger>
+                </Style.Triggers>
+              </Style>
+            </Border.Style>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+              <StackPanel.Resources>
+                <Style TargetType="{x:Type Button}">
+                  <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
+                  <Setter Property="BorderBrush" Value="{DynamicResource App.StrongBorderBrush}" />
+                  <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
+                  <Setter Property="BorderThickness" Value="1" />
+                  <Setter Property="Padding" Value="7,2" />
+                  <Setter Property="Margin" Value="0,0,4,0" />
+                  <Setter Property="FontSize" Value="11" />
+                  <Setter Property="Template">
+                    <Setter.Value>
+                      <ControlTemplate TargetType="{x:Type Button}">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                          <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                      </ControlTemplate>
+                    </Setter.Value>
+                  </Setter>
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding MainChartList.SelectedIndex}" Value="-1">
+                      <Setter Property="IsEnabled" Value="False" />
+                    </DataTrigger>
+                    <Trigger Property="IsEnabled" Value="False">
+                      <Setter Property="Foreground" Value="{DynamicResource App.SubtleTextBrush}" />
+                      <Setter Property="Opacity" Value="0.5" />
+                    </Trigger>
+                    <Trigger Property="IsMouseOver" Value="True">
+                      <Setter Property="BorderBrush" Value="{DynamicResource App.AccentBrush}" />
+                    </Trigger>
+                    <Trigger Property="IsPressed" Value="True">
+                      <Setter Property="Background" Value="{DynamicResource App.ControlSelectedBrush}" />
+                    </Trigger>
+                  </Style.Triggers>
+                </Style>
+              </StackPanel.Resources>
+              <Button x:Name="pendingInstallEstimateButton" Click="pendingInstallEstimateClick" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Pending_install_estimate, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_install_loc, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_install_loc, Mode=OneWay}" />
+              <Button x:Name="pendingInstallExecuteButton" Click="pendingInstallExecuteClick" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install_to_estimation, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install_to_estimation, Mode=OneWay}" />
+              <Button x:Name="pendingInstallClearButton" Click="pendingInstallClearClick" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Pending_install_clear, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Clear_estimation, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Clear_estimation, Mode=OneWay}" />
+            </StackPanel>
+          </Border>
            <Border x:Name="playHistorySummaryBar" Grid.Row="2" Grid.Column="1" Background="{DynamicResource App.SurfaceBrush}" BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="0,0,0,1" Padding="4,3">
              <Border.Visibility>
                <MultiBinding Converter="{StaticResource playHistorySummaryVisibilityConverter}">

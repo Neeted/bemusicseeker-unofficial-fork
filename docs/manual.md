@@ -1001,6 +1001,10 @@ For example, a differential chart by itself is typically added to `Pending` with
 
 `Pending` contains packages not yet installed. Check or correct their destination before installation. For pending packages restored at startup, select them and run `Install` → `Estimate install destination` from the context menu. You can also re-estimate using [Install-Destination Estimation](#install-destination-estimation).
 
+When you open the Pending root or an individual package, an operation bar with `Estimate`, `Install`, and `Clear` appears below the search field. Select charts in the central list and use these buttons for the same actions as `Estimate install destination`, `Install to estimated install destination`, and `Clear install destination` in the context menu. Use Ctrl / Shift to select multiple charts. Charts belonging to the same package are processed together as a package, just as with the context menu. All three buttons are disabled when no charts are selected.
+
+`Estimate` only estimates the destination. Check the results before clicking `Install`. Estimation that keeps unrelated candidates and installation as new remain available from the context menu.
+
 Turning ON automatic installation leaves existing pending packages in place. For destinations determined through manual estimation, candidate selection, or text entry, use `Install to estimated install destination` to install them.
 
 #### Checking Destinations and WARNING

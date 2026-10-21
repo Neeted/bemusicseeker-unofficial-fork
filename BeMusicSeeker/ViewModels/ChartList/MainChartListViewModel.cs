@@ -427,6 +427,9 @@ public sealed class MainChartListViewModel : ViewModel
     /// </summary>
     internal MainChartListOperationContext CurrentOperationContext => Volatile.Read(ref operationContext);
 
+    /// <summary>実際に表示している一覧が導入保留区分かを返します。操作バーの表示に使用します。</summary>
+    public bool IsPendingInstallViewActive => CurrentOperationContext.OperationSection == MainViewOperationSection.InstallPending;
+
     /// <summary>
     /// Updates the operation context synchronously with the shell's selected main-view mode.
     /// </summary>
@@ -448,6 +451,7 @@ public sealed class MainChartListViewModel : ViewModel
     {
         if (changed)
         {
+            RaisePropertyChanged(nameof(IsPendingInstallViewActive));
             OperationContextChanged?.Invoke(this, EventArgs.Empty);
         }
     }

@@ -28,7 +28,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 // 実VMの終了がプロセス共通のSQLite接続と音声資源を解放するため、他の実DBケースと並列にしません。
 [DoNotParallelize]
-public sealed class MainWindowPackageMaintenanceWpfTests
+public sealed partial class MainWindowPackageMaintenanceWpfTests
 {
     /// <summary>実DBの混在純移転が安定entryと表示へ届き、無関係な表示と編集中入力を保持します。</summary>
     [TestMethod]
@@ -1662,6 +1662,19 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         .Single(item => item.Items.OfType<MenuItem>().Any(child => Equals(child.Header, Resources.Estimate_install_loc)));
                     string[] installHeaders = [Resources.Estimate_install_loc, Resources.Install_to_estimation, Resources.Force_install, Resources.Clear_estimation];
                     MenuItem[] installCommands = installHeaders.Select(header => installGroup.Items.OfType<MenuItem>().Single(item => Equals(item.Header, header))).ToArray();
+                    // 共通化してもメニュー配置元が成立しない3入口は選択済み行だけで実行しません。
+                    tableMenu.PlacementTarget = null;
+                    foreach (MenuItem command in new[] { installCommands[0], installCommands[1], installCommands[3] })
+                    {
+                        var invalidArgs = new RoutedEventArgs(MenuItem.ClickEvent, command);
+                        Task invalidEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => command.RaiseEvent(invalidArgs));
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(invalidEvent, "compiled-invalid-placement-event");
+                        Assert.IsFalse(invalidArgs.Handled);
+                    }
+                    Assert.AreEqual(0, pendingEstimateCalls.Count);
+                    Assert.AreEqual(0, installCalls.Count);
+                    Assert.AreEqual(0, clearPendingCalls.Count);
+                    tableMenu.PlacementTarget = new FrameworkElement { DataContext = pendingRow };
                     // 明示操作の次の通常操作へ方針が残らず、両方とも元entryを同じ終端へ渡します。
                     foreach (bool keepUnrelated in new[] { true, false })
                     {
@@ -1934,6 +1947,7 @@ internal static class MainWindowPackageMaintenanceTestHarness
 {
     /// <summary>実shutdown/Closedと設定復元を回収し、表示する親Windowは同じ外側scopeへ追跡します。</summary>
     /// <param name="prepareWindowForPresentation">親Windowを表示するfixtureだけが、表示前に所有するscopeへ準備を接続します。</param>
+    /// <param name="installTreeTerminal">保留ツリーの実選択と表示反映を、導入表示構築から分けて観測する場合の終端です。</param>
     internal static void RunConstructorOnly(
         Settings settings,
         Action<MainWindowViewModel, MainWindow> test,
@@ -1954,11 +1968,13 @@ internal static class MainWindowPackageMaintenanceTestHarness
         Action<MainWindowViewModel>? prepareViewModel = null,
         IUiDialogService? playlistWorkspaceDialogService = null,
         Action<TestWindowPresentationScope, MainWindow>? prepareWindowForPresentation = null,
-        Func<TestWindowPresentationScope, Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null)
+        Func<TestWindowPresentationScope, Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null,
+        MainWindowInstallTreeTerminal? installTreeTerminal = null)
         => RunConstructorOnly(settings, (_, viewModel, window) => test(viewModel, window),
-            folderAutoRenameTerminal, duplicateMaintenanceTerminal, maintenanceRescanTerminal, maintenanceTreeTerminal, packageCatalogTerminal, pendingInstallEstimationTerminal, pendingInstallationTerminal, installedLocationRepairTerminal, pendingBulkMaintenanceTerminal, mainChartCellEditTerminal, selectedChartContextMenuTerminals, playbackTerminal, playlistWorkspaceTerminals, pendingPackageMutationViewTerminal, prepareViewModel, playlistWorkspaceDialogService, prepareWindowForPresentation, chartPropertiesManagerFactory);
+            folderAutoRenameTerminal, duplicateMaintenanceTerminal, maintenanceRescanTerminal, maintenanceTreeTerminal, packageCatalogTerminal, pendingInstallEstimationTerminal, pendingInstallationTerminal, installedLocationRepairTerminal, pendingBulkMaintenanceTerminal, mainChartCellEditTerminal, selectedChartContextMenuTerminals, playbackTerminal, playlistWorkspaceTerminals, pendingPackageMutationViewTerminal, prepareViewModel, playlistWorkspaceDialogService, prepareWindowForPresentation, chartPropertiesManagerFactory, installTreeTerminal);
 
     /// <summary>親子Windowに同じ表示scopeを渡し、実MainWindow寿命を共通補助で回収します。</summary>
+    /// <param name="installTreeTerminal">保留ツリーの実選択と表示反映を、導入表示構築から分けて観測する場合の終端です。</param>
     internal static void RunConstructorOnly(
         Settings settings,
         Action<TestWindowPresentationScope, MainWindowViewModel, MainWindow> test,
@@ -1979,7 +1995,8 @@ internal static class MainWindowPackageMaintenanceTestHarness
         Action<MainWindowViewModel>? prepareViewModel = null,
         IUiDialogService? playlistWorkspaceDialogService = null,
         Action<TestWindowPresentationScope, MainWindow>? prepareWindowForPresentation = null,
-        Func<TestWindowPresentationScope, Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null)
+        Func<TestWindowPresentationScope, Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null,
+        MainWindowInstallTreeTerminal? installTreeTerminal = null)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -2004,7 +2021,7 @@ internal static class MainWindowPackageMaintenanceTestHarness
                     libraryReloadMenuTerminal: null,
                     regularLibraryTreeTerminal: null,
                     maintenanceTreeTerminal: maintenanceTreeTerminal,
-                    installTreeTerminal: null,
+                    installTreeTerminal: installTreeTerminal,
                     zeroNoteRecheckTerminal: null,
                     columnResetTerminal: null,
                     rootFolderUnregisterTerminal: null,

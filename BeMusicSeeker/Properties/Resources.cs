@@ -43,6 +43,12 @@ public class Resources
         }
     }
 
+    /// <summary>保留譜面の操作バーに表示する推定の短縮名です。</summary>
+    public static string Pending_install_estimate => ResourceManager.GetString("Pending_install_estimate", resourceCulture);
+
+    /// <summary>保留譜面の操作バーに表示するクリアの短縮名です。</summary>
+    public static string Pending_install_clear => ResourceManager.GetString("Pending_install_clear", resourceCulture);
+
     /// <summary>起動時のソートキャッシュ準備範囲の表示文言です。</summary>
     public static string Startup_sort_cache_label => ResourceManager.GetString("Startup_sort_cache_label", resourceCulture);
 

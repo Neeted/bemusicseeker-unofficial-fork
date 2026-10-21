@@ -1,4 +1,6 @@
 {
+  "Pending_install_estimate": "Estimate",
+  "Pending_install_clear": "Clear",
   "Startup_sort_cache_label": "Startup sort cache preparation",
   "Startup_sort_cache_description": "Columns that are not prepared can still be sorted normally when selected. Changes apply from the next application start.",
   "Startup_sort_cache_none": "None",

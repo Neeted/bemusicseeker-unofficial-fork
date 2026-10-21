@@ -1,4 +1,6 @@
 {
+  "Pending_install_estimate": "推定",
+  "Pending_install_clear": "清除",
   "Startup_sort_cache_label": "啟動時排序快取準備範圍",
   "Startup_sort_cache_description": "未預先產生快取的欄位在選取時仍可正常排序。變更將從下次啟動時生效。",
   "Startup_sort_cache_none": "不準備",

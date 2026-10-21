@@ -1,4 +1,6 @@
 {
+  "Pending_install_estimate": "推定",
+  "Pending_install_clear": "清除",
   "Startup_sort_cache_label": "启动时排序缓存准备范围",
   "Startup_sort_cache_description": "未预先生成缓存的列在选中时仍可正常排序。更改将从下次启动时生效。",
   "Startup_sort_cache_none": "不准备",

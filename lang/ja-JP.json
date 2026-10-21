@@ -1,4 +1,6 @@
 {
+  "Pending_install_estimate": "推定",
+  "Pending_install_clear": "クリア",
   "Startup_sort_cache_label": "起動時のソートキャッシュ準備範囲",
   "Startup_sort_cache_description": "事前生成しない列も、選択したときは通常どおりソートできます。変更は次回起動時から適用されます。",
   "Startup_sort_cache_none": "準備しない",

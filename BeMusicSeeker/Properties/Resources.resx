@@ -3933,4 +3933,10 @@ ON: すべての使用リソースがそろった場合のみ、自動新規イ�
   <data name="Startup_sort_cache_invalid" xml:space="preserve">
     <value>保存された値（{0}）は無効です。準備範囲を選択すると設定を保存できます。</value>
   </data>
+  <data name="Pending_install_estimate" xml:space="preserve">
+    <value>推定</value>
+  </data>
+  <data name="Pending_install_clear" xml:space="preserve">
+    <value>クリア</value>
+  </data>
 </root>
