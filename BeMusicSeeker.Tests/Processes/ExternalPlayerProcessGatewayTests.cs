@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
@@ -738,6 +739,412 @@ public sealed class ExternalPlayerProcessGatewayTests
         return document.Element("config")?.Element(sectionName)?.Element(fieldName)?.Value;
     }
 
+    /// <summary>実INIの読取り・原子公開失敗を両viewer入口で観測し、旧内容と開始前の他processを保全します。原因解消後の明示開始だけを受け付けます。</summary>
+    [DataTestMethod]
+    [DataRow(false, 0)]
+    [DataRow(false, 1)]
+    [DataRow(false, 2)]
+    [DataRow(true, 0)]
+    [DataRow(true, 1)]
+    [DataRow(true, 2)]
+    public void ExternalViewerIniFailurePreservesBytesAndDoesNotReplaceProcess(bool ubmplay, int failureMode)
+    {
+        WithTemporaryPlayerFiles(ubmplay ? "uBMplay.exe" : "BMIIDXView2015_64.exe", (root, executable, chart) =>
+        {
+            string ini = Path.Combine(root, ubmplay ? "ubm.ini" : "BMIIDXView2015.ini");
+            byte[] original = Encoding.GetEncoding("shift_jis").GetBytes(";日本語\r\n[Main]\r\nBMSVOLUME=12\r\n");
+            if (failureMode == 2) { Directory.CreateDirectory(ini); }
+            else { File.WriteAllBytes(ini, original); }
+            var old = new RecordingExternalPlayerProcessSession { KeepRunning = true };
+            old.Start();
+            var gateway = new RecordingExternalPlayerProcessGateway { ExistingProcesses = [old] };
+            gateway.Session.KeepRunning = true;
+            gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(31));
+            var host = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
+            {
+                EnumeratedWindows = [gateway.Session.MainWindowHandle],
+                WindowClassName = "ThunderRT6FormDC",
+                WindowTitle = chart
+            };
+            IBMSPlayer player = ubmplay
+                ? new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)))
+                : new BMIIDXView2015(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+            ((IExternalWindowPlayer)player).AttachWindowHost(host);
+            try
+            {
+                using (FileStream? held = failureMode == 2 ? null : new FileStream(ini, FileMode.Open, FileAccess.Read,
+                    failureMode == 0 ? FileShare.None : FileShare.Read))
+                {
+                    if (failureMode == 2) { Assert.ThrowsException<UnauthorizedAccessException>(() => player.PlayStart(chart).GetAwaiter().GetResult()); }
+                    else { Assert.ThrowsException<IOException>(() => player.PlayStart(chart).GetAwaiter().GetResult()); }
+                    Assert.AreEqual(0, old.CloseMainWindowCount);
+                    Assert.AreEqual(0, old.KillCount);
+                    Assert.AreEqual(0, gateway.PrepareCount);
+                    Assert.IsFalse(gateway.Session.Started);
+                    if (failureMode == 1) { CollectionAssert.AreEqual(original, File.ReadAllBytes(ini)); }
+                }
+                if (failureMode == 2) { Directory.Delete(ini); }
+                else { CollectionAssert.AreEqual(original, File.ReadAllBytes(ini)); }
+                player.PlayStart(chart).GetAwaiter().GetResult();
+                Assert.IsTrue(gateway.Session.Started);
+                Assert.AreEqual(1, old.CloseMainWindowCount);
+            }
+            finally { player.CloseProcess(); }
+        });
+    }
+
+    /// <summary>初回INI不在時はBMIIDXが生成せず、uBMplayだけが従来の不足節を生成して起動します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ExternalViewerMissingIniPreservesCreationContract(bool ubmplay)
+    {
+        WithTemporaryPlayerFiles(ubmplay ? "uBMplay.exe" : "BMIIDXView2015_64.exe", (root, executable, chart) =>
+        {
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.Session.KeepRunning = true;
+            gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(31));
+            var host = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
+            {
+                EnumeratedWindows = [gateway.Session.MainWindowHandle],
+                WindowClassName = "ThunderRT6FormDC",
+                WindowTitle = chart
+            };
+            IBMSPlayer player = ubmplay
+                ? new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)))
+                : new BMIIDXView2015(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+            ((IExternalWindowPlayer)player).AttachWindowHost(host);
+            try
+            {
+                player.PlayStart(chart).GetAwaiter().GetResult();
+                Assert.AreEqual(ubmplay, File.Exists(Path.Combine(root, ubmplay ? "ubm.ini" : "BMIIDXView2015.ini")));
+            }
+            finally { player.CloseProcess(); }
+        });
+    }
+
+    /// <summary>自然終了の復元失敗を一度返してbackupを保持し、新規起動を阻止します。次の明示停止で元bytesへ復元できます。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void UbmplayRestoreFailureRetainsBackupAndBlocksNewStartUntilExplicitRetry(bool retryByStart)
+    {
+        WithTemporaryPlayerFiles("uBMplay.exe", (root, executable, chart) =>
+        {
+            string ini = Path.Combine(root, "ubm.ini");
+            const string original = "[Main]\nAlwaysOnTop=True\nVSYNC=True\n[Option]\nBGA=1\nAutoSeparate=False\nSkinType=2\nVolume=12\n";
+            File.WriteAllText(ini, original);
+            byte[] originalBytes = File.ReadAllBytes(ini);
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.Session.KeepRunning = true;
+            gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(31));
+            var host = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
+            {
+                EnumeratedWindows = [gateway.Session.MainWindowHandle],
+                WindowClassName = "ThunderRT6FormDC",
+                WindowTitle = chart
+            };
+            var player = new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+            ((IExternalWindowPlayer)player).AttachWindowHost(host);
+            int notified = 0;
+            EventArgs? exit = null;
+            try
+            {
+                player.PlayStart(chart, (_, args) => { notified++; exit = args; }).GetAwaiter().GetResult();
+                byte[] temporary = File.ReadAllBytes(ini);
+                using (var held = new FileStream(ini, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    gateway.Session.KeepRunning = false;
+                    gateway.Session.RaiseExited();
+                    gateway.Session.RaiseExited();
+                    Assert.AreEqual(1, notified);
+                    Assert.IsInstanceOfType<PlaybackExitEventArgs>(exit);
+                    StringAssert.Contains(((PlaybackExitEventArgs)exit).Failure.ToString(), ini);
+                    CollectionAssert.AreEqual(temporary, File.ReadAllBytes(ini));
+                    Assert.ThrowsException<IOException>(() => player.PlayStart(chart).GetAwaiter().GetResult());
+                    Assert.AreEqual(1, gateway.PrepareCount);
+                }
+                if (!retryByStart)
+                {
+                    player.CloseProcess();
+                    CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(ini));
+                }
+                gateway.Session.KeepRunning = true;
+                player.PlayStart(chart).GetAwaiter().GetResult();
+                Assert.AreEqual(2, gateway.PrepareCount);
+                player.CloseProcess();
+                CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(ini));
+            }
+            finally { player.CloseProcess(); }
+        });
+    }
+
+    /// <summary>mainの実終了を先に観測した明示開始は新mainを作り、解除前に捕捉された旧通知が届いても新window・callbackを保持します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void UbmplayExitedMainStartsReplacementBeforeDelayedOldNotification(bool synchronousNotification)
+    {
+        WithTemporaryPlayerFiles("uBMplay.exe", (root, executable, chart) =>
+        {
+            string ini = Path.Combine(root, "ubm.ini");
+            File.WriteAllText(ini, "[Main]\nAlwaysOnTop=True\nVSYNC=True\n[Option]\nBGA=1\nAutoSeparate=False\nSkinType=2\nVolume=12\n");
+            byte[] original = File.ReadAllBytes(ini);
+            var oldMain = new RecordingExternalPlayerProcessSession { KeepRunning = true, MainWindowHandle = new ExternalWindowHandle(new IntPtr(31)) };
+            var newMain = new RecordingExternalPlayerProcessSession { KeepRunning = true, MainWindowHandle = new ExternalWindowHandle(new IntPtr(32)) };
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.EnqueuePreparedSession(oldMain);
+            gateway.EnqueuePreparedSession(newMain);
+            var host = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
+            {
+                EnumeratedWindows = [oldMain.MainWindowHandle],
+                WindowClassName = "ThunderRT6FormDC",
+                WindowTitle = chart
+            };
+            var player = new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+            ((IExternalWindowPlayer)player).AttachWindowHost(host);
+            int oldNotifications = 0;
+            int newNotifications = 0;
+            try
+            {
+                player.PlayStart(chart, (_, _) => oldNotifications++).GetAwaiter().GetResult();
+                Action deliverOldExit = oldMain.CaptureExitedNotification();
+                oldMain.KeepRunning = false;
+                if (synchronousNotification) { oldMain.OnNextHasExited = oldMain.RaiseExited; }
+                host.EnumeratedWindows = [newMain.MainWindowHandle];
+                player.PlayStart(chart, (_, _) => newNotifications++).GetAwaiter().GetResult();
+                Assert.IsTrue(newMain.Started);
+                Assert.IsFalse(newMain.HasExited, "新しいmainを短命なrequestとして待ちません。");
+                Assert.AreEqual(newMain.MainWindowHandle, host.LastAttachedUbmplayWindow);
+                deliverOldExit();
+                Assert.AreEqual(0, newNotifications);
+                Assert.AreEqual(synchronousNotification ? 1 : 0, oldNotifications);
+                Assert.AreEqual(newMain.MainWindowHandle, host.LastAttachedUbmplayWindow);
+                newMain.KeepRunning = false;
+                newMain.RaiseExited();
+                Assert.AreEqual(1, newNotifications);
+                CollectionAssert.AreEqual(original, File.ReadAllBytes(ini));
+            }
+            finally { player.CloseProcess(); }
+        });
+    }
+
+    /// <summary>main/requestのHasExited同期再入でも復元結果を一度だけロック外へ通知し、callbackから別threadの実Closeが進みます。復元失敗は同じ例外を返す開始・停止要求が通知を所有し、次の明示操作で再試行します。</summary>
+    /// <remarks>requestはtimeoutとcleanup失敗でmainだけを終了した後、次の明示Closeが購読中のHasExitedを読む実経路です。返却例外と終了引数の同一原因・通知所有を確認し、Panelの一通知/一診断と状態保全は実uBMplay接続代表へ分担します。</remarks>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void UbmplaySynchronousExitNotifiesOutsideOutermostLock(bool requestExit, bool failRestore)
+    {
+        WithTemporaryPlayerFiles("uBMplay.exe", (root, executable, chart) =>
+        {
+            string ini = Path.Combine(root, "ubm.ini");
+            File.WriteAllText(ini, "[Main]\nAlwaysOnTop=True\nVSYNC=True\n[Option]\nBGA=1\nAutoSeparate=False\nSkinType=2\nVolume=12\n");
+            byte[] original = File.ReadAllBytes(ini);
+            var main = new RecordingExternalPlayerProcessSession { KeepRunning = true, MainWindowHandle = new ExternalWindowHandle(new IntPtr(31)) };
+            var request = new RecordingExternalPlayerProcessSession { KeepRunning = true, KillException = new InvalidOperationException("request kill rejected") };
+            var failedNewMain = new RecordingExternalPlayerProcessSession { KeepRunning = true, MainWindowHandle = new ExternalWindowHandle(new IntPtr(32)) };
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.EnqueuePreparedSession(main);
+            gateway.EnqueuePreparedSession(requestExit ? request : failedNewMain);
+            var host = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
+            {
+                EnumeratedWindows = [main.MainWindowHandle],
+                WindowClassName = "ThunderRT6FormDC",
+                WindowTitle = chart
+            };
+            failedNewMain.BeforeStart = () => host.WindowTitle = "different chart";
+            var player = new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+            ((IExternalWindowPlayer)player).AttachWindowHost(host);
+            using var consumerReady = new ManualResetEventSlim();
+            using var runConsumer = new ManualResetEventSlim();
+            using var consumerCompleted = new ManualResetEventSlim();
+            using var consumerAbort = new CancellationTokenSource();
+            int notifications = 0;
+            bool restoredAtCallback = false;
+            bool transientPreservedAtCallback = false;
+            bool closeCompletedInsideCallback = false;
+            Exception? callbackFailure = null;
+            bool failureNotificationOwnedByCaller = false;
+            Exception? consumerFailure = null;
+            Exception? producerFailure = null;
+            byte[] transient = [];
+            Action<object, EventArgs> callback = (_, args) =>
+            {
+                notifications++;
+                callbackFailure = (args as PlaybackExitEventArgs)?.Failure;
+                failureNotificationOwnedByCaller = (args as PlaybackExitEventArgs)?.FailureNotificationOwnedByCaller == true;
+                byte[] current = File.ReadAllBytes(ini);
+                restoredAtCallback = original.SequenceEqual(current);
+                transientPreservedAtCallback = transient.SequenceEqual(current);
+                runConsumer.Set();
+                closeCompletedInsideCallback = consumerCompleted.Wait(TimeSpan.FromSeconds(2));
+            };
+            FileStream? heldIni = null;
+            Task consumer = Task.CompletedTask;
+            Task producer = Task.CompletedTask;
+            try
+            {
+                player.PlayStart(chart, requestExit ? null! : callback).GetAwaiter().GetResult();
+                if (requestExit)
+                {
+                    Assert.ThrowsException<AggregateException>(() => player.PlayStart(chart, callback).GetAwaiter().GetResult());
+                    Assert.IsTrue(main.HasExited);
+                    Assert.IsFalse(request.HasExited);
+                }
+                RecordingExternalPlayerProcessSession exiting = requestExit ? request : main;
+                Action deliverExit = exiting.CaptureExitedNotification();
+                exiting.KeepRunning = false;
+                exiting.OnNextHasExited = deliverExit;
+                transient = File.ReadAllBytes(ini);
+                if (failRestore) { heldIni = new FileStream(ini, FileMode.Open, FileAccess.Read, FileShare.Read); }
+                consumer = Task.Run(() =>
+                {
+                    consumerReady.Set();
+                    runConsumer.Wait();
+                    try
+                    {
+                        if (!consumerAbort.IsCancellationRequested) { player.CloseProcess(); }
+                    }
+                    catch (Exception failure) { consumerFailure = failure; }
+                    finally { consumerCompleted.Set(); }
+                });
+                Assert.IsTrue(consumerReady.Wait(TimeSpan.FromSeconds(5)));
+                producer = Task.Run(() =>
+                {
+                    try
+                    {
+                        if (requestExit) { player.CloseProcess(); }
+                        else { player.PlayStart(chart, null!).GetAwaiter().GetResult(); }
+                    }
+                    catch (Exception failure) { producerFailure = failure; }
+                });
+                producer.GetAwaiter().GetResult();
+                runConsumer.Set();
+                consumer.GetAwaiter().GetResult();
+                Assert.AreEqual(1, notifications);
+                Assert.AreEqual(failRestore, failureNotificationOwnedByCaller, "同じ復元失敗を返す最外の開始・停止要求が失敗通知を所有します。");
+                Assert.IsTrue(closeCompletedInsideCallback, "callbackからの別thread停止が外側lockのために止まりません。");
+                Assert.AreEqual(!failRestore, restoredAtCallback);
+                Assert.AreEqual(failRestore, transientPreservedAtCallback);
+                if (failRestore)
+                {
+                    Assert.IsNotNull(callbackFailure);
+                    Assert.IsTrue(callbackFailure.ToString().Contains(ini, StringComparison.Ordinal));
+                    Assert.IsTrue(ContainsCause(producerFailure, callbackFailure), "通知責務の包装後も同一backupの元復元失敗を原因として保持します。");
+                    Assert.IsNotNull(consumerFailure, "別要求の復元失敗もlock取得後の実終端として扱います。");
+                    Assert.AreEqual(requestExit ? 2 : 1, gateway.PrepareCount, "復元失敗後に新mainを準備しません。");
+                }
+                else
+                {
+                    Assert.IsNull(callbackFailure);
+                    Assert.IsNull(consumerFailure);
+                    if (requestExit) { Assert.IsNull(producerFailure); }
+                    else { Assert.IsNotNull(producerFailure, "新backupの起動後故障をcleanupしてから旧通知を配送します。"); }
+                }
+                deliverExit();
+                Assert.AreEqual(1, notifications, "購読解除前snapshotの再配送も通知を重ねません。");
+            }
+            finally
+            {
+                consumerAbort.Cancel();
+                runConsumer.Set();
+                try { producer.GetAwaiter().GetResult(); consumer.GetAwaiter().GetResult(); }
+                finally { heldIni?.Dispose(); player.CloseProcess(); }
+            }
+            CollectionAssert.AreEqual(original, File.ReadAllBytes(ini));
+        });
+
+        static bool ContainsCause(Exception? failure, Exception cause) => failure != null
+            && (ReferenceEquals(failure, cause)
+                || (failure is AggregateException aggregate
+                    ? aggregate.InnerExceptions.Any(inner => ContainsCause(inner, cause))
+                    : ContainsCause(failure.InnerException, cause)));
+    }
+
+    /// <summary>旧main終了と新main同期終了が同じ要求で確定しても異なるcallbackを順番に配送し、先の通知故障で後の通知を欠落させません。</summary>
+    [TestMethod]
+    public void UbmplaySynchronousExitsKeepEverySnapshotWhenEarlierNotificationFails()
+    {
+        WithTemporaryPlayerFiles("uBMplay.exe", (root, executable, chart) =>
+        {
+            string ini = Path.Combine(root, "ubm.ini");
+            File.WriteAllText(ini, "[Main]\nAlwaysOnTop=True\nVSYNC=True\n[Option]\nBGA=1\nAutoSeparate=False\nSkinType=2\nVolume=12\n");
+            byte[] original = File.ReadAllBytes(ini);
+            var oldMain = new RecordingExternalPlayerProcessSession { KeepRunning = true };
+            var newMain = new RecordingExternalPlayerProcessSession();
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.EnqueuePreparedSession(oldMain);
+            gateway.EnqueuePreparedSession(newMain);
+            var host = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
+            {
+                EnumeratedWindows = [new ExternalWindowHandle(new IntPtr(31))],
+                WindowClassName = "ThunderRT6FormDC",
+                WindowTitle = chart
+            };
+            var player = new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+            ((IExternalWindowPlayer)player).AttachWindowHost(host);
+            var notifications = new List<int>();
+            try
+            {
+                player.PlayStart(chart, (_, _) => { notifications.Add(1); throw new IOException("first callback failed"); }).GetAwaiter().GetResult();
+                Action oldExit = oldMain.CaptureExitedNotification();
+                oldMain.KeepRunning = false;
+                oldMain.OnNextHasExited = oldExit;
+                newMain.BeforeStart = () =>
+                {
+                    host.WindowClassName = "no viewer window";
+                    newMain.OnNextHasExited = newMain.CaptureExitedNotification();
+                };
+                Exception? startupFailure = null;
+                try { player.PlayStart(chart, (_, _) => notifications.Add(2)).GetAwaiter().GetResult(); }
+                catch (Exception failure) { startupFailure = failure; }
+                Assert.IsNotNull(startupFailure);
+                CollectionAssert.AreEqual(new[] { 1, 2 }, notifications);
+                CollectionAssert.AreEqual(original, File.ReadAllBytes(ini));
+                oldExit();
+                CollectionAssert.AreEqual(new[] { 1, 2 }, notifications);
+            }
+            finally { player.CloseProcess(); }
+        });
+    }
+
+    /// <summary>既存mainを再利用した要求でも、自然終了は最後に受け付けた要求のcallbackへ一回届きます。</summary>
+    [TestMethod]
+    public void UbmplayReusedProcessNotifiesCurrentRequestCallback()
+    {
+        WithTemporaryPlayerFiles("uBMplay.exe", (root, executable, chart) =>
+        {
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            var main = new RecordingExternalPlayerProcessSession { KeepRunning = true, MainWindowHandle = new ExternalWindowHandle(new IntPtr(31)) };
+            gateway.EnqueuePreparedSession(main);
+            gateway.EnqueuePreparedSession(new RecordingExternalPlayerProcessSession());
+            var host = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
+            {
+                EnumeratedWindows = [main.MainWindowHandle],
+                WindowClassName = "ThunderRT6FormDC",
+                WindowTitle = chart
+            };
+            var player = new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+            ((IExternalWindowPlayer)player).AttachWindowHost(host);
+            int old = 0;
+            int current = 0;
+            try
+            {
+                player.PlayStart(chart, (_, _) => old++).GetAwaiter().GetResult();
+                player.PlayStart(chart, (_, _) => current++).GetAwaiter().GetResult();
+                main.KeepRunning = false;
+                main.RaiseExited();
+                main.RaiseExited();
+                Assert.AreEqual(0, old);
+                Assert.AreEqual(1, current);
+            }
+            finally { player.CloseProcess(); }
+        });
+    }
+
     /// <summary>uBMplayの探索・起動・埋込みと一時停止/早送りのkey入力をhostへ渡し、既存windowの終了時にはdetachします。</summary>
     [TestMethod]
     public void UbmplayUsesWindowHostForAttachAndKeyMapping()
@@ -781,9 +1188,11 @@ public sealed class ExternalPlayerProcessGatewayTests
 
             windowHost.LegacyWindowEmbedding = true;
             gateway.ExistingProcesses = new[] { gateway.Session };
-            gateway.Session.KeepRunning = false;
-            Assert.ThrowsException<InvalidOperationException>(() => player.PlayStart(chartPath, (Action<object, EventArgs>)null!));
+            // 終了済mainのhandleは終了確認時に破棄するため、生存mainの再利用で既存のdetach契約を確認します。
+            gateway.EnqueuePreparedSession(new RecordingExternalPlayerProcessSession());
+            player.PlayStart(chartPath, (Action<object, EventArgs>)null!).GetAwaiter().GetResult();
             CollectionAssert.Contains(windowHost.Operations, "DetachUbmplayWindow");
+            player.CloseProcess();
         });
     }
 
@@ -847,7 +1256,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
-    /// <summary>kill失敗後もINI復元権を保持し、processの遅い書込み後の終了通知で元のバイト列へ戻します。</summary>
+    /// <summary>kill失敗後もINI復元権と終了callbackを保持し、遅い書込み後の自然終了で元bytesへ復元して一回通知します。</summary>
     [TestMethod]
     public void UbmplayCloseTimeoutRetainsSettingsUntilOwnedProcessEventuallyExits()
     {
@@ -875,7 +1284,8 @@ public sealed class ExternalPlayerProcessGatewayTests
                 gateway,
                 new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
-            player.PlayStart(chartPath, (Action<object, EventArgs>)null!);
+            int exits = 0;
+            player.PlayStart(chartPath, (_, _) => exits++);
             gateway.Session.KillException = new InvalidOperationException("kill rejected");
 
             Assert.ThrowsException<InvalidOperationException>(player.CloseProcess);
@@ -884,6 +1294,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             gateway.Session.KeepRunning = false;
             gateway.Session.RaiseExited();
             CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(iniPath));
+            Assert.AreEqual(1, exits, "終了失敗で後続の自然終了callbackを失いません。");
         });
     }
 
@@ -930,6 +1341,9 @@ public sealed class ExternalPlayerProcessGatewayTests
                 () => player.PlayStart(chartPath, (Action<object, EventArgs>)null!));
             Assert.IsTrue(requestSession.KillCount >= 1);
 
+            Assert.IsTrue(mainSession.HasExited);
+            Assert.IsFalse(requestSession.HasExited);
+            Assert.AreNotEqual(original, File.ReadAllText(iniPath, Encoding.GetEncoding("shift_jis")), "main終了後もrequest生存中は復元しません。");
             File.WriteAllText(iniPath, "late request write", Encoding.GetEncoding("shift_jis"));
             requestSession.KeepRunning = false;
             requestSession.RaiseExited();
@@ -1077,8 +1491,11 @@ public sealed class ExternalPlayerProcessGatewayTests
             return ExistingProcesses;
         }
 
+        internal int PrepareCount { get; private set; }
+
         public IExternalPlayerProcessSession Prepare(ExternalPlayerProcessLaunchRequest request)
         {
+            PrepareCount++;
             LaunchRequest = request;
             return preparedSessions.Count > 0 ? preparedSessions.Dequeue() : Session;
         }
@@ -1098,6 +1515,9 @@ public sealed class ExternalPlayerProcessGatewayTests
 
         internal int HasExitedReadCount { get; private set; }
 
+        /// <summary>HasExitedが同じthreadから終了通知する.NETの再入を一回だけ再現します。</summary>
+        internal Action? OnNextHasExited { get; set; }
+
         internal int CloseMainWindowCount { get; private set; }
 
         internal Exception? KillException { get; set; }
@@ -1115,6 +1535,9 @@ public sealed class ExternalPlayerProcessGatewayTests
             get
             {
                 HasExitedReadCount++;
+                Action? notification = OnNextHasExited;
+                OnNextHasExited = null;
+                notification?.Invoke();
                 return Started && !KeepRunning;
             }
         }
@@ -1136,6 +1559,13 @@ public sealed class ExternalPlayerProcessGatewayTests
         internal void RaiseExited()
         {
             exitHandlers?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>購読解除前にOS側で取得済みとなった通知先を捕捉します。配送と実終了は別々に制御します。</summary>
+        internal Action CaptureExitedNotification()
+        {
+            EventHandler? snapshot = exitHandlers;
+            return () => snapshot?.Invoke(this, EventArgs.Empty);
         }
 
         public void CloseMainWindow()
@@ -1239,9 +1669,13 @@ public sealed class ExternalPlayerProcessGatewayTests
             Operations.Add("AttachBmiIdxWindow");
         }
 
+        /// <summary>旧終了snapshotの配送後も、新mainのwindowが採用されたままか観測します。</summary>
+        internal ExternalWindowHandle LastAttachedUbmplayWindow { get; private set; }
+
         public void AttachUbmplayWindow(ExternalWindowHandle childWindow, bool legacyWindowStyle)
         {
             Operations.Add("AttachUbmplayWindow");
+            LastAttachedUbmplayWindow = childWindow;
         }
 
         public void MoveExternalWindowOffscreen(ExternalWindowHandle childWindow)

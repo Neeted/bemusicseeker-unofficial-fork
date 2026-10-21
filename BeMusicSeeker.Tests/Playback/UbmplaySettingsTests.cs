@@ -10,10 +10,14 @@ namespace BeMusicSeeker.Tests;
 public sealed class UbmplaySettingsTests
 {
     /// <summary>
-    /// 保証：外部プレイヤー起動用の設定をShift_JISと無関係な文字列を保って変更し、復元時には元のバイト列へ戻す。
+    /// 保証：LF/CRLF・末尾改行の有無、Shift_JISと無関係な文字列を保って一時値を公開し、復元時には元のバイト列へ戻す。
     /// </summary>
-    [TestMethod]
-    public void TemporarilyRewriteSettings_PreservesPlayerContractAndRestoresOriginalBytes()
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void TemporarilyRewriteSettings_PreservesPlayerContractAndRestoresOriginalBytes(bool crlf, bool trailingNewline)
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         string tempDirectory = Path.Combine(Path.GetTempPath(), "UbmplaySettingsTests", Guid.NewGuid().ToString("N"));
@@ -30,9 +34,12 @@ public sealed class UbmplaySettingsTests
             + "Volume=12\r\n"
             + "[Other]\r\n"
             + "Title=日本語\r\n";
+        string newline = crlf ? "\r\n" : "\n";
+        string input = original.Replace("\r\n", newline, StringComparison.Ordinal);
+        if (!trailingNewline) { input = input.TrimEnd('\r', '\n'); }
         try
         {
-            File.WriteAllText(iniPath, original, Encoding.GetEncoding("shift_jis"));
+            File.WriteAllText(iniPath, input, Encoding.GetEncoding("shift_jis"));
             byte[] originalBytes = File.ReadAllBytes(iniPath);
 
             var rewrite = new uBMplay.TemporarilyRewriteSettings(iniPath, 123);
@@ -45,6 +52,10 @@ public sealed class UbmplaySettingsTests
             StringAssert.Contains(rewritten, "SkinType=0");
             StringAssert.Contains(rewritten, "Volume=100");
             StringAssert.Contains(rewritten, "Title=日本語");
+            Assert.AreEqual(trailingNewline, rewritten.EndsWith(newline, StringComparison.Ordinal));
+            if (crlf) { Assert.IsFalse(rewritten.Replace("\r\n", "", StringComparison.Ordinal).Contains('\n')); }
+            else { Assert.IsFalse(rewritten.Contains('\r')); }
+
 
             rewrite.RevertSettings();
 

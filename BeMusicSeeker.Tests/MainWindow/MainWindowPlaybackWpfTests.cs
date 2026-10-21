@@ -9,6 +9,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -29,10 +30,10 @@ public sealed class MainWindowPlaybackWpfTests
         var activatedRows = new List<(int RowIndex, object Row)>();
         var playbackTerminal = new MainWindowPlaybackTerminal(
             row => selectedRow = row,
-            (rowIndex, row) =>
+            (rowIndex, row, _) =>
             {
                 activatedRows.Add((rowIndex, row));
-                return false;
+                return Task.CompletedTask;
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
@@ -66,6 +67,78 @@ public sealed class MainWindowPlaybackWpfTests
                 Assert.AreSame(row, activatedRows[0].Row);
             },
             playbackTerminal: playbackTerminal);
+    }
+
+    /// <summary>標準構成の両再生入口では競合拒否の実終端まで面・保存値を変えず、解放後の次の明示入力だけが実面と保存値を切り替えます。</summary>
+    /// <remarks>compiled表のキーから同じ入口への行identity転送は既存ケース、後段L競合と入力時状態の条件表はownerケースに委ねます。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PlaybackSurface_ChangesOnlyAfterAcceptedExplicitInput(bool playButton)
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            TestUiDispatcherHost.RunWindowTest(scope =>
+            {
+                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                {
+                    values.UsePlayerBMIIDXView = true;
+                    values.UsePlayeruBMplay = false;
+                    values.UsePlayerLR2body = false;
+                    values.PlayerPanelState = PlayerPanelState.TITLE_LARGE;
+                });
+                var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
+                var composition = new ApplicationComposition(
+                    settingsEditSession: new NoOpSettingsEditSession(settings),
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: lifetime,
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
+                var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
+                ownership.Run(() =>
+                {
+                    MainWindowPresentationTestHarness.PrepareConstructorOnlyShell(viewModel);
+                    viewModel.StartupUpdateWorkflow.NotifyClosing();
+                    viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
+                    MainWindow window = ownership.CreateWindow(() => new MainWindow(viewModel));
+                    var player = new PlaybackPanelViewModelTests.FakeBmsPlayer();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.ReplacePlayerAsync(player), "surface-replace-player");
+                    ChartFile chart = ChartTestValues.Empty() with { Path = path, RawTitle = "明示入力の対象" };
+                    viewModel.MainChartList.Rows = new List<object> { chart };
+                    viewModel.MainChartList.SelectedIndex = 0;
+                    MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+                    var panelView = (PlaybackPanelView)window.FindName("playbackPanelView");
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    table.SelectRowsByPredicate(row => ReferenceEquals(row, chart));
+                    Assert.AreEqual(0, viewModel.MainChartList.SelectedIndex);
+                    Assert.AreEqual(PlayerPanelState.TITLE_LARGE, panelView.EffectivePlayerPanelState);
+                    Assert.AreEqual(PlayerPanelState.TITLE_LARGE, settings.PlayerPanelState);
+                    Task Request() => playButton
+                        ? panelView.RequestPlaybackFromPlayButton()
+                        : window.RequestPlaybackFromTable(0, chart);
+                    Assert.IsTrue(composition.OperationAdmission.TryEnter(out IDisposable lease));
+                    try
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(Request(), "surface-rejected-request-terminal");
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.AreEqual(PlayerPanelState.TITLE_LARGE, panelView.EffectivePlayerPanelState);
+                        Assert.AreEqual(PlayerPanelState.TITLE_LARGE, settings.PlayerPanelState);
+                        Assert.IsNull(viewModel.PlaybackPanel.NowPlayingChart);
+                        Assert.AreEqual(0, player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
+                    }
+                    finally { lease.Dispose(); }
+                    Assert.AreEqual(0, player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Request(), "surface-accepted-request-terminal");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsTrue(panelView.EffectivePlayerPanelState.HasFlag(PlayerPanelState.BMS_PLAYER));
+                    Assert.IsTrue(settings.PlayerPanelState.HasFlag(PlayerPanelState.BMS_PLAYER));
+                    Assert.AreSame(chart, viewModel.PlaybackPanel.NowPlayingChart);
+                    Assert.AreEqual(1, player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
+                });
+            });
+        }
+        finally { File.Delete(path); }
     }
 
     /// <summary>読込・再生・一時停止・再開・停止を実表へ反映し時刻通知だけでは再描画せず、行と成績・選択・未確定メモを保つことを確認し、再生状態変更で行交換や編集確定を行う誤りを検出します。</summary>

@@ -2254,20 +2254,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    private void customTableView_RowActivated(object sender, CustomTableRowRequestedEventArgs e)
+    private void customTableView_RowActivated(object sender, CustomTableRowRequestedEventArgs e) =>
+        RequestPlaybackFromTable(e.RowIndex, e.Row).ObserveFault("MainWindow.ActivatePlaybackRow");
+
+    /// <summary>構成済み表の行をそのまま再生ownerへ渡し、受付後の面要求を現在のView接続へ向けます。</summary>
+    /// <returns>転送した再生要求の実終端。面要求のUI配送は別に進みます。</returns>
+    internal Task RequestPlaybackFromTable(int rowIndex, object row)
     {
-        if (ShouldBlockStartupUiInteraction("custom_table_row_activate"))
+        if (ShouldBlockStartupUiInteraction("custom_table_row_activate")
+            || base.DataContext is not MainWindowViewModel)
         {
-            return;
+            return Task.CompletedTask;
         }
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-        if (playbackTerminal.HandleTableRowActivation(e.RowIndex, e.Row))
-        {
-            playbackPanelView.TrySelectBmsPlayerSurface();
-        }
+        return playbackTerminal.HandleTableRowActivation(rowIndex, row,
+            playbackPanelView.CaptureBmsPlayerSurfaceRequest());
     }
 
     private void customTablePlaylistSummary_RowActivated(object sender, CustomTableRowRequestedEventArgs e)

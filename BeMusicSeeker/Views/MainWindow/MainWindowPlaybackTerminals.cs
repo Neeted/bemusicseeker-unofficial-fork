@@ -1,25 +1,26 @@
 using System;
+using System.Threading.Tasks;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views;
 
 /// <summary>
-/// Narrows compiled main-table playback events to the existing playback-panel owner.
+/// 構成済みの表イベントを、行の同一性を保って再生ownerへ渡します。
 /// </summary>
 internal sealed class MainWindowPlaybackTerminal
 {
     private readonly Action<object> handleTableSelection;
 
-    private readonly Func<int, object, bool> handleTableRowActivation;
+    private readonly Func<int, object, Action, Task> handleTableRowActivation;
 
     /// <summary>
-    /// Initializes a playback terminal with the two table event operations it owns.
+    /// 表選択と、受付後の面選択要求を伴う行activationの接続を作ります。
     /// </summary>
-    /// <param name="handleTableSelection">Receives the exact selected row object.</param>
-    /// <param name="handleTableRowActivation">Receives the exact row index and row object.</param>
+    /// <param name="handleTableSelection">選択された行を同一の対象として受け取る処理。</param>
+    /// <param name="handleTableRowActivation">行・indexと受付後の面要求を受け取り、再生要求の実終端を返す処理。</param>
     internal MainWindowPlaybackTerminal(
         Action<object> handleTableSelection,
-        Func<int, object, bool> handleTableRowActivation)
+        Func<int, object, Action, Task> handleTableRowActivation)
     {
         this.handleTableSelection = handleTableSelection
             ?? throw new ArgumentNullException(nameof(handleTableSelection));
@@ -28,26 +29,27 @@ internal sealed class MainWindowPlaybackTerminal
     }
 
     /// <summary>
-    /// Forwards one compiled selection event without changing row identity.
+    /// 表の選択行を同一の対象として転送します。
     /// </summary>
-    /// <param name="selectedRow">The row supplied by the table event.</param>
+    /// <param name="selectedRow">表イベントで渡された行。</param>
     internal void HandleTableSelection(object selectedRow)
         => handleTableSelection(selectedRow);
 
     /// <summary>
-    /// Forwards one compiled activation event without changing its row index or identity.
+    /// 表の行・indexと要求内の面選択callbackを再生ownerへ転送します。
     /// </summary>
-    /// <param name="rowIndex">The index supplied by the table event.</param>
-    /// <param name="row">The row supplied by the table event.</param>
-    /// <returns>Whether the playback panel accepted the activation.</returns>
-    internal bool HandleTableRowActivation(int rowIndex, object row)
-        => handleTableRowActivation(rowIndex, row);
+    /// <param name="rowIndex">表イベントで渡されたindex。</param>
+    /// <param name="row">表イベントで渡された行。</param>
+    /// <param name="requestPlayerSurface">受付後にViewが面の利用可能性と接続寿命を確認する処理。</param>
+    /// <returns>転送した要求の実終端。面要求のUI配送完了は含みません。</returns>
+    internal Task HandleTableRowActivation(int rowIndex, object row, Action requestPlayerSurface)
+        => handleTableRowActivation(rowIndex, row, requestPlayerSurface);
 
     /// <summary>
-    /// Creates the default terminal bound directly to the playback-panel owner.
+    /// 既存再生ownerへ直接接続した標準terminalを作ります。
     /// </summary>
-    /// <param name="viewModel">The shell view model owning playback state.</param>
-    /// <returns>A terminal that preserves the existing owner behavior.</returns>
+    /// <param name="viewModel">再生ownerを所有する画面ViewModel。</param>
+    /// <returns>既存ownerへ転送する接続。</returns>
     internal static MainWindowPlaybackTerminal Create(MainWindowViewModel viewModel)
     {
         ArgumentNullException.ThrowIfNull(viewModel);

@@ -203,15 +203,19 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
         exitHandler?.Invoke(null, null);
     }
 
+    /// <summary>INI準備成功後に既存viewerを置換して起動します。準備失敗では既存processとINIを保全して失敗を返します。</summary>
     public Task PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
     {
         return PlayStart(bmsFilePath, (onExitEventHandler != null) ? new EventHandler(onExitEventHandler.Invoke) : null);
     }
 
+    /// <summary>既存のEventHandler呼出元も、同じ原子的INI準備と開始前置換の契約で起動します。</summary>
     public Task PlayStart(string bmsFilePath, EventHandler onExitEventHandler = null)
     {
         lock (lockThis)
         {
+            string iniFilePath = Path.Combine(DirectoryExt.GetDirectoryNameSimple(ExePath), "BMIIDXView2015.ini");
+            temporarilyRewriteSettings(iniFilePath, playerSettingsGateway.CaptureSnapshot().PlayerVolume);
             IReadOnlyList<IExternalPlayerProcessSession> existingProcesses = processGateway.FindExisting(
                 ExternalPlayerProcessDiscoveryRequest.Create("BMIIDXView2015", "BMIIDXView2015_64"));
             if (existingProcesses.Count != 0)
@@ -252,8 +256,6 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
             try
             {
                 ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
-                string iniFilePath = Path.Combine(DirectoryExt.GetDirectoryNameSimple(ExePath), "BMIIDXView2015.ini");
-                temporarilyRewriteSettings(iniFilePath, playerSettingsGateway.CaptureSnapshot().PlayerVolume);
                 process.Start();
                 processStarted = true;
                 waitPolicy.WaitUntil(
@@ -441,17 +443,9 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
         {
             input = File.ReadAllText(iniFilePath, encoding);
         }
-        catch
-        {
-            return;
-        }
+        catch (FileNotFoundException) { return; }
         input = iniVolume.Replace(input, "BMSVOLUME=" + Math.Min(100, Math.Max(0, playerVolume)));
-        try
-        {
-            File.WriteAllText(iniFilePath, input, encoding);
-        }
-        catch
-        {
-        }
+        byte[] contents = encoding.GetBytes(input);
+        AtomicFileWriter.Write(iniFilePath, stream => stream.Write(contents));
     }
 }

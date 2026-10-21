@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -558,6 +559,20 @@ public partial class PlaybackPanelView : UserControl
         ApplySelectedSurface(PlaybackPanel, PlaybackPanel.PlayerPanelState);
     }
 
+    /// <summary>入力時の接続期間を捕捉し、受付後も同じ接続が生存する場合だけ面を選択します。</summary>
+    internal Action CaptureBmsPlayerSurfaceRequest()
+    {
+        PlaybackPanelViewModel expectedPanel = PlaybackPanel;
+        long subscriptionVersion = playbackPanelSubscriptionVersion;
+        return () =>
+        {
+            if (IsCurrentPlaybackPanelSubscription(expectedPanel, subscriptionVersion, expectedPanel))
+            {
+                TrySelectBmsPlayerSurface();
+            }
+        };
+    }
+
     public bool TrySelectBmsPlayerSurface() => PlaybackPanel.TrySelectPanelState(
         PlayerPanelState.BMS_PLAYER,
         IsBmsPlayerSurfaceAvailable(PlaybackPanel));
@@ -720,16 +735,18 @@ public partial class PlaybackPanelView : UserControl
     /// </summary>
     private void gridBMSPlayerControlsPlayStartButtonClicked(object sender, MouseButtonEventArgs e)
     {
-        if (DataContext is PlaybackPanelViewModel viewModel)
+        if (DataContext is PlaybackPanelViewModel)
         {
             e.Handled = true;
-            if (viewModel.IsStoppedOrPaused)
-            {
-                TrySelectBmsPlayerSurface();
-            }
-            viewModel.StartCommand.Execute();
+            RequestPlaybackFromPlayButton().ObserveFault("PlaybackPanelView.PlayButton");
         }
     }
+
+    /// <summary>再生ボタンの要求を現在のownerへ渡し、面選択は受付後に現在のView接続へ適用します。</summary>
+    /// <returns>転送した再生要求の実終端。面要求のUI配送は別に進みます。</returns>
+    internal Task RequestPlaybackFromPlayButton() => DataContext is PlaybackPanelViewModel viewModel
+        ? viewModel.HandlePlayButton(CaptureBmsPlayerSurfaceRequest())
+        : Task.CompletedTask;
 
     private void gridBMSPlayerControlsPlayStopButtonClicked(object sender, MouseButtonEventArgs e)
     {
