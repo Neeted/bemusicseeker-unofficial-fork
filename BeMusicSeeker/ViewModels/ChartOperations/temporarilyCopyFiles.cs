@@ -12,7 +12,8 @@ namespace BeMusicSeeker.ViewModels;
 internal sealed class temporarilyCopyFiles : IDisposable
 {
     private readonly int sleep;
-    private readonly List<string> copiedFilesDst = [];
+    private readonly Action<string, Stream> transfer;
+    private readonly HashSet<string> ownedFiles = [];
     private readonly List<string> createdDirectories = [];
     private int disposed;
     private int cleanupFailed;
@@ -22,9 +23,11 @@ internal sealed class temporarilyCopyFiles : IDisposable
 
     /// <summary>コピー前に回収の所有者を作成します。コピー失敗時にも呼出元が回収結果を参照できます。</summary>
     /// <param name="wait">開始境界後に回収まで保持する既存の時間（ミリ秒）。</param>
-    internal temporarilyCopyFiles(int wait = 0)
+    /// <param name="transfer">転送だけを置き換える境界。所有・公開・回収は常にこの所有者が実行します。</param>
+    internal temporarilyCopyFiles(int wait = 0, Action<string, Stream> transfer = null)
     {
         sleep = Math.Max(0, wait);
+        this.transfer = transfer ?? TransferFile;
     }
 
     /// <summary>開始境界後の既存保持時間を待ち、所有物の回収を一回行います。回収できない一時物は元原因とpathを診断し、他の回収を続けます。</summary>
@@ -32,7 +35,7 @@ internal sealed class temporarilyCopyFiles : IDisposable
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) { return; }
         if (sleep > 0) { Thread.Sleep(sleep); }
-        copiedFilesDst.AsParallel().ForAll(dstFile =>
+        ownedFiles.AsParallel().ForAll(dstFile =>
         {
             try
             {
@@ -96,9 +99,26 @@ internal sealed class temporarilyCopyFiles : IDisposable
         }
         copies.AsParallel().ForAll(copy =>
         {
-            LongPathFileSystem.CopyFile(copy.Source, copy.Destination, overwrite: false);
-            lock (copiedFilesDst) { copiedFilesDst.Add(copy.Destination); }
+            string staging = Path.Combine(Path.GetDirectoryName(copy.Destination), ".preview-" + Guid.NewGuid().ToString("N") + ".tmp");
+            using (FileStream output = LongPathFileSystem.Open(staging, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                // 作成直後から所有し、転送途中の失敗もDisposeで回収します。
+                lock (ownedFiles) { ownedFiles.Add(staging); }
+                transfer(copy.Source, output);
+            }
+            LongPathFileSystem.MoveFile(staging, copy.Destination, overwrite: false);
+            lock (ownedFiles)
+            {
+                ownedFiles.Remove(staging);
+                ownedFiles.Add(copy.Destination);
+            }
         });
+    }
+
+    private static void TransferFile(string source, Stream output)
+    {
+        using FileStream input = LongPathFileSystem.Open(source, FileMode.Open, FileAccess.Read, FileShare.Read);
+        input.CopyTo(output);
     }
 
     private void EnsureDestinationDirectory(string directory)

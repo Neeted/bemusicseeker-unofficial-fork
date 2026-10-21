@@ -9,6 +9,50 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class TemporaryCopyFilesTests
 {
+    /// <summary>転送途中の故障では正式先を公開せず、所有stageを回収して元原因を保持します。公開直前の第三者ファイルも上書き・回収しません。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CopyFailure_StagingNeverPublishesPartialOrOverwritesCollision(bool createCollision)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CopyPublication_" + Guid.NewGuid().ToString("N"));
+        string source = Path.Combine(root, "source");
+        string destination = Path.Combine(root, "destination");
+        var failure = new IOException("injected transfer failure");
+        try
+        {
+            Directory.CreateDirectory(source);
+            Directory.CreateDirectory(destination);
+            string input = Path.Combine(source, "chart.bms");
+            string final = Path.Combine(destination, "chart.bms");
+            File.WriteAllText(input, "complete input");
+            var copies = new temporarilyCopyFiles(transfer: (_, output) =>
+            {
+                output.WriteByte(42);
+                Assert.IsFalse(File.Exists(final), "転送中の正式先は不在です。");
+                if (createCollision) { File.WriteAllText(final, "third party"); }
+                else { throw failure; }
+            });
+            AggregateException observed = Assert.ThrowsException<AggregateException>(() =>
+            {
+                using (copies) { copies.CopyFiles([input], source, destination); }
+            });
+            if (createCollision)
+            {
+                Assert.AreEqual("third party", File.ReadAllText(final));
+                CollectionAssert.AreEqual(new[] { final }, Directory.GetFiles(destination));
+            }
+            else
+            {
+                Assert.IsTrue(observed.Flatten().InnerExceptions.Contains(failure));
+                Assert.AreEqual(0, Directory.GetFiles(destination).Length);
+            }
+            Assert.IsFalse(copies.HasCleanupFailure);
+            Assert.AreEqual("complete input", File.ReadAllText(input));
+        }
+        finally { if (Directory.Exists(root)) { Directory.Delete(root, recursive: true); } }
+    }
+
     /// <summary>相対配置と同名別ディレクトリを実FSで確認し、既存素材・借用ディレクトリ・追加された非所有ファイルを保全します。所有した空ディレクトリだけを子から回収します。</summary>
     /// <remarks>実FSのコピー・file lock・借用先の残存を観測し、素材の所有権に応じた回収を確認します。</remarks>
     [TestMethod]
