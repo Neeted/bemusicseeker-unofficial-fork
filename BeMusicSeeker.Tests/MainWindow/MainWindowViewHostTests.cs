@@ -1370,8 +1370,7 @@ public sealed class MainWindowViewHostTests
 
                 // 後続要求に先立つ受理済みL保守は上の準備で実work終端まで回収済みです。
                 Assert.IsFalse(composition.OperationAdmission.IsActive, "受理済み起動保守の準備終端後にmode保存を要求します。");
-                viewModel.SettingDialog.OperationModeLR2DB = true;
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.SettingDialog.CommitEnvironmentAsync(), "environment confirmation");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.SettingDialog.SelectOperationModeAsync(true), "operation mode automatic confirmation");
                 if (operationModeSaveFailure)
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(

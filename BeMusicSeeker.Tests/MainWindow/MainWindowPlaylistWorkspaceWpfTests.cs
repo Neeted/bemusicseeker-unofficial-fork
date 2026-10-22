@@ -2955,7 +2955,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         Assert.AreEqual(WindowState.Normal, state);
     }
 
-    /// <summary>compiled表削除は元表を一度配送し、拒否時に一覧を保ち、受理時に先に兄弟または空rootへ選択を移して非同期完了を待ちます。</summary>
+    /// <summary>compiled表削除は元表を一度配送し、拒否時に一覧を保ち、受理時に先に兄弟または空rootへ選択を移します。委譲先だけでなくfinallyの空root再要求を含む実イベント終端まで回収します。</summary>
     [TestMethod]
     public void PlaylistTableRemoval_RoutesThroughWorkflowOwner()
     {
@@ -3165,12 +3165,16 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (_, window) =>
             {
+                Task handlerCompletion = Task.CompletedTask;
                 try
                 {
                     (TreeViewItem playlistRoot, MenuItem removeTable) =
                         PreparePlaylistTableRemovalContext(window, firstTable, secondTable);
 
-                    RoutedEventArgs args = RaiseMenuClick(removeTable);
+                    RoutedEventArgs? args = null;
+                    handlerCompletion = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(
+                        () => args = RaiseMenuClick(removeTable));
+                    Assert.IsNotNull(args);
                     Assert.IsTrue(args.Handled);
                     Assert.AreEqual(1, callCount);
                     Assert.AreSame(firstTable, capturedTable);
@@ -3179,14 +3183,16 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
                     QueueCompletion(completion);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                        completion.Task,
+                        handlerCompletion,
                         "playlist table removal rejection");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.IsTrue(playlistRoot.IsSelected);
                     Assert.AreEqual(2, playlistRoot.Items.Count);
                 }
                 finally
                 {
                     completion.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(handlerCompletion, "playlist-table-removal-rejection-event-cleanup");
                 }
             },
             playlistWorkspaceTerminals: CreateTerminals(tableRemoval: removal));
@@ -3223,12 +3229,16 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     }
                 };
                 viewModel.PlaylistWorkspace.TreeSelectionActivated += selectionActivated;
+                Task handlerCompletion = Task.CompletedTask;
                 try
                 {
                     (TreeViewItem playlistRoot, MenuItem removeTable) =
                         PreparePlaylistTableRemovalContext(window, firstTable, secondTable);
 
-                    RoutedEventArgs args = RaiseMenuClick(removeTable);
+                    RoutedEventArgs? args = null;
+                    handlerCompletion = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(
+                        () => args = RaiseMenuClick(removeTable));
+                    Assert.IsNotNull(args);
                     Assert.IsTrue(args.Handled);
                     Assert.AreEqual(1, capturedTables.Count);
                     Assert.AreSame(firstTable, capturedTables[0]);
@@ -3238,8 +3248,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
                     QueueCompletion(completion);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                        Task.WhenAll(completion.Task, selectionCompletion.Task),
+                        Task.WhenAll(handlerCompletion, selectionCompletion.Task),
                         "playlist table removal sibling fallback");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
 
                     var sibling = playlistRoot.ItemContainerGenerator.ContainerFromItem(secondTable) as TreeViewItem;
                     Assert.IsNotNull(sibling);
@@ -3248,8 +3259,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 }
                 finally
                 {
-                    viewModel.PlaylistWorkspace.TreeSelectionActivated -= selectionActivated;
                     completion.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(handlerCompletion, "playlist-table-removal-sibling-event-cleanup");
+                    viewModel.PlaylistWorkspace.TreeSelectionActivated -= selectionActivated;
                 }
             },
             playlistWorkspaceTerminals: CreateTerminals(tableRemoval: removal));
@@ -3287,6 +3299,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     }
                 };
                 viewModel.PlaylistWorkspace.TreeSelectionActivated += selectionActivated;
+                Task handlerCompletion = Task.CompletedTask;
                 try
                 {
                     (TreeViewItem playlistRoot, MenuItem removeTable) =
@@ -3295,7 +3308,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     playlistRoot.IsSelected = true;
                     TestUiDispatcherHost.ProcessQueuedPresentation();
 
-                    RoutedEventArgs args = RaiseMenuClick(removeTable);
+                    RoutedEventArgs? args = null;
+                    handlerCompletion = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(
+                        () => args = RaiseMenuClick(removeTable));
+                    Assert.IsNotNull(args);
                     Assert.IsTrue(args.Handled);
                     Assert.AreEqual(1, capturedTables.Count);
                     Assert.AreSame(firstTable, capturedTables[0]);
@@ -3305,8 +3321,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
                     QueueCompletion(completion);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                        Task.WhenAll(completion.Task, selectionCompletion.Task),
+                        Task.WhenAll(handlerCompletion, selectionCompletion.Task),
                         "playlist table removal empty-root detail selection");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
 
                     Assert.IsNotNull(emptyRootSelection);
                     Assert.IsFalse(emptyRootSelection!.IsSummary);
@@ -3316,13 +3333,14 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     Assert.AreEqual(0, playlistRoot.Items.Count);
                     PlaylistDetailSelection emptyDetailSelection =
                         viewModel.PlaylistWorkspace.CapturePlaylistDetailSelection();
-                    Assert.IsNotNull(emptyDetailSelection);
+                    Assert.IsNotNull(emptyDetailSelection, "実削除イベントの終端後も空rootの詳細選択を保持します。");
                     Assert.IsNull(emptyDetailSelection.Table);
                 }
                 finally
                 {
-                    viewModel.PlaylistWorkspace.TreeSelectionActivated -= selectionActivated;
                     completion.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(handlerCompletion, "playlist-table-removal-empty-root-event-cleanup");
+                    viewModel.PlaylistWorkspace.TreeSelectionActivated -= selectionActivated;
                 }
             },
             playlistWorkspaceTerminals: CreateTerminals(tableRemoval: removal));

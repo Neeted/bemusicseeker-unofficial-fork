@@ -28,7 +28,7 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class DialogPresentationTests
 {
-    /// <summary>各dialogを実表示し、意味付きbutton役割を適用しつつ外部sentinelとApplicationへ共通styleを漏らしません。</summary>
+    /// <summary>各dialogを実表示し、意味付きbutton役割を適用しつつ外部sentinelとApplicationへ共通styleを漏らしません。設定はBMS/BMTと選択recordの確定をPrimary、取消をQuietとして確認します。</summary>
     [DataTestMethod]
     [DataRow("SettingsWindow")]
     [DataRow("ReleaseNotesWindow")]
@@ -60,6 +60,25 @@ public sealed class DialogPresentationTests
                 }
                 AssertSentinelStyle(sentinelHost.SentinelButton, sentinelHost.SentinelStyle);
                 AssertCanonicalPresentation(fixture);
+                if (fixture.HostWindow is SettingsWindow settings)
+                {
+                    ((ListBox)settings.FindName("settingsNavigation")).SelectedItem = settings.FindName("navigationRightClick");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    settings.UpdateLayout();
+                    foreach (ButtonExpectation expectation in new[]
+                    {
+                        ButtonWithAutomationId("SettingsConfirmweb", DialogButtonRole.Primary, "settings confirm Web record"),
+                        ButtonWithAutomationId("SettingsCancelweb", DialogButtonRole.Quiet, "settings discard Web record candidate"),
+                        ButtonWithAutomationId("SettingsConfirmprogram", DialogButtonRole.Primary, "settings confirm program record"),
+                        ButtonWithAutomationId("SettingsCancelprogram", DialogButtonRole.Quiet, "settings discard program record candidate"),
+                    })
+                    {
+                        Button button = FindVisualDescendants<Button>(settings).Single(candidate =>
+                            AutomationProperties.GetAutomationId(candidate) == expectation.AutomationId);
+                        AssertCanonicalButtonRole(fixture, button, expectation);
+                    }
+                    AssertSentinelStyle(sentinelHost.SentinelButton, sentinelHost.SentinelStyle);
+                }
                 AssertApplicationResourcesDoNotImplicitlyAdoptCanonicalStyle(fixture, windowTest);
             }
             finally
@@ -592,13 +611,13 @@ public sealed class DialogPresentationTests
                 ButtonWithAutomationId("SettingsCancelenvironment", DialogButtonRole.Quiet, "settings discard environment candidate"),
                 ButtonWithAutomationId("SettingsAddBmsSearchRoot", DialogButtonRole.Neutral, "settings add BMS root"),
                 ButtonWithAutomationId("SettingsRemoveBmsSearchRoot", DialogButtonRole.Quiet, "settings remove BMS root"),
-                ButtonWithAutomationId("SettingsConfirmbms", DialogButtonRole.Neutral, "settings confirm BMS roots"),
+                ButtonWithAutomationId("SettingsConfirmbms", DialogButtonRole.Primary, "settings confirm BMS roots"),
                 ButtonWithAutomationId("SettingsCancelbms", DialogButtonRole.Quiet, "settings discard BMS root candidates"),
                 ButtonWithAutomationId("SettingsResyncLr2SongDb", DialogButtonRole.Neutral, "settings resync song database"),
                 ButtonWithAutomationId("SettingsInstallOrRepairLr2PlayHistorySchema", DialogButtonRole.Neutral, "settings install or repair schema"),
                 ButtonWithAutomationId("SettingsImportBeatorajaTableUrls", DialogButtonRole.Quiet, "settings import table URLs"),
                 ButtonWithAutomationId("SettingsRetryScore", DialogButtonRole.Quiet, "settings retry score source"),
-                ButtonWithAutomationId("SettingsConfirmbmt", DialogButtonRole.Neutral, "settings confirm BMT output"),
+                ButtonWithAutomationId("SettingsConfirmbmt", DialogButtonRole.Primary, "settings confirm BMT output"),
                 ButtonWithAutomationId("SettingsCancelbmt", DialogButtonRole.Quiet, "settings discard BMT candidates"),
             ],
             allowsSettingsControlAliases: true,

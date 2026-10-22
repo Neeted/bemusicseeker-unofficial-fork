@@ -315,7 +315,6 @@ public sealed class SettingsControlPresentationTests
                 };
                 var expander = new Expander { Header = "Details", Content = new TextBlock { Text = "Content" } };
                 var slider = new Slider { Minimum = 0, Maximum = 10, TickFrequency = 1, TickPlacement = TickPlacement.TopLeft, Width = 180 };
-                var primaryButton = new Button { Content = "Save", Style = (Style)host.Resources["SettingsPrimaryButtonStyle"] };
                 var panel = new StackPanel();
                 panel.Children.Add(pageScroller);
                 panel.Children.Add(textBox);
@@ -323,7 +322,6 @@ public sealed class SettingsControlPresentationTests
                 panel.Children.Add(listBox);
                 panel.Children.Add(expander);
                 panel.Children.Add(slider);
-                panel.Children.Add(primaryButton);
                 host.Children.Add(panel);
 
                 window = new Window
@@ -496,10 +494,6 @@ public sealed class SettingsControlPresentationTests
                     Color stateColor = ((SolidColorBrush)host.TryFindResource(accentState)).Color;
                     Assert.IsTrue(ContrastRatio(focusColor, stateColor) >= 3d, accentState);
                 }
-
-                primaryButton.IsEnabled = false;
-                AssertBrushColor(host, "App.AccentBrush", primaryButton.Background);
-                AssertBrushColor(host, "App.AccentForegroundBrush", primaryButton.Foreground);
 
                 // navigation は別 Window で実測します。同じ縦長 host へ足すと Expander の有限高さ条件まで変わるためです。
                 Grid topNavigationHost = CreateSettingsControlHost();

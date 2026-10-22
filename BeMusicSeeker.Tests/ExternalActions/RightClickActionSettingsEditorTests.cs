@@ -13,6 +13,72 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class RightClickActionSettingsEditorTests
 {
+    /// <summary>選択行だけの差分・検証で確定と取消を判断し、別行の編集を混ぜず無効入力と新規行も取消できます。</summary>
+    [DataTestMethod]
+    [DataRow(true)] // Webの必須URL欄。
+    [DataRow(false)] // Programの必須実行path欄。
+    public void SelectedRecordAvailability_IgnoresOtherEditsAndAllowsInvalidAndNewCancellation(bool web)
+    {
+        const string json = """
+        {"webActions":[{"id":"web1","name":"One","urlTemplate":"https://example.test/{md5}","enabled":true,"chartKind":"All"},{"id":"web2","name":"Two","urlTemplate":"https://example.test/{sha256}","enabled":true,"chartKind":"All"}],"programActions":[{"id":"program1","name":"One","executablePath":"C:\\Tools\\one.exe","argumentTemplate":"{filePath}","enabled":true},{"id":"program2","name":"Two","executablePath":"C:\\Tools\\two.exe","argumentTemplate":"{filePath}","enabled":true}]}
+        """;
+        var editor = new RightClickActionSettingsEditor(json);
+        bool CanConfirm() => web ? editor.CanConfirmWebRecord : editor.CanConfirmProgramRecord;
+        bool CanCancel() => web ? editor.CanCancelWebRecord : editor.CanCancelProgramRecord;
+        if (web) { editor.SelectedWebAction = null; } else { editor.SelectedProgramAction = null; }
+        Assert.IsFalse(CanConfirm()); Assert.IsFalse(CanCancel());
+        if (web) { editor.SelectedWebAction = editor.WebActions[0]; editor.WebActions[1].Name = "Other draft"; }
+        else { editor.SelectedProgramAction = editor.ProgramActions[0]; editor.ProgramActions[1].Name = "Other draft"; }
+        Assert.IsFalse(CanConfirm()); Assert.IsFalse(CanCancel());
+        if (web) { editor.WebActions[0].Name = "Edited"; } else { editor.ProgramActions[0].Name = "Edited"; }
+        Assert.IsTrue(CanConfirm()); Assert.IsTrue(CanCancel());
+        if (web) { editor.WebActions[0].UrlTemplate = "https://example.test/{unknown}"; } else { editor.ProgramActions[0].ExecutablePath = "relative.exe"; }
+        Assert.IsFalse(CanConfirm()); Assert.IsTrue(CanCancel());
+        editor.DiscardSelectedRecord(json, web);
+        Assert.IsFalse(CanConfirm()); Assert.IsFalse(CanCancel());
+        if (web) { editor.SelectedWebAction = editor.WebActions[1]; } else { editor.SelectedProgramAction = editor.ProgramActions[1]; }
+        Assert.IsTrue(CanConfirm()); Assert.IsTrue(CanCancel());
+        int count = web ? editor.WebActions.Count : editor.ProgramActions.Count;
+        if (web) { editor.AddWebAction(); } else { editor.AddProgramAction(); }
+        Assert.IsFalse(CanConfirm()); Assert.IsTrue(CanCancel());
+        editor.DiscardSelectedRecord(json, web);
+        Assert.AreEqual(count, web ? editor.WebActions.Count : editor.ProgramActions.Count);
+    }
+
+    /// <summary>不正な保存rawから追加した選択行も取消で除去し、別種の新規行と保存エラーを保ちます。全取消後も不正な保存snapshotへ戻り、既定値へ修復しません。</summary>
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void InvalidPersistedSnapshot_AllowsNewRecordCancellationWithoutRepairingSavedSnapshot(bool web)
+    {
+        const string invalidJson = "{broken JSON";
+        var editor = new RightClickActionSettingsEditor(invalidJson);
+        string persistedError = editor.PersistedSettingsError;
+        editor.AddWebAction();
+        editor.AddProgramAction();
+        RightClickWebActionEditorRow webRow = editor.SelectedWebAction;
+        RightClickProgramActionEditorRow programRow = editor.SelectedProgramAction;
+        Assert.IsTrue(web ? editor.CanCancelWebRecord : editor.CanCancelProgramRecord);
+        Assert.IsFalse(web ? editor.CanConfirmWebRecord : editor.CanConfirmProgramRecord);
+
+        editor.DiscardSelectedRecord(invalidJson, web);
+
+        Assert.AreEqual(web ? 0 : 1, editor.WebActions.Count);
+        Assert.AreEqual(web ? 1 : 0, editor.ProgramActions.Count);
+        if (web) { Assert.IsNull(editor.SelectedWebAction); Assert.AreSame(programRow, editor.ProgramActions.Single()); }
+        else { Assert.IsNull(editor.SelectedProgramAction); Assert.AreSame(webRow, editor.WebActions.Single()); }
+        Assert.IsFalse(web ? editor.CanCancelWebRecord : editor.CanCancelProgramRecord);
+        Assert.IsTrue(editor.IsInvalidPersistedSettings);
+        Assert.AreEqual(persistedError, editor.PersistedSettingsError);
+        Assert.IsFalse(editor.TryPrepareSave(out _, out _));
+        editor.DiscardChanges();
+        Assert.AreEqual(0, editor.WebActions.Count);
+        Assert.AreEqual(0, editor.ProgramActions.Count);
+        Assert.IsTrue(editor.IsInvalidPersistedSettings);
+        Assert.AreEqual(persistedError, editor.PersistedSettingsError);
+        Assert.IsFalse(editor.IsDirty);
+    }
+
     /// <summary>未指定・空・空白の保存入力を不正として保持し、既定定義や未保存変更を自動生成しません。</summary>
     [TestMethod]
     public void MissingAndBlankValuesRemainInvalidWithoutCreatingPendingChanges()

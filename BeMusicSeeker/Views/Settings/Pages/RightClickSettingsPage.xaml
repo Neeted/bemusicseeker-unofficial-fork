@@ -113,7 +113,7 @@
           </Grid>
         </Grid>
       </settings:SettingsListEditor>
-    <StackPanel Orientation="Horizontal"><Button Tag="confirm:web" AutomationProperties.AutomationId="SettingsConfirmweb" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_confirm_record}" /><Button Tag="cancel:web" Style="{StaticResource SettingsQuietButtonStyle}" AutomationProperties.AutomationId="SettingsCancelweb" Margin="8,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_cancel_changes}" /></StackPanel></StackPanel></settings:SettingsSection>
+    <StackPanel Orientation="Horizontal"><Button Tag="confirm:web" Style="{StaticResource SettingsPrimaryButtonStyle}" IsEnabled="{Binding RightClickActionSettingsEditor.CanConfirmWebRecord}" AutomationProperties.AutomationId="SettingsConfirmweb" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_confirm_record}" /><Button Tag="cancel:web" IsEnabled="{Binding RightClickActionSettingsEditor.CanCancelWebRecord}" Style="{StaticResource SettingsQuietButtonStyle}" AutomationProperties.AutomationId="SettingsCancelweb" Margin="8,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_cancel_changes}" /></StackPanel></StackPanel></settings:SettingsSection>
 
     <settings:SettingsSection Margin="0,28,0,0"
                               Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_program_actions, Mode=OneWay}"
@@ -213,6 +213,6 @@
           </Grid>
         </Grid>
       </settings:SettingsListEditor>
-    <StackPanel Orientation="Horizontal"><Button Tag="confirm:program" AutomationProperties.AutomationId="SettingsConfirmprogram" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_confirm_record}" /><Button Tag="cancel:program" Style="{StaticResource SettingsQuietButtonStyle}" AutomationProperties.AutomationId="SettingsCancelprogram" Margin="8,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_cancel_changes}" /></StackPanel></StackPanel></settings:SettingsSection>
+    <StackPanel Orientation="Horizontal"><Button Tag="confirm:program" Style="{StaticResource SettingsPrimaryButtonStyle}" IsEnabled="{Binding RightClickActionSettingsEditor.CanConfirmProgramRecord}" AutomationProperties.AutomationId="SettingsConfirmprogram" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_confirm_record}" /><Button Tag="cancel:program" IsEnabled="{Binding RightClickActionSettingsEditor.CanCancelProgramRecord}" Style="{StaticResource SettingsQuietButtonStyle}" AutomationProperties.AutomationId="SettingsCancelprogram" Margin="8,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_cancel_changes}" /></StackPanel></StackPanel></settings:SettingsSection>
   </StackPanel>
 </UserControl>

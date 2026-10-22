@@ -19,7 +19,7 @@ public partial class SettingsWindow
     private async void ScoreSelectionChanged(object sender, EventArgs e)
     {
         if (!presentationActivated || sender is not SettingsDialogViewModel settings || !settings.HasScoreSelectionChanges
-            || !settings.IsScoreSelectionValid || viewOperationInProgress || !settings.IsEditCompletionEnabled) { return; }
+            || !settings.IsScoreSelectionValid || viewOperationInProgress || !settings.IsBeatorajaSelectionEnabled) { return; }
         try { await RunViewOperationAsync(settings.CommitScoreSettingsAsync); }
         catch (Exception failure) { await HandleSettingsRouteFailureAsync(failure, "score selection confirmation"); }
     }

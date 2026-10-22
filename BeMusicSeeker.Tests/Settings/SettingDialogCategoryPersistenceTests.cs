@@ -10,16 +10,157 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
 
 public sealed partial class SettingDialogEditCompletionTests
 {
+    /// <summary>実recordボタンは選択行の差分へBindingし、別行だけの変更では無効、無効入力でも取消可となり、実取消は選択行だけを戻します。不正な保存rawから追加した両種の新規行も取消でき、実保存rawは変更しません。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CompiledRecordButtons_TrackSelectedRecordAndCancelInvalidDraftWithoutChangingOtherRows(bool invalidPersisted)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string root = CreateTemporaryRoot();
+            string path = Path.Combine(root, "user.config");
+            Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(path));
+            values.RightClickActionsJson = invalidPersisted ? "{broken JSON" : """
+                {"webActions":[{"id":"one","name":"One","urlTemplate":"https://example.test/{md5}","enabled":true,"chartKind":"All"},{"id":"two","name":"Two","urlTemplate":"https://example.test/{sha256}","enabled":true,"chartKind":"All"}],"programActions":[]}
+                """;
+            values.Save();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(values);
+            SettingsWindow? window = null;
+            try
+            {
+                window = OpenSettingsWindow(scope, owner.SettingDialog);
+                GetCategoryControl(window, "RightClick", "RightClickActionSettingsEditor.SelectedWebAction.Name");
+                RightClickActionSettingsEditor editor = owner.SettingDialog.RightClickActionSettingsEditor;
+                if (invalidPersisted)
+                {
+                    foreach (bool web in new[] { true, false })
+                    {
+                        if (web) { editor.AddWebAction(); } else { editor.AddProgramAction(); }
+                        string section = web ? "web" : "program";
+                        Button recordConfirm = FindDescendants<Button>(window).Single(button => Equals(button.Tag, "confirm:" + section));
+                        Button recordCancel = FindDescendants<Button>(window).Single(button => Equals(button.Tag, "cancel:" + section));
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.IsFalse(recordConfirm.IsEnabled);
+                        Assert.IsTrue(recordCancel.IsEnabled);
+                        recordCancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.AreEqual(0, editor.WebActions.Count);
+                        Assert.AreEqual(0, editor.ProgramActions.Count);
+                        Assert.IsFalse(recordCancel.IsEnabled);
+                        Assert.IsTrue(editor.IsInvalidPersistedSettings);
+                        Assert.AreEqual("{broken JSON", values.RightClickActionsJson);
+                        Assert.AreEqual("{broken JSON", PortableSettingsPersistenceTests.OpenSettings(path).RightClickActionsJson);
+                    }
+                    return;
+                }
+                Button confirm = FindDescendants<Button>(window).Single(button => Equals(button.Tag, "confirm:web"));
+                Button cancel = FindDescendants<Button>(window).Single(button => Equals(button.Tag, "cancel:web"));
+                Assert.IsFalse(confirm.IsEnabled); Assert.IsFalse(cancel.IsEnabled);
+                editor.WebActions[1].Name = "Other draft";
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsFalse(confirm.IsEnabled); Assert.IsFalse(cancel.IsEnabled);
+                editor.WebActions[0].Name = "Edited";
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(confirm.IsEnabled); Assert.IsTrue(cancel.IsEnabled);
+                editor.WebActions[0].UrlTemplate = "https://example.test/{unknown}";
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsFalse(confirm.IsEnabled); Assert.IsTrue(cancel.IsEnabled);
+                cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual("One", editor.WebActions[0].Name);
+                Assert.AreEqual("Other draft", editor.WebActions[1].Name);
+                Assert.IsFalse(confirm.IsEnabled); Assert.IsFalse(cancel.IsEnabled);
+                Assert.AreEqual("Two", RightClickActionSettingsSerializer.Parse(PortableSettingsPersistenceTests.OpenSettings(path).RightClickActionsJson).Settings.WebActions[1].Name);
+            }
+            finally
+            {
+                window?.CloseForOwnerShutdown();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "record-binding-owner-terminal");
+                owner.SettingDialog.Dispose();
+                Directory.Delete(root, recursive: true);
+            }
+        });
+    }
+
+    /// <summary>実音声入力の正常保存では再試行を出さず、実保存失敗だけに保存目的の案内を出し、実retryで保存成功へ進みます。確定値へ戻した場合も解消します。</summary>
+    [TestMethod]
+    public void CompiledAudioSelection_ShowsSaveRetryOnlyAfterFailureAndClearsOnSuccessOrRestoration()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string root = CreateTemporaryRoot();
+            string path = Path.Combine(root, "user.config");
+            Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(path));
+            values.PlayerDriver = BassAudioMapping.ToBassDriver(AudioDriver.WasapiShared);
+            values.PlayerDevice = string.Empty;
+            values.PlayerDeviceName = string.Empty;
+            values.PlayerWASAPIParam = false;
+            values.Save();
+            var failures = new List<Exception>();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(values);
+            owner.SettingDialog.Dispose();
+            var workflow = new AudioDeviceTestWorkflowOwner(new NoOpAudioDeviceTestPlaybackPort(), new SuccessfulAudioDeviceTestRuntime(),
+                new DelegateAudioDeviceCapabilityRuntime(request => new AudioDeviceCapabilityResult(request.Backend, request.DeviceIdentity, request.DeviceName, AudioDeviceCapabilityStatus.Unsupported, [])));
+            ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
+            using var dialog = new SettingsDialogViewModel(owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
+                composition, owner.PlaybackPanel, owner.Lr2SongDbSyncWorkflow, new SettingsEditSession(values), reportApplyFailure: failures.Add,
+                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                externalShellGateway: ExternalShellGatewayPolicy.Current, applicationPathSnapshot: ApplicationPathPolicy.Current,
+                audioDeviceCatalog: new TestAudioDeviceCatalog(), audioSettingsGateway: new SettingsAudioGateway(() => values), audioDeviceTestWorkflow: workflow);
+            SettingsWindow? window = null;
+            try
+            {
+                window = OpenSettingsWindow(scope, dialog);
+                var toggle = (CheckBox)GetCategoryControl(window, "Audio", nameof(SettingsDialogViewModel.PlayerWASAPIParam)).Control;
+                Button retry = FindDescendants<Button>(window).Single(button => Equals(button.Tag, "retry:audio"));
+                Assert.AreEqual(Visibility.Collapsed, retry.Visibility);
+                toggle.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
+                Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(path).PlayerWASAPIParam);
+                Assert.IsFalse(dialog.CanRetryAudioSettings);
+                using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                { toggle.SetCurrentValue(ToggleButton.IsCheckedProperty, false); }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(1, failures.Count);
+                Assert.AreEqual(Visibility.Visible, retry.Visibility);
+                Assert.AreEqual(Resources.Settings_retry_audio_save, retry.Content);
+                Assert.IsTrue(FindDescendants<TextBlock>(window).Any(text => text.Text == Resources.Settings_audio_save_retry_description && text.Visibility == Visibility.Visible));
+                retry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(path).PlayerWASAPIParam);
+                Assert.AreEqual(Visibility.Collapsed, retry.Visibility);
+                using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    toggle.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
+                    Assert.IsTrue(dialog.CanRetryAudioSettings);
+                    toggle.SetCurrentValue(ToggleButton.IsCheckedProperty, false);
+                    Assert.IsFalse(dialog.CanRetryAudioSettings);
+                }
+                Assert.AreEqual(2, failures.Count);
+                Assert.IsFalse(dialog.IsAudioDeviceTestInProgress);
+            }
+            finally
+            {
+                window?.CloseForOwnerShutdown();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "audio-save-retry-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "audio-save-retry-owner-terminal");
+                Directory.Delete(root, recursive: true);
+            }
+        });
+    }
+
     /// <summary>通常・ROOT・追加先の実compiled選択入口から保存し、picker取消と移行確認取消では実二媒体を変更しません。移行本体と未了だけの修復はOutputConfirmationが分担します。</summary>
     [DataTestMethod]
     [DataRow("normal", "accept")]

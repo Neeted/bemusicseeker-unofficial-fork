@@ -145,7 +145,7 @@ On first launch, an initial setup dialog with language selection is shown.
 
 ![Initial setup](img/初回設定.PNG)
 
-Choose a language, configure the required settings, and confirm the environment and BMS directories. Press `Start with this environment` to begin the first scan.
+Choose a language, configure the required settings, and confirm the BMS directories. Press `Start with this environment` to begin the first scan.
 
 ### Operating Mode
 
@@ -161,7 +161,7 @@ Standalone mode does not use LR2 scores, custom folders, or IR integration. beat
 > [!CAUTION]
 > Before saving your first LR2 linked setup, back up LR2's `song.db`, the selected LR2 configuration file (`config.xml` or `config.xmh`), and each player's `score.db`. BeMusicSeeker updates the LR2 library and configuration.
 
-In LR2 linked mode, `song.db` is updated when charts are installed or organized. bmson is managed within BeMusicSeeker. See [General](#general) for setup and [Custom Folder Output](#custom-folder-output) for destinations. Restart the application after changing the operating mode.
+In LR2 linked mode, `song.db` is updated when charts are installed or organized. bmson is managed within BeMusicSeeker. See [General](#general) for setup and [Custom Folder Output](#custom-folder-output) for destinations. Changing the operating mode or LR2 directory while the library is running opens a restart confirmation. Canceling restores the saved settings.
 
 ### First Scan
 
@@ -174,9 +174,9 @@ Once the first build is complete, later launches mainly use differential updates
 
 Ordinary settings save when you select or check a value. Text fields save on Enter or when you leave the field, and sliders save when you finish the adjustment.
 
-Valid combinations of score source, audio output, player selection, and external image settings save automatically. Output locations save after folder selection and migration confirmation; additional locations save when added, removed, or renamed. Use each section’s confirmation button for BMS directories, BMT output, the environment, and record editing. Switching categories keeps your input. `Discard these changes` resets that section’s unconfirmed input. `Close` discards remaining unconfirmed input and keeps saved settings.
+Valid combinations of beatoraja directory and score source, audio output, player selection, and external image settings save automatically. Output locations save after folder selection and migration confirmation; additional locations save when added, removed, or renamed. Use each section’s confirmation button for BMS directories, BMT output, individual LR2 paths, and record editing. Switching categories keeps your input. `Discard these changes` resets that section’s unconfirmed input. `Close` discards remaining unconfirmed input and keeps saved settings.
 
-Score confirmation reloads scores only. Environment confirmation restarts the application after applying the required changes. The same window waits for processing to finish. Right-click actions and play-log presets are confirmed one record at a time and apply from the next display or execution.
+Changing the score source reloads scores only. Changing the beatoraja directory updates the required scores and table output. The same window waits for processing to finish. Change and confirmation buttons are highlighted when there is an applicable change and disabled in gray when unnecessary. Right-click actions and play-log presets are confirmed one record at a time and apply from the next display or execution.
 
 If BMS, score, or BMT processing fails, its section shows that the settings are saved but processing is incomplete. Use the retry or confirmation button in that section. Saving another setting does not start a retry. During processing, you can still save unrelated ordinary settings and change audio output, images, and player selection or confirm right-click records. Audio tests and environment startup or restart retain their operation restrictions.
 
@@ -193,6 +193,8 @@ In either mode, edit the search-root list with `Add`, drag and drop, and removal
 #### Linked with LR2
 
 Normally, specifying the `LR2 directory` automatically sets the standard locations for `song.db` and `config.xml` / `config.xmh`. Use each file's `Browse` button only when the standard location cannot be used. The status display identifies standard and individually configured paths.
+
+To select files individually, open `Details` in the environment section. Select both paths, then use `Apply environment (restart when running)` in that Details section to apply them with one restart. During initial setup, this only saves the settings. Complete the required settings and press `Start with this environment` to begin initialization.
 
 Add or remove BMS directories through BeMusicSeeker's `General` category. LR2 database auto-update is set to manual-only when saving the initial setup and on startup.
 
@@ -214,7 +216,7 @@ Check the `LR2 Play Log` status and use the button beside it to install or repai
 
 Specify the beatoraja directory. BeMusicSeeker reads table and player locations from `config_sys.json` in that directory and reads scores from the selected player folder's `score.db`.
 
-Choose the directory under beatoraja integration, then expand Details to check the resolved player, score database, and table output location before confirming the environment. Expand the LR2 Details section to select song.db or the configuration XML separately. Environment confirmation and discard are disabled when unchanged; confirmation is highlighted only for a valid change that can currently be applied. If score reading is enabled, an invalid score database in the new environment is reported before saving. Unconfirmed input in the score section stays there until you select a valid combination.
+Choose the directory under beatoraja integration at the bottom of the General page. A valid combination saves automatically and applies without restarting the application. Expand Details to check the player, score database, and table output location. If score reading is enabled, select a player with a valid score database in the new directory.
 
 See [Managing beatoraja Difficulty Tables](#managing-beatoraja-difficulty-tables) for table import and export. For updating beatoraja's song database, you can use the separate [songdata-updater](https://github.com/Neeted/songdata-updater) tool.
 
@@ -1276,6 +1278,8 @@ Judge count, play count, and playtime come from daily totals in `score.db` for t
 ### When a settings operation cannot finish
 
 If BMS directories or output locations report an incomplete save, return to that section and apply it again. You can revise the paths there if a folder has moved or disappeared. Unrelated normal settings can still be saved. Closing and reopening Settings keeps the information needed to finish that operation; it does not undo completed changes.
+
+If audio settings cannot be saved, the Audio page shows `Retry saving audio settings`. Resolve the problem with the settings destination, then press it. Current playback continues, and successfully saved settings apply to the next playback. If processing is incomplete after a beatoraja change, retry from that same section.
 
 ## Backup / Uninstall
 

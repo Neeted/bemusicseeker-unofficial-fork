@@ -444,6 +444,7 @@ public sealed partial class RightClickActionSettingsEditor : ViewModel
         {
             SetValidationMessage(string.Empty);
         }
+        RaiseSelectionStateChanged();
     }
 
     private void SetValidationMessage(string value)
@@ -469,6 +470,10 @@ public sealed partial class RightClickActionSettingsEditor : ViewModel
 
     private void RaiseSelectionStateChanged()
     {
+        RaisePropertyChanged(nameof(CanConfirmWebRecord));
+        RaisePropertyChanged(nameof(CanConfirmProgramRecord));
+        RaisePropertyChanged(nameof(CanCancelWebRecord));
+        RaisePropertyChanged(nameof(CanCancelProgramRecord));
         RaisePropertyChanged(nameof(CanDeleteWebAction));
         RaisePropertyChanged(nameof(CanMoveWebActionUp));
         RaisePropertyChanged(nameof(CanMoveWebActionDown));

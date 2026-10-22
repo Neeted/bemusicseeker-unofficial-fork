@@ -395,6 +395,7 @@ public sealed partial class SettingDialogEditCompletionTests
             {
                 Settings settings = CreateValidStandaloneSettings(root);
                 settings.OperationModeLR2DB = initialOperationMode;
+                (settings.LR2SongDBPath, settings.LR2ConfigXmlPath) = CreateValidLr2Layout(Path.Combine(root, "lr2"));
                 var settingsSession = new CountingSettingsEditSession(settings);
                 var dialogs = new RecordingRootDialogService
                 {
@@ -427,11 +428,11 @@ public sealed partial class SettingDialogEditCompletionTests
                 requestedMode.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, requestedMode));
                 finalWindow.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
 
-                Assert.AreEqual(0, dialogs.ConfirmationCount);
-                Assert.AreEqual(0, settingsSession.SaveCount);
+                Assert.AreEqual(1, dialogs.ConfirmationCount);
+                Assert.AreEqual(1, settingsSession.SaveCount);
                 Assert.AreEqual(0, lifetime.RestartCount);
                 Assert.AreEqual(!initialOperationMode, dialog.OperationModeLR2DB);
-                Assert.AreEqual(initialOperationMode, settings.OperationModeLR2DB);
+                Assert.AreEqual(!initialOperationMode, settings.OperationModeLR2DB);
                 AssertOperationModePresentation(finalWindow, !initialOperationMode);
             }
             finally
@@ -459,6 +460,7 @@ public sealed partial class SettingDialogEditCompletionTests
             {
                 Settings settings = CreateValidStandaloneSettings(root);
                 settings.OperationModeLR2DB = initialOperationMode;
+                (settings.LR2SongDBPath, settings.LR2ConfigXmlPath) = CreateValidLr2Layout(Path.Combine(root, "lr2"));
                 var settingsSession = new CountingSettingsEditSession(settings);
                 var dialogs = new RecordingRootDialogService
                 {
@@ -472,8 +474,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 requestedMode.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, requestedMode));
                 window.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
 
-                Assert.AreEqual(0, dialogs.ConfirmationCount);
-                dialog.CancelEnvironment();
+                Assert.AreEqual(1, dialogs.ConfirmationCount);
                 Assert.AreEqual(0, settingsSession.SaveCount);
                 Assert.AreEqual(0, lifetime.RestartCount);
                 Assert.AreEqual(initialOperationMode, dialog.OperationModeLR2DB);
@@ -607,6 +608,10 @@ public sealed partial class SettingDialogEditCompletionTests
             {
                 Assert.IsTrue(outputWarnings + failures.Count > 0, "実出力の途中失敗を通知先へ渡します。");
                 Assert.IsTrue(dialog.IsBmtProcessingRetryRequired, "実投影失敗はBMT欄の再試行案内にも残します。");
+                Assert.IsFalse(dialog.IsBeatorajaSelectionEnabled);
+                Assert.IsTrue(dialog.CanConfirmBmtSettings, "同じrootのBMT修正・再試行は受け付けます。");
+                dialog.BeatorajaRootPath = Path.Combine(root, "other-beatoraja");
+                Assert.AreEqual(beatoraja, dialog.BeatorajaRootPath, "未了の出力先をroot変更で取りこぼしません。");
                 using var oldStream = new System.IO.Compression.GZipStream(File.OpenRead(secondFile), System.IO.Compression.CompressionMode.Decompress);
                 using var oldReader = new StreamReader(oldStream);
                 Assert.IsNotNull(Newtonsoft.Json.Linq.JObject.Parse(oldReader.ReadToEnd()).SelectToken("folder[0].songs[0].md5"));
@@ -619,6 +624,7 @@ public sealed partial class SettingDialogEditCompletionTests
             using (var blockedSettings = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             { await owner.SettingDialog.CommitBmtSettingsAsync(); }
             Assert.IsFalse(dialog.IsBmtProcessingRetryRequired, "全表の明示再更新が成功した時だけ案内を解消します。");
+            Assert.IsTrue(dialog.IsBeatorajaSelectionEnabled);
             Assert.AreEqual(failuresBeforeRepair, failures.Count, string.Join(Environment.NewLine, failures));
             values.Reload();
             Assert.AreEqual("PreferSha256Only", values.BeatorajaBmtHashOutputMode);
@@ -2708,8 +2714,10 @@ public sealed partial class SettingDialogEditCompletionTests
 
     /// <summary>スコア組の確定から同じL/Pを実ScoreOnlyモデルへ渡し、実親解放後の純通知と必須UIの実終端まで同じWindowの受理Taskを追跡します。</summary>
     /// <remarks>実compiled選択からWindowの受理Taskへ接続し、実設定・モデル・UI完了を確認します。純通知を保持点にせず既存UI gateで実Taskを待ちます。</remarks>
-    [TestMethod]
-    public void ScoreConfirmation_PublishesChangedRealScoreBeforeClosing()
+    [DataTestMethod]
+    [DataRow(false)] // 同じroot内のplayer選択。
+    [DataRow(true)] // root pickerの局所組変更。
+    public void ScoreConfirmation_PublishesChangedRealScoreBeforeClosing(bool changeRoot)
     {
         string root = CreateTemporaryRoot();
         string music = Path.Combine(root, "music");
@@ -2719,9 +2727,13 @@ public sealed partial class SettingDialogEditCompletionTests
         File.WriteAllText(Path.Combine(beatoraja, "beatoraja.jar"), string.Empty);
         File.WriteAllText(Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName), "{}");
         string hash = new('a', 64);
-        foreach ((string player, int score) in new[] { ("playerA", 10), ("playerB", 40) })
+        string nextBeatoraja = Path.Combine(root, "next-beatoraja");
+        Directory.CreateDirectory(nextBeatoraja);
+        File.WriteAllText(Path.Combine(nextBeatoraja, "beatoraja.jar"), string.Empty);
+        File.WriteAllText(Path.Combine(nextBeatoraja, BeatorajaConfigService.ConfigFileName), "{\"playername\":\"playerB\"}");
+        foreach ((string playerRoot, string player, int score) in new[] { (beatoraja, "playerA", 10), (beatoraja, "playerB", 40), (nextBeatoraja, "playerB", 40) })
         {
-            string playerDirectory = Path.Combine(beatoraja, "player", player);
+            string playerDirectory = Path.Combine(playerRoot, "player", player);
             Directory.CreateDirectory(playerDirectory);
             using var db = new SQLite.SQLiteConnection(Path.Combine(playerDirectory, "score.db"));
             db.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
@@ -2804,12 +2816,21 @@ public sealed partial class SettingDialogEditCompletionTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.RegularChartList.DeliverPendingLibraryChangesAsync(library, CancellationToken.None), "score-only-real-initial-delivery");
                     library.PropertyChanged += observer;
                     viewModel.RegularChartList.NormalLibraryRefreshApplied += scoreDelivery;
-                    window = new SettingsWindow { DataContext = viewModel.SettingDialog };
+                    var rootDialogs = new RecordingRootDialogService();
+                    window = new SettingsWindow(rootDialogs) { DataContext = viewModel.SettingDialog, PlaylistWorkspace = viewModel.PlaylistWorkspace };
                     scope.ShowAndWaitForContentRendered(window);
                     ComboBox playerSelection = FindDescendants<ComboBox>(window).Single(combo =>
                         combo.GetBindingExpression(ComboBox.SelectedItemProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.BeatorajaPlayerId));
                     completionUi.Arm();
-                    playerSelection.SetCurrentValue(ComboBox.SelectedItemProperty, "playerB");
+                    int constructionCalls = factory.Calls.Count;
+                    if (changeRoot)
+                    {
+                        rootDialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Accepted, [nextBeatoraja]));
+                        BeMusicSeeker.Views.Settings.SettingsPathPicker picker = FindDescendants<BeMusicSeeker.Views.Settings.SettingsPathPicker>(window)
+                            .Single(item => item.GetBindingExpression(BeMusicSeeker.Views.Settings.SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.BeatorajaRootPath));
+                        FindDescendants<Button>(picker).Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    }
+                    else { playerSelection.SetCurrentValue(ComboBox.SelectedItemProperty, "playerB"); }
                     apply = window.WaitForOperationCompletionAsync();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(completionUi.Entered.Task, apply), "score-only-real-publish-or-failure");
                     if (!completionUi.Entered.Task.IsCompleted) { TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "score-only-real-early-terminal"); Assert.Fail(string.Join(Environment.NewLine, failures)); }
@@ -2838,9 +2859,26 @@ public sealed partial class SettingDialogEditCompletionTests
                     completionUi.Release.TrySetResult();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "score-only-real-terminal");
                     Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                    Assert.AreEqual(constructionCalls, factory.Calls.Count, "root変更もライブラリ/playlistを再構築しません。");
+                    Assert.AreEqual(changeRoot ? nextBeatoraja : beatoraja, values.BeatorajaRootPath);
+                    Assert.AreEqual(Path.Combine(changeRoot ? nextBeatoraja : beatoraja, "player", "playerB", "score.db"), values.BeatorajaScoreDbPath);
                     CollectionAssert.DoesNotContain(presentation.Requests, "close");
                     Assert.IsTrue(!composition.OperationAdmission.IsActive);
                     Assert.IsTrue(!composition.PlaylistOperationAdmission.IsActive);
+                    if (changeRoot)
+                    {
+                        // 取込みbuttonは、未適用root候補ではなく確定rootの空URL一覧を読みます。
+                        var importNotices = new List<string>();
+                        int confirmations = 0;
+                        viewModel.PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += (_, request) => { confirmations++; request.Confirmed = true; };
+                        viewModel.PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += (_, request) => importNotices.Add(request.Message);
+                        viewModel.SettingDialog.BeatorajaRootPath = Path.Combine(root, "unconfirmed-root");
+                        FindDescendants<Button>(window).Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "SettingsImportBeatorajaTableUrls")
+                            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        Assert.AreEqual(1, confirmations);
+                        CollectionAssert.AreEqual(new[] { Resources.Beatoraja_table_url_import_no_urls }, importNotices);
+                        Assert.AreEqual(nextBeatoraja, values.BeatorajaRootPath);
+                    }
                 }
                 finally
                 {
@@ -2860,7 +2898,7 @@ public sealed partial class SettingDialogEditCompletionTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
-    /// <summary>標準設定の受理から実LR2初期化まで同じ生存権限を渡し、自己Busyなしで確定し、背景処理の実終端も回収します。</summary>
+    /// <summary>実開始buttonの連打は一回だけ受理し、必須UI待ちで同WindowとClose抑止を保持します。実UI失敗は同Windowで修復再開始でき、成功だけ閉じます。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -2873,7 +2911,7 @@ public sealed partial class SettingDialogEditCompletionTests
             var session = new CountingSettingsEditSession(values);
             var failures = new List<Exception>();
             var dialogs = new RecordingRootDialogService();
-            TestUiDispatcherHost.Invoke(() =>
+            TestUiDispatcherHost.RunWindowTest(scope =>
             {
                 var completionUi = new MainWindowViewModelStartupProgressTests.CompletionUiScheduler(new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
                 var composition = new ApplicationComposition(
@@ -2886,7 +2924,12 @@ public sealed partial class SettingDialogEditCompletionTests
                     rootFileEnumerator: new FastRootFileEnumerator(),
                     settingsDialogService: dialogs, fileDbMutationDialogService: dialogs);
                 MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
-                viewModel.SettingDialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort());
+                var window = new SettingsWindow { DataContext = viewModel.SettingDialog };
+                viewModel.SettingDialog.AttachPresentationPort(new WindowClosingPresentationPort { CurrentWindow = window });
+                scope.ShowAndWaitForContentRendered(window);
+                var start = (Button)window.FindName("buttonOK");
+                bool closed = false;
+                window.Closed += (_, _) => closed = true;
                 completionUi.IsCompletionBoundary = () => !composition.OperationAdmission.IsActive && !composition.PlaylistOperationAdmission.IsActive
                     && viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked && !viewModel.IsInitializationCompleted;
                 Task? apply = null;
@@ -2894,7 +2937,10 @@ public sealed partial class SettingDialogEditCompletionTests
                 {
                     viewModel.SettingDialog.ShowRecommUpdatedMsg = !viewModel.SettingDialog.ShowRecommUpdatedMsg;
                     completionUi.Arm();
-                    apply = viewModel.SettingDialog.StartConfirmedEnvironmentAsync();
+                    Assert.IsTrue(start.IsEnabled);
+                    start.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    start.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    apply = window.WaitForOperationCompletionAsync();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(completionUi.Entered.Task, apply), "initial-lr2-ui-or-terminal");
                     if (!completionUi.Entered.Task.IsCompleted)
                     {
@@ -2906,6 +2952,11 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
                     Assert.IsFalse(viewModel.IsInitializationCompleted);
                     Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsFalse(start.IsEnabled);
+                    window.Close();
+                    Assert.IsTrue(window.IsVisible);
+                    Assert.IsFalse(closed);
                     var uiFailure = new IOException("controlled initial settings UI failure");
                     if (uiFails) { completionUi.Release.TrySetException(uiFailure); }
                     else { completionUi.Release.TrySetResult(); }
@@ -2919,9 +2970,20 @@ public sealed partial class SettingDialogEditCompletionTests
                         Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
                         Assert.IsFalse(viewModel.IsInitializationCompleted);
                         Assert.IsFalse(viewModel.HasActiveLibraryProfile);
-                        return;
+                        Assert.IsTrue(window.IsVisible);
+                        Assert.AreSame(viewModel.SettingDialog, window.DataContext);
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.IsTrue(start.IsEnabled);
+                        completionUi.Arm();
+                        start.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        apply = window.WaitForOperationCompletionAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(completionUi.Entered.Task, apply, "initial-repaired-required-ui"), "initial-repaired-required-ui");
+                        completionUi.Release.TrySetResult();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "initial-repaired-terminal");
                     }
-                    Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                    Assert.AreEqual(uiFails ? 1 : 0, failures.Count, string.Join(Environment.NewLine, failures));
+                    Assert.IsTrue(closed);
+                    Assert.AreEqual(SettingsWindowCloseReason.InitializationCompleted, window.CloseReason);
                     Assert.IsTrue(viewModel.HasActiveLibraryProfile);
                     Assert.IsTrue(viewModel.IsInitializationCompleted);
                     Assert.AreEqual(0, dialogs.MessageCount, "受理済み初期化を自己Busyとして拒否しません。");
@@ -2939,6 +3001,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     if (apply != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "initial-lr2-apply-cleanup"); }
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(),
                         "initial-lr2-settings-real-cleanup");
+                    if (window.IsVisible) { window.CloseForOwnerShutdown(); }
                     viewModel.SettingDialog.Dispose();
                 }
                 Assert.IsFalse(composition.OperationAdmission.IsActive, "全背景Taskとcleanupの実終端後に受付を解放します。");
@@ -4226,6 +4289,7 @@ public sealed partial class SettingDialogEditCompletionTests
 
     private sealed class RecordingRootDialogService : IUiDialogService
     {
+        internal Queue<UiFilePickerResult> FileResults { get; } = [];
         internal Queue<UiFolderPickerResult> FolderResults { get; } = [];
         internal List<UiFolderPickerRequest> FolderRequests { get; } = [];
 
@@ -4281,7 +4345,7 @@ public sealed partial class SettingDialogEditCompletionTests
             where TWindow : Window => throw new NotSupportedException();
 
         public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            FileResults.Count > 0 ? Task.FromResult(FileResults.Dequeue()) : throw new NotSupportedException();
 
         public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default)
         {

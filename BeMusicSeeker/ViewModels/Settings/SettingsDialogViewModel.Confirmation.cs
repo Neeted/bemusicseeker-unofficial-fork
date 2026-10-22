@@ -6,7 +6,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
-using BeMusicSeeker.Views.Dialogs;
+using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -16,12 +16,10 @@ public partial class SettingsDialogViewModel
     private string environmentLR2SongDBPath;
     private string environmentLR2ConfigXmlPath;
     private string environmentBeatorajaRootPath;
-    private string environmentBeatorajaPlayerId;
-    private string environmentBeatorajaScoreDbPath;
-    private string environmentBeatorajaBmtTablePath;
     private bool scoreUseBeatorajaScoreDb;
     private string scoreBeatorajaPlayerId;
     private string scoreBeatorajaScoreDbPath;
+    private string beatorajaBmtTablePath;
     private bool bmtEnableBeatorajaBmtOutput;
     private bool bmtKeepBeatorajaBmtFilesWhenOutputDisabled;
     private string bmtBeatorajaBmtHashOutputMode;
@@ -89,7 +87,7 @@ public partial class SettingsDialogViewModel
 
     private void RaiseBmsListPropertyChanged(string propertyName)
     {
-        if (!refreshingSectionEditors) { RaisePropertyChanged(propertyName); }
+        if (!refreshingSectionEditors) { RaisePropertyChanged(propertyName); RaiseEnvironmentAvailabilityChanged(); }
     }
 
     private void InitializeSectionEditors()
@@ -122,18 +120,23 @@ public partial class SettingsDialogViewModel
     /// <summary>実入力でスコア候補が変わったことを画面へ渡し、画面が非同期確定のTaskを所有します。</summary>
     internal event EventHandler ScoreSelectionChanged;
 
-    /// <summary>有効なスコア候補に未保存差分があるかを示します。</summary>
+    /// <summary>同じ局所root・player・score候補に未保存差分があるかを示します。</summary>
     public bool HasScoreSelectionChanges => scoreUseBeatorajaScoreDb != ApplicationSettings.UseBeatorajaScoreDb
+        || environmentBeatorajaRootPath != ApplicationSettings.BeatorajaRootPath
         || scoreBeatorajaPlayerId != ApplicationSettings.BeatorajaPlayerId
-        || BeatorajaConfigService.GetScoreDbPath(ApplicationSettings.BeatorajaRootPath, scoreBeatorajaPlayerId) != ApplicationSettings.BeatorajaScoreDbPath;
+        || scoreBeatorajaScoreDbPath != ApplicationSettings.BeatorajaScoreDbPath;
 
-    /// <summary>現在の確定rootに対してスコアの組が成立しているかを示します。</summary>
+    /// <summary>同じ局所root・player候補に対してスコアの組が成立しているかを示します。</summary>
     public bool IsScoreSelectionValid => !scoreUseBeatorajaScoreDb
-        || BeatorajaConfigService.IsBeatorajaRootPathValid(ApplicationSettings.BeatorajaRootPath)
-            && IsBeatorajaScoreDbPathValid(BeatorajaConfigService.GetScoreDbPath(ApplicationSettings.BeatorajaRootPath, scoreBeatorajaPlayerId));
+        || BeatorajaConfigService.IsBeatorajaRootPathValid(environmentBeatorajaRootPath)
+            && IsBeatorajaScoreDbPathValid(scoreBeatorajaScoreDbPath);
 
-    /// <summary>自動保存できなかったスコア候補または未了の再読込みを明示再試行できます。</summary>
-    public bool CanRetryScoreSettings => !IsEditCompletionInProgress && IsScoreSelectionValid && (HasScoreSelectionChanges || scoreReloadPending);
+    /// <summary>局所組の保存、又は保存後のscore・旧新BMT反映を明示再試行できます。</summary>
+    public bool CanRetryScoreSettings => IsEditCompletionEnabled && !statePort.IsLibraryOperationInProgress && !bmtProcessingRetryRequired && IsScoreSelectionValid
+        && (HasScoreSelectionChanges || scoreReloadPending || pendingBeatorajaChange != null);
+
+    /// <summary>保存後の旧新出力修復が必要な間は、同じ局所組を保持して変更を制限します。</summary>
+    public bool IsBeatorajaSelectionEnabled => IsEnvironmentSelectionEnabled && !bmtProcessingRetryRequired;
 
     private void OnScoreSelectionChanged()
     {
@@ -153,7 +156,7 @@ public partial class SettingsDialogViewModel
 
 
     /// <summary>成立した音声候補の保存が未完了であることを示します。</summary>
-    public bool CanRetryAudioSettings => audioDeviceTestWorkflow.CanCommitOutputSettings && audioDeviceTestWorkflow.HasOutputSettingsChanges;
+    public bool CanRetryAudioSettings => audioDeviceTestWorkflow.CanCommitOutputSettings && audioDeviceTestWorkflow.IsOutputSettingsSaveRetryRequired;
 
     /// <summary>成立した画像候補の保存が未完了であることを示します。</summary>
     public bool CanRetryImageSettings => (!imageUseExternalPanelImage || IsStagefilePathValid(imageStagefilePath))
@@ -175,7 +178,7 @@ public partial class SettingsDialogViewModel
     /// <summary>保存済みの環境で一回初期化し、必須出力・UI公開の終端で初回設定を閉じます。</summary>
     internal async Task StartConfirmedEnvironmentAsync()
     {
-        if (statePort.HasActiveLibraryProfile || IsEditCompletionInProgress || IsAudioDeviceTestInProgress) { return; }
+        if (statePort.HasActiveLibraryProfile || !IsEnvironmentSelectionEnabled) { return; }
         if (!operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation)
         {
             await ShowUiMessageAsync(Resources.Warn_LibraryOperationBusy, Resources.Warning, UiDialogIcon.Exclamation, "initial settings admission");
@@ -196,12 +199,12 @@ public partial class SettingsDialogViewModel
     }
 
     /// <summary>局所操作のライブラリ受付・処理・cleanup・受付外通知を同じTaskで追跡します。</summary>
-    private async Task RunLibrarySettingsOperationAsync(Func<LibraryFileMutationCapability, Task<StartupInitializationResult>> operation)
+    private async Task<bool> RunLibrarySettingsOperationAsync(Func<LibraryFileMutationCapability, Task<StartupInitializationResult>> operation)
     {
         if (!TryBeginBothSettingsAdmissions(out IDisposable lease, out LibraryFileMutationLease playlistLease))
         {
             await ShowUiMessageAsync(Resources.Warn_LibraryOperationBusy, Resources.Warning, UiDialogIcon.Exclamation, "settings section admission");
-            return;
+            return false;
         }
         StartupInitializationResult result = null;
         using LibraryFileMutationCapability playlistCapability = playlistLease.CreateMutationCapability();
@@ -212,52 +215,88 @@ public partial class SettingsDialogViewModel
             if (workspacePort.HasPlaylistTables)
             { await workspacePort.RunWithPlaylistOperationNotificationsAsync(CompleteSection, "settings library section terminal"); }
             else { await CompleteSection(); }
+            return true;
         }
-        catch (LibraryDirectoryPreflightException) { }
-        catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } }
+        catch (LibraryDirectoryPreflightException) { return false; }
+        catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } return false; }
     }
 
-    /// <summary>スコア取得元だけを保存し、スコアの必要処理と必須公開だけを実行します。失敗後の同値再実行は再保存しません。</summary>
+    // この設定担当の寿命内でのみ、保存済み変更の旧新BMT入力を固定して修復します。
+    private sealed record BeatorajaLocalChange(BeatorajaBmtOptionsSnapshot Previous, BeatorajaBmtOptionsSnapshot Target, bool RequiresScoreReload);
+    private BeatorajaLocalChange pendingBeatorajaChange;
+
+    /// <summary>root・player・派生先を局所保存し、旧新BMT・スコア読込み・必須表示の実終端を同じTaskで待ちます。</summary>
     internal async Task CommitScoreSettingsAsync()
     {
-        if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress) { return; }
-        string root = ApplicationSettings.BeatorajaRootPath;
-        string path = BeatorajaConfigService.GetScoreDbPath(root, scoreBeatorajaPlayerId);
-        if (scoreUseBeatorajaScoreDb && (!BeatorajaConfigService.IsBeatorajaRootPathValid(root) || !IsBeatorajaScoreDbPathValid(path)))
+        if (!IsEditCompletionEnabled || statePort.IsLibraryOperationInProgress || bmtProcessingRetryRequired) { return; }
+        string root = environmentBeatorajaRootPath;
+        string path = scoreBeatorajaScoreDbPath;
+        if (!IsScoreSelectionValid)
         {
             ShowSettingValidationError(Resources.Error_InvalidBeatorajaScoreDbPath);
             return;
         }
-        if (!HasScoreSelectionChanges && !scoreReloadPending) { return; }
+        if (ApplicationSettings.EnableBeatorajaBmtOutput && !BeatorajaConfigService.IsBeatorajaRootPathValid(root))
+        {
+            ShowSettingValidationError(Resources.Error_InvalidBeatorajaRootPath);
+            return;
+        }
+        if (!HasScoreSelectionChanges && !scoreReloadPending && pendingBeatorajaChange == null) { return; }
         IsEditCompletionInProgress = true;
         try
         {
             async Task<StartupInitializationResult> SaveAndReload(LibraryFileMutationCapability capability)
             {
-                if (HasScoreSelectionChanges)
+                if (pendingBeatorajaChange == null && HasScoreSelectionChanges)
                 {
-                    ApplicationSettings.Commit((nameof(Settings.UseBeatorajaScoreDb), scoreUseBeatorajaScoreDb),
-                    (nameof(Settings.BeatorajaPlayerId), scoreBeatorajaPlayerId), (nameof(Settings.BeatorajaScoreDbPath), path));
+                    var previous = BeatorajaBmtOptionsSnapshot.CreateCurrent(ApplicationSettings);
+                    bool requiresScoreReload = ApplicationSettings.UseBeatorajaScoreDb || scoreUseBeatorajaScoreDb;
+                    ApplicationSettings.Commit((nameof(Settings.BeatorajaRootPath), root),
+                        (nameof(Settings.UseBeatorajaScoreDb), scoreUseBeatorajaScoreDb),
+                        (nameof(Settings.BeatorajaPlayerId), scoreBeatorajaPlayerId), (nameof(Settings.BeatorajaScoreDbPath), path),
+                        (nameof(Settings.BeatorajaBmtTablePath), beatorajaBmtTablePath));
+                    // 保存成功後だけ未了入力を保持します。候補BMTオプションは読みません。
+                    pendingBeatorajaChange = new(previous, BeatorajaBmtOptionsSnapshot.CreateCurrent(ApplicationSettings), requiresScoreReload);
                 }
-                if (string.Equals(environmentBeatorajaRootPath, root, StringComparison.OrdinalIgnoreCase))
+                BeatorajaLocalChange change = pendingBeatorajaChange;
+                if (statePort.HasActiveLibraryProfile && change != null
+                    && !string.Equals(change.Previous.BeatorajaRootPath, change.Target.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase))
                 {
-                    RefreshEnvironmentBeatorajaCandidate();
+                    if (change.Previous.EnableBeatorajaBmtOutput && change.Previous.RegisterBeatorajaBmtUrls
+                        && !string.IsNullOrWhiteSpace(change.Previous.BeatorajaBmtTablePath))
+                    {
+                        // URLの整理に失敗した場合は管理情報を消さず、同じ旧rootで明示再試行します。
+                        await Task.Run(() => BeatorajaConfigService.SyncTableUrls(change.Previous.BeatorajaRootPath, [],
+                            BmtTableExportService.ReadManagedTableUrls(change.Previous.BeatorajaBmtTablePath).Select(entry => entry.Url)));
+                    }
+                    await workspacePort.ExportBeatorajaBmtAsync("beatoraja local root confirmation", change.Previous.BeatorajaBmtTablePath,
+                        capability?.PlaylistCapability, forceProjection: true, options: change.Target);
                 }
-                return statePort.HasActiveLibraryProfile ? await ReloadScoresOnlyAsync(capability) : null;
+                return statePort.HasActiveLibraryProfile && (change?.RequiresScoreReload == true || scoreReloadPending) ? await ReloadScoresOnlyAsync(capability) : null;
             }
-            if (statePort.HasActiveLibraryProfile) { await RunLibrarySettingsOperationAsync(SaveAndReload); }
-            else { await SaveAndReload(null); }
+            bool complete;
+            if (statePort.HasActiveLibraryProfile) { complete = await RunLibrarySettingsOperationAsync(SaveAndReload); }
+            else
+            {
+                if (!operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation) { return; }
+                await SaveAndReload(null);
+                complete = true;
+            }
+            if (complete && !scoreReloadPending) { pendingBeatorajaChange = null; }
         }
         catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } }
-        finally { IsEditCompletionInProgress = false; RaisePropertyChanged(nameof(CanRetryScoreSettings)); }
+        finally
+        {
+            IsEditCompletionInProgress = false;
+            RaisePropertyChanged(nameof(CanRetryScoreSettings));
+            RaiseEnvironmentAvailabilityChanged();
+        }
     }
-
-
 
     /// <summary>BMT候補の組だけを保存し、同値でも既存担当の全表投影とURL反映を待ちます。</summary>
     internal async Task CommitBmtSettingsAsync()
     {
-        if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress) { return; }
+        if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress || statePort.IsLibraryOperationInProgress || pendingBeatorajaChange != null) { return; }
         string root = ApplicationSettings.BeatorajaRootPath;
         string tablePath = BeatorajaConfigService.GetTablePath(root);
         if (bmtEnableBeatorajaBmtOutput && (!BeatorajaConfigService.IsBeatorajaRootPathValid(root) || string.IsNullOrWhiteSpace(tablePath)))
@@ -289,11 +328,11 @@ public partial class SettingsDialogViewModel
                         (nameof(Settings.RegisterBeatorajaBmtUrls), bmtRegisterBeatorajaBmtUrls),
                         (nameof(Settings.BeatorajaBmtHashOutputMode), bmtBeatorajaBmtHashOutputMode),
                         (nameof(Settings.BeatorajaBmtTablePath), tablePath));
-                    if (string.Equals(environmentBeatorajaRootPath, root, StringComparison.OrdinalIgnoreCase))
-                    {
-                        RefreshEnvironmentBeatorajaCandidate();
-                    }
                     saved = true;
+                    if (string.Equals(environmentBeatorajaRootPath, root, StringComparison.OrdinalIgnoreCase))
+                    { beatorajaBmtTablePath = tablePath; }
+                    RaisePropertyChanged(nameof(BeatorajaBmtTablePath));
+                    RaisePropertyChanged(nameof(EnvironmentBeatorajaBmtTablePath));
                     if (statePort.HasActiveLibraryProfile)
                     {
                         await workspacePort.ExportBeatorajaBmtAsync("settings BMT confirmation", tablePath, capability, forceProjection: true);
@@ -324,14 +363,15 @@ public partial class SettingsDialogViewModel
         RaisePropertyChanged(nameof(KeepBeatorajaBmtFilesWhenOutputDisabled));
         RaisePropertyChanged(nameof(RegisterBeatorajaBmtUrls));
         RaisePropertyChanged(nameof(BeatorajaBmtHashOutputMode));
+        RaiseEnvironmentAvailabilityChanged();
     }
     private IReadOnlyList<string> confirmedBmsRoots;
     private IReadOnlyList<string> savedBmsXmlRoots;
     private bool bmsSaveIncomplete;
     private string replacementBmsInstallDir;
 
-    /// <summary>保存済みスコア設定の再読込みが未完了で、明示再試行できることを示します。</summary>
-    public bool IsScoreProcessingRetryRequired => scoreReloadPending && !IsEditCompletionInProgress;
+    /// <summary>保存済み局所組のscore又は旧新BMT反映が未完了で、明示再試行できることを示します。</summary>
+    public bool IsScoreProcessingRetryRequired => (scoreReloadPending || pendingBeatorajaChange != null) && !IsEditCompletionInProgress;
 
     /// <summary>保存済みBMS一覧の差分再読込みが未完了であることを示します。</summary>
     public bool IsBmsProcessingRetryRequired => fileDiffReloadPending && !IsEditCompletionInProgress;
@@ -345,14 +385,36 @@ public partial class SettingsDialogViewModel
     {
         bmtProcessingRetryRequired = value;
         RaisePropertyChanged(nameof(IsBmtProcessingRetryRequired));
+        RaiseEnvironmentAvailabilityChanged();
+        RaisePropertyChanged(nameof(CanRetryScoreSettings));
     }
 
     /// <summary>導入先が最終BMS一覧から外れる場合にだけ利用する明示的な代替候補です。</summary>
     public string ReplacementBmsInstallDir
     {
         get => replacementBmsInstallDir;
-        set { replacementBmsInstallDir = value; RaisePropertyChanged(); }
+        set { replacementBmsInstallDir = value; RaisePropertyChanged(); RaiseEnvironmentAvailabilityChanged(); }
     }
+
+    /// <summary>BMS一覧または代替導入先に取消可能な局所編集があるかを示します。</summary>
+    public bool CanCancelBmsRoots => IsEditCompletionEnabled && (!GetConfirmedBmsRoots().SequenceEqual(AvailableBMSDirectories, StringComparer.OrdinalIgnoreCase)
+        || !string.IsNullOrEmpty(replacementBmsInstallDir));
+
+    /// <summary>有効なBMS差分または未了保存・再読込みを明示確定できます。</summary>
+    public bool CanConfirmBmsRoots => IsEditCompletionEnabled && !statePort.IsLibraryOperationInProgress && pendingOutputChange == null
+        && CheckBmsRootsBeforeConfirmation(out _) && (!RequiresReplacementBmsInstallDir || AvailableBMSDirectories.Contains(replacementBmsInstallDir, StringComparer.OrdinalIgnoreCase))
+        && (CanCancelBmsRoots || bmsSaveIncomplete || fileDiffReloadPending);
+
+    /// <summary>確定rootで有効なBMT組を確定・全表再更新できます。BMT自身の失敗は同じrootで修正・再試行します。</summary>
+    public bool CanConfirmBmtSettings => IsEnvironmentSelectionEnabled
+        && (!bmtEnableBeatorajaBmtOutput || BeatorajaConfigService.IsBeatorajaRootPathValid(ApplicationSettings.BeatorajaRootPath)
+            && !string.IsNullOrWhiteSpace(BeatorajaConfigService.GetTablePath(ApplicationSettings.BeatorajaRootPath)));
+
+    /// <summary>BMTの未確定オプションだけに取消可能な差分があるかを示します。</summary>
+    public bool CanCancelBmtSettings => IsEditCompletionEnabled && (bmtEnableBeatorajaBmtOutput != ApplicationSettings.EnableBeatorajaBmtOutput
+        || bmtKeepBeatorajaBmtFilesWhenOutputDisabled != ApplicationSettings.KeepBeatorajaBmtFilesWhenOutputDisabled
+        || bmtRegisterBeatorajaBmtUrls != ApplicationSettings.RegisterBeatorajaBmtUrls
+        || bmtBeatorajaBmtHashOutputMode != ApplicationSettings.BeatorajaBmtHashOutputMode);
 
     /// <summary>BMSの二媒体保存に未了段階があることを、画面寿命をまたいで表示します。</summary>
     public bool IsBmsSaveIncomplete => bmsSaveIncomplete;
@@ -396,10 +458,10 @@ public partial class SettingsDialogViewModel
         return ContainsSameOrChildDirectory(managed, path);
     }
 
-    /// <summary>最終BMS一覧と必要な代替導入先を一組で確定し、差分再読込みを一度だけ実行します。</summary>
+    /// <summary>最終BMS一覧と必要な代替導入先を一組で確定し、保存成功後に代替候補を解消して差分再読込みを一度だけ実行します。</summary>
     internal async Task CommitBmsRootsAsync()
     {
-        if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress) { return; }
+        if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress || statePort.IsLibraryOperationInProgress) { return; }
         if (pendingOutputChange != null) { ShowSettingValidationError(Resources.Settings_repair_related_save); return; }
         IReadOnlyList<string> roots = AvailableBMSDirectories.ToArray();
         if (!CheckBmsRootsBeforeConfirmation(out string rootError))
@@ -456,6 +518,7 @@ public partial class SettingsDialogViewModel
                     RaisePropertyChanged(nameof(ConfirmedBMSDirectories));
                     savedBmsXmlRoots = null;
                     bmsSaveIncomplete = false;
+                    ReplacementBmsInstallDir = null;
                 }
                 if (statePort.HasActiveLibraryProfile)
                 {
@@ -565,21 +628,27 @@ public partial class SettingsDialogViewModel
     public bool IsInitialEnvironment => !statePort.HasActiveLibraryProfile;
 
     private EnvironmentSettingsChange CaptureEnvironmentCandidate() => new(operationModeLR2DB, environmentLR2RootPath,
-        environmentLR2SongDBPath, environmentLR2ConfigXmlPath, environmentBeatorajaRootPath,
-        environmentBeatorajaPlayerId, environmentBeatorajaScoreDbPath, environmentBeatorajaBmtTablePath);
+        environmentLR2SongDBPath, environmentLR2ConfigXmlPath);
 
-    /// <summary>環境セクションだけに、最新確定値からの変更があるかを示します。</summary>
+    /// <summary>LR2詳細の候補に、最新確定値からの変更があるかを示します。</summary>
     public bool HasEnvironmentChanges => CaptureEnvironmentCandidate() != EnvironmentSettingsChange.Capture(ApplicationSettings);
 
-    /// <summary>環境候補に差分があり、現在の実受付・既存検証を通って確定できるかを示します。</summary>
-    public bool CanConfirmEnvironment => HasEnvironmentChanges && IsEditCompletionEnabled && !environmentTransitionInProgress
-        && !bmsSaveIncomplete && pendingOutputChange == null
-        && (!statePort.HasActiveLibraryProfile || operationAdmission.CanEnter && customFolderOutputPort.CanBeginOutputOperation)
-        && (!operationModeLR2DB || IsLR2SongDBPathValid(environmentLR2SongDBPath) && LR2Config.TryLoad(environmentLR2ConfigXmlPath, out _))
-        && (!(ApplicationSettings.UseBeatorajaScoreDb || ApplicationSettings.EnableBeatorajaBmtOutput) || BeatorajaConfigService.IsBeatorajaRootPathValid(environmentBeatorajaRootPath))
-        && (!ApplicationSettings.UseBeatorajaScoreDb || IsBeatorajaScoreDbPathValid(environmentBeatorajaScoreDbPath));
+    /// <summary>起動の準備・必須UI公開と局所修復が終わり、環境を編集できるかを示します。</summary>
+    public bool IsEnvironmentSelectionEnabled => IsEditCompletionEnabled && !environmentTransitionInProgress
+        && !statePort.IsLibraryOperationInProgress && pendingBeatorajaChange == null;
 
-    /// <summary>編集可能な環境差分だけを取り消せるかを示します。無効候補も戻せます。</summary>
+    /// <summary>確定済みの設定から初回開始を受け付けられるかを示します。</summary>
+    public bool CanStartEnvironment => IsInitialEnvironment && IsEnvironmentSelectionEnabled
+        && operationAdmission.CanEnter && customFolderOutputPort.CanBeginOutputOperation
+        && CheckValidationForInitialization(out _);
+
+    /// <summary>LR2詳細の適用可能差分だけを確定できます。rootが空でも有効な個別パスを受理します。</summary>
+    public bool CanConfirmEnvironment => HasEnvironmentChanges && IsEnvironmentSelectionEnabled
+        && !bmsSaveIncomplete && pendingOutputChange == null
+        && operationAdmission.CanEnter && customFolderOutputPort.CanBeginOutputOperation
+        && (!operationModeLR2DB || IsLR2SongDBPathValid(environmentLR2SongDBPath) && LR2Config.TryLoad(environmentLR2ConfigXmlPath, out _));
+
+    /// <summary>無効な候補も含め、LR2詳細だけを最新確定値へ戻せます。</summary>
     public bool CanCancelEnvironment => HasEnvironmentChanges && IsEditCompletionEnabled && !environmentTransitionInProgress;
 
     private void RaiseEnvironmentAvailabilityChanged()
@@ -587,69 +656,85 @@ public partial class SettingsDialogViewModel
         RaisePropertyChanged(nameof(HasEnvironmentChanges));
         RaisePropertyChanged(nameof(CanConfirmEnvironment));
         RaisePropertyChanged(nameof(CanCancelEnvironment));
+        RaisePropertyChanged(nameof(IsEnvironmentSelectionEnabled));
+        RaisePropertyChanged(nameof(IsBeatorajaSelectionEnabled));
+        RaisePropertyChanged(nameof(CanStartEnvironment));
+        RaisePropertyChanged(nameof(CanRetryScoreSettings));
+        RaisePropertyChanged(nameof(IsInitialEnvironment));
+        RaisePropertyChanged(nameof(CanConfirmBmsRoots));
+        RaisePropertyChanged(nameof(CanCancelBmsRoots));
+        RaisePropertyChanged(nameof(CanCancelBmtSettings));
+        RaisePropertyChanged(nameof(CanConfirmBmtSettings));
     }
 
     private void SettingsOperationAvailabilityChanged(object sender, EventArgs args) => RaiseEnvironmentAvailabilityChanged();
 
-    /// <summary>環境候補だけを保存し、稼働中は既存の先着再起動受付からBMT処理・通知・終了へ進みます。</summary>
-    internal async Task CommitEnvironmentAsync()
+    /// <summary>モードの実選択は保存済みLR2組で反映し、未確定の個別パスを混ぜません。</summary>
+    internal Task SelectOperationModeAsync(bool value)
     {
-        if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress) { return; }
+        if (!IsEnvironmentSelectionEnabled) { return Task.CompletedTask; }
+        SetOperationModeSelection(value);
+        return CommitEnvironmentChangeAsync(EnvironmentSettingsChange.Capture(ApplicationSettings) with { OperationModeLR2DB = value });
+    }
+
+    /// <summary>標準パスを解決できた今回のrootだけを反映します。不正入力から前の候補を確定しません。</summary>
+    internal Task SelectLr2RootAsync(string root)
+    {
+        if (!IsEnvironmentSelectionEnabled || root == null) { return Task.CompletedTask; }
+        if (!root.IsSjisSchemeString()) { ShowSettingValidationError(Resources.Error_LR2UnicodePathUnsupported); return Task.CompletedTask; }
+        if (!TryBuildStandardLr2PathTuple(root, out string song, out string config, out _))
+        {
+            SetLr2PathSelectionError(Resources.Error_InvalidLR2RootPath);
+            return Task.CompletedTask;
+        }
+        LR2RootPath = root;
+        return CommitEnvironmentChangeAsync(new(operationModeLR2DB, root, song, config));
+    }
+
+    /// <summary>個別song.db/XMLの候補を一回の選択保存・再起動で確定します。</summary>
+    internal Task CommitEnvironmentAsync() => CommitEnvironmentChangeAsync(CaptureEnvironmentCandidate());
+
+    private async Task CommitEnvironmentChangeAsync(EnvironmentSettingsChange change)
+    {
+        if (!IsEnvironmentSelectionEnabled || !operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation) { return; }
         if (bmsSaveIncomplete || pendingOutputChange != null)
         {
             ShowSettingValidationError(Resources.Settings_repair_related_save);
             return;
         }
-        if (operationModeLR2DB && (!IsLR2SongDBPathValid(environmentLR2SongDBPath)
-            || !LR2Config.TryLoad(environmentLR2ConfigXmlPath, out _)))
+        if (change.OperationModeLR2DB && (!IsLR2SongDBPathValid(change.LR2SongDBPath)
+            || !LR2Config.TryLoad(change.LR2ConfigXmlPath, out _)))
         {
             ShowSettingValidationError(Resources.Error_InvalidLR2SongDbOrConfigPath);
             return;
         }
-        string root = environmentBeatorajaRootPath;
-        if ((ApplicationSettings.UseBeatorajaScoreDb || ApplicationSettings.EnableBeatorajaBmtOutput)
-            && !BeatorajaConfigService.IsBeatorajaRootPathValid(root))
-        {
-            ShowSettingValidationError(Resources.Error_InvalidBeatorajaRootPath);
-            return;
-        }
-        if (ApplicationSettings.UseBeatorajaScoreDb && !IsBeatorajaScoreDbPathValid(environmentBeatorajaScoreDbPath))
-        {
-            ShowSettingValidationError(Resources.Error_InvalidBeatorajaScoreDbPath);
-            return;
-        }
-        EnvironmentSettingsChange change = CaptureEnvironmentCandidate();
-        var currentEnvironment = EnvironmentSettingsChange.Capture(ApplicationSettings);
-        if (change == currentEnvironment) { return; }
+        if (change == EnvironmentSettingsChange.Capture(ApplicationSettings)) { return; }
         if (!statePort.HasActiveLibraryProfile)
         {
             try
             {
                 change.Commit(ApplicationSettings);
+                // 初回のモード・LR2 root保存も、次の初期化が捕捉する既存の確定配置へ同じ組を公開します。
+                publishOutputPlacement();
                 confirmedBmsRoots = null;
                 CancelEnvironment();
                 RefreshParsedLr2ConfigState(showSelectionError: false, useLr2Mode: ApplicationSettings.OperationModeLR2DB);
                 CancelBmsRoots();
                 RaisePropertyChanged(nameof(CanUseLr2Features));
-                RefreshBeatorajaDerivedSettings();
-                RaisePropertyChanged(nameof(AvailableBeatorajaPlayers));
-                RaisePropertyChanged(nameof(BeatorajaPlayerId));
-                RaisePropertyChanged(nameof(BeatorajaScoreDbPath));
-                RaisePropertyChanged(nameof(BeatorajaBmtTablePath));
                 RaisePropertyChanged(nameof(LR2bodyPath));
                 RaiseValidationStateChanged();
             }
             catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } }
             return;
         }
-        if (!operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation)
+        if (!operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation) { return; }
+        if (!ShowUiConfirmation(Resources.Confirm_RestartForOperationModeChange, Resources.Confirm,
+            UiDialogIcon.Question, UiDialogButton.OKCancel, "Environment restart confirmation"))
         {
-            await ShowUiMessageAsync(Resources.Warn_LibraryOperationBusy, Resources.Warning, UiDialogIcon.Exclamation, "environment admission");
+            CancelEnvironment();
             return;
         }
-        if (!ShowUiConfirmation(Resources.Confirm_RestartForOperationModeChange, Resources.Confirm,
-            UiDialogIcon.Question, UiDialogButton.OKCancel, "Environment restart confirmation")) { return; }
-        if (operationAdmission.IsAdmissionClosed) { return; }
+        if (operationAdmission.IsAdmissionClosed || statePort.IsLibraryOperationInProgress) { return; }
         IsEditCompletionInProgress = true;
         SetEnvironmentTransitionInProgress(true);
         bool accepted = false;
@@ -662,114 +747,75 @@ public partial class SettingsDialogViewModel
             }
             using (lease)
             using (playlistLease)
-            using (LibraryFileMutationCapability capability = playlistLease.CreateMutationCapability())
             {
-                var oldOptions = BeatorajaBmtOptionsSnapshot.CreateCurrent(ApplicationSettings);
-                async Task CompleteBmtBeforeShutdown()
-                {
-                    var newOptions = BeatorajaBmtOptionsSnapshot.CreateCurrent(ApplicationSettings);
-                    Exception bmtFailure = null;
-                    Exception oldUrlWarning = null;
-                    try
-                    {
-                        await workspacePort.RunWithPlaylistOperationNotificationsAsync(async () =>
-                        {
-                            try
-                            {
-                                bool moved = !string.Equals(oldOptions.BeatorajaRootPath, newOptions.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase);
-                                if (moved && oldOptions.EnableBeatorajaBmtOutput && oldOptions.RegisterBeatorajaBmtUrls
-                                    && !string.IsNullOrWhiteSpace(oldOptions.BeatorajaBmtTablePath))
-                                {
-                                    try
-                                    {
-                                        BeatorajaConfigService.SyncTableUrls(oldOptions.BeatorajaRootPath, [],
-                                            BmtTableExportService.ReadManagedTableUrls(oldOptions.BeatorajaBmtTablePath).Select(entry => entry.Url));
-                                    }
-                                    catch (Exception warning) { oldUrlWarning = warning; TryLogSettingsLocalFailure(warning, "environment old BMT URL cleanup"); }
-                                }
-                                if (moved)
-                                {
-                                    await workspacePort.ExportBeatorajaBmtAsync("environment restart", oldOptions.BeatorajaBmtTablePath,
-                                        capability, forceProjection: true, options: newOptions);
-                                }
-                            }
-                            finally
-                            {
-                                // 通知は当該L/Pの解放後に行います。外部終了はshellがこのTaskを回収します。
-                                lease.Dispose();
-                                playlistLease.Dispose();
-                            }
-                        }, "environment BMT terminal");
-                    }
-                    catch (Exception exception) { bmtFailure = exception; }
-                    finally { lease.Dispose(); playlistLease.Dispose(); }
-                    if (oldUrlWarning != null && !operationAdmission.IsAdmissionClosed)
-                    {
-                        await ShowUiMessageAsync(string.Format(Resources.Beatoraja_bmt_output_failure_format, oldOptions.BeatorajaRootPath, oldUrlWarning.Message),
-                            Resources.Warning, UiDialogIcon.Exclamation, "Environment old URL cleanup warning");
-                    }
-                    if (bmtFailure != null && !operationAdmission.IsAdmissionClosed)
-                    {
-                        await ShowUiMessageAsync(SettingsFailureMessage.Format(bmtFailure), Resources.Error, UiDialogIcon.Hand, "Environment BMT failure");
-                    }
-                }
+                // 確認中に先着したL/Pを再検査し、保存の先着判断だけをshellへ渡します。
+                // 再起動の終端は待たず、受理Taskが戻った時点で解放して終了joinの自己待機を避けます。
                 accepted = await requestOperationModeRestart(new OperationModeRestartRequest(change,
-                    playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity, CompleteBmtBeforeShutdown));
+                    playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity));
             }
         }
         catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } }
         finally { if (!accepted) { SetEnvironmentTransitionInProgress(false); IsEditCompletionInProgress = false; } }
     }
 
-    /// <summary>環境候補だけを最新の確定環境へ戻します。</summary>
+    /// <summary>モード・LR2詳細の候補だけを最新確定値へ戻します。</summary>
     internal void CancelEnvironment()
     {
         operationModeLR2DB = ApplicationSettings.OperationModeLR2DB;
         environmentLR2RootPath = ApplicationSettings.LR2RootPath;
         environmentLR2SongDBPath = ApplicationSettings.LR2SongDBPath;
         environmentLR2ConfigXmlPath = ApplicationSettings.LR2ConfigXmlPath;
-        environmentBeatorajaRootPath = ApplicationSettings.BeatorajaRootPath;
-        RefreshEnvironmentBeatorajaCandidate();
+        isLr2ConfigPathParsed = LR2Config.TryLoad(environmentLR2ConfigXmlPath, out _);
+        SetLr2PathSelectionErrorWithoutNotification(string.Empty);
         RaisePropertyChanged(nameof(OperationModeLR2DB));
         RaisePropertyChanged(nameof(IsStandaloneOperationMode));
         RaisePropertyChanged(nameof(LR2RootPath));
         RaisePropertyChanged(nameof(LR2SongDBPath));
         RaisePropertyChanged(nameof(LR2ConfigXmlPath));
-        RaisePropertyChanged(nameof(BeatorajaRootPath));
+        RaiseLr2PathPresentationChanged();
         RaiseEnvironmentAvailabilityChanged();
     }
 
-    /// <summary>環境候補へ表示して、そのままrootと一緒に保存する解決済みplayerです。スコア候補は参照しません。</summary>
-    public string EnvironmentBeatorajaPlayerId => environmentBeatorajaPlayerId;
+    /// <summary>局所beatoraja候補のplayerを詳細欄へ表示します。</summary>
+    public string EnvironmentBeatorajaPlayerId => scoreBeatorajaPlayerId;
 
-    /// <summary>環境候補のrootとplayerから解決したscore.dbです。表示後の確定で再解決しません。</summary>
-    public string EnvironmentBeatorajaScoreDbPath => environmentBeatorajaScoreDbPath;
+    /// <summary>局所beatoraja候補のscore.dbを詳細欄へ表示します。</summary>
+    public string EnvironmentBeatorajaScoreDbPath => scoreBeatorajaScoreDbPath;
 
-    /// <summary>環境候補のrootから解決したBMT出力先です。</summary>
-    public string EnvironmentBeatorajaBmtTablePath => environmentBeatorajaBmtTablePath;
+    /// <summary>局所beatoraja候補のBMT出力先を詳細欄へ表示します。</summary>
+    public string EnvironmentBeatorajaBmtTablePath => beatorajaBmtTablePath;
 
     private void RefreshEnvironmentBeatorajaCandidate()
     {
         string root = environmentBeatorajaRootPath;
-        if (string.Equals(root, ApplicationSettings.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase))
+        if (pendingBeatorajaChange != null)
         {
-            environmentBeatorajaPlayerId = ApplicationSettings.BeatorajaPlayerId;
-            environmentBeatorajaScoreDbPath = ApplicationSettings.BeatorajaScoreDbPath;
-            environmentBeatorajaBmtTablePath = ApplicationSettings.BeatorajaBmtTablePath;
+            // 再表示も修復要求の入力を取り替えず、保存済みscoreと捕捉済みtableを表示・検査します。
+            scoreBeatorajaPlayerId = ApplicationSettings.BeatorajaPlayerId;
+            scoreBeatorajaScoreDbPath = ApplicationSettings.BeatorajaScoreDbPath;
+            beatorajaBmtTablePath = pendingBeatorajaChange.Target.BeatorajaBmtTablePath;
         }
         else
         {
-            List<string> players = BeatorajaConfigService.GetPlayerIds(root);
-            string configured = BeatorajaConfigService.GetConfiguredPlayerId(root);
-            environmentBeatorajaPlayerId = players.Contains(configured, StringComparer.OrdinalIgnoreCase) ? configured : players.FirstOrDefault() ?? string.Empty;
-            environmentBeatorajaScoreDbPath = BeatorajaConfigService.GetScoreDbPath(root, environmentBeatorajaPlayerId);
-            environmentBeatorajaBmtTablePath = BeatorajaConfigService.GetTablePath(root);
+            if (string.Equals(root, ApplicationSettings.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase))
+            { scoreBeatorajaPlayerId = ApplicationSettings.BeatorajaPlayerId; }
+            else
+            {
+                List<string> players = BeatorajaConfigService.GetPlayerIds(root);
+                string configured = BeatorajaConfigService.GetConfiguredPlayerId(root);
+                scoreBeatorajaPlayerId = players.Contains(configured, StringComparer.OrdinalIgnoreCase) ? configured : players.FirstOrDefault() ?? string.Empty;
+            }
+            RefreshBeatorajaDerivedSettings();
         }
         RaiseEnvironmentBeatorajaCandidateChanged();
     }
 
     private void RaiseEnvironmentBeatorajaCandidateChanged()
     {
+        RaisePropertyChanged(nameof(AvailableBeatorajaPlayers));
+        RaisePropertyChanged(nameof(BeatorajaPlayerId));
+        RaisePropertyChanged(nameof(BeatorajaScoreDbPath));
+        RaisePropertyChanged(nameof(BeatorajaBmtTablePath));
         RaisePropertyChanged(nameof(EnvironmentBeatorajaPlayerId));
         RaisePropertyChanged(nameof(EnvironmentBeatorajaScoreDbPath));
         RaisePropertyChanged(nameof(EnvironmentBeatorajaBmtTablePath));
@@ -848,7 +894,7 @@ public partial class SettingsDialogViewModel
     {
         if (section is not (null or "normal" or "root" or "additional" or "pending")) { throw new ArgumentOutOfRangeException(nameof(section)); }
         if (section == "pending" && pendingOutputChange == null) { return; }
-        if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress) { return; }
+        if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress || statePort.IsLibraryOperationInProgress) { return; }
         if (bmsSaveIncomplete) { ShowSettingValidationError(Resources.Settings_repair_related_save); return; }
         var previous = CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings);
         CustomFolderOutputSettingsSnapshot baseline = pendingOutputChange?.Target ?? previous;

@@ -63,6 +63,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     private SampleFormat candidatePlayerFormat;
     private float candidatePlayerBufferSize;
     private bool candidatePlayerWASAPIParam;
+    private bool outputSettingsSaveFailed;
 
 
 
@@ -89,6 +90,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     /// <summary>表示開始・取消時に音声出力の候補だけを確定値へ戻します。</summary>
     internal void ResetOutputCandidatesToConfirmedSettings()
     {
+        outputSettingsSaveFailed = false;
         candidatePlayerSampleRate = ApplicationSettings.PlayerSampleRate;
         candidatePlayerFormat = ApplicationSettings.PlayerFormat;
         candidatePlayerBufferSize = ApplicationSettings.PlayerBufferSize;
@@ -118,25 +120,34 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
         && (audioOutputSelectionDraft.IsDefault || SelectedPlayerDevice is { IsAvailable: true }) && float.IsFinite(candidatePlayerBufferSize) && candidatePlayerBufferSize >= 0;
 
     /// <summary>現在の音声候補が最新確定値と異なるかを示します。</summary>
-    internal bool HasOutputSettingsChanges => BassAudioMapping.ToBassDriver(audioOutputSelectionDraft.Backend) != ApplicationSettings.PlayerDriver
-        || audioOutputSelectionDraft.DeviceIdentity != ApplicationSettings.PlayerDevice
-        || audioOutputSelectionDraft.DeviceName != ApplicationSettings.PlayerDeviceName
+    internal bool HasOutputSettingsChanges => AudioDriverPolicy.NormalizePersistedSelection(audioOutputSelectionDraft)
+        != AudioDriverPolicy.NormalizePersistedSelection(new AudioOutputSelection(BassAudioMapping.FromBassDriver(ApplicationSettings.PlayerDriver),
+            ApplicationSettings.PlayerDevice, ApplicationSettings.PlayerDeviceName))
         || candidatePlayerSampleRate != ApplicationSettings.PlayerSampleRate || candidatePlayerFormat != ApplicationSettings.PlayerFormat
         || candidatePlayerBufferSize != ApplicationSettings.PlayerBufferSize || candidatePlayerWASAPIParam != ApplicationSettings.PlayerWASAPIParam;
+
+    /// <summary>実際の保存失敗があり、同じ意味の確定値へ復帰していない場合だけ再試行を表示します。</summary>
+    internal bool IsOutputSettingsSaveRetryRequired => outputSettingsSaveFailed && HasOutputSettingsChanges;
 
     /// <summary>音声の関連組だけを保存します。現再生のTaskやnative playerは切り替えません。</summary>
     internal void CommitOutputSettings()
     {
-        if (!CanCommitOutputSettings || !HasOutputSettingsChanges) { return; }
+        if (!HasOutputSettingsChanges) { outputSettingsSaveFailed = false; return; }
+        if (!CanCommitOutputSettings) { return; }
         AudioOutputSelection selection = AudioDriverPolicy.NormalizePersistedSelection(audioOutputSelectionDraft);
-        ApplicationSettings.Commit(
-            (nameof(Settings.PlayerDriver), BassAudioMapping.ToBassDriver(selection.Backend)),
-            (nameof(Settings.PlayerDevice), selection.DeviceIdentity),
-            (nameof(Settings.PlayerDeviceName), selection.DeviceName),
-            (nameof(Settings.PlayerSampleRate), candidatePlayerSampleRate),
-            (nameof(Settings.PlayerFormat), candidatePlayerFormat),
-            (nameof(Settings.PlayerBufferSize), candidatePlayerBufferSize),
-            (nameof(Settings.PlayerWASAPIParam), candidatePlayerWASAPIParam));
+        try
+        {
+            ApplicationSettings.Commit(
+                (nameof(Settings.PlayerDriver), BassAudioMapping.ToBassDriver(selection.Backend)),
+                (nameof(Settings.PlayerDevice), selection.DeviceIdentity),
+                (nameof(Settings.PlayerDeviceName), selection.DeviceName),
+                (nameof(Settings.PlayerSampleRate), candidatePlayerSampleRate),
+                (nameof(Settings.PlayerFormat), candidatePlayerFormat),
+                (nameof(Settings.PlayerBufferSize), candidatePlayerBufferSize),
+                (nameof(Settings.PlayerWASAPIParam), candidatePlayerWASAPIParam));
+            outputSettingsSaveFailed = false;
+        }
+        catch { outputSettingsSaveFailed = true; throw; }
     }
 
     /// <summary>保存・取消後に受け渡す現在の出力先です。</summary>

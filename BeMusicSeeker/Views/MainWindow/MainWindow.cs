@@ -85,6 +85,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private SettingsWindow settingsWindow;
 
+    // 表示参照がモーダル終了で消えた後も、owner終了は受理済み設定操作の実Taskを回収します。
+    private Task settingsOperationCompletionTask = Task.CompletedTask;
+
     private TaskCompletionSource<object> settingsPresentationClosed;
 
 #nullable enable
@@ -1247,6 +1250,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         return createdWindow;
     }
 
+    private void CloseSettingsForOwnerShutdown()
+    {
+        if (settingsWindow == null) { return; }
+        settingsOperationCompletionTask = Task.WhenAll(settingsOperationCompletionTask, settingsWindow.WaitForOperationCompletionAsync());
+        settingsWindow.CloseForOwnerShutdown();
+    }
+
     private void CompleteSettingsWindowApplicationExit(SettingsWindow source)
     {
         if (!Dispatcher.CheckAccess())
@@ -1255,6 +1265,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 "The settings window application-exit terminal must run on the MainWindow dispatcher.");
         }
 
+        settingsOperationCompletionTask = Task.WhenAll(settingsOperationCompletionTask, source.WaitForOperationCompletionAsync());
         source.CloseForOwnerShutdown();
         Close();
     }
@@ -1607,14 +1618,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         PlaylistPropertyDialog propertyDialog = activePlaylistPropertyDialog;
         PlaylistSummaryBulkEditDialog bulkEditDialog = activePlaylistSummaryBulkEditDialog;
         Task propertyOperationTask = propertyDialog?.WaitForOperationCompletionAsync() ?? Task.CompletedTask;
-        Task settingsOperationTask = settingsWindow?.WaitForOperationCompletionAsync() ?? Task.CompletedTask;
+        var settingsOperationTask = Task.WhenAll(settingsOperationCompletionTask, settingsWindow?.WaitForOperationCompletionAsync() ?? Task.CompletedTask);
         Task bulkApplyTask = bulkEditDialog?.WaitForApplyCompletionAsync() ?? Task.CompletedTask;
         Task propertyCleanupTask = playlistPropertyDialogCleanupTask ?? Task.CompletedTask;
         Task bulkCleanupTask = playlistSummaryBulkEditDialogCleanupTask ?? Task.CompletedTask;
 
         propertyDialog?.CloseForOwnerShutdown();
         bulkEditDialog?.CloseForOwnerShutdown();
-        settingsWindow?.CloseForOwnerShutdown();
+        CloseSettingsForOwnerShutdown();
         activePlaylistImportDialog?.Close();
         // 表示を先に失効させ、一覧完了後や照会finallyから後続照会が開始されない状態で捕捉する。
         viewModel?.SettingDialog.SetPresentationActive(false);
@@ -1673,7 +1684,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             // 後段で実Task・DataContext回収までjoinするため終了待ちとの循環を作りません。
             activePlaylistPropertyDialog?.CloseForOwnerShutdown();
             activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
-            settingsWindow?.CloseForOwnerShutdown();
+            CloseSettingsForOwnerShutdown();
             activePlaylistImportDialog?.Close();
             CancelRelatedDocumentRequest();
             CloseContextMenuIfOpen(_lastOpenedContextMenu);
@@ -1699,7 +1710,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         CloseContextMenuIfOpen(_lastOpenedContextMenu);
         activePlaylistPropertyDialog?.CloseForOwnerShutdown();
         activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
-        settingsWindow?.CloseForOwnerShutdown();
+        CloseSettingsForOwnerShutdown();
         activePlaylistImportDialog?.Close();
         playlistLampViewerWindowManager.CloseAll();
         chartPropertiesWindowManager.BeginShutdown();

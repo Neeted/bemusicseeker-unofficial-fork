@@ -7,6 +7,35 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class RightClickActionSettingsEditor
 {
+    /// <summary>選択中Web recordの有効な差分だけを確定できます。</summary>
+    public bool CanConfirmWebRecord => CanCancelWebRecord && TryPrepareRecordChange(savedRawJson, true, "save", out _, out _);
+
+    /// <summary>選択中Program recordの有効な差分だけを確定できます。</summary>
+    public bool CanConfirmProgramRecord => CanCancelProgramRecord && TryPrepareRecordChange(savedRawJson, false, "save", out _, out _);
+
+    /// <summary>選択中Web recordの無効入力と未保存の新規行も取消できます。</summary>
+    public bool CanCancelWebRecord
+    {
+        get
+        {
+            if (selectedWebAction is not { } row) { return false; }
+            RightClickWebActionDefinition value = RightClickActionSettingsSerializer.Parse(savedRawJson).Settings?.WebActions.FirstOrDefault(item => item.Id == row.Id);
+            return value == null || value.Name != row.Name || value.UrlTemplate != row.UrlTemplate || value.Enabled != row.Enabled || value.ChartKind != row.ChartKind;
+        }
+    }
+
+    /// <summary>選択中Program recordの無効入力と未保存の新規行も取消できます。</summary>
+    public bool CanCancelProgramRecord
+    {
+        get
+        {
+            if (selectedProgramAction is not { } row) { return false; }
+            RightClickProgramActionDefinition value = RightClickActionSettingsSerializer.Parse(savedRawJson).Settings?.ProgramActions.FirstOrDefault(item => item.Id == row.Id);
+            return value == null || value.Name != row.Name || value.ExecutablePath != row.ExecutablePath
+                || value.ArgumentTemplate != row.ArgumentTemplate || value.Enabled != row.Enabled;
+        }
+    }
+
     /// <summary>一recordの編集または明示削除・並替だけを最新確定JSONへ適用し、他recordの候補を混ぜません。</summary>
     internal bool TryPrepareRecordChange(string rawConfirmed, bool web, string operation, out string json, out string error)
     {
@@ -69,21 +98,21 @@ public sealed partial class RightClickActionSettingsEditor
         return order;
     }
 
-    /// <summary>選択recordだけを最新確定内容へ戻し、別recordの入力を保ちます。</summary>
+    /// <summary>選択recordだけを最新確定内容へ戻し、別recordの入力を保ちます。不正な保存rawは変更せず、そこから追加した未保存行も破棄します。</summary>
     internal void DiscardSelectedRecord(string rawConfirmed, bool web)
     {
         RightClickActionSettingsParseResult parsed = RightClickActionSettingsSerializer.Parse(rawConfirmed);
-        if (!parsed.Succeeded) { return; }
+        // 不正な保存値からは空一覧で編集を始めるため、この場合の選択行も未保存の追加行です。
         if (web && selectedWebAction is { } webRow)
         {
-            RightClickWebActionDefinition value = parsed.Settings.WebActions.FirstOrDefault(item => item.Id == webRow.Id);
-            if (value == null) { webActions.Remove(webRow); return; }
+            RightClickWebActionDefinition value = parsed.Settings?.WebActions.FirstOrDefault(item => item.Id == webRow.Id);
+            if (value == null) { webActions.Remove(webRow); SelectedWebAction = webActions.FirstOrDefault(); return; }
             webRow.Name = value.Name; webRow.UrlTemplate = value.UrlTemplate; webRow.Enabled = value.Enabled; webRow.ChartKind = value.ChartKind;
         }
         else if (!web && selectedProgramAction is { } programRow)
         {
-            RightClickProgramActionDefinition value = parsed.Settings.ProgramActions.FirstOrDefault(item => item.Id == programRow.Id);
-            if (value == null) { programActions.Remove(programRow); return; }
+            RightClickProgramActionDefinition value = parsed.Settings?.ProgramActions.FirstOrDefault(item => item.Id == programRow.Id);
+            if (value == null) { programActions.Remove(programRow); SelectedProgramAction = programActions.FirstOrDefault(); return; }
             programRow.Name = value.Name; programRow.ExecutablePath = value.ExecutablePath;
             programRow.ArgumentTemplate = value.ArgumentTemplate; programRow.Enabled = value.Enabled;
         }

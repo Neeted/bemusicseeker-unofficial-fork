@@ -168,7 +168,13 @@ public sealed class SettingsWindowPresentationTests
             {
                 RefreshAction = () => { started.TrySetResult(); release.Wait(); }
             };
-            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(settings =>
+            {
+                settings.OperationModeLR2DB = false;
+                settings.BMSRootPath = string.Empty;
+                settings.StandaloneBmsRootPaths = string.Empty;
+                settings.BMSInstallDir = string.Empty;
+            });
             using SettingsDialogViewModel dialog = AudioDeviceListRefreshTests.CreateDialog(values, catalog,
                 new AudioOutputSelection(AudioDriver.WasapiExclusive, "missing", "Missing device"));
             Logger logger = Ribbit.Logging.NLogWrapper.GetLogger(typeof(SettingsWindowPresentationTests));
@@ -202,7 +208,7 @@ public sealed class SettingsWindowPresentationTests
                 var page = (AudioSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
                 Assert.IsFalse(((Button)page.FindName("buttonPlayerTest")).IsEnabled);
                 Assert.IsTrue(((ComboBox)page.FindName("comboBoxPlayerDriver")).IsEnabled);
-                Assert.IsTrue(((Button)window.FindName("buttonOK")).IsEnabled);
+                Assert.IsFalse(((Button)window.FindName("buttonOK")).IsEnabled, "初期設定の必須一覧が未設定なら開始は無効です。音声一覧取得は通常Closeを妨げません。");
                 Assert.IsTrue(((Button)window.FindName("buttonCancel")).IsEnabled);
                 navigation.SelectedItem = window.FindName("navigationGeneral");
                 window.UpdateLayout();
@@ -4651,7 +4657,7 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>保存後の各実処理失敗を当該欄にも表示し、閉鎖・再表示後も維持します。同値の明示再試行は保存し直さず、成功時だけ案内を解消します。</summary>
-    /// <remarks>実providerとcompiledボタン・bannerを接続します。Score/FileDiffの実モデル反映とBMTの実ファイル投影はEditCompletion系列が分担し、ここでは実処理portの失敗・成功を固定します。</remarks>
+    /// <remarks>実providerとcompiledボタン・bannerを接続します。scoreの再試行はBusy中の再表示・解消・再度のBusyにも追従し、通知だけでは実行しません。Score/FileDiffの実モデル反映とBMTの実ファイル投影はEditCompletion系列が分担し、ここでは実処理portの失敗・成功を固定します。</remarks>
     [DataTestMethod]
     [DataRow("score", nameof(SettingsDialogViewModel.IsScoreProcessingRetryRequired))]
     [DataRow("bms", nameof(SettingsDialogViewModel.IsBmsProcessingRetryRequired))]
@@ -4712,6 +4718,11 @@ public sealed class SettingsWindowPresentationTests
             {
                 window = new SettingsWindow { DataContext = settings };
                 scope.ShowAndWaitForContentRendered(window);
+                if (section != "score")
+                {
+                    Assert.IsFalse(FindDescendants<Button>(window).Single(button => Equals(button.Tag, "cancel:" + section)).IsEnabled);
+                    if (section == "bms") { Assert.IsFalse(FindDescendants<Button>(window).Single(button => Equals(button.Tag, "confirm:bms")).IsEnabled); }
+                }
                 if (section == "score")
                 {
                     FindDescendants<CheckBox>(window).Single(check => check.Name == "useBeatorajaScoreDbCheckBox")
@@ -4723,14 +4734,38 @@ public sealed class SettingsWindowPresentationTests
                 if (section != "score") { ClickConfirm(); }
                 Assert.AreEqual(1, failures.Count);
                 AssertRetryBanner();
+                if (section == "bmt") { Assert.IsFalse(settings.IsBeatorajaSelectionEnabled); }
                 Settings fresh = PortableSettingsPersistenceTests.OpenSettings(config);
                 if (section == "score") { Assert.IsFalse(fresh.UseBeatorajaScoreDb); }
                 else if (section == "bms") { StringAssert.Contains(fresh.StandaloneBmsRootPaths, added); }
                 else { Assert.IsFalse(fresh.KeepBeatorajaBmtFilesWhenOutputDisabled); }
                 window.CloseForOwnerShutdown();
+                if (section == "score") { statePort.SetLibraryOperationInProgress(true); }
                 window = new SettingsWindow { DataContext = settings };
                 scope.ShowAndWaitForContentRendered(window);
                 AssertRetryBanner();
+                if (section == "score")
+                {
+                    Button retry = FindDescendants<Button>(window).Single(button => Equals(button.Tag, "retry:score"));
+                    Assert.AreEqual(Visibility.Collapsed, retry.Visibility, "Busy中の再表示では再試行を受け付けません。");
+                    statePort.SetLibraryOperationInProgress(false);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(Visibility.Visible, retry.Visibility, "Busy解消の通知で明示再試行を表示します。");
+                    Assert.IsTrue(retry.IsEnabled);
+                    statePort.SetLibraryOperationInProgress(true);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(Visibility.Collapsed, retry.Visibility, "表示中にBusyになった場合も操作可否へ追従します。");
+                    statePort.SetLibraryOperationInProgress(false);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(Visibility.Visible, retry.Visibility);
+                    Assert.IsTrue(retry.IsEnabled);
+                    Assert.AreEqual(1, operations, "Busyの解消・再表示だけでは修復を自動実行しません。");
+                }
+                if (section != "score")
+                {
+                    Assert.IsFalse(FindDescendants<Button>(window).Single(button => Equals(button.Tag, "cancel:" + section)).IsEnabled);
+                    Assert.IsTrue(FindDescendants<Button>(window).Single(button => Equals(button.Tag, "confirm:" + section)).IsEnabled, "差分なしでも保存後の必要処理を修復できます。");
+                }
                 fail = false;
                 using (var blockedSettings = new FileStream(config, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) { ClickConfirm(); }
                 Assert.AreEqual(2, operations);
@@ -4742,68 +4777,6 @@ public sealed class SettingsWindowPresentationTests
             {
                 if (window?.IsVisible == true) { window.CloseForOwnerShutdown(); }
                 Directory.Delete(root, recursive: true);
-            }
-        });
-    }
-
-    /// <summary>Apply gate 中の native Close は取消し、実 Task 内の presentation Close に限って Apply 理由で終了することを Closing／Closed の順に観測します。</summary>
-    [TestMethod]
-    [DoNotParallelize]
-    public void InitializationOperation_RejectsNativeCloseUntilSuccessfulPresentationCompletion()
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
-            using SettingsDialogViewModel ownedDialogLifetime = viewModel.SettingDialog;
-            SettingsDialogViewModel settings = viewModel.SettingDialog;
-            var window = new SettingsWindow { DataContext = settings };
-            SynchronizationContext? previousContext = SynchronizationContext.Current;
-            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(window.Dispatcher));
-            var applyRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            Task? applyOperation = null;
-            try
-            {
-                bool closed = false;
-                var closeCancellations = new List<bool>();
-                window.Closing += (_, args) => closeCancellations.Add(args.Cancel);
-                window.Closed += (_, _) => closed = true;
-
-                applyOperation = window.RunInitializationOperationAsync(async () =>
-                {
-                    SetEditCompletionInProgress(settings, true);
-                    try
-                    {
-                        await applyRelease.Task;
-                        window.CloseFromPresentation();
-                    }
-                    finally
-                    {
-                        SetEditCompletionInProgress(settings, false);
-                    }
-                });
-
-                Assert.IsFalse(applyOperation.IsCompleted);
-                window.Close();
-                window.Dispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
-                Assert.AreEqual(SettingsWindowCloseReason.None, window.CloseReason);
-                Assert.IsFalse(closed);
-
-                applyRelease.SetResult();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(applyOperation, "settings-view-operation-terminal");
-
-                Assert.IsTrue(applyOperation.IsCompletedSuccessfully);
-                Assert.AreEqual(SettingsWindowCloseReason.InitializationCompleted, window.CloseReason);
-                Assert.IsTrue(closed);
-                CollectionAssert.AreEqual(new[] { true, false }, closeCancellations);
-            }
-            finally
-            {
-                applyRelease.TrySetResult();
-                try
-                {
-                    if (applyOperation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(applyOperation, "settings-view-operation-finally"); }
-                }
-                finally { SynchronizationContext.SetSynchronizationContext(previousContext); }
             }
         });
     }
@@ -4914,14 +4887,6 @@ public sealed class SettingsWindowPresentationTests
         var expected = (SolidColorBrush)resourceOwner.TryFindResource(resourceKey);
         Assert.IsInstanceOfType<SolidColorBrush>(actual, resourceKey);
         Assert.AreEqual(expected.Color, ((SolidColorBrush)actual).Color, resourceKey);
-    }
-
-    private static void SetEditCompletionInProgress(SettingsDialogViewModel viewModel, bool value)
-    {
-        // 完了状態だけを与えて Window の Close 理由判断を分離する。実保存・再読込みとの接続は MainWindow の Apply ケースが分担する。
-        typeof(SettingsDialogViewModel)
-            .GetField("isEditCompletionInProgress", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(viewModel, value);
     }
 
     /// <summary>表示だけを検証する6ケースで同じ専用draftを接続し、Audioページの自動照会には局所結果を与えます。</summary>
@@ -5217,6 +5182,7 @@ public sealed class SettingsWindowPresentationTests
     private sealed class DangerStatePort : ISettingsDialogStatePort
     {
         private readonly Func<Task> reloadScoresOnly;
+        private bool isLibraryOperationInProgress;
         internal Func<Task<StartupInitializationResult>>? ReloadFileDiff { get; init; }
 
         internal DangerStatePort(Func<Task> reloadScoresOnly)
@@ -5226,7 +5192,14 @@ public sealed class SettingsWindowPresentationTests
 
         public bool HasActiveLibraryProfile => true;
 
-        public bool IsLibraryOperationInProgress => false;
+        public bool IsLibraryOperationInProgress => isLibraryOperationInProgress;
+
+        internal void SetLibraryOperationInProgress(bool value)
+        {
+            if (isLibraryOperationInProgress == value) { return; }
+            isLibraryOperationInProgress = value;
+            LibraryOperationAvailabilityChanged?.Invoke(this, EventArgs.Empty);
+        }
 
         public bool IsInitializationCompletionCurrent(long operationToken) => operationToken == 0L;
 
@@ -5253,11 +5226,7 @@ public sealed class SettingsWindowPresentationTests
         public Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null)
             => ReloadFileDiff?.Invoke() ?? Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
-        public event EventHandler LibraryOperationAvailabilityChanged
-        {
-            add { }
-            remove { }
-        }
+        public event EventHandler? LibraryOperationAvailabilityChanged;
 
         public event Action<Lr2PlayHistorySchemaStatusSnapshot> Lr2PlayHistorySchemaStatusChanged
         {

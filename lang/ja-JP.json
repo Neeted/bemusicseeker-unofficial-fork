@@ -1335,5 +1335,7 @@
   "Settings_confirm_record": "この項目を確定",
   "Settings_environment": "環境",
   "Settings_open_bms_roots": "BMS一覧を編集",
-  "Settings_retry": "再試行"
+  "Settings_retry": "再試行",
+  "Settings_retry_audio_save": "音声設定の保存を再試行",
+  "Settings_audio_save_retry_description": "音声設定を保存できませんでした。現在の再生は続行します。再試行して次回再生の設定を保存してください。"
 }

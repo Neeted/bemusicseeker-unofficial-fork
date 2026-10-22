@@ -44,11 +44,7 @@ public partial class GeneralSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            SettingsDialogViewModel viewModel = GetViewModel();
-            if (viewModel.OperationModeLR2DB != requestedOperationMode)
-            {
-                viewModel.OperationModeLR2DB = requestedOperationMode;
-            }
+            await settingsWindow.HandleOperationModeSelectionAsync(requestedOperationMode);
         }
         catch (Exception exception)
         {
@@ -100,7 +96,7 @@ public partial class GeneralSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            settingsWindow.HandleBrowseLr2RootPath();
+            await settingsWindow.HandleBrowseLr2RootPathAsync();
         }
         catch (Exception exception)
         {
@@ -139,7 +135,7 @@ public partial class GeneralSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            settingsWindow.HandleBrowseBeatorajaRootPath();
+            await settingsWindow.HandleBrowseBeatorajaRootPathAsync();
         }
         catch (Exception exception)
         {

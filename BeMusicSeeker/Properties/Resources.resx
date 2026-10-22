@@ -3970,4 +3970,6 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Settings_environment" xml:space="preserve"><value>環境</value></data>
   <data name="Settings_open_bms_roots" xml:space="preserve"><value>BMS一覧を編集</value></data>
   <data name="Settings_retry" xml:space="preserve"><value>再試行</value></data>
+  <data name="Settings_retry_audio_save" xml:space="preserve"><value>音声設定の保存を再試行</value></data>
+  <data name="Settings_audio_save_retry_description" xml:space="preserve"><value>音声設定を保存できませんでした。現在の再生は続行します。再試行して次回再生の設定を保存してください。</value></data>
 </root>

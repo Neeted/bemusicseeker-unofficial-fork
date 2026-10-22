@@ -3112,4 +3112,8 @@ public class Resources
     public static string Settings_open_bms_roots => ResourceManager.GetString("Settings_open_bms_roots", resourceCulture);
     /// <summary>未完了の設定保存・処理を明示的に再試行する文言です。</summary>
     public static string Settings_retry => ResourceManager.GetString(nameof(Settings_retry), resourceCulture);
+    /// <summary>音声設定の保存を再試行</summary>
+    public static string Settings_retry_audio_save => ResourceManager.GetString(nameof(Settings_retry_audio_save), resourceCulture);
+    /// <summary>音声設定を保存できませんでした。現在の再生は続行します。再試行して次回再生の設定を保存してください。</summary>
+    public static string Settings_audio_save_retry_description => ResourceManager.GetString(nameof(Settings_audio_save_retry_description), resourceCulture);
 }

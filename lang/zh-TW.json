@@ -1335,5 +1335,7 @@
   "Settings_confirm_record": "儲存此項目",
   "Settings_environment": "環境",
   "Settings_open_bms_roots": "編輯 BMS 資料夾",
-  "Settings_retry": "重試"
+  "Settings_retry": "重試",
+  "Settings_retry_audio_save": "重試儲存音訊設定",
+  "Settings_audio_save_retry_description": "無法儲存音訊設定。目前的播放將繼續。請重試以儲存下次播放使用的設定。"
 }

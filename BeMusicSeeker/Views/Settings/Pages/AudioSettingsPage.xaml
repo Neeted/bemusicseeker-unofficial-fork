@@ -32,7 +32,8 @@
           <TextBlock Text="{Binding AudioDeviceCapabilityDiagnosticMessage}" TextWrapping="Wrap" />
         </Expander>
       </StackPanel>
-    <Button Tag="retry:audio" Style="{StaticResource SettingsQuietButtonStyle}" HorizontalAlignment="Left" Margin="0,12,0,0" IsEnabled="{Binding IsIndependentSectionEnabled}" Visibility="{Binding CanRetryAudioSettings, Converter={StaticResource BooleanToVisibilityConverter}}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_retry, Mode=OneWay}" /></StackPanel></settings:SettingsSection>
+    <TextBlock Margin="0,12,0,0" TextWrapping="Wrap" Visibility="{Binding CanRetryAudioSettings, Converter={StaticResource BooleanToVisibilityConverter}}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_audio_save_retry_description}" />
+    <Button AutomationProperties.AutomationId="SettingsRetryAudioSave" Tag="retry:audio" Style="{StaticResource SettingsQuietButtonStyle}" HorizontalAlignment="Left" Margin="0,12,0,0" IsEnabled="{Binding IsIndependentSectionEnabled}" Visibility="{Binding CanRetryAudioSettings, Converter={StaticResource BooleanToVisibilityConverter}}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_retry_audio_save, Mode=OneWay}" /></StackPanel></settings:SettingsSection>
 
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_volume, Mode=OneWay}">
       <StackPanel>

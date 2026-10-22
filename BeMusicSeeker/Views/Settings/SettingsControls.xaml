@@ -15,21 +15,51 @@
 
   <Style x:Key="SettingsButtonStyle"
          TargetType="{x:Type Button}"
-         BasedOn="{StaticResource App.Canonical.ButtonStyle}" />
+         BasedOn="{StaticResource App.Canonical.ButtonStyle}">
+    <Style.Triggers><Trigger Property="IsEnabled" Value="False">
+      <Setter Property="Background" Value="{DynamicResource App.SurfaceBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource App.SeparatorBrush}" />
+    </Trigger></Style.Triggers>
+  </Style>
   <Style TargetType="{x:Type Button}" BasedOn="{StaticResource SettingsButtonStyle}" />
 
   <Style x:Key="SettingsPrimaryButtonStyle"
          TargetType="{x:Type Button}"
-         BasedOn="{StaticResource App.Canonical.PrimaryButtonStyle}" />
+         BasedOn="{StaticResource App.Canonical.PrimaryButtonStyle}">
+    <Style.Triggers><Trigger Property="IsEnabled" Value="False">
+      <Setter Property="Background" Value="{DynamicResource App.SurfaceBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource App.SeparatorBrush}" />
+    </Trigger></Style.Triggers>
+  </Style>
   <Style x:Key="SettingsQuietButtonStyle"
          TargetType="{x:Type Button}"
-         BasedOn="{StaticResource App.Canonical.QuietButtonStyle}" />
+         BasedOn="{StaticResource App.Canonical.QuietButtonStyle}">
+    <Style.Triggers><Trigger Property="IsEnabled" Value="False">
+      <Setter Property="Background" Value="{DynamicResource App.SurfaceBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource App.SeparatorBrush}" />
+    </Trigger></Style.Triggers>
+  </Style>
   <Style x:Key="SettingsDangerButtonStyle"
          TargetType="{x:Type Button}"
-         BasedOn="{StaticResource App.Canonical.DangerButtonStyle}" />
+         BasedOn="{StaticResource App.Canonical.DangerButtonStyle}">
+    <Style.Triggers><Trigger Property="IsEnabled" Value="False">
+      <Setter Property="Background" Value="{DynamicResource App.SurfaceBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource App.SeparatorBrush}" />
+    </Trigger></Style.Triggers>
+  </Style>
   <Style x:Key="SettingsIconButtonStyle"
          TargetType="{x:Type Button}"
-         BasedOn="{StaticResource App.Canonical.IconButtonStyle}" />
+         BasedOn="{StaticResource App.Canonical.IconButtonStyle}">
+    <Style.Triggers><Trigger Property="IsEnabled" Value="False">
+      <Setter Property="Background" Value="{DynamicResource App.SurfaceBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource App.SeparatorBrush}" />
+    </Trigger></Style.Triggers>
+  </Style>
 
   <Style x:Key="settingsFooterActionButtonStyle"
          TargetType="{x:Type Button}"

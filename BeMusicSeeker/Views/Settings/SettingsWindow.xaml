@@ -96,7 +96,7 @@
               <TextBlock TextWrapping="Wrap" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_use_on_start}" Visibility="{Binding IsInitialEnvironment, Converter={StaticResource BooleanToVisibilityConverter}}" />
             </StackPanel>
           <StackPanel x:Name="settingsFooter" Grid.Row="1" Margin="24,16" HorizontalAlignment="Right" Orientation="Horizontal">
-            <Button x:Name="buttonOK" Style="{StaticResource SettingsPrimaryButtonStyle}" MinWidth="112" Margin="0,0,8,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_start_environment, Mode=OneWay}" AutomationProperties.AutomationId="SettingsStartEnvironment" Visibility="{Binding IsInitialEnvironment, Converter={StaticResource BooleanToVisibilityConverter}}" Click="buttonOKClick" />
+            <Button x:Name="buttonOK" Style="{StaticResource SettingsPrimaryButtonStyle}" MinWidth="112" Margin="0,0,8,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_start_environment, Mode=OneWay}" IsEnabled="{Binding CanStartEnvironment}" AutomationProperties.AutomationId="SettingsStartEnvironment" Visibility="{Binding IsInitialEnvironment, Converter={StaticResource BooleanToVisibilityConverter}}" Click="buttonOKClick" />
             <Button x:Name="buttonCancel" Style="{StaticResource SettingsQuietButtonStyle}" MinWidth="88" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Close, Mode=OneWay}" AutomationProperties.AutomationId="SettingsClose" IsEnabled="{Binding IsEditCancellationEnabled}" Click="buttonCancelClick" />
           </StackPanel>
           </Grid>

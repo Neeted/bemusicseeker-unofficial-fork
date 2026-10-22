@@ -178,8 +178,6 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private bool operationModeRestartAccepted;
 
-    // 受理済み環境処理だけを既存終了joinへ渡します。終了要求をこのTaskへ含めません。
-    private Task operationModeRestartContinuation;
 
     /// <summary>
     /// 構成の新規L/P受付を閉じ、終了準備、実終端の回収、最終的なApplication終了要求を調整します。
@@ -586,7 +584,7 @@ internal sealed class ShellShutdownWorkflowOwner
         return await acceptanceTask.ConfigureAwait(false);
     }
 
-    private async Task<bool> AcceptOperationModeRestartAsync(OperationModeRestartRequest request)
+    private Task<bool> AcceptOperationModeRestartAsync(OperationModeRestartRequest request)
     {
         if (OperationModeRestartRequested == null)
         {
@@ -603,7 +601,7 @@ internal sealed class ShellShutdownWorkflowOwner
                 || terminalShutdownTask != null
                 || startupUpdateWorkflow.IsShutdownPreparationStarted)
             {
-                return false;
+                return Task.FromResult(false);
             }
 
             operationModeRestartRequestPending = true;
@@ -617,20 +615,9 @@ internal sealed class ShellShutdownWorkflowOwner
                 operationModeRestartAccepted = true;
                 operationModeRestartRequestPending = false;
             }
-            var continuation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            lock (syncRoot) { operationModeRestartContinuation = continuation.Task; }
-            try
-            {
-                if (request.BeforeShutdown != null) { await request.BeforeShutdown().ConfigureAwait(true); }
-            }
-            finally
-            {
-                // 外部Closeもここまで待ちます。ここからCloseを要求しても自己待ちしません。
-                continuation.TrySetResult();
-                startupUpdateWorkflow.NotifyClosing();
-                OperationModeRestartRequested();
-            }
-            return true;
+            startupUpdateWorkflow.NotifyClosing();
+            OperationModeRestartRequested();
+            return Task.FromResult(true);
         }
         catch
         {
@@ -953,12 +940,6 @@ internal sealed class ShellShutdownWorkflowOwner
         stopwatch ??= Stopwatch.StartNew();
         sqliteCloseFailureBaseline ??= ShutdownOperationTracker.SqliteCloseFailureCount;
         var waitTracker = new ShutdownWaitTracker();
-        Task environmentContinuation;
-        lock (syncRoot) { environmentContinuation = operationModeRestartContinuation; }
-        await WaitForTaskCompletionAsync("environmentRestartContinuation", environmentContinuation,
-            ShutdownDrainWarningThreshold, waitTracker,
-            () => "completed=" + FormatBool(environmentContinuation == null || environmentContinuation.IsCompleted)).ConfigureAwait(false);
-        await (environmentContinuation ?? Task.CompletedTask).ConfigureAwait(false);
         await WaitForTaskCompletionAsync(
             "regularChartListWarmup",
             regularChartListStopTask,

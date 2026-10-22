@@ -176,7 +176,7 @@ internal sealed class PlaylistBmtOutputOwner
     /// <summary>全表の必要出力を同じPで直接待ちます。管理台帳の全量cleanupはこの全体要求だけが行います。</summary>
     /// <param name="capability">外側が公開とcleanup終端まで保持する生存P権限。nullは新規非待機受付です。</param>
     /// <param name="forceProjection">署名一致による生成省略を迂回し、同じ全表出力で再生成するか。</param>
-    /// <param name="options">環境確定で捕捉済みの新環境入力。省略時だけ現在の確定値を要求受付前に捕捉します。</param>
+    /// <param name="options">局所反映で捕捉済みの組。指定時は出力先とURL同期先を再解決せず使います。省略時は現在の確定値とconfigの出力先を使います。</param>
     internal Task ExportAllAsync(string reason, string cleanupTablePath = null,
         OperationProgressRequest originatingRequest = null, LibraryFileMutationCapability capability = null, bool forceProjection = false, BeatorajaBmtOptionsSnapshot options = null)
         => ExecuteAsync([], [], reason, ExportScope.AllTables, cleanupTablePath, originatingRequest, capability, forceProjection, options);
@@ -243,7 +243,8 @@ internal sealed class PlaylistBmtOutputOwner
         try
         {
             NotifyBestEffort(() => RequestProgressReporter?.Invoke(request, true), "request_started");
-            await Task.Run(() => Execute(changed, removed, options, reason, scope, cleanupTablePath, request, forceProjection)).ConfigureAwait(false);
+            await Task.Run(() => Execute(changed, removed, options, reason, scope, cleanupTablePath, request, forceProjection,
+                useCapturedTablePath: capturedOptions != null)).ConfigureAwait(false);
         }
         finally
         {
@@ -252,7 +253,8 @@ internal sealed class PlaylistBmtOutputOwner
     }
 
     private void Execute(IReadOnlyList<BMSTable> changed, IReadOnlyList<BMSTable> removed,
-        BeatorajaBmtOptionsSnapshot options, string reason, ExportScope scope, string cleanupTablePath, OperationProgressRequest request, bool forceProjection)
+        BeatorajaBmtOptionsSnapshot options, string reason, ExportScope scope, string cleanupTablePath, OperationProgressRequest request, bool forceProjection,
+        bool useCapturedTablePath)
     {
         if (IsShutdownRequested) { throw new OperationCanceledException("Playlist BMT output was cancelled by shutdown."); }
         // 無効の通常変更と保持要求は、configを読む出力先解決にも依存させない。
@@ -265,7 +267,10 @@ internal sealed class PlaylistBmtOutputOwner
         Exception primaryFailure = null;
         try
         {
-            outputPath = GetTablePath(options);
+            // 保存後の修復は、configが変化しても受理済みの旧新出力先を取りこぼさない。
+            outputPath = useCapturedTablePath ? options.BeatorajaBmtTablePath : GetTablePath(options);
+            if (useCapturedTablePath && options.EnableBeatorajaBmtOutput && string.IsNullOrWhiteSpace(outputPath))
+            { throw new InvalidOperationException(Resources.Error_InvalidBeatorajaBmtTablePath); }
             bool enabled = options.EnableBeatorajaBmtOutput && !string.IsNullOrWhiteSpace(outputPath);
             if (!string.IsNullOrWhiteSpace(cleanupTablePath)
                 && (!enabled || !IsSameTablePath(cleanupTablePath, outputPath))
@@ -273,7 +278,7 @@ internal sealed class PlaylistBmtOutputOwner
             {
                 BmtTableExportService.ExportResult cleanup = BmtTableExportService.CleanupManagedFiles(cleanupTablePath);
                 failures.AddRange(cleanup.Failures);
-                SyncManagedTableUrls(cleanupTablePath, cleanup.PreviousManagedTables, cleanup.CurrentManagedTables, options);
+                SyncManagedTableUrls(cleanupTablePath, cleanup.PreviousManagedTables, cleanup.CurrentManagedTables, options, useCapturedTablePath);
             }
             if (!enabled && (scope != ExportScope.AllTables || options.KeepBeatorajaBmtFilesWhenOutputDisabled)) { return; }
             if (scope == ExportScope.ChangedTables && changed.Count == 0 && removed.Count == 0) { return; }
@@ -320,7 +325,7 @@ internal sealed class PlaylistBmtOutputOwner
                         + " written=" + export.WrittenCount + " skipped=" + export.SkippedWriteCount + " removed=" + export.RemovedCount);
                 }
                 SyncManagedTableUrls(outputPath, previous, enabled || options.KeepBeatorajaBmtFilesWhenOutputDisabled
-                    ? BmtTableExportService.ReadManagedTableUrls(outputPath) : [], options);
+                    ? BmtTableExportService.ReadManagedTableUrls(outputPath) : [], options, useCapturedTablePath);
             }
         }
         catch (Exception exception)
@@ -381,9 +386,10 @@ internal sealed class PlaylistBmtOutputOwner
         string tablePath,
         IEnumerable<BmtTableExportService.ManagedTableUrlEntry> previousManagedTables,
         IEnumerable<BmtTableExportService.ManagedTableUrlEntry> currentManagedTables,
-        BeatorajaBmtOptionsSnapshot options)
+        BeatorajaBmtOptionsSnapshot options, bool useCapturedTablePath = false)
     {
-        if (!TryGetConfiguredTablePath(options, out string configuredTablePath))
+        string configuredTablePath = options.BeatorajaBmtTablePath;
+        if (!useCapturedTablePath && !TryGetConfiguredTablePath(options, out configuredTablePath))
         {
             return;
         }

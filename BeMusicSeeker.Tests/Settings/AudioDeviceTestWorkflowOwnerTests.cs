@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using ManagedBass;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -16,6 +18,35 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class AudioDeviceTestWorkflowOwnerTests
 {
+    /// <summary>保存側と候補側の既定機器null/空表現が違っても同義として扱い、実保存や保存失敗の再試行を発生させません。</summary>
+    [DataTestMethod]
+    [DataRow(null, "")]
+    [DataRow("", null)]
+    public void OutputSelection_DefaultRepresentationsDoNotSaveOrRequireRetry(string? saved, string? candidate)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "AudioSaveMeaning-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string path = Path.Combine(root, "user.config");
+        try
+        {
+            Settings values = PortableSettingsPersistenceTests.OpenSettings(path);
+            values.PlayerDriver = BassAudioMapping.ToBassDriver(AudioDriver.WasapiShared);
+            values.PlayerDevice = saved;
+            values.PlayerDeviceName = saved;
+            values.Save();
+            using AudioDeviceTestWorkflowOwner workflow = AudioDeviceTestWorkflowTestFactory.Create();
+            workflow.ConfigurePresentation(() => values, new TestAudioDeviceCatalog());
+            workflow.OutputSelection = new AudioOutputSelection(AudioDriver.WasapiShared, candidate, candidate);
+            using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                Assert.IsFalse(workflow.HasOutputSettingsChanges);
+                workflow.CommitOutputSettings();
+                Assert.IsFalse(workflow.IsOutputSettingsSaveRetryRequired);
+            }
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     /// <summary>実行中照会へ取消を届け、Task 終端後の解放通知と次照会の受付を確認して、取消だけで受付を占有し続ける誤りを検出します。</summary>
     [TestMethod]
     [DoNotParallelize]

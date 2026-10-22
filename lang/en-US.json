@@ -1335,5 +1335,7 @@
   "Settings_confirm_record": "Save this record",
   "Settings_environment": "Environment",
   "Settings_open_bms_roots": "Edit BMS directories",
-  "Settings_retry": "Retry"
+  "Settings_retry": "Retry",
+  "Settings_retry_audio_save": "Retry saving audio settings",
+  "Settings_audio_save_retry_description": "Audio settings could not be saved. Current playback continues. Retry to save the settings for the next playback."
 }

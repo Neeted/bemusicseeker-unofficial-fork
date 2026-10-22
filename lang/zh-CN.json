@@ -1335,5 +1335,7 @@
   "Settings_confirm_record": "保存此条目",
   "Settings_environment": "环境",
   "Settings_open_bms_roots": "编辑 BMS 文件夹",
-  "Settings_retry": "重试"
+  "Settings_retry": "重试",
+  "Settings_retry_audio_save": "重试保存音频设置",
+  "Settings_audio_save_retry_description": "无法保存音频设置。当前播放将继续。请重试以保存下次播放使用的设置。"
 }

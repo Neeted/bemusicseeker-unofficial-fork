@@ -13,6 +13,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NLog;
@@ -186,14 +187,15 @@ public sealed class MainWindowViewModelStartupProgressTests
             changedProperties);
     }
 
-    /// <summary>実起動の必須UI前はHTTP未開始、成功公開・解禁後は完了通知とHTTP本文を保持しても両索引準備が始まります。同期省略時のcatalog登録・受付識別・実親終端を標準接続で確認します。</summary>
+    /// <summary>実起動の必須UI前はHTTP未開始で実設定Windowの開始を無効にし、成功公開後は元の起動TaskとWindowが存続したまま開始表示を閉じます。通知とHTTP本文を保持しても両索引準備が始まり、catalog登録・受付識別・実親終端を標準接続で確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void StartupRequiredUi_ActualTaskOwnsCompletionBeforeOptionalWorkStarts()
     {
-        TestUiDispatcherHost.Invoke(() =>
+        TestUiDispatcherHost.RunWindowTest(scope =>
         {
             using var fixture = new CompletionFixture();
+            SettingsWindow? settingsWindow = null;
             var server = new SingleRequestHttpServer(System.Text.Encoding.UTF8.GetBytes("[]"), holdBody: true);
             fixture.Settings.TableListURL = server.Address;
             var noticeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -216,6 +218,25 @@ public sealed class MainWindowViewModelStartupProgressTests
             {
                 AwaitArrival(fixture.Ui.Entered.Task, initialization, "startup-required-ui");
                 fixture.AssertBeforeUiCompletion();
+                SettingsDialogViewModel settings = fixture.Owner.SettingDialog;
+                settingsWindow = new SettingsWindow(fixture.Dialogs) { DataContext = settings, PlaybackPanel = fixture.Owner.PlaybackPanel };
+                scope.ShowAndWaitForContentRendered(settingsWindow);
+                var start = (System.Windows.Controls.Button)settingsWindow.FindName("buttonOK");
+                Assert.IsTrue(settingsWindow.IsVisible);
+                Assert.AreEqual(Visibility.Visible, start.Visibility);
+                Assert.IsFalse(start.IsEnabled);
+                var captured = EnvironmentSettingsChange.Capture(fixture.Settings);
+                string confirmedBeatoraja = fixture.Settings.BeatorajaRootPath;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(settings.StartConfirmedEnvironmentAsync(), "startup-ui-reject-duplicate-start");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(settings.SelectOperationModeAsync(!captured.OperationModeLR2DB), "startup-ui-reject-mode");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(settings.SelectLr2RootAsync(fixture.Settings.LR2RootPath), "startup-ui-reject-root");
+                settings.BeatorajaRootPath = Path.Combine(fixture.Settings.BMSRootPath, "other-beatoraja");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(settings.CommitScoreSettingsAsync(), "startup-ui-reject-beatoraja");
+                Assert.AreEqual(captured, EnvironmentSettingsChange.Capture(fixture.Settings));
+                Assert.AreEqual(confirmedBeatoraja, fixture.Settings.BeatorajaRootPath);
+                Assert.IsFalse(settings.CanStartEnvironment);
+                Assert.IsFalse(settings.IsEnvironmentSelectionEnabled);
+                settings.ShowNewPackageInstallConfirmMsg = !fixture.Settings.ShowNewPackageInstallConfirmMsg;
                 Assert.IsFalse(initialization.IsCompleted);
                 Assert.AreEqual(string.Empty, server.RequestMethod);
                 fixture.Ui.Release.TrySetResult();
@@ -223,6 +244,9 @@ public sealed class MainWindowViewModelStartupProgressTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(server.WaitForPhaseAsync(server.HeadersSent.Task, "catalog HTTP before notice completion"), "catalog-http-arrival");
                 Assert.IsFalse(initialization.IsCompleted, "InitializeAsyncは実通知Taskを引き続き待ちます。");
                 Assert.IsTrue(fixture.Owner.IsInitializationCompleted);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(settingsWindow.IsVisible, "通常起動成功は開いている設定Windowを閉じません。");
+                Assert.AreEqual(Visibility.Collapsed, start.Visibility, "成功公開の実通知で同じ開始buttonの表示を更新します。");
                 Assert.IsFalse(fixture.Owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
                 Assert.IsTrue(fixture.Settings.SkipInitPlaylistLoad);
                 StartupAdditionalProgressSnapshot additional = fixture.Scheduler.CaptureAdditionalProgressSnapshot();
@@ -266,6 +290,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 fixture.Ui.Release.TrySetResult();
                 fixture.OptionalRelease.TrySetResult();
                 server.ReleaseBody.TrySetResult();
+                settingsWindow?.CloseForOwnerShutdown();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "catalog-startup-cleanup");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(server.DisposeAsync().AsTask(), "catalog-http-cleanup");
             }
@@ -1403,7 +1428,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         });
     }
 
-    /// <summary>バックアップ項目の保存通知故障は保存済み値を保ち、独立したScore確定の必須UI失敗はpendingと確定値を保持します。Scoreの成功後だけ既存URL方針の後続を登録し、次の明示確定で再試行します。</summary>
+    /// <summary>バックアップ項目の保存通知故障は保存済み値を保ち、有効な実beatoraja DBへの使用切替で起こるScore確定の必須UI失敗はpendingと確定値を保持します。Scoreの成功後だけ既存URL方針の後続を登録し、次の明示確定で再試行します。</summary>
     [DataTestMethod]
     [DataRow(true)] // 必須UI失敗ではpendingを残し、次の明示確定までURL workを開始しません。
     [DataRow(false)] // 別項目の保存通知故障はScore成功とURL workを変えません。
@@ -1450,7 +1475,18 @@ public sealed class MainWindowViewModelStartupProgressTests
                 });
             };
             SettingsDialogViewModel dialog = fixture.Owner.SettingDialog;
-            dialog.BeatorajaPlayerId = "saved-score-player";
+            string beatoraja = Path.Combine(fixture.Settings.BMSRootPath, "beatoraja");
+            string playerDirectory = Directory.CreateDirectory(Path.Combine(beatoraja, "player", "saved-score-player")).FullName;
+            File.WriteAllText(Path.Combine(beatoraja, "beatoraja.jar"), string.Empty);
+            File.WriteAllText(Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName), "{\"playername\":\"saved-score-player\"}");
+            string scorePath = Path.Combine(playerDirectory, "score.db");
+            using (var scoreDb = new SQLite.SQLiteConnection(scorePath))
+            {
+                scoreDb.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
+            }
+            dialog.BeatorajaRootPath = beatoraja;
+            dialog.UseBeatorajaScoreDb = true;
+            Assert.IsTrue(dialog.IsScoreSelectionValid);
             // 通常項目の確定をScoreへ混ぜず、後続が採用する既存の確定方針をfixtureへ与えます。
             fixture.Settings.EnablePlaylistUrlCompletion = true;
             fixture.Settings.PlaylistMd5UrlMappingTsvUri = string.Empty;
@@ -1477,6 +1513,8 @@ public sealed class MainWindowViewModelStartupProgressTests
                 Assert.IsTrue(dialog.IsScoreReloadPending, "core成功だけでは必要UIまでのpendingを解除しません。");
                 Assert.AreEqual(0, registrations);
                 Assert.AreEqual("saved-score-player", fixture.Settings.BeatorajaPlayerId);
+                Assert.IsTrue(fixture.Settings.UseBeatorajaScoreDb);
+                Assert.AreEqual(scorePath, fixture.Settings.BeatorajaScoreDbPath);
                 Assert.IsTrue(fixture.Settings.EnablePlaylistUrlCompletion);
                 if (uiFails) { fixture.Ui.Release.TrySetException(uiFailure); }
                 else { fixture.Ui.Release.TrySetResult(); }

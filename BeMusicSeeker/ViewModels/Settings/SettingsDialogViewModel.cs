@@ -541,7 +541,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
 
     /// <summary>
-    /// 環境セクションの候補modeを保持します。保存・再起動は環境の明示確定だけが開始します。
+    /// LR2詳細編集の候補modeを保持します。実radio入力は保存済みLR2組で自動反映します。
     /// </summary>
     public bool OperationModeLR2DB
     {
@@ -1544,6 +1544,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         set
         {
+            if (pendingBeatorajaChange != null || bmtProcessingRetryRequired) { return; }
             if (scoreUseBeatorajaScoreDb != value)
             {
                 scoreUseBeatorajaScoreDb = value;
@@ -1554,7 +1555,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    /// <summary>環境セクションのroot候補です。選択時に同区分のplayerと派生パスだけを解決し、スコア候補は変更しません。</summary>
+    /// <summary>局所beatoraja組のroot候補です。Windowsの大文字小文字だけ異なる同値入力は表記と組を保ち、新rootの選択時に既存方針でplayerと派生先を揃えます。</summary>
     public string BeatorajaRootPath
     {
         get
@@ -1564,7 +1565,8 @@ public partial class SettingsDialogViewModel : ViewModel
         set
         {
             string path = value ?? string.Empty;
-            if (environmentBeatorajaRootPath == path)
+            if (pendingBeatorajaChange != null || bmtProcessingRetryRequired) { return; }
+            if (string.Equals(environmentBeatorajaRootPath, path, StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
@@ -1572,22 +1574,23 @@ public partial class SettingsDialogViewModel : ViewModel
             RefreshEnvironmentBeatorajaCandidate();
             RaisePropertyChanged("BeatorajaRootPath");
             RaiseValidationStateChanged();
+            OnScoreSelectionChanged();
         }
     }
 
-    /// <summary>最新確定rootのplayer一覧です。別rootで未検証になった選択候補も、明示確定まで保持します。</summary>
+    /// <summary>同じ局所rootのplayer一覧です。</summary>
     public List<string> AvailableBeatorajaPlayers
     {
         get
         {
-            List<string> players = BeatorajaConfigService.GetPlayerIds(ApplicationSettings.BeatorajaRootPath);
+            List<string> players = BeatorajaConfigService.GetPlayerIds(environmentBeatorajaRootPath);
             if (!string.IsNullOrWhiteSpace(scoreBeatorajaPlayerId) && !players.Contains(scoreBeatorajaPlayerId, StringComparer.OrdinalIgnoreCase))
             { players.Add(scoreBeatorajaPlayerId); }
             return players;
         }
     }
 
-    /// <summary>スコアセクションのplayer候補です。一覧再構成の一時nullでは破棄せず、確定時に最新rootで検証します。</summary>
+    /// <summary>局所rootと同じ組のplayer候補です。一覧再構成の一時nullでは破棄しません。</summary>
     public string BeatorajaPlayerId
     {
         get
@@ -1596,7 +1599,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         set
         {
-            if (value == null) { return; }
+            if (value == null || pendingBeatorajaChange != null || bmtProcessingRetryRequired) { return; }
             string playerId = value;
             if (scoreBeatorajaPlayerId == playerId)
             {
@@ -1607,11 +1610,13 @@ public partial class SettingsDialogViewModel : ViewModel
             RaisePropertyChanged(nameof(AvailableBeatorajaPlayers));
             RaisePropertyChanged("BeatorajaPlayerId");
             RaisePropertyChanged(nameof(BeatorajaScoreDbPath));
+            RaiseEnvironmentBeatorajaCandidateChanged();
             RaiseValidationStateChanged();
             OnScoreSelectionChanged();
         }
     }
 
+    /// <summary>局所root・playerの選択時に解決したscore.dbを表示します。値は派生情報として扱い、直接入力で変更しません。</summary>
     public string BeatorajaScoreDbPath
     {
         get
@@ -1659,11 +1664,12 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>局所組と同時に解決したBMT出力先を表示します。保存後の修復中は捕捉した対象を維持します。</summary>
     public string BeatorajaBmtTablePath
     {
         get
         {
-            return BeatorajaConfigService.GetTablePath(ApplicationSettings.BeatorajaRootPath);
+            return beatorajaBmtTablePath;
         }
         set
         {
@@ -4425,7 +4431,9 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void RefreshBeatorajaDerivedSettings()
     {
-        scoreBeatorajaScoreDbPath = BeatorajaConfigService.GetScoreDbPath(ApplicationSettings.BeatorajaRootPath, scoreBeatorajaPlayerId);
+        // 一度表示した局所組を検査・保存にも使い、明示再試行で別のconfig入力へ読み替えません。
+        scoreBeatorajaScoreDbPath = BeatorajaConfigService.GetScoreDbPath(environmentBeatorajaRootPath, scoreBeatorajaPlayerId);
+        beatorajaBmtTablePath = BeatorajaConfigService.GetTablePath(environmentBeatorajaRootPath);
     }
 
     private bool IsuBMplayPathValid(string value)

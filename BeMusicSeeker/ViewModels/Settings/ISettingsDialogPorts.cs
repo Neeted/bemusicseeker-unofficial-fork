@@ -95,7 +95,7 @@ internal interface ISettingsDialogWorkspacePort
 
     /// <summary>同じP権限で全表BMTの生成・旧配置回収・設定反映の実終端を待ち、元失敗を伝播します。</summary>
     /// <param name="forceProjection">同じ全表出力で、署名一致による生成省略を迂回するか。</param>
-    /// <param name="options">環境確定が捕捉した新環境の条件。省略時だけ当該担当が現在の確定値を捕捉します。</param>
+    /// <param name="options">局所反映が捕捉した組。指定時は出力先とURL同期先を再解決せず使い、省略時は現在の確定値とconfigの出力先を使います。</param>
     Task ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability, bool forceProjection = false, BeatorajaBmtOptionsSnapshot options = null);
 
     Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string operationName);

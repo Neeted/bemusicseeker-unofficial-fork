@@ -545,6 +545,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
 
     private async void buttonOKClick(object sender, RoutedEventArgs e)
     {
+        if (viewOperationInProgress || !GetSettingDialogViewModel().CanStartEnvironment) { return; }
         try
         {
             await RunInitializationOperationAsync(() => GetSettingDialogViewModel().StartConfirmedEnvironmentAsync());
@@ -679,11 +680,26 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         return string.IsNullOrWhiteSpace(second) ? string.Empty : Path.GetDirectoryName(second) ?? string.Empty;
     }
 
-    /// <summary>Owns the LR2 root picker route for category pages.</summary>
-    internal void HandleBrowseLr2RootPath()
+    /// <summary>実radio入力のモード反映を同じWindowの操作Taskで追跡します。</summary>
+    internal Task HandleOperationModeSelectionAsync(bool value)
     {
-        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        PickRootFolderForSetting(nameof(settingDialogViewModel.LR2RootPath), settingDialogViewModel.LR2RootPath);
+        SettingsDialogViewModel settings = GetSettingDialogViewModel();
+        if (viewOperationInProgress || !settings.IsEnvironmentSelectionEnabled) { return Task.CompletedTask; }
+        return RunViewOperationAsync(() => settings.SelectOperationModeAsync(value));
+    }
+
+    /// <summary>LR2 root選択の標準組を解決し、その明示入力だけを自動反映します。</summary>
+    internal async Task HandleBrowseLr2RootPathAsync()
+    {
+        SettingsDialogViewModel settings = GetSettingDialogViewModel();
+        if (viewOperationInProgress || !settings.IsEnvironmentSelectionEnabled) { return; }
+        await RunViewOperationAsync(async () =>
+        {
+            UiFolderPickerResult result = await dialogService.PickFolderAsync(new UiFolderPickerRequest(null, settings.LR2RootPath, false, this));
+            ThrowIfPickerFailed(result.Status, result.Error, "LR2 root folder picker");
+            if (result.Status != UiDialogStatus.Accepted) { return; }
+            await settings.SelectLr2RootAsync(result.FolderPath);
+        });
     }
 
     /// <summary>LR2 の song.db を個別指定する前に注意を確認し、受理された場合だけファイル選択を開きます。</summary>
@@ -811,11 +827,23 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         ThrowIfWindowDialogFailed(result.Status, result.Error, "Release notes dialog");
     }
 
-    /// <summary>Owns the beatoraja root picker route for the General page.</summary>
-    internal void HandleBrowseBeatorajaRootPath()
+    /// <summary>beatorajaのroot選択と成立した局所組の必要処理を同じWindowで待ちます。</summary>
+    internal async Task HandleBrowseBeatorajaRootPathAsync()
     {
-        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        PickRootFolderForSetting(nameof(settingDialogViewModel.BeatorajaRootPath), settingDialogViewModel.BeatorajaRootPath);
+        SettingsDialogViewModel settings = GetSettingDialogViewModel();
+        if (viewOperationInProgress || !settings.IsBeatorajaSelectionEnabled) { return; }
+        await RunViewOperationAsync(async () =>
+        {
+            UiFolderPickerResult result = await dialogService.PickFolderAsync(new UiFolderPickerRequest(null, settings.BeatorajaRootPath, false, this));
+            ThrowIfPickerFailed(result.Status, result.Error, "beatoraja root folder picker");
+            if (result.Status != UiDialogStatus.Accepted) { return; }
+            string previous = settings.BeatorajaRootPath;
+            settings.SetRootFolderPathFromPicker(nameof(settings.BeatorajaRootPath), result.FolderPath);
+            if (string.Equals(previous, settings.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(result.FolderPath, settings.BeatorajaRootPath, StringComparison.Ordinal)
+                || !settings.IsScoreSelectionValid) { return; }
+            await settings.CommitScoreSettingsAsync();
+        });
     }
 
     /// <summary>Starts the workspace-owned beatoraja table import requested by the General page.</summary>

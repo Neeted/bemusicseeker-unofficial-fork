@@ -24,50 +24,6 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class ShellShutdownWorkflowOwnerTests
 {
-    /// <summary>環境保存後のBMT・通知継続を外部Closeも回収し、その終端前に後継起動しません。</summary>
-    [TestMethod]
-    public async Task EnvironmentRestartContinuationIsJoinedByConcurrentCloseBeforeSuccessorStarts()
-    {
-        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
-        var events = new List<string>();
-        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var session = new RecordingSettingsEditSession(() => events.Add("save"));
-        ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, settingsEditSession: session,
-            startApplicationRestart: () => { events.Add("successor"); return Task.CompletedTask; });
-        owner.OperationModeRestartRequested += () => events.Add("close-request");
-        Task<bool>? request = null;
-        Task<ShellShutdownWorkflowCompletionReceipt>? close = null;
-        try
-        {
-            request = owner.RequestOperationModeRestartAsync(new OperationModeRestartRequest(EnvironmentSettingsChange.Capture(session.Values) with { OperationModeLR2DB = true }, "environment", beforeShutdown: async () =>
-            {
-                events.Add("bmt");
-                entered.TrySetResult();
-                await release.Task;
-                events.Add("notification-terminal");
-            }));
-            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, request, "environment-bmt-start");
-            close = owner.RequestWindowCloseAsync();
-            Assert.IsFalse(close.IsCompleted);
-            CollectionAssert.AreEqual(new[] { "save", "bmt" }, events.ToArray());
-            release.TrySetResult();
-            Assert.IsTrue(await request);
-            Assert.IsTrue((await close).PreparationSucceeded);
-            await owner.CompleteTerminalShutdownAsync();
-            Assert.IsTrue(events.IndexOf("notification-terminal") < events.IndexOf("close-request"));
-            Assert.IsTrue(events.IndexOf("notification-terminal") < events.IndexOf("successor"));
-        }
-        finally
-        {
-            release.TrySetResult();
-            if (request != null) { await request; }
-            if (close != null) { await close; }
-            await owner.CompleteTerminalShutdownAsync();
-            viewModel.SettingDialog.Dispose();
-        }
-    }
-
     /// <summary>閉じる要求を連続しても同じ準備Taskと終端結果を共有し、二重停止を開始しません。</summary>
     [TestMethod]
     public async Task RepeatedWindowCloseRequestsShareOnePreparationAndCompletion()
