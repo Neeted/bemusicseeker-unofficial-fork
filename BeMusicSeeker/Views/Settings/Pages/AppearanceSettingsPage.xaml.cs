@@ -1,7 +1,6 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views.Settings.Pages;
@@ -24,8 +23,7 @@ public partial class AppearanceSettingsPage : UserControl
     /// </summary>
     internal void RefreshThemeSelection()
     {
-        radioButtonLightTheme.GetBindingExpression(ToggleButton.IsCheckedProperty)?.UpdateTarget();
-        radioButtonDarkTheme.GetBindingExpression(ToggleButton.IsCheckedProperty)?.UpdateTarget();
+        appearanceThemeComboBox.GetBindingExpression(System.Windows.Controls.Primitives.Selector.SelectedValueProperty)?.UpdateTarget();
     }
 
     private SettingsDialogViewModel GetViewModel()

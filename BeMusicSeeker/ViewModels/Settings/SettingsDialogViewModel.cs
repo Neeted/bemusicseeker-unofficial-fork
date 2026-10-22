@@ -2711,9 +2711,20 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             get
             {
-                return string.Equals(Key, AppThemeService.Dark, StringComparison.Ordinal)
-                    ? BeMusicSeeker.Properties.Resources.Appearance_theme_dark
-                    : BeMusicSeeker.Properties.Resources.Appearance_theme_light;
+                return Key switch
+                {
+                    AppThemeService.Light => Resources.Appearance_theme_light,
+                    AppThemeService.Dark => Resources.Appearance_theme_dark,
+                    AppThemeService.Sepia => Resources.Appearance_theme_sepia,
+                    AppThemeService.Frost => Resources.Appearance_theme_frost,
+                    AppThemeService.NeonViolet => Resources.Appearance_theme_neon_violet,
+                    AppThemeService.GreenTerminal => Resources.Appearance_theme_green_terminal,
+                    AppThemeService.AmberTerminal => Resources.Appearance_theme_amber_terminal,
+                    AppThemeService.OledBlack => Resources.Appearance_theme_oled_black,
+                    AppThemeService.DeepSea => Resources.Appearance_theme_deep_sea,
+                    AppThemeService.DosBlue => Resources.Appearance_theme_dos_blue,
+                    _ => throw new InvalidOperationException($"Unknown appearance theme: {Key}")
+                };
             }
         }
 
@@ -2805,34 +2816,6 @@ public partial class SettingsDialogViewModel : ViewModel
                 if (!TryCommitSetting(nameof(AppearanceTheme), (nameof(Settings.AppearanceTheme), normalizedTheme))) { return; }
                 AppThemeService.ApplyTheme(normalizedTheme);
                 RaisePropertyChanged("AppearanceTheme");
-                RaisePropertyChanged(nameof(IsLightAppearanceTheme));
-                RaisePropertyChanged(nameof(IsDarkAppearanceTheme));
-            }
-        }
-    }
-
-    /// <summary>Gets or selects the light appearance theme for choice-tile binding.</summary>
-    public bool IsLightAppearanceTheme
-    {
-        get => string.Equals(AppearanceTheme, AppThemeService.Light, StringComparison.Ordinal);
-        set
-        {
-            if (value)
-            {
-                AppearanceTheme = AppThemeService.Light;
-            }
-        }
-    }
-
-    /// <summary>Gets or selects the dark appearance theme for choice-tile binding.</summary>
-    public bool IsDarkAppearanceTheme
-    {
-        get => string.Equals(AppearanceTheme, AppThemeService.Dark, StringComparison.Ordinal);
-        set
-        {
-            if (value)
-            {
-                AppearanceTheme = AppThemeService.Dark;
             }
         }
     }
@@ -3807,11 +3790,7 @@ public partial class SettingsDialogViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(audioDeviceTestWorkflow));
         this.audioDeviceTestWorkflow.ConfigurePresentation(() => ApplicationSettings, this.audioDeviceCatalog, this.reportApplyFailure);
         this.audioDeviceTestWorkflow.PropertyChanged += AudioSettingsPropertyChanged;
-        appearanceThemeOptions =
-        [
-            new AppearanceThemeOption(AppThemeService.Light),
-                new AppearanceThemeOption(AppThemeService.Dark)
-        ];
+        appearanceThemeOptions = AppThemeService.AvailableThemes.Select(theme => new AppearanceThemeOption(theme)).ToArray();
         beatorajaBmtHashOutputModeOptions =
         [
             new BeatorajaBmtHashOutputModeOption(BeMusicSeeker.Models.BeatorajaBmtHashOutputMode.Original),

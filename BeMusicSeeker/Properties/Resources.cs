@@ -258,6 +258,22 @@ public class Resources
 
     public static string Appearance_theme_light => ResourceManager.GetString("Appearance_theme_light", resourceCulture);
 
+    public static string Appearance_theme_sepia => ResourceManager.GetString("Appearance_theme_sepia", resourceCulture);
+
+    public static string Appearance_theme_frost => ResourceManager.GetString("Appearance_theme_frost", resourceCulture);
+
+    public static string Appearance_theme_neon_violet => ResourceManager.GetString("Appearance_theme_neon_violet", resourceCulture);
+
+    public static string Appearance_theme_green_terminal => ResourceManager.GetString("Appearance_theme_green_terminal", resourceCulture);
+
+    public static string Appearance_theme_amber_terminal => ResourceManager.GetString("Appearance_theme_amber_terminal", resourceCulture);
+
+    public static string Appearance_theme_oled_black => ResourceManager.GetString("Appearance_theme_oled_black", resourceCulture);
+
+    public static string Appearance_theme_deep_sea => ResourceManager.GetString("Appearance_theme_deep_sea", resourceCulture);
+
+    public static string Appearance_theme_dos_blue => ResourceManager.GetString("Appearance_theme_dos_blue", resourceCulture);
+
     public static string Artist => ResourceManager.GetString("Artist", resourceCulture);
 
     public static string Auto => ResourceManager.GetString("Auto", resourceCulture);
@@ -2247,8 +2263,6 @@ public class Resources
     public static string Operation_Mode_LR2 => ResourceManager.GetString("Operation_Mode_LR2", resourceCulture);
     public static string LR2_integration => ResourceManager.GetString("LR2_integration", resourceCulture);
     public static string Settings_appearance_theme_description => ResourceManager.GetString("Settings_appearance_theme_description", resourceCulture);
-    public static string Settings_appearance_theme_light_description => ResourceManager.GetString("Settings_appearance_theme_light_description", resourceCulture);
-    public static string Settings_appearance_theme_dark_description => ResourceManager.GetString("Settings_appearance_theme_dark_description", resourceCulture);
     public static string Settings_appearance_table_description => ResourceManager.GetString("Settings_appearance_table_description", resourceCulture);
     public static string Settings_player_executable_path => ResourceManager.GetString("Settings_player_executable_path", resourceCulture);
     public static string Settings_player_lr2_description => ResourceManager.GetString("Settings_player_lr2_description", resourceCulture);

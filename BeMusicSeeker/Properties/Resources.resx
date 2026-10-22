@@ -1075,6 +1075,14 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="Appearance_theme_light" xml:space="preserve">
     <value>ライト</value>
   </data>
+  <data name="Appearance_theme_sepia" xml:space="preserve"><value>セピア</value></data>
+  <data name="Appearance_theme_frost" xml:space="preserve"><value>フロスト</value></data>
+  <data name="Appearance_theme_neon_violet" xml:space="preserve"><value>ネオン・バイオレット</value></data>
+  <data name="Appearance_theme_green_terminal" xml:space="preserve"><value>グリーンターミナル</value></data>
+  <data name="Appearance_theme_amber_terminal" xml:space="preserve"><value>アンバーターミナル</value></data>
+  <data name="Appearance_theme_oled_black" xml:space="preserve"><value>OLEDブラック</value></data>
+  <data name="Appearance_theme_deep_sea" xml:space="preserve"><value>ディープシー</value></data>
+  <data name="Appearance_theme_dos_blue" xml:space="preserve"><value>DOSブルー</value></data>
   <data name="Details_scan_bms_files_on_startup" xml:space="preserve">
     <value>起動時にBMSファイルと構成ファイルのスキャンを行う</value>
   </data>
@@ -3012,8 +3020,6 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="Operation_Mode_LR2" xml:space="preserve"><value>LR2 連携</value></data>
   <data name="LR2_integration" xml:space="preserve"><value>LR2 連携</value></data>
   <data name="Settings_appearance_theme_description" xml:space="preserve"><value>設定画面を含むアプリケーション全体の配色を選びます。選択時に保存して反映します。</value></data>
-  <data name="Settings_appearance_theme_light_description" xml:space="preserve"><value>明るい背景で表示します。</value></data>
-  <data name="Settings_appearance_theme_dark_description" xml:space="preserve"><value>暗い背景で表示します。</value></data>
   <data name="Settings_appearance_table_description" xml:space="preserve"><value>ライブラリ一覧の文字と行の密度を調整します。</value></data>
   <data name="Settings_player_executable_path" xml:space="preserve"><value>プレイヤー実行ファイル</value></data>
   <data name="Settings_player_lr2_description" xml:space="preserve"><value>LR2 の実行ファイルで譜面を再生します。</value></data>

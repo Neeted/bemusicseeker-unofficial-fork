@@ -2466,7 +2466,7 @@ public sealed class SettingsWindowPresentationTests
 
 
 
-    /// <summary>後から実 Appearance ページでDarkを選び、未訪問ページが現在のthemeとdraftで初めて生成され、取消でLightへ戻ることを確認します。</summary>
+    /// <summary>後から実Appearanceページで追加テーマを選び、未訪問ページの初期生成、即時適用と閉鎖後の保存、Binding維持を確認します。</summary>
     [TestMethod]
     public void SettingsWindow_AppearanceThemeBindingSurvivesDeferredPageConnectionAndClose()
     {
@@ -2497,22 +2497,27 @@ public sealed class SettingsWindowPresentationTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var appearancePage = (AppearanceSettingsPage)pageHost.Content;
                 Assert.AreSame(settings, appearancePage.DataContext);
-                var selector = (RadioButton)appearancePage.FindName("radioButtonDarkTheme");
-                BindingExpression themeBinding = selector.GetBindingExpression(ToggleButton.IsCheckedProperty);
+                var selector = (ComboBox)appearancePage.FindName("appearanceThemeComboBox");
+                BindingExpression themeBinding = selector.GetBindingExpression(Selector.SelectedValueProperty);
                 Assert.IsNotNull(themeBinding);
                 Assert.AreEqual(BindingStatus.Active, themeBinding.Status);
                 Assert.AreEqual(BindingMode.TwoWay, themeBinding.ParentBinding.Mode);
-                Assert.AreEqual(false, selector.IsChecked);
+                Assert.AreEqual(AppThemeService.Light, selector.SelectedValue);
+                Assert.AreEqual(AppThemeService.AvailableThemes.Count, selector.Items.Count);
+                SettingsField field = FindDescendants<SettingsField>(appearancePage)
+                    .Single(candidate => ReferenceEquals(candidate.Content, selector));
+                Assert.AreEqual(field.ActualWidth, selector.ActualWidth, 1d, "テーマ選択は言語選択と同様に入力欄の幅まで広がります。");
                 Color lightTextColor = GetApplicationBrushColor("App.TextBrush");
 
-                selector.IsChecked = true;
+                selector.SelectedItem = selector.Items.Cast<SettingsDialogViewModel.AppearanceThemeOption>()
+                    .Single(option => option.Key == AppThemeService.GreenTerminal);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
-                Assert.AreEqual(true, selector.IsChecked);
-                Assert.AreEqual(AppThemeService.Dark, settings.AppearanceTheme);
-                Assert.AreEqual(AppThemeService.Dark, Settings.Default.AppearanceTheme);
-                Assert.AreEqual(AppThemeService.Dark, GetAppliedApplicationTheme());
-                Assert.IsTrue(BindingOperations.IsDataBound(selector, ToggleButton.IsCheckedProperty));
+                Assert.AreEqual(AppThemeService.GreenTerminal, selector.SelectedValue);
+                Assert.AreEqual(AppThemeService.GreenTerminal, settings.AppearanceTheme);
+                Assert.AreEqual(AppThemeService.GreenTerminal, Settings.Default.AppearanceTheme);
+                Assert.AreEqual(AppThemeService.GreenTerminal, GetAppliedApplicationTheme());
+                Assert.IsTrue(BindingOperations.IsDataBound(selector, Selector.SelectedValueProperty));
 
                 settings.UsePlayeruBMplay = true;
                 navigation.SelectedItem = window.FindName("navigationPlayback");
@@ -2530,12 +2535,12 @@ public sealed class SettingsWindowPresentationTests
                 ((Button)window.FindName("buttonCancel")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
-                Assert.AreEqual(AppThemeService.Dark, settings.AppearanceTheme);
-                Assert.AreEqual(AppThemeService.Dark, Settings.Default.AppearanceTheme);
-                Assert.AreEqual(AppThemeService.Dark, GetAppliedApplicationTheme());
-                Assert.AreEqual(true, selector.IsChecked);
-                Assert.IsTrue(BindingOperations.IsDataBound(selector, ToggleButton.IsCheckedProperty));
-                Assert.AreEqual(BindingStatus.Active, selector.GetBindingExpression(ToggleButton.IsCheckedProperty)?.Status);
+                Assert.AreEqual(AppThemeService.GreenTerminal, settings.AppearanceTheme);
+                Assert.AreEqual(AppThemeService.GreenTerminal, Settings.Default.AppearanceTheme);
+                Assert.AreEqual(AppThemeService.GreenTerminal, GetAppliedApplicationTheme());
+                Assert.AreEqual(AppThemeService.GreenTerminal, selector.SelectedValue);
+                Assert.IsTrue(BindingOperations.IsDataBound(selector, Selector.SelectedValueProperty));
+                Assert.AreEqual(BindingStatus.Active, selector.GetBindingExpression(Selector.SelectedValueProperty)?.Status);
             }
             finally
             {
@@ -3779,18 +3784,15 @@ public sealed class SettingsWindowPresentationTests
 
     private static string GetAppliedApplicationTheme()
     {
-        string source = Application.Current.Resources.MergedDictionaries
+        const string prefix = "/BeMusicSeeker;component/Themes/";
+        string[] sources = Application.Current.Resources.MergedDictionaries
             .Select(dictionary => dictionary.Source?.OriginalString)
-            .Single(value => value != null
-                && (string.Equals(
-                        value,
-                        "/BeMusicSeeker;component/Themes/Light.xaml",
-                        StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(
-                        value,
-                        "/BeMusicSeeker;component/Themes/Dark.xaml",
-                        StringComparison.OrdinalIgnoreCase)))!;
-        return Path.GetFileNameWithoutExtension(source);
+            .Where(value => AppThemeService.AvailableThemes.Any(theme =>
+                string.Equals(value, prefix + theme + ".xaml", StringComparison.OrdinalIgnoreCase)))
+            .Select(value => value!)
+            .ToArray();
+        Assert.AreEqual(1, sources.Length, "登録済みテーマの辞書がちょうど一つ適用されている必要があります。");
+        return Path.GetFileNameWithoutExtension(sources[0]);
     }
 
     /// <summary>LR2 root・導入先・二種の出力先が、実 VM の検証 message／status を compiled ページへ受け取り、項目間の誤配線や検証表示 style の不採用を検出します。</summary>

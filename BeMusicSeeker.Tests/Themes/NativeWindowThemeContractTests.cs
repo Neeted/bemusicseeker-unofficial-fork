@@ -108,7 +108,7 @@ public sealed class NativeWindowThemeContractTests
             "Production code must construct ThemedWindow or a derived type instead of System.Windows.Window directly.");
     }
 
-    /// <summary>明色・暗色の両辞書にnative題名部が参照する意味付きbrushがあり、テーマ変更時の資源欠落を防ぎます。</summary>
+    /// <summary>すべての配色辞書に題名部と共通部品が使う同じ意味付きbrushがあり、テーマ変更時の資源欠落を防ぎます。</summary>
     [TestMethod]
     public void ThemeDictionaries_DefineNativeWindowSemanticBrushes()
     {
@@ -120,8 +120,10 @@ public sealed class NativeWindowThemeContractTests
             "App.BorderBrush",
         ];
 
-        foreach (string themeName in new[] { "Light.xaml", "Dark.xaml" })
+        HashSet<string>? referenceKeys = null;
+        foreach (string theme in AppThemeService.AvailableThemes)
         {
+            string themeName = theme + ".xaml";
             string path = Path.Combine(repositoryRoot, "BeMusicSeeker", "Themes", themeName);
             var document = XDocument.Load(path);
             XNamespace xamlNamespace = "http://schemas.microsoft.com/winfx/2006/xaml";
@@ -136,14 +138,51 @@ public sealed class NativeWindowThemeContractTests
             {
                 Assert.IsTrue(keys.Contains(requiredKey), $"{themeName} is missing {requiredKey}.");
             }
+
+            if (referenceKeys == null)
+            {
+                referenceKeys = keys;
+            }
+            else
+            {
+                Assert.IsTrue(referenceKeys.SetEquals(keys), $"{themeName} must define the same semantic keys as Light.xaml.");
+            }
         }
     }
 
-    /// <summary>両テーマから往復切替して配色だけを交換し、共通styleの解決・変更通知・版更新とResourceAssemblyを保持します。</summary>
+    /// <summary>保存値は登録された識別子へ正規化し、題名部の明暗は配色系列ごとに判定します。</summary>
+    [DataTestMethod]
+    [DataRow("Light", "Light", false)]
+    [DataRow("Dark", "Dark", true)]
+    [DataRow("Sepia", "Sepia", false)]
+    [DataRow("Frost", "Frost", false)]
+    [DataRow("NeonViolet", "NeonViolet", true)]
+    [DataRow("GreenTerminal", "GreenTerminal", true)]
+    [DataRow("AmberTerminal", "AmberTerminal", true)]
+    [DataRow("OledBlack", "OledBlack", true)]
+    [DataRow("DeepSea", "DeepSea", true)]
+    [DataRow("DosBlue", "DosBlue", true)]
+    [DataRow("greenterminal", "GreenTerminal", true)]
+    [DataRow("unknown-theme", "Light", false)]
+    public void ThemeSettings_NormalizeSavedIdentifiersAndClassifyNativeCaption(string value, string expectedTheme, bool expectedDark)
+    {
+        Assert.AreEqual(expectedTheme, AppThemeService.NormalizeTheme(value));
+        Assert.AreEqual(expectedDark, AppThemeService.IsDarkTheme(value));
+    }
+
+    /// <summary>各テーマから明暗の反対側へ往復切替し、共通style・変更通知・版更新とResourceAssemblyを保持します。</summary>
     [DataTestMethod]
     [DoNotParallelize]
     [DataRow("Light", "/BeMusicSeeker;component/Themes/Light.xaml")]
     [DataRow("Dark", "/BeMusicSeeker;component/Themes/Dark.xaml")]
+    [DataRow("Sepia", "/BeMusicSeeker;component/Themes/Sepia.xaml")]
+    [DataRow("Frost", "/BeMusicSeeker;component/Themes/Frost.xaml")]
+    [DataRow("NeonViolet", "/BeMusicSeeker;component/Themes/NeonViolet.xaml")]
+    [DataRow("GreenTerminal", "/BeMusicSeeker;component/Themes/GreenTerminal.xaml")]
+    [DataRow("AmberTerminal", "/BeMusicSeeker;component/Themes/AmberTerminal.xaml")]
+    [DataRow("OledBlack", "/BeMusicSeeker;component/Themes/OledBlack.xaml")]
+    [DataRow("DeepSea", "/BeMusicSeeker;component/Themes/DeepSea.xaml")]
+    [DataRow("DosBlue", "/BeMusicSeeker;component/Themes/DosBlue.xaml")]
     public void ApplyTheme_PreservesSharedDictionariesForSupportedThemeUris(
         string initialTheme,
         string initialThemeSource)
@@ -179,7 +218,7 @@ public sealed class NativeWindowThemeContractTests
                     int versionAfterInitialApply = AppThemeService.Version;
                     int themeChangedCountAfterInitialApply = themeChangedCount;
 
-                    string oppositeTheme = string.Equals(initialTheme, AppThemeService.Dark, StringComparison.Ordinal)
+                    string oppositeTheme = AppThemeService.IsDarkTheme(initialTheme)
                         ? AppThemeService.Light
                         : AppThemeService.Dark;
                     AppThemeService.ApplyTheme(oppositeTheme);

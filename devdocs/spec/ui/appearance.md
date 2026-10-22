@@ -14,15 +14,15 @@
 
 ### テーマの保存と切替
 
-`Settings.Default.AppearanceTheme` は `Light` または `Dark` を保存します。既定と不明・空・nullの正規化先は `Light` です。保存前にも正規化します。テーマとは別に、一覧の文字サイズ、行の高さ、見出しの高さを設定できます。
+`Settings.Default.AppearanceTheme` は `Light`、`Dark`、`Sepia`、`Frost`、`NeonViolet`、`GreenTerminal`、`AmberTerminal`、`OledBlack`、`DeepSea`、`DosBlue` のいずれかを保存します。既定と不明・空・nullの正規化先は `Light` です。保存前にも正規化します。明るいテーマは `Light`、`Sepia`、`Frost` とし、それ以外は標準題名部にも暗色指定を行います。テーマとは別に、一覧の文字サイズ、行の高さ、見出しの高さを設定できます。
 
-`AppThemeService` は起動時に正規化済みのテーマ辞書をアプリのリソースへ追加します。辞書の参照は `/BeMusicSeeker;component/Themes/` 形式に統一します。切替対象は `Light.xaml` と `Dark.xaml` に限定し、既存の配色辞書を除去して指定された辞書を追加します。同じフォルダにある共通スタイルの辞書は保持します。`ThemeChanged` を通知し、`Version` を進めます。
+`AppThemeService` は起動時に正規化済みのテーマ辞書をアプリのリソースへ追加します。辞書の参照は `/BeMusicSeeker;component/Themes/` 形式に統一します。切替対象は登録済みの10配色辞書だけとし、既存の配色辞書を除去して指定された辞書を追加します。同じフォルダにある共通スタイルの辞書は保持します。`ThemeChanged` を通知し、`Version` を進めます。
 
 XAMLは原則として `DynamicResource` を使います。コード描画はテーマ変更と版を使って描画色・文字列・描画結果のキャッシュを破棄します。一覧の `CustomTablePalette` とスコア色もこの規則に従います。
 
 ### 配色の定義
 
-[明るいテーマ](../../../BeMusicSeeker/Themes/Light.xaml)と[暗いテーマ](../../../BeMusicSeeker/Themes/Dark.xaml)は同じ用途のキーを持ちます。値と完全な一覧はこの二つを正本とします。
+[明るいテーマ](../../../BeMusicSeeker/Themes/Light.xaml)、[暗いテーマ](../../../BeMusicSeeker/Themes/Dark.xaml)と追加の8配色辞書は同じ用途のキーを持ちます。各配色値はその辞書を正本とします。
 
 | キーの系統 | 用途 |
 | --- | --- |
@@ -76,7 +76,7 @@ WPF既定の点線のフォーカス飾りは使いません。表は選択と�
 
 カテゴリは角を丸めた選択背景と左端の強調線で選択を示し、マウス、キーボード、無効状態も識別可能にします。大きな節を入れ子のカードにせず、節間と内部は8 / 12 / 16 / 24の間隔尺度に揃えます。
 
-テーマは `IsLightAppearanceTheme` / `IsDarkAppearanceTheme` と `AppearanceTheme` の双方向の結び付けで選択します。開くたびに作る画面は、表示ツリーへ接続して現在値を受け取ります。未接続の部品へローカル値を設定して結び付けを壊しません。選択時にテーマだけを保存して即時適用し、閉じても保存済みの選択を保ちます。保存失敗では元の確定値と配色を保ちます。
+テーマは `AppearanceThemeOptions` の表示名と識別子を、表示領域幅に広がる単一の選択欄で扱い、`AppearanceTheme` の双方向の結び付けで選択します。開くたびに作る画面は、表示ツリーへ接続して現在値を受け取ります。未接続の部品へローカル値を設定して結び付けを壊しません。選択時にテーマだけを保存して即時適用し、閉じても保存済みの選択を保ちます。保存失敗では元の確定値と配色を保ちます。
 
 一覧の文字サイズ、行・見出しの高さはスライダーのドラッグ・キー操作の完了時に当該項目だけを保存し、`MainWindowViewSettingsStore` と実際のメイン表へ反映します。別の固定データの見本表を置きません。初期化は三つの値を既定値として保存し、閉鎖時にも保存済みの表示を保ちます。
 
@@ -133,7 +133,7 @@ OS標準の選択画面、利用者定義テーマ、個別色の編集、OSテ�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| テーマの切替と共通スタイルの保持 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs) | [`NativeWindowThemeContractTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowThemeContractTests.cs) は明色・暗色の切替で、配色辞書の交換、共通スタイルの解決、変更通知と版更新を確認する。 |
+| テーマの切替と共通スタイルの保持 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs) | [`NativeWindowThemeContractTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowThemeContractTests.cs) は各配色への切替で、辞書のキー整合、共通スタイルの解決、変更通知と版更新、題名部の明暗判定を確認する。 |
 | テーマの切替、標準題名部の接続・解除と失敗 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs)、[`ThemedWindow`](../../../BeMusicSeeker/Views/ThemedWindow.cs) | [`NativeWindowThemeContractTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowTitleBarTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowTitleBarTests.cs) |
 | 共通Expander見出しの背景・枠・文字・矢印と動的テーマ切替 | [`CanonicalControls.xaml`](../../../BeMusicSeeker/Themes/CanonicalControls.xaml) の `App.Canonical.ExpanderHeaderToggleStyle` / `ExpanderHeaderToggleTemplate`、[`SettingsControls.xaml`](../../../BeMusicSeeker/Views/Settings/SettingsControls.xaml) の `SettingsExpanderStyle` | [`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs) の `SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes` は同じ表示済みExpanderで明→暗→明の背景・1 DIPの枠と、折畳み・展開・無効時の文字・矢印の実効色、双方向開閉、内容表示と `IExpandCollapseProvider` を確認する。ホバー・フォーカスの表示と有効条件、余白は既存トリガーとテンプレートの差分確認で維持を確認する。 |
 | 設定の表示部品、検証状態、アクセシビリティ、候補幅、項目保存と即時反映 | [`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs)、[`SettingsField`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、[`SettingsPathPicker`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、[`SettingsSection`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) の `SettingsPages_RequiredValidationBindingsUseSharedWarningAndErrorPresentation`、`SettingsValidationPresentation_ExposesWarningAndErrorWithoutRelyingOnColorAlone`、および既存の表示・アクセシビリティ検査、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs)、[`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) |

@@ -9,16 +9,12 @@
   <StackPanel>
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme, Mode=OneWay}"
                               Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_appearance_theme_description, Mode=OneWay}">
-      <UniformGrid Columns="2">
-        <settings:SettingsOptionRow Margin="0,0,6,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme_light, Mode=OneWay}"
-                                    Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_appearance_theme_light_description, Mode=OneWay}">
-          <RadioButton x:Name="radioButtonLightTheme" GroupName="AppearanceTheme" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme_light, Mode=OneWay}" IsChecked="{Binding IsLightAppearanceTheme, Mode=TwoWay}" />
-        </settings:SettingsOptionRow>
-        <settings:SettingsOptionRow Margin="6,0,0,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme_dark, Mode=OneWay}"
-                                    Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_appearance_theme_dark_description, Mode=OneWay}">
-          <RadioButton x:Name="radioButtonDarkTheme" GroupName="AppearanceTheme" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme_dark, Mode=OneWay}" IsChecked="{Binding IsDarkAppearanceTheme, Mode=TwoWay}" />
-        </settings:SettingsOptionRow>
-      </UniformGrid>
+      <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme, Mode=OneWay}">
+        <ComboBox x:Name="appearanceThemeComboBox" HorizontalAlignment="Stretch"
+                  ItemsSource="{Binding AppearanceThemeOptions}"
+                  DisplayMemberPath="DisplayName" SelectedValuePath="Key"
+                  SelectedValue="{Binding AppearanceTheme, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+      </settings:SettingsField>
     </settings:SettingsSection>
 
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table, Mode=OneWay}"
