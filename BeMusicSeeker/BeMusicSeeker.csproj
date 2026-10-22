@@ -49,11 +49,13 @@
       <TargetPath>test.mp3</TargetPath>
     </None>
     <None Remove="Assets\Images\default_image.jpg" />
+    <None Remove="Assets\Images\Playback\*.jpg" />
     <None Remove="Assets\Fonts\sovjetboxbd_v0_9.otf" />
     <None Remove="Assets\Images\icon_and_logo.png" />
     <None Remove="Assets\Fonts\ligaturesymbols-2.11.otf" />
     <None Remove="Assets\Fonts\commodore-20rounded-20v1.2.ttf" />
     <Resource Include="Assets\Images\default_image.jpg" />
+    <Resource Include="Assets\Images\Playback\*.jpg" />
     <Resource Include="Assets\Fonts\sovjetboxbd_v0_9.otf" />
     <Resource Include="Assets\Images\icon_and_logo.png" />
     <Resource Include="Assets\Fonts\ligaturesymbols-2.11.otf" />

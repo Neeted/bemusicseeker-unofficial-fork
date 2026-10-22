@@ -116,4 +116,9 @@
   <SolidColorBrush x:Key="LightBorderBrush" Color="#FF436177" />
   <SolidColorBrush x:Key="LightColorBrush" Color="#FFD2E4EE" />
   <SolidColorBrush x:Key="GlyphBrush" Color="#FF253844" />
+
+  <SolidColorBrush x:Key="Playback.ControlBackgroundBrush" Color="#FFDCE8EE" />
+  <SolidColorBrush x:Key="Playback.ControlForegroundBrush" Color="#FF253844" />
+  <SolidColorBrush x:Key="Playback.ControlHoverBrush" Color="#FFD2E4EE" />
+  <BitmapImage x:Key="Playback.DefaultImage" UriSource="/BeMusicSeeker;component/Assets/Images/Playback/Frost.jpg" CacheOption="OnLoad" />
 </ResourceDictionary>

@@ -115,4 +115,9 @@
   <SolidColorBrush x:Key="LightBorderBrush" Color="#FFFFFFFF" />
   <SolidColorBrush x:Key="LightColorBrush" Color="#FF3232BD" />
   <SolidColorBrush x:Key="GlyphBrush" Color="#FFFFFFFF" />
+
+  <SolidColorBrush x:Key="Playback.ControlBackgroundBrush" Color="#FF000080" />
+  <SolidColorBrush x:Key="Playback.ControlForegroundBrush" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="Playback.ControlHoverBrush" Color="#FF3232BD" />
+  <BitmapImage x:Key="Playback.DefaultImage" UriSource="/BeMusicSeeker;component/Assets/Images/Playback/DosBlue.jpg" CacheOption="OnLoad" />
 </ResourceDictionary>

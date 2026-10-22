@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -505,6 +506,7 @@ internal sealed class TestWindowPresentationScope
     private readonly HashSet<nint> baselineNativeWindows;
     private readonly List<WindowRegistration> trackedWindows = [];
     private readonly List<PopupRegistration> trackedPopups = [];
+    private readonly List<(ToolTip ToolTip, RoutedEventHandler Opened)> trackedToolTips = [];
     private readonly List<ExceptionDispatchInfo> presentationFailures = [];
     private Exception? registeredCleanupFailure;
 
@@ -619,10 +621,41 @@ internal sealed class TestWindowPresentationScope
             throw new InvalidOperationException("A popup must be tracked before it is opened.");
         }
 
+        RegisterPopup(popup);
+    }
+
+    /// <summary>ToolTipが自身で生成するPopupを公開の論理親から取得し、表示位置・非アクティブ表示と閉鎖を同じscopeで管理します。</summary>
+    /// <param name="toolTip">開く前のToolTip。内部Popupの生成・接続はWPFへ任せます。</param>
+    internal void TrackToolTip(ToolTip toolTip)
+    {
+        ArgumentNullException.ThrowIfNull(toolTip);
+        if (trackedToolTips.Any(registration => ReferenceEquals(registration.ToolTip, toolTip))) { return; }
+        if (toolTip.IsOpen) { throw new InvalidOperationException("A tooltip must be tracked before it is opened."); }
+        RoutedEventHandler opened = (_, _) =>
+        {
+            try
+            {
+                if (toolTip.Parent is not Popup popup)
+                {
+                    throw new InvalidOperationException("The opened tooltip has no logical Popup parent.");
+                }
+                if (trackedPopups.Any(registration => ReferenceEquals(registration.Popup, popup))) { return; }
+                // 初回のPopup.Openedは既に配送中なので、その一回だけここで同じ観測を行います。
+                ObservePopupPresentation(RegisterPopup(popup));
+            }
+            catch (Exception failure) { presentationFailures.Add(ExceptionDispatchInfo.Capture(failure)); }
+        };
+        toolTip.Opened += opened;
+        trackedToolTips.Add((toolTip, opened));
+    }
+
+    private PopupRegistration RegisterPopup(Popup popup)
+    {
         var popupRegistration = new PopupRegistration(popup);
         popupRegistration.Opened = (_, _) => ObservePopupPresentation(popupRegistration);
         popup.Opened += popupRegistration.Opened;
         trackedPopups.Add(popupRegistration);
+        return popupRegistration;
     }
 
     /// <summary>
@@ -692,6 +725,12 @@ internal sealed class TestWindowPresentationScope
     internal void Cleanup()
     {
         List<Exception> failures = [];
+        foreach ((ToolTip toolTip, RoutedEventHandler opened) in trackedToolTips)
+        {
+            toolTip.Opened -= opened;
+            try { toolTip.IsOpen = false; }
+            catch (Exception failure) { failures.Add(failure); }
+        }
         foreach (PopupRegistration registration in trackedPopups.AsEnumerable().Reverse())
         {
             Popup popup = registration.Popup;

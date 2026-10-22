@@ -115,4 +115,9 @@
   <SolidColorBrush x:Key="LightBorderBrush" Color="#FF75B888" />
   <SolidColorBrush x:Key="LightColorBrush" Color="#FF1C3722" />
   <SolidColorBrush x:Key="GlyphBrush" Color="#FFBAFFC4" />
+
+  <SolidColorBrush x:Key="Playback.ControlBackgroundBrush" Color="#FF112116" />
+  <SolidColorBrush x:Key="Playback.ControlForegroundBrush" Color="#FFBAFFC4" />
+  <SolidColorBrush x:Key="Playback.ControlHoverBrush" Color="#FF1C3722" />
+  <BitmapImage x:Key="Playback.DefaultImage" UriSource="/BeMusicSeeker;component/Assets/Images/Playback/GreenTerminal.jpg" CacheOption="OnLoad" />
 </ResourceDictionary>

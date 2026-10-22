@@ -115,4 +115,9 @@
   <SolidColorBrush x:Key="LightBorderBrush" Color="#FFC9A274" />
   <SolidColorBrush x:Key="LightColorBrush" Color="#FF382716" />
   <SolidColorBrush x:Key="GlyphBrush" Color="#FFFFE3AD" />
+
+  <SolidColorBrush x:Key="Playback.ControlBackgroundBrush" Color="#FF251708" />
+  <SolidColorBrush x:Key="Playback.ControlForegroundBrush" Color="#FFFFE3AD" />
+  <SolidColorBrush x:Key="Playback.ControlHoverBrush" Color="#FF382716" />
+  <BitmapImage x:Key="Playback.DefaultImage" UriSource="/BeMusicSeeker;component/Assets/Images/Playback/AmberTerminal.jpg" CacheOption="OnLoad" />
 </ResourceDictionary>

@@ -36,7 +36,7 @@ public partial class PlaybackPanelView : UserControl
     private Storyboard activePanelStateTransition;
     private bool? appliedCompactPanelState;
     private long playbackPanelSubscriptionVersion;
-    private BitmapSource _panelImage;
+    private BitmapSource externalPanelImage;
     private bool isClosingOrClosed;
 
     public PlaybackPanelView()
@@ -84,43 +84,23 @@ public partial class PlaybackPanelView : UserControl
     }
     private PlaybackPanelViewModel PlaybackPanel => DataContext as PlaybackPanelViewModel ?? throw new InvalidOperationException("Playback panel DataContext is unavailable.");
 
-    private BitmapSource PanelImage
+    private void ApplyPanelImage()
     {
-        get
+        // DataContextの契約違反は、任意画像の不足へ変換しません。
+        PlaybackPanelViewModel playbackPanel = PlaybackPanel;
+        if (playbackPanel.UseExternalPanelImage)
         {
-            // DataContextの契約違反は、任意画像の不足へ変換しません。
-            PlaybackPanelViewModel playbackPanel = PlaybackPanel;
-            if (_panelImage != null)
+            externalPanelImage ??= ReadOptionalArtwork(playbackPanel.StagefilePath, "external_panel");
+            if (externalPanelImage != null)
             {
-                return _panelImage;
-            }
-            if (playbackPanel.UseExternalPanelImage)
-            {
-                _panelImage = ReadOptionalArtwork(playbackPanel.StagefilePath, "external_panel");
-                if (_panelImage != null)
-                {
-                    return _panelImage;
-                }
-            }
-            const string defaultImageUri = "pack://application:,,,/BeMusicSeeker;component/Assets/Images/default_image.jpg";
-            try
-            {
-                var image = new BitmapImage();
-                image.BeginInit();
-                image.CacheOption = BitmapCacheOption.OnLoad;
-                image.UriSource = new Uri(defaultImageUri);
-                image.EndInit();
-                return _panelImage = image;
-            }
-            catch (Exception ex)
-            {
-                ReportArtworkFailure(ex, "default_panel", defaultImageUri);
-                return null;
+                gridBMSPlayerImage.Source = externalPanelImage;
+                return;
             }
         }
+        gridBMSPlayerImage.SetResourceReference(Image.SourceProperty, "Playback.DefaultImage");
     }
 
-    private void ResetPanelImage() => _panelImage = null;
+    private void ResetPanelImage() => externalPanelImage = null;
 
     private void PlaybackPanelLoaded(object sender, RoutedEventArgs e)
     {
@@ -440,7 +420,7 @@ public partial class PlaybackPanelView : UserControl
         ?? throw new InvalidOperationException("Playback panel image must use a BlurEffect.");
 
     /// <summary>現在の共通譜面だけから素材を表示し、欠落・破損時も前曲の画像を残しません。</summary>
-    /// <remarks>任意の読取り・復号・既定画像・診断の失敗は再生開始へ伝えず、同曲stageまたは空表示へ進みます。</remarks>
+    /// <remarks>任意の読取り・復号・診断の失敗は再生開始へ伝えず、同曲stageまたは空表示へ進みます。</remarks>
 #nullable enable annotations
     internal void RefreshArtwork(ChartFile? bmsFile)
     {
@@ -449,15 +429,20 @@ public partial class PlaybackPanelView : UserControl
             _ = PlaybackPanel;
         }
         ClearArtwork();
+        if (DataContext == null)
+        {
+            return;
+        }
         if (bmsFile == null)
         {
-            gridBMSPlayerImage.Source = DataContext == null ? null : PanelImage;
+            ApplyPanelImage();
             return;
         }
 
         BitmapSource stage = ReadChartArtwork(bmsFile, bmsFile.Stagefile, "stagefile");
         BitmapSource banner = ReadChartArtwork(bmsFile, bmsFile.Banner, "banner");
-        gridBMSPlayerImage.Source = stage ?? (DataContext == null ? null : PanelImage);
+        if (stage != null) { gridBMSPlayerImage.Source = stage; }
+        else { ApplyPanelImage(); }
         BitmapSource bannerImage = banner ?? stage;
         if (bannerImage != null)
         {
@@ -534,7 +519,7 @@ public partial class PlaybackPanelView : UserControl
     private void ApplyEmptyArtwork(bool showDefaultImage)
     {
         ClearArtwork();
-        gridBMSPlayerImage.Source = showDefaultImage ? PanelImage : null;
+        if (showDefaultImage) { ApplyPanelImage(); }
     }
     private void ShowBmsPlayer() => RestoreVisibilityBinding(externalPlayerHost, Visibility.Visible);
     private void CollapseBmsPlayer() => RestoreVisibilityBinding(externalPlayerHost, Visibility.Collapsed);
@@ -833,10 +818,23 @@ public partial class PlaybackPanelView : UserControl
         {
             return;
         }
-        var slider = (Slider)sender;
-        Point position = e.GetPosition(slider);
-        double value = slider.Maximum * Math.Max(0.0, Math.Min(1.0, (position.X - 5.0) / (slider.ActualWidth - 10.0)));
-        slider.Value = value;
+        SeekFromPoint(e.GetPosition(sliderPlayer));
+    }
+
+    /// <summary>シークSlider相対の入力座標を実Trackとつまみの配置で再生時刻へ換算し、双方向Bindingを保って反映します。</summary>
+    /// <param name="position">シークSliderを基準にしたポインター座標。</param>
+    /// <remarks>範囲外はSliderの上下限へ丸め、再生中のドラッグでは既存の一時停止操作へ渡します。</remarks>
+    internal void SeekFromPoint(Point position)
+    {
+        if (sliderPlayer.Template.FindName("PART_Track", sliderPlayer) is not Track track)
+        {
+            return;
+        }
+        // ValueFromPointは現在値と配置済みのつまみ中心を併用するため、連続入力でも同じ値の配置へ揃えます。
+        track.UpdateLayout();
+        Point trackPosition = sliderPlayer.TranslatePoint(position, track);
+        double value = track.ValueFromPoint(trackPosition);
+        sliderPlayer.SetCurrentValue(Slider.ValueProperty, Math.Clamp(value, sliderPlayer.Minimum, sliderPlayer.Maximum));
         if (DataContext is not PlaybackPanelViewModel viewModel)
         {
             return;

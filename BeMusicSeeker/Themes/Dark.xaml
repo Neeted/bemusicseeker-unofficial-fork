@@ -115,4 +115,9 @@
   <SolidColorBrush x:Key="LightBorderBrush" Color="#FF555555" />
   <SolidColorBrush x:Key="LightColorBrush" Color="#FF3A3A3A" />
   <SolidColorBrush x:Key="GlyphBrush" Color="#FFD4D4D4" />
+
+  <SolidColorBrush x:Key="Playback.ControlBackgroundBrush" Color="#FF252526" />
+  <SolidColorBrush x:Key="Playback.ControlForegroundBrush" Color="#FFD4D4D4" />
+  <SolidColorBrush x:Key="Playback.ControlHoverBrush" Color="#FF333337" />
+  <BitmapImage x:Key="Playback.DefaultImage" UriSource="/BeMusicSeeker;component/Assets/Images/Playback/Dark.jpg" CacheOption="OnLoad" />
 </ResourceDictionary>

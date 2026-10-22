@@ -543,12 +543,12 @@ internal static class MainWindowPresentationTestHarness
         });
     }
 
-    /// <summary>本番起動を開始せず、compiled内容とBindingを同じscopeの実Windowで描画します。</summary>
+    /// <summary>本番起動を開始せず、元Windowの資源とcompiled内容・Bindingを同じscopeの実Windowで描画します。</summary>
     internal static void ShowCompiledContent(TestWindowPresentationScope scope, MainWindowViewModel viewModel, MainWindow window)
     {
         object content = window.Content;
         window.Content = null;
-        var host = new Window { Content = content, DataContext = viewModel, Width = 1000, Height = 700 };
+        var host = new Window { Resources = window.Resources, Content = content, DataContext = viewModel, Width = 1000, Height = 700 };
         scope.ShowAndWaitForContentRendered(host);
     }
 

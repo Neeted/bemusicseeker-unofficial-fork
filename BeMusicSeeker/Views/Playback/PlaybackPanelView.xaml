@@ -17,6 +17,117 @@
     <v:playerTitleVisibilityConverter x:Key="playerTitleVisibilityConverter" />
     <v:positiveTimeSpanToVisibilityHiddenConverter x:Key="positiveTimeSpanToVisibilityHiddenConverter" />
     <v:addStringToEndConverter x:Key="addStringToEndConverter" />
+    <v:doubleSecToTimeStrConverter x:Key="doubleSecToTimeStrConverter" />
+    <ControlTemplate x:Key="Playback.ButtonTemplate" TargetType="{x:Type ButtonBase}">
+      <Border x:Name="ButtonSurface" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" Margin="{TemplateBinding Padding}" RecognizesAccessKey="True" />
+      </Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True">
+          <Setter TargetName="ButtonSurface" Property="Background" Value="{DynamicResource Playback.ControlHoverBrush}" />
+        </Trigger>
+        <Trigger Property="IsPressed" Value="True">
+          <Setter TargetName="ButtonSurface" Property="Background" Value="{DynamicResource Playback.ControlHoverBrush}" />
+          <Setter TargetName="ButtonSurface" Property="Opacity" Value="0.7" />
+        </Trigger>
+        <Trigger Property="IsEnabled" Value="False">
+          <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
+        </Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate>
+    <Style x:Key="Playback.ButtonBaseStyle" TargetType="{x:Type ButtonBase}">
+      <Setter Property="Margin" Value="1,0" />
+      <Setter Property="Width" Value="25" />
+      <Setter Property="Height" Value="25" />
+      <Setter Property="Foreground" Value="{DynamicResource Playback.ControlForegroundBrush}" />
+      <Setter Property="FontFamily" Value="{StaticResource LigatureSymbols}" />
+      <Setter Property="FontSize" Value="16" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Template" Value="{StaticResource Playback.ButtonTemplate}" />
+    </Style>
+    <Style x:Key="stylePlayerButtonSymbol" TargetType="{x:Type Button}" BasedOn="{StaticResource Playback.ButtonBaseStyle}" />
+    <Style x:Key="stylePlayerButtonSymbolShrink" TargetType="{x:Type Button}" BasedOn="{StaticResource stylePlayerButtonSymbol}">
+      <Setter Property="ContentTemplate">
+        <Setter.Value>
+          <DataTemplate>
+            <TextBlock Text="{Binding}" RenderTransformOrigin="0.5,0.5">
+              <TextBlock.RenderTransform><ScaleTransform ScaleY="0.8" /></TextBlock.RenderTransform>
+            </TextBlock>
+          </DataTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="Playback.RailButtonStyle" TargetType="{x:Type RepeatButton}">
+      <Setter Property="Focusable" Value="False" />
+      <Setter Property="IsTabStop" Value="False" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="{x:Type RepeatButton}">
+            <Grid Background="Transparent"><Rectangle x:Name="Rail" Height="3" VerticalAlignment="Center" Fill="{TemplateBinding Background}" /></Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <ControlTemplate x:Key="Playback.ThumbTemplate" TargetType="{x:Type Thumb}">
+      <Grid Background="Transparent">
+        <Ellipse x:Name="Grip" Width="11" Height="11" VerticalAlignment="Center" HorizontalAlignment="Center" Fill="{TemplateBinding Foreground}" />
+        <TextBlock Text="{Binding Value, RelativeSource={RelativeSource AncestorType={x:Type Slider}}, Converter={StaticResource doubleSecToTimeStrConverter}}" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="-30,-18,-30,0" IsHitTestVisible="False">
+          <TextBlock.Style>
+            <Style TargetType="{x:Type TextBlock}">
+              <Setter Property="Visibility" Value="Hidden" />
+              <Style.Triggers>
+                <MultiDataTrigger>
+                  <MultiDataTrigger.Conditions>
+                    <Condition Binding="{Binding IsMoveToPointEnabled, RelativeSource={RelativeSource AncestorType={x:Type Slider}}}" Value="True" />
+                    <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType={x:Type Thumb}}}" Value="True" />
+                  </MultiDataTrigger.Conditions>
+                  <Setter Property="Visibility" Value="Visible" />
+                </MultiDataTrigger>
+                <MultiDataTrigger>
+                  <MultiDataTrigger.Conditions>
+                    <Condition Binding="{Binding IsMoveToPointEnabled, RelativeSource={RelativeSource AncestorType={x:Type Slider}}}" Value="True" />
+                    <Condition Binding="{Binding IsDragging, RelativeSource={RelativeSource AncestorType={x:Type Thumb}}}" Value="True" />
+                  </MultiDataTrigger.Conditions>
+                  <Setter Property="Visibility" Value="Visible" />
+                </MultiDataTrigger>
+              </Style.Triggers>
+            </Style>
+          </TextBlock.Style>
+        </TextBlock>
+      </Grid>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Grip" Property="Fill" Value="{DynamicResource App.InputFocusBorderBrush}" /></Trigger>
+        <Trigger Property="IsDragging" Value="True"><Setter TargetName="Grip" Property="Fill" Value="{DynamicResource App.InputFocusBorderBrush}" /></Trigger>
+        <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Grip" Property="Fill" Value="{DynamicResource App.DisabledTextBrush}" /></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate>
+    <Style x:Key="Playback.SliderStyle" TargetType="{x:Type Slider}">
+      <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+      <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Height" Value="18" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="{x:Type Slider}">
+            <Grid Background="{TemplateBinding Background}" Height="18">
+              <Track x:Name="PART_Track" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{Binding Value, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}" IsDirectionReversed="{TemplateBinding IsDirectionReversed}">
+                <Track.DecreaseRepeatButton><RepeatButton Command="{x:Static Slider.DecreaseLarge}" Style="{StaticResource Playback.RailButtonStyle}" Background="{DynamicResource App.InputFocusBorderBrush}" /></Track.DecreaseRepeatButton>
+                <Track.IncreaseRepeatButton><RepeatButton Command="{x:Static Slider.IncreaseLarge}" Style="{StaticResource Playback.RailButtonStyle}" Background="{DynamicResource App.SubtleTextBrush}" /></Track.IncreaseRepeatButton>
+                <Track.Thumb><Thumb Width="11" Height="18" Focusable="False" Foreground="{TemplateBinding Foreground}" Template="{StaticResource Playback.ThumbTemplate}" /></Track.Thumb>
+              </Track>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="SliderStylePlayer" TargetType="{x:Type Slider}" BasedOn="{StaticResource Playback.SliderStyle}">
+      <Setter Property="Stylus.IsPressAndHoldEnabled" Value="False" />
+      <Setter Property="Foreground" Value="{DynamicResource Playback.ControlForegroundBrush}" />
+    </Style>
   </UserControl.Resources>
 <Grid Name="gridBMSPlayer" Row="0" Column="0" ColumnSpan="2" Width="{Binding Width, ElementName=gridBMSPlayerBody}">
   <Grid.RowDefinitions>
@@ -33,14 +144,14 @@
         <Grid.Visibility>
           <Binding Path="Visibility" ElementName="externalPlayerHost" Converter="{StaticResource playerTitleVisibilityConverter}" />
         </Grid.Visibility>
-        <DockPanel Name="gridBMSPlayerTitlePanel" Height="40" LastChildFill="False" VerticalAlignment="Bottom" Background="#80000000">
+        <DockPanel Name="gridBMSPlayerTitlePanel" Height="40" LastChildFill="False" VerticalAlignment="Bottom" Background="#CC000000">
           <TextBlock Name="gridBMSPlayerControlsArtist" DockPanel.Dock="Bottom" FontFamily="Meiryo" FontSize="12" Margin="0" Foreground="#FFFFFFFF" HorizontalAlignment="Center" Text="{Binding PlayerHeaderArtist}" />
           <StackPanel Orientation="Horizontal" DockPanel.Dock="Bottom" Margin="3,3,3,0" HorizontalAlignment="Center">
             <TextBlock Name="gridBMSPlayerControlsTitle" FontFamily="Meiryo" FontSize="14" Margin="0" FontWeight="Bold" Foreground="#FFFFFFFF" HorizontalAlignment="Right" Text="{Binding PlayerHeaderTitle}" />
             <TextBlock Name="gridBMSPlayerControlsSubtitle" FontFamily="Meiryo" FontSize="14" Margin="5,0,0,0" Foreground="#FFFFFFFF" HorizontalAlignment="Left" Text="{Binding PlayerHeaderSubtitle}" />
           </StackPanel>
         </DockPanel>
-        <Border Name="gridBMSPlayerControlsBanner" BorderThickness="0" BorderBrush="#FF404040" HorizontalAlignment="Center" VerticalAlignment="Center" Width="302" Height="80" Margin="0" Opacity="0" />
+        <Border Name="gridBMSPlayerControlsBanner" BorderThickness="0" BorderBrush="{DynamicResource App.BorderBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Width="302" Height="80" Margin="0" Opacity="0" />
       </Grid>
       <Grid Name="gridExternalPlayerHost">
         <v:ExternalPlayerHwndHost x:Name="externalPlayerHost" ClipToBounds="True" VerticalAlignment="Bottom" HorizontalAlignment="Center" MinWidth="587" Height="256" MaxHeight="256" Margin="0" IsEnabledChanged="externalPlayerHostIsEnabledChanged">
@@ -55,16 +166,7 @@
         </v:ExternalPlayerHwndHost>
       </Grid>
       <Grid Name="gridPlayngBmsInfo" HorizontalAlignment="Right" Width="220" Margin="0" Visibility="Hidden">
-        <TextBlock Margin="0,0,0,-11" VerticalAlignment="Center" FontFamily="{StaticResource Commodore}" FontSize="13" Background="#33000000" Padding="5" Visibility="{Binding CurrentlyPlayingDuration, Converter={StaticResource positiveTimeSpanToVisibilityHiddenConverter}}">
-          <UIElement.Effect>
-            <DropShadowEffect ShadowDepth="2" BlurRadius="1" />
-          </UIElement.Effect>
-          <TextBlock.Foreground>
-            <LinearGradientBrush EndPoint="0,0.5" StartPoint="0,0" SpreadMethod="Reflect">
-              <GradientStop Color="#ffe6e5e5" Offset="0.4" />
-              <GradientStop Color="#ffb2b3b8" Offset="1" />
-            </LinearGradientBrush>
-          </TextBlock.Foreground>
+        <TextBlock Margin="0,0,0,-11" VerticalAlignment="Center" FontFamily="{StaticResource Commodore}" FontSize="13" Background="#33000000" Padding="5" Visibility="{Binding CurrentlyPlayingDuration, Converter={StaticResource positiveTimeSpanToVisibilityHiddenConverter}}" Foreground="White">
           <TextBlock.Text>
             <MultiBinding Converter="{StaticResource playingBmsInfoConverter}" Mode="OneWay">
               <Binding Path="CurrentlyPlayingBmsDuration" />
@@ -87,106 +189,8 @@
         </TextBlock>
       </Grid>
     </Grid>
-    <DockPanel Name="gridBMSPlayerControls" Grid.Row="1" Margin="0" MaxHeight="30" Height="30">
-      <FrameworkElement.Resources>
-        <ResourceDictionary>
-          <Style x:Key="stylePlayerButton" TargetType="{x:Type Button}">
-            <Setter Property="Margin" Value="1,0" />
-            <Setter Property="Width" Value="25" />
-            <Setter Property="Height" Value="25" />
-            <Setter Property="Foreground">
-              <Setter.Value>
-                <LinearGradientBrush EndPoint="0,0.5" StartPoint="0,0" SpreadMethod="Reflect">
-                  <GradientStop Color="#ffe6e5e5" Offset="0.4" />
-                  <GradientStop Color="#ffb2b3b8" Offset="1" />
-                </LinearGradientBrush>
-              </Setter.Value>
-            </Setter>
-            <Setter Property="FontFamily" Value="{StaticResource LigatureSymbols}" />
-            <Setter Property="FontSize" Value="16" />
-            <Setter Property="Background" Value="#00FFFFFF" />
-            <Setter Property="BorderBrush" Value="{x:Null}" />
-            <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="HorizontalContentAlignment" Value="Center" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="Template">
-              <Setter.Value>
-                <ControlTemplate TargetType="{x:Type Button}">
-                  <Border Name="border" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" Background="{TemplateBinding Control.Background}" SnapsToDevicePixels="True" CornerRadius="2">
-                    <ContentPresenter Name="contentPresenter" ContentTemplate="{TemplateBinding ContentControl.ContentTemplate}" Content="{TemplateBinding ContentControl.Content}" ContentStringFormat="{TemplateBinding ContentControl.ContentStringFormat}" Focusable="False" HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" Margin="{TemplateBinding Control.Padding}" RecognizesAccessKey="True" SnapsToDevicePixels="{TemplateBinding UIElement.SnapsToDevicePixels}" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" RenderTransformOrigin="0.5,0.5" />
-                  </Border>
-                  <ControlTemplate.Triggers>
-                    <Trigger Property="UIElement.IsMouseOver" Value="True">
-                      <Setter Property="BorderBrush" Value="#FFFFFFFF" />
-                      <Setter Property="BorderThickness" Value="1" />
-                    </Trigger>
-                    <Trigger Property="IsPressed" Value="True">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush EndPoint="0,0.5" StartPoint="0,0" SpreadMethod="Reflect">
-                            <GradientStop Color="#ffb2b3b8" Offset="0.4" />
-                            <GradientStop Color="#ff929398" Offset="1" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </Trigger>
-                  </ControlTemplate.Triggers>
-                </ControlTemplate>
-              </Setter.Value>
-            </Setter>
-          </Style>
-          <Style x:Key="stylePlayerButtonSymbol" TargetType="{x:Type Button}" BasedOn="{StaticResource stylePlayerButton}">
-            <Setter Property="Width" Value="25" />
-            <Setter Property="Height" Value="25" />
-            <Setter Property="FontFamily" Value="{StaticResource LigatureSymbols}" />
-          </Style>
-          <Style x:Key="stylePlayerButtonSymbolShrink" TargetType="{x:Type Button}" BasedOn="{StaticResource stylePlayerButtonSymbol}">
-            <Setter Property="Template">
-              <Setter.Value>
-                <ControlTemplate TargetType="{x:Type Button}">
-                  <Border Name="border" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" Background="{TemplateBinding Control.Background}" SnapsToDevicePixels="True" CornerRadius="2">
-                    <ContentPresenter Name="contentPresenter" ContentTemplate="{TemplateBinding ContentControl.ContentTemplate}" Content="{TemplateBinding ContentControl.Content}" ContentStringFormat="{TemplateBinding ContentControl.ContentStringFormat}" Focusable="False" HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" Margin="{TemplateBinding Control.Padding}" RecognizesAccessKey="True" SnapsToDevicePixels="{TemplateBinding UIElement.SnapsToDevicePixels}" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" RenderTransformOrigin="0.5,0.5">
-                      <UIElement.RenderTransform>
-                        <TransformGroup>
-                          <ScaleTransform ScaleY="0.8" />
-                          <SkewTransform />
-                          <RotateTransform />
-                          <TranslateTransform />
-                        </TransformGroup>
-                      </UIElement.RenderTransform>
-                    </ContentPresenter>
-                  </Border>
-                  <ControlTemplate.Triggers>
-                    <Trigger Property="UIElement.IsMouseOver" Value="True">
-                      <Setter Property="BorderBrush" Value="#FFFFFFFF" />
-                      <Setter Property="BorderThickness" Value="1" />
-                    </Trigger>
-                    <Trigger Property="IsPressed" Value="True">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush EndPoint="0,0.5" StartPoint="0,0" SpreadMethod="Reflect">
-                            <GradientStop Color="#ffb2b3b8" Offset="0.4" />
-                            <GradientStop Color="#ff929398" Offset="1" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </Trigger>
-                  </ControlTemplate.Triggers>
-                </ControlTemplate>
-              </Setter.Value>
-            </Setter>
-          </Style>
-        </ResourceDictionary>
-      </FrameworkElement.Resources>
-      <Panel.Background>
-        <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-          <GradientStop Color="#ff21262c" Offset="0.0" />
-          <GradientStop Color="#ff40454a" Offset="0.05" />
-          <GradientStop Color="#ff21262c" Offset="1" />
-        </LinearGradientBrush>
-      </Panel.Background>
-      <Slider Name="sliderPlayer" DockPanel.Dock="Top" Margin="0,-10,0,-8" Height="18" VerticalAlignment="Top" Style="{DynamicResource SliderStylePlayer}" IsMoveToPointEnabled="True" LargeChange="0.1" Maximum="{Binding CurrentlyPlayingDuration, Converter={StaticResource timeSpanToDoubleSecConverter}}" Value="{Binding CurrentlyPlayingTime, Mode=TwoWay, Converter={StaticResource timeSpanToDoubleSecConverter}}" Visibility="{Binding CurrentlyPlayingDuration, Converter={StaticResource positiveTimeSpanToVisibilityHiddenConverter}}" MouseMove="sliderPlayerMouseMove" MouseLeave="sliderPlayerMouseLeave" PreviewMouseLeftButtonUp="sliderPlayerMouseLeftButtonUp" />
+    <DockPanel Background="{DynamicResource Playback.ControlBackgroundBrush}" Name="gridBMSPlayerControls" Grid.Row="1" Margin="0" MaxHeight="30" Height="30">
+      <Slider Name="sliderPlayer" Panel.ZIndex="1" DockPanel.Dock="Top" Margin="0,-10,0,-8" Height="18" VerticalAlignment="Top" Style="{DynamicResource SliderStylePlayer}" IsMoveToPointEnabled="True" LargeChange="0.1" Maximum="{Binding CurrentlyPlayingDuration, Converter={StaticResource timeSpanToDoubleSecConverter}}" Value="{Binding CurrentlyPlayingTime, Mode=TwoWay, Converter={StaticResource timeSpanToDoubleSecConverter}}" Visibility="{Binding CurrentlyPlayingDuration, Converter={StaticResource positiveTimeSpanToVisibilityHiddenConverter}}" MouseMove="sliderPlayerMouseMove" MouseLeave="sliderPlayerMouseLeave" PreviewMouseLeftButtonUp="sliderPlayerMouseLeftButtonUp" />
       <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="5,0,0,0">
         <Button Name="buttonBMSPlayerControlsPlayAndPauseButton" Style="{StaticResource stylePlayerButtonSymbol}" FontSize="17" Margin="0,1,0,0" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Tooltip_play_pause, Mode=OneWay}" Content="{Binding PlaybackStatusValue, Converter={StaticResource nowPlayingBMStoPlayButtonStringComverter}, FallbackValue=play}" PreviewMouseLeftButtonDown="gridBMSPlayerControlsPlayStartButtonClicked" />
         <Button Content="stop" Style="{StaticResource stylePlayerButtonSymbol}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Tooltip_stop, Mode=OneWay}" PreviewMouseLeftButtonDown="gridBMSPlayerControlsPlayStopButtonClicked" />
@@ -199,41 +203,13 @@
         <Button Name="buttonBMSPlayerControlsRotatePanelState2" FlowDirection="LeftToRight" Style="{StaticResource stylePlayerButtonSymbol}" FontSize="20" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Tooltip_toggle_player_panel, Mode=OneWay}" Content="{Binding EffectivePlayerPanelState, ElementName=playbackPanelView, Mode=OneWay, Converter={StaticResource panelStateToStringConverter2}}" Click="gridBMSPlayerControlsRotatePanelStateButtonClicked2" />
         <Button Name="buttonBMSPlayerControlsRotatePanelState" FlowDirection="LeftToRight" Style="{StaticResource stylePlayerButtonSymbol}" FontSize="20" Content="{Binding EffectivePlayerPanelState, ElementName=playbackPanelView, Mode=OneWay, Converter={StaticResource panelStateToStringConverter}}" ToolTip="{Binding EffectivePlayerPanelState, ElementName=playbackPanelView, Mode=OneWay, Converter={StaticResource panelStateToTooltipConverter}}" Click="gridBMSPlayerControlsRotatePanelStateButtonClicked" />
         <Button Content="gear" Style="{StaticResource stylePlayerButtonSymbol}" FlowDirection="LeftToRight" FontSize="20" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_window_title, Mode=OneWay}" Command="{Binding SettingsCommand, ElementName=playbackPanelView}" />
-        <v:DropDownMenuButton Width="25" Height="25" Template="{DynamicResource templateDropmenuButtonSetting}" FontSize="17" FlowDirection="LeftToRight" Margin="0,1,0,0" BorderThickness="0" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Tooltip_player_settings, Mode=OneWay}">
-          <FrameworkElement.Resources>
-            <ResourceDictionary>
-              <ControlTemplate x:Key="templateDropmenuButtonSetting" TargetType="{x:Type ToggleButton}">
-                <Border Name="border" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" CornerRadius="2">
-                  <Grid Name="grid" Background="#00FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center" FlowDirection="LeftToRight">
-                    <TextBlock Name="textBlock" Text="setup" FontSize="{TemplateBinding Control.FontSize}" Foreground="{TemplateBinding Control.Foreground}" FontFamily="{StaticResource LigatureSymbols}" />
-                    <Path Width="6" Height="5" Margin="13,0,0,0" Stretch="Fill" Fill="{TemplateBinding Control.Foreground}" Data="F1 M57.5692,88 L99.1384,16 L16,16 L57.5692,88" />
-                  </Grid>
-                </Border>
-                <ControlTemplate.Triggers>
-                  <Trigger Property="UIElement.IsMouseOver" Value="True">
-                    <Setter TargetName="border" Property="Border.BorderBrush" Value="#FFFFFFFF" />
-                    <Setter TargetName="border" Property="Border.BorderThickness" Value="1" />
-                  </Trigger>
-                  <Trigger Property="ButtonBase.IsPressed" Value="True">
-                    <Setter TargetName="textBlock" Property="TextBlock.Foreground">
-                      <Setter.Value>
-                        <LinearGradientBrush EndPoint="0,0.5" StartPoint="0,0" SpreadMethod="Reflect">
-                          <GradientStop Color="#ffb2b3b8" Offset="0.4" />
-                          <GradientStop Color="#ff929398" Offset="1" />
-                        </LinearGradientBrush>
-                      </Setter.Value>
-                    </Setter>
-                  </Trigger>
-                </ControlTemplate.Triggers>
-              </ControlTemplate>
-            </ResourceDictionary>
-          </FrameworkElement.Resources>
-          <Control.Foreground>
-            <LinearGradientBrush EndPoint="0,0.5" StartPoint="0,0" SpreadMethod="Reflect">
-              <GradientStop Color="#ffe6e5e5" Offset="0.4" />
-              <GradientStop Color="#ffb2b3b8" Offset="1" />
-            </LinearGradientBrush>
-          </Control.Foreground>
+        <v:DropDownMenuButton Width="25" Height="25" Style="{StaticResource Playback.ButtonBaseStyle}" FontSize="17" FlowDirection="LeftToRight" Margin="0,1,0,0" BorderThickness="0" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Tooltip_player_settings, Mode=OneWay}">
+          <v:DropDownMenuButton.Content>
+            <Grid>
+              <TextBlock Text="setup" />
+              <Path Width="6" Height="5" Margin="13,0,0,0" Stretch="Fill" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type v:DropDownMenuButton}}}" Data="F1 M57.5692,88 L99.1384,16 L16,16 L57.5692,88" />
+            </Grid>
+          </v:DropDownMenuButton.Content>
           <v:DropDownMenuButton.DropDownContextMenu>
             <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
               <MenuItem>
@@ -255,10 +231,11 @@
               </MenuItem>
               <MenuItem>
                 <HeaderedItemsControl.Header>
-                  <DockPanel Width="150">
-                    <TextBlock DockPanel.Dock="Right" Margin="5,0,0,0" HorizontalAlignment="Right" Text="{Binding PlayerVolume, Converter={StaticResource addStringToEndConverter}, ConverterParameter=%|}" />
-                    <Slider x:Name="playerVolumeSlider" Thumb.DragCompleted="PlayerVolumeDragCompleted" PreviewMouseLeftButtonUp="PlayerVolumeMouseLeftButtonUp" PreviewKeyUp="PlayerVolumeKeyUp" LostKeyboardFocus="PlayerVolumeLostKeyboardFocus" Unloaded="PlayerVolumeUnloaded" Style="{DynamicResource SimpleSlider}" DockPanel.Dock="Left" VerticalAlignment="Bottom" Margin="0" AutoToolTipPlacement="TopLeft" Maximum="100" LargeChange="10" SmallChange="1" Height="15" RenderTransformOrigin="0.5,0.5" Background="#FF4492F0" Value="{Binding PlayerVolume, Mode=TwoWay}" />
-                  </DockPanel>
+                  <Grid Width="150">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="40" /></Grid.ColumnDefinitions>
+                    <TextBlock x:Name="playerVolumePercentage" Grid.Column="1" Foreground="{DynamicResource App.TextBrush}" VerticalAlignment="Center" TextAlignment="Right" Text="{Binding PlayerVolume, Converter={StaticResource addStringToEndConverter}, ConverterParameter=%|}" />
+                    <Slider x:Name="playerVolumeSlider" Thumb.DragCompleted="PlayerVolumeDragCompleted" PreviewMouseLeftButtonUp="PlayerVolumeMouseLeftButtonUp" PreviewKeyUp="PlayerVolumeKeyUp" LostKeyboardFocus="PlayerVolumeLostKeyboardFocus" Unloaded="PlayerVolumeUnloaded" Style="{StaticResource Playback.SliderStyle}" Grid.Column="0" VerticalAlignment="Center" Margin="0" AutoToolTipPlacement="TopLeft" Maximum="100" LargeChange="10" SmallChange="1" Height="18" RenderTransformOrigin="0.5,0.5" Value="{Binding PlayerVolume, Mode=TwoWay}" />
+                  </Grid>
                 </HeaderedItemsControl.Header>
               </MenuItem>
               <Separator />
@@ -269,13 +246,7 @@
           </v:DropDownMenuButton.DropDownContextMenu>
         </v:DropDownMenuButton>
       </StackPanel>
-      <TextBlock HorizontalAlignment="Right" DockPanel.Dock="Right" VerticalAlignment="Center" FontSize="11" Margin="0,3,5,0" Visibility="{Binding CurrentlyPlayingDuration, Converter={StaticResource positiveTimeSpanToVisibilityHiddenConverter}}">
-        <TextBlock.Foreground>
-          <LinearGradientBrush EndPoint="0,0.5" StartPoint="0,0" SpreadMethod="Reflect">
-            <GradientStop Color="#ffe6e5e5" Offset="0.4" />
-            <GradientStop Color="#ffb2b3b8" Offset="1" />
-          </LinearGradientBrush>
-        </TextBlock.Foreground>
+      <TextBlock Foreground="{DynamicResource Playback.ControlForegroundBrush}" Opacity="0.8" HorizontalAlignment="Right" DockPanel.Dock="Right" VerticalAlignment="Center" FontSize="11" Margin="0,3,5,0" Visibility="{Binding CurrentlyPlayingDuration, Converter={StaticResource positiveTimeSpanToVisibilityHiddenConverter}}">
         <TextBlock.Text>
           <MultiBinding Converter="{StaticResource currentTimeConverter}" Mode="OneWay">
             <Binding Path="CurrentlyPlayingDuration" />
@@ -283,7 +254,7 @@
           </MultiBinding>
         </TextBlock.Text>
       </TextBlock>
-      <TextBlock Name="gridBMSPlayerControlsTitle2" DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="5,0,10,0" FontWeight="Bold" Foreground="#FFFFFFFF" TextTrimming="CharacterEllipsis" Opacity="1">
+      <TextBlock Name="gridBMSPlayerControlsTitle2" DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="5,0,10,0" FontWeight="Bold" Foreground="{DynamicResource Playback.ControlForegroundBrush}" TextTrimming="CharacterEllipsis" Opacity="1">
         <UIElement.Visibility>
           <MultiBinding Converter="{StaticResource panelStateToVisibilityConverter}">
             <Binding Path="Visibility" ElementName="gridPlayerTitle" />

@@ -115,4 +115,9 @@
   <SolidColorBrush x:Key="LightBorderBrush" Color="#FFA38EC5" />
   <SolidColorBrush x:Key="LightColorBrush" Color="#FF302846" />
   <SolidColorBrush x:Key="GlyphBrush" Color="#FFE5DEFF" />
+
+  <SolidColorBrush x:Key="Playback.ControlBackgroundBrush" Color="#FF1B1A2E" />
+  <SolidColorBrush x:Key="Playback.ControlForegroundBrush" Color="#FFE5DEFF" />
+  <SolidColorBrush x:Key="Playback.ControlHoverBrush" Color="#FF302846" />
+  <BitmapImage x:Key="Playback.DefaultImage" UriSource="/BeMusicSeeker;component/Assets/Images/Playback/NeonViolet.jpg" CacheOption="OnLoad" />
 </ResourceDictionary>

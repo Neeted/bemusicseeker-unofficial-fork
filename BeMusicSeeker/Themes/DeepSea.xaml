@@ -115,4 +115,9 @@
   <SolidColorBrush x:Key="LightBorderBrush" Color="#FF9CC4CB" />
   <SolidColorBrush x:Key="LightColorBrush" Color="#FF20515B" />
   <SolidColorBrush x:Key="GlyphBrush" Color="#FFE0F8F3" />
+
+  <SolidColorBrush x:Key="Playback.ControlBackgroundBrush" Color="#FF102A33" />
+  <SolidColorBrush x:Key="Playback.ControlForegroundBrush" Color="#FFE0F8F3" />
+  <SolidColorBrush x:Key="Playback.ControlHoverBrush" Color="#FF20515B" />
+  <BitmapImage x:Key="Playback.DefaultImage" UriSource="/BeMusicSeeker;component/Assets/Images/Playback/DeepSea.jpg" CacheOption="OnLoad" />
 </ResourceDictionary>

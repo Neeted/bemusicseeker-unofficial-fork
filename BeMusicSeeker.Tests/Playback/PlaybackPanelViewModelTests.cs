@@ -8,6 +8,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
@@ -23,6 +26,7 @@ using NLog;
 using NLog.Config;
 using NLog.Targets;
 using Ribbit.Logging;
+using Rectangle = System.Windows.Shapes.Rectangle;
 
 namespace BeMusicSeeker.Tests;
 
@@ -31,7 +35,7 @@ public sealed class PlaybackPanelViewModelTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
-    /// <summary>主画面のcompiled音量メニューもpreviewを確定設定へ漏らさず、マウス操作終端と終了開始で最終音量だけを保存します。</summary>
+    /// <summary>実音量Popupで0〜100%の表示桁数によらずSlider配置と軌道・つまみの中央を保ち、previewを漏らさずマウス終端と終了開始で最終音量を保存します。</summary>
     /// <remarks>実Popupのbindingとイベント配送を観測し、音量通知から音声runtimeへの接続は設定画面とAudioContractsの代表ケースへ分担します。</remarks>
     [TestMethod]
     [DoNotParallelize]
@@ -70,6 +74,31 @@ public sealed class PlaybackPanelViewModelTests
                 menu.IsOpen = true;
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Slider slider = Descendants(menu).OfType<Slider>().Single(item => item.Name == "playerVolumeSlider");
+                TextBlock percentage = Descendants(menu).OfType<TextBlock>().Single(item => item.Name == "playerVolumePercentage");
+                var layout = (Grid)slider.Parent;
+                Rect? sliderBounds = null;
+                foreach (int volume in new[] { 0, 9, 10, 99, 100 })
+                {
+                    slider.SetCurrentValue(Slider.ValueProperty, (double)volume);
+                    menu.UpdateLayout();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(volume + "%", percentage.Text);
+                    Rect bounds = slider.TransformToAncestor(layout).TransformBounds(new Rect(slider.RenderSize));
+                    if (sliderBounds is Rect previous)
+                    {
+                        Assert.AreEqual(previous.Left, bounds.Left, 0.01);
+                        Assert.AreEqual(previous.Right, bounds.Right, 0.01);
+                        Assert.AreEqual(previous.Width, bounds.Width, 0.01);
+                    }
+                    sliderBounds = bounds;
+                    var track = (Track)slider.Template.FindName("PART_Track", slider);
+                    var rail = (Rectangle)track.DecreaseRepeatButton.Template.FindName("Rail", track.DecreaseRepeatButton);
+                    Rect railBounds = rail.TransformToAncestor(layout).TransformBounds(new Rect(rail.RenderSize));
+                    Rect thumbBounds = track.Thumb.TransformToAncestor(layout).TransformBounds(new Rect(track.Thumb.RenderSize));
+                    Assert.AreEqual(railBounds.Top + railBounds.Height / 2, thumbBounds.Top + thumbBounds.Height / 2, 0.01);
+                }
+                Assert.IsNull(slider.FocusVisualStyle);
+                Assert.IsTrue(slider.Focusable && slider.IsTabStop && slider.IsEnabled);
                 slider.SetCurrentValue(Slider.ValueProperty, 37d);
                 Assert.AreEqual(37, panel.PlayerVolume);
                 Assert.AreEqual(50, values.uBMplayVolume);
@@ -3507,7 +3536,198 @@ public sealed class PlaybackPanelViewModelTests
             PlaybackPanelView.ResolveSurfaceState(PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER, false));
     }
 
-    /// <summary>実選曲で画像・バナーを素材AからBへ更新し、素材なしの曲では既定画像へ戻して前曲の素材を残さないことを画素で確認します。</summary>
+    /// <summary>ボタンhover背景に対してシークが描画・入力で前面にあり、実Trackの時刻換算・双方向接続と一時停止・実mouse-upによる再開を保ちます。</summary>
+    /// <remarks>物理ポインターは動かさず本番MouseMoveと共通の座標入口を使い、押下mouse-leaveの判定は静的確認へ分担します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void PlaybackPanelView_SeekUsesActualTrackAndPreservesBindingAndResume()
+    {
+        List<Exception> cleanupFailures = [];
+        try
+        {
+            TestUiDispatcherHost.RunWindowTest(scope =>
+            {
+                Dispatcher previousDispatcher = Livet.DispatcherHelper.UIDispatcher;
+                string? path = null;
+                PlaybackPanelViewModel? panel = null;
+                PlaybackPanelView? view = null;
+                Window? window = null;
+                Task selection = Task.CompletedTask;
+                void Cleanup(Action cleanup)
+                {
+                    try { cleanup(); }
+                    catch (Exception failure) { cleanupFailures.Add(failure); }
+                }
+                try
+                {
+                    Livet.DispatcherHelper.UIDispatcher = Dispatcher.CurrentDispatcher;
+                    path = System.IO.Path.GetTempFileName();
+                    var player = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(120) };
+                    var rows = new MainChartListViewModel { Rows = new List<object> { ChartTestValues.Empty() with { Path = path } } };
+                    panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+                        new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("Unexpected playback failure."), new ChartFileOperationSynchronizer());
+                    view = new PlaybackPanelView();
+                    view.DataContext = panel;
+                    window = new Window();
+                    window.Content = view;
+                    window.Width = 800;
+                    window.Height = 360;
+                    window.ShowInTaskbar = false;
+                    scope.ShowAndWaitForContentRendered(window);
+                    selection = panel.StartAtIndex(0);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(selection, "seek-start");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    var slider = (Slider)view.FindName("sliderPlayer");
+                    slider.ApplyTemplate();
+                    window.UpdateLayout();
+                    var track = (Track)slider.Template.FindName("PART_Track", slider);
+                    Assert.AreEqual(18d, slider.ActualHeight, 0.01);
+                    Assert.IsNull(slider.FocusVisualStyle);
+                    Assert.IsTrue(slider.Focusable && slider.IsTabStop && slider.IsEnabled);
+                    Assert.IsFalse(Stylus.GetIsPressAndHoldEnabled(slider));
+                    BindingExpression binding = slider.GetBindingExpression(Slider.ValueProperty)
+                    ?? throw new AssertFailedException("シークの双方向Bindingがありません。");
+                    Assert.AreEqual(BindingMode.TwoWay, binding.ParentBinding.Mode);
+                    player.CurrentTime = TimeSpan.FromSeconds(60);
+                    player.Raise(nameof(IBMSPlayer.CurrentTime));
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    window.UpdateLayout();
+                    var controls = (DockPanel)slider.Parent;
+                    var play = (Button)view.FindName("buttonBMSPlayerControlsPlayAndPauseButton");
+                    Button stop = ((StackPanel)play.Parent).Children.OfType<Button>().Skip(1).First();
+                    stop.ApplyTemplate();
+                    var buttonSurface = (Border)stop.Template.FindName("ButtonSurface", stop);
+                    buttonSurface.Background = (Brush)view.FindResource("Playback.ControlHoverBrush");
+                    Rect buttonBounds = buttonSurface.TransformToAncestor(controls).TransformBounds(new Rect(buttonSurface.RenderSize));
+                    var overlap = Rect.Intersect(buttonBounds, slider.TransformToAncestor(controls).TransformBounds(new Rect(slider.RenderSize)));
+                    Assert.IsFalse(overlap.IsEmpty, "実配置でseekの入力領域とボタンが重なります。");
+                    var hit = controls.InputHitTest(new Point(overlap.Left + overlap.Width / 2, overlap.Top + overlap.Height / 2)) as DependencyObject;
+                    while (hit != null && !ReferenceEquals(hit, slider)) { hit = VisualTreeHelper.GetParent(hit); }
+                    Assert.AreSame(slider, hit, "重なりの入力はボタンよりseekを優先します。");
+                    // 入力点にはつまみがなく、つまみだけを前面へ移した誤りも上のhit testで検出します。
+                    Point buttonCenter = buttonSurface.TranslatePoint(new Point(buttonSurface.ActualWidth / 2, buttonSurface.ActualHeight / 2), track);
+                    player.CurrentTime = TimeSpan.FromSeconds(track.ValueFromPoint(buttonCenter));
+                    player.Raise(nameof(IBMSPlayer.CurrentTime));
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    window.UpdateLayout();
+                    var overlappingGrip = (System.Windows.Shapes.Ellipse)track.Thumb.Template.FindName("Grip", track.Thumb);
+                    var gripOverlap = Rect.Intersect(buttonBounds, overlappingGrip.TransformToAncestor(controls).TransformBounds(new Rect(overlappingGrip.RenderSize)));
+                    Assert.IsFalse(gripOverlap.IsEmpty, "実配置でつまみの描画とhover背景が重なります。");
+                    // 重なり内側のつまみ中央を拡大描画し、楕円境界のアンチエイリアスを判定対象にしません。
+                    const int scale = 4;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    // 子だけの画像化では親内の配置offsetが残るため、表示したWindow全体から実座標で採ります。
+                    var rendered = new RenderTargetBitmap((int)Math.Ceiling(window.ActualWidth * scale), (int)Math.Ceiling(window.ActualHeight * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+                    rendered.Render(window);
+                    byte[] pixel = new byte[4];
+                    Point sample = controls.TranslatePoint(new Point(gripOverlap.Left + gripOverlap.Width / 2, gripOverlap.Top + gripOverlap.Height / 2), window);
+                    rendered.CopyPixels(new Int32Rect((int)(sample.X * scale), (int)(sample.Y * scale), 1, 1), pixel, 4, 0);
+                    Color gripColor = ((SolidColorBrush)overlappingGrip.Fill).Color;
+                    CollectionAssert.AreEqual(new byte[] { gripColor.B, gripColor.G, gripColor.R, gripColor.A }, pixel,
+                    $"ボタン背景よりseekが前面に描画されます。期待={gripColor}, 実BGRA={Convert.ToHexString(pixel)}, 重なり={gripOverlap}, 採取点={sample}");
+                    Task pauseObserved = player.WaitForCommandAsync("Pause");
+                    foreach ((double width, double thumbWidth) in new[] { (300d, 11d), (480d, 25d) })
+                    {
+                        slider.Width = width;
+                        track.Thumb.Width = thumbWidth;
+                        window.UpdateLayout();
+                        Assert.IsTrue(track.ActualWidth > track.Thumb.ActualWidth);
+                        foreach (double expected in new[] { 0d, 60d, 120d })
+                        {
+                            player.CurrentTime = TimeSpan.FromSeconds(expected);
+                            player.Raise(nameof(IBMSPlayer.CurrentTime));
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            window.UpdateLayout();
+                            Assert.AreEqual(expected, slider.Value, 0.001, "player通知が同じSliderへ届きます。");
+                            Point center = track.Thumb.TranslatePoint(new Point(track.Thumb.ActualWidth / 2, track.Thumb.ActualHeight / 2), slider);
+                            slider.SetCurrentValue(Slider.ValueProperty, 0d);
+                            window.UpdateLayout();
+                            view.SeekFromPoint(center);
+                            // 最初の非同期Pauseがplayerへ到達してから、同じドラッグの次座標へ進みます。
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(pauseObserved, "seek-pause");
+                            Assert.AreEqual(expected, slider.Value, 0.001);
+                            Assert.AreEqual(expected, player.CurrentTime.TotalSeconds, 0.001);
+                            Assert.AreSame(binding, slider.GetBindingExpression(Slider.ValueProperty));
+                        }
+                        view.SeekFromPoint(new Point(-100, 9));
+                        Assert.AreEqual(0d, player.CurrentTime.TotalSeconds, 0.001);
+                        view.SeekFromPoint(new Point(slider.ActualWidth + 100, 9));
+                        Assert.AreEqual(120d, player.CurrentTime.TotalSeconds, 0.001);
+                    }
+                    var rail = (Rectangle)track.DecreaseRepeatButton.Template.FindName("Rail", track.DecreaseRepeatButton);
+                    Assert.IsTrue(rail.ActualHeight > 0 && rail.ActualHeight < slider.ActualHeight);
+                    Assert.IsNull(rail.Stroke);
+                    var grip = (System.Windows.Shapes.Ellipse)track.Thumb.Template.FindName("Grip", track.Thumb);
+                    Assert.IsNull(grip.Stroke);
+                    Assert.IsTrue(panel.IsPaused);
+                    Assert.AreEqual(1, player.Commands.Count(command => command == "Pause"));
+                    Task resumeObserved = player.WaitForCommandAsync("Pause");
+                    slider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                    { RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent });
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(resumeObserved, "seek-resume");
+                    Assert.IsTrue(panel.IsPlaying);
+                    Assert.AreEqual(2, player.Commands.Count(command => command == "Pause"));
+                    Assert.AreEqual(1, player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
+                    Assert.AreSame(binding, slider.GetBindingExpression(Slider.ValueProperty));
+                }
+                finally
+                {
+                    // 部分setupも回収し、一つの二次故障で残りの資源回収・共有状態の復元を飛ばしません。
+                    if (panel != null)
+                    {
+                        Cleanup(panel.BeginShutdown);
+                        Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(panel.CloseForShutdown(), "seek-shutdown"));
+                    }
+                    Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(selection, "seek-start-cleanup"));
+                    if (view != null) { Cleanup(view.DisposePlayerHost); }
+                    if (window != null)
+                    {
+                        Cleanup(() => window.Content = null);
+                        Cleanup(() =>
+                        {
+                            if (!Application.Current.Windows.Cast<Window>().Contains(window)) { return; }
+                            var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                            EventHandler onClosed = (_, _) => closed.TrySetResult();
+                            window.Closed += onClosed;
+                            try
+                            {
+                                window.Close();
+                                TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "seek-window-closed");
+                            }
+                            finally { window.Closed -= onClosed; }
+                        });
+                    }
+                    if (path != null) { Cleanup(() => File.Delete(path)); }
+                    Cleanup(() => Livet.DispatcherHelper.UIDispatcher = previousDispatcher);
+                }
+            });
+        }
+        catch (Exception failure)
+        {
+            // scopeが選ぶ本文・表示観測の失敗を優先し、局所cleanupの二次故障を添付します。
+            if (cleanupFailures.Count != 0)
+            {
+                failure.Data["SeekCleanupFailures"] = new AggregateException(cleanupFailures).ToString();
+            }
+            throw;
+        }
+        if (cleanupFailures.Count != 0) { throw new AggregateException("Seek fixture cleanup failed.", cleanupFailures); }
+    }
+
+    private static string ArtworkSignature(ImageSource image)
+    {
+        Assert.IsInstanceOfType<BitmapSource>(image);
+        var converted = new FormatConvertedBitmap((BitmapSource)image, PixelFormats.Bgra32, null, 0);
+        int stride = converted.PixelWidth * 4;
+        byte[] pixels = new byte[stride * converted.PixelHeight];
+        converted.CopyPixels(pixels, stride, 0);
+        return converted.PixelWidth + "x" + converted.PixelHeight + ":" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(pixels));
+    }
+
+    private static void AssertThemeArtwork(PlaybackPanelView view, Image artwork) =>
+        Assert.AreEqual(ArtworkSignature((ImageSource)view.FindResource("Playback.DefaultImage")), ArtworkSignature(artwork.Source));
+
+    /// <summary>同じcompiled Viewで全テーマの既定画像と操作色を更新し、実選曲A→B→素材なしで画像・バナーの除去とstage・外部・既定の優先順位を画素で確認します。</summary>
     /// <remarks>実WindowのLoaded・compiled binding・子HWNDまたはanimationを観測するため表示し、共有WPF資源を使うこのケースだけ非並列にします。</remarks>
     [TestMethod]
     [DoNotParallelize]
@@ -3520,16 +3740,15 @@ public sealed class PlaybackPanelViewModelTests
             Directory.CreateDirectory(directory);
             var player = new PreloadBmsPlayer { SupportsBmson = true };
             var rows = new MainChartListViewModel();
+            var settings = new InMemoryPlaybackSettingsStore();
             var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-                new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
+                settings, new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
             var view = new PlaybackPanelView { DataContext = panel };
             var window = new Window { Content = view, Width = 640, Height = 360, ShowInTaskbar = false };
             Task selection = Task.CompletedTask;
             var artwork = (Image)view.FindName("gridBMSPlayerImage");
             var banner = (Border)view.FindName("gridBMSPlayerControlsBanner");
-            var sourceDescriptor = DependencyPropertyDescriptor.FromProperty(Image.SourceProperty, typeof(Image));
-            TaskCompletionSource? sourceChanged = null;
-            EventHandler sourceHandler = (_, _) => sourceChanged?.TrySetResult();
+            ResourceDictionary[] originalDictionaries = Application.Current.Resources.MergedDictionaries.ToArray();
             int displayedChanges = 0;
             PropertyChangedEventHandler displayedHandler = (_, args) =>
             {
@@ -3559,6 +3778,8 @@ public sealed class PlaybackPanelViewModelTests
                 WriteImage("banner-a.png", 60);
                 WriteImage("stage-b.png", 150);
                 WriteImage("banner-b.png", 160);
+                WriteImage("external.png", 210);
+                AppThemeService.ApplyTheme(AppThemeService.Light);
                 string[] paths = [Path.Combine(directory, "first.bms"), Path.Combine(directory, "second.bmson"), Path.Combine(directory, "third.bms")];
                 foreach (string path in paths)
                 {
@@ -3574,17 +3795,40 @@ public sealed class PlaybackPanelViewModelTests
                 scope.ShowAndWaitForContentRendered(window);
                 window.UpdateLayout();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                ImageSource defaultImage = artwork.Source;
-                Assert.IsNotNull(defaultImage);
+                Assert.AreEqual(Stretch.UniformToFill, artwork.Stretch);
+                var signatures = new HashSet<string>(StringComparer.Ordinal);
+                foreach (string theme in AppThemeService.AvailableThemes)
+                {
+                    AppThemeService.ApplyTheme(theme);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    AssertThemeArtwork(view, artwork);
+                    Assert.IsTrue(signatures.Add(ArtworkSignature(artwork.Source)), "各テーマには異なる同梱画像を接続します: " + theme);
+                    var controls = (DockPanel)view.FindName("gridBMSPlayerControls");
+                    Assert.AreEqual(((SolidColorBrush)view.FindResource("Playback.ControlBackgroundBrush")).Color, ((SolidColorBrush)controls.Background).Color);
+                    var smallTitle = (TextBlock)view.FindName("gridBMSPlayerControlsTitle2");
+                    Assert.AreEqual(((SolidColorBrush)view.FindResource("Playback.ControlForegroundBrush")).Color, ((SolidColorBrush)smallTitle.Foreground).Color);
+                }
+                AppThemeService.ApplyTheme(AppThemeService.Light);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                AssertThemeArtwork(view, artwork);
+                settings.UseExternalPanelImage = true;
+                settings.StagefilePath = Path.Combine(directory, "external.png");
+                panel.NotifySettingsChanged();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                ImageSource externalImage = artwork.Source;
+                foreach (string theme in new[] { "Light", "Dark", "Light" })
+                {
+                    AppThemeService.ApplyTheme(theme);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual((byte)210, Blue(artwork.Source));
+                    Assert.AreSame(externalImage, artwork.Source);
+                }
                 Assert.IsNull(banner.Background);
-                sourceDescriptor.AddValueChanged(artwork, sourceHandler);
                 panel.PropertyChanged += displayedHandler;
                 for (int index = 0; index < charts.Length; index++)
                 {
-                    sourceChanged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     selection = index == 0 ? panel.StartAtIndex(0) : panel.Next();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(selection, "ChartArtwork.selection");
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(sourceChanged.Task, "ChartArtwork.image-source");
                     window.UpdateLayout();
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.IsNotNull(panel.DisplayedChart);
@@ -3593,21 +3837,37 @@ public sealed class PlaybackPanelViewModelTests
                     if (index < 2)
                     {
                         Assert.AreEqual(index == 0 ? (byte)50 : (byte)150, Blue(artwork.Source));
+                        ImageSource stageImage = artwork.Source;
+                        foreach (string theme in new[] { "Light", "Dark", "Light" })
+                        {
+                            AppThemeService.ApplyTheme(theme);
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            Assert.AreEqual(index == 0 ? (byte)50 : (byte)150, Blue(artwork.Source));
+                            Assert.AreSame(stageImage, artwork.Source);
+                        }
                         Assert.IsInstanceOfType<ImageBrush>(banner.Background);
                         Assert.AreEqual(index == 0 ? (byte)60 : (byte)160, Blue(((ImageBrush)banner.Background).ImageSource));
                     }
                     else
                     {
-                        Assert.AreSame(defaultImage, artwork.Source);
+                        Assert.AreEqual((byte)210, Blue(artwork.Source));
+                        settings.UseExternalPanelImage = false;
+                        panel.NotifySettingsChanged();
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        AssertThemeArtwork(view, artwork);
                         Assert.IsNull(banner.Background);
                     }
                 }
                 Assert.AreEqual(3, displayedChanges);
+                view.DataContext = null;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsNull(artwork.Source);
+                Assert.IsNull(banner.Background);
+                Assert.AreEqual(new Thickness(0), banner.BorderThickness);
             }
             finally
             {
                 panel.PropertyChanged -= displayedHandler;
-                sourceDescriptor.RemoveValueChanged(artwork, sourceHandler);
                 panel.BeginShutdown();
                 try
                 {
@@ -3616,10 +3876,19 @@ public sealed class PlaybackPanelViewModelTests
                 }
                 finally
                 {
-                    view.DisposePlayerHost();
-                    window.Content = null;
-                    window.Close();
-                    Directory.Delete(directory, recursive: true);
+                    try
+                    {
+                        view.DisposePlayerHost();
+                        window.Content = null;
+                        window.Close();
+                        Directory.Delete(directory, recursive: true);
+                    }
+                    finally
+                    {
+                        Application.Current.Resources.MergedDictionaries.Clear();
+                        foreach (ResourceDictionary dictionary in originalDictionaries) { Application.Current.Resources.MergedDictionaries.Add(dictionary); }
+                        CustomTablePalette.Invalidate();
+                    }
                 }
             }
         });
@@ -3649,9 +3918,6 @@ public sealed class PlaybackPanelViewModelTests
             PlaybackPanelView? view = null;
             Window? window = null;
             Image? artwork = null;
-            DependencyPropertyDescriptor? sourceDescriptor = null;
-            TaskCompletionSource? sourceChanged = null;
-            EventHandler sourceHandler = (_, _) => sourceChanged?.TrySetResult();
             Task selection = Task.CompletedTask;
             Exception? primaryFailure = null;
             List<Exception> cleanupFailures = [];
@@ -3713,7 +3979,6 @@ public sealed class PlaybackPanelViewModelTests
                 window.ShowInTaskbar = false;
                 artwork = (Image)view.FindName("gridBMSPlayerImage");
                 var banner = (Border)view.FindName("gridBMSPlayerControlsBanner");
-                sourceDescriptor = DependencyPropertyDescriptor.FromProperty(Image.SourceProperty, typeof(Image));
                 WriteImage("stage-a.png", 50);
                 WriteImage("banner-a.png", 60);
                 WriteImage("stage-b.png", 150);
@@ -3749,16 +4014,12 @@ public sealed class PlaybackPanelViewModelTests
                 scope.ShowAndWaitForContentRendered(window);
                 window.UpdateLayout();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                ImageSource defaultImage = artwork.Source;
-                Assert.IsNotNull(defaultImage, "外部画像の失敗でも同梱既定画像を使います。");
+                AssertThemeArtwork(view, artwork);
                 Assert.IsNull(banner.Background);
-                sourceDescriptor.AddValueChanged(artwork, sourceHandler);
                 for (int index = 0; index < charts.Length; index++)
                 {
-                    sourceChanged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     selection = index == 0 ? panel.StartAtIndex(0) : panel.Next();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(selection, "ArtworkFailure.selection");
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(sourceChanged.Task, "ArtworkFailure.image-source");
                     window.UpdateLayout();
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.IsTrue(selection.IsCompletedSuccessfully);
@@ -3774,7 +4035,7 @@ public sealed class PlaybackPanelViewModelTests
                     }
                     else if (scenario == "broken-stage")
                     {
-                        Assert.AreSame(defaultImage, artwork.Source);
+                        AssertThemeArtwork(view, artwork);
                         Assert.IsInstanceOfType<ImageBrush>(banner.Background);
                         Assert.AreEqual((byte)160, Blue(((ImageBrush)banner.Background).ImageSource));
                         Assert.AreEqual(Stretch.Fill, ((ImageBrush)banner.Background).Stretch);
@@ -3788,7 +4049,7 @@ public sealed class PlaybackPanelViewModelTests
                     }
                     else
                     {
-                        Assert.AreSame(defaultImage, artwork.Source);
+                        AssertThemeArtwork(view, artwork);
                         Assert.IsNull(banner.Background);
                         Assert.AreEqual(new Thickness(0), banner.BorderThickness);
                     }
@@ -3824,10 +4085,6 @@ public sealed class PlaybackPanelViewModelTests
             finally
             {
                 // 部分setupも回収し、後片付けの二次故障で元のsetup・本文故障を置き換えません。
-                if (sourceDescriptor != null && artwork != null)
-                {
-                    Cleanup(() => sourceDescriptor.RemoveValueChanged(artwork, sourceHandler));
-                }
                 if (panel != null)
                 {
                     Cleanup(panel.BeginShutdown);
@@ -3922,6 +4179,18 @@ public sealed class PlaybackPanelViewModelTests
                 Assert.AreEqual("Current Title", title.Text);
                 Assert.AreEqual("[Current Subtitle]", subtitle.Text);
                 Assert.AreEqual("Current Artist", artist.Text);
+                var titleSurface = (DockPanel)view.FindName("gridBMSPlayerTitlePanel");
+                Assert.AreEqual(Color.FromArgb(204, 0, 0, 0), ((SolidColorBrush)titleSurface.Background).Color);
+                Assert.AreEqual(Colors.White, ((SolidColorBrush)title.Foreground).Color);
+                var statistics = (Grid)view.FindName("gridPlayngBmsInfo");
+                TextBlock statisticsText = statistics.Children.OfType<TextBlock>().Single();
+                Assert.AreEqual(Colors.White, ((SolidColorBrush)statisticsText.Foreground).Color);
+                Assert.AreEqual(Color.FromArgb(51, 0, 0, 0), ((SolidColorBrush)statisticsText.Background).Color);
+                Assert.IsNull(statisticsText.Effect);
+                var play = (Button)view.FindName("buttonBMSPlayerControlsPlayAndPauseButton");
+                Assert.IsNull(play.FocusVisualStyle);
+                Assert.IsTrue(play.Focusable && play.IsTabStop);
+                Assert.AreEqual(((SolidColorBrush)view.FindResource("Playback.ControlForegroundBrush")).Color, ((SolidColorBrush)play.Foreground).Color);
             }
             finally
             {

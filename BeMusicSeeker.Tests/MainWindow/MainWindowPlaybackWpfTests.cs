@@ -44,6 +44,14 @@ public sealed class MainWindowPlaybackWpfTests
                 var panel = (PlaybackPanelView)window.FindName("playbackPanelView");
                 Assert.IsNotNull(panel);
                 Assert.AreSame(viewModel.PlaybackPanel, panel.DataContext);
+                var caption = (StackPanel)window.FindName("windowCaptionPanel");
+                foreach (Button button in caption.Children.OfType<Button>())
+                {
+                    button.ApplyTemplate();
+                    var surface = (Border)button.Template.FindName("border", button);
+                    Assert.AreEqual(Colors.Transparent, ((SolidColorBrush)surface.Background).Color);
+                    Assert.IsNull(surface.Effect);
+                }
 
                 IReadOnlyList<Button> seekButtons = FindVisualChildren<Button>(panel)
                     .Where(button => BindingOperations.GetBindingBase(button, UIElement.IsEnabledProperty) is Binding binding

@@ -36,7 +36,7 @@ XAMLは原則として `DynamicResource` を使います。コード描画はテ
 
 ### 共通スタイルの所有
 
-アプリの辞書は `CanonicalDialogStyles.xaml`、そこから `CanonicalControls.xaml` を参照します。`App.Canonical.*` は用途を明示した共通スタイルのキーです。導入だけで未採用のメイン画面へ波及しないよう、アプリ全体の型名による暗黙スタイルとして追加しません。
+アプリの辞書は `CanonicalDialogStyles.xaml`、そこから `CanonicalControls.xaml` を参照します。`App.Canonical.*` は用途を明示した共通スタイルのキーです。導入だけで未採用のメイン画面へ波及しないよう、アプリ全体の型名による暗黙スタイルとして追加しません。例外として `ToolTip` は全画面で型スタイルを適用し、文字列から自動生成されるもの、明示生成、SliderのAutoToolTipを同じ意味ブラシへ接続します。背景は `App.PopupBackgroundBrush`、本文は `App.TextBrush`、枠は `App.BorderBrush` とし、標準テンプレートを保って表示中のテーマ切替にも追随します。
 
 共通の操作・状態アイコンは `AppFontIcon` と `App.IconFontFamily`、`App.Canonical.FontIconStyle` を明示して使います。Windows 11 の `Segoe Fluent Icons` を第一候補、Windows 10 の `Segoe MDL2 Assets` を代替にし、両方で同じ意味を持つコードポイントを選びます。Segoe のフォントファイルはアプリへ同梱しません。`AppFontIcon` は固定領域の文字ベースラインへ合わせず、解決された字形の実描画領域を表示領域の中央へ配置します。アイコンの色は固定値にせず、本文、補助、強調、警告、失敗など既存の意味付きブラシへ接続します。
 
@@ -60,7 +60,9 @@ WPF既定の点線のフォーカス飾りは使いません。表は選択と�
 
 メイン画面は背景と文字色をテーマへ接続します。外周は内容の測定範囲を縮めない1 DIPの表示専用枠とし、入力を受け取りません。非アクティブ時は控えめな文字色、アクティブ時は強調色です。最大化時は既存の8 DIPの余白に合わせて内側へ移し、サイズ変更の判定を妨げません。
 
-キャプションボタンは常に控えめな文字色です。標準の `WindowChrome`、`SystemCommands` と専用の入力判定を使い、サイズ変更の判定幅5を保ちます。
+キャプションボタンは常に控えめな文字色です。通常背景は透明で、`IsMouseOver` のときだけ `App.ControlHoverBrush` を表示します。押下やキーfocusだけでは背景を点灯させず、影・白色光沢・パネル全体の常時背景は付けません。既存位置、標準の `WindowChrome`、`SystemCommands` と専用の入力判定を使い、サイズ変更の判定幅5を保ちます。
+
+再生パネルは操作専用の独立したテーマ資源と同梱画像を使います。操作帯、画像上の文字、seek・音量のフラット描画とパネル内だけのfocus装飾除去は[再生パネル](playback-panel.md#テーマ画像とフラットな操作表示)に従います。
 
 ツリーの通常・選択・無効の文字色は、`TextBlock` と `EditableTextBlock` の両方へ明示します。アイコン付きツリー項目の本文は、表示・編集のどちらでも行内の上下中央に揃えます。サイドバーの分割線は操作範囲5、見える線1とし、透明な操作範囲を重ねます。余分な余白でツリーと表、スクロールバーを離しません。
 
@@ -134,12 +136,13 @@ OS標準の選択画面、利用者定義テーマ、個別色の編集、OSテ�
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | テーマの切替と共通スタイルの保持 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs) | [`NativeWindowThemeContractTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowThemeContractTests.cs) は各配色への切替で、辞書のキー整合、共通スタイルの解決、変更通知と版更新、題名部の明暗判定を確認する。 |
+| 全ToolTipの表示中テーマ追随 | `CanonicalControls.xaml` の型スタイル | `NativeWindowThemeContractTests.ToolTip_VisibleContentTracksThemeWithoutExplicitStyle` はIsOpenで表示した明示StyleなしToolTipで明→暗→明の実効背景・枠・本文、文字列と折返しTextBlockの文字継承・内容保持を確認する。文字列からの自動生成、CustomTableViewの明示生成、SliderのAutoToolTipが同じ型スタイルを使う接続は静的確認で分担する。 |
 | テーマの切替、標準題名部の接続・解除と失敗 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs)、[`ThemedWindow`](../../../BeMusicSeeker/Views/ThemedWindow.cs) | [`NativeWindowThemeContractTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowTitleBarTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowTitleBarTests.cs) |
 | 共通Expander見出しの背景・枠・文字・矢印と動的テーマ切替 | [`CanonicalControls.xaml`](../../../BeMusicSeeker/Themes/CanonicalControls.xaml) の `App.Canonical.ExpanderHeaderToggleStyle` / `ExpanderHeaderToggleTemplate`、[`SettingsControls.xaml`](../../../BeMusicSeeker/Views/Settings/SettingsControls.xaml) の `SettingsExpanderStyle` | [`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs) の `SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes` は同じ表示済みExpanderで明→暗→明の背景・1 DIPの枠と、折畳み・展開・無効時の文字・矢印の実効色、双方向開閉、内容表示と `IExpandCollapseProvider` を確認する。ホバー・フォーカスの表示と有効条件、余白は既存トリガーとテンプレートの差分確認で維持を確認する。 |
 | 設定の表示部品、検証状態、アクセシビリティ、候補幅、項目保存と即時反映 | [`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs)、[`SettingsField`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、[`SettingsPathPicker`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、[`SettingsSection`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) の `SettingsPages_RequiredValidationBindingsUseSharedWarningAndErrorPresentation`、`SettingsValidationPresentation_ExposesWarningAndErrorWithoutRelyingOnColorAlone`、および既存の表示・アクセシビリティ検査、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs)、[`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) |
 | ダイアログの表示面、標準メニュー、結果とサイズ | [`ThemedMessageBox`](../../../BeMusicSeeker/Views/ThemedMessageBox.cs) | [`DialogPresentationTests`](../../../BeMusicSeeker.Tests/Dialogs/DialogPresentationTests.cs)、[`ThemedMessageBoxTests`](../../../BeMusicSeeker.Tests/Dialogs/ThemedMessageBoxTests.cs)、[`UiDialogCoordinatorWpfTests`](../../../BeMusicSeeker.Tests/Dialogs/UiDialogCoordinatorWpfTests.cs) |
 | 表とツリーへの配色・表示、共通アイコンの描画 | [`CustomTablePalette`](../../../BeMusicSeeker/Views/CustomTable/CustomTablePalette.cs)、[`AppFontIcon`](../../../BeMusicSeeker/Views/AppFontIcon.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs)、[`MainWindowTreePresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowTreePresentationWpfTests.cs) |
-| 実キャプションからの状態変更と終了 | [`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowViewHostTests.MainWindowPlayerDrainKeepsDispatcherResponsiveAndDefersTerminalClose`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewHostTests.cs) は同じ実Windowで最大化・復元・最小化をAutomation Invokeから実状態へ照合し、通常・更新準備済みのCloseを同じキャプションから受付、player排出、UI保存、実Closedまで確認する。OSポインターによるhit-testとサイズ変更はこの自動検証の対象に含めない。 |
+| 実キャプションからの状態変更と終了 | [`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowViewHostTests.MainWindowPlayerDrainKeepsDispatcherResponsiveAndDefersTerminalClose`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewHostTests.cs) は同じ実Windowで最大化・復元・最小化をAutomation Invokeから実状態へ照合し、通常・更新準備済みのCloseを同じキャプションから受付、player排出、UI保存、実Closedまで確認する。`MainWindowPlaybackWpfTests.PlaybackControls_BindPanelStateAndCapabilitiesThroughPlaybackOwner` は通常の透明な背景と影なしを実templateで確認する。hoverだけの背景接続と押下・focusだけでは点灯しないことは静的確認する。OSポインターによるhit-testとサイズ変更はこの自動検証の対象に含めない。 |
 
 ## 関連資料
 

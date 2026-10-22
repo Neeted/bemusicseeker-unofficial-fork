@@ -115,4 +115,9 @@
   <SolidColorBrush x:Key="LightBorderBrush" Color="#FF8BA7B6" />
   <SolidColorBrush x:Key="LightColorBrush" Color="#FF18252E" />
   <SolidColorBrush x:Key="GlyphBrush" Color="#FFE9F0F7" />
+
+  <SolidColorBrush x:Key="Playback.ControlBackgroundBrush" Color="#FF0B1015" />
+  <SolidColorBrush x:Key="Playback.ControlForegroundBrush" Color="#FFE9F0F7" />
+  <SolidColorBrush x:Key="Playback.ControlHoverBrush" Color="#FF18252E" />
+  <BitmapImage x:Key="Playback.DefaultImage" UriSource="/BeMusicSeeker;component/Assets/Images/Playback/OledBlack.jpg" CacheOption="OnLoad" />
 </ResourceDictionary>

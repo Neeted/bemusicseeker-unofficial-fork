@@ -5,7 +5,11 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Views;
@@ -250,6 +254,124 @@ public sealed class NativeWindowThemeContractTests
                 CustomTablePalette.Invalidate();
             }
         });
+    }
+
+    /// <summary>明示Styleのない実ToolTipを表示したまま明暗を往復し、背景・枠・本文と文字列/折返し本文の継承が内容を失わず切り替わります。</summary>
+    /// <remarks>IsOpenで標準ToolTipの実Popupを描画します。文字列ToolTipの自動生成・明示生成・AutoToolTipから型styleへの接続は静的確認へ分担します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void ToolTip_VisibleContentTracksThemeWithoutExplicitStyle()
+    {
+        List<Exception> cleanupFailures = [];
+        try
+        {
+            TestUiDispatcherHost.RunWindowTest(scope =>
+            {
+                void Cleanup(Action cleanup)
+                {
+                    try { cleanup(); }
+                    catch (Exception failure) { cleanupFailures.Add(failure); }
+                }
+                Application application = Application.Current;
+                ResourceDictionary[] originalDictionaries = application.Resources.MergedDictionaries.ToArray();
+                var owner = new Window { Content = new Border(), Width = 240, Height = 120 };
+                var toolTip = new ToolTip { PlacementTarget = owner, Placement = PlacementMode.Bottom, StaysOpen = true };
+                scope.TrackToolTip(toolTip);
+                try
+                {
+                    scope.ShowAndWaitForContentRendered(owner);
+                    AppThemeService.ApplyTheme(AppThemeService.Light);
+                    var opened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    toolTip.Opened += (_, _) => opened.TrySetResult();
+                    toolTip.Content = "テーマ切替中も保持する本文";
+                    toolTip.IsOpen = true;
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(opened.Task, "ToolTip.Opened");
+                    nint handle = TestWindowPresentationScope.GetNativeHandle(toolTip);
+                    Assert.IsTrue(TestWindowPresentationScope.HasNoActivateStyle(handle));
+                    Assert.IsTrue(TestWindowPresentationScope.IsOutsideAllMonitors(handle));
+                    var wrapped = new TextBlock { Text = "折返し本文をテーマに追随させる", TextWrapping = TextWrapping.Wrap, Width = 100 };
+                    foreach (object content in new object[] { toolTip.Content, wrapped })
+                    {
+                        toolTip.Content = content;
+                        foreach (string theme in new[] { AppThemeService.Light, AppThemeService.Dark, AppThemeService.Light })
+                        {
+                            AppThemeService.ApplyTheme(theme);
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            toolTip.UpdateLayout();
+                            Assert.IsTrue(toolTip.IsOpen && toolTip.IsVisible);
+                            Assert.AreSame(content, toolTip.Content);
+                            Color background = ((SolidColorBrush)application.FindResource("App.PopupBackgroundBrush")).Color;
+                            Color foreground = ((SolidColorBrush)application.FindResource("App.TextBrush")).Color;
+                            Color border = ((SolidColorBrush)application.FindResource("App.BorderBrush")).Color;
+                            Assert.AreEqual(background, ((SolidColorBrush)toolTip.Background).Color);
+                            Assert.AreEqual(foreground, ((SolidColorBrush)toolTip.Foreground).Color);
+                            Assert.AreEqual(border, ((SolidColorBrush)toolTip.BorderBrush).Color);
+                            Border surface = VisualDescendants(toolTip).OfType<Border>().First(item => item.BorderThickness.Top > 0);
+                            Assert.AreEqual(background, ((SolidColorBrush)surface.Background).Color);
+                            Assert.AreEqual(border, ((SolidColorBrush)surface.BorderBrush).Color);
+                            TextBlock body = VisualDescendants(toolTip).OfType<TextBlock>().Single();
+                            Assert.AreEqual(foreground, ((SolidColorBrush)body.Foreground).Color);
+                            Assert.AreEqual(content is string text ? text : wrapped.Text, body.Text);
+                            if (ReferenceEquals(content, wrapped)) { Assert.AreEqual(TextWrapping.Wrap, body.TextWrapping); }
+                        }
+                    }
+                }
+                finally
+                {
+                    // 閉鎖終端を先に試み、各cleanupの故障で後続の資源回収・共有辞書の復元を飛ばしません。
+                    Cleanup(() =>
+                    {
+                        if (!toolTip.IsOpen) { return; }
+                        var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        RoutedEventHandler onClosed = (_, _) => closed.TrySetResult();
+                        toolTip.Closed += onClosed;
+                        try
+                        {
+                            toolTip.IsOpen = false;
+                            TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "ToolTip.Closed");
+                        }
+                        finally { toolTip.Closed -= onClosed; }
+                    });
+                    Cleanup(() =>
+                    {
+                        if (!application.Windows.Cast<Window>().Contains(owner)) { return; }
+                        var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        EventHandler onClosed = (_, _) => closed.TrySetResult();
+                        owner.Closed += onClosed;
+                        try
+                        {
+                            owner.Close();
+                            TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "ToolTip.Owner.Closed");
+                        }
+                        finally { owner.Closed -= onClosed; }
+                    });
+                    Cleanup(application.Resources.MergedDictionaries.Clear);
+                    foreach (ResourceDictionary dictionary in originalDictionaries)
+                    { Cleanup(() => application.Resources.MergedDictionaries.Add(dictionary)); }
+                    Cleanup(CustomTablePalette.Invalidate);
+                }
+            });
+        }
+        catch (Exception failure)
+        {
+            // scopeが選ぶ本文・表示観測の失敗を優先し、局所cleanupの二次故障を添付します。
+            if (cleanupFailures.Count != 0)
+            {
+                failure.Data["ToolTipCleanupFailures"] = new AggregateException(cleanupFailures).ToString();
+            }
+            throw;
+        }
+        if (cleanupFailures.Count != 0) { throw new AggregateException("ToolTip fixture cleanup failed.", cleanupFailures); }
+    }
+
+    private static IEnumerable<DependencyObject> VisualDescendants(DependencyObject parent)
+    {
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(parent, index);
+            yield return child;
+            foreach (DependencyObject descendant in VisualDescendants(child)) { yield return descendant; }
+        }
     }
 
     private static void AssertAppliedThemeResources(

@@ -4,10 +4,15 @@
                     xmlns:s="clr-namespace:System;assembly=mscorlib"
                     xmlns:v="clr-namespace:BeMusicSeeker.Views">
   <!--
-    These resources are deliberately keyed.  Settings and dialogs opt into the
-    design system explicitly; an application-level implicit style would also
-    restyle MainWindow controls that have not been migrated yet.
+    操作部品は明示キーで採用します。ToolTipだけは生成元を問わずテーマへ追随するため、
+    アプリ全体に型スタイルを適用します。
   -->
+  <Style TargetType="{x:Type ToolTip}">
+    <Setter Property="Background" Value="{DynamicResource App.PopupBackgroundBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
+  </Style>
+
   <FontFamily x:Key="App.IconFontFamily">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
   <s:String x:Key="App.IconGlyph.Filter">&#xE71C;</s:String>
   <s:String x:Key="App.IconGlyph.Search">&#xE721;</s:String>
