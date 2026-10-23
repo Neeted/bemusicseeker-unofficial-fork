@@ -561,7 +561,7 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
             return false;
         }
         string storedValue = PlaylistPropertySaveService.NormalizeSummaryOutputDirectory(name, value);
-        return saveService.IsOutputDirectoryValid(editSession, name, storedValue);
+        return saveService.IsOutputDirectoryValid(editSession, name, storedValue, custom_folder_output_base_option?.BaseName, is_root_folder);
     }
 
     internal async Task<PlaylistPropertyDialogOperationResult> ResetPropertiesAsync()

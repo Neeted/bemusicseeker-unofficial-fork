@@ -3006,10 +3006,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
-    /// <summary>親の表だけを再出力しても、配下にある別表のファイル時刻とファイル・ディレクトリDB行を保持します。親の整理が別表を巻き込む誤りを検出します。</summary>
-    [TestMethod]
+    /// <summary>旧保存値に包含がある場合、単独・一括出力、出力削除、表削除、検索root準備を副作用前に拒否し、正本と旧ファイル・DB行を保ちます。</summary>
+    [DataTestMethod]
+    [DataRow("single")]
+    [DataRow("bulk")]
+    [DataRow("remove")]
+    [DataRow("table")]
+    [DataRow("roots")]
     [TestCategory("Playlist")]
-    public void ReOutputCustomFolderAndCommitToDB_ProtectsNestedManagedOutputDirectory()
+    public async Task SavedNestedOutput_RejectsOutputAndRemovalBeforeMutation(string operation)
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -3062,21 +3067,46 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { parentTable, childTable })
             };
-            playlist.ReOutputCustomFoldersAndCommitHeadersToDB(
-                [parentTable, childTable],
-                "test_seed_nested_outputs");
+            // 旧保存値を直接準備し、不正な配置の生成成功を前提にしません。
+            parentTable.is_root_folder = childTable.is_root_folder = operation == "roots";
+            testSettings.LR2CustomFolderOutputBaseDirRootType = outputBaseDir;
+            playlist.CommitBMSTableHeadersToDB([parentTable, childTable]);
             string childOutputDir = Path.Combine(outputBaseDir, "NestedParent", "NestedChild");
             string childOutputFile = Path.Combine(childOutputDir, "0000.lr2folder");
-            Assert.IsTrue(File.Exists(childOutputFile));
+            Directory.CreateDirectory(childOutputDir);
+            File.WriteAllText(childOutputFile, "preserved old output");
             DateTime childTimestamp = File.GetLastWriteTimeUtc(childOutputFile);
-
-            playlist.ReOutputCustomFolderAndCommitToDB(parentTable);
-
-            Assert.IsTrue(File.Exists(childOutputFile));
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.Insert(new LR2SongDB.folder { path = childOutputFile, title = "old child", type = 2 });
+                db.Insert(new LR2SongDB.folder { path = Lr2FolderPath.ToFolderPath(childOutputDir), title = "old directory", type = 1 });
+            }
+            int notices = 0;
+            parentTable.PropertyChanged += (_, _) => notices++;
+            switch (operation)
+            {
+                case "single": Assert.ThrowsException<InvalidOperationException>(() => playlist.ReOutputCustomFolderAndCommitToDB(parentTable)); break;
+                case "bulk": Assert.ThrowsException<InvalidOperationException>(() => playlist.ReOutputCustomFoldersAndCommitHeadersToDB([parentTable, childTable], "invalid_saved_layout")); break;
+                case "remove": Assert.ThrowsException<InvalidOperationException>(() => playlist.RemoveCustomFolder(parentTable)); break;
+                case "roots": Assert.ThrowsException<InvalidOperationException>(() => playlist.PrepareCustomFolderOutputSearchRoots(outputBaseDir, [], CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings))); break;
+                case "table":
+                    var dialogs = new BlockingConfirmationDialogService();
+                    dialogs.ReleaseConfirmation();
+                    var removal = new PlaylistRemovalWorkflowOwner(dialogs, () => playlist, () => null!, () => null!,
+                        () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings));
+                    removal.OperationNotificationPresentationRequested += (_, _) => { };
+                    await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => removal.RemoveSummaryRowsAsync([new() { TableRef = parentTable }]));
+                    break;
+            }
+            Assert.AreEqual(0, notices);
+            Assert.AreEqual(2, playlist.BMSTables.Count);
+            Assert.AreEqual("preserved old output", File.ReadAllText(childOutputFile));
             Assert.AreEqual(childTimestamp, File.GetLastWriteTimeUtc(childOutputFile));
+            Assert.AreEqual(1, Directory.GetFiles(outputBaseDir, "*", SearchOption.AllDirectories).Length);
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", childOutputFile));
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", Lr2FolderPath.ToFolderPath(childOutputDir)));
+            Assert.AreEqual(2, verify.Table<BMSTable>().Count());
+            Assert.AreEqual("old child", verify.Table<LR2SongDB.folder>().Single(row => row.path == childOutputFile).title);
+            Assert.AreEqual(2, verify.Table<LR2SongDB.folder>().Count());
         }
         finally
         {

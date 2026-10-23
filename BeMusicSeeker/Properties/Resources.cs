@@ -3160,4 +3160,6 @@ public class Resources
     /// <summary>JSON出力の保存先と結果の表示文言です。</summary>
     public static string Playlist_json_export_partial_failure => ResourceManager.GetString("Playlist_json_export_partial_failure", resourceCulture);
 
+    /// <summary>管理表の同一・包含出力を拒否する案内です。</summary>
+    public static string Error_ManagedPlaylistOutputOverlap => ResourceManager.GetString(nameof(Error_ManagedPlaylistOutputOverlap), resourceCulture);
 }

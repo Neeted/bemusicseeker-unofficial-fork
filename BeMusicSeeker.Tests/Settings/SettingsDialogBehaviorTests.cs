@@ -992,7 +992,8 @@ public sealed class SettingsDialogBehaviorTests
             string outputDirBaseAfter,
             string additionalOutputBaseDirsBefore,
             string additionalOutputBaseDirsAfter,
-            CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability? capability = null, Action<CustomFolderMigrationReceipt>? migrationObserver = null)
+            CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability? capability = null, Action<CustomFolderMigrationReceipt>? migrationObserver = null,
+            IReadOnlyDictionary<string, string>? outputBaseRenames = null)
         {
         }
 
@@ -1003,8 +1004,12 @@ public sealed class SettingsDialogBehaviorTests
         {
         }
 
+        public void ValidateCustomFolderOutputRegistration(CustomFolderOutputSettingsSnapshot settings,
+            IReadOnlyDictionary<string, string> renames)
+        { }
+
         public IReadOnlyList<string> PrepareCustomFolderOutputSearchRoots(string previousRootOutputBaseDirectory,
-            CustomFolderOutputSettingsSnapshot settings, IReadOnlyList<string> currentDirectories) => currentDirectories;
+            CustomFolderOutputSettingsSnapshot settings, IReadOnlyList<string> currentDirectories, IReadOnlyDictionary<string, string>? renames = null) => currentDirectories;
 
         public int ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
             string previousAdditionalOutputBaseDirectories,

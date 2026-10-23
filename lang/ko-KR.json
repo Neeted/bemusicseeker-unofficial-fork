@@ -935,7 +935,7 @@
   "Error_InvalidPageOrHeaderUri": "페이지 URI 또는 헤더 URI가 올바르지 않습니다.",
   "Confirm_EnablePlaylistSyncModeLoseLocalChanges": "동기화 모드로 설정하면 로컬 변경 사항이 사라집니다.\n계속하시겠습니까?",
   "Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied": "동기화 모드를 해제하면 원격 변경 사항이 반영되지 않습니다.\n계속하시겠습니까?",
-  "Error_OutputFolderNameEmptyOrDuplicateCheckInput": "출력 대상 폴더 이름이 비어 있거나 중복되었습니다.\n입력한 값을 확인하세요.",
+  "Error_OutputFolderNameEmptyOrDuplicateCheckInput": "출력 폴더 이름이 비어 있거나 다른 관리 재생 목록의 출력 위치와 같거나 상위·하위 관계입니다.\n입력한 값을 확인하세요.",
   "Statusbar_progress_phase_playlist_loading": "플레이리스트 항목 읽기",
   "Statusbar_progress_detail_separator_format": "{0} / {1}",
   "Msg_failed_rename_playlist_folder": "플레이리스트가 외부 동기화 모드이므로\n폴더 이름을 변경할 수 없습니다.",
@@ -1353,5 +1353,6 @@
   "Playlist_json_export_paths_required": "헤더와 데이터 파일의 저장 위치를 모두 지정하세요.",
   "Playlist_json_export_paths_same": "헤더와 데이터 파일의 저장 위치는 서로 달라야 합니다.",
   "Playlist_json_export_path_invalid": "유효한 파일 경로를 입력하세요.",
-  "Playlist_json_export_partial_failure": "헤더는 저장했지만 데이터 저장에 실패했습니다. 기존 데이터는 유지됩니다. 저장 위치를 확인하고 다시 내보내세요."
+  "Playlist_json_export_partial_failure": "헤더는 저장했지만 데이터 저장에 실패했습니다. 기존 데이터는 유지됩니다. 저장 위치를 확인하고 다시 내보내세요.",
+  "Error_ManagedPlaylistOutputOverlap": "관리 재생 목록의 출력 폴더가 같거나 상위·하위 관계입니다. 서로 겹치지 않는 출력 폴더를 지정하세요."
 }

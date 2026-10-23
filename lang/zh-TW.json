@@ -935,7 +935,7 @@
   "Error_InvalidPageOrHeaderUri": "頁面 URI 或標頭 URI 不正確。",
   "Confirm_EnablePlaylistSyncModeLoseLocalChanges": "設定為同步模式會遺失本機變更。\n要繼續嗎？",
   "Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied": "解除同步模式後將不會反映遠端變更。\n要繼續嗎？",
-  "Error_OutputFolderNameEmptyOrDuplicateCheckInput": "輸出目標資料夾名稱為空或重複。\n請檢查輸入的值。",
+  "Error_OutputFolderNameEmptyOrDuplicateCheckInput": "輸出資料夾名稱為空，或與另一個受管理播放清單的輸出位置相同或存在父子關係。\n請檢查輸入值。",
   "Statusbar_progress_phase_playlist_loading": "讀取播放清單項目",
   "Statusbar_progress_detail_separator_format": "{0} / {1}",
   "Msg_failed_rename_playlist_folder": "播放清單處於外部同步模式，\n因此無法變更資料夾名稱。",
@@ -1353,5 +1353,6 @@
   "Playlist_json_export_paths_required": "請指定標頭檔和資料檔的儲存位置。",
   "Playlist_json_export_paths_same": "標頭檔和資料檔必須使用不同的儲存位置。",
   "Playlist_json_export_path_invalid": "請輸入有效的檔案路徑。",
-  "Playlist_json_export_partial_failure": "標頭檔已儲存，但資料檔儲存失敗。既有資料已保留。請檢查儲存位置後重新匯出。"
+  "Playlist_json_export_partial_failure": "標頭檔已儲存，但資料檔儲存失敗。既有資料已保留。請檢查儲存位置後重新匯出。",
+  "Error_ManagedPlaylistOutputOverlap": "受管理播放清單的輸出目錄相同或存在父子關係。請選擇互不重疊的輸出目錄。"
 }

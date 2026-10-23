@@ -935,7 +935,7 @@
   "Error_InvalidPageOrHeaderUri": "ページURIまたはヘッダーURIが正しくありません。",
   "Confirm_EnablePlaylistSyncModeLoseLocalChanges": "同期モードに設定するとローカルの変更が失われます。\nよろしいですか？",
   "Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied": "同期モードを解除するとリモートの変更が反映されなくなります。\nよろしいですか？",
-  "Error_OutputFolderNameEmptyOrDuplicateCheckInput": "出力先フォルダ名が空もしくは重複しています。\n入力した値を確認してください。",
+  "Error_OutputFolderNameEmptyOrDuplicateCheckInput": "出力先フォルダ名が空か、別の管理プレイリストの出力先と同一または親子になっています。\n入力した値を確認してください。",
   "Statusbar_progress_phase_playlist_loading": "プレイリスト項目の読込み",
   "Statusbar_progress_detail_separator_format": "{0} / {1}",
   "Msg_failed_rename_playlist_folder": "プレイリストが外部同期モードになっているため\nフォルダ名を変更することはできません。",
@@ -1353,5 +1353,6 @@
   "Playlist_json_export_paths_required": "ヘッダーとデータの両方の保存先を指定してください。",
   "Playlist_json_export_paths_same": "ヘッダーとデータには異なる保存先を指定してください。",
   "Playlist_json_export_path_invalid": "有効なファイルパスを指定してください。",
-  "Playlist_json_export_partial_failure": "ヘッダーは保存しましたが、データの保存に失敗しました。既存のデータは保持しています。保存先を確認して再度出力してください。"
+  "Playlist_json_export_partial_failure": "ヘッダーは保存しましたが、データの保存に失敗しました。既存のデータは保持しています。保存先を確認して再度出力してください。",
+  "Error_ManagedPlaylistOutputOverlap": "管理プレイリストの出力先が同一または親子になっています。重ならない出力先を指定してください。"
 }

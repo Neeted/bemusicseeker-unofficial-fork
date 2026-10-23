@@ -937,6 +937,8 @@ BeMusicSeeker outputs difficulty tables and local playlists in this format. It i
 
 `OUTPUT` selects the `Normal output destination` or one of the `Additional normal output destinations` from settings. While `Make root folder` is enabled, the saved `OUTPUT` value is kept, but the actual output destination is the `Root folder output destination`. When root folder output is turned off, the playlist returns to the saved `OUTPUT` destination.
 
+Choose playlist output folders that are neither identical nor nested. `Parent` and `Parent\Child` under the same output base cannot be used together. `Parent` and `Parent2`, or non-overlapping folders under separate bases, are allowed. This is checked before saving changes to names, output destinations, root folder mode, bulk edits, or removal of an additional output base.
+
 > [!IMPORTANT]
 > LR2 custom folder output is an LR2 linked mode feature. Even in standalone mode, playlist names and folder settings are saved in the in-app DB, but LR2 `.lr2folder` output is not updated.
 

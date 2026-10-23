@@ -24,6 +24,10 @@
 
 基点同士の同一・親子配置は拒否します。通常・追加先は既存BMS登録と同一か、重ならない場所だけを許可し、ルート型先は既存登録の親も許可します。既存登録を管理領域として採用する場合の保存時確認、旧管理領域の保護、検索対象の区別は[設定](../runtime/settings.md#カスタムフォルダと検索対象)を正本とします。
 
+管理表同士の実効絶対パスは、同一・親子のどちらも許可しません。大文字小文字、区切り、`.`・`..` を正規化して、名前・出力名・基点選択・ルート型・基点設定の変更後集合を副作用前に検査します。一括変更は対象同士と未選択表を含めます。外部表の新規登録も既存表と全候補の変更後集合を検査し、一括登録に衝突があれば全件を登録前に拒否します。`Parent` と `Parent2`、兄弟、重ならない別基点は許可します。スタンドアロンにはこのLR2配置検査を適用しません。
+
+保存済み値が包含する場合も出力・移行・出力削除・表削除・検索ルート同期を拒否し、DB・正本・ファイル・検索ルートを変更しません。自動改名・設定修復・包含を保護しながらの出力は行いません。外部情報初期化の対象別除外は[プロパティ編集](../ui/playlist-properties.md#サマリーからの一括編集)に従います。
+
 ### jukeboxとの同期
 
 通常・追加先は利用者設定を正本として `jukebox` に不足分を補い、同一登録は保持します。両者の同期・起動時修復は共通の配置検証を使い、全候補を検証してからディレクトリ作成・登録追加へ進みます。既存登録の親・子を指定した場合は設定不備として拒否し、親登録を外して子へ置換したり、不正な出力先だけ黙って省略したりしません。
@@ -92,7 +96,7 @@ ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) IS 
 
 ### 管理領域の整理
 
-表の出力ディレクトリ内は管理領域です。同じ先への再出力では期待集合にない `.lr2folder` を削除します。出力先変更、ルート切替、表削除では旧表ディレクトリ全体と対応範囲のDB行を整理します。基点直下の他の項目は変更しません。表の出力先同士の包含は通常経路では想定しません。
+表の出力ディレクトリ内は管理領域です。同じ先への再出力では期待集合にない `.lr2folder` を削除します。出力先変更、ルート切替、表削除では旧表ディレクトリ全体と対応範囲のDB行を整理します。基点直下の他の項目は変更しません。別表の包含に備えた子孫保護は持ちません。同一表の旧親から新子への移行、旧パスの再利用、管理基点外の保全は移行整理の別の保証として維持します。通常基点と追加基点を同じ設定要求で変更するときは、承認した現在名から最終登録名への対応を移行準備へ明示して渡し、未改名の表を含む配置検査・候補出力・整理時の保全先を同じ最終配置で解決します。
 
 ### 修復と一括反映
 
@@ -114,6 +118,10 @@ ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) IS 
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 同一・包含の両方向拒否、名前表記と区切り境界 | `ManagedPlaylistOutputPlacement` | `ManagedPlaylistOutputPlacementTests.FinalDirectories_RejectOnlyIdenticalOrNestedPaths` は条件表を共通判定へ集約する。 |
+| 保存済み不正配置の出力・削除・移行・root準備拒否 | `PlaylistCustomFolderOutputMaintenanceOwner` | `BmsPlaylistCustomFolderOutputTests.SavedNestedOutput_RejectsOutputAndRemovalBeforeMutation`、`BmsPlaylistMigrationAndRegistrationTests.MigrateCustomFolderOutputDirectory_RejectsSavedNestedLayout` は旧保存値から実経路を通し、DB・ファイルを保全する。 |
+| 同一表の旧新、旧path再利用、管理基点外 | 移行の旧先整理 | `BmsPlaylistMigrationAndRegistrationTests.MigrateCustomFolderOutputDirectory_PreservesSameTableDestination` と既存の管理基点外・`Folder`/`Folder2`・設定再試行ケースで維持する。 |
+| 外部新規登録の配置拒否と受付解放 | `PlaylistAggregatePersistenceOwner.PrepareExternalRegistration` | `BmsPlaylistMigrationAndRegistrationTests.ExternalTableRegistration_RejectsOverlappingCandidateBeforeMutation` は単一と安全候補を先頭に含む一括でDB・正本・ファイル・XMLの未変更と次の安全登録を確認する。 |
 | 通信・必要公開までの受付と次明示要求 | `PlaylistExternalSyncOwner`、`PlaylistWorkspaceViewModel` | [`BmsPlaylistExternalReloadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalReloadTests.cs)、[`PlaylistWorkspaceExternalSourceTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceExternalSourceTests.cs): 実通信前から同側Busy、未受理の削除・登録が自動再実行されないこと、実DB/出力と解放後の新明示要求を確認する。 |
 | 日常の非交差並行と正本・CP932・フォルダ実反映 | `ApplicationComposition` | [`DailyLibraryDiffAndIndependentPlaylistRegistration_CompleteActualChangesConcurrently`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionAdmissionTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
 | 二媒体の部分保存後の明示修復 | [設定の局所出力確定](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)、[`PlaylistCustomFolderOutputMaintenanceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistCustomFolderOutputMaintenanceOwner.cs) | [`SettingDialogEditCompletionTests.OutputConfirmation_RepairsPartialMediaAndCleanupWithoutRepeatingSuccessfulProjection`](../../../BeMusicSeeker.Tests/Settings/SettingDialogOutputConfirmationTests.cs) は実二媒体保存の失敗と旧配置・旧表登録の保持、明示修復後の実FS/DB移行と旧先のファイル削除・実DB行DELETEの失敗、新先保持、成功した物理整理と新先DB行の再処理0、同値では未了だけの修復、旧先の再利用、追加先の再改名と再表示後の修復を確認する。同ファイルの `OutputConfirmation_RepairsHeaderCommittedMigrationAfterProjectionFailure` はヘッダー確定後の投影失敗と修正先Cへの修復、旧A・部分生成Bの整理を確認する。無関係な通常保存は未了を再開しない。 |

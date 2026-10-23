@@ -1690,6 +1690,7 @@ playlist:"Satellite Sub"
 <li>複数プレイリストをまとめて変更する場合は、プレイリストサマリーの <code>一括変更...</code> から <code>OUTPUT</code>、出力種別、<code>ルートフォルダにする</code> を選択行へ一括適用します。</li>
 </ol>
 <p><code>OUTPUT</code> は設定画面の <code>通常出力先</code> または <code>追加通常出力先</code> から選びます。<code>ルートフォルダにする</code> が ON の間も <code>OUTPUT</code> の保存値は保持されますが、実際の出力先は <code>ルートフォルダ出力先</code> です。ルートフォルダ設定を OFF にすると、保存されていた <code>OUTPUT</code> の出力先へ戻ります。</p>
+<p>プレイリストごとの実際の出力フォルダは、互いに同一または親子にならない場所を指定してください。同じ基点の <code>Parent</code> と <code>Parent\Child</code> は使えません。<code>Parent</code> と <code>Parent2</code> や、重ならない別基点のフォルダは使用できます。名前・出力先・ルート型の変更や一括編集、追加出力先の削除でも、この条件を確認してから保存します。</p>
 <div class="markdown-alert markdown-alert-important"><p class="markdown-alert-title">Important</p><p>LR2 用カスタムフォルダの出力は LR2 連携モードの機能です。スタンドアローンモードでもプレイリスト名やフォルダ設定はアプリ内 DB に保存されますが、LR2 用の <code>.lr2folder</code> 出力は更新されません。</p></div>
 <h4 id="出力先の使い分け">出力先の使い分け</h4>
 <p>設定画面の <code>プレイリスト</code> カテゴリで次の場所を指定します。</p>

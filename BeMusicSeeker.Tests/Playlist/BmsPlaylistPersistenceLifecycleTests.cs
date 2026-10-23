@@ -888,10 +888,13 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
-    /// <summary>二表が同じ出力先名を要求する外部初期化で、他表の現出力先を奪う変更だけを警告付きで拒否し、所有表の更新を維持します。</summary>
-    [TestMethod]
+    /// <summary>外部初期化は同一・包含候補を表ごとに除外します。除外表の旧先との再衝突も拒否し、安全な表だけをDB・正本へ反映します。</summary>
+    [DataTestMethod]
+    [DataRow("duplicate")]
+    [DataRow("nested")]
+    [DataRow("retained")]
     [TestCategory("Playlist")]
-    public async Task ApplyPlaylistSummaryExternalPropertyInitializationAsync_DoesNotTakeAnotherPendingTableCurrentOutputDir()
+    public async Task ApplyPlaylistSummaryExternalPropertyInitializationAsync_DoesNotTakeAnotherPendingTableCurrentOutputDir(string conflict)
     {
         testSettings.EnablePlaylistUrlCompletion = false;
         testSettings.OperationModeLR2DB = true;
@@ -899,6 +902,9 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
+            testSettings.LR2CustomFolderOutputBaseDir = Path.Combine(tempDirectory, "Output");
+            testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "Root");
+            testSettings.LR2RootPath = tempDirectory;
             string dataJsonPath = Path.Combine(tempDirectory, "score.json");
             string headerAPath = Path.Combine(tempDirectory, "header-a.json");
             string headerBPath = Path.Combine(tempDirectory, "header-b.json");
@@ -906,6 +912,12 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             File.WriteAllBytes(headerAPath, CreateUtf8BomBytes("{\r\n\"name\":\"OutputB\",\r\n\"symbol\":\"A2\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
             File.WriteAllBytes(headerBPath, CreateUtf8BomBytes("{\r\n\"name\":\"OutputB\",\r\n\"symbol\":\"B2\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
 
+            if (conflict == "retained")
+            {
+                File.WriteAllBytes(headerBPath, CreateUtf8BomBytes("{\"name\":\"LocalA\",\"symbol\":\"B2\",\"data_url\":\"./score.json\"}"));
+            }
+            string headerCPath = Path.Combine(tempDirectory, "header-c.json");
+            File.WriteAllBytes(headerCPath, CreateUtf8BomBytes("{\"name\":\"Safe\",\"symbol\":\"C2\",\"data_url\":\"./score.json\"}"));
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
@@ -916,10 +928,14 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             tableA.symbol = "A1";
             tableA.Output_dir = "LocalA";
             tableB.playlist_id = 9503;
-            tableB.name = "OutputB";
+            tableB.name = conflict == "duplicate" ? "OutputB" : "LocalB";
             tableB.symbol = "B1";
-            tableB.Output_dir = "OutputB";
-            playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { tableA, tableB });
+            tableB.Output_dir = conflict == "duplicate" ? "OutputB" : @"OutputB\Child";
+            BMSTable tableC = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerCPath));
+            tableC.playlist_id = 9504;
+            tableC.symbol = "C1";
+            playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { tableA, tableB, tableC });
+            playlist.CommitBMSTableHeadersToDB(playlist.BMSTables);
             var library = new TestBmsLibrary(songDbPath, settings: testSettings);
             List<string> warnings = [];
             var workspace = new PlaylistWorkspaceViewModel(
@@ -929,7 +945,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 new PlaylistDetailViewState(),
                 _ => { },
                 _ => { },
-                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = true },
+                () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings),
                 PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
                 PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
                 PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
@@ -961,7 +977,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
 
             await workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
-                [new PlaylistSummaryRow { TableRef = tableA }, new PlaylistSummaryRow { TableRef = tableB }],
+                [new PlaylistSummaryRow { TableRef = tableA }, new PlaylistSummaryRow { TableRef = tableB }, new PlaylistSummaryRow { TableRef = tableC }],
                 new PlaylistWorkspaceViewModel.PlaylistSummaryExternalPropertyInitializationOptions
                 {
                     Name = true,
@@ -972,12 +988,15 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.AreEqual("LocalA", tableA.name);
             Assert.AreEqual("A1", tableA.symbol);
             Assert.AreEqual("LocalA", tableA.Output_dir);
-            Assert.AreEqual("OutputB", tableB.name);
-            Assert.AreEqual("B2", tableB.symbol);
-            Assert.AreEqual("OutputB", tableB.Output_dir);
-            CollectionAssert.AreEqual(
-                new[] { "playlist_summary_external_property_initialization_skipped reason=duplicate_output_dir table=LocalA outputDir=OutputB" },
-                warnings);
+            Assert.AreEqual(conflict == "retained" ? "LocalB" : "OutputB", tableB.name);
+            Assert.AreEqual(conflict == "retained" ? "B1" : "B2", tableB.symbol);
+            Assert.AreEqual(conflict == "retained" ? @"OutputB\Child" : "OutputB", tableB.Output_dir);
+            Assert.AreEqual("C2", tableC.symbol);
+            Assert.AreEqual(conflict == "retained" ? 2 : 1, warnings.Count);
+            using LR2SongDBExtended reader = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            Assert.AreEqual("A1", reader.Table<BMSTable>().Single(table => table.playlist_id == 9502).symbol);
+            Assert.AreEqual(conflict == "retained" ? "B1" : "B2", reader.Table<BMSTable>().Single(table => table.playlist_id == 9503).symbol);
+            Assert.AreEqual("C2", reader.Table<BMSTable>().Single(table => table.playlist_id == 9504).symbol);
         }
         finally
         {

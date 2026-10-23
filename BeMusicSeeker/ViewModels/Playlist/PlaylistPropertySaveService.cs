@@ -107,8 +107,8 @@ internal sealed class PlaylistPropertySaveService
                     settings,
                     PlaylistPropertyValues.Capture(table),
                     (store.BMSTables?.Cast<BMSTable>() ?? Enumerable.Empty<BMSTable>())
-                        .Where(candidate => candidate != null && candidate != table)
-                        .Select(candidate => candidate.Output_dir)
+                        .Where(candidate => candidate != null && candidate != table && !string.IsNullOrWhiteSpace(candidate.Output_dir))
+                        .Select(candidate => settings.OperationModeLR2DB ? ManagedPlaylistOutputPlacement.Resolve(candidate, settings) : candidate.Output_dir)
                         .ToArray());
             }
         }
@@ -145,18 +145,23 @@ internal sealed class PlaylistPropertySaveService
     internal bool IsOutputDirectoryValid(
         PlaylistPropertyEditSession session,
         string playlistName,
-        string storedOutputDirectory)
+        string storedOutputDirectory,
+        string baseName,
+        bool isRoot)
     {
         if (session == null)
         {
             throw new ArgumentNullException(nameof(session));
         }
         session.ThrowIfDisposed();
-        string effectiveName = BMSTable.ResolveOutputDirectoryName(playlistName, storedOutputDirectory);
-        return !string.IsNullOrWhiteSpace(effectiveName)
-            && !session.OtherOutputDirectories.Contains(
-                effectiveName,
-                StringComparer.OrdinalIgnoreCase);
+        if (!session.Settings.OperationModeLR2DB) { return true; }
+        return IsPlacementValid(session.Settings, new PlaylistPropertyValues
+        {
+            Name = playlistName,
+            OutputDirectory = storedOutputDirectory,
+            CustomFolderOutputBaseName = baseName,
+            IsRootFolder = isRoot
+        }, session.OtherOutputDirectories);
     }
 
     /// <summary>入力不備を任意通知します。通知失敗を入力の承認や保存成功へ置き換えません。</summary>
@@ -299,6 +304,7 @@ internal sealed class PlaylistPropertySaveService
                     throw new InvalidOperationException(
                         "Playlist properties changed after editing began. Reopen the dialog and apply the edit again.");
                 }
+                store.ValidateCustomFolderOutputLayout(settings);
                 if (!IsValid(table, store, settings, values))
                 {
                     return null;
@@ -791,8 +797,8 @@ internal sealed class PlaylistPropertySaveService
             settings,
             values,
             (store.BMSTables?.Cast<BMSTable>() ?? Enumerable.Empty<BMSTable>())
-                .Where(candidate => candidate != null && candidate != table)
-                .Select(candidate => candidate.Output_dir));
+                .Where(candidate => candidate != null && candidate != table && !string.IsNullOrWhiteSpace(candidate.Output_dir))
+                .Select(candidate => settings.OperationModeLR2DB ? ManagedPlaylistOutputPlacement.Resolve(candidate, settings) : candidate.Output_dir));
     }
 
     private static bool IsValidForPresentation(
@@ -826,18 +832,19 @@ internal sealed class PlaylistPropertySaveService
         }
         if (settings.OperationModeLR2DB)
         {
-            string effectiveOutputDirectory = BMSTable.ResolveOutputDirectoryName(
-                values.Name,
-                values.OutputDirectory);
-            if (string.IsNullOrWhiteSpace(effectiveOutputDirectory)
-                || (otherOutputDirectories ?? Enumerable.Empty<string>())
-                    .Contains(effectiveOutputDirectory, StringComparer.OrdinalIgnoreCase))
-            {
-                return false;
-            }
+            if (!IsPlacementValid(settings, values, otherOutputDirectories)) { return false; }
             NormalizeFolderSettings(values);
         }
         return true;
+    }
+
+    private static bool IsPlacementValid(CustomFolderOutputSettingsSnapshot settings, PlaylistPropertyValues values,
+        IEnumerable<string> otherOutputDirectories)
+    {
+        if (string.IsNullOrWhiteSpace(BMSTable.ResolveOutputDirectoryName(values.Name, values.OutputDirectory))) { return false; }
+        string candidate = ManagedPlaylistOutputPlacement.Resolve(values.Name, values.OutputDirectory,
+            values.CustomFolderOutputBaseName, values.IsRootFolder, settings);
+        return ManagedPlaylistOutputPlacement.IsValid((otherOutputDirectories ?? []).Append(candidate));
     }
 
     private static void NormalizeFolderSettings(PlaylistPropertyValues values)

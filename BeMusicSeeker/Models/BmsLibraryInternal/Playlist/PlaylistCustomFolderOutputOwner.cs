@@ -26,8 +26,6 @@ internal sealed class PlaylistCustomFolderOutputOwner
 
     private readonly Func<IEnumerable<string>, string, CustomFolderOutputPhysicalSurface> physicalSurfaceResolver;
 
-    private readonly Func<IReadOnlyCollection<CustomFolderOutputProjection>, CustomFolderOutputSettingsSnapshot, IReadOnlyCollection<string>> knownOutputDirectoriesProvider;
-
     private readonly Func<string, BMSTable, CustomFolderOutputSettingsSnapshot, IReadOnlyCollection<string>> directoryRowGenerationScopesProvider;
 
     private readonly Action<string> logPerformance;
@@ -37,7 +35,6 @@ internal sealed class PlaylistCustomFolderOutputOwner
         Func<BMSTable, CustomFolderOutputSettingsSnapshot, IReadOnlyList<CustomFolderDefinition>> definitionsProvider,
         Func<BMSTable, CustomFolderOutputSettingsSnapshot, string> outputDirectoryResolver,
         Func<IEnumerable<string>, string, CustomFolderOutputPhysicalSurface> physicalSurfaceResolver,
-        Func<IReadOnlyCollection<CustomFolderOutputProjection>, CustomFolderOutputSettingsSnapshot, IReadOnlyCollection<string>> knownOutputDirectoriesProvider,
         Func<string, BMSTable, CustomFolderOutputSettingsSnapshot, IReadOnlyCollection<string>> directoryRowGenerationScopesProvider,
         Action<string> logPerformance)
     {
@@ -45,7 +42,6 @@ internal sealed class PlaylistCustomFolderOutputOwner
         this.definitionsProvider = definitionsProvider ?? throw new ArgumentNullException(nameof(definitionsProvider));
         this.outputDirectoryResolver = outputDirectoryResolver ?? throw new ArgumentNullException(nameof(outputDirectoryResolver));
         this.physicalSurfaceResolver = physicalSurfaceResolver ?? throw new ArgumentNullException(nameof(physicalSurfaceResolver));
-        this.knownOutputDirectoriesProvider = knownOutputDirectoriesProvider ?? throw new ArgumentNullException(nameof(knownOutputDirectoriesProvider));
         this.directoryRowGenerationScopesProvider = directoryRowGenerationScopesProvider ?? throw new ArgumentNullException(nameof(directoryRowGenerationScopesProvider));
         this.logPerformance = logPerformance;
     }
@@ -155,7 +151,6 @@ internal sealed class PlaylistCustomFolderOutputOwner
             ?? projectionList.Select(projection => projection.Settings).FirstOrDefault(snapshot => snapshot != null)
             ?? GetSettings();
         result.Settings = settings;
-        AssignProtectedOutputDirectories(projectionList, settings);
         if (projectionList.Any(projection => projection.PhysicalSurface == null))
         {
             CustomFolderOutputPhysicalSurface physicalSurface = physicalSurfaceResolver(
@@ -176,21 +171,6 @@ internal sealed class PlaylistCustomFolderOutputOwner
                 .Select(file => Lr2FolderPath.NormalizeDirectoryPath(file?.FilePath))
                 .Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);
-        var batchOutputDirectories = new HashSet<string>(
-            projectionList.Select(projection => Lr2FolderPath.NormalizeDirectoryPath(projection.OutputDirectory))
-                .Where(directory => !string.IsNullOrWhiteSpace(directory)),
-            StringComparer.OrdinalIgnoreCase);
-        var batchOutputRowScopeDirectories = new HashSet<string>(
-            projectionList.SelectMany(projection => projection.OutputRowScopePaths ?? [])
-                .Where(directory => !string.IsNullOrWhiteSpace(directory)),
-            StringComparer.OrdinalIgnoreCase);
-        result.PruneExcludedDirectories.AddRange(projectionList
-            .SelectMany(CreateProtectedOutputRowScopePaths)
-            .Where(directory => !string.IsNullOrWhiteSpace(directory)
-                && !batchOutputDirectories.Contains(directory)
-                && !batchOutputRowScopeDirectories.Contains(directory))
-            .Distinct(StringComparer.OrdinalIgnoreCase));
-
         int totalFiles = projectionList.Sum(projection => projection.Files?.Count ?? 0);
         int processedFiles = 0;
         for (int projectionIndex = 0; projectionIndex < projectionList.Count; projectionIndex++)
@@ -283,7 +263,7 @@ internal sealed class PlaylistCustomFolderOutputOwner
                 if (files.Count == 0)
                 {
                     result.EmptyOutputDirectories.Add(projection.OutputDirectory);
-                    if (TryDeleteEmptyDirectory(projection.OutputDirectory, projection.ProtectedOutputDirectories, out string deletedOutputDirectory))
+                    if (TryDeleteEmptyDirectory(projection.OutputDirectory, out string deletedOutputDirectory))
                     {
                         AddPruneScopePath(result, projection.Table, deletedOutputDirectory, directoryPath: true);
                     }
@@ -320,7 +300,7 @@ internal sealed class PlaylistCustomFolderOutputOwner
         foreach (CustomFolderOutputProjection projection in projectionList
             .OrderByDescending(projection => projection.OutputDirectory.Length))
         {
-            if (TryDeleteEmptyDirectory(projection.OutputDirectory, projection.ProtectedOutputDirectories, out string deletedOutputDirectory))
+            if (TryDeleteEmptyDirectory(projection.OutputDirectory, out string deletedOutputDirectory))
             {
                 result.EmptyOutputDirectories.Add(deletedOutputDirectory);
                 AddPruneScopePath(result, projection.Table, deletedOutputDirectory, directoryPath: true);
@@ -407,45 +387,6 @@ internal sealed class PlaylistCustomFolderOutputOwner
                 .Where(item => !string.IsNullOrWhiteSpace(item?.FilePath))
                 .Select(item => new RootFileEnumerationEntry(item.FilePath, item.LastWriteTimeUtc)),
             discoveryComplete: true);
-    }
-
-    private void AssignProtectedOutputDirectories(
-        IReadOnlyCollection<CustomFolderOutputProjection> projections,
-        CustomFolderOutputSettingsSnapshot settings)
-    {
-        IReadOnlyCollection<string> knownOutputDirectories = knownOutputDirectoriesProvider(projections, settings) ?? [];
-        foreach (CustomFolderOutputProjection projection in projections ?? [])
-        {
-            string outputDirectory = Lr2FolderPath.NormalizeDirectoryPath(projection?.OutputDirectory);
-            if (string.IsNullOrWhiteSpace(outputDirectory))
-            {
-                continue;
-            }
-            projection.ProtectedOutputDirectories = [.. knownOutputDirectories
-                .Where(directory => !string.Equals(directory, outputDirectory, StringComparison.OrdinalIgnoreCase)
-                    && Lr2FolderPath.IsSameOrDescendant(directory, outputDirectory))
-                .Distinct(StringComparer.OrdinalIgnoreCase)];
-        }
-    }
-
-    private static IReadOnlyCollection<string> CreateProtectedOutputRowScopePaths(CustomFolderOutputProjection projection)
-    {
-        if (projection == null || projection.ProtectedOutputDirectories == null)
-        {
-            return [];
-        }
-        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string protectedDirectory in projection.ProtectedOutputDirectories)
-        {
-            foreach (string scopePath in CreateOutputRowScopePaths(projection.Table, protectedDirectory, projection.Settings))
-            {
-                if (!string.IsNullOrWhiteSpace(scopePath))
-                {
-                    result.Add(scopePath);
-                }
-            }
-        }
-        return [.. result];
     }
 
     private static IReadOnlyCollection<string> CreateOutputRowScopePaths(
@@ -563,10 +504,6 @@ internal sealed class PlaylistCustomFolderOutputOwner
             {
                 continue;
             }
-            if (IsPathUnderAnyDirectory(normalizedFilePath, projection.ProtectedOutputDirectories))
-            {
-                continue;
-            }
             if (TryDeleteManagedFile(filePath, out bool deleted))
             {
                 if (deleted)
@@ -576,7 +513,7 @@ internal sealed class PlaylistCustomFolderOutputOwner
                 AddPruneScopePath(result, projection.Table, filePath, directoryPath: false);
             }
         }
-        foreach (string deletedDirectory in RemoveEmptyDirectories(projection.OutputDirectory, projection.ProtectedOutputDirectories))
+        foreach (string deletedDirectory in RemoveEmptyDirectories(projection.OutputDirectory))
         {
             result.EmptyOutputDirectories.Add(deletedDirectory);
             AddPruneScopePath(result, projection.Table, deletedDirectory, directoryPath: true);
@@ -633,7 +570,7 @@ internal sealed class PlaylistCustomFolderOutputOwner
         }
     }
 
-    private static List<string> RemoveEmptyDirectories(string outputDirectory, IReadOnlyCollection<string> protectedDirectories)
+    private static List<string> RemoveEmptyDirectories(string outputDirectory)
     {
         var deletedDirectories = new List<string>();
         if (string.IsNullOrWhiteSpace(outputDirectory) || !LongPathFileSystem.DirectoryExists(outputDirectory))
@@ -652,11 +589,7 @@ internal sealed class PlaylistCustomFolderOutputOwner
         }
         foreach (string directory in directories)
         {
-            if (IsPathUnderAnyDirectory(directory, protectedDirectories))
-            {
-                continue;
-            }
-            if (TryDeleteEmptyDirectory(directory, protectedDirectories, out string deletedDirectory))
+            if (TryDeleteEmptyDirectory(directory, out string deletedDirectory))
             {
                 deletedDirectories.Add(deletedDirectory);
             }
@@ -664,10 +597,10 @@ internal sealed class PlaylistCustomFolderOutputOwner
         return deletedDirectories;
     }
 
-    private static bool TryDeleteEmptyDirectory(string directory, IReadOnlyCollection<string> protectedDirectories, out string deletedDirectory)
+    private static bool TryDeleteEmptyDirectory(string directory, out string deletedDirectory)
     {
         deletedDirectory = null;
-        if (string.IsNullOrWhiteSpace(directory) || IsPathUnderAnyDirectory(directory, protectedDirectories))
+        if (string.IsNullOrWhiteSpace(directory))
         {
             return false;
         }
@@ -685,23 +618,6 @@ internal sealed class PlaylistCustomFolderOutputOwner
         {
             return false;
         }
-    }
-
-    private static bool IsPathUnderAnyDirectory(string path, IEnumerable<string> directories)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return false;
-        }
-        string normalizedPath = Lr2FolderPath.NormalizeDirectoryPath(path);
-        if (string.IsNullOrWhiteSpace(normalizedPath))
-        {
-            return false;
-        }
-        return (directories ?? [])
-            .Select(Lr2FolderPath.NormalizeDirectoryPath)
-            .Any(directory => !string.IsNullOrWhiteSpace(directory)
-                && Lr2FolderPath.IsSameOrDescendant(normalizedPath, directory));
     }
 
     private static void WriteAllText(string path, string text, Encoding encoding)
@@ -805,8 +721,6 @@ internal sealed class PlaylistCustomFolderOutputOwner
 
         internal IReadOnlyCollection<string> OutputRowScopePaths { get; set; } = [];
 
-        internal IReadOnlyCollection<string> ProtectedOutputDirectories { get; set; } = [];
-
         internal IReadOnlyList<CustomFolderOutputFileProjection> Files { get; set; } = [];
 
         internal HashSet<string> ForceWriteFilePaths { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -856,8 +770,6 @@ internal sealed class PlaylistCustomFolderOutputOwner
         internal int DeletedFileCount { get; set; }
 
         internal List<string> PruneScopePaths { get; } = [];
-
-        internal List<string> PruneExcludedDirectories { get; } = [];
 
         internal List<string> EmptyOutputDirectories { get; } = [];
     }

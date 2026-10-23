@@ -318,9 +318,11 @@ internal sealed class PlaylistAggregatePersistenceOwner
         }
     }
 
+    /// <summary>登録名と並び順を準備し、既存表と全候補のLR2配置をモデル・DBの変更前に検査します。</summary>
     internal IReadOnlyList<PlaylistRegistrationPreparation> PrepareExternalRegistration(
         IEnumerable<BMSTable> tables,
-        bool renameDuplicateName)
+        bool renameDuplicateName,
+        CustomFolderOutputSettingsSnapshot settings)
     {
         List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null).Distinct()];
         if (tableList.Count == 0)
@@ -349,6 +351,17 @@ internal sealed class PlaylistAggregatePersistenceOwner
                         nextBmtSort++,
                         duplicateName && !renameDuplicateName));
                     reservedNames.Add(preparedName);
+                }
+                // 重複名・空出力名の既存エラーは呼出元で通知し、配置検査は有効な候補集合へ適用します。
+                if (settings.OperationModeLR2DB && preparations.All(preparation => !preparation.DuplicateName)
+                    && tableList.All(table => !string.IsNullOrWhiteSpace(table.Output_dir)))
+                {
+                    ManagedPlaylistOutputPlacement.Validate(
+                        activeTableOrder.Where(table => !string.IsNullOrWhiteSpace(table.Output_dir))
+                            .Select(table => ManagedPlaylistOutputPlacement.Resolve(table, settings))
+                            .Concat(tableList.Select((table, index) => ManagedPlaylistOutputPlacement.Resolve(
+                                preparations[index].Name, table.output_dir, table.custom_folder_output_base_name,
+                                table.is_root_folder, settings))));
                 }
                 return preparations.AsReadOnly();
             }

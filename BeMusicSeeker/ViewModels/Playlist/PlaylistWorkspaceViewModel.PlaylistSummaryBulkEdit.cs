@@ -791,6 +791,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
             ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
 
+        tables.ValidateCustomFolderOutputLayout(settings);
         const string reason = "playlist_summary_external_property_initialization";
         bool headersCommitted = false;
         bool playlistTablesReaderLockHeld = false;
@@ -1131,52 +1132,26 @@ public sealed partial class PlaylistWorkspaceViewModel
             return [.. pendingChanges];
         }
 
-        var reservedOutputDirectories = new Dictionary<string, BMSTable>(
-            StringComparer.OrdinalIgnoreCase);
-        foreach (BMSTable table in GetPlaylistStore().BMSTables ?? Enumerable.Empty<BMSTable>())
-        {
-            ReserveOutputDirectoryOwner(reservedOutputDirectories, table?.Output_dir, table);
-        }
-
+        // 除外した表は旧配置に残るため、受理するごとに現在の最終集合を置き換えます。
+        var finalDirectories = GetPlaylistStore().BMSTables.Where(table => !string.IsNullOrWhiteSpace(table.Output_dir)).ToDictionary(table => table,
+            table => ManagedPlaylistOutputPlacement.Resolve(table, settings));
         var acceptedChanges = new List<PlaylistSummaryExternalPropertyInitializationChange>();
         foreach (PlaylistSummaryExternalPropertyInitializationChange change in pendingChanges)
         {
-            string outputDir = change.EffectiveOutputDirAfter;
-            if (string.IsNullOrWhiteSpace(outputDir))
+            if (string.IsNullOrWhiteSpace(change.EffectiveOutputDirAfter)) { continue; }
+            string candidate = ManagedPlaylistOutputPlacement.Resolve(change.DesiredName, change.DesiredOutputDir,
+                change.Table.custom_folder_output_base_name, change.Table.is_root_folder, settings);
+            if (finalDirectories.Any(item => !ReferenceEquals(item.Key, change.Table)
+                && ManagedPlaylistOutputPlacement.Overlaps(candidate, item.Value)))
             {
-                LogPlaylistSummaryBulkWarning("playlist_summary_external_property_initialization_skipped reason=blank_output_dir table=" + (change.Table?.name ?? string.Empty));
+                LogPlaylistSummaryBulkWarning("playlist_summary_external_property_initialization_skipped reason=overlapping_output_dir table=" + change.Table.name);
                 continue;
             }
-            if (reservedOutputDirectories.TryGetValue(outputDir, out BMSTable reservedTable)
-                && !ReferenceEquals(reservedTable, change.Table))
-            {
-                LogPlaylistSummaryBulkWarning("playlist_summary_external_property_initialization_skipped reason=duplicate_output_dir table=" + (change.Table?.name ?? string.Empty) + " outputDir=" + outputDir);
-                continue;
-            }
-            string currentOutputDir = change.EffectiveOutputDirBefore;
-            if (!string.Equals(currentOutputDir ?? string.Empty, outputDir ?? string.Empty, StringComparison.OrdinalIgnoreCase)
-                && !string.IsNullOrWhiteSpace(currentOutputDir)
-                && reservedOutputDirectories.TryGetValue(currentOutputDir, out BMSTable currentOwner)
-                && ReferenceEquals(currentOwner, change.Table))
-            {
-                reservedOutputDirectories.Remove(currentOutputDir);
-            }
-            reservedOutputDirectories[outputDir] = change.Table;
+            finalDirectories[change.Table] = candidate;
             acceptedChanges.Add(change);
         }
+        ManagedPlaylistOutputPlacement.Validate(finalDirectories.Values);
         return acceptedChanges;
-    }
-
-    private static void ReserveOutputDirectoryOwner(Dictionary<string, BMSTable> reservedOutputDirectories, string outputDir, BMSTable table)
-    {
-        if (reservedOutputDirectories == null || string.IsNullOrWhiteSpace(outputDir))
-        {
-            return;
-        }
-        if (!reservedOutputDirectories.ContainsKey(outputDir))
-        {
-            reservedOutputDirectories.Add(outputDir, table);
-        }
     }
 
     private static void CapturePlaylistSummaryOutputDirectoryBefore(
@@ -1436,6 +1411,12 @@ public sealed partial class PlaylistWorkspaceViewModel
         CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
             ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
 
+        tables.ValidateCustomFolderOutputLayout(settings);
+        var changedSet = changedTables.ToHashSet();
+        tables.ValidateCustomFolderOutputLayout(settings, table => ManagedPlaylistOutputPlacement.Resolve(
+            table.name, table.output_dir, table.custom_folder_output_base_name,
+            changedSet.Contains(table) ? isRootFolder : table.is_root_folder, settings));
+
         var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
         var outputBaseDirPathBeforeByTable = new Dictionary<BMSTable, string>();
         var wasRootFolderBeforeByTable = new Dictionary<BMSTable, bool>();
@@ -1551,6 +1532,12 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
+
+        tables.ValidateCustomFolderOutputLayout(settings);
+        var changedSet = changedTables.ToHashSet();
+        tables.ValidateCustomFolderOutputLayout(settings, table => ManagedPlaylistOutputPlacement.Resolve(
+            table.name, table.output_dir, changedSet.Contains(table) ? normalizedBaseName : table.custom_folder_output_base_name,
+            table.is_root_folder, settings));
 
         var previousBaseNames = changedTables.ToDictionary(table => table, table => table.custom_folder_output_base_name);
         var migrationTables = new List<BMSTable>();

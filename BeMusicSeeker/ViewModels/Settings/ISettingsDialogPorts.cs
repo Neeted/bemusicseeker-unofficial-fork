@@ -124,14 +124,19 @@ internal interface ISettingsDialogCustomFolderOutputPort
 
     CustomFolderOutputSettingsSnapshot CustomFolderOutputSettings { get; }
 
+    /// <summary>表の変更後配置を設定・DB・XML保存前に検査し、同一・親子の管理出力先を拒否します。</summary>
+    void ValidateCustomFolderOutputRegistration(CustomFolderOutputSettingsSnapshot settings, IReadOnlyDictionary<string, string> renames);
+
     /// <summary>通常出力の実移行を行い、header確定後の投影・整理の未了入力を局所保存担当へ返します。</summary>
     /// <param name="migrationObserver">header確定直後に対象を受け取り、投影失敗後も同じreceiptを保持する担当。指定時の旧先整理は一括再試行へ委ねます。</param>
+    /// <param name="outputBaseRenames">同じ受理要求で承認した現在名から最終名への対応。追加先の改名前も最終配置として検査します。</param>
     void ChangeCustomFolderBaseDirectoryWithSettings(
         string outputDirBaseBefore,
         string outputDirBaseAfter,
         string additionalOutputBaseDirsBefore,
         string additionalOutputBaseDirsAfter,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null);
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null,
+            IReadOnlyDictionary<string, string> outputBaseRenames = null);
 
     /// <summary>ルート型の実移行を行い、header確定後の投影・整理の未了入力を局所保存担当へ返します。</summary>
     /// <param name="migrationObserver">header確定直後に対象を受け取り、投影失敗後も同じreceiptを保持する担当。指定時の旧先整理は一括再試行へ委ねます。</param>
@@ -143,7 +148,8 @@ internal interface ISettingsDialogCustomFolderOutputPort
     /// <summary>捕捉済み登録からルート型の最終一覧を返します。文書・保存境界を共有せず、設定担当が通常出力と一回のXML保存へまとめます。</summary>
     IReadOnlyList<string> PrepareCustomFolderOutputSearchRoots(
         string previousRootOutputBaseDirectory,
-        CustomFolderOutputSettingsSnapshot settings, IReadOnlyList<string> currentDirectories);
+        CustomFolderOutputSettingsSnapshot settings, IReadOnlyList<string> currentDirectories,
+        IReadOnlyDictionary<string, string> renames = null);
 
     /// <summary>実登録の対応と追加出力を変更し、保存済み登録と投影・整理の未了入力を局所保存担当へ返します。</summary>
     /// <param name="migrationObserver">header確定直後に移行対象を受け取り、投影失敗後も同じreceiptで未了だけを保持する担当。指定時の旧先整理は一括再試行へ委ねます。</param>

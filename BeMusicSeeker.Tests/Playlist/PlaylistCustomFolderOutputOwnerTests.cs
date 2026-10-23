@@ -40,7 +40,6 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
                 }).ToArray(),
             (table, _) => Path.Combine(root, table.Output_dir),
             (_, _) => CustomFolderOutputPhysicalSurface.Empty,
-            (projections, _) => projections.Select(projection => projection.OutputDirectory).ToArray(),
             (directory, _, _) => [directory],
             _ => { });
         var events = new List<(string Stage, int Processed, int Total)>();
@@ -135,7 +134,6 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
             (_, _) => [],
             (_, _) => root,
             (_, _) => CustomFolderOutputPhysicalSurface.Empty,
-            (_, _) => [root],
             (_, _, _) => [root],
             _ => { });
         var events = new List<(string Stage, int Processed, int Total)>();
@@ -190,7 +188,6 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
             ],
             (currentTable, currentSettings) => Path.Combine(currentSettings.LR2CustomFolderOutputBaseDir, currentTable.Output_dir),
             (directories, reason) => CustomFolderOutputPhysicalSurface.Empty,
-            (projections, currentSettings) => projections.Select(projection => projection.OutputDirectory).ToArray(),
             (directory, currentTable, currentSettings) => [directory],
             _ => { });
 
@@ -244,7 +241,6 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
             ],
             (currentTable, currentSettings) => Path.Combine(currentSettings.LR2CustomFolderOutputBaseDir, currentTable.Output_dir),
             (directories, reason) => CustomFolderOutputPhysicalSurface.Empty,
-            (projections, currentSettings) => projections.Select(projection => projection.OutputDirectory).ToArray(),
             (directory, currentTable, currentSettings) => [directory],
             _ => { });
 
@@ -311,7 +307,6 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
             ],
             (currentTable, currentSettings) => Path.Combine(currentSettings.LR2CustomFolderOutputBaseDir, currentTable.Output_dir),
             (directories, reason) => CustomFolderOutputPhysicalSurface.Empty,
-            (projections, currentSettings) => projections.Select(projection => projection.OutputDirectory).ToArray(),
             (directory, currentTable, currentSettings) => [directory],
             _ => { });
 

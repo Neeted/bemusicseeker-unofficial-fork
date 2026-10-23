@@ -935,7 +935,7 @@
   "Error_InvalidPageOrHeaderUri": "The page URI or header URI is invalid.",
   "Confirm_EnablePlaylistSyncModeLoseLocalChanges": "Setting sync mode will discard local changes.\nContinue?",
   "Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied": "Disabling sync mode will stop applying remote changes.\nContinue?",
-  "Error_OutputFolderNameEmptyOrDuplicateCheckInput": "The output destination folder name is empty or duplicated.\nCheck the entered value.",
+  "Error_OutputFolderNameEmptyOrDuplicateCheckInput": "The output folder name is empty, or its location is identical to or nested with another managed playlist output.\nCheck the entered values.",
   "Statusbar_progress_phase_playlist_loading": "Load playlist entries",
   "Statusbar_progress_detail_separator_format": "{0} / {1}",
   "Msg_failed_rename_playlist_folder": "The folder name cannot be changed because the playlist is in external sync mode.",
@@ -1353,5 +1353,6 @@
   "Playlist_json_export_paths_required": "Choose destinations for both the header and data files.",
   "Playlist_json_export_paths_same": "The header and data files must have different destinations.",
   "Playlist_json_export_path_invalid": "Enter valid file paths.",
-  "Playlist_json_export_partial_failure": "The header was saved, but the data file could not be saved. Existing data was kept. Check the destinations and export again."
+  "Playlist_json_export_partial_failure": "The header was saved, but the data file could not be saved. Existing data was kept. Check the destinations and export again.",
+  "Error_ManagedPlaylistOutputOverlap": "Managed playlist output directories are identical or nested. Choose output directories that do not overlap."
 }

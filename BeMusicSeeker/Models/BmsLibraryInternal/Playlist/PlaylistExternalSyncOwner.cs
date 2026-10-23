@@ -743,7 +743,7 @@ internal sealed class PlaylistExternalSyncOwner
             cancellationToken.ThrowIfCancellationRequested();
             settings = GetCustomFolderOutputSettings();
             PlaylistAggregatePersistenceOwner.PlaylistRegistrationPreparation preparation =
-                playlistAggregatePersistenceOwner.PrepareExternalRegistration([bmsTable], renameDuplicateName).Single();
+                playlistAggregatePersistenceOwner.PrepareExternalRegistration([bmsTable], renameDuplicateName, settings).Single();
             if (preparation.DuplicateName)
             {
                 throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, bmsTable.name);
@@ -826,7 +826,7 @@ internal sealed class PlaylistExternalSyncOwner
             cancellationToken.ThrowIfCancellationRequested();
             settings = GetCustomFolderOutputSettings();
             IReadOnlyList<PlaylistAggregatePersistenceOwner.PlaylistRegistrationPreparation> preparations =
-                playlistAggregatePersistenceOwner.PrepareExternalRegistration(tableList, renameDuplicateName);
+                playlistAggregatePersistenceOwner.PrepareExternalRegistration(tableList, renameDuplicateName, settings);
             for (int index = 0; index < tableList.Count; index++)
             {
                 BMSTable table = tableList[index];

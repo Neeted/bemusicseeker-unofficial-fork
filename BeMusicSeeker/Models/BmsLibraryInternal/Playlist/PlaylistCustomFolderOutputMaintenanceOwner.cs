@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -41,9 +42,6 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
 
     private readonly Func<IEnumerable<string>, string, CustomFolderOutputPhysicalSurface> physicalSurfaceResolver;
 
-    private readonly Action<IReadOnlyCollection<PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection>, CustomFolderOutputSettingsSnapshot>
-        prepareOutputScopes;
-
     private readonly Func<IReadOnlyCollection<BMSTable>, bool> areCurrentTables;
 
     internal PlaylistCustomFolderOutputMaintenanceOwner(
@@ -57,7 +55,6 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         Action<string> logPerformance,
         PlaylistOperationNotificationOwner notificationOwner,
         Func<IEnumerable<string>, string, CustomFolderOutputPhysicalSurface> physicalSurfaceResolver,
-        Action<IReadOnlyCollection<PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection>, CustomFolderOutputSettingsSnapshot> prepareOutputScopes,
         Func<IReadOnlyCollection<BMSTable>, bool> areCurrentTables)
     {
         this.outputOwner = outputOwner ?? throw new ArgumentNullException(nameof(outputOwner));
@@ -70,7 +67,6 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         this.logPerformance = logPerformance;
         this.notificationOwner = notificationOwner ?? throw new ArgumentNullException(nameof(notificationOwner));
         this.physicalSurfaceResolver = physicalSurfaceResolver;
-        this.prepareOutputScopes = prepareOutputScopes;
         this.areCurrentTables = areCurrentTables ?? throw new ArgumentNullException(nameof(areCurrentTables));
     }
 
@@ -86,6 +82,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             return false;
         }
 
+        ValidateOutputLayout(settings);
         LR2Config currentConfig = lr2ConfigProvider();
         if (currentConfig == null)
         {
@@ -150,9 +147,12 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
 
     /// <summary>当該XMLの確定済み登録からルート型の登録変更を準備します。呼出元は通常出力の変更と同じ文書へまとめて一回保存できます。</summary>
     internal IReadOnlyList<string> PrepareCustomFolderOutputSearchRoots(string previousRootOutputBaseDirectory,
-        IReadOnlyList<string> currentDirectories, CustomFolderOutputSettingsSnapshot settings)
+        IReadOnlyList<string> currentDirectories, CustomFolderOutputSettingsSnapshot settings,
+        IReadOnlyDictionary<string, string> renames = null)
     {
         if (settings == null || !settings.OperationModeLR2DB) { return currentDirectories; }
+        ManagedPlaylistOutputPlacement.Validate((tablesSnapshotProvider() ?? []).Where(table => !string.IsNullOrWhiteSpace(table.Output_dir))
+            .Select(table => ManagedPlaylistOutputPlacement.Resolve(table, settings, renames)));
         List<string> beforeDirectories = [.. currentDirectories];
         CustomFolderOutputBaseSearchRootSyncService.ValidateOutputBaseAgainstSearchRoots(
             settings.LR2CustomFolderOutputBaseDirRootType, beforeDirectories,
@@ -185,25 +185,25 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         return nextDirectories;
     }
 
-    internal IReadOnlyCollection<string> CreateMigrationProtectedOutputDirectories(
-        IEnumerable<string> additionalDirectories,
-        CustomFolderOutputSettingsSnapshot settings,
-        IEnumerable<string> excludedDirectories = null)
+    /// <summary>保存済み配置も、ファイル・DB・検索ルートの変更に先立って同じ条件で検査します。</summary>
+    private void ValidateOutputLayout(CustomFolderOutputSettingsSnapshot settings,
+        IReadOnlyDictionary<BMSTable, string> overrides = null, IReadOnlyDictionary<string, string> outputBaseRenames = null)
     {
-        var excluded = new HashSet<string>(
-            (excludedDirectories ?? [])
-                .Select(Lr2FolderPath.NormalizeDirectoryPath)
-                .Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
-        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string directory in CreateKnownOutputDirectories(settings).Concat(additionalDirectories ?? []))
-        {
-            if (!excluded.Contains(Lr2FolderPath.NormalizeDirectoryPath(directory)))
-            {
-                AddOutputDirectory(directories, directory);
-            }
-        }
-        return [.. directories];
+        if (settings?.OperationModeLR2DB != true) { return; }
+        ManagedPlaylistOutputPlacement.Validate((tablesSnapshotProvider() ?? []).Where(table => !string.IsNullOrWhiteSpace(table.Output_dir)).Select(table =>
+            overrides?.TryGetValue(table, out string directory) == true ? directory
+                : ManagedPlaylistOutputPlacement.Resolve(table, settings, outputBaseRenames)));
+    }
+
+    /// <summary>移行後の実効先と明示新先を旧先整理から保全します。同一表の旧親から新子への移行と旧path再利用に必要です。</summary>
+    private IReadOnlyCollection<string> CreateMigrationDestinationDirectories(
+        IReadOnlyDictionary<BMSTable, string> destinations, CustomFolderOutputSettingsSnapshot settings,
+        IReadOnlyDictionary<string, string> outputBaseRenames = null)
+    {
+        return (tablesSnapshotProvider() ?? []).Where(table => !string.IsNullOrWhiteSpace(table.Output_dir)).Select(table => destinations?.TryGetValue(table, out string path) == true
+                ? path : ManagedPlaylistOutputPlacement.Resolve(table, settings, outputBaseRenames))
+            .Select(Lr2FolderPath.NormalizeDirectoryPath).Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
     /// <summary>
@@ -220,6 +220,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             return new CustomFolderOutputPreparation([], [], settings, 0);
         }
 
+        ValidateOutputLayout(settings);
         ensureEntriesLoaded(table, "ReOutputCustomFolder");
         PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection projection = CreateProjection(table, settings);
         PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(projection);
@@ -238,6 +239,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         ArgumentNullException.ThrowIfNull(preparation);
         ArgumentNullException.ThrowIfNull(syncMaterialization);
         ValidateCurrentTables(preparation.Tables);
+        ValidateOutputLayout(preparation.Settings);
         try
         {
             CustomFolderBatchOutputResult result = ReOutputProjectionsAsync(
@@ -296,6 +298,11 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             return new CustomFolderMigrationPreparation([], settings, []);
         }
 
+        ValidateOutputLayout(settings);
+        if (!string.IsNullOrWhiteSpace(outputDirectoryAfter))
+        {
+            ValidateOutputLayout(settings, new Dictionary<BMSTable, string> { [table] = outputDirectoryAfter });
+        }
         ensureEntriesLoaded(table, "MigrateCustomFolderOutputDirectory");
         string resolvedOutputDirectoryAfter = string.IsNullOrWhiteSpace(outputDirectoryAfter)
             ? ResolveOutputDirectory(table, settings)
@@ -317,10 +324,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(plan.Projection);
         }
         PrepareProjectionSurfaceAndScopes([plan.Projection], settings, "MigrateCustomFolderOutputDirectory");
-        IReadOnlyCollection<string> protectedDirectories = CreateMigrationProtectedOutputDirectories(
-            [resolvedOutputDirectoryAfter],
-            settings,
-            [outputDirectoryBefore]);
+        IReadOnlyCollection<string> protectedDirectories = CreateMigrationDestinationDirectories(
+            new Dictionary<BMSTable, string> { [table] = resolvedOutputDirectoryAfter }, settings);
         return new CustomFolderMigrationPreparation([plan], settings, protectedDirectories);
     }
 
@@ -335,6 +340,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         ArgumentNullException.ThrowIfNull(preparation);
         ArgumentNullException.ThrowIfNull(syncMaterialization);
         ValidateCurrentTables(preparation.Tables);
+        ValidateOutputLayout(preparation.Settings);
         MigrationPlan plan = preparation.Plans.FirstOrDefault();
         if (plan == null)
         {
@@ -397,6 +403,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         ArgumentNullException.ThrowIfNull(syncMaterialization);
         settings ??= GetSettings();
         ValidateCurrentTables([table]);
+        ValidateOutputLayout(settings);
         bool deletionFailure;
         if (!DeleteOutputDirectoryTree(outputDirectory, [outputBaseDirectory], null, out deletionFailure))
         {
@@ -431,8 +438,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
     }
 
     /// <summary>
-    /// Builds all migration projections and the protected-directory snapshot before
-    /// the file-mutation lease is acquired.
+    /// 承認済み登録対応から全移行投影・配置検査・整理時の保全先を準備します。
+    /// 未改名の他表も同じ最終配置で解決し、存在しない旧登録名を既定先へ読み替えません。
     /// </summary>
     internal CustomFolderMigrationPreparation PrepareCustomFolderOutputMigrations(
         IReadOnlyList<BMSTable> tables,
@@ -440,9 +447,11 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         IReadOnlyDictionary<BMSTable, bool> wasRootFolderBeforeByTable,
         string rootOutputBaseDirectoryBefore,
         IReadOnlyDictionary<BMSTable, string> outputBaseDirectoryBeforeByTable,
-        CustomFolderOutputSettingsSnapshot settings = null)
+        CustomFolderOutputSettingsSnapshot settings = null, IReadOnlyDictionary<string, string> outputBaseRenames = null)
     {
         settings ??= GetSettings();
+        ValidateOutputLayout(settings, outputBaseRenames: outputBaseRenames);
+        ValidateOutputLayout(settings, outputDirectoriesBefore, outputBaseRenames);
         var plans = new List<MigrationPlan>();
         foreach (BMSTable table in tables ?? [])
         {
@@ -455,7 +464,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             }
 
             ensureEntriesLoaded(table, "MigrateCustomFolderOutputDirectories");
-            string afterDirectory = ResolveOutputDirectory(table, settings);
+            string afterDirectory = ManagedPlaylistOutputPlacement.Resolve(table, settings, outputBaseRenames);
             if (string.IsNullOrWhiteSpace(afterDirectory) || IsSameDirectory(beforeDirectory, afterDirectory))
             {
                 continue;
@@ -488,12 +497,10 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         PrepareProjectionSurfaceAndScopes(
             plans.Select(plan => plan.Projection).ToArray(),
             settings,
-            "MigrateCustomFolderOutputDirectories");
-        IReadOnlyCollection<string> protectedDirectories = CreateMigrationProtectedOutputDirectories(
-            plans.Select(plan => plan.OutputDirectoryAfter),
-            settings,
-            plans.Select(plan => plan.OutputDirectoryBefore));
-        return new CustomFolderMigrationPreparation(plans, settings, protectedDirectories);
+            "MigrateCustomFolderOutputDirectories", outputBaseRenames);
+        IReadOnlyCollection<string> protectedDirectories = CreateMigrationDestinationDirectories(
+            plans.ToDictionary(plan => plan.Table, plan => plan.OutputDirectoryAfter), settings, outputBaseRenames);
+        return new CustomFolderMigrationPreparation(plans, settings, protectedDirectories, outputBaseRenames);
     }
 
     /// <summary>
@@ -507,6 +514,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         ArgumentNullException.ThrowIfNull(preparation);
         ArgumentNullException.ThrowIfNull(syncMaterialization);
         ValidateCurrentTables(preparation.Tables);
+        ValidateOutputLayout(preparation.Settings, outputBaseRenames: preparation.OutputBaseRenames);
         if (preparation.Plans.Count == 0)
         {
             return new CustomFolderBatchOutputResult { Succeeded = true };
@@ -545,6 +553,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         ArgumentNullException.ThrowIfNull(receipts);
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(syncMaterialization);
+        ValidateOutputLayout(settings);
         // 再投影する表は既存の生存検査を維持し、成立済み出力の旧絶対path整理には新しい拒否を加えません。
         ValidateCurrentTables([.. receipts.Where(receipt => !receipt.MaterializationCompleted)
             .SelectMany(receipt => receipt.Preparation.Tables).Distinct()]);
@@ -619,7 +628,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         {
             PublishPostLeaseResult(materializationResult, null);
         }
-        IReadOnlyCollection<string> currentOutputs = CreateMigrationProtectedOutputDirectories([], settings);
+        IReadOnlyCollection<string> currentOutputs = CreateMigrationDestinationDirectories(null, settings);
         foreach (CustomFolderMigrationReceipt receipt in receipts.Where(receipt => !receipt.CleanupCompleted))
         {
             CustomFolderBatchOutputResult result = CompletePreparedMigrationCleanup(receipt,
@@ -691,15 +700,13 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             SyncPrunedRows(
                 syncMaterialization,
                 [.. receipt.PendingDatabasePruneScopes],
-                CreatePruneExcludedDirectories(
+                CreateDestinationRowScopes(
                     preparation.ProtectedDirectories,
                     preparation.Plans.Select(plan => plan.OutputDirectoryBefore),
-                    preparation.Plans.Select(plan => plan.Table),
                     preparation.Settings),
-                CreatePruneExcludedPaths(
+                CreateDestinationAncestorRows(
                     preparation.ProtectedDirectories,
                     preparation.Plans.Select(plan => plan.OutputDirectoryBefore),
-                    preparation.Plans.Select(plan => plan.Table),
                     preparation.Settings));
             receipt.PendingDatabasePruneScopes.Clear();
         }
@@ -721,6 +728,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
     {
         settings ??= GetSettings();
         tables ??= [];
+        ValidateOutputLayout(settings);
         var progress = new Lr2SongDbSyncStageProgressReporter(stageProgressReporter);
         progress.Begin("playlist_projection", tables.Count);
         int processed = 0;
@@ -796,6 +804,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             ArgumentNullException.ThrowIfNull(syncMaterialization);
         }
         ValidateCurrentTables(preparation.Tables);
+        ValidateOutputLayout(preparation.Settings);
         return ReOutputProjectionsAsync(
             preparation.Projections,
             preparation.TableCount,
@@ -934,14 +943,15 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
     private void PrepareProjectionSurfaceAndScopes(
         IReadOnlyCollection<PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection> projections,
         CustomFolderOutputSettingsSnapshot settings,
-        string reason)
+        string reason, IReadOnlyDictionary<string, string> outputBaseRenames = null)
     {
         if (projections == null || projections.Count == 0)
         {
             return;
         }
 
-        prepareOutputScopes?.Invoke(projections, settings);
+        var destinations = projections.ToDictionary(projection => projection.Table, projection => projection.OutputDirectory);
+        ValidateOutputLayout(settings, destinations, outputBaseRenames);
         if (physicalSurfaceResolver == null)
         {
             return;
@@ -1025,15 +1035,13 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
                 plan.WasRootFolderBefore,
                 plan.RootOutputBaseDirectoryBefore,
                 preparation.Settings),
-            CreatePruneExcludedDirectories(
+            CreateDestinationRowScopes(
                 preparation.ProtectedDirectories,
                 [plan.OutputDirectoryBefore],
-                [plan.Table],
                 preparation.Settings),
-            CreatePruneExcludedPaths(
+            CreateDestinationAncestorRows(
                 preparation.ProtectedDirectories,
                 [plan.OutputDirectoryBefore],
-                [plan.Table],
                 preparation.Settings));
         return result;
     }
@@ -1132,27 +1140,6 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         return outputDirectoryResolver(table, settings);
     }
 
-    private IReadOnlyCollection<string> CreateKnownOutputDirectories(CustomFolderOutputSettingsSnapshot settings)
-    {
-        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSTable table in tablesSnapshotProvider() ?? [])
-        {
-            if (table == null || string.IsNullOrWhiteSpace(table.Output_dir))
-            {
-                continue;
-            }
-            try
-            {
-                AddOutputDirectory(directories, ResolveOutputDirectory(table, settings));
-            }
-            catch (Exception ex) when (ex is ArgumentNullException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-            {
-                // Invalid legacy output paths are not a reason to block an unrelated migration.
-            }
-        }
-        return [.. directories];
-    }
-
     private IReadOnlyList<string> CreateRootCustomFolderOutputDirectories(string rootOutputBaseDirectory)
     {
         if (string.IsNullOrWhiteSpace(rootOutputBaseDirectory))
@@ -1201,15 +1188,6 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         // 基点自身と配下の旧登録だけを整理します。外側のBMS検索ルートは採用対象ではありません。
         return !currentRootDirectories.Contains(registeredPath, StringComparer.OrdinalIgnoreCase)
             && CustomFolderOutputBaseSearchRootSyncService.IsSameOrChildDirectory(registeredPath, currentRootBase);
-    }
-
-    private static void AddOutputDirectory(ISet<string> directories, string directory)
-    {
-        string normalized = Lr2FolderPath.NormalizeDirectoryPath(directory);
-        if (!string.IsNullOrWhiteSpace(normalized))
-        {
-            directories?.Add(normalized);
-        }
     }
 
     private static bool IsSameDirectory(string left, string right)
@@ -1295,10 +1273,9 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         });
     }
 
-    private static IReadOnlyCollection<string> CreatePruneExcludedDirectories(
+    private static IReadOnlyCollection<string> CreateDestinationRowScopes(
         IEnumerable<string> protectedOutputDirectories,
         IEnumerable<string> protectedScopeDirectories,
-        IEnumerable<BMSTable> classificationTables,
         CustomFolderOutputSettingsSnapshot settings)
     {
         var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1312,15 +1289,14 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             {
                 continue;
             }
-            AddPruneExcludedVariants(excluded, directory, classificationTables, settings);
+            AddDestinationRowVariants(excluded, directory, settings);
         }
         return [.. excluded];
     }
 
-    private static IReadOnlyCollection<string> CreatePruneExcludedPaths(
+    private static IReadOnlyCollection<string> CreateDestinationAncestorRows(
         IEnumerable<string> protectedOutputDirectories,
         IEnumerable<string> scopeDirectories,
-        IEnumerable<BMSTable> classificationTables,
         CustomFolderOutputSettingsSnapshot settings)
     {
         var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1344,7 +1320,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
                 while (!string.IsNullOrWhiteSpace(current)
                     && Lr2FolderPath.IsSameOrDescendant(current, normalizedScope))
                 {
-                    AddPruneExcludedVariants(excluded, current, classificationTables, settings);
+                    AddDestinationRowVariants(excluded, current, settings);
                     if (string.Equals(current, normalizedScope, StringComparison.OrdinalIgnoreCase))
                     {
                         break;
@@ -1356,25 +1332,21 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         return [.. excluded];
     }
 
-    private static void AddPruneExcludedVariants(
+    private static void AddDestinationRowVariants(
         ISet<string> paths,
         string directory,
-        IEnumerable<BMSTable> classificationTables,
         CustomFolderOutputSettingsSnapshot settings)
     {
         paths?.Add(directory);
         string rowPath = Lr2FolderPath.ToFolderPath(directory);
         paths?.Add(rowPath);
-        foreach (BMSTable table in classificationTables ?? [])
+        Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
         {
-            Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
-            {
-                FilePath = rowPath ?? directory,
-                Lr2RootPath = settings.LR2RootPath,
-                RootCustomFolderOutputBaseDir = settings.LR2CustomFolderOutputBaseDirRootType
-            });
-            paths?.Add(classification.DatabasePath);
-        }
+            FilePath = rowPath ?? directory,
+            Lr2RootPath = settings.LR2RootPath,
+            RootCustomFolderOutputBaseDir = settings.LR2CustomFolderOutputBaseDirRootType
+        });
+        paths?.Add(classification.DatabasePath);
     }
 
     private static bool DeleteOutputDirectoryTree(
@@ -1453,7 +1425,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
                 LongPathFileSystem.DeleteDirectory(targetDirectory, recursive: false);
                 return true;
             }
-            bool onlyProtectedEntriesRemain = remainingEntries.All(path => IsPathUnderAnyDirectory(path, protectedDescendants));
+            bool onlyProtectedEntriesRemain = remainingEntries.All(path => protectedDescendants.Any(destination =>
+                Lr2FolderPath.IsSameOrDescendant(path, destination) || Lr2FolderPath.IsSameOrDescendant(destination, path)));
             if (!onlyProtectedEntriesRemain)
             {
                 deletionFailure = true;
@@ -1532,8 +1505,9 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         internal CustomFolderMigrationPreparation(
             IEnumerable<MigrationPlan> plans,
             CustomFolderOutputSettingsSnapshot settings,
-            IEnumerable<string> protectedDirectories)
+            IEnumerable<string> protectedDirectories, IReadOnlyDictionary<string, string> outputBaseRenames = null)
         {
+            OutputBaseRenames = outputBaseRenames?.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
             Plans = [.. (plans ?? []).Where(plan => plan != null)];
             Tables = [.. Plans.Select(plan => plan.Table).Where(table => table != null)];
             Settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -1549,6 +1523,9 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         internal CustomFolderOutputSettingsSnapshot Settings { get; }
 
         internal IReadOnlyCollection<string> ProtectedDirectories { get; }
+
+        /// <summary>未改名ヘッダーを含む操作中の承認済み最終登録対応。設定・正本の状態として公開しません。</summary>
+        internal IReadOnlyDictionary<string, string> OutputBaseRenames { get; }
     }
 
     internal sealed class CustomFolderProgressFact
@@ -1602,7 +1579,6 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             DirectoryRowGenerationScopeDirectories = result?.DirectoryRowGenerationScopeDirectories ?? [];
             DirectoryEntries = result?.DirectoryEntries;
             PruneScopePaths = result?.PruneScopePaths ?? [];
-            PruneExcludedDirectories = result?.PruneExcludedDirectories ?? [];
             EmptyOutputDirectories = result?.EmptyOutputDirectories ?? [];
             SuppressLog = true;
         }

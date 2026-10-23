@@ -480,10 +480,10 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
-    /// <summary>親表だけを移行しても、旧先配下にある別表のファイルとDB行、その祖先DB行を保持します。旧親ディレクトリの整理が別表を削除する誤りを検出します。</summary>
+    /// <summary>旧保存値の包含配置から移行を要求しても、DB・ファイル変更前に拒否します。新先だけを検査して旧親を整理する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB_PreservesNestedManagedOutputDirectory()
+    public void MigrateCustomFolderOutputDirectory_RejectsSavedNestedLayout()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -522,29 +522,24 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { parentTable, childTable })
             };
-            playlist.ReOutputCustomFoldersAndCommitHeadersToDB(
-                [parentTable, childTable],
-                "test_bulk_migration_nested_seed");
+            playlist.CommitBMSTableHeadersToDB([parentTable, childTable]);
             string oldParentDirectory = Path.Combine(outputBaseDir, "BulkMigrationParent");
             string childDirectory = Path.Combine(oldParentDirectory, "BulkMigrationChild");
             string childPath = Path.Combine(childDirectory, "0000.lr2folder");
-            Assert.IsTrue(File.Exists(childPath));
-
-            parentTable.Output_dir = "BulkMigrationParentMoved";
+            Directory.CreateDirectory(childDirectory);
+            File.WriteAllText(childPath, "old child");
+            using (var db = new LR2SongDBExtended(songDbPath))
+            { db.Insert(new LR2SongDB.folder { path = childPath, title = "old child", type = 2 }); }
             string newParentDirectory = Path.Combine(outputBaseDir, "BulkMigrationParentMoved");
-            playlist.MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
-                [parentTable],
-                new Dictionary<BMSTable, string> { [parentTable] = oldParentDirectory },
-                "test_bulk_migration_nested_move",
-                outputBaseDirPathBeforeByTable: new Dictionary<BMSTable, string> { [parentTable] = outputBaseDir });
-
-            string newParentPath = Path.Combine(newParentDirectory, "0000.lr2folder");
-            Assert.IsTrue(File.Exists(newParentPath));
-            Assert.IsTrue(File.Exists(childPath));
+            Assert.ThrowsException<InvalidOperationException>(() => playlist.MigrateCustomFolderOutputDirectory(
+                parentTable, oldParentDirectory, newParentDirectory));
+            Assert.IsFalse(Directory.Exists(newParentDirectory));
+            Assert.AreEqual("old child", File.ReadAllText(childPath));
+            Assert.AreEqual("BulkMigrationParent", parentTable.Output_dir);
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", childPath));
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", Lr2FolderPath.ToFolderPath(oldParentDirectory)));
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", newParentPath));
+            Assert.AreEqual("BulkMigrationParent", verify.Table<BMSTable>().Single(row => row.playlist_id == 7316).Output_dir);
+            Assert.AreEqual(1, verify.Table<LR2SongDB.folder>().Count());
+            Assert.AreEqual("old child", verify.Table<LR2SongDB.folder>().Single().title);
         }
         finally
         {
@@ -1356,10 +1351,12 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
-    /// <summary>末尾区切りだけ異なる旧先・新先を同一先として再出力し、更新したファイルとDB行を保持します。文字列差を移行扱いして新出力を削除する誤りを検出します。</summary>
-    [TestMethod]
+    /// <summary>同一表の末尾区切りだけ異なる同一先と、旧親から新子への移行で、更新したファイルとDB行を保持します。旧先整理が成立した新出力を削除する誤りを検出します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
     [TestCategory("Playlist")]
-    public void MigrateCustomFolderOutputDirectory_TreatsTrailingSeparatorAsSameDirectory()
+    public void MigrateCustomFolderOutputDirectory_PreservesSameTableDestination(bool moveIntoChild)
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -1398,7 +1395,13 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
 
-            playlist.MigrateCustomFolderOutputDirectory(table, outputDir + Path.DirectorySeparatorChar, outputDir);
+            string destination = moveIntoChild ? Path.Combine(outputDir, "New", "Child") : outputDir;
+            playlist.MigrateCustomFolderOutputDirectory(table, outputDir + Path.DirectorySeparatorChar, destination);
+            if (moveIntoChild)
+            {
+                Assert.IsFalse(File.Exists(outputPath));
+                outputPath = Path.Combine(destination, "0001.lr2folder");
+            }
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder generated = verify.Table<LR2SongDB.folder>().Single(row => row.path == outputPath);
@@ -1654,6 +1657,97 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             {
                 Directory.Delete(tempDirectory, recursive: true);
             }
+        }
+    }
+
+    /// <summary>外部新規登録は既存表と全候補の配置を副作用前に検査し、一括の先頭が安全でも衝突時は全件を拒否します。終端後の安全な登録で受付解放を確認します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    [TestCategory("Playlist")]
+    public async Task ExternalTableRegistration_RejectsOverlappingCandidateBeforeMutation(bool multiple)
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string outputBase = Path.Combine(tempDirectory, "Output");
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2RootPath = Path.Combine(tempDirectory, "LR2");
+            testSettings.LR2CustomFolderOutputBaseDir = outputBase;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootOutput");
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            LR2Config config = CreateLr2Config(testSettings.LR2RootPath, outputBase);
+            byte[] oldXml = File.ReadAllBytes(config.ConfigFilePath);
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var existing = new BMSTable { playlist_id = 7821, name = "Child", Output_dir = Path.Combine("Parent", "Child") };
+            var playlist = new TestBmsPlaylist(songDbPath, () => config,
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            {
+                BMSTables = new ObservableCollection<BMSTable>([existing])
+            };
+            playlist.CommitBMSTableHeadersToDB([existing]);
+            string oldFile = Path.Combine(outputBase, existing.Output_dir, "0000.lr2folder");
+            Directory.CreateDirectory(Path.Combine(outputBase, existing.Output_dir));
+            File.WriteAllText(oldFile, "old child output");
+            DateTime oldTimestamp = File.GetLastWriteTimeUtc(oldFile);
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.CreateTable<LR2SongDB.folder>();
+                db.Insert(new LR2SongDB.folder { path = oldFile, title = "old child", type = 2 });
+            }
+            var safe = new BMSTable
+            {
+                playlist_id = 7822,
+                name = "Safe",
+                symbol = "S",
+                entries = [CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Safe Folder")]
+            };
+            var conflicting = new BMSTable { playlist_id = 7823, name = "Parent" };
+            BMSTable[] candidates = multiple ? [safe, conflicting] : [conflicting];
+            int notices = 0;
+            playlist.BMSTables.CollectionChanged += (_, _) => notices++;
+            foreach (BMSTable table in candidates) { table.PropertyChanged += (_, _) => notices++; }
+            Dictionary<BMSTable, (string name, DateTime last_update, int? bmt_sort, bool? is_bmt_output)> oldCandidates = candidates.ToDictionary(table => table,
+                table => (table.name, table.last_update, table.bmt_sort, table.is_bmt_output));
+
+            if (multiple)
+            {
+                await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => playlist.ExternalSyncOwner.RegistrateExternalTablesAsync(candidates, false, "invalid_placement"));
+            }
+            else
+            {
+                await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => playlist.ExternalSyncOwner.RegistrateExternalTableAsync(conflicting, false, "invalid_placement"));
+            }
+
+            Assert.AreEqual(0, notices);
+            CollectionAssert.AreEqual(new[] { existing }, playlist.BMSTables.ToArray());
+            foreach (BMSTable table in candidates)
+            {
+                Assert.AreEqual(oldCandidates[table], (table.name, table.last_update, table.bmt_sort, table.is_bmt_output));
+            }
+            CollectionAssert.AreEqual(oldXml, File.ReadAllBytes(config.ConfigFilePath));
+            Assert.AreEqual("old child output", File.ReadAllText(oldFile));
+            Assert.AreEqual(oldTimestamp, File.GetLastWriteTimeUtc(oldFile));
+            CollectionAssert.AreEqual(new[] { oldFile }, Directory.GetFiles(outputBase, "*", SearchOption.AllDirectories));
+            Assert.IsFalse(Directory.Exists(Path.Combine(outputBase, "Safe")));
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(1, verify.Table<BMSTable>().Count());
+                Assert.AreEqual(existing.Output_dir, verify.Table<BMSTable>().Single().Output_dir);
+                Assert.AreEqual(0, verify.Table<BMSTableEntry>().Count());
+                Assert.AreEqual("old child", verify.Table<LR2SongDB.folder>().Single().title);
+            }
+
+            await playlist.ExternalSyncOwner.RegistrateExternalTableAsync(safe, false, "safe_after_rejection");
+            Assert.IsTrue(playlist.BMSTables.Contains(safe));
+            using LR2SongDBExtended after = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            Assert.AreEqual(2, after.Table<BMSTable>().Count());
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory)) { Directory.Delete(tempDirectory, recursive: true); }
         }
     }
 

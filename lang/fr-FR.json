@@ -935,7 +935,7 @@
   "Error_InvalidPageOrHeaderUri": "L’URI de page ou l’URI d’en-tête est invalide.",
   "Confirm_EnablePlaylistSyncModeLoseLocalChanges": "Définir le mode de synchronisation supprimera les modifications locales.\nContinuer ?",
   "Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied": "Désactiver le mode de synchronisation empêchera l’application des modifications distantes.\nContinuer ?",
-  "Error_OutputFolderNameEmptyOrDuplicateCheckInput": "Le nom du dossier de destination de sortie est vide ou dupliqué.\nVérifiez la valeur saisie.",
+  "Error_OutputFolderNameEmptyOrDuplicateCheckInput": "Le nom du dossier de sortie est vide, ou son emplacement est identique ou imbriqué avec celui d’une autre playlist gérée.\nVérifiez les valeurs saisies.",
   "Statusbar_progress_phase_playlist_loading": "Lecture des éléments des listes de lecture",
   "Statusbar_progress_detail_separator_format": "{0} / {1}",
   "Msg_failed_rename_playlist_folder": "Le nom du dossier ne peut pas être modifié car la playlist est en mode de synchronisation externe.",
@@ -1353,5 +1353,6 @@
   "Playlist_json_export_paths_required": "Choisissez les destinations du fichier d’en-tête et du fichier de données.",
   "Playlist_json_export_paths_same": "Les fichiers d’en-tête et de données doivent avoir des destinations différentes.",
   "Playlist_json_export_path_invalid": "Saisissez des chemins de fichiers valides.",
-  "Playlist_json_export_partial_failure": "L’en-tête a été enregistré, mais les données n’ont pas pu être enregistrées. Les données existantes ont été conservées. Vérifiez les destinations et réexportez."
+  "Playlist_json_export_partial_failure": "L’en-tête a été enregistré, mais les données n’ont pas pu être enregistrées. Les données existantes ont été conservées. Vérifiez les destinations et réexportez.",
+  "Error_ManagedPlaylistOutputOverlap": "Les dossiers de sortie des playlists gérées sont identiques ou imbriqués. Choisissez des dossiers qui ne se chevauchent pas."
 }

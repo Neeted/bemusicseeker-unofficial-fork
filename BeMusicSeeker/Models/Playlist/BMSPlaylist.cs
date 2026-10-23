@@ -912,7 +912,6 @@ public partial class BMSPlaylist : ObservableObject
             (table, settings) => BuildCustomFolderDefinitions(table, settings),
             ResolveCustomFolderOutputDirectory,
             CreateCustomFolderOutputPhysicalSurfaceFromGroupedEnumeration,
-            (projections, settings) => CreateKnownCustomFolderOutputDirectories(projections, settings),
             CreateCustomFolderDirectoryRowGenerationScopes,
             LogPlaylistPerformance);
         customFolderOutputStatusOwner = new PlaylistCustomFolderOutputStatusOwner(
@@ -931,7 +930,6 @@ public partial class BMSPlaylist : ObservableObject
             LogPlaylistPerformance,
             operationNotificationOwner,
             ResolveCustomFolderOutputPhysicalSurface,
-            PrepareCustomFolderOutputScopes,
             tables =>
             {
                 using (rwlockBMSTables.GetReaderGuard())
@@ -1412,12 +1410,13 @@ public partial class BMSPlaylist : ObservableObject
 
     /// <summary>設定担当が所有する一文書の登録から、表に必要なルート型登録の最終一覧だけを返します。XMLは保存しません。</summary>
     internal IReadOnlyList<string> PrepareCustomFolderOutputSearchRoots(string previousRootOutputBaseDirectory,
-        IReadOnlyList<string> currentDirectories, CustomFolderOutputSettingsSnapshot settings)
+        IReadOnlyList<string> currentDirectories, CustomFolderOutputSettingsSnapshot settings,
+        IReadOnlyDictionary<string, string> renames = null)
     {
         using (rwlockBMSTables.GetReaderGuard())
         {
             return customFolderOutputMaintenanceOwner.PrepareCustomFolderOutputSearchRoots(previousRootOutputBaseDirectory,
-                currentDirectories, settings);
+                currentDirectories, settings, renames);
         }
     }
 
@@ -1991,12 +1990,14 @@ public partial class BMSPlaylist : ObservableObject
     /// <summary>捕捉設定と生存権限で通常形式の出力基点を変更します。設定の外側受付を取り直さず、物理変更と保存を終えます。</summary>
     /// <param name="migrationObserver">ヘッダーDB確定直後にreceiptを渡します。投影・整理の例外後も局所保存担当が未了範囲を所有します。</param>
     /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
+    /// <param name="outputBaseRenames">同じ設定要求で承認した現在名から最終名への対応。追加先ヘッダー確定前の配置解決に共有します。</param>
     internal void ChangeCustomFolderBaseDirectoryWithSettings(
         string outputDirBaseBefore,
         string outputDirBaseAfter,
         string additionalOutputBaseDirsBefore,
         string additionalOutputBaseDirsAfter,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null)
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null,
+        IReadOnlyDictionary<string, string> outputBaseRenames = null)
     {
         using LibraryFileMutationLease admission = AcquirePlaylistMutationLease("ChangeCustomFolderBaseDirectoryWithSettings", capability: capability);
         using LibraryFileMutationCapability authority = admission.CreateMutationCapability();
@@ -2040,7 +2041,7 @@ public partial class BMSPlaylist : ObservableObject
             "setting_custom_folder_output_base_dir_changed",
             wasRootFolderBeforeByTable: outputDirPathBeforeByTable.Keys.ToDictionary(table => table, _ => false),
             outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
-            settings: settings, capability: authority, migrationObserver: migrationObserver);
+            settings: settings, capability: authority, migrationObserver: migrationObserver, outputBaseRenames: outputBaseRenames);
     }
 
     /// <summary>
@@ -2111,6 +2112,8 @@ public partial class BMSPlaylist : ObservableObject
         {
             return 0;
         }
+
+        ValidateCustomFolderOutputRegistration(settings, pendingRenames);
 
         IReadOnlyList<CustomFolderOutputBaseEntry> oldEntries = CustomFolderOutputBaseRegistry.CreateAdditionalEntries(
             CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(previousAdditionalOutputBaseDirectories));
@@ -2677,6 +2680,7 @@ public partial class BMSPlaylist : ObservableObject
             discoveryComplete: false);
         statusDirectories = [];
         settings ??= GetCustomFolderOutputSettings();
+        ValidateCustomFolderOutputLayout(settings);
         var statusStopwatch = Stopwatch.StartNew();
         Dictionary<int, CustomFolderOutputStatusRow> statusRows = customFolderOutputStatusOwner.ReadStatusRows();
         statusStopwatch.Stop();
@@ -2863,7 +2867,7 @@ public partial class BMSPlaylist : ObservableObject
         }
 
         var rowLookupStopwatch = Stopwatch.StartNew();
-        AssignCustomFolderProtectedOutputDirectories(pendingProjections, settings);
+        ValidateCustomFolderOutputLayout(settings);
         IReadOnlyDictionary<string, LR2SongDB.folder> rowsByPath = ReadCustomFolderOutputRows(pendingProjections, out bool rowLookupSucceeded, layoutOnly: true);
         rowLookupStopwatch.Stop();
         LogPlaylistPerformance("playlist_custom_folder_output_repair row_lookup_done"
@@ -2918,7 +2922,6 @@ public partial class BMSPlaylist : ObservableObject
             {
                 fullProjection.ForceWriteFilePaths.Add(forceWritePath);
             }
-            fullProjection.ProtectedOutputDirectories = projection.ProtectedOutputDirectories;
             fullProjection.PhysicalSurface = physicalSurface;
             plans.Add(fullProjection);
         }
@@ -3139,27 +3142,6 @@ public partial class BMSPlaylist : ObservableObject
         return [.. result];
     }
 
-    private static IReadOnlyCollection<string> CreateCustomFolderProtectedOutputRowScopePaths(CustomFolderOutputProjection projection)
-    {
-        if (projection == null || projection.ProtectedOutputDirectories == null)
-        {
-            return [];
-        }
-
-        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string protectedDirectory in projection.ProtectedOutputDirectories)
-        {
-            foreach (string scopePath in CreateCustomFolderOutputRowScopePaths(projection.Table, protectedDirectory, projection.Settings))
-            {
-                if (!string.IsNullOrWhiteSpace(scopePath))
-                {
-                    result.Add(scopePath);
-                }
-            }
-        }
-        return [.. result];
-    }
-
     private static void MarkCustomFolderOutputStaleRowRepairTargets(
         IReadOnlyList<CustomFolderOutputProjection> projections,
         IEnumerable<LR2SongDB.folder> rows,
@@ -3188,11 +3170,6 @@ public partial class BMSPlaylist : ObservableObject
 
             foreach (CustomFolderOutputProjection projection in FindCustomFolderProjectionsForRowPath(normalizedRowPath, scopeLookup))
             {
-                if (IsCustomFolderRowPathInProtectedOutputScope(normalizedRowPath, projection))
-                {
-                    continue;
-                }
-
                 repairTargets.Add(projection);
                 break;
             }
@@ -3537,11 +3514,6 @@ public partial class BMSPlaylist : ObservableObject
         return IsCustomFolderRowPathInAnyScope(normalizedRowPath, CreateCustomFolderOutputRowScopePaths(projection));
     }
 
-    private static bool IsCustomFolderRowPathInProtectedOutputScope(string normalizedRowPath, CustomFolderOutputProjection projection)
-    {
-        return IsCustomFolderRowPathInAnyScope(normalizedRowPath, CreateCustomFolderProtectedOutputRowScopePaths(projection));
-    }
-
     private static bool IsCustomFolderRowPathInAnyScope(string normalizedRowPath, IEnumerable<string> scopePaths)
     {
         if (string.IsNullOrWhiteSpace(normalizedRowPath))
@@ -3667,110 +3639,21 @@ public partial class BMSPlaylist : ObservableObject
         public bool IsAll { get; set; }
     }
 
-    private void AssignCustomFolderProtectedOutputDirectories(
-        IReadOnlyCollection<CustomFolderOutputProjection> projections,
-        CustomFolderOutputSettingsSnapshot settings = null)
+    /// <summary>変更後の全管理表の実効先を副作用前に検査します。候補resolverは未保存の属性だけを置き換えます。</summary>
+    internal void ValidateCustomFolderOutputLayout(CustomFolderOutputSettingsSnapshot settings,
+        Func<BMSTable, string> resolveCandidate = null)
     {
-        settings ??= projections?
-            .Select(projection => projection?.Settings)
-            .FirstOrDefault(snapshot => snapshot != null)
-            ?? GetCustomFolderOutputSettings();
-        IReadOnlyCollection<string> knownOutputDirectories = CreateKnownCustomFolderOutputDirectories(projections, settings);
-        foreach (CustomFolderOutputProjection projection in projections ?? [])
-        {
-            string outputDirectory = Lr2FolderPath.NormalizeDirectoryPath(projection?.OutputDirectory);
-            if (string.IsNullOrWhiteSpace(outputDirectory))
-            {
-                continue;
-            }
-
-            projection.ProtectedOutputDirectories = [.. knownOutputDirectories
-                .Where(directory => !string.Equals(directory, outputDirectory, StringComparison.OrdinalIgnoreCase)
-                    && Lr2FolderPath.IsSameOrDescendant(directory, outputDirectory))
-                .Distinct(StringComparer.OrdinalIgnoreCase)];
-        }
+        if (settings?.OperationModeLR2DB != true) { return; }
+        ManagedPlaylistOutputPlacement.Validate(GetCustomFolderTablesSnapshot()
+            .Where(table => !string.IsNullOrWhiteSpace(table.Output_dir))
+            .Select(table => resolveCandidate == null ? ManagedPlaylistOutputPlacement.Resolve(table, settings) : resolveCandidate(table)));
     }
 
-    private void PrepareCustomFolderOutputScopes(
-        IReadOnlyCollection<CustomFolderOutputProjection> projections,
-        CustomFolderOutputSettingsSnapshot settings = null)
+    /// <summary>追加基点の改名・削除を反映した全表配置を、設定媒体とヘッダーの保存前に検査します。</summary>
+    internal void ValidateCustomFolderOutputRegistration(CustomFolderOutputSettingsSnapshot settings,
+        IReadOnlyDictionary<string, string> renames)
     {
-        settings ??= projections?
-            .Select(projection => projection?.Settings)
-            .FirstOrDefault(snapshot => snapshot != null)
-            ?? GetCustomFolderOutputSettings();
-        IReadOnlyCollection<string> knownOutputDirectories = CreateKnownCustomFolderOutputDirectories(projections, settings);
-        foreach (CustomFolderOutputProjection projection in projections ?? [])
-        {
-            string outputDirectory = Lr2FolderPath.NormalizeDirectoryPath(projection?.OutputDirectory);
-            if (string.IsNullOrWhiteSpace(outputDirectory))
-            {
-                continue;
-            }
-
-            // The output owner asks its known-directory provider again immediately
-            // before materialization.  Carry the prelease catalog projection through
-            // that narrow provider call so it does not enumerate BMSTables while the
-            // mutation lease is held.  The output owner replaces this marker with
-            // the actual nested protected set before deleting managed files.
-            projection.ProtectedOutputDirectories = [outputDirectory, .. knownOutputDirectories
-                .Where(directory => !string.IsNullOrWhiteSpace(directory))
-                .Distinct(StringComparer.OrdinalIgnoreCase)];
-        }
-    }
-
-    private IReadOnlyCollection<string> CreateKnownCustomFolderOutputDirectories(
-        IEnumerable<CustomFolderOutputProjection> projections,
-        CustomFolderOutputSettingsSnapshot settings = null)
-    {
-        settings ??= GetCustomFolderOutputSettings();
-        IReadOnlyList<CustomFolderOutputProjection> projectionList = [.. (projections ?? [])
-            .Where(projection => projection != null)];
-        if (projectionList.Count > 0
-            && projectionList.All(projection => projection.ProtectedOutputDirectories?.Any(directory =>
-                string.Equals(
-                    Lr2FolderPath.NormalizeDirectoryPath(directory),
-                    Lr2FolderPath.NormalizeDirectoryPath(projection.OutputDirectory),
-                    StringComparison.OrdinalIgnoreCase)) == true))
-        {
-            return [.. projectionList
-                .SelectMany(projection => projection.ProtectedOutputDirectories ?? [])
-                .Where(directory => !string.IsNullOrWhiteSpace(directory))
-                .Select(Lr2FolderPath.NormalizeDirectoryPath)
-                .Where(directory => !string.IsNullOrWhiteSpace(directory))
-                .Distinct(StringComparer.OrdinalIgnoreCase)];
-        }
-        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (CustomFolderOutputProjection projection in projectionList)
-        {
-            AddCustomFolderOutputDirectory(directories, projection?.OutputDirectory);
-        }
-
-        using (rwlockBMSTables.GetReaderGuard())
-        {
-            if (BMSTables == null)
-            {
-                return [.. directories];
-            }
-
-            foreach (BMSTable table in BMSTables)
-            {
-                if (table == null || string.IsNullOrWhiteSpace(table.Output_dir))
-                {
-                    continue;
-                }
-
-                try
-                {
-                    AddCustomFolderOutputDirectory(directories, ResolveCustomFolderOutputDirectory(table, settings));
-                }
-                catch (Exception ex) when (ex is ArgumentNullException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-                {
-                    continue;
-                }
-            }
-        }
-        return [.. directories];
+        ValidateCustomFolderOutputLayout(settings, table => ManagedPlaylistOutputPlacement.Resolve(table, settings, renames));
     }
 
     private IReadOnlyList<BMSTable> GetCustomFolderTablesSnapshot()
@@ -3780,15 +3663,6 @@ public partial class BMSPlaylist : ObservableObject
             return BMSTables == null
                 ? []
                 : [.. BMSTables.Where(table => table != null)];
-        }
-    }
-
-    private static void AddCustomFolderOutputDirectory(ISet<string> directories, string directory)
-    {
-        string normalized = Lr2FolderPath.NormalizeDirectoryPath(directory);
-        if (!string.IsNullOrWhiteSpace(normalized))
-        {
-            directories?.Add(normalized);
         }
     }
 
@@ -4742,6 +4616,7 @@ public partial class BMSPlaylist : ObservableObject
         }
         if (isCurrentTable)
         {
+            ValidateCustomFolderOutputLayout(settings);
             EnsurePlaylistEntriesLoaded(bmsTable, "ReOutputCustomFolderAndCommitToDB");
             using (rwlockBMSTables.GetReaderGuard())
             {
@@ -4880,6 +4755,7 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="progressCallback">処理済み件数、全件数、処理中プレイリスト名を通知する callback。</param>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTables"/> が <see langword="null"/> の場合。</exception>
     /// <param name="migrationObserver">ヘッダーDB確定直後、新先投影前にreceiptを通知します。設定呼出元は成立事実と未了範囲を保持し、旧先整理を一括修復へ引き継ぎます。</param>
+    /// <param name="outputBaseRenames">未改名の表を含む場合の承認済み最終登録対応。移行準備から候補出力・整理先の決定まで共有します。</param>
     internal void MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
         IEnumerable<BMSTable> bmsTables,
         IReadOnlyDictionary<BMSTable, string> outputDirPathBeforeByTable,
@@ -4888,7 +4764,8 @@ public partial class BMSPlaylist : ObservableObject
         IReadOnlyDictionary<BMSTable, bool> wasRootFolderBeforeByTable = null,
         string rootOutputBaseDirBefore = null,
         IReadOnlyDictionary<BMSTable, string> outputBaseDirPathBeforeByTable = null,
-        CustomFolderOutputSettingsSnapshot settings = null, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null)
+        CustomFolderOutputSettingsSnapshot settings = null, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null,
+        IReadOnlyDictionary<string, string> outputBaseRenames = null)
     {
         using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB", capability: capability);
         using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
@@ -4926,7 +4803,7 @@ public partial class BMSPlaylist : ObservableObject
                 wasRootFolderBeforeByTable,
                 rootOutputBaseDirBefore,
                 outputBaseDirPathBeforeByTable,
-                settings);
+                settings, outputBaseRenames);
         using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(
             "MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB", capability: authority))
         using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())

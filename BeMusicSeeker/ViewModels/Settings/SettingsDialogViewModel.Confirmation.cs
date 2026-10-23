@@ -981,8 +981,12 @@ public partial class SettingsDialogViewModel
                 using (playlistLease)
                 using (LibraryFileMutationCapability capability = playlistLease.CreateMutationCapability())
                 {
-                    OutputConfigurationChange change = pendingOutputChange ??= new OutputConfigurationChange(previous, target,
+                    OutputConfigurationChange change = pendingOutputChange ?? new OutputConfigurationChange(previous, target,
                         section is null or "additional" ? new Dictionary<string, string>(pendingCustomFolderAdditionalOutputBaseRenames, StringComparer.OrdinalIgnoreCase) : new Dictionary<string, string>());
+                    // 修復では確定済みヘッダーの現在名から候補を解決し、媒体を一つも保存する前に止めます。
+                    IReadOnlyDictionary<string, string> registrationRenames = GetOutputRegistrationRepairRenames(change);
+                    customFolderOutputPort.ValidateCustomFolderOutputRegistration(target, registrationRenames);
+                    pendingOutputChange = change;
                     (string Name, object Value)[] values = [
                         (nameof(Settings.LR2CustomFolderOutputBaseDir), change.Target.LR2CustomFolderOutputBaseDir),
                     (nameof(Settings.LR2CustomFolderOutputBaseDirRootType), change.Target.LR2CustomFolderOutputBaseDirRootType),
@@ -1000,7 +1004,7 @@ public partial class SettingsDialogViewModel
                             {
                                 latest.SetBMSSearchDirectories(customFolderOutputPort.PrepareCustomFolderOutputSearchRoots(
                                     change.SearchRootsPrevious.LR2CustomFolderOutputBaseDirRootType, change.Target,
-                                    latest.GetBMSSearchDirectoriesForChangeTracking()));
+                                    latest.GetBMSSearchDirectoriesForChangeTracking(), registrationRenames));
                             }
                             if (statePort.HasActiveLibraryProfile
                                 || !string.Equals(change.SearchRootsPrevious.LR2CustomFolderOutputBaseDir, change.Target.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase)
@@ -1043,7 +1047,7 @@ public partial class SettingsDialogViewModel
                                     {
                                         change.Migrations.Add(receipt);
                                         AcceptNormalHeaders();
-                                    });
+                                    }, registrationRenames);
                                 }
                                 AcceptNormalHeaders();
                             }
