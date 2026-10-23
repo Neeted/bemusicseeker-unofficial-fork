@@ -303,6 +303,27 @@ internal sealed class ChartListOrder
 
     internal int Count => Indexes.Count;
 
+    /// <summary>捕捉済みの全入力で既存添字順が正しいかを線形検査します。列・副キーTitle・同値時の元順序が保たれる場合だけ再利用でき、入力や表示行を複製しません。</summary>
+    internal bool IsSortedFor(IReadOnlyList<ChartListSourceRow> rows)
+    {
+        if (Count != (rows?.Count ?? 0)) { return false; }
+        if (Count == 0) { return true; }
+        int previousIndex = Indexes[0];
+        if (previousIndex < 0 || previousIndex >= Count) { return false; }
+        ChartListCapturedSortKey previous = CaptureKey(rows[previousIndex], ColumnName);
+        for (int i = 1; i < Count; i++)
+        {
+            int index = Indexes[i];
+            if (index < 0 || index >= Count) { return false; }
+            ChartListCapturedSortKey current = CaptureKey(rows[index], ColumnName);
+            int comparison = CompareKeys(previous, current, Direction);
+            if (comparison > 0 || comparison == 0 && previousIndex >= index) { return false; }
+            previousIndex = index;
+            previous = current;
+        }
+        return true;
+    }
+
     /// <summary>全体整列と局所挿入で同じ列・同じ比較規則を使うため、不変の派生キーを捕捉します。</summary>
     internal static ChartListCapturedSortKey CaptureKey(ChartListSourceRow row, string columnName)
     {

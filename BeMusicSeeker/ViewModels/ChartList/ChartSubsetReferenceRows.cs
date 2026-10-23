@@ -7,7 +7,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
 
-/// <summary>専用一覧の元配列を変更せず、参照差分の実対象投影だけを差し替えます。未採用の新hash捕捉は要求の寿命内に限ります。</summary>
+/// <summary>専用一覧の元配列を変更せず、共通現在値・参照差分の実対象投影だけを差し替えます。未採用の新hash捕捉は要求の寿命内に限ります。</summary>
 internal sealed class ChartSubsetReferenceRows : IReadOnlyList<ChartListSourceRow>
 {
     private readonly IReadOnlyList<ChartListSourceRow> source;
@@ -98,7 +98,7 @@ internal sealed class ChartSubsetReferenceRows : IReadOnlyList<ChartListSourceRo
         {
             observe?.Invoke("source_visit", 1);
             ChartListSourceRow before = this[index];
-            ChartListSourceRow after = before.WithReferenceDisplay(References.Resolve(
+            ChartListSourceRow after = (referenceChart == null ? before : before.WithCatalogValue(referenceChart)).WithReferenceDisplay(References.Resolve(
                 referenceChart != null ? referenceChart.Md5 : before.ReferenceMd5,
                 referenceChart != null ? referenceChart.Sha256 : before.ReferenceSha256), referenceChart);
             if (ReferenceEquals(before, after)) { continue; }

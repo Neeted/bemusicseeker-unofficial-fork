@@ -211,7 +211,7 @@ internal sealed class ChartListVirtualView : IList, IChartListViewMetadata, INot
         return true;
     }
 
-    /// <summary>専用元集合のhash依存だけへ参照を適用し、変更行の表示・検索・順序を一致させます。</summary>
+    /// <summary>専用元集合のtoken・hash依存だけへ共通現在値と参照を適用し、変更行の表示・検索・順序を一致させます。</summary>
     internal bool TryApplySubsetLibraryChanges(IReadOnlyList<CatalogCommitReceipt> catalogs,
         IReadOnlyList<PlaylistReferenceCommitReceipt> references, out bool orderChanged, Action referenceValuesChanged = null)
     {
@@ -252,6 +252,9 @@ internal sealed class ChartListVirtualView : IList, IChartListViewMetadata, INot
     internal BMSLibrary ScoreLibrary => scoreInput?.Library;
     /// <summary>このviewの比較・検索・元集合へ変更キーを反映済みの位置です。</summary>
     internal int ScorePosition => scorePosition;
+
+    /// <summary>共通現在値の実差分をこのviewへ反映する重複一覧かを、初回入力の契約から返します。</summary>
+    internal bool UsesCatalogCurrentValues => normalOrder == null && sourceRows.Count > 0 && sourceRows[0].UsesCatalogCurrentValues;
 
     /// <summary>所属・位置が変わったときだけcontrolへ通知し、値だけの更新では選択と編集を維持します。</summary>
     internal void PublishOrderChanged() => CollectionChanged?.Invoke(this, new(NotifyCollectionChangedAction.Reset));

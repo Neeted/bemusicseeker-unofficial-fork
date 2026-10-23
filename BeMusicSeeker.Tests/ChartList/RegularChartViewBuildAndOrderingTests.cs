@@ -1277,8 +1277,9 @@ public sealed class RegularChartViewBuildAndOrderingTests
             ChartFile alpha = CreateSourceRow("Folder A", "Alpha").Chart;
             var library = new TestBmsLibrary(songDbPath)
             {
-                DuplicateChartGroups = [new([bravo, alpha], [bravo.Folder, alpha.Folder])]
+                BmsCharts = [bravo, alpha]
             };
+            library.DuplicateChartGroups = [new([.. library.BmsCharts], [bravo.Folder, alpha.Folder])];
             RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.DuplicateFilterSelected);
             request.Library = library;
 

@@ -43,7 +43,7 @@ internal sealed class ChartSubsetViewOrder
             observe?.Invoke("hash_dependency_visit", 1);
             AddKey(byMd5, source[i].ReferenceMd5, i);
             AddKey(bySha256, source[i].ReferenceSha256, i);
-            if (source[i].PackageEntry != null && source[i].Token is OwnedChartToken token)
+            if ((source[i].PackageEntry != null || source[i].UsesCatalogCurrentValues) && source[i].Token is OwnedChartToken token)
             {
                 if (!byToken.TryGetValue(token, out HashSet<int> indexes)) { byToken.Add(token, indexes = []); }
                 indexes.Add(i);
@@ -82,10 +82,10 @@ internal sealed class ChartSubsetViewOrder
     internal bool ContainsReferenceKey(PlaylistEntryLookupKey key)
         => (key.Kind == PlaylistEntryLookupKeyKind.Md5 ? byMd5 : bySha256).ContainsKey(key.Hash);
 
-    /// <summary>依存登録を変更する前に、packageの実対象添字だけを取得します。</summary>
+    /// <summary>依存登録を変更する前に、packageまたは現在値を交換する重複入力の実対象添字だけを取得します。</summary>
     internal IReadOnlySet<int> GetCatalogIndexes(OwnedChartToken token) => byToken.TryGetValue(token, out HashSet<int> indexes) ? indexes : ImmutableHashSet<int>.Empty;
 
-    /// <summary>動的package入力の実対象tokenを取得し、path移転後も保持中のfolder情報を局所的に更新します。</summary>
+    /// <summary>現在値に依存する実対象tokenを取得し、path移転後も保持中のfolder情報を局所的に更新します。</summary>
     internal HashSet<int> GetIndexes(IReadOnlyList<CatalogCommitReceipt> commits)
     {
         HashSet<int> result = [];

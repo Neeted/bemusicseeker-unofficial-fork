@@ -10,7 +10,9 @@ namespace BeMusicSeeker.ViewModels;
 internal enum ChartListSourceProjectionMode
 {
     PreserveSourceProjection,
-    OwnerBacked
+    OwnerBacked,
+    /// <summary>共通現在値をカタログ差分で交換し、検索時の重複固有警告を保持します。</summary>
+    DuplicateCurrent
 }
 
 internal sealed class ChartListSourceRow
@@ -38,6 +40,9 @@ internal sealed class ChartListSourceRow
     private readonly PackageChartEntry packageEntry;
 
     private readonly bool hasSourceChartProjection;
+
+    /// <summary>同tokenのカタログ差分で基本値を交換する重複一覧入力かを示します。</summary>
+    internal bool UsesCatalogCurrentValues { get; }
 
     private readonly bool hideResourceHealthDigestWhenInstallDestinationSet;
 
@@ -71,7 +76,8 @@ internal sealed class ChartListSourceRow
         Func<int> scoreSnapshotVersionProvider = null,
         Func<ChartListSourceRow, ChartScoreSnapshot> scoreSnapshotProjectionProvider = null,
         PackageChartEntry packageEntry = null,
-        bool hideResourceHealthDigestWhenInstallDestinationSet = true)
+        bool hideResourceHealthDigestWhenInstallDestinationSet = true,
+        bool usesCatalogCurrentValues = false)
     {
         this.sourceChart = sourceChart ?? throw new ArgumentNullException(nameof(sourceChart));
         this.hasSourceChartProjection = hasSourceChartProjection;
@@ -85,6 +91,7 @@ internal sealed class ChartListSourceRow
         this.scoreSnapshotProjectionProvider = scoreSnapshotProjectionProvider;
         this.packageEntry = packageEntry;
         this.hideResourceHealthDigestWhenInstallDestinationSet = hideResourceHealthDigestWhenInstallDestinationSet;
+        UsesCatalogCurrentValues = usesCatalogCurrentValues;
     }
 
     internal ChartFile Chart
@@ -169,6 +176,18 @@ internal sealed class ChartListSourceRow
         next.capturedReferenceDisplay = display;
         next.capturedReferenceChart = referenceChart ?? capturedReferenceChart;
         return next;
+    }
+
+    /// <summary>重複所属と固有警告、専門入力を保ち、共通値だけを交換した不変行を返します。packageの動的入力は維持します。</summary>
+    internal ChartListSourceRow WithCatalogValue(ChartFile chart)
+    {
+        if (!UsesCatalogCurrentValues) { return this; }
+        return new ChartListSourceRow(
+            DuplicateGroup.ProjectCurrentChart(sourceChart, chart), hasSourceChartProjection,
+            resourceHealthProjectionProvider, playlistReferenceDisplayProvider, chartTransientStateProvider,
+            chartInfoProjectionProvider, chartInfoRowProjectionProvider, chartInfoProjectionVersionProvider,
+            scoreSnapshotVersionProvider, scoreSnapshotProjectionProvider, packageEntry,
+            hideResourceHealthDigestWhenInstallDestinationSet, usesCatalogCurrentValues: true);
     }
 
     internal int? WAVHealth => CreateChartFile(includeWarningSnapshot: false, includeResourceReferences: false, includeScoreSnapshot: false)?.WAVHealth;
@@ -444,7 +463,7 @@ internal sealed class ChartListSourceRow
     {
         return chart == null ? null : new ChartListSourceRow(
             chart,
-            projectionMode == ChartListSourceProjectionMode.PreserveSourceProjection,
+            projectionMode != ChartListSourceProjectionMode.OwnerBacked,
             resourceHealthProjectionProvider,
             playlistReferenceDisplayProvider,
             chartTransientStateProvider,
@@ -453,7 +472,8 @@ internal sealed class ChartListSourceRow
             chartInfoProjectionVersionProvider,
             scoreSnapshotVersionProvider,
             scoreSnapshotProjectionProvider,
-            hideResourceHealthDigestWhenInstallDestinationSet: hideResourceHealthDigestWhenInstallDestinationSet);
+            hideResourceHealthDigestWhenInstallDestinationSet: hideResourceHealthDigestWhenInstallDestinationSet,
+            usesCatalogCurrentValues: projectionMode == ChartListSourceProjectionMode.DuplicateCurrent);
     }
 
     internal static ChartListSourceRow FromPackageChartEntry(

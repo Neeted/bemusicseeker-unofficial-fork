@@ -3161,7 +3161,30 @@ public sealed class ChartListVirtualViewTests
         }
     }
 
-    /// <summary>実重複一覧の非対応sortは表示とowner条件を解除し、タイトル昇順の仮想一覧へ戻して要求残留と空表示を検出します。</summary>
+    /// <summary>昇降順とも副キーTitleは昇順・同値は元添字順を保つcacheだけを受理し、順序を保つ値変更・空入力も再利用できます。旧値の順序と全値同値化での不安定順序を検出します。</summary>
+    [DataTestMethod]
+    [DataRow(ListSortDirection.Ascending)]
+    [DataRow(ListSortDirection.Descending)]
+    public void CapturedOrder_CurrentValuesRespectDirectionTitleAndStableTies(ListSortDirection direction)
+    {
+        ChartListSourceRow Source(string title, string artist) => ChartListSourceRow.FromChartFile(
+            CreateFile(title + ".bms", title, string.Empty, artist: artist));
+        var rows = new List<ChartListSourceRow> { Source("Beta", "A"), Source("Alpha", "A"), Source("Alpha", "A"), Source("Middle", "B") };
+        Assert.IsTrue(ChartListOrder.TryCreate(rows, nameof(LibraryChartRow.Artist), direction, out ChartListOrder order));
+        CollectionAssert.AreEqual(direction == ListSortDirection.Ascending ? new[] { 1, 2, 0, 3 } : new[] { 3, 1, 2, 0 }, order.Indexes.ToArray());
+        Assert.IsTrue(order.IsSortedFor(rows));
+        rows[0] = Source("Zulu", "A");
+        Assert.IsTrue(order.IsSortedFor(rows), "値が変わっても既存の並びが正しければ再利用します。");
+        rows[0] = Source("Aardvark", "A");
+        Assert.IsFalse(order.IsSortedFor(rows), "副キーの変化で位置が逆転した旧順序は使いません。");
+        rows[0] = Source("Alpha", "A");
+        Assert.IsFalse(order.IsSortedFor(rows), "同値化した行も元添字の0/1/2順へ揃えます。");
+        Assert.IsTrue(ChartListOrder.TryCreate([], nameof(LibraryChartRow.Artist), direction, out ChartListOrder empty));
+        Assert.IsTrue(empty.IsSortedFor([]));
+        Assert.IsFalse(empty.IsSortedFor(rows));
+    }
+
+    /// <summary>所持tokenへ接続した実重複一覧の非対応sortは表示とowner条件を解除し、タイトル昇順の二行へ戻して要求残留と空表示を検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task VirtualChartSubsetUnsupportedSort_ResetsToDefaultVirtualSort()
@@ -3176,14 +3199,11 @@ public sealed class ChartListVirtualViewTests
         RegularChartListOwner regularOwner = viewModel.RegularChartList;
         ChartFile zeta = CreateFile(Path.Combine(tempRootPath, "zeta.bms"), "Zeta", tempRootPath);
         ChartFile alpha = CreateFile(Path.Combine(tempRootPath, "alpha.bms"), "Alpha", tempRootPath, hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var duplicateGroup = new DuplicateGroup(
-            [(zeta), (alpha)],
-            [tempRootPath]);
         try
         {
             TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, testSettings);
             library.BmsCharts = [zeta, alpha];
-            library.DuplicateChartGroups = [duplicateGroup];
+            library.DuplicateChartGroups = [new([.. library.BmsCharts], [tempRootPath])];
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             typeof(MainWindowViewModel).GetField("treeViewFilterTypeSelected", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, MainViewUpdateMode.DuplicateFilterSelected);
             viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);

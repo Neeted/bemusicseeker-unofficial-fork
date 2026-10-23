@@ -1469,6 +1469,17 @@ internal sealed partial class RegularChartListOwner : IDisposable
         BMSLibrary library, NormalLibraryRefreshNotificationBatch batch, MainViewUpdateMode mode,
         ChartPackage selectedPackage, ChartListFilterSnapshot filters, bool playlistDetail)
     {
+        if (!playlistDetail && !batch.ResetsPriorNotifications
+            && mainChartList.Rows is ChartListVirtualView duplicate && duplicate.UsesCatalogCurrentValues
+            && ReferenceEquals(duplicate.ScoreLibrary, library) && library.DuplicateChartGroups != null
+            && batch.ChangedDetailMd5s.Count == 0 && batch.ChangedDetailSha256s.Count == 0
+            && batch.InstallDestinationChangedCharts.Count == 0)
+        {
+            // 共通値・検索・順序は配送済みの実差分で更新する。重複の所属と選択キーは検索時のまま保つ。
+            mainChartList.UpdateSummaryText(duplicate);
+            mainChartList.RequestDisplayRefresh();
+            return MainViewRefreshAction.RefreshDisplay;
+        }
         if (!playlistDetail && mainChartList.Rows is ChartListVirtualView normal && normal.NormalInput != null
             && ReferenceEquals(normal.NormalInput.Library, library) && !batch.ResetsPriorNotifications
             && (normal.HasPendingReferenceChanges || batch.CatalogCommits.All(commit => commit.Revision <= normal.NormalInput.Snapshot.CatalogRevision)))
@@ -2849,6 +2860,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         return flattened;
     }
 
+    /// <summary>検索済みの所属を固定し、一覧構築時に共通現在値を捕捉する重複専用入力を返します。</summary>
     internal static bool TryResolveDuplicateSource(
         IEnumerable<DuplicateGroup> duplicateGroups,
         object parameter,
@@ -2864,7 +2876,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         {
             source = RegularChartListSubsetSource.ForCharts(
                 [.. groups.SelectMany(group => group.ChartFiles)],
-                "duplicate_all");
+                "duplicate_all", ChartListSourceProjectionMode.DuplicateCurrent, applyResourceHealthProjection: true);
             return true;
         }
         if (parameter is DuplicateViewContext context)
@@ -2875,14 +2887,15 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 IEnumerable<ChartFile> charts = group != null
                     ? group.ChartFiles
                     : [.. groups.SelectMany(item => item.ChartFiles)];
-                source = RegularChartListSubsetSource.ForCharts(charts, "duplicate_group");
+                source = RegularChartListSubsetSource.ForCharts(charts, "duplicate_group", ChartListSourceProjectionMode.DuplicateCurrent,
+                    applyResourceHealthProjection: true);
                 return true;
             }
             string prefix = context.Value + Path.DirectorySeparatorChar;
             source = RegularChartListSubsetSource.ForCharts(
                 [.. groups.SelectMany(group => group.ChartFiles)
                     .Where(chart => !string.IsNullOrWhiteSpace(chart.Path) && chart.Path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))],
-                "duplicate_folder");
+                "duplicate_folder", ChartListSourceProjectionMode.DuplicateCurrent, applyResourceHealthProjection: true);
             return true;
         }
         source = null;
@@ -3378,6 +3391,16 @@ internal sealed partial class RegularChartListOwner : IDisposable
         int scorePosition = scoreInput.Position;
         var referenceInput = new ChartListReferenceInput(request.Library);
         int catalogRevision = request.Library?.CatalogRevision ?? 0;
+        IEnumerable<ChartFile> sourceCharts = request.SourceCharts;
+        if (request.SourceProjectionMode == ChartListSourceProjectionMode.DuplicateCurrent)
+        {
+            // 検索結果のChartFileは操作用snapshotのまま保ち、一覧では所属と固有警告だけを採用する。
+            ChartFile[] memberships = [.. sourceCharts];
+            CatalogReadSnapshot current = request.Library.CaptureCatalogReadSnapshot(memberships.Select(chart => LibraryChartRef.FromChartFile(chart)));
+            catalogRevision = current.CatalogRevision;
+            sourceCharts = memberships.Where(chart => chart.Token != null && current.Charts.ContainsKey(chart.Token))
+                .Select(chart => DuplicateGroup.ProjectCurrentChart(chart, current.Charts[chart.Token]));
+        }
         NormalLibrarySortCacheGenerationSnapshot generation = CaptureSortGeneration(
             request.SortColumnName,
             request.ExternalVersions);
@@ -3390,7 +3413,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 request.ApplyResourceHealthProjection, scoreInput, referenceInput)
             : mainChartList.RowProjection.BuildStandardSourceRows(
                 request.Library,
-                request.SourceCharts,
+                sourceCharts,
                 request.SourceProjectionMode,
                 request.ApplyResourceHealthProjection, scoreInput, referenceInput);
         if (lease.Token.IsCancellationRequested)
@@ -3527,7 +3550,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
             rowCount,
             CaptureExternalVersions(library, externalVersions, scorePosition), referenceInput?.Revision);
         if ((!catalogRevision.HasValue || library == null || library.CatalogRevision == catalogRevision.Value)
-            && TryGetVirtualSubsetOrder(cacheKey, out ChartListOrder cachedOrder))
+            && TryGetVirtualSubsetOrder(cacheKey, out ChartListOrder cachedOrder)
+            && (rowCount == 0 || !sourceRows[0].UsesCatalogCurrentValues || cachedOrder.IsSortedFor(sourceRows)))
         {
             lookupStopwatch.Stop();
             cacheHit = true;
