@@ -132,11 +132,11 @@ public partial class SettingsDialogViewModel
             && IsBeatorajaScoreDbPathValid(scoreBeatorajaScoreDbPath);
 
     /// <summary>局所組の保存、又は保存後のscore・旧新BMT反映を明示再試行できます。</summary>
-    public bool CanRetryScoreSettings => IsEditCompletionEnabled && !statePort.IsLibraryOperationInProgress && !bmtProcessingRetryRequired && IsScoreSelectionValid
+    public bool CanRetryScoreSettings => IsEditCompletionEnabled && !statePort.IsLibraryOperationInProgress && pendingBmtChange == null && IsScoreSelectionValid
         && (HasScoreSelectionChanges || scoreReloadPending || pendingBeatorajaChange != null);
 
     /// <summary>保存後の旧新出力修復が必要な間は、同じ局所組を保持して変更を制限します。</summary>
-    public bool IsBeatorajaSelectionEnabled => IsEnvironmentSelectionEnabled && !bmtProcessingRetryRequired;
+    public bool IsBeatorajaSelectionEnabled => IsEnvironmentSelectionEnabled && pendingBmtChange == null;
 
     private void OnScoreSelectionChanged()
     {
@@ -225,10 +225,13 @@ public partial class SettingsDialogViewModel
     private sealed record BeatorajaLocalChange(BeatorajaBmtOptionsSnapshot Previous, BeatorajaBmtOptionsSnapshot Target, bool RequiresScoreReload);
     private BeatorajaLocalChange pendingBeatorajaChange;
 
+    private sealed record BmtLocalChange(BeatorajaBmtOptionsSnapshot Previous, BeatorajaBmtOptionsSnapshot Target);
+    private BmtLocalChange pendingBmtChange;
+
     /// <summary>root・player・派生先を局所保存し、旧新BMT・スコア読込み・必須表示の実終端を同じTaskで待ちます。</summary>
     internal async Task CommitScoreSettingsAsync()
     {
-        if (!IsEditCompletionEnabled || statePort.IsLibraryOperationInProgress || bmtProcessingRetryRequired) { return; }
+        if (!IsEditCompletionEnabled || statePort.IsLibraryOperationInProgress || pendingBmtChange != null) { return; }
         string root = environmentBeatorajaRootPath;
         string path = scoreBeatorajaScoreDbPath;
         if (!IsScoreSelectionValid)
@@ -293,23 +296,35 @@ public partial class SettingsDialogViewModel
         }
     }
 
-    /// <summary>BMT候補の組だけを保存し、同値でも既存担当の全表投影とURL反映を待ちます。</summary>
+    /// <summary>BMT候補の組だけを保存し、旧新出力先を保持して全表投影・旧先整理・URL反映を待ちます。保存後の再試行は同じ要求だけを修復します。</summary>
     internal async Task CommitBmtSettingsAsync()
     {
         if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress || statePort.IsLibraryOperationInProgress || pendingBeatorajaChange != null) { return; }
-        string root = ApplicationSettings.BeatorajaRootPath;
-        string tablePath = BeatorajaConfigService.GetTablePath(root);
-        if (bmtEnableBeatorajaBmtOutput && (!BeatorajaConfigService.IsBeatorajaRootPathValid(root) || string.IsNullOrWhiteSpace(tablePath)))
+        BeatorajaBmtOptionsSnapshot target = pendingBmtChange?.Target;
+        if (target == null)
         {
-            ShowSettingValidationError(Resources.Error_InvalidBeatorajaRootPath);
-            return;
+            string root = ApplicationSettings.BeatorajaRootPath;
+            string tablePath = BeatorajaConfigService.GetTablePath(root);
+            if (bmtEnableBeatorajaBmtOutput && (!BeatorajaConfigService.IsBeatorajaRootPathValid(root) || string.IsNullOrWhiteSpace(tablePath)))
+            {
+                ShowSettingValidationError(Resources.Error_InvalidBeatorajaRootPath);
+                return;
+            }
+            if (bmtEnableBeatorajaBmtOutput && !ApplicationSettings.EnableBeatorajaBmtOutput
+                && workspacePort.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(root)
+                && !ShowUiConfirmation(Resources.Confirm_enable_beatoraja_bmt_output_before_table_url_import,
+                    Resources.Confirm, UiDialogIcon.Exclamation, UiDialogButton.OKCancel, "BMT enable confirmation")) { return; }
+            target = new BeatorajaBmtOptionsSnapshot
+            {
+                BeatorajaRootPath = root,
+                BeatorajaBmtTablePath = tablePath,
+                EnableBeatorajaBmtOutput = bmtEnableBeatorajaBmtOutput,
+                KeepBeatorajaBmtFilesWhenOutputDisabled = bmtKeepBeatorajaBmtFilesWhenOutputDisabled,
+                RegisterBeatorajaBmtUrls = bmtRegisterBeatorajaBmtUrls,
+                BeatorajaBmtHashOutputMode = bmtBeatorajaBmtHashOutputMode
+            };
         }
-        if (bmtEnableBeatorajaBmtOutput && !ApplicationSettings.EnableBeatorajaBmtOutput
-            && workspacePort.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(root)
-            && !ShowUiConfirmation(Resources.Confirm_enable_beatoraja_bmt_output_before_table_url_import,
-                Resources.Confirm, UiDialogIcon.Exclamation, UiDialogButton.OKCancel, "BMT enable confirmation")) { return; }
         IsEditCompletionInProgress = true;
-        bool saved = false;
         LibraryFileMutationLease lease = null;
         try
         {
@@ -323,33 +338,53 @@ public partial class SettingsDialogViewModel
                 using (lease)
                 using (LibraryFileMutationCapability capability = lease?.CreateMutationCapability())
                 {
-                    ApplicationSettings.Commit((nameof(Settings.EnableBeatorajaBmtOutput), bmtEnableBeatorajaBmtOutput),
-                        (nameof(Settings.KeepBeatorajaBmtFilesWhenOutputDisabled), bmtKeepBeatorajaBmtFilesWhenOutputDisabled),
-                        (nameof(Settings.RegisterBeatorajaBmtUrls), bmtRegisterBeatorajaBmtUrls),
-                        (nameof(Settings.BeatorajaBmtHashOutputMode), bmtBeatorajaBmtHashOutputMode),
-                        (nameof(Settings.BeatorajaBmtTablePath), tablePath));
-                    saved = true;
-                    if (string.Equals(environmentBeatorajaRootPath, root, StringComparison.OrdinalIgnoreCase))
-                    { beatorajaBmtTablePath = tablePath; }
+                    if (pendingBmtChange == null)
+                    {
+                        var previous = BeatorajaBmtOptionsSnapshot.CreateCurrent(ApplicationSettings);
+                        ApplicationSettings.Commit((nameof(Settings.EnableBeatorajaBmtOutput), target.EnableBeatorajaBmtOutput),
+                            (nameof(Settings.KeepBeatorajaBmtFilesWhenOutputDisabled), target.KeepBeatorajaBmtFilesWhenOutputDisabled),
+                            (nameof(Settings.RegisterBeatorajaBmtUrls), target.RegisterBeatorajaBmtUrls),
+                            (nameof(Settings.BeatorajaBmtHashOutputMode), target.BeatorajaBmtHashOutputMode),
+                            (nameof(Settings.BeatorajaBmtTablePath), target.BeatorajaBmtTablePath));
+                        // 保存前の旧先は保存済み値から復元できないため、保存成功後に今回の要求と一緒に保持します。
+                        pendingBmtChange = new(previous, target);
+                    }
+                    BmtLocalChange change = pendingBmtChange;
+                    if (string.Equals(environmentBeatorajaRootPath, change.Target.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase))
+                    { beatorajaBmtTablePath = change.Target.BeatorajaBmtTablePath; }
                     RaisePropertyChanged(nameof(BeatorajaBmtTablePath));
                     RaisePropertyChanged(nameof(EnvironmentBeatorajaBmtTablePath));
                     if (statePort.HasActiveLibraryProfile)
                     {
-                        await workspacePort.ExportBeatorajaBmtAsync("settings BMT confirmation", tablePath, capability, forceProjection: true);
+                        bool keepDisabledOutput = !change.Target.EnableBeatorajaBmtOutput && change.Target.KeepBeatorajaBmtFilesWhenOutputDisabled;
+                        if (!keepDisabledOutput && change.Previous.RegisterBeatorajaBmtUrls
+                            && !string.IsNullOrWhiteSpace(change.Previous.BeatorajaBmtTablePath)
+                            && (!change.Target.EnableBeatorajaBmtOutput
+                                || !string.Equals(change.Previous.BeatorajaBmtTablePath, change.Target.BeatorajaBmtTablePath, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            // 同じ出力先の無効化でも、台帳を消す前にURLを整理して失敗時の再試行入力を残します。
+                            await Task.Run(() => BeatorajaConfigService.SyncTableUrls(change.Previous.BeatorajaRootPath, [],
+                                BmtTableExportService.ReadManagedTableUrls(change.Previous.BeatorajaBmtTablePath).Select(entry => entry.Url)));
+                        }
+                        await workspacePort.ExportBeatorajaBmtAsync("settings BMT confirmation", change.Previous.BeatorajaBmtTablePath,
+                            capability, forceProjection: true, options: change.Target);
                     }
                 }
             }
             if (statePort.HasActiveLibraryProfile)
             { await workspacePort.RunWithPlaylistOperationNotificationsAsync(CompleteAcceptedSection, "settings section terminal"); }
             else { await CompleteAcceptedSection(); }
-            SetBmtProcessingRetryRequired(false);
+            pendingBmtChange = null;
         }
         catch (Exception exception)
         {
-            if (saved) { SetBmtProcessingRetryRequired(true); }
             if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); }
         }
-        finally { IsEditCompletionInProgress = false; }
+        finally
+        {
+            IsEditCompletionInProgress = false;
+            RaiseBmtProcessingStateChanged();
+        }
     }
 
     /// <summary>BMTの未確定入力だけを取消します。</summary>
@@ -376,14 +411,11 @@ public partial class SettingsDialogViewModel
     /// <summary>保存済みBMS一覧の差分再読込みが未完了であることを示します。</summary>
     public bool IsBmsProcessingRetryRequired => fileDiffReloadPending && !IsEditCompletionInProgress;
 
-    private bool bmtProcessingRetryRequired;
-
     /// <summary>BMTの保存後実処理の失敗を保持し、同じボタンによる全表再更新を案内します。</summary>
-    public bool IsBmtProcessingRetryRequired => bmtProcessingRetryRequired;
+    public bool IsBmtProcessingRetryRequired => pendingBmtChange != null && !IsEditCompletionInProgress;
 
-    private void SetBmtProcessingRetryRequired(bool value)
+    private void RaiseBmtProcessingStateChanged()
     {
-        bmtProcessingRetryRequired = value;
         RaisePropertyChanged(nameof(IsBmtProcessingRetryRequired));
         RaiseEnvironmentAvailabilityChanged();
         RaisePropertyChanged(nameof(CanRetryScoreSettings));
@@ -405,9 +437,9 @@ public partial class SettingsDialogViewModel
         && CheckBmsRootsBeforeConfirmation(out _) && (!RequiresReplacementBmsInstallDir || AvailableBMSDirectories.Contains(replacementBmsInstallDir, StringComparer.OrdinalIgnoreCase))
         && (CanCancelBmsRoots || bmsSaveIncomplete || fileDiffReloadPending);
 
-    /// <summary>確定rootで有効なBMT組を確定・全表再更新できます。BMT自身の失敗は同じrootで修正・再試行します。</summary>
+    /// <summary>有効なBMT組の確定・全表再更新、または保存済み要求の明示再試行を受け付けます。未了要求は現在configの新規検証に依存させません。</summary>
     public bool CanConfirmBmtSettings => IsEnvironmentSelectionEnabled
-        && (!bmtEnableBeatorajaBmtOutput || BeatorajaConfigService.IsBeatorajaRootPathValid(ApplicationSettings.BeatorajaRootPath)
+        && (pendingBmtChange != null || !bmtEnableBeatorajaBmtOutput || BeatorajaConfigService.IsBeatorajaRootPathValid(ApplicationSettings.BeatorajaRootPath)
             && !string.IsNullOrWhiteSpace(BeatorajaConfigService.GetTablePath(ApplicationSettings.BeatorajaRootPath)));
 
     /// <summary>BMTの未確定オプションだけに取消可能な差分があるかを示します。</summary>
@@ -719,6 +751,7 @@ public partial class SettingsDialogViewModel
                 confirmedBmsRoots = null;
                 CancelEnvironment();
                 RefreshParsedLr2ConfigState(showSelectionError: false, useLr2Mode: ApplicationSettings.OperationModeLR2DB);
+                ResetLr2PlayHistorySchemaStatus();
                 CancelBmsRoots();
                 RaisePropertyChanged(nameof(CanUseLr2Features));
                 RaisePropertyChanged(nameof(LR2bodyPath));
@@ -838,7 +871,11 @@ public partial class SettingsDialogViewModel
             (nameof(Settings.UsePlayerBMIIDXView), externalPlayerUsePlayerBMIIDXView),
             (nameof(Settings.uBMplayPath), externalPlayeruBMplayPath), (nameof(Settings.BMIIDXViewPath), externalPlayerBMIIDXViewPath))) { return; }
         var settings = StartupSettingsSnapshot.CreateCurrent(ApplicationSettings);
-        if (changed && statePort.HasActiveLibraryProfile) { playbackRuntimePort.UsePlayerForNextPlayback(() => playerFactoryPort.CreateBmsPlayerForSettings(settings)); }
+        if (changed && statePort.HasActiveLibraryProfile)
+        {
+            playbackRuntimePort.UsePlayerForNextPlayback(() => playerFactoryPort.CreateBmsPlayerForSettings(settings),
+                supportsBmson: !settings.UsePlayeruBMplay && !settings.UsePlayerLR2body && !settings.UsePlayerBMIIDXView);
+        }
         RaisePropertyChanged(nameof(CanRetryExternalPlayerSettings));
     }
 
@@ -876,16 +913,16 @@ public partial class SettingsDialogViewModel
         internal CustomFolderOutputSettingsSnapshot Target { get; set; } = target;
         internal CustomFolderOutputSettingsSnapshot SearchRootsPrevious { get; set; } = previous;
         internal IReadOnlyDictionary<string, string> Renames { get; set; } = renames;
-        // XML保存前に成立した登録名を保持し、候補修正・取消後も現在の実登録から移行します。
+        // 確定済みheaderの登録対応を保持し、投影失敗や候補修正後も現在の実登録から移行します。
         internal Dictionary<string, string> CompletedRegistrationRenames { get; } = new(StringComparer.OrdinalIgnoreCase);
         internal CustomFolderOutputSettingsSnapshot SavedSettingsTarget;
-        internal bool NormalMigrationComplete = string.Equals(previous.LR2CustomFolderOutputBaseDir, target.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase);
-        internal bool RootMigrationComplete = string.Equals(previous.LR2CustomFolderOutputBaseDirRootType, target.LR2CustomFolderOutputBaseDirRootType, StringComparison.OrdinalIgnoreCase);
-        internal bool RegistrationsComplete = string.Equals(previous.LR2CustomFolderAdditionalOutputBaseDirs, target.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal) && renames.Count == 0;
+        internal bool NormalHeadersCommitted = string.Equals(previous.LR2CustomFolderOutputBaseDir, target.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase);
+        internal bool RootHeadersCommitted = string.Equals(previous.LR2CustomFolderOutputBaseDirRootType, target.LR2CustomFolderOutputBaseDirRootType, StringComparison.OrdinalIgnoreCase);
+        internal bool RegistrationHeadersCommitted = string.Equals(previous.LR2CustomFolderAdditionalOutputBaseDirs, target.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal) && renames.Count == 0;
         internal CustomFolderOutputSettingsSnapshot SavedSearchRootsTarget;
         internal bool Published;
         internal bool ExternalRowsComplete;
-        internal List<CustomFolderMigrationReceipt> Cleanup { get; } = [];
+        internal List<CustomFolderMigrationReceipt> Migrations { get; } = [];
     }
 
     /// <summary>出力配置の最小組を保存し、実移行・登録・検索root保存・公開・通知の終端を待ちます。</summary>
@@ -923,9 +960,9 @@ public partial class SettingsDialogViewModel
             OutputConfigurationChange repair = pendingOutputChange;
             repair.Target = target;
             repair.Renames = new Dictionary<string, string>(pendingCustomFolderAdditionalOutputBaseRenames, StringComparer.OrdinalIgnoreCase);
-            repair.NormalMigrationComplete = string.Equals(repair.Previous.LR2CustomFolderOutputBaseDir, target.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase);
-            repair.RootMigrationComplete = string.Equals(repair.Previous.LR2CustomFolderOutputBaseDirRootType, target.LR2CustomFolderOutputBaseDirRootType, StringComparison.OrdinalIgnoreCase);
-            repair.RegistrationsComplete = string.Equals(repair.Previous.LR2CustomFolderAdditionalOutputBaseDirs, target.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal);
+            repair.NormalHeadersCommitted = string.Equals(repair.Previous.LR2CustomFolderOutputBaseDir, target.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase);
+            repair.RootHeadersCommitted = string.Equals(repair.Previous.LR2CustomFolderOutputBaseDirRootType, target.LR2CustomFolderOutputBaseDirRootType, StringComparison.OrdinalIgnoreCase);
+            repair.RegistrationHeadersCommitted = string.Equals(repair.Previous.LR2CustomFolderAdditionalOutputBaseDirs, target.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal);
             repair.Published = SameOutputPlacement(CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings), target);
             repair.ExternalRowsComplete = false;
         }
@@ -952,7 +989,6 @@ public partial class SettingsDialogViewModel
                     (nameof(Settings.LR2CustomFolderAdditionalOutputBaseDirs), change.Target.LR2CustomFolderAdditionalOutputBaseDirs)];
                     if (change.SavedSettingsTarget == null || !SameOutputPlacement(change.SavedSettingsTarget, change.Target))
                     { ApplicationSettings.Persist(values); change.SavedSettingsTarget = change.Target; }
-                    int retryCleanupCount = change.Cleanup.Count;
                     // 改名済みヘッダーと旧配置readerを混成させないため、必要媒体を先に保存し、同じL/P内で公開・移行します。
                     if ((change.SavedSearchRootsTarget == null || !SameOutputPlacement(change.SavedSearchRootsTarget, change.Target)) && ApplicationSettings.OperationModeLR2DB)
                     {
@@ -992,12 +1028,12 @@ public partial class SettingsDialogViewModel
                     {
                         await Task.Run(() =>
                         {
-                            if (!change.NormalMigrationComplete)
+                            if (!change.NormalHeadersCommitted)
                             {
-                                void CompleteNormalMigration()
+                                void AcceptNormalHeaders()
                                 {
                                     change.Previous = CopyOutputPlacement(change.Previous, normal: change.Target.LR2CustomFolderOutputBaseDir);
-                                    change.NormalMigrationComplete = true;
+                                    change.NormalHeadersCommitted = true;
                                 }
                                 if (!string.Equals(change.Previous.LR2CustomFolderOutputBaseDir, change.Target.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase))
                                 {
@@ -1005,18 +1041,18 @@ public partial class SettingsDialogViewModel
                                     change.Target.LR2CustomFolderOutputBaseDir, change.Previous.LR2CustomFolderAdditionalOutputBaseDirs,
                                     change.Target.LR2CustomFolderAdditionalOutputBaseDirs, change.Target, capability, receipt =>
                                     {
-                                        change.Cleanup.Add(receipt);
-                                        CompleteNormalMigration();
+                                        change.Migrations.Add(receipt);
+                                        AcceptNormalHeaders();
                                     });
                                 }
-                                CompleteNormalMigration();
+                                AcceptNormalHeaders();
                             }
-                            if (!change.RegistrationsComplete)
+                            if (!change.RegistrationHeadersCommitted)
                             {
                                 IReadOnlyDictionary<string, string> currentRenames = GetOutputRegistrationRepairRenames(change);
-                                void CompleteRegistrationMigration()
+                                void AcceptRegistrationHeaders()
                                 {
-                                    if (change.RegistrationsComplete) { return; }
+                                    if (change.RegistrationHeadersCommitted) { return; }
                                     foreach ((string oldName, string newName) in currentRenames)
                                     {
                                         string[] origins = change.CompletedRegistrationRenames.Where(pair => string.Equals(pair.Value, oldName, StringComparison.OrdinalIgnoreCase)).Select(pair => pair.Key).ToArray();
@@ -1024,35 +1060,39 @@ public partial class SettingsDialogViewModel
                                         else { foreach (string origin in origins) { change.CompletedRegistrationRenames[origin] = newName; } }
                                     }
                                     change.Previous = CopyOutputPlacement(change.Previous, additional: change.Target.LR2CustomFolderAdditionalOutputBaseDirs);
-                                    change.RegistrationsComplete = true;
+                                    change.RegistrationHeadersCommitted = true;
                                 }
                                 customFolderOutputPort.ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
                                     change.Previous.LR2CustomFolderAdditionalOutputBaseDirs, currentRenames, change.Target, capability, receipt =>
                                     {
-                                        change.Cleanup.Add(receipt);
-                                        CompleteRegistrationMigration();
+                                        change.Migrations.Add(receipt);
+                                        AcceptRegistrationHeaders();
                                     });
-                                CompleteRegistrationMigration();
+                                AcceptRegistrationHeaders();
                             }
-                            if (!change.RootMigrationComplete)
+                            if (!change.RootHeadersCommitted)
                             {
-                                void CompleteRootMigration()
+                                void AcceptRootHeaders()
                                 {
                                     change.Previous = CopyOutputPlacement(change.Previous, root: change.Target.LR2CustomFolderOutputBaseDirRootType);
-                                    change.RootMigrationComplete = true;
+                                    change.RootHeadersCommitted = true;
                                 }
                                 if (!string.Equals(change.Previous.LR2CustomFolderOutputBaseDirRootType, change.Target.LR2CustomFolderOutputBaseDirRootType, StringComparison.OrdinalIgnoreCase))
                                 {
                                     customFolderOutputPort.ChangeCustomFolderBaseDirectoryRootWithSettings(change.Previous.LR2CustomFolderOutputBaseDirRootType,
                                     change.Target.LR2CustomFolderOutputBaseDirRootType, change.Target, capability, receipt =>
                                     {
-                                        change.Cleanup.Add(receipt);
-                                        CompleteRootMigration();
+                                        change.Migrations.Add(receipt);
+                                        AcceptRootHeaders();
                                     });
                                 }
-                                CompleteRootMigration();
+                                AcceptRootHeaders();
                             }
                         });
+                    }
+                    if (statePort.HasActiveLibraryProfile)
+                    {
+                        await Task.Run(() => customFolderOutputPort.RetryCustomFolderMigrations(change.Migrations, change.Target, capability));
                     }
                     if (statePort.HasActiveLibraryProfile && !change.ExternalRowsComplete)
                     {
@@ -1061,12 +1101,8 @@ public partial class SettingsDialogViewModel
                             "output settings confirmation", primary, capability);
                         change.ExternalRowsComplete = true;
                     }
-                    foreach (CustomFolderMigrationReceipt receipt in change.Cleanup.Take(retryCleanupCount).ToArray())
-                    {
-                        await Task.Run(() => customFolderOutputPort.RetryCustomFolderMigrationCleanup(receipt, capability));
-                    }
-                    change.Cleanup.RemoveAll(receipt => receipt.CleanupCompleted);
-                    if (change.Cleanup.Count == 0) { pendingOutputChange = null; }
+                    change.Migrations.RemoveAll(receipt => receipt.CleanupCompleted);
+                    if (change.Migrations.Count == 0) { pendingOutputChange = null; }
                     if (section is null or "additional") { pendingCustomFolderAdditionalOutputBaseRenames.Clear(); }
                     else if (section == "pending")
                     {

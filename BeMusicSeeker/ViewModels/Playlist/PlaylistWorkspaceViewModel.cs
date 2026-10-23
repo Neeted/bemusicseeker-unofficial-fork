@@ -410,8 +410,9 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             pendingRenames,
             settings, capability, migrationObserver) ?? 0;
 
-    void ISettingsDialogCustomFolderOutputPort.RetryCustomFolderMigrationCleanup(CustomFolderMigrationReceipt receipt, LibraryFileMutationCapability capability)
-        => getPlaylistStore()?.RetryCustomFolderMigrationCleanup(receipt, capability);
+    void ISettingsDialogCustomFolderOutputPort.RetryCustomFolderMigrations(IReadOnlyList<CustomFolderMigrationReceipt> receipts,
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability)
+        => getPlaylistStore()?.RetryCustomFolderMigrations(receipts, settings, capability);
 
     internal event Action<PlaylistSummarySelectionRestoreRequest> PlaylistSummarySelectionRestoreRequested;
 

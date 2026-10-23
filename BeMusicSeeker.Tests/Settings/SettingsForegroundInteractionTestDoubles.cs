@@ -128,6 +128,9 @@ internal sealed class TestSettingsDialogPlayerFactoryPort : ISettingsDialogPlaye
 
     internal StartupSettingsSnapshot? LastConfiguredSettings { get; private set; }
 
+    /// <summary>実player型の能力を確認するケースで、process起動を必要としない構成を返します。</summary>
+    internal Func<StartupSettingsSnapshot, IBMSPlayer>? ConfiguredPlayerFactory { get; set; }
+
     public IBMSPlayer CreateDefaultBmsPlayer()
     {
         sequence?.Add("factory-default");
@@ -146,7 +149,7 @@ internal sealed class TestSettingsDialogPlayerFactoryPort : ISettingsDialogPlaye
         {
             throw ConfiguredFactoryFailure;
         }
-        return new RecordingPlaybackPlayer();
+        return ConfiguredPlayerFactory?.Invoke(settings) ?? new RecordingPlaybackPlayer();
     }
 
 }
@@ -166,7 +169,7 @@ internal sealed class TestSettingsDialogPlaybackRuntimePort : ISettingsDialogPla
 
     internal IBMSPlayer? LastReplacementPlayer { get; private set; }
 
-    public void UsePlayerForNextPlayback(Func<IBMSPlayer> createPlayer)
+    public void UsePlayerForNextPlayback(Func<IBMSPlayer> createPlayer, bool supportsBmson)
     {
         ApplyCount++;
         LastReplacementPlayer = null;

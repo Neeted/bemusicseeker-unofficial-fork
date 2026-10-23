@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -226,4 +227,183 @@ public sealed partial class SettingDialogEditCompletionTests
         }
         finally { Directory.Delete(root, recursive: true); }
     }
+
+    /// <summary>
+    /// 追加先削除後の物理投影失敗と改名後のDB同期失敗で、確定ヘッダーと未了出力を保持します。
+    /// 再表示・通常保存は暗黙修復せず、明示操作は同値または修正先Cを投影してA/Bの旧管理物だけを整理します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false, false)] // Extra削除後の新先物理書込みを共有拒否し、旧登録名がなくても再試行します。
+    [DataRow(true, false)] // Extra改名後のfolder INSERTを拒否し、物理生成済み・DB未了を修復します。
+    [DataRow(true, true)] // 未成立BからCへ修正し、新旧receiptの成功共有でCの二重投影を防ぎます。
+    public void OutputConfirmation_RepairsHeaderCommittedMigrationAfterProjectionFailure(bool renameAdditionalBase, bool correctPendingDestination)
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            string settingsPath = Path.Combine(root, "settings", "user.config");
+            Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+            string original = Path.Combine(root, "Extra");
+            string destination = renameAdditionalBase ? Path.Combine(root, "MovedExtra") : values.LR2CustomFolderOutputBaseDir;
+            string corrected = Path.Combine(root, "CorrectedExtra");
+            Directory.CreateDirectory(original);
+            values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([original]);
+            values.Save();
+            string oldFile = Path.Combine(original, "Table", "0000.lr2folder");
+            string newFile = Path.Combine(destination, "Table", "0000.lr2folder");
+            string correctedFile = Path.Combine(corrected, "Table", "0000.lr2folder");
+            string unmanagedFile = Path.Combine(original, "unmanaged.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(oldFile)!);
+            File.WriteAllText(oldFile, "#TITLE old");
+            File.WriteAllText(unmanagedFile, "keep unmanaged sibling");
+            PlaylistPersistenceRepository.EnsureSchema(values.LR2SongDBPath);
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var failures = new List<Exception>();
+                var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK) };
+                var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values),
+                    reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs,
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
+                var config = new LR2Config(values.LR2ConfigXmlPath);
+                SetPrivateField(owner, "lr2config", config);
+                SetActiveLibraryProfile(owner, true);
+                var table = new BMSTable
+                {
+                    playlist_id = 7195,
+                    name = "Table",
+                    symbol = "T",
+                    Output_dir = "Table",
+                    custom_folder_output_base_name = "Extra",
+                    ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
+                    entries = [BmsPlaylistTestSupport.CreateEntry(new string('b', 32), "Folder")],
+                    Folder_order = ["Folder"]
+                };
+                var playlist = new TestBmsPlaylist(values.LR2SongDBPath, () => config, null, null,
+                    () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(values), () => BeatorajaBmtOptionsSnapshot.CreateCurrent(values),
+                    composition.CustomFolderOutputSettingsProvider,
+                    BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(values.LR2SongDBPath, CustomFolderOutputPhysicalSurface.Empty),
+                    mutationAdmission: composition.PlaylistOperationAdmission, settings: values)
+                { BMSTables = new ObservableCollection<BMSTable>([table]) };
+                SetPrivateField(owner, "tables", playlist);
+                owner.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);
+                FileStream? outputBlocker = null;
+                FileStream? settingsBlocker = null;
+                try
+                {
+                    playlist.CommitBMSTableWithEntriesToDB(table);
+                    using (var db = new LR2SongDBExtended(values.LR2SongDBPath))
+                    {
+                        db.CreateTable<LR2SongDB.folder>();
+                        db.InsertOrReplace(new LR2SongDB.folder { path = oldFile, title = "Old managed output", type = 2 }, typeof(LR2SongDB.folder));
+                        if (renameAdditionalBase)
+                        {
+                            string newSql = newFile.Replace("'", "''", StringComparison.Ordinal);
+                            db.Execute($"CREATE TRIGGER reject_new_output_sync BEFORE INSERT ON folder WHEN NEW.path = '{newSql}' BEGIN SELECT RAISE(ABORT, 'test_new_output_sync_failed'); END;");
+                        }
+                    }
+                    if (!renameAdditionalBase)
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(newFile)!);
+                        File.WriteAllText(newFile, "blocked destination");
+                        outputBlocker = new FileStream(newFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    }
+                    owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseDir = original;
+                    if (renameAdditionalBase)
+                    {
+                        owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseName = "MovedExtra";
+                        owner.SettingDialog.RenameSelectedCustomFolderAdditionalOutputBaseDir();
+                    }
+                    else { owner.SettingDialog.RemoveSelectedCustomFolderAdditionalOutputBaseDir(); }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("additional"), "output-header-committed-projection-failure");
+                    Assert.AreEqual(1, failures.Count, string.Join(Environment.NewLine, failures));
+                    if (renameAdditionalBase) { StringAssert.Contains(failures[0].ToString(), "test_new_output_sync_failed"); }
+                    Assert.IsTrue(owner.SettingDialog.IsOutputSaveIncomplete);
+                    string? expectedName = renameAdditionalBase ? "MovedExtra" : null;
+                    Assert.AreEqual(expectedName, table.custom_folder_output_base_name);
+                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly())
+                    {
+                        BMSTable persisted = db.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id);
+                        Assert.AreEqual(expectedName, persisted.custom_folder_output_base_name,
+                            "headerのDB確定は新先出力失敗でも戻さず、削除した追加先の参照はNULLにします。");
+                        Assert.AreEqual("Table", persisted.Output_dir);
+                        Assert.AreEqual(0L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", newFile));
+                        Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", oldFile));
+                    }
+                    string acceptedRegistrations = CustomFolderOutputBaseRegistry.SerializeBaseDirectories(renameAdditionalBase ? [destination] : []);
+                    Assert.AreEqual(acceptedRegistrations, values.LR2CustomFolderAdditionalOutputBaseDirs);
+                    Assert.AreEqual(acceptedRegistrations, PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderAdditionalOutputBaseDirs);
+                    Assert.IsTrue(File.Exists(oldFile));
+                    Assert.IsTrue(File.Exists(newFile), "DB同期失敗は部分生成された物理出力を巻き戻しません。");
+                    outputBlocker?.Dispose(); outputBlocker = null;
+                    if (renameAdditionalBase)
+                    {
+                        using var db = new LR2SongDBExtended(values.LR2SongDBPath);
+                        db.Execute("DROP TRIGGER reject_new_output_sync;");
+                    }
+                    owner.SettingDialog.SetPresentationActive(false);
+                    owner.SettingDialog.RequestOpen();
+                    owner.SettingDialog.SetPresentationActive(true);
+                    owner.SettingDialog.ShowRecommUpdatedMsg = !owner.SettingDialog.ShowRecommUpdatedMsg;
+                    Assert.IsTrue(owner.SettingDialog.IsOutputSaveIncomplete);
+                    Assert.IsTrue(File.Exists(oldFile), "再表示・無関係な保存は未了整理を暗黙再開しません。");
+                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly())
+                    { Assert.AreEqual(0L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", newFile), "再表示・通常保存は未了DB同期も開始しません。"); }
+                    if (correctPendingDestination)
+                    {
+                        owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseDir = destination;
+                        owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseName = "CorrectedExtra";
+                        owner.SettingDialog.RenameSelectedCustomFolderAdditionalOutputBaseDir();
+                        using var db = new LR2SongDBExtended(values.LR2SongDBPath);
+                        db.Execute("CREATE TABLE successful_projection_audit (path TEXT PRIMARY KEY);");
+                        string correctedSql = correctedFile.Replace("'", "''", StringComparison.Ordinal);
+                        db.Execute($"CREATE TRIGGER reject_repeated_corrected_projection BEFORE INSERT ON folder WHEN NEW.path = '{correctedSql}' AND EXISTS (SELECT 1 FROM successful_projection_audit WHERE path = NEW.path) BEGIN SELECT RAISE(ABORT, 'test_corrected_projection_repeated'); END;");
+                        db.Execute($"CREATE TRIGGER record_corrected_projection AFTER INSERT ON folder WHEN NEW.path = '{correctedSql}' BEGIN INSERT INTO successful_projection_audit(path) VALUES (NEW.path); END;");
+                    }
+                    else
+                    {
+                        settingsBlocker = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync(correctPendingDestination ? "additional" : "pending"), "output-explicit-materialization-repair");
+                    Assert.AreEqual(1, failures.Count, string.Join(Environment.NewLine, failures));
+                    Assert.IsFalse(owner.SettingDialog.IsOutputSaveIncomplete);
+                    string finalFile = correctPendingDestination ? correctedFile : newFile;
+                    string finalRegistrations = correctPendingDestination
+                        ? CustomFolderOutputBaseRegistry.SerializeBaseDirectories([corrected]) : acceptedRegistrations;
+                    Assert.AreEqual(finalRegistrations, values.LR2CustomFolderAdditionalOutputBaseDirs);
+                    Assert.AreEqual(finalRegistrations, PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderAdditionalOutputBaseDirs);
+                    Assert.IsTrue(File.Exists(finalFile));
+                    Assert.IsFalse(File.Exists(oldFile));
+                    Assert.IsTrue(File.Exists(unmanagedFile));
+                    if (correctPendingDestination) { Assert.IsFalse(File.Exists(newFile), "部分生成されたBの整理も新receiptが保持します。"); }
+                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly())
+                    {
+                        Assert.AreEqual(correctPendingDestination ? "CorrectedExtra" : expectedName,
+                            db.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id).custom_folder_output_base_name);
+                        Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", finalFile));
+                        Assert.AreEqual(0L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", oldFile));
+                        if (correctPendingDestination)
+                        {
+                            Assert.AreEqual(0L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", newFile));
+                            Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM successful_projection_audit WHERE path = ?", correctedFile));
+                        }
+                    }
+                    CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(),
+                        correctPendingDestination ? corrected : destination);
+                }
+                finally
+                {
+                    settingsBlocker?.Dispose(); outputBlocker?.Dispose();
+                    playlist.RequestShutdown("output-header-migration-fixture");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "output-header-migration-owner-cleanup");
+                    owner.SettingDialog.Dispose();
+                }
+            });
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
 }

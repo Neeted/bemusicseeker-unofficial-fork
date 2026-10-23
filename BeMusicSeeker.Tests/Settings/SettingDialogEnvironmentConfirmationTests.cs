@@ -20,6 +20,100 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class SettingDialogEditCompletionTests
 {
+    /// <summary>初回root選択と修復時の詳細XML確定から履歴対象を更新し、候補・保存失敗では旧対象を保ち、保存後のschema操作が新playerのDBだけへ届くことを確認します。</summary>
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void Lr2EnvironmentConfirmation_RefreshesHistoryTargetOnlyAfterSaving(bool initialRootSelection)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            string root = CreateTemporaryRoot();
+            MainWindowViewModel? owner = null;
+            try
+            {
+                string oldRoot = Path.Combine(root, "previous-lr2");
+                string selectedRoot = Path.Combine(root, "selected-lr2");
+                (string oldSong, string oldConfig) = CreateValidLr2Layout(oldRoot);
+                (string nextSong, string nextConfig) = CreateValidLr2Layout(selectedRoot);
+                File.WriteAllText(oldConfig, "<config><system /><player><id>previous</id></player><jukebox /></config>");
+                File.WriteAllText(nextConfig, "<config><system /><player><id>selected</id></player><jukebox /></config>");
+                string oldScore = Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(oldRoot, "previous");
+                // 詳細XMLの個別指定ではrootを変えず、そのXML内playerに対応するDBを使います。
+                string nextScore = Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(initialRootSelection ? selectedRoot : oldRoot, "selected");
+                foreach (string score in new[] { oldScore, nextScore })
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(score)!);
+                    using var database = new SQLite.SQLiteConnection(score);
+                    database.RunInTransaction(() =>
+                    {
+                        database.CreateTable<LR2ScoreDB.score>();
+                        database.CreateTable<LR2ScoreDB.player>();
+                        database.Execute("CREATE TABLE retained_data (value TEXT);");
+                        database.Execute("INSERT INTO retained_data VALUES (?);", score);
+                    });
+                }
+                var schema = new Lr2PlayHistorySchemaService();
+                Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, schema.InstallOrRepair(oldScore, isLr2LinkedProfile: true).Status);
+                byte[] previousDatabase = File.ReadAllBytes(oldScore);
+                string settingsPath = Path.Combine(root, "user.config");
+                Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+                values.OperationModeLR2DB = true;
+                values.LR2RootPath = initialRootSelection ? string.Empty : oldRoot;
+                values.LR2SongDBPath = initialRootSelection ? string.Empty : oldSong;
+                values.LR2ConfigXmlPath = initialRootSelection ? string.Empty : oldConfig;
+                values.Save();
+                var failures = new List<Exception>();
+                var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+                owner = CreateViewModel(new SettingsEditSession(values), firstStartup: initialRootSelection,
+                    dialogs: dialogs, reportSettingsApplyFailure: failures.Add);
+                SettingsDialogViewModel dialog = owner.SettingDialog;
+                Assert.IsFalse(owner.HasActiveLibraryProfile);
+                string previousTarget = initialRootSelection ? string.Empty : oldScore;
+                Assert.AreEqual(previousTarget, dialog.Lr2PlayHistoryScoreDbPath);
+                if (!initialRootSelection)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.InstallOrRepairLr2PlayHistorySchemaAsync(), "history-previous-status");
+                    Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, dialog.Lr2PlayHistorySchemaStatusSnapshot.Status);
+                }
+                Lr2PlayHistorySchemaStatusSnapshot? previousStatus = dialog.Lr2PlayHistorySchemaStatusSnapshot;
+                dialog.LR2SongDBPath = nextSong;
+                dialog.LR2ConfigXmlPath = nextConfig;
+                Assert.AreEqual(previousTarget, dialog.Lr2PlayHistoryScoreDbPath, "未確定XMLは履歴操作の対象を切り替えません。");
+                Assert.AreSame(previousStatus, dialog.Lr2PlayHistorySchemaStatusSnapshot);
+                Task ConfirmEnvironment() => initialRootSelection ? dialog.SelectLr2RootAsync(selectedRoot) : dialog.CommitEnvironmentAsync();
+                using (File.Open(settingsPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(ConfirmEnvironment(), "history-environment-save-failure");
+                }
+                Assert.AreEqual(1, failures.Count);
+                Assert.AreEqual(previousTarget, dialog.Lr2PlayHistoryScoreDbPath);
+                Assert.AreSame(previousStatus, dialog.Lr2PlayHistorySchemaStatusSnapshot);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(ConfirmEnvironment(), "history-environment-confirmed");
+                Assert.AreEqual(nextScore, dialog.Lr2PlayHistoryScoreDbPath);
+                Assert.IsNull(dialog.Lr2PlayHistorySchemaStatusSnapshot, "保存終端で旧playerの検査状態を持ち越しません。");
+                Assert.AreEqual(nextConfig, PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2ConfigXmlPath);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.InstallOrRepairLr2PlayHistorySchemaAsync(), "history-new-target-install");
+                Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, schema.Check(nextScore, isLr2LinkedProfile: true).Status);
+                Assert.AreEqual(nextScore, dialog.Lr2PlayHistorySchemaStatusSnapshot.ScoreDbPath);
+                Assert.AreEqual(1, dialogs.ConfirmationCount, "導入済み旧対象は確認せず、新対象の導入だけを確認します。");
+                Assert.AreEqual(1, failures.Count);
+                CollectionAssert.AreEqual(previousDatabase, File.ReadAllBytes(oldScore), "旧DBのschemaと保存行は変更しません。");
+                using var verify = new SQLite.SQLiteConnection(nextScore, SQLite.SQLiteOpenFlags.ReadOnly);
+                Assert.AreEqual(nextScore, verify.ExecuteScalar<string>("SELECT value FROM retained_data;"));
+            }
+            finally
+            {
+                if (owner != null)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "history-environment-owner-terminal");
+                    owner.SettingDialog.Dispose();
+                }
+                Directory.Delete(root, recursive: true);
+            }
+        });
+    }
+
     /// <summary>モードは保存済み個別組（空rootも可）、root選択は今回の標準組だけを保存します。詳細候補・Busy・実保存失敗から混成値や遅延適用を公開しません。</summary>
     [TestMethod]
     public void Lr2AutomaticSelection_UsesConfirmedModeTupleAndSelectedRootAndKeepsFailureRepairable()

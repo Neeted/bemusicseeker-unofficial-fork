@@ -4,12 +4,18 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.Models;
 
-/// <summary>成立済み出力の旧先整理を明示再試行するため、当該移行の捕捉済み入力だけを保持します。</summary>
+/// <summary>ヘッダー確定後の新先投影・旧先整理を明示再試行するため、確定済み移行の入力と成立事実を保持します。</summary>
 internal sealed class CustomFolderMigrationReceipt(
     PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderMigrationPreparation preparation)
 {
     /// <summary>旧新絶対path、出力型、保護領域と当該出力条件です。</summary>
     internal PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderMigrationPreparation Preparation { get; } = preparation;
+
+    /// <summary>実際に投影・DB同期が成立した先です。候補修正後は元Preparationの新先とは異なる場合があります。</summary>
+    internal PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderMigrationPreparation MaterializationPreparation { get; set; }
+
+    /// <summary>MaterializationPreparationの全対象について投影・DB同期が成立した事実です。</summary>
+    internal bool MaterializationCompleted { get; set; }
 
     /// <summary>当該旧先整理が完了した事実です。</summary>
     internal bool CleanupCompleted { get; set; }

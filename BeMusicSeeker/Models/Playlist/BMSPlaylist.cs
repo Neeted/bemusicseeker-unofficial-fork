@@ -1989,7 +1989,7 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     /// <summary>捕捉設定と生存権限で通常形式の出力基点を変更します。設定の外側受付を取り直さず、物理変更と保存を終えます。</summary>
-    /// <param name="migrationObserver">新先投影・DB同期の成立時に、整理前のreceiptを渡します。旧先整理の例外後も局所保存担当が未了だけを所有します。</param>
+    /// <param name="migrationObserver">ヘッダーDB確定直後にreceiptを渡します。投影・整理の例外後も局所保存担当が未了範囲を所有します。</param>
     /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
     internal void ChangeCustomFolderBaseDirectoryWithSettings(
         string outputDirBaseBefore,
@@ -2059,7 +2059,7 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     /// <summary>捕捉設定と生存権限でルート形式の出力基点を変更し、元のファイル・DB結果を維持します。</summary>
-    /// <param name="migrationObserver">新先投影・DB同期の成立時に、旧先整理前のreceiptを渡します。</param>
+    /// <param name="migrationObserver">ヘッダーDB確定直後、新先投影前にreceiptを渡します。</param>
     /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
     internal void ChangeCustomFolderBaseDirectoryRootWithSettings(
         string outputDirBaseBefore,
@@ -2095,7 +2095,7 @@ public partial class BMSPlaylist : ObservableObject
     /// </summary>
     /// <param name="previousAdditionalOutputBaseDirectories">変更前の追加出力先定義。</param>
     /// <param name="pendingRenames">編集中に確定した登録名の変更。</param>
-    /// <param name="migrationObserver">実登録・新先出力の成立時に、旧先整理前のreceiptを渡します。</param>
+    /// <param name="migrationObserver">実登録のヘッダーDB確定直後、新先投影前にreceiptを渡します。</param>
     /// <param name="settings">変更後のカスタムフォルダ出力設定。</param>
     /// <returns>変更したプレイリスト数。</returns>
     /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
@@ -4855,17 +4855,19 @@ public partial class BMSPlaylist : ObservableObject
         }
     }
 
-    /// <summary>設定操作が保持する成立済み移行の旧先整理だけを、同じ明示要求のPで再試行します。</summary>
-    internal void RetryCustomFolderMigrationCleanup(CustomFolderMigrationReceipt receipt, LibraryFileMutationCapability capability)
+    /// <summary>設定操作が保持するヘッダー確定済み移行を、今回の確定設定と同じ明示要求のPで一括修復します。</summary>
+    /// <param name="receipts">新旧すべての移行成立事実と未了範囲です。成功済み投影を共有して重複を避けます。</param>
+    /// <param name="settings">今回受理した出力先と保護範囲です。</param>
+    /// <param name="capability">同じ設定操作が保持する生存P権限です。</param>
+    internal void RetryCustomFolderMigrations(IReadOnlyList<CustomFolderMigrationReceipt> receipts,
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability)
     {
-        ArgumentNullException.ThrowIfNull(receipt);
-        if (receipt.CleanupCompleted) { return; }
-        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("settings migration cleanup", capability: capability);
+        ArgumentNullException.ThrowIfNull(receipts);
+        ArgumentNullException.ThrowIfNull(settings);
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("settings migration retry", capability: capability);
         using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
-        PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderBatchOutputResult result =
-            customFolderOutputMaintenanceOwner.CompletePreparedMigrationCleanup(receipt,
-                request => SyncCustomFolderRowsBatch(request, authority), refreshProtection: true);
-        customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, null);
+        customFolderOutputMaintenanceOwner.RetryCustomFolderMigrations(receipts, settings,
+            request => SyncCustomFolderRowsBatch(request, authority));
     }
 
     /// <summary>
@@ -4877,7 +4879,7 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="reason">性能ログに残す理由。</param>
     /// <param name="progressCallback">処理済み件数、全件数、処理中プレイリスト名を通知する callback。</param>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTables"/> が <see langword="null"/> の場合。</exception>
-    /// <param name="migrationObserver">新先の実投影・DB同期の成立を旧先整理前に通知します。整理結果は同じreceiptへ更新し、例外後も操作担当が未了だけを保持します。</param>
+    /// <param name="migrationObserver">ヘッダーDB確定直後、新先投影前にreceiptを通知します。設定呼出元は成立事実と未了範囲を保持し、旧先整理を一括修復へ引き継ぎます。</param>
     internal void MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
         IEnumerable<BMSTable> bmsTables,
         IReadOnlyDictionary<BMSTable, string> outputDirPathBeforeByTable,
@@ -4932,17 +4934,22 @@ public partial class BMSPlaylist : ObservableObject
             IReadOnlyList<PlaylistReferenceTableHeader> referenceHeaders = CommitPreparedBMSTableHeadersToDB(tableList);
             try
             {
+                var receipt = new CustomFolderMigrationReceipt(preparation);
+                migrationObserver?.Invoke(receipt);
                 CompleteRequiredReferenceAndOutputs(() => ApplyCommittedPlaylistReferenceHeaders(referenceHeaders), () =>
                 {
                     CustomFolderBatchOutputResult result = customFolderOutputMaintenanceOwner.MaterializePreparedCustomFolderMigration(
                         preparation,
                         reason,
                         request => SyncCustomFolderRowsBatch(request, mutationCapability));
-                    var receipt = new CustomFolderMigrationReceipt(preparation);
-                    // 新先の実投影・DB同期の成立は、旧先の物理/DB整理が例外になる前に操作担当へ渡します。
-                    migrationObserver?.Invoke(receipt);
-                    customFolderOutputMaintenanceOwner.CompletePreparedMigrationCleanup(receipt,
-                        request => SyncCustomFolderRowsBatch(request, mutationCapability), result);
+                    // 通知が失敗しても成立した投影を再実行しないよう、公開より先に事実を保存します。
+                    receipt.MaterializationPreparation = preparation;
+                    receipt.MaterializationCompleted = true;
+                    if (migrationObserver == null)
+                    {
+                        customFolderOutputMaintenanceOwner.CompletePreparedMigrationCleanup(receipt,
+                            request => SyncCustomFolderRowsBatch(request, mutationCapability), result);
+                    }
                     customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback);
                 });
             }

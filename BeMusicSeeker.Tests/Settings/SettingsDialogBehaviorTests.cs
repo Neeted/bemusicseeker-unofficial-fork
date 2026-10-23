@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -172,7 +173,8 @@ public sealed class SettingsDialogBehaviorTests
         }, nameof(AudioConfirmationKeepsCurrentPlaybackAndPublishesOnlyNextOutputRequest));
     }
 
-    /// <summary>実player選択の自動保存が現再生を維持し、次の実再生開始でだけ保存済み組のfactoryを呼びます。外部プロセス起動だけを既存factory portで代替します。</summary>
+    /// <summary>実player選択の自動保存は現在曲・操作能力・実効面を維持し、次回開始で実BMIIDXViewへ置換した通知がcompiled controlと実効面を変えます。</summary>
+    /// <remarks>実BMIIDXViewの曲開始まで通し、processとwindow操作は既存gatewayで代替します。実Viewはcompiled controlと実効面の通知を担当します。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void CompiledPlayerSelection_AutomaticallySavesAndDefersFactoryUntilNextPlayback()
@@ -181,8 +183,10 @@ public sealed class SettingsDialogBehaviorTests
         {
             using var directory = new TemporaryDirectory("player-auto-confirmation");
             Settings values = OpenPersistedSettings(directory.Path);
-            values.uBMplayPath = Path.Combine(directory.Path, "uBMplay.exe");
-            File.WriteAllBytes(values.uBMplayPath, []);
+            values.BMIIDXViewPath = Path.Combine(directory.Path, "BMIIDXView2015.exe");
+            File.WriteAllBytes(values.BMIIDXViewPath, []);
+            values.PlayerPanelState = PlayerPanelState.TITLE_LARGE | PlayerPanelState.BMS_PLAYER;
+            values.UseExternalPanelImage = false;
             values.Save();
             string[] paths = [Path.Combine(directory.Path, "first.bms"), Path.Combine(directory.Path, "next.bms")];
             foreach (string path in paths) { File.WriteAllText(path, "#TITLE test"); }
@@ -194,38 +198,83 @@ public sealed class SettingsDialogBehaviorTests
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
-            var factory = new TestSettingsDialogPlayerFactoryPort();
+            var processGateway = new ExternalPlayerProcessGatewayTests.RecordingExternalPlayerProcessGateway();
+            processGateway.Session.KeepRunning = true;
+            processGateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
+            var factory = new TestSettingsDialogPlayerFactoryPort
+            {
+                ConfiguredPlayerFactory = snapshot => new BMIIDXView2015(snapshot.BMIIDXViewPath,
+                    new ExternalPlayerProcessGatewayTests.RecordingPlayerSettingsGateway(),
+                    processGateway)
+            };
             using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, composition: composition,
                 playerFactory: factory, playbackRuntime: owner.PlaybackPanel);
             SettingsWindow? window = null;
+            var playbackView = new PlaybackPanelView { DataContext = owner.PlaybackPanel };
+            var playbackWindow = new Window { Content = playbackView, Width = 640d, Height = 360d, ShowInTaskbar = false };
+            ContextMenu? menu = null;
+            IEnumerable<DependencyObject> Descendants(DependencyObject item)
+            {
+                for (int index = 0; index < VisualTreeHelper.GetChildrenCount(item); index++)
+                {
+                    DependencyObject child = VisualTreeHelper.GetChild(item, index);
+                    yield return child;
+                    foreach (DependencyObject descendant in Descendants(child)) { yield return descendant; }
+                }
+            }
             try
             {
                 owner.MainChartList.Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.PlaybackPanel.StartAtIndex(0), "player-auto-initial-playback");
                 ChartFile? current = owner.PlaybackPanel.NowPlayingChart;
+                scope.ShowAndWaitForContentRendered(playbackWindow);
+                DropDownMenuButton dropdown = Descendants(playbackView).OfType<DropDownMenuButton>().Single();
+                menu = dropdown.DropDownContextMenu;
+                menu.PlacementTarget = dropdown;
+                menu.IsOpen = true;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Button highSpeed = Descendants(menu).OfType<Button>().Single(button => Equals(button.Content, "HS UP"));
+                Assert.IsFalse(highSpeed.IsEnabled);
+                Assert.AreEqual(PlayerPanelState.TITLE_LARGE, playbackView.EffectivePlayerPanelState);
                 window = new SettingsWindow { DataContext = harness.Dialog };
                 scope.ShowAndWaitForContentRendered(window);
                 ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlayback");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var page = (BeMusicSeeker.Views.Settings.Pages.PlaybackSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
-                ((RadioButton)page.FindName("radioButtonPlayuBMplay")).SetCurrentValue(ToggleButton.IsCheckedProperty, true);
-                Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).UsePlayeruBMplay);
+                ((RadioButton)page.FindName("radioButtonPlayBMIIDXView")).SetCurrentValue(ToggleButton.IsCheckedProperty, true);
+                Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).UsePlayerBMIIDXView);
                 Assert.AreSame(current, owner.PlaybackPanel.NowPlayingChart);
                 Assert.IsTrue(owner.PlaybackPanel.IsPlaying);
                 Assert.AreEqual(0, currentPlayer.CloseProcessCount);
                 Assert.IsNull(factory.LastConfiguredSettings);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsFalse(highSpeed.IsEnabled, "保存時点では現在playerの操作能力を維持します。");
+                Assert.AreEqual(PlayerPanelState.TITLE_LARGE, playbackView.EffectivePlayerPanelState);
+                owner.PlaybackPanel.AttachWindowHost(new ExternalPlayerProcessGatewayTests.RecordingExternalPlayerWindowHost(default));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.PlaybackPanel.StartAtIndex(1), "player-auto-next-playback");
                 Assert.AreEqual(1, currentPlayer.CloseProcessCount);
                 Assert.IsNotNull(factory.LastConfiguredSettings);
-                Assert.IsTrue(factory.LastConfiguredSettings.UsePlayeruBMplay);
-                Assert.AreEqual(values.uBMplayPath, factory.LastConfiguredSettings.uBMplayPath);
+                Assert.IsTrue(factory.LastConfiguredSettings.UsePlayerBMIIDXView);
+                Assert.IsTrue(processGateway.Session.Started);
+                StringAssert.Contains(processGateway.LaunchRequest.Arguments, paths[1]);
+                Assert.AreEqual(paths[1], owner.PlaybackPanel.NowPlayingChart?.Path);
+                Assert.IsTrue(owner.PlaybackPanel.IsPlaying);
+                Assert.AreEqual(values.BMIIDXViewPath, factory.LastConfiguredSettings.BMIIDXViewPath);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(highSpeed.IsEnabled, "実playerの置換完了通知でcompiled controlを更新します。");
+                Assert.AreEqual(PlayerPanelState.TITLE_LARGE | PlayerPanelState.BMS_PLAYER, playbackView.EffectivePlayerPanelState);
             }
             finally
             {
+                processGateway.Session.KeepRunning = false;
                 playing.TrySetResult();
+                if (menu != null) { menu.IsOpen = false; }
                 window?.CloseForOwnerShutdown();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "player-auto-owner-terminal");
                 owner.SettingDialog.Dispose();
+                playbackView.DisposePlayerHost();
+                playbackWindow.Content = null;
+                playbackWindow.Close();
             }
         });
     }
@@ -910,7 +959,9 @@ public sealed class SettingsDialogBehaviorTests
 
     private sealed class RecordingCustomFolderOutputPort : ISettingsDialogCustomFolderOutputPort
     {
-        public void RetryCustomFolderMigrationCleanup(CustomFolderMigrationReceipt receipt, LibraryFileMutationCapability capability) { }
+        public void RetryCustomFolderMigrations(IReadOnlyList<CustomFolderMigrationReceipt> receipts,
+            CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability)
+        { }
 
         private readonly ChartFileOperationSynchronizer outputAdmission = new();
 

@@ -124,8 +124,8 @@ internal interface ISettingsDialogCustomFolderOutputPort
 
     CustomFolderOutputSettingsSnapshot CustomFolderOutputSettings { get; }
 
-    /// <summary>通常出力の実移行を行い、成立結果と未了の旧先整理を局所保存担当へ返します。</summary>
-    /// <param name="migrationObserver">新先投影・DB同期の成立を旧先整理前に受け取る担当。整理結果は同じreceiptへ更新され、例外後も未了だけを次の明示修復へ持ち出します。</param>
+    /// <summary>通常出力の実移行を行い、header確定後の投影・整理の未了入力を局所保存担当へ返します。</summary>
+    /// <param name="migrationObserver">header確定直後に対象を受け取り、投影失敗後も同じreceiptを保持する担当。指定時の旧先整理は一括再試行へ委ねます。</param>
     void ChangeCustomFolderBaseDirectoryWithSettings(
         string outputDirBaseBefore,
         string outputDirBaseAfter,
@@ -133,8 +133,8 @@ internal interface ISettingsDialogCustomFolderOutputPort
         string additionalOutputBaseDirsAfter,
         CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null);
 
-    /// <summary>ルート型の実移行を行い、成立結果と未了の旧先整理を局所保存担当へ返します。</summary>
-    /// <param name="migrationObserver">新先投影・DB同期の成立を旧先整理前に受け取る担当。整理の例外後も同じreceiptで未了だけを保持します。</param>
+    /// <summary>ルート型の実移行を行い、header確定後の投影・整理の未了入力を局所保存担当へ返します。</summary>
+    /// <param name="migrationObserver">header確定直後に対象を受け取り、投影失敗後も同じreceiptを保持する担当。指定時の旧先整理は一括再試行へ委ねます。</param>
     void ChangeCustomFolderBaseDirectoryRootWithSettings(
         string outputDirBaseBefore,
         string outputDirBaseAfter,
@@ -145,14 +145,15 @@ internal interface ISettingsDialogCustomFolderOutputPort
         string previousRootOutputBaseDirectory,
         CustomFolderOutputSettingsSnapshot settings, IReadOnlyList<string> currentDirectories);
 
-    /// <summary>実登録の対応と追加出力を変更し、成立結果と未了の旧先整理を局所保存担当へ返します。</summary>
-    /// <param name="migrationObserver">登録と新先投影・DB同期の成立を旧先整理前に受け取る担当。整理の例外後も同じreceiptで未了だけを保持します。</param>
+    /// <summary>実登録の対応と追加出力を変更し、保存済み登録と投影・整理の未了入力を局所保存担当へ返します。</summary>
+    /// <param name="migrationObserver">header確定直後に移行対象を受け取り、投影失敗後も同じreceiptで未了だけを保持する担当。指定時の旧先整理は一括再試行へ委ねます。</param>
     int ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
         string previousAdditionalOutputBaseDirectories,
         IReadOnlyDictionary<string, string> pendingRenames,
         CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null);
-    /// <summary>捕捉済みの成立出力を保ち、未了の旧先整理だけを明示再試行します。</summary>
-    void RetryCustomFolderMigrationCleanup(CustomFolderMigrationReceipt receipt, LibraryFileMutationCapability capability);
+    /// <summary>捕捉済み対象を今回の確定配置へ投影し、成立済み投影を繰り返さず未了の旧先整理まで明示再試行します。</summary>
+    void RetryCustomFolderMigrations(IReadOnlyList<CustomFolderMigrationReceipt> receipts,
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability);
 }
 
 internal interface ISettingsDialogPlayHistoryPort
@@ -188,7 +189,9 @@ internal interface ISettingsDialogPlaybackRuntimePort : IAudioDeviceTestPlayback
 {
 
     /// <summary>現再生を維持し、次の明示再生またはNext開始で捕捉済みの方式へ切り替えます。</summary>
-    void UsePlayerForNextPlayback(Func<IBMSPlayer> createPlayer);
+    /// <param name="createPlayer">次回の新規開始時にだけ実行する、確定済み設定を捕捉したfactory。</param>
+    /// <param name="supportsBmson">factoryと同じ方式の形式能力。実置換前の明示行の受付に使います。</param>
+    void UsePlayerForNextPlayback(Func<IBMSPlayer> createPlayer, bool supportsBmson);
 
     void NotifySettingsChanged();
 }

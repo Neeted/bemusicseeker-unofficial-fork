@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Livet;
 using Livet.Commands;
@@ -213,9 +214,12 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             return Task.CompletedTask;
         }, routeName);
 
-    /// <summary>試聴同士の受理済み開始は順次実行し、推定・変更中の新しい開始は副作用前に拒否します。</summary>
-    private Func<IBMSPlayer> nextPlayerFactory;
+    private NextPlaybackPlayerRequest nextPlayerRequest;
 
+    /// <summary>同じ保存済み設定から捕捉したfactoryと形式能力を、実置換成功まで保持します。</summary>
+    private sealed record NextPlaybackPlayerRequest(Func<IBMSPlayer> CreatePlayer, bool SupportsBmson);
+
+    /// <summary>試聴同士の受理済み開始は順次実行し、推定・変更中の新しい開始は副作用前に拒否します。</summary>
     private async Task RunPlaybackSelectionAsync(Func<Task> selectAndStart, bool stopIfBusy = false,
         (long Generation, IBMSPlayer Player, ChartFile File)? naturalExit = null)
     {
@@ -341,14 +345,14 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
-    /// <summary>有効な行の要求を投入し、入力時に停止・一時停止なら受付後に面選択を一度投稿します。競合・形式拒否では投稿しません。</summary>
+    /// <summary>次回要求または現在playerの形式能力で明示行を検査して要求を投入し、入力時に停止・一時停止なら受付後に面選択を一度投稿します。競合・形式拒否では投稿しません。</summary>
     /// <returns>既存のbackground再生要求の実終端。UIへの面要求の配送完了は待ちません。</returns>
     internal Task HandleTableRowActivation(int rowIndex, object row, Action requestPlayerSurface = null)
     {
         if (shutdownStarted || chartFileOperations.IsActive || rowIndex < 0
             || rowIndex >= playbackQueue.Count
             || !GridRowResolver.TryGetPlaybackChart(row, out ChartFile bmsFile)
-            || (bmsFile.Kind == ChartFileKind.Bmson && !RequirePlayer().SupportsBmson))
+            || (bmsFile.Kind == ChartFileKind.Bmson && !SupportsBmsonForNextPlayback()))
         {
             return Task.CompletedTask;
         }
@@ -359,7 +363,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             "PlaybackPanel.ActivateRow");
     }
 
-    /// <summary>queue の同一行を確認して再生する。終了受付後の待機済み要求は破棄する。</summary>
+    /// <summary>受付後に同一行と次回要求の形式能力を再検査して再生します。拒否した明示行を別行へ読み替えず、終了受付後の待機済み要求は破棄します。</summary>
     internal Task ExecuteTableRowActivation(int rowIndex, object expectedRow, Action acceptedSurfaceRequest = null) =>
         RunPlaybackSelectionAsync(async () =>
         {
@@ -556,25 +560,33 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         set => SetPlaybackSetting(playbackSettings.SinglePlay, value, v => playbackSettings.SinglePlay = v, nameof(SinglePlayMode));
     }
 
-    public bool CanSeek => !playbackSettings.UsesLr2Body;
+    /// <summary>現在playerがseek操作を扱えるかを取得します。</summary>
+    public bool CanSeek => !UsesLr2Body;
 
-    public bool CanChangeHighSpeed => playbackSettings.UsesUbMplay || playbackSettings.UsesBmiIdxView;
+    /// <summary>現在playerがハイスピード変更を扱えるかを取得します。</summary>
+    public bool CanChangeHighSpeed => UsesUbMplay || UsesBmiIdxView;
 
-    public bool CanShowInfo => !playbackSettings.UsesLr2Body && !playbackSettings.UsesBmiIdxView;
+    /// <summary>現在playerが譜面情報表示を扱えるかを取得します。</summary>
+    public bool CanShowInfo => !UsesLr2Body && !UsesBmiIdxView;
 
-    public bool CanShowEffect => playbackSettings.UsesUbMplay;
+    /// <summary>現在playerがエフェクト表示を扱えるかを取得します。</summary>
+    public bool CanShowEffect => UsesUbMplay;
 
-    public bool CanChangePlayside => playbackSettings.UsesUbMplay;
+    /// <summary>現在playerがプレイサイド変更を扱えるかを取得します。</summary>
+    public bool CanChangePlayside => UsesUbMplay;
 
     public bool UseExternalPanelImage => playbackSettings.UseExternalPanelImage;
 
     public string StagefilePath => playbackSettings.StagefilePath;
 
-    internal bool UsesUbMplay => playbackSettings.UsesUbMplay;
+    /// <summary>現在接続済みのplayerがuBMplayであるかを取得します。</summary>
+    internal bool UsesUbMplay => bmsPlayer is uBMplay;
 
-    internal bool UsesLr2Body => playbackSettings.UsesLr2Body;
+    /// <summary>現在接続済みのplayerがLR2bodyであるかを取得します。</summary>
+    internal bool UsesLr2Body => bmsPlayer is LR2body;
 
-    internal bool UsesBmiIdxView => playbackSettings.UsesBmiIdxView;
+    /// <summary>現在接続済みのplayerがBMIIDXViewであるかを取得します。</summary>
+    internal bool UsesBmiIdxView => bmsPlayer is BMIIDXView2015;
 
     internal int NowPlayingRowIndex => nowPlayingRowIndex;
 
@@ -840,6 +852,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 }
                 ApplyPlayerState(preparedState);
                 RaisePropertyChanged(nameof(CurrentlyPlayingTime));
+                NotifyPlayerCapabilitiesChanged();
             }
         }).ConfigureAwait(false);
     }
@@ -1056,7 +1069,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
         if (player is not INextSongPreloadPlayer preloadPlayer) { return; }
         int index = FindNextPlaybackIndex(currentIndex, currentFile, modes);
-        (int Index, ChartFile File, ChartFile Chart) candidate = FindPlayableChart(index, modes.RepeatPlay);
+        (int Index, ChartFile File, ChartFile Chart) candidate = FindPlayableChart(index, modes.RepeatPlay, player.SupportsBmson);
         if (candidate.File == null) { return; }
         ChartFile chart = candidate.Chart ?? candidate.File;
         if (NeedsTemporaryInstall(chart)) { return; }
@@ -1490,7 +1503,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     }
 
     private (int Index, ChartFile File, ChartFile Chart) FindPlayableChart(
-        int index, bool repeat, object initialRow = null, bool useInitialRow = false)
+        int index, bool repeat, bool supportsBmson, object initialRow = null, bool useInitialRow = false)
     {
         int count = playbackQueue.Count;
         for (int remaining = count; remaining > 0 && index >= 0 && index < count; remaining--)
@@ -1504,7 +1517,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 useInitialRow = false;
             }
             else { file = chart = playbackQueue.GetPlaybackChart(index); }
-            if (file != null && (file.Kind != ChartFileKind.Bmson || RequirePlayer().SupportsBmson)
+            if (file != null && (file.Kind != ChartFileKind.Bmson || supportsBmson)
                 && !string.IsNullOrWhiteSpace(file.Path) && LongPathFileSystem.FileExists(file.Path))
             {
                 return (index, file, chart);
@@ -1515,16 +1528,25 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         return (count, null, null);
     }
 
-    /// <summary>曲選択の所有境界で指定行を再生する。終了受付後は操作しない。</summary>
+    /// <summary>曲選択の受付内で次回player要求と形式能力を一回捕捉し、その能力で指定行以降の候補を再生します。</summary>
     internal Task StartAtIndex(int index) =>
         RunPlaybackSelectionAsync(() => StartAtIndex(index, initialRow: null, useInitialRow: false));
 
     private async Task StartAtIndex(int index, object initialRow, bool useInitialRow, Action acceptedSurfaceRequest = null)
     {
         int remainingCandidates = playbackQueue.Count;
+        NextPlaybackPlayerRequest request;
+        bool supportsBmson;
+        lock (sessionGate)
+        {
+            request = nextPlayerRequest;
+            supportsBmson = request?.SupportsBmson ?? RequirePlayer().SupportsBmson;
+        }
+        if (useInitialRow && GridRowResolver.TryGetPlaybackChart(initialRow, out ChartFile explicitTarget)
+            && explicitTarget.Kind == ChartFileKind.Bmson && !supportsBmson) { return; }
     ResolveCandidate:
         if (shutdownStarted) { return; }
-        (int Index, ChartFile File, ChartFile Chart) candidate = FindPlayableChart(index, playbackSettings.RepeatPlay, initialRow, useInitialRow);
+        (int Index, ChartFile File, ChartFile Chart) candidate = FindPlayableChart(index, playbackSettings.RepeatPlay, supportsBmson, initialRow, useInitialRow);
         useInitialRow = false;
         if (candidate.File == null)
         {
@@ -1540,14 +1562,14 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         {
             // 候補の解決後に別の導入入口が先取りできるため、状態変更前に非待機取得します。
             if (!chartFileOperations.TryEnter(out IDisposable operationGate)) { return; }
-            PostPlayerSurfaceRequest(acceptedSurfaceRequest);
             await StartTemporarilyInstalledChart(playbackChart, bmsFile, index,
-                playbackChart.InstallDestination, operationGate).ConfigureAwait(false);
+                playbackChart.InstallDestination, operationGate, request, acceptedSurfaceRequest).ConfigureAwait(false);
             return;
         }
-        PostPlayerSurfaceRequest(acceptedSurfaceRequest);
+        try { await ApplyPlayerForNextPlaybackAsync(request).ConfigureAwait(false); }
+        finally { PostPlayerSurfaceRequest(acceptedSurfaceRequest); }
         acceptedSurfaceRequest = null;
-        await ApplyPlayerForNextPlaybackAsync().ConfigureAwait(false);
+        request = null;
         long generation = BeginPlayback(bmsFile, index);
         if (shutdownStarted) { return; }
         playbackQueue.SelectedIndex = index;
@@ -1609,27 +1631,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         NotifyPlaybackStarted(generation);
     }
 
-    /// <summary>受理済みの開始で保留中のplayer方式を一回採用します。失敗では、後から確定した方式を上書きせず元factoryを戻します。</summary>
-    private async Task ApplyPlayerForNextPlaybackAsync()
-    {
-        Func<IBMSPlayer> createPlayer;
-        lock (sessionGate) { createPlayer = nextPlayerFactory; nextPlayerFactory = null; }
-        if (createPlayer == null) { return; }
-        try { await ReplacePlayerAsync(createPlayer()).ConfigureAwait(false); }
-        catch
-        {
-            lock (sessionGate) { nextPlayerFactory ??= createPlayer; }
-            throw;
-        }
-    }
-
     /// <summary>パッケージ内の相対配置を保った一時素材で開始し、既存のReadyまたは外部開始境界と保持時間の後に所有物を回収して元の譜面名を復元します。残留は受付解放後に一度だけ通知します。</summary>
     private async Task StartTemporarilyInstalledChart(
         ChartFile playbackChart,
         ChartFile bmsFile,
         int index,
         string installDestination,
-        IDisposable operationGate)
+        IDisposable operationGate,
+        NextPlaybackPlayerRequest request,
+        Action acceptedSurfaceRequest)
     {
         long generation = 0;
         Exception primaryFailure = null;
@@ -1638,11 +1648,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         {
             using (operationGate)
             {
-                if (library == null)
+                try
                 {
-                    throw new InvalidOperationException("Playback library must be attached before temporary-install playback.");
+                    if (library == null)
+                    {
+                        throw new InvalidOperationException("Playback library must be attached before temporary-install playback.");
+                    }
+                    await ApplyPlayerForNextPlaybackAsync(request).ConfigureAwait(false);
                 }
-                await ApplyPlayerForNextPlaybackAsync().ConfigureAwait(false);
+                finally { PostPlayerSurfaceRequest(acceptedSurfaceRequest); }
                 generation = BeginPlayback(bmsFile, index);
                 if (shutdownStarted) { return; }
                 playbackQueue.SelectedIndex = index;
@@ -1650,7 +1664,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 .FirstOrDefault(package => ContainsChartTarget(package, playbackChart));
                 if (chartPackage == null)
                 {
-                    if (playbackSettings.UsesLr2Body
+                    if (UsesLr2Body
                         && playbackSettings.UsesLr2Database
                         && !playbackDialogs.ConfirmTemporaryInstallPlayback())
                     {
@@ -2222,30 +2236,52 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
+    /// <summary>保存済みの画像・音量・再生モード設定を通知します。player能力は実置換完了時に通知します。</summary>
     internal void NotifySettingsChanged()
     {
         RaisePropertyChanged(nameof(PlayerPanelState));
         RaisePropertyChanged(nameof(RepeatPlayMode));
         RaisePropertyChanged(nameof(FolderSkipPlayMode));
         RaisePropertyChanged(nameof(SinglePlayMode));
+        RaisePropertyChanged(nameof(UseExternalPanelImage));
+        RaisePropertyChanged(nameof(StagefilePath));
+        RaisePropertyChanged(nameof(PlayerVolume));
+        RaisePlayerHeaderPropertiesChanged();
+    }
+
+    /// <summary>実置換が完了した現在playerの能力だけを画面へ通知します。</summary>
+    private void NotifyPlayerCapabilitiesChanged()
+    {
         RaisePropertyChanged(nameof(CanSeek));
         RaisePropertyChanged(nameof(CanChangeHighSpeed));
         RaisePropertyChanged(nameof(CanShowInfo));
         RaisePropertyChanged(nameof(CanShowEffect));
         RaisePropertyChanged(nameof(CanChangePlayside));
-        RaisePropertyChanged(nameof(UseExternalPanelImage));
-        RaisePropertyChanged(nameof(StagefilePath));
         RaisePropertyChanged(nameof(UsesUbMplay));
         RaisePropertyChanged(nameof(UsesLr2Body));
         RaisePropertyChanged(nameof(UsesBmiIdxView));
-        RaisePropertyChanged(nameof(PlayerVolume));
-        RaisePlayerHeaderPropertiesChanged();
     }
 
-    void ISettingsDialogPlaybackRuntimePort.UsePlayerForNextPlayback(Func<IBMSPlayer> createPlayer)
+    private bool SupportsBmsonForNextPlayback()
+    {
+        lock (sessionGate) { return nextPlayerRequest?.SupportsBmson ?? RequirePlayer().SupportsBmson; }
+    }
+
+    /// <summary>候補検査と必要な一時配置の受付を通過した開始で捕捉済み要求を採用します。失敗時と置換中の新保存は保持します。</summary>
+    private async Task ApplyPlayerForNextPlaybackAsync(NextPlaybackPlayerRequest request)
+    {
+        if (request == null) { return; }
+        await ReplacePlayerAsync(request.CreatePlayer()).ConfigureAwait(false);
+        lock (sessionGate)
+        {
+            if (ReferenceEquals(nextPlayerRequest, request)) { nextPlayerRequest = null; }
+        }
+    }
+
+    void ISettingsDialogPlaybackRuntimePort.UsePlayerForNextPlayback(Func<IBMSPlayer> createPlayer, bool supportsBmson)
     {
         ArgumentNullException.ThrowIfNull(createPlayer);
-        lock (sessionGate) { nextPlayerFactory = createPlayer; }
+        lock (sessionGate) { nextPlayerRequest = new NextPlaybackPlayerRequest(createPlayer, supportsBmson); }
     }
 
     void ISettingsDialogPlaybackRuntimePort.NotifySettingsChanged()

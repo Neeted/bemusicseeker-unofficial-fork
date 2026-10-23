@@ -17,12 +17,6 @@ internal interface IPlaybackSettingsStore
 
     bool SinglePlay { get; set; }
 
-    bool UsesLr2Body { get; }
-
-    bool UsesUbMplay { get; }
-
-    bool UsesBmiIdxView { get; }
-
     bool UseExternalPanelImage { get; }
 
     string StagefilePath { get; }
@@ -75,12 +69,6 @@ internal sealed class SettingsPlaybackSettingsStore : IPlaybackSettingsStore
         get => Values.SinglePlayMode;
         set => Values.SinglePlayMode = value;
     }
-
-    public bool UsesLr2Body => Values.UsePlayerLR2body;
-
-    public bool UsesUbMplay => Values.UsePlayeruBMplay;
-
-    public bool UsesBmiIdxView => Values.UsePlayerBMIIDXView;
 
     public bool UseExternalPanelImage => Values.UseExternalPanelImage;
 

@@ -1544,7 +1544,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         set
         {
-            if (pendingBeatorajaChange != null || bmtProcessingRetryRequired) { return; }
+            if (pendingBeatorajaChange != null || pendingBmtChange != null) { return; }
             if (scoreUseBeatorajaScoreDb != value)
             {
                 scoreUseBeatorajaScoreDb = value;
@@ -1565,7 +1565,7 @@ public partial class SettingsDialogViewModel : ViewModel
         set
         {
             string path = value ?? string.Empty;
-            if (pendingBeatorajaChange != null || bmtProcessingRetryRequired) { return; }
+            if (pendingBeatorajaChange != null || pendingBmtChange != null) { return; }
             if (string.Equals(environmentBeatorajaRootPath, path, StringComparison.OrdinalIgnoreCase))
             {
                 return;
@@ -1599,7 +1599,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         set
         {
-            if (value == null || pendingBeatorajaChange != null || bmtProcessingRetryRequired) { return; }
+            if (value == null || pendingBeatorajaChange != null || pendingBmtChange != null) { return; }
             string playerId = value;
             if (scoreBeatorajaPlayerId == playerId)
             {

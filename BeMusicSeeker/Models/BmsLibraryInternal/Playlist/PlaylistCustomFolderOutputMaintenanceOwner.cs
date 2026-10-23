@@ -534,22 +534,119 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         return result;
     }
 
-    /// <summary>成立済み投影を再生成せず、捕捉した旧絶対path・型・保護範囲だけで未了の整理を明示再試行します。</summary>
+    /// <summary>
+    /// 未了receiptの表identityを現在ヘッダーと受理済み設定で再準備し、実成立先の共有後に旧先整理を進めます。
+    /// 元Preparationは旧先整理の入力として維持し、修復先の成立事実だけを別に更新します。
+    /// </summary>
+    internal void RetryCustomFolderMigrations(IReadOnlyList<CustomFolderMigrationReceipt> receipts,
+        CustomFolderOutputSettingsSnapshot settings,
+        Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization)
+    {
+        ArgumentNullException.ThrowIfNull(receipts);
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(syncMaterialization);
+        // 再投影する表は既存の生存検査を維持し、成立済み出力の旧絶対path整理には新しい拒否を加えません。
+        ValidateCurrentTables([.. receipts.Where(receipt => !receipt.MaterializationCompleted)
+            .SelectMany(receipt => receipt.Preparation.Tables).Distinct()]);
+        var successfulPlans = new Dictionary<BMSTable, Dictionary<string, MigrationPlan>>();
+        foreach (CustomFolderMigrationReceipt receipt in receipts.Where(receipt => receipt.MaterializationCompleted))
+        {
+            foreach (MigrationPlan plan in receipt.MaterializationPreparation.Plans)
+            {
+                if (!successfulPlans.TryGetValue(plan.Table, out Dictionary<string, MigrationPlan> destinations))
+                {
+                    destinations = new Dictionary<string, MigrationPlan>(StringComparer.OrdinalIgnoreCase);
+                    successfulPlans.Add(plan.Table, destinations);
+                }
+                destinations[CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(plan.OutputDirectoryAfter)] = plan;
+            }
+        }
+
+        var retryPlans = new Dictionary<BMSTable, MigrationPlan>();
+        var materializationPlans = new List<MigrationPlan>();
+        var pendingPreparations = new Dictionary<CustomFolderMigrationReceipt, CustomFolderMigrationPreparation>();
+        foreach (CustomFolderMigrationReceipt receipt in receipts.Where(receipt => !receipt.MaterializationCompleted))
+        {
+            var plans = new List<MigrationPlan>();
+            foreach (MigrationPlan original in receipt.Preparation.Plans)
+            {
+                if (!retryPlans.TryGetValue(original.Table, out MigrationPlan plan))
+                {
+                    string afterDirectory = ResolveOutputDirectory(original.Table, settings);
+                    if (successfulPlans.TryGetValue(original.Table, out Dictionary<string, MigrationPlan> destinations)
+                        && destinations.TryGetValue(CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(afterDirectory), out MigrationPlan successful))
+                    {
+                        plan = successful;
+                    }
+                    else
+                    {
+                        ensureEntriesLoaded(original.Table, "RetryCustomFolderMigrations");
+                        plan = new MigrationPlan
+                        {
+                            Table = original.Table,
+                            OutputDirectoryBefore = original.OutputDirectoryBefore,
+                            OutputDirectoryAfter = afterDirectory,
+                            SameDirectory = IsSameDirectory(original.OutputDirectoryBefore, afterDirectory),
+                            Projection = CreateProjection(original.Table, settings, afterDirectory)
+                        };
+                        // 旧先の再利用も投影対象です。同一pathを除外すると、失敗した出力を修復できません。
+                        PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(plan.Projection);
+                        materializationPlans.Add(plan);
+                    }
+                    retryPlans.Add(original.Table, plan);
+                }
+                plans.Add(plan);
+            }
+            pendingPreparations.Add(receipt, new CustomFolderMigrationPreparation(plans, settings, []));
+        }
+
+        CustomFolderBatchOutputResult materializationResult = null;
+        if (materializationPlans.Count > 0)
+        {
+            PrepareProjectionSurfaceAndScopes(materializationPlans.Select(plan => plan.Projection).ToArray(),
+                settings, "RetryCustomFolderMigrations");
+            materializationResult = MaterializePreparedCustomFolderMigration(
+                new CustomFolderMigrationPreparation(materializationPlans, settings, []),
+                "settings_custom_folder_migration_retry", syncMaterialization);
+        }
+        // 全投影・DB同期成立後、他receiptによる充足も含めて保存し、公開・整理失敗で成立先を失いません。
+        foreach ((CustomFolderMigrationReceipt receipt, CustomFolderMigrationPreparation preparation) in pendingPreparations)
+        {
+            receipt.MaterializationPreparation = preparation;
+            receipt.MaterializationCompleted = true;
+        }
+        if (materializationResult != null)
+        {
+            PublishPostLeaseResult(materializationResult, null);
+        }
+        IReadOnlyCollection<string> currentOutputs = CreateMigrationProtectedOutputDirectories([], settings);
+        foreach (CustomFolderMigrationReceipt receipt in receipts.Where(receipt => !receipt.CleanupCompleted))
+        {
+            CustomFolderBatchOutputResult result = CompletePreparedMigrationCleanup(receipt,
+                syncMaterialization, currentProtectedDirectories: currentOutputs);
+            PublishPostLeaseResult(result, null);
+        }
+    }
+
+    /// <summary>成立済み投影を再生成せず、捕捉した旧絶対path・型・保護範囲で未了の整理を進めます。</summary>
+    /// <param name="receipt">元の整理入力と物理/DB整理の成立事実です。</param>
+    /// <param name="syncMaterialization">同じ生存P権限で旧DB行を一括整理する処理です。</param>
+    /// <param name="result">初回投影の結果へ整理結果を加える場合の結果です。</param>
+    /// <param name="currentProtectedDirectories">一括修復の受理済み設定から捕捉した現出力です。旧path再利用時も成立出力を守ります。</param>
     internal CustomFolderBatchOutputResult CompletePreparedMigrationCleanup(CustomFolderMigrationReceipt receipt,
         Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization,
-        CustomFolderBatchOutputResult result = null, bool refreshProtection = false)
+        CustomFolderBatchOutputResult result = null, IReadOnlyCollection<string> currentProtectedDirectories = null)
     {
         ArgumentNullException.ThrowIfNull(receipt);
         ArgumentNullException.ThrowIfNull(syncMaterialization);
         CustomFolderMigrationPreparation preparation = receipt.Preparation;
         result ??= new CustomFolderBatchOutputResult { Succeeded = true };
-        if (refreshProtection)
+        if (currentProtectedDirectories != null)
         {
             // 修復した候補が旧pathを新たな出力に再利用する場合、成立済みの現出力を削除しません。
-            IReadOnlyCollection<string> currentOutputs = CreateMigrationProtectedOutputDirectories([], GetSettings());
             preparation = new CustomFolderMigrationPreparation(
-                preparation.Plans.Where(plan => !IsPathUnderAnyDirectory(plan.OutputDirectoryBefore, currentOutputs)), preparation.Settings,
-                preparation.ProtectedDirectories.Concat(currentOutputs));
+                preparation.Plans.Where(plan => !IsPathUnderAnyDirectory(plan.OutputDirectoryBefore, currentProtectedDirectories)), preparation.Settings,
+                preparation.ProtectedDirectories.Concat(currentProtectedDirectories));
         }
         foreach (MigrationPlan plan in preparation.Plans)
         {
