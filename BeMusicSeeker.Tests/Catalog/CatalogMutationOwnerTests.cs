@@ -1661,28 +1661,25 @@ public sealed class CatalogMutationOwnerTests
     }
 
     /// <summary>
-    /// 保守保存要求はBMS・bmsonの値を受け取り、空白と大小文字の差がある同じ古い保守パスを一件へ正規化する。
+    /// 保守保存要求は既存BMSの限定更新値を受け取り、空白と大小文字の差がある同じ古い保守パスを一件へ正規化する。
     /// </summary>
     [TestMethod]
     public void MaintenanceWriteRequest_SnapshotsPersistenceInputs()
     {
         ChartFile song = CreateBms("snapshot.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         song = ChartFileProjection.WithMaintenance(song, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = song.Path, hash = song.Md5, encoding = "shift_jis", is_encoding_fixed = true }));
-        ChartFile bmson = CreateBmson("snapshot.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        bmson = bmson with { ResourceHealthMaintenanceSnapshot = MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = bmson.Path, hash = bmson.Md5, encoding = "utf-8" }) };
 
         CatalogMaintenanceWriteRequest request = new(
             [song.ResourceHealthMaintenanceSnapshot],
-            [song, bmson],
+            [SongMetadataUpdate.FromChart(song)],
             [" C:\\Library\\stale.maintenance ", "c:\\library\\STALE.MAINTENANCE"]);
 
 
         Assert.AreEqual(1, request.MaintenanceInfos.Count);
         Assert.AreEqual("C:\\Library\\snapshot.bms", request.MaintenanceInfos[0].Path);
-        Assert.AreEqual(2, request.Songs.Count);
-        Assert.AreEqual("C:\\Library\\snapshot.bms", request.Songs[0].Path);
-        Assert.AreEqual(1, request.Songs.Count(chart => chart.Kind == ChartFileKind.Bmson));
-        Assert.AreEqual("snapshot.bmson", request.Songs.Single(chart => chart.Kind == ChartFileKind.Bmson).RawTitle);
+        Assert.AreEqual(1, request.SongMetadataUpdates.Count);
+        Assert.AreEqual("C:\\Library\\snapshot.bms", request.SongMetadataUpdates[0].Path);
+        Assert.AreEqual(SongMetadataUpdate.FromChart(song), request.SongMetadataUpdates[0]);
         Assert.AreEqual(1, request.StaleMaintenancePaths.Count);
         Assert.AreEqual("C:\\Library\\stale.maintenance", request.StaleMaintenancePaths[0]);
     }

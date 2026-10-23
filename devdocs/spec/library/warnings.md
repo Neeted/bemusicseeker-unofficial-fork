@@ -32,6 +32,8 @@
 
 ### リソース状態の評価
 
+所持BMSの再調査で文字コードが確定して再復号する場合、[songの限定保存](../integration/lr2-song-db.md#songの生成)を使い、生メタデータ5列と捕捉mtimeの `date` だけを保守値と同じトランザクションへ渡します。詳細情報の有無や復号文字列の同値によって、BPM・ノート数等の対象外列を再生成しません。
+
 一覧への所属判定は警告集合を変更せず、メンテナンス情報に基づく副作用のない索引で行います。BMSONは現在のMD5と一致する計算済みのメンテナンス情報を使い、未計算・旧ハッシュなら参照と現在のファイル状態から一時的に評価します。索引を優先し、必要な場合だけ実ファイルを確認します。
 
 保留の健康度とリソース警告は、設定済みの `INSTL DST`、未設定なら先頭候補、どちらもなければ入力元配置を基準とする一時状態です。設定先・候補では実際に持ち込む同梱資源を加算し、各譜面固有の使用集合を照合します。単一BMS・BMSONの親全体は同梱としません。推定・編集・候補選択・空編集・再グループ化の完了時には従来どおり評価し、明示クリアは後述の計算済み結果を復元します。導入成功時に分類単位で解除し、通常・新規一覧では導入後のメンテナンス情報から表示します。保留の警告を所持カタログやDB行へ書き戻しません。
@@ -116,6 +118,7 @@ LR2用パスを表現できないことを理由にBMS行を削除しません�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 再復号のメタデータ限定保存と詳細未付与の起動状態 | `CatalogMaintenanceOwner`、`CatalogMutationOwner`、`SongMetadataUpdate` | [LR2楽曲DBの対応表](../integration/lr2-song-db.md#実装とテストの対応)の `ApplyEncoding_RealStoreAfterDbLoadPreservesUnchangedSongColumns` と `RescanAsync_RealStoreAfterDbLoadPreservesUnchangedSongColumns` が、本番操作・実DB読込み・詳細hydrate後の更新5列/dateと対象外全列の保持を確認する。 |
 | 保留の明示クリアで登録時健康度を復元、外部変更非反映、非健康度の現在値保持 | `PackageChartEntry`、`BmsLibraryPackageInstallService`、`PendingPackageWorkflowOwner`、`BMSLibrary` | `BmsLibraryPackageInstallServiceTests` が全資源/未判定/0件/不足・候補切り替え・登録後の外部変更・文字コード/LR2/警告分類を確認する。初期確定は同クラスと `BmsLibraryInitializationInstallTests`、detached/再編成/部分削除は既存Install系列へ分担し、実メニューから生成済み行への更新は `MainWindowPackageMaintenanceWpfTests` で確認する。クリアから解析・資源列挙・存在確認へ非到達、成功時の参照破棄は静的確認を併用する。 |
 | 種類、優先順位、要約の重複抑止、詳細、強調 | [`ChartWarning`](../../../BeMusicSeeker/Models/Chart/ChartWarning.cs)、[`ChartWarningCollection`](../../../BeMusicSeeker/Models/Chart/ChartWarning.cs)、[`ChartWarningProjectionFormatter`](../../../BeMusicSeeker/ViewModels/ChartList/ChartWarningProjectionFormatter.cs) | [`ChartWarningCollectionTests`](../../../BeMusicSeeker.Tests/Chart/ChartWarningCollectionTests.cs) |
 | 保留の配置優先・同梱合成・欠損と未確認・音源見送り理由 | `ChartResourcePlacement`、`BmsLibraryPackageInstallService`、`PackageChartEntry` | `BmsLibraryPackageInstallServiceTests.RefreshPendingResourceHealth_SelectsPlacementAndCombinesAllResourceKinds` と `RefreshPendingResourceHealth_DistinguishesUnknownZeroAndSingleFileScope` は全資源と配置・未確認・0件・単一ファイルを確認する。`BmsLibraryPendingPackageRegroupTests.SearchAndEdit_GroupAudioReasonRemainsIndependentOfCurrentHealth` は実推定と編集・再推定・クリアの配送を確認する。`TryRegroupPendingPackagesForSourceDirectories_ReevaluatesBundledResourcesAndPreservesOriginalAudioReason` は同梱範囲の変更による不足解消と元行だけの理由保持を確認し、要約の併記・順序・強調は `ChartWarningCollectionTests` へ分担する。 |

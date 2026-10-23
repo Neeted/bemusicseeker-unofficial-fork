@@ -494,7 +494,7 @@ internal sealed class BmsLibraryMaintenanceService
                 updated = ChartFileProjection.WithMaintenance(updated, info with { Encoding = nextEncoding, EncodingFixed = true });
                 if (!HasSameDecodedMetadataText(chart, updated))
                 {
-                    result.SongsToUpsert.Add(updated);
+                    result.SongMetadataUpdates.Add(SongMetadataUpdate.FromChart(updated));
                 }
                 result.MaintenanceInfosToUpsert.Add(updated.ResourceHealthMaintenanceSnapshot);
                 result.ChangedCharts.Add(updated);
@@ -618,16 +618,16 @@ internal sealed class BmsLibraryMaintenanceService
     private sealed class MaintenanceWriteAccumulator
     {
         private readonly List<ResourceHealthMaintenanceSnapshot> maintenanceInfos = [];
-        private readonly List<ChartFile> songs = [];
+        private readonly List<SongMetadataUpdate> songMetadataUpdates = [];
         internal CatalogMaintenanceWriteReceipt Capture(CatalogMaintenanceWriteRequest request)
         {
             maintenanceInfos.AddRange(request.MaintenanceInfos);
-            songs.AddRange(request.Songs);
+            songMetadataUpdates.AddRange(request.SongMetadataUpdates);
             return new CatalogMaintenanceWriteReceipt(true, request.MaintenanceInfos.Count,
-                request.Songs.Count(chart => chart.Kind == ChartFileKind.Bms), request.Songs.Count(chart => chart.Kind == ChartFileKind.Bmson), 0);
+                request.SongMetadataUpdates.Count, 0, 0);
         }
         /// <summary>評価結果の現在値を一つの保存要求へ添えます。現在値だけの場合はDB書込みを要求しません。</summary>
-        internal CatalogMaintenanceWriteRequest CreateRequest(IEnumerable<ChartFile> currentValues) => new(maintenanceInfos, songs, currentValues: currentValues);
+        internal CatalogMaintenanceWriteRequest CreateRequest(IEnumerable<ChartFile> currentValues) => new(maintenanceInfos, songMetadataUpdates, currentValues: currentValues);
     }
 
     private MaintenanceWorkflowResult UpdateMaintenanceInfoSnapshotPipeline(
@@ -804,10 +804,10 @@ internal sealed class BmsLibraryMaintenanceService
             var commitStopwatch = Stopwatch.StartNew();
             if (changedMaintenanceInfos.Count > 0 || reloadedFiles.Count > 0)
             {
-                ApplyDurableWrite(durableWrite, new CatalogMaintenanceWriteRequest(changedMaintenanceInfos, reloadedFiles, currentValues: currentValues));
+                ApplyDurableWrite(durableWrite, new CatalogMaintenanceWriteRequest(changedMaintenanceInfos, reloadedFiles.Select(SongMetadataUpdate.FromChart), currentValues: currentValues));
                 result.MaintenanceInfoUpsertCount += changedMaintenanceInfos.Count;
                 result.ReloadedSongCount += reloadedFiles.Count;
-                result.SongUpsertCount += reloadedFiles.Count;
+                result.SongMetadataUpdateCount += reloadedFiles.Count;
             }
             result.ChangedCharts.AddRange(currentValues);
             result.HasUpdates |= currentValues.Count > 0 || changedMaintenanceInfos.Count > 0 || reloadedFiles.Count > 0;
@@ -1147,7 +1147,9 @@ internal sealed class BmsLibraryMaintenanceService
                     RawSubtitle = detected.RawSubtitle,
                     RawArtist = detected.RawArtist,
                     Subartist = detected.Subartist,
-                    Genre = detected.Genre
+                    Genre = detected.Genre,
+                    Date = Lr2SongRowEnricher.ToLr2UnixSeconds(input.LastWriteTimeUtc),
+                    LastWriteTimeUtc = input.LastWriteTimeUtc
                 };
                 result.EncodingReloadCount = 1;
                 result.ReloadedBmsChart = parsed;

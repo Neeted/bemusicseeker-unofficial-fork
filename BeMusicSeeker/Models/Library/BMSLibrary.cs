@@ -8692,7 +8692,7 @@ public partial class BMSLibrary : ObservableObject
         }
         libraryMutationOwner.ApplyPendingEncoding(pendingEntries, result.ChangedCharts);
         libraryMutationOwner.DispatchWarningPresentationChanged("encoding_changed",
-            changedCharts: result.ChangedCharts.Where(chart => chart.Token != null).ToArray(), basicValuesChanged: result.SongsToUpsert.Count > 0);
+            changedCharts: result.ChangedCharts.Where(chart => chart.Token != null).ToArray(), basicValuesChanged: result.SongMetadataUpdates.Count > 0);
     }
 
     /// <summary>

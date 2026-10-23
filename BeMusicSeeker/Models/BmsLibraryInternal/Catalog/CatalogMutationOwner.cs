@@ -70,7 +70,7 @@ internal sealed class CatalogMutationOwner
         }
     }
 
-    /// <summary>一つのトランザクションで保守変更を確定します。文字コード限定更新は同内容の非文字コード列を保持し、別内容は未判定から保存します。</summary>
+    /// <summary>一つのトランザクションで保守変更と同一path/hashのsongメタデータだけを確定します。保留の文字コード限定更新は同内容の保守列を保持し、別内容は未判定から保存します。</summary>
     internal CatalogMaintenanceWriteReceipt ApplyMaintenanceWriteUnderGuard(CatalogMaintenanceWriteRequest request)
     {
         if (request == null || !request.HasChanges)
@@ -88,10 +88,6 @@ internal sealed class CatalogMutationOwner
             if (request.MaintenanceInfos.Count > 0 || request.StaleMaintenancePaths.Count > 0 || request.EncodingOnlyInfos.Count > 0)
             {
                 BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
-            }
-            if (request.Songs.Any(chart => chart.Kind == ChartFileKind.Bmson))
-            {
-                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
             }
             foreach (ResourceHealthMaintenanceSnapshot value in request.MaintenanceInfos)
             {
@@ -114,16 +110,11 @@ internal sealed class CatalogMutationOwner
                     });
                 }
             }
-            foreach (ChartFile chart in request.Songs)
+            foreach (SongMetadataUpdate value in request.SongMetadataUpdates)
             {
-                if (chart.Kind == ChartFileKind.Bms)
-                {
-                    Lr2SongDbWriter.UpsertGeneratedSong(songDb, ChartSongStorageMapping.ToBmsRow(chart));
-                }
-                else
-                {
-                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(chart), typeof(LR2SongDBExtended.bmson_song));
-                }
+                songDb.Execute(
+                    "UPDATE song SET title = ?, subtitle = ?, artist = ?, subartist = ?, genre = ?, date = ? WHERE path = ? COLLATE BINARY AND hash = ? COLLATE NOCASE;",
+                    value.RawTitle, value.RawSubtitle, value.RawArtist, value.RawSubartist, value.RawGenre, value.Date, value.Path, value.Hash);
             }
             foreach (string path in request.StaleMaintenancePaths)
             {
@@ -133,8 +124,8 @@ internal sealed class CatalogMutationOwner
         return new CatalogMaintenanceWriteReceipt(
             applied: true,
             request.MaintenanceInfos.Count + request.EncodingOnlyInfos.Count,
-            request.Songs.Count(chart => chart.Kind == ChartFileKind.Bms),
-            request.Songs.Count(chart => chart.Kind == ChartFileKind.Bmson),
+            request.SongMetadataUpdates.Count,
+            0,
             deletedMaintenanceCount);
     }
 

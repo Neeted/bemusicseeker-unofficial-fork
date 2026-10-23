@@ -59,6 +59,8 @@ flowchart TB
 
 ### 保存する列と公開順序
 
+文字コード変更・リソース再調査でメタデータだけを再復号する場合は、[songの限定保存](../integration/lr2-song-db.md#songの生成)を使います。詳細索引をhydrate済みでも共通現在値の `ChartInfo` が未付与である起動状態を許容し、メタデータ保存のための詳細再解析や生成列の全上書きを行いません。
+
 導入時解析と全件補完は、保存対象と譜面情報を `CatalogChartInfoStorageWriteRequest` へまとめ、`CatalogMutationOwner.ApplyChartInfoStorageWrite` から一つのトランザクションへ渡します。
 
 新規・更新ファイルは基本解析と詳細解析を組み合わせた不変の共通変更事実を作り、DB境界で生成列へ変換します。 新規scan候補の保存用 `mode` は捕捉本文の基本解析値を維持し、再利用した詳細値の `mode` を生成列へコピーしません。詳細からの共通基本値更新や明示的なmode再検出の限定書戻しとは別の境界です。既所持譜面の全件補完は行全体を再生成せず、パスと正規化MD5が一致する既存BMSの次の9列だけを更新します。
@@ -109,6 +111,7 @@ bmsonのオブジェクト欄にある数値・文字列などの変換不能値
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 再復号のメタデータ限定保存と詳細未付与の起動状態 | `CatalogMaintenanceOwner`、`CatalogMutationOwner`、`SongMetadataUpdate` | [LR2楽曲DBの対応表](../integration/lr2-song-db.md#実装とテストの対応)の `ApplyEncoding_RealStoreAfterDbLoadPreservesUnchangedSongColumns` と `RescanAsync_RealStoreAfterDbLoadPreservesUnchangedSongColumns` が、本番操作・実DB読込み・詳細hydrate後の更新5列/dateと対象外全列の保持を確認する。 |
 | スキーマ、メタデータの入出力、起動時取込み | [`CatalogChartInfoOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogChartInfoOwner.cs)、[`ChartInfoMetadataBundleStartupImporter`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoMetadataBundleStartupImporter.cs) | [`ChartInfoMetadataSchemaExportImportTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoMetadataSchemaExportImportTests.cs) の `ImportChartInfoMetadataBundle_ImportsMissingAndStaleRowsAndClearsFailures`（同一bundle再投入を含む）、`StartupImporter_PrefersDatabaseBundleOverArchive`、`StartupImporter_ImportsArchiveBundleAndMovesImportedArchive`（抽出済みcacheの移動・再配置・一回だけの抽出） |
 | 解析結果、時間上限、互換入力 | [`ChartInfoParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoParser.cs)、[`ChartInfoBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoBuildService.cs) | [`ChartInfoParserBehaviorTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoParserBehaviorTests.cs) |
 | 詳細の未知取得・解析失敗の非恒久化と次の通常機会 | [`ChartInfoBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoBuildService.cs) | [`ChartInfoBackfillStorageTests.BackfillChartInfos_UnknownInputFailureSkipsAndNextOpportunityEvaluates`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoBackfillStorageTests.cs) は実SQLiteと管理主体を使い、未知読取り／解析失敗、通常の進捗通知故障、正常対象と成功識別・旧値の保持、raw失敗行の非生成、次通常補完での同対象の評価・保存を確認する。集約・保存の実終端は既存gateで確認し、OOM終了とhashの純捕捉範囲は静的に分担する。 |

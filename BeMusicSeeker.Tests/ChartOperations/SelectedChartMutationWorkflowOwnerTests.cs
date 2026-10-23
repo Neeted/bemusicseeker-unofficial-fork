@@ -1196,6 +1196,25 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         });
     }
 
+    /// <summary>最新詳細をhydrateしたDB起動状態から同じ文字コードを明示再指定し、生メタデータとmtimeだけの保存、他のsong全列・背景行の保持を本番owner・store・SQLiteで確認します。</summary>
+    [TestMethod]
+    public async Task ApplyEncoding_RealStoreAfterDbLoadPreservesUnchangedSongColumns()
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            using var fixture = new MaintenanceMetadataSongFixture(songDbPath);
+            TestBmsLibrary library = fixture.Library;
+            var target = new ChartOperationTarget(fixture.Chart, null, ChartOperationSourceScope.Library,
+                true, false, false, ChartOperationCapabilities.RunBmsEncodingFix);
+            var owner = new SelectedChartMutationWorkflowOwner(() => library, library.OperationAdmission,
+                new ChartMutationActivityOwner(), new RecordingPresentation(), AcceptedMessageDialogs(),
+                AcceptedMessageDialogs(), new BmsLibrarySelectedChartMutationStore());
+            SelectedChartMutationResult result = await owner.ApplyEncodingAsync(new SelectedChartEncodingRequest([target], "utf-8"));
+            Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
+            fixture.AssertSaved();
+        });
+    }
+
     /// <summary>実ownerから本番adapter・モデル・DBへ同じLを渡し、文字コードと修正印の保存、Busy、公開終端を確認します。</summary>
     [TestMethod]
     public async Task ApplyEncoding_RealStorePersistsEncodingAndFixedMarkUnderSameAdmission()

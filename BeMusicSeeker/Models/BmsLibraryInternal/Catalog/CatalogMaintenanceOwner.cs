@@ -372,7 +372,8 @@ internal sealed class CatalogMaintenanceOwner
                 }
                 targets.AddRange((pendingEntries ?? []).Select(entry => entry.Chart).Where(chart => chart.Token == null));
                 result = maintenanceService.ApplyEncoding(targets, encoding);
-                result.SongsToUpsert.RemoveAll(chart => chart.Token == null);
+                var ownedKeys = targets.Where(chart => chart.Token != null).Select(chart => (chart.Path, chart.Md5)).ToHashSet();
+                result.SongMetadataUpdates.RemoveAll(value => !ownedKeys.Contains((value.Path, value.Hash)));
                 if (result.ChangedCharts.Count == 0)
                 {
                     return result;
@@ -380,7 +381,7 @@ internal sealed class CatalogMaintenanceOwner
 
                 CatalogMaintenanceWriteReceipt receipt = catalogMutationOwner.ApplyMaintenanceWriteUnderGuard(new(
                     result.ChangedCharts.Where(chart => chart.Token != null).Select(chart => chart.ResourceHealthMaintenanceSnapshot),
-                    result.SongsToUpsert, currentValues: result.ChangedCharts,
+                    result.SongMetadataUpdates, currentValues: result.ChangedCharts,
                     encodingOnlyInfos: result.ChangedCharts.Where(chart => chart.Token == null).Select(chart => chart.ResourceHealthMaintenanceSnapshot)));
                 if (!receipt.Applied)
                 {
@@ -417,6 +418,8 @@ internal sealed class CatalogMaintenanceOwner
                 RawArtist = value.RawArtist,
                 Subartist = value.Subartist,
                 Genre = value.Genre,
+                Date = value.Date,
+                LastWriteTimeUtc = value.LastWriteTimeUtc,
                 Stagefile = value.Stagefile,
                 Banner = value.Banner,
                 Backbmp = value.Backbmp,

@@ -65,7 +65,8 @@ internal sealed class MaintenanceWorkflowResult
 
     public int MaintenanceInfoUnchangedCount { get; set; }
 
-    public int SongUpsertCount { get; set; }
+    /// <summary>生メタデータと譜面更新時刻だけの既存song更新を要求した件数です。</summary>
+    public int SongMetadataUpdateCount { get; set; }
 
     public int ReloadedSongCount { get; set; }
 
@@ -141,7 +142,7 @@ internal sealed class MaintenanceWorkflowResultFacts
         BmsonResourceReferenceReusedCount = source?.BmsonResourceReferenceReusedCount ?? 0;
         MaintenanceInfoUpsertCount = source?.MaintenanceInfoUpsertCount ?? 0;
         MaintenanceInfoUnchangedCount = source?.MaintenanceInfoUnchangedCount ?? 0;
-        SongUpsertCount = source?.SongUpsertCount ?? 0;
+        SongMetadataUpdateCount = source?.SongMetadataUpdateCount ?? 0;
         ReloadedSongCount = source?.ReloadedSongCount ?? 0;
         ZeroNoteChangedCount = source?.ZeroNoteChangedCount ?? 0;
         ReadMs = source?.ReadMs ?? 0L;
@@ -186,7 +187,7 @@ internal sealed class MaintenanceWorkflowResultFacts
     internal int BmsonResourceReferenceReusedCount { get; }
     internal int MaintenanceInfoUpsertCount { get; }
     internal int MaintenanceInfoUnchangedCount { get; }
-    internal int SongUpsertCount { get; }
+    internal int SongMetadataUpdateCount { get; }
     internal int ReloadedSongCount { get; }
     internal int ZeroNoteChangedCount { get; }
     internal long ReadMs { get; }
@@ -247,7 +248,7 @@ internal sealed class MaintenanceWorkflowResultFacts
             BmsonResourceReferenceReusedCount = BmsonResourceReferenceReusedCount,
             MaintenanceInfoUpsertCount = MaintenanceInfoUpsertCount,
             MaintenanceInfoUnchangedCount = MaintenanceInfoUnchangedCount,
-            SongUpsertCount = SongUpsertCount,
+            SongMetadataUpdateCount = SongMetadataUpdateCount,
             ReloadedSongCount = ReloadedSongCount,
             ZeroNoteChangedCount = ZeroNoteChangedCount,
             ReadMs = ReadMs,

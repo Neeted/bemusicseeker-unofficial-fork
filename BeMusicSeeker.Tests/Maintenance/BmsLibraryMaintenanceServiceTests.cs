@@ -1217,7 +1217,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                     MaintenanceWorkflowResult unchanged = library.RescanResourceHealthCharts([current]);
                     Assert.IsFalse(unchanged.HasUpdates);
                     Assert.AreEqual(0, unchanged.MaintenanceInfoUpsertCount);
-                    Assert.AreEqual(0, unchanged.SongUpsertCount);
+                    Assert.AreEqual(0, unchanged.SongMetadataUpdateCount);
                     Assert.AreSame(index, library.TryGetCurrentResourceHealthIndexSnapshotForView());
                     NormalLibraryRefreshNotificationBatch noChange = library.GetNormalLibraryRefreshNotificationsAfter(beforeRepeat);
                     Assert.IsFalse(noChange.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
@@ -2402,7 +2402,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(expectedSubartist, file.Subartist);
             Assert.AreEqual(expectedArtist + " " + expectedSubartist, file.Artist);
             Assert.AreEqual(expectedGenre, file.Genre);
-            CollectionAssert.AreEqual(new ChartFile[] { file }, result.SongsToUpsert);
+            CollectionAssert.AreEqual(new SongMetadataUpdate[] { SongMetadataUpdate.FromChart(file) }, result.SongMetadataUpdates);
             CollectionAssert.AreEqual(new ResourceHealthMaintenanceSnapshot[] { file.ResourceHealthMaintenanceSnapshot }, result.MaintenanceInfosToUpsert);
             Assert.IsTrue(file.ResourceHealthMaintenanceSnapshot.EncodingFixed);
         }
@@ -2451,7 +2451,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(expectedGenre, file.Genre);
             Assert.AreEqual("gb2312", file.ResourceHealthMaintenanceSnapshot.Encoding);
             Assert.IsTrue(file.ResourceHealthMaintenanceSnapshot.EncodingFixed);
-            Assert.AreEqual(0, result.SongsToUpsert.Count);
+            Assert.AreEqual(0, result.SongMetadataUpdates.Count);
             CollectionAssert.AreEqual(new ResourceHealthMaintenanceSnapshot[] { file.ResourceHealthMaintenanceSnapshot }, result.MaintenanceInfosToUpsert);
         }
         finally
@@ -2507,7 +2507,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(7, file.Favorite);
             Assert.AreEqual("retained-tag", file.Tag);
             Assert.IsTrue(file.ResourceHealthMaintenanceSnapshot.EncodingFixed);
-            CollectionAssert.AreEqual(new ChartFile[] { file }, result.SongsToUpsert);
+            CollectionAssert.AreEqual(new SongMetadataUpdate[] { SongMetadataUpdate.FromChart(file) }, result.SongMetadataUpdates);
             CollectionAssert.AreEqual(new ResourceHealthMaintenanceSnapshot[] { file.ResourceHealthMaintenanceSnapshot }, result.MaintenanceInfosToUpsert);
         }
         finally
@@ -2554,7 +2554,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceEncodingUpdateResult result = service.ApplyEncoding([file], requestedEncoding);
             if (result.ChangedCharts.Count > 0) { file = result.ChangedCharts.Single(); }
 
-            Assert.AreEqual(0, result.SongsToUpsert.Count);
+            Assert.AreEqual(0, result.SongMetadataUpdates.Count);
             Assert.AreEqual(alreadyFixed ? 0 : 1, result.MaintenanceInfosToUpsert.Count);
             Assert.AreEqual(alreadyFixed ? 0 : 1, result.ChangedCharts.Count);
             Assert.AreEqual("shift_jis", file.ResourceHealthMaintenanceSnapshot.Encoding);
@@ -2695,7 +2695,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
             Assert.IsTrue(result.HasUpdates);
             Assert.AreEqual(1, result.BmsonResourceTargetCount);
-            Assert.AreEqual(0, result.SongUpsertCount);
+            Assert.AreEqual(0, result.SongMetadataUpdateCount);
             Assert.AreEqual("Bmson", song.RawTitle);
             Assert.AreEqual("Artist", song.RawArtist);
             Assert.AreEqual("utf-8", song.ResourceHealthMaintenanceSnapshot.Encoding);
@@ -3547,7 +3547,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(1, result.BmsonReparsedCount);
             Assert.AreEqual(1, result.BmsonReparseFailedCount);
             Assert.AreEqual(1, result.MaintenanceInfoUpsertCount);
-            Assert.AreEqual(0, result.SongUpsertCount);
+            Assert.AreEqual(0, result.SongMetadataUpdateCount);
             validRow = result.ChangedCharts.Single(chart => chart.Path == validRow.Path);
             Assert.AreEqual("Valid", validRow.RawTitle);
             Assert.AreEqual(1, validRow.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
@@ -3643,7 +3643,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(expectedArtist, file.Artist);
             Assert.AreEqual(encoding, file.ResourceHealthMaintenanceSnapshot.Encoding);
             Assert.IsTrue(file.ResourceHealthMaintenanceSnapshot.EncodingFixed);
-            CollectionAssert.AreEqual(new ChartFile[] { file }, result.SongsToUpsert);
+            CollectionAssert.AreEqual(new SongMetadataUpdate[] { SongMetadataUpdate.FromChart(file) }, result.SongMetadataUpdates);
             CollectionAssert.AreEqual(new ResourceHealthMaintenanceSnapshot[] { file.ResourceHealthMaintenanceSnapshot }, result.MaintenanceInfosToUpsert);
         }
         finally

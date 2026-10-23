@@ -129,6 +129,24 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { false, true, false }, store.UnsetValues);
     }
 
+    /// <summary>DB起動後の強制再調査は、再復号の文字列差分あり・同値とも生メタデータとmtimeだけを保存し、他のsong全列・背景行を保持します。本番owner・store・hydrate・SQLiteを通します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task RescanAsync_RealStoreAfterDbLoadPreservesUnchangedSongColumns(bool matchingMetadata)
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            using var fixture = new MaintenanceMetadataSongFixture(songDbPath, matchingMetadata);
+            Assert.IsTrue(ChartResourceHealthRequest.TryCreate([new ChartOperationTarget(fixture.Chart, null,
+                ChartOperationSourceScope.Library, true, false, false, ChartOperationCapabilities.RunResourceHealthCheck)], out ChartResourceHealthRequest request));
+            var owner = new SelectedChartResourceHealthWorkflowOwner(() => fixture.Library, new RecordingDialogService());
+            SelectedChartResourceHealthWorkflowResult result = await owner.RescanAsync(request);
+            Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
+            fixture.AssertSaved();
+        });
+    }
+
     /// <summary>実警告無視・再検査を本番adapterとDBへ転送し、拒否要求が保存を始めないことを確認します。</summary>
     [TestMethod]
     public async Task RealStore_WarningIgnoreAndRescanBorrowAcceptedLibraryAuthority()
