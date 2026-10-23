@@ -45,6 +45,9 @@ public sealed class PlaylistExternalFailureBoundaryTests
     [DataRow(200, "missing-file", true, (int)PlaylistSyncStatusKind.UnknownError, false)]
     [DataRow(200, "unknown-path", true, (int)PlaylistSyncStatusKind.UnknownError, false)]
     [DataRow(200, "unknown-startup", true, (int)PlaylistSyncStatusKind.UnknownError, false)]
+    [DataRow(200, "oversized-html", true, (int)PlaylistSyncStatusKind.UnknownError, false)]
+    [DataRow(200, "array-header", true, (int)PlaylistSyncStatusKind.HeaderParseError, false)]
+    [DataRow(200, "json-with-html-meta", true, (int)PlaylistSyncStatusKind.HeaderParseError, false)]
     [DataRow(200, "header-not-found", true, (int)PlaylistSyncStatusKind.HeaderNotFound, false)]
     [DataRow(404, "http", false, (int)PlaylistSyncStatusKind.Http404, false)]
     [DataRow(200, "data", true, (int)PlaylistSyncStatusKind.DataParseError, true)]
@@ -102,6 +105,9 @@ public sealed class PlaylistExternalFailureBoundaryTests
             File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"After\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Added\",\"level\":\"2\"}]");
             switch (malformedPart)
             {
+                case "array-header": File.WriteAllText(badHeader, "[]"); break;
+                case "oversized-html": File.WriteAllText(badHeader, "<html>" + new string(' ', ExternalPlaylistContentReader.HtmlLimitBytes) + "<meta name=\"bmstable\" content=\"good-header.json\">"); break;
+                case "json-with-html-meta": File.WriteAllText(badHeader, "{ invalid json }<html><meta name=\"bmstable\" content=\"good-header.json\"></html>"); break;
                 case "header": File.WriteAllText(badHeader, "{ invalid json }"); break;
                 case "data": File.WriteAllText(badData, "{ invalid json }"); break;
                 case "missing-file": File.Delete(badData); break;
@@ -192,6 +198,12 @@ public sealed class PlaylistExternalFailureBoundaryTests
             using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(1, db.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == 7902));
+                LR2SongDBExtended.playlist retained = db.Find<LR2SongDBExtended.playlist>(7902);
+                Assert.AreEqual(oldHash, retained.data_sha256);
+                Assert.AreEqual(oldUpdate, retained.last_update);
+                LR2SongDBExtended.playlist_entry retainedEntry = db.Table<LR2SongDBExtended.playlist_entry>().Where(entry => entry.playlist_id == 7902).Single();
+                Assert.AreEqual("Before", retainedEntry.title);
+                Assert.AreEqual("keep-local-memo", retainedEntry.memo);
                 if (includeSuccessfulTarget)
                 {
                     Assert.AreEqual(2, db.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == 7901));

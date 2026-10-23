@@ -989,8 +989,8 @@ public partial class SettingsDialogViewModel : ViewModel
         return null;
     }
 
-    /// <summary>管理データの撤去をL/Pで受理し、実変更と終端通知を待ちます。戻った後に画面側が終了を開始し、自己受付の解放を待ちません。</summary>
-    internal async Task<ApplicationDataUninstallResult> UninstallApplicationDataAsync()
+    /// <summary>管理データ撤去の確認をL/Pで受理し、通常終了への要求受理だけを待って受付を解放します。削除の完了は待ちません。</summary>
+    internal async Task<ApplicationDataUninstallResult> UninstallApplicationDataAsync(Func<ApplicationDataUninstallWorkflowOwner, string, Task<bool>> requestShutdown)
     {
         if (!workspacePort.HasPlaylistTables) { return ApplicationDataUninstallResult.NotStarted; }
         if (!TryBeginBothSettingsAdmissions(out IDisposable admission, out LibraryFileMutationLease playlistLease))
@@ -1003,9 +1003,15 @@ public partial class SettingsDialogViewModel : ViewModel
         using LibraryFileMutationCapability playlistCapability = playlistLease.CreateMutationCapability();
         ApplicationDataUninstallResult result = ApplicationDataUninstallResult.NotStarted;
         await CompleteAcceptedSettingsOperationAsync(admission, async _ =>
-            result = await applicationDataUninstallWorkflow.RunAsync(new ApplicationDataUninstallRequest(
-                workspacePort.HasPlaylistTables, statePort.IsLibraryOperationInProgress,
-                ApplicationSettings.LR2SongDBPath)), playlistCapability, playlistLease);
+        {
+            string songDbPath = ApplicationSettings.LR2SongDBPath;
+            result = await applicationDataUninstallWorkflow.ConfirmAsync(new ApplicationDataUninstallRequest(
+                workspacePort.HasPlaylistTables, statePort.IsLibraryOperationInProgress));
+            if (result.Outcome == ApplicationDataUninstallOutcome.Approved)
+            {
+                await requestShutdown(applicationDataUninstallWorkflow, songDbPath);
+            }
+        }, playlistCapability, playlistLease);
         return result;
     }
 

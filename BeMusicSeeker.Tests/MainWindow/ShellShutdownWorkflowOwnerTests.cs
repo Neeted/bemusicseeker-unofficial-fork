@@ -22,7 +22,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 // 標準compositionの購読と終端のBassAudioRuntime.Shutdownが共通資源へ到達するため、準備から解放まで並列化しません。
 [DoNotParallelize]
-public sealed class ShellShutdownWorkflowOwnerTests
+public sealed partial class ShellShutdownWorkflowOwnerTests
 {
     /// <summary>閉じる要求を連続しても同じ準備Taskと終端結果を共有し、二重停止を開始しません。</summary>
     [TestMethod]
@@ -1428,7 +1428,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         }
     }
 
-    private static ShellShutdownWorkflowOwner CreateDirectOwner(
+    internal static ShellShutdownWorkflowOwner CreateDirectOwner(
         MainWindowViewModel viewModel,
         Func<Func<Task>, Task>? dispatch = null,
         Action<string>? markShutdown = null,

@@ -136,7 +136,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     }
 
     /// <summary>復元・アプリデータ削除の完了後にshellの終了端末を呼ぶ設定画面を初期化します。</summary>
-    /// <param name="applicationExitTerminal">復元またはアプリデータ削除が完了した後のshell終了経路。</param>
+    /// <param name="applicationExitTerminal">プレイリスト復元が完了した後のshell終了経路。</param>
     internal SettingsWindow(SettingsWindowApplicationExitTerminal applicationExitTerminal)
         : this(
             new DwmNativeWindowTitleBarGateway(),
@@ -148,7 +148,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
 
     /// <summary>注入されたdialogと、復元・アプリデータ削除後のshell終了端末を使って設定画面を初期化します。</summary>
     /// <param name="dialogService">設定操作のpicker・確認・結果通知を実行する境界。</param>
-    /// <param name="applicationExitTerminal">復元またはアプリデータ削除が完了した後のshell終了経路。</param>
+    /// <param name="applicationExitTerminal">プレイリスト復元が完了した後のshell終了経路。</param>
     internal SettingsWindow(
         IUiDialogService dialogService,
         SettingsWindowApplicationExitTerminal applicationExitTerminal)
@@ -193,7 +193,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     /// <param name="titleBarGateway">標準タイトルバー属性を適用する境界。</param>
     /// <param name="titleBarThemeSource">標準タイトルバーのsemantic paletteを供給する境界。</param>
     /// <param name="dialogService">設定操作のpicker・確認・結果通知を実行する境界。</param>
-    /// <param name="applicationExitTerminal">復元またはアプリデータ削除が完了した後のshell終了経路。</param>
+    /// <param name="applicationExitTerminal">プレイリスト復元が完了した後のshell終了経路。</param>
     internal SettingsWindow(
         INativeWindowTitleBarGateway titleBarGateway,
         INativeWindowTitleBarThemeSource titleBarThemeSource,
@@ -1094,20 +1094,18 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         }
     }
 
-    /// <summary>Runs application-data uninstall inside the Window operation gate.</summary>
-    /// <returns>A task that completes after uninstall and any requested owner shutdown.</returns>
+    /// <summary>確認済み撤去をShellの通常終了へ渡す窓口。終了全体は待たず、要求受理までを返します。</summary>
+    internal Func<ApplicationDataUninstallWorkflowOwner, string, Task<bool>> RequestApplicationDataUninstall { get; set; }
+
+    /// <summary>設定操作の実Taskを保ったまま撤去終了の要求受理まで進めます。</summary>
     internal async Task HandleApplicationDataUninstallAsync()
     {
         if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
         {
             return;
         }
-        ApplicationDataUninstallResult result = await RunViewOperationAsync(
-            settingDialogViewModel.UninstallApplicationDataAsync);
-        if (result.ShouldCloseApplication)
-        {
-            applicationExitTerminal(this);
-        }
+        await RunViewOperationAsync(() => settingDialogViewModel.UninstallApplicationDataAsync(
+            RequestApplicationDataUninstall ?? throw new InvalidOperationException("Application data uninstall shutdown route is unavailable.")));
     }
 
     /// <summary>Owns the multi-select BMS root picker route for the General page.</summary>

@@ -128,12 +128,16 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
 
     private readonly Action<string> log;
 
+    private readonly TimeProvider timeProvider;
+
     internal PlaylistUrlAcquisitionWorkflow(
         IPlaylistUrlDownloadGateway downloadGateway,
-        Action<string> log)
+        Action<string> log,
+        TimeProvider timeProvider = null)
     {
         _downloadGateway = downloadGateway ?? throw new ArgumentNullException(nameof(downloadGateway));
         this.log = log ?? throw new ArgumentNullException(nameof(log));
+        this.timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>未引渡しの取得物を回収し、全削除の実終端を待ちます。導入へ移転済みの入力には使いません。</summary>
@@ -582,7 +586,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         return string.IsNullOrWhiteSpace(fileId) ? null : fileId;
     }
 
-    private static async Task<(Uri resolvedUri, bool unsupportedScheme)> TryResolveSharedDownloadPageUriAsync(Uri requestedUri, AppHttpResponse response, CancellationToken cancellationToken = default)
+    private async Task<(Uri resolvedUri, bool unsupportedScheme)> TryResolveSharedDownloadPageUriAsync(Uri requestedUri, AppHttpResponse response, CancellationToken cancellationToken = default)
     {
         if (!IsSharedDownloadPageResolutionCandidate(requestedUri) && !IsSharedDownloadPageResolutionCandidate(response?.ResponseUri))
         {
@@ -1186,7 +1190,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         return attributes;
     }
 
-    private static async Task<string> ReadTextWithLimitAsync(Stream source, string charSet, int maxBytes, CancellationToken cancellationToken = default)
+    private async Task<string> ReadTextWithLimitAsync(Stream source, string charSet, int maxBytes, CancellationToken cancellationToken = default)
     {
         if (source == null || maxBytes <= 0)
         {
@@ -1195,7 +1199,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         byte[] buffer = new byte[8192];
         using var memoryStream = new MemoryStream();
         int count;
-        while ((count = await source.ReadAsync(buffer, 0, Math.Min(buffer.Length, maxBytes + 1 - (int)memoryStream.Length), cancellationToken).ConfigureAwait(false)) > 0)
+        while ((count = await ReadBodyAsync(source, buffer, Math.Min(buffer.Length, maxBytes + 1 - (int)memoryStream.Length), cancellationToken).ConfigureAwait(false)) > 0)
         {
             await memoryStream.WriteAsync(buffer, 0, count, cancellationToken).ConfigureAwait(false);
             if (memoryStream.Length > maxBytes)
@@ -1212,6 +1216,14 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         {
             return Encoding.UTF8.GetString(memoryStream.ToArray());
         }
+    }
+
+    // 無受信の期限は一回の実読取りだけに適用する。書込み・解析や次の読取りへ時計を持ち越さない。
+    private async Task<int> ReadBodyAsync(Stream source, byte[] buffer, int count, CancellationToken cancellationToken)
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30), timeProvider);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+        return await source.ReadAsync(buffer, 0, count, cancellation.Token).ConfigureAwait(false);
     }
 
     private static string GetQueryParameter(Uri uri, string name)
@@ -1316,7 +1328,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
                 while (true)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    int count = await source.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
+                    int count = await ReadBodyAsync(source, buffer, buffer.Length, cancellationToken).ConfigureAwait(false);
                     if (count <= 0) { break; }
                     cancellationToken.ThrowIfCancellationRequested();
                     totalBytes += count;

@@ -3363,10 +3363,14 @@ uBMplayが正常に動作するか確認してください。</value>
 
 続行しますか？</value>
   </data>
+  <data name="Error_ExternalPlaylistBodySizeLimitExceeded" xml:space="preserve">
+    <value>外部表の本文が上限の {0} バイトを超えています。</value>
+  </data>
   <data name="Confirm_UninstallApplicationData" xml:space="preserve">
     <value>BeMusicSeeker 関連データを LR2 データベースから削除します。
 続行した場合、この操作を取り消すことはできません。
 必要に応じて事前にバックアップを取得してください。
+処理中の作業を停止してから削除し、成功・失敗にかかわらずアプリを終了します。
 
 続行しますか？</value>
   </data>

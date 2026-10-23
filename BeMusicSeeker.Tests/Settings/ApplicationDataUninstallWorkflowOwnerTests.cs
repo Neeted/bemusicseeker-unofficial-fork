@@ -24,10 +24,9 @@ public sealed class ApplicationDataUninstallWorkflowOwnerTests
         var store = new RecordingStore(dialogs.Events);
         var owner = new ApplicationDataUninstallWorkflowOwner(dialogs, store);
 
-        ApplicationDataUninstallResult result = await owner.RunAsync(new ApplicationDataUninstallRequest(
+        ApplicationDataUninstallResult result = await owner.ConfirmAsync(new ApplicationDataUninstallRequest(
             isWorkspaceReady: false,
-            isLibraryOperationInProgress: false,
-            songDbPath: "song.db"));
+            isLibraryOperationInProgress: false));
 
         Assert.AreEqual(ApplicationDataUninstallOutcome.NotStarted, result.Outcome);
         Assert.AreEqual(0, store.CallCount);
@@ -42,10 +41,9 @@ public sealed class ApplicationDataUninstallWorkflowOwnerTests
         var store = new RecordingStore(dialogs.Events);
         var owner = new ApplicationDataUninstallWorkflowOwner(dialogs, store);
 
-        ApplicationDataUninstallResult result = await owner.RunAsync(new ApplicationDataUninstallRequest(
+        ApplicationDataUninstallResult result = await owner.ConfirmAsync(new ApplicationDataUninstallRequest(
             isWorkspaceReady: true,
-            isLibraryOperationInProgress: true,
-            songDbPath: "song.db"));
+            isLibraryOperationInProgress: true));
 
         Assert.AreEqual(ApplicationDataUninstallOutcome.Blocked, result.Outcome);
         Assert.AreEqual(0, store.CallCount);
@@ -63,10 +61,9 @@ public sealed class ApplicationDataUninstallWorkflowOwnerTests
         var store = new RecordingStore(dialogs.Events);
         var owner = new ApplicationDataUninstallWorkflowOwner(dialogs, store);
 
-        ApplicationDataUninstallResult result = await owner.RunAsync(new ApplicationDataUninstallRequest(
+        ApplicationDataUninstallResult result = await owner.ConfirmAsync(new ApplicationDataUninstallRequest(
             isWorkspaceReady: true,
-            isLibraryOperationInProgress: false,
-            songDbPath: "song.db"));
+            isLibraryOperationInProgress: false));
 
         Assert.AreEqual(ApplicationDataUninstallOutcome.Cancelled, result.Outcome);
         Assert.AreEqual(0, store.CallCount);
@@ -84,13 +81,15 @@ public sealed class ApplicationDataUninstallWorkflowOwnerTests
         var store = new RecordingStore(dialogs.Events);
         var owner = new ApplicationDataUninstallWorkflowOwner(dialogs, store);
 
-        ApplicationDataUninstallResult result = await owner.RunAsync(new ApplicationDataUninstallRequest(
+        ApplicationDataUninstallResult result = await owner.ConfirmAsync(new ApplicationDataUninstallRequest(
             isWorkspaceReady: true,
-            isLibraryOperationInProgress: false,
-            songDbPath: "song.db"));
+            isLibraryOperationInProgress: false));
 
+        Assert.AreEqual(ApplicationDataUninstallOutcome.Approved, result.Outcome);
+        Assert.AreEqual(0, store.CallCount);
+        result = await owner.CompleteAsync("song.db", dialogs);
         Assert.AreEqual(ApplicationDataUninstallOutcome.Completed, result.Outcome);
-        Assert.IsTrue(result.ShouldCloseApplication);
+
         Assert.AreEqual("song.db", store.LastSongDbPath);
         CollectionAssert.AreEqual(new[] { "confirm", "store", "message", "message" }, dialogs.Events.ToArray());
         Assert.AreEqual(2, dialogs.MessageRequests.Count);
@@ -98,9 +97,9 @@ public sealed class ApplicationDataUninstallWorkflowOwnerTests
         Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_ApplicationWillExit, dialogs.MessageRequests[1].MessageBoxText);
     }
 
-    /// <summary>削除失敗を元例外と失敗通知で伝え、終了可能な成功結果へ置き換えないことを確認します。</summary>
+    /// <summary>確認時には削除せず、終了の終端段階で削除失敗を元例外と失敗通知で伝えることを確認します。</summary>
     [TestMethod]
-    public async Task StoreFailureShowsFailureAndDoesNotCompleteClose()
+    public async Task StoreFailureShowsFailureAtTerminalShutdown()
     {
         var dialogs = new RecordingDialogService
         {
@@ -110,14 +109,16 @@ public sealed class ApplicationDataUninstallWorkflowOwnerTests
         var store = new RecordingStore(dialogs.Events) { Failure = failure };
         var owner = new ApplicationDataUninstallWorkflowOwner(dialogs, store);
 
-        ApplicationDataUninstallResult result = await owner.RunAsync(new ApplicationDataUninstallRequest(
+        ApplicationDataUninstallResult result = await owner.ConfirmAsync(new ApplicationDataUninstallRequest(
             isWorkspaceReady: true,
-            isLibraryOperationInProgress: false,
-            songDbPath: "song.db"));
+            isLibraryOperationInProgress: false));
 
+        Assert.AreEqual(ApplicationDataUninstallOutcome.Approved, result.Outcome);
+        Assert.AreEqual(0, store.CallCount);
+        result = await owner.CompleteAsync("song.db", dialogs);
         Assert.AreEqual(ApplicationDataUninstallOutcome.Failed, result.Outcome);
         Assert.AreSame(failure, result.Failure);
-        Assert.IsFalse(result.ShouldCloseApplication);
+
         CollectionAssert.AreEqual(new[] { "confirm", "store", "message" }, dialogs.Events.ToArray());
         StringAssert.Contains(dialogs.MessageRequests[0].MessageBoxText, BeMusicSeeker.Properties.Resources.Msg_failed_uninstall);
     }
@@ -133,10 +134,9 @@ public sealed class ApplicationDataUninstallWorkflowOwnerTests
         var store = new RecordingStore(dialogs.Events);
         var owner = new ApplicationDataUninstallWorkflowOwner(dialogs, store);
 
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => owner.RunAsync(new ApplicationDataUninstallRequest(
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => owner.ConfirmAsync(new ApplicationDataUninstallRequest(
             isWorkspaceReady: true,
-            isLibraryOperationInProgress: false,
-            songDbPath: "song.db")));
+            isLibraryOperationInProgress: false)));
 
         Assert.AreEqual(0, store.CallCount);
         CollectionAssert.AreEqual(new[] { "confirm" }, dialogs.Events.ToArray());

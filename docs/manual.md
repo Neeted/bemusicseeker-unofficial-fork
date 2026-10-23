@@ -776,7 +776,7 @@ Edit levels, folders, URL1 / URL2, comments, and similar fields in the detail li
 
 ### Downloading Main Packages and Additional Charts
 
-Open main-package and additional-chart URLs from the `URL1` / `URL2` columns. [URL completion](#url1url2-completion) may fill empty URLs. To automatically retrieve and install files by clicking a single URL cell, turn ON `Try automatic download and installation when clicking the URL1/URL2 columns` under `Install` and `Scan BMS files and component files at startup` under `Advanced settings` → `Initialization`. If either is OFF, clicking opens the URL in a browser. The single-row `Open main URL in browser` / `Open diff URL in browser` context-menu commands open a browser.
+Open main-package and additional-chart URLs from the `URL1` / `URL2` columns. [URL completion](#url1url2-completion) may fill empty URLs. To automatically retrieve and install files by clicking a single URL cell, turn ON `Try automatic download and installation when clicking the URL1/URL2 columns` under `Install` and `Scan BMS files and component files at startup` under `Advanced settings` → `Initialization`. If either is OFF, clicking opens the URL in a browser. The single-row `Open main URL in browser` / `Open diff URL in browser` context-menu commands open a browser. You can also cancel a single automatic download from its progress display.
 
 #### Importing Multiple URLs
 
@@ -860,7 +860,7 @@ With the keep-existing-files option enabled, disabling global output stops autom
 
 ### Import External Playlist
 
-Register multiple playlists together from the table list, URLs, or JSON files. Right-click the playlist tree root and choose `Import playlists`.
+Register multiple playlists together from the table list, URLs, or JSON files. Right-click the playlist tree root and choose `Import playlists`. External table HTML is limited to `10 MiB`; header and chart-data JSON are each limited to `100 MiB`. Compressed responses are measured after decompression.
 
 ![Import playlists](img/プレイリストをインポート.png)
 
@@ -1327,7 +1327,7 @@ Use `Advanced settings` → `Danger zone` in settings.
 | --- | --- |
 | Disable / delete LR2 play log… → Remove triggers only | Stop future recording and retain existing history. |
 | Disable / delete LR2 play log… → Delete tables and triggers | Stop future recording and delete existing play-log history. |
-| Remove BeMusicSeeker data… | Remove BeMusicSeeker-managed data from the LR2 song database. Exit the application afterward. |
+| Remove BeMusicSeeker data… | Remove BeMusicSeeker-managed data from the LR2 song database. Stop running tasks before removal and exit the application whether removal succeeds or fails. |
 
 To remove the portable application itself, save needed settings, databases, and backups elsewhere, close the application, and delete its installation folder.
 

@@ -1549,7 +1549,7 @@ playlist:"Satellite Sub"
 <p>プレイリストツリーのルートを右クリックして <code>新規作成</code> を選びます。外部同期が OFF のプレイリストには、一覧の譜面行をプレイリスト本体またはフォルダへドラッグして追加できます。プレイログからも所持譜面に対応する行を追加できます。</p>
 <p>詳細一覧ではレベル、フォルダ、URL1 / URL2、コメントなどを編集できます。譜面を別フォルダへドラッグすると同じプレイリスト内で移動します。フォルダ型プレイリストのルートへ追加すると適切なフォルダが選ばれ、必要なら新しいフォルダが作られます。行の <code>エントリー削除</code> はプレイリストから外す操作です。</p>
 <h3 id="本体差分のダウンロード">本体・差分のダウンロード</h3>
-<p><code>URL1</code> / <code>URL2</code> 列から本体・差分 URL を開けます。空の URL は <a href="#url1url2-補完">URL 補完</a> で補える場合があります。単体 URL の列クリックで自動取得・導入を使うには、<code>インストール</code> の <code>URL1/URL2列のクリックで自動ダウンロード・インストールを試みる</code> と、<code>詳細設定</code> → <code>初期化</code> の <code>起動時にBMSファイルと構成ファイルのスキャンを行う</code> を両方 ON にします。どちらかが OFF の場合はブラウザで開きます。単体行の右クリックメニュー <code>本体URLをブラウザで開く</code> / <code>差分URLをブラウザで開く</code> はブラウザで開きます。</p>
+<p><code>URL1</code> / <code>URL2</code> 列から本体・差分 URL を開けます。空の URL は <a href="#url1url2-補完">URL 補完</a> で補える場合があります。単体 URL の列クリックで自動取得・導入を使うには、<code>インストール</code> の <code>URL1/URL2列のクリックで自動ダウンロード・インストールを試みる</code> と、<code>詳細設定</code> → <code>初期化</code> の <code>起動時にBMSファイルと構成ファイルのスキャンを行う</code> を両方 ON にします。どちらかが OFF の場合はブラウザで開きます。単体行の右クリックメニュー <code>本体URLをブラウザで開く</code> / <code>差分URLをブラウザで開く</code> はブラウザで開きます。単体の自動取得も進捗表示からキャンセルできます。</p>
 <h4 id="複数-url-の取り込み">複数 URL の取り込み</h4>
 <p>複数行を選択し、右クリックの <code>選択中の本体URLを取り込む</code> / <code>選択中の差分URLを取り込む</code> を選びます。確認後、同一 URL を除いて順にダウンロードし、自動導入を試みます。この操作は単体ダウンロードの自動導入設定に関わらず実行します。進捗表示からキャンセルでき、キャンセルまでに取得したファイルは導入対象になります。完了時に取得、スキップ、サイズ上限超過、失敗、未処理の件数を確認できます。</p>
 <p>対応譜面は <code>.bme</code>、<code>.bms</code>、<code>.bml</code>、<code>.pms</code>、<code>.bmson</code>、アーカイブは <code>.zip</code>、<code>.7z</code>、<code>.rar</code>、<code>.lzh</code> です。自動ダウンロードは1ファイル <code>512 MiB</code> までです。直リンクのほか、Google Drive、Dropbox、OneDrive、MediaFire、manbow、<code>venue.bmssearch.net</code>、<code>bmssearch.net/bmses</code> の一部配布ページに対応します。Google Drive のフォルダ共有、MEGA、AXFC、ログイン・CAPTCHA・JavaScript 操作が必要なページなどは一括取り込みではスキップします。これらはブラウザで取得し、<a href="#導入の手順">ドラッグアンドドロップで導入</a> してください。</p>
@@ -1612,7 +1612,7 @@ playlist:"Satellite Sub"
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p><code>BMT OUTPUT</code> を OFF にした表の管理対象 <code>.bmt</code> と登録 URL は、次回出力時に削除されます。全体の出力を OFF にする際、既存出力を残したい場合は先に <code>.bmt出力を無効化しても既存ファイルを削除しない</code> を ON にしてください。</p></div>
 <p>既存ファイルを残す設定で全体出力を OFF にすると、自動再出力だけを止め、既存 <code>.bmt</code> と登録 URL を引き続き使えます。</p>
 <h3 id="外部プレイリストのインポート">外部プレイリストのインポート</h3>
-<p>難易度表リスト、URL、JSONファイルから、複数のプレイリストをまとめて登録できます。プレイリストツリーのルートを右クリックし、<code>プレイリストをインポート</code> を選びます。</p>
+<p>難易度表リスト、URL、JSONファイルから、複数のプレイリストをまとめて登録できます。プレイリストツリーのルートを右クリックし、<code>プレイリストをインポート</code> を選びます。外部表のHTMLは <code>10 MiB</code>、ヘッダーと譜面データのJSONは各 <code>100 MiB</code> まで読み込めます。圧縮された応答は展開後のサイズで判定します。</p>
 <p><img alt="プレイリストをインポート" src="img/プレイリストをインポート.png"/></p>
 <div class="table-scroll"><table>
 <thead>
@@ -2053,7 +2053,7 @@ playlist:"Satellite Sub"
 </tr>
 <tr>
 <td>BeMusicSeeker 関連データを削除…</td>
-<td>LR2 の楽曲 DB から BeMusicSeeker 管理データを削除します。操作後はアプリを終了します。</td>
+<td>LR2 の楽曲 DB から BeMusicSeeker 管理データを削除します。進行中の作業を停止してから削除し、成功・失敗にかかわらずアプリを終了します。</td>
 </tr>
 </tbody>
 </table></div>

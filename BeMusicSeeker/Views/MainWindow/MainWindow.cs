@@ -1246,6 +1246,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             PlaybackPanel = viewModel.PlaybackPanel,
             PlaylistWorkspace = viewModel.PlaylistWorkspace
         };
+        createdWindow.RequestApplicationDataUninstall = async (uninstall, songDbPath) =>
+        {
+            bool accepted = await viewModel.ShellShutdownWorkflow.RequestApplicationDataUninstallAsync(uninstall, songDbPath);
+            if (accepted) { CompleteSettingsWindowApplicationExit(createdWindow); }
+            return accepted;
+        };
         settingsWindowCreated?.Invoke(createdWindow);
         return createdWindow;
     }

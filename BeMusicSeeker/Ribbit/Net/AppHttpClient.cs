@@ -157,6 +157,9 @@ internal sealed class AppHttpClient
 
     private readonly TimeProvider timeProvider = TimeProvider.System;
 
+    /// <summary>本文を自前で制限する呼出し側へ、送信と共有する総期限を渡します。返した期限は呼出し側が破棄します。</summary>
+    internal CancellationTokenSource CreateRequestDeadline() => new(httpClient.Timeout, timeProvider);
+
     /// <summary>
     /// 指定タイムアウトで HTTP クライアントを初期化します。
     /// </summary>
@@ -477,7 +480,7 @@ internal sealed class AppHttpClient
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Stream stream = await httpResponseMessage.Content.ReadAsStreamAsync().ConfigureAwait(false);
+            Stream stream = await httpResponseMessage.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
             return new AppHttpResponse(uri, httpResponseMessage, stream);
         }
         catch

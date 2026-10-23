@@ -1547,7 +1547,7 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <p>Right-click the playlist tree root and select <code>Create new</code>. With external sync OFF, drag chart rows onto the playlist itself or a folder to add them. Play-log rows corresponding to owned charts can also be added.</p>
 <p>Edit levels, folders, URL1 / URL2, comments, and similar fields in the detail list. Drag charts to another folder to move them within the same playlist. Adding to the root of a folder-based playlist selects a suitable folder and creates one if necessary. <code>Remove entry</code> removes a row from the playlist.</p>
 <h3 id="downloading-main-packages-and-additional-charts">Downloading Main Packages and Additional Charts</h3>
-<p>Open main-package and additional-chart URLs from the <code>URL1</code> / <code>URL2</code> columns. <a href="#url1url2-completion">URL completion</a> may fill empty URLs. To automatically retrieve and install files by clicking a single URL cell, turn ON <code>Try automatic download and installation when clicking the URL1/URL2 columns</code> under <code>Install</code> and <code>Scan BMS files and component files at startup</code> under <code>Advanced settings</code> → <code>Initialization</code>. If either is OFF, clicking opens the URL in a browser. The single-row <code>Open main URL in browser</code> / <code>Open diff URL in browser</code> context-menu commands open a browser.</p>
+<p>Open main-package and additional-chart URLs from the <code>URL1</code> / <code>URL2</code> columns. <a href="#url1url2-completion">URL completion</a> may fill empty URLs. To automatically retrieve and install files by clicking a single URL cell, turn ON <code>Try automatic download and installation when clicking the URL1/URL2 columns</code> under <code>Install</code> and <code>Scan BMS files and component files at startup</code> under <code>Advanced settings</code> → <code>Initialization</code>. If either is OFF, clicking opens the URL in a browser. The single-row <code>Open main URL in browser</code> / <code>Open diff URL in browser</code> context-menu commands open a browser. You can also cancel a single automatic download from its progress display.</p>
 <h4 id="importing-multiple-urls">Importing Multiple URLs</h4>
 <p>Select several rows and choose <code>Import selected main URLs</code> / <code>Import selected diff URLs</code> from the context menu. After confirmation, duplicate URLs are removed, downloads run in order, and automatic installation is attempted regardless of the single-download setting. Cancel through the progress display; files downloaded before cancellation still proceed to installation. Completion reports retrieved, skipped, size-limit, failed, and unprocessed counts.</p>
 <p>Supported charts are <code>.bme</code>, <code>.bms</code>, <code>.bml</code>, <code>.pms</code>, and <code>.bmson</code>; archives are <code>.zip</code>, <code>.7z</code>, <code>.rar</code>, and <code>.lzh</code>. Automatic downloads are limited to <code>512 MiB</code> per file. Supported sources include direct links and some distribution pages on Google Drive, Dropbox, OneDrive, MediaFire, manbow, <code>venue.bmssearch.net</code>, and <code>bmssearch.net/bmses</code>. Bulk import skips Google Drive shared folders, MEGA, AXFC, and pages requiring login, CAPTCHA, or JavaScript interaction. Download those in a browser and <a href="#installation-steps">install by drag and drop</a>.</p>
@@ -1610,7 +1610,7 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Turning a playlist's <code>BMT OUTPUT</code> OFF removes its managed <code>.bmt</code> and registered URL at the next output. Before disabling output globally, enable <code>Keep existing .bmt files when output is disabled</code> if you want to preserve them.</p></div>
 <p>With the keep-existing-files option enabled, disabling global output stops automatic re-export while retaining the existing <code>.bmt</code> files and registered URLs.</p>
 <h3 id="import-external-playlist">Import External Playlist</h3>
-<p>Register multiple playlists together from the table list, URLs, or JSON files. Right-click the playlist tree root and choose <code>Import playlists</code>.</p>
+<p>Register multiple playlists together from the table list, URLs, or JSON files. Right-click the playlist tree root and choose <code>Import playlists</code>. External table HTML is limited to <code>10 MiB</code>; header and chart-data JSON are each limited to <code>100 MiB</code>. Compressed responses are measured after decompression.</p>
 <p><img alt="Import playlists" src="img/プレイリストをインポート.png"/></p>
 <div class="table-scroll"><table>
 <thead>
@@ -2051,7 +2051,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 </tr>
 <tr>
 <td>Remove BeMusicSeeker data…</td>
-<td>Remove BeMusicSeeker-managed data from the LR2 song database. Exit the application afterward.</td>
+<td>Remove BeMusicSeeker-managed data from the LR2 song database. Stop running tasks before removal and exit the application whether removal succeeds or fails.</td>
 </tr>
 </tbody>
 </table></div>

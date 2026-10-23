@@ -2,7 +2,7 @@
 
 ## 目的と適用範囲
 
-通常終了、更新、動作モードの変更を共通の終了処理へ接続し、追跡しているDB・ファイル処理と再生の実完了を待つ契約です。致命的例外やOSによる強制終了に同じ保証はありません。
+通常終了、更新、動作モードの変更、管理データの撤去を共通の終了処理へ接続し、追跡しているDB・ファイル処理と再生の実完了を待つ契約です。致命的例外やOSによる強制終了に同じ保証はありません。
 
 ## 用語
 
@@ -28,7 +28,7 @@
 
 この破棄は表示結果だけに適用します。DB・ファイル・通信などの処理を未完了のまま切り離す理由にはせず、終了準備で待つ対象は引き続き実完了または規定の取消完了まで所有します。終端処理が明示的に行うウィンドウ状態の捕捉と設定保存は、後述の順序に従います。
 
-設定画面から受理した局所処理は画面側の操作Taskを所有者終了で回収し、閉じたことを完了と扱いません。`MainWindow`は設定画面を閉じて参照が失われる前に操作完了Taskを捕捉し、初期化の事前準備やL/P解放後の必須UI待ちも含む実終端を待ってからruntimeを終了します。再起動の要求元操作自身を終了待機へ循環接続しません。
+設定画面から受理した局所処理は画面側の操作Taskを所有者終了で回収し、閉じたことを完了と扱いません。`MainWindow`は設定画面を閉じて参照が失われる前に操作完了Taskを捕捉し、初期化の事前準備やL/P解放後の必須UI待ちも含む実終端を待ってからruntimeを終了します。再起動・撤去の要求元操作自身を終了待機へ循環接続しません。撤去は要求受理後に設定操作を解放し、その実Taskと通常終了の全実処理を回収した終端段階でだけ行います。成否通知を待ち、通知失敗時も終了を続けます。
 
 音声一覧取得・能力照会・テストは既存音声管理主体が実終端タスクを所有します。設定画面の表示失効後に合成完了タスクを捕捉し、一覧のバックグラウンド処理待ち、旧能力照会待ち、方式間とネイティブ解放を含む終端まで待ちます。表示終了や一覧の可視状態を処理完了として扱わず、非取消ネイティブ処理を強制解放しません。表示失効後の後続照会を抑止することで、捕捉したタスクの後に新しい照会を取りこぼしません。詳細は[設定](settings.md#音声一覧の非同期取得)に従います。
 
@@ -40,6 +40,7 @@
 | --- | --- |
 | 起動時の処理 | 必須手続きは開始済みTaskとcleanupの実終端まで親L/Pを保持する。LR2終了取消も既存の`ShutdownRequested`へ伝播し、受付解放後の初回完了・操作解禁・外部同期投入を中止する。設定借用と完了コールバックにも同じ条件を適用する。後続schedulerの `chart_info_hydration`、`maintenance_hydration`、`installable_maintenance` は依存待ちと未到達の登録完了待ちを緩め、実処理の枠と先行必須処理の終端順を保って終結させる。各処理は終了要求を確認し、DB・ファイル処理へ入らず状態を戻す |
 | その他の未実行の起動処理 | 実行せず `discarded` として終える。終了要求後の新しい受付も行わない |
+| URL取得 | 単発・一括・外部APIの本文I/Oを取り消し、表示終了後に導入引渡しや未受理cleanupを待つ要求も含めて、開始済み全Taskの実終端を待つ |
 | プレイリスト・履歴 | 入力構築、絞込み、参照索引の事前計算を取り消し、履歴の条件・表示先更新、参照反映、外部同期、再読込みの後片付け、出力と読込み、プレイリスト局所受付の必須公開・通知・後片付けの実終端まで待つ |
 | ライブラリ変更 | 登録済みの通常リネームとその更新、ドロップ導入から直接自動推定までと手動推定を取り消すか実完了まで待つ。取消後も開始済み全評価Taskと後片付けを待機し、未反映の兄弟成功は適用しない。リネームの失敗でも残りの待機を省かない |
 | 後続のデータ読込み | 譜面情報、保守、スコア、順位などが終了要求を確認して処理を終えられるようにする |
@@ -156,7 +157,7 @@ sequenceDiagram
 | 終端後の再生禁止、先行の曲解決、通常停止後の再開 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs) |
 | 起動処理とプレイリストの終了待ち | [`StartupBackgroundTaskSchedulerOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupBackgroundTaskSchedulerOwner.cs) | [`StartupBackgroundTaskSchedulerOwnerTests`](../../../BeMusicSeeker.Tests/Startup/StartupBackgroundTaskSchedulerOwnerTests.cs)、[`PlaylistShutdownCoordinatorTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistShutdownCoordinatorTests.cs) |
 | 試聴の設定復元、開始前と開始後の失敗 | [`ExternalPlayerProcessGateway`](../../../BeMusicSeeker/Models/Utils/Processes/ExternalPlayerProcessGateway.cs) | [`ExternalPlayerProcessGatewayTests`](../../../BeMusicSeeker.Tests/Processes/ExternalPlayerProcessGatewayTests.cs) |
-| 拡張データ削除の受付、保存失敗、LR2既存テーブルの保護 | [`ApplicationDataUninstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Settings/ApplicationDataUninstallWorkflowOwner.cs)、[`LR2SongDB`](../../../BeMusicSeeker/Models/LR2/LR2SongDB.cs) | [`ApplicationDataUninstallWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationDataUninstallWorkflowOwnerTests.cs)、[`LR2SongDBExtendedUninstallTests`](../../../BeMusicSeeker.Tests/Lr2/LR2SongDBExtendedUninstallTests.cs) |
+| 拡張データ削除の受付、実処理終端後の撤去、失敗通知後の終了、LR2既存テーブルの保護 | [`ApplicationDataUninstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Settings/ApplicationDataUninstallWorkflowOwner.cs)、[`LR2SongDB`](../../../BeMusicSeeker/Models/LR2/LR2SongDB.cs) | [`ApplicationDataUninstallWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationDataUninstallWorkflowOwnerTests.cs)、[`ShellShutdownUninstallTests`](../../../BeMusicSeeker.Tests/MainWindow/ShellShutdownUninstallTests.cs)、[`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs)、[`LR2SongDBExtendedUninstallTests`](../../../BeMusicSeeker.Tests/Lr2/LR2SongDBExtendedUninstallTests.cs) |
 | 再起動の引数、実行パス、作業ディレクトリと引渡し順 | [`ApplicationRestartRequest`](../../../BeMusicSeeker/Models/Utils/Processes/ApplicationRestartGateway.cs)、[`ApplicationRestartArgumentsPolicy`](../../../BeMusicSeeker/Models/Utils/Processes/ApplicationRestartGateway.cs) | [`ApplicationRestartGatewayTests`](../../../BeMusicSeeker.Tests/Processes/ApplicationRestartGatewayTests.cs) |
 
 

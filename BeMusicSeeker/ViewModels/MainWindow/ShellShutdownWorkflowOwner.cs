@@ -178,6 +178,8 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private bool operationModeRestartAccepted;
 
+    private Func<Task> terminalApplicationDataUninstall;
+
 
     /// <summary>
     /// 構成の新規L/P受付を閉じ、終了準備、実終端の回収、最終的なApplication終了要求を調整します。
@@ -200,7 +202,7 @@ internal sealed class ShellShutdownWorkflowOwner
     /// <param name="markCoordinatedShutdownStarted">終了準備前に協調終了を記録する処理。</param>
     /// <param name="requestApplicationShutdown">実終端の後処理後にApplication終了を要求する処理。</param>
     /// <param name="startApplicationRestart">終端の後処理後に後継プロセスを起動する処理。</param>
-    /// <param name="restartFailureDialogs">shell が利用可能な間に再起動失敗を通知するサービス。</param>
+    /// <param name="restartFailureDialogs">shell が利用可能な間に再起動失敗と撤去結果を通知するサービス。</param>
     /// <param name="reportRestartFailure">再起動失敗を通知できなかった場合の報告処理。</param>
     /// <param name="stopPerformanceDiagnostics">終了準備で性能診断の終端を待つ処理。</param>
     /// <param name="dispatchToUi">画面上の終端処理を所有Dispatcherへ渡す処理。</param>
@@ -388,6 +390,34 @@ internal sealed class ShellShutdownWorkflowOwner
             logShutdown("temp_remove_failed message=" + exception.Message);
         }
         await CompleteOperationModeRestartAsync().ConfigureAwait(true);
+        if (terminalApplicationDataUninstall != null)
+        {
+            try { await terminalApplicationDataUninstall().ConfigureAwait(true); }
+            catch (Exception exception) { LogWarningSafely(exception, "application_data_uninstall_terminal_failed"); }
+        }
+    }
+
+    /// <summary>通常Close・更新・モード変更と同じUI Dispatcherで撤去を先着判定し、新規受付を停止します。終端待機は要求元へ返しません。</summary>
+    internal async Task<bool> RequestApplicationDataUninstallAsync(ApplicationDataUninstallWorkflowOwner uninstall, string songDbPath)
+    {
+        bool accepted = false;
+        await dispatchToUi(() =>
+        {
+            lock (syncRoot)
+            {
+                if (closingOrClosed || preparationStarted || windowCloseTask != null || terminalShutdownTask != null
+                    || operationModeRestartRequestPending || operationModeRestartAccepted || startupUpdateWorkflow.IsShutdownPreparationStarted)
+                { return Task.CompletedTask; }
+                terminalApplicationDataUninstall = async () => { await uninstall.CompleteAsync(songDbPath, restartFailureDialogs).ConfigureAwait(true); };
+                closingOrClosed = true;
+                CloseOperationAdmissions();
+                accepted = true;
+            }
+            startupUpdateWorkflow.NotifyClosing();
+            BeginShutdownRequested("application_data_uninstall");
+            return Task.CompletedTask;
+        }).ConfigureAwait(false);
+        return accepted;
     }
 
     private async Task CompleteOperationModeRestartAsync()
@@ -948,6 +978,13 @@ internal sealed class ShellShutdownWorkflowOwner
             () => "running=" + FormatBool(regularChartListOwner.IsVirtualOrderPrewarmRunning)).ConfigureAwait(false);
         await (regularChartListStopTask ?? Task.CompletedTask).ConfigureAwait(false);
         await WaitForDropInstallQueueIdleAsync(waitTracker).ConfigureAwait(false);
+        try { await playlistWorkspace.WaitForPlaylistUrlIdleAsync().ConfigureAwait(false); }
+        catch (OperationCanceledException) { /* 終了取消し後も全実Taskの終端を回収した。 */ }
+        catch (Exception exception)
+        {
+            // WhenAllは全URL操作の実終端後に失敗する。元の要求の故障は保持し、独立した終了待機を飛ばさない。
+            LogWarningSafely(exception, "playlist_url_shutdown_failed");
+        }
         await WaitForMaintenanceRescanIdleAsync(waitTracker).ConfigureAwait(false);
         await WaitForFolderAutoRenameIdleAsync(waitTracker).ConfigureAwait(false);
         await WaitForPlaylistBuildIdleAsync(waitTracker).ConfigureAwait(false);
@@ -1007,6 +1044,7 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private void RequestShutdownCancellation(string reason)
     {
+        TryShutdownStep("playlist_url", playlistWorkspace.RequestPlaylistUrlShutdown);
         TryShutdownStep("library", () =>
         {
             if (Volatile.Read(ref libraryAttached))

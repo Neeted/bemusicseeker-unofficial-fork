@@ -17,7 +17,7 @@ using Ribbit.Net;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-public sealed class BmsPlaylistExternalLoadTests
+public sealed partial class BmsPlaylistExternalLoadTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 

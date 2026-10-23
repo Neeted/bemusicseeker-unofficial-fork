@@ -2844,7 +2844,10 @@ public class Resources
     /// <summary>プレイリストをバックアップから復元します。</summary>
     public static string Confirm_RestorePlaylistBackup => ResourceManager.GetString("Confirm_RestorePlaylistBackup", resourceCulture);
 
-    /// <summary>BeMusicSeekerのデータをLR2データベースから削除します。</summary>
+    /// <summary>外部表の実本文量が上限を超えたことを通知します。</summary>
+    public static string Error_ExternalPlaylistBodySizeLimitExceeded => ResourceManager.GetString("Error_ExternalPlaylistBodySizeLimitExceeded", resourceCulture);
+
+    /// <summary>管理データ撤去後は成否にかかわらず終了することを確認します。</summary>
     public static string Confirm_UninstallApplicationData => ResourceManager.GetString("Confirm_UninstallApplicationData", resourceCulture);
 
     /// <summary>アプリケーションを終了します。</summary>

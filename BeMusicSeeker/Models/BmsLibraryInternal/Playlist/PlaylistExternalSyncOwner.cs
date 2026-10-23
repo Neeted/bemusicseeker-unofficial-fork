@@ -194,19 +194,19 @@ internal sealed class PlaylistExternalSyncOwner
         BMSTable bmsTable = null;
         try
         {
-            string input = await GetExternalContentAsync(pageUri, cancellationToken).ConfigureAwait(false);
+            (string input, bool isJson) = await GetExternalContentAsync(pageUri, cancellationToken, detectKind: true).ConfigureAwait(false);
             string headerJson;
-            if (TryResolveHeaderUri(input, pageUri, out headerUri))
-            {
-                resolvedHeaderUri = !headerUri.IsAbsoluteUri ? new Uri(pageUri, headerUri) : headerUri;
-                headerJson = await GetExternalContentAsync(resolvedHeaderUri, cancellationToken).ConfigureAwait(false);
-            }
-            else if (LooksLikeJsonContent(input))
+            if (isJson)
             {
                 headerUri = pageUri;
                 pageUri = null;
                 resolvedHeaderUri = headerUri;
                 headerJson = input;
+            }
+            else if (TryResolveHeaderUri(input, pageUri, out headerUri))
+            {
+                resolvedHeaderUri = !headerUri.IsAbsoluteUri ? new Uri(pageUri, headerUri) : headerUri;
+                (headerJson, _) = await GetExternalContentAsync(resolvedHeaderUri, cancellationToken).ConfigureAwait(false);
             }
             else
             {
@@ -247,7 +247,7 @@ internal sealed class PlaylistExternalSyncOwner
                     + " headerUrl=" + FormatUriForLog(bmsTable.Header_url)
                     + " sourcePage=" + FormatUriForLog(originalPageUri));
             }
-            string dataJson = await GetExternalContentAsync(resolvedDataUri, cancellationToken).ConfigureAwait(false);
+            (string dataJson, _) = await GetExternalContentAsync(resolvedDataUri, cancellationToken).ConfigureAwait(false);
             bmsTable.LoadDataJSON(dataJson);
             return bmsTable;
         }
@@ -268,7 +268,7 @@ internal sealed class PlaylistExternalSyncOwner
         }
     }
 
-    private Task<string> GetExternalContentAsync(Uri uri, CancellationToken cancellationToken)
+    private async Task<(string Text, bool IsJson)> GetExternalContentAsync(Uri uri, CancellationToken cancellationToken, bool detectKind = false)
     {
         // HttpClientが扱う4 schemeとローカルファイルを維持し、未対応の取得元だけを入力失敗にします。
         // 読取り全体のNotSupportedExceptionを捕捉して内部故障まで隠すことはしません。
@@ -276,7 +276,12 @@ internal sealed class PlaylistExternalSyncOwner
         {
             throw new UriFormatException("Unsupported playlist resource URI scheme: " + uri.Scheme);
         }
-        return httpClient.GetStringAsync(uri, null, cancellationToken);
+        // 従来の通常外部表と同じく、一資源の送信開始から本文完了まで総期限を維持する。
+        // file入力も同じ上限で読むが、ローカル処理へHTTPの期限は付けない。
+        using CancellationTokenSource deadline = uri.IsFile ? null : httpClient.CreateRequestDeadline();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline?.Token ?? CancellationToken.None);
+        using AppHttpResponse response = await httpClient.OpenReadAsync(uri, cancellation.Token).ConfigureAwait(false);
+        return await ExternalPlaylistContentReader.ReadAsync(response.ResponseStream, detectKind, cancellation.Token).ConfigureAwait(false);
     }
 
     /// <summary>複数表を取得します。内蔵推薦は一操作内で同じfreshなスコア結果・失敗を共有します。</summary>
@@ -1498,17 +1503,6 @@ internal sealed class PlaylistExternalSyncOwner
         }
         headerUri = new Uri(match.Groups[1].Value, UriKind.RelativeOrAbsolute);
         return true;
-    }
-
-    private static bool LooksLikeJsonContent(string input)
-    {
-        if (string.IsNullOrWhiteSpace(input))
-        {
-            return false;
-        }
-        string text = input.TrimStart('\ufeff', ' ', '\t', '\r', '\n');
-        return text.StartsWith("{", StringComparison.Ordinal)
-            || text.StartsWith("[", StringComparison.Ordinal);
     }
 
     private static string FormatUriForLog(Uri uri)

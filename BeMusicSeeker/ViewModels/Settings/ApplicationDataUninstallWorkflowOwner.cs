@@ -13,6 +13,7 @@ internal enum ApplicationDataUninstallOutcome
     NotStarted,
     Blocked,
     Cancelled,
+    Approved,
     Failed,
     Completed
 }
@@ -21,19 +22,16 @@ internal sealed class ApplicationDataUninstallRequest
 {
     internal ApplicationDataUninstallRequest(
         bool isWorkspaceReady,
-        bool isLibraryOperationInProgress,
-        string songDbPath)
+        bool isLibraryOperationInProgress)
     {
         IsWorkspaceReady = isWorkspaceReady;
         IsLibraryOperationInProgress = isLibraryOperationInProgress;
-        SongDbPath = songDbPath;
     }
 
     internal bool IsWorkspaceReady { get; }
 
     internal bool IsLibraryOperationInProgress { get; }
 
-    internal string SongDbPath { get; }
 }
 
 internal sealed class ApplicationDataUninstallResult
@@ -48,8 +46,6 @@ internal sealed class ApplicationDataUninstallResult
 
     internal Exception Failure { get; }
 
-    internal bool ShouldCloseApplication => Outcome == ApplicationDataUninstallOutcome.Completed;
-
     internal static ApplicationDataUninstallResult NotStarted { get; } =
         new(ApplicationDataUninstallOutcome.NotStarted);
 
@@ -62,6 +58,9 @@ internal sealed class ApplicationDataUninstallResult
     internal static ApplicationDataUninstallResult Completed { get; } =
         new(ApplicationDataUninstallOutcome.Completed);
 
+    internal static ApplicationDataUninstallResult Approved { get; } =
+        new(ApplicationDataUninstallOutcome.Approved);
+
     internal static ApplicationDataUninstallResult Failed(Exception failure)
     {
         return new(ApplicationDataUninstallOutcome.Failed, failure ?? throw new ArgumentNullException(nameof(failure)));
@@ -69,7 +68,7 @@ internal sealed class ApplicationDataUninstallResult
 }
 
 /// <summary>
-/// application-owned data uninstall の確認、durable operation、terminal notification を所有します。
+/// 管理データ撤去の確認と、通常終了の実終端後に行う削除・通知を所有します。
 /// </summary>
 internal sealed class ApplicationDataUninstallWorkflowOwner
 {
@@ -83,7 +82,8 @@ internal sealed class ApplicationDataUninstallWorkflowOwner
         this.store = store ?? throw new ArgumentNullException(nameof(store));
     }
 
-    internal async Task<ApplicationDataUninstallResult> RunAsync(ApplicationDataUninstallRequest request)
+    /// <summary>設定操作の受付内では確認だけを行い、削除はShellの終端段階へ引き渡します。</summary>
+    internal async Task<ApplicationDataUninstallResult> ConfirmAsync(ApplicationDataUninstallRequest request)
     {
         if (request == null)
         {
@@ -99,7 +99,7 @@ internal sealed class ApplicationDataUninstallWorkflowOwner
                 BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization,
                 BeMusicSeeker.Properties.Resources.Warning,
                 MessageBoxImage.Exclamation,
-                "application data uninstall blocked notification");
+                "application data uninstall blocked notification", dialogs);
             return ApplicationDataUninstallResult.Blocked;
         }
 
@@ -115,9 +115,16 @@ internal sealed class ApplicationDataUninstallWorkflowOwner
             return ApplicationDataUninstallResult.Cancelled;
         }
 
+        return ApplicationDataUninstallResult.Approved;
+    }
+
+    /// <summary>全実処理と要求元設定操作の終端後に撤去し、閉じた設定画面に依存しない窓口で結果を通知します。</summary>
+    internal async Task<ApplicationDataUninstallResult> CompleteAsync(string songDbPath, IUiDialogService terminalDialogs)
+    {
+        ArgumentNullException.ThrowIfNull(terminalDialogs);
         try
         {
-            await Task.Run(() => store.Uninstall(request.SongDbPath));
+            await Task.Run(() => store.Uninstall(songDbPath));
         }
         catch (Exception ex)
         {
@@ -125,7 +132,7 @@ internal sealed class ApplicationDataUninstallWorkflowOwner
                 BeMusicSeeker.Properties.Resources.Msg_failed_uninstall + Environment.NewLine + Environment.NewLine + ex.Message,
                 BeMusicSeeker.Properties.Resources.Error,
                 MessageBoxImage.Hand,
-                "application data uninstall failure notification");
+                "application data uninstall failure notification", terminalDialogs);
             return ApplicationDataUninstallResult.Failed(ex);
         }
 
@@ -133,18 +140,18 @@ internal sealed class ApplicationDataUninstallWorkflowOwner
             BeMusicSeeker.Properties.Resources.Msg_success_uninstall,
             BeMusicSeeker.Properties.Resources.Success,
             MessageBoxImage.Asterisk,
-            "application data uninstall success notification");
+            "application data uninstall success notification", terminalDialogs);
         await ShowMessageAsync(
             BeMusicSeeker.Properties.Resources.Msg_ApplicationWillExit,
             BeMusicSeeker.Properties.Resources.Confirm,
             MessageBoxImage.Question,
-            "application data uninstall exit notification");
+            "application data uninstall exit notification", terminalDialogs);
         return ApplicationDataUninstallResult.Completed;
     }
 
-    private async Task ShowMessageAsync(string message, string caption, MessageBoxImage icon, string routeName)
+    private static async Task ShowMessageAsync(string message, string caption, MessageBoxImage icon, string routeName, IUiDialogService notificationDialogs)
     {
-        UiDialogResult result = await dialogs.ShowMessageAsync(new UiMessageRequest(
+        UiDialogResult result = await notificationDialogs.ShowMessageAsync(new UiMessageRequest(
             message,
             caption,
             MessageBoxButton.OK,

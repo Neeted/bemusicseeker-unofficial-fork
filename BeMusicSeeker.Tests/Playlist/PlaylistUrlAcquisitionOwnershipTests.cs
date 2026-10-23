@@ -22,7 +22,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>URLの取得判断と実workspaceから導入・表示への配送、受理されなかった入力の回収を確認します。</summary>
 /// <remarks>取得は応答portで固定し実stagingを使います。Windowは不要で、compiled購読の接続はMainWindowの代表が担います。所有移転の代表では実ownerを、保留の代表では実推定・SQLite・FSまで通します。</remarks>
 [TestClass]
-public sealed class PlaylistUrlAcquisitionOwnershipTests
+public sealed partial class PlaylistUrlAcquisitionOwnershipTests
 {
     private readonly List<PlaylistWorkspaceTestPorts.OwnedPlaylistStore> ownedPlaylistStores = [];
 

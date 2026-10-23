@@ -77,6 +77,18 @@ MD5ごとに逐次処理し、取消後は新しい問合せ・取得を始め�
 
 Driveフォルダ、JavaScript操作、CAPTCHA、ログイン、同意フォーム、ブラウザーの取得イベントが必要な配布元は自動解決しません。埋込み解析は現在の形式に依存し、形式変更を成功と推定しません。
 
+### URL本文の無受信期限と終了
+
+単発・一括・外部API候補のURL取得は、ヘッダー受信まで既存の30秒期限を使います。本文は各`ReadAsync`に無受信30秒を設け、受信後の次readで更新します。総転送時間、ローカル書込み、解析はこの無受信期限に含めません。単発取得も進捗行から取消できます。利用者・終了の取消を通常失敗やブラウザー代替へ変換せず、遅延Dispatcher配送でも取消を再確認します。
+
+取得表示と新規取得の抑止は導入引渡し待ちの前に終了し、先行要求の導入待ち中に次の取得を許可します。終了ではその表示状態と別に、取得開始から導入引渡し・未受理入力回収までの全実Taskを取り消して回収します。応答・一時入力・受付は実I/Oと必要なcleanupの終端まで保持します。
+
+### 外部表の本文上限
+
+外部難度表はHTMLを10 MiB、header・data JSONをそれぞれ100 MiBまで、文字列化・解析前に実展開済み本文バイト数で制限します。上限ちょうどは許可し、1バイト超過を拒否します。`Content-Length`、MIME、拡張子を根拠に上限を変えません。HTTP圧縮の展開後とローカル入力に同じ上限を適用します。
+
+初回はBOMと既存の空白を除く先頭`{`または`[`をJSON候補、それ以外をHTMLとします。BOM・空白は累積量に含め、種別不明中は100 MiBで読みます。10 MiB超の空白後にJSONが始まれば100 MiB以内で許可し、HTMLと確定した場合はその時点の累積量を10 MiBと比較します。JSON候補の不正入力をHTMLのmeta探索へ戻しません。取得失敗した対象の値・hash・更新日時・ローカル編集を保持し、独立した成功対象は反映します。URL導入のHTML 2 MiB・package 512 MiBとは別の制限です。
+
 ### 外部表の通信期限
 
 通常の外部難度表の HTTP GET と汎用フォーム POST は、送信開始から本文読取り完了まで一つの要求期限と呼出し元の取消を使います。ヘッダー受信で期限を更新せず、本文 I/O を取り消してから応答・ストリームを破棄します。途中本文を成功で返しません。同じバッファ方式の同期 GET・フォーム POST・テキスト POST にも適用します。大容量取得、multipart 送信、ストリームを返す API の期限とは区別します。
@@ -119,6 +131,8 @@ TSVとStellaの開始済み取得はともに終端まで待ちます。複数�
 | 未受理と開始前取消・世代退役の回収終端 | 同上 | `DownloadedInput_UnacceptedWaitsForCleanupAndPreservesBothFailures` は実削除gateで取得Taskの待機、一回の回収、元故障と回収原因の保持を確認する。`DownloadedInput_CancellationBeforeStartReclaimsOwnedSourceBeforeIdle` はURLが生成した所有要求を実queueへ入れ、開始前の取消／退役でport未呼出し、入力削除、実idle後の次の明示受付を確認する。 |
 | 開始後の入力保持と導入の実終端 | `PlaylistWorkspaceViewModel.PlaylistUrlAcquisition`、`PackageInstallWorkflowOwner` | `DownloadedInput_HoldsStagingUntilActualInstallTerminalWhilePlaylistIsBusy` はP中の読取り取得、実ownerの導入中の可読性と取得Taskの待機、通常／故障終端後の入力保持を確認する。適用前の管理入力回収と適用後の保全は[導入側の検証](../library/drop-install.md#実装とテストの対応)に分担する。 |
 | 単一期限・本文取消・接続解放 | [`AppHttpClient`](../../../BeMusicSeeker/Ribbit/Net/AppHttpClient.cs) | [`AppHttpClientTests`](../../../BeMusicSeeker.Tests/Runtime/AppHttpClientTests.cs) |
+| 外部表の本文上限、先頭判定、失敗対象保持 | `ExternalPlaylistContentReader`、`PlaylistExternalSyncOwner` | `ExternalPlaylistContentReaderTests`、`BmsPlaylistExternalLoadTests`、`PlaylistExternalFailureBoundaryTests` |
+| 無受信期限・単発取消・全取得Taskの終了回収 | `PlaylistUrlAcquisitionWorkflow`、`PlaylistWorkspaceViewModel.PlaylistUrlAcquisition` | `PlaylistUrlAcquisitionOwnershipTests.BodyDeadline_ResetsOnDataAndJoinsCancelledRead`、`BodyDeadline_DoesNotLimitLocalWrite`、`SingleBodyCancellation_JoinsIoBeforeRemovingProgressAndNeverFallsBack`、`WindowClose_JoinsEarlierCleanupAndLaterBodyIndependently`、`SingleBodyCancellation_DisconnectsRealPeerBeforeFixtureDisposal`、`BrowserFallback_DeferredPresentationObservesShutdown` |
 | HTMLの再取得なし・相対URI基準 | [`PlaylistExternalSyncOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistExternalSyncOwner.cs) | [`BmsPlaylistExternalLoadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalLoadTests.cs) |
 | 補完元の通常失敗・内部故障と退役 | `BMSPlaylist.UrlCompletion` | `PlaylistUrlCompletionTests.BMSPlaylist_UrlCompletionDistinguishesUnavailableSourceFromInternalFailure` は旧補完と次の明示要求、`BMSPlaylist_UrlCompletionUsesInjectedOptionsAndRetiredResultDoesNotApply` は停止token、取消終端と旧行への適用拒否を確認する。 |
 | 外部同期のURL補完とローカルURIの区別 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`PlaylistUrlCompletionTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlCompletionTests.cs) |

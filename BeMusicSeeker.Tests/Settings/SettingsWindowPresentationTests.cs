@@ -252,12 +252,9 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>実アプリ由来データ削除の確認中は Close を拒否し、取消や store 失敗では Window と draft を保って schema 操作へ誤配送しないことを確認します。</summary>
+    /// <summary>実アプリ由来データ削除の確認中は Close を拒否し、取消では Window と draft を保って schema 操作へ誤配送しないことを確認します。</summary>
     [TestMethod]
-    // gate 付き確認取消と、承認後の store 失敗を比較する。
-    [DataRow(false)]
-    [DataRow(true)]
-    public void AdvancedDangerZone_ApplicationDataActualButtonPreservesCancelAndFailureContracts(bool storeFailure)
+    public void AdvancedDangerZone_ApplicationDataActualButtonPreservesCancelContract()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -266,44 +263,38 @@ public sealed class SettingsWindowPresentationTests
                 values.OperationModeLR2DB = true;
                 values.LR2SongDBPath = "song.db";
             });
-            var dialogs = new DangerDialogService { HoldConfirmation = !storeFailure };
+            var dialogs = new DangerDialogService { HoldConfirmation = true };
             var schemaDialog = new DangerSchemaDialogPort();
             var store = new DangerApplicationDataStore
             {
-                Failure = storeFailure ? new InvalidOperationException("store failure") : null
+                Failure = null
             };
             DangerDialogContext context = CreateDangerDialog(values, dialogs, schemaDialog, store);
             bool draftValue = !context.Settings.ShowRecommUpdatedMsg;
             context.Settings.ShowRecommUpdatedMsg = draftValue;
             var presentation = new RecordingPresentationPort();
             context.Settings.AttachPresentationPort(presentation);
-            var window = new SettingsWindow { DataContext = context.Settings };
+            var window = new SettingsWindow { DataContext = context.Settings, RequestApplicationDataUninstall = (_, _) => throw new AssertFailedException("取消後の終了要求は不要です。") };
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
                 ClickAdvancedDangerButton(window, Resources.Settings_uninstall_application_data);
                 Assert.AreEqual(0, schemaDialog.CallCount);
 
-                if (!storeFailure)
-                {
-                    Assert.IsTrue(dialogs.ConfirmationStarted.Task.IsCompletedSuccessfully);
-                    Assert.IsTrue(((Grid)window.FindName("settingDialogOperationGrid")).IsEnabled, "無関係な通常項目は操作可能です。");
-                    window.Close();
-                    TestUiDispatcherHost.ProcessQueuedPresentation();
-                    Assert.AreEqual(0, presentation.CloseRequestCount);
-                    dialogs.CompleteConfirmation(MessageBoxResult.Cancel);
-                }
+                Assert.IsTrue(dialogs.ConfirmationStarted.Task.IsCompletedSuccessfully);
+                Assert.IsTrue(((Grid)window.FindName("settingDialogOperationGrid")).IsEnabled, "無関係な通常項目は操作可能です。");
+                window.Close();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(0, presentation.CloseRequestCount);
+                dialogs.CompleteConfirmation(MessageBoxResult.Cancel);
 
                 AwaitViewOperationTerminal(window);
 
                 Assert.IsTrue(window.IsVisible);
                 Assert.AreEqual(draftValue, context.Settings.ShowRecommUpdatedMsg);
-                Assert.AreEqual(storeFailure ? 1 : 0, store.CallCount);
-                Assert.AreEqual(storeFailure ? 1 : 0, dialogs.Messages.Count);
-                if (storeFailure)
-                {
-                    StringAssert.Contains(dialogs.Messages[0].MessageBoxText, Resources.Msg_failed_uninstall);
-                }
+                Assert.AreEqual(0, store.CallCount);
+                Assert.AreEqual(0, dialogs.Messages.Count);
+
             }
             finally
             {
@@ -1807,7 +1798,8 @@ public sealed class SettingsWindowPresentationTests
                 settingsEditSession: settingsSession,
                 uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                 applicationLifetime: lifetime,
-                cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                restartFailureDialogs: dialogs);
             MainWindowViewModel shellViewModel = composition.CreateMainWindowViewModelForTest();
             DangerDialogContext context = CreateDangerDialog(
                 shellViewModel,
@@ -1856,9 +1848,8 @@ public sealed class SettingsWindowPresentationTests
                 CollectionAssert.AreEqual(
                     new[]
                     {
-                        "confirm", "store", "message-success", "message-exit",
-                        "settings-closing", "settings-closed", "shutdown-mark:window_close",
-                        "settings-save", "shutdown-request"
+                        "confirm", "settings-closing", "settings-closed", "shutdown-mark:window_close",
+                        "settings-save", "store", "message-success", "message-exit", "shutdown-request"
                     },
                     events);
             }

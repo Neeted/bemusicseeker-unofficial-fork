@@ -596,7 +596,7 @@ public sealed class BmsLibraryIrStartupTests
         }
     }
 
-    private sealed class StartupFixture : IAsyncDisposable
+    internal sealed class StartupFixture : IAsyncDisposable
     {
         internal const string IrHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         internal const string CacheHash = "cccccccccccccccccccccccccccccccc";
@@ -719,6 +719,8 @@ public sealed class BmsLibraryIrStartupTests
                 }
             };
         }
+
+        internal string SongDbPath => Path.Combine(root, "song.db");
 
         internal Task InitializeAsync() => Task.Run(() => Library.InitializeStartup(null));
 

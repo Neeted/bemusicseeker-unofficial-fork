@@ -22,6 +22,8 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
     private readonly CancellationTokenSource stopping = new();
     private readonly Task serverTask;
     private readonly byte[] responseBody;
+
+    private readonly string additionalResponseHeaders;
     private readonly HttpStatusCode responseStatusCode;
     private readonly bool holdBody;
     private readonly bool holdBodyPrefix;
@@ -66,11 +68,13 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
     /// <param name="holdBody">本文送信前に解放 signal を待つ場合は <see langword="true"/>。</param>
     /// <param name="holdBodyPrefix">本文先頭の送信前に解放 signal を待つ場合は <see langword="true"/>。</param>
     /// <param name="responseStatusCode">同じHTTP読取り経路で検証する応答コード。</param>
+    /// <param name="additionalResponseHeaders">圧縮応答等の代表検証で返す追加ヘッダー。各行はCRLFで終えます。</param>
     public SingleRequestHttpServer(byte[] responseBody, bool holdBody = false, bool holdBodyPrefix = false,
-        HttpStatusCode responseStatusCode = HttpStatusCode.OK)
+        HttpStatusCode responseStatusCode = HttpStatusCode.OK, string additionalResponseHeaders = "")
     {
         this.responseBody = responseBody ?? [];
         this.responseStatusCode = responseStatusCode;
+        this.additionalResponseHeaders = additionalResponseHeaders;
         this.holdBody = holdBody;
         this.holdBodyPrefix = holdBodyPrefix;
         listener = new TcpListener(IPAddress.Loopback, 0);
@@ -143,7 +147,7 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
                 {
                     disconnectTask = ObserveClientDisconnectAsync(stream, observationCancellation.Token);
                 }
-                byte[] responseBytes = BuildHttpResponse(responseBody, responseStatusCode);
+                byte[] responseBytes = BuildHttpResponse(responseBody, responseStatusCode, additionalResponseHeaders);
                 int headerLength = responseBytes.Length - responseBody.Length;
                 await stream.WriteAsync(responseBytes.AsMemory(0, headerLength), stopping.Token).ConfigureAwait(false);
                 await stream.FlushAsync(stopping.Token).ConfigureAwait(false);
@@ -329,10 +333,10 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
         return -1;
     }
 
-    private static byte[] BuildHttpResponse(byte[] body, HttpStatusCode statusCode)
+    private static byte[] BuildHttpResponse(byte[] body, HttpStatusCode statusCode, string additionalResponseHeaders)
     {
         string header = "HTTP/1.1 " + (int)statusCode + " " + statusCode
-            + "\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: " + body.Length + "\r\nConnection: close\r\n\r\n";
+            + "\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: " + body.Length + "\r\nConnection: close\r\n" + additionalResponseHeaders + "\r\n";
         return [.. Encoding.ASCII.GetBytes(header), .. body];
     }
 }
