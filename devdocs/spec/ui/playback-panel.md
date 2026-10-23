@@ -56,7 +56,7 @@ seek等の操作能力、外部playerの表示面、一時試聴のLR2専用確�
 
 画像上の曲名領域は `#CC000000` と白文字、統計は既存の書体・内容に白文字と `#33000000` の背景を使います。グラデーションや影は付けません。バナー枠は `App.BorderBrush` を使います。
 
-seekと音量のSliderは設定と同じ `App.Canonical.CompactSliderStyle` の軌道とつまみを使い、18 DIP以上の入力領域の中央へ描画します。未再生軌道は `App.BorderBrush`、再生済軌道とつまみは `App.AccentBrush` に接続し、つまみの通常輪郭と状態色は[共通外観](appearance.md#通常版と省スペース版)に従います。seekの時刻は通常非表示で、つまみのhover・drag時だけ背景・枠・影のない白文字で表示します。音量はメニューの `App.TextBrush` を使い、固定幅の百分率列とSlider列を分け、0〜100%の桁数でSliderの幅・左右位置を変えません。
+seekと音量のSliderは設定と同じ `App.Canonical.CompactSliderStyle` の軌道とつまみを使い、輪郭線とつまみ周囲の余白を設けません。未再生軌道は `App.BorderBrush`、再生済軌道とつまみは `App.AccentBrush` に接続し、状態色は[共通外観](appearance.md#通常版と省スペース版)に従います。seekの時刻は通常非表示で、つまみのhover・drag時だけ背景・枠・影のない白文字で表示します。音量欄は上のボタン群と同じ幅へ広げ、メニューの `App.TextBrush` を使う百分率列に40 DIP、Slider列に残り幅を割り当てます。0〜100%の桁数でSliderの幅・左右位置を変えません。
 
 シークの座標は実 `PART_Track` とつまみの配置に基づく `Track.ValueFromPoint` で時刻へ換算し、上下限へ丸めます。アイコンボタンのhover背景と重なる範囲でも、軌道・つまみを含むseek全体を描画と入力の最前面へ置きます。値を反映しても双方向Bindingを保ちます。再生中のseekで一時停止し、mouse-upまたは押下したままのmouse-leaveで再開する既存操作を維持します。seekだけに `Stylus.IsPressAndHoldEnabled=False` を適用します。音量のpreviewと操作完了・終了時の保存は変更しません。
 

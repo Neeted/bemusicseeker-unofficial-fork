@@ -54,7 +54,7 @@ XAMLは原則として `DynamicResource` を使います。コード描画はテ
 
 再生メニューの文字ボタン、ランプビューアの「最新」、プレイログの表示対象選択は省スペース版を明示して採用します。選択欄自身が枠と背景を所有し、外側の装飾用Borderを重ねません。再生帯のアイコン操作とランプの「割合／曲数」は、それぞれの役割のスタイルを保ちます。別用途が残る旧Button／ComboBoxの暗黙スタイルは維持し、全画面を一括で変更しません。
 
-設定と再生の全Sliderは、通常版・省スペース版とも同じ軌道・つまみを使います。通常のつまみと進行側は `App.AccentBrush`、未進行側は `App.BorderBrush`、ホバーは `App.AccentHoverBrush`、ドラッグは `App.AccentPressedBrush`、無効なつまみは `App.DisabledTextBrush` です。つまみは `App.AccentForegroundBrush` の輪郭を持ちます。入力領域は見えるつまみより広く取り、再生では18 DIP以上を保ちます。用途固有の時刻は共通のつまみへの表示差込みで扱い、Trackを複製しません。
+設定と再生の全Sliderは、通常版・省スペース版とも同じ軌道・つまみを使います。通常のつまみと進行側は `App.AccentBrush`、未進行側は `App.BorderBrush`、ホバーは `App.AccentHoverBrush`、ドラッグは `App.AccentPressedBrush`、無効なつまみは `App.DisabledTextBrush` です。軌道とつまみに輪郭線を付けず、つまみの部品寸法を描画寸法に揃えて周囲に透明な余白を設けません。用途固有の時刻は共通のつまみへの表示差込みで扱い、Trackを複製しません。
 
 全Sliderは縦横とも `FocusVisualStyle=null` とし、テンプレートにも外周のフォーカス枠やフォーカストリガーを持ちません。フォーカス、Tab移動、方向キー、Home／End、PageUp／PageDown、個別の刻み・値Binding・反転・目盛を維持します。枠抑止のためにフォーカスを移動・解除しません。
 

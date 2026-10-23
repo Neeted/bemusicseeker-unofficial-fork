@@ -3926,7 +3926,6 @@ public sealed class PlaybackPanelViewModelTests
                     slider.ApplyTemplate();
                     window.UpdateLayout();
                     var track = (Track)slider.Template.FindName("PART_Track", slider);
-                    Assert.AreEqual(18d, slider.ActualHeight, 0.01);
                     Assert.IsNull(slider.FocusVisualStyle);
                     Assert.IsTrue(slider.Focusable && slider.IsTabStop && slider.IsEnabled);
                     Assert.IsFalse(Stylus.GetIsPressAndHoldEnabled(slider));
@@ -4002,8 +4001,6 @@ public sealed class PlaybackPanelViewModelTests
                     var rail = (Border)track.DecreaseRepeatButton.Template.FindName("RailChrome", track.DecreaseRepeatButton);
                     Assert.IsTrue(rail.ActualHeight > 0 && rail.ActualHeight < slider.ActualHeight);
                     Assert.AreEqual(((SolidColorBrush)slider.FindResource("App.AccentBrush")).Color, ((SolidColorBrush)rail.Background).Color);
-                    var grip = (System.Windows.Shapes.Ellipse)track.Thumb.Template.FindName("ThumbChrome", track.Thumb);
-                    Assert.AreEqual(((SolidColorBrush)slider.FindResource("App.AccentForegroundBrush")).Color, ((SolidColorBrush)grip.Stroke).Color);
                     Assert.IsTrue(panel.IsPaused);
                     Assert.AreEqual(1, player.Commands.Count(command => command == "Pause"));
                     Task resumeObserved = player.WaitForCommandAsync("Pause");

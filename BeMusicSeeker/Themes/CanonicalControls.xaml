@@ -329,18 +329,12 @@
   </ControlTemplate>
 
   <!-- 寸法だけを上書きし、通常版と省スペース版の描画・入力経路を共有する。 -->
-  <s:Double x:Key="App.Canonical.SliderInputSize">24</s:Double>
   <s:Double x:Key="App.Canonical.SliderThumbSize">16</s:Double>
   <s:Double x:Key="App.Canonical.SliderRailThickness">4</s:Double>
   <DataTemplate x:Key="App.Canonical.SliderThumbOverlay"><Grid /></DataTemplate>
   <ControlTemplate x:Key="App.Canonical.SliderThumbTemplate" TargetType="{x:Type Thumb}">
     <Grid Background="Transparent">
-      <Ellipse x:Name="ThumbChrome"
-               Width="{DynamicResource App.Canonical.SliderThumbSize}"
-               Height="{DynamicResource App.Canonical.SliderThumbSize}"
-               Fill="{TemplateBinding Foreground}"
-               Stroke="{DynamicResource App.AccentForegroundBrush}"
-               StrokeThickness="1" />
+      <Ellipse x:Name="ThumbChrome" Fill="{TemplateBinding Foreground}" />
       <!-- シークの時刻等、用途固有の表示だけを差し込む。Trackは共通のまま保つ。 -->
       <ContentPresenter Content="{Binding RelativeSource={RelativeSource AncestorType={x:Type Slider}}}"
                         ContentTemplate="{DynamicResource App.Canonical.SliderThumbOverlay}"
@@ -360,7 +354,7 @@
   </ControlTemplate>
 
   <ControlTemplate x:Key="App.Canonical.HorizontalSliderTemplate" TargetType="{x:Type Slider}">
-    <Grid MinHeight="{DynamicResource App.Canonical.SliderInputSize}" Background="Transparent">
+    <Grid MinHeight="{DynamicResource App.Canonical.SliderThumbSize}" Background="Transparent">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />
         <RowDefinition Height="*" />
@@ -378,19 +372,19 @@
                Visibility="Collapsed" />
       <Track x:Name="PART_Track" Grid.Row="1" VerticalAlignment="Center">
         <Track.DecreaseRepeatButton>
-          <RepeatButton Height="{DynamicResource App.Canonical.SliderInputSize}"
+          <RepeatButton Height="{DynamicResource App.Canonical.SliderThumbSize}"
                         Style="{DynamicResource App.Canonical.ProgressRepeatButtonStyle}"
                         Command="{x:Static Slider.DecreaseLarge}" />
         </Track.DecreaseRepeatButton>
         <Track.Thumb>
-          <Thumb Width="{DynamicResource App.Canonical.SliderInputSize}"
-                 Height="{DynamicResource App.Canonical.SliderInputSize}"
+          <Thumb Width="{DynamicResource App.Canonical.SliderThumbSize}"
+                 Height="{DynamicResource App.Canonical.SliderThumbSize}"
                  Focusable="False"
                  Foreground="{DynamicResource App.AccentBrush}"
                  Template="{StaticResource App.Canonical.SliderThumbTemplate}" />
         </Track.Thumb>
         <Track.IncreaseRepeatButton>
-          <RepeatButton Height="{DynamicResource App.Canonical.SliderInputSize}"
+          <RepeatButton Height="{DynamicResource App.Canonical.SliderThumbSize}"
                         Tag="{DynamicResource App.BorderBrush}"
                         Style="{DynamicResource App.Canonical.SliderRailButtonStyle}"
                         Command="{x:Static Slider.IncreaseLarge}" />
@@ -425,7 +419,7 @@
   </ControlTemplate>
 
   <ControlTemplate x:Key="App.Canonical.VerticalSliderTemplate" TargetType="{x:Type Slider}">
-    <Grid MinWidth="{DynamicResource App.Canonical.SliderInputSize}" Background="Transparent">
+    <Grid MinWidth="{DynamicResource App.Canonical.SliderThumbSize}" Background="Transparent">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="Auto" />
         <ColumnDefinition Width="*" />
@@ -447,19 +441,19 @@
              Orientation="Vertical"
              IsDirectionReversed="{TemplateBinding IsDirectionReversed}">
         <Track.DecreaseRepeatButton>
-          <RepeatButton Width="{DynamicResource App.Canonical.SliderInputSize}"
+          <RepeatButton Width="{DynamicResource App.Canonical.SliderThumbSize}"
                         Style="{DynamicResource App.Canonical.ProgressRepeatButtonStyle}"
                         Command="{x:Static Slider.DecreaseLarge}" />
         </Track.DecreaseRepeatButton>
         <Track.Thumb>
-          <Thumb Width="{DynamicResource App.Canonical.SliderInputSize}"
-                 Height="{DynamicResource App.Canonical.SliderInputSize}"
+          <Thumb Width="{DynamicResource App.Canonical.SliderThumbSize}"
+                 Height="{DynamicResource App.Canonical.SliderThumbSize}"
                  Focusable="False"
                  Foreground="{DynamicResource App.AccentBrush}"
                  Template="{StaticResource App.Canonical.SliderThumbTemplate}" />
         </Track.Thumb>
         <Track.IncreaseRepeatButton>
-          <RepeatButton Width="{DynamicResource App.Canonical.SliderInputSize}"
+          <RepeatButton Width="{DynamicResource App.Canonical.SliderThumbSize}"
                         Tag="{DynamicResource App.BorderBrush}"
                         Style="{DynamicResource App.Canonical.SliderRailButtonStyle}"
                         Command="{x:Static Slider.IncreaseLarge}" />
@@ -1209,7 +1203,6 @@
 
   <Style x:Key="App.Canonical.CompactSliderStyle" TargetType="{x:Type Slider}" BasedOn="{StaticResource App.Canonical.SliderStyle}">
     <Style.Resources>
-      <s:Double x:Key="App.Canonical.SliderInputSize">18</s:Double>
       <s:Double x:Key="App.Canonical.SliderThumbSize">12</s:Double>
       <s:Double x:Key="App.Canonical.SliderRailThickness">3</s:Double>
     </Style.Resources>

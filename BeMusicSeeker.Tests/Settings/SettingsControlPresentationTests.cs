@@ -257,9 +257,6 @@ public sealed class SettingsControlPresentationTests
                     Assert.IsNotNull(normalThumb);
                     Assert.IsNotNull(compactThumb);
                     Assert.IsTrue(compactThumb.ActualWidth < normalThumb.ActualWidth);
-                    Assert.IsTrue(compactTrack.Thumb.ActualWidth > compactThumb.ActualWidth);
-                    Assert.IsTrue(compactTrack.Thumb.ActualHeight > compactThumb.ActualHeight);
-                    Assert.IsTrue(compactTrack.Thumb.ActualHeight >= 18);
                     Assert.AreSame(normalTrack.Thumb.Template, compactTrack.Thumb.Template);
                 }
                 foreach (Slider slider in sliders)
@@ -307,7 +304,6 @@ public sealed class SettingsControlPresentationTests
                         Ellipse? thumb = FindDescendant<System.Windows.Shapes.Ellipse>(track.Thumb);
                         Assert.IsNotNull(thumb);
                         AssertBrushColor(host, "App.AccentBrush", thumb.Fill);
-                        AssertBrushColor(host, "App.AccentForegroundBrush", thumb.Stroke);
                         AssertBrushColor(host, "App.AccentBrush", (Brush)track.DecreaseRepeatButton.Tag);
                         AssertBrushColor(host, "App.BorderBrush", (Brush)track.IncreaseRepeatButton.Tag);
                         foreach (TickBar tick in FindDescendants<TickBar>(slider))
