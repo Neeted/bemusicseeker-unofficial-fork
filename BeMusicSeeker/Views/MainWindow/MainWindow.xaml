@@ -654,7 +654,7 @@
                 <Border.Style>
                   <Style TargetType="{x:Type Border}">
                     <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
-                    <Setter Property="BorderBrush" Value="{DynamicResource App.StrongBorderBrush}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource App.SearchBorderBrush}" />
                     <Style.Triggers>
                       <DataTrigger Binding="{Binding Text, ElementName=KeywordSearchEditor, Mode=OneWay, Converter={StaticResource stringToBooleanConverter}}" Value="True">
                         <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundActiveBrush}" />
@@ -707,7 +707,7 @@
                 <Border.Style>
                   <Style TargetType="{x:Type Border}">
                     <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
-                    <Setter Property="BorderBrush" Value="{DynamicResource App.StrongBorderBrush}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource App.SearchBorderBrush}" />
                     <Style.Triggers>
                       <DataTrigger Binding="{Binding Text, ElementName=PlaylistSummaryKeywordSearchEditor, Mode=OneWay, Converter={StaticResource stringToBooleanConverter}}" Value="True">
                         <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundActiveBrush}" />

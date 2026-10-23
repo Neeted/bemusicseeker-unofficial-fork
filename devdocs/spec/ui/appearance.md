@@ -66,7 +66,9 @@ WPF既定の点線のフォーカス飾りは使いません。表は選択と�
 
 ツリーの通常・選択・無効の文字色は、`TextBlock` と `EditableTextBlock` の両方へ明示します。アイコン付きツリー項目の本文は、表示・編集のどちらでも行内の上下中央に揃えます。サイドバーの分割線は操作範囲5、見える線1とし、透明な操作範囲を重ねます。余分な余白でツリーと表、スクロールバーを離しません。
 
-検索欄に文字があるときは `App.ControlBackgroundActiveBrush` で絞込み中であることを示します。明るいテーマは薄い桃色、暗いテーマは落ち着いた注意色とし、構文警告の `!` とは区別します。候補の操作は検索支援の仕様に従います。
+メイン画面右上の通常検索欄とプレイリスト一覧の検索欄は、非フォーカス時の枠にテーマ別の `App.SearchBorderBrush` を使い、入力領域を識別できる控えめな輪郭を示します。全10配色辞書に `SolidColorBrush` として定義し、両検索欄から `DynamicResource` で参照してテーマ切替へ追随します。各検索エディター内にキーボードフォーカスがあるときだけ、枠を既存の `App.InputFocusBorderBrush` へ切り替えます。ヘルプ等の周辺ボタンへのフォーカスはこの判定に含めません。高さ24 DIP、枠線1 DIP、角丸6 DIPとし、横幅、余白、アイコン配置、候補表示、検索操作は保ちます。
+
+両検索欄の背景は、空入力時に `App.ControlBackgroundBrush`、文字があるときに `App.ControlBackgroundActiveBrush` を使い、絞込み中であることを示します。明るいテーマは薄い桃色、暗いテーマは落ち着いた注意色とし、構文警告の `!` とは区別します。候補の操作は検索支援の仕様に従います。
 
 検索欄の絞込み、構文警告、ヘルプ、クリアと、左サイドバーのプレイリスト、フォルダ、検索、パッケージ、処理中の状態は共通アイコン体系へ揃えます。`[NO SONG]` は通常フォルダと同じ表示にせず、未所持の特殊フォルダと分かるフォルダ系アイコンを使います。処理中は通常アイコンを同期アイコンへ置き換えて回転させ、処理状態の判定や寿命は既存の管理主体から変えません。
 
@@ -136,6 +138,7 @@ OS標準の選択画面、利用者定義テーマ、個別色の編集、OSテ�
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | テーマの切替と共通スタイルの保持 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs) | [`NativeWindowThemeContractTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowThemeContractTests.cs) は各配色への切替で、辞書のキー整合、共通スタイルの解決、変更通知と版更新、題名部の明暗判定を確認する。 |
+| 通常検索・プレイリスト一覧検索の控えめな通常枠、フォーカス枠、入力状態の背景と配置 | [`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml) の `KeywordSearchComposite` / `PlaylistSummaryKeywordSearchComposite`、全10配色辞書の `App.SearchBorderBrush` | `NativeWindowThemeContractTests` は全テーマのキー整合、[`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) は検索操作とアイコン配置を回帰確認する。全10辞書の検索枠ブラシのキー・型・配色、両通常枠の動的参照、エディター専用のフォーカス判定、背景トリガーと寸法・余白の維持は変更時の静的差分確認で分担する。実環境での色の見え方は自動検証の対象に含めない。 |
 | 全ToolTipの表示中テーマ追随 | `CanonicalControls.xaml` の型スタイル | `NativeWindowThemeContractTests.ToolTip_VisibleContentTracksThemeWithoutExplicitStyle` はIsOpenで表示した明示StyleなしToolTipで明→暗→明の実効背景・枠・本文、文字列と折返しTextBlockの文字継承・内容保持を確認する。文字列からの自動生成、CustomTableViewの明示生成、SliderのAutoToolTipが同じ型スタイルを使う接続は静的確認で分担する。 |
 | テーマの切替、標準題名部の接続・解除と失敗 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs)、[`ThemedWindow`](../../../BeMusicSeeker/Views/ThemedWindow.cs) | [`NativeWindowThemeContractTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowTitleBarTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowTitleBarTests.cs) |
 | 共通Expander見出しの背景・枠・文字・矢印と動的テーマ切替 | [`CanonicalControls.xaml`](../../../BeMusicSeeker/Themes/CanonicalControls.xaml) の `App.Canonical.ExpanderHeaderToggleStyle` / `ExpanderHeaderToggleTemplate`、[`SettingsControls.xaml`](../../../BeMusicSeeker/Views/Settings/SettingsControls.xaml) の `SettingsExpanderStyle` | [`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs) の `SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes` は同じ表示済みExpanderで明→暗→明の背景・1 DIPの枠と、折畳み・展開・無効時の文字・矢印の実効色、双方向開閉、内容表示と `IExpandCollapseProvider` を確認する。ホバー・フォーカスの表示と有効条件、余白は既存トリガーとテンプレートの差分確認で維持を確認する。 |

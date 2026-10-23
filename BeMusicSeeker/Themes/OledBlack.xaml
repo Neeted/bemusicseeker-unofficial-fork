@@ -12,6 +12,7 @@
   <SolidColorBrush x:Key="App.DisabledTextBrush" Color="#FF657988" />
   <SolidColorBrush x:Key="App.BorderBrush" Color="#FF3D5666" />
   <SolidColorBrush x:Key="App.StrongBorderBrush" Color="#FF8BA7B6" />
+  <SolidColorBrush x:Key="App.SearchBorderBrush" Color="#FF384B57" />
   <SolidColorBrush x:Key="App.SeparatorBrush" Color="#FF19242D" />
   <SolidColorBrush x:Key="App.AccentBrush" Color="#FF61C7FF" />
   <SolidColorBrush x:Key="App.AccentForegroundBrush" Color="#FF03131D" />
