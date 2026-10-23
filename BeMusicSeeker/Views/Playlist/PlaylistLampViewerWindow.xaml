@@ -285,10 +285,9 @@
               </Style>
             </DatePicker.Resources>
           </DatePicker>
-          <Button VerticalAlignment="Center" Command="{Binding LatestCommand}"
+          <Button Style="{StaticResource App.Canonical.CompactButtonStyle}" VerticalAlignment="Center" Command="{Binding LatestCommand}"
                   Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_latest, Mode=OneWay}"
                   Margin="6,0,0,0"
-                  Padding="9,3"
                   AutomationProperties.AutomationId="PlaylistLampViewerLatestButton" />
           <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0" IsEnabled="{Binding IsGraphVisible}">
             <RadioButton Style="{StaticResource lampDisplayModeToggleStyle}" Tag="Left" GroupName="LampDisplayMode" IsChecked="{Binding IsPercentageMode, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_percentage_mode, Mode=OneWay}" AutomationProperties.AutomationId="PlaylistLampViewerPercentageMode" />

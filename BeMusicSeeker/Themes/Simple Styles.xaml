@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:d="http://schemas.microsoft.com/expression/interactivedesigner/2006" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:views="clr-namespace:BeMusicSeeker.Views">
   <LinearGradientBrush x:Key="NormalBrush" EndPoint="0,1" StartPoint="0,0">
     <GradientStop Color="#EEE" Offset="0.0" />
@@ -157,24 +157,6 @@
               <Setter Property="Foreground" Value="{DynamicResource DisabledForegroundBrush}" />
             </Trigger>
           </ControlTemplate.Triggers>
-        </ControlTemplate>
-      </Setter.Value>
-    </Setter>
-  </Style>
-  <!-- SimpleSlider keeps this transparent track route; scrollbar tracks use the canonical primitive below. -->
-  <Style x:Key="SimpleScrollRepeatButtonStyle" TargetType="{x:Type RepeatButton}">
-    <Setter Property="Background" Value="#00FFFFFF" />
-    <Setter Property="BorderBrush" Value="#00FFFFFF" />
-    <Setter Property="IsTabStop" Value="False" />
-    <Setter Property="Focusable" Value="False" />
-    <Setter Property="Template">
-      <Setter.Value>
-        <ControlTemplate TargetType="{x:Type RepeatButton}">
-          <Grid>
-            <Rectangle Fill="{TemplateBinding Control.Background}"
-                       Stroke="{TemplateBinding Control.BorderBrush}"
-                       StrokeThickness="{TemplateBinding Control.BorderThickness}" />
-          </Grid>
         </ControlTemplate>
       </Setter.Value>
     </Setter>
@@ -720,84 +702,6 @@
       </Setter.Value>
     </Setter>
   </Style>
-  <Style x:Key="SimpleSliderThumb" TargetType="{x:Type Thumb}">
-    <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
-    <Setter Property="Height" Value="14" />
-    <Setter Property="Width" Value="14" />
-    <Setter Property="Template">
-      <Setter.Value>
-        <ControlTemplate TargetType="{x:Type Thumb}">
-          <Grid>
-            <Ellipse Name="Ellipse" Fill="{DynamicResource NormalBrush}" Stroke="{DynamicResource NormalBorderBrush}" StrokeThickness="1" />
-          </Grid>
-          <ControlTemplate.Triggers>
-            <Trigger Property="UIElement.IsMouseOver" Value="True">
-              <Setter Value="{DynamicResource MouseOverBrush}" TargetName="Ellipse" Property="Shape.Fill" />
-            </Trigger>
-            <Trigger Property="IsEnabled" Value="False">
-              <Setter Value="{DynamicResource DisabledBackgroundBrush}" TargetName="Ellipse" Property="Shape.Fill" />
-            </Trigger>
-          </ControlTemplate.Triggers>
-        </ControlTemplate>
-      </Setter.Value>
-    </Setter>
-  </Style>
-  <Style x:Key="SimpleSlider" TargetType="{x:Type Slider}">
-    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
-    <Setter Property="Background" Value="{DynamicResource LightBrush}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource NormalBorderBrush}" />
-    <Setter Property="Template">
-      <Setter.Value>
-        <ControlTemplate TargetType="{x:Type Slider}">
-          <Grid Name="GridRoot">
-            <Grid.RowDefinitions>
-              <RowDefinition Height="Auto" />
-              <RowDefinition Height="Auto" MinHeight="{TemplateBinding FrameworkElement.MinHeight}" />
-              <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-            <TickBar Name="TopTick" Visibility="Collapsed" Height="4" SnapsToDevicePixels="True" Placement="Top" Fill="{DynamicResource GlyphBrush}" />
-            <Border Name="Border" Grid.Row="1" Margin="0" Height="4" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" CornerRadius="2" />
-            <Track Name="PART_Track" Grid.Row="1">
-              <Track.Thumb>
-                <Thumb Style="{DynamicResource SimpleSliderThumb}" />
-              </Track.Thumb>
-              <Track.IncreaseRepeatButton>
-                <RepeatButton Style="{DynamicResource SimpleScrollRepeatButtonStyle}" Command="Slider.IncreaseLarge" />
-              </Track.IncreaseRepeatButton>
-              <Track.DecreaseRepeatButton>
-                <RepeatButton Style="{DynamicResource SimpleScrollRepeatButtonStyle}" Command="Slider.DecreaseLarge" />
-              </Track.DecreaseRepeatButton>
-            </Track>
-            <TickBar Name="BottomTick" Visibility="Collapsed" Grid.Row="2" Height="4" SnapsToDevicePixels="True" Placement="Bottom" Fill="{TemplateBinding Control.Foreground}" />
-          </Grid>
-          <ControlTemplate.Triggers>
-            <Trigger Property="Slider.TickPlacement" Value="TopLeft">
-              <Setter TargetName="TopTick" Property="Visibility" Value="Visible" />
-            </Trigger>
-            <Trigger Property="Slider.TickPlacement" Value="BottomRight">
-              <Setter TargetName="BottomTick" Property="Visibility" Value="Visible" />
-            </Trigger>
-            <Trigger Property="Slider.TickPlacement" Value="Both">
-              <Setter TargetName="TopTick" Property="Visibility" Value="Visible" />
-              <Setter TargetName="BottomTick" Property="Visibility" Value="Visible" />
-            </Trigger>
-            <Trigger Property="IsEnabled" Value="False">
-              <Setter Value="{DynamicResource DisabledBackgroundBrush}" TargetName="Border" Property="Border.Background" />
-              <Setter Value="{DynamicResource DisabledBorderBrush}" TargetName="Border" Property="Border.BorderBrush" />
-            </Trigger>
-            <Trigger Property="Slider.Orientation" Value="Vertical">
-              <Setter TargetName="GridRoot" Property="FrameworkElement.LayoutTransform">
-                <Setter.Value>
-                  <RotateTransform Angle="-90" />
-                </Setter.Value>
-              </Setter>
-              <Setter TargetName="PART_Track" Property="Track.Orientation" Value="Horizontal" />
-            </Trigger>
-          </ControlTemplate.Triggers>
-        </ControlTemplate>
-      </Setter.Value>
-    </Setter>
-  </Style>
   <Style x:Key="SimpleTreeView" TargetType="{x:Type TreeView}">
     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Template">
@@ -908,5 +812,4 @@
   <Style TargetType="{x:Type Separator}" BasedOn="{StaticResource SimpleSeparator}" />
   <Style TargetType="{x:Type TabControl}" BasedOn="{StaticResource SimpleTabControl}" />
   <Style TargetType="{x:Type TabItem}" BasedOn="{StaticResource SimpleTabItem}" />
-  <Style TargetType="{x:Type Slider}" BasedOn="{StaticResource SimpleSlider}" />
 </ResourceDictionary>

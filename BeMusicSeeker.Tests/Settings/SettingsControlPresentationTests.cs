@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Automation.Peers;
@@ -9,6 +10,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
@@ -102,9 +104,11 @@ public sealed class SettingsControlPresentationTests
         });
     }
 
-    /// <summary>非編集の全幅と編集型の入力部・矢印を hit-test し、文字編集と幅変更を跨いで入力先・popup 幅追従が失われる誤りを検出します。</summary>
-    [TestMethod]
-    public void SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes()
+    /// <summary>通常版と省スペース版の非編集の全幅と編集型の入力部・矢印を hit-test し、文字編集と幅変更を跨いで入力先・popup 幅追従が失われる誤りを検出します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes(bool compact)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -127,6 +131,11 @@ public sealed class SettingsControlPresentationTests
                     Width = 300,
                     Margin = new Thickness(0, 8, 0, 0)
                 };
+                if (compact)
+                {
+                    selectionCombo.Style = (Style)host.FindResource("App.Canonical.CompactComboBoxStyle");
+                    editableCombo.Style = selectionCombo.Style;
+                }
                 panel.Children.Add(selectionCombo);
                 panel.Children.Add(editableCombo);
                 host.Children.Add(panel);
@@ -175,6 +184,153 @@ public sealed class SettingsControlPresentationTests
             finally
             {
                 window?.Close();
+            }
+        });
+    }
+
+    /// <summary>通常／省スペースのButtonと縦横Sliderで寸法と意味色・一回の命令・目盛・標準変更コマンドを確認し、フォーカス枠の再導入や同じ部品のテーマ追従漏れを検出します。</summary>
+    /// <remarks>実テンプレート、寸法と動的資源の接続を観測するためWPFを使い、OSのフォーカス取得自体は合否にしません。テーマ辞書は非並列の表示scopeで復元します。</remarks>
+    [TestMethod]
+    public void CanonicalControls_CompactVariantsSharePresentationAndPreserveSliderInput()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            Application application = Application.Current;
+            ResourceDictionary[] previous = application.Resources.MergedDictionaries.ToArray();
+            Window? window = null;
+            try
+            {
+                AppThemeService.ApplyTheme(AppThemeService.Light);
+                Grid host = CreateSettingsControlHost(useApplicationTheme: true);
+                var controls = new WrapPanel();
+                var button = new Button { Content = "通常", VerticalAlignment = VerticalAlignment.Center, Style = (Style)host.FindResource("App.Canonical.ButtonStyle") };
+                var compactButton = new Button { Content = "省スペース", VerticalAlignment = VerticalAlignment.Center, Style = (Style)host.FindResource("App.Canonical.CompactButtonStyle") };
+                int invocationCount = 0;
+                var invoked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var command = new RoutedCommand();
+                compactButton.CommandBindings.Add(new CommandBinding(command,
+                    (_, _) => { invocationCount++; invoked.SetResult(); }, (_, args) => args.CanExecute = true));
+                compactButton.Command = command;
+                controls.Children.Add(button);
+                controls.Children.Add(compactButton);
+                var sliders = new List<Slider>();
+                foreach (bool compact in new[] { false, true })
+                {
+                    foreach (Orientation orientation in new[] { Orientation.Horizontal, Orientation.Vertical })
+                    {
+                        var slider = new Slider
+                        {
+                            Style = (Style)host.FindResource(compact ? "App.Canonical.CompactSliderStyle" : "App.Canonical.SliderStyle"),
+                            Orientation = orientation,
+                            Width = orientation == Orientation.Horizontal ? 180 : 40,
+                            Height = orientation == Orientation.Horizontal ? 40 : 180,
+                            Minimum = 0,
+                            Maximum = 10,
+                            Value = 5,
+                            SmallChange = 1,
+                            LargeChange = 3,
+                            TickFrequency = 1,
+                            IsSnapToTickEnabled = true
+                        };
+                        controls.Children.Add(slider);
+                        sliders.Add(slider);
+                    }
+                }
+                host.Children.Add(controls);
+                window = new Window { Content = host, Width = 500, Height = 300 };
+                scope.ShowAndWaitForContentRendered(window);
+                Assert.AreSame(button.Template, compactButton.Template);
+                Assert.AreEqual(button.FontSize, compactButton.FontSize);
+                Assert.IsTrue(compactButton.ActualHeight < button.ActualHeight);
+                var buttonPeer = new ButtonAutomationPeer(compactButton);
+                ((IInvokeProvider)buttonPeer.GetPattern(PatternInterface.Invoke)).Invoke();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(invoked.Task, "compact-button-invoke");
+                Assert.AreEqual(1, invocationCount);
+                foreach (Orientation orientation in new[] { Orientation.Horizontal, Orientation.Vertical })
+                {
+                    Slider normal = sliders.First(slider => slider.Orientation == orientation);
+                    Slider compact = sliders.Last(slider => slider.Orientation == orientation);
+                    var normalTrack = (Track)normal.Template.FindName("PART_Track", normal);
+                    var compactTrack = (Track)compact.Template.FindName("PART_Track", compact);
+                    Ellipse? normalThumb = FindDescendant<System.Windows.Shapes.Ellipse>(normalTrack.Thumb);
+                    Ellipse? compactThumb = FindDescendant<System.Windows.Shapes.Ellipse>(compactTrack.Thumb);
+                    Assert.IsNotNull(normalThumb);
+                    Assert.IsNotNull(compactThumb);
+                    Assert.IsTrue(compactThumb.ActualWidth < normalThumb.ActualWidth);
+                    Assert.IsTrue(compactTrack.Thumb.ActualWidth > compactThumb.ActualWidth);
+                    Assert.IsTrue(compactTrack.Thumb.ActualHeight > compactThumb.ActualHeight);
+                    Assert.IsTrue(compactTrack.Thumb.ActualHeight >= 18);
+                    Assert.AreSame(normalTrack.Thumb.Template, compactTrack.Thumb.Template);
+                }
+                foreach (Slider slider in sliders)
+                {
+                    Assert.IsNull(slider.FocusVisualStyle);
+                    Assert.IsTrue(slider.Focusable && slider.IsTabStop);
+                    // focusを条件とする専用描画が両方向のテンプレートへ戻っていないことを確認します。
+                    Assert.IsFalse(slider.Template.Triggers.OfType<Trigger>().Any(trigger =>
+                        trigger.Property == UIElement.IsKeyboardFocusedProperty || trigger.Property == UIElement.IsKeyboardFocusWithinProperty));
+                    foreach (bool reversed in new[] { false, true })
+                    {
+                        slider.IsDirectionReversed = reversed;
+                        var track = (Track)slider.Template.FindName("PART_Track", slider);
+                        Assert.AreEqual(reversed, track.IsDirectionReversed);
+                        Assert.AreEqual(slider.Orientation, track.Orientation);
+                    }
+                    foreach (TickPlacement placement in Enum.GetValues<TickPlacement>())
+                    {
+                        slider.TickPlacement = placement;
+                        int expected = placement == TickPlacement.None ? 0 : placement == TickPlacement.Both ? 2 : 1;
+                        Assert.AreEqual(expected, FindDescendants<TickBar>(slider).Count(tick => tick.Visibility == Visibility.Visible));
+                    }
+                    Slider.IncreaseSmall.Execute(null, slider);
+                    Assert.AreEqual(6d, slider.Value);
+                    Slider.DecreaseSmall.Execute(null, slider);
+                    Assert.AreEqual(5d, slider.Value);
+                    Slider.IncreaseLarge.Execute(null, slider);
+                    Assert.AreEqual(8d, slider.Value);
+                    Slider.DecreaseLarge.Execute(null, slider);
+                    Assert.AreEqual(5d, slider.Value);
+                    Slider.MinimizeValue.Execute(null, slider);
+                    Assert.AreEqual(0d, slider.Value);
+                    Slider.MaximizeValue.Execute(null, slider);
+                    Assert.AreEqual(10d, slider.Value);
+                }
+                foreach (string theme in new[] { AppThemeService.Light, AppThemeService.Dark, AppThemeService.Light })
+                {
+                    AppThemeService.ApplyTheme(theme);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    AssertBrushColor(host, "App.ControlBackgroundBrush", compactButton.Background);
+                    AssertBrushColor(host, "App.BorderBrush", compactButton.BorderBrush);
+                    foreach (Slider slider in sliders)
+                    {
+                        var track = (Track)slider.Template.FindName("PART_Track", slider);
+                        Ellipse? thumb = FindDescendant<System.Windows.Shapes.Ellipse>(track.Thumb);
+                        Assert.IsNotNull(thumb);
+                        AssertBrushColor(host, "App.AccentBrush", thumb.Fill);
+                        AssertBrushColor(host, "App.AccentForegroundBrush", thumb.Stroke);
+                        AssertBrushColor(host, "App.AccentBrush", (Brush)track.DecreaseRepeatButton.Tag);
+                        AssertBrushColor(host, "App.BorderBrush", (Brush)track.IncreaseRepeatButton.Tag);
+                        foreach (TickBar tick in FindDescendants<TickBar>(slider))
+                        {
+                            AssertBrushColor(host, "App.SliderTickBrush", tick.Fill);
+                        }
+                    }
+                }
+                foreach (Slider slider in sliders)
+                {
+                    slider.IsEnabled = false;
+                    Assert.IsTrue(slider.Opacity < 1);
+                    var track = (Track)slider.Template.FindName("PART_Track", slider);
+                    Ellipse? thumb = FindDescendant<System.Windows.Shapes.Ellipse>(track.Thumb);
+                    Assert.IsNotNull(thumb);
+                    AssertBrushColor(host, "App.DisabledTextBrush", thumb.Fill);
+                }
+            }
+            finally
+            {
+                window?.Close();
+                application.Resources.MergedDictionaries.Clear();
+                foreach (ResourceDictionary dictionary in previous) { application.Resources.MergedDictionaries.Add(dictionary); }
             }
         });
     }

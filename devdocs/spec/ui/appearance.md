@@ -48,6 +48,16 @@ XAMLは原則として `DynamicResource` を使います。コード描画はテ
 
 検証対象は同一ウィンドウ内で実際に適用された役割とテンプレート、未採用の部品への非波及です。別々に読み込んだ辞書のオブジェクト同一性、ソース文字列、子要素の順序、固定座標を契約にしません。
 
+### 通常版と省スペース版
+
+`CompactButtonStyle`、`CompactComboBoxStyle`、`CompactSliderStyle` はそれぞれの `App.Canonical` 通常スタイルから寸法だけを変更します。描画テンプレート、意味色、ホバー・押下・無効状態、表示中のテーマ変更を共有します。文字サイズを縮めず、最小寸法と余白で省スペースにします。ComboBoxの候補項目は通常の共通項目スタイルを維持します。
+
+再生メニューの文字ボタン、ランプビューアの「最新」、プレイログの表示対象選択は省スペース版を明示して採用します。選択欄自身が枠と背景を所有し、外側の装飾用Borderを重ねません。再生帯のアイコン操作とランプの「割合／曲数」は、それぞれの役割のスタイルを保ちます。別用途が残る旧Button／ComboBoxの暗黙スタイルは維持し、全画面を一括で変更しません。
+
+設定と再生の全Sliderは、通常版・省スペース版とも同じ軌道・つまみを使います。通常のつまみと進行側は `App.AccentBrush`、未進行側は `App.BorderBrush`、ホバーは `App.AccentHoverBrush`、ドラッグは `App.AccentPressedBrush`、無効なつまみは `App.DisabledTextBrush` です。つまみは `App.AccentForegroundBrush` の輪郭を持ちます。入力領域は見えるつまみより広く取り、再生では18 DIP以上を保ちます。用途固有の時刻は共通のつまみへの表示差込みで扱い、Trackを複製しません。
+
+全Sliderは縦横とも `FocusVisualStyle=null` とし、テンプレートにも外周のフォーカス枠やフォーカストリガーを持ちません。フォーカス、Tab移動、方向キー、Home／End、PageUp／PageDown、個別の刻み・値Binding・反転・目盛を維持します。枠抑止のためにフォーカスを移動・解除しません。
+
 ### スクロールとフォーカス
 
 縦横のスクロールバーは `App.Canonical.VerticalScrollBarTemplate` / `HorizontalScrollBarTemplate` と `ScrollBarStyle` が方向、軌道、つまみ、無効状態を所有します。`SimpleScrollBar` は互換名として共通テンプレートを参照します。端の矢印ボタンは表示せず、`PART_Track` のページ送りボタン、標準Line・Pageコマンドとアクセシビリティを保ちます。ScrollViewerの部品名、内容スクロール、位置・可視範囲・最大値も維持します。
@@ -72,7 +82,7 @@ WPF既定の点線のフォーカス飾りは使いません。表は選択と�
 
 キャプションボタンは常に控えめな文字色です。通常背景は透明で、`IsMouseOver` のときだけ `App.ControlHoverBrush` を表示します。押下やキーfocusだけでは背景を点灯させず、影・白色光沢・パネル全体の常時背景は付けません。既存位置、標準の `WindowChrome`、`SystemCommands` と専用の入力判定を使い、サイズ変更の判定幅5を保ちます。
 
-再生パネルは操作専用の独立したテーマ資源と同梱画像を使います。操作帯、画像上の文字、seek・音量のフラット描画とパネル内だけのfocus装飾除去は[再生パネル](playback-panel.md#テーマ画像とフラットな操作表示)に従います。
+再生パネルは操作専用の独立したテーマ資源と同梱画像を使います。操作帯、画像上の文字、seek・音量の共通Sliderと操作ボタンのfocus装飾除去は[再生パネル](playback-panel.md#テーマ画像とフラットな操作表示)に従います。
 
 ツリーの通常・選択・無効の文字色は、`TextBlock` と `EditableTextBlock` の両方へ明示します。アイコン付きツリー項目の本文は、表示・編集のどちらでも行内の上下中央に揃えます。サイドバーの分割線は操作範囲5、見える線1とし、透明な操作範囲を重ねます。余分な余白でツリーと表、スクロールバーを離しません。
 
@@ -156,6 +166,7 @@ OS標準の選択画面、利用者定義テーマ、個別色の編集、OSテ�
 | 全ToolTipの表示中テーマ追随 | `CanonicalControls.xaml` の型スタイル | `NativeWindowThemeContractTests.ToolTip_VisibleContentTracksThemeWithoutExplicitStyle` はIsOpenで表示した明示StyleなしToolTipで明→暗→明の実効背景・枠・本文、文字列と折返しTextBlockの文字継承・内容保持を確認する。文字列からの自動生成、CustomTableViewの明示生成、SliderのAutoToolTipが同じ型スタイルを使う接続は静的確認で分担する。 |
 | テーマの切替、標準題名部の接続・解除と失敗 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs)、[`ThemedWindow`](../../../BeMusicSeeker/Views/ThemedWindow.cs) | [`NativeWindowThemeContractTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowTitleBarTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowTitleBarTests.cs) |
 | 共通Expander見出しの背景・枠・文字・矢印と動的テーマ切替 | [`CanonicalControls.xaml`](../../../BeMusicSeeker/Themes/CanonicalControls.xaml) の `App.Canonical.ExpanderHeaderToggleStyle` / `ExpanderHeaderToggleTemplate`、[`SettingsControls.xaml`](../../../BeMusicSeeker/Views/Settings/SettingsControls.xaml) の `SettingsExpanderStyle` | [`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs) の `SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes` は同じ表示済みExpanderで明→暗→明の背景・1 DIPの枠と、折畳み・展開・無効時の文字・矢印の実効色、双方向開閉、内容表示と `IExpandCollapseProvider` を確認する。ホバー・フォーカスの表示と有効条件、余白は既存トリガーとテンプレートの差分確認で維持を確認する。 |
+| 通常／省スペースの共通描画、Sliderの縦横・反転・目盛・枠抑止・キー相当入力とテーマ追従 | [`CanonicalControls.xaml`](../../../BeMusicSeeker/Themes/CanonicalControls.xaml) | `SettingsControlPresentationTests.CanonicalControls_CompactVariantsSharePresentationAndPreserveSliderInput` は実部品の共通テンプレート・相対寸法・意味色・一回の命令と標準Sliderコマンドを確認する。`SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes` は通常／省スペースの全表面、編集入力と候補幅を確認する。OSの実Tab・画像上の視認性・異なるDPIは実機推奨へ分担する。 |
 | 設定の表示部品、検証状態、アクセシビリティ、候補幅、項目保存と即時反映 | [`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs)、[`SettingsField`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、[`SettingsPathPicker`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、[`SettingsSection`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) の `SettingsPages_RequiredValidationBindingsUseSharedWarningAndErrorPresentation`、`SettingsValidationPresentation_ExposesWarningAndErrorWithoutRelyingOnColorAlone`、および既存の表示・アクセシビリティ検査、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs)、[`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) |
 | ダイアログの表示面、標準メニュー、結果とサイズ | [`ThemedMessageBox`](../../../BeMusicSeeker/Views/ThemedMessageBox.cs) | [`DialogPresentationTests`](../../../BeMusicSeeker.Tests/Dialogs/DialogPresentationTests.cs)、[`ThemedMessageBoxTests`](../../../BeMusicSeeker.Tests/Dialogs/ThemedMessageBoxTests.cs)、[`UiDialogCoordinatorWpfTests`](../../../BeMusicSeeker.Tests/Dialogs/UiDialogCoordinatorWpfTests.cs) |
 | 表とツリーへの配色・表示、共通アイコンの描画 | [`CustomTablePalette`](../../../BeMusicSeeker/Views/CustomTable/CustomTablePalette.cs)、[`AppFontIcon`](../../../BeMusicSeeker/Views/AppFontIcon.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs)、[`MainWindowTreePresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowTreePresentationWpfTests.cs) |

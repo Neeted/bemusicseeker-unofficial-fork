@@ -61,21 +61,10 @@
         </Setter.Value>
       </Setter>
     </Style>
-    <Style x:Key="Playback.RailButtonStyle" TargetType="{x:Type RepeatButton}">
-      <Setter Property="Focusable" Value="False" />
-      <Setter Property="IsTabStop" Value="False" />
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="{x:Type RepeatButton}">
-            <Grid Background="Transparent"><Rectangle x:Name="Rail" Height="3" VerticalAlignment="Center" Fill="{TemplateBinding Background}" /></Grid>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-    <ControlTemplate x:Key="Playback.ThumbTemplate" TargetType="{x:Type Thumb}">
-      <Grid Background="Transparent">
-        <Ellipse x:Name="Grip" Width="11" Height="11" VerticalAlignment="Center" HorizontalAlignment="Center" Fill="{TemplateBinding Foreground}" />
-        <TextBlock Text="{Binding Value, RelativeSource={RelativeSource AncestorType={x:Type Slider}}, Converter={StaticResource doubleSecToTimeStrConverter}}" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="-30,-18,-30,0" IsHitTestVisible="False">
+    <Style x:Key="SliderStylePlayer" TargetType="{x:Type Slider}" BasedOn="{StaticResource App.Canonical.CompactSliderStyle}">
+      <Style.Resources>
+        <DataTemplate x:Key="App.Canonical.SliderThumbOverlay">
+        <TextBlock Text="{Binding Value, Converter={StaticResource doubleSecToTimeStrConverter}}" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="-30,-18,-30,0" IsHitTestVisible="False">
           <TextBlock.Style>
             <Style TargetType="{x:Type TextBlock}">
               <Setter Property="Visibility" Value="Hidden" />
@@ -98,35 +87,9 @@
             </Style>
           </TextBlock.Style>
         </TextBlock>
-      </Grid>
-      <ControlTemplate.Triggers>
-        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Grip" Property="Fill" Value="{DynamicResource App.InputFocusBorderBrush}" /></Trigger>
-        <Trigger Property="IsDragging" Value="True"><Setter TargetName="Grip" Property="Fill" Value="{DynamicResource App.InputFocusBorderBrush}" /></Trigger>
-        <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Grip" Property="Fill" Value="{DynamicResource App.DisabledTextBrush}" /></Trigger>
-      </ControlTemplate.Triggers>
-    </ControlTemplate>
-    <Style x:Key="Playback.SliderStyle" TargetType="{x:Type Slider}">
-      <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-      <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Height" Value="18" />
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="{x:Type Slider}">
-            <Grid Background="{TemplateBinding Background}" Height="18">
-              <Track x:Name="PART_Track" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{Binding Value, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}" IsDirectionReversed="{TemplateBinding IsDirectionReversed}">
-                <Track.DecreaseRepeatButton><RepeatButton Command="{x:Static Slider.DecreaseLarge}" Style="{StaticResource Playback.RailButtonStyle}" Background="{DynamicResource App.InputFocusBorderBrush}" /></Track.DecreaseRepeatButton>
-                <Track.IncreaseRepeatButton><RepeatButton Command="{x:Static Slider.IncreaseLarge}" Style="{StaticResource Playback.RailButtonStyle}" Background="{DynamicResource App.SubtleTextBrush}" /></Track.IncreaseRepeatButton>
-                <Track.Thumb><Thumb Width="11" Height="18" Focusable="False" Foreground="{TemplateBinding Foreground}" Template="{StaticResource Playback.ThumbTemplate}" /></Track.Thumb>
-              </Track>
-            </Grid>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-    <Style x:Key="SliderStylePlayer" TargetType="{x:Type Slider}" BasedOn="{StaticResource Playback.SliderStyle}">
+        </DataTemplate>
+      </Style.Resources>
       <Setter Property="Stylus.IsPressAndHoldEnabled" Value="False" />
-      <Setter Property="Foreground" Value="{DynamicResource Playback.ControlForegroundBrush}" />
     </Style>
   </UserControl.Resources>
 <Grid Name="gridBMSPlayer" Row="0" Column="0" ColumnSpan="2" Width="{Binding Width, ElementName=gridBMSPlayerBody}">
@@ -214,18 +177,18 @@
             <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
               <MenuItem>
                 <HeaderedItemsControl.Header>
-                  <UniformGrid Rows="1" Columns="2" Width="150" IsEnabled="{Binding CanChangeHighSpeed}">
-                    <Button Content="HS UP" Padding="5,1" Command="{Binding IncreaseHighSpeedCommand}" />
-                    <Button Content="HS DOWN" Padding="5,1" Command="{Binding DecreaseHighSpeedCommand}" />
+                  <UniformGrid Rows="1" Columns="2" MinWidth="180" IsEnabled="{Binding CanChangeHighSpeed}">
+                    <Button Content="HS UP" Style="{StaticResource App.Canonical.CompactButtonStyle}" Margin="2,0" Command="{Binding IncreaseHighSpeedCommand}" />
+                    <Button Content="HS DOWN" Style="{StaticResource App.Canonical.CompactButtonStyle}" Margin="2,0" Command="{Binding DecreaseHighSpeedCommand}" />
                   </UniformGrid>
                 </HeaderedItemsControl.Header>
               </MenuItem>
               <MenuItem>
                 <HeaderedItemsControl.Header>
-                  <UniformGrid Rows="1" Columns="3" Width="150">
-                    <Button Content="Info" Padding="5,1" IsEnabled="{Binding CanShowInfo}" Click="gridBMSPlayerControlsShowInfoButtonClicked" />
-                    <Button Content="Effect" Padding="3,1" IsEnabled="{Binding CanShowEffect}" Command="{Binding ShowEffectCommand}" />
-                    <Button Content="1P/2P" Padding="5,1" IsEnabled="{Binding CanChangePlayside}" Command="{Binding ChangePlaysideCommand}" />
+                  <UniformGrid Rows="1" Columns="3" MinWidth="210">
+                    <Button Content="Info" Style="{StaticResource App.Canonical.CompactButtonStyle}" Margin="2,0" IsEnabled="{Binding CanShowInfo}" Click="gridBMSPlayerControlsShowInfoButtonClicked" />
+                    <Button Content="Effect" Style="{StaticResource App.Canonical.CompactButtonStyle}" Margin="2,0" IsEnabled="{Binding CanShowEffect}" Command="{Binding ShowEffectCommand}" />
+                    <Button Content="1P/2P" Style="{StaticResource App.Canonical.CompactButtonStyle}" Margin="2,0" IsEnabled="{Binding CanChangePlayside}" Command="{Binding ChangePlaysideCommand}" />
                   </UniformGrid>
                 </HeaderedItemsControl.Header>
               </MenuItem>
@@ -234,7 +197,7 @@
                   <Grid Width="150">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="40" /></Grid.ColumnDefinitions>
                     <TextBlock x:Name="playerVolumePercentage" Grid.Column="1" Foreground="{DynamicResource App.TextBrush}" VerticalAlignment="Center" TextAlignment="Right" Text="{Binding PlayerVolume, Converter={StaticResource addStringToEndConverter}, ConverterParameter=%|}" />
-                    <Slider x:Name="playerVolumeSlider" Thumb.DragCompleted="PlayerVolumeDragCompleted" PreviewMouseLeftButtonUp="PlayerVolumeMouseLeftButtonUp" PreviewKeyUp="PlayerVolumeKeyUp" LostKeyboardFocus="PlayerVolumeLostKeyboardFocus" Unloaded="PlayerVolumeUnloaded" Style="{StaticResource Playback.SliderStyle}" Grid.Column="0" VerticalAlignment="Center" Margin="0" AutoToolTipPlacement="TopLeft" Maximum="100" LargeChange="10" SmallChange="1" Height="18" RenderTransformOrigin="0.5,0.5" Value="{Binding PlayerVolume, Mode=TwoWay}" />
+                    <Slider x:Name="playerVolumeSlider" Thumb.DragCompleted="PlayerVolumeDragCompleted" PreviewMouseLeftButtonUp="PlayerVolumeMouseLeftButtonUp" PreviewKeyUp="PlayerVolumeKeyUp" LostKeyboardFocus="PlayerVolumeLostKeyboardFocus" Unloaded="PlayerVolumeUnloaded" Style="{StaticResource App.Canonical.CompactSliderStyle}" Grid.Column="0" VerticalAlignment="Center" Margin="0" AutoToolTipPlacement="TopLeft" Maximum="100" LargeChange="10" SmallChange="1" Height="18" RenderTransformOrigin="0.5,0.5" Value="{Binding PlayerVolume, Mode=TwoWay}" />
                   </Grid>
                 </HeaderedItemsControl.Header>
               </MenuItem>

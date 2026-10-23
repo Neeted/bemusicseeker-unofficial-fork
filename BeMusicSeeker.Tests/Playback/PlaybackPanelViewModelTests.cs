@@ -27,7 +27,6 @@ using NLog;
 using NLog.Config;
 using NLog.Targets;
 using Ribbit.Logging;
-using Rectangle = System.Windows.Shapes.Rectangle;
 
 namespace BeMusicSeeker.Tests;
 
@@ -93,7 +92,7 @@ public sealed class PlaybackPanelViewModelTests
                     }
                     sliderBounds = bounds;
                     var track = (Track)slider.Template.FindName("PART_Track", slider);
-                    var rail = (Rectangle)track.DecreaseRepeatButton.Template.FindName("Rail", track.DecreaseRepeatButton);
+                    var rail = (Border)track.DecreaseRepeatButton.Template.FindName("RailChrome", track.DecreaseRepeatButton);
                     Rect railBounds = rail.TransformToAncestor(layout).TransformBounds(new Rect(rail.RenderSize));
                     Rect thumbBounds = track.Thumb.TransformToAncestor(layout).TransformBounds(new Rect(track.Thumb.RenderSize));
                     Assert.AreEqual(railBounds.Top + railBounds.Height / 2, thumbBounds.Top + thumbBounds.Height / 2, 0.01);
@@ -3956,7 +3955,7 @@ public sealed class PlaybackPanelViewModelTests
                     player.Raise(nameof(IBMSPlayer.CurrentTime));
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     window.UpdateLayout();
-                    var overlappingGrip = (System.Windows.Shapes.Ellipse)track.Thumb.Template.FindName("Grip", track.Thumb);
+                    var overlappingGrip = (System.Windows.Shapes.Ellipse)track.Thumb.Template.FindName("ThumbChrome", track.Thumb);
                     var gripOverlap = Rect.Intersect(buttonBounds, overlappingGrip.TransformToAncestor(controls).TransformBounds(new Rect(overlappingGrip.RenderSize)));
                     Assert.IsFalse(gripOverlap.IsEmpty, "実配置でつまみの描画とhover背景が重なります。");
                     // 重なり内側のつまみ中央を拡大描画し、楕円境界のアンチエイリアスを判定対象にしません。
@@ -4000,11 +3999,11 @@ public sealed class PlaybackPanelViewModelTests
                         view.SeekFromPoint(new Point(slider.ActualWidth + 100, 9));
                         Assert.AreEqual(120d, player.CurrentTime.TotalSeconds, 0.001);
                     }
-                    var rail = (Rectangle)track.DecreaseRepeatButton.Template.FindName("Rail", track.DecreaseRepeatButton);
+                    var rail = (Border)track.DecreaseRepeatButton.Template.FindName("RailChrome", track.DecreaseRepeatButton);
                     Assert.IsTrue(rail.ActualHeight > 0 && rail.ActualHeight < slider.ActualHeight);
-                    Assert.IsNull(rail.Stroke);
-                    var grip = (System.Windows.Shapes.Ellipse)track.Thumb.Template.FindName("Grip", track.Thumb);
-                    Assert.IsNull(grip.Stroke);
+                    Assert.AreEqual(((SolidColorBrush)slider.FindResource("App.AccentBrush")).Color, ((SolidColorBrush)rail.Background).Color);
+                    var grip = (System.Windows.Shapes.Ellipse)track.Thumb.Template.FindName("ThumbChrome", track.Thumb);
+                    Assert.AreEqual(((SolidColorBrush)slider.FindResource("App.AccentForegroundBrush")).Color, ((SolidColorBrush)grip.Stroke).Color);
                     Assert.IsTrue(panel.IsPaused);
                     Assert.AreEqual(1, player.Commands.Count(command => command == "Pause"));
                     Task resumeObserved = player.WaitForCommandAsync("Pause");

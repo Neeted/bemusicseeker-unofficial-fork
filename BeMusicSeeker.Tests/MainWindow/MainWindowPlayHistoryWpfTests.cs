@@ -40,7 +40,9 @@ public sealed class MainWindowPlayHistoryWpfTests
                     MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
                     var toolbar = (Border)window.FindName("mainTableToolbar");
                     ComboBox combo = FindVisualChildren<ComboBox>(toolbar).Single();
-                    var dropdownContainer = (Border)combo.Parent;
+                    ComboBox dropdownContainer = combo;
+                    Assert.AreEqual(new Thickness(1), combo.BorderThickness);
+                    Assert.AreSame(window.FindResource("App.Canonical.ComboBoxTemplate"), combo.Template);
 
                     VisibilityObservation startupCollapsed = ObserveVisibility(
                         dropdownContainer,
