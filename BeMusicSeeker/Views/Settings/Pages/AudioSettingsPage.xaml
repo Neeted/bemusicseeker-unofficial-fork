@@ -37,7 +37,7 @@
 
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_volume, Mode=OneWay}">
       <StackPanel>
-        <settings:SettingsField Margin="0,0,0,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_volume, Mode=OneWay}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="64" /></Grid.ColumnDefinitions><Slider x:Name="audioVolumeSlider" Maximum="100" LargeChange="2" SmallChange="1" IsSnapToTickEnabled="True" Value="{Binding PlaybackPanel.PlayerVolume, ElementName=page, Mode=TwoWay}" /><TextBlock Grid.Column="1" Margin="12,0,0,0" TextAlignment="Right" VerticalAlignment="Center" Text="{Binding PlaybackPanel.PlayerVolume, ElementName=page, StringFormat={}{0}%}" /></Grid></settings:SettingsField>
+        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="64" /></Grid.ColumnDefinitions><Slider AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_volume, Mode=OneWay}" x:Name="audioVolumeSlider" Maximum="100" LargeChange="2" SmallChange="1" IsSnapToTickEnabled="True" Value="{Binding PlaybackPanel.PlayerVolume, ElementName=page, Mode=TwoWay}" /><TextBlock Grid.Column="1" Margin="12,0,0,0" TextAlignment="Right" VerticalAlignment="Center" Text="{Binding PlaybackPanel.PlayerVolume, ElementName=page, StringFormat={}{0}%}" /></Grid>
         <TextBlock Margin="0,6,0,0" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_desc2, Mode=OneWay}" TextWrapping="Wrap" />
       </StackPanel>
     </settings:SettingsSection>

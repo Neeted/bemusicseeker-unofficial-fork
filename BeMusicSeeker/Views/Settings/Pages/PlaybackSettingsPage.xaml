@@ -8,33 +8,28 @@
     <settings:SettingsSection IsEnabled="{Binding IsIndependentSectionEnabled}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player, Mode=OneWay}"
                               Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_Use, Mode=OneWay}"><StackPanel>
       <StackPanel>
-        <settings:SettingsOptionRow Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_Name_Internal, Mode=OneWay}"
-                                    Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_Internal_desc, Mode=OneWay}">
-          <RadioButton x:Name="radioButtonInternalPlayer" GroupName="Player" IsChecked="{Binding UseInternalPlayer}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_Name_Internal, Mode=OneWay}" />
-        </settings:SettingsOptionRow>
-        <settings:SettingsOptionRow Header="uBMplay" Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_uBMplay_desc, Mode=OneWay}">
-          <StackPanel><RadioButton x:Name="radioButtonPlayuBMplay" GroupName="Player" IsChecked="{Binding UsePlayeruBMplay}" Content="uBMplay" />
+        <StackPanel Margin="0,0,0,14"><RadioButton AutomationProperties.HelpText="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_Internal_desc, Mode=OneWay}" x:Name="radioButtonInternalPlayer" GroupName="Player" IsChecked="{Binding UseInternalPlayer}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_Name_Internal, Mode=OneWay}" />
+          <TextBlock Margin="26,3,0,8" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding ElementName=radioButtonInternalPlayer, Path=(AutomationProperties.HelpText)}" TextWrapping="Wrap" /></StackPanel>
+        <StackPanel Margin="0,0,0,14"><RadioButton AutomationProperties.HelpText="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_uBMplay_desc, Mode=OneWay}" x:Name="radioButtonPlayuBMplay" GroupName="Player" IsChecked="{Binding UsePlayeruBMplay}" Content="uBMplay" />
+          <TextBlock Margin="26,3,0,8" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding ElementName=radioButtonPlayuBMplay, Path=(AutomationProperties.HelpText)}" TextWrapping="Wrap" />
             <settings:SettingsPathPicker Margin="24,8,0,0" Visibility="{Binding IsChecked, ElementName=radioButtonPlayuBMplay, Converter={StaticResource BooleanToVisibilityConverter}}"
                                          Label="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_player_executable_path, Mode=OneWay}"
                                          Path="{Binding uBMplayPath, Mode=OneWay}" IsPathReadOnly="True" BrowseText="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" BrowseRequested="browseUbmplayPathButtonClick" />
           </StackPanel>
-        </settings:SettingsOptionRow>
-        <settings:SettingsOptionRow Header="BMIIDXView2015" Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_BMIIDXView_desc, Mode=OneWay}">
-          <StackPanel><RadioButton x:Name="radioButtonPlayBMIIDXView" GroupName="Player" IsChecked="{Binding UsePlayerBMIIDXView}" Content="BMIIDXView2015" />
+        <StackPanel Margin="0,0,0,14"><RadioButton AutomationProperties.HelpText="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_BMIIDXView_desc, Mode=OneWay}" x:Name="radioButtonPlayBMIIDXView" GroupName="Player" IsChecked="{Binding UsePlayerBMIIDXView}" Content="BMIIDXView2015" />
+          <TextBlock Margin="26,3,0,8" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding ElementName=radioButtonPlayBMIIDXView, Path=(AutomationProperties.HelpText)}" TextWrapping="Wrap" />
             <settings:SettingsPathPicker Margin="24,8,0,0" Visibility="{Binding IsChecked, ElementName=radioButtonPlayBMIIDXView, Converter={StaticResource BooleanToVisibilityConverter}}"
                                          Label="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_player_executable_path, Mode=OneWay}"
                                          Path="{Binding BMIIDXViewPath, Mode=OneWay}" IsPathReadOnly="True" BrowseText="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" BrowseRequested="browseBmIdxViewPathButtonClick" />
           </StackPanel>
-        </settings:SettingsOptionRow>
-        <settings:SettingsOptionRow Header="LR2" Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_player_lr2_description, Mode=OneWay}">
-          <StackPanel><RadioButton x:Name="radioButtonPlayLR2body" GroupName="Player" IsChecked="{Binding UsePlayerLR2body}" Content="LR2" />
+        <StackPanel Margin="0,0,0,14"><RadioButton AutomationProperties.HelpText="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_player_lr2_description, Mode=OneWay}" x:Name="radioButtonPlayLR2body" GroupName="Player" IsChecked="{Binding UsePlayerLR2body}" Content="LR2" />
+          <TextBlock Margin="26,3,0,8" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding ElementName=radioButtonPlayLR2body, Path=(AutomationProperties.HelpText)}" TextWrapping="Wrap" />
             <StackPanel Margin="24,8,0,0" Visibility="{Binding IsChecked, ElementName=radioButtonPlayLR2body, Converter={StaticResource BooleanToVisibilityConverter}}">
               <settings:SettingsPathPicker Label="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_player_executable_path, Mode=OneWay}" Path="{Binding LR2bodyPath, Mode=OneWay}" IsPathReadOnly="True" BrowseText="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" BrowseRequested="browseLr2RootPathButtonClick" />
               <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_LR2_wsize, Mode=OneWay}"><ComboBox DisplayMemberPath="Key" SelectedValuePath="Value" ItemsSource="{Binding LR2bodyResolutions, Mode=OneWay}" SelectedValue="{Binding LR2bodyResolution}" /></settings:SettingsField>
               <CheckBox Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_LR2_savewpos, Mode=OneWay}" IsChecked="{Binding IsSaveLR2bodyWindowPosition}" />
             </StackPanel>
           </StackPanel>
-        </settings:SettingsOptionRow>
       </StackPanel>
     <Button Tag="retry:player" Style="{StaticResource SettingsQuietButtonStyle}" HorizontalAlignment="Left" Margin="0,12,0,0" IsEnabled="{Binding IsIndependentSectionEnabled}" Visibility="{Binding CanRetryExternalPlayerSettings, Converter={StaticResource BooleanToVisibilityConverter}}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_retry, Mode=OneWay}" /></StackPanel></settings:SettingsSection>
   </StackPanel>

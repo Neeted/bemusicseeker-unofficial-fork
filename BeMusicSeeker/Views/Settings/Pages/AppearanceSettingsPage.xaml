@@ -9,12 +9,10 @@
   <StackPanel>
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme, Mode=OneWay}"
                               Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_appearance_theme_description, Mode=OneWay}">
-      <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme, Mode=OneWay}">
-        <ComboBox x:Name="appearanceThemeComboBox" HorizontalAlignment="Stretch"
+      <ComboBox AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme, Mode=OneWay}" x:Name="appearanceThemeComboBox" HorizontalAlignment="Stretch"
                   ItemsSource="{Binding AppearanceThemeOptions}"
                   DisplayMemberPath="DisplayName" SelectedValuePath="Key"
                   SelectedValue="{Binding AppearanceTheme, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-      </settings:SettingsField>
     </settings:SettingsSection>
 
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table, Mode=OneWay}"

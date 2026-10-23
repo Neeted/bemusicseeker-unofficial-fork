@@ -28,7 +28,7 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class DialogPresentationTests
 {
-    /// <summary>各dialogを実表示し、意味付きbutton役割を適用しつつ外部sentinelとApplicationへ共通styleを漏らしません。設定はBMS/BMTと選択recordの確定をPrimary、取消をQuietとして確認します。</summary>
+    /// <summary>各dialogの実表示で役割別styleと外部sentinel・Applicationへの非波及を確認します。設定の環境カードと通常ラジオを区別し、BMS/BMT・選択recordの確定はPrimary、取消はQuietとして確認します。</summary>
     [DataTestMethod]
     [DataRow("SettingsWindow")]
     [DataRow("ReleaseNotesWindow")]
@@ -62,6 +62,12 @@ public sealed class DialogPresentationTests
                 AssertCanonicalPresentation(fixture);
                 if (fixture.HostWindow is SettingsWindow settings)
                 {
+                    // 同じ外側sentinelの下で、環境カード以外の通常ラジオにも共通の描画が適用される。
+                    ((ListBox)settings.FindName("settingsNavigation")).SelectedItem = settings.FindName("navigationPlayback");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    settings.UpdateLayout();
+                    Assert.IsTrue(FindVisualDescendants<RadioButton>(settings).Any(radio => radio.TemplatedParent == null));
+                    AssertCanonicalRadioButtonRoles(fixture);
                     ((ListBox)settings.FindName("settingsNavigation")).SelectedItem = settings.FindName("navigationRightClick");
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     settings.UpdateLayout();
@@ -764,7 +770,7 @@ public sealed class DialogPresentationTests
         AssertCanonicalControlRole<TextBox>(presentationRoot, "TextBox", "App.Canonical.TextBoxStyle");
         AssertCanonicalControlRole<ComboBox>(presentationRoot, "ComboBox", "App.Canonical.ComboBoxStyle");
         AssertCanonicalControlRole<CheckBox>(presentationRoot, "CheckBox", "App.Canonical.CheckBoxStyle");
-        AssertCanonicalControlRole<RadioButton>(presentationRoot, "RadioButton", "App.Canonical.RadioButtonStyle");
+        AssertCanonicalRadioButtonRoles(fixture);
         AssertCanonicalListBoxRoles(presentationRoot);
         AssertCanonicalControlRole<GroupBox>(presentationRoot, "GroupBox", "App.Canonical.GroupBoxStyle");
         AssertCanonicalControlRole<Label>(presentationRoot, "Label", "App.Canonical.LabelStyle");
@@ -1025,6 +1031,25 @@ public sealed class DialogPresentationTests
         {
             Style resolvedStyle = RequireStyle(control, canonicalStyleKey);
             AssertCanonicalControlRole(control, controlName, canonicalStyleKey, resolvedStyle);
+        }
+    }
+
+    private static void AssertCanonicalRadioButtonRoles(PresentationFixture fixture)
+    {
+        foreach (RadioButton radio in FindVisualDescendants<RadioButton>(fixture.PresentationRoot).Where(radio => radio.TemplatedParent == null))
+        {
+            // 実際に採用されたStyleから期待を決めず、選択対象のBindingで環境カードの役割を特定する。
+            string? selectedPath = radio.GetBindingExpression(ToggleButton.IsCheckedProperty)?.ParentBinding.Path?.Path;
+            bool environmentCard = fixture.HostWindow is SettingsWindow
+                && selectedPath is nameof(SettingsDialogViewModel.IsStandaloneOperationMode) or nameof(SettingsDialogViewModel.OperationModeLR2DB);
+            string roleKey = environmentCard ? "SettingsEnvironmentRadioStyle" : "App.Canonical.RadioButtonStyle";
+            Style roleStyle = RequireStyle(radio, roleKey);
+            if (environmentCard)
+            {
+                Assert.IsTrue(StyleChainContains(roleStyle, RequireStyle(radio, "App.Canonical.RadioButtonStyle")),
+                    "環境カードの役割も共通RadioButtonのスタイル系列に接続します。");
+            }
+            AssertCanonicalControlRole(radio, environmentCard ? "環境カードRadioButton" : "RadioButton", roleKey, roleStyle);
         }
     }
 

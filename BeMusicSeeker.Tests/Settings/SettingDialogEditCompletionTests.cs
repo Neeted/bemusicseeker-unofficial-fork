@@ -381,7 +381,8 @@ public sealed partial class SettingDialogEditCompletionTests
         public void Free() { }
     }
 
-    /// <summary>LR2／単独の保存済みモードで画面を繰り返し開閉しても保存要求を出さず、実 radio の承認クリックだけが一回のモード保存へ進むことを確認します。</summary>
+    /// <summary>両モードで画面を繰り返し開閉しても保存要求を出さず、明示した選択と実RadioButtonのClickから確認一回・承認後の保存一回へ進むことを確認します。</summary>
+    /// <remarks>標準の選択後と同じ状態をBindingを保って渡し、物理キー・マウス状態を参照するWPF入力処理は呼びません。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -425,6 +426,8 @@ public sealed partial class SettingDialogEditCompletionTests
                 openedWindows.Add(finalWindow);
                 presentationPort.CurrentWindow = finalWindow;
                 RadioButton requestedMode = FindOperationModeRadio(finalWindow, useLr2: !initialOperationMode);
+                requestedMode.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
+                Assert.AreEqual(true, requestedMode.IsChecked);
                 requestedMode.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, requestedMode));
                 finalWindow.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
 
@@ -446,7 +449,8 @@ public sealed partial class SettingDialogEditCompletionTests
         });
     }
 
-    /// <summary>両モードで実 radio の変更確認を取消すると、保存・再起動要求なしで元の checked 選択へ戻ることを確認し、取消後の表示と draft のずれを検出します。</summary>
+    /// <summary>両モードで選択済みの実RadioButtonから明示Clickによる確認を取り消すと、保存・再起動要求なしで元の選択へ戻ることを確認します。</summary>
+    /// <remarks>確認前に反対の選択へ切り替え、取消が実際に選択表示を復元することをOS入力状態から分離して観測します。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -471,6 +475,8 @@ public sealed partial class SettingDialogEditCompletionTests
                 window = OpenSettingsWindow(windowTest, dialog);
 
                 RadioButton requestedMode = FindOperationModeRadio(window, useLr2: !initialOperationMode);
+                requestedMode.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
+                Assert.AreEqual(true, requestedMode.IsChecked);
                 requestedMode.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, requestedMode));
                 window.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -472,12 +473,12 @@ public sealed class SettingsWindowPresentationTests
                 windowTest.ShowAndWaitForContentRendered(window);
 
                 var generalPage = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
-                SettingsField schemaField = FindDescendants<SettingsField>(generalPage)
-                    .Single(field => Equals(field.Header, Resources.Lr2_play_history_schema_label));
-                SettingsStatusBanner schemaBanner = FindDescendants<SettingsStatusBanner>(schemaField)
+                SettingsSection schemaSection = FindDescendants<SettingsSection>(generalPage)
+                    .Single(section => Equals(section.Header, Resources.Lr2_play_history_schema_label));
+                SettingsStatusBanner schemaBanner = FindDescendants<SettingsStatusBanner>(schemaSection)
                     .Single(candidate => candidate.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path
                         == nameof(SettingsDialogViewModel.Lr2PlayHistorySchemaStatusText));
-                Button installOrRepairButton = FindDescendants<Button>(schemaField)
+                Button installOrRepairButton = FindDescendants<Button>(schemaSection)
                     .Single(candidate => candidate.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path
                         == nameof(SettingsDialogViewModel.Lr2PlayHistorySchemaInstallOrRepairButtonText));
 
@@ -1642,6 +1643,90 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>通常／初期設定の同じRadioButtonカードが全言語・最小幅で等幅二列・同高・単一名称となり、全表面の入力先と選択不可条件を保つことを確認します。</summary>
+    /// <remarks>実Windowの測定・hit-test・動的テーマ反映を観測します。明示した選択とClickからの確認一回・取消復元はOperationModeRadio系列へ分担し、標準キー接続は静的確認、実OS入力は実機推奨へ分けます。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void SettingsWindow_EnvironmentCardsFitAndKeepWholeSurfaceInputAcrossLanguages(bool initialEnvironment)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            CultureInfo previousCulture = Resources.Culture;
+            ResourceDictionary[] previousDictionaries = Application.Current.Resources.MergedDictionaries.ToArray();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
+            var state = new DangerStatePort(() => Task.CompletedTask) { HasActiveLibraryProfile = !initialEnvironment };
+            DangerDialogContext context = CreateDangerDialog(owner,
+                new DangerSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings(), []),
+                MainWindowViewModelTestFactory.GetComposition(owner), new DangerDialogService(),
+                new DangerSchemaDialogPort(), new DangerApplicationDataStore(), statePort: state);
+            using SettingsDialogViewModel settings = context.Settings;
+            var window = new SettingsWindow { DataContext = settings };
+            window.Width = window.MinWidth;
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(window);
+                Assert.AreEqual(initialEnvironment, settings.IsInitialEnvironment);
+                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var standalone = (RadioButton)page.FindName("radioButtonNotUseLR2");
+                var linked = (RadioButton)page.FindName("radioButtonUseLR2");
+                int themeIndex = 0;
+                foreach (string language in new[] { "en-US", "fr-FR", "ja-JP", "ko-KR", "zh-CN", "zh-TW" })
+                {
+                    ResourceService.Current.ChangeCulture(language);
+                    AppThemeService.ApplyTheme(themeIndex++ % 2 == 0 ? AppThemeService.Light : AppThemeService.Dark);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    window.UpdateLayout();
+                    Rect left = GetVisualBounds(page, standalone);
+                    Rect right = GetVisualBounds(page, linked);
+                    Assert.AreEqual(left.Width, right.Width, 0.5, language);
+                    Assert.AreEqual(left.Height, right.Height, 0.5, language);
+                    Assert.AreEqual(left.Top, right.Top, 0.5, language);
+                    Assert.IsTrue(left.Right < right.Left && right.Right <= page.ActualWidth + 0.5, language);
+                    foreach (RadioButton radio in new[] { standalone, linked })
+                    {
+                        Assert.IsTrue(radio.Focusable && radio.IsTabStop && radio.IsEnabled);
+                        Assert.AreEqual(1, FindDescendants<TextBlock>(page).Count(text => text.IsVisible && Equals(text.Text, radio.Content)), language);
+                        Assert.AreEqual(radio.Content, new RadioButtonAutomationPeer(radio).GetName());
+                        TextBlock description = FindDescendants<TextBlock>(radio).Single(text => text.Text == AutomationProperties.GetHelpText(radio));
+                        Assert.IsTrue(description.IsVisible);
+                        Assert.AreEqual(TextWrapping.Wrap, description.TextWrapping);
+                        Border chrome = FindDescendants<Border>(radio).Single(border => border.Child is Grid);
+                        AssertBrushColor(radio, radio.IsChecked == true ? "App.ControlSelectedBrush" : "App.SurfaceBrush", chrome.Background);
+                        AssertBrushColor(radio, radio.IsKeyboardFocused ? "App.InputFocusBorderBrush"
+                            : radio.IsChecked == true ? "App.AccentBrush" : "App.BorderBrush", chrome.BorderBrush);
+                        // 角丸の外側は入力面ではない。描画面の四辺・中央・説明も同じRadioButtonへ到達する。
+                        foreach (Point point in new[] { new Point(radio.ActualWidth / 2, 2), new Point(2, radio.ActualHeight / 2),
+                            new Point(radio.ActualWidth - 2, radio.ActualHeight / 2), new Point(radio.ActualWidth / 2, radio.ActualHeight - 2),
+                            new Point(radio.ActualWidth / 2, radio.ActualHeight / 2), description.TranslatePoint(new Point(description.ActualWidth / 2, description.ActualHeight / 2), radio) })
+                        {
+                            var hit = radio.InputHitTest(point) as DependencyObject;
+                            while (hit is Visual && !ReferenceEquals(hit, radio)) { hit = VisualTreeHelper.GetParent(hit); }
+                            Assert.AreSame(radio, hit, language + " " + point);
+                        }
+                    }
+                }
+                state.SetLibraryOperationInProgress(true);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsFalse(settings.IsEnvironmentSelectionEnabled);
+                Assert.IsFalse(standalone.IsEnabled);
+                Assert.IsFalse(linked.IsEnabled);
+                state.SetLibraryOperationInProgress(false);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(standalone.IsEnabled && linked.IsEnabled);
+            }
+            finally
+            {
+                if (window.IsVisible) { window.CloseForOwnerShutdown(); }
+                if (previousCulture != null) { ResourceService.Current.ChangeCulture(previousCulture.Name); }
+                else { Resources.Culture = null; }
+                Application.Current.Resources.MergedDictionaries.Clear();
+                foreach (ResourceDictionary dictionary in previousDictionaries) { Application.Current.Resources.MergedDictionaries.Add(dictionary); }
+            }
+        });
+    }
+
     /// <summary>General の standalone 選択、Playback の internal／LR2 説明と Backup の保存先注意が実ページの対象controlへ届くことを確認します。</summary>
     /// <remarks>実Windowのページ遷移とcontrolへのBinding反映を確認し、保存や削除範囲の判断はBackupTestsへ分担します。</remarks>
     [TestMethod]
@@ -1669,12 +1754,15 @@ public sealed class SettingsWindowPresentationTests
                 navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationPlayback");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var playbackPage = (PlaybackSettingsPage)pageHost.Content;
-                SettingsOptionRow internalPlayer = FindDescendants<SettingsOptionRow>(playbackPage)
-                    .Single(row => Equals(row.Header, Resources.Player_Name_Internal));
-                SettingsOptionRow lr2Player = FindDescendants<SettingsOptionRow>(playbackPage)
-                    .Single(row => Equals(row.Header, "LR2"));
-                Assert.AreEqual(Resources.Player_Internal_desc, internalPlayer.Description);
-                Assert.AreEqual(Resources.Settings_player_lr2_description, lr2Player.Description);
+                var internalPlayer = (RadioButton)playbackPage.FindName("radioButtonInternalPlayer");
+                var lr2Player = (RadioButton)playbackPage.FindName("radioButtonPlayLR2body");
+                Assert.AreEqual(Resources.Player_Internal_desc, AutomationProperties.GetHelpText(internalPlayer));
+                Assert.AreEqual(Resources.Settings_player_lr2_description, AutomationProperties.GetHelpText(lr2Player));
+                foreach (RadioButton player in FindDescendants<RadioButton>(playbackPage))
+                {
+                    Assert.AreEqual(1, FindDescendants<TextBlock>(playbackPage).Count(text => text.IsVisible && Equals(text.Text, player.Content)));
+                    Assert.IsTrue(FindDescendants<TextBlock>(playbackPage).Any(text => text.IsVisible && text.Text == AutomationProperties.GetHelpText(player)));
+                }
 
                 navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationBackup");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -2504,9 +2592,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(BindingMode.TwoWay, themeBinding.ParentBinding.Mode);
                 Assert.AreEqual(AppThemeService.Light, selector.SelectedValue);
                 Assert.AreEqual(AppThemeService.AvailableThemes.Count, selector.Items.Count);
-                SettingsField field = FindDescendants<SettingsField>(appearancePage)
-                    .Single(candidate => ReferenceEquals(candidate.Content, selector));
-                Assert.AreEqual(field.ActualWidth, selector.ActualWidth, 1d, "テーマ選択は言語選択と同様に入力欄の幅まで広がります。");
+                Assert.AreEqual(appearancePage.ActualWidth, selector.ActualWidth, 1d, "テーマ選択は言語選択と同様に本文幅まで広がります。");
                 Color lightTextColor = GetApplicationBrushColor("App.TextBrush");
 
                 selector.SelectedItem = selector.Items.Cast<SettingsDialogViewModel.AppearanceThemeOption>()
@@ -2960,9 +3046,10 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>General・Appearance・Playback・Audio・Recording の代表的な実 editor が所属 field の翻訳済み名を読み上げに渡すことを確認します。</summary>
+    /// <summary>整理対象の実ページでは見出しが一回となり、囲み削除・見出し非表示後も翻訳済み入力名を保持することを確認します。</summary>
+    /// <remarks>既存の具体的な項目名の保証に、単純囲み・一覧・検証欄の移行先を加えます。保存・検証判断は既存の機能別ケースへ分担します。</remarks>
     [TestMethod]
-    public void SettingsField_RepresentativeEditorsExposeLocalizedAutomationNamesOnAllFivePages()
+    public void SettingsPages_HeadingsAppearOnceAndEditorsKeepLocalizedAutomationNames()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -2983,10 +3070,19 @@ public sealed class SettingsWindowPresentationTests
                 var assertions = new List<(string Navigation, Func<FrameworkElement, Control> Find, string Name)>
                 {
                     ("navigationGeneral", page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedItemProperty)?.ParentBinding.Path?.Path == "Language"), Resources.Language),
+                    ("navigationGeneral", page => (ListBox)page.FindName("bmsSearchRootPathListBox"), Resources.Standalone_BMSDirectories),
+                    ("navigationAppearance", page => (ComboBox)page.FindName("appearanceThemeComboBox"), Resources.Appearance_theme),
                     ("navigationAppearance", page => FindDescendants<Slider>(page).Single(control => control.GetBindingExpression(RangeBase.ValueProperty)?.ParentBinding.Path?.Path == "CustomTableFontSize"), Resources.Appearance_table_font_size),
                     ("navigationPlayback", page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedValueProperty)?.ParentBinding.Path?.Path == "LR2bodyResolution"), Resources.Player_LR2_wsize),
                     ("navigationAudio", page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedIndexProperty)?.ParentBinding.Path?.Path == "PlayerDriverIndex"), Resources.Device_setting_driver),
-                    ("navigationRecording", page => (ComboBox)((FrameworkElement)page).FindName("comboBoxEncoder"), Resources.Record_setting_filetype)
+                    ("navigationAudio", page => (Slider)page.FindName("audioVolumeSlider"), Resources.Device_setting_volume),
+                    ("navigationInstall", page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedItemProperty)?.ParentBinding.Path?.Path == "BMSInstallDir"), Resources.Install_Dst),
+                    ("navigationPlaylist", page => (TextBox)page.FindName("tableListUrlTextBox"), Resources.Playlist_table_uri),
+                    ("navigationPlaylist", page => FindDescendants<TextBox>(page).Single(control => control.GetBindingExpression(TextBox.TextProperty)?.ParentBinding.Path?.Path == "PlaylistMd5UrlMappingTsvUri"), Resources.Playlist_md5_url_mapping_tsv_uri),
+                    ("navigationRecording", page => (ComboBox)page.FindName("comboBoxEncoder"), Resources.Record_setting_filetype),
+                    ("navigationRecording", page => FindDescendants<TextBox>(page).Single(control => control.GetBindingExpression(TextBox.TextProperty)?.ParentBinding.Path?.Path == "EncodeFileNameFormat"), Resources.Record_setting_filename),
+                    ("navigationRightClick", page => (ListBox)page.FindName("webActionsListBox"), Resources.RightClick_web_actions),
+                    ("navigationRightClick", page => (ListBox)page.FindName("programActionsListBox"), Resources.RightClick_program_actions)
                 };
                 foreach ((string categoryName, Func<FrameworkElement, Control> find, string expectedName) in assertions)
                 {
@@ -2997,9 +3093,31 @@ public sealed class SettingsWindowPresentationTests
                     {
                         ComboBox comboBox => new ComboBoxAutomationPeer(comboBox),
                         Slider slider => new SliderAutomationPeer(slider),
+                        TextBox textBox => new TextBoxAutomationPeer(textBox),
+                        ListBox listBox => new ListBoxAutomationPeer(listBox),
                         _ => throw new AssertFailedException("Unsupported representative editor: " + editor.GetType().Name)
                     };
                     Assert.AreEqual(expectedName, peer.GetName(), categoryName);
+                }
+                foreach ((string categoryName, string[] headings) in new[]
+                {
+                    ("navigationGeneral", new[] { Resources.Language, Resources.Standalone_BMSDirectories, Resources.Lr2_play_history_schema_label }),
+                    ("navigationAppearance", new[] { Resources.Appearance_theme }),
+                    ("navigationAudio", new[] { Resources.Device_setting_volume }),
+                    ("navigationInstall", new[] { Resources.Settings_install_destination_section }),
+                    ("navigationPlaylist", new[] { Resources.Playlist_table_uri, Resources.Playlist_md5_url_mapping_tsv_uri }),
+                    ("navigationRecording", new[] { Resources.Record_setting_filename }),
+                    ("navigationRightClick", new[] { Resources.RightClick_web_actions, Resources.RightClick_program_actions })
+                })
+                {
+                    navigation.SelectedItem = window.FindName(categoryName);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    foreach (string heading in headings)
+                    {
+                        SettingsSection section = FindDescendants<SettingsSection>((FrameworkElement)host.Content)
+                            .Single(section => Equals(section.Header, heading));
+                        Assert.AreEqual(1, FindDescendants<TextBlock>(section).Count(text => text.IsVisible && text.Text == heading), categoryName + ": " + heading);
+                    }
                 }
             }
             finally
@@ -3012,14 +3130,70 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>Automation 名を持たない editor は field header を名前に使い、その変更にも追従して古い名前を残さないことを確認します。</summary>
-    [TestMethod]
-    public void SettingsField_UnnamedEditorFallbackTracksHeaderChanges()
+    /// <summary>見出しの表示切替は入力名を保持し、非表示の占有領域だけを除き、説明と警告／エラーを残すことを確認します。</summary>
+    /// <remarks>実テンプレートの測定が必要ですがWindowは不要です。Fieldと派生ListEditorを同じ条件で確認し、名前所有の詳細は既存の各ケースへ分担します。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void SettingsField_HiddenHeaderPreservesMeaningDescriptionAndValidationWithoutEmptySpace(bool listEditor)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            Grid host = CreateSettingsControlHost();
+            SettingsField field = listEditor ? new SettingsListEditor() : new SettingsField();
+            var editor = new TextBox { Text = "Existing value" };
+            field.Header = "Localized input name";
+            field.Content = editor;
+            field.ValidationMessage = "Validation details";
+            field.ValidationStatus = "Warning";
+            host.Children.Add(field);
+            Layout();
+            double visibleHeight = field.DesiredSize.Height;
+            Assert.IsTrue(field.IsHeaderVisible);
+            Assert.AreEqual(1, FindDescendants<TextBlock>(field).Count(text => text.Visibility == Visibility.Visible && text.Text == field.Header.ToString()));
+
+            field.IsHeaderVisible = false;
+            Layout();
+            Assert.IsTrue(field.DesiredSize.Height < visibleHeight);
+            Assert.AreEqual(0d, editor.TransformToAncestor(field).Transform(new Point()).Y, 0.5);
+            Assert.AreEqual("Localized input name", new TextBoxAutomationPeer(editor).GetName());
+            Assert.IsFalse(FindDescendants<TextBlock>(field).Any(text => text.Visibility == Visibility.Visible && text.Text == field.Header.ToString()));
+            foreach (string status in new[] { "Warning", "Error" })
+            {
+                field.Description = "Helpful explanation";
+                field.ValidationStatus = status;
+                Layout();
+                Assert.IsTrue(FindDescendants<TextBlock>(field).Any(text => text.Visibility == Visibility.Visible && text.Text == field.Description));
+                Assert.AreEqual(status, AutomationProperties.GetItemStatus(field));
+                Assert.AreEqual(field.ValidationMessage, AutomationProperties.GetHelpText(field));
+                TextBlock validation = FindDescendants<TextBlock>(field).Single(text => text.Text == field.ValidationMessage);
+                Assert.AreEqual(Visibility.Visible, validation.Visibility);
+                AssertBrushColor(field, status == "Warning" ? "App.WarningTextBrush" : "App.ErrorTextBrush", validation.Foreground);
+            }
+            field.IsHeaderVisible = true;
+            Layout();
+            Assert.AreEqual(1, FindDescendants<TextBlock>(field).Count(text => text.Visibility == Visibility.Visible && text.Text == field.Header.ToString()));
+
+            void Layout()
+            {
+                host.Measure(new Size(500, double.PositiveInfinity));
+                host.Arrange(new Rect(0, 0, 500, host.DesiredSize.Height));
+                host.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+            }
+        });
+    }
+
+    /// <summary>Automation 名を持たない editor は可視／非表示のfield headerを名前に使い、その変更にも追従して古い名前を残さないことを確認します。</summary>
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void SettingsField_UnnamedEditorFallbackTracksHeaderChanges(bool isHeaderVisible)
     {
         TestUiDispatcherHost.Invoke(() =>
         {
             var editor = new ComboBox();
-            var field = new SettingsField { Header = "Initial localized label", Content = editor };
+            var field = new SettingsField { IsHeaderVisible = isHeaderVisible, Header = "Initial localized label", Content = editor };
             var peer = new ComboBoxAutomationPeer(editor);
 
             Assert.AreEqual("Initial localized label", peer.GetName());
@@ -3031,14 +3205,16 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>editor 側の明示名と binding 名がある場合は field header を変更しても上書きせず、binding も保つことを確認します。</summary>
-    [TestMethod]
-    public void SettingsField_ExplicitAndBoundEditorNamesAreNotClobbered()
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void SettingsField_ExplicitAndBoundEditorNamesAreNotClobbered(bool isHeaderVisible)
     {
         TestUiDispatcherHost.Invoke(() =>
         {
             var explicitEditor = new ComboBox();
             AutomationProperties.SetName(explicitEditor, "Explicit localized name");
-            var explicitField = new SettingsField { Header = "Field fallback", Content = explicitEditor };
+            var explicitField = new SettingsField { IsHeaderVisible = isHeaderVisible, Header = "Field fallback", Content = explicitEditor };
             var explicitPeer = new ComboBoxAutomationPeer(explicitEditor);
 
             var boundEditor = new ComboBox();
@@ -3046,7 +3222,7 @@ public sealed class SettingsWindowPresentationTests
                 boundEditor,
                 AutomationProperties.NameProperty,
                 new Binding { Source = "Bound localized name" });
-            var boundField = new SettingsField { Header = "Field fallback", Content = boundEditor };
+            var boundField = new SettingsField { IsHeaderVisible = isHeaderVisible, Header = "Field fallback", Content = boundEditor };
             var boundPeer = new ComboBoxAutomationPeer(boundEditor);
 
             explicitField.Header = "Changed fallback";
@@ -3059,13 +3235,15 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>呼出側が fallback と同じ値を明示名として引き取った後は、header 変更と detach でその明示値を消去しないことを確認します。</summary>
-    [TestMethod]
-    public void SettingsField_CallerLocalTakeoverMatchingFallbackSurvivesHeaderChangeAndDetach()
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void SettingsField_CallerLocalTakeoverMatchingFallbackSurvivesHeaderChangeAndDetach(bool isHeaderVisible)
     {
         TestUiDispatcherHost.Invoke(() =>
         {
             var editor = new ComboBox();
-            var field = new SettingsField { Header = "A", Content = editor };
+            var field = new SettingsField { IsHeaderVisible = isHeaderVisible, Header = "A", Content = editor };
             BindingExpressionBase ownedExpression = BindingOperations.GetBindingExpressionBase(
                 editor,
                 AutomationProperties.NameProperty);
@@ -3083,13 +3261,15 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>呼出側が同じ表示値の別 binding へ置き換えた後は、header 変更と detach でもその binding を保持することを確認します。</summary>
-    [TestMethod]
-    public void SettingsField_CallerBindingTakeoverMatchingFallbackSurvivesHeaderChangeAndDetach()
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void SettingsField_CallerBindingTakeoverMatchingFallbackSurvivesHeaderChangeAndDetach(bool isHeaderVisible)
     {
         TestUiDispatcherHost.Invoke(() =>
         {
             var editor = new ComboBox();
-            var field = new SettingsField { Header = "A", Content = editor };
+            var field = new SettingsField { IsHeaderVisible = isHeaderVisible, Header = "A", Content = editor };
             BindingExpressionBase ownedExpression = BindingOperations.GetBindingExpressionBase(
                 editor,
                 AutomationProperties.NameProperty);
@@ -3116,13 +3296,15 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>fallback と同値の明示名へ変更してすぐ detach しても、field が所有中と誤認して値を消去しないことを確認します。</summary>
-    [TestMethod]
-    public void SettingsField_CallerLocalTakeoverMatchingFallbackSurvivesImmediateDetach()
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void SettingsField_CallerLocalTakeoverMatchingFallbackSurvivesImmediateDetach(bool isHeaderVisible)
     {
         TestUiDispatcherHost.Invoke(() =>
         {
             var editor = new ComboBox();
-            var field = new SettingsField { Header = "A", Content = editor };
+            var field = new SettingsField { IsHeaderVisible = isHeaderVisible, Header = "A", Content = editor };
             Assert.IsNotNull(BindingOperations.GetBindingExpressionBase(editor, AutomationProperties.NameProperty));
 
             AutomationProperties.SetName(editor, "A");
@@ -3134,13 +3316,15 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>fallback と同値の呼出側 binding へ変更してすぐ detach しても、その binding と名前を消去しないことを確認します。</summary>
-    [TestMethod]
-    public void SettingsField_CallerBindingTakeoverMatchingFallbackSurvivesImmediateDetach()
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void SettingsField_CallerBindingTakeoverMatchingFallbackSurvivesImmediateDetach(bool isHeaderVisible)
     {
         TestUiDispatcherHost.Invoke(() =>
         {
             var editor = new ComboBox();
-            var field = new SettingsField { Header = "A", Content = editor };
+            var field = new SettingsField { IsHeaderVisible = isHeaderVisible, Header = "A", Content = editor };
             BindingExpressionBase ownedExpression = BindingOperations.GetBindingExpressionBase(
                 editor,
                 AutomationProperties.NameProperty);
@@ -5192,7 +5376,7 @@ public sealed class SettingsWindowPresentationTests
             this.reloadScoresOnly = reloadScoresOnly ?? throw new ArgumentNullException(nameof(reloadScoresOnly));
         }
 
-        public bool HasActiveLibraryProfile => true;
+        public bool HasActiveLibraryProfile { get; init; } = true;
 
         public bool IsLibraryOperationInProgress => isLibraryOperationInProgress;
 

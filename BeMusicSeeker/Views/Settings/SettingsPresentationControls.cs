@@ -30,10 +30,16 @@ public class SettingsSection : HeaderedContentControl
     public string Description { get => (string)GetValue(DescriptionProperty); set => SetValue(DescriptionProperty, value); }
 }
 
-/// <summary>Presents a label, optional description and validation text above one settings editor.</summary>
+/// <summary>入力名を見出しから補い、任意の説明と検証結果を設定入力へ添えます。</summary>
 public class SettingsField : HeaderedContentControl
 {
     private readonly Dictionary<DependencyObject, BindingExpressionBase> fallbackAutomationNameBindings = [];
+
+    /// <summary>入力名としての見出しを保持したまま、その表示だけを切り替えるプロパティを識別します。</summary>
+    public static readonly DependencyProperty IsHeaderVisibleProperty = DependencyProperty.Register(nameof(IsHeaderVisible), typeof(bool), typeof(SettingsField), new PropertyMetadata(true));
+
+    /// <summary>見出しを表示するかを取得または設定します。既定は表示で、非表示でも入力名・説明・検証結果を保持します。</summary>
+    public bool IsHeaderVisible { get => (bool)GetValue(IsHeaderVisibleProperty); set => SetValue(IsHeaderVisibleProperty, value); }
 
     /// <summary>Identifies the optional field description.</summary>
     public static readonly DependencyProperty DescriptionProperty = DependencyProperty.Register(nameof(Description), typeof(string), typeof(SettingsField), new PropertyMetadata(string.Empty));

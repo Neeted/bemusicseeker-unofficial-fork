@@ -55,6 +55,10 @@
 
 一般ページは言語、環境、BMSディレクトリ、LR2の手動同期、LR2プレイログ、beatoraja連携の順に配置します。LR2の個別パスとbeatorajaの派生パスは初期状態で閉じた詳細欄に置き、操作グループ間に余白を設けます。変更・確定は適用可能な局所差分がある場合に強調表示し、不要なときは無効・グレーにします。取消は無効な入力を含む取消可能な編集があるときだけ有効です。recordは選択中の一項目で判断し、他項目の変更では有効化しません。未完了作業の明示再試行とBMTの同値全表再更新は、差分がない場合も利用できます。
 
+環境選択はスタンドアローンとLR2連携を等幅二列・同高のRadioButtonカードにし、名称一回と折り返す説明を表示します。通常設定と初期環境設定に共通で適用し、カード全表面・標準キー入力から既存の確認経路へ渡します。`IsEnvironmentSelectionEnabled` と一方向の選択表示、確認一回、取消・失敗時の保存済み選択への復元を保持し、選択表示を設定値への単純な双方向Bindingに置き換えません。
+
+設定ページ内の意味上の重複見出しは明示的に整理し、言語・テーマ・音量・録音ファイル名・LR2プレイログの単純な囲みを除きます。BMS一覧、インストール先、二種のプレイリストURL、右クリックのWeb／プログラム一覧は入力名・一覧編集・検証の役割を保持して直下見出しだけを非表示にします。再生方式はラジオ入力の名称一回と各説明を残します。他の具体的な項目名、説明・検証状態と文言、ボタン・チェックボックスが示す操作・状態は保ち、分類や確定方式は変更しません。表示とアクセシビリティの詳細は[設定用の表示部品](../ui/appearance.md#設定用の表示部品)に従います。
+
 インストール分類の説明付きチェックボックスには `SettingsCheckBoxOption` を使います。既存の標準CheckBoxと設定値への直接Bindingを内容に残し、説明と余白だけを共通化します。説明はラベル文字の左端に揃え、他の設定説明と同じテーマ対応の薄い文字色を使います。保存・取消・標準のキーボード操作は維持し、説明部品にフォーカス対象や設定状態を増やしません。
 
 ### 起動時のソートキャッシュ準備範囲
@@ -272,6 +276,8 @@ BMSディレクトリの追加・削除・複数選択・D&Dは設定画面内�
 
 | 保証 | 実装 | 検証 |
 | --- | --- | --- |
+| 環境カードの入力・確認・取消と表示 | [`GeneralSettingsPage`](../../../BeMusicSeeker/Views/Settings/Pages/GeneralSettingsPage.xaml)、[`SettingsControls`](../../../BeMusicSeeker/Views/Settings/SettingsControls.xaml) | `SettingDialogEditCompletionTests.OperationModeRadio_*` は両方向の選択状態と明示Clickから確認一回・保存一回、取消時の選択復元と無保存を確認する。標準RadioButtonのキー接続は型・イベント接続を静的確認し、実OSのSpace・Tab入力は実機推奨へ分担する。`SettingsWindowPresentationTests.SettingsWindow_EnvironmentCardsFitAndKeepWholeSurfaceInputAcrossLanguages` は通常／初期設定の最小幅・全6言語・全表面hit-test・テーマ・選択不可を担う。 |
+| 重複見出しの整理と名前・説明・検証の保持 | [`SettingsField`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、設定の各ページ | `SettingsWindowPresentationTests.SettingsPages_HeadingsAppearOnceAndEditorsKeepLocalizedAutomationNames` は実ページの単一見出しと入力名、`SettingsField_HiddenHeaderPreservesMeaningDescriptionAndValidationWithoutEmptySpace` は非表示時の領域・説明・状態・文言を確認する。既存の名前所有、検証配送、全ページ最小幅のケースを併用する。 |
 | 項目保存・成功後公開・画面外保存・未知キー | [`Settings.Commit`](../../../BeMusicSeeker/Properties/Settings.cs)、[`PortableSettingsProvider`](../../../BeMusicSeeker/Properties/PortableSettingsProvider.cs) | [`PortableSettingsPersistenceTests`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) の専用providerとfresh reader。候補非漏出と保存失敗は [`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) の実XML・標準composition・次回gatewayで確認する。 |
 | 入力確定・カテゴリ・再表示 | [`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.Confirmation.cs)、既存compiled各ページ | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCategoryPersistenceTests.cs) の実BAML選択・Enter・離脱・slider終端から実保存、reader、再表示。ページ寿命とnative制約は [`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs)、[`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) が分担する。 |
 | 音量preview・操作終端保存・失敗復帰 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs)、[`PlaybackSettingsStore`](../../../BeMusicSeeker/Models/Playback/PlaybackSettingsStore.cs)、[`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.Confirmation.cs) | [`SettingDialogEditCompletionTests.SettingDialogVolumeBinding_UsesComposedPlaybackOwner`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) は実compiled Sliderからruntimeへの即時反映、別保存中の非漏出、drag/mouse/key/closeの項目保存、同値終端の再保存0と実保存失敗時の復帰を確認する。[`PlaybackPanelViewModelTests.PlaybackPanelView_VolumeMenuCommitsOnMouseCompletionAndShutdown`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs) は主画面の実Popup・binding・操作終端と、終了開始時の実保存を確認する。 |

@@ -328,8 +328,8 @@
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type settings:SettingsField}">
           <StackPanel>
-            <TextBlock FontWeight="SemiBold" Text="{TemplateBinding Header}" TextWrapping="Wrap" />
-            <TextBlock Margin="0,2,0,0"
+            <TextBlock x:Name="FieldHeader" FontWeight="SemiBold" Text="{TemplateBinding Header}" TextWrapping="Wrap" />
+            <TextBlock x:Name="FieldDescription" Margin="0,2,0,0"
                        Foreground="{DynamicResource App.DisabledTextBrush}"
                        Text="{TemplateBinding Description}"
                        TextWrapping="Wrap">
@@ -343,7 +343,7 @@
                 </Style>
               </TextBlock.Style>
             </TextBlock>
-            <ContentPresenter Margin="0,6,0,0" />
+            <ContentPresenter x:Name="FieldContent" Margin="0,6,0,0" />
             <TextBlock x:Name="ValidationText"
                        Margin="0,4,0,0"
                        Foreground="{DynamicResource App.WarningTextBrush}"
@@ -361,11 +361,72 @@
             </TextBlock>
           </StackPanel>
           <ControlTemplate.Triggers>
+            <Trigger Property="IsHeaderVisible" Value="False">
+              <Setter TargetName="FieldHeader" Property="Visibility" Value="Collapsed" />
+              <Setter TargetName="FieldDescription" Property="Margin" Value="0" />
+            </Trigger>
+            <MultiTrigger>
+              <MultiTrigger.Conditions>
+                <Condition Property="IsHeaderVisible" Value="False" />
+                <Condition Property="Description" Value="" />
+              </MultiTrigger.Conditions>
+              <Setter TargetName="FieldContent" Property="Margin" Value="0" />
+            </MultiTrigger>
             <Trigger Property="ValidationStatus" Value="Warning">
               <Setter TargetName="ValidationText" Property="Foreground" Value="{DynamicResource App.WarningTextBrush}" />
             </Trigger>
             <Trigger Property="ValidationStatus" Value="Error">
               <Setter TargetName="ValidationText" Property="Foreground" Value="{DynamicResource App.ErrorTextBrush}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- 標準RadioButtonの選択・キー・Clickを保ち、説明も同じ入力面に含める。 -->
+  <Style x:Key="SettingsEnvironmentRadioStyle" TargetType="{x:Type RadioButton}"
+         BasedOn="{StaticResource App.Canonical.RadioButtonStyle}">
+    <Setter Property="Padding" Value="14" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="VerticalAlignment" Value="Stretch" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="{x:Type RadioButton}">
+          <Border x:Name="Card" Padding="{TemplateBinding Padding}"
+                  Background="{DynamicResource App.SurfaceBrush}"
+                  BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" CornerRadius="8">
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="18" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+              <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+              <Border x:Name="RadioChrome" Width="18" Height="18" VerticalAlignment="Center"
+                      Background="{DynamicResource App.ControlBackgroundBrush}"
+                      BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" CornerRadius="9">
+                <Ellipse x:Name="RadioGlyph" Width="8" Height="8" Fill="{DynamicResource App.AccentBrush}" Visibility="Collapsed" />
+              </Border>
+              <AccessText Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" FontWeight="SemiBold"
+                         Text="{TemplateBinding Content}" TextWrapping="Wrap" />
+              <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Margin="0,8,0,0"
+                         Foreground="{DynamicResource App.DisabledTextBrush}"
+                         Text="{TemplateBinding AutomationProperties.HelpText}" TextWrapping="Wrap" />
+            </Grid>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Card" Property="Background" Value="{DynamicResource App.ControlHoverBrush}" />
+            </Trigger>
+            <Trigger Property="IsChecked" Value="True">
+              <Setter TargetName="Card" Property="Background" Value="{DynamicResource App.ControlSelectedBrush}" />
+              <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource App.AccentBrush}" />
+              <Setter TargetName="RadioChrome" Property="BorderBrush" Value="{DynamicResource App.AccentBrush}" />
+              <Setter TargetName="RadioGlyph" Property="Visibility" Value="Visible" />
+            </Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+              <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
+              <Setter TargetName="Card" Property="Opacity" Value="0.55" />
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>

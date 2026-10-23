@@ -122,6 +122,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 var hint = (TextBlock)editor.Template.FindName("DateHint", editor);
                 var button = (Button)picker.Template.FindName("PART_Button", picker);
                 var popup = (Popup)picker.Template.FindName("PART_Popup", picker);
+                scope.TrackPopup(popup);
                 var calendar = (System.Windows.Controls.Calendar)popup.Child;
                 Assert.IsTrue(editor.IsReadOnly);
                 void OpenCalendar()

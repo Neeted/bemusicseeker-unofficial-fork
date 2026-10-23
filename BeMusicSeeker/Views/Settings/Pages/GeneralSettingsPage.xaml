@@ -6,20 +6,24 @@
   <UserControl.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries><ResourceDictionary Source="../SettingsControls.xaml" /></ResourceDictionary.MergedDictionaries><BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" /></ResourceDictionary></UserControl.Resources>
   <StackPanel>
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Language, Mode=OneWay}">
-      <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Language, Mode=OneWay}"><ComboBox x:Name="languageComboBox" ItemsSource="{Binding Languages}" SelectedItem="{Binding Language}" /></settings:SettingsField>
+      <ComboBox AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Language, Mode=OneWay}" x:Name="languageComboBox" ItemsSource="{Binding Languages}" SelectedItem="{Binding Language}" />
     </settings:SettingsSection>
 
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_environment, Mode=OneWay}"
                               Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_library_composition_description, Mode=OneWay}">
       <StackPanel IsEnabled="{Binding IsEnvironmentSelectionEnabled}">
-        <settings:SettingsOptionRow Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Operation_Mode_Standalone, Mode=OneWay}"
-                                    Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_standalone_description, Mode=OneWay}">
-          <RadioButton x:Name="radioButtonNotUseLR2" GroupName="OperationMode" IsChecked="{Binding IsStandaloneOperationMode, Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Operation_Mode_Standalone, Mode=OneWay}" Click="operationModeRadioButtonClick" />
-        </settings:SettingsOptionRow>
-        <settings:SettingsOptionRow Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Operation_Mode_LR2, Mode=OneWay}"
-                                    Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_lr2_linked_description, Mode=OneWay}">
-          <RadioButton x:Name="radioButtonUseLR2" GroupName="OperationMode" IsChecked="{Binding OperationModeLR2DB, Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Operation_Mode_LR2, Mode=OneWay}" Click="operationModeRadioButtonClick" />
-        </settings:SettingsOptionRow>
+        <UniformGrid Columns="2">
+          <RadioButton x:Name="radioButtonNotUseLR2" Margin="0,0,6,0" Style="{StaticResource SettingsEnvironmentRadioStyle}"
+                       GroupName="OperationMode" IsChecked="{Binding IsStandaloneOperationMode, Mode=OneWay}"
+                       Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Operation_Mode_Standalone, Mode=OneWay}"
+                       AutomationProperties.HelpText="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_standalone_description, Mode=OneWay}"
+                       Click="operationModeRadioButtonClick" />
+          <RadioButton x:Name="radioButtonUseLR2" Margin="6,0,0,0" Style="{StaticResource SettingsEnvironmentRadioStyle}"
+                       GroupName="OperationMode" IsChecked="{Binding OperationModeLR2DB, Mode=OneWay}"
+                       Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Operation_Mode_LR2, Mode=OneWay}"
+                       AutomationProperties.HelpText="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_lr2_linked_description, Mode=OneWay}"
+                       Click="operationModeRadioButtonClick" />
+        </UniformGrid>
         <TextBlock Margin="0,12,0,8" TextWrapping="Wrap" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_lr2_paths_description}" />
       <StackPanel IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}">
         <settings:SettingsStatusBanner Margin="0,0,0,12" Icon="!" Status="Error" Content="{Binding Lr2PathSelectionError}" Visibility="{Binding HasLr2PathSelectionError, Converter={StaticResource BooleanToVisibilityConverter}}" />
@@ -38,7 +42,7 @@
 
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Standalone_BMSDirectories, Mode=OneWay}"
                               Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_bms_directories_description, Mode=OneWay}"><StackPanel>
-      <settings:SettingsListEditor Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Standalone_BMSDirectories, Mode=OneWay}" IsEnabled="{Binding IsBmsSearchRootEditorEnabled}">
+      <settings:SettingsListEditor IsHeaderVisible="False" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Standalone_BMSDirectories, Mode=OneWay}" IsEnabled="{Binding IsBmsSearchRootEditorEnabled}">
         <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
           <ListBox x:Name="bmsSearchRootPathListBox" MinHeight="112" ItemsSource="{Binding AvailableBMSDirectories}" SelectedItem="{Binding SelectedBmsSearchRootPath, Mode=TwoWay}" AllowDrop="True" Drop="bmsSearchRootPathListBoxDrop" PreviewDragEnter="bmsSearchRootPathListBoxDragOver" PreviewDragOver="bmsSearchRootPathListBoxDragOver" />
           <StackPanel Grid.Column="1" Margin="8,0,0,0"><Button x:Name="addBmsSearchRootButton" MinWidth="88" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add_BMSDirectory, Mode=OneWay}" AutomationProperties.AutomationId="SettingsAddBmsSearchRoot" Click="buttonAddBmsSearchRootPathsClicked" /><Button x:Name="removeBmsSearchRootButton" MinWidth="88" Margin="0,8,0,0" Style="{StaticResource SettingsQuietButtonStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_BMSDirectory, Mode=OneWay}" AutomationProperties.AutomationId="SettingsRemoveBmsSearchRoot" Command="{Binding RemoveDirCommand}" CommandParameter="{Binding SelectedBmsSearchRootPath}" /></StackPanel>
@@ -60,14 +64,10 @@
 
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_label, Mode=OneWay}">
       <StackPanel IsEnabled="{Binding CanUseLr2Features}">
-        <settings:SettingsField Margin="0,0,0,14" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_label, Mode=OneWay}">
-          <StackPanel>
-            <settings:SettingsStatusBanner Content="{Binding Lr2PlayHistorySchemaStatusText, Mode=OneWay}" ToolTip="{Binding Lr2PlayHistorySchemaDetailText, Mode=OneWay}">
-              <settings:SettingsStatusBanner.Style><Style TargetType="{x:Type settings:SettingsStatusBanner}" BasedOn="{StaticResource {x:Type settings:SettingsStatusBanner}}"><Setter Property="Icon" Value="i" /><Setter Property="Status" Value="Information" /><Style.Triggers><DataTrigger Binding="{Binding CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}" Value="True"><Setter Property="Icon" Value="!" /><Setter Property="Status" Value="Warning" /><Setter Property="Foreground" Value="{DynamicResource App.WarningTextBrush}" /></DataTrigger></Style.Triggers></Style></settings:SettingsStatusBanner.Style>
-            </settings:SettingsStatusBanner>
-            <Button HorizontalAlignment="Left" Margin="0,0,8,8" Content="{Binding Lr2PlayHistorySchemaInstallOrRepairButtonText, Mode=OneWay}" IsEnabled="{Binding CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}" AutomationProperties.AutomationId="SettingsInstallOrRepairLr2PlayHistorySchema" Click="installOrRepairLr2PlayHistorySchemaButtonClicked" />
-          </StackPanel>
-        </settings:SettingsField>
+        <settings:SettingsStatusBanner Content="{Binding Lr2PlayHistorySchemaStatusText, Mode=OneWay}" ToolTip="{Binding Lr2PlayHistorySchemaDetailText, Mode=OneWay}">
+          <settings:SettingsStatusBanner.Style><Style TargetType="{x:Type settings:SettingsStatusBanner}" BasedOn="{StaticResource {x:Type settings:SettingsStatusBanner}}"><Setter Property="Icon" Value="i" /><Setter Property="Status" Value="Information" /><Style.Triggers><DataTrigger Binding="{Binding CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}" Value="True"><Setter Property="Icon" Value="!" /><Setter Property="Status" Value="Warning" /><Setter Property="Foreground" Value="{DynamicResource App.WarningTextBrush}" /></DataTrigger></Style.Triggers></Style></settings:SettingsStatusBanner.Style>
+        </settings:SettingsStatusBanner>
+        <Button HorizontalAlignment="Left" Margin="0,0,8,8" Content="{Binding Lr2PlayHistorySchemaInstallOrRepairButtonText, Mode=OneWay}" IsEnabled="{Binding CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}" AutomationProperties.AutomationId="SettingsInstallOrRepairLr2PlayHistorySchema" Click="installOrRepairLr2PlayHistorySchemaButtonClicked" />
       </StackPanel>
     </settings:SettingsSection>
 

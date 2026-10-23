@@ -21,7 +21,7 @@
 
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Record_setting_filename, Mode=OneWay}">
       <StackPanel>
-        <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Record_setting_filename, Mode=OneWay}"><TextBox Text="{Binding EncodeFileNameFormat}" /></settings:SettingsField>
+        <TextBox Margin="0,0,0,14" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Record_setting_filename, Mode=OneWay}" Text="{Binding EncodeFileNameFormat}" />
         <TextBlock Margin="0,0,0,6" FontWeight="SemiBold" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Record_setting_replacepattern, Mode=OneWay}" />
         <WrapPanel>
           <Border Style="{StaticResource SettingsTokenChipStyle}"><TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_token_artist, Mode=OneWay}" /></Border>
