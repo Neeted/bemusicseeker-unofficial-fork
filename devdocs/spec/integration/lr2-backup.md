@@ -66,4 +66,4 @@ LR2連携の起動処理は、設定フラグと元パスを `Backup.SaveSelecte
 
 三表のSQLバックアップ・復元、値とSQLite型の往復は[プレイリスト保存](../playlist/storage-and-export.md#json出力sqlバックアップと復元)を参照します。
 
-[起動](../runtime/startup.md)、[設定](../runtime/settings.md)、[未完了の安全性改善](../../plan/safety-improvements-plan.md)を参照します。
+[起動](../runtime/startup.md)、[設定](../runtime/settings.md)を参照します。

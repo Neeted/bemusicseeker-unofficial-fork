@@ -1417,7 +1417,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
-    /// <summary>実上書きでは既存songのlevelだけを変え、続く文字コード補正とDB再読込みでも上書き値を保持します。元ファイル・詳細値への巻戻り、利用者列の消失、未登録行の追加を検出します。</summary>
+    /// <summary>実上書きでは対象BMSの既存songのlevelだけを変え、対象外BMS・BMSON・未登録行と他列を保ちます。続く文字コード補正と再読込みでも上書き値を保持し、元ファイル・詳細値への巻戻りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistTableLevelOverwriteWorkflow_UpdatesOnlyExistingSongLevel()
@@ -1461,22 +1461,41 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             };
             missingFile = missingFile with { Md5 = missingMd5 };
             missingFile = missingFile with { Title = "Missing", RawTitle = "Missing" };
+            ChartFile otherBms = file with { Path = Path.Combine(tempDirectory, "other.bms"), Md5 = new string('c', 32), Level = 5, LevelText = "5" };
+            ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
+            {
+                Path = Path.Combine(tempDirectory, "other.bmson"),
+                Md5 = new string('d', 32),
+                Level = 6,
+                LevelText = "6",
+                RawTitle = "BMSON preserved"
+            };
+            new BmsLibraryDbGateway(songDbPath).UpsertBmsonSongs([bmson]);
+            JObject expectedSong;
+            JObject expectedOther;
+            JObject expectedBmson;
             using (var setup = new LR2SongDBExtended(songDbPath))
             {
                 setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+                setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(otherBms), typeof(LR2SongDB.song));
                 setup.Execute("DELETE FROM song WHERE path = ?;", missingPath);
+                expectedSong = JObject.FromObject(setup.Table<LR2SongDB.song>().Single(row => row.path == chartPath));
+                expectedSong["level"] = 12;
+                expectedOther = JObject.FromObject(setup.Table<LR2SongDB.song>().Single(row => row.path == otherBms.Path));
+                expectedBmson = JObject.FromObject(setup.Table<LR2SongDBExtended.bmson_song>().Single());
             }
             var library = new TestBmsLibrary(songDbPath, settings: testSettings)
             {
-                BmsCharts = [file, missingFile],
-                BmsonCharts = []
+                BmsCharts = [file, missingFile, otherBms],
+                BmsonCharts = [bmson]
             };
             var table = new BMSTable
             {
                 entries =
                 [
                     CreateEntryWithLevel(file.Md5, 12),
-                    CreateEntryWithLevel(missingMd5, 11)
+                    CreateEntryWithLevel(missingMd5, 11),
+                    CreateEntryWithLevel(bmson.Md5, 14)
                 ]
             };
 
@@ -1495,8 +1514,13 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 Assert.AreEqual(123456, row.date);
                 Assert.AreEqual(98765, row.adddate);
                 Assert.AreEqual("keep-tag", row.tag);
+                Assert.IsTrue(JToken.DeepEquals(expectedSong, JObject.FromObject(row)), "対象BMSのlevel以外の全song列を保持します。");
+                Assert.IsTrue(JToken.DeepEquals(expectedOther, JObject.FromObject(verify.Table<LR2SongDB.song>().Single(candidate => candidate.path == otherBms.Path))));
+                Assert.IsTrue(JToken.DeepEquals(expectedBmson, JObject.FromObject(verify.Table<LR2SongDBExtended.bmson_song>().Single())));
                 Assert.AreEqual(0, verify.Table<LR2SongDB.song>().Count(candidate => candidate.path == missingPath));
             }
+            Assert.AreEqual(5.0, library.BmsCharts.Single(chart => chart.Path == otherBms.Path).Level);
+            Assert.AreEqual(6.0, library.BmsonCharts.Single().Level);
 
             library.SetBMSFilesEncoding(library.BmsCharts.Where(chart => chart.Path == chartPath), "utf-8");
 

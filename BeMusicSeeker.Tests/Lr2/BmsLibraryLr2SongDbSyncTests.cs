@@ -643,7 +643,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     /// <summary>
-    /// LR2同期との競合で表レベル上書きを拒否し、workflowの通知先へbusy文言と警告タイトルを渡す。
+    /// LR2同期との競合で値のある対象の表レベル上書きを拒否し、DB・現在値・新規表示投影を保つ。Busy通知後に受付を解放しても自動保存しない。
     /// </summary>
     [TestMethod]
     public async Task PlaylistTableLevelOverwriteWorkflow_PresentsBlockedWarningWithoutLibraryDialog()
@@ -651,22 +651,39 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         using var scope = TestDatabaseScope.Create();
         try
         {
+            ChartFile song = ChartTestValues.Empty() with { Path = Path.Combine(scope.DirectoryPath, "level.bms"), Md5 = new string('a', 32), Level = 4, LevelText = "4" };
+            new BmsLibraryDbGateway(scope.SongDbPath).UpsertSongs([song]);
             var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
             {
-                BmsCharts = []
+                BmsCharts = [song]
             };
-            await using HeldLr2Operation held = await HeldLr2Operation.StartAsync(library);
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+            await using (HeldLr2Operation held = await HeldLr2Operation.StartAsync(library))
             {
-                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
-            };
-            var workflow = new PlaylistTableLevelOverwriteWorkflowOwner(dialogs, () => library);
+                var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+                {
+                    ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+                };
+                var workflow = new PlaylistTableLevelOverwriteWorkflowOwner(dialogs, () => library);
 
-            await workflow.OverwriteAsync(new BMSTable());
+                await workflow.OverwriteAsync(new BMSTable { entries = [new BMSTableEntry { md5 = song.Md5, level = 12 }] });
 
-            Assert.IsNotNull(dialogs.LastMessageRequest);
-            Assert.AreEqual(Resources.Warn_LibraryOperationBusy, dialogs.LastMessageRequest.MessageBoxText);
-            Assert.AreEqual(Resources.MessageBoxTitle_Warning, dialogs.LastMessageRequest.Caption);
+                Assert.IsNotNull(dialogs.LastMessageRequest);
+                Assert.AreEqual(Resources.Warn_LibraryOperationBusy, dialogs.LastMessageRequest.MessageBoxText);
+                Assert.AreEqual(Resources.MessageBoxTitle_Warning, dialogs.LastMessageRequest.Caption);
+                AssertOriginalLevel();
+            }
+            AssertOriginalLevel();
+
+            void AssertOriginalLevel()
+            {
+                using var verify = new LR2SongDBExtended(scope.SongDbPath);
+                Assert.AreEqual(4, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", song.Path));
+                ChartFile current = library.BmsCharts.Single();
+                Assert.AreEqual(4.0, current.Level);
+                LibraryChartRow projected = new MainChartRowProjectionOwner().CreateLibraryRow(library, current);
+                Assert.AreEqual(4.0, projected.level);
+                Assert.AreEqual("4", projected.Level);
+            }
         }
         finally
         {

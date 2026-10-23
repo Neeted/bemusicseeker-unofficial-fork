@@ -1688,46 +1688,81 @@ public sealed class CatalogMutationOwnerTests
     }
 
     /// <summary>
-    /// playlist難易度保存がDB例外になれば元例外を返し、段階を識別した表示可能な失敗factsを一度通知する。
+    /// 後続UPDATE失敗または実Commit Busyで全件をrollbackし、DB・所有現在値・新規表示投影を旧値に保つ。次の明示保存へ失敗値を混ぜず、元例外と失敗factsを一度返す。
     /// </summary>
     /// <remarks>実DBの確定・読戻しと所有現在値を接続し、保存の成功前に公開する誤りや一部だけのrollbackを確認する。</remarks>
-    [TestMethod]
-    public void ApplyPlaylistLevelRows_RethrowsAndPublishesFailureFact()
+    [DataTestMethod]
+    [DataRow(false)] // 先行UPDATE後に後続行のtriggerで失敗します。
+    [DataRow(true)] // UPDATEは通り、別readerの共有lockで実Commitを失敗させます。
+    public void ApplyPlaylistLevelRows_RethrowsAndPublishesFailureFact(bool failCommit)
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogSongCommandFailure_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         try
         {
-            string songPath = Path.Combine("C:\\Library", "command-failure.bms");
-            string[] rawValues = new string[29];
-            rawValues[0] = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-            rawValues[1] = "command-failure.bms";
-            rawValues[7] = songPath;
-            rawValues[14] = "4";
-            rawValues[18] = "7";
-            ChartFile song = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(rawValues));
+            ChartFile[] songs = [CreateBms("first.bms", new string('a', 32)) with { Level = 4, LevelText = "4" },
+                CreateBms("second.bms", new string('b', 32)) with { Level = 7, LevelText = "7" }];
             using (var setup = new LR2SongDBExtended(songDbPath))
             {
                 setup.RunInTransaction(() =>
                 {
                     setup.CreateTable<LR2SongDB.song>();
-                    setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(song), typeof(LR2SongDB.song));
+                    foreach (ChartFile song in songs) { setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(song), typeof(LR2SongDB.song)); }
                 });
+                Assert.AreEqual("delete", setup.ExecuteScalar<string>("PRAGMA journal_mode=DELETE;"));
             }
             var failureFacts = new System.Collections.Generic.List<CatalogWriteFailureFact>();
-            var owner = new CatalogMutationOwner(new CatalogOwnedCollectionOwner(), new BmsLibraryDbGateway(songDbPath));
-            owner.CatalogWriteFailurePublished += (sender, fact) => failureFacts.Add(fact);
-            owner.ApplyModeChangeSongRows([song]);
-            using (var setup = new LR2SongDBExtended(songDbPath))
+            var storage = new CatalogOwnedCollectionOwner();
+            storage.ReplaceChartsAndCaptureSnapshot(songs, []);
+            var owner = new CatalogMutationOwner(storage, new BmsLibraryDbGateway(songDbPath, songDbFactory: path =>
             {
-                setup.Execute("CREATE TRIGGER catalog_song_command_failure BEFORE UPDATE OF level ON song BEGIN SELECT RAISE(ABORT, 'forced level failure'); END;");
+                var connection = new LR2SongDBExtended(path) { BusyTimeout = TimeSpan.Zero };
+                return connection;
+            }));
+            owner.CatalogWriteFailurePublished += (sender, fact) => failureFacts.Add(fact);
+            using (var reader = new LR2SongDBExtended(songDbPath))
+            {
+                if (failCommit)
+                {
+                    reader.BeginTransaction();
+                    Assert.AreEqual(2, reader.ExecuteScalar<int>("SELECT COUNT(*) FROM song;"));
+                }
+                else
+                {
+                    reader.Execute("CREATE TRIGGER catalog_song_command_failure BEFORE UPDATE OF level ON song WHEN NEW.path = 'C:\\Library\\second.bms' BEGIN SELECT RAISE(ABORT, 'forced level failure'); END;");
+                }
+                try
+                {
+                    SQLite.SQLiteException failure = Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyPlaylistLevelRows(
+                        songs.Select((song, index) => song with { Level = 20 + index, LevelText = (20 + index).ToString() })));
+                    if (failCommit) { Assert.AreEqual(SQLite.SQLite3.Result.Busy, failure.Result); }
+                }
+                finally { if (failCommit) { reader.Rollback(); } }
             }
-
-            Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyPlaylistLevelRows([song]));
             Assert.AreEqual(1, failureFacts.Count);
             Assert.AreEqual("lr2_song_db_playlist_level_update_failed", failureFacts[0].Stage);
             Assert.IsFalse(string.IsNullOrWhiteSpace(failureFacts[0].DisplayedMessage));
+            AssertLevels([4, 7]);
+            using (var repair = new LR2SongDBExtended(songDbPath)) { repair.Execute("DROP TRIGGER IF EXISTS catalog_song_command_failure;"); }
+            // 失敗要求の二行目は再送せず、別の値を一行だけ明示保存します。
+            owner.ApplyPlaylistLevelRows([storage.BmsRows[0] with { Level = 13, LevelText = "13" }]);
+            AssertLevels([13, 7]);
+            Assert.AreEqual(1, failureFacts.Count);
+
+            void AssertLevels(int[] expected)
+            {
+                using var verify = new LR2SongDBExtended(songDbPath);
+                NormalLibrarySourceRows projected = new MainChartRowProjectionOwner().BuildNormalSourceRows(null, storage.CaptureSnapshot(), false);
+                for (int index = 0; index < songs.Length; index++)
+                {
+                    string path = songs[index].Path;
+                    Assert.AreEqual(expected[index], verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", path));
+                    Assert.AreEqual((double)expected[index], storage.BmsRows.Single(chart => chart.Path == path).Level);
+                    Assert.AreEqual((double)expected[index], projected.Single(row => row.Chart.Path == path).Chart.Level);
+                    Assert.AreEqual(expected[index].ToString(), projected.Single(row => row.Chart.Path == path).Chart.LevelText);
+                }
+            }
         }
         finally
         {

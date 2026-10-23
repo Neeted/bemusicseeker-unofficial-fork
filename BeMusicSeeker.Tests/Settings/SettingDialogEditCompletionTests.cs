@@ -558,7 +558,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>同rootのBMT出力先変更で旧管理物とURLを整理し、保存後失敗は当初の新先とhash方式で明示修復します。現config不正でも再試行入口と同期失敗を保持し、無効保持・管理外・正本hash・同値の非再保存を保ちます。</summary>
+    /// <summary>同rootのA→B→Cと現在先の再設定は各確定Task内で旧管理物・両表の内容とhash方式・台帳・URL・設定を揃え、管理外を保持します。保存後失敗は捕捉済みの先とhash方式で修復し、無効保持・正本hash・同値の非再保存も保ちます。</summary>
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
@@ -585,6 +585,7 @@ public sealed partial class SettingDialogEditCompletionTests
             values.EnableBeatorajaBmtOutput = true;
             values.RegisterBeatorajaBmtUrls = true;
             values.BeatorajaBmtHashOutputMode = "Original";
+            bool initialKeepDisabledFiles = values.KeepBeatorajaBmtFilesWhenOutputDisabled;
             values.Save();
             var session = new CountingSettingsEditSession(values) { PersistOwnedValues = true };
             List<Exception> failures = [];
@@ -651,6 +652,7 @@ public sealed partial class SettingDialogEditCompletionTests
             owner.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += (_, request) => outputWarnings += request.Receipt.Notifications.Count;
             using (FileStream? blockedSecond = failSecondWrite ? new FileStream(secondFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite) : null)
             { await owner.SettingDialog.CommitBmtSettingsAsync(); }
+            if (!failSecondWrite) { AssertCompletedOutput(output, previousOutput); }
             if (failSecondWrite)
             {
                 Assert.IsTrue(outputWarnings + failures.Count > 0, "実出力の途中失敗を通知先へ渡します。");
@@ -697,6 +699,7 @@ public sealed partial class SettingDialogEditCompletionTests
             File.WriteAllText(firstFile, "projection requires repair");
             using (var blockedSettings = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             { await owner.SettingDialog.CommitBmtSettingsAsync(); }
+            AssertCompletedOutput(output, previousOutput);
             Assert.IsFalse(dialog.IsBmtProcessingRetryRequired, "全表の明示再更新が成功した時だけ案内を解消します。");
             Assert.IsTrue(dialog.IsBeatorajaSelectionEnabled);
             Assert.AreEqual(failuresBeforeRepair, failures.Count, string.Join(Environment.NewLine, failures));
@@ -710,15 +713,6 @@ public sealed partial class SettingDialogEditCompletionTests
             Assert.AreEqual(output, values.BeatorajaBmtTablePath);
             string[] files = Directory.GetFiles(output, "*.bmt");
             Assert.AreEqual(2, files.Length);
-            foreach (string file in files)
-            {
-                using var stream = new System.IO.Compression.GZipStream(File.OpenRead(file), System.IO.Compression.CompressionMode.Decompress);
-                using var reader = new StreamReader(stream);
-                Newtonsoft.Json.Linq.JToken? song = Newtonsoft.Json.Linq.JObject.Parse(reader.ReadToEnd()).SelectToken("folder[0].songs[0]");
-                Assert.IsNotNull(song);
-                Assert.IsNull(song["md5"]);
-                Assert.AreEqual(64, song.Value<string>("sha256")?.Length);
-            }
             var repository = new PlaylistPersistenceRepository(db);
             foreach (BMSTable table in tables)
             {
@@ -740,6 +734,75 @@ public sealed partial class SettingDialogEditCompletionTests
             {
                 CollectionAssert.AreEqual(bytes[file], File.ReadAllBytes(file));
                 Assert.AreEqual(times[file], File.GetLastWriteTimeUtc(file));
+            }
+            string finalOutput = Directory.CreateDirectory(Path.Combine(beatoraja, "final-table")).FullName;
+            string finalUnmanaged = Path.Combine(finalOutput, "user.txt");
+            File.WriteAllBytes(finalUnmanaged, [0, 255, 17, 42]);
+            configDocument["tablepath"] = "final-table";
+            File.WriteAllText(config, configDocument.ToString());
+            await dialog.CommitBmtSettingsAsync();
+            AssertCompletedOutput(finalOutput, output);
+            // 現在先を再設定した要求も、実ファイルを全表修復してから終端します。
+            File.WriteAllText(Directory.GetFiles(finalOutput, "*.bmt")[0], "repair current output");
+            using (var blockedSettings = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            { await dialog.CommitBmtSettingsAsync(); }
+            AssertCompletedOutput(finalOutput, output);
+
+            void AssertCompletedOutput(string currentOutput, string oldOutput)
+            {
+                Assert.IsFalse(dialog.IsBmtProcessingRetryRequired);
+                Settings saved = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                Assert.AreEqual(beatoraja, saved.BeatorajaRootPath);
+                Assert.AreEqual(currentOutput, saved.BeatorajaBmtTablePath);
+                Assert.IsTrue(saved.EnableBeatorajaBmtOutput);
+                Assert.IsTrue(saved.RegisterBeatorajaBmtUrls);
+                Assert.AreEqual(initialKeepDisabledFiles, saved.KeepBeatorajaBmtFilesWhenOutputDisabled);
+                Assert.AreEqual("PreferSha256Only", saved.BeatorajaBmtHashOutputMode);
+                Assert.IsFalse(File.Exists(Path.Combine(oldOutput, BmtTableExportService.ManifestFileName)));
+                Assert.AreEqual(0, Directory.GetFiles(oldOutput, "*.bmt").Length);
+                var manifest = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(Path.Combine(currentOutput, BmtTableExportService.ManifestFileName)));
+                var managedFiles = manifest["files"] as Newtonsoft.Json.Linq.JArray;
+                var managedPlaylists = manifest["playlists"] as Newtonsoft.Json.Linq.JObject;
+                Assert.IsNotNull(managedFiles);
+                Assert.IsNotNull(managedPlaylists);
+                Assert.AreEqual(2, managedFiles.Count);
+                Assert.AreEqual(2, managedPlaylists.Count);
+                CollectionAssert.AreEquivalent(new[] { "1", "2" }, managedPlaylists.Properties().Select(property => property.Name).ToArray());
+                string[] currentFiles = Directory.GetFiles(currentOutput, "*.bmt");
+                Assert.AreEqual(2, currentFiles.Length);
+                string[]? managedFileNames = managedFiles.ToObject<string[]>();
+                Assert.IsNotNull(managedFileNames);
+                CollectionAssert.AreEquivalent(currentFiles.Select(Path.GetFileName).ToArray(), managedFileNames);
+                foreach (int id in new[] { 1, 2 })
+                {
+                    string expectedUrl = "bemusicseeker://playlist/" + id;
+                    var managedPlaylist = managedPlaylists[id.ToString()] as Newtonsoft.Json.Linq.JObject;
+                    Assert.IsNotNull(managedPlaylist);
+                    Assert.AreEqual(expectedUrl, managedPlaylist.Value<string>("url"));
+                    string? fileName = managedPlaylist.Value<string>("file");
+                    Assert.IsNotNull(fileName);
+                    CollectionAssert.Contains(managedFileNames, fileName);
+                    using var stream = new System.IO.Compression.GZipStream(File.OpenRead(Path.Combine(currentOutput, fileName)), System.IO.Compression.CompressionMode.Decompress);
+                    using var reader = new StreamReader(stream);
+                    var document = Newtonsoft.Json.Linq.JObject.Parse(reader.ReadToEnd());
+                    Assert.AreEqual(expectedUrl, document.Value<string>("url"));
+                    Assert.AreEqual("Both " + id, document.Value<string>("name"));
+                    var folders = document["folder"] as Newtonsoft.Json.Linq.JArray;
+                    Assert.IsNotNull(folders);
+                    Assert.AreEqual(1, folders.Count);
+                    Assert.AreEqual("Folder", folders[0].Value<string>("name"));
+                    var songs = folders[0]["songs"] as Newtonsoft.Json.Linq.JArray;
+                    Assert.IsNotNull(songs);
+                    Assert.AreEqual(1, songs.Count);
+                    Assert.AreEqual("Song " + id, songs[0].Value<string>("title"));
+                    Assert.IsNull(songs[0]["md5"], "各確定Taskの終端時点で両表をPreferSha256Onlyへ更新します。");
+                    Assert.AreEqual(new string((char)('a' + id), 64), songs[0].Value<string>("sha256"));
+                }
+                CollectionAssert.AreEqual(new[] { "https://example.com/unmanaged", "bemusicseeker://playlist/1", "bemusicseeker://playlist/2" },
+                    BeatorajaConfigService.ReadTableUrls(beatoraja).ToArray());
+                CollectionAssert.AreEqual(System.Text.Encoding.UTF8.GetBytes("old unmanaged"), File.ReadAllBytes(oldUnmanaged));
+                CollectionAssert.AreEqual(System.Text.Encoding.UTF8.GetBytes("new unmanaged"), File.ReadAllBytes(newUnmanaged));
+                if (currentOutput != output) { CollectionAssert.AreEqual(new byte[] { 0, 255, 17, 42 }, File.ReadAllBytes(Path.Combine(currentOutput, "user.txt"))); }
             }
         }
         finally

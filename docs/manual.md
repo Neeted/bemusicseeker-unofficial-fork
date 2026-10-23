@@ -1047,6 +1047,9 @@ For example, a differential chart by itself is typically added to `Pending` with
 
 `Pending` contains packages not yet installed. Check or correct their destination before installation. For pending packages restored at startup, select them and run `Install` → `Estimate install destination` from the context menu. You can also re-estimate using [Install-Destination Estimation](#install-destination-estimation).
 
+> [!CAUTION]
+> Packages temporarily extracted from archives or URLs are deleted when the app exits, even while shown in Pending, and are not restored on the next startup. Install packages you need before exiting. Source folders and source archives you select directly are excluded from this temporary-file cleanup.
+
 When you open the Pending root or an individual package, an operation bar with `Estimate`, `Install`, and `Clear` appears below the search field. Select charts in the central list and use these buttons for the same actions as `Estimate install destination`, `Install to estimated install destination`, and `Clear install destination` in the context menu. Use Ctrl / Shift to select multiple charts. Charts belonging to the same package are processed together as a package, just as with the context menu. All three buttons are disabled when no charts are selected.
 
 `Estimate` only estimates the destination. Check the results before clicking `Install`. Estimation that keeps unrelated candidates and installation as new remain available from the context menu.
@@ -1368,7 +1371,7 @@ When importing playlist URLs in bulk or searching for main packages through exte
 
 #### When Are Temporary Files Deleted?
 
-Archives downloaded by URL import are deleted after successful extraction. Extracted folders remain while needed for installation or Pending, and are cleaned up when no longer needed during processing or shutdown. Old temporary files left by forced termination are cleaned up on the next startup.
+Archives downloaded by URL import are deleted after successful extraction. Extracted folders remain while needed for installation or Pending during the current run. They are cleaned up when no longer needed during processing, and any remaining folders are deleted at shutdown, even while shown in Pending. This cleanup does not delete source folders or source archives you select directly. Old temporary files left by forced termination are cleaned up on the next startup.
 
 #### Does Removing an Item from Pending Delete the Actual Files?
 

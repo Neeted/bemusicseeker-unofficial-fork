@@ -2363,7 +2363,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
-    /// <summary>実導入の先行成功だけを一回保存し、既存宛先の復元不能でsuffixを止め、所有する後片付けとL/P解放後に終了へ渡す。</summary>
+    /// <summary>同じ推定先への実導入はAだけを一回保存し、Bの既存資源の復元不能でCを止める。Cの保留・元bytes・全譜面の導入先と未処理記録を保ち、後片付け・受付解放後に終了へ渡す。</summary>
     /// <remarks>実FS・SQLite・本番storeを動かし、最終プロセス終了だけを記録へ差し替える。通常失敗・補償成功の条件分岐は既存回帰と下位caseが分担する。</remarks>
     [TestMethod]
     public async Task ManualInstallPackagesAsync_UnrestoredDestinationCommitsPrefixAndExitsAfterOwnedTerminal()
@@ -2377,6 +2377,9 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             (TestBmsLibrary Library, ChartPackage[] Packages, UnrestoredDestinationFileMutationService Files, ChartFileOperationSynchronizer Playlist) workspace = CreateUnrestoredDestinationLibrary(root, installedOnly: false);
             library = workspace.Library;
             ChartPackage[] packages = workspace.Packages;
+            string destination = Path.Combine(root, "installed");
+            var sourceBytes = packages.Skip(1).SelectMany(package => Directory.GetFiles(package.path))
+                .ToDictionary(path => path, File.ReadAllBytes);
             UnrestoredDestinationFileMutationService files = workspace.Files;
             ChartFileOperationSynchronizer playlist = workspace.Playlist;
             ChartFileOperationSynchronizer gate = library.OperationAdmission;
@@ -2410,10 +2413,11 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             Assert.IsTrue(receipt.HasUnrestoredExistingDestination);
             Assert.IsTrue(receipt.WithFinalizationFailure(new IOException("later finalization")).HasUnrestoredExistingDestination);
             Assert.IsTrue(receipt.DurableCommit);
-            CollectionAssert.AreEquivalent(new[] { Path.Combine(root, "installed0", "chart.bms"), Path.Combine(root, "installed0", "note.wav") },
+            CollectionAssert.AreEquivalent(new[] { Path.Combine(destination, "chart0.bms"), Path.Combine(destination, "first.wav") },
                 receipt.ConfirmedTargets.Select(target => target.DestinationPath).ToArray());
             Assert.AreEqual(1, receipt.ApplyCounts.InstalledTargetApplyCount);
             Assert.AreEqual(1, receipt.UnprocessedTargets.Count);
+            Assert.AreEqual(packages[2].path, receipt.UnprocessedTargets[0].SourcePath);
             Assert.IsFalse(result.Succeeded);
             Assert.AreEqual(1, exits);
             Assert.IsTrue(releasedAtExit);
@@ -2421,12 +2425,23 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             Assert.AreEqual(2, files.FailedMoveCount, "公開失敗と一回だけの復元試行です。");
             Assert.IsNotNull(files.BackupPath);
             Assert.AreEqual("old resource", File.ReadAllText(files.BackupPath));
-            Assert.IsTrue(File.Exists(Path.Combine(root, "pending1", "chart.bms")));
-            Assert.IsTrue(File.Exists(Path.Combine(root, "pending2", "chart.bms")));
-            Assert.IsFalse(File.Exists(Path.Combine(root, "installed2", "chart.bms")));
+            foreach ((string path, byte[] bytes) in sourceBytes) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
+            Assert.IsFalse(File.Exists(Path.Combine(destination, "chart2.bms")));
+            Assert.AreEqual("new resource", File.ReadAllText(Path.Combine(destination, "first.wav")));
+            Assert.IsTrue(library.BmsCharts.Any(chart => chart.Path == Path.Combine(destination, "chart0.bms")));
+            Assert.IsFalse(library.BmsCharts.Any(chart => chart.Path == Path.Combine(destination, "chart1.bms")));
+            CollectionAssert.AreEquivalent(packages.Skip(1).Select(package => package.path).ToArray(), library.ChartPackagesPending.Select(package => package.path).ToArray());
+            foreach (ChartPackage pending in library.ChartPackagesPending)
+            {
+                foreach (PackageChartEntry entry in pending.ChartEntries) { Assert.AreEqual(destination, entry.Chart.InstallDestination); }
+            }
+            Assert.AreEqual(2, library.ChartPackagesPending.Single(package => package.path == packages[2].path).ChartEntries.Count);
+            Assert.IsNotNull(receipt.PhysicalFailure);
+            Assert.IsNotNull(receipt.FailedTarget);
+            StringAssert.StartsWith(receipt.FailedTarget.SourcePath, packages[1].path);
             using LR2SongDBExtended db = new BmsLibraryDbGateway(Path.Combine(root, "song.db")).OpenSongDbReadOnly();
-            Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", Path.Combine(root, "installed0", "chart.bms")));
-            Assert.AreEqual(0, db.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", Path.Combine(root, "installed1", "chart.bms")));
+            Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", Path.Combine(destination, "chart0.bms")));
+            Assert.AreEqual(0, db.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", Path.Combine(destination, "chart1.bms")));
             Assert.AreEqual(2, db.ExecuteScalar<int>("SELECT COUNT(1) FROM song;"));
             Assert.AreEqual(0, dialogs.MessageRequests.Count);
         }
@@ -2509,15 +2524,26 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         for (int index = 0; index < (installedOnly ? 2 : 3); index++)
         {
             string source = Path.Combine(root, "pending" + index);
-            string destination = Path.Combine(root, "installed" + index);
+            string destination = Path.Combine(root, installedOnly ? "installed" + index : "installed");
             Directory.CreateDirectory(source);
             Directory.CreateDirectory(destination);
-            string chart = Path.Combine(source, "chart.bms");
-            File.WriteAllText(chart, "#TITLE Pending " + index + "\r\n#ARTIST Test\r\n#BPM 120\r\n#WAV01 note.wav\r\n#00111:01\r\n");
-            File.WriteAllText(Path.Combine(source, "note.wav"), "new resource");
-            packages.Add(ChartPackageTestExtensions.CreatePackage(
+            string chart = Path.Combine(source, installedOnly ? "chart.bms" : "chart" + index + ".bms");
+            string resource = !installedOnly && index == 0 ? "first.wav" : "note.wav";
+            File.WriteAllText(chart, "#TITLE Pending " + index + "\r\n#ARTIST Test\r\n#BPM 120\r\n#WAV01 " + resource + "\r\n#00111:01\r\n");
+            File.WriteAllText(Path.Combine(source, resource), "new resource");
+            var entries = new List<PackageChartEntry>
+            {
                 ChartPackageTestExtensions.CreateEntryWithInstallDestination(
-                    BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chart)), destination)));
+                    BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chart)), destination)
+            };
+            if (!installedOnly && index == 2)
+            {
+                string anotherChart = Path.Combine(source, "chart2-another.bms");
+                File.WriteAllText(anotherChart, "#TITLE Pending 2 Another\r\n#BPM 120\r\n#WAV01 note.wav\r\n#00111:01\r\n");
+                entries.Add(ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(anotherChart)), destination));
+            }
+            packages.Add(ChartPackageTestExtensions.CreatePackage(entries));
             packages[^1].path = source;
             packages[^1].delete_parent = false;
             if (installedOnly || index == 1)
@@ -2529,7 +2555,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
                 File.WriteAllText(Path.Combine(destination, "note.wav"), "old resource");
             }
         }
-        var files = new UnrestoredDestinationFileMutationService(Path.Combine(root, installedOnly ? "installed0" : "installed1", "note.wav"));
+        var files = new UnrestoredDestinationFileMutationService(Path.Combine(root, installedOnly ? "installed0" : "installed", "note.wav"));
         var playlist = new ChartFileOperationSynchronizer();
         var library = new TestBmsLibrary(songDbPath, null, null, files, new RecordingLibraryDialogService(),
             new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot
