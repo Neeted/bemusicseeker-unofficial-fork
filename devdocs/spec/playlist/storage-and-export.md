@@ -14,6 +14,8 @@
 
 永続化の正本は本アプリの `playlist`、`playlist_entry`、`playlist_course` です。アプリ内の現在値・所属・明示順序は `BMSPlaylist` / `PlaylistAggregatePersistenceOwner` / `BMSTable` が所有し、DB確定後に同じentry参照へ採用します。共通の `app_schema=1` に含まれ、プレイリスト専用のスキーマ版は持ちません。LR2連携・スタンドアロンの両方で保存します。
 
+ヘッダー一括保存の`requireCurrentTarget=true`は、要求した非空対象に一件でも退役参照があれば、全件失効を含めてDB変更前に失敗させます。入力空は何もしません。現行参照集合は保存要求内で一度構築し、対象ごとの全件再走査を行いません。`false`では現行参照だけを保存する従来の契約を維持します。編集受付での全対象検証は[プロパティと一括編集](../ui/playlist-properties.md)に従います。
+
 JSON解析、内蔵推薦・難度推定、DB読込みで完成した行集合は、共通の `BMSTable.entries` setterで一度取り込みます。行の親、正規化、フォルダ派生状態、読込状態とentry版を揃えます。公開所属列は構造共有した読取り専用列で、未変更entryの参照と明示順序を保持します。entry自体はownerが更新するため、不変入力にはreader内で `CaptureEntryReadSnapshot` / `CaptureEntriesReadSnapshot` を使い、必要値とentry版を同時捕捉します。少数の追加・削除は対象だけを候補化し、全行のclone・退避・再取込みを行いません。所属・解決キーの依存は表示内容のentry版と分け、memo・URL・levelだけの更新では所持数を再走査しません。
 
 | 表 | 主な列と意味 |
@@ -187,6 +189,7 @@ SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| ヘッダー一括保存の全件/一部失効拒否、空入力、非厳格互換 | `BMSPlaylist.CommitBMSTableHeadersToDB` | [`BmsPlaylistPersistenceLifecycleTests.CommitHeaders_CurrentTargetRequirementRejectsAllAndPartialRetirementButAllowsEmpty`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs)。実SQLiteで失効時に生存対象だけを部分保存せず、`false`では現行対象のみ保存することを確認する。保存境界で現行参照集合を一度構築して照合する点は静的確認で分担する。 |
 | 外部属性一括適用のDB後出力故障と確定表示の終端 | [`PlaylistWorkspaceViewModel.PlaylistSummaryBulkEdit`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.PlaylistSummaryBulkEdit.cs) | [`PlaylistSummaryBulkEditTests.BulkExternalProperties_BmtFailureRefreshesCommittedPresentationAndPreservesPrimary`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs) は実BMT台帳の読取り故障で、確定済みDB・live・参照・概要コピー・詳細とkeyword候補を保ち、guard解放後の通知終端とPの保持・解放を確認する。二次通知故障でも元の出力原因を返す。DB前失敗の成功通知抑止は同クラスの既存検証が担う。 |
 | NULL生存行のLR2再出力と保存値による順序 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) のカスタムフォルダ生成SQL | [`BmsPlaylistCustomFolderOutputTests.ReOutputCustomFolder_RawNullLiveEntriesRemainIncludedAndUsePersistedSortValues`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) はraw NULL/0/1を全保存なしで再出力し、実際の`#COMMAND`で生存行の抽出・削除済み除外・LEVEL/ADDDATEのFile/Folder順とraw NULL保持を確認する。 |
 | NULL状態の局所保存とreader整合、prefix/headerの同一確定 | [`PlaylistPersistenceRepository`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistPersistenceRepository.cs)、[`PlaylistHeaderEdit`](../../../BeMusicSeeker/Models/Playlist/PlaylistHeaderEdit.cs)、[`PlaylistAggregatePersistenceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistAggregatePersistenceOwner.cs) | [`PlaylistEntryCommitTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistEntryCommitTests.cs) はraw状態NULLから保存/削除後の新reader、対象外行・旧同名索引の更新とSQL仕事量を確認する。property/bulkからの配送・次のsort/filter/edit終端とDB前後の失敗は [`PlaylistWorkspaceActionWorkflowTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)、[`PlaylistSummaryBulkEditTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs) が担い、変換条件は [`BMSTableLoadTests`](../../../BeMusicSeeker.Tests/Playlist/BMSTableLoadTests.cs)、Standaloneの実保存は [`BmsPlaylistPersistenceLifecycleTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs) が分担する。 |

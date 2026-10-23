@@ -1010,7 +1010,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 fixture.Table.Output_dir = "BulkNative";
                 fixture.Table.entries = [new BMSTableEntry { playlist_id = fixture.Table.playlist_id, md5 = new string('a', 32), title = "A", folder = "1" }];
                 fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
-                if (bulkOutcome == "busy") { Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out busyLease)); }
                 if (bulkOutcome is "output_failure" or "notification_failure") { outputBlocker = new FileStream(manifest, FileMode.Open, FileAccess.Read, FileShare.None); }
                 if (bulkOutcome == "database_failure")
                 {
@@ -1026,6 +1025,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     (dialog, observation) =>
                     {
                         var draft = (PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel)dialog.DataContext;
+                        if (bulkOutcome == "busy") { Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out busyLease)); }
                         draft.BmtOutputOption = draft.OnOption;
                         if (bulkOutcome == "confirmation_failure") { draft.ExternalSyncOption = draft.OnOption; }
                         RaiseButtonClick(FindAutomationButton(dialog, bulkOutcome == "confirmation_failure"

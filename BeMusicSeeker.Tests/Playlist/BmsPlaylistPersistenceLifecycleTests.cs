@@ -25,6 +25,31 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsPlaylistPersistenceLifecycleTests
 {
+    /// <summary>実DB保存境界で全件/一部失効の厳格保存を拒否し、一部だけの保存を防ぎます。入力空と非厳格の現行対象だけ保存する互換契約も同じDBで確認します。</summary>
+    [TestMethod]
+    public async Task CommitHeaders_CurrentTargetRequirementRejectsAllAndPartialRetirementButAllowsEmpty()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        var active = new BMSTable { playlist_id = 7493, name = "Before", entries = [] };
+        fixture.Playlist.BMSTables.Add(active);
+        fixture.Playlist.CommitBMSTableHeadersToDB([active]);
+        fixture.Playlist.BMSTables.Remove(fixture.Table);
+        active.name = "After";
+        Assert.ThrowsException<InvalidOperationException>(() => fixture.Playlist.CommitBMSTableHeadersToDB([fixture.Table]));
+        Assert.ThrowsException<InvalidOperationException>(() => fixture.Playlist.CommitBMSTableHeadersToDB([active, fixture.Table]));
+        Assert.AreEqual(0, fixture.Playlist.CommitBMSTableHeadersToDB([]).Count);
+        Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+        using (var db = new LR2SongDBExtended(fixture.SongDb))
+        {
+            Assert.AreEqual("Before", db.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id = ?", active.playlist_id));
+        }
+        Assert.AreEqual(0, fixture.Playlist.CommitBMSTableHeadersToDB([fixture.Table], requireCurrentTarget: false).Count);
+        Assert.AreEqual(1, fixture.Playlist.CommitBMSTableHeadersToDB([active, fixture.Table], requireCurrentTarget: false).Count);
+        using var verify = new LR2SongDBExtended(fixture.SongDb);
+        Assert.AreEqual("After", verify.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id = ?", active.playlist_id));
+        Assert.AreEqual("Prefix", verify.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id = ?", fixture.Table.playlist_id));
+    }
+
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
     /// <summary>出力状態の設定・ハッシュ・更新時刻を実SQLiteへ保存して再取得し、指定表の削除まで確認して保存項目の欠落や残存を検出します。</summary>

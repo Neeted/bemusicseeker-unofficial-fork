@@ -4924,10 +4924,10 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     /// <summary>
-    /// 複数プレイリスト本体のヘッダ情報を 1 transaction で DB へ保存します。
+    /// 現行参照集合を一度捕捉し、複数プレイリスト本体のヘッダ情報を 1 transaction で DB へ保存します。
     /// </summary>
     /// <param name="bmsTables">保存対象のプレイリスト群。</param>
-    /// <param name="requireCurrentTarget">対象が現在のコレクションから外れていた場合に失敗させるかどうか。</param>
+    /// <param name="requireCurrentTarget">対象が一件でも現在のコレクションから外れていれば、全件失効を含めて保存前に失敗させるかどうか。入力空は何もしません。</param>
     /// <param name="collectionReadLockHeld">呼び出し元がコレクション読み取りロックを保持している、直列化された経路かどうか。</param>
     /// <param name="capability">親操作の生存P権限。nullは保存対象捕捉前の新規非待機受付です。派生出力を行う上位ownerが終端まで保持します。</param>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTables"/> が <see langword="null"/> の場合。</exception>
@@ -4963,14 +4963,15 @@ public partial class BMSPlaylist : ObservableObject
         bool callerHoldsGuard = hasCollectionReadLock && collectionReadGuard == null;
         try
         {
-            tableList = [.. tableList.Where(table => BMSTables.Contains(table))];
-            if (tableList.Count == 0)
-            {
-                return [];
-            }
+            var currentReferences = new HashSet<BMSTable>(BMSTables, ReferenceEqualityComparer.Instance);
+            tableList = [.. tableList.Where(currentReferences.Contains)];
             if (requireCurrentTarget && tableList.Count != requestedTableList.Count)
             {
                 throw new InvalidOperationException("Playlist header persistence target changed while the playlist was being updated.");
+            }
+            if (tableList.Count == 0)
+            {
+                return [];
             }
             playlistAggregatePersistenceOwner.ReplaceHeaders(
                 tableList,

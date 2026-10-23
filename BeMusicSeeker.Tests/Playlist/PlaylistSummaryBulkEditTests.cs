@@ -34,6 +34,136 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistSummaryBulkEditTests
 {
+    /// <summary>六つの実反映入口で全件退役と無変更対象を含む一部退役を拒否し、実DB・管理BMT・生存正本と入力を保持します。別storeはBMTで代表確認し、同ID別参照は実再同期ケースへ分担します。通信前拒否は外部headerを削除して識別します。</summary>
+    [DataTestMethod]
+    [DataRow("bmt")]
+    [DataRow("sync")]
+    [DataRow("root")]
+    [DataRow("mask")]
+    [DataRow("base")]
+    [DataRow("external")]
+    public async Task BulkApply_RejectsEntireStaleSelectionBeforeChanges(string operation)
+    {
+        foreach (string staleKind in operation == "bmt" ? new[] { "all", "partial", "store" } : new[] { "all", "partial" })
+        {
+            await using var fixture = new PlaylistPrefixCommitTestFixture(enableBmtOutput: true);
+            BMSTable first = fixture.Table;
+            first.custom_folder_output_base_name = "Old";
+            first.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.None;
+            var second = new BMSTable
+            {
+                playlist_id = 7493,
+                name = "Second",
+                entries = [],
+                is_bmt_output = true,
+                custom_folder_output_base_name = "Old",
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.None,
+                Header_url = first.Header_url,
+                Data_url = first.Data_url
+            };
+            fixture.Playlist.BMSTables.Add(second);
+            fixture.Playlist.CommitBMSTableHeadersToDB([first, second]);
+            await fixture.Playlist.BmtOutput.ExportTablesAsync([first, second], "stale_bulk_setup");
+            BMSPlaylist currentStore = fixture.Playlist;
+            using PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _,
+                playlistStoreProvider: () => currentStore, playlistLibraryProvider: () => fixture.Library);
+            PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel draft = workspace.OpenSummaryBulkEditDialog([new PlaylistSummaryRow { TableRef = first }, new PlaylistSummaryRow { TableRef = second }])
+                ?? throw new AssertFailedException("一括編集を準備できません。");
+            draft.BmtOutputOption = draft.OffOption;
+            draft.ExternalSyncOption = draft.OnOption;
+            draft.RootFolderOption = draft.OnOption;
+            draft.OutputUserFolder = false;
+            draft.OutputBaseOption = draft.OutputBaseOptions.Single(option => !option.IsNoChange);
+            draft.InitializeNameFromExternal = true;
+            if (staleKind == "partial")
+            {
+                second.is_bmt_output = false;
+                second.EnableExternalSync();
+                second.is_root_folder = true;
+                second.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.UserFolder;
+                second.custom_folder_output_base_name = null;
+                second.name = "Changed";
+            }
+            if (staleKind == "all") { fixture.Playlist.BMSTables.Clear(); }
+            else if (staleKind == "partial") { fixture.Playlist.BMSTables.Remove(second); }
+            else
+            {
+                currentStore = MainWindowViewModelTestFactory.CreatePlaylist(fixture.SongDb,
+                    MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false));
+                currentStore.BMSTables = new ObservableCollection<BMSTable>([first, second]);
+            }
+            string[] beforeModel = fixture.Playlist.BMSTables.Select(CaptureBulkHeader).ToArray();
+            string[] beforeDb;
+            using (var db = new LR2SongDBExtended(fixture.SongDb)) { beforeDb = db.Table<BMSTable>().OrderBy(table => table.playlist_id).Select(CaptureBulkHeader).ToArray(); }
+            string bmtRoot = Path.GetDirectoryName(fixture.BmtManifestPath) ?? throw new AssertFailedException();
+            Dictionary<string, byte[]> beforeFiles = Directory.GetFiles(bmtRoot, "*", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
+            File.Delete(fixture.HeaderPath);
+            try
+            {
+                await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => ApplyBulkDraftAsync(draft, operation), operation + "/" + staleKind);
+                CollectionAssert.AreEqual(beforeModel, fixture.Playlist.BMSTables.Select(CaptureBulkHeader).ToArray());
+                using var db = new LR2SongDBExtended(fixture.SongDb);
+                CollectionAssert.AreEqual(beforeDb, db.Table<BMSTable>().OrderBy(table => table.playlist_id).Select(CaptureBulkHeader).ToArray());
+                CollectionAssert.AreEquivalent(beforeFiles.Keys.ToArray(), Directory.GetFiles(bmtRoot, "*", SearchOption.AllDirectories));
+                foreach (KeyValuePair<string, byte[]> file in beforeFiles) { CollectionAssert.AreEqual(file.Value, File.ReadAllBytes(file.Key)); }
+                Assert.AreSame(draft.OffOption, draft.BmtOutputOption);
+                Assert.AreSame(draft.OnOption, draft.ExternalSyncOption);
+                Assert.AreSame(draft.OnOption, draft.RootFolderOption);
+                Assert.AreEqual(false, draft.OutputUserFolder);
+                Assert.IsTrue(draft.InitializeNameFromExternal);
+                Assert.IsTrue(currentStore.CanEnterPlaylistMutation);
+            }
+            finally
+            {
+                if (!ReferenceEquals(currentStore, fixture.Playlist)) { currentStore.RequestShutdown("stale_bulk_test"); }
+            }
+        }
+    }
+
+    /// <summary>実外部再同期で同IDの別正本へ置換した後は古いBMT編集を拒否し、旧選択から開き直した編集だけがDBと実出力を変更します。</summary>
+    [TestMethod]
+    public async Task BulkBmtApply_ExternalReplacementRejectsOldDraftAndReopenedDraftSaves()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(enableBmtOutput: true);
+        var oldRow = new PlaylistSummaryRow { TableRef = fixture.Table };
+        PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel draft = fixture.Workspace.OpenSummaryBulkEditDialog([oldRow]) ?? throw new AssertFailedException();
+        draft.BmtOutputOption = draft.OffOption;
+        File.WriteAllText(fixture.HeaderPath, "{\"name\":\"Replacement\",\"symbol\":\"NEW\",\"data_url\":\"data.json\"}");
+        PlaylistExternalSyncOwner.PlaylistReloadOperationResult reload = await fixture.Playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([fixture.Table]);
+        reload.ThrowIfFailed();
+        BMSTable current = fixture.Playlist.BMSTables.Single();
+        Assert.AreNotSame(fixture.Table, current);
+        Assert.AreEqual(fixture.Table.playlist_id, current.playlist_id);
+        string root = Path.GetDirectoryName(fixture.BmtManifestPath) ?? throw new AssertFailedException();
+        Dictionary<string, byte[]> before = Directory.GetFiles(root, "*", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
+        Assert.IsTrue(before.Keys.Any(path => path.EndsWith(".bmt", StringComparison.OrdinalIgnoreCase)));
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(draft.ApplyBmtOutputAsync);
+        Assert.IsTrue(current.is_bmt_output);
+        using (var db = new LR2SongDBExtended(fixture.SongDb)) { Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT is_bmt_output FROM playlist WHERE playlist_id = ?", current.playlist_id)); }
+        foreach (KeyValuePair<string, byte[]> file in before) { CollectionAssert.AreEqual(file.Value, File.ReadAllBytes(file.Key)); }
+        PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel reopened = fixture.Workspace.OpenSummaryBulkEditDialog([oldRow]) ?? throw new AssertFailedException();
+        reopened.BmtOutputOption = reopened.OffOption;
+        await reopened.ApplyBmtOutputAsync();
+        Assert.IsFalse(current.is_bmt_output);
+        using (var db = new LR2SongDBExtended(fixture.SongDb)) { Assert.AreEqual(0, db.ExecuteScalar<int>("SELECT is_bmt_output FROM playlist WHERE playlist_id = ?", current.playlist_id)); }
+        Assert.IsFalse(Directory.GetFiles(root, "*.bmt", SearchOption.AllDirectories).Any());
+    }
+
+    private static string CaptureBulkHeader(BMSTable table) => string.Join("|", table.playlist_id, table.name,
+        table.is_bmt_output, table.is_external_sync, table.is_root_folder, table.ignore_folder_output,
+        table.custom_folder_output_base_name, table.output_dir, table.symbol, table.compat_prefix);
+
+    private static Task ApplyBulkDraftAsync(PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel draft, string operation) => operation switch
+    {
+        "bmt" => draft.ApplyBmtOutputAsync(),
+        "sync" => draft.ApplyExternalSyncAsync(),
+        "root" => draft.ApplyRootFolderAsync(),
+        "mask" => draft.ApplyCustomFolderOutputTypesAsync(),
+        "base" => draft.ApplyOutputBaseAsync(),
+        "external" => draft.ApplyExternalPropertyInitializationAsync(),
+        _ => throw new AssertFailedException(operation)
+    };
+
     /// <summary>実外部属性初期化のprefix候補をDBと詳細へ配送し、全体/folder選択と次sort要求の終端を保持します。</summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -346,16 +476,15 @@ public sealed class PlaylistSummaryBulkEditTests
                 LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder));
     }
 
-    /// <summary>実workspaceから対象が空の一括編集draftを作り、最終プレイ出力を選ぶと反映操作を許可することを確認します。</summary>
+    /// <summary>実workspaceの現正本から一括編集draftを作り、最終プレイ出力を選ぶと反映操作を許可することを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
-    public void PlaylistSummaryBulkEditDialogViewModel_AllowsLastPlaySortFolderRegardlessOfSchemaStatus()
+    public async Task PlaylistSummaryBulkEditDialogViewModel_AllowsLastPlaySortFolderRegardlessOfSchemaStatus()
     {
-        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-        using SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
         var dialog = new PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel(
-            owner.PlaylistWorkspace,
-            []);
+            fixture.Workspace,
+            [new PlaylistSummaryRow { TableRef = fixture.Table }]);
 
         dialog.OutputLastPlaySortFolder = true;
 
@@ -1332,17 +1461,19 @@ public sealed class PlaylistSummaryBulkEditTests
     /// <summary>全出力種別の双方向接続と文言、共通チェックの中間表示と三状態循環を確認します。属性初期化の二状態操作へ中間状態が波及しないことも実Toggle経路で検証します。</summary>
     [TestMethod]
     [DoNotParallelize]
-    public void PlaylistSummaryBulkEditDialog_BindsAllCustomFolderOptionsTwoWayAndLocalized()
+    public async Task PlaylistSummaryBulkEditDialog_BindsAllCustomFolderOptionsTwoWayAndLocalized()
     {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = true;
             });
-        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
-        using BeMusicSeeker.ViewModels.SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
-        BMSTable table = CreateTable(LR2SongDBExtended.playlist.CustomFolderType.None);
+        using PlaylistWorkspaceViewModel workspace = CreatePlaylistWorkspace(fixture.Playlist, fixture.Library,
+            settingsProvider: () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings));
+        BMSTable table = fixture.Table;
+        table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.None;
         var dialog = new PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel(
-            owner.PlaylistWorkspace,
+            workspace,
             [new PlaylistSummaryRow { TableRef = table }]);
 
         TestUiDispatcherHost.RunWindowTest(windowTest =>

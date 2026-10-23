@@ -16,11 +16,12 @@ namespace BeMusicSeeker.ViewModels;
 public sealed partial class PlaylistWorkspaceViewModel
 {
     /// <summary>
-    /// Pを対象確定前に取得し、BMT選択の一括保存と生成・削除・設定反映を同じ権限で待ちます。
+    /// P取得後に開始時と同じstoreの全正本参照を検証し、BMT選択の保存と必要出力を同じ権限で待ちます。
     /// </summary>
-    /// <param name="rows">Summary rows whose referenced playlists should be updated.</param>
-    /// <param name="isBmtOutput">The requested persisted BMT output state.</param>
-    internal async Task ApplyPlaylistSummaryBmtOutput(IEnumerable<PlaylistSummaryRow> rows, bool isBmtOutput)
+    /// <param name="rows">編集開始時に捕捉した対象行。</param>
+    /// <param name="isBmtOutput">保存するBMT出力指定。</param>
+    /// <param name="expectedStore">編集開始時に捕捉したstoreの同一参照。省略時は直接操作として現在storeの対象を検証します。</param>
+    internal async Task ApplyPlaylistSummaryBmtOutput(IEnumerable<PlaylistSummaryRow> rows, bool isBmtOutput, BMSPlaylist expectedStore = null)
     {
         if (rows == null)
         {
@@ -30,10 +31,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         BMSPlaylist playlists = GetPlaylistStore();
         using LibraryFileMutationLease accepted = playlists.AcquirePlaylistMutationLease("playlist_summary_bmt_output_changed");
         using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
-        List<BMSTable> changedTables = [.. rows
-            .Where(row => row?.TableRef != null)
-            .Select(row => row.TableRef)
-            .Distinct()
+        List<BMSTable> changedTables = [.. CaptureCurrentPlaylistSummaryTargets(playlists, rows, expectedStore)
             .Where(table => (table.is_bmt_output != false) != isBmtOutput)];
         if (changedTables.Count == 0)
         {

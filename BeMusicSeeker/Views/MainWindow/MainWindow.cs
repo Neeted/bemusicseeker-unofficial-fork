@@ -4092,7 +4092,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         try
         {
             PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
-            List<PlaylistSummaryRow> selectedPlaylistSummaryRows = [.. getSelectedPlaylistSummaryRows(playlistSummaryRow).Where(row => row?.TableRef != null)];
+            List<PlaylistSummaryRow> selectedPlaylistSummaryRows = [.. getSelectedPlaylistSummaryRows(playlistSummaryRow)];
             if (selectedPlaylistSummaryRows.Count == 0)
             {
                 return;

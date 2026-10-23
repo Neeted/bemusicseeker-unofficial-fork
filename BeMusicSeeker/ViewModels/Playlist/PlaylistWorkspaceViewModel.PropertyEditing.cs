@@ -222,6 +222,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         (handler ?? throw new InvalidOperationException(eventName + " is not subscribed."))(this, args);
     }
 
+    /// <summary>未登録draftと編集セッションの準備中だけPを保持し、画面の公開前に解放します。</summary>
     internal async Task<PlaylistPropertyDialogViewModel> CreatePlaylistPropertyDialogAsync()
     {
         if (Interlocked.CompareExchange(ref propertyDialogOpenInProgress, 1, 0) != 0)
@@ -230,6 +231,12 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         try
         {
+            BMSPlaylist store = GetPlaylistStore();
+            if (!TryEnterPlaylistMutationAdmission(store, out IDisposable admission))
+            {
+                return null;
+            }
+            using IDisposable accepted = admission;
             if (!CanOpenPlaylistEditDialog)
             {
                 return null;
@@ -260,6 +267,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
+    /// <summary>Pの下で旧選択を一意な現行IDへ解決し、その正本から画面公開前の編集準備を行います。</summary>
     internal async Task<PlaylistPropertyDialogViewModel> OpenPropertyDialogAsync(BMSTable table)
     {
         if (Interlocked.CompareExchange(ref propertyDialogOpenInProgress, 1, 0) != 0)
@@ -268,14 +276,23 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         try
         {
-            ActivePropertyDialog?.Dispose();
-            ActivePropertyDialog = null;
+            BMSPlaylist store = GetPlaylistStore();
+            if (!TryEnterPlaylistMutationAdmission(store, out IDisposable admission))
+            {
+                return null;
+            }
+            using IDisposable accepted = admission;
             if (!CanOpenPlaylistEditDialog)
             {
                 return null;
             }
+            BMSTable currentTable = store.ResolveActivePlaylistTableForMutation(table);
+            if (currentTable == null)
+            {
+                return null;
+            }
             PlaylistPropertyEditSession editSession =
-                await propertySaveService.CreateEditSessionAsync(table);
+                await propertySaveService.CreateEditSessionAsync(currentTable);
             return editSession == null
                 ? null
                 : OpenPropertyDialogCore(editSession);
