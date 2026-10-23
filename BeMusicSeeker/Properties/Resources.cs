@@ -43,6 +43,21 @@ public class Resources
         }
     }
 
+    /// <summary>日付未選択時の案内です。</summary>
+    public static string DatePicker_choose_date => ResourceManager.GetString("DatePicker_choose_date", resourceCulture);
+
+    /// <summary>日付のカレンダーを開く操作の説明です。</summary>
+    public static string DatePicker_open_calendar => ResourceManager.GetString("DatePicker_open_calendar", resourceCulture);
+
+    /// <summary>カレンダーを前の期間へ送る操作の説明です。</summary>
+    public static string DatePicker_previous_period => ResourceManager.GetString("DatePicker_previous_period", resourceCulture);
+
+    /// <summary>カレンダーを次の期間へ送る操作の説明です。</summary>
+    public static string DatePicker_next_period => ResourceManager.GetString("DatePicker_next_period", resourceCulture);
+
+    /// <summary>カレンダーの月・年表示を切り替える操作の説明です。</summary>
+    public static string DatePicker_change_period => ResourceManager.GetString("DatePicker_change_period", resourceCulture);
+
     /// <summary>インストール設定のセクション見出しです。</summary>
     public static string Settings_install_destination_section => ResourceManager.GetString("Settings_install_destination_section", resourceCulture);
 

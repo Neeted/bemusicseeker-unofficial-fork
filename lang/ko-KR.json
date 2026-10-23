@@ -1343,5 +1343,10 @@
   "Settings_open_bms_roots": "BMS 폴더 편집",
   "Settings_retry": "다시 시도",
   "Settings_retry_audio_save": "오디오 설정 저장 다시 시도",
-  "Settings_audio_save_retry_description": "오디오 설정을 저장하지 못했습니다. 현재 재생은 계속됩니다. 다시 시도하여 다음 재생에 사용할 설정을 저장하세요."
+  "Settings_audio_save_retry_description": "오디오 설정을 저장하지 못했습니다. 현재 재생은 계속됩니다. 다시 시도하여 다음 재생에 사용할 설정을 저장하세요.",
+  "DatePicker_choose_date": "날짜 선택",
+  "DatePicker_open_calendar": "달력 열기",
+  "DatePicker_previous_period": "이전 기간",
+  "DatePicker_next_period": "다음 기간",
+  "DatePicker_change_period": "월 또는 연도 보기 전환"
 }

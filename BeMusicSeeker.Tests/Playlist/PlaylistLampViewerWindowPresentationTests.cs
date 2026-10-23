@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -14,8 +15,11 @@ using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Interop;
+using System.Windows.Markup;
 using System.Windows.Media;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Localization;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -52,6 +56,230 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                         "/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml",
                         UriKind.RelativeOrAbsolute)
                 });
+            }
+        });
+    }
+
+    /// <summary>未選択／選択済みの同じ日付部品と開いたCalendarがアプリ言語とテーマへ追従し、月日再解析・日付通知・取得・表示モード変更を起こさないことを確認します。</summary>
+    /// <remarks>実PART_TextBox、Popup、Calendarの標準セルとボタン配送を観測するためWPFを使います。UIスレッドの文化圏と共有テーマを所有・復元し、実OSフォーカスは合否にしません。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Viewer_datePresentationTracksApplicationCultureWithoutChangingTheQuery(bool serviceCreatedFirst)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            CultureInfo previousCulture = CultureInfo.CurrentCulture;
+            CultureInfo previousUiCulture = CultureInfo.CurrentUICulture;
+            CultureInfo previousResourceCulture = Resources.Culture;
+            ResourceDictionary[] previousDictionaries = Application.Current.Resources.MergedDictionaries.ToArray();
+            PlaylistLampViewerViewModel? viewModel = null;
+            Window? owner = null;
+            PlaylistLampViewerWindow? window = null;
+            var languageBackups = new Dictionary<string, byte[]?>();
+            try
+            {
+                // 追加JSONも本番の探索・言語選択へ通す。書込みはテスト出力配下だけに限定する。
+                string languageDirectory = ApplicationPathPolicy.Current.LanguageDirectory;
+                Assert.AreEqual(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "lang")), Path.GetFullPath(languageDirectory), true);
+                Directory.CreateDirectory(languageDirectory);
+                foreach (string language in new[] { "th-TH", "ar-SA" })
+                {
+                    string path = Path.Combine(languageDirectory, language + ".json");
+                    languageBackups.Add(path, File.Exists(path) ? File.ReadAllBytes(path) : null);
+                    File.WriteAllText(path, "{\"_language_name\":\"Date regression " + language + "\"}");
+                    JsonLanguageCatalog.Invalidate(language);
+                }
+                JsonLanguageCatalog.InvalidateLanguages();
+                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("ja-JP");
+                CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("ja-JP");
+                ResourceService? service = serviceCreatedFirst ? new ResourceService() : null;
+                // 起動時にResourceServiceより後からResources.Cultureを設定する経路もキャッシュせず読む。
+                Resources.Culture = CultureInfo.GetCultureInfo("fr-FR");
+                service ??= new ResourceService();
+                Assert.AreEqual("fr-FR", service.DisplayCulture.Name);
+                Resources.Culture = null;
+                Assert.AreEqual(CultureInfo.CurrentUICulture, service.DisplayCulture);
+                ResourceService.Current.ChangeCulture("en-US");
+                AppThemeService.ApplyTheme(AppThemeService.Light);
+                var selected = new DateTime(2026, 4, 5);
+                PlaylistLampAggregationRequest request = CreateRequest(ActiveScoreSource.Beatoraja);
+                var source = new FixedLampSource(new PlaylistLampAggregationRequest(request.PlaylistId,
+                    request.FolderOrder, request.Entries, request.ScoreSnapshot,
+                    historicalDateRange: new PlaylistLampHistoricalDateRange(new DateTime(2020, 1, 1), new DateTime(2030, 12, 31)),
+                    historicalStatus: PlaylistLampHistoricalSnapshotStatus.Available));
+                var session = new PlaylistLampViewerSession("playlist", source);
+                viewModel = new PlaylistLampViewerViewModel("playlist", "Date presentation", session,
+                    TestUiDispatcherHost.Dispatcher, _ => { });
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.StartAndWaitForPresentableAsync(), "date presentation initial result");
+                owner = new Window { Content = new Grid(), Width = 480, Height = 320 };
+                scope.ShowAndWaitForContentRendered(owner);
+                window = new PlaylistLampViewerWindow(owner, viewModel);
+                scope.ShowAndWaitForContentRendered(window);
+                SelectDisplayMode(window, true);
+                DatePicker picker = FindByAutomationId<DatePicker>(window, "PlaylistLampViewerAsOfDatePicker");
+                var editor = (DatePickerTextBox)picker.Template.FindName("PART_TextBox", picker);
+                var hint = (TextBlock)editor.Template.FindName("DateHint", editor);
+                var button = (Button)picker.Template.FindName("PART_Button", picker);
+                var popup = (Popup)picker.Template.FindName("PART_Popup", picker);
+                var calendar = (System.Windows.Controls.Calendar)popup.Child;
+                Assert.IsTrue(editor.IsReadOnly);
+                void OpenCalendar()
+                {
+                    var opened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    int openCount = 0;
+                    RoutedEventHandler onOpened = (_, _) => { openCount++; opened.TrySetResult(); };
+                    picker.CalendarOpened += onOpened;
+                    try
+                    {
+                        ((IInvokeProvider)new ButtonAutomationPeer(button).GetPattern(PatternInterface.Invoke)).Invoke();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(opened.Task, "localized calendar button actual open");
+                    }
+                    finally { picker.CalendarOpened -= onOpened; }
+                    Assert.AreEqual(1, openCount);
+                }
+                foreach (DateTime? date in new DateTime?[] { null, selected })
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(session.UpdateSelectedAsOfDateAsync(date), "date presentation query selection");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    picker.DisplayDate = selected;
+                    picker.IsDropDownOpen = true;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    calendar.DisplayMode = CalendarMode.Month;
+                    window.UpdateLayout();
+                    calendar.UpdateLayout();
+                    var item = (CalendarItem)calendar.Template.FindName("PART_CalendarItem", calendar);
+                    var header = (Button)item.Template.FindName("PART_HeaderButton", item);
+                    var monthView = (Grid)item.Template.FindName("PART_MonthView", item);
+                    int captures = source.CaptureCount;
+                    int dateChanges = 0;
+                    EventHandler<SelectionChangedEventArgs> onDateChanged = (_, _) => dateChanges++;
+                    picker.SelectedDateChanged += onDateChanged;
+                    try
+                    {
+                        int themeIndex = 0;
+                        // en/frの月日交換、週開始が同じ言語間、非Gregorianのth-THと環境の既定暦に従うar-SAを確認する。
+                        foreach (string language in new[] { "en-US", "fr-FR", "en-US", "ja-JP", "ko-KR", "zh-CN", "zh-TW", "th-TH", "ar-SA", "fr-FR" })
+                        {
+                            ResourceService.Current.ChangeCulture(language);
+                            AppThemeService.ApplyTheme(themeIndex++ % 2 == 0 ? AppThemeService.Light : AppThemeService.Dark);
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            var culture = CultureInfo.GetCultureInfo(language);
+                            // 書式の期待値は補助処理を複写せず、標準DatePickerの確定済み日付表示から得る。
+                            var standardPicker = new DatePicker { Language = XmlLanguage.GetLanguage(language), SelectedDateFormat = DatePickerFormat.Short, SelectedDate = date };
+                            Assert.AreEqual(standardPicker.Text, editor.Text);
+                            var displayCulture = (CultureInfo)culture.Clone();
+                            if (language == "th-TH")
+                            {
+                                Assert.IsFalse(culture.Calendar is GregorianCalendar, "th-THで非Gregorianの既定暦を検証する条件を保つ。");
+                            }
+                            if (culture.Calendar is not GregorianCalendar)
+                            {
+                                displayCulture.DateTimeFormat.Calendar = new GregorianCalendar(GregorianCalendarTypes.Localized);
+                            }
+                            Assert.AreEqual(editor.Text, picker.Text);
+                            Assert.AreEqual(Resources.DatePicker_choose_date, hint.Text);
+                            Assert.AreEqual(date.HasValue ? Visibility.Collapsed : Visibility.Visible, hint.Visibility);
+                            Assert.AreEqual(Resources.DatePicker_open_calendar, button.ToolTip);
+                            Assert.AreEqual(Resources.DatePicker_open_calendar, AutomationProperties.GetName(button));
+                            Assert.AreEqual(standardPicker.FirstDayOfWeek, calendar.FirstDayOfWeek);
+                            Assert.AreEqual(selected.ToString("Y", displayCulture), header.Content);
+                            string[] expectedDays = Enumerable.Range(0, 7).Select(index =>
+                                culture.DateTimeFormat.ShortestDayNames[((int)culture.DateTimeFormat.FirstDayOfWeek + index) % 7]).ToArray();
+                            string[] actualDays = monthView.Children.OfType<TextBlock>().Take(7).Select(text => text.Text).ToArray();
+                            CollectionAssert.AreEqual(expectedDays, actualDays);
+                            Assert.AreSame(calendar, popup.Child);
+                            Assert.AreSame(item, calendar.Template.FindName("PART_CalendarItem", calendar));
+                            Assert.IsTrue(popup.IsOpen);
+                            Assert.AreEqual(CalendarMode.Month, calendar.DisplayMode);
+                            Assert.AreEqual(selected, picker.DisplayDate);
+                            Assert.AreEqual(date, picker.SelectedDate);
+                            Assert.AreEqual(date, calendar.SelectedDate);
+                            Assert.AreEqual(date, viewModel.SelectedAsOfDate);
+                            Assert.AreEqual(date, session.Query.SelectedLocalDate);
+                            Assert.IsTrue(viewModel.IsCountMode);
+                            Assert.AreEqual(0, dateChanges);
+                            Assert.AreEqual(captures, source.CaptureCount);
+                            Assert.AreEqual("ja-JP", CultureInfo.CurrentCulture.Name);
+                            Assert.AreEqual("ja-JP", CultureInfo.CurrentUICulture.Name);
+                            Assert.AreEqual(((SolidColorBrush)picker.FindResource("App.ControlBackgroundBrush")).Color, ((SolidColorBrush)picker.Background).Color);
+                            Assert.AreEqual(((SolidColorBrush)picker.FindResource("App.PopupBackgroundBrush")).Color, ((SolidColorBrush)item.Background).Color);
+                            Assert.AreEqual(((SolidColorBrush)picker.FindResource("App.BorderBrush")).Color, ((SolidColorBrush)item.BorderBrush).Color);
+                            CalendarDayButton day = FindDescendants<CalendarDayButton>(calendar).First(candidate => !candidate.IsInactive && candidate.IsEnabled);
+                            Assert.AreEqual(((SolidColorBrush)picker.FindResource(day.IsSelected ? "App.AccentForegroundBrush" : "App.TextBrush")).Color, ((SolidColorBrush)day.Foreground).Color);
+                            // DatePickerが再解析する標準LostFocusとボタンの開く経路でも日付・取得を維持する。
+                            editor.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent, editor));
+                            picker.IsDropDownOpen = false;
+                            OpenCalendar();
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            Assert.AreEqual(date, picker.SelectedDate);
+                            Assert.AreEqual(date, viewModel.SelectedAsOfDate);
+                            Assert.AreEqual(date, session.Query.SelectedLocalDate);
+                            Assert.AreEqual(0, dateChanges);
+                            Assert.AreEqual(captures, source.CaptureCount);
+                            Assert.IsTrue(editor.IsReadOnly);
+                        }
+                        calendar.DisplayMode = CalendarMode.Year;
+                        ResourceService.Current.ChangeCulture("en-US");
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.AreEqual(CalendarMode.Year, calendar.DisplayMode);
+                        Assert.AreEqual(selected, calendar.DisplayDate);
+                        Assert.AreEqual(0, dateChanges);
+                        picker.IsDropDownOpen = false;
+                        OpenCalendar();
+                        Assert.AreEqual(date, picker.SelectedDate);
+                        Assert.AreEqual(0, dateChanges);
+                        Assert.AreEqual(captures, source.CaptureCount);
+                        if (date.HasValue)
+                        {
+                            // 多数の言語更新後も実Calendarのセルから一回だけ選択・取得する。
+                            DateTime next = selected.AddDays(1);
+                            var dayAccepted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                            EventHandler<PlaylistLampAggregationResultChangedEventArgs> onDayAccepted = (_, args) =>
+                            {
+                                if (args.Result.Query.SelectedLocalDate == next) { dayAccepted.TrySetResult(); }
+                            };
+                            session.ResultChanged += onDayAccepted;
+                            try
+                            {
+                                calendar.UpdateLayout();
+                                CalendarDayButton nextDay = FindDescendants<CalendarDayButton>(calendar)
+                                    .Single(day => day.DataContext is DateTime value && value == next);
+                                nextDay.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, nextDay));
+                                TestUiDispatcherHost.AwaitTaskOnDispatcher(dayAccepted.Task, "localized calendar day actual result");
+                                TestUiDispatcherHost.ProcessQueuedPresentation();
+                                Assert.AreEqual(next, picker.SelectedDate);
+                                Assert.AreEqual(1, dateChanges);
+                                Assert.AreEqual(captures + 1, source.CaptureCount);
+                            }
+                            finally { session.ResultChanged -= onDayAccepted; }
+                        }
+                    }
+                    finally
+                    {
+                        picker.SelectedDateChanged -= onDateChanged;
+                        picker.IsDropDownOpen = false;
+                    }
+                }
+            }
+            finally
+            {
+                window?.Close();
+                owner?.Close();
+                if (viewModel != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.DisposeAsync().AsTask(), "date presentation drain"); }
+                foreach ((string path, byte[]? contents) in languageBackups)
+                {
+                    if (contents == null) { File.Delete(path); }
+                    else { File.WriteAllBytes(path, contents); }
+                    JsonLanguageCatalog.Invalidate(Path.GetFileNameWithoutExtension(path));
+                }
+                JsonLanguageCatalog.InvalidateLanguages();
+                ResourceService.Current.ChangeCulture("ja-JP");
+                Resources.Culture = previousResourceCulture;
+                CultureInfo.CurrentCulture = previousCulture;
+                CultureInfo.CurrentUICulture = previousUiCulture;
+                Application.Current.Resources.MergedDictionaries.Clear();
+                foreach (ResourceDictionary dictionary in previousDictionaries) { Application.Current.Resources.MergedDictionaries.Add(dictionary); }
             }
         });
     }
@@ -267,7 +495,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         });
     }
 
-    /// <summary>履歴なしから履歴ありへ更新して日付選択と最新復帰を操作し、範囲・選択要求・表示モードを失う接続不備を検出します。</summary>
+    /// <summary>履歴なしから履歴ありへ再有効化しても読取り専用を保ち、日付選択と最新復帰の範囲・選択要求・表示モードを失う接続不備を検出します。</summary>
     [TestMethod]
     public void Viewer_historicalDatePicker_is_calendar_only_and_latest_recovers_the_window()
     {
@@ -323,6 +551,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 window.UpdateLayout();
 
                 Assert.IsTrue(picker.IsEnabled, "a non-empty provider history must enable the calendar");
+                Assert.IsTrue(pickerTextBox.IsReadOnly, "履歴なしから再有効化されてもカレンダー専用入力を維持する。");
                 Assert.AreEqual(earliest, picker.DisplayDateStart);
                 Assert.AreEqual(today, picker.DisplayDateEnd);
 

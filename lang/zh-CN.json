@@ -1343,5 +1343,10 @@
   "Settings_open_bms_roots": "编辑 BMS 文件夹",
   "Settings_retry": "重试",
   "Settings_retry_audio_save": "重试保存音频设置",
-  "Settings_audio_save_retry_description": "无法保存音频设置。当前播放将继续。请重试以保存下次播放使用的设置。"
+  "Settings_audio_save_retry_description": "无法保存音频设置。当前播放将继续。请重试以保存下次播放使用的设置。",
+  "DatePicker_choose_date": "选择日期",
+  "DatePicker_open_calendar": "打开日历",
+  "DatePicker_previous_period": "上一时段",
+  "DatePicker_next_period": "下一时段",
+  "DatePicker_change_period": "切换月或年视图"
 }

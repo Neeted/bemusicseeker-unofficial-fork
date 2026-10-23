@@ -1343,5 +1343,10 @@
   "Settings_open_bms_roots": "Edit BMS directories",
   "Settings_retry": "Retry",
   "Settings_retry_audio_save": "Retry saving audio settings",
-  "Settings_audio_save_retry_description": "Audio settings could not be saved. Current playback continues. Retry to save the settings for the next playback."
+  "Settings_audio_save_retry_description": "Audio settings could not be saved. Current playback continues. Retry to save the settings for the next playback.",
+  "DatePicker_choose_date": "Select a date",
+  "DatePicker_open_calendar": "Open calendar",
+  "DatePicker_previous_period": "Previous period",
+  "DatePicker_next_period": "Next period",
+  "DatePicker_change_period": "Switch month or year view"
 }

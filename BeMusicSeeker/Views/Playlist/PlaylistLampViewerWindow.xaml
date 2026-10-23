@@ -270,7 +270,7 @@
         <TextBlock Grid.Column="0" Text="{Binding PlaylistName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding PlaylistName}" Margin="0,0,12,0" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{DynamicResource App.TextBrush}" />
         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
           <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_as_of, Mode=OneWay}" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource App.SubtleTextBrush}" />
-          <DatePicker VerticalAlignment="Center" SelectedDate="{Binding SelectedAsOfDate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+          <DatePicker Style="{StaticResource App.Canonical.DatePickerStyle}" VerticalAlignment="Center" SelectedDate="{Binding SelectedAsOfDate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                       DisplayDateStart="{Binding AsOfDateStart, Mode=OneWay}"
                       DisplayDateEnd="{Binding AsOfDateEnd, Mode=OneWay}"
                       IsEnabled="{Binding IsAsOfDateSelectionEnabled}"
@@ -279,11 +279,6 @@
                       Width="132"
                       AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_as_of, Mode=OneWay}"
                       AutomationProperties.AutomationId="PlaylistLampViewerAsOfDatePicker">
-            <DatePicker.Resources>
-              <Style TargetType="{x:Type DatePickerTextBox}">
-                <Setter Property="IsReadOnly" Value="True" />
-              </Style>
-            </DatePicker.Resources>
           </DatePicker>
           <Button Style="{StaticResource App.Canonical.CompactButtonStyle}" VerticalAlignment="Center" Command="{Binding LatestCommand}"
                   Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_latest, Mode=OneWay}"

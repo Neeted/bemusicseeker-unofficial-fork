@@ -1343,5 +1343,10 @@
   "Settings_open_bms_roots": "BMS一覧を編集",
   "Settings_retry": "再試行",
   "Settings_retry_audio_save": "音声設定の保存を再試行",
-  "Settings_audio_save_retry_description": "音声設定を保存できませんでした。現在の再生は続行します。再試行して次回再生の設定を保存してください。"
+  "Settings_audio_save_retry_description": "音声設定を保存できませんでした。現在の再生は続行します。再試行して次回再生の設定を保存してください。",
+  "DatePicker_choose_date": "日付を選択",
+  "DatePicker_open_calendar": "カレンダーを開く",
+  "DatePicker_previous_period": "前の期間",
+  "DatePicker_next_period": "次の期間",
+  "DatePicker_change_period": "月・年の表示を切り替える"
 }

@@ -1343,5 +1343,10 @@
   "Settings_open_bms_roots": "Modifier les dossiers BMS",
   "Settings_retry": "Réessayer",
   "Settings_retry_audio_save": "Réessayer d’enregistrer les paramètres audio",
-  "Settings_audio_save_retry_description": "Les paramètres audio n’ont pas pu être enregistrés. La lecture en cours continue. Réessayez pour enregistrer les paramètres de la prochaine lecture."
+  "Settings_audio_save_retry_description": "Les paramètres audio n’ont pas pu être enregistrés. La lecture en cours continue. Réessayez pour enregistrer les paramètres de la prochaine lecture.",
+  "DatePicker_choose_date": "Choisir une date",
+  "DatePicker_open_calendar": "Ouvrir le calendrier",
+  "DatePicker_previous_period": "Période précédente",
+  "DatePicker_next_period": "Période suivante",
+  "DatePicker_change_period": "Changer la vue du mois ou de l’année"
 }

@@ -79,6 +79,8 @@ DPI変更時はWPFの標準処理を維持し、独自のフォルダ名・件�
 
 初期値は「最新」で、現在のスコアを使用します。基準日はカレンダーだけで選択し、テキスト欄は読取り専用です。使用中の情報源全体で対象になる最古の履歴行のローカル日付から今日までを許可します。履歴がない場合は日付選択だけを無効にし、「最新」は使用できます。選択はウィンドウごとに独立し、保存しません。
 
+日付入力面・Calendarは[共通の日付部品](../ui/appearance.md#日付部品の表示)を使います。未選択の案内、短日付、カレンダーの月・曜日・週開始と操作説明はアプリの選択言語に追従します。非Gregorianの追加言語でもWPF標準のGregorian書式を使い、フォーカス喪失やカレンダーを開く操作で選択日を変えません。履歴の取得や再有効化後も読取り専用を維持します。表示中の同じ部品を更新し、言語・テーマ変更で選択日、表示月、割合／曲数モード、取得要求を変更しません。`null` は現在スコアを意味し、「最新」は日付指定を解除します。同じ日付の指定と、既に最新での「最新」は再取得しません。
+
 ローカル日付 `D` を選ぶと、その翌日の午前0時以降の履歴を現在のスコアから巻き戻します。境界時刻と同じ行も含め、時刻の降順、同時刻では情報源の行IDの降順に処理します。
 
 | 情報源 | 復元規則 |
@@ -147,6 +149,7 @@ DPI変更時はWPFの標準処理を維持し、独自のフォルダ名・件�
 | 初回・表示中の取得失敗、複数窓、対象削除、再読込み | [窓の管理](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindowManager.cs) | [管理主体テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowManagerTests.cs)で未取得表示と別窓の独立、初回削除案内、表示中の対象だけの閉鎖、同じ対象の再読込みで閉じないことを確認する。 |
 | 実閉鎖の先行、初回取消し、開始済み日付取得の終端 | [窓の管理](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindowManager.cs) | [管理主体テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowManagerTests.cs)で実 `Closed`、所有集合からの除去、UI応答、受理済み処理の回収、遅い完了でも再表示しないことを確認する。 |
 | 表示モード、尺度、幅不変の即時ラベル、切替の副作用なし | [ViewModel](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistLampViewerViewModel.cs)、[画面](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindow.xaml.cs) | [表示テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowPresentationTests.cs)で100/50/0件・特殊行・未実体化最大行、左右の尺度、参照・選択・スクロールの保持、モード切替時の捕捉・集計・一覧要求がないことを確認する。 |
+| 日付の言語・テーマ追従、初期化順と表示更新の副作用なし | [共通日付表示](../../../BeMusicSeeker/Views/DatePickerPresentation.cs)、[言語サービス](../../../BeMusicSeeker/ViewModels/ResourceService.cs)、[画面](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindow.xaml) | `PlaylistLampViewerWindowPresentationTests.Viewer_datePresentationTracksApplicationCultureWithoutChangingTheQuery` でnull／固定の月日、en/frの月日交換、非Gregorianの追加JSON言語と標準のLostFocus／開く操作、週開始が同じ言語間、開いた同じPopupとCalendar、月年表示維持、標準ボタンの一回接続と取得回数不変を確認する。同日・最新の再取得抑止は `PlaylistLampViewerSessionTests.Session_queryUpdateKeepsTheLatestImmutableQuery` が担う。 |
 | 日付変更・最新復帰・LR2・利用不可、複数窓とモードの独立 | [ViewModel](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistLampViewerViewModel.cs)、[画面](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindow.xaml.cs) | [表示テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowPresentationTests.cs)で操作による再取得と表示モード保持、全0件・フォルダなし、ラベル収容を確認する。翻訳は共通の `LocalizationResourceParityTests` で確認する。 |
 | 区間からの移動、現在の対象の再解決 | [ワークスペース](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.PlaylistLampViewer.cs) | [ワークスペース操作テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)でカテゴリと対象範囲を、[MainWindow接続テスト](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs)の `PlaylistLampNavigation` で実ツリーへの移動と完了を確認する。 |
 
