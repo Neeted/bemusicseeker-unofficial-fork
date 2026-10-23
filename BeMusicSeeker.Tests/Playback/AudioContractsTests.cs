@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using ManagedBass;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -1350,6 +1351,118 @@ public sealed class AudioContractsTests
         }
     }
 
+    /// <summary>保存済み50を捕捉した次sessionの実初期化gate保持中にもpreview20のsetterが終端し、保存終端の前後どちらでも最終現在音量20を維持します。</summary>
+    /// <remarks>実Panel・設定gateway・内蔵player・runtimeから本番exclusive gateまで接続し、機器だけを代替します。初期preview10から別Taskで20へ変更し、gate解放前のsetter自体の成功と次曲未終端を確認します。局所期限はロック待ちの誤りを検出するためだけに使い、finallyで同threadのlease解放、setter・次曲の回収、Panel終了とnative状態の復元を行います。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task InternalNextSession_VolumeCompletionKeepsLatestVolumeAcrossCapturedInitialization(bool completeBeforeNativeInitialization)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "bms-volume-session-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = WritePlaybackChart(directory, "current.bms", 120, 50);
+        float previousVolume = BassAudioPlayer.DeviceVolume;
+        bool previousMute = BassAudioPlayer.IsDeviceMuted;
+        var events = new List<string>();
+        var sessions = new List<BassAudioSession>();
+        var capturedVolumes = new List<int>();
+        var initializationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var setterEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseInitialization = new ManualResetEventSlim();
+        testSettings.PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED;
+        testSettings.uBMplayVolume = 50;
+        testSettings.RepeatPlayMode = false;
+        testSettings.SinglePlayMode = false;
+        BassAudioPlaybackRuntime runtime = CreateInjectedBassAudioPlaybackRuntime(events, sessions, (settings, session) =>
+        {
+            // InitializeOwnedと同じ本番gateを同threadで所有・解放し、捕捉した音量の適用まで保持します。
+            using (BassAudioExclusiveLease initialization = BassAudioRuntime.EnterAudioSessionInitialization())
+            {
+                try
+                {
+                    if (sessions.Count == 2)
+                    {
+                        initializationEntered.TrySetResult();
+                        releaseInitialization.Wait();
+                    }
+                    BassAudioPlayer.DeviceVolume = settings.PlayerVolume / 100f;
+                }
+                finally { initialization.Complete(success: true); }
+            }
+            ReportRealOutputCallback(session);
+        });
+        var gateway = new ObservedPlayerSettingsGateway(new SettingsPlayerSettingsGateway(() => testSettings),
+            settings => capturedVolumes.Add(settings.PlayerVolume));
+        var player = new InternalBMSAutoPlayerSoundOnly(gateway, runtime,
+            autoPlayerFactory: file => new LifecycleBMSAutoPlayer(new Ribbit.BMS.BMSFile(file)));
+        var rows = new MainChartListViewModel { Rows = new List<object> { ChartTestValues.Empty() with { Path = path } }, SelectedIndex = 0 };
+        var dialogs = new ObservedPlaybackDialogs(events);
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackDispatcher(), new MainChartListPlaybackQueue(rows),
+            new SettingsPlaybackSettingsStore(() => testSettings), dialogs, _ => Assert.Fail("有効な譜面です。"), new ChartFileOperationSynchronizer());
+        Task next = Task.CompletedTask;
+        Task setter = Task.CompletedTask;
+        var failures = new List<Exception>();
+        try
+        {
+            BassAudioRuntime.Initialize();
+            BassAudioPlayer.IsDeviceMuted = false;
+            await panel.StartAtIndex(0);
+            panel.PlayerVolume = 10;
+            Assert.AreEqual(50, testSettings.uBMplayVolume, "previewを次回確定設定へ漏らしません。");
+            Assert.AreEqual(.1f, BassAudioPlayer.DeviceVolume, .0001f);
+            testSettings.PlayerResamplingQuality = testSettings.PlayerResamplingQuality == 4 ? 2 : 4;
+            next = panel.StartAtIndex(0);
+            await TestUiDispatcherHost.AwaitNotificationAsync(initializationEntered.Task, next, "volume-next-native-initialization-entered");
+            setter = Task.Factory.StartNew(() =>
+            {
+                setterEntered.TrySetResult();
+                panel.PlayerVolume = 20;
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            await TestUiDispatcherHost.AwaitNotificationAsync(setterEntered.Task, setter, "volume-setter-entered");
+            try { await setter.WaitAsync(TimeSpan.FromSeconds(3)); }
+            catch (TimeoutException failure)
+            {
+                throw new AssertFailedException("音量setterがnative初期化gateの解放を待っています。", failure);
+            }
+            Assert.IsTrue(setter.IsCompletedSuccessfully);
+            Assert.IsFalse(next.IsCompleted, "音量setterの終端を初期化の終端から独立に観測します。");
+            Assert.AreEqual(20, panel.PlayerVolume);
+            Assert.AreEqual(50, testSettings.uBMplayVolume);
+            if (completeBeforeNativeInitialization)
+            {
+                panel.CompleteVolumeAdjustment();
+                Assert.AreEqual(20, testSettings.uBMplayVolume);
+            }
+            releaseInitialization.Set();
+            await next;
+            Assert.AreEqual(2, sessions.Count, "SRC変更で同じ出力sessionを再利用しません。");
+            Assert.AreEqual(BassAudioSessionState.Released, sessions[0].State);
+            CollectionAssert.AreEqual(new[] { 50, 50 }, capturedVolumes, "次曲開始が捕捉済み50を引き継ぎます。");
+            if (!completeBeforeNativeInitialization) { panel.CompleteVolumeAdjustment(); }
+            Assert.AreEqual(20, panel.PlayerVolume);
+            Assert.AreEqual(20, testSettings.uBMplayVolume);
+            Assert.AreEqual(.2f, BassAudioPlayer.DeviceVolume, .0001f, "古いsnapshotの初期音量で現在音量を巻き戻しません。");
+            await panel.StartAtIndex(0);
+            Assert.AreEqual(2, sessions.Count, "同じ出力条件の次曲は保持sessionを再利用します。");
+            Assert.AreEqual(.2f, BassAudioPlayer.DeviceVolume, .0001f);
+            Assert.AreEqual(0, dialogs.Notifications);
+        }
+        catch (Exception failure) { failures.Add(failure); }
+        finally
+        {
+            releaseInitialization.Set();
+            await CaptureTaskCompletionAsync(setter, failures);
+            await CaptureTaskCompletionAsync(next, failures);
+            panel.BeginShutdown();
+            await CaptureTaskCompletionAsync(panel.CloseForShutdown(), failures);
+            CaptureCleanup(failures, BassAudioRuntime.Shutdown);
+            CaptureCleanup(failures, () => BassAudioPlayer.DeviceVolume = previousVolume);
+            CaptureCleanup(failures, () => BassAudioPlayer.IsDeviceMuted = previousMute);
+            CaptureCleanup(failures, () => Directory.Delete(directory, true));
+        }
+        ThrowFailures(failures);
+    }
+
     /// <summary>開始初期化が失敗した場合に元例外を保持し、観測解除とruntime解放を省略しない。</summary>
     [TestMethod]
     public async Task InternalPlayer_StartFailureCleansUpPlaybackRuntime()
@@ -2219,6 +2332,20 @@ public sealed class AudioContractsTests
             if (Interlocked.Increment(ref reads) == 2) { entered.TrySetResult(); release.Wait(); }
             return base.Read(buffer, offset, count);
         }
+    }
+
+    /// <summary>本番gatewayの読取り・配置保存を保ち、実内蔵playerが捕捉した入力だけを観測します。</summary>
+    private sealed class ObservedPlayerSettingsGateway(IPlayerSettingsGateway inner, Action<PlayerSettingsSnapshot> captured)
+        : IPlayerSettingsGateway
+    {
+        public PlayerSettingsSnapshot CaptureSnapshot()
+        {
+            PlayerSettingsSnapshot settings = inner.CaptureSnapshot();
+            captured(settings);
+            return settings;
+        }
+
+        public void UpdateWindowPlacement(WindowPlacement placement) => inner.UpdateWindowPlacement(placement);
     }
 
     private sealed class ObservedInternalBmsPlayer(IPlayerSettingsGateway settings, IAudioPlaybackRuntime runtime,

@@ -20,6 +20,8 @@ BMS・bmsonに共通の音声初期化、機器選択、再生、デバイステ
 
 音量操作中の値は再生設定ストアが保持し、`IBMSPlayer.VolumeChanged` から現在の音声runtimeへ直接渡します。次の再生要求が読むsnapshotは保存済み音量だけを使います。設定画面・主画面のスライダーは操作終端で音量だけを保存し、重複した終端は再保存しません。保存失敗では表示と現在再生を最新の確定音量へ戻します。終了開始時にも未確定の最終有効音量を処理し、終了後の新しい通知は表示しません。
 
+実時間の現在音量とsession初期化後の適用順は同じ音声runtimeが所有します。SRCなどの変更による次回初期化が古い保存音量を捕捉していても、初期化の終端で最新の現在音量を適用し、操作終端の保存と初期化の前後どちらの順でも現在音量を巻き戻しません。初期化と必要な旧session回収の実行中は、音量setterが現在値を受け付け、待機するnative適用を行わず返ります。実行段階の終端後に最新値を適用し、音量更新との順序だけを短く直列化します。snapshotと初期化結果の要求音量は捕捉値を保ち、previewを次回確定設定へ公開しません。
+
 通常再生、能力照会、明示テスト、解放は既存の `BassAudioOperationGate` 内の要求受付を共有します。競合する未受理要求は待たずに返し、拒否前にはnative初期化、共有要求の変更、通常再生の停止を行いません。受理済み要求の非同期継続は同じ論理的な受付を引き継ぎます。callback・native処理を解放から保護する短い共有／排他gateは維持します。排他leaseは参照型で一回だけ解放し、session遷移の終端は所有者の解放確認から判定します。
 
 `BassAudioRuntime` は、最初の取得成功から解放確認まで音声セッションを一つの所有者として管理します。再生・テスト・変換・設定側は変更不能なトークンや結果を保持できますが、独立した解放待ち状態を重複して持ちません。初期化と解放を直列化し、使用中または隔離中の再入を拒否します。
@@ -238,6 +240,8 @@ fatalの報告は準備Taskを引き取った処理が担当します。実開�
 
 明示停止、自然終了後の停止、player交換、終了では、準備の取消と入力buffer・decoderの後片付けを待ちます。音声変換と出力テストも停止Taskの後に始めます。譜面・音源の物理変更は、対象との関係を問わず現在曲と先読みを両方止めます。推定・変更・LR2同期が共通受付を保持する間は新しい試聴をplayer開始・保留入力の一時コピー前にBusyで拒否します。LR2のDB同期だけでは既存の試聴を停止しません。試聴同士の受理済みNextの順次実行は維持します。共通の `ChartFileOperationSynchronizer` を変更側が保持し、その内側で `IChartMutationPlaybackPort.StopPlaybackForMutationAsync` を待ってから物理変更へ進みます。失敗・終了取消なら書き込みません。別の再生入力scopeを返したり、各変更管理主体へ移譲したりしません。
 
+次回player置換中のStopは、開始要求が捕捉した既存の再生世代を失効させます。factory、旧Close、UI配送を通過しても停止済み要求を新世代で再開せず、開始確定と最後の検査を同じsession排他で行います。未採用要求は次の明示開始へ保持し、採用済みplayerは維持して要求だけを消費します。別の新保存は保持します。通常配置と一時配置で同じ境界を使い、一時配置では失効後のコピーを開始しません。取消は通知せず、旧Closeなどの実故障は保持して通知します。詳細は[再生パネル](../ui/playback-panel.md#曲の準備開始と次候補)に従います。
+
 変更受付中の新しい再生要求は予約せず断ります。先に受け付けた開始がある場合は変更側がその開始と停止の終端を待ちます。自然終了が変更受付と重なった場合は次曲へ進まず停止します。変更後の自動再開・先読み再登録はありません。検索・表示順の変更だけでは現在曲を停止しません。変更のThreadStatic通知scopeは停止await後に開き、同期mutationと同期cleanupだけを囲みます。
 
 先読みは一回の入力スナップショットです。外部ツールによる全音源変更の監視、切替時の全音源hash検査、ギャップレス、クロスフェード、無音除去、任意曲cache、メモリ追出し、専用設定・表示は提供しません。現在曲に加えて次曲一件のPCMと、演奏中の復号CPU・I/Oを使います。
@@ -314,6 +318,8 @@ SRC=6の信号検査は44.1↔48、48↔96kHzで1/5/10/18kHzの振幅差≤0.01d
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 保存音量を捕捉した次回初期化と実時間音量の操作終端 | `BassAudioPlaybackRuntime.Initialize` / `SetVolume` | `AudioContractsTests.InternalNextSession_VolumeCompletionKeepsLatestVolumeAcrossCapturedInitialization` は保存50/preview10から、SRC変更で50を捕捉した次sessionの本番初期化exclusive gateを機器代替内で保持する。実Panel→内蔵player→runtimeへの20変更を別Taskから届け、gate解放前のsetter自体の正常終端と次曲未終端を観測する。保存20がnative初期化の前/後の双方で、両終端後の現在音量・確定値20、`DeviceVolume` 0.2、旧session解放と同出力session再利用を確認する。既存設定/Panelケースがpreview非漏出・最新確定値への保存失敗復帰・同値終端・Popup bindingを分担する。 |
+| 次回player置換の停止失効、採用済み/未採用要求と実故障 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs) の `ReplacePlayerCoreAsync` / `BeginPlaybackCore` | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs) の `PendingPlayerReplacement_StopCancelsStartWithoutConsumingUnadoptedOrNewRequest` は通常/一時配置のClose/UI待ちと新保存保持を、`PendingPlayerFactory_StopBeforeReturnKeepsRequestForExplicitStart` はfactory中Stopを、`PendingPlayerReplacement_StopDoesNotSuppressOldCloseFailure` は取消後も元Close故障を通知することを確認する。 |
 | 実音声機器・OS音量・切断と再接続 | [`BassAudioSession`](../../../BeMusicSeeker/Ribbit/Media/Audio/BassAudioSession.cs)、[`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs)、本書の[診断と実機確認](#診断と実機確認) | 下記の自動テストは要求・結果・資源寿命を検証する。実環境での聴感・機器との接続は、変更に応じて[ユーザーに推奨する実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分ける。 |
 | bmsonの論理境界、継続発音列・物理EOF・独立voice、準備済み解析/PCMの採用 | `PlaybackChart.Load`、`BmsAudioFrameSchedule.Create`、`BmsScheduledAudioMixer`、`PreparedBmsSong` | [`BmsAudioFrameScheduleTests`](../../../BeMusicSeeker.Tests/Playback/BmsAudioFrameScheduleTests.cs)、[`BmsRealtimeAudioSchedulerTests`](../../../BeMusicSeeker.Tests/Playback/BmsRealtimeAudioSchedulerTests.cs) の `BmsonSeekAfterContinuationUsesTheRunOriginAndHalfOpenPhysicalEof` / `BmsonSeekRestoresBothRestartRunsFromTheirOwnOrigins` / `BmsonSeekRestoresEveryOverlappingRestartRunAtItsSourceOffset`、[`BMSAutoPlayerInputTests`](../../../BeMusicSeeker.Tests/Playback/BMSAutoPlayerInputTests.cs) の `BmsonPreparationKeepsSharedPcmAndParsedSlicesAfterInputsDisappear`。詳細条件と実譜面確認の非保証は[bmson再生仕様](../library/bmson-playback.md#実装とテストの対応)を参照する。 |
 | 共通SRC品質2と再生ミキサー並列度1の既定・保存・取消・次回開始への反映 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`PlayerSettingsGateway`](../../../BeMusicSeeker/Models/Playback/PlayerSettingsGateway.cs)、[`AudioContracts`](../../../BeMusicSeeker/Models/Playback/AudioContracts.cs) | [`AudioContractsTests`](../../../BeMusicSeeker.Tests/Playback/AudioContractsTests.cs)、[`SettingDialogOpenCommandTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogOpenCommandTests.cs)、[`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs)で両値の捕捉・保存失敗・テスト結果による設定不変と画面の接続を確認する。 |

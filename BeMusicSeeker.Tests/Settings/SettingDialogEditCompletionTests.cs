@@ -254,7 +254,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>実音量Sliderのpreviewは現在再生runtimeだけへ届き、操作終端で音量だけを実保存します。同値終端は保存0、失敗は表示・現在再生・readerを最新確定値へ戻します。</summary>
-    /// <remarks>実provider・composition・Internal playerから音声runtime境界までを接続します。OS音声出力だけを固定代替し、別項目保存と終了時保存にもpreviewを混ぜません。</remarks>
+    /// <remarks>実provider・composition・Internal playerから音声runtime境界までを接続します。OS音声出力だけを固定代替し、別項目保存と終了時保存にもpreviewを混ぜません。dragの失敗行は先行保存60の後のpreview70を失敗させ、初期値50でなく最新確定60へ戻すことを確認します。</remarks>
     [DataTestMethod]
     [DataRow("drag", false)]
     [DataRow("mouse", false)]
@@ -338,9 +338,21 @@ public sealed partial class SettingDialogEditCompletionTests
                         case "close": window.Close(); TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "volume-close-final-value"); break;
                     }
                 }
+                if (failSave && completion == "drag")
+                {
+                    CompleteInput();
+                    Assert.AreEqual(60, PortableSettingsPersistenceTests.OpenSettings(path).uBMplayVolume);
+                    Assert.AreEqual(60, composedGateway.CaptureSnapshot().PlayerVolume);
+                    slider.SetCurrentValue(Slider.ValueProperty, 70d);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(70, owner.PlaybackPanel.PlayerVolume);
+                    Assert.AreEqual(70, runtime.Volumes.Last());
+                    Assert.AreEqual(60, values.uBMplayVolume);
+                    Assert.AreEqual(60, composedGateway.CaptureSnapshot().PlayerVolume);
+                }
                 using (FileStream? blocked = failSave ? new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite) : null) { CompleteInput(); }
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                int expected = failSave ? 50 : 60;
+                int expected = failSave && completion != "drag" ? 50 : 60;
                 Assert.AreEqual(expected, PortableSettingsPersistenceTests.OpenSettings(path).uBMplayVolume);
                 Assert.AreEqual(expected, values.uBMplayVolume);
                 Assert.AreEqual(expected, gateway.CaptureSnapshot().PlayerVolume);

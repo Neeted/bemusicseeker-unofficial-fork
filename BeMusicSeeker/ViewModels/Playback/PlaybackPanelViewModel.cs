@@ -220,7 +220,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     private sealed record NextPlaybackPlayerRequest(Func<IBMSPlayer> CreatePlayer, bool SupportsBmson);
 
     /// <summary>試聴同士の受理済み開始は順次実行し、推定・変更中の新しい開始は副作用前に拒否します。</summary>
-    private async Task RunPlaybackSelectionAsync(Func<Task> selectAndStart, bool stopIfBusy = false,
+    private async Task RunPlaybackSelectionAsync(Func<long, Task> selectAndStart, bool stopIfBusy = false,
         (long Generation, IBMSPlayer Player, ChartFile File)? naturalExit = null)
     {
         // 変更中の入力を予約して後から再生しません。受付済みの開始は変更側の停止が待ちます。
@@ -254,7 +254,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
             long previousGeneration;
             lock (sessionGate) { previousGeneration = playbackGeneration; }
-            await selectAndStart().ConfigureAwait(false);
+            await selectAndStart(previousGeneration).ConfigureAwait(false);
             bool started;
             lock (sessionGate) { started = previousGeneration != playbackGeneration; }
             if (started)
@@ -365,7 +365,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     /// <summary>受付後に同一行と次回要求の形式能力を再検査して再生します。拒否した明示行を別行へ読み替えず、終了受付後の待機済み要求は破棄します。</summary>
     internal Task ExecuteTableRowActivation(int rowIndex, object expectedRow, Action acceptedSurfaceRequest = null) =>
-        RunPlaybackSelectionAsync(async () =>
+        RunPlaybackSelectionAsync(async generation =>
         {
             if (rowIndex < 0 || rowIndex >= playbackQueue.Count)
             {
@@ -386,7 +386,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 return;
             }
 
-            await StartAtIndex(rowIndex, currentRow, useInitialRow: true, acceptedSurfaceRequest).ConfigureAwait(false);
+            await StartAtIndex(rowIndex, currentRow, useInitialRow: true, generation, acceptedSurfaceRequest).ConfigureAwait(false);
         });
 
     /// <summary>
@@ -739,6 +739,13 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     /// <param name="deferWindowHostAttachment">必須起動の実host接続を受付外で行う場合は真。</param>
     internal async Task ReplacePlayerAsync(IBMSPlayer player, bool clearPlaybackStatus = false, bool deferWindowHostAttachment = false)
     {
+        await ReplacePlayerCoreAsync(player, clearPlaybackStatus, deferWindowHostAttachment).ConfigureAwait(false);
+    }
+
+    /// <summary>次曲要求は捕捉済み世代を置換へ引き継ぎ、停止による未採用をnullで返します。実故障はそのまま返します。</summary>
+    private async Task<long?> ReplacePlayerCoreAsync(IBMSPlayer player, bool clearPlaybackStatus,
+        bool deferWindowHostAttachment, long? expectedGeneration = null, NextPlaybackPlayerRequest adoptedRequest = null)
+    {
         if (player == null)
         {
             throw new ArgumentNullException(nameof(player));
@@ -752,14 +759,16 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             bool samePlayer;
             lock (sessionGate)
             {
+                if (expectedGeneration.HasValue && !IsCurrentPlaybackGeneration(expectedGeneration.Value)) { return null; }
                 samePlayer = ReferenceEquals(bmsPlayer, player);
                 previousPlayer = bmsPlayer;
                 currentWindowHost = windowHost;
+                if (samePlayer && ReferenceEquals(nextPlayerRequest, adoptedRequest)) { nextPlayerRequest = null; }
             }
             if (samePlayer)
             {
                 await uiDispatcher.DispatchAsync(() => RefreshPlayerState(player)).ConfigureAwait(false);
-                return;
+                lock (sessionGate) { return expectedGeneration ?? playbackGeneration; }
             }
 
             var preparedState = PlayerStateSnapshot.Capture(player);
@@ -772,6 +781,11 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             long replacementGeneration;
             lock (sessionGate)
             {
+                if (expectedGeneration.HasValue && !IsCurrentPlaybackGeneration(expectedGeneration.Value))
+                {
+                    player.PropertyChanged -= BmsPlayerPropertyChanged;
+                    return null;
+                }
                 if (!ReferenceEquals(bmsPlayer, previousPlayer))
                 {
                     player.PropertyChanged -= BmsPlayerPropertyChanged;
@@ -781,12 +795,14 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 replacementGeneration = ++playbackGeneration;
             }
 
-            await ReplacePlayerAfterPreparationAsync(
+            return await ReplacePlayerAfterPreparationAsync(
                     player,
                     previousPlayer,
                     preparedState,
                     clearPlaybackStatus,
-                    replacementGeneration)
+                    replacementGeneration,
+                    allowStartCancellation: expectedGeneration.HasValue,
+                    adoptedRequest)
                 .ConfigureAwait(false);
         }
         finally
@@ -795,13 +811,16 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
-    private async Task ReplacePlayerAfterPreparationAsync(
+    private async Task<long?> ReplacePlayerAfterPreparationAsync(
         IBMSPlayer player,
         IBMSPlayer previousPlayer,
         PlayerStateSnapshot preparedState,
         bool clearPlaybackStatus,
-        long replacementGeneration)
+        long replacementGeneration,
+        bool allowStartCancellation,
+        NextPlaybackPlayerRequest adoptedRequest)
     {
+        bool adopted = false;
         try
         {
             await Task.Run(async () =>
@@ -816,6 +835,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                         if (!ReferenceEquals(bmsPlayer, previousPlayer)
                             || playbackGeneration != replacementGeneration)
                         {
+                            if (allowStartCancellation) { return; }
                             throw new InvalidOperationException(
                                 "Playback player changed while a settings replacement was in progress.");
                         }
@@ -824,6 +844,8 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                             previousPlayer.PropertyChanged -= BmsPlayerPropertyChanged;
                         }
                         bmsPlayer = player;
+                        adopted = true;
+                        if (ReferenceEquals(nextPlayerRequest, adoptedRequest)) { nextPlayerRequest = null; }
                     }
                 }
                 finally { playerOperationGate.Release(); }
@@ -835,16 +857,21 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             throw;
         }
 
+        if (!adopted)
+        {
+            player.PropertyChanged -= BmsPlayerPropertyChanged;
+            return null;
+        }
+
         await uiDispatcher.DispatchAsync(() =>
         {
             lock (sessionGate)
             {
-                if (!ReferenceEquals(bmsPlayer, player)
-                    || playbackGeneration != replacementGeneration)
+                if (!ReferenceEquals(bmsPlayer, player))
                 {
                     return;
                 }
-                if (clearPlaybackStatus)
+                if (clearPlaybackStatus && playbackGeneration == replacementGeneration)
                 {
                     ClearCurrentPlaybackStatus();
                     NowPlayingChart = null;
@@ -855,6 +882,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 NotifyPlayerCapabilitiesChanged();
             }
         }).ConfigureAwait(false);
+        return replacementGeneration;
     }
 
     internal void AttachWindowHost(IExternalPlayerWindowHost windowHost)
@@ -1335,7 +1363,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     }
 
     private Task StartCore(bool forceNewPlay, Action acceptedSurfaceRequest) =>
-        RunPlaybackSelectionAsync(async () =>
+        RunPlaybackSelectionAsync(async generation =>
         {
             if (!forceNewPlay && NowPlayingChart != null)
             {
@@ -1346,7 +1374,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
             if (playbackQueue.SelectedIndex >= 0 && playbackQueue.SelectedIndex < playbackQueue.Count)
             {
-                await StartAtIndex(playbackQueue.SelectedIndex, null, false, acceptedSurfaceRequest).ConfigureAwait(false);
+                await StartAtIndex(playbackQueue.SelectedIndex, null, false, generation, acceptedSurfaceRequest).ConfigureAwait(false);
             }
             else
             {
@@ -1361,7 +1389,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     private Task NextCore(object sender, EventArgs e,
         (long Generation, IBMSPlayer Player, ChartFile File)? naturalExit = null) =>
-        RunPlaybackSelectionAsync(async () =>
+        RunPlaybackSelectionAsync(async generation =>
         {
             int index = NowPlayingRowIndex;
             if (index < 0 || index >= playbackQueue.Count)
@@ -1380,7 +1408,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             else { index = FindNextPlaybackIndex(); }
             if (index < playbackQueue.Count)
             {
-                await StartAtIndex(index, null, false).ConfigureAwait(false);
+                await StartAtIndex(index, null, false, generation).ConfigureAwait(false);
             }
             else if (sender != null)
             {
@@ -1390,7 +1418,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     /// <summary>前の有効な譜面へ戻る。終了受付後は操作しない。</summary>
     internal Task Previous(object sender = null, EventArgs e = null) =>
-        RunPlaybackSelectionAsync(async () =>
+        RunPlaybackSelectionAsync(async generation =>
         {
             int index = NowPlayingRowIndex;
             if (index < 0 || index >= playbackQueue.Count)
@@ -1436,7 +1464,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
             if (index >= 0)
             {
-                await StartAtIndex(index, null, false).ConfigureAwait(false);
+                await StartAtIndex(index, null, false, generation).ConfigureAwait(false);
             }
             else if (sender != null)
             {
@@ -1530,9 +1558,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     /// <summary>曲選択の受付内で次回player要求と形式能力を一回捕捉し、その能力で指定行以降の候補を再生します。</summary>
     internal Task StartAtIndex(int index) =>
-        RunPlaybackSelectionAsync(() => StartAtIndex(index, initialRow: null, useInitialRow: false));
+        RunPlaybackSelectionAsync(generation => StartAtIndex(index, initialRow: null, useInitialRow: false, generation));
 
-    private async Task StartAtIndex(int index, object initialRow, bool useInitialRow, Action acceptedSurfaceRequest = null)
+    private async Task StartAtIndex(int index, object initialRow, bool useInitialRow, long generation, Action acceptedSurfaceRequest = null)
     {
         int remainingCandidates = playbackQueue.Count;
         NextPlaybackPlayerRequest request;
@@ -1545,7 +1573,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         if (useInitialRow && GridRowResolver.TryGetPlaybackChart(initialRow, out ChartFile explicitTarget)
             && explicitTarget.Kind == ChartFileKind.Bmson && !supportsBmson) { return; }
     ResolveCandidate:
-        if (shutdownStarted) { return; }
+        lock (sessionGate) { if (!IsCurrentPlaybackGeneration(generation)) { return; } }
         (int Index, ChartFile File, ChartFile Chart) candidate = FindPlayableChart(index, playbackSettings.RepeatPlay, supportsBmson, initialRow, useInitialRow);
         useInitialRow = false;
         if (candidate.File == null)
@@ -1563,15 +1591,18 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             // 候補の解決後に別の導入入口が先取りできるため、状態変更前に非待機取得します。
             if (!chartFileOperations.TryEnter(out IDisposable operationGate)) { return; }
             await StartTemporarilyInstalledChart(playbackChart, bmsFile, index,
-                playbackChart.InstallDestination, operationGate, request, acceptedSurfaceRequest).ConfigureAwait(false);
+                playbackChart.InstallDestination, operationGate, request, generation, acceptedSurfaceRequest).ConfigureAwait(false);
             return;
         }
-        try { await ApplyPlayerForNextPlaybackAsync(request).ConfigureAwait(false); }
+        long? appliedGeneration;
+        try { appliedGeneration = await ApplyPlayerForNextPlaybackAsync(request, generation).ConfigureAwait(false); }
         finally { PostPlayerSurfaceRequest(acceptedSurfaceRequest); }
         acceptedSurfaceRequest = null;
         request = null;
-        long generation = BeginPlayback(bmsFile, index);
-        if (shutdownStarted) { return; }
+        if (!appliedGeneration.HasValue) { return; }
+        long? startedGeneration = BeginPlaybackCore(bmsFile, index, appliedGeneration.Value);
+        if (!startedGeneration.HasValue) { return; }
+        generation = startedGeneration.Value;
         playbackQueue.SelectedIndex = index;
 
         PlaybackStartObservation observation = null;
@@ -1639,6 +1670,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         string installDestination,
         IDisposable operationGate,
         NextPlaybackPlayerRequest request,
+        long expectedGeneration,
         Action acceptedSurfaceRequest)
     {
         long generation = 0;
@@ -1648,17 +1680,20 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         {
             using (operationGate)
             {
+                long? appliedGeneration;
                 try
                 {
                     if (library == null)
                     {
                         throw new InvalidOperationException("Playback library must be attached before temporary-install playback.");
                     }
-                    await ApplyPlayerForNextPlaybackAsync(request).ConfigureAwait(false);
+                    appliedGeneration = await ApplyPlayerForNextPlaybackAsync(request, expectedGeneration).ConfigureAwait(false);
                 }
                 finally { PostPlayerSurfaceRequest(acceptedSurfaceRequest); }
-                generation = BeginPlayback(bmsFile, index);
-                if (shutdownStarted) { return; }
+                if (!appliedGeneration.HasValue) { return; }
+                long? startedGeneration = BeginPlaybackCore(bmsFile, index, appliedGeneration.Value);
+                if (!startedGeneration.HasValue) { return; }
+                generation = startedGeneration.Value;
                 playbackQueue.SelectedIndex = index;
                 ChartPackage chartPackage = library.ChartPackagesPending
                 .FirstOrDefault(package => ContainsChartTarget(package, playbackChart));
@@ -1824,6 +1859,13 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     /// <summary>旧表示を解除し、形式共通の譜面を新しい世代の現行選曲として所有します。終了受付後は状態を変更しません。</summary>
     internal long BeginPlayback(ChartFile bmsFile, int rowIndex)
     {
+        long? generation = BeginPlaybackCore(bmsFile, rowIndex);
+        lock (sessionGate) { return generation ?? playbackGeneration; }
+    }
+
+    /// <summary>停止による失効確認と現在曲の確定を同じsession排他内で行い、同一要求自身の更新世代を返します。</summary>
+    private long? BeginPlaybackCore(ChartFile bmsFile, int rowIndex, long? expectedGeneration = null)
+    {
         if (bmsFile == null)
         {
             throw new ArgumentNullException(nameof(bmsFile));
@@ -1832,9 +1874,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         long generation;
         lock (sessionGate)
         {
-            if (shutdownStarted)
+            if (shutdownStarted || (expectedGeneration.HasValue && !IsCurrentPlaybackGeneration(expectedGeneration.Value)))
             {
-                return playbackGeneration;
+                return null;
             }
             ClearCurrentPlaybackStatus();
             playbackGeneration++;
@@ -2268,15 +2310,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     }
 
     /// <summary>候補検査と必要な一時配置の受付を通過した開始で捕捉済み要求を採用します。失敗時と置換中の新保存は保持します。</summary>
-    private async Task ApplyPlayerForNextPlaybackAsync(NextPlaybackPlayerRequest request)
+    private async Task<long?> ApplyPlayerForNextPlaybackAsync(NextPlaybackPlayerRequest request, long generation)
     {
-        if (request == null) { return; }
-        await ReplacePlayerAsync(request.CreatePlayer()).ConfigureAwait(false);
-        lock (sessionGate)
-        {
-            if (ReferenceEquals(nextPlayerRequest, request)) { nextPlayerRequest = null; }
-        }
+        lock (sessionGate) { if (!IsCurrentPlaybackGeneration(generation)) { return null; } }
+        if (request == null) { return generation; }
+        return await ReplacePlayerCoreAsync(request.CreatePlayer(), false, false, generation, request).ConfigureAwait(false);
     }
+
+    /// <summary>同じ開始要求が保持する世代だけを有効とし、停止済みの要求を新世代へ乗り換えません。</summary>
+    private bool IsCurrentPlaybackGeneration(long generation) => !shutdownStarted && generation == playbackGeneration;
 
     void ISettingsDialogPlaybackRuntimePort.UsePlayerForNextPlayback(Func<IBMSPlayer> createPlayer, bool supportsBmson)
     {

@@ -589,6 +589,7 @@ internal sealed class AudioPlaybackInitializationResult
 
 internal interface IAudioPlaybackRuntime
 {
+    /// <summary>捕捉済み出力条件でsessionを初期化または再利用し、実時間音量を古いsnapshotへ戻しません。</summary>
     AudioPlaybackInitializationResult Initialize(PlayerSettingsSnapshot settings);
 
     /// <summary>保持sessionの実初回pull観測を非同期に待ちます。native leaseや排他lockを保持せず、故障は失敗として返します。</summary>
@@ -600,6 +601,7 @@ internal interface IAudioPlaybackRuntime
 
     void ClearMaxVoices();
 
+    /// <summary>現在再生の希望音量を更新します。初期化中も受け付け、保存設定へは公開しません。</summary>
     void SetVolume(int volume);
 
     /// <summary>保持sessionを解放します。解放未確認なら所有を維持し、呼出元へ失敗を返します。</summary>
@@ -609,10 +611,13 @@ internal interface IAudioPlaybackRuntime
 internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
 {
     private readonly BassAudioSessionLease sessionLease = new();
+    private readonly object volumeGate = new();
     private readonly Action<PlayerSettingsSnapshot, Action<BassAudioSession>> initializeNativeSession;
     private readonly Func<BassAudioSession, bool> releaseNativeSession;
 
     private AudioPlaybackInitializationResult activeInitialization;
+    private int? currentVolume;
+    private bool sessionInitializationInProgress;
 
     internal BassAudioPlaybackRuntime()
         : this(InitializeNativeSession, Ribbit.Media.BassAudioPlayer.Free)
@@ -630,6 +635,7 @@ internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
             ?? throw new ArgumentNullException(nameof(releaseNativeSession));
     }
 
+    /// <inheritdoc />
     public AudioPlaybackInitializationResult Initialize(PlayerSettingsSnapshot settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -665,6 +671,29 @@ internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
         using IDisposable requestAdmission = admission;
         ThrowIfAudiblePlaybackUsesNullDevice(settings.PlayerDriver, settings.PlayerDevice, settings.PlayerDeviceName);
 
+        lock (volumeGate) { sessionInitializationInProgress = true; }
+        try
+        {
+            return InitializeAdmittedSession(settings);
+        }
+        finally
+        {
+            // 初期化・旧session回収中は、UI由来の音量操作からnative gateを待ちません。
+            // native側の排他終端後に最新値を適用し、その後の音量操作とも順序を揃えます。
+            lock (volumeGate)
+            {
+                sessionInitializationInProgress = false;
+                if (currentVolume is int volume)
+                {
+                    Ribbit.Media.BassAudioPlayer.DeviceVolume = volume / 100f;
+                }
+            }
+        }
+    }
+
+    /// <summary>受理済み開始の出力条件を照合し、必要な旧session回収とnative初期化を同じ実行段階で行います。</summary>
+    private AudioPlaybackInitializationResult InitializeAdmittedSession(PlayerSettingsSnapshot settings)
+    {
         BassAudioSession retainedSession = sessionLease.Session;
         if (retainedSession != null)
         {
@@ -723,9 +752,17 @@ internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
         Ribbit.Media.BassAudioPlayer.ClearMaxVoices();
     }
 
+    /// <summary>現在音量を初期化と独立に受け付け、初期化の終端でも最新値を維持します。保存値は変更しません。</summary>
     public void SetVolume(int volume)
     {
-        Ribbit.Media.BassAudioPlayer.DeviceVolume = Math.Min(100, Math.Max(0, volume)) / 100f;
+        lock (volumeGate)
+        {
+            currentVolume = Math.Min(100, Math.Max(0, volume));
+            if (!sessionInitializationInProgress)
+            {
+                Ribbit.Media.BassAudioPlayer.DeviceVolume = currentVolume.Value / 100f;
+            }
+        }
     }
 
     /// <summary>native解放を一回試み、成功した場合だけsessionと初期化結果を手放します。</summary>
