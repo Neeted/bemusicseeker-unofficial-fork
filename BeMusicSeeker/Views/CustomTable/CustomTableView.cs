@@ -3033,6 +3033,12 @@ internal sealed class CustomTableSurface : FrameworkElement
                 }
             }
         }
+        // ツールバーの段数や列の有無によらず、ヘッダー自身が全幅の上枠を所有する。
+        double topGridLineY = CustomTableColumnLayout.GridLineThickness / 2d;
+        if (CustomTableColumnLayout.IsGridLineFullyVisible(topGridLineY, 0d, height))
+        {
+            drawingContext.DrawLine(palette.HeaderBorder, new Point(0d, topGridLineY), new Point(width, topGridLineY));
+        }
         double bottomGridLineY = CustomTableColumnLayout.CreateBottomGridLineY(0d, headerHeight);
         if (CustomTableColumnLayout.IsGridLineFullyVisible(bottomGridLineY, 0d, height))
         {

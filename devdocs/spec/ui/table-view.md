@@ -196,6 +196,8 @@ scoreの未反映範囲を必要とする要求は、その時点で必要な確
 
 コード描画には `CustomTablePalette` がテーマのリソースを描画用の色と線へ変換します。テーマ変更時は描画色とキャッシュを更新します。内蔵スクロールバーも共通の `ScrollBar.*` リソースへ従います。
 
+一覧ヘッダーの上端には `Table.HeaderGridLineBrush` による1 DIPの線を表示幅全体へ描画します。線の中心は上端から0.5 DIPに置き、端で半分が欠けることを避けます。通常一覧・プレイリスト概要とも、保留・プレイログの追加ツールバーや表示列・データ行の有無によらず上枠を表示し、追加ツールバー側には下枠を重ねません。データ行の罫線・行高・スクロール計算は維持します。
+
 ## 実装とテストの対応
 
 [`ApplicationCompositionTests.MainWindowCompositionRoutesPlaylistSummaryRefreshThroughShellArbiter`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionTests.cs) は実Dispatcherで同時要求のデータ優先・一回適用を確認します。実導入記録削除の抑制中にもサマリーを公開し、別一覧の抑制終了でサマリーを再構築しないことを確認します。

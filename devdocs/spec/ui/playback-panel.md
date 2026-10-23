@@ -52,7 +52,7 @@ seek等の操作能力、外部playerの表示面、一時試聴のLR2専用確�
 
 各テーマ辞書は `Playback.DefaultImage` を `BitmapImage` として所有します。Lightは既存の `Assets/Images/default_image.jpg`、ほかのテーマは `Assets/Images/Playback/{Theme}.jpg` を使います。既定表示時だけ主画像の `Source` を動的資源へ接続し、同じViewを表示したままテーマ画像を切り替えます。stageと設定外部画像は通常の `Source` に設定し、テーマ変更で画素や参照を変更しません。C#側は外部画像だけをキャッシュし、既定画像の復号・保持はテーマ資源へ任せます。`DataContext` がなければ主画像・バナー背景を空にし、バナー枠を消します。主画像は単一のImageと `UniformToFill` を使い、小型表示のぼかしを維持します。バナーに外部画像やテーマ既定画像を流用しません。
 
-操作帯はテーマごとに独立した `Playback.ControlBackgroundBrush`、`Playback.ControlForegroundBrush`、`Playback.ControlHoverBrush` を動的に参照します。Lightは順に `#FF202020`、`#FFDDDDDD`、`#FF3A3A3A`、ほかのテーマは現在の `App.SurfaceBrush`、`App.TextBrush`、`App.ControlHoverBrush` と同じ色値をそれぞれ独立定義します。操作アイコン、小型曲名、時刻は操作前景を使い、時刻は局所不透明度で控えめにします。無効アイコンは `App.DisabledTextBrush`、通常ボタン背景は透明、hoverと押下は操作hover背景を使い、押下は局所不透明度でも示します。
+操作帯はテーマごとに独立した `Playback.ControlBackgroundBrush`、`Playback.ControlForegroundBrush`、`Playback.ControlHoverBrush` を動的に参照します。LightとDarkは順に `#FF252526`、`#FFD4D4D4`、`#FF333337` を各辞書で独立定義します。ほかのテーマは現在の `App.SurfaceBrush`、`App.TextBrush`、`App.ControlHoverBrush` と同じ色値をそれぞれ独立定義します。操作アイコン、小型曲名、時刻は操作前景を使い、時刻は局所不透明度で控えめにします。無効アイコンは `App.DisabledTextBrush`、通常ボタン背景は透明、hoverと押下は操作hover背景を使い、押下は局所不透明度でも示します。
 
 画像上の曲名領域は `#CC000000` と白文字、統計は既存の書体・内容に白文字と `#33000000` の背景を使います。グラデーションや影は付けません。バナー枠は `App.BorderBrush` を使います。
 

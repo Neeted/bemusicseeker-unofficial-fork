@@ -266,7 +266,6 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         AppThemeService.ApplyTheme(theme);
                         TestUiDispatcherHost.ProcessQueuedPresentation();
                         Assert.AreSame(bar.FindResource("App.SurfaceBrush"), bar.Background);
-                        Assert.AreSame(bar.FindResource("App.BorderBrush"), bar.BorderBrush);
                         foreach (Button button in buttons)
                         {
                             Assert.AreSame(button.FindResource("App.ControlBackgroundBrush"), button.Background);

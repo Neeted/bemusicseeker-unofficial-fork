@@ -821,7 +821,7 @@
               <TextBlock DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="14" VerticalAlignment="Center" Margin="5,0" Foreground="{DynamicResource App.TextBrush}" TextTrimming="CharacterEllipsis" Visibility="{Binding PlaylistWorkspace.IsPlaylistSummaryMode, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" Text="{Binding PlaylistWorkspace.GridHeaderText}" />
             </DockPanel>
           </Border>
-          <Border x:Name="pendingInstallOperationBar" Grid.Row="2" Grid.Column="1" Background="{DynamicResource App.SurfaceBrush}" BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="0,0,0,1" Padding="4,3">
+          <Border x:Name="pendingInstallOperationBar" Grid.Row="2" Grid.Column="1" Background="{DynamicResource App.SurfaceBrush}" Padding="4,3">
             <Border.Style>
               <Style TargetType="{x:Type Border}">
                 <Setter Property="Visibility" Value="Collapsed" />
@@ -878,7 +878,7 @@
               <Button x:Name="pendingInstallClearButton" Click="pendingInstallClearClick" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Pending_install_clear, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Clear_estimation, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Clear_estimation, Mode=OneWay}" />
             </StackPanel>
           </Border>
-           <Border x:Name="playHistorySummaryBar" Grid.Row="2" Grid.Column="1" Background="{DynamicResource App.SurfaceBrush}" BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="0,0,0,1" Padding="4,3">
+           <Border x:Name="playHistorySummaryBar" Grid.Row="2" Grid.Column="1" Background="{DynamicResource App.SurfaceBrush}" Padding="4,3">
              <Border.Visibility>
                <MultiBinding Converter="{StaticResource playHistorySummaryVisibilityConverter}">
                  <Binding Path="PlayHistory.IsViewActive" />
@@ -1511,6 +1511,8 @@
   </TreeView>
 </Grid>
           <GridSplitter Name="gridSplitter" Style="{StaticResource SidebarSplitterStyle}" ResizeDirection="Columns" ResizeBehavior="CurrentAndNext" Margin="0" Grid.RowSpan="3" Width="5" HorizontalAlignment="Right" Grid.Row="1" Grid.Column="0" Panel.ZIndex="1" />
+          <!-- 配置寸法とSplitterの入力領域を変えず、下側領域の上辺だけを仕切る。 -->
+          <Border x:Name="playbackContentSeparator" Grid.Row="1" Grid.ColumnSpan="2" Height="1" VerticalAlignment="Top" Background="{DynamicResource App.SeparatorBrush}" IsHitTestVisible="False" Panel.ZIndex="2" />
         </Grid>
       </DockPanel>
       <v:InitialSetupLanguageDialog x:Name="initialSetupLanguageDialog" DataContext="{Binding SettingDialog}" IsVisibleChanged="dialogIsVisibleChanged" Visibility="Hidden" Panel.ZIndex="1" />
