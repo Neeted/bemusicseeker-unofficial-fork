@@ -631,7 +631,8 @@ internal sealed class SelectedChartMutationWorkflowOwner
         }
     }
 
-    internal SelectedChartMutationResult ApplyEncoding(SelectedChartEncodingRequest request)
+    /// <summary>受付を取得して文字コードの保存をUI外で行い、反映通知が終わるまで同じ受付を保持します。</summary>
+    internal async Task<SelectedChartMutationResult> ApplyEncodingAsync(SelectedChartEncodingRequest request)
     {
         if (request?.HasTargets != true)
         {
@@ -647,7 +648,10 @@ internal sealed class SelectedChartMutationWorkflowOwner
         try
         {
             using LibraryFileMutationCapability capability = chartFileOperations.CreateMutationCapability(operationGate);
-            store.ForAcceptedOperation(capability).SetBMSFilesEncoding(RequireLibrary(), request.Charts, request.Encoding, request.PendingEntries);
+            BMSLibrary library = RequireLibrary();
+            ISelectedChartMutationStore operationStore = store.ForAcceptedOperation(capability);
+            await Task.Run(() => operationStore.SetBMSFilesEncoding(library, request.Charts, request.Encoding, request.PendingEntries))
+                .ConfigureAwait(false);
             PublishMutationApplied(encodingChanged: true);
             return SelectedChartMutationResult.Completed;
         }

@@ -69,6 +69,12 @@ DBは問い合わせ数だけでなく、読み出す行数・列・索引を確
 
 同じパッケージの列挙・バイト列・ハッシュ・解析結果は、有効期間の範囲で再利用します。同じ内容でも新しい保存先のリソース存在確認は別です。外部変更、削除結果、解析器・スキーマの版など、再確認が必要な条件は明示します。必要な警告や確認を落とした短縮は認めません。物理処理は件数に加え、容量、同一・別ボリューム、展開済みか、削除方式、失敗・再試行数も記録します。
 
+### SQLiteの競合待機
+
+楽曲DB・スコアDBの接続ではSQLite nativeのbusy待機を60秒に保ちます。`SQLiteConnectionEx` はDelete・InsertOrReplaceを含むSQLの外側でBusy / Lockedを再試行しません。Commitも一回だけ実行し、失敗を呼出し元へ返します。providerはCommit失敗時に内部のトランザクション状態を解除してrollbackを試みるため、Commitを再呼出しして正常扱いへ変換しません。
+
+この待機設定は一回の競合待機の設定であり、通常SQLの実行時間や終了処理全体の期限ではありません。終了時は[終了処理](../runtime/shutdown.md)の実終端待機に従います。
+
 ### 操作単位の反映
 
 競合操作の受付、一操作内の独立計算の並列化、対象の逐次処理は分けます。先行パッケージの実成功が次の分類に必要なら、操作内の成功差分で渡します。逐次判断は対象ごとのDB確定・索引更新・通知の理由にはしません。
@@ -135,6 +141,7 @@ DBは問い合わせ数だけでなく、読み出す行数・列・索引を確
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| SQLiteのnative busy待機と外側再試行の除去 | `SQLiteConnectionEx`、`LR2SongDBExtended`、`LR2ScoreDBExtended` | `SQLiteProviderRuntimeTests` の `SQLiteConnectionEx_WriteContentionExecutesOnceAndPreservesData` は実Delete・InsertOrReplaceを別接続ロックで失敗させ、既存traceでSQL一回と保存値不変を確認する。`Lr2Connections_KeepNativeBusyTimeoutForReadAndWrite` は実接続の60秒設定、`SQLiteConnectionEx_CommitBusyRemainsFailureAndRollsBackUncommittedChanges` はCommit失敗とrollback・次の明示transactionを担当する。外側ループと未使用helperの不在は差分でも確認する。 |
 | 複数フォルダ・拡張子の反映集約とDB失敗 | `LibraryMutationSession`、`CommitCatalogSessionChanges` | [BmsLibraryFolderRenameRefreshTests](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) の `AutoRenameChartFolders_BatchesMultipleFolderMutationsIntoOneRefresh`、`MoveLibraryRootFolder_MixedFoldersPublishesOneOperationNotification`、`MoveLibraryRootFolder_DatabaseApplyFailureKeepsConfirmedPhysicalMoves`、`RenameBMSFilesExtensionsWithReceipt_MultipleExtensionFamiliesUseSingleSession`: 反映数をファイル・SQLite・通知・索引と対照する。 |
 | 複数パッケージと失敗時の非公開 | `CommitInstalledSessionChanges` | [BmsLibraryPackageInstallServiceTests](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `PendingResourcePackages_InstallThroughLibraryAndPreserveEarlierResourceSnapshot`、`InstallPendingPackagesToEstimatedDestinations_CanonicalApplyFailureKeepsPreparedTargetsWithoutPartialPublication`: 旧世代と成功後の対象集合も確認する。 |
 | 修正・削除・統合・LR2失敗 | ライブラリ変更主体と統合後保守 | [BmsLibraryFolderRenameRefreshTests](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) の `FixInstallationDirectoryCharts_MultipleRepairsShareOneCatalogTransaction`、`RemoveLibraryCharts_CommitsCatalogBeforePublishingOwnedCollectionChange`、`AutoRenameChartFolders_Lr2FinalizationFailureReturnsDurableNonSuccess` と [BmsLibraryDuplicateServiceTests](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) の `MergeChartDirectory_RechecksResourcesWithinAcceptedOperation`。 |

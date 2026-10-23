@@ -179,6 +179,8 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
     {
         TaskCompletionSource<SelectedChartMutationResult> renameCompletion = NewCompletion<SelectedChartMutationResult>();
         TaskCompletionSource<SelectedChartMutationResult> deleteCompletion = NewCompletion<SelectedChartMutationResult>();
+        TaskCompletionSource<SelectedChartMutationResult> encodingCompletion = NewCompletion<SelectedChartMutationResult>();
+        Task encodingTerminal = Task.CompletedTask;
         TaskCompletionSource<SelectedChartResourceHealthWorkflowResult> rescanCompletion = NewCompletion<SelectedChartResourceHealthWorkflowResult>();
         TaskCompletionSource<SelectedChartAudioConversionResult> audioCompletion = NewCompletion<SelectedChartAudioConversionResult>();
         SelectedInvalidExtensionRenameRequest? renameRequest = null;
@@ -205,7 +207,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             request =>
             {
                 encodingRequest = request;
-                return SelectedChartMutationResult.Completed;
+                return encodingCompletion.Task;
             });
         MainWindowSelectedChartResourceHealthTerminal resourceHealth = new(
             request =>
@@ -268,11 +270,15 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(deleteCompletion.Task, "selected-chart-terminal-delegate");
 
                     MenuItem encoding = FindMenuItem(menu, "tableContextMenuItemFixEncoding").Items.OfType<MenuItem>().First();
-                    RoutedEventArgs encodingArgs = RaiseMenuClick(encoding);
-                    Assert.IsTrue(encodingArgs.Handled);
+                    RoutedEventArgs? encodingArgs = null;
+                    encodingTerminal = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => encodingArgs = RaiseMenuClick(encoding));
+                    Assert.IsFalse(encodingTerminal.IsCompleted);
                     Assert.AreEqual("shift_jis", encodingRequest!.Encoding);
                     Assert.AreEqual(1, encodingRequest!.Charts.Count);
                     Assert.AreSame(row.Chart.Token, encodingRequest!.Charts[0].Token);
+                    encodingCompletion.SetResult(SelectedChartMutationResult.Completed);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(encodingTerminal, "encoding event terminal");
+                    Assert.IsTrue(encodingArgs!.Handled);
 
                     MenuItem rescan = FindMenuItem(menu, "tableContextMenuItemFullScanCheck").Items
                         .OfType<MenuItem>()
@@ -309,6 +315,8 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(renameCompletion.Task, "compiled-finally-delegate");
                     deleteCompletion.TrySetResult(SelectedChartMutationResult.Completed);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(deleteCompletion.Task, "compiled-finally-delegate");
+                    encodingCompletion.TrySetResult(SelectedChartMutationResult.Completed);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(encodingTerminal, "encoding finally terminal");
                     rescanCompletion.TrySetResult(SelectedChartResourceHealthWorkflowResult.Completed);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(rescanCompletion.Task, "compiled-finally-delegate");
                     audioCompletion.TrySetResult(SelectedChartAudioConversionResult.Empty);
@@ -915,7 +923,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
     [DataTestMethod]
     [DataRow(0)] // renameのTask取得前に同期throw。
     [DataRow(1)] // renameの実Taskがgate後にfault。
-    [DataRow(2)] // 同期encodingの型付き失敗。
+    [DataRow(2)] // encodingの非同期結果が型付き失敗。
     [DataRow(3)] // 所有要求がないOCEも失敗として一度通知。
     public void CompiledSelectedMutationFailuresReachOneOwningNotice(int failureKind)
     {
@@ -946,7 +954,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             request =>
             {
                 paths.AddRange(request.Charts.Select(chart => chart.Path));
-                return SelectedChartMutationResult.Failed(failure);
+                return Task.FromResult(SelectedChartMutationResult.Failed(failure));
             });
         LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('a', 32), @"C:\selected-terminal\chart.bms");
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
@@ -1023,7 +1031,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             _ => Task.FromResult(SelectedChartMutationResult.Completed),
             ReportReceiptAsync,
             _ => Task.FromResult(SelectedChartMutationResult.Completed),
-            _ => SelectedChartMutationResult.Completed);
+            _ => Task.FromResult(SelectedChartMutationResult.Completed));
         LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('b', 32), @"C:\receipt\chart.bms");
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
             MainWindowViewModelTestFactory.CreateIsolatedSettings(),
@@ -1245,7 +1253,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 _ => Task.FromResult(SelectedChartMutationResult.Completed),
                 _ => Task.FromResult(SelectedChartMutationResult.Completed),
                 _ => Task.FromResult(SelectedChartMutationResult.Completed),
-                _ => SelectedChartMutationResult.Completed),
+                _ => Task.FromResult(SelectedChartMutationResult.Completed)),
             resourceHealth ?? new MainWindowSelectedChartResourceHealthTerminal(
                 _ => Task.FromResult(SelectedChartResourceHealthWorkflowResult.Completed),
                 (_, _) => SelectedChartResourceHealthWorkflowResult.Completed),

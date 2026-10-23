@@ -1105,49 +1105,4 @@ public sealed class ChartInfoInstallFailureRetryTests
         });
     }
 
-    /// <summary>実SQLite transactionの書込み競合で再試行予算0の要求を一回だけ実行し、Busy・Lockedの元失敗を隠す誤りを検出する。</summary>
-    /// <remarks>二つの実SQLite接続でロックを成立させ、合成例外では確認できないproviderの競合分類を観測する。</remarks>
-    [TestMethod]
-    public void RetryIfLockedOrBusy_ExhaustedBudgetPropagatesRealDatabaseContention()
-    {
-        string databasePath = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeeker_RetryIfLockedOrBusy_" + Guid.NewGuid().ToString("N") + ".db");
-        try
-        {
-            using var holder = new SQLiteConnectionEx(databasePath);
-            holder.Execute("CREATE TABLE retry_probe (id INTEGER PRIMARY KEY, value TEXT);");
-            holder.Execute("BEGIN IMMEDIATE;");
-
-            using var contender = new SQLiteConnectionEx(databasePath);
-            contender.BusyTimeout = TimeSpan.Zero;
-            int attempts = 0;
-            SQLiteException exception = Assert.ThrowsException<SQLiteException>(delegate
-            {
-                SQLiteConnectionEx.RetryIfLockedOrBusy(delegate
-                {
-                    attempts++;
-                    contender.Execute("INSERT INTO retry_probe (value) VALUES ('blocked');");
-                }, null, 0u);
-            });
-
-            Assert.AreEqual(1, attempts);
-            Assert.IsTrue(
-                exception.Result == SQLite3.Result.Busy || exception.Result == SQLite3.Result.Locked,
-                "The provider must expose the real SQLite contention result.");
-            holder.Execute("ROLLBACK;");
-        }
-        finally
-        {
-            foreach (string suffix in new[] { string.Empty, "-wal", "-shm" })
-            {
-                string path = databasePath + suffix;
-                if (File.Exists(path))
-                {
-                    File.Delete(path);
-                }
-            }
-        }
-    }
-
 }

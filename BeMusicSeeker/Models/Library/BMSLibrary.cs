@@ -5468,7 +5468,7 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>保存済みスコアを一度読み、同じ情報源の有効旧結果は失敗時に保持します。採用と今回の失敗案内を分離し、IRは後続の明示要求とします。</summary>
-    /// <returns>実親解放後に実行するスコアの純通知と、保持時の今回の失敗案内。</returns>
+    /// <returns>実親解放後に実行するスコアの純通知と、今回の取得が失敗した場合の案内。</returns>
     private Action LoadSavedScores(BmsLibraryOptionsSnapshot options)
     {
         ScoreTableLoadResult attempt;
@@ -5524,7 +5524,7 @@ public partial class BMSLibrary : ObservableObject
             ? RefreshScoreSnapshotFromCurrentScores("score_tbl_load", retainPrevious ? previous.ScoreDbPath : attempt.ScoreDbPath,
                 retainPrevious ? previous.LoadedAtUtc : null)
             : null;
-        if (!retainPrevious) { return notification; }
+        if (attempt.Status != ScoreTableLoadStatus.Failed) { return notification; }
         return () =>
         {
             notification?.Invoke();

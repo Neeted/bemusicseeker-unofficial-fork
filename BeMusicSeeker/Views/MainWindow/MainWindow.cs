@@ -7871,7 +7871,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 {
                     return;
                 }
-                SelectedChartMutationResult result = selectedChartContextMenuTerminals.SelectedChartMutation.ApplyEncoding(request);
+                SelectedChartMutationResult result = await selectedChartContextMenuTerminals.SelectedChartMutation.ApplyEncodingAsync(request);
                 if (result.Succeeded)
                 {
                     e.Handled = true;

@@ -52,7 +52,7 @@ internal sealed class MainWindowSelectedChartContextMenuTerminals
                 viewModel.SelectedChartMutations.DeleteAsync,
                 viewModel.SelectedChartMutations.RenameInvalidExtensionsAsync,
                 viewModel.SelectedChartMutations.MoveAsync,
-                viewModel.SelectedChartMutations.ApplyEncoding),
+                viewModel.SelectedChartMutations.ApplyEncodingAsync),
             new MainWindowSelectedChartResourceHealthTerminal(
                 viewModel.SelectedChartResourceHealth.RescanAsync,
                 viewModel.SelectedChartResourceHealth.SetWarningsIgnored),
@@ -93,13 +93,13 @@ internal sealed class MainWindowSelectedChartMutationTerminal
     private readonly Func<SelectedChartDeleteRequest, Task<SelectedChartMutationResult>> delete;
     private readonly Func<SelectedInvalidExtensionRenameRequest, Task<SelectedChartMutationResult>> renameInvalidExtensions;
     private readonly Func<SelectedChartMoveRequest, Task<SelectedChartMutationResult>> move;
-    private readonly Func<SelectedChartEncodingRequest, SelectedChartMutationResult> applyEncoding;
+    private readonly Func<SelectedChartEncodingRequest, Task<SelectedChartMutationResult>> applyEncoding;
 
     internal MainWindowSelectedChartMutationTerminal(
         Func<SelectedChartDeleteRequest, Task<SelectedChartMutationResult>> delete,
         Func<SelectedInvalidExtensionRenameRequest, Task<SelectedChartMutationResult>> renameInvalidExtensions,
         Func<SelectedChartMoveRequest, Task<SelectedChartMutationResult>> move,
-        Func<SelectedChartEncodingRequest, SelectedChartMutationResult> applyEncoding)
+        Func<SelectedChartEncodingRequest, Task<SelectedChartMutationResult>> applyEncoding)
     {
         this.delete = delete ?? throw new ArgumentNullException(nameof(delete));
         this.renameInvalidExtensions = renameInvalidExtensions ?? throw new ArgumentNullException(nameof(renameInvalidExtensions));
@@ -116,7 +116,8 @@ internal sealed class MainWindowSelectedChartMutationTerminal
     internal Task<SelectedChartMutationResult> MoveAsync(SelectedChartMoveRequest request)
         => move(request ?? throw new ArgumentNullException(nameof(request)));
 
-    internal SelectedChartMutationResult ApplyEncoding(SelectedChartEncodingRequest request)
+    /// <summary>文字コードの保存と反映通知の終端を呼出し元へ返します。</summary>
+    internal Task<SelectedChartMutationResult> ApplyEncodingAsync(SelectedChartEncodingRequest request)
         => applyEncoding(request ?? throw new ArgumentNullException(nameof(request)));
 }
 

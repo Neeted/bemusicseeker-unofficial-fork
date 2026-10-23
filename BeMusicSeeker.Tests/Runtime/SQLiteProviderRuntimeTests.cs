@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
@@ -162,6 +163,67 @@ public sealed class SQLiteProviderRuntimeTests
             Assert.AreEqual(0, writer.ExecuteScalar<int>("SELECT COUNT(*) FROM commit_probe WHERE id = 2;"));
         }
         finally { DeleteTemporaryDatabase(databasePath); }
+    }
+
+    /// <summary>別接続の書込みロックで実Delete・InsertOrReplaceを失敗させ、SQL一回と保存値不変を観測して外側再試行や偽成功を検出します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void SQLiteConnectionEx_WriteContentionExecutesOnceAndPreservesData(bool replace)
+    {
+        string databasePath = CreateTemporaryDatabasePath("WriteBusy");
+        try
+        {
+            using var holder = new SQLiteConnectionEx(databasePath);
+            holder.CreateTable<ContentionRow>();
+            holder.Insert(new ContentionRow { Id = 1, Value = "original" });
+            using var contender = new SQLiteConnectionEx(databasePath);
+            contender.BusyTimeout = TimeSpan.Zero;
+            // mapping準備を競合前に済ませ、要求SQLの実行だけを既存providerのtraceで数えます。
+            contender.GetMapping<ContentionRow>();
+            var statements = new List<string>();
+            contender.Trace = true;
+            contender.Tracer = statements.Add;
+            holder.Execute("BEGIN IMMEDIATE;");
+            try
+            {
+                SQLite.SQLiteException failure = Assert.ThrowsException<SQLite.SQLiteException>(() =>
+                {
+                    if (replace) { contender.InsertOrReplace(new ContentionRow { Id = 1, Value = "replacement" }, typeof(ContentionRow)); }
+                    else { contender.Delete<ContentionRow>(1); }
+                });
+                Assert.AreEqual(SQLite.SQLite3.Result.Busy, failure.Result);
+                Assert.AreEqual(1, statements.Count(statement => statement.Contains(
+                    replace ? "insert or replace" : "delete from", StringComparison.OrdinalIgnoreCase)));
+            }
+            finally { holder.Execute("ROLLBACK;"); }
+            Assert.AreEqual("original", holder.Table<ContentionRow>().Single().Value);
+        }
+        finally { DeleteTemporaryDatabase(databasePath); }
+    }
+
+    /// <summary>楽曲・成績DBの通常接続と読取り接続にnativeの60秒busy待機が設定され、外側再試行除去で待機契約が失われません。</summary>
+    [TestMethod]
+    public void Lr2Connections_KeepNativeBusyTimeoutForReadAndWrite()
+    {
+        string databasePath = CreateTemporaryDatabasePath("BusyTimeout");
+        try
+        {
+            using (var song = new LR2SongDBExtended(databasePath)) { Assert.AreEqual(60000, song.ExecuteScalar<int>("PRAGMA busy_timeout;")); }
+            using (var score = new LR2ScoreDBExtended(databasePath)) { Assert.AreEqual(60000, score.ExecuteScalar<int>("PRAGMA busy_timeout;")); }
+            using (var song = new LR2SongDBExtended(databasePath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            { Assert.AreEqual(60000, song.ExecuteScalar<int>("PRAGMA busy_timeout;")); }
+            using (var score = new LR2ScoreDBExtended(databasePath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            { Assert.AreEqual(60000, score.ExecuteScalar<int>("PRAGMA busy_timeout;")); }
+        }
+        finally { DeleteTemporaryDatabase(databasePath); }
+    }
+
+    private sealed class ContentionRow
+    {
+        [SQLite.PrimaryKey]
+        public int Id { get; set; }
+        public string Value { get; set; } = string.Empty;
     }
 
     private static string CreateTemporaryDatabasePath(string name)

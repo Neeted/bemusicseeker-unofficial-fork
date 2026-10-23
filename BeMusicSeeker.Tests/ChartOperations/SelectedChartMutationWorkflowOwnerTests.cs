@@ -800,9 +800,9 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreSame(eligible.Chart.Token, request.Charts[0].Token);
     }
 
-    /// <summary>文字コードは保存後に専用更新を通知し、一般変更の停止・活動・抑制経路へ誤って入ることを検出します。</summary>
+    /// <summary>文字コードは指定と対象を維持して保存後に更新を通知し、保存前の成功公開を検出します。</summary>
     [TestMethod]
-    public void ApplyEncoding_StoresBeforeRefreshWithoutGeneralMutationLifecycle()
+    public async Task ApplyEncoding_StoresBeforeRefresh()
     {
         var events = new List<string>();
         var store = new RecordingStore(events);
@@ -814,18 +814,77 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             false,
             ChartOperationCapabilities.RunBmsEncodingFix);
 
-        SelectedChartMutationResult result = owner.ApplyEncoding(new SelectedChartEncodingRequest([target], string.Empty));
+        SelectedChartMutationResult result = await owner.ApplyEncodingAsync(new SelectedChartEncodingRequest([target], string.Empty));
 
         Assert.IsTrue(result.Succeeded);
         Assert.AreEqual(1, store.EncodingCallCount);
         Assert.AreEqual(string.Empty, store.Encoding);
         Assert.AreSame(target.Chart.Token, store.EncodingFiles[0].Token);
-        CollectionAssert.AreEqual(new[] { "store-encoding", "encoding-refresh" }, events);
+        Assert.IsTrue(events.IndexOf("store-encoding") < events.IndexOf("encoding-refresh"));
+    }
+
+    /// <summary>Dispatcherからの文字コード変更は保存中もUIが応答し、保存失敗では公開せず、成功時は通知終端まで競合を拒否して次の明示要求を受け付けます。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ApplyEncodingAsync_KeepsDispatcherResponsiveAndAdmissionThroughNotification(bool storeFails)
+    {
+        var scheduler = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
+        var presentation = new RecordingPresentation();
+        var store = new HeldEncodingStore();
+        var gate = new ChartFileOperationSynchronizer();
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, new FakeUiDialogService(), store, gate);
+        ChartOperationTarget target = CreateTarget("encoding.bms", ChartOperationSourceScope.Library, false,
+            ChartOperationCapabilities.RunBmsEncodingFix);
+        var request = new SelectedChartEncodingRequest([target], "utf-8");
+        var failure = new IOException("encoding save failed");
+        int notifications = 0;
+        owner.WorkflowChanged += (_, change) =>
+        {
+            if (change is not SelectedChartMutationAppliedEventArgs) { return; }
+            Assert.IsTrue(gate.IsActive);
+            Assert.IsFalse(gate.TryEnter(out IDisposable competing));
+            competing?.Dispose();
+            notifications++;
+        };
+        SelectedChartMutationResult? result = null;
+        Task operation = scheduler.InvokeAsync(async () => result = await owner.ApplyEncodingAsync(request));
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(store.Reached.Task, operation, "encoding store entered");
+            await scheduler.InvokeAsync(async () =>
+            {
+                Assert.IsFalse(operation.IsCompleted);
+                Assert.IsFalse(store.RanOnDispatcher);
+                Assert.AreEqual(0, notifications);
+                Assert.AreEqual(0, presentation.EncodingRefreshCalls);
+                Assert.IsFalse((await owner.ApplyEncodingAsync(request)).Succeeded);
+                Assert.AreEqual(1, store.Attempts);
+            });
+            store.Failure = storeFails ? failure : null;
+            store.Release.TrySetResult(true);
+            await operation;
+            Assert.IsNotNull(result);
+            Assert.AreEqual(!storeFails, result.Succeeded);
+            Assert.AreSame(storeFails ? failure : null, result.Failure);
+            Assert.AreEqual(storeFails ? 0 : 1, notifications);
+            Assert.IsFalse(gate.IsActive);
+            store.Failure = null;
+            Assert.IsTrue((await owner.ApplyEncodingAsync(request)).Succeeded);
+            Assert.AreEqual(2, store.Attempts);
+            Assert.AreEqual(storeFails ? 1 : 2, notifications);
+            Assert.IsFalse(gate.IsActive);
+        }
+        finally
+        {
+            store.Release.TrySetResult(true);
+            await operation;
+        }
     }
 
     /// <summary>文字コード修正権限がない場合は保存も通知も行わず、不適格な対象の変更を検出します。</summary>
     [TestMethod]
-    public void ApplyEncoding_WithoutTargetsDoesNotStoreOrRefresh()
+    public async Task ApplyEncoding_WithoutTargetsDoesNotStoreOrRefresh()
     {
         var events = new List<string>();
         var store = new RecordingStore(events);
@@ -837,7 +896,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             false,
             ChartOperationCapabilities.None);
 
-        SelectedChartMutationResult result = owner.ApplyEncoding(new SelectedChartEncodingRequest([target], "utf-8"));
+        SelectedChartMutationResult result = await owner.ApplyEncodingAsync(new SelectedChartEncodingRequest([target], "utf-8"));
 
         Assert.IsTrue(result.Succeeded);
         Assert.AreEqual(0, store.EncodingCallCount);
@@ -847,7 +906,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
     /// <summary>文字コード保存の例外は失敗を返して更新を通知せず、未保存の値を画面へ公開する誤りを検出します。</summary>
     [TestMethod]
-    public void ApplyEncoding_FailureDoesNotRefresh()
+    public async Task ApplyEncoding_FailureDoesNotRefresh()
     {
         var events = new List<string>();
         var store = new RecordingStore(events) { Failure = new IOException("encoding failed") };
@@ -859,7 +918,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             false,
             ChartOperationCapabilities.RunBmsEncodingFix);
 
-        SelectedChartMutationResult result = owner.ApplyEncoding(new SelectedChartEncodingRequest([target], "utf-8"));
+        SelectedChartMutationResult result = await owner.ApplyEncodingAsync(new SelectedChartEncodingRequest([target], "utf-8"));
 
         Assert.IsFalse(result.Succeeded);
         Assert.IsInstanceOfType<IOException>(result.Failure);
@@ -1141,7 +1200,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     [TestMethod]
     public async Task ApplyEncoding_RealStorePersistsEncodingAndFixedMarkUnderSameAdmission()
     {
-        await WithTemporarySongDbAsync(songDbPath =>
+        await WithTemporarySongDbAsync(async songDbPath =>
         {
             string path = Path.Combine(Path.GetDirectoryName(songDbPath)!, "encoding.bms");
             File.WriteAllText(path, "#TITLE encoding");
@@ -1173,11 +1232,11 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable busy));
                 using (busy)
                 {
-                    Assert.IsFalse(owner.ApplyEncoding(new SelectedChartEncodingRequest([target], "utf-8")).Succeeded);
+                    Assert.IsFalse((await owner.ApplyEncodingAsync(new SelectedChartEncodingRequest([target], "utf-8"))).Succeeded);
                     using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
                     Assert.IsFalse(read.Table<LR2SongDBExtended.maintenance>().Any(row => row.path == path));
                 }
-                Assert.IsTrue(owner.ApplyEncoding(new SelectedChartEncodingRequest([target], "utf-8")).Succeeded);
+                Assert.IsTrue((await owner.ApplyEncodingAsync(new SelectedChartEncodingRequest([target], "utf-8"))).Succeeded);
                 using (LR2SongDBExtended read = gateway.OpenSongDbReadOnly())
                 {
                     LR2SongDBExtended.maintenance row = read.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == path);
@@ -1188,7 +1247,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 Assert.IsFalse(library.OperationAdmission.IsActive);
             }
             finally { library.RequestShutdown("encoding-entry-test"); }
-            return Task.CompletedTask;
+
         });
     }
 
@@ -1202,7 +1261,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     [DataRow(false, false, "different_hash")]
     public async Task ApplyEncoding_RealStoreUpdatesSelectedPendingEntriesWithoutChangingPlacement(bool decode, bool includeOwned, string storedState)
     {
-        await WithTemporarySongDbAsync(songDbPath =>
+        await WithTemporarySongDbAsync(async songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
             string source = Path.Combine(root, "Pending");
@@ -1286,7 +1345,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 AcceptedMessageDialogs(), new BmsLibrarySelectedChartMutationStore());
             try
             {
-                SelectedChartMutationResult result = owner.ApplyEncoding(new SelectedChartEncodingRequest(targets, decode ? "shift_jis" : string.Empty));
+                SelectedChartMutationResult result = await owner.ApplyEncodingAsync(new SelectedChartEncodingRequest(targets, decode ? "shift_jis" : string.Empty));
                 Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
                 ChartFile current = entry.Chart;
                 Assert.AreEqual(title, current.RawTitle);
@@ -1329,7 +1388,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 }
             }
             finally { library.RequestShutdown("pending-encoding-test"); }
-            return Task.CompletedTask;
+
         });
     }
 
@@ -1474,6 +1533,25 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         }
     }
 
+    /// <summary>背景の同期保存だけを保留し、UI応答と受付の実終端を観測します。</summary>
+    private sealed class HeldEncodingStore : RecordingStore
+    {
+        internal TaskCompletionSource<bool> Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource<bool> Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal bool RanOnDispatcher { get; private set; }
+        internal int Attempts { get; private set; }
+
+        public override void SetBMSFilesEncoding(BMSLibrary library, IReadOnlyList<ChartFile> bmsFiles,
+            string encoding, IReadOnlyList<PackageChartEntry> pendingEntries)
+        {
+            Attempts++;
+            RanOnDispatcher = TestUiDispatcherHost.Dispatcher.CheckAccess();
+            Reached.TrySetResult(true);
+            Release.Task.GetAwaiter().GetResult();
+            base.SetBMSFilesEncoding(library, bmsFiles, encoding, pendingEntries);
+        }
+    }
+
     private class RecordingStore : ISelectedChartMutationStore
     {
         private readonly List<string>? events;
@@ -1503,7 +1581,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         internal int EncodingCallCount { get; private set; }
 
-        internal Exception Failure { get; set; } = null!;
+        internal Exception? Failure { get; set; }
 
         public virtual LibraryChartRemovalPreflight PrepareLibraryChartRemoval(BMSLibrary library, IReadOnlyList<LibraryChartRef> charts)
             => new(charts.Select(chart => chart.ToChartFileIdentity()),
@@ -1566,7 +1644,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 folderReferenceMoveCount: 1);
         }
 
-        public void SetBMSFilesEncoding(
+        public virtual void SetBMSFilesEncoding(
             BMSLibrary library,
             IReadOnlyList<ChartFile> bmsFiles,
             string encoding, IReadOnlyList<PackageChartEntry> pendingEntries)
