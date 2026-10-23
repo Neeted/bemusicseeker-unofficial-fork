@@ -850,8 +850,6 @@ public sealed class SettingsControlPresentationTests
             ?? throw new AssertFailedException(consumerName + " scrollbar must materialize PART_Track.");
         Assert.AreEqual(expectedOrientation, track.Orientation, consumerName + " scrollbar track orientation.");
 
-        FrameworkElement lineStart;
-        FrameworkElement lineEnd;
         RoutedCommand lineStartCommand;
         RoutedCommand lineEndCommand;
         RoutedCommand pageStartCommand;
@@ -871,8 +869,6 @@ public sealed class SettingsControlPresentationTests
             pageEndCommand = ScrollBar.PageRightCommand;
         }
 
-        lineStart = FindScrollCommandAffordance(scrollbar, lineStartCommand, consumerName + " line-start");
-        lineEnd = FindScrollCommandAffordance(scrollbar, lineEndCommand, consumerName + " line-end");
         FrameworkElement pageStart = FindScrollCommandAffordance(track, pageStartCommand, consumerName + " page-start");
         FrameworkElement pageEnd = FindScrollCommandAffordance(track, pageEndCommand, consumerName + " page-end");
 
@@ -908,7 +904,7 @@ public sealed class SettingsControlPresentationTests
             consumerName + " scrollbar maximum must follow its viewer extent.");
 
         double lineStartOffset = SetScrollOffsetToInterior(viewer, expectedOrientation, consumerName);
-        InvokeScrollButton(lineStart, consumerName + " line-start");
+        lineStartCommand.Execute(null, scrollbar);
         TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(
@@ -916,7 +912,7 @@ public sealed class SettingsControlPresentationTests
             consumerName + " line-start command must decrease the viewer offset.");
 
         double lineEndOffset = SetScrollOffsetToInterior(viewer, expectedOrientation, consumerName);
-        InvokeScrollButton(lineEnd, consumerName + " line-end");
+        lineEndCommand.Execute(null, scrollbar);
         TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(

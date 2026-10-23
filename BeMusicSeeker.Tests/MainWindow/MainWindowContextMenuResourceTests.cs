@@ -319,6 +319,8 @@ public sealed class MainWindowContextMenuResourceTests
         {
             var host = new Grid();
             host.Resources.MergedDictionaries.Add(CreateResourceDictionary(
+                "/BeMusicSeeker;component/Themes/Simple Styles.xaml"));
+            host.Resources.MergedDictionaries.Add(CreateResourceDictionary(
                 "/BeMusicSeeker;component/Themes/Light.xaml"));
             host.Resources.MergedDictionaries.Add(CreateResourceDictionary(
                 "/BeMusicSeeker;component/Themes/CanonicalControls.xaml"));
@@ -327,11 +329,12 @@ public sealed class MainWindowContextMenuResourceTests
             {
                 Width = 180,
                 Height = 120,
-                Content = new Border { Width = 600, Height = 420 },
+                Content = new Border { Width = 600, Height = 4200 },
                 Style = (Style)host.Resources["App.Canonical.ScrollViewerStyle"],
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                CanContentScroll = false
+                CanContentScroll = false,
+                IsHitTestVisible = false
             };
             host.Children.Add(scroller);
             var window = new Window
@@ -367,9 +370,42 @@ public sealed class MainWindowContextMenuResourceTests
             Assert.IsTrue(vertical.ActualWidth > 0d && vertical.ActualHeight > 0d);
             Assert.IsTrue(horizontal.ActualWidth > 0d && horizontal.ActualHeight > 0d);
 
-            Border corner = FindVisualDescendants<Border>(scroller)
-                .Single(border => Grid.GetRow(border) == 1 && Grid.GetColumn(border) == 1);
-            Assert.IsNotNull(corner.Background);
+            Assert.AreEqual(16d, vertical.ActualWidth, 0.01d);
+            Assert.AreEqual(16d, horizontal.ActualHeight, 0.01d);
+            Rect verticalBounds = vertical.TransformToAncestor(scroller).TransformBounds(new Rect(vertical.RenderSize));
+            Rect horizontalBounds = horizontal.TransformToAncestor(scroller).TransformBounds(new Rect(horizontal.RenderSize));
+            Assert.IsTrue(horizontalBounds.Right <= verticalBounds.Left + 0.01d);
+            foreach (Track track in new[] { verticalTrack, horizontalTrack })
+            {
+                track.Thumb.ApplyTemplate();
+                var chrome = (Border)track.Thumb.Template.FindName("ThumbChrome", track.Thumb);
+                Assert.AreEqual(3d, track.Orientation == Orientation.Vertical ? chrome.ActualWidth : chrome.ActualHeight, 0.01d);
+                Assert.AreEqual(new CornerRadius(4d), chrome.CornerRadius);
+                foreach (RepeatButton pageButton in new[] { track.DecreaseRepeatButton, track.IncreaseRepeatButton })
+                {
+                    pageButton.ApplyTemplate();
+                    Border pageChrome = FindVisualDescendants<Border>(pageButton).Single();
+                    Assert.IsInstanceOfType<SolidColorBrush>(pageChrome.Background);
+                    Assert.AreEqual((byte)0, ((SolidColorBrush)pageChrome.Background).Color.A);
+                }
+                Assert.IsTrue((track.Orientation == Orientation.Vertical ? track.Thumb.ActualHeight : track.Thumb.ActualWidth) >= 28d);
+                // hoverはScrollBar全体、dragはThumb自身から取り、後段のdragを優先する。
+                TriggerBase[] triggers = track.Thumb.Template.Triggers.Cast<TriggerBase>().ToArray();
+                DataTrigger hover = triggers.OfType<DataTrigger>().Single();
+                var hoverBinding = (System.Windows.Data.Binding)hover.Binding;
+                Assert.AreEqual("IsMouseOver", hoverBinding.Path.Path);
+                Assert.AreEqual(typeof(ScrollBar), hoverBinding.RelativeSource.AncestorType);
+                Trigger drag = triggers.OfType<Trigger>().Single(trigger => trigger.Property == Thumb.IsDraggingProperty);
+                Assert.IsTrue(Array.IndexOf(triggers, drag) > Array.IndexOf(triggers, hover));
+                DependencyProperty thickness = track.Orientation == Orientation.Vertical ? FrameworkElement.WidthProperty : FrameworkElement.HeightProperty;
+                foreach (SetterBaseCollection setters in new[] { hover.Setters, drag.Setters })
+                {
+                    Assert.AreEqual(true, setters.Cast<Setter>().Any(setter => setter.TargetName == "ThumbChrome" && setter.Property == thickness && Equals(setter.Value, 8d)));
+                }
+                Assert.IsFalse(FindVisualDescendants<RepeatButton>(scroller).Any(button =>
+                    ReferenceEquals(button.Command, ScrollBar.LineUpCommand) || ReferenceEquals(button.Command, ScrollBar.LineDownCommand)
+                    || ReferenceEquals(button.Command, ScrollBar.LineLeftCommand) || ReferenceEquals(button.Command, ScrollBar.LineRightCommand)));
+            }
             var scrollPeer = new ScrollViewerAutomationPeer(scroller);
             var scrollProvider = (IScrollProvider)scrollPeer.GetPattern(PatternInterface.Scroll);
             Assert.IsNotNull(scrollProvider);
@@ -401,6 +437,47 @@ public sealed class MainWindowContextMenuResourceTests
             vertical.IsEnabled = false;
             TestUiDispatcherHost.ProcessQueuedPresentation();
             Assert.IsTrue(vertical.Opacity < 1d);
+
+            var content = (Border)scroller.Content;
+            var presenter = (ScrollContentPresenter)scroller.Template.FindName("PART_ScrollContentPresenter", scroller);
+            foreach ((double Width, double Height, bool Vertical, bool Horizontal) state in new[]
+            {
+                (Width: 60d, Height: 40d, Vertical: false, Horizontal: false),
+                (Width: 60d, Height: 420d, Vertical: true, Horizontal: false),
+                (Width: 600d, Height: 40d, Vertical: false, Horizontal: true),
+                (Width: 600d, Height: 420d, Vertical: true, Horizontal: true)
+            })
+            {
+                content.Width = state.Width;
+                content.Height = state.Height;
+                scroller.UpdateLayout();
+                Assert.AreEqual(180d, presenter.ActualWidth, 0.01d);
+                Assert.AreEqual(120d, presenter.ActualHeight, 0.01d);
+                Assert.AreEqual(state.Vertical ? Visibility.Visible : Visibility.Collapsed, vertical.Visibility);
+                Assert.AreEqual(state.Horizontal ? Visibility.Visible : Visibility.Collapsed, horizontal.Visibility);
+            }
+            scroller.Width = 20d;
+            scroller.Height = 20d;
+            scroller.UpdateLayout();
+            foreach (Track track in new[] { verticalTrack, horizontalTrack })
+            {
+                Assert.IsTrue(track.Thumb.IsVisible);
+                Rect thumbBounds = track.Thumb.TransformToAncestor(scroller).TransformBounds(new Rect(track.Thumb.RenderSize));
+                Assert.IsTrue(thumbBounds.Left >= -0.01d && thumbBounds.Top >= -0.01d);
+                Assert.IsTrue(thumbBounds.Right <= 20.01d && thumbBounds.Bottom <= 20.01d);
+            }
+            scroller.Width = 180d;
+            scroller.Height = 120d;
+            scroller.Style = (Style)host.Resources["SimpleScrollViewer"];
+            scroller.ApplyTemplate();
+            scroller.UpdateLayout();
+            var simplePresenter = (ScrollContentPresenter)scroller.Template.FindName("PART_ScrollContentPresenter", scroller);
+            var simpleVertical = (ScrollBar)scroller.Template.FindName("PART_VerticalScrollBar", scroller);
+            Assert.AreEqual(180d, simplePresenter.ActualWidth, 0.01d);
+            Assert.AreEqual(120d, simplePresenter.ActualHeight, 0.01d);
+            Assert.AreEqual(16d, simpleVertical.ActualWidth, 0.01d);
+            simpleVertical.ApplyTemplate();
+            Assert.IsNotNull(simpleVertical.Template.FindName("PART_Track", simpleVertical));
         });
     }
 
@@ -430,14 +507,6 @@ public sealed class MainWindowContextMenuResourceTests
             pageEndCommand = ScrollBar.PageRightCommand;
         }
 
-        FrameworkElement lineStart = FindScrollCommandAffordance(
-            scrollbar,
-            lineStartCommand,
-            description + " line-start");
-        FrameworkElement lineEnd = FindScrollCommandAffordance(
-            scrollbar,
-            lineEndCommand,
-            description + " line-end");
         FrameworkElement pageStart = FindScrollCommandAffordance(
             track,
             pageStartCommand,
@@ -448,7 +517,7 @@ public sealed class MainWindowContextMenuResourceTests
             description + " page-end");
 
         double lineStartOffset = SetScrollOffsetToInterior(viewer, orientation, description);
-        InvokeScrollAffordance(lineStart, description + " line-start");
+        lineStartCommand.Execute(null, scrollbar);
         TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(
@@ -456,7 +525,7 @@ public sealed class MainWindowContextMenuResourceTests
             description + " line-start command must decrease the viewer offset.");
 
         double lineEndOffset = SetScrollOffsetToInterior(viewer, orientation, description);
-        InvokeScrollAffordance(lineEnd, description + " line-end");
+        lineEndCommand.Execute(null, scrollbar);
         TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(
@@ -540,6 +609,9 @@ public sealed class MainWindowContextMenuResourceTests
     private static void InvokeScrollAffordance(FrameworkElement affordance, string description)
     {
         Assert.IsTrue(affordance.IsEnabled, description + " command affordance must be enabled.");
+        // 境界ではページ領域が0になるため、呼出元が内部位置へ移した後の実ヒットを確認する。
+        Assert.IsTrue(affordance.ActualWidth > 0d && affordance.ActualHeight > 0d);
+        Assert.IsNotNull(VisualTreeHelper.HitTest(affordance, new Point(affordance.ActualWidth / 2d, affordance.ActualHeight / 2d)));
         AutomationPeer peer = UIElementAutomationPeer.CreatePeerForElement(affordance)
             ?? throw new AssertFailedException(description + " command affordance must expose an Automation peer.");
         IInvokeProvider invokeProvider = peer.GetPattern(PatternInterface.Invoke) as IInvokeProvider

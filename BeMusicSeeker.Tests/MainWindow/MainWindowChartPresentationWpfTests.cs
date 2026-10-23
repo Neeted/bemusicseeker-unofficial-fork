@@ -331,9 +331,9 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
-    /// <summary>実テーマ切替を表とcornerへ反映し、縦・横・両方向のoverflowで必要scrollbarと両方向時だけのcornerを表示します。</summary>
+    /// <summary>実テーマ切替を表と実バーへ反映し、縦・横・両方向で描画領域を保ち、交点の入力領域を重ねないことを確認します。</summary>
     [TestMethod]
-    public void CustomTableScrollBarsUseCompiledThemeAndCornerContract()
+    public void CustomTableScrollBarsUseCompiledThemeAndOverlayContract()
     {
         TestUiDispatcherHost.Invoke(() =>
         {
@@ -393,11 +393,9 @@ public sealed class MainWindowChartPresentationWpfTests
                 ScrollBar horizontalScrollBar = table.Children
                     .OfType<ScrollBar>()
                     .Single(scrollBar => scrollBar.Orientation == Orientation.Horizontal);
-                Border corner = table.Children.OfType<Border>().Single();
 
                 object trackBackground = table.FindResource(trackBackgroundResourceKey);
                 Assert.AreSame(trackBackground, table.Background);
-                Assert.AreSame(trackBackground, corner.Background);
 
                 resourceHostWindow.Measure(new Size(tableWidth, tableHeight));
                 resourceHostWindow.Arrange(new Rect(0d, 0d, tableWidth, tableHeight));
@@ -409,7 +407,6 @@ public sealed class MainWindowChartPresentationWpfTests
                 AssertScrollBarPresentation(horizontalScrollBar, Orientation.Horizontal);
                 Assert.AreEqual(Visibility.Collapsed, verticalScrollBar.Visibility);
                 Assert.AreEqual(Visibility.Collapsed, horizontalScrollBar.Visibility);
-                Assert.AreEqual(Visibility.Collapsed, corner.Visibility);
 
                 application.Resources.Remove(trackBackgroundResourceKey);
                 string alternateTheme = string.Equals(
@@ -424,26 +421,36 @@ public sealed class MainWindowChartPresentationWpfTests
                 object switchedThemeTrackBackground = table.FindResource(trackBackgroundResourceKey);
                 Assert.AreNotSame(trackBackground, switchedThemeTrackBackground);
                 Assert.AreSame(switchedThemeTrackBackground, table.Background);
-                Assert.AreSame(switchedThemeTrackBackground, corner.Background);
 
                 table.ItemsSource = Enumerable.Range(0, 20).Select(_ => new object()).ToList();
                 MaterializeScrollBarContractTable(table, tableWidth, tableHeight);
                 Assert.AreEqual(Visibility.Visible, verticalScrollBar.Visibility);
                 Assert.AreEqual(Visibility.Collapsed, horizontalScrollBar.Visibility);
-                Assert.AreEqual(Visibility.Collapsed, corner.Visibility);
 
                 table.ItemsSource = new List<object> { new object() };
                 table.Columns = [CreateScrollBarContractColumn(600d)];
                 MaterializeScrollBarContractTable(table, tableWidth, tableHeight);
                 Assert.AreEqual(Visibility.Collapsed, verticalScrollBar.Visibility);
                 Assert.AreEqual(Visibility.Visible, horizontalScrollBar.Visibility);
-                Assert.AreEqual(Visibility.Collapsed, corner.Visibility);
 
                 table.ItemsSource = Enumerable.Range(0, 20).Select(_ => new object()).ToList();
                 MaterializeScrollBarContractTable(table, tableWidth, tableHeight);
                 Assert.AreEqual(Visibility.Visible, verticalScrollBar.Visibility);
                 Assert.AreEqual(Visibility.Visible, horizontalScrollBar.Visibility);
-                Assert.AreEqual(Visibility.Visible, corner.Visibility);
+                Assert.AreEqual(tableWidth, table.SurfaceWidth);
+                Assert.AreEqual(tableHeight, table.SurfaceHeight);
+                Rect verticalBounds = verticalScrollBar.TransformToAncestor(table).TransformBounds(new Rect(verticalScrollBar.RenderSize));
+                Rect horizontalBounds = horizontalScrollBar.TransformToAncestor(table).TransformBounds(new Rect(horizontalScrollBar.RenderSize));
+                Assert.IsTrue(horizontalBounds.Right <= verticalBounds.Left);
+                foreach (ScrollBar bar in new[] { verticalScrollBar, horizontalScrollBar })
+                {
+                    var track = (Track)bar.Template.FindName("PART_Track", bar);
+                    var trackChrome = (Border)bar.Template.FindName("TrackChrome", bar);
+                    Assert.AreSame(switchedThemeTrackBackground, trackChrome.Background);
+                    track.Thumb.ApplyTemplate();
+                    var thumbChrome = (Border)track.Thumb.Template.FindName("ThumbChrome", track.Thumb);
+                    Assert.AreSame(table.FindResource("ScrollBar.ThumbBackgroundBrush"), thumbChrome.Background);
+                }
             }
             finally
             {

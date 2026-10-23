@@ -50,15 +50,25 @@ XAMLは原則として `DynamicResource` を使います。コード描画はテ
 
 ### スクロールとフォーカス
 
-縦横のスクロールバーは `App.Canonical.VerticalScrollBarTemplate` / `HorizontalScrollBarTemplate` と `ScrollBarStyle` が方向、軌道、行・ページ単位の操作、つまみ、端、無効状態を所有します。`SimpleScrollBar` は互換名としてこれを参照します。ScrollViewerの部品名、内容スクロール、位置・可視範囲・最大値、アクセシビリティの契約は維持します。
+縦横のスクロールバーは `App.Canonical.VerticalScrollBarTemplate` / `HorizontalScrollBarTemplate` と `ScrollBarStyle` が方向、軌道、つまみ、無効状態を所有します。`SimpleScrollBar` は互換名として共通テンプレートを参照します。端の矢印ボタンは表示せず、`PART_Track` のページ送りボタン、標準Line・Pageコマンドとアクセシビリティを保ちます。ScrollViewerの部品名、内容スクロール、位置・可視範囲・最大値も維持します。
 
-スクロールバーの幅・高さと軌道は15に揃え、交点も軌道の背景で埋めます。つまみは軌道内で中央に置きます。端の隙間を隠すためにずらしません。メイン画面と表は配置の丸めと画素への整列を有効にします。
+バーは内容領域へ重ね、表示・非表示の切替で内容の測定幅・高さを変えません。透明な入力領域は縦16 DIP幅・横16 DIP高に固定し、通常は外側の端に丸い3 DIPのつまみだけを示します。入力領域全体へのホバーでつまみを8 DIPへ広げ、軌道を控えめに示します。ドラッグ中は領域外でも8 DIPとドラッグ用ブラシを維持します。通常・ホバー・ドラッグの色には既存の `ScrollBar.Thumb*BackgroundBrush` を使い、ホバーよりドラッグを優先します。内部の描画だけを変え、部品寸法や表の再計算へ波及させません。
+
+つまみと外側の可視端の間には、通常・ホバー・ドラッグを通して2 DIPの空間を設けます。`ScrollBar.Padding` は共通テンプレートの `ThumbChrome.Margin` へ渡す描画設定とし、縦は右、横は下だけに適用します。長手方向には余白を足さず、透明なThumb・Track・ページボタンと16 DIPの入力領域は縮めません。
+
+つまみ長は28 DIP以上を基本とし、それより短い軌道では軌道内に縮めます。両軸表示時の交点は縦バーへ割り当て、横バーを右16 DIPだけ短くして入力を重ねません。不透明な角は置きません。スクロール不要時の非表示は従来の可視性判定を使い、完全自動非表示のタイマーや保存設定は持ちません。メイン画面と表は配置の丸めと画素への整列を有効にします。
+
+標準ScrollViewerの内容は `PART_ScrollContentPresenter` で全面を使います。共通テンプレートの縦横PARTバーだけは `OverlayScrollBar` を使い、表示切替時に論理スクロールの再測定を接続します。WPFの仮想化パネルはバー切替後の再測定を前提としますが、オーバーレイでは内容の測定条件が変わらず再測定が省略され得るためです。`Visibility` の変更かつ `CanContentScroll=true` のときだけ、WPFと同じ選択順で既存の `IScrollInfo` 候補を一つ選び、同じ `ScrollOwner` と既存presenterの子孫であることを確認します。その候補からpresenterまでの中間ラッパーを含む祖先経路だけを再測定対象にし、現在のWPFの測定処理へ戻します。未実体化・対象なし・不適格な候補・物理スクロールは何もせず、別候補への代替、項目走査、追加状態、予約、明示的な測定、hover/drag/Value変更による発火は行いません。
+
+標準ScrollViewerの内容は `PART_ScrollContentPresenter` で全面を使います。`SimpleScrollViewer` も同じ共通テンプレートを実体化時に解決し、辞書の読込順を保ちます。`CanContentScroll`、仮想化、TextBoxの `PART_ContentHost` を変えません。全画面への一律余白は設けず、端の重要な操作対象に対処するときだけ、その画面に表示状態へ連動しない内側余白を使います。表の末尾をバーの手前へ出す範囲計算は[一覧仕様](table-view.md#スクロール領域)に従います。
 
 WPF既定の点線のフォーカス飾りは使いません。表は選択と現在セル、ツリーは選択背景と文字、入力欄は `App.InputFocusBorderBrush`、その他の部品は選択・重ね合わせ・押下状態で示します。分割線はTab移動の対象外にし、ドラッグによるサイズ変更を保ちます。
 
 ### メイン画面
 
 メイン画面は背景と文字色をテーマへ接続します。外周は内容の測定範囲を縮めない1 DIPの表示専用枠とし、入力を受け取りません。非アクティブ時は控えめな文字色、アクティブ時は強調色です。最大化時は既存の8 DIPの余白に合わせて内側へ移し、サイズ変更の判定を妨げません。
+
+表2個とサイドバーのツリー2個の右端では、外枠または区切り線1 DIPの内側に2 DIPを残すため、つまみの右描画余白を3 DIPとします。表2個と下側ツリーの下端は、`ProgressHub.HasRows=false` で進捗行が折り畳まれていると外枠に接するため3 DIP、`HasRows=true` で進捗行が見えると外枠に接しないため2 DIPとします。上側ツリーの下端は横分割線がツリー外に描かれるため常に2 DIPです。共通Canonicalを基底とするWindow資源を、表では各Resourcesの暗黙ScrollBar Style、ツリーでは各Resourcesの共通キー別名として適用します。Popupの資源検索とFindAncestorはどちらも配置先へ接続し得るため、MainWindow祖先の存在だけで対象を決めず、Popup祖先を持つバーは共通の縦右2 DIP・横下2 DIPを保ちます。下端3 DIPの条件もPopup外かつ実MainWindowの`HasRows=false`に限り、祖先が見つからない値をfalseへ代替しません。方向・進捗条件は描画だけに反映し、表のSurface・編集領域・終端露出範囲や内容の測定寸法を保ちます。
 
 キャプションボタンは常に控えめな文字色です。通常背景は透明で、`IsMouseOver` のときだけ `App.ControlHoverBrush` を表示します。押下やキーfocusだけでは背景を点灯させず、影・白色光沢・パネル全体の常時背景は付けません。既存位置、標準の `WindowChrome`、`SystemCommands` と専用の入力判定を使い、サイズ変更の判定幅5を保ちます。
 
@@ -137,6 +147,10 @@ OS標準の選択画面、利用者定義テーマ、個別色の編集、OSテ�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 共通オーバーレイ、固定入力幅、細いつまみ、標準操作 | `CanonicalControls.xaml` のScrollBar・ScrollViewer、`Simple Styles.xaml` の互換名 | [`MainWindowContextMenuResourceTests.CanonicalScrollViewer_MaterializesSharedScrollBarsAndPreservesBehavior`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowContextMenuResourceTests.cs) はcompiled部品の16 DIP入力幅・通常3 DIP・丸み・短い軌道内への収まり、交点の非重複、なし/縦/横/両軸で内容領域一定、Lineコマンドの移動・ページボタンのInvoke・Scroll Automation・offset/value・viewport/maximum同期・無効表示を確認する。hover/dragはcompiled条件・8 DIP setterと優先順位を確認し、ブラシ・軌道の状態と固定配置の接続は静的確認する。 |
+| つまみと可視端の間隔、メイン画面の外枠・区切り線補正 | 共通ScrollBarのPaddingと `ThumbChrome.Margin`、`MainWindow.xaml` の局所ScrollBar Style | 上記のcompiled寸法・標準操作と既存MainWindowChartPresentationWpf/CustomTable系列を自動回帰に使う。横断方向だけの描画余白、通常/hover/dragで共通の接続、共通2 DIP・右端3 DIP・下端の進捗条件による3/2 DIP、上側ツリー下端2 DIP、Styleの優先順位と辞書の非循環・MainWindow祖先とPopup祖先による適用条件、16 DIP入力と内容寸法・終端露出計算の不変は静的差分確認で分担する。実ポインター操作や配色・高DPIでの見え方は自動検証済みとは扱わない。 |
+| オーバーレイの論理スクロール再測定、リサイズ時の仮想化維持 | [`OverlayScrollBar`](../../../BeMusicSeeker/Views/OverlayScrollBar.cs)、共通ScrollViewerのPARTバー | [`DialogPresentationTests.PlayHistoryPresetDialog_UsesBoundedResizablePlaylistViewport`](../../../BeMusicSeeker.Tests/Dialogs/DialogPresentationTests.cs) は未実体化の末尾へスクロールして選択した後、Window拡大で論理viewportが増えることを確認する。物理・論理の標準操作とItemsPresenterのconsumerは既存MainWindowContextMenuResource/SettingsControlPresentation/DialogPresentation系列へ分担し、候補の選択順・不適格時の無処理・祖先経路だけの無効化・状態なしと発火条件は静的確認する。 |
+| 表の共通バーとテーマ切替、交点 | `CustomTableView`、共通ScrollBarテンプレート | [`MainWindowChartPresentationWpfTests.CustomTableScrollBarsUseCompiledThemeAndOverlayContract`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) は実テーマ切替の表・実バーへの反映と、全面寸法・交点の非重複を確認する。設定・ダイアログの実採用は既存 `SettingsControlPresentationTests` / `DialogPresentationTests` のconsumer検査へ分担する。OS入力、領域外ドラッグの実操作、配色の見え方と高DPIは実機確認と分担する。 |
 | テーマの切替と共通スタイルの保持 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs) | [`NativeWindowThemeContractTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowThemeContractTests.cs) は各配色への切替で、辞書のキー整合、共通スタイルの解決、変更通知と版更新、題名部の明暗判定を確認する。 |
 | 通常検索・プレイリスト一覧検索の控えめな通常枠、フォーカス枠、入力状態の背景と配置 | [`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml) の `KeywordSearchComposite` / `PlaylistSummaryKeywordSearchComposite`、全10配色辞書の `App.SearchBorderBrush` | `NativeWindowThemeContractTests` は全テーマのキー整合、[`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) は検索操作とアイコン配置を回帰確認する。全10辞書の検索枠ブラシのキー・型・配色、両通常枠の動的参照、エディター専用のフォーカス判定、背景トリガーと寸法・余白の維持は変更時の静的差分確認で分担する。実環境での色の見え方は自動検証の対象に含めない。 |
 | 全ToolTipの表示中テーマ追随 | `CanonicalControls.xaml` の型スタイル | `NativeWindowThemeContractTests.ToolTip_VisibleContentTracksThemeWithoutExplicitStyle` はIsOpenで表示した明示StyleなしToolTipで明→暗→明の実効背景・枠・本文、文字列と折返しTextBlockの文字継承・内容保持を確認する。文字列からの自動生成、CustomTableViewの明示生成、SliderのAutoToolTipが同じ型スタイルを使う接続は静的確認で分担する。 |

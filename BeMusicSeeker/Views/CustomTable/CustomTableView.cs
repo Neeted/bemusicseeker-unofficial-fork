@@ -65,7 +65,8 @@ public sealed class CustomTableView : Grid
 {
     internal const double CellTextHorizontalPadding = 2d;
     private const double ColumnResizeHitTestMargin = 4d;
-    private const double ScrollBarThickness = 15d;
+    // 共通ScrollBarの固定ヒット領域と、末尾を露出するための計算を揃える。
+    private const double ScrollBarThickness = 16d;
     private const double CellEditorBorderThickness = 1d;
     private const int RowSubscriptionOverscan = 5;
     private const long RowSubscriptionSlowLogThresholdMs = 100L;
@@ -150,7 +151,6 @@ public sealed class CustomTableView : Grid
     private readonly Canvas editorLayer;
     private readonly ScrollBar verticalScrollBar;
     private readonly ScrollBar horizontalScrollBar;
-    private readonly Border scrollBarCorner;
     private readonly ToolTip cellToolTip;
     private readonly Popup editSuggestionPopup;
     private readonly ListBox editSuggestionListBox;
@@ -201,6 +201,7 @@ public sealed class CustomTableView : Grid
     private bool suppressColumnRedrawUntilItemsSourceChanged;
     private MainChartListViewModel subscribedMainChartList;
 
+    /// <summary>全面の描画・編集面へ固定幅のスクロールバーを重ね、既存の表操作と購読を接続します。</summary>
     public CustomTableView()
     {
         ClipToBounds = true;
@@ -209,15 +210,15 @@ public sealed class CustomTableView : Grid
         UseLayoutRounding = true;
         SnapsToDevicePixels = true;
         SetResourceReference(Panel.BackgroundProperty, "ScrollBar.TrackBackgroundBrush");
-        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1d, GridUnitType.Star) });
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1d, GridUnitType.Star) });
-        ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         surface = new CustomTableSurface(this);
         verticalScrollBar = new ScrollBar
         {
             Orientation = Orientation.Vertical,
             Width = ScrollBarThickness,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            // Windowなしの配置でもOS既定の最小17 DIPへ広げない。
+            MinWidth = 0d,
+            MinHeight = 0d,
             Minimum = 0d,
             SmallChange = 3d
         };
@@ -225,11 +226,13 @@ public sealed class CustomTableView : Grid
         {
             Orientation = Orientation.Horizontal,
             Height = ScrollBarThickness,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            // Windowなしの配置でもOS既定の最小17 DIPへ広げない。
+            MinWidth = 0d,
+            MinHeight = 0d,
             Minimum = 0d,
             SmallChange = 16d
         };
-        scrollBarCorner = new Border();
-        scrollBarCorner.SetResourceReference(Border.BackgroundProperty, "ScrollBar.TrackBackgroundBrush");
         cellToolTip = new ToolTip
         {
             PlacementTarget = this,
@@ -269,17 +272,10 @@ public sealed class CustomTableView : Grid
         Children.Add(editorLayer);
         Children.Add(verticalScrollBar);
         Children.Add(horizontalScrollBar);
-        Children.Add(scrollBarCorner);
-        SetColumn(surface, 0);
-        SetRow(surface, 0);
-        SetColumn(editorLayer, 0);
-        SetRow(editorLayer, 0);
-        SetColumn(verticalScrollBar, 1);
-        SetRow(verticalScrollBar, 0);
-        SetColumn(horizontalScrollBar, 0);
-        SetRow(horizontalScrollBar, 1);
-        SetColumn(scrollBarCorner, 1);
-        SetRow(scrollBarCorner, 1);
+        // Surfaceと編集面は全面を共有し、バーだけを前面へ重ねる。
+        SetZIndex(editorLayer, 1);
+        SetZIndex(verticalScrollBar, 2);
+        SetZIndex(horizontalScrollBar, 2);
         surface.SizeChanged += delegate
         {
             InvalidateColumnLayoutSnapshot();
@@ -572,8 +568,10 @@ public sealed class CustomTableView : Grid
 
     internal int RowCount => ItemsSource?.Count ?? 0;
 
+    /// <summary>バー背後を含む全面の実描画幅です。スクロール用の有効表示幅とは区別します。</summary>
     internal double SurfaceWidth => surface.ActualWidth;
 
+    /// <summary>バー背後を含む全面の実描画高です。完全表示行容量とは区別します。</summary>
     internal double SurfaceHeight => surface.ActualHeight;
 
     internal bool IsRowSelected(int rowIndex)
@@ -878,48 +876,78 @@ public sealed class CustomTableView : Grid
     private void UpdateScrollBars()
     {
         int rowCount = RowCount;
-        int fullVisibleRows = CalculateFullVisibleRowCapacity();
+        double extentWidth = GetColumnLayoutSnapshot().ExtentWidth;
+        double width = Math.Max(0d, surface.ActualWidth);
+        (bool hasVertical, bool hasHorizontal, int fullVisibleRows, double viewportWidth) = CalculateScrollBarLayout(width, CalculateBodyHeight(), extentWidth, rowCount, RowHeight);
         verticalScrollBar.ViewportSize = fullVisibleRows;
         verticalScrollBar.LargeChange = Math.Max(1, fullVisibleRows);
         verticalScrollBar.Maximum = CalculateVerticalScrollMaximum(rowCount, fullVisibleRows);
-        verticalScrollBar.Visibility = rowCount > fullVisibleRows ? Visibility.Visible : Visibility.Collapsed;
+        verticalScrollBar.Visibility = hasVertical ? Visibility.Visible : Visibility.Collapsed;
         if (verticalScrollBar.Value > verticalScrollBar.Maximum)
         {
             verticalScrollBar.Value = verticalScrollBar.Maximum;
         }
-        double extentWidth = GetColumnLayoutSnapshot().ExtentWidth;
-        double viewportWidth = Math.Max(0d, surface.ActualWidth);
         horizontalScrollBar.ViewportSize = viewportWidth;
         horizontalScrollBar.LargeChange = Math.Max(1d, viewportWidth);
         horizontalScrollBar.Maximum = Math.Max(0d, extentWidth - viewportWidth);
-        horizontalScrollBar.Visibility = extentWidth > viewportWidth + 0.5d ? Visibility.Visible : Visibility.Collapsed;
+        horizontalScrollBar.Visibility = hasHorizontal ? Visibility.Visible : Visibility.Collapsed;
+        horizontalScrollBar.Margin = new Thickness(0d, 0d, hasVertical ? ScrollBarThickness : 0d, 0d);
         if (horizontalScrollBar.Value > horizontalScrollBar.Maximum)
         {
             horizontalScrollBar.Value = horizontalScrollBar.Maximum;
         }
-        scrollBarCorner.Visibility = verticalScrollBar.Visibility == Visibility.Visible && horizontalScrollBar.Visibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>全面の実寸法から必要な軸だけを追加し、前回状態に依存しない有効表示幅と完全表示行容量を求めます。</summary>
+    /// <remarks>描画寸法は減らさず、戻り値をスクロール範囲とセル露出の計算だけへ適用します。</remarks>
+    internal static (bool HasVertical, bool HasHorizontal, int FullVisibleRows, double ViewportWidth) CalculateScrollBarLayout(
+        double width, double bodyHeight, double extentWidth, int rowCount, double rowHeight)
+    {
+        bool hasVertical = false;
+        bool hasHorizontal = false;
+        // バーなしから必要な軸だけを追加する。前回のVisibilityへ依存させない。
+        while (true)
+        {
+            int capacity = CalculateFullVisibleRowCapacity(bodyHeight - (hasHorizontal ? ScrollBarThickness : 0d), rowHeight);
+            bool nextVertical = hasVertical || rowCount > capacity;
+            bool nextHorizontal = hasHorizontal || extentWidth > Math.Max(0d, width - (nextVertical ? ScrollBarThickness : 0d)) + 0.5d;
+            if (nextVertical == hasVertical && nextHorizontal == hasHorizontal)
+            {
+                break;
+            }
+            hasVertical = nextVertical;
+            hasHorizontal = nextHorizontal;
+        }
+        int fullVisibleRows = CalculateFullVisibleRowCapacity(bodyHeight - (hasHorizontal ? ScrollBarThickness : 0d), rowHeight);
+        double viewportWidth = Math.Max(0d, width - (hasVertical ? ScrollBarThickness : 0d));
+        return (hasVertical, hasHorizontal, fullVisibleRows, viewportWidth);
+    }
+
+    /// <summary>横バーの手前まで完全表示できる行数を返します。極小領域でも既存の最小一行を保ちます。</summary>
     internal int CalculateFullVisibleRowCapacity()
     {
-        return CalculateFullVisibleRowCapacity(CalculateBodyHeight(), RowHeight);
+        return CalculateFullVisibleRowCapacity(CalculateBodyHeight() - (horizontalScrollBar.Visibility == Visibility.Visible ? ScrollBarThickness : 0d), RowHeight);
     }
 
+    /// <summary>バーの背後と部分表示を含む全面の描画行数を返し、可視行購読にも使います。</summary>
     internal int CalculateDrawableRowCapacity()
     {
         return CalculateDrawableRowCapacity(CalculateBodyHeight(), RowHeight);
     }
 
+    /// <summary>有効な本体高さを行高で切り捨て、完全表示容量を求めます。</summary>
     internal static int CalculateFullVisibleRowCapacity(double bodyHeight, double rowHeight)
     {
         return Math.Max(1, (int)Math.Floor(Math.Max(0d, bodyHeight) / Math.Max(1d, rowHeight)));
     }
 
+    /// <summary>全面の本体高さを行高で切り上げ、部分行を含む描画容量を求めます。</summary>
     internal static int CalculateDrawableRowCapacity(double bodyHeight, double rowHeight)
     {
         return Math.Max(1, (int)Math.Ceiling(Math.Max(0d, bodyHeight) / Math.Max(1d, rowHeight)));
     }
 
+    /// <summary>最終行を完全表示容量の末尾へ置く、行単位の最大開始位置を返します。</summary>
     internal static int CalculateVerticalScrollMaximum(int rowCount, int fullVisibleRows)
     {
         return Math.Max(0, Math.Max(0, rowCount) - Math.Max(1, fullVisibleRows));
@@ -1347,6 +1375,10 @@ public sealed class CustomTableView : Grid
         }
         CommitActiveEdit();
         CloseCellToolTip();
+        if (IsDescendantOfScrollChrome(e.OriginalSource as DependencyObject))
+        {
+            return;
+        }
         CustomTableHitTestResult hit = HitTestTable(e.GetPosition(surface));
         if (hit.Kind == CustomTableHitKind.HeaderResize)
         {
@@ -1408,6 +1440,13 @@ public sealed class CustomTableView : Grid
                 e.Handled = true;
                 return;
             }
+        }
+        // 開始済みのドラッグは上で継続し、バー上の通常hoverだけを背後のセルから除外する。
+        if (IsDescendantOfScrollChrome(e.OriginalSource as DependencyObject))
+        {
+            Cursor = null;
+            CloseCellToolTip();
+            return;
         }
         CustomTableHitTestResult hit = HitTestTable(position);
         Cursor = hit.Kind == CustomTableHitKind.HeaderResize ? Cursors.SizeWE : null;
@@ -1815,7 +1854,7 @@ public sealed class CustomTableView : Grid
 
     private void EnsureColumnVisible(CustomTableColumnLayoutEntry column, int direction)
     {
-        double viewportWidth = SurfaceWidth;
+        double viewportWidth = horizontalScrollBar.ViewportSize;
         if (viewportWidth <= 0d)
         {
             return;
@@ -2625,8 +2664,7 @@ public sealed class CustomTableView : Grid
         while (source != null)
         {
             if (ReferenceEquals(source, verticalScrollBar)
-                || ReferenceEquals(source, horizontalScrollBar)
-                || ReferenceEquals(source, scrollBarCorner))
+                || ReferenceEquals(source, horizontalScrollBar))
             {
                 return true;
             }

@@ -40,6 +40,35 @@
       <v:folderPathWhenColumnsHiddenVisibilityConverter x:Key="folderPathWhenColumnsHiddenVisibilityConverter" />
       <v:folderPathWhenColumnsVisibleVisibilityConverter x:Key="folderPathWhenColumnsVisibleVisibilityConverter" />
       <v:playHistorySummaryVisibilityConverter x:Key="playHistorySummaryVisibilityConverter" />
+      <!-- 右端の外枠・サイドバー区切り線1 DIPを避け、可視線の内側に2 DIPを残す。 -->
+      <Style x:Key="MainWindowScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource App.Canonical.ScrollBarStyle}">
+        <Style.Triggers>
+          <!-- Popupは資源検索とFindAncestorの両方で配置先へつながるため、Popup内は共通2 DIPのままにする。 -->
+          <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType={x:Type Popup}}, FallbackValue={x:Null}}" Value="{x:Null}">
+            <Setter Property="Padding" Value="0,0,3,0" />
+          </DataTrigger>
+          <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType={x:Type v:MainWindow}}, FallbackValue={x:Null}}" Value="{x:Null}">
+            <Setter Property="Padding" Value="0,0,2,0" />
+          </DataTrigger>
+          <!-- 縦用余白より後に方向を適用し、Popupの横バーも下2 DIPを保つ。 -->
+          <Trigger Property="Orientation" Value="Horizontal">
+            <Setter Property="Padding" Value="0,0,0,2" />
+          </Trigger>
+        </Style.Triggers>
+      </Style>
+      <Style x:Key="MainWindowBottomEdgeScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowScrollBarStyle}">
+        <Style.Triggers>
+          <!-- 実Windowの進捗行なしだけ下枠に接する。祖先なしをFalseへ代替せず、基底の下2 DIPを保つ。 -->
+          <MultiDataTrigger>
+            <MultiDataTrigger.Conditions>
+              <Condition Binding="{Binding Orientation, RelativeSource={RelativeSource Self}}" Value="Horizontal" />
+              <Condition Binding="{Binding DataContext.ProgressHub.HasRows, RelativeSource={RelativeSource AncestorType={x:Type v:MainWindow}}, FallbackValue={x:Null}}" Value="False" />
+              <Condition Binding="{Binding RelativeSource={RelativeSource AncestorType={x:Type Popup}}, FallbackValue={x:Null}}" Value="{x:Null}" />
+            </MultiDataTrigger.Conditions>
+            <Setter Property="Padding" Value="0,0,0,3" />
+          </MultiDataTrigger>
+        </Style.Triggers>
+      </Style>
       <ControlTemplate x:Key="templateDropmenuButtonFilter" TargetType="{x:Type ToggleButton}">
         <Grid Background="Transparent">
           <v:AppFontIcon Style="{StaticResource App.Canonical.FontIconStyle}"
@@ -927,8 +956,15 @@
             </DockPanel>
           </Border>
           <v:CustomTableView x:Name="customTableView" Grid.Row="3" Grid.ColumnSpan="1" Grid.Column="1" DataContext="{Binding MainChartList}" RowHeight="{Binding DataContext.ViewSettings.CustomTableRowHeight, ElementName=window, Mode=OneWay}" HeaderHeight="{Binding DataContext.ViewSettings.CustomTableHeaderHeight, ElementName=window, Mode=OneWay}" TextFontSize="{Binding DataContext.ViewSettings.CustomTableFontSize, ElementName=window, Mode=OneWay}" RowDragKind="{Binding RowDragKind, Mode=OneWay}" ScoreFontFamily="{StaticResource SovjetBox}" ItemsSource="{Binding Rows, Mode=OneWay}" ColumnsSettings="{Binding ColumnsSettings, Mode=OneWay}" SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}" SortColumnName="{Binding SortParameters.ColumnsName, Mode=OneWay}" SortDirection="{Binding SortParameters.Direction, Mode=OneWay}" FirstRenderCompleted="customTableView_FirstRenderCompleted" SortRequested="customTableView_SortRequested" SelectionChanged="customTableView_SelectionChanged" RowActivated="customTableView_RowActivated" RowContextMenuRequested="customTableView_RowContextMenuRequested" HeaderContextMenuRequested="customTableView_HeaderContextMenuRequested" CellEditBeginning="customTableView_CellEditBeginning" CellEditStarted="customTableView_CellEditStarted" CellActionRequested="customTableView_CellActionRequested" CellEditEnded="customTableView_CellEditEnded" Visibility="{Binding DataContext.PlaylistWorkspace.IsPlaylistSummaryMode, ElementName=window, Converter={StaticResource notBooleanToVisibilityCollapsedConverter}}" >
+            <v:CustomTableView.Resources>
+              <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowBottomEdgeScrollBarStyle}" />
+            </v:CustomTableView.Resources>
           </v:CustomTableView>
-          <v:CustomTableView x:Name="customTablePlaylistSummary" Grid.Row="3" Grid.ColumnSpan="1" Grid.Column="1" DataContext="{Binding PlaylistWorkspace}" RowHeight="{Binding DataContext.ViewSettings.CustomTableRowHeight, ElementName=window, Mode=OneWay}" HeaderHeight="{Binding DataContext.ViewSettings.CustomTableHeaderHeight, ElementName=window, Mode=OneWay}" TextFontSize="{Binding DataContext.ViewSettings.CustomTableFontSize, ElementName=window, Mode=OneWay}" RowDragKind="PlaylistSummaryRows" AllowDrop="True" ItemsSource="{Binding PlaylistSummaryView, Mode=OneWay}" PlaylistSummaryColumnsSettings="{Binding PlaylistSummaryColumnsSettings, Mode=OneWay}" SortColumnName="{Binding PlaylistSummarySortParameters.ColumnsName, Mode=OneWay}" SortDirection="{Binding PlaylistSummarySortParameters.Direction, Mode=OneWay}" FirstRenderCompleted="customTablePlaylistSummary_FirstRenderCompleted" SortRequested="customTablePlaylistSummary_SortRequested" RowActivated="customTablePlaylistSummary_RowActivated" RowContextMenuRequested="customTablePlaylistSummary_RowContextMenuRequested" HeaderContextMenuRequested="customTablePlaylistSummary_HeaderContextMenuRequested" CellEditBeginning="customTablePlaylistSummary_CellEditBeginning" CellActionRequested="customTablePlaylistSummary_CellActionRequested" CellEditEnded="customTablePlaylistSummary_CellEditEnded" PreviewDragOver="customTablePlaylistSummary_PreviewDragOver" PreviewDragLeave="customTablePlaylistSummary_PreviewDragLeave" Drop="customTablePlaylistSummary_Drop" Visibility="{Binding IsPlaylistSummaryMode, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" />
+          <v:CustomTableView x:Name="customTablePlaylistSummary" Grid.Row="3" Grid.ColumnSpan="1" Grid.Column="1" DataContext="{Binding PlaylistWorkspace}" RowHeight="{Binding DataContext.ViewSettings.CustomTableRowHeight, ElementName=window, Mode=OneWay}" HeaderHeight="{Binding DataContext.ViewSettings.CustomTableHeaderHeight, ElementName=window, Mode=OneWay}" TextFontSize="{Binding DataContext.ViewSettings.CustomTableFontSize, ElementName=window, Mode=OneWay}" RowDragKind="PlaylistSummaryRows" AllowDrop="True" ItemsSource="{Binding PlaylistSummaryView, Mode=OneWay}" PlaylistSummaryColumnsSettings="{Binding PlaylistSummaryColumnsSettings, Mode=OneWay}" SortColumnName="{Binding PlaylistSummarySortParameters.ColumnsName, Mode=OneWay}" SortDirection="{Binding PlaylistSummarySortParameters.Direction, Mode=OneWay}" FirstRenderCompleted="customTablePlaylistSummary_FirstRenderCompleted" SortRequested="customTablePlaylistSummary_SortRequested" RowActivated="customTablePlaylistSummary_RowActivated" RowContextMenuRequested="customTablePlaylistSummary_RowContextMenuRequested" HeaderContextMenuRequested="customTablePlaylistSummary_HeaderContextMenuRequested" CellEditBeginning="customTablePlaylistSummary_CellEditBeginning" CellActionRequested="customTablePlaylistSummary_CellActionRequested" CellEditEnded="customTablePlaylistSummary_CellEditEnded" PreviewDragOver="customTablePlaylistSummary_PreviewDragOver" PreviewDragLeave="customTablePlaylistSummary_PreviewDragLeave" Drop="customTablePlaylistSummary_Drop" Visibility="{Binding IsPlaylistSummaryMode, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
+            <v:CustomTableView.Resources>
+              <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowBottomEdgeScrollBarStyle}" />
+            </v:CustomTableView.Resources>
+          </v:CustomTableView>
           <Grid Name="gridTreePane" Margin="0" Grid.Row="1" Grid.RowSpan="3" Background="{DynamicResource App.BackgroundBrush}" TreeViewItem.Selected="gridTreePane_TreeViewItemSelected">
   <Grid.Resources>
     <ResourceDictionary>
@@ -999,6 +1035,9 @@
   </Grid.RowDefinitions>
   <Border Grid.RowSpan="2" BorderThickness="0" IsHitTestVisible="False" />
   <TreeView Name="treeViewPlaylist" Grid.Row="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0" Padding="1,5" Background="{DynamicResource App.BackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" FocusVisualStyle="{x:Null}" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
+    <TreeView.Resources>
+      <Style x:Key="App.Canonical.ScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowScrollBarStyle}" />
+    </TreeView.Resources>
 <TreeViewItem Name="treeViewItemPlaylist" IsExpanded="{Binding PlaylistWorkspace.IsPlaylistTreeExpanded, Mode=TwoWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}" ItemsSource="{Binding PlaylistWorkspace.PlaylistTreeTables}" ContextMenu="{StaticResource ResourceKey=treeViewPlaylistRootContextMenu}" Selected="playlistRootSelect">
               <FrameworkElement.Resources>
                 <ResourceDictionary>
@@ -1104,6 +1143,9 @@
   <!-- 5px のドラッグ領域を境界に重ね、透明ヒットゾーンで上下 TreeView のレイアウトを削らない。 -->
   <GridSplitter Name="gridSplitterTree" Style="{StaticResource SidebarSplitterStyle}" Grid.Row="1" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Top" ResizeDirection="Rows" ResizeBehavior="PreviousAndCurrent" Margin="0,-2,0,0" Panel.ZIndex="1" />
   <TreeView Name="treeView" Grid.Row="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0" Padding="1,5" Background="{DynamicResource App.BackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" FocusVisualStyle="{x:Null}" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
+    <TreeView.Resources>
+      <Style x:Key="App.Canonical.ScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowBottomEdgeScrollBarStyle}" />
+    </TreeView.Resources>
 <TreeViewItem IsExpanded="True" IsSelected="{Binding ViewSettings.StartupSelectInstallPending, Mode=OneWay, Converter={StaticResource notOperatorBoolConverter}}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Library, Mode=OneWay}" Selected="rootFolderSelect">
               <FrameworkElement.Resources>
                 <ResourceDictionary>

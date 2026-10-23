@@ -252,6 +252,45 @@ public sealed class CustomTableNavigationTests
         });
     }
 
+    /// <summary>100×120・二列各60・六行の実キー受付から最終セルへ移り、右端x84と最終行容量4を使うことを確認し、バー背後へ残す露出判定を検出します。</summary>
+    [TestMethod]
+    public void Navigation_RevealsLastColumnAndRowBeforeOverlayBars()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            var table = new CustomTableView
+            {
+                Width = 100d,
+                Height = 120d,
+                HeaderHeight = 20d,
+                RowHeight = 20d,
+                Columns = CreateColumns(60, 60),
+                ItemsSource = Enumerable.Range(0, 6).Select(_ => new object()).ToArray(),
+                SelectedIndex = 0
+            };
+            try
+            {
+                table.Measure(new Size(100d, 120d));
+                table.Arrange(new Rect(0d, 0d, 100d, 120d));
+                table.UpdateLayout();
+                Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+                Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+                Assert.AreEqual(36d, table.HorizontalOffset);
+                CustomTableColumnLayoutEntry last = table.GetColumnLayoutSnapshot().Entries.Last();
+                Assert.AreEqual(84d, last.TableX + last.Width - table.HorizontalOffset);
+                for (int i = 0; i < 5; i++)
+                {
+                    Assert.IsTrue(table.HandleKeyDown(Key.Down, ModifierKeys.None));
+                }
+                AssertCurrentCell(table, 5, "C1");
+                Assert.AreEqual(2, table.FirstVisibleRowIndex);
+                Assert.AreEqual(4, table.CalculateFullVisibleRowCapacity());
+                Assert.AreEqual(36d, table.HorizontalOffset);
+            }
+            finally { table.ItemsSource = null; }
+        });
+    }
+
     // KeyEventArgsは非nullの入力元を要求します。描画先やHWNDは使わず、入力元以外の実表とルーティングを動かします。
     private sealed class NavigationInputSource(Visual root) : PresentationSource
     {

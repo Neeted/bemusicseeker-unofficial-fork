@@ -491,204 +491,153 @@
     </ControlTemplate.Triggers>
   </ControlTemplate>
 
-  <!--
-    ScrollBar is the one shared scrolling primitive.  The MainWindow table,
-    canonical controls, and compatibility aliases all resolve these templates
-    so the visual route cannot drift while ScrollViewer keeps its existing
-    PART_* and routed-command contract.
-  -->
+  <!-- 透明な16 DIPの入力領域は固定し、hover/dragでは内部の描画だけを広げる。 -->
   <ControlTemplate x:Key="App.Canonical.VerticalScrollBarTemplate" TargetType="{x:Type ScrollBar}">
-    <Grid x:Name="ScrollBarRoot"
-          Width="15"
-          Background="{DynamicResource ScrollBar.TrackBackgroundBrush}"
-          SnapsToDevicePixels="True">
-      <Grid.RowDefinitions>
-        <RowDefinition Height="Auto" />
-        <RowDefinition Height="*" />
-        <RowDefinition Height="Auto" />
-      </Grid.RowDefinitions>
-      <RepeatButton x:Name="LineUpButton"
-                    Grid.Row="0"
-                    Height="15"
-                    Command="{x:Static ScrollBar.LineUpCommand}"
-                    Style="{DynamicResource App.Canonical.ScrollBarButtonStyle}">
-        <Path Width="8"
-              Height="8"
-              HorizontalAlignment="Center"
-              VerticalAlignment="Center"
-              Fill="{TemplateBinding Foreground}"
-              Data="M0,6 L4,2 L8,6 Z" />
-      </RepeatButton>
-      <Track x:Name="PART_Track"
-             Grid.Row="1"
-             Orientation="Vertical"
-             IsDirectionReversed="True">
-        <Track.DecreaseRepeatButton>
-          <RepeatButton x:Name="PageUpButton"
-                        Tag="{DynamicResource ScrollBar.TrackBackgroundBrush}"
-                        Command="{x:Static ScrollBar.PageUpCommand}"
-                        Style="{DynamicResource App.Canonical.TrackRepeatButtonStyle}" />
-        </Track.DecreaseRepeatButton>
-        <Track.Thumb>
-          <Thumb MinHeight="24" Margin="2">
-            <Thumb.Template>
-              <ControlTemplate TargetType="{x:Type Thumb}">
-                <Border x:Name="ThumbChrome"
-                        Background="{DynamicResource ScrollBar.ThumbBackgroundBrush}"
-                        CornerRadius="0" />
-                <ControlTemplate.Triggers>
-                  <Trigger Property="IsMouseOver" Value="True">
-                    <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.ThumbHoverBackgroundBrush}" />
-                  </Trigger>
-                  <Trigger Property="IsDragging" Value="True">
-                    <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.ThumbDraggingBackgroundBrush}" />
-                  </Trigger>
-                  <Trigger Property="IsEnabled" Value="False">
-                    <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.TrackBackgroundBrush}" />
-                  </Trigger>
-                </ControlTemplate.Triggers>
-              </ControlTemplate>
-            </Thumb.Template>
-          </Thumb>
-        </Track.Thumb>
-        <Track.IncreaseRepeatButton>
-          <RepeatButton x:Name="PageDownButton"
-                        Tag="{DynamicResource ScrollBar.TrackBackgroundBrush}"
-                        Command="{x:Static ScrollBar.PageDownCommand}"
-                        Style="{DynamicResource App.Canonical.TrackRepeatButtonStyle}" />
-        </Track.IncreaseRepeatButton>
-      </Track>
-      <RepeatButton x:Name="LineDownButton"
-                    Grid.Row="2"
-                    Height="15"
-                    Command="{x:Static ScrollBar.LineDownCommand}"
-                    Style="{DynamicResource App.Canonical.ScrollBarButtonStyle}">
-        <Path Width="8"
-              Height="8"
-              HorizontalAlignment="Center"
-              VerticalAlignment="Center"
-              Fill="{TemplateBinding Foreground}"
-              Data="M0,2 L4,6 L8,2 Z" />
-      </RepeatButton>
+    <Grid x:Name="ScrollBarRoot" Background="Transparent" SnapsToDevicePixels="True" ClipToBounds="True">
+      <Border x:Name="TrackChrome" Background="{DynamicResource ScrollBar.TrackBackgroundBrush}" Opacity="0" IsHitTestVisible="False" />
+      <!-- 最短28 DIPのTrackを極小時だけ縮め、WPF標準Trackの最小サム計算とドラッグを保つ。 -->
+      <Viewbox Stretch="Fill" StretchDirection="DownOnly">
+        <Track x:Name="PART_Track" Width="16" MinHeight="28"
+               Height="{Binding ActualHeight, RelativeSource={RelativeSource TemplatedParent}}" Orientation="Vertical" IsDirectionReversed="True" ClipToBounds="True">
+          <Track.Resources>
+            <s:Double x:Key="{x:Static SystemParameters.VerticalScrollBarButtonHeightKey}">56</s:Double>
+          </Track.Resources>
+          <Track.DecreaseRepeatButton>
+            <RepeatButton x:Name="PageUpButton" Tag="{x:Static Brushes.Transparent}"
+                          Command="{x:Static ScrollBar.PageUpCommand}"
+                          Style="{DynamicResource App.Canonical.TrackRepeatButtonStyle}" />
+          </Track.DecreaseRepeatButton>
+          <Track.Thumb>
+            <Thumb>
+              <Thumb.Template>
+                <ControlTemplate TargetType="{x:Type Thumb}">
+                  <Grid Background="Transparent" ClipToBounds="True">
+                    <Border x:Name="ThumbChrome" Width="3" HorizontalAlignment="Right"
+                            Margin="{Binding Padding, RelativeSource={RelativeSource AncestorType={x:Type ScrollBar}}}"
+                            Background="{DynamicResource ScrollBar.ThumbBackgroundBrush}" CornerRadius="4" />
+                  </Grid>
+                  <ControlTemplate.Triggers>
+                    <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType={x:Type ScrollBar}}}" Value="True">
+                      <Setter TargetName="ThumbChrome" Property="Width" Value="8" />
+                      <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.ThumbHoverBackgroundBrush}" />
+                    </DataTrigger>
+                    <Trigger Property="IsDragging" Value="True">
+                      <Setter TargetName="ThumbChrome" Property="Width" Value="8" />
+                      <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.ThumbDraggingBackgroundBrush}" />
+                    </Trigger>
+                    <Trigger Property="IsEnabled" Value="False">
+                      <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.TrackBackgroundBrush}" />
+                    </Trigger>
+                  </ControlTemplate.Triggers>
+                </ControlTemplate>
+              </Thumb.Template>
+            </Thumb>
+          </Track.Thumb>
+          <Track.IncreaseRepeatButton>
+            <RepeatButton x:Name="PageDownButton" Tag="{x:Static Brushes.Transparent}"
+                          Command="{x:Static ScrollBar.PageDownCommand}"
+                          Style="{DynamicResource App.Canonical.TrackRepeatButtonStyle}" />
+          </Track.IncreaseRepeatButton>
+        </Track>
+      </Viewbox>
     </Grid>
+    <ControlTemplate.Triggers>
+      <Trigger Property="IsMouseOver" Value="True">
+        <Setter TargetName="TrackChrome" Property="Opacity" Value="0.35" />
+      </Trigger>
+      <Trigger SourceName="PART_Track" Property="IsMouseCaptureWithin" Value="True">
+        <Setter TargetName="TrackChrome" Property="Opacity" Value="0.35" />
+      </Trigger>
+    </ControlTemplate.Triggers>
   </ControlTemplate>
 
   <ControlTemplate x:Key="App.Canonical.HorizontalScrollBarTemplate" TargetType="{x:Type ScrollBar}">
-    <Grid x:Name="ScrollBarRoot"
-          Height="15"
-          Background="{DynamicResource ScrollBar.TrackBackgroundBrush}"
-          SnapsToDevicePixels="True">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="Auto" />
-        <ColumnDefinition Width="*" />
-        <ColumnDefinition Width="Auto" />
-      </Grid.ColumnDefinitions>
-      <RepeatButton x:Name="LineLeftButton"
-                    Grid.Column="0"
-                    Width="15"
-                    Command="{x:Static ScrollBar.LineLeftCommand}"
-                    Style="{DynamicResource App.Canonical.ScrollBarButtonStyle}">
-        <Path Width="8"
-              Height="8"
-              HorizontalAlignment="Center"
-              VerticalAlignment="Center"
-              Fill="{TemplateBinding Foreground}"
-              Data="M6,0 L2,4 L6,8 Z" />
-      </RepeatButton>
-      <Track x:Name="PART_Track"
-             Grid.Column="1"
-             Orientation="Horizontal">
-        <Track.DecreaseRepeatButton>
-          <RepeatButton x:Name="PageLeftButton"
-                        Tag="{DynamicResource ScrollBar.TrackBackgroundBrush}"
-                        Command="{x:Static ScrollBar.PageLeftCommand}"
-                        Style="{DynamicResource App.Canonical.TrackRepeatButtonStyle}" />
-        </Track.DecreaseRepeatButton>
-        <Track.Thumb>
-          <Thumb MinWidth="24" Margin="2">
-            <Thumb.Template>
-              <ControlTemplate TargetType="{x:Type Thumb}">
-                <Border x:Name="ThumbChrome"
-                        Background="{DynamicResource ScrollBar.ThumbBackgroundBrush}"
-                        CornerRadius="0" />
-                <ControlTemplate.Triggers>
-                  <Trigger Property="IsMouseOver" Value="True">
-                    <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.ThumbHoverBackgroundBrush}" />
-                  </Trigger>
-                  <Trigger Property="IsDragging" Value="True">
-                    <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.ThumbDraggingBackgroundBrush}" />
-                  </Trigger>
-                  <Trigger Property="IsEnabled" Value="False">
-                    <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.TrackBackgroundBrush}" />
-                  </Trigger>
-                </ControlTemplate.Triggers>
-              </ControlTemplate>
-            </Thumb.Template>
-          </Thumb>
-        </Track.Thumb>
-        <Track.IncreaseRepeatButton>
-      <RepeatButton x:Name="PageRightButton"
-                        Tag="{DynamicResource ScrollBar.TrackBackgroundBrush}"
-                        Command="{x:Static ScrollBar.PageRightCommand}"
-                        Style="{DynamicResource App.Canonical.TrackRepeatButtonStyle}" />
-        </Track.IncreaseRepeatButton>
-      </Track>
-      <RepeatButton x:Name="LineRightButton"
-                    Grid.Column="2"
-                    Width="15"
-                    Command="{x:Static ScrollBar.LineRightCommand}"
-                    Style="{DynamicResource App.Canonical.ScrollBarButtonStyle}">
-        <Path Width="8"
-              Height="8"
-              HorizontalAlignment="Center"
-              VerticalAlignment="Center"
-              Fill="{TemplateBinding Foreground}"
-              Data="M2,0 L6,4 L2,8 Z" />
-      </RepeatButton>
+    <Grid x:Name="ScrollBarRoot" Background="Transparent" SnapsToDevicePixels="True" ClipToBounds="True">
+      <Border x:Name="TrackChrome" Background="{DynamicResource ScrollBar.TrackBackgroundBrush}" Opacity="0" IsHitTestVisible="False" />
+      <!-- 最短28 DIPのTrackを極小時だけ縮め、WPF標準Trackの最小サム計算とドラッグを保つ。 -->
+      <Viewbox Stretch="Fill" StretchDirection="DownOnly">
+        <Track x:Name="PART_Track" Height="16" MinWidth="28"
+               Width="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}" Orientation="Horizontal" ClipToBounds="True">
+          <Track.Resources>
+            <s:Double x:Key="{x:Static SystemParameters.HorizontalScrollBarButtonWidthKey}">56</s:Double>
+          </Track.Resources>
+          <Track.DecreaseRepeatButton>
+            <RepeatButton x:Name="PageLeftButton" Tag="{x:Static Brushes.Transparent}"
+                          Command="{x:Static ScrollBar.PageLeftCommand}"
+                          Style="{DynamicResource App.Canonical.TrackRepeatButtonStyle}" />
+          </Track.DecreaseRepeatButton>
+          <Track.Thumb>
+            <Thumb>
+              <Thumb.Template>
+                <ControlTemplate TargetType="{x:Type Thumb}">
+                  <Grid Background="Transparent" ClipToBounds="True">
+                    <Border x:Name="ThumbChrome" Height="3" VerticalAlignment="Bottom"
+                            Margin="{Binding Padding, RelativeSource={RelativeSource AncestorType={x:Type ScrollBar}}}"
+                            Background="{DynamicResource ScrollBar.ThumbBackgroundBrush}" CornerRadius="4" />
+                  </Grid>
+                  <ControlTemplate.Triggers>
+                    <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType={x:Type ScrollBar}}}" Value="True">
+                      <Setter TargetName="ThumbChrome" Property="Height" Value="8" />
+                      <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.ThumbHoverBackgroundBrush}" />
+                    </DataTrigger>
+                    <Trigger Property="IsDragging" Value="True">
+                      <Setter TargetName="ThumbChrome" Property="Height" Value="8" />
+                      <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.ThumbDraggingBackgroundBrush}" />
+                    </Trigger>
+                    <Trigger Property="IsEnabled" Value="False">
+                      <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.TrackBackgroundBrush}" />
+                    </Trigger>
+                  </ControlTemplate.Triggers>
+                </ControlTemplate>
+              </Thumb.Template>
+            </Thumb>
+          </Track.Thumb>
+          <Track.IncreaseRepeatButton>
+            <RepeatButton x:Name="PageRightButton" Tag="{x:Static Brushes.Transparent}"
+                          Command="{x:Static ScrollBar.PageRightCommand}"
+                          Style="{DynamicResource App.Canonical.TrackRepeatButtonStyle}" />
+          </Track.IncreaseRepeatButton>
+        </Track>
+      </Viewbox>
     </Grid>
+    <ControlTemplate.Triggers>
+      <Trigger Property="IsMouseOver" Value="True">
+        <Setter TargetName="TrackChrome" Property="Opacity" Value="0.35" />
+      </Trigger>
+      <Trigger SourceName="PART_Track" Property="IsMouseCaptureWithin" Value="True">
+        <Setter TargetName="TrackChrome" Property="Opacity" Value="0.35" />
+      </Trigger>
+    </ControlTemplate.Triggers>
   </ControlTemplate>
 
   <ControlTemplate x:Key="App.Canonical.ScrollViewerTemplate" TargetType="{x:Type ScrollViewer}">
-    <Grid Background="{TemplateBinding Background}">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*" />
-        <ColumnDefinition Width="Auto" />
-      </Grid.ColumnDefinitions>
-      <Grid.RowDefinitions>
-        <RowDefinition Height="*" />
-        <RowDefinition Height="Auto" />
-      </Grid.RowDefinitions>
+    <Grid Background="{TemplateBinding Background}" ClipToBounds="True">
       <ScrollContentPresenter x:Name="PART_ScrollContentPresenter"
-                              Grid.Row="0"
-                              Grid.Column="0"
                               Margin="{TemplateBinding Padding}"
                               Content="{TemplateBinding Content}"
                               ContentTemplate="{TemplateBinding ContentTemplate}"
                               CanContentScroll="{TemplateBinding CanContentScroll}" />
-      <ScrollBar x:Name="PART_VerticalScrollBar"
-                 Grid.Row="0"
-                 Grid.Column="1"
-                 Orientation="Vertical"
+      <v:OverlayScrollBar x:Name="PART_VerticalScrollBar" HorizontalAlignment="Right"
+                 Orientation="Vertical" Panel.ZIndex="1"
                  Style="{DynamicResource App.Canonical.ScrollBarStyle}"
                  Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"
-                 ViewportSize="{TemplateBinding ViewportHeight}"
-                 Minimum="0"
+                 ViewportSize="{TemplateBinding ViewportHeight}" Minimum="0"
                  Maximum="{TemplateBinding ScrollableHeight}"
                  Value="{Binding VerticalOffset, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}" />
-      <ScrollBar x:Name="PART_HorizontalScrollBar"
-                 Grid.Row="1"
-                 Grid.Column="0"
-                 Orientation="Horizontal"
+      <v:OverlayScrollBar x:Name="PART_HorizontalScrollBar" VerticalAlignment="Bottom"
+                 Orientation="Horizontal" Panel.ZIndex="1"
                  Style="{DynamicResource App.Canonical.ScrollBarStyle}"
                  Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}"
-                 ViewportSize="{TemplateBinding ViewportWidth}"
-                 Minimum="0"
+                 ViewportSize="{TemplateBinding ViewportWidth}" Minimum="0"
                  Maximum="{TemplateBinding ScrollableWidth}"
                  Value="{Binding HorizontalOffset, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}" />
-      <Border Grid.Row="1"
-              Grid.Column="1"
-              Background="{DynamicResource ScrollBar.TrackBackgroundBrush}" />
     </Grid>
+    <ControlTemplate.Triggers>
+      <!-- 交点は縦バーへ割り当て、透明部分でも入力領域が重ならないようにする。 -->
+      <Trigger Property="ComputedVerticalScrollBarVisibility" Value="Visible">
+        <Setter TargetName="PART_HorizontalScrollBar" Property="Margin" Value="0,0,16,0" />
+      </Trigger>
+    </ControlTemplate.Triggers>
   </ControlTemplate>
 
   <ControlTemplate x:Key="App.Canonical.ListBoxItemTemplate" TargetType="{x:Type ListBoxItem}">
@@ -917,45 +866,6 @@
     <Setter Property="Template" Value="{StaticResource App.Canonical.TrackRepeatButtonTemplate}" />
   </Style>
 
-  <Style x:Key="App.Canonical.ScrollBarButtonStyle" TargetType="{x:Type RepeatButton}" BasedOn="{x:Null}">
-    <Setter Property="Background" Value="{DynamicResource ScrollBar.ButtonBackgroundBrush}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource ScrollBar.ButtonBorderBrush}" />
-    <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="Foreground" Value="{DynamicResource ScrollBar.ArrowBrush}" />
-    <Setter Property="Focusable" Value="False" />
-    <Setter Property="IsTabStop" Value="False" />
-    <Setter Property="Template">
-      <Setter.Value>
-        <ControlTemplate TargetType="{x:Type RepeatButton}">
-          <Grid>
-            <Border x:Name="ButtonChrome"
-                    Background="{TemplateBinding Background}"
-                    BorderBrush="{TemplateBinding BorderBrush}"
-                    BorderThickness="{TemplateBinding BorderThickness}" />
-            <ContentPresenter HorizontalAlignment="Center"
-                              VerticalAlignment="Center"
-                              Content="{TemplateBinding Content}"
-                              ContentTemplate="{TemplateBinding ContentTemplate}"
-                              ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}" />
-          </Grid>
-          <ControlTemplate.Triggers>
-            <Trigger Property="IsMouseOver" Value="True">
-              <Setter TargetName="ButtonChrome" Property="Background" Value="{DynamicResource ScrollBar.ButtonHoverBackgroundBrush}" />
-            </Trigger>
-            <Trigger Property="IsPressed" Value="True">
-              <Setter TargetName="ButtonChrome" Property="Background" Value="{DynamicResource ScrollBar.ButtonPressedBackgroundBrush}" />
-              <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="{DynamicResource ScrollBar.ButtonBorderBrush}" />
-            </Trigger>
-            <Trigger Property="IsEnabled" Value="False">
-              <Setter TargetName="ButtonChrome" Property="Background" Value="{DynamicResource ScrollBar.TrackBackgroundBrush}" />
-              <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
-            </Trigger>
-          </ControlTemplate.Triggers>
-        </ControlTemplate>
-      </Setter.Value>
-    </Setter>
-  </Style>
-
   <Style x:Key="App.Canonical.ButtonStyle" TargetType="{x:Type Button}" BasedOn="{x:Null}">
     <Setter Property="MinHeight" Value="32" />
     <Setter Property="Padding" Value="12,4" />
@@ -1110,15 +1020,21 @@
   </Style>
 
   <Style x:Key="App.Canonical.ScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{x:Null}">
+    <!-- OSテーマの既定最小寸法17 DIPを外し、固定16 DIPの入力領域を保つ。 -->
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
     <Setter Property="Stylus.IsFlicksEnabled" Value="False" />
-    <Setter Property="Width" Value="15" />
+    <Setter Property="Width" Value="16" />
+    <!-- Paddingはつまみ描画の横断方向だけに使い、入力領域とTrackの測定寸法は変えない。 -->
+    <Setter Property="Padding" Value="0,0,2,0" />
     <Setter Property="Background" Value="{DynamicResource ScrollBar.TrackBackgroundBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource ScrollBar.ArrowBrush}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.VerticalScrollBarTemplate}" />
     <Style.Triggers>
       <Trigger Property="Orientation" Value="Horizontal">
         <Setter Property="Width" Value="Auto" />
-        <Setter Property="Height" Value="15" />
+        <Setter Property="Height" Value="16" />
+        <Setter Property="Padding" Value="0,0,0,2" />
         <Setter Property="Template" Value="{StaticResource App.Canonical.HorizontalScrollBarTemplate}" />
       </Trigger>
       <Trigger Property="IsEnabled" Value="False">

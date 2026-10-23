@@ -18,6 +18,16 @@
 
 並べ替え状態は通常一覧の `SortParameters`、履歴の `PlayHistorySortParameters` を `MainTableSortParameters` へ切り替えて公開します。プレイリスト一覧は独立した `PlaylistSummarySortParameters` を使います。
 
+### スクロール領域
+
+`Surface` とセル編集面は表の全面を共有し、共通スクロールバーを前面へ重ねます。専用の行・列、固定ガター、ダミー列、不透明な交点は設けません。バーの表示切替で描画領域やセル座標の幅・高さを変えません。見た目と固定16 DIPの入力領域は[外観仕様](appearance.md#スクロールとフォーカス)に従います。
+
+全面の実幅をW、表示列の合計幅をEとします。縦バーが必要なら有効表示幅は `max(0, W − 16)`、不要ならWです。横の最大値は `max(0, E − 有効表示幅)`、横バーの表示条件は `E > 有効表示幅 + 0.5` とし、ViewportSizeとセル露出判定にも同じ有効表示幅を使います。非表示でも算式上の小さい最大値を0へ置き換えません。途中位置で右端のセルが縦バーの背後へ入ることは許容し、最大位置では最右列の右端をバーの左端まで出せます。描画と列境界の座標系は全面の実幅を使います。
+
+縦方向は行単位です。完全表示行容量は本体高（全面の実高−見出し高）から、横バーが必要な場合だけ16 DIPを引き、行高で切り捨てて求めます。極小時も最小一行を保ち、縦最大値は `max(0, 行数 − 完全表示行容量)` とします。縦ViewportSize・最終行への露出判定も同じ容量を使います。描画容量は全面の本体高を行高で切り上げ、部分表示行と既存の購読overscanを維持します。
+
+縦横の要否は毎回バーなしの実寸法から始め、有効寸法に応じて必要な軸を単調に追加し、変化がなくなったところで確定します。前回の表示状態は判定に使いません。行列・行高・寸法の変更で範囲を再計算し、既存位置を範囲内へ収めます。たとえば見出し/行高20、幅100、高さ120では、E90/5行はバーなし、E80/6行は縦のみ、E120/4行は横のみ、E90/6行は両軸（横最大6、縦最大2）、E101/5行は両軸（横最大17、縦最大1）です。
+
 ### 保留譜面の操作バー
 
 右ペインの検索・件数表示の下、譜面一覧ヘッダーの上に、保留ルートと個別パッケージで共通の操作バーを表示します。表示区分は `MainChartList.CurrentOperationContext` の `InstallPending` から導出し、プレイリスト概要・プレイログとの重複表示を避けます。対象外では `Collapsed` とし、空白行を残しません。Light／Dark の意味リソースと実行時の言語切替に追随します。
@@ -144,7 +154,7 @@ scoreの未反映範囲を必要とする要求は、その時点で必要な確
 
 並べ替えの事前計算は 必須の実UI Task・成功公開・操作解禁の後に明示登録して行う任意の処理です。優先度1は題名・フォルダ・パス・作者、2は主要なスコア・判定・ノート数・BPM・変速・TOTAL・長さ・密度、3は最大コンボを含む残りです。警告と保守の直接参照列は優先度0で起動時には計算しませんが、要求時は仮想並べ替えへ対応します。起動時の対象上限は[ソートキャッシュ準備範囲](../runtime/settings.md#起動時のソートキャッシュ準備範囲)の0～3から選び、列定義の `PrewarmPriority` だけを使います。優先度0/1/2/3はそれぞれ6/4/17/18列で、基本4列の順は `Title`・`Folder`・`path`・`Artist`、その他の優先度内順と各昇降順も維持します。別名列による事前生成対象の重複を作りません。比較規則、キャッシュキー、更新による失効と要求時の生成は準備範囲によって変えません。
 
-可視範囲の描画では行・列・世代単位の値をキャッシュします。スクロールバーの厚みは15です。`custom_table_render` は初回、遅い描画などを間引いて記録し、全描画の回数ではありません。`table_first_visible` はメイン表の初回可視描画を示します。
+可視範囲の描画では行・列・世代単位の値をキャッシュします。`custom_table_render` は初回、遅い描画などを間引いて記録し、全描画の回数ではありません。`table_first_visible` はメイン表の初回可視描画を示します。
 
 `main_view_build` では通常の仮想表示が `sortEngine=virtual`、詳細の専用経路が `isPlaylistDetailView=True` / `sortEngine=fast` です。後者を仮想化の失敗と解釈しません。同じ集合・条件の再表示では入力と順序の再利用、`orderBuildMs=0` を確認できます。`columnMs` は差替え準備・列適用・表示設定の合計であり、列設定だけの時間ではありません。
 
@@ -202,6 +212,9 @@ scoreの未反映範囲を必要とする要求は、その時点で必要な確
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| オーバーレイの有効寸法・両軸の誘発・許容差・再計算とクランプ | `CustomTableView.UpdateScrollBars`、容量計算 | [`CustomTableViewportTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableViewportTests.cs) はfloor/ceil/最小一行と、Windowなしの実表で幅100・高さ120の数値例、算定入口でのE100.5/100.5001の境界、両軸からバーなしへの復帰、空・未配置・極小、行列・行高・寸法変更後の範囲を確認する。高さ126では横バー前の完全表示容量4と全面描画容量6を分ける。描画と購読の実接続・overscan維持は静的確認と既存RowChangeTracker系列へ分担する。 |
+| オーバーレイのバー上入力と背後の表操作の分離 | `CustomTableView` のPreview右押下・MouseMove、`IsDescendantOfScrollChrome` | バー自身と子孫を同じ除外へ接続し、Preview右押下では背後の`HitTestTable`へ到達せず、表が入力を消費しないことを静的に確認する。hoverは進行中のresize/reorder/rowdrag継続を先に扱い、その後のバー除外でCursorとtooltipを解除して背後のHitTestへ進まないことを確認する。`InputHitTest`がバー自身・子孫を選ぶ入力領域とSource/`OriginalSource`からPreview入口へ至る接続、バー外の既存経路、capture中の操作継続、`HitTestTable`全体へ除外を混ぜないことも静的確認に含める。自動回帰は既存のNavigation・SelectionModel・Editing、Phase6のtooltip内容、MainWindowPlayHistoryのAppsキーメニュー接続、共通バーの標準操作へ分担する。通常のマウス入力から通知・tooltip表示への接続と実capture操作は自動検証の保証に含めない。 |
+| バーの手前への最終セルの露出 | `CustomTableView.EnsureColumnVisible` / `EnsureRowVisible` | [`CustomTableNavigationTests.Navigation_RevealsLastColumnAndRowBeforeOverlayBars`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableNavigationTests.cs) は幅100・高さ120・見出し/行高20・二列各60・六行で実キー受付から最後の列右端x84と最終行の完全表示容量4を確認する。選択・編集・購読は既存Navigation/Editing/SelectionModel/RowChangeTracker系列を維持する。 |
 | 保留操作バーの表示・現在選択・共通入口・言語とテーマ | [`MainChartListViewModel.IsPendingInstallViewActive`](../../../BeMusicSeeker/ViewModels/ChartList/MainChartListViewModel.cs)、[`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml)、[`MainWindow.cs`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowPackageMaintenanceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPendingInstallBarWpfTests.cs) の `PendingInstallBar_TracksPresentedSectionAndCollapsesOutsidePending` は実区分確定から配置・排他表示、`PendingInstallBar_UsesCurrentBoundSelectionAndPreservesMultipleRowsAfterFocusRequest` は実Rows Binding・複数選択・クリックから要求と導入完了後の選択plan、`PendingInstallBar_UpdatesLocalizedNamesAndThemeBrushes` は6言語の実切替とLight/Darkの意味brushを確認する。辞書整合は `LocalizationResourceParityTests` に分担する。 |
 | 準備優先度の対象列・順序と非実体化 | [`ChartListOrder`](../../../BeMusicSeeker/ViewModels/ChartList/ChartListOrder.cs)、[`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs) | [`ChartListVirtualViewTests`](../../../BeMusicSeeker.Tests/ChartList/ChartListVirtualViewTests.cs) の `VirtualOrderPrewarmDescriptors_SelectExplicitPriorityColumnsAndRejectInvalidBounds` が明示列集合・優先度内順・0/8/42/78件・各昇降順・別名の重複なし・-1/4拒否、`AllVirtualOrderPrewarmDescriptors_DoNotRequireRowRealization` が全78件の行生成処理の呼出し0を確認する。 |
 | 対象外列の要求時ソート・キャッシュ再利用・更新失効 | [`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs) | [`RegularChartViewBuildAndOrderingTests.VirtualOrderPrewarm_UnpreparedColumnsRemainDemandSortedAndInvalidated`](../../../BeMusicSeeker.Tests/ChartList/RegularChartViewBuildAndOrderingTests.cs) は実際の通常一覧管理主体と小DBを使い、0/1/2/3で対象外の `Title`/`ChartNotes`/`mode`/`level`を昇降順へ要求し、結果・要求列方向のキャッシュ登録と再利用とカタログ更新失効を確認する。0はソート入力行も順序も準備せず最初の通常要求で新規生成になる。比較規則の細部と他一覧のsortは既存系列へ分担する。 |

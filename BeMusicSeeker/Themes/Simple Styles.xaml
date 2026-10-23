@@ -180,41 +180,31 @@
     </Setter>
   </Style>
   <Style x:Key="SimpleScrollBar" TargetType="{x:Type ScrollBar}">
+    <!-- OSテーマの既定最小寸法17 DIPを外し、固定16 DIPの入力領域を保つ。 -->
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
     <Setter Property="Stylus.IsFlicksEnabled" Value="False" />
-    <Setter Property="Background" Value="{DynamicResource ScrollBar.TrackBackgroundBrush}" />
-    <Setter Property="Foreground" Value="{DynamicResource ScrollBar.ArrowBrush}" />
-    <Setter Property="Width" Value="15" />
+    <Setter Property="Width" Value="16" />
+    <!-- 共通テンプレートのつまみ描画だけへ余白を渡し、入力領域は固定する。 -->
+    <Setter Property="Padding" Value="0,0,2,0" />
     <Setter Property="Template" Value="{DynamicResource App.Canonical.VerticalScrollBarTemplate}" />
     <Style.Triggers>
-      <Trigger Property="ScrollBar.Orientation" Value="Horizontal">
+      <Trigger Property="Orientation" Value="Horizontal">
         <Setter Property="Width" Value="Auto" />
-        <Setter Property="Height" Value="15" />
+        <Setter Property="Height" Value="16" />
+        <Setter Property="Padding" Value="0,0,0,2" />
         <Setter Property="Template" Value="{DynamicResource App.Canonical.HorizontalScrollBarTemplate}" />
+      </Trigger>
+      <Trigger Property="IsEnabled" Value="False">
+        <Setter Property="Opacity" Value="0.55" />
       </Trigger>
     </Style.Triggers>
   </Style>
   <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource SimpleScrollBar}" />
+  <!-- この辞書は共通定義より先に読むため、テンプレートは実体化時に解決する。 -->
   <Style x:Key="SimpleScrollViewer" TargetType="{x:Type ScrollViewer}" BasedOn="{x:Null}">
-    <Setter Property="Template">
-      <Setter.Value>
-        <ControlTemplate TargetType="{x:Type ScrollViewer}">
-          <Grid Background="{TemplateBinding Control.Background}">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*" />
-              <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-              <RowDefinition Height="*" />
-              <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-            <ScrollContentPresenter Grid.Column="0" Grid.Row="0" Margin="{TemplateBinding Control.Padding}" Content="{TemplateBinding ContentControl.Content}" ContentTemplate="{TemplateBinding ContentControl.ContentTemplate}" CanContentScroll="{TemplateBinding ScrollViewer.CanContentScroll}" />
-            <ScrollBar Name="PART_HorizontalScrollBar" Visibility="{TemplateBinding ScrollViewer.ComputedHorizontalScrollBarVisibility}" Grid.Column="0" Grid.Row="1" Height="15" Style="{DynamicResource SimpleScrollBar}" Orientation="Horizontal" ViewportSize="{TemplateBinding ScrollViewer.ViewportWidth}" Minimum="0" Maximum="{TemplateBinding ScrollViewer.ScrollableWidth}" Value="{Binding Path=HorizontalOffset, Mode=OneWay, RelativeSource={RelativeSource TemplatedParent}}" />
-            <ScrollBar Name="PART_VerticalScrollBar" Visibility="{TemplateBinding ScrollViewer.ComputedVerticalScrollBarVisibility}" Grid.Column="1" Grid.Row="0" Width="15" Style="{DynamicResource SimpleScrollBar}" Orientation="Vertical" ViewportSize="{TemplateBinding ScrollViewer.ViewportHeight}" Minimum="0" Maximum="{TemplateBinding ScrollViewer.ScrollableHeight}" Value="{Binding Path=VerticalOffset, Mode=OneWay, RelativeSource={RelativeSource TemplatedParent}}" />
-            <Border Grid.Column="1" Grid.Row="1" Background="{DynamicResource ScrollBar.TrackBackgroundBrush}" />
-          </Grid>
-        </ControlTemplate>
-      </Setter.Value>
-    </Setter>
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="Template" Value="{DynamicResource App.Canonical.ScrollViewerTemplate}" />
   </Style>
   <Style x:Key="SimpleListBox" TargetType="{x:Type ListBox}">
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />

@@ -325,7 +325,7 @@ public sealed class DialogPresentationTests
                     "The dialog must honor a larger user resize instead of applying a hidden fixed maximum.");
                 Assert.IsTrue(
                     playlistViewport.ViewportHeight > compactViewportHeight,
-                    "Expanding the dialog must grow the playlist viewport.");
+                    $"Expanding the dialog must grow the playlist viewport (before={compactViewportHeight}, after={playlistViewport.ViewportHeight}, list={playlistList.ActualHeight}, presenter={FindVisualDescendants<ScrollContentPresenter>(playlistViewport).Single().ActualHeight}, panel={((IScrollInfo)FindVisualDescendants<VirtualizingStackPanel>(playlistViewport).Single()).ViewportHeight}).");
                 AssertVisualBoundsInside(dialog, playlistList);
 
                 dialog.Height = Math.Max(dialog.MinHeight, 360d);
@@ -1071,14 +1071,6 @@ public sealed class DialogPresentationTests
         Track track = verticalScrollBar.Template.FindName("PART_Track", verticalScrollBar) as Track
             ?? throw new AssertFailedException("The canonical dialog scrollbar must materialize PART_Track.");
         Assert.AreEqual(Orientation.Vertical, track.Orientation);
-        FrameworkElement lineUp = FindScrollCommandAffordance(
-            verticalScrollBar,
-            ScrollBar.LineUpCommand,
-            "The canonical dialog scrollbar line-up");
-        FrameworkElement lineDown = FindScrollCommandAffordance(
-            verticalScrollBar,
-            ScrollBar.LineDownCommand,
-            "The canonical dialog scrollbar line-down");
         FrameworkElement pageUp = FindScrollCommandAffordance(
             track,
             ScrollBar.PageUpCommand,
@@ -1101,7 +1093,7 @@ public sealed class DialogPresentationTests
         Assert.AreEqual(viewer.VerticalOffset, verticalScrollBar.Value, 0.01d);
 
         double lineUpOffset = SetScrollOffsetToInterior(viewer);
-        InvokeScrollButton(lineUp, "The canonical dialog scrollbar line-up");
+        ScrollBar.LineUpCommand.Execute(null, verticalScrollBar);
         TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(
@@ -1109,7 +1101,7 @@ public sealed class DialogPresentationTests
             "The canonical dialog line-up command must decrease the viewer offset.");
 
         double lineDownOffset = SetScrollOffsetToInterior(viewer);
-        InvokeScrollButton(lineDown, "The canonical dialog scrollbar line-down");
+        ScrollBar.LineDownCommand.Execute(null, verticalScrollBar);
         TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(
