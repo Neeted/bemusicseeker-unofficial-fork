@@ -9,18 +9,24 @@ using System.Windows.Threading;
 
 namespace BeMusicSeeker.Views;
 
+/// <summary>保持範囲の全行参照を数え、通知対応行だけを購読します。</summary>
 internal sealed class CustomTableRowChangeTracker
 {
-    private readonly Dictionary<INotifyPropertyChanged, int> subscribedRows = new(ReferenceEqualityComparer<INotifyPropertyChanged>.Instance);
+    private readonly Dictionary<object, int> retainedRows = new(ReferenceEqualityComparer<object>.Instance);
     private readonly Action<INotifyPropertyChanged, PropertyChangedEventArgs> rowChanged;
+    private readonly Action<object> rowReleased;
 
-    internal CustomTableRowChangeTracker(Action<INotifyPropertyChanged, PropertyChangedEventArgs> rowChanged)
+    /// <summary>行変更の配送先と、最後の参照が離れた行の破棄先を接続します。</summary>
+    internal CustomTableRowChangeTracker(Action<INotifyPropertyChanged, PropertyChangedEventArgs> rowChanged, Action<object> rowReleased = null)
     {
         this.rowChanged = rowChanged ?? throw new ArgumentNullException(nameof(rowChanged));
+        this.rowReleased = rowReleased;
     }
 
-    internal int SubscribedRowCount => subscribedRows.Count;
+    /// <summary>保持行のうち変更通知を購読している異なる行参照の数を返します。</summary>
+    internal int SubscribedRowCount => retainedRows.Keys.Count(row => row is INotifyPropertyChanged);
 
+    /// <summary>指定範囲の参照を保持し、残る参照の購読と値寿命を維持します。</summary>
     internal void ReplaceVisibleRows(IList rows, int firstIndex, int count)
     {
         if (rows == null || rows.Count == 0 || count <= 0)
@@ -29,76 +35,51 @@ internal sealed class CustomTableRowChangeTracker
             return;
         }
         int startIndex = Math.Max(0, firstIndex);
-        if (startIndex >= rows.Count)
-        {
-            DetachAllRows();
-            return;
-        }
         int endIndex = Math.Min(rows.Count, startIndex + count);
-        var targetRows = new Dictionary<INotifyPropertyChanged, int>(ReferenceEqualityComparer<INotifyPropertyChanged>.Instance);
+        var targetRows = new Dictionary<object, int>(ReferenceEqualityComparer<object>.Instance);
         for (int i = startIndex; i < endIndex; i++)
         {
-            if (rows[i] is INotifyPropertyChanged row)
+            object row = rows[i];
+            if (row != null)
             {
                 targetRows.TryGetValue(row, out int existingCount);
                 targetRows[row] = existingCount + 1;
             }
         }
-        foreach (KeyValuePair<INotifyPropertyChanged, int> currentRow in subscribedRows.ToArray())
+        foreach (object row in retainedRows.Keys.ToArray())
         {
-            targetRows.TryGetValue(currentRow.Key, out int targetCount);
-            for (int i = currentRow.Value; i > targetCount; i--)
+            if (!targetRows.ContainsKey(row))
             {
-                DetachRow(currentRow.Key);
+                ReleaseRow(row);
             }
         }
-        foreach (KeyValuePair<INotifyPropertyChanged, int> targetRow in targetRows)
+        foreach (KeyValuePair<object, int> target in targetRows)
         {
-            subscribedRows.TryGetValue(targetRow.Key, out int currentCount);
-            for (int i = currentCount; i < targetRow.Value; i++)
+            if (!retainedRows.ContainsKey(target.Key) && target.Key is INotifyPropertyChanged notifyingRow)
             {
-                AttachRow(targetRow.Key);
+                PropertyChangedEventManager.AddHandler(notifyingRow, RowPropertyChanged, string.Empty);
             }
+            retainedRows[target.Key] = target.Value;
         }
     }
 
-    private void AttachRow(INotifyPropertyChanged row)
+    private void ReleaseRow(object row)
     {
-        if (row == null)
+        if (row is INotifyPropertyChanged notifyingRow)
         {
-            return;
+            PropertyChangedEventManager.RemoveHandler(notifyingRow, RowPropertyChanged, string.Empty);
         }
-        if (subscribedRows.TryGetValue(row, out int count))
-        {
-            subscribedRows[row] = count + 1;
-            return;
-        }
-        subscribedRows.Add(row, 1);
-        PropertyChangedEventManager.AddHandler(row, RowPropertyChanged, string.Empty);
+        retainedRows.Remove(row);
+        rowReleased?.Invoke(row);
     }
 
-    private void DetachRow(INotifyPropertyChanged row)
-    {
-        if (row == null || !subscribedRows.TryGetValue(row, out int count))
-        {
-            return;
-        }
-        if (count > 1)
-        {
-            subscribedRows[row] = count - 1;
-            return;
-        }
-        subscribedRows.Remove(row);
-        PropertyChangedEventManager.RemoveHandler(row, RowPropertyChanged, string.Empty);
-    }
-
+    /// <summary>非表示・購読終了時に全参照の購読と値寿命を終了します。</summary>
     internal void DetachAllRows()
     {
-        foreach (INotifyPropertyChanged row in subscribedRows.Keys)
+        foreach (object row in retainedRows.Keys.ToArray())
         {
-            PropertyChangedEventManager.RemoveHandler(row, RowPropertyChanged, string.Empty);
+            ReleaseRow(row);
         }
-        subscribedRows.Clear();
     }
 
     private void RowPropertyChanged(object sender, PropertyChangedEventArgs e)

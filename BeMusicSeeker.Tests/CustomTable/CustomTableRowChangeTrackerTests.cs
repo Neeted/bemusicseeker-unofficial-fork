@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,14 +20,17 @@ public sealed class CustomTableRowChangeTrackerTests
         var row1 = new TestRow();
         var row2 = new TestRow();
         var tracker = new CustomTableRowChangeTracker(delegate { changedCount++; });
+        try
+        {
+            tracker.ReplaceVisibleRows(new object[] { row0, row1, row2 }, 1, 1);
+            row0.RaiseChanged();
+            row1.RaiseChanged();
+            row2.RaiseChanged();
 
-        tracker.ReplaceVisibleRows(new object[] { row0, row1, row2 }, 1, 1);
-        row0.RaiseChanged();
-        row1.RaiseChanged();
-        row2.RaiseChanged();
-
-        Assert.AreEqual(1, changedCount);
-        Assert.AreEqual(1, tracker.SubscribedRowCount);
+            Assert.AreEqual(1, changedCount);
+            Assert.AreEqual(1, tracker.SubscribedRowCount);
+        }
+        finally { tracker.DetachAllRows(); }
     }
 
     /// <summary>二行ずつの可視範囲を移すと外れた行を解除して新しい二行だけ通知することを確認し、スクロール後の購読残留や新規行の購読漏れを検出します。</summary>
@@ -39,16 +43,19 @@ public sealed class CustomTableRowChangeTrackerTests
         var row3 = new TestRow();
         object[] rows = [row1, row2, row3];
         var tracker = new CustomTableRowChangeTracker(delegate { changedCount++; });
+        try
+        {
+            tracker.ReplaceVisibleRows(rows, 0, 2);
+            tracker.ReplaceVisibleRows(rows, 1, 2);
 
-        tracker.ReplaceVisibleRows(rows, 0, 2);
-        tracker.ReplaceVisibleRows(rows, 1, 2);
+            row1.RaiseChanged();
+            row2.RaiseChanged();
+            row3.RaiseChanged();
 
-        row1.RaiseChanged();
-        row2.RaiseChanged();
-        row3.RaiseChanged();
-
-        Assert.AreEqual(2, changedCount);
-        Assert.AreEqual(2, tracker.SubscribedRowCount);
+            Assert.AreEqual(2, changedCount);
+            Assert.AreEqual(2, tracker.SubscribedRowCount);
+        }
+        finally { tracker.DetachAllRows(); }
     }
 
     /// <summary>行集合交換で旧行を解除し通知可能な新行だけ購読することを確認し、旧集合の通知や通知不能な行を購読数に混ぜる誤りを検出します。</summary>
@@ -61,33 +68,48 @@ public sealed class CustomTableRowChangeTrackerTests
         object plainRow = new();
         object[] rows = [newRow, plainRow];
         var tracker = new CustomTableRowChangeTracker(delegate { changedCount++; });
-        tracker.ReplaceVisibleRows(new object[] { oldRow }, 0, 1);
+        try
+        {
+            tracker.ReplaceVisibleRows(new object[] { oldRow }, 0, 1);
 
-        tracker.ReplaceVisibleRows(rows, 0, 2);
-        oldRow.RaiseChanged();
-        newRow.RaiseChanged();
+            tracker.ReplaceVisibleRows(rows, 0, 2);
+            oldRow.RaiseChanged();
+            newRow.RaiseChanged();
 
-        Assert.AreEqual(1, changedCount);
-        Assert.AreEqual(1, tracker.SubscribedRowCount);
+            Assert.AreEqual(1, changedCount);
+            Assert.AreEqual(1, tracker.SubscribedRowCount);
+        }
+        finally { tracker.DetachAllRows(); }
     }
 
-    /// <summary>同じ行参照が二度現れる範囲から移動しても一回の購読を保ち、別行と各一回通知することを確認し、重複通知や一方の削除による購読解除を検出します。</summary>
+    /// <summary>重複参照の片方だけが離れても購読と値寿命を保ち、最後の離脱で一回だけ解除することを確認します。</summary>
     [TestMethod]
-    public void ReplaceVisibleRows_TracksDuplicateRowReferencesWithReferenceCount()
+    public void ReplaceVisibleRows_TracksDuplicateRowReferencesUntilLastDeparture()
     {
         int changedCount = 0;
         var duplicatedRow = new TestRow();
         var otherRow = new TestRow();
-        var tracker = new CustomTableRowChangeTracker(delegate { changedCount++; });
-
-        tracker.ReplaceVisibleRows(new object[] { duplicatedRow, duplicatedRow, otherRow }, 0, 2);
-        tracker.ReplaceVisibleRows(new object[] { duplicatedRow, duplicatedRow, otherRow }, 1, 2);
-
-        duplicatedRow.RaiseChanged();
-        otherRow.RaiseChanged();
-
-        Assert.AreEqual(2, changedCount);
-        Assert.AreEqual(2, tracker.SubscribedRowCount);
+        object[] rows = [duplicatedRow, duplicatedRow, otherRow];
+        var released = new List<object>();
+        var tracker = new CustomTableRowChangeTracker(delegate { changedCount++; }, released.Add);
+        try
+        {
+            tracker.ReplaceVisibleRows(rows, 0, 2);
+            tracker.ReplaceVisibleRows(rows, 1, 2);
+            duplicatedRow.RaiseChanged();
+            otherRow.RaiseChanged();
+            Assert.AreEqual(2, changedCount);
+            Assert.AreEqual(2, tracker.SubscribedRowCount);
+            Assert.AreEqual(0, released.Count);
+            tracker.ReplaceVisibleRows(rows, 2, 1);
+            duplicatedRow.RaiseChanged();
+            otherRow.RaiseChanged();
+            Assert.AreEqual(3, changedCount);
+            Assert.AreEqual(1, tracker.SubscribedRowCount);
+            CollectionAssert.AreEqual(new object[] { duplicatedRow }, released);
+        }
+        finally { tracker.DetachAllRows(); }
+        CollectionAssert.AreEqual(new object[] { duplicatedRow, otherRow }, released);
     }
 
     /// <summary>Dispatcher実行前の三要求を一回へまとめ、完了後の次要求は新たに実行することを確認し、過剰な再描画や次回要求の取り落としを検出します。</summary>

@@ -123,7 +123,7 @@ public sealed class CustomTableEditingTests
         });
     }
 
-    /// <summary>左右移動先へのF2/文字入力がそのセルの編集を開始し、編集中の左右は文字列・現在セル・横位置・確定件数を変更しないことを確認します。</summary>
+    /// <summary>左右移動先へのF2/文字入力がそのセルを編集し、編集中の左右が状態を変えず、確定通知後に最新の表示値を使うことを確認します。</summary>
     /// <remarks>文字入力のルーティング、実TextBoxの生成と編集終端の接続を既存のWindow寿命で確認し、スクロール条件の組合せはNavigationTestsへ分担します。</remarks>
     [TestMethod]
     [DataRow(false)]
@@ -132,8 +132,9 @@ public sealed class CustomTableEditingTests
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
+            string displayedText = "original";
             var target = new CustomTableColumn("target", "target", new CustomTableColumnSettings.ColumnLayout { Width = 320 }, 2,
-                string.Empty, TextAlignment.Left, _ => "original", editPropertyName: "target");
+                string.Empty, TextAlignment.Left, _ => displayedText, editPropertyName: "target");
             var table = new CustomTableView
             {
                 Width = 200d,
@@ -154,13 +155,18 @@ public sealed class CustomTableEditingTests
             scope.TrackPopup(popup);
             scope.ShowAndWaitForContentRendered(new Window { Width = 240d, Height = 140d, Content = table });
             var completed = new List<CustomTableCellEditEndedEventArgs>();
-            table.CellEditEnded += (_, args) => completed.Add(args);
+            table.CellEditEnded += (_, args) =>
+            {
+                completed.Add(args);
+                if (args.Commit) { displayedText = args.Text; }
+            };
             for (int i = 0; i < 3; i++)
             {
                 Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
             }
             Assert.IsTrue(table.IsCurrentCell(0, target));
             Assert.AreEqual(220d, table.HorizontalOffset);
+            Assert.AreEqual("original", table.GetCellValue(table.ItemsSource[0], target, out _).Text);
             try
             {
                 if (typeToEdit)
@@ -196,6 +202,8 @@ public sealed class CustomTableEditingTests
                 Assert.AreEqual("target", completed[0].EditPropertyName);
                 Assert.AreSame(target, completed[0].Hit.Column);
                 Assert.AreEqual(expectedText, completed[0].Text);
+                Assert.AreEqual(expectedText, table.GetCellValue(table.ItemsSource[0], target, out _).Text,
+                    "編集完了通知で更新した値を同じ表へ反映し、編集前のセル値を使いません。");
             }
             finally
             {
