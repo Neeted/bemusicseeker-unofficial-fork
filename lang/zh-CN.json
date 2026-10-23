@@ -1348,5 +1348,10 @@
   "DatePicker_open_calendar": "打开日历",
   "DatePicker_previous_period": "上一时段",
   "DatePicker_next_period": "下一时段",
-  "DatePicker_change_period": "切换月或年视图"
+  "DatePicker_change_period": "切换月或年视图",
+  "Playlist_json_export_title": "导出播放列表 JSON",
+  "Playlist_json_export_paths_required": "请指定头文件和数据文件的保存位置。",
+  "Playlist_json_export_paths_same": "头文件和数据文件必须使用不同的保存位置。",
+  "Playlist_json_export_path_invalid": "请输入有效的文件路径。",
+  "Playlist_json_export_partial_failure": "头文件已保存，但数据文件保存失败。已有数据已保留。请检查保存位置后重新导出。"
 }

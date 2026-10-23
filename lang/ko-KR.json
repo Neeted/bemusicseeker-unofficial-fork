@@ -1348,5 +1348,10 @@
   "DatePicker_open_calendar": "달력 열기",
   "DatePicker_previous_period": "이전 기간",
   "DatePicker_next_period": "다음 기간",
-  "DatePicker_change_period": "월 또는 연도 보기 전환"
+  "DatePicker_change_period": "월 또는 연도 보기 전환",
+  "Playlist_json_export_title": "플레이리스트 JSON 내보내기",
+  "Playlist_json_export_paths_required": "헤더와 데이터 파일의 저장 위치를 모두 지정하세요.",
+  "Playlist_json_export_paths_same": "헤더와 데이터 파일의 저장 위치는 서로 달라야 합니다.",
+  "Playlist_json_export_path_invalid": "유효한 파일 경로를 입력하세요.",
+  "Playlist_json_export_partial_failure": "헤더는 저장했지만 데이터 저장에 실패했습니다. 기존 데이터는 유지됩니다. 저장 위치를 확인하고 다시 내보내세요."
 }

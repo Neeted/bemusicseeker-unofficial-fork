@@ -3983,4 +3983,19 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="DatePicker_previous_period" xml:space="preserve"><value>前の期間</value></data>
   <data name="DatePicker_next_period" xml:space="preserve"><value>次の期間</value></data>
   <data name="DatePicker_change_period" xml:space="preserve"><value>月・年の表示を切り替える</value></data>
+  <data name="Playlist_json_export_title" xml:space="preserve">
+    <value>プレイリストのJSON出力</value>
+  </data>
+  <data name="Playlist_json_export_paths_required" xml:space="preserve">
+    <value>ヘッダーとデータの両方の保存先を指定してください。</value>
+  </data>
+  <data name="Playlist_json_export_paths_same" xml:space="preserve">
+    <value>ヘッダーとデータには異なる保存先を指定してください。</value>
+  </data>
+  <data name="Playlist_json_export_path_invalid" xml:space="preserve">
+    <value>有効なファイルパスを指定してください。</value>
+  </data>
+  <data name="Playlist_json_export_partial_failure" xml:space="preserve">
+    <value>ヘッダーは保存しましたが、データの保存に失敗しました。既存のデータは保持しています。保存先を確認して再度出力してください。</value>
+  </data>
 </root>

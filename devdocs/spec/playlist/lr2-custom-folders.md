@@ -75,6 +75,8 @@
 
 ### ファイルとSQL
 
+管理 `.lr2folder` はDBを正本とする再生成可能な出力です。大量生成と差分出力の速度を維持するため直接書込みを使い、書込み失敗時の旧本文保全は保証しません。全ファイルの原子的保存や全本文の再検証は行いません。利用者が保存するJSONの保証は[JSON出力](storage-and-export.md#json出力sqlバックアップと復元)に従います。
+
 各相対ディレクトリで `0000.lr2folder` から採番し、Shift_JISで出力します。通常版を先に、ランダム版をその後に並べます。本文は `#COMMAND`、`#MAXTRACKS`、`#CATEGORY`、`#TITLE`、`#INFORMATION_A`、`#INFORMATION_B` を持ちます。カテゴリは表名、タイトルは表示フォルダ名です。
 
 コマンドはLR2/OpenLR2が `song LEFT JOIN score ON song.hash=score.hash` に適用できるWHERE句断片です。ファイル単位の表は所属MD5へ絞り、フォルダ単位の表は所属MD5から得た `song.folder` へ広げます。`playlist_entry`、`chart_info`、必要な `ir_score` と履歴表も参照します。

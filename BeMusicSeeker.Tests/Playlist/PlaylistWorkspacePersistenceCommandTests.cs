@@ -1123,7 +1123,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
-    /// <summary>二つの保存pickerからheader・dataを実出力し、相対data指定と既存URL保存を区別してserializerの実行中も正本URLを書き換えません。</summary>
+    /// <summary>専用画面の二保存先から実JSONを出力し、主要項目と既存URLを保ち、シリアライズ中も正本URLを変更しません。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceExportPlaylistTableAsync_WritesJsonAndPreservesDataUrl()
     {
@@ -1135,89 +1135,69 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             {
                 name = "Export",
                 symbol = "EX",
-                Folder_order = []
+                Folder_order = [],
+                entries = [new BMSTableEntry { md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", title = "Export chart", folder = "12", level = 12 }]
             };
             var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                playlistWorkspaceDialogService: dialogs);
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
             List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
-            workspace.PlaylistOperationNotificationPresentationRequested +=
-                (_, request) => notifications.Add(request);
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
             string headerPath = Path.Combine(tempDirectory, "header.json");
             string dataPath = Path.Combine(tempDirectory, "data.json");
-            string expectedHeader = table.HeaderToJson(Path.GetFileName(dataPath));
-            string expectedData = table.DataToJson();
             table.DataUrlReadObserver = () => Assert.IsNull(table.Data_url,
                 "serializerが正本Data_urlを読む時点でも一時値へ書換えません。");
 
-            dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.Accepted, headerPath));
-            dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.Accepted, dataPath));
+            dialogs.JsonExportResults.Enqueue(new(UiDialogStatus.Accepted, new(headerPath, dataPath)));
             await workspace.ExportPlaylistTableAsync(table);
 
-            Assert.IsTrue(File.Exists(headerPath));
-            Assert.IsTrue(File.Exists(dataPath));
-            Assert.AreEqual(expectedHeader, File.ReadAllText(headerPath));
-            Assert.AreEqual(expectedData, File.ReadAllText(dataPath));
+            var header = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(headerPath));
+            var data = Newtonsoft.Json.Linq.JArray.Parse(File.ReadAllText(dataPath));
+            Assert.AreEqual("Export", (string?)header["name"]);
+            Assert.AreEqual("EX", (string?)header["symbol"]);
+            Assert.AreEqual("data.json", (string?)header["data_url"]);
+            Assert.AreEqual(1, data.Count);
+            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", (string?)data[0]["md5"]);
+            Assert.AreEqual("Export chart", (string?)data[0]["title"]);
+            Assert.AreEqual("12", (string?)data[0]["level"]);
             Assert.IsNull(table.Data_url);
-            Assert.AreEqual(1, notifications.Count);
-            Assert.IsTrue(notifications[0].Receipt.IsEmpty);
-            Assert.AreEqual(2, dialogs.SaveFilePickerRequests.Count);
-            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Save_header_file, dialogs.SaveFilePickerRequests[0].Title);
-            Assert.AreEqual("header.json", dialogs.SaveFilePickerRequests[0].FileName);
-            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Json_file_exts, dialogs.SaveFilePickerRequests[0].Filter);
-            Assert.AreEqual(".json", dialogs.SaveFilePickerRequests[0].DefaultExtension);
-            Assert.IsTrue(dialogs.SaveFilePickerRequests[0].AddExtension);
-            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Save_data_file, dialogs.SaveFilePickerRequests[1].Title);
-            Assert.AreEqual("data.json", dialogs.SaveFilePickerRequests[1].FileName);
-            Assert.AreEqual(".json", dialogs.SaveFilePickerRequests[1].DefaultExtension);
-            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Json_file_exts, dialogs.SaveFilePickerRequests[1].Filter);
-            Assert.IsTrue(dialogs.SaveFilePickerRequests[1].AddExtension);
+            Assert.IsTrue(notifications.Single().Receipt.IsEmpty);
 
             table.DataUrlReadObserver = null;
             var persistedHeaderUrl = new Uri("https://example.test/export-header.json");
             var persistedDataUrl = new Uri("https://example.test/export-data.json");
             table.Header_url = persistedHeaderUrl;
             table.Data_url = persistedDataUrl;
-            string persistedHeaderPath = Path.Combine(tempDirectory, "persisted-header.json");
-            string persistedDataPath = Path.Combine(tempDirectory, "persisted-data.json");
-            string expectedPersistedHeader = table.HeaderToJson();
-
-            dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.Accepted, persistedHeaderPath));
-            dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.Accepted, persistedDataPath));
+            table.DataUrlReadObserver = () => Assert.AreEqual(persistedDataUrl, table.Data_url);
+            // 同じファイル名でもディレクトリが異なる二つの既存先へ正常置換できます。
+            string otherDirectory = Path.Combine(tempDirectory, "other");
+            Directory.CreateDirectory(otherDirectory);
+            string sameNameDataPath = Path.Combine(otherDirectory, "header.json");
+            File.WriteAllText(sameNameDataPath, "old data");
+            dialogs.JsonExportResults.Enqueue(new(UiDialogStatus.Accepted, new(headerPath, sameNameDataPath)));
             await workspace.ExportPlaylistTableAsync(table);
 
+            header = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(headerPath));
+            data = Newtonsoft.Json.Linq.JArray.Parse(File.ReadAllText(sameNameDataPath));
+            Assert.AreEqual("https://example.test/export-data.json", (string?)header["data_url"]);
+            Assert.AreEqual("Export chart", (string?)data[0]["title"]);
             Assert.AreEqual(persistedDataUrl, table.Data_url);
-            Assert.AreEqual(expectedPersistedHeader, File.ReadAllText(persistedHeaderPath));
-            Assert.AreEqual(expectedData, File.ReadAllText(persistedDataPath));
+            Assert.AreEqual(persistedHeaderUrl, table.Header_url);
             Assert.AreEqual(2, notifications.Count);
             Assert.IsTrue(notifications[1].Receipt.IsEmpty);
-            Assert.AreEqual("export-header.json", dialogs.SaveFilePickerRequests[2].FileName);
-            Assert.AreEqual(".json", dialogs.SaveFilePickerRequests[2].DefaultExtension);
-            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Json_file_exts, dialogs.SaveFilePickerRequests[2].Filter);
-            Assert.IsTrue(dialogs.SaveFilePickerRequests[2].AddExtension);
-            Assert.AreEqual("export-data.json", dialogs.SaveFilePickerRequests[3].FileName);
-            Assert.AreEqual(".json", dialogs.SaveFilePickerRequests[3].DefaultExtension);
-            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Json_file_exts, dialogs.SaveFilePickerRequests[3].Filter);
-            Assert.IsTrue(dialogs.SaveFilePickerRequests[3].AddExtension);
         }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
+        finally { Directory.Delete(tempDirectory, recursive: true); }
     }
 
-    /// <summary>data失敗ではheaderを保持し、header失敗ではdataを書かず、元write原因とstage/pathを一件のError receiptから分離して診断します。表示・診断の故障四条件でも処理終端と次の明示exportを保ちます。</summary>
+    /// <summary>既存先の実Replace失敗と初回の保存失敗で旧内容または不在を保持し、header成功後のdata失敗を部分失敗として通知します。表示・診断故障でも次の明示出力へ進めます。</summary>
     [DataTestMethod]
-    [DataRow(false, false)]
-    [DataRow(false, true)]
-    [DataRow(true, false)]
-    [DataRow(true, true)]
+    // 最初の四条件は旧テストの表示・診断故障の分離、最後は初回出力の不完全ファイル非公開を担います。
+    [DataRow(false, false, true)]
+    [DataRow(false, true, true)]
+    [DataRow(true, false, true)]
+    [DataRow(true, true, true)]
+    [DataRow(false, false, false)]
     public async Task PlaylistWorkspaceExportPlaylistTableAsync_PublishesFileFailureAndPreservesHeaderFirstOrder(
-        bool failNotification, bool failDiagnostics)
+        bool failNotification, bool failDiagnostics, bool existingDestination)
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -1230,202 +1210,181 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             var diagnosticFailure = new InvalidOperationException("JSON export diagnostic failed");
             bool injectNotificationFailure = failNotification;
             bool injectDiagnosticFailure = failDiagnostics;
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _,
                 reloadFailureLog: (exception, diagnostic) =>
                 {
                     diagnostics.Add((exception, diagnostic));
                     if (injectDiagnosticFailure) { throw diagnosticFailure; }
-                },
-                playlistWorkspaceDialogService: dialogs);
+                }, playlistWorkspaceDialogService: dialogs);
             List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
-            workspace.PlaylistOperationNotificationPresentationRequested +=
-                (_, request) =>
-                {
-                    notifications.Add(request);
-                    if (injectNotificationFailure) { throw presentationFailure; }
-                };
-            string headerPath = Path.Combine(tempDirectory, "partial-header.json");
-            string dataDirectory = Path.Combine(tempDirectory, "data-directory");
-            Directory.CreateDirectory(dataDirectory);
-
-            dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.Accepted, headerPath));
-            dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.Accepted, dataDirectory));
-            Task export = workspace.ExportPlaylistTableAsync(table);
-            await export;
-
-            Assert.IsTrue(export.IsCompletedSuccessfully, "処理済みwrite失敗は停止と提示試行の終端として返します。");
-            Assert.IsTrue(File.Exists(headerPath));
-            Assert.IsTrue(Directory.Exists(dataDirectory));
-            Assert.IsNull(table.Data_url);
-            Assert.AreEqual(1, notifications.Count);
-            PlaylistOperationNotificationOwner.OperationNotification failure =
-                notifications[0].Receipt.Notifications.Single();
-            Assert.AreEqual(
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error,
-                failure.Severity);
-            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_failed_save_playlist, failure.Message);
-            Assert.AreEqual(1 + (failNotification ? 1 : 0), diagnostics.Count);
-            Assert.IsTrue(diagnostics[0].Exception is IOException or UnauthorizedAccessException or System.Security.SecurityException,
-                "OSごとの実file原因を診断し、診断先の故障へ置換しません。");
-            StringAssert.Contains(diagnostics[0].Diagnostic, "playlist_json_export_write_failed stage=data");
-            StringAssert.Contains(diagnostics[0].Diagnostic, "path=" + dataDirectory);
-            if (failNotification)
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
             {
-                Assert.AreSame(presentationFailure, diagnostics[1].Exception);
-                StringAssert.Contains(diagnostics[1].Diagnostic, "playlist table JSON export notification");
+                notifications.Add(request);
+                if (injectNotificationFailure) { throw presentationFailure; }
+            };
+            string headerPath = Path.Combine(tempDirectory, "header.json");
+            string dataPath = Path.Combine(tempDirectory, existingDestination ? "data.json" : Path.Combine("missing", "data.json"));
+            File.WriteAllText(headerPath, "old header");
+            if (existingDestination) { File.WriteAllText(dataPath, "old data"); }
+            // Delete共有を与えず、通常の直接上書きなら成功してしまう条件でReplace失敗を発生させます。
+            using (FileStream? heldData = existingDestination
+                ? new FileStream(dataPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite) : null)
+            {
+                dialogs.JsonExportResults.Enqueue(new(UiDialogStatus.Accepted, new(headerPath, dataPath)));
+                await workspace.ExportPlaylistTableAsync(table);
             }
+            Assert.AreEqual("Export failure", (string?)Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(headerPath))["name"]);
+            if (existingDestination) { Assert.AreEqual("old data", File.ReadAllText(dataPath)); }
+            else { Assert.IsFalse(File.Exists(dataPath)); }
+            AssertExportFailure("data", dataPath, BeMusicSeeker.Properties.Resources.Playlist_json_export_partial_failure);
 
             notifications.Clear();
             diagnostics.Clear();
-            string invalidHeaderPath = Path.Combine(tempDirectory, "missing", "header.json");
-            string validDataPath = Path.Combine(tempDirectory, "unwritten-data.json");
-
-            dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.Accepted, invalidHeaderPath));
-            dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.Accepted, validDataPath));
-            export = workspace.ExportPlaylistTableAsync(table);
-            await export;
-
-            Assert.IsTrue(export.IsCompletedSuccessfully);
-            Assert.IsFalse(File.Exists(invalidHeaderPath));
-            Assert.IsFalse(File.Exists(validDataPath));
-            Assert.AreEqual(1, notifications.Count);
-            Assert.AreEqual(
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error,
-                notifications[0].Receipt.Notifications.Single().Severity);
-            Assert.AreEqual(
-                BeMusicSeeker.Properties.Resources.Msg_failed_save_playlist,
-                notifications[0].Receipt.Notifications.Single().Message);
-            Assert.IsNull(table.Data_url);
-            Assert.AreEqual(1 + (failNotification ? 1 : 0), diagnostics.Count);
-            Assert.IsTrue(diagnostics[0].Exception is IOException or UnauthorizedAccessException or System.Security.SecurityException);
-            StringAssert.Contains(diagnostics[0].Diagnostic, "playlist_json_export_write_failed stage=header");
-            StringAssert.Contains(diagnostics[0].Diagnostic, "path=" + invalidHeaderPath);
-            if (failNotification)
+            string failedHeader = existingDestination ? headerPath : Path.Combine(tempDirectory, "missing", "header.json");
+            string untouchedData = Path.Combine(tempDirectory, "untouched-data.json");
+            if (existingDestination)
             {
-                Assert.AreSame(presentationFailure, diagnostics[1].Exception);
-                StringAssert.Contains(diagnostics[1].Diagnostic, "playlist table JSON export notification");
+                File.WriteAllText(headerPath, "old header");
+                File.WriteAllText(untouchedData, "untouched data");
             }
+            using (FileStream? heldHeader = existingDestination
+                ? new FileStream(failedHeader, FileMode.Open, FileAccess.Read, FileShare.ReadWrite) : null)
+            {
+                dialogs.JsonExportResults.Enqueue(new(UiDialogStatus.Accepted, new(failedHeader, untouchedData)));
+                await workspace.ExportPlaylistTableAsync(table);
+            }
+            if (existingDestination)
+            {
+                Assert.AreEqual("old header", File.ReadAllText(headerPath));
+                Assert.AreEqual("untouched data", File.ReadAllText(untouchedData));
+            }
+            else
+            {
+                Assert.IsFalse(File.Exists(failedHeader));
+                Assert.IsFalse(File.Exists(untouchedData));
+            }
+            AssertExportFailure("header", failedHeader, BeMusicSeeker.Properties.Resources.Msg_failed_save_playlist);
 
             injectNotificationFailure = false;
             injectDiagnosticFailure = false;
             notifications.Clear();
             diagnostics.Clear();
-            string freshHeaderPath = Path.Combine(tempDirectory, "fresh-header.json");
-            string freshDataPath = Path.Combine(tempDirectory, "fresh-data.json");
-            dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.Accepted, freshHeaderPath));
-            dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.Accepted, freshDataPath));
+            string freshData = Path.Combine(tempDirectory, "fresh-data.json");
+            dialogs.JsonExportResults.Enqueue(new(UiDialogStatus.Accepted, new(headerPath, freshData)));
             await workspace.ExportPlaylistTableAsync(table);
-            Assert.IsTrue(File.Exists(freshHeaderPath));
-            Assert.IsTrue(File.Exists(freshDataPath));
-            Assert.AreEqual(table.HeaderToJson(Path.GetFileName(freshDataPath)), File.ReadAllText(freshHeaderPath));
-            Assert.AreEqual(table.DataToJson(), File.ReadAllText(freshDataPath));
+            Assert.AreEqual("Export failure", (string?)Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(headerPath))["name"]);
+            Assert.AreEqual(0, Newtonsoft.Json.Linq.JArray.Parse(File.ReadAllText(freshData)).Count);
             Assert.IsNull(table.Data_url);
-            Assert.AreEqual(1, notifications.Count);
-            Assert.IsTrue(notifications[0].Receipt.IsEmpty);
-            Assert.AreEqual(0, diagnostics.Count, "以前のwrite・表示・診断失敗を次の明示exportへ持ち越しません。");
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
+            Assert.IsTrue(notifications.Single().Receipt.IsEmpty);
+            Assert.AreEqual(0, diagnostics.Count);
+
+            void AssertExportFailure(string stage, string path, string message)
             {
-                Directory.Delete(tempDirectory, recursive: true);
+                Assert.IsNull(table.Data_url);
+                PlaylistOperationNotificationOwner.OperationNotification failure = notifications.Single().Receipt.Notifications.Single();
+                Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error, failure.Severity);
+                Assert.AreEqual(message, failure.Message);
+                Assert.AreEqual(1 + (failNotification ? 1 : 0), diagnostics.Count);
+                Assert.IsInstanceOfType<IOException>(diagnostics[0].Exception);
+                Assert.IsNotNull(diagnostics[0].Exception.InnerException, "元のI/O原因を保持します。");
+                StringAssert.Contains(diagnostics[0].Diagnostic, "playlist_json_export_write_failed stage=" + stage);
+                StringAssert.Contains(diagnostics[0].Diagnostic, "path=" + path);
+                if (failNotification)
+                {
+                    Assert.AreSame(presentationFailure, diagnostics[1].Exception);
+                    StringAssert.Contains(diagnostics[1].Diagnostic, "playlist table JSON export notification");
+                }
             }
         }
+        finally { Directory.Delete(tempDirectory, recursive: true); }
     }
 
-    /// <summary>headerまたはdataの保存picker取消で後続picker・ファイル書込み・通知を開始せず、取消を正常選択として扱わないことを確認します。</summary>
+    /// <summary>専用画面の取消と、Acceptedに混入した同一保存先をWorkspace入口で止め、既存ファイル・DB・正本を変更しません。条件網羅は保存先VMへ分担します。</summary>
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task PlaylistWorkspaceExportPlaylistTableAsync_CancellationAndInvalidAcceptancePreserveState(bool cancelled)
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var table = new BMSTable
+            {
+                playlist_id = 7820,
+                name = "Unchanged",
+                symbol = "KEEP",
+                Folder_order = [],
+                Header_url = new Uri("https://example.test/header.json"),
+                Data_url = new Uri("https://example.test/data.json"),
+                entries = [new BMSTableEntry { md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", title = "Kept entry" }]
+            };
+            var playlist = new TestBmsPlaylist(songDbPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot(), null)
+            { BMSTables = new ObservableCollection<BMSTable>([table]) };
+            playlist.CommitBMSTableWithEntriesToDB(table);
+            string beforeHeader = table.HeaderToJson();
+            string beforeData = table.DataToJson();
+            byte[] beforeDb = File.ReadAllBytes(songDbPath);
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
+                playlistWorkspaceDialogService: dialogs);
+            var notifications = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
+            string headerPath = Path.Combine(tempDirectory, "header.json");
+            string dataPath = Path.Combine(tempDirectory, "data.json");
+            File.WriteAllText(headerPath, "existing header");
+            File.WriteAllText(dataPath, "existing data");
+            dialogs.JsonExportResults.Enqueue(new(cancelled ? UiDialogStatus.CancelledByUser : UiDialogStatus.Accepted,
+                new(headerPath, Path.Combine(tempDirectory, ".", "HEADER.JSON"))));
+
+            await workspace.ExportPlaylistTableAsync(table);
+
+            Assert.AreEqual("existing header", File.ReadAllText(headerPath));
+            Assert.AreEqual("existing data", File.ReadAllText(dataPath));
+            Assert.AreEqual(beforeHeader, table.HeaderToJson());
+            Assert.AreEqual(beforeData, table.DataToJson());
+            CollectionAssert.AreEqual(beforeDb, File.ReadAllBytes(songDbPath));
+            Assert.AreEqual(0, notifications.Count);
+            if (!cancelled)
+            {
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Playlist_json_export_paths_same, dialogs.LastMessageRequest.MessageBoxText);
+            }
+        }
+        finally { Directory.Delete(tempDirectory, recursive: true); }
+    }
+
+    /// <summary>専用画面の表示失敗を元例外付きで返し、ファイルや出力receiptを作りません。</summary>
     [TestMethod]
-    public async Task PlaylistWorkspaceExportPlaylistTableAsync_PickerCancellationStopsBeforeWriting()
+    public async Task PlaylistWorkspaceExportPlaylistTableAsync_DialogFailurePropagatesBeforeWriting()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                playlistWorkspaceDialogService: dialogs);
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
             var notifications = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
-            workspace.PlaylistOperationNotificationPresentationRequested +=
-                (_, request) => notifications.Add(request);
-            var table = new BMSTable { name = "Export cancelled", Folder_order = [] };
-            string headerPath = Path.Combine(tempDirectory, "cancelled-header.json");
-            string dataPath = Path.Combine(tempDirectory, "cancelled-data.json");
-
-            dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.CancelledByUser));
-            await workspace.ExportPlaylistTableAsync(table);
-
-            Assert.AreEqual(1, dialogs.SaveFilePickerRequests.Count);
-            Assert.IsFalse(File.Exists(headerPath));
-            Assert.IsFalse(File.Exists(dataPath));
-            Assert.AreEqual(0, notifications.Count);
-
-            dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.Accepted, headerPath));
-            dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.CancelledByUser));
-            await workspace.ExportPlaylistTableAsync(table);
-
-            Assert.AreEqual(3, dialogs.SaveFilePickerRequests.Count);
-            Assert.IsFalse(File.Exists(headerPath));
-            Assert.IsFalse(File.Exists(dataPath));
-            Assert.AreEqual(0, notifications.Count);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
-    }
-
-    /// <summary>headerまたはdataのpicker失敗を元例外付きで返し、選択が揃う前にファイルや出力receiptを作らないことを確認します。</summary>
-    [TestMethod]
-    public async Task PlaylistWorkspaceExportPlaylistTableAsync_PickerFailurePropagatesBeforeWriting()
-    {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        try
-        {
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                playlistWorkspaceDialogService: dialogs);
-            var notifications = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
-            workspace.PlaylistOperationNotificationPresentationRequested +=
-                (_, request) => notifications.Add(request);
-            var table = new BMSTable { name = "Export picker failure", Folder_order = [] };
-            string headerPath = Path.Combine(tempDirectory, "failed-header.json");
-            string dataPath = Path.Combine(tempDirectory, "failed-data.json");
-            var headerError = new IOException("header picker unavailable");
-
-            dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.Failed, error: headerError));
-            InvalidOperationException headerException = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
+            var table = new BMSTable { name = "Export dialog failure", Folder_order = [] };
+            string headerPath = Path.Combine(tempDirectory, "header.json");
+            string dataPath = Path.Combine(tempDirectory, "data.json");
+            File.WriteAllText(headerPath, "existing header");
+            File.WriteAllText(dataPath, "existing data");
+            var error = new IOException("export dialog unavailable");
+            // 有効なパスが添付されていてもFailedをAcceptedとして使わないことを確認します。
+            dialogs.JsonExportResults.Enqueue(new(UiDialogStatus.Failed, new(headerPath, dataPath), error: error));
+            InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 () => workspace.ExportPlaylistTableAsync(table));
-            Assert.AreSame(headerError, headerException.InnerException);
-            Assert.AreEqual(1, dialogs.SaveFilePickerRequests.Count);
-            Assert.IsFalse(File.Exists(headerPath));
-            Assert.IsFalse(File.Exists(dataPath));
-            Assert.AreEqual(0, notifications.Count);
-
-            dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.Accepted, headerPath));
-            var dataError = new IOException("data picker unavailable");
-            dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.Failed, error: dataError));
-            InvalidOperationException dataException = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-                () => workspace.ExportPlaylistTableAsync(table));
-            Assert.AreSame(dataError, dataException.InnerException);
-            Assert.AreEqual(3, dialogs.SaveFilePickerRequests.Count);
-            Assert.IsFalse(File.Exists(headerPath));
-            Assert.IsFalse(File.Exists(dataPath));
+            Assert.AreSame(error, failure.InnerException);
+            Assert.AreEqual("existing header", File.ReadAllText(headerPath));
+            Assert.AreEqual("existing data", File.ReadAllText(dataPath));
             Assert.AreEqual(0, notifications.Count);
         }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
+        finally { Directory.Delete(tempDirectory, recursive: true); }
     }
 
     /// <summary>現世代のsummary行を適用しても保留された選択復元がなければ復元要求を公開せず、適用ごとの意図しない選択変更を防ぎます。</summary>

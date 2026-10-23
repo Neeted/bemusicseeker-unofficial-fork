@@ -1348,5 +1348,10 @@
   "DatePicker_open_calendar": "カレンダーを開く",
   "DatePicker_previous_period": "前の期間",
   "DatePicker_next_period": "次の期間",
-  "DatePicker_change_period": "月・年の表示を切り替える"
+  "DatePicker_change_period": "月・年の表示を切り替える",
+  "Playlist_json_export_title": "プレイリストのJSON出力",
+  "Playlist_json_export_paths_required": "ヘッダーとデータの両方の保存先を指定してください。",
+  "Playlist_json_export_paths_same": "ヘッダーとデータには異なる保存先を指定してください。",
+  "Playlist_json_export_path_invalid": "有効なファイルパスを指定してください。",
+  "Playlist_json_export_partial_failure": "ヘッダーは保存しましたが、データの保存に失敗しました。既存のデータは保持しています。保存先を確認して再度出力してください。"
 }

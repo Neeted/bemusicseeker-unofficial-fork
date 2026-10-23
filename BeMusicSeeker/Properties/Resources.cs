@@ -3145,4 +3145,19 @@ public class Resources
     public static string Settings_retry_audio_save => ResourceManager.GetString(nameof(Settings_retry_audio_save), resourceCulture);
     /// <summary>音声設定を保存できませんでした。現在の再生は続行します。再試行して次回再生の設定を保存してください。</summary>
     public static string Settings_audio_save_retry_description => ResourceManager.GetString(nameof(Settings_audio_save_retry_description), resourceCulture);
+    /// <summary>JSON出力の保存先と結果の表示文言です。</summary>
+    public static string Playlist_json_export_title => ResourceManager.GetString("Playlist_json_export_title", resourceCulture);
+
+    /// <summary>JSON出力の保存先と結果の表示文言です。</summary>
+    public static string Playlist_json_export_paths_required => ResourceManager.GetString("Playlist_json_export_paths_required", resourceCulture);
+
+    /// <summary>JSON出力の保存先と結果の表示文言です。</summary>
+    public static string Playlist_json_export_paths_same => ResourceManager.GetString("Playlist_json_export_paths_same", resourceCulture);
+
+    /// <summary>JSON出力の保存先と結果の表示文言です。</summary>
+    public static string Playlist_json_export_path_invalid => ResourceManager.GetString("Playlist_json_export_path_invalid", resourceCulture);
+
+    /// <summary>JSON出力の保存先と結果の表示文言です。</summary>
+    public static string Playlist_json_export_partial_failure => ResourceManager.GetString("Playlist_json_export_partial_failure", resourceCulture);
+
 }

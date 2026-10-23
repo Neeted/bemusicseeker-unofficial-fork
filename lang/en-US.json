@@ -1348,5 +1348,10 @@
   "DatePicker_open_calendar": "Open calendar",
   "DatePicker_previous_period": "Previous period",
   "DatePicker_next_period": "Next period",
-  "DatePicker_change_period": "Switch month or year view"
+  "DatePicker_change_period": "Switch month or year view",
+  "Playlist_json_export_title": "Export playlist JSON",
+  "Playlist_json_export_paths_required": "Choose destinations for both the header and data files.",
+  "Playlist_json_export_paths_same": "The header and data files must have different destinations.",
+  "Playlist_json_export_path_invalid": "Enter valid file paths.",
+  "Playlist_json_export_partial_failure": "The header was saved, but the data file could not be saved. Existing data was kept. Check the destinations and export again."
 }

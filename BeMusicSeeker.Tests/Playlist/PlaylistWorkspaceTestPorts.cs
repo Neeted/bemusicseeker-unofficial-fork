@@ -281,6 +281,9 @@ internal static class PlaylistWorkspaceTestPorts
 
         internal Queue<UiSaveFilePickerResult> SaveFilePickerResults { get; } = [];
 
+        /// <summary>Windowを表示せず、JSON保存入口へ専用画面の確定・取消・失敗を渡します。</summary>
+        internal Queue<UiWindowDialogResult<PlaylistJsonExportPaths>> JsonExportResults { get; } = [];
+
         public Task<UiDialogResult> ShowMessageAsync(
             UiMessageRequest request,
             CancellationToken cancellationToken = default)
@@ -300,7 +303,14 @@ internal static class PlaylistWorkspaceTestPorts
         public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
             UiWindowDialogRequest<TWindow, TResult> request,
             CancellationToken cancellationToken = default)
-            where TWindow : Window => throw new NotSupportedException();
+            where TWindow : Window
+        {
+            if (typeof(TWindow) != typeof(PlaylistJsonExportDialog) || typeof(TResult) != typeof(PlaylistJsonExportPaths))
+            {
+                throw new NotSupportedException();
+            }
+            return Task.FromResult((UiWindowDialogResult<TResult>)(object)JsonExportResults.Dequeue());
+        }
 
         public Task<UiFilePickerResult> PickFileAsync(
             UiFilePickerRequest request,

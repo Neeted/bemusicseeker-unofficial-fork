@@ -764,7 +764,7 @@ Right-click the playlist itself to use these operations.
 - `Open page`: Open its page URI in a browser.
 - `Override Level`: Apply the table's levels to matching local library charts. Actual chart files are unchanged. Some tables, such as recommend tables, do not support this.
 - `Create new folder`: Add a manually managed folder to a playlist without external sync.
-- `Export`: Save `header.json` and `data.json`, choosing a destination for each file.
+- `Export`: Choose the header and data destinations in the export window, review both, then press `Export`. Both fields are required and must point to different files.
 - `Remove playlist`: Remove the playlist from management.
 - `Properties`: Edit [names, URIs, and folder output](#playlist-properties).
 
@@ -1389,6 +1389,10 @@ The external difficulty-table URL may be returning 404, 403, timeout, or similar
 When beatoraja Table URL import restores a table from cache, `STATUS` still shows the retrieval result for the original URL. Import success and external-sync failure can therefore appear together.
 
 If the external site is temporarily failing, wait and reload later. If the URL has changed, you need to update the URI in playlist properties.
+
+#### JSON Export Fails
+
+Check the destination folders, write permissions, and free space. Close other applications using the files, then export again. If saving the header fails, the data file remains unchanged. If only the header is saved, a partial failure is reported and the existing data file is kept. On a first export, no data file is created.
 
 ### LR2 Integration
 

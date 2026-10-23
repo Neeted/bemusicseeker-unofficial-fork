@@ -1,8 +1,10 @@
 using System;
 using System.IO;
+using System.Text;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
@@ -19,65 +21,30 @@ public sealed partial class PlaylistWorkspaceViewModel
             throw new ArgumentNullException(nameof(bmsTable));
         }
 
-        UiSaveFilePickerResult headerResult = await playlistWorkspaceDialogService.PickSaveFileAsync(
-            new UiSaveFilePickerRequest(
-                BeMusicSeeker.Properties.Resources.Save_header_file,
-                !string.IsNullOrWhiteSpace(bmsTable.header_url)
-                    ? Path.GetFileName(bmsTable.Header_url.ToString())
-                    : "header.json",
-                ".json",
-                BeMusicSeeker.Properties.Resources.Json_file_exts,
-                addExtension: true));
-        ThrowIfPlaylistExportPickerFailed(headerResult, "Header export save picker");
-        if (headerResult.Status != UiDialogStatus.Accepted)
+        using var input = new PlaylistJsonExportDialogViewModel();
+        UiWindowDialogResult<PlaylistJsonExportPaths> result = await playlistWorkspaceDialogService.ShowWindowAsync(
+            new UiWindowDialogRequest<PlaylistJsonExportDialog, PlaylistJsonExportPaths>(
+                () => new PlaylistJsonExportDialog(input, playlistWorkspaceDialogService,
+                    !string.IsNullOrWhiteSpace(bmsTable.header_url) ? Path.GetFileName(bmsTable.Header_url.ToString()) : "header.json",
+                    !string.IsNullOrWhiteSpace(bmsTable.data_url) ? Path.GetFileName(bmsTable.Data_url.ToString()) : "data.json"),
+                _ => input.CapturePaths()));
+        if (result?.Status is UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser) { return; }
+        if (result?.Status != UiDialogStatus.Accepted || result.Value == null)
         {
+            throw new InvalidOperationException("Playlist JSON export dialog failed: " + result?.Status, result?.Error);
+        }
+
+        // UIの有効状態を信用せず、正本の遅延読込み・通知session・ファイル生成より先に同じ判定を通します。
+        string rejection = PlaylistJsonExportDialogViewModel.ValidatePaths(result.Value.HeaderPath, result.Value.DataPath);
+        if (rejection.Length != 0)
+        {
+            await playlistWorkspaceDialogService.ShowMessageAsync(UiMessageRequest.CreateError(rejection,
+                BeMusicSeeker.Properties.Resources.Error));
             return;
         }
-
-        UiSaveFilePickerResult dataResult = await playlistWorkspaceDialogService.PickSaveFileAsync(
-            new UiSaveFilePickerRequest(
-                BeMusicSeeker.Properties.Resources.Save_data_file,
-                !string.IsNullOrWhiteSpace(bmsTable.data_url)
-                    ? Path.GetFileName(bmsTable.Data_url.ToString())
-                    : "data.json",
-                ".json",
-                BeMusicSeeker.Properties.Resources.Json_file_exts,
-                addExtension: true));
-        ThrowIfPlaylistExportPickerFailed(dataResult, "Data export save picker");
-        if (dataResult.Status != UiDialogStatus.Accepted)
-        {
-            return;
-        }
-
-        await ExportPlaylistTableCoreAsync(bmsTable, headerResult.FileName, dataResult.FileName);
-    }
-
-    private static void ThrowIfPlaylistExportPickerFailed(UiSaveFilePickerResult result, string routeName)
-    {
-        if (result == null)
-        {
-            throw new InvalidOperationException(routeName + " returned no picker result.");
-        }
-        if (result.Status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser)
-        {
-            return;
-        }
-
-        throw new InvalidOperationException(routeName + " failed: " + result.Status, result.Error);
-    }
-
-    private Task ExportPlaylistTableCoreAsync(BMSTable bmsTable, string fileNameHeader, string fileNameData)
-    {
-        if (fileNameHeader == null)
-        {
-            throw new ArgumentNullException(nameof(fileNameHeader));
-        }
-        if (fileNameData == null)
-        {
-            throw new ArgumentNullException(nameof(fileNameData));
-        }
-
-        return Task.Run(() => ExportPlaylistTable(bmsTable, fileNameHeader, fileNameData));
+        string headerPath = LongPathFileSystem.NormalizePathForStorage(result.Value.HeaderPath);
+        string dataPath = LongPathFileSystem.NormalizePathForStorage(result.Value.DataPath);
+        await Task.Run(() => ExportPlaylistTable(bmsTable, headerPath, dataPath));
     }
 
     private void ExportPlaylistTable(BMSTable bmsTable, string fileNameHeader, string fileNameData)
@@ -100,17 +67,19 @@ public sealed partial class PlaylistWorkspaceViewModel
             string writePath = fileNameHeader;
             try
             {
-                File.WriteAllText(fileNameHeader, contents);
+                WritePlaylistJson(fileNameHeader, contents);
                 writeStage = "data";
                 writePath = fileNameData;
-                File.WriteAllText(fileNameData, dataContents);
+                WritePlaylistJson(fileNameData, dataContents);
             }
             catch (Exception exception)
             {
                 TryLogPlaylistDropSecondaryFailure(exception,
                     "playlist_json_export_write_failed stage=" + writeStage + " path=" + writePath);
                 notificationOwner.QueueError(
-                    BeMusicSeeker.Properties.Resources.Msg_failed_save_playlist,
+                    writeStage == "data"
+                        ? BeMusicSeeker.Properties.Resources.Playlist_json_export_partial_failure
+                        : BeMusicSeeker.Properties.Resources.Msg_failed_save_playlist,
                     BeMusicSeeker.Properties.Resources.Error);
             }
         }
@@ -120,5 +89,14 @@ public sealed partial class PlaylistWorkspaceViewModel
                 session,
                 "playlist table JSON export notification");
         }
+    }
+    private static void WritePlaylistJson(string path, string contents)
+    {
+        AtomicFileWriter.Write(path, stream =>
+        {
+            // StreamWriterのバッファを排出して閉じた後、AtomicFileWriterがstreamを閉じて公開します。
+            using var writer = new StreamWriter(stream, new UTF8Encoding(false), leaveOpen: true);
+            writer.Write(contents);
+        });
     }
 }

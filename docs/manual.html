@@ -629,6 +629,7 @@ hr {
 <li class="toc-level-4"><a href="#cannot-retrieve-data-from-external-services">Cannot Retrieve Data from External Services</a></li>
 <li class="toc-level-4"><a href="#cannot-generate-recommendations">Cannot Generate Recommendations</a></li>
 <li class="toc-level-4"><a href="#playlist-status-fails">Playlist STATUS Fails</a></li>
+<li class="toc-level-4"><a href="#json-export-fails">JSON Export Fails</a></li>
 </ul></details></li>
 <li class="toc-level-3"><details open><summary><a href="#lr2-integration">LR2 Integration</a></summary><ul>
 <li class="toc-level-4"><a href="#lr2-cannot-select-a-chart">LR2 Cannot Select a Chart</a></li>
@@ -1538,7 +1539,7 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <li><code>Open page</code>: Open its page URI in a browser.</li>
 <li><code>Override Level</code>: Apply the table's levels to matching local library charts. Actual chart files are unchanged. Some tables, such as recommend tables, do not support this.</li>
 <li><code>Create new folder</code>: Add a manually managed folder to a playlist without external sync.</li>
-<li><code>Export</code>: Save <code>header.json</code> and <code>data.json</code>, choosing a destination for each file.</li>
+<li><code>Export</code>: Choose the header and data destinations in the export window, review both, then press <code>Export</code>. Both fields are required and must point to different files.</li>
 <li><code>Remove playlist</code>: Remove the playlist from management.</li>
 <li><code>Properties</code>: Edit <a href="#playlist-properties">names, URIs, and folder output</a>.</li>
 </ul>
@@ -2088,6 +2089,8 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>The external difficulty-table URL may be returning 404, 403, timeout, or similar errors. Check the tooltip for <code>STATUS</code> in the playlist summary, or <code>playlist_reload_target_failed</code> in <code>log/application.log</code>.</p>
 <p>When beatoraja Table URL import restores a table from cache, <code>STATUS</code> still shows the retrieval result for the original URL. Import success and external-sync failure can therefore appear together.</p>
 <p>If the external site is temporarily failing, wait and reload later. If the URL has changed, you need to update the URI in playlist properties.</p>
+<h4 id="json-export-fails">JSON Export Fails</h4>
+<p>Check the destination folders, write permissions, and free space. Close other applications using the files, then export again. If saving the header fails, the data file remains unchanged. If only the header is saved, a partial failure is reported and the existing data file is kept. On a first export, no data file is created.</p>
 <h3 id="lr2-integration">LR2 Integration</h3>
 <h4 id="lr2-cannot-select-a-chart">LR2 Cannot Select a Chart</h4>
 <p>Check whether the chart appears in <code>LR2 compatibility warnings</code>. Charts containing chart paths or resource definitions that cannot be represented in CP932 / Shift_JIS, or overly long chart paths / resource reference paths, may fail selection or playback in LR2.</p>
