@@ -242,7 +242,7 @@ internal sealed class PlaylistDetailSourceRow
         this.chartInfoProjectionProvider = chartInfoProjectionProvider;
         Chart = CreateChartFile();
         ChartFile chart = Chart;
-        effectiveScoreSnapshot = ResolveEffectiveScore(chart, scoreSnapshot);
+        effectiveScoreSnapshot = ResolveInitialScore(chart, scoreSnapshot);
         if (!ReferenceEquals(effectiveScoreSnapshot, chart?.Score))
         {
             Chart = ChartFileProjection.WithScore(chart, effectiveScoreSnapshot);
@@ -309,7 +309,7 @@ internal sealed class PlaylistDetailSourceRow
 
     private void SetScoreSnapshot(BMSScore scoreSnapshot)
     {
-        effectiveScoreSnapshot = ResolveEffectiveScore(Chart, scoreSnapshot);
+        effectiveScoreSnapshot = ChartScoreSnapshot.FromBmsScore(scoreSnapshot, Chart?.Path);
         Chart = ChartFileProjection.WithScore(Chart, effectiveScoreSnapshot);
         clear = effectiveScoreSnapshot.Clear;
         rank = effectiveScoreSnapshot.Rank;
@@ -347,7 +347,7 @@ internal sealed class PlaylistDetailSourceRow
     /// chart_info hydration 後に未所持 entry の score hash が初めて解決できる場合に使います。
     /// </summary>
     /// <param name="chartInfo">更新された entry chart_info。</param>
-    /// <param name="scoreSnapshot">現在の score snapshot から解決した score。</param>
+    /// <param name="scoreSnapshot">現在のスコア。null は記録なしとして採用し、コピー元の旧スコアを消去します。</param>
     /// <returns>更新後の source row。</returns>
     internal PlaylistDetailSourceRow WithEntryChartInfoAndScore(
         BeMusicSeeker.Models.ChartDetails chartInfo,
@@ -428,7 +428,7 @@ internal sealed class PlaylistDetailSourceRow
             ?? ChartFileTransientState.Empty;
     }
 
-    private static ChartScoreSnapshot ResolveEffectiveScore(ChartFile chart, BMSScore scoreSnapshot)
+    private static ChartScoreSnapshot ResolveInitialScore(ChartFile chart, BMSScore scoreSnapshot)
     {
         return scoreSnapshot != null
             ? ChartScoreSnapshot.FromBmsScore(scoreSnapshot, chart?.Path)

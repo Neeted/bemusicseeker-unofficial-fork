@@ -481,6 +481,88 @@ public sealed class PlaylistCatalogViewChangeTests
         Assert.AreEqual(0, work.Count(kind => kind == "playlist_order_buffer"));
     }
 
+    /// <summary>正常なscore再読込みで記録が消えた所持/未所持行は全成績を消去し、draftと位置を編集終端まで保持します。旧Chart.Scoreの再利用を検出します。</summary>
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task ScoreReload_MissingRecordClearsScoresAndDefersOrderUntilDraftEnds(bool owned)
+    {
+        await using var fixture = new Fixture(16, regularDelivery: true, oracleScores: true);
+        if (!owned) { fixture.Library.BmsCharts = fixture.Library.BmsCharts.Where(chart => chart.Md5 != fixture.OracleScores[1].hash).ToList(); }
+        BMSScore previous = fixture.OracleScores[1];
+        previous.clear = ClearType.HARD; previous.rank = RankType.AA; previous.rate = 15;
+        previous.minbp = 7; previous.maxcombo = 24;
+        previous.ranking = 2; previous.rankingNum = 10;
+        previous.rankingLastupdate = new DateTime(2026, 1, 2);
+        previous.scoreDifficulty = 12.5;
+        await fixture.DrainLibraryChanges();
+        fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.score), ListSortDirection.Descending);
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var target = (PlaylistDetailRow)rows[0];
+        var other = (PlaylistDetailRow)rows[1];
+        Assert.AreEqual("entry 1", target.Entry.title);
+        Assert.AreEqual(owned, target.IsOwned);
+        Assert.AreEqual(ClearType.HARD, target.clear);
+        Assert.AreEqual(RankType.AA, target.rank);
+        Assert.AreEqual(30, target.score); Assert.AreEqual(15d, target.rate); Assert.AreEqual(.15, target.rateDouble);
+        Assert.AreEqual(100, target.totalnotes); Assert.AreEqual(7, target.minbp); Assert.AreEqual(24, target.maxcombo);
+        Assert.AreEqual(" 2/10", target.rankingString); Assert.AreEqual(previous.rankingLastupdate, target.rankingLastupdate);
+        Assert.AreEqual(30d, target.stddevVal); Assert.AreEqual(12.5, target.scoreDifficulty);
+        var context = new MainChartListCellEditContext(target, nameof(PlaylistDetailRow.memo),
+            owned ? ChartOperationSourceScope.PlaylistOwned : ChartOperationSourceScope.PlaylistMissing, MainViewOperationSection.Playlist);
+        fixture.Workspace.BeginDetailEdit(context);
+        target.memo = "unsaved draft";
+        var work = new List<string>(); fixture.Workspace.DetailWorkObserver = work.Add;
+        long revision = fixture.Library.CatalogRevision;
+        fixture.RemoveScoreAndReload(1);
+        await fixture.DrainLibraryChanges();
+        Assert.IsTrue(fixture.Library.ScoreSnapshotReady);
+        Assert.AreEqual(revision, fixture.Library.CatalogRevision);
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreSame(target, rows[0]); Assert.AreSame(other, rows[1]);
+        Assert.AreEqual("unsaved draft", target.memo); Assert.AreEqual("entry memo", target.Entry.memo);
+        Assert.AreEqual(owned ? ClearType.NO_PLAY : ClearType.NO_SONG, target.clear);
+        Assert.AreEqual(RankType.INVALID, target.rank);
+        Assert.IsNull(target.score); Assert.IsNull(target.rate); Assert.IsNull(target.rateDouble);
+        Assert.IsNull(target.totalnotes); Assert.IsNull(target.minbp); Assert.IsNull(target.maxcombo);
+        Assert.AreEqual(string.Empty, target.rankingString); Assert.IsNull(target.rankingLastupdate);
+        Assert.IsNull(target.stddevVal); Assert.IsNull(target.scoreDifficulty);
+        Assert.IsNull(target.Chart.Score.Ranking); Assert.IsNull(target.Chart.Score.RankingNum);
+        Assert.IsNull(target.Chart.Score.Score);
+        Assert.AreEqual(0, work.Count(kind => kind is "playlist_dependency_index_entry" or "playlist_order_buffer"));
+        Assert.AreEqual(2, rows.RealizedRowCount);
+        await fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "unsaved draft", commit: false));
+        Assert.AreSame(other, rows[0]); Assert.AreSame(target, rows[rows.Count - 1]);
+        Assert.AreEqual("entry memo", target.memo);
+        Assert.AreEqual(fixture.Library.ScoreSnapshotVersion, fixture.Workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion);
+    }
+
+    /// <summary>実DBの記録消去をscore-only通知から適用し、所持/未所持の未プレイ検索加入と旧score検索離脱を確認します。非表示sourceの旧成績保持も検出します。</summary>
+    [DataTestMethod]
+    [DataRow(true, true)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(false, false)]
+    public async Task ScoreReload_MissingRecordUpdatesFilterMembership(bool owned, bool includeMissing)
+    {
+        await using var fixture = new Fixture(3, regularDelivery: true, oracleScores: true);
+        if (!owned) { fixture.Library.BmsCharts = fixture.Library.BmsCharts.Where(chart => chart.Md5 != fixture.OracleScores[1].hash).ToList(); }
+        fixture.OracleScores[1].clear = ClearType.HARD;
+        await fixture.DrainLibraryChanges();
+        fixture.Workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot(
+            includeMissing ? owned ? "clear:NP" : "clear:nosong" : "score:>=20", ChartModeFilter.All));
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        Assert.AreEqual(!includeMissing, rows.Cast<PlaylistDetailRow>().Any(row => row.Entry.title == "entry 1"));
+        int beforeCount = rows.Count;
+        fixture.RemoveScoreAndReload(1);
+        await fixture.DrainLibraryChanges();
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreEqual(includeMissing, rows.Cast<PlaylistDetailRow>().Any(row => row.Entry.title == "entry 1"));
+        Assert.AreEqual(beforeCount + (includeMissing ? 1 : -1), rows.Count);
+    }
+
     /// <summary>非所持entryの詳細独立通知を実解析・DB確定から配送し、全source再構築なしでノーツ数一件だけを反映します。</summary>
     [DataTestMethod]
     [DataRow(16)]
@@ -1449,6 +1531,14 @@ public sealed class PlaylistCatalogViewChangeTests
         {
             OracleScores[index].great = value;
             OracleScores[index].stddevVal = value;
+        }
+
+        /// <summary>有効な実DBから対象の記録だけを消し、本番のscore-only再読込みで「記録なし」を公開します。</summary>
+        internal void RemoveScoreAndReload(int index)
+        {
+            using (var db = new SQLite.SQLiteConnection(Path.Combine(directory, "score.db")))
+            { db.Execute("DELETE FROM score WHERE hash = ?", OracleScores[index].hash); }
+            Library.InitializeScoresOnly(null);
         }
 
         internal Task GetLibraryDelivery() => regularOwner?.DeliverPendingLibraryChangesAsync(Library, CancellationToken.None)
