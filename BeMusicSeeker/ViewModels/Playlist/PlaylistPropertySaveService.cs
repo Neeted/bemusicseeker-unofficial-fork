@@ -320,8 +320,8 @@ internal sealed class PlaylistPropertySaveService
                 Uri pageUrl = NormalizeUriTextForStandardStorage(values.PageUrl);
                 Uri headerUrl = NormalizeUriTextForStandardStorage(values.HeaderUrl);
                 Uri dataUrl = NormalizeUriTextForStandardStorage(values.DataUrl);
-                var baseline = PlaylistPropertyBaseline.Capture(table, settings.OperationModeLR2DB
-                    ? ResolveCustomFolderOutputDirectory(table, settings) : null);
+                var baseline = PlaylistPropertyBaseline.Capture(table, !session.IsNewTable && settings.OperationModeLR2DB
+                    ? ResolveCustomFolderOutputDirectory(table, settings) : null, hasPreviousOutput: !session.IsNewTable);
                 return new PlaylistPropertySaveCommit(
                     baseline,
                     table,
@@ -609,6 +609,7 @@ internal sealed class PlaylistPropertySaveService
         CustomFolderOutputSettingsSnapshot settings = commit.Settings;
         if (!settings.OperationModeLR2DB) { return; }
         pending.Settings = settings;
+        pending.HasPreviousOutput = baseline.HasPreviousOutput;
         pending.OldOutputDirectory = baseline.OutputDirectoryPath;
         pending.NewOutputDirectory = ResolveCustomFolderOutputDirectory(commit.Table, settings);
         pending.WasRootFolder = baseline.IsRootFolder;
@@ -622,7 +623,7 @@ internal sealed class PlaylistPropertySaveService
                 settings.LR2CustomFolderAdditionalOutputBaseDirs, out string oldBase);
             pending.OldOutputBase = oldBase;
         }
-        pending.NeedsLr2Migration = true;
+        pending.NeedsLr2Output = true;
         pending.NeedsSearchPathSave = baseline.IsRootFolder != pending.IsRootFolder
             || (pending.IsRootFolder && !string.Equals(pending.OldOutputDirectory, pending.NewOutputDirectory, StringComparison.OrdinalIgnoreCase));
     }
@@ -653,37 +654,39 @@ internal sealed class PlaylistPropertySaveService
         bool hasLr2Continuation = pending.Settings?.OperationModeLR2DB == true;
         using PlaylistOperationNotificationOwner.OperationNotificationSession ownedNotifications = existingNotifications == null ? store.OperationNotificationOwner.BeginSession() : null;
         PlaylistOperationNotificationOwner.OperationNotificationSession notifications = existingNotifications ?? ownedNotifications;
-        if (pending.NeedsLr2Migration)
+        if (pending.NeedsLr2Output)
         {
             try
             {
-                PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderBatchOutputResult migration = store.MigrateCustomFolderOutputDirectoryWithSettings(commit.Table,
+                PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderBatchOutputResult migration = pending.HasPreviousOutput
+                    ? store.MigrateCustomFolderOutputDirectoryWithSettings(commit.Table,
                     pending.OldOutputDirectory, pending.NewOutputDirectory, pending.WasRootFolder,
                     pending.WasRootFolder ? pending.OldOutputBase : null,
                     pending.OldOutputBaseResolved ? pending.OldOutputBase : null,
-                    pending.OldOutputBaseResolved, pending.Settings, authority);
+                    pending.OldOutputBaseResolved, pending.Settings, authority)
+                    : store.ReOutputCustomFolderWithSettings(commit.Table, pending.Settings, authority);
                 if (migration.PrimaryException != null) { failures.Add(migration.PrimaryException); }
                 else if (!migration.Succeeded)
                 {
                     failures.Add(new System.IO.IOException(migration.WarningMessage
                         ?? BeMusicSeeker.Properties.Resources.Msg_error_unexpected));
                 }
-                else { pending.NeedsLr2Migration = false; }
+                else { pending.NeedsLr2Output = false; }
             }
             catch (Exception failure) { failures.Add(failure); }
         }
-        if (!pending.NeedsLr2Migration && pending.NeedsSearchPathSave)
+        if (!pending.NeedsLr2Output && pending.NeedsSearchPathSave)
         {
             try
             {
                 Lr2ConfigOwner owner = getLr2Config() ?? throw new InvalidOperationException("LR2 configuration is not available.");
-                owner.SaveRoots(new Lr2RootChange(pending.WasRootFolder ? [pending.OldOutputDirectory] : [],
+                owner.SaveRoots(new Lr2RootChange(pending.HasPreviousOutput && pending.WasRootFolder ? [pending.OldOutputDirectory] : [],
                     pending.IsRootFolder ? [pending.NewOutputDirectory] : []));
                 pending.NeedsSearchPathSave = false;
             }
             catch (Exception failure) { failures.Add(failure); }
         }
-        if (!pending.NeedsLr2Migration && !pending.NeedsSearchPathSave)
+        if (!pending.NeedsLr2Output && !pending.NeedsSearchPathSave)
         {
             pending.Settings = null;
             pending.OldOutputDirectory = null;
@@ -1116,6 +1119,10 @@ internal sealed class PlaylistPropertyValues
 
 internal sealed class PlaylistPropertyBaseline
 {
+    /// <summary>登録前に捕捉した既存表の事実です。新規draftの初回出力には旧先整理を適用しません。</summary>
+    internal bool HasPreviousOutput { get; private set; }
+
+    /// <summary>既存表の旧出力先です。未登録draftではnullとし、空名由来の共通基点を旧配置として扱いません。</summary>
     internal string OutputDirectoryPath { get; private set; }
 
     internal string OutputDirectory { get; private set; }
@@ -1138,10 +1145,12 @@ internal sealed class PlaylistPropertyBaseline
 
     internal IReadOnlyList<string> FolderOrder { get; private set; }
 
-    internal static PlaylistPropertyBaseline Capture(BMSTable table, string outputDirectoryPath)
+    /// <summary>属性保存前の旧値と、登録前の作成経路から確定した旧配置の有無を捕捉します。</summary>
+    internal static PlaylistPropertyBaseline Capture(BMSTable table, string outputDirectoryPath, bool hasPreviousOutput)
     {
         return new PlaylistPropertyBaseline
         {
+            HasPreviousOutput = hasPreviousOutput,
             OutputDirectoryPath = outputDirectoryPath,
             OutputDirectory = table.output_dir,
             IsRootFolder = table.is_root_folder,
@@ -1197,8 +1206,10 @@ internal sealed class PlaylistPropertySaveCommit
 /// <summary>一つの確定済み変更に残った出力だけを保持します。成功済み部分と公開済みsnapshotは解放します。</summary>
 internal sealed class PlaylistPropertyPendingOutput
 {
-    /// <summary>未完了のLR2移行で使う捕捉済み配置。LR2完了後は解放します。</summary>
+    /// <summary>未完了のLR2初回出力または移行で使う捕捉済み配置。LR2完了後は解放します。</summary>
     internal CustomFolderOutputSettingsSnapshot Settings { get; set; }
+    /// <summary>登録前に旧配置が存在した表だけtrueです。初回出力を移行の旧先整理へ渡しません。</summary>
+    internal bool HasPreviousOutput { get; set; }
     /// <summary>旧先の捕捉済み絶対パス。現在値から推測し直しません。</summary>
     internal string OldOutputDirectory { get; set; }
     /// <summary>DB確定済み変更に対応する新先の絶対パス。</summary>
@@ -1211,8 +1222,8 @@ internal sealed class PlaylistPropertyPendingOutput
     internal bool WasRootFolder { get; set; }
     /// <summary>確定済み新先でのルート型。</summary>
     internal bool IsRootFolder { get; set; }
-    /// <summary>ファイル・LR2行・状態・旧先整理が未完了か。</summary>
-    internal bool NeedsLr2Migration { get; set; }
+    /// <summary>ファイル・LR2行・状態と、既存配置がある場合の旧先整理が未完了か。</summary>
+    internal bool NeedsLr2Output { get; set; }
     /// <summary>検索パスのディスク保存が未完了か。</summary>
     internal bool NeedsSearchPathSave { get; set; }
     /// <summary>必要BMT出力のTaskが未成功か。</summary>
@@ -1223,7 +1234,7 @@ internal sealed class PlaylistPropertyPendingOutput
     /// <summary>現行画面参照の公開が未完了か。</summary>
     internal bool NeedsReferencePresentation { get; set; }
     /// <summary>次の保存が先に処理する必要出力または置換公開が残るか。</summary>
-    internal bool HasPendingWork => NeedsLr2Migration || NeedsSearchPathSave || NeedsBmtExport || ReferenceReceipt != null;
+    internal bool HasPendingWork => NeedsLr2Output || NeedsSearchPathSave || NeedsBmtExport || ReferenceReceipt != null;
 }
 
 internal enum PlaylistPropertyValidationError

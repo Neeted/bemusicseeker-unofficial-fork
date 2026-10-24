@@ -2401,9 +2401,17 @@ public partial class BMSPlaylist : ObservableObject
     /// <exception cref="ArgumentException">出力先に必要な情報が不足している場合。</exception>
     public void ReOutputCustomFolder(BMSTable bmsTable)
     {
-        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("ReOutputCustomFolder", capability: null);
+        CustomFolderBatchOutputResult result = ReOutputCustomFolderWithSettings(bmsTable, settings: null);
+        if (result.PrimaryException != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(result.PrimaryException).Throw(); }
+    }
+
+    /// <summary>捕捉済み配置と受理済み局所権限で既存管理主体の出力を行い、旧先整理を行わず実結果を返します。正本外の表は未成功です。</summary>
+    internal CustomFolderBatchOutputResult ReOutputCustomFolderWithSettings(BMSTable bmsTable,
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null)
+    {
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("ReOutputCustomFolder", capability: capability);
         using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
-        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        settings ??= GetCustomFolderOutputSettings();
         if (!settings.OperationModeLR2DB)
         {
             throw new InvalidOperationException("Properties.Settings.Default.OperationModeLR2DB is not true");
@@ -2423,7 +2431,7 @@ public partial class BMSPlaylist : ObservableObject
         }
         if (!isCurrentTable)
         {
-            return;
+            return new CustomFolderBatchOutputResult { Succeeded = false };
         }
         PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderOutputPreparation preparation =
             customFolderOutputMaintenanceOwner.PrepareCustomFolderOutput(bmsTable, settings);
@@ -2436,7 +2444,8 @@ public partial class BMSPlaylist : ObservableObject
                 preparation,
                 request => SyncCustomFolderRowsBatch(request, mutationCapability));
         }
-        customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback: null);
+        customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback: null, propagatePrimaryFailure: false);
+        return result;
     }
 
     /// <summary>

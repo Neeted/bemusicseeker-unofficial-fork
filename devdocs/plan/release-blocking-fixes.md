@@ -8,15 +8,14 @@
 
 元資料は `.tmp` の `bemusicseeker-dev-release-fix-plan.md`、`bemusicseeker-release-fix-plan(2).md`、`bemusicseeker-playlist-release-fix-plan.md`。以下では識別子の重複を避け、それぞれ「設定」「一覧・導入」「プレイリスト」を付ける。再開に必要な根拠・方針は本書にまとめ、元資料の保存場所には依存しない。
 
-残る必須対象は9件。設定の競合編集の整理は、不具合とは別の採用済み設計変更として加える。[任意の改善候補](release-follow-up-candidates.md)は、今回の実装・リリース完了条件に含めない。現行仕様の正本は [設定](../spec/runtime/settings.md)、[一覧](../spec/ui/table-view.md)、[取り込み・導入](../spec/library/drop-install.md)、[プレイリスト保存・出力](../spec/playlist/storage-and-export.md)、[LR2カスタムフォルダ](../spec/playlist/lr2-custom-folders.md)を参照し、採用した変更は実装と同じコミットで反映する。
+残る必須対象は8件。設定の競合編集の整理は、不具合とは別の採用済み設計変更として加える。[任意の改善候補](release-follow-up-candidates.md)は、今回の実装・リリース完了条件に含めない。現行仕様の正本は [設定](../spec/runtime/settings.md)、[一覧](../spec/ui/table-view.md)、[取り込み・導入](../spec/library/drop-install.md)、[プレイリスト保存・出力](../spec/playlist/storage-and-export.md)、[LR2カスタムフォルダ](../spec/playlist/lr2-custom-folders.md)を参照し、採用した変更は実装と同じコミットで反映する。
 
 ## 指摘の妥当性
 
-本番の入口と保存・表示更新の接続を静的に照合した結果、以下の9件を修正対象として扱う。各項目の実装時に既存テストを拡張して再現・回帰を確認する。特にWPFのイベント順序と実Bindingの症状は、その接続を動かして確認する。
+本番の入口と保存・表示更新の接続を静的に照合した結果、以下の8件を修正対象として扱う。各項目の実装時に既存テストを拡張して再現・回帰を確認する。特にWPFのイベント順序と実Bindingの症状は、その接続を動かして確認する。
 
 | 元項目 | 判断と現行コードの根拠 | 修正の境界 |
 | --- | --- | --- |
-| プレイリストF07：LR2連携時の新規保存失敗 | [保存サービス](../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertySaveService.cs)は未登録・空名draftから旧出力先を捕捉し、登録後に無条件で移行する。旧先が共通基点になり、[出力管理主体](../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistCustomFolderOutputMaintenanceOwner.cs)の基点削除禁止に阻まれる。登録済みIDと未完了出力が残るため、再保存でも同じ処理に戻る。 | 初回出力と既存配置からの移行を分ける。基点保護を緩めず、同じ受理済み権限・登録済みIDで継続する。 |
 | 設定R1：出力への採用で導入先が無効になる | [出力確定](../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)は変更後の導入先所属を検査しない。管理出力を除いた確定BMS一覧と、[導入先の所属検査](../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)が不整合になり、起動時の設定検査に通らなくなる。 | 有効な導入先を無効にする出力変更を、保存・XML・配置変更前に拒否する。競合セクションの排他だけでは解消しない。 |
 | 一覧・導入R4：単体譜面を新規導入できない | [導入サービス](../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs)の宛先準備と自動命名がディレクトリ入力に限定される。単体入力・宛先未指定は明示宛先必須の分岐で失敗する。 | 新規宛先の決定と物理入力の種別を分ける。事前予約・衝突回避と実宛先を一致させ、単体の兄弟ファイルを巻き込まない。 |
 | 設定R2：スコア確定でBMT移行が抜ける | [スコア確定](../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)は派生BMTパスも保存するが、BMT後処理はroot変更時しか実行しない。同じrootの `tablepath` 変更では旧先を保持したpendingも消える。 | rootまたはBMTパス変更で既存の移行・URL整理・全表出力へ接続する。通常のplayer変更に全表出力を増やさない。 |
@@ -62,7 +61,6 @@ LR2 XMLの単一正本、保存済み値と公開値の分離、限定公開、�
 
 | 順 | コミットの主題 | 項目・主な変更先 | 完了を判定する代表ケース |
 | --- | --- | --- | --- |
-| 3 | `fix: 新規プレイリストの初回出力を移行から分離する` | プレイリストF07。`PlaylistPropertySaveService`、`BMSPlaylist`、既存出力入口。 | LR2有効の実draft作成→保存が成功し、通常・追加・ROOTを扱える。共通基点と兄弟表のファイル・LR2行を保つ。実出力／検索ルート保存失敗後も同じIDで継続し、既存表の旧先整理を維持する。 |
 | 4 | `fix: 出力先の変更によるインストール先の無効化を防ぐ` | 設定R1。出力確定前検査、未受理候補の局所復元、表示リソース。 | 通常・追加・ROOTの同一先と包含親を副作用0で拒否する。別BMSルートへ導入先を変更後は採用に成功し、初期化検査に通る。修復時の受理済み候補を保つ。 |
 | 5 | `fix: 単体譜面の新規インストールを成立させる` | 一覧・導入R4。宛先準備、物理計画、変更セッションへの反映。 | 宛先未指定のBMS/BMSON、単体・フォルダ混在、同名宛先競合を実配置・DB・所持・新規／保留・install表で確認する。兄弟ファイルは保持し、明示宛先導入も保つ。 |
 | 6 | `refactor: 競合する設定セクションの未確定編集を排他する` | 採用済み設計整理。設定ViewModel、Windowと各設定ページ、仕様・翻訳。4の候補復元を再利用する。 | 候補生成前の双方向拒否、確定・取消・完了後の解除、初回設定、出力確認取消・受付拒否・修復拒否からの再操作を確認する。旧差分再適用と候補再確定UIを削除する。 |
@@ -77,7 +75,7 @@ LR2 XMLの単一正本、保存済み値と公開値の分離、限定公開、�
 
 プレイリストのサマリー・詳細を識別追従へ一律に変えるF01は未採用であり、共通部品を扱うことを理由にその挙動まで広げない。
 
-3と4・6は同じLR2出力周辺、4・6・7は同じ設定確定ファイル、6・11・12は同じ設定ViewModelを扱う。書込みは原則直列とし、独立して進める場合も許可パスと共有依存を分ける。新規作成から詳細編集・ドロップまでの接続も代表フローとして確認する。
+4・6・7は同じ設定確定ファイル、6・11・12は同じ設定ViewModelを扱う。書込みは原則直列とし、独立して進める場合も許可パスと共有依存を分ける。新規作成から詳細編集・ドロップまでの接続も代表フローとして確認する。
 
 ## 検証と実装開始時の引継ぎ
 
@@ -88,7 +86,6 @@ LR2 XMLの単一正本、保存済み値と公開値の分離、限定公開、�
 | 領域 | 既存の検証先と補う保証 |
 | --- | --- |
 | 単体新規導入 | `BmsLibraryPackageInstallServiceTests` の新規保留導入・宛先準備・単体物理確定。既存の単体成功例は明示宛先ありなので、未指定新規を追加する。 |
-| プレイリスト作成・ドロップ | `PlaylistWorkspaceActionWorkflowTests`、`MainWindowPlaylistWorkspaceWpfTests`。既存のdraft再保存テストはLR2無効のBMT失敗であり、正常なLR2初回保存を補う。 |
 | 検索・URL・ツリー | `PlaylistViewPipelineTests`、`PlaylistWorkspaceDetailRefreshTests`、`PlaylistCatalogViewChangeTests`、`PlaylistUrlCompletionTests`、`PlaylistEntryCommitTests` と代表WPF接続。大文字化を同一性の正解とした既存期待値を見直す。ツリーはキー変更単体だけで合格にしない。 |
 | 設定 | `SettingDialogOutputConfirmationTests`、`SettingDialogLr2OwnerTests`、`SettingDialogEnvironmentConfirmationTests`、`SettingDialogEditCompletionTests`、`SettingDialogCustomFolderOutputBaseTests`、`SettingsWindowCompiledBehaviorTests`。競合共存を前提としたテストは拒否・解除へ置換し、旧管理登録を復活させない保証を移す。実保存・XML・出力・台帳・URL、正規化後の連続操作、実Bindingを分担する。 |
 
@@ -96,11 +93,11 @@ LR2 XMLの単一正本、保存済み値と公開値の分離、限定公開、�
 
 反復は標準入口 `scripts/verify-refactor.ps1` の対象を絞った `Quick`、通常開発のコミット・統合前は `Functional`、最終公開候補は `Full` とする。[実行範囲と実行回数](../spec/development/testing.md#実行範囲の選択)に従い、同じ最終版の成功済み検証を理由なく繰り返さない。自動WPF検証と利用者環境での実機確認を区別し、実機確認を必須条件にしない。
 
-残る単位3〜7は保存・物理変更・受付・継続の保証に関わるため、重大変更として `critical-static-review` を使う。8・11・12は局所的な意味保存・正規化の修正なら `repo-static-review`、9は保存とランタイム補完の契約、10は通知順序・選択revisionを扱うため `critical-static-review` を予定する。各単位の最終差分で[重大変更判定](../spec/development/agent-workflow.md#重大変更の判定)をやり直し、影響が広がれば切り替える。いずれも凍結・予備レビュー後に独立した最終レビューを行う。
+残る単位4〜7は保存・物理変更・受付・継続の保証に関わるため、重大変更として `critical-static-review` を使う。8・11・12は局所的な意味保存・正規化の修正なら `repo-static-review`、9は保存とランタイム補完の契約、10は通知順序・選択revisionを扱うため `critical-static-review` を予定する。各単位の最終差分で[重大変更判定](../spec/development/agent-workflow.md#重大変更の判定)をやり直し、影響が広がれば切り替える。いずれも凍結・予備レビュー後に独立した最終レビューを行う。
 
 ## 完了条件と対象外
 
-- 残る9件と採用済み設計整理の受入条件を満たし、コード・保存値・出力・表示を必要な境界で確認する。未実施・失敗を成功扱いにしない。
+- 残る8件と採用済み設計整理の受入条件を満たし、コード・保存値・出力・表示を必要な境界で確認する。未実施・失敗を成功扱いにしない。
 - 新規作成後の通常編集、ドロップ、フォルダ更新と、出力拒否後の導入先変更・再操作を含む領域間の接続を確認する。
 - 全件走査・仮想行の全実体化、新しい永続フラグ、意味の変わるフォールバック、自動再試行を追加しない。
 - コミット、統合、公開、バージョン更新は別途指示された範囲でのみ行う。

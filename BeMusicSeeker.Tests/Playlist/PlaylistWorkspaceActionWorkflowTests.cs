@@ -1843,6 +1843,147 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+    /// <summary>未登録の空名draftから通常・追加・ROOTへ初回出力し、共通基点と兄弟表を保全します。実LR2出力/XML保存の故障後も同IDで未了段階を明示継続し、DBだけの成功や基点を旧先とする移行を検出します。</summary>
+    [TestMethod]
+    [DataRow("normal", "none")]
+    [DataRow("additional", "none")]
+    [DataRow("root", "none")]
+    [DataRow("normal", "output")]
+    [DataRow("root", "xml")]
+    [DataRow("normal", "content")]
+    public async Task CreatePlaylistPropertyDialog_FirstLr2OutputPreservesBasesAndResavesSameId(string destination, string failure)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceActionWorkflowTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        PlaylistPropertyDialogViewModel? dialog = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        FileStream? blocker = null;
+        try
+        {
+            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string normal = Path.Combine(directory, "normal"), additional = Path.Combine(directory, "additional"), root = Path.Combine(directory, "root");
+            var output = new CustomFolderOutputSettingsSnapshot
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = directory,
+                LR2CustomFolderOutputBaseDir = normal,
+                LR2CustomFolderOutputBaseDirRootType = root,
+                LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additional])
+            };
+            string targetBase = destination == "root" ? root : destination == "additional" ? additional : normal;
+            string target = Path.Combine(targetBase, "FirstOutput");
+            string targetFile = Path.Combine(target, "0000.lr2folder");
+            string bmt = Path.Combine(directory, "bmt");
+            LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(directory, normal, additional);
+            var owner = new Lr2ConfigOwner(config);
+            owner.SetPlacement(output);
+            byte[] oldXml = File.ReadAllBytes(config.ConfigFilePath);
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = true);
+            var library = new TestBmsLibrary(songPath, owner, null, null, () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+            var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath, () => output, owner,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt }, settings: settings);
+            var sibling = new BMSTable { playlist_id = 7501, name = "Sibling", Output_dir = "Sibling", entries = [] };
+            playlist.BMSTables = new ObservableCollection<BMSTable>([sibling]);
+            playlist.CommitBMSTableWithEntriesToDB(sibling);
+            string[] sentinels = new[] { normal, additional, root }.SelectMany(basePath => new[]
+            {
+                Path.Combine(basePath, "base.lr2folder"), Path.Combine(basePath, "Sibling", "0000.lr2folder")
+            }).ToArray();
+            foreach (string path in sentinels)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path) ?? throw new AssertFailedException());
+                File.WriteAllText(path, "sentinel");
+            }
+            using (var db = new LR2SongDBExtended(songPath))
+            {
+                foreach (string path in sentinels) { db.Insert(new LR2SongDB.folder { path = path, title = "sentinel", type = 2 }); }
+            }
+            workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(playlist, library, () => output, () => owner);
+            dialog = await workspace.CreatePlaylistPropertyDialogAsync() ?? throw new AssertFailedException("Draft dialog was not created.");
+            Assert.AreEqual(1, playlist.BMSTables.Count, "画面準備でdraftを登録しません。");
+            dialog.name = "First output";
+            dialog.output_dir = "FirstOutput";
+            dialog.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder;
+            dialog.is_root_folder = destination == "root";
+            if (destination == "additional") { dialog.custom_folder_output_base_option = dialog.OutputBaseOptions.Single(option => option.BaseName == "additional"); }
+            if (failure == "content")
+            {
+                // 空表のBMT本体非生成規則は保ち、必要BMTは保存時に実項目を取得する新規表で確認します。
+                string header = Path.Combine(directory, "header.json");
+                File.WriteAllText(header, "{\"name\":\"First output\",\"symbol\":\"F\",\"data_url\":\"data.json\"}");
+                File.WriteAllText(Path.Combine(directory, "data.json"), "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"First song\",\"level\":\"1\"}]");
+                workspace.PlaylistPropertyExternalSyncConfirmationRequested += (_, request) => request.Confirmed = true;
+                dialog.Page_url = new Uri(header);
+                dialog.Header_url = new Uri(header);
+                dialog.Data_url = new Uri(Path.Combine(directory, "data.json"));
+                dialog.is_external_sync = true;
+                Assert.IsTrue(dialog.is_external_sync);
+            }
+            if (failure == "output")
+            {
+                Directory.CreateDirectory(target);
+                File.WriteAllText(targetFile, "blocked");
+                blocker = new FileStream(targetFile, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+            }
+            else if (failure == "xml") { blocker = new FileStream(config.ConfigFilePath, FileMode.Open, FileAccess.Read, FileShare.Read); }
+            int? registeredId = null;
+            if (failure is "output" or "xml")
+            {
+                await Assert.ThrowsExceptionAsync<IOException>(async () => await dialog.SaveAndApplyAsync());
+                BMSTable registered = playlist.BMSTables.Single(table => table.playlist_id != sibling.playlist_id);
+                registeredId = registered.playlist_id;
+                Assert.IsTrue(registeredId.HasValue);
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly()) { Assert.AreEqual(2, db.Table<BMSTable>().Count()); }
+                if (failure == "xml")
+                {
+                    Assert.IsTrue(File.Exists(targetFile), "XML保存の前に実出力を終えます。");
+                    CollectionAssert.AreEqual(oldXml, File.ReadAllBytes(config.ConfigFilePath));
+                }
+                blocker?.Dispose(); blocker = null;
+            }
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+            BMSTable saved = playlist.BMSTables.Single(table => table.playlist_id != sibling.playlist_id);
+            Assert.IsTrue(saved.playlist_id.HasValue);
+            if (registeredId.HasValue) { Assert.AreEqual(registeredId, saved.playlist_id); }
+            Assert.AreEqual(2, playlist.BMSTables.Count);
+            Assert.IsTrue(File.Exists(targetFile));
+            string text = File.ReadAllText(targetFile, System.Text.Encoding.GetEncoding("shift_jis"));
+            StringAssert.Contains(text, "playlist_id = " + saved.playlist_id);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(2, db.Table<BMSTable>().Count());
+                Assert.AreEqual(saved.playlist_id, db.Table<BMSTable>().Single(table => table.name == "First output").playlist_id);
+                Assert.IsTrue(db.Table<LR2SongDB.folder>().Any(row => row.command != null && row.command.Contains("playlist_id = " + saved.playlist_id, StringComparison.Ordinal)));
+                foreach (string path in sentinels) { Assert.AreEqual("sentinel", db.Table<LR2SongDB.folder>().Single(row => row.path == path).title); }
+            }
+            foreach (string path in sentinels) { Assert.AreEqual("sentinel", File.ReadAllText(path)); }
+            var reloaded = new LR2Config(config.ConfigFilePath);
+            Assert.AreEqual(destination == "root", reloaded.GetBMSSearchDirectoriesForChangeTracking().Any(path => string.Equals(path.TrimEnd(Path.DirectorySeparatorChar), target, StringComparison.OrdinalIgnoreCase)));
+            string[] bmtFiles = Directory.Exists(bmt) ? Directory.GetFiles(bmt, "*.bmt") : [];
+            Assert.AreEqual(failure == "content" ? 1 : 0, bmtFiles.Length);
+            if (failure == "content")
+            {
+                var manifest = JObject.Parse(File.ReadAllText(Path.Combine(bmt, BmtTableExportService.ManifestFileName)));
+                JToken ownership = manifest["playlists"]?[saved.playlist_id?.ToString(CultureInfo.InvariantCulture) ?? throw new AssertFailedException("Saved ID is missing.")]
+                    ?? throw new AssertFailedException("BMT ownership is missing.");
+                Assert.AreEqual(Path.GetFileName(bmtFiles.Single()), ownership.Value<string>("file"));
+                using FileStream input = File.OpenRead(bmtFiles.Single());
+                using var gzip = new System.IO.Compression.GZipStream(input, System.IO.Compression.CompressionMode.Decompress);
+                using var reader = new StreamReader(gzip, System.Text.Encoding.UTF8);
+                StringAssert.Contains(JObject.Parse(reader.ReadToEnd()).ToString(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            }
+            Assert.AreSame(saved, workspace.PlaylistTreeTables.Single(table => table.playlist_id == saved.playlist_id));
+        }
+        finally
+        {
+            blocker?.Dispose();
+            if (dialog != null) { workspace?.ClosePropertyDialog(dialog); dialog.Dispose(); }
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     /// <summary>実draft作成入口から初回登録を確定し、実BMT失敗後の同じ画面の再保存でもIDと表・項目件数を増やしません。</summary>
     [TestMethod]
     public async Task CreatePlaylistPropertyDialog_OutputFailureResavesRegisteredDraftWithoutDuplicateId()
