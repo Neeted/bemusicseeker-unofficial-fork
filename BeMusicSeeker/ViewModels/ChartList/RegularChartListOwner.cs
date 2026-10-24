@@ -2624,6 +2624,9 @@ internal sealed partial class RegularChartListOwner : IDisposable
                     ApplyResourceHealthProjection = subset.ApplyResourceHealthProjection,
                     TreeMode = request.CurrentTreeMode,
                     SubsetName = subset.Name,
+                    SelectionContext = (request.TreeParameter ?? request.Parameter) is DuplicateViewContext duplicateSelection
+                        ? (duplicateSelection.Kind, duplicateSelection.Kind == DuplicateViewContextKind.FolderPath
+                            ? duplicateSelection.Value?.ToUpperInvariant() : duplicateSelection.Value) : null,
                     KeywordFilter = keywordFilter,
                     ModeFilter = modeFilter,
                     SortColumnName = virtualSortColumn,
@@ -3292,7 +3295,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 ? CreateVirtualRow(request.Library, row)
                 : mainChartList.RowProjection.CreateSubsetRow(request.Library, row, includeResourceHealth: true),
             distinctFolderCount,
-            CreateNormalFilter(request), scorePosition: scorePosition);
+            CreateNormalFilter(request), scorePosition: scorePosition,
+            selectionScope: (request.Library, request.IncludeBmsonRows, request.TreeFilter?.Kind, request.TreeFilter?.Term));
         distinctFolderCount = rowsView.DistinctFolderCount;
         RegularChartListTerminalResult terminal = TryCommitVirtual(
             lease,
@@ -3479,7 +3483,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 row,
                 request.ApplyResourceHealthProjection),
             distinctFolderCount, CreateSubsetFilter(request.KeywordFilter, request.ModeFilter), scoreInput, scorePosition,
-            (kind, count) => mainChartList.RowProjection.NormalInputWorkObserver?.Invoke(kind, count), referenceInput, catalogRevision);
+            (kind, count) => mainChartList.RowProjection.NormalInputWorkObserver?.Invoke(kind, count), referenceInput, catalogRevision,
+            selectionScope: (request.Library, request.TreeMode, request.SubsetName, request.SourceProjectionMode, request.SelectionContext));
         presentation = RegularChartListPresentationResult.ForVirtual(
                 new MainChartListRowsApplyRequest
                 {
@@ -4823,6 +4828,8 @@ internal sealed class RegularVirtualChartSubsetApplyRequest
     internal bool ApplyResourceHealthProjection { get; set; }
     internal MainViewUpdateMode TreeMode { get; set; }
     internal string SubsetName { get; set; }
+    /// <summary>同じ区分内の重複群・folder・packageを区別する変更不能な元集合キーです。全体集合ではnullです。</summary>
+    internal object SelectionContext { get; set; }
     internal string KeywordFilter { get; set; }
     internal ChartModeFilter ModeFilter { get; set; }
     internal string SortColumnName { get; set; }

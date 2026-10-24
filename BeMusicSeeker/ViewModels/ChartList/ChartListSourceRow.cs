@@ -116,6 +116,9 @@ internal sealed class ChartListSourceRow
 
     internal PackageChartEntry PackageEntry => packageEntry;
 
+    /// <summary>同じ専用元集合の再評価を越えて使う選択識別です。package項目、所持token、未所持の形式とpathの順に識別します。</summary>
+    internal object SelectionIdentity => (object)packageEntry ?? (object)Token ?? (CapturedChart.Kind, CapturedChart.Path);
+
     /// <summary>この投影が対応する捕捉済み基本値です。cacheはtokenだけで新旧の値を同一視しません。</summary>
     internal ChartFile CapturedChart => sourceChart;
 

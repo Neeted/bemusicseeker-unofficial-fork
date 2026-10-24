@@ -167,6 +167,7 @@ public sealed class CustomTableView : Grid
     private long itemsAppliedTimestamp;
     private bool firstRenderLogged = true;
     private bool updatingSelectedIndexFromSelection;
+    private (object[] Selected, object Current, object Anchor)? selectionIdentities;
     private bool isResizingColumn;
     private ICustomTableColumnLayout resizingColumnLayout;
     private int resizingColumnMinWidth;
@@ -349,6 +350,7 @@ public sealed class CustomTableView : Grid
         if (subscribedMainChartList != null)
         {
             subscribedMainChartList.RowsReplacing -= MainChartListRowsReplacing;
+            subscribedMainChartList.RowsSelectionPreserving -= MainChartListRowsSelectionPreserving;
             subscribedMainChartList.RowsReplacementCanceled -= MainChartListRowsReplacementCanceled;
             subscribedMainChartList.RowsReplacementPublishFailed -= MainChartListRowsReplacementCanceled;
             subscribedMainChartList.DisplayRefreshRequested -= MainChartListDisplayRefreshRequested;
@@ -357,6 +359,7 @@ public sealed class CustomTableView : Grid
         if (subscribedMainChartList != null)
         {
             subscribedMainChartList.RowsReplacing += MainChartListRowsReplacing;
+            subscribedMainChartList.RowsSelectionPreserving += MainChartListRowsSelectionPreserving;
             subscribedMainChartList.RowsReplacementCanceled += MainChartListRowsReplacementCanceled;
             subscribedMainChartList.RowsReplacementPublishFailed += MainChartListRowsReplacementCanceled;
             subscribedMainChartList.DisplayRefreshRequested += MainChartListDisplayRefreshRequested;
@@ -366,6 +369,29 @@ public sealed class CustomTableView : Grid
     private void MainChartListRowsReplacing(object sender, EventArgs e)
     {
         InvokePresentationAction(PrepareForItemsSourceSwap);
+    }
+
+    /// <summary>譜面一覧のBinding公開後に、同じ元集合なら選択識別を復元し、別の元集合なら旧添字による選択を解除します。</summary>
+    private void MainChartListRowsSelectionPreserving(object sender, MainChartListSelectionRestoration e)
+    {
+        InvokePresentationAction(() =>
+        {
+            if (ItemsSource is not ICustomTableSelectionIdentitySource before
+                || e.Rows is not ICustomTableSelectionIdentitySource after) { return; }
+            if (!before.SharesSelectionIdentityScope(after))
+            {
+                e.Register(() =>
+                {
+                    if (ReferenceEquals(ItemsSource, after)) { ClearSelection(); }
+                });
+                return;
+            }
+            (object[] Selected, object Current, object Anchor) captured = CaptureSelectionIdentities(before);
+            e.Register(() =>
+            {
+                if (ReferenceEquals(ItemsSource, after)) { RestoreSelectionIdentities(after, captured); }
+            });
+        });
     }
 
     private void MainChartListRowsReplacementCanceled(object sender, EventArgs e)
@@ -712,7 +738,7 @@ public sealed class CustomTableView : Grid
     private static void OnSelectedIndexChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         var view = (CustomTableView)d;
-        if (!view.updatingSelectedIndexFromSelection)
+        if (!view.updatingSelectedIndexFromSelection && !view.selectionIdentities.HasValue)
         {
             int selectedIndex = (int)e.NewValue;
             if (selectedIndex < 0 || view.RowCount > 0)
@@ -745,6 +771,11 @@ public sealed class CustomTableView : Grid
         {
             itemsCollectionChanged.CollectionChanged += ItemsSourceCollectionChanged;
         }
+        if (collection is ICustomTableSelectionIdentitySource source)
+        {
+            source.SelectionUpdateStarting += CaptureSelectionIdentities;
+            source.SelectionUpdateCompleted += RestoreSelectionIdentities;
+        }
     }
 
     private void DetachCollectionChanged(INotifyCollectionChanged collection)
@@ -752,6 +783,12 @@ public sealed class CustomTableView : Grid
         if (collection != null)
         {
             collection.CollectionChanged -= ItemsSourceCollectionChanged;
+        }
+        if (collection is ICustomTableSelectionIdentitySource source)
+        {
+            source.SelectionUpdateStarting -= CaptureSelectionIdentities;
+            source.SelectionUpdateCompleted -= RestoreSelectionIdentities;
+            selectionIdentities = null;
         }
         if (ReferenceEquals(itemsCollectionChanged, collection))
         {
@@ -766,12 +803,47 @@ public sealed class CustomTableView : Grid
         ClearPendingItemsSourceSwapColumnRedrawSuppression();
         MarkItemsApplied();
         InvalidateAllCellValues();
-        CoerceSelectionToCurrentRows();
+        if (!selectionIdentities.HasValue) { CoerceSelectionToCurrentRows(); }
         UpdateScrollBars();
         UpdateVisibleRowSubscriptions(
             GetCollectionChangedSubscriptionReason(e),
             logAlways: e?.Action == NotifyCollectionChangedAction.Reset);
         RequestRedraw("items_source_changed");
+    }
+
+    /// <summary>選択・主行・Shift基点だけを、更新前の元集合識別で短命に捕捉します。</summary>
+    private void CaptureSelectionIdentities(object sender, EventArgs e)
+    {
+        if (sender is not ICustomTableSelectionIdentitySource source || !ReferenceEquals(sender, ItemsSource)) { return; }
+        selectionIdentities = CaptureSelectionIdentities(source);
+    }
+
+    /// <summary>実体化なしの索引を使って、選択数に比例する識別だけを取得します。</summary>
+    private (object[] Selected, object Current, object Anchor) CaptureSelectionIdentities(ICustomTableSelectionIdentitySource source)
+        => (selectionModel.SelectedIndices.Select(source.GetSelectionIdentity).ToArray(),
+            source.GetSelectionIdentity(selectionModel.CurrentIndex), source.GetSelectionIdentity(selectionModel.AnchorIndex));
+
+    /// <summary>最終順序へ選択を戻します。主行の添字が同じでも副選択と基点を必ず照合します。</summary>
+    private void RestoreSelectionIdentities(object sender, EventArgs e)
+    {
+        if (!selectionIdentities.HasValue || sender is not ICustomTableSelectionIdentitySource source
+            || !ReferenceEquals(sender, ItemsSource)) { return; }
+        (object[] Selected, object Current, object Anchor) captured = selectionIdentities.Value;
+        selectionIdentities = null;
+        RestoreSelectionIdentities(source, captured);
+    }
+
+    /// <summary>残る選択・主行・基点だけを採用し、同じ主添字でも副選択の旧位置を使いません。</summary>
+    private void RestoreSelectionIdentities(ICustomTableSelectionIdentitySource source, (object[] Selected, object Current, object Anchor) captured)
+    {
+        selectionModel.SetItemCount(RowCount);
+        bool changed = selectionModel.RestoreIndices(captured.Selected.Select(source.IndexOfSelectionIdentity),
+            source.IndexOfSelectionIdentity(captured.Current), source.IndexOfSelectionIdentity(captured.Anchor));
+        // 行数減少によるcoerceが先に空にした場合も、選択消失を通知する。
+        changed |= captured.Selected.Length != selectionModel.SelectedIndices.Count;
+        UpdateSelectedIndexFromSelectionModel();
+        if (changed) { RaiseSelectionChanged(); }
+        RequestRedraw("selection");
     }
 
     internal void ApplyVisibilityChanged(bool isVisible)

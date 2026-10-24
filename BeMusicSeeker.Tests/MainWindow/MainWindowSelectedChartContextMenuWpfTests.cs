@@ -30,6 +30,135 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class MainWindowSelectedChartContextMenuWpfTests
 {
+    /// <summary>実Bindingの副選択移動と同じ元集合の行差替え後もcompiled削除・移動へ元の二譜面だけを渡し、明示Reset・別区分・別元集合では旧添字の選択を解除します。</summary>
+    [TestMethod]
+    public void ChartReorderAndRowsReplacement_CompiledMutationRequestsKeepSelectedCharts()
+    {
+        SelectedChartDeleteRequest? deleted = null;
+        SelectedChartMoveRequest? moved = null;
+        var mutation = new MainWindowSelectedChartMutationTerminal(
+            request => { deleted = request; return Task.FromResult(SelectedChartMutationResult.Completed); },
+            _ => Task.FromResult(SelectedChartMutationResult.Completed),
+            request => { moved = request; return Task.FromResult(SelectedChartMutationResult.Completed); },
+            _ => Task.FromResult(SelectedChartMutationResult.Completed));
+        RegularChartListOwnerTestSupport.WithTemporarySongDb(path =>
+        {
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                (scope, viewModel, window) =>
+                {
+                    using var fixture = new RegularScoreDeliveryTestFixture(path);
+                    Assert.IsTrue(fixture.Build());
+                    ChartFile[] charts = fixture.Library.CaptureNormalLibraryChartSnapshot().BmsRows.ToArray();
+                    foreach (ChartFile chart in charts) { File.WriteAllText(chart.Path, "#TITLE selection\n"); }
+                    window.Width = 1000d;
+                    window.Height = 700d;
+                    MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    var columns = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+                    void ApplyRows(MainChartListSelectionPolicy policy = MainChartListSelectionPolicy.Preserve)
+                        => viewModel.MainChartList.ApplyRows(new()
+                        {
+                            Rows = fixture.View,
+                            ColumnsSettings = columns,
+                            SelectionPolicy = policy,
+                            Summary = MainChartListSummaryUpdate.NormalCounts(3, 1),
+                            Stopwatch = System.Diagnostics.Stopwatch.StartNew(),
+                            OperationContextMode = MainViewUpdateMode.FolderFilterSelected
+                        });
+                    ApplyRows();
+                    Assert.AreSame(fixture.View, table.ItemsSource, "compiled ItemsSource Bindingで同じ仮想一覧を表示します。");
+                    table.SelectedIndex = 1;
+                    table.HandleKeyDown(System.Windows.Input.Key.Up, System.Windows.Input.ModifierKeys.Shift);
+                    fixture.Change(2, 40);
+                    Task delivery = fixture.Owner.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None);
+                    Task<ScheduledScoreOperation> next = fixture.Scheduler.NextAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(next, "compiled selection callback");
+                    ScheduledScoreOperation operation = next.GetAwaiter().GetResult();
+                    operation.Run();
+                    operation.Complete();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(delivery, "compiled selection completion");
+                    Assert.AreEqual(0, table.SelectedIndex);
+                    CollectionAssert.AreEqual(new[] { charts[0].Token, charts[2].Token },
+                        table.GetSelectedRowsSnapshot().Cast<LibraryChartRow>().Select(row => row.Chart.Token).ToArray());
+
+                    // 専用一覧の詳細依存更新などに必要な再構築と同じ、選択維持policyの差替えを通します。
+                    Assert.IsTrue(fixture.Build());
+                    ApplyRows();
+                    Assert.AreEqual(0, viewModel.MainChartList.SelectedIndex);
+                    var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                    menu.PlacementTarget = table;
+                    MenuItem delete = FindMenuItem(menu, "tableContextMenuItemDeleteFile").Items.OfType<MenuItem>().ElementAt(1);
+                    Assert.IsTrue(RaiseMenuClick(delete).Handled);
+                    Assert.IsNotNull(deleted);
+                    CollectionAssert.AreEqual(new[] { charts[0].Token, charts[2].Token }, deleted.SelectedTargets.Select(target => target.Chart.Token).ToArray());
+                    MenuItem moveGroup = FindMenuItem(menu, "tableContextMenuItemMoveFile");
+                    var moveItem = new MenuItem { DataContext = @"C:\selection-destination", Style = moveGroup.ItemContainerStyle };
+                    Assert.IsTrue(RaiseMenuClick(moveItem).Handled);
+                    Assert.IsNotNull(moved);
+                    CollectionAssert.AreEqual(new[] { charts[0].Token, charts[2].Token }, moved.Targets.Select(target => target.Chart.Token).ToArray());
+                    table.HandleKeyDown(System.Windows.Input.Key.Down, System.Windows.Input.ModifierKeys.Shift);
+                    CollectionAssert.AreEqual(new[] { charts[1].Token, charts[2].Token },
+                        table.GetSelectedRowsSnapshot().Cast<LibraryChartRow>().Select(row => row.Chart.Token).ToArray());
+
+                    Assert.IsTrue(fixture.Build());
+                    ApplyRows(MainChartListSelectionPolicy.Reset);
+                    Assert.AreEqual(-1, table.SelectedIndex);
+                    Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count);
+
+                    void SelectFirstTwoRows()
+                    {
+                        table.SelectedIndex = 1;
+                        table.HandleKeyDown(System.Windows.Input.Key.Up, System.Windows.Input.ModifierKeys.Shift);
+                        Assert.AreEqual(2, table.GetSelectedRowsSnapshot().Count);
+                        Assert.AreEqual(0, table.SelectedIndex);
+                    }
+                    void AssertSelectionCleared()
+                    {
+                        Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count, "別元集合の同じ添字を新しい選択として採用しません。");
+                        Assert.AreEqual(-1, table.SelectedIndex);
+                        Assert.AreEqual(-1, viewModel.MainChartList.SelectedIndex);
+                    }
+                    SelectFirstTwoRows();
+                    Assert.IsTrue(fixture.Build(subset: true));
+                    ApplyRows();
+                    AssertSelectionCleared();
+
+                    void BuildSubsetContext(string context)
+                    {
+                        Assert.IsTrue(fixture.Owner.TryApplyVirtualChartSubset(new()
+                        {
+                            Library = fixture.Library,
+                            SourceCharts = charts,
+                            SourceProjectionMode = ChartListSourceProjectionMode.OwnerBacked,
+                            SubsetName = "selection_context",
+                            SelectionContext = context,
+                            TreeMode = MainViewUpdateMode.FullScanAllChartsFilterSelected,
+                            ModeFilter = ChartModeFilter.All,
+                            SortColumnName = nameof(LibraryChartRow.Title),
+                            SortDirection = ListSortDirection.Ascending,
+                            ColumnSelection = new(columns, false, 0, MainViewUpdateMode.FullScanAllChartsFilterSelected,
+                                Visibility.Collapsed, new PlaylistSummaryColumnSettings()),
+                            Mode = MainViewUpdateMode.FullScanAllChartsFilterSelected,
+                            Stopwatch = System.Diagnostics.Stopwatch.StartNew()
+                        }).WasCommitted);
+                    }
+                    BuildSubsetContext("group A");
+                    ApplyRows();
+                    SelectFirstTwoRows();
+                    BuildSubsetContext("group B");
+                    ApplyRows();
+                    AssertSelectionCleared();
+                    // Reset後の復元を誤って有効化しない保証も、専用一覧側のBindingで確認します。
+                    SelectFirstTwoRows();
+                    BuildSubsetContext("group B");
+                    ApplyRows(MainChartListSelectionPolicy.Reset);
+                    AssertSelectionCleared();
+                },
+                selectedChartContextMenuTerminals: CreateTerminals(mutation: mutation));
+        });
+    }
+
     /// <summary>選択がないと右クリック行のBMS操作を表示し、bmson選択があると右クリックBMS行で選択を置き換えずBMS専用操作を隠します。</summary>
     [TestMethod]
     public void CompiledTableContextMenuState_UsesRowFallbackAndPreservesSelectedBmson()

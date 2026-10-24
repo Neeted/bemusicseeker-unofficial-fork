@@ -305,6 +305,9 @@ public sealed class MainChartListViewModel : ViewModel
     /// </summary>
     internal event EventHandler RowsReplacing;
 
+    /// <summary>選択維持policyの行差替えで、Binding公開前の選択捕捉と公開後の復元を画面へ委ねます。</summary>
+    internal event EventHandler<MainChartListSelectionRestoration> RowsSelectionPreserving;
+
     internal event EventHandler RowsReplacementCanceled;
 
     internal event EventHandler RowsReplacementPublishFailed;
@@ -923,6 +926,12 @@ public sealed class MainChartListViewModel : ViewModel
         long setViewNotificationStartMs = request.Stopwatch.ElapsedMilliseconds;
         long columnNotificationMs = 0L;
         var publishExceptions = new List<Exception>();
+        MainChartListSelectionRestoration selectionRestoration = null;
+        if (prepared.RowsChanged && request.SelectionPolicy == MainChartListSelectionPolicy.Preserve && IsCurrentRowsCommit(commit))
+        {
+            selectionRestoration = new(request.Rows);
+            TryPublish(() => RowsSelectionPreserving?.Invoke(this, selectionRestoration), publishExceptions);
+        }
         if (prepared.RowsChanged && IsCurrentRowsCommit(commit))
         {
             TryPublish(() => RaisePropertyChanged(nameof(Rows)), publishExceptions);
@@ -945,6 +954,10 @@ public sealed class MainChartListViewModel : ViewModel
         if (prepared.SelectionChanged && IsCurrentRowsCommit(commit))
         {
             TryPublish(() => RaisePropertyChanged(nameof(SelectedIndex)), publishExceptions);
+        }
+        if (selectionRestoration != null && IsCurrentRowsCommit(commit))
+        {
+            TryPublish(selectionRestoration.Restore, publishExceptions);
         }
         if (commit.OperationContextChanged && IsCurrentRowsCommit(commit))
         {

@@ -15,6 +15,7 @@ internal sealed class ChartSubsetViewOrder
     private readonly Action<string, int> observe;
     private ImmutableList<Entry> entries;
     private readonly Dictionary<int, Entry> byIndex = [];
+    private readonly Dictionary<object, int> byIdentity = [];
     private readonly Dictionary<string, HashSet<int>> byMd5 = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HashSet<int>> bySha256 = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<OwnedChartToken, HashSet<int>> byToken = [];
@@ -40,6 +41,7 @@ internal sealed class ChartSubsetViewOrder
         entries = initial.ToImmutable();
         for (int i = 0; i < source.Count; i++)
         {
+            byIdentity.TryAdd(source[i].SelectionIdentity, i);
             observe?.Invoke("hash_dependency_visit", 1);
             AddKey(byMd5, source[i].ReferenceMd5, i);
             AddKey(bySha256, source[i].ReferenceSha256, i);
@@ -60,12 +62,19 @@ internal sealed class ChartSubsetViewOrder
     /// <summary>元集合の添字から現在位置を取得し、未訪問行を実体化しません。</summary>
     internal int IndexOf(int sourceIndex) => byIndex.TryGetValue(sourceIndex, out Entry entry) ? FindInsertion(entry) : -1;
 
+    /// <summary>初回依存登録と同時に作った逆引きから選択識別の現在位置を返し、復元時の全件走査を避けます。</summary>
+    internal int IndexOfIdentity(object identity) => identity != null && byIdentity.TryGetValue(identity, out int index) ? IndexOf(index) : -1;
+
     /// <summary>scoreの変更hashから非表示行を含む実依存添字を取得します。</summary>
     internal HashSet<int> GetIndexes(ScoreSnapshotChange change)
+        => GetKeyIndexes(change.Md5Keys, change.Sha256Keys);
+
+    /// <summary>譜面詳細などの独立変更キーから、非表示行を含む実依存添字だけを取得します。</summary>
+    internal HashSet<int> GetKeyIndexes(IEnumerable<string> md5Keys, IEnumerable<string> sha256Keys)
     {
         HashSet<int> result = [];
-        CaptureIndexes(byMd5, change.Md5Keys, result);
-        CaptureIndexes(bySha256, change.Sha256Keys, result);
+        CaptureIndexes(byMd5, md5Keys, result);
+        CaptureIndexes(bySha256, sha256Keys, result);
         return result;
     }
 

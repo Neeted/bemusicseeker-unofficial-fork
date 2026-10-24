@@ -99,6 +99,10 @@ internal sealed class CustomTableSelectionModel
     }
 
     internal bool SelectIndices(IEnumerable<int> indices, int currentIndex)
+        => RestoreIndices(indices, currentIndex, -1);
+
+    /// <summary>識別から復元した選択・主行・基点を採用します。主行消失時は残選択の先頭、基点消失時は主行を使います。</summary>
+    internal bool RestoreIndices(IEnumerable<int> indices, int currentIndex, int anchorIndex)
     {
         var nextIndices = new SortedSet<int>((indices ?? []).Where(IsValidIndex));
         if (nextIndices.Count == 0)
@@ -106,14 +110,15 @@ internal sealed class CustomTableSelectionModel
             return Clear();
         }
         int nextCurrentIndex = nextIndices.Contains(currentIndex) ? currentIndex : nextIndices.First();
-        bool changed = !selectedIndices.SetEquals(nextIndices) || CurrentIndex != nextCurrentIndex || AnchorIndex != nextCurrentIndex;
+        int nextAnchorIndex = IsValidIndex(anchorIndex) ? anchorIndex : nextCurrentIndex;
+        bool changed = !selectedIndices.SetEquals(nextIndices) || CurrentIndex != nextCurrentIndex || AnchorIndex != nextAnchorIndex;
         selectedIndices.Clear();
         foreach (int index in nextIndices)
         {
             selectedIndices.Add(index);
         }
         CurrentIndex = nextCurrentIndex;
-        AnchorIndex = nextCurrentIndex;
+        AnchorIndex = nextAnchorIndex;
         return changed;
     }
 

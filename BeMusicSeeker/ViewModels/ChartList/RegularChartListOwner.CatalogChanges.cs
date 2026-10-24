@@ -58,6 +58,7 @@ internal sealed partial class RegularChartListOwner
         if (mainChartList.Rows is ChartListVirtualView view && view.NormalInput is NormalLibrarySourceRows input
             && ReferenceEquals(input.Library, library))
         {
+            using IDisposable selection = view.PreserveSelection();
             OwnedChartToken selected = view.GetNormalTokenAt(mainChartList.SelectedIndex);
             bool referenceValuesChanged = false;
             bool ready = view.TryApplyLibraryChanges(batch.CatalogCommits, batch.ReferenceCommits,
@@ -81,8 +82,12 @@ internal sealed partial class RegularChartListOwner
         }
         else if (mainChartList.Rows is ChartListVirtualView subset && ReferenceEquals(subset.ScoreLibrary, library))
         {
+            using IDisposable selection = subset.PreserveSelection();
             int selected = subset.GetSubsetSourceIndexAt(mainChartList.SelectedIndex);
             bool ready = subset.TryApplySubsetLibraryChanges(batch.CatalogCommits, batch.ReferenceCommits, out bool changed, InvalidateReferenceOrderKeys);
+            mainChartList.RowProjection.CaptureVersions(library);
+            changed |= subset.RefreshKeyDependencies(batch.ChangedDetailMd5s, batch.ChangedDetailSha256s,
+                row => row.RefreshDisplayForDataDependency(MainViewDataDependency.ChartInfo));
             if (!ready) { QueueLatestNormalLibraryRefreshNotification("subset_reference_boundary", library); }
             if (selected >= 0) { mainChartList.SelectedIndex = subset.IndexOfSubsetSourceIndex(selected); }
             if (changed) { subset.PublishOrderChanged(); }
@@ -191,6 +196,7 @@ internal sealed partial class RegularChartListOwner
             pendingNormalPresentation = (lease, presentation);
             return false;
         }
+        if (view.NormalInput == null) { view.RefreshKeyDependencies(normalBuildMd5Keys, normalBuildSha256Keys, null); }
         if (!view.TryApplyScoreChanges(normalBuildScoreChanges ?? [], out _)
             || view.ScoreLibrary != null && view.ScorePosition < view.ScoreLibrary.ScoreSnapshotVersion)
         {
@@ -369,6 +375,7 @@ internal sealed partial class RegularChartListOwner
         }
         if (showing)
         {
+            using IDisposable selection = view.PreserveSelection();
             OwnedChartToken selected = view.GetNormalTokenAt(mainChartList.SelectedIndex);
             int subsetSelected = view.GetSubsetSourceIndexAt(mainChartList.SelectedIndex);
             if (!view.TryApplyScoreChanges(changes, out bool changed))

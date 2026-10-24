@@ -8,6 +8,34 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTableSelectionModelTests
 {
+    /// <summary>識別復元では主行と基点を独立に戻し、主行消失・基点消失・全消失を既定の別行選択へ置き換えないことを確認します。</summary>
+    [TestMethod]
+    public void RestoreIndices_PreservesIndependentAnchorAndClearsMissingSelection()
+    {
+        CustomTableSelectionModel model = CreateModel(5);
+        model.RestoreIndices([0, 3], 0, 3);
+        Assert.AreEqual(0, model.CurrentIndex);
+        Assert.AreEqual(3, model.AnchorIndex);
+        model.SelectRange(2);
+        CollectionAssert.AreEqual(new[] { 2, 3 }, model.SelectedIndices.ToArray());
+
+        model.RestoreIndices([1, 4], -1, 4);
+        Assert.AreEqual(1, model.CurrentIndex);
+        Assert.AreEqual(4, model.AnchorIndex);
+        model.RestoreIndices([1, 4], 4, -1);
+        Assert.AreEqual(4, model.CurrentIndex);
+        Assert.AreEqual(4, model.AnchorIndex);
+        model.RestoreIndices([-1], -1, 2);
+        Assert.AreEqual(-1, model.CurrentIndex);
+        Assert.AreEqual(-1, model.AnchorIndex);
+        Assert.AreEqual(0, model.SelectedIndices.Count);
+
+        // 明示選択の既存APIは選択外の主行候補を基点として残しません。
+        model.SelectIndices([1, 4], 2);
+        Assert.AreEqual(1, model.CurrentIndex);
+        Assert.AreEqual(1, model.AnchorIndex);
+    }
+
     /// <summary>既存選択の後に別行を単一選択すると旧選択を除いて現在行と範囲起点も移ることを確認し、旧選択や起点が残る誤りを検出します。</summary>
     [TestMethod]
     public void SelectSingle_ReplacesSelectionAndSetsAnchor()

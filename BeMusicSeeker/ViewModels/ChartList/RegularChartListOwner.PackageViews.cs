@@ -86,6 +86,7 @@ internal sealed partial class RegularChartListOwner
             Library = library,
             ApplyResourceHealthProjection = installed,
             TreeMode = route.CurrentTreeMode,
+            SelectionContext = target as ChartPackage,
             SubsetName = installed
                 ? target is ChartPackage ? "newly_installed_package" : "newly_installed_all"
                 : target is ChartPackage ? "pending_install_package" : "pending_install_all",

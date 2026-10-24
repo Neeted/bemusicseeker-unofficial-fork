@@ -5,11 +5,12 @@ using System.Collections.Specialized;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Views;
 
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>通常一覧はtokenと局所更新可能な順序、専用一覧は捕捉添字を使い、訪問行だけを実体化します。</summary>
-internal sealed class ChartListVirtualView : IList, IChartListViewMetadata, INotifyCollectionChanged
+internal sealed class ChartListVirtualView : IList, IChartListViewMetadata, INotifyCollectionChanged, ICustomTableSelectionIdentitySource
 {
     private readonly IReadOnlyList<ChartListSourceRow> sourceRows;
     private readonly IReadOnlyList<int> orderedIndexes;
@@ -23,14 +24,16 @@ internal sealed class ChartListVirtualView : IList, IChartListViewMetadata, INot
     private readonly ChartSubsetReferenceRows subsetReferences;
     private int scorePosition;
     private readonly int distinctFolderCount;
+    private readonly object selectionScope;
 
-    /// <summary>初回の整列結果を採用し、以後は同じ元集合の実差分だけを反映します。専用一覧の参照入力も捕捉位置とともに受け取ります。</summary>
+    /// <summary>初回の整列結果を採用し、以後は同じ元集合の実差分だけを反映します。専用一覧の参照入力も捕捉位置とともに受け取ります。selectionScopeは元集合を表す変更不能なキーで、未指定時は別viewへの選択復元を許可しません。</summary>
     internal ChartListVirtualView(IReadOnlyList<ChartListSourceRow> sourceRows, ChartListOrder order,
         Func<ChartListSourceRow, LibraryChartRow> rowFactory, int distinctFolderCount = -1,
         Func<ChartListSourceRow, bool> normalFilter = null, ChartListScoreInput scoreInput = null,
         int? scorePosition = null, Action<string, int> observeWork = null,
-        ChartListReferenceInput referenceInput = null, int catalogRevision = 0)
+        ChartListReferenceInput referenceInput = null, int catalogRevision = 0, object selectionScope = null)
     {
+        this.selectionScope = selectionScope;
         if (referenceInput != null && sourceRows is not NormalLibrarySourceRows)
         { subsetReferences = new(sourceRows ?? [], referenceInput, catalogRevision, observeWork); }
         this.sourceRows = subsetReferences ?? sourceRows ?? [];
@@ -47,6 +50,40 @@ internal sealed class ChartListVirtualView : IList, IChartListViewMetadata, INot
     }
 
     public event NotifyCollectionChangedEventHandler CollectionChanged;
+    /// <inheritdoc/>
+    public event EventHandler SelectionUpdateStarting;
+    /// <inheritdoc/>
+    public event EventHandler SelectionUpdateCompleted;
+
+    /// <summary>通常・専用譜面一覧の差分適用から通知完了まで、実表の選択を更新前の識別で保持します。</summary>
+    internal IDisposable PreserveSelection()
+    {
+        SelectionUpdateStarting?.Invoke(this, EventArgs.Empty);
+        return new SelectionUpdateScope(this);
+    }
+
+    /// <inheritdoc/>
+    public object GetSelectionIdentity(int index)
+    {
+        if (normalOrder != null) { return GetNormalTokenAt(index); }
+        int sourceIndex = GetSubsetSourceIndexAt(index);
+        return sourceIndex >= 0 ? sourceRows[sourceIndex].SelectionIdentity : null;
+    }
+
+    /// <inheritdoc/>
+    public int IndexOfSelectionIdentity(object identity) => normalOrder != null
+        ? identity is OwnedChartToken token ? IndexOfNormalToken(token) : -1
+        : subsetOrder?.IndexOfIdentity(identity) ?? -1;
+
+    /// <inheritdoc/>
+    public bool SharesSelectionIdentityScope(ICustomTableSelectionIdentitySource other)
+        => other is ChartListVirtualView view && selectionScope != null && Equals(selectionScope, view.selectionScope);
+
+    /// <summary>例外や早期returnでも、変更済みの最終順序に対して選択復元を終えます。</summary>
+    private sealed class SelectionUpdateScope(ChartListVirtualView view) : IDisposable
+    {
+        public void Dispose() => view.SelectionUpdateCompleted?.Invoke(view, EventArgs.Empty);
+    }
     public int Count => normalOrder?.Count ?? subsetOrder?.Count ?? orderedIndexes.Count;
     public int RowCount => Count;
     public int DistinctFolderCount => normalOrder?.DistinctFolderCount ?? subsetOrder?.DistinctFolderCount ?? distinctFolderCount;
@@ -153,6 +190,18 @@ internal sealed class ChartListVirtualView : IList, IChartListViewMetadata, INot
     /// <summary>hashで依存する専門値だけを再評価し、実体化済み対象の表示を更新します。</summary>
     internal bool RefreshKeyDependencies(IEnumerable<string> md5Keys, IEnumerable<string> sha256Keys, Action<LibraryChartRow> refresh)
     {
+        if (subsetOrder != null)
+        {
+            HashSet<int> indexes = subsetOrder.GetKeyIndexes(md5Keys, sha256Keys);
+            bool changed = subsetOrder.Refresh(indexes);
+            foreach (int index in indexes)
+            {
+                if (!realizedSubsetRows.TryGetValue(index, out LibraryChartRow row)) { continue; }
+                refresh?.Invoke(row);
+                if (subsetOrder.IndexOf(index) < 0) { realizedSubsetRows.Remove(index); }
+            }
+            return changed;
+        }
         if (normalOrder == null) { return false; }
         HashSet<OwnedChartToken> tokens = normalOrder.GetTokens(md5Keys, sha256Keys);
         return RefreshTokens(tokens, refresh);

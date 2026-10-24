@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -25,6 +27,73 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class MainWindowChartPresentationWpfTests
 {
+    /// <summary>譜面一覧の並びに非依存の実score変更ではResetを送らず、同じ実editorと未確定文字列を保ち、選択復元が編集確定を引き起こす誤りを検出します。</summary>
+    [TestMethod]
+    public void ChartScoreValueChange_KeepsActiveEditorAndUncommittedText()
+    {
+        RegularChartListOwnerTestSupport.WithTemporarySongDb(path => TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            using var fixture = new RegularScoreDeliveryTestFixture(path);
+            Assert.IsTrue(fixture.Owner.TryApplyVirtualNormalLibrary(new()
+            {
+                Library = fixture.Library,
+                ModeFilter = ChartModeFilter.All,
+                SortColumnName = nameof(LibraryChartRow.Title),
+                SortDirection = System.ComponentModel.ListSortDirection.Ascending,
+                ColumnSelection = new(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD), false, 0,
+                    MainViewUpdateMode.FullScanAllChartsFilterSelected, Visibility.Collapsed, new PlaylistSummaryColumnSettings()),
+                Mode = MainViewUpdateMode.FullScanAllChartsFilterSelected,
+                Stopwatch = System.Diagnostics.Stopwatch.StartNew()
+            }).WasCommitted);
+            var column = new CustomTableColumn("Title", "Title",
+                new CustomTableColumnSettings.ColumnLayout { Width = 240, Visibility = Visibility.Visible },
+                fallbackOrder: 0, sortMemberPath: null, alignment: TextAlignment.Left,
+                textSelector: row => ((LibraryChartRow)row).Title, editPropertyName: "Title");
+            var table = new CustomTableView
+            {
+                Width = 300,
+                Height = 150,
+                HeaderHeight = 0,
+                RowHeight = 45,
+                Columns = [column],
+                ItemsSource = fixture.View,
+                SelectedIndex = 0
+            };
+            var window = new Window { Width = 320, Height = 200, Content = table, ShowInTaskbar = false, ShowActivated = false };
+            scope.ShowAndWaitForContentRendered(window);
+            MaterializeTable(table, 300, 150);
+            int ended = 0;
+            table.CellEditEnded += (_, _) => ended++;
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+            TextBox editor = GetInstalledEditor(table) ?? throw new AssertFailedException("実editorへ到達しませんでした。");
+            editor.Text = "未確定 入力";
+            Task delivery = Task.CompletedTask;
+            try
+            {
+                fixture.Change(2, 40);
+                delivery = fixture.Owner.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None);
+                Task<ScheduledScoreOperation> next = fixture.Scheduler.NextAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(next, "editor score callback");
+                ScheduledScoreOperation operation = next.GetAwaiter().GetResult();
+                operation.Run();
+                operation.Complete();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(delivery, "editor score completion");
+                Assert.AreSame(editor, GetInstalledEditor(table));
+                Assert.AreEqual("未確定 入力", editor.Text);
+                Assert.AreEqual(0, ended);
+                Assert.AreEqual(0, table.SelectedIndex);
+            }
+            finally
+            {
+                fixture.Scheduler.AbortOutstanding();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(delivery, "editor score cleanup");
+                table.HandleKeyDown(Key.Escape, ModifierKeys.None);
+                table.ItemsSource = null;
+            }
+        }));
+    }
+
     private static void WithSimpleTextBoxStyles(Action action)
     {
         ArgumentNullException.ThrowIfNull(action);
