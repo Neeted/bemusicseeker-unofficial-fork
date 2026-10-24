@@ -641,6 +641,89 @@ public sealed class PlaylistUrlCompletionTests
         }
     }
 
+    /// <summary>URL1/2の空文字・空白だけは当該補完ごと解除し、有効入力は置換します。他方の補完材料化・保存値保持をDBと実効表示で確認します。</summary>
+    /// <remarks>実編集Taskと別属性保存を終端まで待ち、旧補完の復活と両URL一括消去を検出します。実セルの空欄配送とEscapeは既存WPF系列が分担します。</remarks>
+    [DataTestMethod]
+    [DataRow(nameof(PlaylistDetailRow.Url), "", false)]
+    [DataRow(nameof(PlaylistDetailRow.Url), "", true)]
+    [DataRow(nameof(PlaylistDetailRow.Url), " \t ", false)]
+    [DataRow(nameof(PlaylistDetailRow.Url), " \t ", true)]
+    [DataRow(nameof(PlaylistDetailRow.Url_diff), "", false)]
+    [DataRow(nameof(PlaylistDetailRow.Url_diff), "", true)]
+    [DataRow(nameof(PlaylistDetailRow.Url_diff), " \t ", false)]
+    [DataRow(nameof(PlaylistDetailRow.Url_diff), " \t ", true)]
+    [DataRow(nameof(PlaylistDetailRow.Url), "https://example.com/manual", false)]
+    [DataRow(nameof(PlaylistDetailRow.Url), "https://example.com/manual", true)]
+    [DataRow(nameof(PlaylistDetailRow.Url_diff), "https://example.com/manual", false)]
+    [DataRow(nameof(PlaylistDetailRow.Url_diff), "https://example.com/manual", true)]
+    [TestCategory("Playlist")]
+    public async Task DetailEdit_LocalUrlClearOrReplacePreservesOtherUrl(string propertyName, string text, bool completeOther)
+    {
+        string path = CreateEmptySongDbPath();
+        PlaylistWorkspaceViewModel? workspace = null;
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        try
+        {
+            PlaylistPersistenceRepository.EnsureSchema(path);
+            BMSTable table = CreateTable(4103, "URL edit");
+            BMSTableEntry entry = CreateEntry(new string('e', 32), "URL edit song");
+            entry.Url = new Uri("https://example.com/saved-main");
+            entry.Url_diff = new Uri("https://example.com/saved-diff");
+            table.entries = [entry];
+            workspace = CreateSavedDetailWorkspace(path, table, out playlist, out library);
+            bool editMain = propertyName == nameof(PlaylistDetailRow.Url);
+            entry.ApplyRuntimeUrlCompletion(
+                editMain || completeOther ? new Uri("https://example.com/runtime-main") : null,
+                !editMain || completeOther ? new Uri("https://example.com/runtime-diff") : null,
+                overwriteExisting: true);
+            var source = new PlaylistDetailSourceRow(entry, resolvedChart: null);
+            PlaylistDetailRow row = source.CreateViewRow();
+            workspace.DetailViewState.Source.Rows = [source];
+            var context = new MainChartListCellEditContext(row, propertyName,
+                ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+            Assert.IsTrue(workspace.CanBeginDetailEdit(context));
+            workspace.BeginDetailEdit(context);
+            await workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, text, commit: true));
+            Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+
+            Uri? editedUrl = string.IsNullOrWhiteSpace(text) ? null : new Uri("https://example.com/manual");
+            Uri otherUrl = new(editMain
+                ? completeOther ? "https://example.com/runtime-diff" : "https://example.com/saved-diff"
+                : completeOther ? "https://example.com/runtime-main" : "https://example.com/saved-main");
+            Uri? expectedMain = editMain ? editedUrl : otherUrl;
+            Uri? expectedDiff = editMain ? otherUrl : editedUrl;
+            void AssertUrls()
+            {
+                Assert.AreEqual(expectedMain, entry.Url);
+                Assert.AreEqual(expectedDiff, entry.Url_diff);
+                Assert.AreEqual(expectedMain, entry.EffectiveUrl);
+                Assert.AreEqual(expectedDiff, entry.EffectiveUrlDiff);
+                Assert.IsNull(entry.RuntimeUrlCompletion);
+                Assert.IsNull(entry.RuntimeUrlDiffCompletion);
+                Assert.AreEqual(expectedMain, row.Url);
+                Assert.AreEqual(expectedDiff, row.Url_diff);
+                PlaylistDetailRow current = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
+                Assert.AreEqual(expectedMain, current.Url);
+                Assert.AreEqual(expectedDiff, current.Url_diff);
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(path).OpenSongDbReadOnly();
+                BMSTableEntry saved = db.Table<BMSTableEntry>().Single();
+                Assert.AreEqual(expectedMain, saved.Url);
+                Assert.AreEqual(expectedDiff, saved.Url_diff);
+            }
+            AssertUrls();
+            await SaveDetailMemoAsync(workspace, entry, "after URL edit");
+            AssertUrls();
+        }
+        finally
+        {
+            if (workspace != null) { workspace.CancelDetailBuilds(); await workspace.WaitForDetailBuildIdleAsync(); workspace.Dispose(); }
+            playlist?.RequestShutdown("url-edit-fixture");
+            library?.RequestShutdown("url-edit-fixture");
+            DeleteTempSongDbDirectory(path);
+        }
+    }
+
     /// <summary>外部同期表のmemoは保存する一方、主URL・差分URL補完は実効表示だけに保持し、外部由来の保存値へ混入させません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
@@ -1012,8 +1095,10 @@ public sealed class PlaylistUrlCompletionTests
     /// 保存済みの現行項目へ無効URIを確定要求し、実Taskの終端後も編集行・source・正本・新DBが元URLと未編集属性を保ち、編集状態を解放することを確認します。
     /// </summary>
     /// <remarks>URI検査前の受付を実playlistへ通し、早期例外による見かけの非保存を除きます。正常保存とURL材料化は既存の実保存系列、取消時の解放はPlaylistViewPipelineTestsが分担します。</remarks>
-    [TestMethod]
-    public async Task DetailEdit_InvalidUriPreservesSavedEntryAndReleasesEditing()
+    [DataTestMethod]
+    [DataRow(nameof(PlaylistDetailRow.Url))]
+    [DataRow(nameof(PlaylistDetailRow.Url_diff))]
+    public async Task DetailEdit_InvalidUriPreservesSavedEntryAndReleasesEditing(string propertyName)
     {
         const int playlistId = 4102;
         const string originalUrl = "https://example.com/original-main";
@@ -1038,7 +1123,7 @@ public sealed class PlaylistUrlCompletionTests
             var source = new PlaylistDetailSourceRow(entry, resolvedChart: null);
             PlaylistDetailRow editedRow = source.CreateViewRow();
             workspace.DetailViewState.Source.Rows = [source];
-            var context = new MainChartListCellEditContext(editedRow, nameof(PlaylistDetailRow.Url),
+            var context = new MainChartListCellEditContext(editedRow, propertyName,
                 ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
 
             Assert.IsTrue(playlist.ContainsCurrentDetailEntry(entry));
@@ -1116,7 +1201,7 @@ public sealed class PlaylistUrlCompletionTests
         }
     }
 
-    /// <summary>同じ旧rowでmemo編集中に正規URL補完を配送してもdraftを保持し、保存後は最新URLとmemoへ収束します。外部同期表はURLを材料化しません。</summary>
+    /// <summary>memo編集中の正規URL補完を保存へ反映し、ローカルURL1/2の空欄解除と別属性保存後にも明示の新候補を適用できます。外部同期表はURLを材料化しません。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1134,12 +1219,14 @@ public sealed class PlaylistUrlCompletionTests
             testSettings.EnableStellaFullPlaylistUrlCompletion = false;
             testSettings.OverwritePlaylistUrlsWithCompletion = false;
             testSettings.PlaylistMd5UrlMappingTsvUri = "https://example.com/playlist-draft.tsv";
+            string candidateMain = "https://example.com/completed";
+            string candidateDiff = "https://example.com/completed-diff";
             library = MainWindowViewModelTestFactory.CreateLibrary(path, testSettings);
             playlist = new TestBmsPlaylist(path, null, null, null,
                 () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings),
                 () => BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings),
                 () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings), null,
-                (_, _) => Task.FromResult("md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\t\thttps://example.com/completed"),
+                (_, _) => Task.FromResult($"md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\t{candidateDiff}\t{candidateMain}"),
                 (_, _) => Task.FromResult("[]"));
             BMSTable table = CreateTable(6201, "draft completion"); table.is_external_sync = external;
             table.entries = [CreateEntry(new string('a', 32), "draft entry")];
@@ -1179,10 +1266,53 @@ public sealed class PlaylistUrlCompletionTests
                 if (external) { Assert.IsTrue(string.IsNullOrEmpty(savedUrl)); }
                 else { Assert.AreEqual("https://example.com/completed", savedUrl); }
             }
+            Uri expectedMain = new("https://example.com/completed");
+            if (!external)
+            {
+                // 同じ表示sourceを維持し、通常の編集で別属性を保存します。fixtureの再構築で局所更新の保証を弱めません。
+                async Task SaveCurrentMemoAsync(string value)
+                {
+                    var memoContext = new MainChartListCellEditContext(oldRow, nameof(PlaylistDetailRow.memo),
+                        ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+                    workspace.BeginDetailEdit(memoContext);
+                    await workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(memoContext, value, commit: true));
+                }
+                foreach (string property in new[] { nameof(PlaylistDetailRow.Url), nameof(PlaylistDetailRow.Url_diff) })
+                {
+                    var urlContext = new MainChartListCellEditContext(oldRow, property,
+                        ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+                    workspace.BeginDetailEdit(urlContext);
+                    await workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(urlContext, string.Empty, commit: true));
+                    Assert.IsNull(property == nameof(PlaylistDetailRow.Url) ? oldRow.Url : oldRow.Url_diff);
+                    await SaveCurrentMemoAsync("memo after clear " + property);
+                    Assert.IsNull(property == nameof(PlaylistDetailRow.Url) ? oldRow.Url : oldRow.Url_diff);
+                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(path).OpenSongDbReadOnly())
+                    {
+                        string? saved = db.ExecuteScalar<string?>(property == nameof(PlaylistDetailRow.Url)
+                            ? "SELECT url FROM playlist_entry;" : "SELECT url_diff FROM playlist_entry;");
+                        Assert.IsTrue(string.IsNullOrEmpty(saved));
+                    }
+                    candidateMain = "https://example.com/reapplied-main-" + property;
+                    candidateDiff = "https://example.com/reapplied-diff-" + property;
+                    testSettings.PlaylistMd5UrlMappingTsvUri = "https://example.com/reapply-" + property + ".tsv";
+                    await ScheduleUrlCompletionRefreshAsync(store, "explicit_after_clear");
+                    Uri expected = new(property == nameof(PlaylistDetailRow.Url) ? candidateMain : candidateDiff);
+                    Assert.AreEqual(expected, property == nameof(PlaylistDetailRow.Url) ? oldRow.Url : oldRow.Url_diff);
+                    Assert.AreEqual(expected, property == nameof(PlaylistDetailRow.Url) ? oldRow.Entry.EffectiveUrl : oldRow.Entry.EffectiveUrlDiff);
+                    await SaveCurrentMemoAsync("memo draft");
+                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(path).OpenSongDbReadOnly())
+                    {
+                        string? saved = db.ExecuteScalar<string?>(property == nameof(PlaylistDetailRow.Url)
+                            ? "SELECT url FROM playlist_entry;" : "SELECT url_diff FROM playlist_entry;");
+                        Assert.AreEqual(expected.AbsoluteUri, saved);
+                    }
+                    if (property == nameof(PlaylistDetailRow.Url)) { expectedMain = expected; }
+                }
+            }
             testSettings.EnablePlaylistUrlCompletion = false;
             await ScheduleUrlCompletionRefreshAsync(store, "draft_overlap_disable");
             Assert.AreEqual("memo draft", oldRow.memo);
-            Assert.AreEqual(external ? null : new Uri("https://example.com/completed"), oldRow.Url);
+            Assert.AreEqual(external ? null : expectedMain, oldRow.Url);
             Assert.AreEqual(0, reloads);
             Assert.AreEqual(0, work.Count(kind => kind == "playlist_dependency_index_entry"));
             Assert.AreEqual(0, work.Count(kind => kind == "playlist_order_buffer"));

@@ -1979,7 +1979,13 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         bool shutdown = terminalOutcome == "shutdown-cancellation";
         int expectedNotifications = terminalOutcome is "failure" or "cancellation" ? 1 : 0;
         TaskCompletionSource<object?> completion = NewCompletion();
-        var dialogs = new RecordingPlaylistWorkspaceDialogService();
+        string phase = "constructing";
+        var notificationDiagnostics = new List<string>();
+        var dialogs = new RecordingPlaylistWorkspaceDialogService
+        {
+            MessageObserved = request => notificationDiagnostics.Add(
+                $"phase={phase}, caption={request.Caption}, text={request.MessageBoxText}\n{Environment.StackTrace}")
+        };
         int callCount = 0;
         MainWindowPlaylistTablesReloadTerminal reloadTerminal =
             new(() => ++callCount == 1 ? completion.Task : Task.CompletedTask);
@@ -1993,6 +1999,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     var menu = (ContextMenu)window.FindResource("treeViewPlaylistRootContextMenu");
                     MenuItem reload = FindMenuItemByHeaderBindingPath(menu, "Resources.Reload");
                     RoutedEventArgs? args = null;
+                    phase = "reload-click";
                     reloadEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => args = RaiseMenuClick(reload));
                     Assert.IsNotNull(args);
                     Assert.IsTrue(args.Handled);
@@ -2000,10 +2007,12 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     Assert.IsFalse(completion.Task.IsCompleted);
                     if (shutdown)
                     {
+                        phase = "window-close";
                         window.Close();
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "compiled-playlist-reload-owned-shutdown");
                         Assert.IsTrue(viewModel.ShellShutdownWorkflow.IsShutdownRequested);
                     }
+                    phase = "terminal-completion";
                     switch (terminalOutcome)
                     {
                         case "failure": completion.TrySetException(new IOException("playlist root reload failed")); break;
@@ -2015,7 +2024,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         default: completion.TrySetResult(null); break;
                     }
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadEvent, "compiled-playlist-reload-event-terminal");
-                    Assert.AreEqual(expectedNotifications, dialogs.MessageRequests.Count);
+                    Assert.AreEqual(expectedNotifications, dialogs.MessageRequests.Count,
+                        $"outcome={terminalOutcome}, shutdown={viewModel.ShellShutdownWorkflow.IsShutdownRequested}, close={window.CloseCompletion.Status}\n"
+                        + string.Join("\n", notificationDiagnostics));
                     if (terminalOutcome == "failure")
                     {
                         Assert.IsTrue(dialogs.MessageShown.Task.IsCompletedSuccessfully);
@@ -4481,6 +4492,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
         internal List<UiMessageRequest> MessageRequests { get; } = [];
 
+        /// <summary>通知内容と生産経路を、診断が必要なケースだけで捕捉します。</summary>
+        internal Action<UiMessageRequest>? MessageObserved { get; init; }
+
         internal TaskCompletionSource<UiConfirmationRequest> ConfirmationShown { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -4492,6 +4506,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             CancellationToken cancellationToken = default)
         {
             MessageRequests.Add(request);
+            MessageObserved?.Invoke(request);
             MessageShown.TrySetResult(request);
             return Task.FromResult(MessageResult);
         }

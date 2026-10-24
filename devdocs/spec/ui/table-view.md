@@ -196,6 +196,8 @@ scoreの未反映範囲を必要とする要求は、その時点で必要な確
 
 主な編集項目は `EntryLevel`、`Folder`、`Url1`、`Url2`、`Comment`、`Memo`、`InstallDst` です。URLの通常クリックは取得操作、再クリック・F2・文字入力はURL文字列の編集です。導入先候補は `ChartFile.InstallDestinationSuggestions` から取得し、保留中のBMSも `PackageChartEntry.Chart` を使います。古い保存用モデルの一時値へ代替しません。確定時は `CellEditEnded` から対象のモデル・DBの更新へ接続します。
 
+ローカルプレイリストのURL1/URL2は空文字・空白だけで確定すると、当該欄の保存値と補完値を解除します。非空の無効URIは確定せず、Escapeは入力を保存しません。保存と別属性編集後の補完保持・再適用は[保存仕様](../playlist/storage-and-export.md)に従います。
+
 `INSTL DST` の編集開始時は、候補が1件でも複数でも未選択です。上下キーで候補を選んでEnterを押すと、その候補の生パスを確定します。候補クリックもクリックした生パスを確定します。文字入力・削除は候補選択を解除し、Enterは入力文字列を確定します。Tabも入力文字列を確定し、既存のフォーカス移動を行います。Escapeは1回目で候補一覧を閉じ、2回目で編集を取り消します。候補一覧を閉じてもモデルの候補は消去しません。
 
 空文字をEnterで確定するか、未設定・候補未選択の空の編集欄から外へ移ると、導入先と代表TITLE/ARTISTを空にし、候補・推定WARNINGを保持して「▼ 候補を選択…」へ戻します。設定済みの導入先を空へ編集する場合も同じです。設定済み文字列を変更せず外へ移れば現値を維持します。候補外の有効な手動入力は、候補なしの行と同じパス検証で受け付け、対象群と候補を共通分類器で照合した[実在ペア](../library/install-estimation.md#比較用の基本情報と導入先の代表ペア)のTITLE/ARTISTへ更新し（Relatedは根拠ペア）、候補・推定WARNINGを保持します。検証拒否時は元の状態を保持します。「インストール先をクリア」は導入先・代表情報・候補・推定WARNINGを消去し、保留登録時の元配置健康度とリソース警告を復元します。その他の分類のWARNINGは保持します。[保留の配置評価](../library/warnings.md#リソース状態の評価)に従い、編集・選択では評価し、明示クリアでは再検査せず計算済み結果を使います。設定先ありでも不足の要約を表示し、推定時の音源見送り理由は現在の健康度と独立して保持します。
@@ -252,7 +254,7 @@ DPIは変更コールバックと描画開始時の環境確認で追従しま�
 
 `ChartListVirtualViewTests.AdditionalSupportedOrders_MatchExistingDefaultLibraryChartRowSort` は欠損notesを残した全識別子と定義値の数値順・同値タイトル昇順を独立期待で確認する。NULL位置は固定しない。`PlaylistViewPipelineTests.PlaylistDetailPresentationService_MissingChartInfoParticipatesInKeywordAndNumericSort` は欠損を含む4行の数値順・同値集合と数値検索の2件を確認する。通常cacheと保守更新の保証は既存の再利用・metadata変更系列へ分担する。
 
-`PlaylistWorkspaceDetailRefreshTests.RequestDetailRefresh_OwnsRequestThroughRebuildAndTerminalApply` はproducer gateと要求終端を保ち、同条件再利用と情報更新後の最終検索集合を確認する。`PlaylistWorkspacePresentationStateTests.PlaylistWorkspaceSummarySortRequestDrainsOwnerPresentationState` は名称と未完備所持率を併用し、件数順・cache再利用・件数更新後の集合を確認する。`MainWindowChartPresentationWpfTests.MainWindowPendingCellEditUsesDefaultTerminalAndMainChartOwnerRoute` は実列factoryの導入先とplaylist MemoをF2/Enterから共通端末へ接続し、詳細編集の開始・終了を確認する。詳細のDB保存は[保存仕様](../playlist/storage-and-export.md)の5属性Taskへ分担する。
+`PlaylistWorkspaceDetailRefreshTests.RequestDetailRefresh_OwnsRequestThroughRebuildAndTerminalApply` はproducer gateと要求終端を保ち、同条件再利用と情報更新後の最終検索集合を確認する。`PlaylistWorkspacePresentationStateTests.PlaylistWorkspaceSummarySortRequestDrainsOwnerPresentationState` は名称と未完備所持率を併用し、件数順・cache再利用・件数更新後の集合を確認する。`MainWindowChartPresentationWpfTests.MainWindowPendingCellEditUsesDefaultTerminalAndMainChartOwnerRoute` は実列factoryの導入先・playlist Memo・URL空欄をF2/Enterから共通端末へ接続し、URLのEscape取消と詳細編集の開始・終了を確認する。詳細の5属性DB保存、URL1/2の空文字・空白・無効URI・有効置換と補完の条件は[保存仕様](../playlist/storage-and-export.md)へ分担する。
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |

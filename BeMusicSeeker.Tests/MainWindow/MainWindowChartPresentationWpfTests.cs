@@ -150,7 +150,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
-    /// <summary>実列factoryの導入先とplaylist MemoをF2/Enterで確定し、MainChartList端末へ対象行・列・入力を配送して詳細編集状態の開始・終了を通知します。</summary>
+    /// <summary>実列factoryの導入先・playlist Memo・URL空欄をF2/Enterで共通端末へ配送し、URL編集のEscape取消と詳細編集状態の終端を確認します。</summary>
     [TestMethod]
     public void MainWindowPendingCellEditUsesDefaultTerminalAndMainChartOwnerRoute()
     {
@@ -254,6 +254,36 @@ public sealed class MainWindowChartPresentationWpfTests
                     Assert.AreEqual("edited memo", completed[1].Text);
                     Assert.IsTrue(completed[1].Commit);
                     // このconstructorは保存providerを持たず同期終端となる。DB保存は下位の5属性Taskへ分担する。
+                    Assert.IsFalse(viewModel.PlaylistWorkspace.DetailViewState.Source.IsPlaylistCellEditing);
+
+                    detailEntry.Url = new Uri("https://example.com/cell-url");
+                    detailRow = new PlaylistDetailSourceRow(detailEntry, resolvedChart: null).CreateViewRow();
+                    table.ItemsSource = new List<object> { detailRow };
+                    columnSettings.Url1.Visibility = Visibility.Visible;
+                    table.Columns = [.. CustomTableColumnFactory.CreateMainColumns(columnSettings)
+                        .Where(candidate => candidate.EditPropertyName == nameof(PlaylistDetailRow.Url))];
+                    table.SelectRowsByPredicate(_ => true);
+                    MaterializeTable(table, table.Width, table.Height);
+                    RaiseKey(table, Key.F2);
+                    TextBox urlEditor = GetInstalledEditor(table) ?? throw new AssertFailedException("URL編集controlへ到達しませんでした。");
+                    Assert.AreEqual("https://example.com/cell-url", urlEditor.Text);
+                    urlEditor.Text = string.Empty;
+                    RaiseKey(table, Key.Escape);
+                    Assert.AreEqual(3, completed.Count);
+                    Assert.IsFalse(completed[2].Commit);
+                    Assert.AreEqual(new Uri("https://example.com/cell-url"), detailEntry.Url);
+                    Assert.IsFalse(viewModel.PlaylistWorkspace.DetailViewState.Source.IsPlaylistCellEditing);
+                    RaiseKey(table, Key.F2);
+                    urlEditor = GetInstalledEditor(table) ?? throw new AssertFailedException("URL再編集controlへ到達しませんでした。");
+                    urlEditor.Text = string.Empty;
+                    RaiseKey(table, Key.Return);
+                    Assert.AreEqual(4, beginning.Count);
+                    Assert.AreEqual(4, started.Count);
+                    Assert.AreEqual(4, completed.Count);
+                    Assert.AreSame(detailRow, completed[3].Context.Row);
+                    Assert.AreEqual(nameof(PlaylistDetailRow.Url), completed[3].Context.PropertyName);
+                    Assert.AreEqual(string.Empty, completed[3].Text);
+                    Assert.IsTrue(completed[3].Commit);
                     Assert.IsFalse(viewModel.PlaylistWorkspace.DetailViewState.Source.IsPlaylistCellEditing);
                 });
         });

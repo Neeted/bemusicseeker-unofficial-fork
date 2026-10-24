@@ -85,6 +85,12 @@
 
 固定秒数・許容退行率を根拠なく設定しない。性能悪化が残る場合や大きな設計拡張が必要な場合は見送る。検証は `BmsLibraryPackageInstallServiceTests` の資源のみ・連続導入と `InstalledOnlyResourceOverwriteValidationTests` を起点に、実配置・DB読戻し・現在値・各一覧の一致と、変更しない値の保持を確認する。単体新規導入の必須修正へ混ぜない。
 
+## 終了取消テストの予定外通知の調査
+
+[`PlaylistRootReload_UsesOneTypedTerminalAndHandlesBeforeAsyncCompletion`](../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) の `shutdown-cancellation` で、終了に伴う取消の通知0件という期待に対して1件を観測した。通知の本文・生産元が分からず、原因と本番影響は未特定である。対象単体・同クラス群と診断追加後の通常検証では再現していない。URLセル編集代表とは別のテストプロセスで実行されるため、その共有Application・Dispatcher・Taskから直接混入する経路はない。
+
+再現時には同ケースの通知本文・見出し・生産stack・発生段階・shutdown/CloseCompletion診断を使い、取消通知と別の終了通知を区別して生産経路を特定する。期待値、終了取消の無通知契約、受付・終了処理を根拠なく変えない。これは再現条件を調べる項目であり、解決済みとは扱わない。
+
 ## 採用時と完了時の運用
 
 採用する項目だけ、利用者の意図に依存する未決事項を確定し、[独立テスト設計・引継ぎ・レビュー](../spec/development/agent-workflow.md)と[変更に応じた検証](../spec/development/testing.md)へ進む。本書を採用済みの機能仕様として扱わない。

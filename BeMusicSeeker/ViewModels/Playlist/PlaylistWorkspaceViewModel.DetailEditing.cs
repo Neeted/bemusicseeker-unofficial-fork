@@ -33,6 +33,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// プレイリスト詳細のセル編集をP内で保存し、関連出力・通知の実試行とsession終端まで待ちます。
     /// 操作後の任意表示の失敗は局所診断し、保存・出力・取消の結果へ加えません。
     /// 再同期前の古い項目は保存せず通知し、最新行からの明示編集を受け付けます。
+    /// URL の空白だけの入力は未設定への解除として保存し、非空の無効な絶対 URI は保存しません。
     /// </summary>
     /// <param name="request">一覧から受け取った編集結果。</param>
     /// <returns>
@@ -70,7 +71,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             string propertyName = request.Context.PropertyName;
             if ((propertyName == nameof(PlaylistDetailRow.Url) || propertyName == nameof(PlaylistDetailRow.Url_diff))
-                && !Uri.TryCreate(request.Text, UriKind.Absolute, out _))
+                && !BMSTableEntry.TryParseEditedUrl(request.Text, out _))
             {
                 return;
             }

@@ -22,6 +22,33 @@ public sealed class PlaylistEntryCommitTests
     private const string LowerSha256 = LowerMd5 + LowerMd5;
     private const string MixedSha256 = MixedMd5 + MixedMd5;
 
+    /// <summary>画面を経由しない保存入口でもURL1/2の非空無効URIは拒否し、正本・補完・DBと版を保持します。</summary>
+    [DataTestMethod]
+    [DataRow(nameof(BMSTableEntry.Url))]
+    [DataRow(nameof(BMSTableEntry.Url_diff))]
+    public void CommitDraft_InvalidUrlPreservesCurrentValues(string propertyName)
+    {
+        using var fixture = new Fixture();
+        BMSTable table = fixture.Tables[0];
+        BMSTableEntry entry = table.entries[0];
+        fixture.Commit(entry, nameof(BMSTableEntry.Url), "https://example.com/saved-main");
+        fixture.Commit(entry, nameof(BMSTableEntry.Url_diff), "https://example.com/saved-diff");
+        entry.ApplyRuntimeUrlCompletion(new Uri("https://example.com/runtime-main"),
+            new Uri("https://example.com/runtime-diff"), overwriteExisting: true);
+        int revision = table.PlaylistEntriesRevision;
+        int receipts = fixture.Receipts.Count;
+        Assert.ThrowsException<UriFormatException>(() => fixture.Commit(entry, propertyName, "not a URI"));
+        Assert.AreEqual(revision, table.PlaylistEntriesRevision);
+        Assert.AreEqual(receipts, fixture.Receipts.Count);
+        Assert.AreEqual(new Uri("https://example.com/saved-main"), entry.Url);
+        Assert.AreEqual(new Uri("https://example.com/saved-diff"), entry.Url_diff);
+        Assert.AreEqual(new Uri("https://example.com/runtime-main"), entry.EffectiveUrl);
+        Assert.AreEqual(new Uri("https://example.com/runtime-diff"), entry.EffectiveUrlDiff);
+        BMSTableEntry saved = fixture.FreshStartupEntries().Single(row => row.playlist_id == entry.playlist_id && row.md5 == entry.md5);
+        Assert.AreEqual(new Uri("https://example.com/saved-main"), saved.Url);
+        Assert.AreEqual(new Uri("https://example.com/saved-diff"), saved.Url_diff);
+    }
+
     /// <summary>raw NULL生存行をstartup readerから正規ownerへ渡し、編集とfreshな削除を別fixtureで読戻します。</summary>
     /// <remarks>NULLと0だけを同じ生存単位へ揃え、removed・同hash別folder/title・別表の行を保持します。</remarks>
     [DataTestMethod]

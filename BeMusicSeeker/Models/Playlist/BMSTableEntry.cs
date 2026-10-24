@@ -211,6 +211,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
     }
 
+    /// <summary>保存対象の URL1 です。明示設定時は null による解除を含め、この欄のランタイム補完を解除します。</summary>
     public Uri Url
     {
         get
@@ -255,6 +256,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
     }
 
+    /// <summary>保存対象の URL2 です。明示設定時は null による解除を含め、この欄のランタイム補完を解除します。</summary>
     public Uri Url_diff
     {
         get
@@ -558,7 +560,18 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         folder, lr2_bmsid, Url, Url_diff, EffectiveUrl, EffectiveUrlDiff, name_diff,
         comment, memo, adddate, is_removed, org_md5);
 
-    /// <summary>writer 内の現在値から作った候補へ、一つの draft 属性だけを適用します。</summary>
+    /// <summary>URL 編集の空白だけの入力を未設定へ、それ以外を絶対 URI へ変換し、画面受付と保存候補で同じ検査を使います。</summary>
+    /// <param name="text">利用者の URL 入力。</param>
+    /// <param name="uri">受理した絶対 URI。空白だけの入力では null。</param>
+    /// <returns>未設定または有効な絶対 URI として受理できる場合は true。</returns>
+    internal static bool TryParseEditedUrl(string text, out Uri uri)
+    {
+        uri = null;
+        return string.IsNullOrWhiteSpace(text) || Uri.TryCreate(text, UriKind.Absolute, out uri);
+    }
+
+    /// <summary>writer 内の現在値から作った候補へ、一つの draft 属性だけを適用します。URL の空白だけの入力は未設定にし、当該補完も解除します。</summary>
+    /// <exception cref="UriFormatException">空白だけではない URL 入力が絶対 URI として無効です。</exception>
     internal void ApplyEditDraft(string propertyName, string text)
     {
         switch (propertyName)
@@ -575,7 +588,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
                 break;
             case nameof(Url):
             case nameof(Url_diff):
-                if (!Uri.TryCreate(text, UriKind.Absolute, out Uri uri))
+                if (!TryParseEditedUrl(text, out Uri uri))
                 {
                     throw new UriFormatException("Playlist edit requires an absolute URI.");
                 }
