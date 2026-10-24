@@ -1180,6 +1180,7 @@ internal sealed class BmsLibraryPackageInstallService
     /// <summary>
     /// package install の filesystem 操作を destination-local staging と durable DB receipt の境界で実行します。
     /// source は DB owner が durable receipt を返すまで保持し、cleanup はその後だけ行います。
+    /// 宛先未指定の単体譜面も新規フォルダへ導入します。単体入力の物理計画はそのファイルだけを含み、親や兄弟を変更しません。
     /// </summary>
     internal FileDbMutationReceipt MovePackageFilesWithReceipt(
         ChartPackage package,
@@ -1225,27 +1226,43 @@ internal sealed class BmsLibraryPackageInstallService
             isPreflightRefusal: out _);
     }
 
-    /// <summary>候補の読取り入力から実宛先を固定します。移動はせず、同一要求の宛先衝突と既存実体を避けます。</summary>
+    /// <summary>単体譜面・フォルダの読取り入力から新規導入フォルダを固定します。明示宛先は維持し、未指定時は同一要求の予約と既存実体を避けます。入力の物理的な範囲は変更しません。</summary>
     internal string PrepareInstallDestination(ChartPackage package, string installationDirectory,
         BmsLibraryOptionsSnapshot options, Func<IEnumerable<ChartFile>, string, string> createFolderPath,
         ISet<string> reservedDestinations)
     {
-        if (!LongPathFileSystem.DirectoryExists(package.path) || !string.IsNullOrWhiteSpace(installationDirectory))
+        if (!string.IsNullOrWhiteSpace(installationDirectory))
+        { return installationDirectory; }
+        bool isSingleFile = LongPathFileSystem.FileExists(package.path);
+        if (!isSingleFile && !LongPathFileSystem.DirectoryExists(package.path))
         { return installationDirectory; }
         List<PackageChartEntry> entries = SelectInstallTargetEntries(package,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase), package.path, false);
-        string baseDirectory = createFolderPath(entries.Select(entry => entry.Chart), options.BMSInstallDir);
+            new HashSet<string>([package.path], StringComparer.OrdinalIgnoreCase), package.path, isSingleFile);
+        return ResolveNewInstallDestination(entries.Select(entry => entry.Chart), options, createFolderPath, reservedDestinations);
+    }
+
+    /// <summary>新規導入の命名・衝突回避を事前準備と直接実行で共用し、要求内の予約があれば同時に登録します。</summary>
+    private static string ResolveNewInstallDestination(IEnumerable<ChartFile> charts,
+        BmsLibraryOptionsSnapshot options, Func<IEnumerable<ChartFile>, string, string> createFolderPath,
+        ISet<string> reservedDestinations = null)
+    {
+        string baseDirectory = createFolderPath?.Invoke(charts, options?.BMSInstallDir);
+        if (string.IsNullOrWhiteSpace(baseDirectory))
+        {
+            throw new IOException("The package destination could not be determined.");
+        }
         string destination = baseDirectory;
         int suffix = 1;
-        while (LongPathFileSystem.EntryExists(destination) || reservedDestinations.Contains(destination))
+        while (LongPathFileSystem.EntryExists(destination) || reservedDestinations?.Contains(destination) == true)
         { destination = baseDirectory + "(" + ++suffix + ")"; }
-        reservedDestinations.Add(destination);
+        reservedDestinations?.Add(destination);
         return destination;
     }
 
     /// <summary>
     /// 導入・フォルダ統合の session 向けに filesystem promotion までを実行します。
     /// canonical durable apply と source cleanup は outer session が所有し、ここでは実行しません。
+    /// 新規宛先の準備は入力種別で共用しますが、単体譜面はそのファイルだけを新規フォルダへ配置します。
     /// </summary>
     /// <param name="onMutationScopePrepared">読み取りpreflightで実src/dstを確定した後、最初の物理副作用前に条件付きPを取得します。falseはBusyの継続可能な未処理、trueはcleanup終端まで保持する受理を表します。</param>
     /// <param name="preparedDestinationDirectory">同じ受理操作で停止前に固定した実宛先。指定時は名前計算を繰り返しません。</param>
@@ -1368,7 +1385,7 @@ internal sealed class BmsLibraryPackageInstallService
                 throw new FileNotFoundException(Resources.Error_FileNotFound, sourcePath);
             }
 
-            bool isAutoNaming = isDirectory && string.IsNullOrWhiteSpace(installationDirectory);
+            bool isAutoNaming = string.IsNullOrWhiteSpace(installationDirectory);
             List<string> installComponentFiles = isSingleFile
                 ? [sourcePath]
                 : [.. LongPathFileSystem.EnumerateFileSystemEntries(sourcePath)];
@@ -1412,22 +1429,15 @@ internal sealed class BmsLibraryPackageInstallService
             string destinationDirectory;
             if (isAutoNaming)
             {
-                destinationDirectory = preparedDestinationDirectory ?? createFolderPath?.Invoke(
-                    installTargetEntries.Select(entry => entry.Chart), options?.BMSInstallDir);
+                destinationDirectory = preparedDestinationDirectory ?? ResolveNewInstallDestination(
+                    installTargetEntries.Select(entry => entry.Chart), options, createFolderPath);
                 if (string.IsNullOrWhiteSpace(destinationDirectory))
                 {
                     throw new IOException("The package destination could not be determined.");
                 }
-                string baseDirectory = destinationDirectory;
-                int suffix = 1;
                 if (preparedDestinationDirectory != null && LongPathFileSystem.EntryExists(destinationDirectory))
                 {
                     throw new IOException(string.Format(Resources.Warn_MoveDestAlreadyExists, sourcePath, destinationDirectory));
-                }
-                while (preparedDestinationDirectory == null && LongPathFileSystem.EntryExists(destinationDirectory))
-                {
-                    suffix++;
-                    destinationDirectory = baseDirectory + "(" + suffix + ")";
                 }
             }
             else
@@ -1526,7 +1536,7 @@ internal sealed class BmsLibraryPackageInstallService
                 }
             }
 
-            if (isAutoNaming)
+            if (isAutoNaming && isDirectory)
             {
                 mutationPaths.Add(CreateMutationPathPlan(
                     sourcePath,
@@ -1662,7 +1672,7 @@ internal sealed class BmsLibraryPackageInstallService
                     }
                     sourceCleanupDirectories.Add(new FileDbMutationCleanupPathPlan(sourcePath, recursive: false));
                 }
-                if (package.delete_parent)
+                if (package.delete_parent && !isAutoNaming)
                 {
                     string parentPath = Path.GetDirectoryName(sourcePath);
                     if (!string.IsNullOrWhiteSpace(parentPath))

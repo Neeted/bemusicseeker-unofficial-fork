@@ -3277,6 +3277,134 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     {
         AssertNormalInstallRouteUsesPreflightDestinationAndWarmDelta("force", backgroundCount);
     }
+
+    /// <summary>
+    /// 資源不足の単体BMS・BMSONと通常フォルダを同時に新規導入し、既存実体と要求内予約を避けた準備宛先へ配置します。
+    /// 宛先設定済み行も強制新規では別フォルダを使い、兄弟を保持したままsong DB・所持・新規・保留・install表を一致させます。
+    /// </summary>
+    /// <remarks>実取り込みで単体分類と保留保存を成立させ、実libraryの変更セッションとSQLite読戻しまでの接続を確認します。命名の物理条件は小さい実FSで観測します。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ForceInstallPendingPackages_SingleChartsAndDirectoryUseReservedNewFolders(bool hasConfiguredDestination)
+    {
+        WithTemporarySongDb((songDbPath, root) =>
+        {
+            string installRoot = Path.Combine(root, "Library");
+            Directory.CreateDirectory(installRoot);
+            string blockedFile = Path.Combine(installRoot, "Shared");
+            File.WriteAllText(blockedFile, "existing file");
+            string blockedDirectory = Path.Combine(installRoot, "Shared(2)");
+            Directory.CreateDirectory(blockedDirectory);
+            string blockedSentinel = Path.Combine(blockedDirectory, "keep.txt");
+            File.WriteAllText(blockedSentinel, "existing directory");
+            string firstParent = Path.Combine(root, "First");
+            string secondParent = Path.Combine(root, "Second");
+            string folderSource = Path.Combine(root, "Folder");
+            string firstSource = CreateBmsFile(firstParent, "single.bms",
+                "#PLAYER 1\n#TITLE Shared\n#GENRE First\n#WAV01 missing.wav\n#00111:01\n");
+            Directory.CreateDirectory(secondParent);
+            string secondSource = Path.Combine(secondParent, "single.bmson");
+            File.WriteAllText(secondSource, CreateBmsonJsonWithSound("missing.wav").Replace("\"Bmson\"", "\"Shared\""));
+            string folderChart = CreateBmsFile(folderSource, "folder.bms",
+                "#PLAYER 1\n#TITLE Shared\n#GENRE Folder\n#WAV01 missing.wav\n#00111:01\n");
+            string folderReadme = Path.Combine(folderSource, "readme.txt");
+            File.WriteAllText(folderReadme, "folder readme");
+            string[] siblingPaths = [
+                Path.Combine(firstParent, "readme.txt"), Path.Combine(secondParent, "readme.txt"),
+                CreateBmsFile(firstParent, "other.bms", "#TITLE Unselected first"),
+                CreateBmsFile(secondParent, "other.bms", "#TITLE Unselected second")];
+            File.WriteAllText(siblingPaths[0], "first readme");
+            File.WriteAllText(siblingPaths[1], "second readme");
+            byte[][] siblingBytes = siblingPaths.Select(File.ReadAllBytes).ToArray();
+            string[] sourcePaths = [firstSource, secondSource, folderChart];
+            byte[][] chartBytes = sourcePaths.Select(File.ReadAllBytes).ToArray();
+            string configuredDestination = Path.Combine(root, "Configured");
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = false,
+                BMSInstallDir = installRoot,
+                FolderNameFormat = "%TITLE%",
+                DeletePendingPackageSourceAfterInstall = true,
+                EnableSmartComponentOverwrite = false
+            };
+            var library = new TestBmsLibrary(songDbPath, null, null, new RealFileMutationService(),
+                new RecordingDialogService(), new TestUiScheduler(() => null), () => options)
+            {
+                BmsCharts = [],
+                BmsonCharts = [],
+                SearchTargets = [installRoot],
+                ChartPackagesPending = CreatePackageCollection([]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+            try
+            {
+                PackageInstallCommandResult imported = library.InstallChartPackagesAutoWithProgressAsync(
+                    [firstSource, secondSource, folderSource], CancellationToken.None,
+                    new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
+                Assert.IsFalse(imported.HasRequiredFailure);
+                string[] packagePaths = [firstSource, secondSource, folderSource];
+                ChartPackage[] packages = packagePaths.Select(path => library.ChartPackagesPending.Single(package => package.path == path)).ToArray();
+                Assert.AreEqual(3, library.ChartPackagesPending.Count);
+                Assert.AreEqual(firstSource, packages[0].path, "発見後も単体ファイルである入力を使います。");
+                Assert.AreEqual(secondSource, packages[1].path);
+                if (hasConfiguredDestination)
+                {
+                    packages[0].ChartEntries.Single().SetInstallDestinationPathOnly(configuredDestination);
+                    packages[1].ChartEntries.Single().SetInstallDestinationPathOnly(configuredDestination);
+                }
+                using (LR2SongDBExtended pendingDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                {
+                    CollectionAssert.AreEquivalent(packagePaths, pendingDb.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
+                }
+                (IReadOnlyList<string> Paths, IReadOnlyDictionary<ChartPackage, string> Destinations, BmsLibraryOptionsSnapshot Options, PendingEstimatedInstallPreparation EstimatedInstallPreparation) preparation = library.PreparePendingPackagePhysicalScope(packages, forceInstall: true, overwriteResources: false);
+                string[] destinations = [Path.Combine(installRoot, "Shared(3)"), Path.Combine(installRoot, "Shared(4)"), Path.Combine(installRoot, "Shared(5)")];
+                for (int index = 0; index < packages.Length; index++)
+                {
+                    Assert.AreEqual(destinations[index], preparation.Destinations[packages[index]]);
+                    Assert.IsFalse(Directory.Exists(destinations[index]), "宛先準備だけでは配置しません。");
+                    CollectionAssert.Contains(preparation.Paths.ToArray(), destinations[index]);
+                }
+                LibraryMutationSessionReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(packages,
+                    approveNormalInstallOverride: true, approvedNormalInstallOverridePackages: null,
+                    preparedDestinations: preparation.Destinations, preparedOptions: preparation.Options);
+                Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
+                Assert.IsFalse(receipt.HasRequiredFailure, receipt.PrimaryFailure?.ToString());
+                Assert.AreEqual(0, library.ChartPackagesPending.Count);
+                Assert.AreEqual(3, library.ChartPackagesInstalled.Count);
+                string[] expectedPaths = sourcePaths.Select((path, index) => Path.Combine(destinations[index], Path.GetFileName(path))).ToArray();
+                CollectionAssert.AreEquivalent(expectedPaths, library.BmsCharts.Concat(library.BmsonCharts).Select(chart => chart.Path).ToArray());
+                CollectionAssert.AreEquivalent(expectedPaths, library.ChartPackagesInstalled.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart.Path).ToArray());
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                CollectionAssert.AreEquivalent(new[] { expectedPaths[0], expectedPaths[2] }, db.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+                Assert.AreEqual(expectedPaths[1], db.Table<LR2SongDBExtended.bmson_song>().Single().path);
+                Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
+                OwnedChartHashIndexVersionedSnapshot owned = library.GetOwnedChartHashIndexSnapshot();
+                foreach (ChartFile installed in library.BmsCharts.Concat(library.BmsonCharts))
+                {
+                    Assert.IsTrue(owned.ContainsMd5(installed.Md5));
+                }
+                for (int index = 0; index < expectedPaths.Length; index++)
+                {
+                    CollectionAssert.AreEqual(chartBytes[index], File.ReadAllBytes(expectedPaths[index]));
+                    Assert.IsFalse(File.Exists(sourcePaths[index]));
+                    string[] expectedFiles = index == 2 ? ["folder.bms", "readme.txt"] : [Path.GetFileName(sourcePaths[index])];
+                    CollectionAssert.AreEquivalent(expectedFiles, Directory.GetFiles(destinations[index], "*", System.IO.SearchOption.AllDirectories).Select(Path.GetFileName).ToArray());
+                }
+                for (int index = 0; index < siblingPaths.Length; index++)
+                {
+                    CollectionAssert.AreEqual(siblingBytes[index], File.ReadAllBytes(siblingPaths[index]));
+                }
+                Assert.IsTrue(Directory.Exists(firstParent));
+                Assert.IsTrue(Directory.Exists(secondParent));
+                Assert.AreEqual("existing file", File.ReadAllText(blockedFile));
+                Assert.AreEqual("existing directory", File.ReadAllText(blockedSentinel));
+                Assert.AreEqual("folder readme", File.ReadAllText(Path.Combine(destinations[2], "readme.txt")));
+                Assert.IsFalse(Directory.Exists(configuredDestination));
+            }
+            finally { library.RequestShutdown("single-chart-new-install-test"); }
+        });
+    }
     /// <summary>
     /// BMS・Bmsonの導入後に実保存した資源充足値を新規・通常一覧へ反映し、導入前の一時警告を残す誤りと冷温索引による警告の欠落を検出する。
     /// </summary>
@@ -6830,19 +6958,36 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
     /// <summary>
-    /// 単一譜面入力はファイルのまま移動と片付けを確定し、元の親フォルダ全体を削除扱いする誤りと現在パスの更新漏れを検出する。
+    /// 単体BMS・BMSONは宛先未指定でも明示宛先でもファイルだけを配置し、兄弟を保持します。
+    /// 自動命名をフォルダ移動へ読み替える誤りと、明示宛先差分での衝突回避・現在パス更新の欠落を検出します。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
-    [TestMethod]
-    public void MovePackageFilesWithReceipt_SingleFilePackageFinalizesFileSource()
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void MovePackageFilesWithReceipt_SingleFilePackageFinalizesFileSource(bool bmson, bool automaticDestination)
     {
 
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            string sourcePath = Path.Combine(tempDirectoryPath, "single.bms");
+            string sourcePath = Path.Combine(tempDirectoryPath, bmson ? "single.bmson" : "single.bms");
             string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "InstalledSingle");
-            File.WriteAllText(sourcePath, "#PLAYER 1\r\n#TITLE Single");
-            ChartFile chart = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", sourcePath);
+            string sourceText = bmson ? CreateBmsonJsonWithSound("missing.wav") : "#PLAYER 1\r\n#TITLE Single";
+            File.WriteAllText(sourcePath, sourceText);
+            string sibling = Path.Combine(tempDirectoryPath, "readme.txt");
+            File.WriteAllText(sibling, "keep sibling");
+            string destinationPath = Path.Combine(destinationDirectoryPath, Path.GetFileName(sourcePath));
+            if (!automaticDestination)
+            {
+                Directory.CreateDirectory(destinationDirectoryPath);
+                File.WriteAllText(destinationPath, "existing chart");
+            }
+            string expectedDestinationPath = automaticDestination ? destinationPath
+                : Path.Combine(destinationDirectoryPath, Path.GetFileNameWithoutExtension(sourcePath) + "_" + Path.GetExtension(sourcePath));
+            ChartFile chart = bmson ? ChartTestValues.ReadBmson(sourcePath)
+                : BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourcePath));
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([chart]);
             package.path = sourcePath;
             package.delete_parent = false;
@@ -6850,13 +6995,14 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 
             FileDbMutationReceipt receipt = service.MovePackageFilesWithReceipt(
                 package,
-                destinationDirectoryPath,
+                automaticDestination ? null : destinationDirectoryPath,
                 new BmsLibraryOptionsSnapshot
                 {
                     EnableSmartComponentOverwrite = false,
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 },
-                (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
+                (_, _) => automaticDestination ? destinationDirectoryPath
+                    : throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
                 exception => exception.Message,
                 new RealFileMutationService(),
                 null,
@@ -6870,9 +7016,15 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(FileDbMutationTerminalState.Completed, receipt.TerminalState);
             Assert.IsTrue(receipt.DurableCommit);
             Assert.IsFalse(File.Exists(sourcePath));
-            Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "single.bms")));
+            Assert.AreEqual(sourceText, File.ReadAllText(expectedDestinationPath));
+            Assert.AreEqual("keep sibling", File.ReadAllText(sibling));
+            Assert.IsTrue(Directory.Exists(tempDirectoryPath));
+            if (!automaticDestination)
+            {
+                Assert.AreEqual("existing chart", File.ReadAllText(destinationPath));
+            }
             Assert.AreEqual(sourcePath, chart.Path);
-            Assert.AreEqual(Path.Combine(destinationDirectoryPath, "single.bms"), package.ChartEntries.Single().Chart.Path);
+            Assert.AreEqual(expectedDestinationPath, package.ChartEntries.Single().Chart.Path);
         });
     }
 

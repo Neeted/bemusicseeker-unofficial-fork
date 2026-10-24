@@ -74,6 +74,8 @@ flowchart TB
 
 未準備入力は `InstallChartPackagesAutoWithProgressAsync` で一回だけ準備します。元入力の存在は展開前に確認し、適用直前には展開済み入力と必要なパッケージの存在を確認します。正常消費された管理元アーカイブの残存は、自動導入・保留登録・直接推定の条件にしません。設定、解析結果、所持索引は同じ受理操作内で再利用します。
 
+発見後も `ChartPackage.path` がBMS・BMSONファイルそのものである単体入力は、新規導入時にフォルダ入力と同じ命名・要求内予約・既存実体との衝突回避を使います。準備した実宛先を物理処理と変更セッションへ渡し、その新規フォルダには当該ファイルだけを配置します。親フォルダ、兄弟のreadmeや別譜面は移動・削除しません。単体とフォルダの混在でも各宛先を予約し、宛先設定済み行の強制新規では設定済み宛先を使いません。明示宛先への単体差分導入では、従来の譜面ファイル名の衝突回避を維持します。隣接資源が揃っている等の既存発見規則でフォルダパッケージへ昇格する入力は、そのフォルダの範囲を維持します。
+
 導入処理へ渡した後は、[管理用一時領域の回収規則](../core/managed-temp-files.md#削除の時機)に従います。準備中例外、展開後の取消、宛先準備・再生停止の失敗、パッケージ未検出でも、適用へ未引渡しの管理入力を終端までに回収します。この削除に失敗した場合は、診断ログに加えて削除失敗の原因と対象パスを操作結果の終端報告へ保持します。確定済み導入と元原因・取消を置き換えず、回収失敗を併記し、自動再試行は行いません。保留パッケージが参照する管理入力は、現在の起動中はその保留を削除するまで保持し、アプリ終了時には一時領域の回収対象になります。
 
 部分的な変更や例外では入力を壊すおそれがあるため、待ち行列が無条件に回収しません。残った管理領域は終了時または次回起動時の回収へ委ねます。回収失敗だけで取消・世代切替・終了の主結果を失敗へ置き換えません。
@@ -110,6 +112,7 @@ WPFの対応形式は `DataFormats.FileDrop` です。ドラッグ中は `GetDat
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 単体BMS・BMSONの新規導入と明示宛先への差分 | `BmsLibraryPackageInstallService.PrepareInstallDestination` / `MovePackageFilesCore`、`BMSLibrary.PackageInstall` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `ForceInstallPendingPackages_SingleChartsAndDirectoryUseReservedNewFolders` が実取り込み・保留保存後の単体とフォルダ混在、同名予約・既存ファイル／フォルダ衝突、宛先設定済み行の強制新規を、実配置・song DB・所持・新規／保留・install表で確認する。`MovePackageFilesWithReceipt_SingleFilePackageFinalizesFileSource` が両形式の宛先未指定と明示宛先差分の衝突回避・兄弟保持を分担する。単体発見と隣接資源によるフォルダ昇格は既存の `PrepareAutoInstallWorkflow_DetectsSingleBmsonFileSelection` / `PrepareAutoInstallWorkflow_ExplicitBmsonFileWithAdjacentResourcesUsesDirectoryPackage` / `PrepareAutoInstallWorkflow_ClassifiesDetectedDirectoriesAsInstallable` 系列を維持する。 |
 | URL取得入力の所有付き要求と保留の寿命 | `PlaylistWorkspaceViewModel.PlaylistUrlAcquisition`、`DroppedInstallBatchRequest`、`PackageInstallWorkflowOwner` | [URL取得の所有テスト](../playlist/downloads.md#実装とテストの対応)が開始前取消・世代退役の回収と実idle、実推定後の保留バイト列、後の明示手動導入を確認する。通常の借用入力と導入前回収は下記の既存系列が分担する。 |
 | 自動推定後導入・必要同期・入力回収までの受付と集約結果 | `PackageInstallWorkflowOwner`、`BMSLibrary.PackageInstall`、`MainWindowViewModel` | [`PackageInstallWorkflowOwnerAutomaticContinuationTests`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerAutomaticContinuationTests.cs) と既存の管理／借用archive系列が停止・取消・未実行保留・入力保持／回収を分担する。[`MainWindowPackageMaintenanceWpfTests.DropInstallAutomaticContinuation_ReportsBothStagesThroughActualReceiver`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) は実ownerから実receiverへの受付解放後の一回報告を確認する。詳細は[推定仕様の対応表](install-estimation.md#実装とテストの対応)を参照する。 |
 | 形式別の実展開から保留、共有経路の入れ子相対配置から実導入 | `SevenZipArchiveExtractor`、`BmsLibraryPackageInstallService`、`BMSLibrary.PackageInstall` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryManagedArchiveInstallTests.cs) の `AutoInstall_NativeArchiveFormatsReachRealPendingStoreWithoutConsumingBorrowedSource` は既存7z・RAR・LZHの三譜面を実native展開から実install DB・保留正本へ通し、バイト列と借用元・対象外を保持する。`AutoInstall_NestedZipPreservesChartRelativeResourceStructureThroughRealInstall` はZIPの入れ子entry名と譜面からのresource相対配置・バイト列、実DB・所持を確認する。非ZIP固有の入れ子fixtureの実行は含まず、全形式に共通の展開後導入経路とZIP代表へ分担する。日時復元・拒否条件は既存native系列を維持する。 |
