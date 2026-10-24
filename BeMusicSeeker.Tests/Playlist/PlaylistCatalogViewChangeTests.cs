@@ -397,6 +397,53 @@ public sealed class PlaylistCatalogViewChangeTests
         Assert.AreEqual(2.5, db.ExecuteScalar<double>("SELECT level FROM playlist_entry WHERE title = 'entry 0';"));
     }
 
+    /// <summary>TITLE正規表現の実表示後にMEMOをDB確定しても集合を変えず、実題名確定では同じ要求式から離脱・再加入します。MEMOだけ一致する非表示行の混入と局所更新時の式変質を検出します。</summary>
+    [DataTestMethod]
+    [DataRow(@"title:re:^\d$", "1", "A")]
+    [DataRow(@"title:re:^\D$", "A", "1")]
+    public async Task TitleRegex_EntryMemoCommitsPreserveMembershipAndMetadataChangesReevaluate(
+        string expression, string matchingTitle, string otherTitle)
+    {
+        await using var fixture = new Fixture(2, prepareTable: (_, entries) => entries[1].memo = otherTitle);
+        fixture.WriteFirst(matchingTitle);
+        fixture.Library.SetBMSFilesEncoding([fixture.Library.BmsCharts[0]], "utf-8");
+        fixture.Workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot(expression, ChartModeFilter.All));
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        Assert.AreEqual(1, rows.Count);
+        var target = (PlaylistDetailRow)rows[0];
+        Assert.AreEqual(matchingTitle, target.Title);
+        if (fixture.Workspace.DetailViewState.View.CurrentIdentity is not PlaylistRequestIdentity initialIdentity)
+        { throw new AssertFailedException("初回表示の検索要求が採用されていません。"); }
+        PlaylistPresentationIdentity presentation = initialIdentity.PresentationIdentity;
+        var context = new MainChartListCellEditContext(target, nameof(PlaylistDetailRow.memo),
+            ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+        fixture.Workspace.BeginDetailEdit(context);
+        await fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "changed memo", commit: true));
+        BMSTableEntry hidden = fixture.Playlist.BMSTables.Single().entries[1];
+        fixture.Playlist.CommitBMSTableEntry(hidden, nameof(PlaylistDetailRow.memo), matchingTitle, null);
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreEqual(1, rows.Count);
+        Assert.AreSame(target, rows[0]);
+        Assert.AreEqual("changed memo", target.memo);
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        {
+            Assert.AreEqual("changed memo", db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE title = 'entry 0';"));
+            Assert.AreEqual(matchingTitle, db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE title = 'entry 1';"));
+        }
+        fixture.WriteFirst(otherTitle);
+        fixture.Library.SetBMSFilesEncoding([fixture.Library.BmsCharts[0]], "utf-8");
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreEqual(0, rows.Count);
+        fixture.WriteFirst(matchingTitle);
+        fixture.Library.SetBMSFilesEncoding([fixture.Library.BmsCharts[0]], "utf-8");
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreEqual(1, rows.Count);
+        Assert.AreSame(target.Entry, ((PlaylistDetailRow)rows[0]).Entry);
+        Assert.AreEqual(matchingTitle, ((PlaylistDetailRow)rows[0]).Title);
+        Assert.AreEqual(presentation, fixture.Workspace.DetailViewState.View.CurrentIdentity?.PresentationIdentity);
+    }
+
     /// <summary>背景件数・実体化済み件数を増やしても、一件の題名移動は順序木の探索経路だけを訪問します。</summary>
     [DataTestMethod]
     [DataRow(16)]

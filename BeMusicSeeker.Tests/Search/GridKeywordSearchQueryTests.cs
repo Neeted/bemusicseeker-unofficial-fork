@@ -356,6 +356,26 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse("title:re:[").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
+    /// <summary>単一バックスラッシュの文字クラスと補集合を通常一覧の表示行・source行で評価し、式全体の大小文字変換や二重escapeを検出します。</summary>
+    [DataTestMethod]
+    [DataRow(@"title:re:^\d$", "1", "A")]
+    [DataRow(@"title:re:^\D$", "A", "1")]
+    [DataRow(@"title:re:^A\sB$", "A B", "AxB")]
+    [DataRow(@"title:re:^A\SB$", "AxB", "A B")]
+    [DataRow(@"title:re:^\w$", "A", "!")]
+    [DataRow(@"title:re:^\W$", "!", "A")]
+    public void MatchesChartList_RegexCharacterClassCasePreservesMeaning(string expression, string matchingTitle, string otherTitle)
+    {
+        var query = GridKeywordSearchQuery.Parse(expression);
+        ChartFile matching = ChartTestValues.Empty() with { Title = matchingTitle, RawTitle = matchingTitle };
+        ChartFile other = ChartTestValues.Empty() with { Title = otherTitle, RawTitle = otherTitle };
+
+        Assert.IsTrue(query.MatchesLibraryChartRow(LibraryChartRow.FromChartFile(matching)));
+        Assert.IsFalse(query.MatchesLibraryChartRow(LibraryChartRow.FromChartFile(other)));
+        Assert.IsTrue(query.MatchesChartListSourceRow(ChartListSourceRow.FromChartFile(matching)));
+        Assert.IsFalse(query.MatchesChartListSourceRow(ChartListSourceRow.FromChartFile(other)));
+    }
+
     /// <summary>memoの対応画面と非対応画面、および履歴だけの空date警告を区別することを確認し、表示先に関係なく同じ診断を出す誤りを検出します。</summary>
     [TestMethod]
     public void GetDiagnostics_ReportsContextSpecificWarnings()

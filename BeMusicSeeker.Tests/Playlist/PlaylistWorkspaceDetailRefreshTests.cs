@@ -300,7 +300,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             ref cancellationStage));
     }
 
-    /// <summary>保証：detail要求のproducerから適用終端までを待ち、同条件再利用と500→3000の情報更新後の検索集合を保つ。</summary>
+    /// <summary>detail要求のproducerから適用終端までを待ち、入力式の大小文字と意味を保持します。同条件再利用と500→3000の情報更新後の検索集合も確認し、要求の変質や終端前完了を検出します。</summary>
     [TestMethod]
     public async Task RequestDetailRefresh_OwnsRequestThroughRebuildAndTerminalApply()
     {
@@ -392,7 +392,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual(3, workspace.DetailViewState.Source.Rows.Count);
         Assert.AreSame(entry, workspace.DetailViewState.Source.Rows[0].Entry);
         Assert.AreEqual(1, dataSource.EnsureEntriesLoadedCallCount);
-        Assert.AreEqual("REQUEST NOTES:>=2000", workspace.DetailViewState.View.CurrentIdentity?.KeywordFilter);
+        Assert.AreEqual("request notes:>=2000", workspace.DetailViewState.View.CurrentIdentity?.KeywordFilter);
         CollectionAssert.AreEquivalent(new[] { "request-high", "request-tied" },
             workspace.DetailViewState.View.Rows.Cast<PlaylistDetailRow>().Select(row => row.Title).ToArray());
         Assert.IsTrue(mainChartList.LastCompletion.RequestId > 0L);
@@ -430,6 +430,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             CollectionAssert.AreEquivalent(phase == 0 ? new[] { "request-high", "request-tied" }
                 : new[] { "request-entry", "request-high", "request-tied" },
                 workspace.DetailViewState.View.Rows.Cast<PlaylistDetailRow>().Select(row => row.Title).ToArray());
+            Assert.AreEqual("request notes:>=2000", workspace.DetailViewState.View.CurrentIdentity?.KeywordFilter);
             Assert.IsTrue(workspace.IsDetailBuildIdle);
         }
     }
@@ -853,7 +854,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         workspace.CompletePlaylistSummaryDataBuild(buildRequest);
     }
 
-    /// <summary>古い選択から現選択・keywordへ更新してdetail要求を完了し、sourceとviewが現管理主体の条件を採用することを確認します。</summary>
+    /// <summary>古い選択から現選択・keywordへ更新してdetail要求を完了し、sourceとviewが現管理主体の選択と入力式を大小文字も含めて採用することを確認します。古い要求の採用や式の変質を検出します。</summary>
     [TestMethod]
     public async Task RequestDetailRefresh_StaleInputUsesCurrentOwnerSelection()
     {
@@ -889,7 +890,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Task workerIdle = workspace.WaitForDetailBuildIdleAsync();
         await Task.WhenAll(requestCompletion, workerIdle).ConfigureAwait(false);
         Assert.AreSame(currentTable, workspace.DetailViewState.Source.CurrentTable);
-        Assert.AreEqual("CURRENT", workspace.DetailViewState.View.CurrentIdentity?.KeywordFilter);
+        Assert.AreEqual("current", workspace.DetailViewState.View.CurrentIdentity?.KeywordFilter);
     }
 
     /// <summary>null表のdetail選択を未選択と区別してactivationと現選択状態を保持し、選択意図を失わないことを確認します。</summary>

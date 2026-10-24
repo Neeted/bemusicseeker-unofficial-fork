@@ -990,7 +990,7 @@ public sealed class PlaylistViewPipelineTests
         CollectionAssert.AreEqual(new[] { "TwoPointFive", "Three", "Twelve" }, result.Select(row => row.Title).ToArray());
     }
 
-    /// <summary>要求作成でfolder前後空白と検索語の空白・大小文字を正規化し、同じ検索意図を別要求へ分割しません。</summary>
+    /// <summary>要求作成でfolderと検索式の前後空白を除いて同じ要求へ合流し、通常語の大小文字無視は検索側で維持します。</summary>
     [TestMethod]
     public void CreatePlaylistRequestIdentity_NormalizesKeywordAndFolderForDedup()
     {
@@ -1002,9 +1002,58 @@ public sealed class PlaylistViewPipelineTests
         };
 
         PlaylistRequestIdentity left = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, " FolderA ", PlaylistDetailFilter.PlaylistFilter, " keyword ", ChartModeFilter._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, scoreSnapshotVersion: 30, chartInfoIndexVersion: 40, hasResolvedSelection: true);
-        PlaylistRequestIdentity right = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "FolderA", PlaylistDetailFilter.PlaylistFilter, "KEYWORD", ChartModeFilter._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, scoreSnapshotVersion: 30, chartInfoIndexVersion: 40, hasResolvedSelection: true);
+        PlaylistRequestIdentity right = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "FolderA", PlaylistDetailFilter.PlaylistFilter, "keyword", ChartModeFilter._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, scoreSnapshotVersion: 30, chartInfoIndexVersion: 40, hasResolvedSelection: true);
 
         Assert.AreEqual(left, right);
+        PlaylistDetailSourceRow row = CreateSourceRow(new string('1', 32), "KEYWORD", 7);
+        Assert.IsTrue(PlaylistDetailVirtualView.Matches(row, left));
+    }
+
+    /// <summary>実factoryの文字クラスと補集合を順次要求し、同じ式だけが合流し、初回表示が各式の一行を選ぶことを確認します。式全体の大文字化による誤合流を検出します。</summary>
+    [DataTestMethod]
+    [DataRow(@"title:re:^\d$", @"title:re:^\D$", "1", "A")]
+    [DataRow(@"title:re:^A\sB$", @"title:re:^A\SB$", "A B", "AxB")]
+    [DataRow(@"title:re:^\w$", @"title:re:^\W$", "A", "!")]
+    public void PlaylistRegexRequest_CharacterClassSwitchBuildsDistinctInitialViews(
+        string expression, string complement, string matchingTitle, string otherTitle)
+    {
+        var table = new BMSTable();
+        PlaylistDetailSourceRow[] source = [CreateSourceRow(new string('1', 32), matchingTitle, 7),
+            CreateSourceRow(new string('2', 32), otherTitle, 7)];
+        PlaylistRequestIdentity? current = null;
+        foreach ((string query, string expected) in new[] { (expression, matchingTitle), (complement, otherTitle), (expression, matchingTitle) })
+        {
+            PlaylistRequestIdentity identity = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.OrdinaryRoot,
+                null, PlaylistDetailFilter.PlaylistFilter, query, ChartModeFilter.All, null, 0, 0, 0, 0, true);
+            var state = new PlaylistDetailBuildState();
+            using CancellationTokenSource cancellation = state.Cancellation;
+            using SemaphoreSlim buildGate = state.BuildGate;
+            PlaylistBuildQueueRegisterResult registered = PlaylistDetailBuildQueueCoordinator.RegisterRequest(
+                state, CreatePlaylistBuildRequest(identity), current, 0, false);
+            Assert.IsTrue(registered.Enqueued, "意味の異なる式へ切り替えた要求は現行表示と合流しません。");
+            PlaylistDetailVirtualView view = PlaylistDetailPresentationService.ApplyVirtualViewFromSource(source,
+                identity.KeywordFilter, identity.ModeFilter, null, out _, out _, out _, out _, out _, out _, out _, identity: identity);
+            try
+            {
+                Assert.AreEqual(1, view.Count);
+                Assert.AreEqual(0, view.RealizedRowCount);
+                Assert.AreEqual(expected, ((PlaylistDetailRow)view[0]).Title);
+                var repeatedState = new PlaylistDetailBuildState();
+                using CancellationTokenSource repeatedCancellation = repeatedState.Cancellation;
+                using SemaphoreSlim repeatedBuildGate = repeatedState.BuildGate;
+                PlaylistBuildQueueRegisterResult repeated = PlaylistDetailBuildQueueCoordinator.RegisterRequest(
+                    repeatedState, CreatePlaylistBuildRequest(identity), identity, 0, false);
+                Assert.IsFalse(repeated.Enqueued);
+                Assert.AreEqual("current_view", repeated.DeduplicatedTarget);
+            }
+            finally
+            {
+                view.DisposeRealizedRows();
+                PlaylistDetailBuildQueueCoordinator.CancelForShutdown(state);
+                PlaylistDetailBuildQueueCoordinator.TryTakeNextRequestOrStopWorker(state, out _);
+            }
+            current = identity;
+        }
     }
 
     /// <summary>同じ選択でもplaylist revisionが進んだ要求を区別し、更新前のsourceと同一視しません。</summary>

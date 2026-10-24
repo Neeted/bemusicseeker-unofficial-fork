@@ -14,6 +14,8 @@
 
 通常の譜面一覧、プレイリスト詳細、プレイ履歴は一つの保存範囲を共有します。プレイリスト一覧は独立した保存範囲を使います。候補は表示先の検索条件に適合するものだけを表示し、現在の画面では使えない保存済みの検索式を削除しません。
 
+プレイリスト詳細の検索要求は、検索式の前後空白だけを除き、式の大小文字を保持して比較します。正規表現の `\d` / `\D`、`\s` / `\S`、`\w` / `\W` は別要求として扱い、初回表示と確定差分による局所更新で同じ意味の式を使います。通常語の大小文字無視、引用、否定、OR、無効式の診断は共通の検索処理が担当します。
+
 `KeywordSearchAssistanceOwner` は入力文字列、カーソル位置、表示先、変更不能な候補集合とその版、候補を閉じた条件を保持します。入力支援の計算は同期的に行い、キー入力ごとにDBを読むことや外部のロック取得をしません。通常の検索結果の更新に使う500ミリ秒の遅延は、候補の更新には適用しません。
 
 `KeywordSearchSavedQueryOwner` は保存用の接続先を明示的に受け取ります。保存先の設定値の更新に成功した後で、メモリ上の順序、候補、変更通知を更新します。設定値の更新が失敗した場合は、全て従前の状態を保ちます。操作ごとに `Settings.Save` を呼びません。
@@ -93,6 +95,7 @@
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 表示先ごとの候補、入力と適用、古い候補の拒否 | [`KeywordSearchAssistanceOwner`](../../../BeMusicSeeker/ViewModels/Search/KeywordSearchAssistance.cs) | [`KeywordSearchPresentationTests`](../../../BeMusicSeeker.Tests/Search/KeywordSearchPresentationTests.cs)、[`GridKeywordSearchQueryTests`](../../../BeMusicSeeker.Tests/Search/GridKeywordSearchQueryTests.cs)、[`ChartListFilterViewModelTests`](../../../BeMusicSeeker.Tests/ChartList/ChartListFilterViewModelTests.cs)、[`PlaylistWorkspacePresentationStateTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePresentationStateTests.cs) |
+| 正規表現の意味を保持した詳細要求、初回と局所更新の一致 | [`PlaylistRequestFactory`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistRequestFactory.cs)、[`PlaylistDetailVirtualView`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistDetailVirtualView.cs) | `GridKeywordSearchQueryTests.MatchesChartList_RegexCharacterClassCasePreservesMeaning` は通常一覧の表示行とsource行で単一バックスラッシュの6式を評価する。`PlaylistViewPipelineTests.PlaylistRegexRequest_CharacterClassSwitchBuildsDistinctInitialViews` は実factoryから要求合流と初回表示を確認し、実DBへのMEMO保存・譜面TITLE確定後の集合は `PlaylistCatalogViewChangeTests.TitleRegex_EntryMemoCommitsPreserveMembershipAndMetadataChangesReevaluate` が分担する。 |
 | 保存の成功順序、失敗時の不変性、履歴とお気に入り | [`KeywordSearchSavedQueryOwner`](../../../BeMusicSeeker/ViewModels/Search/KeywordSearchSavedQuery.cs) | [`KeywordSearchSavedQueryStoreTests`](../../../BeMusicSeeker.Tests/Search/KeywordSearchSavedQueryStoreTests.cs)、[`ApplicationCompositionTests`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionTests.cs) |
 | 明示入力のIME判定、区画のスクロール、行内ボタン、行の再利用 | [`KeywordSearchEditor`](../../../BeMusicSeeker/Views/Search/KeywordSearchEditor.xaml.cs) | [`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs)で明示入力と実WPFの接続・配置を自動検証する。OSの実フォーカス・IME・キー操作は[ユーザーに推奨する実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分ける。 |
 | 表示文字列の言語間整合 | 表示リソースと各言語の辞書 | [`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs) |

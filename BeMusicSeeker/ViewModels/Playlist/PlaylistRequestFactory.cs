@@ -24,10 +24,11 @@ internal static class PlaylistRequestFactory
     }
 
     /// <summary>
-    /// Normalizes a playlist keyword filter for request identity comparison.
+    /// 検索式の意味を保持したまま、要求比較に不要な前後空白を除きます。
     /// </summary>
-    /// <param name="keywordFilter">Keyword filter text from the main search box.</param>
-    /// <returns>Upper-invariant trimmed keyword text, or an empty string for blank input.</returns>
+    /// <param name="keywordFilter">検索欄から捕捉した式。</param>
+    /// <returns>大小文字を保持した検索式。空白だけの入力は空文字列。</returns>
+    /// <remarks>正規表現の \d と \D などを区別するため、通常語の大小文字無視は検索側に任せます。</remarks>
     internal static string NormalizeKeywordFilter(string keywordFilter)
     {
         if (string.IsNullOrWhiteSpace(keywordFilter))
@@ -35,7 +36,7 @@ internal static class PlaylistRequestFactory
             return string.Empty;
         }
 
-        return keywordFilter.Trim().ToUpperInvariant();
+        return keywordFilter.Trim();
     }
 
     /// <summary>
