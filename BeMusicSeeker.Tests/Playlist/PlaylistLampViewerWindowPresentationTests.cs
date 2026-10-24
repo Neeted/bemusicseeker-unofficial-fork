@@ -14,6 +14,7 @@ using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Interop;
 using System.Windows.Markup;
 using System.Windows.Media;
@@ -60,7 +61,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         });
     }
 
-    /// <summary>未選択／選択済みの同じ日付部品と開いたCalendarがアプリ言語とテーマへ追従し、月日再解析・日付通知・取得・表示モード変更を起こさないことを確認します。</summary>
+    /// <summary>未選択／選択済みの同じ日付部品と開いたCalendarがアプリ言語とテーマへ追従し、月日再解析・日付通知・取得・表示モード変更を起こさず、日付文字/DateHintの余白を一回だけ適用することを確認します。</summary>
     /// <remarks>実PART_TextBox、Popup、Calendarの標準セルとボタン配送を観測するためWPFを使います。UIスレッドの文化圏と共有テーマを所有・復元し、実OSフォーカスは合否にしません。</remarks>
     [DataTestMethod]
     [DataRow(false)]
@@ -139,6 +140,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     finally { picker.CalendarOpened -= onOpened; }
                     Assert.AreEqual(1, openCount);
                 }
+                var hintCharacterPositions = new Dictionary<string, Point>();
                 foreach (DateTime? date in new DateTime?[] { null, selected })
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(session.UpdateSelectedAsOfDateAsync(date), "date presentation query selection");
@@ -181,6 +183,21 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                             Assert.AreEqual(editor.Text, picker.Text);
                             Assert.AreEqual(Resources.DatePicker_choose_date, hint.Text);
                             Assert.AreEqual(date.HasValue ? Visibility.Collapsed : Visibility.Visible, hint.Visibility);
+                            var textHost = (ScrollViewer)editor.Template.FindName("PART_ContentHost", editor);
+                            Assert.AreEqual(editor.Padding, textHost.Padding, "日付入力の余白はWPF転送だけで所有する。");
+                            if (date.HasValue)
+                            {
+                                Rect character = editor.GetRectFromCharacterIndex(0);
+                                Point hintPosition = hintCharacterPositions[language];
+                                Assert.AreEqual(hintPosition.X, character.Left, 0.25d,
+                                    "DateHintと選択済日付の実文字位置を同じ入力座標で合わせる。");
+                                Assert.AreEqual(hintPosition.Y, character.Top, 0.25d);
+                            }
+                            else
+                            {
+                                Rect character = hint.ContentStart.GetCharacterRect(LogicalDirection.Forward);
+                                hintCharacterPositions[language] = hint.TranslatePoint(character.TopLeft, editor);
+                            }
                             Assert.AreEqual(Resources.DatePicker_open_calendar, button.ToolTip);
                             Assert.AreEqual(Resources.DatePicker_open_calendar, AutomationProperties.GetName(button));
                             Assert.AreEqual(standardPicker.FirstDayOfWeek, calendar.FirstDayOfWeek);

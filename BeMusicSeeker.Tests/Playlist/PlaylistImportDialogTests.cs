@@ -44,7 +44,7 @@ public sealed class PlaylistImportDialogTests
         Assert.AreEqual("existing", vm.UriInput);
     }
 
-    /// <summary>標準と拡大フォントの実描画でURI入力と全footerが領域内に収まり重ならない。文字拡大による入力・操作の欠落を検出する。</summary>
+    /// <summary>標準と拡大フォントの実描画でURI入力と全footerが領域内に収まり重ならない。文字拡大と短文/大量長文を跨いで右下16 DIP保護・枠内2 DIP・末尾文字の非遮蔽を確認する。</summary>
     [DoNotParallelize]
     [TestMethod]
     public void Presentation_ContainsUriInputAboveFooterAtDefaultAndFontScale()
@@ -58,7 +58,7 @@ public sealed class PlaylistImportDialogTests
             {
                 windowTest.ShowAndWaitForContentRendered(host);
                 var input = (TextBox)dialog.FindName("textBoxURIInput");
-                Border content = FindDialogContentBorder(dialog);
+                var content = (FrameworkElement)dialog.Content;
                 Button[] footerButtons = FindVisualDescendants<Button>(dialog)
                     .Where(button => button.TemplatedParent == null)
                     .Where(button => button.Name is "openLocalFileButton" or "addUriButton" or "startImportButton" or "cancelImportButton")
@@ -70,6 +70,46 @@ public sealed class PlaylistImportDialogTests
                 {
                     TextElement.SetFontSize(dialog, fontSize);
                     host.UpdateLayout();
+                    foreach (string text in new[] { "https://example.test/short.json", string.Join(Environment.NewLine,
+                        Enumerable.Range(0, 80).Select(index => "https://example.test/" + new string('x', 180) + index + ".json")) })
+                    {
+                        SetText(input, text);
+                        host.UpdateLayout();
+                        Assert.AreEqual(16d, input.Padding.Right);
+                        Assert.AreEqual(16d, input.Padding.Bottom);
+                        var viewer = (ScrollViewer)input.Template.FindName("PART_ContentHost", input);
+                        Assert.AreEqual(input.Padding, viewer.Padding, "入力余白は内部hostへ一度だけ転送する。");
+                        if (input.LineCount > 1)
+                        {
+                            input.ScrollToEnd();
+                            input.ScrollToHorizontalOffset(double.MaxValue);
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            host.UpdateLayout();
+                            var vertical = (ScrollBar)viewer.Template.FindName("PART_VerticalScrollBar", viewer);
+                            var horizontal = (ScrollBar)viewer.Template.FindName("PART_HorizontalScrollBar", viewer);
+                            Assert.AreEqual(Visibility.Visible, vertical.Visibility);
+                            Assert.AreEqual(Visibility.Visible, horizontal.Visibility);
+                            foreach (ScrollBar bar in new[] { vertical, horizontal })
+                            {
+                                bar.ApplyTemplate();
+                                var track = (Track)bar.Template.FindName("PART_Track", bar);
+                                track.Thumb.ApplyTemplate();
+                                var chrome = (Border)track.Thumb.Template.FindName("ThumbChrome", track.Thumb);
+                                Rect chromeBounds = GetVisualBounds(input, chrome);
+                                Assert.AreEqual(2d, bar.Orientation == Orientation.Vertical
+                                    ? input.ActualWidth - input.BorderThickness.Right - chromeBounds.Right
+                                    : input.ActualHeight - input.BorderThickness.Bottom - chromeBounds.Bottom, 0.25d);
+                            }
+                            Rect lastCharacter = input.GetRectFromCharacterIndex(input.Text.Length - 1, true);
+                            Assert.IsFalse(lastCharacter.IsEmpty);
+                            Assert.IsTrue(lastCharacter.Width >= 0d && lastCharacter.Height > 0d);
+                            Assert.IsTrue(lastCharacter.Left >= input.BorderThickness.Left - 0.25d && lastCharacter.Top >= input.BorderThickness.Top - 0.25d);
+                            Assert.IsTrue(lastCharacter.Right <= GetVisualBounds(input, vertical).Left + 0.25d,
+                                "末尾文字は縦バー入力領域の手前に露出する。");
+                            Assert.IsTrue(lastCharacter.Bottom <= GetVisualBounds(input, horizontal).Top + 0.25d,
+                                "末尾文字は横バー入力領域の手前に露出する。");
+                        }
+                    }
 
                     Assert.IsTrue(content.ActualWidth > 0d && content.ActualHeight > 0d);
                     AssertVisualBoundsInside(content, input);
@@ -493,7 +533,7 @@ public sealed class PlaylistImportDialogTests
         });
     }
 
-    /// <summary>標準・最小サイズの左右一行配置、短い注意の右寄せ、全文ToolTipと全幅選択を確認します。同じ表示で明→暗→明の実描画色を意味付き資源へ照合します。</summary>
+    /// <summary>標準・最小サイズの左右一行配置、短い注意の右寄せ、全文ToolTipと全幅選択・多数選択の削除ボタン非遮蔽を確認します。同じ表示で明→暗→明の実描画色を意味付き資源へ照合します。</summary>
     [TestMethod]
     public void Presentation_UsesSingleLineRowsAndLiveThemeAcrossBothCatalogs()
     {
@@ -587,6 +627,26 @@ public sealed class PlaylistImportDialogTests
                     foreach (TextBlock text in FindVisualDescendants<TextBlock>(builtInTree).Where(x => x.Name is "candidateName" or "candidateStatus"))
                     { AssertBrush(dialog, text.Name == "candidateStatus" ? "App.SubtleTextBrush" : "App.TextBrush", text.Foreground); }
                     navigation.SelectedIndex = 0; TestUiDispatcherHost.ProcessQueuedPresentation(); dialog.UpdateLayout();
+                }
+                // 多数選択の末尾行でも削除操作が縦バーの16 DIP入力域へ入らない。
+                PlaylistImportCandidate[] overflowCandidates = Enumerable.Range(0, 40).Select(index =>
+                    new PlaylistImportCandidate(new Uri($"https://example.test/overflow/{index}"), $"Selected {index}", Tag1: "Overflow")).ToArray();
+                vm.UpdateCatalog([candidate, .. overflowCandidates], PlaylistImportCatalogState.Loaded);
+                foreach (PlaylistImportCandidate item in overflowCandidates) { vm.SetSelected(item, true); }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                dialog.UpdateLayout();
+                ScrollViewer selectedViewer = FindVisualDescendants<ScrollViewer>(selected).Single();
+                Assert.IsTrue(selectedViewer.ScrollableHeight > 0d);
+                selected.ScrollIntoView(selected.Items[selected.Items.Count - 1]);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var selectedBar = (ScrollBar)selectedViewer.Template.FindName("PART_VerticalScrollBar", selectedViewer);
+                Assert.AreEqual(Visibility.Visible, selectedBar.Visibility);
+                Button[] removeButtons = FindVisualDescendants<Button>(selected).Where(button => button.Name == "removeCandidate" && button.IsVisible).ToArray();
+                Assert.IsTrue(removeButtons.Length > 0);
+                foreach (Button remove in removeButtons)
+                {
+                    Assert.IsTrue(GetVisualBounds(selectedViewer, remove).Right <= GetVisualBounds(selectedViewer, selectedBar).Left + 0.25d,
+                        "削除ボタンはバーの操作域に隠れない。");
                 }
             }
             finally
@@ -755,16 +815,6 @@ public sealed class PlaylistImportDialogTests
         TestUiDispatcherHost.ProcessQueuedPresentation();
     }
 
-    private static Border FindDialogContentBorder(FrameworkElement root)
-    {
-        Border[] candidates = FindVisualDescendants<Border>(root)
-            .Where(border => border.TryFindResource("App.Canonical.NativeWindowContentStyle") is Style contentStyle
-                && StyleChainContains(border.Style, contentStyle))
-            .ToArray();
-        Assert.AreEqual(1, candidates.Length, "URI入力の表示領域を一つ特定できる。");
-        return candidates[0];
-    }
-
     private static void AssertVisualBoundsInside(Visual ancestor, FrameworkElement descendant)
     {
         Rect bounds = GetVisualBounds(ancestor, descendant);
@@ -798,19 +848,6 @@ public sealed class PlaylistImportDialogTests
                 yield return descendant;
             }
         }
-    }
-
-    private static bool StyleChainContains(Style actual, Style expected)
-    {
-        for (Style candidate = actual; candidate != null; candidate = candidate.BasedOn)
-        {
-            if (ReferenceEquals(candidate, expected))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private sealed class RecordingLoadPlaylistDialogService : IUiDialogService

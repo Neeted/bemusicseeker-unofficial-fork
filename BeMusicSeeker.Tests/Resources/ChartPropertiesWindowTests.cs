@@ -16,7 +16,7 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class ChartPropertiesWindowTests
 {
-    /// <summary>表示後に読取り中から結果へ移り、三分類とメタデータを読取専用TextBoxで選択・全選択・コピーできます。実クリップボードは書き換えず、Escで閉じて開始済みTaskを回収します。</summary>
+    /// <summary>表示後に読取り中から結果へ移り、三分類の右下16 DIP保護と共通style接続を確認し、メタデータも読取専用TextBoxで選択・全選択・コピーできます。実クリップボードは書き換えず、Escで閉じて開始済みTaskを回収します。</summary>
     [TestMethod]
     public void Window_DisplaysReadOnlyCategoriesSupportsNormalCopyAndClosesWithEscape()
     {
@@ -71,6 +71,9 @@ public sealed class ChartPropertiesWindowTests
                     var text = (TextBox)window.FindName(names[i]);
                     Assert.IsTrue(text.IsVisible);
                     Assert.IsTrue(text.IsReadOnly);
+                    Assert.AreSame(text.FindResource("ResourceList"), text.Style, "三分類は同じ保護域を持つ入力styleへ接続する。");
+                    Assert.AreEqual(16d, text.Padding.Right);
+                    Assert.AreEqual(16d, text.Padding.Bottom);
                     Assert.AreEqual(VerticalAlignment.Top, text.VerticalContentAlignment);
                     Assert.IsTrue(text.GetRectFromCharacterIndex(0).Top < text.ActualHeight / 2);
                     Assert.IsTrue(text.Focusable);

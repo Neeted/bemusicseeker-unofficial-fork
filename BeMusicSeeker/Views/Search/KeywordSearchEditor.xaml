@@ -238,7 +238,7 @@
               BorderThickness="1"
               CornerRadius="4"
               Background="{DynamicResource App.PopupBackgroundBrush}"
-              Padding="4"
+              Padding="0"
               Width="{Binding ActualWidth, ElementName=editorSurface}"
               HorizontalAlignment="Left">
       <StackPanel x:Name="SectionsHost" />

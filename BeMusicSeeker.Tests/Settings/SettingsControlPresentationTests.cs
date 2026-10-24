@@ -32,7 +32,7 @@ public sealed class SettingsControlPresentationTests
         TestUiDispatcherHost.Invoke(EnsureCanonicalApplicationResources);
     }
 
-    /// <summary>実 navigation を Automation と named 項目で選択し、単一選択・ページと見出しの配送・カテゴリ切替でのスクロール復帰を確認します。</summary>
+    /// <summary>実 navigation を Automation と named 項目で選択し、単一選択・ページと見出しの配送・カテゴリ切替でのスクロール復帰と本文末尾到達・固定見出し/操作の不動を確認します。</summary>
     [TestMethod]
     public void SettingsWindow_NavigationAutomationSelectionSynchronizesPageAndResetsScroll()
     {
@@ -87,9 +87,17 @@ public sealed class SettingsControlPresentationTests
                 selectedPage.Height = 1200;
                 window.UpdateLayout();
                 Assert.IsTrue(scroller.ScrollableHeight > 0, "The shell body must expose overflow through its shared scroller.");
-                scroller.ScrollToVerticalOffset(Math.Min(100d, scroller.ScrollableHeight));
+                var footer = (FrameworkElement)window.FindName("settingsFooter");
+                Rect headerBeforeScroll = header.TransformToAncestor(window).TransformBounds(new Rect(header.RenderSize));
+                Rect footerBeforeScroll = footer.TransformToAncestor(window).TransformBounds(new Rect(footer.RenderSize));
+                scroller.ScrollToEnd();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(scroller.VerticalOffset > 0, "The body scroller must accept a non-zero page offset.");
+                Assert.AreEqual(headerBeforeScroll, header.TransformToAncestor(window).TransformBounds(new Rect(header.RenderSize)), "本文scrollで見出しを動かさない。");
+                Assert.AreEqual(footerBeforeScroll, footer.TransformToAncestor(window).TransformBounds(new Rect(footer.RenderSize)), "本文scrollで操作を動かさない。");
+                var presenter = (ScrollContentPresenter)scroller.Template.FindName("PART_ScrollContentPresenter", scroller);
+                Rect pageEnd = selectedPage.TransformToAncestor(presenter).TransformBounds(new Rect(selectedPage.RenderSize));
+                Assert.AreEqual(presenter.ActualHeight, pageEnd.Bottom, 0.25d, "本文末尾まで到達する。");
                 navigation.SelectedItem = window.FindName("navigationAppearance");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(0d, scroller.VerticalOffset, "Changing categories must reset the shared body scroller.");

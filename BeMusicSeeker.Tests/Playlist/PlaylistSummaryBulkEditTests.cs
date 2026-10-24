@@ -1152,8 +1152,6 @@ public sealed class PlaylistSummaryBulkEditTests
                     nameof(PlaylistPropertyPresentationFixture.last_update));
                 Button accept = FindButtonByAutomationId(view, "PlaylistPropertyAccept");
 
-                Assert.AreEqual(0d, bodyViewport.ScrollableHeight, 0.01d,
-                    "Initial Japanese General content must fit without vertical page overflow.");
                 Assert.AreEqual(0d, bodyViewport.ScrollableWidth, 0.01d,
                     "The page body must not expose horizontal overflow.");
                 Assert.AreEqual(ScrollBarVisibility.Disabled, bodyViewport.HorizontalScrollBarVisibility);
@@ -1227,19 +1225,35 @@ public sealed class PlaylistSummaryBulkEditTests
                 view.Height = view.MinHeight;
                 view.UpdateLayout();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual(0d, bodyViewport.ScrollableWidth, 0.01d,
-                    "General must not create horizontal overflow at minimum window size.");
-                Assert.IsTrue(
-                    canonicalEditors
-                        .Select(editor => GetBounds(editor, bodyViewport))
-                        .All(bounds => bounds.Left >= -0.5d && bounds.Right <= bodyViewport.ViewportWidth + 0.5d),
-                    "General editors must remain horizontally reachable at minimum window size.");
-                bodyViewport.ScrollToVerticalOffset(bodyViewport.ScrollableHeight);
+                var presenter = (ScrollContentPresenter)bodyViewport.Template.FindName("PART_ScrollContentPresenter", bodyViewport);
+                Assert.AreEqual(new Thickness(16), bodyViewport.Padding);
+                Assert.AreEqual(16d, GetBounds(presenter, bodyViewport).Left, 0.25d, "本文余白を一度だけ適用する。");
+                Assert.AreEqual(0d, GetBounds(name, presenter).Left, 0.25d);
+                Assert.AreEqual(0d, bodyViewport.ScrollableWidth, 0.01d);
+                Assert.IsTrue(canonicalEditors.Select(editor => GetBounds(editor, presenter))
+                    .All(bounds => bounds.Left >= -0.25d && bounds.Right <= presenter.ActualWidth + 0.25d),
+                    "最小寸法でも全入力が横方向に到達できる。");
+                Button cancel = FindButtonByAutomationId(view, "PlaylistPropertyCancel");
+                FrameworkElement[] fixedElements = [navigation, updateDate, accept, cancel];
+                var client = (FrameworkElement)view.Content;
+                foreach (FrameworkElement element in fixedElements)
+                {
+                    Rect bounds = GetBounds(element, client);
+                    Assert.IsTrue(bounds.Left >= -0.25d && bounds.Top >= -0.25d
+                        && bounds.Right <= client.ActualWidth + 0.25d && bounds.Bottom <= client.ActualHeight + 0.25d,
+                        "最小寸法でも分類・更新日時・確定・取消へ到達できる。");
+                }
+                Assert.IsTrue(accept.IsVisible && cancel.IsVisible && accept.IsEnabled && cancel.IsEnabled);
+                Rect[] fixedBounds = fixedElements.Select(element => GetBounds(element, view)).ToArray();
+                bodyViewport.ScrollToEnd();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Rect minimumDataBounds = GetBounds(dataUrl, bodyViewport);
-                Assert.IsTrue(
-                    minimumDataBounds.Top >= -0.5d && minimumDataBounds.Bottom <= bodyViewport.ViewportHeight + 0.5d,
-                    "The final General editor must be reachable through the minimum-height body viewport.");
+                Rect minimumDataBounds = GetBounds(dataUrl, presenter);
+                Assert.IsTrue(minimumDataBounds.Top >= -0.25d && minimumDataBounds.Bottom <= presenter.ActualHeight + 0.25d,
+                    "本文末尾の入力欄へ到達できる。");
+                for (int index = 0; index < fixedElements.Length; index++)
+                {
+                    Assert.AreEqual(fixedBounds[index], GetBounds(fixedElements[index], view), "本文scrollで上部選択・更新日時・確定/取消操作を動かさない。");
+                }
             }
             finally
             {
@@ -1331,15 +1345,16 @@ public sealed class PlaylistSummaryBulkEditTests
                     "The Folder list must retain independent vertical extent at minimum window size.");
                 bodyViewport.ScrollToVerticalOffset(bodyViewport.ScrollableHeight);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Rect minimumMoveUpBounds = GetBounds(moveUp, bodyViewport);
-                Rect minimumMoveDownBounds = GetBounds(moveDown, bodyViewport);
+                var presenter = (ScrollContentPresenter)bodyViewport.Template.FindName("PART_ScrollContentPresenter", bodyViewport);
+                Rect minimumMoveUpBounds = GetBounds(moveUp, presenter);
+                Rect minimumMoveDownBounds = GetBounds(moveDown, presenter);
                 Assert.IsTrue(
-                    minimumMoveUpBounds.Top >= -0.5d
-                    && minimumMoveDownBounds.Bottom <= bodyViewport.ViewportHeight + 0.5d,
+                    minimumMoveUpBounds.Top >= -0.25d
+                    && minimumMoveDownBounds.Bottom <= presenter.ActualHeight + 0.25d,
                     "The Folder move actions must be reachable through the minimum-height body viewport.");
                 Assert.IsTrue(
-                    new[] { GetBounds(sortKey, bodyViewport), GetBounds(folderOrder, bodyViewport), minimumMoveUpBounds, minimumMoveDownBounds }
-                        .All(bounds => bounds.Left >= -0.5d && bounds.Right <= bodyViewport.ViewportWidth + 0.5d),
+                    new[] { GetBounds(sortKey, presenter), GetBounds(folderOrder, presenter), minimumMoveUpBounds, minimumMoveDownBounds }
+                        .All(bounds => bounds.Left >= -0.25d && bounds.Right <= presenter.ActualWidth + 0.25d),
                     "Folder controls must remain horizontally reachable at minimum window size.");
             }
             finally
@@ -1446,9 +1461,10 @@ public sealed class PlaylistSummaryBulkEditTests
                 Assert.IsTrue(wrappingProbe.ActualHeight > ordinaryFlagHeight,
                     "A long localized output caption must wrap instead of remaining a clipped single line.");
                 Assert.AreEqual(0d, bodyViewport.ScrollableWidth, 0.01d);
+                var presenter = (ScrollContentPresenter)bodyViewport.Template.FindName("PART_ScrollContentPresenter", bodyViewport);
                 Assert.IsTrue(flags
-                    .Select(flag => GetBounds(flag, bodyViewport))
-                    .All(bounds => bounds.Left >= -0.5d && bounds.Right <= bodyViewport.ViewportWidth + 0.5d),
+                    .Select(flag => GetBounds(flag, presenter))
+                    .All(bounds => bounds.Left >= -0.25d && bounds.Right <= presenter.ActualWidth + 0.25d),
                     "Output flags must remain horizontally contained at minimum width.");
             }
             finally

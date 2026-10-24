@@ -101,87 +101,93 @@
       </Style>
     </ResourceDictionary>
   </v:ThemedWindow.Resources>
-  <Border Style="{StaticResource App.Canonical.NativeWindowContentStyle}">
-    <Grid>
-      <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-      <Grid.ColumnDefinitions><ColumnDefinition Width="3*" /><ColumnDefinition Width="16" /><ColumnDefinition Width="2*" /></Grid.ColumnDefinitions>
-      <ListBox x:Name="importNavigation" Grid.ColumnSpan="3" SelectedIndex="0" Style="{StaticResource App.Canonical.TopNavigationStyle}" Margin="0,0,0,12">
-        <ListBoxItem Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_external}" />
-        <ListBoxItem Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_builtin}" />
-        <ListBoxItem Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_url_file}" />
-      </ListBox>
-      <ContentControl Grid.Row="1" Padding="0" Style="{StaticResource App.Canonical.TopNavigationContentStyle}">
-        <Grid>
-          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-          <Grid x:Name="externalSearch" Margin="0,0,0,8">
-            <Grid.Style><Style TargetType="Grid"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=importNavigation}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Grid.Style>
-            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-            <TextBlock x:Name="searchLabel" Grid.ColumnSpan="2" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_search}" Margin="0,0,0,4" />
-              <TextBox x:Name="searchInput" Grid.Row="1" Style="{StaticResource App.Canonical.TextBoxStyle}" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=500}"
-                  AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_search}" />
-              <v:PlaylistImportSelectionCheckBox x:Name="selectAllMatchingCheck" Grid.Row="1" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource App.Canonical.CheckBoxStyle}"
-                  IsChecked="{Binding ExternalSelectionState, Mode=OneWay}" IsEnabled="{Binding CanToggleExternalSelection}"
-                  Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_select_matching}" />
-            </Grid>
-          <StackPanel x:Name="candidateFilters" Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
-            <StackPanel.Style><Style TargetType="StackPanel"><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=importNavigation}" Value="2"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
-            <CheckBox x:Name="hideUrlsCheck" Style="{StaticResource App.Canonical.CheckBoxStyle}" IsChecked="{Binding HideRegisteredUrls}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_hide_urls}" Margin="0,0,12,0" />
-            <CheckBox x:Name="hideNamesCheck" Style="{StaticResource App.Canonical.CheckBoxStyle}" IsChecked="{Binding HideSameNames}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_hide_names}" />
-          </StackPanel>
-          <Grid x:Name="externalPage" Grid.Row="2">
-            <Grid.Style><Style TargetType="Grid"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=importNavigation}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Grid.Style>
-            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-            <TextBlock x:Name="catalogStatus" Text="{Binding CatalogStatus}" TextWrapping="Wrap">
-              <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Margin" Value="0,0,0,8" /><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger></Style.Triggers></Style></TextBlock.Style>
-            </TextBlock>
-            <TreeView x:Name="externalCandidates" Grid.Row="1" Style="{StaticResource ImportTreeStyle}" ItemsSource="{Binding ExternalGroups}" ItemTemplate="{StaticResource CandidateTemplate}" />
+  <Grid>
+    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+    <Grid.ColumnDefinitions><ColumnDefinition Width="3*" /><ColumnDefinition Width="16" /><ColumnDefinition Width="2*" /></Grid.ColumnDefinitions>
+    <ListBox x:Name="importNavigation" Grid.ColumnSpan="3" SelectedIndex="0" Style="{StaticResource App.Canonical.TopNavigationStyle}" Margin="16,16,16,16">
+      <ListBoxItem Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_external}" />
+      <ListBoxItem Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_builtin}" />
+      <ListBoxItem Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_url_file}" />
+    </ListBox>
+    <ContentControl Grid.Row="1" Margin="16,0,0,0" Padding="0" Style="{StaticResource App.Canonical.TopNavigationContentStyle}">
+      <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <Grid x:Name="externalSearch" Margin="0,0,0,8">
+          <Grid.Style><Style TargetType="Grid"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=importNavigation}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Grid.Style>
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+          <TextBlock x:Name="searchLabel" Grid.ColumnSpan="2" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_search}" Margin="0,0,0,4" />
+            <TextBox x:Name="searchInput" Grid.Row="1" Style="{StaticResource App.Canonical.TextBoxStyle}" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=500}"
+                AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_search}" />
+            <v:PlaylistImportSelectionCheckBox x:Name="selectAllMatchingCheck" Grid.Row="1" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource App.Canonical.CheckBoxStyle}"
+                IsChecked="{Binding ExternalSelectionState, Mode=OneWay}" IsEnabled="{Binding CanToggleExternalSelection}"
+                Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_select_matching}" />
           </Grid>
-          <Grid x:Name="builtInPage" Grid.Row="2">
-            <Grid.Style><Style TargetType="Grid"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=importNavigation}" Value="1"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Grid.Style>
-            <TreeView x:Name="builtInCandidates" Style="{StaticResource ImportTreeStyle}" ItemsSource="{Binding BuiltInGroups}" ItemTemplate="{StaticResource CandidateTemplate}" />
-          </Grid>
-          <Grid x:Name="uriPage" Grid.Row="2">
-            <Grid.Style><Style TargetType="Grid"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=importNavigation}" Value="2"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Grid.Style>
-            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-            <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_url_file}" Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_input_description}" />
-            <TextBox x:Name="textBoxURIInput" Grid.Row="1" Style="{StaticResource App.Canonical.TextBoxStyle}" Text="{Binding UriInput, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
-            <WrapPanel Grid.Row="2" Margin="0,10,0,0">
-              <Button x:Name="openLocalFileButton" AutomationProperties.AutomationId="PlaylistImportOpenFile" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_PlaylistHeader}" Click="OpenLocalFile" Margin="0,0,8,0" />
-              <Button x:Name="addUriButton" AutomationProperties.AutomationId="PlaylistImportAddUri" Style="{StaticResource App.Canonical.DialogActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_add}" Click="AddUri" />
-            </WrapPanel>
-          </Grid>
+        <StackPanel x:Name="candidateFilters" Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+          <StackPanel.Style><Style TargetType="StackPanel"><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=importNavigation}" Value="2"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
+          <CheckBox x:Name="hideUrlsCheck" Style="{StaticResource App.Canonical.CheckBoxStyle}" IsChecked="{Binding HideRegisteredUrls}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_hide_urls}" Margin="0,0,8,0" />
+          <CheckBox x:Name="hideNamesCheck" Style="{StaticResource App.Canonical.CheckBoxStyle}" IsChecked="{Binding HideSameNames}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_hide_names}" />
+        </StackPanel>
+        <Grid x:Name="externalPage" Grid.Row="2">
+          <Grid.Style><Style TargetType="Grid"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=importNavigation}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Grid.Style>
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+          <TextBlock x:Name="catalogStatus" Text="{Binding CatalogStatus}" TextWrapping="Wrap">
+            <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Margin" Value="0,0,0,8" /><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger></Style.Triggers></Style></TextBlock.Style>
+          </TextBlock>
+          <TreeView x:Name="externalCandidates" Grid.Row="1" Style="{StaticResource ImportTreeStyle}" ItemsSource="{Binding ExternalGroups}" ItemTemplate="{StaticResource CandidateTemplate}" />
         </Grid>
-      </ContentControl>
-      <Grid Grid.Row="1" Grid.Column="2">
-        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-        <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_selected}" FontWeight="SemiBold" Margin="0,0,0,8" />
-        <ListBox x:Name="selectedCandidates" Grid.Row="1" Style="{StaticResource App.Canonical.ListBoxStyle}" ItemsSource="{Binding SelectedItems}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-          <ListBox.ItemTemplate><DataTemplate>
-            <Grid>
-              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-              <TextBlock x:Name="selectedName" Text="{Binding DisplayName}" Style="{StaticResource CandidateNameStyle}" />
-              <TextBlock x:Name="selectedStatus" Grid.Column="1" Text="{Binding Status}" Style="{StaticResource StatusLabelStyle}" />
-              <Button x:Name="removeCandidate" Grid.Column="2" Style="{StaticResource CompactRemoveStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_remove}" Click="RemoveSelected" Margin="6,0,0,0" />
-            </Grid>
-          </DataTemplate></ListBox.ItemTemplate>
-        </ListBox>
-        <Grid Grid.Row="2" Margin="0,8,0,0">
-          <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-          <TextBlock x:Name="selectionCounts" Text="{Binding CountsText}" TextWrapping="Wrap" VerticalAlignment="Center" />
-          <Button x:Name="clearSelectedButton" AutomationProperties.AutomationId="PlaylistImportClear" Grid.Column="1" Margin="8,0,0,0" HorizontalAlignment="Right" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_clear}" Click="ClearSelected" />
+        <Grid x:Name="builtInPage" Grid.Row="2">
+          <Grid.Style><Style TargetType="Grid"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=importNavigation}" Value="1"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Grid.Style>
+          <TreeView x:Name="builtInCandidates" Style="{StaticResource ImportTreeStyle}" ItemsSource="{Binding BuiltInGroups}" ItemTemplate="{StaticResource CandidateTemplate}" />
+        </Grid>
+        <Grid x:Name="uriPage" Grid.Row="2">
+          <Grid.Style><Style TargetType="Grid"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=importNavigation}" Value="2"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Grid.Style>
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+          <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_url_file}" Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_input_description}" />
+          <TextBox Padding="8,5,16,16" x:Name="textBoxURIInput" Grid.Row="1" Style="{StaticResource App.Canonical.TextBoxStyle}" Text="{Binding UriInput, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
+          <WrapPanel Grid.Row="2" Margin="0,8,0,0">
+            <Button x:Name="openLocalFileButton" AutomationProperties.AutomationId="PlaylistImportOpenFile" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_PlaylistHeader}" Click="OpenLocalFile" Margin="0,0,8,0" />
+            <Button x:Name="addUriButton" AutomationProperties.AutomationId="PlaylistImportAddUri" Style="{StaticResource App.Canonical.DialogActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_add}" Click="AddUri" />
+          </WrapPanel>
         </Grid>
       </Grid>
-      <StackPanel Grid.Row="2" Grid.ColumnSpan="3" Margin="0,12,0,0">
-        <ScrollViewer x:Name="operationMessageHost" MaxHeight="100" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-          <ScrollViewer.Style><Style TargetType="ScrollViewer"><Setter Property="Margin" Value="0,0,0,8" /><Style.Triggers><DataTrigger Binding="{Binding Message}" Value=""><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></ScrollViewer.Style>
-          <TextBlock x:Name="operationMessage" Text="{Binding Message}" TextWrapping="Wrap" />
-        </ScrollViewer>
-        <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
-          <Button x:Name="startImportButton" AutomationProperties.AutomationId="PlaylistImportStart" Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_start}" Click="StartImport" Margin="0,0,8,0" />
-          <Button x:Name="cancelImportButton" AutomationProperties.AutomationId="PlaylistImportCancel" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel}" Click="CancelImport" IsCancel="True" />
-        </StackPanel>
-      </StackPanel>
+    </ContentControl>
+    <Grid Grid.Row="1" Grid.Column="2" Margin="0,0,16,0">
+      <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+      <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_selected}" FontWeight="SemiBold" Margin="0,0,0,8" />
+      <ListBox x:Name="selectedCandidates" Grid.Row="1" Style="{StaticResource App.Canonical.ListBoxStyle}" ItemsSource="{Binding SelectedItems}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+        <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem" BasedOn="{StaticResource App.Canonical.ListBoxItemStyle}"><Setter Property="Padding" Value="8,5,16,5" /></Style></ListBox.ItemContainerStyle>
+        <ListBox.ItemTemplate><DataTemplate>
+          <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBlock x:Name="selectedName" Text="{Binding DisplayName}" Style="{StaticResource CandidateNameStyle}" />
+            <TextBlock x:Name="selectedStatus" Grid.Column="1" Text="{Binding Status}" Style="{StaticResource StatusLabelStyle}" />
+            <Button x:Name="removeCandidate" Grid.Column="2" Style="{StaticResource CompactRemoveStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_remove}" Click="RemoveSelected" Margin="8,0,0,0" />
+          </Grid>
+        </DataTemplate></ListBox.ItemTemplate>
+      </ListBox>
+      <Grid Grid.Row="2" Margin="0,8,0,0">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <TextBlock x:Name="selectionCounts" Text="{Binding CountsText}" TextWrapping="Wrap" VerticalAlignment="Center" />
+        <Button x:Name="clearSelectedButton" AutomationProperties.AutomationId="PlaylistImportClear" Grid.Column="1" Margin="8,0,0,0" HorizontalAlignment="Right" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_clear}" Click="ClearSelected" />
+      </Grid>
     </Grid>
-  </Border>
+    <StackPanel Grid.Row="2" Grid.ColumnSpan="3">
+      <ScrollViewer x:Name="operationMessageHost" MaxHeight="100" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <ScrollViewer.Style><Style TargetType="ScrollViewer" BasedOn="{StaticResource App.Canonical.WindowBodyScrollViewerStyle}"><Style.Triggers><DataTrigger Binding="{Binding Message}" Value=""><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></ScrollViewer.Style>
+        <TextBlock x:Name="operationMessage" Text="{Binding Message}" TextWrapping="Wrap" />
+      </ScrollViewer>
+      <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
+        <StackPanel.Style>
+          <Style TargetType="StackPanel">
+            <Setter Property="Margin" Value="16,0,16,16" />
+            <Style.Triggers><DataTrigger Binding="{Binding Message}" Value=""><Setter Property="Margin" Value="16" /></DataTrigger></Style.Triggers>
+          </Style>
+        </StackPanel.Style>
+        <Button x:Name="startImportButton" AutomationProperties.AutomationId="PlaylistImportStart" Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_start}" Click="StartImport" Margin="0,0,8,0" />
+        <Button x:Name="cancelImportButton" AutomationProperties.AutomationId="PlaylistImportCancel" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel}" Click="CancelImport" IsCancel="True" />
+      </StackPanel>
+    </StackPanel>
+  </Grid>
+
 </v:ThemedWindow>

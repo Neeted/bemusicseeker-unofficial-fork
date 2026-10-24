@@ -552,7 +552,7 @@ public partial class KeywordSearchEditor : UserControl
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 VerticalContentAlignment = VerticalAlignment.Stretch,
                 BorderThickness = new Thickness(0),
-                Padding = new Thickness(0),
+                Padding = new Thickness(4, 4, 16, 4),
                 Background = Brushes.Transparent,
                 Focusable = false,
                 IsTabStop = false,
@@ -560,8 +560,8 @@ public partial class KeywordSearchEditor : UserControl
                 MinHeight = 0d,
                 MaxHeight = section.IsScrollable
                     ? (section.Kind is KeywordSearchPresentationSectionKind.Favorites or KeywordSearchPresentationSectionKind.History
-                        ? SavedRowHeight * 5
-                        : CompletionRowHeight * 10)
+                        ? SavedRowHeight * 5 + 8
+                        : CompletionRowHeight * 10 + 8)
                     : double.PositiveInfinity
             };
             rows.SetValue(VirtualizingPanel.IsVirtualizingProperty, true);

@@ -315,23 +315,17 @@ public sealed class WpfTestApplicationHostTests
             AssertBrush(initialSetupSurface.BorderBrush, "App.DialogBorderBrush");
 
             var playlistPropertyDialog = new PlaylistPropertyDialog();
-            Grid playlistPropertyRoot = FindVisualDescendants<Grid>(playlistPropertyDialog)
-                .Single(grid => FindResourceInScope(grid.Resources, "App.Canonical.NativeWindowContentStyle") is Style);
+            var playlistPropertyRoot = (Grid)playlistPropertyDialog.Content;
             AssertBrush(playlistPropertyRoot.GetValue(TextElement.ForegroundProperty), "App.TextBrush");
-            Border playlistPropertyContent = FindElementWithScopedStyle<Border>(
-                playlistPropertyRoot,
-                "App.Canonical.NativeWindowContentStyle");
-            Assert.IsNull(playlistPropertyContent.Background);
-            Assert.IsNull(playlistPropertyContent.BorderBrush);
+            Assert.IsInstanceOfType<Style>(playlistPropertyRoot.Resources["App.Canonical.DialogActionStyle"]);
 
             var importDialog = new PlaylistImportDialog(new PlaylistImportDialogViewModel(_ => new(PlaylistImportStartStatus.Busy)), new UiDialogCoordinator());
             try
             {
                 AssertBrush(importDialog.Background, "App.DialogBackgroundBrush");
                 AssertBrush(importDialog.Foreground, "App.TextBrush");
-                Border importContent = FindElementWithScopedStyle<Border>(importDialog, "App.Canonical.NativeWindowContentStyle");
-                Assert.IsNull(importContent.Background);
-                Assert.IsNull(importContent.BorderBrush);
+                Assert.IsInstanceOfType<FrameworkElement>(importDialog.Content);
+                Assert.IsInstanceOfType<Style>(importDialog.Resources["App.Canonical.DialogActionStyle"]);
             }
             finally { importDialog.Close(); }
 
@@ -342,11 +336,8 @@ public sealed class WpfTestApplicationHostTests
             var progressDialog = new ProgressDialog(new ProgressDialogSettings());
             AssertBrush(progressDialog.Background, "App.DialogBackgroundBrush");
             AssertBrush(progressDialog.Foreground, "App.TextBrush");
-            Border progressDialogContent = FindElementWithScopedStyle<Border>(
-                progressDialog,
-                "App.Canonical.NativeWindowContentStyle");
-            Assert.IsNull(progressDialogContent.Background);
-            Assert.IsNull(progressDialogContent.BorderBrush);
+            Assert.IsInstanceOfType<FrameworkElement>(progressDialog.Content);
+            Assert.IsInstanceOfType<Style>(progressDialog.Resources["App.Canonical.DialogActionStyle"]);
         });
     }
 
@@ -715,42 +706,6 @@ public sealed class WpfTestApplicationHostTests
             resourceKey + " must resolve through the application semantic resource.");
     }
 
-    private static T FindElementWithScopedStyle<T>(FrameworkElement scope, object resourceKey)
-        where T : FrameworkElement
-    {
-        object? resource = FindResourceInScope(scope.Resources, resourceKey);
-        Assert.IsInstanceOfType(resource, typeof(Style), resourceKey + " must resolve from the dialog-local resource facade.");
-        var expectedStyle = (Style)resource;
-
-        T[] matches = FindVisualDescendants<T>(scope)
-            .Where(element => ReferenceEquals(element.Style, expectedStyle))
-            .ToArray();
-        Assert.AreEqual(
-            1,
-            matches.Length,
-            resourceKey + " must identify exactly one applied canonical role surface in its dialog scope.");
-        return matches[0];
-    }
-
-    private static object? FindResourceInScope(ResourceDictionary resources, object key)
-    {
-        // Keep application fallback out of this lookup so a missing dialog-local facade cannot pass accidentally.
-        if (resources.Contains(key))
-        {
-            return resources[key];
-        }
-
-        foreach (ResourceDictionary mergedDictionary in resources.MergedDictionaries.Reverse())
-        {
-            object? value = FindResourceInScope(mergedDictionary, key);
-            if (value != null)
-            {
-                return value;
-            }
-        }
-
-        return null;
-    }
 
     private static IEnumerable<T> FindVisualDescendants<T>(DependencyObject root)
         where T : DependencyObject

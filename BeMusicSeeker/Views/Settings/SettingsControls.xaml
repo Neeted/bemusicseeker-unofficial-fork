@@ -7,8 +7,6 @@
     dictionaries.  These aliases keep Settings' existing resource names and
     its local implicit adoption without leaking a type-key style to MainWindow.
   -->
-  <!-- 設定セクションの下余白。 -->
-  <Thickness x:Key="SettingsSectionMargin">0,0,0,28</Thickness>
   <Style x:Key="SettingsTrackRepeatButtonStyle"
          TargetType="{x:Type RepeatButton}"
          BasedOn="{StaticResource App.Canonical.TrackRepeatButtonStyle}" />
@@ -64,26 +62,14 @@
   <Style x:Key="settingsFooterActionButtonStyle"
          TargetType="{x:Type Button}"
          BasedOn="{StaticResource SettingsButtonStyle}">
-    <Setter Property="MinHeight" Value="36" />
-    <Setter Property="MinWidth" Value="96" />
-    <Setter Property="Padding" Value="16,6" />
-    <Setter Property="FontWeight" Value="SemiBold" />
   </Style>
   <Style x:Key="settingsPrimaryActionButtonStyle"
          TargetType="{x:Type Button}"
          BasedOn="{StaticResource SettingsPrimaryButtonStyle}">
-    <Setter Property="MinHeight" Value="36" />
-    <Setter Property="MinWidth" Value="96" />
-    <Setter Property="Padding" Value="16,6" />
-    <Setter Property="FontWeight" Value="SemiBold" />
   </Style>
   <Style x:Key="settingsQuietActionButtonStyle"
          TargetType="{x:Type Button}"
          BasedOn="{StaticResource SettingsQuietButtonStyle}">
-    <Setter Property="MinHeight" Value="36" />
-    <Setter Property="MinWidth" Value="96" />
-    <Setter Property="Padding" Value="16,6" />
-    <Setter Property="FontWeight" Value="SemiBold" />
   </Style>
 
   <Style x:Key="SettingsTextBoxStyle"
@@ -174,7 +160,7 @@
          TargetType="{x:Type Expander}"
          BasedOn="{StaticResource App.Canonical.ExpanderStyle}">
     <!-- セクション内の詳細表示。セクション間の下余白は親が持つ。 -->
-    <Setter Property="Margin" Value="0,6,0,0" />
+    <Setter Property="Margin" Value="0,8,0,0" />
   </Style>
   <Style TargetType="{x:Type Expander}" BasedOn="{StaticResource SettingsExpanderStyle}" />
 
@@ -257,17 +243,23 @@
     <Setter Property="Focusable" Value="False" />
     <Setter Property="IsTabStop" Value="False" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-    <Setter Property="Margin" Value="0,0,0,12" />
+    <Setter Property="Margin" Value="{StaticResource App.Layout.FieldMargin}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type settings:SettingsCheckBoxOption}">
           <StackPanel>
             <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" />
             <!-- 共通CheckBoxのマーク幅18とラベル左余白8に揃える。入力テンプレートは共通側に任せる。 -->
-            <TextBlock Margin="26,2,0,0"
+            <TextBlock Margin="26,4,0,0"
                        Foreground="{DynamicResource App.DisabledTextBrush}"
                        Text="{TemplateBinding Description}"
-                       TextWrapping="Wrap" />
+                       TextWrapping="Wrap">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock">
+                    <Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger></Style.Triggers>
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
           </StackPanel>
         </ControlTemplate>
       </Setter.Value>
@@ -275,7 +267,7 @@
   </Style>
 
   <Style TargetType="{x:Type settings:SettingsSection}">
-    <Setter Property="Margin" Value="{StaticResource SettingsSectionMargin}" />
+    <Setter Property="Margin" Value="{StaticResource App.Layout.SectionMargin}" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="VerticalContentAlignment" Value="Stretch" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
@@ -309,7 +301,7 @@
               </TextBlock.Style>
             </TextBlock>
             <ContentPresenter Grid.Row="2"
-                              Margin="0,14,0,0"
+                              Margin="0,16,0,0"
                               HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                               VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
           </Grid>
@@ -319,7 +311,7 @@
   </Style>
 
   <Style TargetType="{x:Type settings:SettingsField}">
-    <Setter Property="Margin" Value="0,0,0,14" />
+    <Setter Property="Margin" Value="{StaticResource App.Layout.FieldMargin}" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="AutomationProperties.ItemStatus" Value="{Binding ValidationStatus, RelativeSource={RelativeSource Self}}" />
@@ -329,7 +321,7 @@
         <ControlTemplate TargetType="{x:Type settings:SettingsField}">
           <StackPanel>
             <TextBlock x:Name="FieldHeader" FontWeight="SemiBold" Text="{TemplateBinding Header}" TextWrapping="Wrap" />
-            <TextBlock x:Name="FieldDescription" Margin="0,2,0,0"
+            <TextBlock x:Name="FieldDescription" Margin="0,4,0,0"
                        Foreground="{DynamicResource App.DisabledTextBrush}"
                        Text="{TemplateBinding Description}"
                        TextWrapping="Wrap">
@@ -343,7 +335,7 @@
                 </Style>
               </TextBlock.Style>
             </TextBlock>
-            <ContentPresenter x:Name="FieldContent" Margin="0,6,0,0" />
+            <ContentPresenter x:Name="FieldContent" Margin="0,4,0,0" />
             <TextBlock x:Name="ValidationText"
                        Margin="0,4,0,0"
                        Foreground="{DynamicResource App.WarningTextBrush}"
@@ -387,7 +379,7 @@
   <!-- 標準RadioButtonの選択・キー・Clickを保ち、説明も同じ入力面に含める。 -->
   <Style x:Key="SettingsEnvironmentRadioStyle" TargetType="{x:Type RadioButton}"
          BasedOn="{StaticResource App.Canonical.RadioButtonStyle}">
-    <Setter Property="Padding" Value="14" />
+    <Setter Property="Padding" Value="{StaticResource App.Layout.BodyPadding}" />
     <Setter Property="HorizontalAlignment" Value="Stretch" />
     <Setter Property="VerticalAlignment" Value="Stretch" />
     <Setter Property="Template">
@@ -435,8 +427,8 @@
   </Style>
 
   <Style TargetType="{x:Type settings:SettingsOptionRow}">
-    <Setter Property="Margin" Value="0,0,0,10" />
-    <Setter Property="Padding" Value="14" />
+    <Setter Property="Margin" Value="{StaticResource App.Layout.FieldMargin}" />
+    <Setter Property="Padding" Value="{StaticResource App.Layout.BodyPadding}" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="Template">
@@ -449,10 +441,16 @@
                   CornerRadius="8">
             <StackPanel>
               <TextBlock FontWeight="SemiBold" Text="{TemplateBinding Header}" TextWrapping="Wrap" />
-              <TextBlock Margin="0,3,0,0"
+              <TextBlock Margin="0,4,0,0"
                          Foreground="{DynamicResource App.DisabledTextBrush}"
                          Text="{TemplateBinding Description}"
-                         TextWrapping="Wrap" />
+                         TextWrapping="Wrap">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock">
+                    <Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger></Style.Triggers>
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
               <ContentPresenter Margin="0,8,0,0" />
             </StackPanel>
           </Border>
@@ -462,7 +460,7 @@
   </Style>
 
   <Style TargetType="{x:Type settings:SettingsPathPicker}">
-    <Setter Property="Margin" Value="0,0,0,14" />
+    <Setter Property="Margin" Value="{StaticResource App.Layout.FieldMargin}" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="AutomationProperties.ItemStatus" Value="{Binding ValidationStatus, RelativeSource={RelativeSource Self}}" />
     <Setter Property="AutomationProperties.HelpText" Value="{Binding ValidationMessage, RelativeSource={RelativeSource Self}}" />
@@ -471,7 +469,7 @@
         <ControlTemplate TargetType="{x:Type settings:SettingsPathPicker}">
           <StackPanel>
             <TextBlock FontWeight="SemiBold" Text="{TemplateBinding Label}" TextWrapping="Wrap" />
-            <TextBlock Margin="0,2,0,0"
+            <TextBlock Margin="0,4,0,0"
                        Foreground="{DynamicResource App.DisabledTextBrush}"
                        Text="{TemplateBinding Description}"
                        TextWrapping="Wrap">
@@ -485,7 +483,7 @@
                 </Style>
               </TextBlock.Style>
             </TextBlock>
-            <Grid Margin="0,6,0,0">
+            <Grid Margin="0,4,0,0">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -538,8 +536,8 @@
   <Style TargetType="{x:Type settings:SettingsListEditor}"
          BasedOn="{StaticResource {x:Type settings:SettingsField}}" />
   <Style TargetType="{x:Type settings:SettingsStatusBanner}">
-    <Setter Property="Margin" Value="0,4,0,10" />
-    <Setter Property="Padding" Value="10,8" />
+    <Setter Property="Margin" Value="0,8,0,16" />
+    <Setter Property="Padding" Value="16,8" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="AutomationProperties.LiveSetting" Value="Polite" />
     <Setter Property="Template">

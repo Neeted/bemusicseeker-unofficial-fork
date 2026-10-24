@@ -180,6 +180,8 @@ scoreの未反映範囲を必要とする要求は、その時点で必要な確
 
 ### 行のドラッグと編集
 
+セルeditorの文字余白はTextBox.Paddingから内部ホストへ一回だけ反映し、テンプレートのBorder.Paddingへ重ねません。editorと描画Surfaceは全面を維持し、バーのための固定ガターや追加列は作りません。
+
 選択行は `SelectedRowsDataFormat`、表示先は `RowDragKindDataFormat`、開始行は `PrimaryRowDataFormat` へ格納します。通常・詳細・履歴の表は `PlaylistDropCandidateRows`、プレイリスト一覧は `PlaylistSummaryRows` を使います。
 
 プレイリストツリーは種類と全行を再検証します。履歴は `ResolvedChart` を持つ行だけを譜面へ変換でき、未解決や一覧の行が一つでも混じれば全体を拒否します。見かけの行型だけで受け付けません。
@@ -233,6 +235,8 @@ DPIは変更コールバックと描画開始時の環境確認で追従しま�
 一覧ヘッダーの上端には `Table.HeaderGridLineBrush` による1 DIPの線を表示幅全体へ描画します。線の中心は上端から0.5 DIPに置き、端で半分が欠けることを避けます。通常一覧・プレイリスト概要とも、保留・プレイログの追加ツールバーや表示列・データ行の有無によらず上枠を表示し、追加ツールバー側には下枠を重ねません。データ行の罫線・行高・スクロール計算は維持します。
 
 ## 実装とテストの対応
+
+セルeditorの余白は `CreateCellEditorTemplate` の静的差分と `MainWindowChartPresentationWpfTests` の共通入力位置の検査で確認します。実編集の開始・入力所有・編集中操作は既存 `CustomTableEditingTests` が担当し、Surfaceと有効viewportの保証は以下の既存viewport・navigationケースへ残します。
 
 [`ApplicationCompositionTests.MainWindowCompositionRoutesPlaylistSummaryRefreshThroughShellArbiter`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionTests.cs) は実Dispatcherで同時要求のデータ優先・一回適用を確認します。実導入記録削除の抑制中にもサマリーを公開し、別一覧の抑制終了でサマリーを再構築しないことを確認します。
 

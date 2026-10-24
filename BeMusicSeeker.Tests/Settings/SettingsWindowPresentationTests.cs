@@ -629,7 +629,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>実表示した sidebar は native client の左端まで届き、ページ header には内側間隔が残ることを測定して外側 inset の誤適用を検出します。</summary>
+    /// <summary>実表示した分類と本文viewerはclient端へ届き、本文とheaderの16 DIPを一回だけ適用することを測定して二重insetを検出します。</summary>
     [TestMethod]
     public void SettingsWindow_SidebarReachesNativeClientEdgeWhilePageKeepsInnerSpacing()
     {
@@ -642,23 +642,23 @@ public sealed class SettingsWindowPresentationTests
                 windowTest.ShowAndWaitForContentRendered(window);
                 window.UpdateLayout();
 
-                Border nativeContent = FindDescendants<Border>(window).Single(border =>
-                    border.Style != null
-                    && FindResourceInStyleScope(border, "App.Canonical.NativeWindowContentStyle")
-                    && border.BorderThickness == new Thickness(0)
-                    && border.CornerRadius == new CornerRadius(0));
+                var client = (FrameworkElement)window.Content;
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var pageHeader = (ContentControl)window.FindName("settingsPageHeader");
-
-                Rect nativeBounds = new(0d, 0d, nativeContent.ActualWidth, nativeContent.ActualHeight);
-                Rect navigationBounds = GetVisualBounds(nativeContent, navigation);
-                Rect headerBounds = GetVisualBounds(nativeContent, pageHeader);
-                Assert.IsTrue(
-                    navigationBounds.Left <= nativeBounds.Left + 1d,
-                    $"Settings navigation must reach the native client edge (native={nativeBounds}, navigation={navigationBounds}).");
-                Assert.IsTrue(
-                    headerBounds.Left > navigationBounds.Right,
-                    "The selected page must retain inner spacing after the outer native inset is removed.");
+                var body = (ScrollViewer)window.FindName("settingsPageScrollViewer");
+                var page = (ContentControl)window.FindName("settingsPageContent");
+                var presenter = (ScrollContentPresenter)body.Template.FindName("PART_ScrollContentPresenter", body);
+                Rect navigationBounds = GetVisualBounds(client, navigation);
+                Rect bodyBounds = GetVisualBounds(client, body);
+                Rect headerBounds = GetVisualBounds(client, pageHeader);
+                Rect pageBounds = GetVisualBounds(presenter, page);
+                Assert.AreEqual(0d, navigationBounds.Left, 0.25d, "分類はclient左端へ届く。");
+                Assert.AreEqual(client.ActualWidth, bodyBounds.Right, 0.25d, "本文viewerはclient右端へ届く。");
+                Assert.AreEqual(16d, GetVisualBounds(body, presenter).Left, 0.25d, "本文左余白は一度だけ適用する。");
+                Assert.AreEqual(0d, pageBounds.Left, 0.25d);
+                Assert.AreEqual(presenter.ActualWidth, pageBounds.Right, 0.25d);
+                Assert.AreEqual(headerBounds.Left, GetVisualBounds(client, page).Left, 0.25d);
+                Assert.AreEqual(new Thickness(16), body.Padding);
             }
             finally
             {
@@ -2457,7 +2457,7 @@ public sealed class SettingsWindowPresentationTests
             MainWindowViewModel owner = CreateOwnerForPresentationWithoutNativeCapabilityQuery();
             using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
             var window = new SettingsWindow { DataContext = owner.SettingDialog };
-            window.Width = 820;
+            window.Width = window.MinWidth;
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
@@ -2473,9 +2473,9 @@ public sealed class SettingsWindowPresentationTests
                 TextBlock message = FindDescendants<TextBlock>(banner).Single(text => text.Text == longMessage);
                 AutomationPeer peer = UIElementAutomationPeer.CreatePeerForElement(banner);
 
-                Assert.AreEqual(820d, window.ActualWidth, 0.5d);
+                Assert.AreEqual(window.MinWidth, window.ActualWidth, 0.25d);
                 Assert.IsTrue(message.ActualHeight > message.FontSize * 1.5d,
-                    $"The long audio status remained one line at the 820 DIP window width ({message.ActualWidth} x {message.ActualHeight}).");
+                    $"The long audio status remained one line at the minimum window width ({message.ActualWidth} x {message.ActualHeight}).");
                 Assert.IsNotNull(peer);
                 Assert.AreEqual(longMessage, peer.GetName());
                 Assert.AreEqual("Information", peer.GetItemStatus());
@@ -3080,6 +3080,8 @@ public sealed class SettingsWindowPresentationTests
                     navigation.SelectedItem = window.FindName(categoryName);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     Control editor = find((FrameworkElement)host.Content);
+                    // 新しいページのtemplateと入力名の接続を実体化してからAutomationを観測する。
+                    window.UpdateLayout();
                     AutomationPeer peer = editor switch
                     {
                         ComboBox comboBox => new ComboBoxAutomationPeer(comboBox),
@@ -4995,23 +4997,6 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    private static bool FindResourceInStyleScope(Border element, string key)
-    {
-        if (element.TryFindResource(key) is not Style expectedStyle)
-        {
-            return false;
-        }
-
-        for (Style candidate = element.Style; candidate != null; candidate = candidate.BasedOn)
-        {
-            if (ReferenceEquals(candidate, expectedStyle))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
 
     private static Rect GetVisualBounds(Visual ancestor, FrameworkElement descendant)
         => descendant.TransformToAncestor(ancestor)

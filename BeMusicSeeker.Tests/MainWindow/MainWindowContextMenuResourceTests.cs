@@ -311,8 +311,9 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     /// <remarks>共有compiledテンプレートから標準Automationと実コントロール操作が届く境界をWPFで確認します。操作可否の判断網羅は下位ケースが担います。</remarks>
-    /// <summary>縦横scrollbarを実領域と同期し、Automationと行/ページ操作が各方向へ動くことを確認し、共有テンプレートによる標準操作の接続漏れを検出します。</summary>
+    /// <summary>縦横scrollbarを実領域と同期し、Automationと行/ページ操作が各方向へ動くことを確認し、共有テンプレートによる標準操作の接続漏れを検出します。同一本文4状態と一覧/候補/menuの枠内2 DIPも確認します。</summary>
     [TestMethod]
+    [DoNotParallelize] // 実Window/Popupと共有Applicationの表示scopeを準備から回収まで所有する。
     public void CanonicalScrollViewer_MaterializesSharedScrollBarsAndPreservesBehavior()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -380,7 +381,13 @@ public sealed class MainWindowContextMenuResourceTests
                 track.Thumb.ApplyTemplate();
                 var chrome = (Border)track.Thumb.Template.FindName("ThumbChrome", track.Thumb);
                 Assert.AreEqual(3d, track.Orientation == Orientation.Vertical ? chrome.ActualWidth : chrome.ActualHeight, 0.01d);
-                Assert.AreEqual(new CornerRadius(4d), chrome.CornerRadius);
+                Rect chromeBounds = chrome.TransformToAncestor(scroller).TransformBounds(new Rect(chrome.RenderSize));
+                Assert.AreEqual(2d, track.Orientation == Orientation.Vertical
+                    ? scroller.ActualWidth - chromeBounds.Right
+                    : scroller.ActualHeight - chromeBounds.Bottom, 0.25d, "つまみは所属枠の内側2 DIPに配置する。");
+                Assert.AreEqual(track.Orientation == Orientation.Vertical ? HorizontalAlignment.Right : HorizontalAlignment.Stretch,
+                    chrome.HorizontalAlignment);
+                if (track.Orientation == Orientation.Horizontal) { Assert.AreEqual(VerticalAlignment.Bottom, chrome.VerticalAlignment); }
                 foreach (RepeatButton pageButton in new[] { track.DecreaseRepeatButton, track.IncreaseRepeatButton })
                 {
                     pageButton.ApplyTemplate();
@@ -389,14 +396,13 @@ public sealed class MainWindowContextMenuResourceTests
                     Assert.AreEqual((byte)0, ((SolidColorBrush)pageChrome.Background).Color.A);
                 }
                 Assert.IsTrue((track.Orientation == Orientation.Vertical ? track.Thumb.ActualHeight : track.Thumb.ActualWidth) >= 28d);
-                // hoverはScrollBar全体、dragはThumb自身から取り、後段のdragを優先する。
+                // hoverはScrollBar全体、dragはThumb自身から取り、外端を固定して内側だけへ拡張する。
                 TriggerBase[] triggers = track.Thumb.Template.Triggers.Cast<TriggerBase>().ToArray();
                 DataTrigger hover = triggers.OfType<DataTrigger>().Single();
                 var hoverBinding = (System.Windows.Data.Binding)hover.Binding;
                 Assert.AreEqual("IsMouseOver", hoverBinding.Path.Path);
                 Assert.AreEqual(typeof(ScrollBar), hoverBinding.RelativeSource.AncestorType);
                 Trigger drag = triggers.OfType<Trigger>().Single(trigger => trigger.Property == Thumb.IsDraggingProperty);
-                Assert.IsTrue(Array.IndexOf(triggers, drag) > Array.IndexOf(triggers, hover));
                 DependencyProperty thickness = track.Orientation == Orientation.Vertical ? FrameworkElement.WidthProperty : FrameworkElement.HeightProperty;
                 foreach (SetterBaseCollection setters in new[] { hover.Setters, drag.Setters })
                 {
@@ -456,6 +462,31 @@ public sealed class MainWindowContextMenuResourceTests
                 Assert.AreEqual(state.Vertical ? Visibility.Visible : Visibility.Collapsed, vertical.Visibility);
                 Assert.AreEqual(state.Horizontal ? Visibility.Visible : Visibility.Collapsed, horizontal.Visibility);
             }
+            // 同じ外寸・同じ折返し本文のまま、表示だけを4状態へ変えても内容領域を縮めない。
+            scroller.Padding = new Thickness(11, 7, 13, 9);
+            var wrapping = new TextBlock { Text = string.Join(" ", Enumerable.Repeat("wrapping content", 20)), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Top };
+            var sameContent = new Grid { Width = 260, Height = 420 };
+            sameContent.Children.Add(wrapping);
+            scroller.Content = sameContent;
+            double? wrappingHeight = null;
+            foreach ((bool Vertical, bool Horizontal) state in new[] { (false, false), (true, false), (false, true), (true, true) })
+            {
+                scroller.VerticalScrollBarVisibility = state.Vertical ? ScrollBarVisibility.Visible : ScrollBarVisibility.Hidden;
+                scroller.HorizontalScrollBarVisibility = state.Horizontal ? ScrollBarVisibility.Visible : ScrollBarVisibility.Hidden;
+                scroller.UpdateLayout();
+                Assert.AreEqual(156d, presenter.ActualWidth, 0.01d);
+                Assert.AreEqual(104d, presenter.ActualHeight, 0.01d);
+                Assert.AreEqual(260d, sameContent.ActualWidth, 0.01d);
+                Assert.AreEqual(420d, sameContent.ActualHeight, 0.01d);
+                Assert.AreEqual(state.Vertical ? Visibility.Visible : Visibility.Collapsed, vertical.Visibility);
+                Assert.AreEqual(state.Horizontal ? Visibility.Visible : Visibility.Collapsed, horizontal.Visibility);
+                if (wrappingHeight.HasValue) { Assert.AreEqual(wrappingHeight.Value, wrapping.ActualHeight, 0.01d); }
+                wrappingHeight = wrapping.ActualHeight;
+            }
+            scroller.Content = content;
+            scroller.Padding = new Thickness(0);
+            scroller.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            scroller.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
             scroller.Width = 20d;
             scroller.Height = 20d;
             scroller.UpdateLayout();
@@ -478,7 +509,86 @@ public sealed class MainWindowContextMenuResourceTests
             Assert.AreEqual(16d, simpleVertical.ActualWidth, 0.01d);
             simpleVertical.ApplyTemplate();
             Assert.IsNotNull(simpleVertical.Template.FindName("PART_Track", simpleVertical));
+
+            scroller.Visibility = Visibility.Collapsed;
+            var list = new ListBox
+            {
+                Width = 180,
+                Height = 100,
+                ItemsSource = Enumerable.Range(0, 30),
+                Style = (Style)host.Resources["SimpleListBox"]
+            };
+            host.Children.Add(list);
+            window.UpdateLayout();
+            Border listFrame = FindVisualDescendants<Border>(list).First();
+            AssertFrameThumbInset(listFrame, FindVisualDescendants<ScrollViewer>(list).Single());
+            list.Visibility = Visibility.Collapsed;
+            var combo = new ComboBox
+            {
+                Width = 180,
+                Height = 32,
+                MaxDropDownHeight = 100,
+                ItemsSource = Enumerable.Range(0, 30),
+                Style = (Style)host.Resources["SimpleComboBox"]
+            };
+            host.Children.Add(combo);
+            window.UpdateLayout();
+            var popup = (Popup)combo.Template.FindName("Popup", combo);
+            // 開閉や実フォーカスを要求せず、実ComboBoxが生成したPopup本文を有限の配置領域へ測定する。
+            var popupRoot = (FrameworkElement)popup.Child;
+            popupRoot.Measure(new Size(180, 100));
+            popupRoot.Arrange(new Rect(0, 0, 180, 100));
+            popupRoot.UpdateLayout();
+            var dropDownFrame = (Border)combo.Template.FindName("DropDownBorder", combo);
+            AssertFrameThumbInset(dropDownFrame, FindVisualDescendants<ScrollViewer>(dropDownFrame).Single());
+
+            // menuとsubmenuはOS入力に依存せず、実controlのcompiled内容を同じ局所サイズへ配置して枠との関係を測る。
+            var menu = new ContextMenu { Width = 180, MaxHeight = 100, Style = (Style)host.Resources["SimpleContextMenu"] };
+            menu.Resources.MergedDictionaries.Add(host.Resources);
+            var submenuHeader = new MenuItem { Header = "Submenu", Style = (Style)host.Resources["SimpleMenuItem"] };
+            foreach (int index in Enumerable.Range(0, 30))
+            {
+                menu.Items.Add(new MenuItem { Header = $"Item {index}" });
+                submenuHeader.Items.Add(new MenuItem { Header = $"Child {index}" });
+            }
+            menu.Items.Insert(0, submenuHeader);
+            menu.ApplyTemplate();
+            menu.Measure(new Size(180, 100));
+            menu.Arrange(new Rect(0, 0, 180, 100));
+            menu.UpdateLayout();
+            Border menuFrame = FindVisualDescendants<Border>(menu).First();
+            AssertFrameThumbInset(menuFrame, FindVisualDescendants<ScrollViewer>(menuFrame).Single());
+            submenuHeader.ApplyTemplate();
+            var submenuPopup = (Popup)submenuHeader.Template.FindName("SubMenuPopup", submenuHeader);
+            var submenuRoot = (FrameworkElement)submenuPopup.Child;
+            submenuRoot.MaxHeight = 100;
+            submenuRoot.Measure(new Size(180, 100));
+            submenuRoot.Arrange(new Rect(0, 0, 180, 100));
+            submenuRoot.UpdateLayout();
+            var submenuFrame = (Border)submenuHeader.Template.FindName("SubMenuBorder", submenuHeader);
+            AssertFrameThumbInset(submenuFrame, FindVisualDescendants<ScrollViewer>(submenuFrame).Single());
+
         });
+    }
+
+    private static void AssertFrameThumbInset(Border frame, ScrollViewer viewer)
+    {
+        viewer.ApplyTemplate();
+        viewer.UpdateLayout();
+        Assert.AreSame(viewer.FindResource("App.Canonical.ScrollViewerTemplate"), viewer.Template,
+            "所属枠内の実ScrollViewerへ共通overlayを解決する。");
+        var bar = (ScrollBar)viewer.Template.FindName("PART_VerticalScrollBar", viewer);
+        Assert.IsNotNull(bar, $"{frame.Name}: vertical scrollbar must materialize.");
+        Assert.AreEqual(Visibility.Visible, bar.Visibility);
+        bar.ApplyTemplate();
+        var track = (Track)bar.Template.FindName("PART_Track", bar);
+        track.Thumb.ApplyTemplate();
+        var chrome = (Border)track.Thumb.Template.FindName("ThumbChrome", track.Thumb);
+        Rect bounds = chrome.TransformToAncestor(frame).TransformBounds(new Rect(chrome.RenderSize));
+        Assert.IsTrue(frame.ActualWidth > 0d && viewer.ActualWidth > 0d && chrome.ActualWidth > 0d,
+            $"実枠と本文とつまみを配置してから測る: frame={frame.Name}:{frame.RenderSize}, viewer={viewer.RenderSize}, chrome={bounds}。");
+        Assert.AreEqual(2d, frame.ActualWidth - frame.BorderThickness.Right - bounds.Right, 0.25d,
+            $"所属枠内縁から測り旧外Margin残留を検出する: frame={frame.Name}:{frame.RenderSize}, border={frame.BorderThickness}, viewer={viewer.RenderSize}, chrome={bounds}。");
     }
 
     private static void AssertScrollCommandBehavior(
@@ -622,6 +732,7 @@ public sealed class MainWindowContextMenuResourceTests
     /// <remarks>共有compiledテンプレートから標準Automationと実コントロール操作が届く境界をWPFで確認します。操作可否の判断網羅は下位ケースが担います。</remarks>
     /// <summary>実ナビゲーションのAutomationで単一選択を変更し、無効項目と内容配置を保つことを確認し、標準選択操作や無枠内容hostの接続漏れを検出します。</summary>
     [TestMethod]
+    [DoNotParallelize] // 共有Dispatcherの実Window一覧を表示scopeが所有する。
     public void CanonicalTopNavigation_UsesSingleSelectionAndStandardAutomation()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -717,13 +828,19 @@ public sealed class MainWindowContextMenuResourceTests
                     || border.CornerRadius.BottomRight > 0d
                     || border.CornerRadius.BottomLeft > 0d),
                 "The shared top-navigation content role must be an unframed host.");
+            Assert.AreEqual(new Thickness(0), content.Padding, "既定では本文余白を所有しない。");
+            Point defaultOrigin = contentText.TransformToAncestor(content).Transform(new Point());
+            Assert.AreEqual(0d, defaultOrigin.X, 0.25d);
+            Assert.AreEqual(0d, defaultOrigin.Y, 0.25d);
+            content.Padding = new Thickness(7, 9, 11, 13);
+            content.UpdateLayout();
             Point contentOrigin = contentText.TransformToAncestor(content).Transform(new Point());
-            Assert.AreEqual(content.Padding.Left, contentOrigin.X, 0.5d);
-            Assert.AreEqual(content.Padding.Top, contentOrigin.Y, 0.5d);
+            Assert.AreEqual(content.Padding.Left, contentOrigin.X, 0.25d);
+            Assert.AreEqual(content.Padding.Top, contentOrigin.Y, 0.25d);
             Assert.AreEqual(
                 content.ActualWidth - content.Padding.Left - content.Padding.Right,
                 contentText.ActualWidth,
-                0.5d,
+                0.25d,
                 "The unframed content host must preserve horizontal padding and stretch alignment.");
         });
     }

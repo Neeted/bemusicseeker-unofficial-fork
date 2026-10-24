@@ -70,6 +70,10 @@
     </ControlTemplate.Triggers>
   </ControlTemplate>
 
+  <Thickness x:Key="App.Layout.BodyPadding">16</Thickness>
+  <Thickness x:Key="App.Layout.SectionMargin">0,0,0,24</Thickness>
+  <Thickness x:Key="App.Layout.FieldMargin">0,0,0,16</Thickness>
+
   <ControlTemplate x:Key="App.Canonical.TextBoxTemplate" TargetType="{x:Type TextBox}">
     <Grid>
       <Border x:Name="TextBoxChrome"
@@ -78,7 +82,6 @@
               BorderThickness="{TemplateBinding BorderThickness}"
               CornerRadius="4">
         <ScrollViewer x:Name="PART_ContentHost"
-                      Margin="{TemplateBinding Padding}"
                       Style="{DynamicResource App.Canonical.ScrollViewerStyle}" />
       </Border>
       <Border x:Name="FocusBorder"
@@ -1087,9 +1090,10 @@
                 <DatePickerTextBox x:Name="PART_TextBox" Grid.Column="0" IsReadOnly="True" BorderThickness="0" Padding="6,2" Background="Transparent" Foreground="{TemplateBinding Foreground}" VerticalContentAlignment="Center" FocusVisualStyle="{x:Null}">
                   <DatePickerTextBox.Template>
                     <ControlTemplate TargetType="{x:Type DatePickerTextBox}">
-                      <Grid Margin="{TemplateBinding Padding}">
+                      <Grid>
                         <ScrollViewer x:Name="PART_ContentHost" Style="{DynamicResource App.Canonical.ScrollViewerStyle}" />
-                        <TextBlock x:Name="DateHint" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.DatePicker_choose_date}" Foreground="{DynamicResource App.SubtleTextBrush}" VerticalAlignment="Center" IsHitTestVisible="False" Visibility="Collapsed" />
+                        <!-- TextBoxViewの双方向キャレット用左右2 DIPに、案内文の実文字位置を合わせる。 -->
+                        <TextBlock x:Name="DateHint" Margin="{TemplateBinding Padding}" Padding="2,0" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.DatePicker_choose_date}" Foreground="{DynamicResource App.SubtleTextBrush}" VerticalAlignment="Center" IsHitTestVisible="False" Visibility="Collapsed" />
                       </Grid>
                       <ControlTemplate.Triggers>
                         <DataTrigger Binding="{Binding SelectedDate, RelativeSource={RelativeSource AncestorType={x:Type DatePicker}}}" Value="{x:Null}">
@@ -1237,6 +1241,12 @@
     <Setter Property="Template" Value="{StaticResource App.Canonical.ScrollViewerTemplate}" />
   </Style>
 
+  <Style x:Key="App.Canonical.WindowBodyScrollViewerStyle" TargetType="{x:Type ScrollViewer}" BasedOn="{StaticResource App.Canonical.ScrollViewerStyle}">
+    <Setter Property="Padding" Value="{StaticResource App.Layout.BodyPadding}" />
+    <Setter Property="VerticalScrollBarVisibility" Value="Auto" />
+    <Setter Property="HorizontalScrollBarVisibility" Value="Disabled" />
+  </Style>
+
   <Style x:Key="App.Canonical.ListBoxItemStyle" TargetType="{x:Type ListBoxItem}" BasedOn="{x:Null}">
     <Setter Property="Padding" Value="8,5" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -1291,7 +1301,6 @@
   </Style>
 
   <Style x:Key="App.Canonical.TopNavigationContentStyle" TargetType="{x:Type ContentControl}" BasedOn="{x:Null}">
-    <Setter Property="Padding" Value="14" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="VerticalContentAlignment" Value="Stretch" />
     <Setter Property="Focusable" Value="False" />
@@ -1310,7 +1319,7 @@
           <RowDefinition Height="Auto" />
           <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <ContentPresenter Margin="16,12,16,0"
+        <ContentPresenter Margin="16,16,16,0"
                           ContentSource="Header"
                           RecognizesAccessKey="True"
                           TextElement.Foreground="{TemplateBinding Control.Foreground}"
@@ -1344,8 +1353,8 @@
   </ControlTemplate>
 
   <Style x:Key="App.Canonical.GroupBoxStyle" TargetType="{x:Type GroupBox}" BasedOn="{x:Null}">
-    <Setter Property="Margin" Value="0,0,0,16" />
-    <Setter Property="Padding" Value="16,12,16,16" />
+    <Setter Property="Margin" Value="{StaticResource App.Layout.SectionMargin}" />
+    <Setter Property="Padding" Value="{StaticResource App.Layout.BodyPadding}" />
     <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />

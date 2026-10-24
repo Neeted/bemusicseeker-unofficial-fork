@@ -29,6 +29,8 @@
 
 カテゴリはUI Automationの選択操作に対応します。選択を下線で示し、フォーカス・無効状態を区別します。左右・Home・Endで移動し、無効な項目は飛ばします。本文は独立したスクロール領域とし、カテゴリ変更時は先頭へ戻しますが、編集値は保持します。
 
+上部選択・更新日時・確定操作は本文のスクロールから独立して固定します。本文のScrollViewerはペイン端まで配置し、本文Paddingと固定領域の左右を16 DIPへ揃えます。上部ナビゲーションの内容styleに追加余白を持たせず、本文余白を一回だけ適用します。採用する最小寸法で末尾の入力・確定・取消へ到達でき、横バーをフッターへ延ばしません。
+
 フォルダ一覧は利用可能な高さに伸ばし、収まらなければその一覧内をスクロールします。説明を含む他の内容も画面の縮小時に到達可能にします。出力先は幅いっぱい、出力項目は上寄せの等幅2列とします。説明文を折り返し、横スクロールを要求しません。
 
 カスタムフォルダはLR2用です。エントリがフォルダ単位ならレベル別の出力を無効にし、フォルダ内のソート候補からレベル順と追加日時順を除きます。外部同期の設定に応じてURLやフォルダの編集可否を切り替え、自動整列中は手動整列を無効にします。編集欄は双方向、管理主体から受け取る一覧は一方向に接続します。
@@ -70,6 +72,7 @@ BMT、外部同期、ルート型、出力種別、出力先、外部属性初�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 本文余白と固定領域、最小寸法での末尾到達 | `PlaylistPropertyDialog.xaml`、共通本文ScrollViewerと上部ナビゲーション | `PlaylistSummaryBulkEditTests.PlaylistPropertyDialog_ResizeKeepsGeneralEditorsReachable` は末尾editor到達と上部選択・更新日時・操作の固定を確認する。既存の `PlaylistPropertyDialog_FolderOrderScrollsIndependentlyAndGrowsWithWindow` と `PlaylistPropertyDialog_TopNavigationKeepsSingleSelectionAndDraftsAcrossCategories` は独立一覧と選択・draft保持を分担する。 |
 | 三つの編集準備の短期P、現正本の初期値、空・失効・準備例外 | `PlaylistWorkspaceViewModel.PropertyEditing`、`PlaylistSummaryBulkEdit` | [`PlaylistWorkspaceActionWorkflowTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)の`PlaylistEditPreparation_*`、`PlaylistPropertyPreparation_ResolvesCurrentAndHoldsAdmissionThroughHydration`。実hydrationの通知gateと新規準備の設定gateでP保持を観測し、準備Task終端の解放、未登録draftと取消を確認する。 |
 | 一括対象の一要求一回の正本捕捉、重複・IDなし・曖昧ID | `PlaylistWorkspaceViewModel.PlaylistSummaryBulkEdit` | [`PlaylistWorkspaceActionWorkflowTests.PlaylistBulkPreparationAndApply_CaptureCurrentCollectionOncePerRequest`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)。小さい実対象集合のコピー・列挙回数で開始と差分なし適用を確認し、同ID別参照・同参照二重登録の拒否を分担する。順序保持は初出順のListと参照集合による実装を静的確認する。 |
 | 六操作の全対象現行性、同ID置換・別storeの拒否と開き直し | `PlaylistWorkspaceViewModel.PlaylistSummaryBulkEdit`、`PlaylistSummaryBuild` | [`PlaylistSummaryBulkEditTests.BulkApply_RejectsEntireStaleSelectionBeforeChanges`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs)は六操作の全件退役・無変更対象を含む一部退役で実DB・BMT bytes・正本・入力保持を確認し、別storeはBMTで代表確認する。`BulkBmtApply_ExternalReplacementRejectsOldDraftAndReopenedDraftSaves`は実外部再同期による同ID別参照から旧draft拒否、旧選択の開き直しと保存までを確認する。実WPFでの通知と入力保持は既存modal cleanupケースが分担する。 |

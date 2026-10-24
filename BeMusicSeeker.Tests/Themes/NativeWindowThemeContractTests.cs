@@ -400,9 +400,9 @@ public sealed class NativeWindowThemeContractTests
             typeof(Style),
             "SimpleButton must remain resolvable from the shared Simple Styles dictionary.");
         Assert.IsInstanceOfType(
-            application.TryFindResource("App.Canonical.NativeWindowContentStyle"),
+            application.TryFindResource("App.Canonical.DialogActionStyle"),
             typeof(Style),
-            "NativeWindowContentStyle must remain resolvable from the shared canonical dictionary.");
+            "DialogActionStyle must remain resolvable from the shared canonical dictionary.");
     }
 
     private static ResourceDictionary CreateResourceDictionary(string source)

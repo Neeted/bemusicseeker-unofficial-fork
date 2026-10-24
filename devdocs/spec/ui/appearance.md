@@ -76,15 +76,27 @@ WPF 10.0.13では、[DatePickerのLanguage変更](https://github.com/dotnet/wpf/
 
 バーは内容領域へ重ね、表示・非表示の切替で内容の測定幅・高さを変えません。透明な入力領域は縦16 DIP幅・横16 DIP高に固定し、通常は外側の端に丸い3 DIPのつまみだけを示します。入力領域全体へのホバーでつまみを8 DIPへ広げ、軌道を控えめに示します。ドラッグ中は領域外でも8 DIPとドラッグ用ブラシを維持します。通常・ホバー・ドラッグの色には既存の `ScrollBar.Thumb*BackgroundBrush` を使い、ホバーよりドラッグを優先します。内部の描画だけを変え、部品寸法や表の再計算へ波及させません。
 
-つまみと外側の可視端の間には、通常・ホバー・ドラッグを通して2 DIPの空間を設けます。`ScrollBar.Padding` は共通テンプレートの `ThumbChrome.Margin` へ渡す描画設定とし、縦は右、横は下だけに適用します。長手方向には余白を足さず、透明なThumb・Track・ページボタンと16 DIPの入力領域は縮めません。
+つまみと所属枠の内縁の間には、通常・ホバー・ドラッグを通して2 DIPの空間を設けます。所属枠は、ウィンドウ本文ではクライアント領域または本文ペイン、入力・一覧では自身の可視枠、候補・メニュー・初期言語カードではその枠です。OSの影や不可視のサイズ変更領域は含めません。`ScrollBar.Padding` は共通テンプレートの `ThumbChrome.Margin` へ渡す描画設定とし、縦は右、横は下だけに適用します。外側の位置を固定したまま内側へ太くし、長手方向には余白を足さず、透明なThumb・Track・ページボタンと16 DIPの入力領域は縮めません。
 
 つまみ長は28 DIP以上を基本とし、それより短い軌道では軌道内に縮めます。両軸表示時の交点は縦バーへ割り当て、横バーを右16 DIPだけ短くして入力を重ねません。不透明な角は置きません。スクロール不要時の非表示は従来の可視性判定を使い、完全自動非表示のタイマーや保存設定は持ちません。メイン画面と表は配置の丸めと画素への整列を有効にします。
 
 標準ScrollViewerの内容は `PART_ScrollContentPresenter` で全面を使います。共通テンプレートの縦横PARTバーだけは `OverlayScrollBar` を使い、表示切替時に論理スクロールの再測定を接続します。WPFの仮想化パネルはバー切替後の再測定を前提としますが、オーバーレイでは内容の測定条件が変わらず再測定が省略され得るためです。`Visibility` の変更かつ `CanContentScroll=true` のときだけ、WPFと同じ選択順で既存の `IScrollInfo` 候補を一つ選び、同じ `ScrollOwner` と既存presenterの子孫であることを確認します。その候補からpresenterまでの中間ラッパーを含む祖先経路だけを再測定対象にし、現在のWPFの測定処理へ戻します。未実体化・対象なし・不適格な候補・物理スクロールは何もせず、別候補への代替、項目走査、追加状態、予約、明示的な測定、hover/drag/Value変更による発火は行いません。
 
-標準ScrollViewerの内容は `PART_ScrollContentPresenter` で全面を使います。`SimpleScrollViewer` も同じ共通テンプレートを実体化時に解決し、辞書の読込順を保ちます。`CanContentScroll`、仮想化、TextBoxの `PART_ContentHost` を変えません。全画面への一律余白は設けず、端の重要な操作対象に対処するときだけ、その画面に表示状態へ連動しない内側余白を使います。表の末尾をバーの手前へ出す範囲計算は[一覧仕様](table-view.md#スクロール領域)に従います。
+`SimpleScrollViewer` も同じ共通テンプレートを実体化時に解決し、辞書の読込順を保ちます。内容余白はScrollViewer.Paddingからpresenterへ一回だけ渡します。ItemsPresenterと既存のスクロール所有者の接続、論理・物理スクロールの選択、仮想化を維持します。TextBoxの入力余白はTextBox.PaddingをWPFが内部の `PART_ContentHost` へ転送する経路に集約し、外側BorderやホストMarginへ重ねません。表の末尾をバーの手前へ出す範囲計算は[一覧仕様](table-view.md#スクロール領域)に従います。
 
 WPF既定の点線のフォーカス飾りは使いません。表は選択と現在セル、ツリーは選択背景と文字、入力欄は `App.InputFocusBorderBrush`、その他の部品は選択・重ね合わせ・押下状態で示します。分割線はTab移動の対象外にし、ドラッグによるサイズ変更を保ちます。
+
+### 内容余白と間隔
+
+通常の本文・フォームの外周は16 DIP、セクション間は24 DIP、フィールド・主要列間は16 DIP、関連部品間は8 DIP、ラベル・短い説明・検証文との間は4 DIPとします。高密度の操作帯は4 / 8 DIPを使います。枠厚、アイコン、インデント、行・列・画像・外部再生面の寸法は用途に応じて定めます。
+
+ウィンドウ外枠には内容用Paddingを置きません。本文用の `App.Canonical.WindowBodyScrollViewerStyle` はペイン端まで配置し、固定の本文Padding 16を所有します。スクロールのないフォームは一つの内容コンテナが外周16を持ちます。ヘッダー・フッターは本文の外に固定し、左右16へ揃えます。横バーは本文領域の下端に置き、フッターへ延ばしません。
+
+区切り線のない領域間は本文の上下Paddingが間隔を所有し、隣接するヘッダー下・フッター上へ重ねません。可視の区切り線がある場合は各領域の内容を線から16離します。セクション・フィールドの共通間隔と呼出し側のMarginを重ねず、末尾の間隔は解除します。非表示になる説明・検証・操作群の余白は同じ可視性の要素が所有します。
+
+本文用余白を全ScrollViewerへ適用しません。局所の一覧・入力・Popupは自身の枠を維持し、必要な保護域だけを表示状態と無関係に持ちます。URL取込みと譜面プロパティの複数行TextBoxは右・下16 DIPで末尾の文字を保護します。検索候補は右16 DIPで行内操作を保護し、上下の内容余白を含めて保存候補5行・補完10行の上限、短い候補の自然高、独立したviewportと仮想化を保ちます。
+
+共通の本文余白・セクション・フィールド間隔は配色辞書から独立した `App.Layout.*` 資源に置き、テーマ変更でレイアウトを変えません。
 
 ### メイン画面
 
@@ -108,13 +120,13 @@ WPF既定の点線のフォーカス飾りは使いません。表は選択と�
 
 ### 設定画面の構造と即時反映
 
-設定画面の区画には `SettingsSection` を使い、区画間の下余白は `SettingsSectionMargin` で揃えます。区画内の補足を折り畳む `Expander` は共通の `SettingsExpanderStyle` を使います。親が区画間の下余白を持ち、展開内容との間隔は共通テンプレートが持つため、呼出し側で同じ余白を重ねません。
+設定画面の区画には `SettingsSection` を使い、区画間の下余白は `App.Layout.SectionMargin` で揃えます。区画内の補足を折り畳む `Expander` は共通の `SettingsExpanderStyle` を使います。親が区画間の下余白を持ち、展開内容との間隔は共通テンプレートが持つため、呼出し側で同じ余白を重ねません。
 
 一般ページのLR2パス設定の説明文は、LR2ディレクトリ設定の「詳細」内で個別パスより前に表示します。文字色は設定画面の説明文と同じ `App.DisabledTextBrush` を動的に参照します。
 
 設定画面は左のカテゴリ一覧、見出し、本文、下部の操作から成り、上部タブは使いません。カテゴリ、見出し、下部操作を固定し、選択中の本文だけを一つの縦ScrollViewerでスクロールします。横スクロールは使いません。長い翻訳のラベルや選択文は折り返します。
 
-カテゴリは角を丸めた選択背景と左端の強調線で選択を示し、マウス、キーボード、無効状態も識別可能にします。大きな節を入れ子のカードにせず、節間と内部は8 / 12 / 16 / 24の間隔尺度に揃えます。
+カテゴリは角を丸めた選択背景と左端の強調線で選択を示し、マウス、キーボード、無効状態も識別可能にします。大きな節を入れ子のカードにせず、節間と内部は共通の内容余白と間隔に揃えます。
 
 テーマは `AppearanceThemeOptions` の表示名と識別子を、表示領域幅に広がる単一の選択欄で扱い、`AppearanceTheme` の双方向の結び付けで選択します。開くたびに作る画面は、表示ツリーへ接続して現在値を受け取ります。未接続の部品へローカル値を設定して結び付けを壊しません。選択時にテーマだけを保存して即時適用し、閉じても保存済みの選択を保ちます。保存失敗では元の確定値と配色を保ちます。
 
@@ -148,9 +160,9 @@ OSや属性の非対応、API不在、HRESULTの失敗は標準のWindows表示�
 
 ### ダイアログの表示面
 
-標準ウィンドウでは `App.Canonical.NativeWindowContentStyle` が外周の間隔だけを所有します。内側へもう一つ塗りつぶし・丸い境界・カードを重ねません。設定画面の本体は標準の表示領域の端まで延ばし、内部の機能ごとの間隔は保ちます。
+標準ウィンドウは本文またはフォームの内容コンテナが余白を所有し、余白だけの外周Borderを置きません。内側へもう一つ塗りつぶし・丸い境界・カードを重ねません。設定画面の本体は標準の表示領域の端まで延ばし、内部の機能ごとの間隔は保ちます。
 
-メイン画面内に重ねる初回言語選択とプレイリストURL入力は、`DialogOverlayStyle` と `DialogContentStyle` を明示して使います。標準ウィンドウへこの重ね表示用の外面を流用しません。OSのファイル・フォルダ選択と緊急ダイアログは対象外です。所有元、モーダル結果、取消、終了の抑制、処理と寿命の所有は表示部品の統一で変えません。
+メイン画面内に重ねる初回言語選択は、`DialogOverlayStyle` と `DialogSurfaceStyle` を明示して使います。カードの見出し・言語選択、説明本文、操作領域が各内容余白を所有し、説明のバーはカード内縁を基準とします。プレイリスト取込みは標準の独立ウィンドウを使います。OSのファイル・フォルダ選択と緊急ダイアログは対象外です。所有元、モーダル結果、取消、終了の抑制、処理と寿命の所有は表示部品の統一で変えません。
 
 通常運用の `ThemedMessageBox` は質問、情報、警告、失敗を共通アイコン体系で表示し、質問・情報は強調色、警告は警告色、失敗は失敗色を使います。緊急経路のOSネイティブダイアログはこの統一対象に含めません。
 
@@ -158,10 +170,10 @@ OSや属性の非対応、API不在、HRESULTの失敗は標準のWindows表示�
 
 | 画面 | 契約 |
 | --- | --- |
-| リリースノート | `FlowDocumentScrollViewer`、`Meiryo UI`、文字サイズ12。本文は通常、版の見出しは太字。選択可能、ツールバーなし、縦は自動、横は無効の一つの表示範囲を持つ |
-| URL入力の重ね表示 | 外側の大きさを変えず、見出し・入力・下部操作を `Auto` / `*` / `Auto` で配置する。入力の固定高さを置かず、文字の拡大時も下部操作へ重ねない |
-| プレイリスト一括編集 | 初期幅を既存の最小幅に揃える。正の最小幅・高さ、サイズ変更、縦スクロール、終了の契約を保つ |
-| プレイリストのプロパティ | 初期640×720、最小560×420、サイズ変更可。上部選択と下部操作を固定し、選択ページだけ縦スクロールする。既定の日本語・書体・96 DPIの初期一般ページは縦スクロール不要。横スクロールは使わない |
+| リリースノート | `FlowDocumentScrollViewer`、`Meiryo UI`、文字サイズ12。本文は通常、版の見出しは太字。選択可能、ツールバーなし、縦は自動、横は無効の一つの表示範囲を持つ。既定テンプレートの内部ScrollViewerへ共通overlayを適用し、文書のPagePadding 16はズームに従う。バーの位置と入力領域はズームから独立する |
+| プレイリスト取込み | 候補と選択済みの二ペイン、URL入力、固定の下部操作を持つ。各一覧・入力の枠内でスクロールし、文字の拡大時も本文末尾と操作へ到達できる |
+| プレイリスト一括編集 | 正の最小幅・高さ、サイズ変更、本文の縦スクロールを持ち、見出しと終了操作を固定する |
+| プレイリストのプロパティ | サイズ変更可能。上部選択・更新日時・下部操作を固定し、選択ページだけ縦スクロールする。採用する最小寸法でも末尾の入力へ到達でき、横スクロールは使わない |
 
 リリースノートの右クリックは標準の `ContextMenuService` に任せ、コピーと全選択を含む標準の役割を維持します。アプリ独自のメニューや文言を追加せず、選択・クリップボード・物理カーソルを横取りしません。
 
@@ -177,6 +189,10 @@ OS標準の選択画面、利用者定義テーマ、個別色の編集、OSテ�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 本文と局所枠の余白所有、固定領域、最小寸法での到達性 | `CanonicalControls.xaml` の `App.Layout.*` / `WindowBodyScrollViewerStyle`、各Windowと `SettingsControls.xaml` | `SettingsWindowPresentationTests` は本文端と一回のinset、11ページの横方向到達性を、`SettingsControlPresentationTests` は本文スクロール時の固定領域を確認する。`PlaylistSummaryBulkEditTests` と `DialogPresentationTests` はプロパティとカードの末尾到達・固定操作を分担する。各画面の間隔の役割、末尾Margin解除、非表示要素の余白所有は対象XAMLの静的確認で分担する。 |
+| 入力Paddingの一回適用と局所編集枠の保護 | 共通TextBoxテンプレート、`Simple Styles.xaml`、`CustomTableView.CreateCellEditorTemplate`、取込み・譜面プロパティ | `MainWindowChartPresentationWpfTests` は適用後のPadding変更と表示・編集位置を、`PlaylistImportDialogTests` は長い多数行の末尾文字とバーの非重複を確認する。`ChartPropertiesWindowTests` は三欄の同じ表示資源への接続と保護域を担当し、表の編集開始・操作は既存 `CustomTableEditingTests` に残す。 |
+| Popupの枠基準、行内操作の保護、候補の行上限 | `Simple Styles.xaml` の一覧・候補・メニュー、`KeywordSearchEditor` | `MainWindowContextMenuResourceTests` は実部品の枠からのつまみ位置、`MainWindowChartPresentationWpfTests` は保存5/6行・補完10/11行の境界、独立viewport、短い候補の自然高、仮想化を分担する。 |
+| 文書余白のズーム追従とバー位置の独立 | `ReleaseNotesWindow` の文書・内部ScrollViewer | `DialogPresentationTests.ReleaseNotes_PreservesReadOnlySelectionAndScrollViewport` は実内部ホスト、ズーム前後の非空選択・スクロール・バー位置を確認する。標準選択メニューは既存の `ReleaseNotes_UsesFrameworkOwnedSelectionMenuRoles` が担当する。 |
 | 共通オーバーレイ、固定入力幅、細いつまみ、標準操作 | `CanonicalControls.xaml` のScrollBar・ScrollViewer、`Simple Styles.xaml` の互換名 | [`MainWindowContextMenuResourceTests.CanonicalScrollViewer_MaterializesSharedScrollBarsAndPreservesBehavior`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowContextMenuResourceTests.cs) はcompiled部品の16 DIP入力幅・通常3 DIP・丸み・短い軌道内への収まり、交点の非重複、なし/縦/横/両軸で内容領域一定、Lineコマンドの移動・ページボタンのInvoke・Scroll Automation・offset/value・viewport/maximum同期・無効表示を確認する。hover/dragはcompiled条件・8 DIP setterと優先順位を確認し、ブラシ・軌道の状態と固定配置の接続は静的確認する。 |
 | つまみと可視端の間隔、メイン画面の外枠・区切り線補正 | 共通ScrollBarのPaddingと `ThumbChrome.Margin`、`MainWindow.xaml` の局所ScrollBar Style | 上記のcompiled寸法・標準操作と既存MainWindowChartPresentationWpf/CustomTable系列を自動回帰に使う。横断方向だけの描画余白、通常/hover/dragで共通の接続、共通2 DIP・右端3 DIP・下端の進捗条件による3/2 DIP、上側ツリー下端2 DIP、Styleの優先順位と辞書の非循環・MainWindow祖先とPopup祖先による適用条件、16 DIP入力と内容寸法・終端露出計算の不変は静的差分確認で分担する。実ポインター操作や配色・高DPIでの見え方は自動検証済みとは扱わない。 |
 | オーバーレイの論理スクロール再測定、リサイズ時の仮想化維持 | [`OverlayScrollBar`](../../../BeMusicSeeker/Views/OverlayScrollBar.cs)、共通ScrollViewerのPARTバー | [`DialogPresentationTests.PlayHistoryPresetDialog_UsesBoundedResizablePlaylistViewport`](../../../BeMusicSeeker.Tests/Dialogs/DialogPresentationTests.cs) は未実体化の末尾へスクロールして選択した後、Window拡大で論理viewportが増えることを確認する。物理・論理の標準操作とItemsPresenterのconsumerは既存MainWindowContextMenuResource/SettingsControlPresentation/DialogPresentation系列へ分担し、候補の選択順・不適格時の無処理・祖先経路だけの無効化・状態なしと発火条件は静的確認する。 |

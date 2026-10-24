@@ -204,11 +204,11 @@ public sealed class DialogPresentationTests
         });
     }
 
-    /// <summary>通常native画面を実表示し、共通contentが外周間隔を一か所で所有して子側の二重余白を防ぎます。</summary>
+    /// <summary>通常native画面の実本文を測り、本文余白の一回適用とviewerのclient端への到達を確認します。</summary>
     [DataTestMethod]
     [DataRow("ReleaseNotesWindow")]
     [DataRow("Lr2PlayHistorySchemaUninstallDialog")]
-    public void OrdinaryNativeWindows_UseNativeContentAsSingleOuterSpacingOwner(string dialogName)
+    public void OrdinaryNativeWindows_BodyViewportReachesClientEdgeAndOwnsSingleInset(string dialogName)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -218,27 +218,27 @@ public sealed class DialogPresentationTests
                 windowTest.ShowAndWaitForContentRendered(fixture.HostWindow);
                 fixture.HostWindow.UpdateLayout();
 
-                Border nativeContent = FindNativeContentRoot(fixture.PresentationRoot);
-                Assert.IsTrue(
-                    nativeContent.Padding.Left > 0d
-                        || nativeContent.Padding.Top > 0d
-                        || nativeContent.Padding.Right > 0d
-                        || nativeContent.Padding.Bottom > 0d,
-                    "The canonical native content role must provide the ordinary native outer spacing.");
-
-                Assert.AreEqual(
-                    1,
-                    VisualTreeHelper.GetChildrenCount(nativeContent),
-                    "The native spacing owner must directly contain the dialog content surface.");
-                Assert.IsInstanceOfType(
-                    VisualTreeHelper.GetChild(nativeContent, 0),
-                    typeof(FrameworkElement),
-                    "The native content surface must be a framework element.");
-                var directContent = (FrameworkElement)VisualTreeHelper.GetChild(nativeContent, 0);
-                Assert.AreEqual(
-                    new Thickness(0),
-                    directContent.Margin,
-                    "Ordinary native dialogs must not add a second direct-child outer margin.");
+                var client = (FrameworkElement)fixture.HostWindow.Content;
+                if (dialogName == "ReleaseNotesWindow")
+                {
+                    var document = (FlowDocumentScrollViewer)client;
+                    Assert.AreEqual(new Thickness(16), document.Document.PagePadding);
+                    ScrollViewer documentHost = FindVisualDescendants<ScrollViewer>(document).Single(viewer => viewer.Name == "PART_ContentHost");
+                    Assert.AreEqual(client.ActualWidth, GetVisualBounds(client, documentHost).Right, 0.25d);
+                }
+                else
+                {
+                    ScrollViewer body = FindVisualDescendants<ScrollViewer>(client)
+                        .Single(viewer => viewer.Content is StackPanel);
+                    var presenter = (ScrollContentPresenter)body.Template.FindName("PART_ScrollContentPresenter", body);
+                    var content = (FrameworkElement)body.Content;
+                    Assert.AreEqual(0d, GetVisualBounds(client, body).Left, 0.25d);
+                    Assert.AreEqual(client.ActualWidth, GetVisualBounds(client, body).Right, 0.25d);
+                    Assert.AreEqual(new Thickness(16), body.Padding);
+                    Assert.AreEqual(16d, GetVisualBounds(body, presenter).Left, 0.25d);
+                    Assert.AreEqual(0d, GetVisualBounds(presenter, content).Left, 0.25d);
+                    Assert.AreEqual(presenter.ActualWidth, content.ActualWidth, 0.25d);
+                }
             }
             finally
             {
@@ -353,7 +353,7 @@ public sealed class DialogPresentationTests
         });
     }
 
-    /// <summary>リリースノートを実表示し、選択可能な一つの縦scroll領域を保持して編集toolbarと横scrollを露出しません。</summary>
+    /// <summary>リリースノートを実表示し、実文書hostのoverlayと100→150→100のzoomで選択・末尾到達・枠内2 DIPを保持します。</summary>
     [TestMethod]
     public void ReleaseNotes_PreservesReadOnlySelectionAndScrollViewport()
     {
@@ -371,8 +371,29 @@ public sealed class DialogPresentationTests
                 Assert.IsFalse(viewer.IsToolBarVisible, "Release Notes must not expose an editing toolbar.");
                 Assert.AreEqual(ScrollBarVisibility.Auto, viewer.VerticalScrollBarVisibility);
                 Assert.AreEqual(ScrollBarVisibility.Disabled, viewer.HorizontalScrollBarVisibility);
-
-
+                ScrollViewer contentHost = FindVisualDescendants<ScrollViewer>(viewer).Single(host => host.Name == "PART_ContentHost");
+                Assert.AreSame(viewer.FindResource("App.Canonical.ScrollViewerTemplate"), contentHost.Template);
+                TextPointer start = FindFirstTextPointer(viewer.Document);
+                viewer.Selection.Select(start, start.GetPositionAtOffset(1, LogicalDirection.Forward));
+                double? rightEdge = null;
+                foreach (double zoom in new[] { 100d, 150d, 100d })
+                {
+                    viewer.Zoom = zoom;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    window.UpdateLayout();
+                    Assert.AreEqual(new Thickness(16), viewer.Document.PagePadding, "PagePaddingの基準値はzoomで書き換えない。");
+                    Assert.IsFalse(viewer.Selection.IsEmpty, "zoom後も文書選択を保持する。");
+                    Assert.IsTrue(contentHost.ScrollableHeight > 0d);
+                    contentHost.ScrollToEnd();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(contentHost.ScrollableHeight, contentHost.VerticalOffset, 0.25d);
+                    double chromeRight = AssertVerticalThumbInset(contentHost, contentHost.ActualWidth);
+                    if (rightEdge.HasValue)
+                    {
+                        Assert.AreEqual(rightEdge.Value, chromeRight, 0.25d, "文書のzoomはバーの枠基準を移動しない。");
+                    }
+                    rightEdge = chromeRight;
+                }
             }
             finally
             {
@@ -463,10 +484,7 @@ public sealed class DialogPresentationTests
             windowTest.ShowAndWaitForContentRendered(dialog);
             dialog.UpdateLayout();
 
-            Border content = FindVisualDescendants<Border>(dialog)
-                .Single(border => StyleChainContains(
-                    border.Style,
-                    (Style)dialog.FindResource("App.Canonical.NativeWindowContentStyle")));
+            var content = (FrameworkElement)dialog.Content;
             var progressBar = (ProgressBar)dialog.FindName("ProgressBar")!;
             var cancelButton = (Button)dialog.FindName("CancelButton")!;
             var textLabel = (TextBlock)dialog.FindName("TextLabel")!;
@@ -489,6 +507,52 @@ public sealed class DialogPresentationTests
                 GetVisualBounds(content, progressBar).Top >= GetVisualBounds(content, subTextLabel).Bottom - 0.5,
                 "The progress row must follow the rendered sub-label instead of overlapping it.");
         });
+    }
+
+    /// <summary>初期言語カードの長い実本文はカード内でscrollし、言語選択と継続操作は同じ位置へ残ることを確認します。</summary>
+    [TestMethod]
+    public void InitialSetupLanguageDialog_OverflowScrollsInsideCardAndKeepsActionsFixed()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var dialog = new InitialSetupLanguageDialog();
+            PresentationFixture fixture = CreateOverlayFixture(dialog, 720, 520,
+                [ButtonWithAutomationId("InitialSetupLanguageContinue", DialogButtonRole.Primary, "continue")]);
+            scope.ShowAndWaitForContentRendered(fixture.HostWindow);
+            ScrollViewer body = FindVisualDescendants<ScrollViewer>(dialog).Single(viewer => viewer.Content is TextBlock);
+            var text = (TextBlock)body.Content;
+            text.Text = string.Join(" ", Enumerable.Repeat("Long language setup instructions for the selected application environment.", 100));
+            fixture.HostWindow.UpdateLayout();
+            Border card = FindVisualDescendants<Border>(dialog).Single(border =>
+                StyleChainContains(border.Style, (Style)border.FindResource("App.Canonical.DialogSurfaceStyle")));
+            ComboBox language = FindVisualDescendants<ComboBox>(dialog).Single();
+            var action = (Button)dialog.FindName("buttonContinue");
+            Rect languageBefore = GetVisualBounds(card, language);
+            Rect actionBefore = GetVisualBounds(card, action);
+            Assert.IsTrue(body.ScrollableHeight > 0d);
+            Assert.AreEqual(card.ActualWidth - card.BorderThickness.Right, GetVisualBounds(card, body).Right, 0.25d);
+            AssertVerticalThumbInset(body, body.ActualWidth);
+            body.ScrollToEnd();
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            Assert.AreEqual(body.ScrollableHeight, body.VerticalOffset, 0.25d);
+            Assert.AreEqual(languageBefore, GetVisualBounds(card, language));
+            Assert.AreEqual(actionBefore, GetVisualBounds(card, action));
+            Assert.IsTrue(GetVisualBounds(fixture.PresentationRoot, card).Right < fixture.PresentationRoot.ActualWidth,
+                "所属枠をホスト端と区別できるfixtureで確認する。");
+        });
+    }
+
+    private static double AssertVerticalThumbInset(ScrollViewer viewer, double innerRight)
+    {
+        var bar = (ScrollBar)viewer.Template.FindName("PART_VerticalScrollBar", viewer);
+        Assert.AreEqual(Visibility.Visible, bar.Visibility);
+        bar.ApplyTemplate();
+        var track = (Track)bar.Template.FindName("PART_Track", bar);
+        track.Thumb.ApplyTemplate();
+        var chrome = (Border)track.Thumb.Template.FindName("ThumbChrome", track.Thumb);
+        Rect chromeBounds = GetVisualBounds(viewer, chrome);
+        Assert.AreEqual(2d, innerRight - chromeBounds.Right, 0.25d, "つまみは所属枠内縁から2 DIPに配置する。");
+        return chromeBounds.Right;
     }
 
     private static PresentationFixture CreateFixture(string dialogName)
@@ -701,11 +765,11 @@ public sealed class DialogPresentationTests
             Border[] contentBorders = contentBorderCandidates
                 .Where(border =>
                 {
-                    var contentStyle = border.TryFindResource("App.Canonical.DialogContentStyle") as Style;
+                    var contentStyle = border.TryFindResource("App.Canonical.DialogSurfaceStyle") as Style;
                     return contentStyle != null && StyleChainContains(border.Style, contentStyle);
                 })
                 .ToArray();
-            Assert.IsTrue(contentBorders.Length > 0, "The overlay dialog must apply the canonical content role.");
+            Assert.IsTrue(contentBorders.Length > 0, "The overlay dialog must apply the canonical card surface.");
         }
 
         Button[] buttons = FindVisualDescendants<Button>(presentationRoot)
@@ -784,54 +848,6 @@ public sealed class DialogPresentationTests
         {
             AssertCanonicalOverlaySurface(presentationRoot);
         }
-        else
-        {
-            AssertCanonicalNativeContent(presentationRoot);
-        }
-    }
-
-    private static void AssertCanonicalNativeContent(FrameworkElement presentationRoot)
-    {
-        const string nativeContentStyleKey = "App.Canonical.NativeWindowContentStyle";
-        Border[] contentBorderCandidates = (presentationRoot as Border is Border root
-                ? new[] { root }
-                : Array.Empty<Border>())
-            .Concat(FindVisualDescendants<Border>(presentationRoot))
-            .ToArray();
-        var dialogContentStyle = presentationRoot.TryFindResource("App.Canonical.DialogContentStyle") as Style;
-        if (dialogContentStyle != null)
-        {
-            Assert.IsFalse(
-                contentBorderCandidates.Any(border => StyleChainContains(border.Style, dialogContentStyle)),
-                "A native window must not wrap its client content in the rounded overlay DialogContentStyle.");
-        }
-
-        Style nativeContentStyle = RequireStyle(presentationRoot, nativeContentStyleKey);
-        Border nativeContentRoot = contentBorderCandidates
-            .Where(border => StyleChainContains(border.Style, nativeContentStyle))
-            .Single();
-        Assert.AreEqual(new Thickness(0), nativeContentRoot.BorderThickness);
-        Assert.AreEqual(new CornerRadius(0), nativeContentRoot.CornerRadius);
-        Assert.IsNull(
-            nativeContentRoot.Background,
-            "ThemedWindow must own the native client surface instead of an inner Border background.");
-    }
-
-    private static Border FindNativeContentRoot(FrameworkElement presentationRoot)
-    {
-        const string nativeContentStyleKey = "App.Canonical.NativeWindowContentStyle";
-        Style nativeContentStyle = RequireStyle(presentationRoot, nativeContentStyleKey);
-        Border[] contentBorderCandidates = (presentationRoot as Border is Border root
-                ? new[] { root }
-                : Array.Empty<Border>())
-            .Concat(FindVisualDescendants<Border>(presentationRoot))
-            .Where(border => StyleChainContains(border.Style, nativeContentStyle))
-            .ToArray();
-        Assert.AreEqual(
-            1,
-            contentBorderCandidates.Length,
-            "A native window must have exactly one canonical native content role.");
-        return contentBorderCandidates[0];
     }
 
     private static void AssertNativeSemanticContentReachable(
@@ -839,9 +855,12 @@ public sealed class DialogPresentationTests
         string dialogName)
     {
         FrameworkElement root = fixture.PresentationRoot;
+        IEnumerable<FlowDocumentScrollViewer> documents = root is FlowDocumentScrollViewer rootDocument
+            ? [rootDocument]
+            : FindVisualDescendants<FlowDocumentScrollViewer>(root);
         FrameworkElement[] semanticElements = dialogName switch
         {
-            "ReleaseNotesWindow" => FindVisualDescendants<FlowDocumentScrollViewer>(root)
+            "ReleaseNotesWindow" => documents
                 .Cast<FrameworkElement>()
                 .ToArray(),
             "Lr2PlayHistorySchemaUninstallDialog" => FindVisualDescendants<FrameworkElement>(root)
@@ -876,7 +895,7 @@ public sealed class DialogPresentationTests
 
         if (dialogName == "ReleaseNotesWindow")
         {
-            FlowDocumentScrollViewer[] releaseNotesViewers = FindVisualDescendants<FlowDocumentScrollViewer>(root)
+            FlowDocumentScrollViewer[] releaseNotesViewers = documents
                 .Where(viewer => viewer.Visibility == Visibility.Visible)
                 .ToArray();
             Assert.AreEqual(1, releaseNotesViewers.Length, "Release Notes must expose one bounded document viewport.");

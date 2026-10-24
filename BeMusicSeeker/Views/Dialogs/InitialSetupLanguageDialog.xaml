@@ -13,21 +13,21 @@
       </ResourceDictionary>
     </FrameworkElement.Resources>
     <Rectangle Style="{StaticResource App.Canonical.DialogOverlayStyle}" />
-    <Border Style="{StaticResource App.Canonical.DialogContentStyle}" Width="520" VerticalAlignment="Center" HorizontalAlignment="Center">
+    <Border Style="{StaticResource App.Canonical.DialogSurfaceStyle}" Width="520" VerticalAlignment="Center" HorizontalAlignment="Center">
       <DockPanel LastChildFill="True">
-        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
-          <Button Name="buttonContinue" MinWidth="96" Height="24" Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.InitialSetupLanguageDialogContinue, Mode=OneWay}" AutomationProperties.AutomationId="InitialSetupLanguageContinue" Command="{Binding OpenCommand}" />
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="16,0,16,16">
+          <Button Name="buttonContinue" MinWidth="96" Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.InitialSetupLanguageDialogContinue, Mode=OneWay}" AutomationProperties.AutomationId="InitialSetupLanguageContinue" Command="{Binding OpenCommand}" />
         </StackPanel>
-        <StackPanel>
-          <TextBlock FontSize="15" FontWeight="SemiBold" Margin="0,0,0,10" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.InitialSetupLanguageDialogTitle, Mode=OneWay}" />
-          <DockPanel LastChildFill="False" Margin="0,0,0,12">
-            <ComboBox Style="{StaticResource App.Canonical.ComboBoxStyle}" Height="24" Width="180" MaxDropDownHeight="260" VerticalContentAlignment="Center" ItemsSource="{Binding Languages, Mode=OneWay}" SelectedItem="{Binding Path=Language}" DockPanel.Dock="Right" />
-            <Label Style="{StaticResource App.Canonical.LabelStyle}" Height="28" Padding="0,6,8,0" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Language, Mode=OneWay}" />
+        <StackPanel DockPanel.Dock="Top" Margin="16,16,16,0">
+          <TextBlock FontSize="15" FontWeight="SemiBold" Margin="0,0,0,16" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.InitialSetupLanguageDialogTitle, Mode=OneWay}" />
+          <DockPanel LastChildFill="False" Margin="0">
+            <ComboBox Style="{StaticResource App.Canonical.ComboBoxStyle}" Width="180" MaxDropDownHeight="260" VerticalContentAlignment="Center" ItemsSource="{Binding Languages, Mode=OneWay}" SelectedItem="{Binding Path=Language}" DockPanel.Dock="Right" />
+            <Label Style="{StaticResource App.Canonical.LabelStyle}" Padding="0,0,8,0" VerticalAlignment="Center" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Language, Mode=OneWay}" />
           </DockPanel>
-          <ScrollViewer Style="{StaticResource App.Canonical.ScrollViewerStyle}" MaxHeight="260" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        </StackPanel>
+          <ScrollViewer Style="{StaticResource App.Canonical.WindowBodyScrollViewerStyle}" MaxHeight="260" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <TextBlock TextWrapping="Wrap" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Msg_init_settings, Mode=OneWay}" />
           </ScrollViewer>
-        </StackPanel>
       </DockPanel>
     </Border>
   </Grid>

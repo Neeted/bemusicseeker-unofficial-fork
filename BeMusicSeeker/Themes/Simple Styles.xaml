@@ -189,6 +189,7 @@
     <Setter Property="Template" Value="{DynamicResource App.Canonical.ScrollViewerTemplate}" />
   </Style>
   <Style x:Key="SimpleListBox" TargetType="{x:Type ListBox}">
+    <Setter Property="Padding" Value="4" />
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
     <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource SolidBorderBrush}" />
@@ -200,10 +201,11 @@
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type ListBox}">
           <Grid>
-            <Border Name="Border" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" />
-            <ScrollViewer Margin="1" Style="{DynamicResource SimpleScrollViewer}" Focusable="False" Background="{TemplateBinding Control.Background}">
-              <StackPanel Margin="2" IsItemsHost="True" />
+            <Border Name="Border" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}">
+            <ScrollViewer Padding="{TemplateBinding Padding}" Style="{DynamicResource SimpleScrollViewer}" Focusable="False" Background="{TemplateBinding Control.Background}">
+              <StackPanel IsItemsHost="True" />
             </ScrollViewer>
+            </Border>
           </Grid>
           <ControlTemplate.Triggers>
             <Trigger Property="IsEnabled" Value="False">
@@ -352,10 +354,11 @@
             <TextBox Name="PART_EditableTextBox" Visibility="Hidden" Template="{DynamicResource ComboBoxTextBox}" HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" Margin="3,3,23,3" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" Focusable="True" Background="#00FFFFFF" IsReadOnly="{TemplateBinding ComboBox.IsReadOnly}" Style="{x:Null}" />
             <Popup Name="Popup" IsOpen="{TemplateBinding ComboBox.IsDropDownOpen}" Placement="Bottom" Focusable="False" AllowsTransparency="True" PopupAnimation="Slide">
               <Grid Name="DropDown" MaxHeight="{TemplateBinding ComboBox.MaxDropDownHeight}" MinWidth="{TemplateBinding FrameworkElement.ActualWidth}" SnapsToDevicePixels="True">
-                <Border Name="DropDownBorder" Background="{DynamicResource WindowBackgroundBrush}" BorderBrush="{DynamicResource SolidBorderBrush}" BorderThickness="1" />
-                <ScrollViewer Margin="4,6,4,6" Style="{DynamicResource SimpleScrollViewer}" SnapsToDevicePixels="True" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" CanContentScroll="True">
+                <Border Name="DropDownBorder" Background="{DynamicResource WindowBackgroundBrush}" BorderBrush="{DynamicResource SolidBorderBrush}" BorderThickness="1">
+                <ScrollViewer Padding="4,8,4,8" Style="{DynamicResource SimpleScrollViewer}" SnapsToDevicePixels="True" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" CanContentScroll="True">
                   <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained" />
                 </ScrollViewer>
+                </Border>
               </Grid>
             </Popup>
           </Grid>
@@ -419,6 +422,7 @@
     </Setter>
   </Style>
   <Style x:Key="SimpleTextBox" TargetType="{x:Type TextBox}">
+    <Setter Property="Padding" Value="2" />
     <Setter Property="KeyboardNavigation.TabNavigation" Value="None" />
     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="UIElement.AllowDrop" Value="True" />
@@ -432,7 +436,7 @@
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type TextBox}">
           <Grid>
-            <Border Name="Border" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" Padding="2" CornerRadius="2">
+            <Border Name="Border" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" CornerRadius="2">
               <ScrollViewer Name="PART_ContentHost" Margin="0" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" Style="{DynamicResource SimpleScrollViewer}" Background="{TemplateBinding Control.Background}" />
             </Border>
           </Grid>
@@ -538,8 +542,8 @@
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type ContextMenu}">
-          <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Padding="2">
-            <ScrollViewer Style="{DynamicResource SimpleScrollViewer}" Focusable="False" Background="{TemplateBinding Background}" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" CanContentScroll="False" MaxHeight="{TemplateBinding MaxHeight}">
+          <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1">
+            <ScrollViewer Padding="4" Style="{DynamicResource SimpleScrollViewer}" Focusable="False" Background="{TemplateBinding Background}" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" CanContentScroll="False" MaxHeight="{TemplateBinding MaxHeight}">
               <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
             </ScrollViewer>
           </Border>
@@ -574,10 +578,11 @@
               </Grid>
               <Popup Name="SubMenuPopup" Placement="Right" Focusable="False" AllowsTransparency="True" PopupAnimation="{DynamicResource {x:Static SystemParameters.MenuPopupAnimationKey}}" VerticalOffset="-3" IsOpen="{Binding Path=IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}">
                 <Grid Name="SubMenu" Background="{DynamicResource App.PopupBackgroundBrush}" Grid.IsSharedSizeScope="True" MaxHeight="{Binding Source={x:Static SystemParameters.WorkArea}, Path=Height, Converter={StaticResource MenuMaxHeightConverter}}">
-                  <Border Name="SubMenuBorder" Background="{DynamicResource App.PopupBackgroundBrush}" BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" />
-                  <ScrollViewer Margin="1" Style="{DynamicResource SimpleScrollViewer}" Focusable="False" Background="{DynamicResource App.PopupBackgroundBrush}" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" CanContentScroll="False" MaxHeight="{Binding ElementName=SubMenu, Path=MaxHeight}">
+                  <Border Name="SubMenuBorder" Background="{DynamicResource App.PopupBackgroundBrush}" BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1">
+                  <ScrollViewer Padding="4" Style="{DynamicResource SimpleScrollViewer}" Focusable="False" Background="{DynamicResource App.PopupBackgroundBrush}" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" CanContentScroll="False" MaxHeight="{Binding ElementName=SubMenu, Path=MaxHeight}">
                     <StackPanel Background="{DynamicResource App.PopupBackgroundBrush}" IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
                   </ScrollViewer>
+                  </Border>
                 </Grid>
               </Popup>
             </Grid>

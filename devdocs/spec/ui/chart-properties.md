@@ -26,6 +26,8 @@
 
 値と一覧は有効な読取り専用TextBoxで選択でき、Ctrl+A/Cの通常操作でコピーできます。一覧の内容はこの画面内だけ上端に揃え、通常入力の共通スタイルは変えません。パス下の欄は失敗時だけ枠付きで表示し、初期・読取り中・成功ではCollapsedで領域も余白も取りません。読取中の一覧は空欄とし、成功して空だった一覧だけに「なし」を表示します。専用コピー・再読込・閉じるボタンやF5操作は設けません。タイトルバーまたはEscで読取り中にも閉じられます。各窓は実行時に捕捉した譜面だけを一度読み、メインの選択・導入先・候補の変更や別窓の開閉、元ファイルの移動・削除で既結果を差し替えません。再確認は新しく開きます。
 
+三つの一覧TextBoxは自身の可視枠をスクロールバーの基準とし、右・下に表示状態へ連動しない16 DIPの保護域を持ちます。左・上の入力余白と併せ、TextBox.Paddingが一回だけ所有します。画面外周16と上部選択の内容余白を重ねず、ウィンドウの拡大で一覧の表示領域を広げます。
+
 ### 読取りと解析
 
 開いた時点から背景で一度だけ単一ファイルを捕捉して、既存の `BmsChartFileParser` / `BmsonChartFileParser` で軽量解析します。BMS/PMSの全行・条件分岐・LNOBJ・BASE62・00・地雷・0A・生文字ペア・CP932資源解釈と表示メタデータは[譜面ファイルの読取り](../library/chart-file-reading.md)の規則を共用します。未定義参照番号から必要ファイルを生成せず、BMSONの数値受理を厳格化しません。詳細ノート解析や再生の解析には接続しません。
@@ -44,6 +46,7 @@
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 一覧の局所枠と固定保護域 | `ChartPropertiesWindow.xaml` の三つのResourceList | `ChartPropertiesWindowTests` の既存表示・Copyケースで読取り専用選択と共通表示資源への接続・右下16を確認する。長い多数行での末尾文字の保護は同じ共通TextBoxを使う `PlaylistImportDialogTests` の実入力ケースが代表する。 |
 | 単一の実ファイル、保留、複数・未所持・欠損 | [`ChartPropertiesViewModel.ResolveTarget`](../../../BeMusicSeeker/ViewModels/ChartOperations/ChartPropertiesViewModel.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`ChartPropertiesViewModelTests`](../../../BeMusicSeeker.Tests/Resources/ChartPropertiesViewModelTests.cs) の条件判定、[`MainWindowSelectedChartContextMenuWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowSelectedChartContextMenuWpfTests.cs) のcompiledメニューから実manager・独立Windowへの配送、同一譜面の複数表示・個別閉鎖・選択非追従、実Show失敗の通知と終了後抑止。 |
 | 定義単位・未定義参照番号・必要参照と存在規則、BMSON、取得・解析失敗 | [`ChartResourceDiagnosticsService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceDiagnosticsService.cs)、[`ChartResourceExistence`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceExistence.cs) | [`ChartResourceDiagnosticsTests`](../../../BeMusicSeeker.Tests/Resources/ChartResourceDiagnosticsTests.cs) は実軽量パーサー・小さい物理ディレクトリを使用。WAV/BMPの別名前空間・BASE62・定義単位とBMSONの音声三系統/三種BGAイベントを確認。CP932の未使用・同一定義番号複数定義・任意画像の採用行は不正な元バイトを含む入力で確認。全行と特殊IDの網羅は既存 `ChartResourceSnapshotTests`、数値受理は `BmsonSongParserTests`、健康度と導入は既存 `BmsLibraryMaintenanceServiceTests` / `InstallEstimationServiceTests` へ分担。 |
 | 背景で一回、失敗表示、閉鎖後終端・非反映 | `ChartPropertiesViewModel` | `ChartPropertiesViewModelTests` はgateと実Taskで成功・遅延成功・遅延失敗を観測し、finallyで解放・回収する。 |

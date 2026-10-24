@@ -6,6 +6,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -135,7 +136,10 @@ public sealed class MainWindowChartPresentationWpfTests
                     Assert.AreEqual(1, started.Count);
                     Assert.IsNotNull(GetInstalledEditor(table));
                     TextBox editor = GetInstalledEditor(table)!;
-                    editor!.Text = expectedText;
+                    editor.ApplyTemplate();
+                    var editorHost = (ScrollViewer)editor.Template.FindName("PART_ContentHost", editor);
+                    Assert.AreEqual(editor.Padding, editorHost.Padding, "セルeditorの入力余白はWPF転送だけで所有する。");
+                    editor.Text = expectedText;
                     RaiseKey(table, Key.Return);
 
                     Assert.AreEqual(1, beginning.Count);
@@ -803,7 +807,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
-    /// <summary>保存候補とフィールドを別viewportへ表示して操作buttonを描画し、サマリーでは専用output候補だけを提供して未対応値候補を出しません。</summary>
+    /// <summary>保存候補5/6行・補完10/11行の完全表示境界、枠内2 DIP・ボタン保護・独立offsetを実Popupで確認し、サマリーでは専用output候補だけを提供して未対応値候補を出しません。</summary>
     [TestMethod]
     public void SearchEditor_UsesIndependentSectionViewportsAndSummaryFieldCatalog()
     {
@@ -841,6 +845,38 @@ public sealed class MainWindowChartPresentationWpfTests
                         Assert.IsTrue(actionButtons.Length >= 6);
                         Assert.IsTrue(actionButtons.All(button => button.ActualWidth > 0d && button.ActualHeight > 0d));
                         Assert.IsTrue(actionButtons.All(button => button.IsHitTestVisible));
+
+                        ListBox favorites = GetSectionRows(normal.Editor, KeywordSearchPresentationSectionKind.Favorites);
+                        ListBox history = GetSectionRows(normal.Editor, KeywordSearchPresentationSectionKind.History);
+                        ListBox fields = GetSectionRows(normal.Editor, KeywordSearchPresentationSectionKind.Fields);
+                        AssertCandidateRowLimit(favorites, 5);
+                        AssertCandidateRowLimit(fields, 10);
+                        ScrollViewer favoriteViewer = FindVisualDescendants<ScrollViewer>(favorites).Single();
+                        ScrollViewer historyViewer = FindVisualDescendants<ScrollViewer>(history).Single();
+                        double historyOffset = historyViewer.VerticalOffset;
+                        favoriteViewer.ScrollToEnd();
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.IsTrue(favoriteViewer.VerticalOffset > 0d);
+                        Assert.AreEqual(historyOffset, historyViewer.VerticalOffset, "各候補sectionのoffsetを共有しない。");
+                        var popupBorder = (Border)normal.Editor.AssistancePopupControl.Child;
+                        foreach (ListBox rows in new[] { favorites, history, fields })
+                        {
+                            ScrollViewer viewport = FindVisualDescendants<ScrollViewer>(rows).Single();
+                            var bar = (ScrollBar)viewport.Template.FindName("PART_VerticalScrollBar", viewport);
+                            Assert.AreEqual(Visibility.Visible, bar.Visibility);
+                            bar.ApplyTemplate();
+                            var track = (Track)bar.Template.FindName("PART_Track", bar);
+                            track.Thumb.ApplyTemplate();
+                            var chrome = (Border)track.Thumb.Template.FindName("ThumbChrome", track.Thumb);
+                            Rect thumb = chrome.TransformToAncestor(popupBorder).TransformBounds(new Rect(chrome.RenderSize));
+                            Assert.AreEqual(2d, popupBorder.ActualWidth - popupBorder.BorderThickness.Right - thumb.Right, 0.25d);
+                            Rect barBounds = bar.TransformToAncestor(rows).TransformBounds(new Rect(bar.RenderSize));
+                            foreach (Button action in FindVisualDescendants<Button>(rows).Where(button => button.IsVisible))
+                            {
+                                Rect bounds = action.TransformToAncestor(rows).TransformBounds(new Rect(action.RenderSize));
+                                Assert.IsTrue(bounds.Right <= barBounds.Left + 0.25d, "候補操作ボタンはバー入力域の手前に配置する。");
+                            }
+                        }
 
                         viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(true);
                         TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -1174,27 +1210,19 @@ public sealed class MainWindowChartPresentationWpfTests
                         Assert.IsTrue(twoSavedRowHeights[0] > oneSavedRowHeights[0]);
                         Assert.IsTrue(twoSavedRowHeights[1] > oneSavedRowHeights[1]);
 
-                        chrome.TextBox.Text = "clear:NP";
-                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
-                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        PrepareSearchEditor(chrome, owner, "clear:NP");
                         double oneValueHeight = GetSectionViewportHeights(chrome.Editor).Single();
                         Assert.IsTrue(oneValueHeight > 0d);
 
-                        chrome.TextBox.Text = "clear:N";
-                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
-                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        PrepareSearchEditor(chrome, owner, "clear:N");
                         double twoValueHeight = GetSectionViewportHeights(chrome.Editor).Single();
                         Assert.IsTrue(twoValueHeight > oneValueHeight);
 
-                        chrome.TextBox.Text = "cl";
-                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
-                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        PrepareSearchEditor(chrome, owner, "cl");
                         double oneFieldHeight = GetSectionViewportHeights(chrome.Editor).Single();
                         Assert.IsTrue(oneFieldHeight > 0d);
 
-                        chrome.TextBox.Text = "c";
-                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
-                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        PrepareSearchEditor(chrome, owner, "c");
                         double twoFieldHeight = GetSectionViewportHeights(chrome.Editor).Single();
                         Assert.IsTrue(twoFieldHeight > oneFieldHeight);
                     });
@@ -1273,46 +1301,65 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
-    /// <summary>指定したTextBoxの境界幅と編集controlの境界なし設定をcompiled templateへ反映し、styleが有効値を固定幅で上書きしません。</summary>
+    /// <summary>Simple/Canonical入力の適用後Padding変更を実文字へ一回反映し、枠厚変更とEditableTextBlock表示/編集の文字位置整合を確認します。</summary>
     [TestMethod]
     public void SimpleTextBox_TemplateChromeFollowsEffectiveBorderThickness()
     {
-        WithSimpleTextBoxStyles(() =>
+        WithSimpleTextBoxStyles(() => TestUiDispatcherHost.RunWindowTest(scope =>
         {
-            var host = new Grid();
+            var host = new StackPanel();
             host.Resources.MergedDictionaries.Add(new ResourceDictionary
             {
-                Source = new Uri(
-                    "/BeMusicSeeker;component/Themes/Simple Styles.xaml",
-                    UriKind.RelativeOrAbsolute)
+                Source = new Uri("/BeMusicSeeker;component/Themes/Simple Styles.xaml", UriKind.RelativeOrAbsolute)
             });
             host.Resources.MergedDictionaries.Add(new ResourceDictionary
             {
-                Source = new Uri(
-                    "/BeMusicSeeker;component/Themes/Light.xaml",
-                    UriKind.RelativeOrAbsolute)
+                Source = new Uri("/BeMusicSeeker;component/Themes/CanonicalControls.xaml", UriKind.RelativeOrAbsolute)
             });
-            var simpleTextBoxStyle = (Style)host.FindResource("SimpleTextBox");
-            host.Resources.Add(typeof(TextBox), simpleTextBoxStyle);
-            var implicitTextBox = new TextBox { BorderThickness = new Thickness(3d) };
-            var explicitTextBox = new TextBox { BorderThickness = new Thickness(0d) };
-            var editableTextBlock = new EditableTextBlock
+            host.Resources.Add(typeof(TextBox), (Style)host.FindResource("SimpleTextBox"));
+            var simple = new TextBox { Text = "padding", Height = 40, BorderThickness = new Thickness(3) };
+            var canonical = new TextBox
             {
-                Width = 220d,
-                Height = 30d,
-                Text = "editable",
-                IsInEditMode = true
+                Text = "padding",
+                Height = 40,
+                BorderThickness = new Thickness(1),
+                Style = (Style)host.FindResource("App.Canonical.TextBoxStyle")
             };
-            host.Children.Add(implicitTextBox);
-            host.Children.Add(explicitTextBox);
-            host.Children.Add(editableTextBlock);
-            MaterializeElement(host, 500d, 120d);
-
-            AssertTextBoxChrome(implicitTextBox, new Thickness(3d));
-            AssertTextBoxChrome(explicitTextBox, new Thickness(0d));
-            TextBox editor = FindVisualDescendants<TextBox>(editableTextBlock).Single();
-            AssertTextBoxChrome(editor, new Thickness(0d));
-        });
+            var editable = new EditableTextBlock { Text = "editable", Width = 220, Height = 30 };
+            host.Children.Add(simple);
+            host.Children.Add(canonical);
+            host.Children.Add(editable);
+            var window = new Window { Width = 520, Height = 220, Content = host };
+            scope.ShowAndWaitForContentRendered(window);
+            foreach (TextBox input in new[] { simple, canonical })
+            {
+                AssertTextBoxChrome(input, input.BorderThickness);
+                var viewer = (ScrollViewer)input.Template.FindName("PART_ContentHost", input);
+                input.Padding = new Thickness(2, 3, 4, 5);
+                window.UpdateLayout();
+                Rect before = input.GetRectFromCharacterIndex(0);
+                input.Padding = new Thickness(7, 3, 4, 5);
+                window.UpdateLayout();
+                Rect after = input.GetRectFromCharacterIndex(0);
+                Assert.AreEqual(input.Padding, viewer.Padding);
+                Assert.AreEqual(5d, after.Left - before.Left, 0.25d, "適用後のPadding変更は実文字へ一度だけ反映する。");
+                input.BorderThickness = new Thickness(4);
+                window.UpdateLayout();
+                AssertTextBoxChrome(input, new Thickness(4));
+            }
+            TextBlock display = FindVisualDescendants<TextBlock>(editable).Single();
+            Rect displayCharacter = display.ContentStart.GetCharacterRect(LogicalDirection.Forward);
+            Point displayPoint = display.TranslatePoint(displayCharacter.TopLeft, editable);
+            editable.IsInEditMode = true;
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            window.UpdateLayout();
+            TextBox editor = FindVisualDescendants<TextBox>(editable).Single();
+            AssertTextBoxChrome(editor, new Thickness(0));
+            Rect editCharacter = editor.GetRectFromCharacterIndex(0);
+            Point editPoint = editor.TranslatePoint(editCharacter.TopLeft, editable);
+            Assert.AreEqual(displayPoint.X, editPoint.X, 0.25d, "表示/編集を切り替えても実文字の横位置を合わせる。");
+            Assert.AreEqual(displayPoint.Y, editPoint.Y, 0.25d, "表示/編集を切り替えても実文字の縦位置を合わせる。");
+        }));
     }
 
     private static T GetNamedElement<T>(MainWindow window, string name)
@@ -1454,14 +1501,53 @@ public sealed class MainWindowChartPresentationWpfTests
         Key imeProcessedKey = Key.None)
         => editor.HandleInputKey(key, modifiers, imeProcessedKey);
 
+    private static void AssertCandidateRowLimit(ListBox rows, int limit)
+    {
+        // 実Popupの候補を使い、上限ちょうどは完全表示、次の一行は独立scrollへ回す。
+        object[] items = rows.Items.Cast<object>().ToArray();
+        Assert.IsTrue(items.Length > limit);
+        ScrollViewer viewer = FindVisualDescendants<ScrollViewer>(rows).Single();
+        double? maximumHeight = null;
+        foreach (int count in new[] { limit - 1, limit, limit + 1 })
+        {
+            rows.ItemsSource = items.Take(count).ToArray();
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            rows.UpdateLayout();
+            var presenter = (ScrollContentPresenter)viewer.Template.FindName("PART_ScrollContentPresenter", viewer);
+            if (count <= limit)
+            {
+                Assert.AreEqual(0d, viewer.ScrollableHeight, 0.01d, "上限以内の候補は全行を表示する。");
+                var last = (ListBoxItem)rows.ItemContainerGenerator.ContainerFromIndex(count - 1);
+                Assert.IsNotNull(last);
+                Rect bounds = last.TransformToAncestor(presenter).TransformBounds(new Rect(last.RenderSize));
+                Assert.IsTrue(bounds.Top >= -0.25d && bounds.Bottom <= presenter.ActualHeight + 0.25d);
+                if (maximumHeight.HasValue)
+                {
+                    Assert.IsTrue(rows.ActualHeight > maximumHeight.Value, "少数候補は件数に応じて自然に伸長する。");
+                }
+                maximumHeight = rows.ActualHeight;
+            }
+            else
+            {
+                Assert.IsTrue(viewer.ScrollableHeight > 0d, "上限を一行越えるとscrollする。");
+                Assert.AreEqual(maximumHeight.GetValueOrDefault(), rows.ActualHeight, 0.25d);
+            }
+        }
+        rows.ItemsSource = items;
+        TestUiDispatcherHost.ProcessQueuedPresentation();
+    }
+
     private static double[] GetSectionViewportHeights(KeywordSearchEditor editor)
     {
         DependencyObject popupChild = editor.AssistancePopupControl.Child
             ?? throw new AssertFailedException("The search assistance popup has no rendered child.");
-        return FindVisualDescendants<ScrollViewer>(popupChild)
+        double[] heights = FindVisualDescendants<ScrollViewer>(popupChild)
             .Select(viewport => viewport.ActualHeight)
             .Where(height => height > 0d)
             .ToArray();
+        Assert.IsTrue(heights.Length > 0,
+            $"候補は実viewportを持つ: popup={editor.AssistancePopupControl.IsOpen}, presentation={editor.Presentation.IsOpen}, items={editor.Presentation.VisibleItems.Count}。");
+        return heights;
     }
 
     private static void RaiseCompositionEvent(

@@ -123,8 +123,8 @@ internal static class ThemedMessageBox
     }
 
     /// <summary>
-    /// Builds the same themed dialog window used by <see cref="ShowWithStatus"/> before it enters the modal route.
-    /// The internal seam lets presentation tests inspect the production visual tree without reconstructing it.
+    /// <see cref="ShowWithStatus"/> がモーダル表示する共通ダイアログを構築します。
+    /// 本文の余白はスクロール領域、アイコンと操作の余白は固定領域が所有し、本番と表示検証で同じ構造を使います。
     /// </summary>
     /// <param name="owner">owner window, if one exists.</param>
     /// <param name="messageBoxText">message text.</param>
@@ -134,7 +134,7 @@ internal static class ThemedMessageBox
     /// <param name="initialResult">initial default result used for keyboard defaults.</param>
     /// <param name="warningMessageBoxText">optional warning text shown below the message.</param>
     /// <param name="setResult">callback that receives the selected result.</param>
-    /// <returns>The constructed production dialog before it is shown.</returns>
+    /// <returns>表示前の本番ダイアログ。</returns>
     internal static Window BuildDialogForPresentation(
         Window owner,
         string messageBoxText,
@@ -165,9 +165,6 @@ internal static class ThemedMessageBox
         dialog.SetResourceReference(Control.BackgroundProperty, "App.DialogBackgroundBrush");
         dialog.SetResourceReference(Control.ForegroundProperty, "App.TextBrush");
 
-        var root = new Border();
-        root.SetResourceReference(FrameworkElement.StyleProperty, "App.Canonical.NativeWindowContentStyle");
-
         var layout = new Grid();
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -178,7 +175,7 @@ internal static class ThemedMessageBox
         {
             FontSize = 24,
             Width = 32,
-            Margin = new Thickness(0, 0, 10, 12),
+            Margin = new Thickness(16, 16, 0, 0),
             VerticalAlignment = VerticalAlignment.Top,
         };
         iconBlock.SetResourceReference(FrameworkElement.StyleProperty, "App.Canonical.FontIconStyle");
@@ -196,7 +193,7 @@ internal static class ThemedMessageBox
         {
             Text = messageBoxText ?? string.Empty,
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 2, 0, 0),
+            Margin = new Thickness(0),
         };
         message.SetResourceReference(TextBlock.ForegroundProperty, "App.TextBrush");
 
@@ -212,7 +209,7 @@ internal static class ThemedMessageBox
                 Text = warningMessageBoxText,
                 TextWrapping = TextWrapping.Wrap,
                 FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, 12, 0, 0),
+                Margin = new Thickness(0, 16, 0, 0),
             };
             warningMessage.SetResourceReference(TextBlock.ForegroundProperty, "App.WarningTextBrush");
             messagePanel.Children.Add(warningMessage);
@@ -222,12 +219,12 @@ internal static class ThemedMessageBox
         {
             Content = messagePanel,
             MaxHeight = Math.Max(180, Math.Min(360, SystemParameters.WorkArea.Height * 0.55)),
-            Margin = new Thickness(0, 0, 0, 14),
+            Padding = new Thickness(8, 16, 16, 16),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             CanContentScroll = false,
         };
-        messageScroll.SetResourceReference(FrameworkElement.StyleProperty, "App.Canonical.ScrollViewerStyle");
+        messageScroll.SetResourceReference(FrameworkElement.StyleProperty, "App.Canonical.WindowBodyScrollViewerStyle");
         Grid.SetRow(messageScroll, 0);
         Grid.SetColumn(messageScroll, 1);
         layout.Children.Add(messageScroll);
@@ -236,6 +233,7 @@ internal static class ThemedMessageBox
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(16, 0, 16, 16),
         };
         Grid.SetRow(buttons, 1);
         Grid.SetColumnSpan(buttons, 2);
@@ -247,7 +245,7 @@ internal static class ThemedMessageBox
             {
                 Content = pair.Value,
                 MinWidth = 72,
-                Margin = new Thickness(6, 0, 0, 0),
+                Margin = new Thickness(buttons.Children.Count == 0 ? 0 : 8, 0, 0, 0),
                 IsDefault = pair.Key == initialResult || (initialResult == MessageBoxResult.None && IsAffirmative(pair.Key)),
                 IsCancel = pair.Key == MessageBoxResult.Cancel || (button == MessageBoxButton.YesNo && pair.Key == MessageBoxResult.No),
             };
@@ -263,14 +261,13 @@ internal static class ThemedMessageBox
             buttons.Children.Add(dialogButton);
         }
 
-        root.Child = layout;
-        dialog.Content = root;
+        dialog.Content = layout;
         return dialog;
     }
 
     private static void EnsureCanonicalDialogResources(FrameworkElement element)
     {
-        if (element.TryFindResource("App.Canonical.NativeWindowContentStyle") is null)
+        if (element.TryFindResource("App.Canonical.DialogActionStyle") is null)
         {
             element.Resources.MergedDictionaries.Add(new ResourceDictionary
             {

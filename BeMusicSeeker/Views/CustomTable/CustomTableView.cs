@@ -458,7 +458,6 @@ public sealed class CustomTableView : Grid
         border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
         border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
         border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
-        border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
         border.SetValue(Border.CornerRadiusProperty, new CornerRadius(0d));
         border.SetValue(UIElement.SnapsToDevicePixelsProperty, true);
         border.AppendChild(contentHost);
