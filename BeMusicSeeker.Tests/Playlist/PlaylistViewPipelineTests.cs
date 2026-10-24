@@ -3200,7 +3200,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
 
-    /// <summary>root dropは未所持項目だけを元entryとして保持し、所持BMS・bmsonは譜面へ解決して古いplaylist entryを持ち込みません。</summary>
+    /// <summary>root dropは所持BMS・bmsonを分類用譜面へ解決し、未所持項目は分類せず元entryを複製する経路へ分けます。所持詳細の編集値保持は実保存のroot-drop系列が担います。</summary>
     [TestMethod]
     public void RootFolderDropEntryPolicy_PreservesOnlyMissingPlaylistRows()
     {
@@ -3232,7 +3232,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(PlaylistWorkspaceViewModel.ResolveDropChart(missingRow));
     }
 
-    /// <summary>表示前sourceのroot dropも未所持entryだけを保持し、所持bmsonを譜面へ解決してsource型で判断を変えません。</summary>
+    /// <summary>表示前sourceも所持bmsonを分類用譜面へ解決し、未所持entryは分類せず複製する経路へ分けます。表示行とsource型で分類判断を変えません。</summary>
     [TestMethod]
     public void RootFolderDropEntryPolicy_SourceRowsPreservesOnlyMissingPlaylistRows()
     {

@@ -439,18 +439,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 else
                 {
                     entriesToAdd.AddRange(sourceRows
-                        .Select(row =>
-                        {
-                            BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(row);
-                            ChartFile chart = ResolveDropChart(row);
-                            return entry != null
-                                ? entry.Duplicate()
-                                : chart != null
-                                    ? BMSTableEntry.CreateForPlaylistDrop(
-                                        chart,
-                                        library.GetPlaylistOrgMd5sForChart(chart))
-                                    : null;
-                        })
+                        .Select(row => CreateDropEntry(row, ResolveDropChart(row), library))
                         .Where(entry => entry != null));
                 }
             }
@@ -636,6 +625,16 @@ public sealed partial class PlaylistWorkspaceViewModel
             : null;
     }
 
+    /// <summary>詳細行は永続編集値を複製し、譜面・履歴行は所持譜面から新しい追加候補を作ります。</summary>
+    private static BMSTableEntry CreateDropEntry(object row, ChartFile chart, BMSLibrary library, IEnumerable<string> orgMd5s = null)
+    {
+        BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(row);
+        return entry != null
+            ? entry.Duplicate()
+            : chart != null ? BMSTableEntry.CreateForPlaylistDrop(chart, orgMd5s ?? library.GetPlaylistOrgMd5sForChart(chart)) : null;
+    }
+
+    /// <summary>分類用譜面と入力行の対応を保持し、元の編集値を持つ候補をフォルダ単位で計画します。</summary>
     private IReadOnlyCollection<PlaylistDropFolderMutation> BuildRootFolderDropMutations(
         IReadOnlyCollection<object> sourceRows,
         BMSTable table,
@@ -658,14 +657,14 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             folderEntries.Add(entry);
         }
-        List<ChartFile> charts = [.. sourceRows
+        IEnumerable<(object Row, ChartFile Chart)> chartRows = sourceRows
             .Where(row => !ShouldPreserveEntryForRootFolderDrop(row))
-            .Select(ResolveDropChart)
-            .Where(chart => chart != null)];
-        foreach (IGrouping<string, ChartFile> directoryCharts in charts
-            .GroupBy(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase)
-            .ToList())
+            .Select(row => (Row: row, Chart: ResolveDropChart(row)))
+            .Where(item => item.Chart != null);
+        foreach (IGrouping<string, (object Row, ChartFile Chart)> directoryRows in chartRows
+            .GroupBy(item => DirectoryExt.GetDirectoryNameSimple(item.Chart.Path), StringComparer.OrdinalIgnoreCase))
         {
+            IEnumerable<ChartFile> directoryCharts = directoryRows.Select(item => item.Chart);
             List<string> orgMd5s = library.GetPlaylistFolderOrgMd5sForCharts(directoryCharts);
             List<string> orderedWorkingFolders = BMSTable.GetSortedFolderList(
                 workingEntriesByFolder.Keys,
@@ -689,8 +688,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                     orderedWorkingFolders);
                 targetFolder = newFolderName;
             }
-            List<BMSTableEntry> plannedEntries = [.. directoryCharts.Select(chart =>
-                BMSTableEntry.CreateForPlaylistDrop(chart, orgMd5s))];
+            List<BMSTableEntry> plannedEntries = [.. directoryRows.Select(item =>
+                CreateDropEntry(item.Row, item.Chart, library, orgMd5s))];
             if (!workingEntriesByFolder.TryGetValue(targetFolder, out List<BMSTableEntry> plannedFolderEntries))
             {
                 plannedFolderEntries = [];

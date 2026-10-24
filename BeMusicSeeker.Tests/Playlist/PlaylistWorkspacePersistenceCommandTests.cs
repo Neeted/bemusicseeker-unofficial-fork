@@ -1918,6 +1918,110 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>保存済み詳細の同表root再分類・別表コピーで編集値を正本と新readonly DBへ保持し、表示用URLの材料化と重複先の上書きを防ぎます。未所持詳細も保持します。</summary>
+    [DataTestMethod]
+    [DataRow(false)] // 同表の表示前sourceを移動します。
+    [DataRow(true)] // 別表の表示行をコピーし、コピー元も保持します。
+    public async Task PlaylistRootFolderDrop_PreservesEditedEntryValuesAndExistingDuplicates(bool copyFromAnotherTable)
+    {
+        const string adoptedHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const string duplicateHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        const string anchorHash = "cccccccccccccccccccccccccccccccc";
+        const string missingHash = "dddddddddddddddddddddddddddddddd";
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "playlist-root-drop-edited-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        BMSPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        try
+        {
+            static BMSTableEntry EditedEntry(string hash, string prefix, double level, string folder = "") => new()
+            {
+                md5 = hash,
+                title = prefix + " title",
+                folder = folder,
+                memo = prefix + " memo",
+                comment = prefix + " comment",
+                Url = new Uri("https://example.com/" + prefix + "/url1"),
+                Url_diff = new Uri("https://example.com/" + prefix + "/url2"),
+                name_diff = prefix + " name_diff",
+                level = level
+            };
+            BMSTableEntry adopted = EditedEntry(adoptedHash, "adopted", 17.25);
+            BMSTableEntry duplicateInput = EditedEntry(duplicateHash, "discarded", 28.5);
+            BMSTableEntry existing = EditedEntry(duplicateHash, "existing", 39.75, "Classified");
+            BMSTableEntry missing = EditedEntry(missingHash, "missing", 41.5);
+            BMSTable table = new()
+            {
+                playlist_id = 7824,
+                name = "Edited drop target",
+                Output_dir = "EditedDropTarget",
+                entry_type = LR2SongDBExtended.playlist.EntryUnitType.Folder,
+                is_root_folder = true,
+                Folder_order = ["Classified"],
+                entries = [new BMSTableEntry { md5 = anchorHash, title = "Anchor", folder = "Classified" }, existing]
+            };
+            BMSTable source = copyFromAnotherTable
+                ? new BMSTable { playlist_id = 7825, name = "Edited source", Output_dir = "EditedSource", entry_type = LR2SongDBExtended.playlist.EntryUnitType.Folder, entries = [adopted, duplicateInput, missing] }
+                : table;
+            if (!copyFromAnotherTable) { table.entries = [.. table.entries, adopted, duplicateInput, missing]; }
+            string chartDirectory = Path.Combine(tempDirectory, "package");
+            ChartFile adoptedChart = CreatePlaylistDropBmsFile(adoptedHash, "Catalog adopted", Path.Combine(chartDirectory, "adopted.bms"));
+            ChartFile duplicateChart = CreatePlaylistDropBmsFile(duplicateHash, "Catalog duplicate", Path.Combine(chartDirectory, "duplicate.bms"));
+            ChartFile anchorChart = CreatePlaylistDropBmsFile(anchorHash, "Anchor", Path.Combine(chartDirectory, "anchor.bms"));
+            (playlist, library, _, workspace) = CreateRootDropStore(tempDirectory, table, [adoptedChart, duplicateChart, anchorChart]);
+            if (copyFromAnotherTable)
+            {
+                playlist.BMSTables.Add(source);
+                playlist.CommitBMSTableWithEntriesToDB(source);
+            }
+            adopted.ApplyRuntimeUrlCompletion(new Uri("https://example.com/runtime/url1"), new Uri("https://example.com/runtime/url2"), overwriteExisting: true);
+            Assert.AreNotEqual(adopted.Url, adopted.EffectiveUrl);
+            PlaylistDetailSourceRow[] sourceRows = [new(adopted, adoptedChart), new(duplicateInput, duplicateChart), new(missing, resolvedChart: null)];
+            object[] rows = [.. sourceRows.Select(row => copyFromAnotherTable ? (object)row.CreateViewRow() : row)];
+
+            await workspace.AddRowsToFolderAsync(rows, table);
+
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using LR2SongDBExtended database = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            static void AssertValues(BMSTable current, LR2SongDBExtended database, string hash, string prefix, double level, string folder)
+            {
+                PlaylistEntryValue value = current.CaptureEntriesReadSnapshot().Entries.Single(change => change.After.Md5 == hash).After;
+                LR2SongDBExtended.playlist_entry persisted = database.Table<LR2SongDBExtended.playlist_entry>()
+                    .Single(entry => entry.playlist_id == current.playlist_id && entry.md5 == hash);
+                string[] expected = [prefix + " memo", prefix + " comment", "https://example.com/" + prefix + "/url1", "https://example.com/" + prefix + "/url2", prefix + " name_diff", folder];
+                CollectionAssert.AreEqual(expected, new[] { value.Memo, value.Comment, value.Url.AbsoluteUri, value.UrlDiff.AbsoluteUri, value.NameDiff, value.Folder });
+                CollectionAssert.AreEqual(expected, new[] { persisted.memo, persisted.comment, persisted.url, persisted.url_diff, persisted.name_diff, persisted.folder });
+                Assert.AreEqual(level, value.Level);
+                Assert.AreEqual(level, persisted.level);
+            }
+            AssertValues(table, database, adoptedHash, "adopted", 17.25, "Classified");
+            AssertValues(table, database, duplicateHash, "existing", 39.75, "Classified");
+            AssertValues(table, database, missingHash, "missing", 41.5, "");
+            Assert.AreEqual(4, table.CaptureEntriesReadSnapshot().Entries.Count(change => !change.After.IsRemoved));
+            Assert.AreEqual(4, database.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == table.playlist_id && !entry.is_removed));
+            if (copyFromAnotherTable)
+            {
+                AssertValues(source, database, adoptedHash, "adopted", 17.25, "");
+                AssertValues(source, database, duplicateHash, "discarded", 28.5, "");
+                AssertValues(source, database, missingHash, "missing", 41.5, "");
+            }
+        }
+        finally
+        {
+            if (workspace != null)
+            {
+                workspace.CancelDetailBuilds();
+                await workspace.WaitForDetailBuildIdleAsync();
+                await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                workspace.Dispose();
+            }
+            playlist?.RequestShutdown("playlist_root_drop_edited_test");
+            library?.RequestShutdown("playlist_root_drop_edited_test");
+            if (Directory.Exists(tempDirectory)) { Directory.Delete(tempDirectory, recursive: true); }
+        }
+    }
+
     /// <summary>実外部同期で削除履歴だけとなったfolderへ同hash譜面を再追加し、履歴を保持しつつ新active行を別folderへ実保存します。</summary>
     [TestMethod]
     public async Task PlaylistRootFolderDrop_DoesNotClassifyIntoRemovedOnlyFolderHistory()
