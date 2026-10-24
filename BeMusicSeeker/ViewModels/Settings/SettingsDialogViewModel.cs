@@ -1975,6 +1975,7 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>未確定のユーザーBMS検索先一覧です。保存済みXMLや公開入力とは独立しています。</summary>
     public List<string> AvailableBMSDirectories => [.. BmsRootPathList];
 
+    /// <summary>通常出力の候補です。有効な確定導入先を取り込む選択は拒否し、受理済み配置へ戻します。</summary>
     public string LR2CustomFolderOutputDir
     {
         get
@@ -1991,6 +1992,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 }
                 else
                 {
+                    RestoreUnacceptedOutputCandidates();
                     ShowSettingValidationError(errMsg);
                 }
                 RaisePropertyChanged("LR2CustomFolderOutputDir");
@@ -2023,6 +2025,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>ROOT出力の候補です。有効な確定導入先を含む親も拒否し、受理済み配置へ戻します。</summary>
     public string LR2CustomFolderAsRootOutputDir
     {
         get
@@ -2039,6 +2042,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 }
                 else
                 {
+                    RestoreUnacceptedOutputCandidates();
                     ShowSettingValidationError(errMsg);
                 }
                 RaisePropertyChanged("LR2CustomFolderAsRootOutputDir");
@@ -4554,6 +4558,7 @@ public partial class SettingsDialogViewModel : ViewModel
         setter.Invoke(this, [value]);
     }
 
+    /// <summary>追加出力候補を検証して加えます。導入先保護を含む拒否時は未受理候補を復元します。</summary>
     public void AddCustomFolderAdditionalOutputBaseDir(string path)
     {
         try
@@ -4574,6 +4579,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
         {
+            RestoreUnacceptedOutputCandidates();
             ShowUiMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
         }
     }
@@ -4612,6 +4618,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
     }
 
+    /// <summary>追加出力候補の末尾名を変更します。拒否時は受理済み配置と改名対応を維持します。</summary>
     public void RenameSelectedCustomFolderAdditionalOutputBaseDir()
     {
         string selectedPath = SelectedCustomFolderAdditionalOutputBaseDir;
@@ -4645,6 +4652,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
         {
+            RestoreUnacceptedOutputCandidates();
             ShowUiMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
         }
     }
@@ -4767,6 +4775,7 @@ public partial class SettingsDialogViewModel : ViewModel
         errMsg = string.Empty;
         try
         {
+            ValidateOutputBasePreservesInstallDirectory(path);
             string normalizedPath = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path);
             string label = BeMusicSeeker.Properties.Resources.Label_NormalOutputBase;
             CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(normalizedPath, label);
@@ -4835,6 +4844,18 @@ public partial class SettingsDialogViewModel : ViewModel
         ValidateOutputBasesDoNotOverlap(path, label, previousPath, previousLabel);
     }
 
+    /// <summary>LR2の有効な確定導入先を出力管理領域へ取り込む遷移だけを拒否し、初回や既存不正値の段階保存は妨げません。</summary>
+    private void ValidateOutputBasePreservesInstallDirectory(string path)
+    {
+        string installDirectory = ApplicationSettings.BMSInstallDir;
+        if (ApplicationSettings.OperationModeLR2DB
+            && NormalizeStandaloneBmsRootPaths(GetConfirmedBmsRoots()).Any(root => CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(root, installDirectory))
+            && CustomFolderOutputBaseSearchRootSyncService.IsSameOrChildDirectory(installDirectory, path))
+        {
+            throw new InvalidOperationException(FormatResource(Resources.Validation_OutputBaseContainsInstallDirectoryFormat, installDirectory));
+        }
+    }
+
     private void ValidateOutputBaseAgainstBmsRoots(string path, string label, bool allowRegisteredChildren = false)
     {
         Lr2ConfigSnapshot config = GetCustomFolderValidationConfig();
@@ -4855,6 +4876,7 @@ public partial class SettingsDialogViewModel : ViewModel
         errMsg = string.Empty;
         try
         {
+            ValidateOutputBasePreservesInstallDirectory(path);
             string normalizedPath = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path);
             string label = BeMusicSeeker.Properties.Resources.Label_RootOutputBase;
             CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(normalizedPath, label);
@@ -4898,6 +4920,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void ValidateCustomFolderAdditionalOutputBaseSearchRootPath(string path, string oldPath, CustomFolderOutputSettingsSnapshot target = null)
     {
+        ValidateOutputBasePreservesInstallDirectory(path);
         string label = BeMusicSeeker.Properties.Resources.Label_AdditionalOutputBaseFolder;
         CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(path, label);
         ValidateOutputBasesDoNotOverlap(path, label, target?.LR2CustomFolderOutputBaseDir ?? LR2CustomFolderOutputDir, BeMusicSeeker.Properties.Resources.Label_NormalOutputBase);

@@ -758,6 +758,60 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
     }
 
+    /// <summary>通常・追加・ROOTの同一先と包含親を採用前に拒否します。大小文字・末尾区切りを同一視し、BMS2は別のパスとして許可して単純prefix判定を検出します。未登録・欠落した元から不正な導入先の段階設定は妨げません。</summary>
+    [DataTestMethod]
+    [DataRow("normal", "same", false)]
+    [DataRow("additional", "same", false)]
+    [DataRow("root", "same", false)]
+    [DataRow("normal", "parent", false)]
+    [DataRow("additional", "parent", false)]
+    [DataRow("root", "parent", false)]
+    [DataRow("normal", "case-separator", false)]
+    [DataRow("normal", "sibling", true)]
+    [DataRow("normal", "unregistered", true)]
+    [DataRow("root", "missing", true)]
+    public void OutputBase_ProtectsConfirmedInstallDirectory(string role, string relation, bool accepted)
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string bms = Path.Combine(tempRootPath, "BMS");
+            string install = relation is "parent" or "missing" ? Path.Combine(bms, "Songs") : bms;
+            string candidate = relation switch
+            {
+                "parent" or "missing" => bms,
+                "case-separator" => install.ToUpperInvariant() + Path.DirectorySeparatorChar,
+                "sibling" => Path.Combine(tempRootPath, "BMS2"),
+                _ => install
+            };
+            string normal = Path.Combine(tempRootPath, "NormalOutput");
+            string root = Path.Combine(tempRootPath, "RootOutput");
+            foreach (string directory in new[] { install, normal, root, candidate })
+            { if (relation != "missing" || directory != install) { Directory.CreateDirectory(directory); } }
+            LR2Config config = CreateConfig(tempRootPath);
+            config.AddBMSSearchDirectories(relation == "unregistered" ? [] : [install]);
+            testSettings.LR2CustomFolderOutputBaseDir = normal;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = root;
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            testSettings.BMSInstallDir = install;
+            MainWindowViewModel owner = CreateViewModel(config);
+            using SettingsDialogViewModel dialog = owner.SettingDialog;
+            switch (role)
+            {
+                case "normal": dialog.LR2CustomFolderOutputDir = candidate; break;
+                case "root": dialog.LR2CustomFolderAsRootOutputDir = candidate; break;
+                case "additional": dialog.AddCustomFolderAdditionalOutputBaseDir(candidate); break;
+            }
+            Assert.AreEqual(accepted && role == "normal" ? candidate : normal, dialog.LR2CustomFolderOutputDir);
+            Assert.AreEqual(accepted && role == "root" ? candidate : root, dialog.LR2CustomFolderAsRootOutputDir);
+            CollectionAssert.AreEqual(accepted && role == "additional" ? new[] { candidate } : Array.Empty<string>(), dialog.CustomFolderAdditionalOutputBaseDirList.ToArray());
+            Assert.AreEqual(install, testSettings.BMSInstallDir);
+            Assert.AreEqual(normal, testSettings.LR2CustomFolderOutputBaseDir);
+            Assert.AreEqual(root, testSettings.LR2CustomFolderOutputBaseDirRootType);
+        }
+        finally { TryDeleteDirectory(tempRootPath); }
+    }
+
     /// <summary>通常出力先の保存指定あり・復元指定なしの双方で、同一登録を出力先へ採用でき、譜面候補だけから除くことを確認します。</summary>
     [DataTestMethod]
     [DataRow(false)]

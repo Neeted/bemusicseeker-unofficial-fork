@@ -15,6 +15,97 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class SettingDialogEditCompletionTests
 {
+    /// <summary>有効な導入先の出力採用を実保存・XML・DB・配置変更前に拒否し、別の確定ルートへ導入先を変えた後は同じ操作と実出力が完了して初期化検査にも通ります。</summary>
+    [TestMethod]
+    public void OutputConfirmation_ProtectsInstallDirectoryUntilAnotherConfirmedRootIsSelected()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            string settingsPath = Path.Combine(root, "settings", "user.config");
+            string alternative = Path.Combine(root, "OtherSongs");
+            Settings values = CreateValidCustomFolderSettings(root, [alternative], PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+            values.Save();
+            PlaylistPersistenceRepository.EnsureSchema(values.LR2SongDBPath);
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var failures = new List<Exception>();
+                var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK) };
+                var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values),
+                    reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs,
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
+                Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
+                SetPrivateField(owner, "lr2config", configOwner);
+                SetActiveLibraryProfile(owner, true);
+                var table = new BMSTable
+                {
+                    playlist_id = 7198,
+                    name = "Table",
+                    symbol = "T",
+                    ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    entries = [BmsPlaylistTestSupport.CreateEntry(new string('d', 32), "Folder")],
+                    Folder_order = ["Folder"]
+                };
+                var playlist = new TestBmsPlaylist(values.LR2SongDBPath, configOwner, null, null,
+                    () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(values), () => BeatorajaBmtOptionsSnapshot.CreateCurrent(values),
+                    composition.CustomFolderOutputSettingsProvider,
+                    BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(values.LR2SongDBPath, CustomFolderOutputPhysicalSurface.Empty),
+                    mutationAdmission: composition.PlaylistOperationAdmission, settings: values)
+                { BMSTables = new ObservableCollection<BMSTable>([table]) };
+                SetPrivateField(owner, "tables", playlist);
+                owner.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);
+                try
+                {
+                    playlist.CommitBMSTableWithEntriesToDB(table);
+                    string oldOutput = values.LR2CustomFolderOutputBaseDir;
+                    string install = values.BMSInstallDir;
+                    string oldFile = Path.Combine(oldOutput, "Table", "0000.lr2folder");
+                    Directory.CreateDirectory(Path.GetDirectoryName(oldFile)!);
+                    File.WriteAllText(oldFile, "preserved output");
+                    byte[] oldSettings = File.ReadAllBytes(settingsPath);
+                    byte[] oldXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
+                    owner.SettingDialog.LR2CustomFolderOutputDir = install;
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("normal"), "reject-install-output-adoption");
+                    StringAssert.Contains(dialogs.LastMessageText, string.Format(Resources.Validation_OutputBaseContainsInstallDirectoryFormat, install));
+                    Assert.AreEqual(oldOutput, owner.SettingDialog.LR2CustomFolderOutputDir);
+                    Assert.IsFalse(owner.SettingDialog.HasNormalOutputChanges);
+                    Assert.IsFalse(owner.SettingDialog.IsOutputSaveIncomplete);
+                    Assert.AreEqual(0, failures.Count);
+                    Assert.AreEqual(0, dialogs.ConfirmationCount);
+                    CollectionAssert.AreEqual(oldSettings, File.ReadAllBytes(settingsPath));
+                    CollectionAssert.AreEqual(oldXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
+                    Assert.AreEqual("preserved output", File.ReadAllText(oldFile));
+                    Assert.IsFalse(Directory.Exists(Path.Combine(install, "Table")));
+                    using (LR2SongDBExtended reader = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly())
+                    {
+                        Assert.AreEqual(1, reader.Table<BMSTable>().Count());
+                        Assert.AreEqual(0L, reader.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'folder'"));
+                    }
+                    owner.SettingDialog.BMSInstallDir = alternative;
+                    owner.SettingDialog.LR2CustomFolderOutputDir = install;
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("normal"), "adopt-output-after-install-change");
+                    Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                    Assert.IsFalse(owner.SettingDialog.IsOutputSaveIncomplete);
+                    Assert.AreEqual(install, PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderOutputBaseDir);
+                    Assert.AreEqual(alternative, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BMSInstallDir);
+                    Assert.IsTrue(File.Exists(Path.Combine(install, "Table", "0000.lr2folder")));
+                    Assert.IsFalse(File.Exists(oldFile));
+                    Assert.IsTrue(owner.SettingDialog.CheckValidationForInitialization(out string error), error);
+                }
+                finally
+                {
+                    playlist.RequestShutdown("install-directory-output-fixture");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "install-directory-output-owner-cleanup");
+                    owner.SettingDialog.Dispose();
+                }
+            });
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     /// <summary>追加基点の削除で既定先へ集まる表が包含する場合、設定・XML・DB・正本・ファイルを変更する前に拒否します。実設定portの接続と媒体保存順を確認します。</summary>
     [TestMethod]
     public void OutputConfirmation_RejectsOverlapAfterAdditionalBaseRemovalBeforeSaving()
@@ -96,6 +187,20 @@ public sealed partial class SettingDialogEditCompletionTests
     [DataRow(false, false, true)] // 実旧行DELETEだけをtriggerで失敗させ、成功先と媒体を保って未了DB整理だけを再試行します。
     [DataRow(false, true, true)] // 追加先の成立済み改名対応も、旧DB整理失敗で失いません。
     public void OutputConfirmation_RepairsPartialMediaAndCleanupWithoutRepeatingSuccessfulProjection(bool reuseOriginalDestination, bool renameAdditionalBase, bool failOldDatabaseCleanup)
+    {
+        RunPartialOutputRepair(reuseOriginalDestination, renameAdditionalBase, failOldDatabaseCleanup);
+    }
+
+    /// <summary>二媒体未了の修復候補をBusy・実登録検証で拒否しても元のTarget・完了段階を保ち、次の明示修復が受理済み配置で完了します。導入先保護と共用する候補復元の境界を確認します。</summary>
+    [DataTestMethod]
+    [DataRow("busy")]
+    [DataRow("registration")]
+    public void OutputConfirmation_RejectedRepairPreservesAcceptedPlacement(string rejection)
+    {
+        RunPartialOutputRepair(false, false, false, rejection);
+    }
+
+    private void RunPartialOutputRepair(bool reuseOriginalDestination, bool renameAdditionalBase, bool failOldDatabaseCleanup, string? rejectedRepair = null)
     {
         string root = CreateTemporaryRoot();
         try
@@ -201,6 +306,52 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual(renameAdditionalBase ? "OriginalAdditional" : string.Empty, table.custom_folder_output_base_name);
                     using (LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly())
                     { Assert.AreEqual(0L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'folder'"), "未了媒体の修復前に実出力用のfolder表も作りません。"); }
+                    if (rejectedRepair != null)
+                    {
+                        // Extra/Parent/Childの削除候補は、受理済み通常B/Parentとの包含を実登録検査で拒否します。
+                        byte[] beforeRejectedSettings = File.ReadAllBytes(settingsPath);
+                        byte[] beforeRejectedXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
+                        owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseDir = extra;
+                        owner.SettingDialog.RemoveSelectedCustomFolderAdditionalOutputBaseDir();
+                        if (rejectedRepair == "busy")
+                        {
+                            Assert.IsTrue(composition.OperationAdmission.TryEnter(out IDisposable held));
+                            using (held) { TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("additional"), "output-repair-busy-rejection"); }
+                            Assert.AreEqual(1, failures.Count);
+                        }
+                        else
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("additional"), "output-repair-registration-rejection");
+                            Assert.AreEqual(2, failures.Count);
+                            StringAssert.Contains(failures[^1].Message, Resources.Error_ManagedPlaylistOutputOverlap);
+                        }
+                        Assert.IsTrue(owner.SettingDialog.IsOutputSaveIncomplete);
+                        Assert.AreEqual(destination, owner.SettingDialog.LR2CustomFolderOutputDir);
+                        CollectionAssert.AreEqual(new[] { extra }, owner.SettingDialog.CustomFolderAdditionalOutputBaseDirList.ToArray());
+                        CollectionAssert.AreEqual(beforeRejectedSettings, File.ReadAllBytes(settingsPath));
+                        CollectionAssert.AreEqual(beforeRejectedXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
+                        Assert.AreEqual("#TITLE old", File.ReadAllText(oldFile));
+                        Assert.IsFalse(File.Exists(newFile));
+                        Assert.AreEqual("Extra", extraTable.custom_folder_output_base_name);
+                    }
+                    // 未受理の導入先採用で、媒体保存済みのTarget・改名対応を失わないことを後続の実retryで検出します。
+                    byte[] pendingSettings = File.ReadAllBytes(settingsPath);
+                    byte[] pendingXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
+                    if (renameAdditionalBase)
+                    {
+                        owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseName = Path.GetFileName(values.BMSInstallDir);
+                        owner.SettingDialog.RenameSelectedCustomFolderAdditionalOutputBaseDir();
+                        CollectionAssert.AreEqual(new[] { destination }, owner.SettingDialog.CustomFolderAdditionalOutputBaseDirList.ToArray());
+                    }
+                    else
+                    {
+                        owner.SettingDialog.LR2CustomFolderOutputDir = values.BMSInstallDir;
+                        Assert.AreEqual(destination, owner.SettingDialog.LR2CustomFolderOutputDir);
+                    }
+                    StringAssert.Contains(dialogs.LastMessageText, string.Format(Resources.Validation_OutputBaseContainsInstallDirectoryFormat, values.BMSInstallDir));
+                    CollectionAssert.AreEqual(pendingSettings, File.ReadAllBytes(settingsPath));
+                    CollectionAssert.AreEqual(pendingXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
+                    Assert.IsFalse(File.Exists(newFile));
                     owner.SettingDialog.ShowRecommUpdatedMsg = !owner.SettingDialog.ShowRecommUpdatedMsg;
                     xmlBlocker.Dispose(); xmlBlocker = null;
                     if (renameAdditionalBase && reuseOriginalDestination)
@@ -230,7 +381,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     }
                     if (!changeAdditionalDuringRepair) { settingsBlocker = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite); }
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync(changeAdditionalDuringRepair ? "additional" : "pending"), "output-repair-required-media");
-                    int expectedFailures = failOldDatabaseCleanup ? 2 : 1;
+                    int expectedFailures = (failOldDatabaseCleanup ? 2 : 1) + (rejectedRepair == "registration" ? 1 : 0);
                     Assert.AreEqual(expectedFailures, failures.Count, string.Join(Environment.NewLine, failures));
                     if (failOldDatabaseCleanup) { StringAssert.Contains(failures[^1].ToString(), "test_old_output_cleanup_failed"); }
                     Assert.IsTrue(File.Exists(newFile));

@@ -217,7 +217,7 @@ beatorajaのroot・選択player・派生するscore.dbとBMT出力先を一つ�
 
 ### 保存の受付と処理選択
 
-通常項目保存にL/Pを一律要求しません。実処理を伴う局所操作は[操作の競合ポリシー](../core/operation-concurrency-policy.md)の該当受付を使い、Busyは保存・後続処理0で候補を保ちます。
+通常項目保存にL/Pを一律要求しません。実処理を伴う局所操作は[操作の競合ポリシー](../core/operation-concurrency-policy.md)の該当受付を使い、Busyは保存・後続処理0で候補を保ちます。出力配置の未受理候補は、確定配置または受理済み未完了要求の配置・改名対応へ戻します。
 
 | 確定単位 | 保存後の処理 |
 | --- | --- |
@@ -252,6 +252,10 @@ BMTの保存後未完了は、保存前の旧出力先と受理した新先・op
 基点の変更・追加先の削除・改名は、表の変更後の実効絶対パス集合を[配置条件](../playlist/lr2-custom-folders.md#出力先と事前検査)で検査してから設定・DB・LR2 XMLへ保存します。追加先の削除で既定先に集まる場合も同一・包含を拒否します。`SettingDialogEditCompletionTests.OutputConfirmation_RejectsOverlapAfterAdditionalBaseRemovalBeforeSaving` が実port・各保存媒体・正本とファイルの無変更を確認します。
 
 
+LR2で変更前に有効な `BMSInstallDir` が、今回の通常・追加・ROOT出力先と同一またはその配下になる変更は、候補採用時と局所確定の最終配置検査で拒否します。別の確定BMSディレクトリへ先に導入先を変更し、出力先を選び直すよう案内します。比較は既存のパス正規化を使い、大小文字・末尾区切りを同一視し、`BMS` と `BMS2` を区別します。保存・XML・表登録・実配置へ副作用を与えず、代替先を自動選択しません。初回や既存の不正な導入先を理由に無関係な段階保存を拒否せず、導入先以外のユーザールートは引き続き採用できます。
+
+出力の未受理候補は確定配置へ戻し、既存の導入先欄から修正・再操作できます。修復中は受理済みTarget・改名対応へ復元します。修復候補のTarget・改名・成功済み段階は、L/P受付と表登録検証の成功前に更新しません。受理後の保存・実処理失敗は従来どおり未完了として保持します。
+
 カスタムフォルダ出力先は本アプリの管理領域です。通常出力先だけは従来互換のため楽曲検索に残し、追加通常出力先とルートフォルダ出力先は楽曲検索から除きます。いずれも一般ページのBMSディレクトリ一覧、導入候補、フォルダツリーには混ぜません。楽曲検索の対象とLR2の `jukebox` 登録は区別し、出力に必要な登録は維持します。
 
 出力基点同士の同一・親子関係は禁止します。既存の `jukebox` 登録に対しては、次の配置だけを許可します。比較には表示用一覧で除外する前の登録を使い、現在存在しないパスも残して正規化したパス関係を検証します。
@@ -267,7 +271,7 @@ BMTの保存後未完了は、保存前の旧出力先と受理した新先・op
 
 既存登録を新たに出力管理領域として採用する場合は、保存時に管理領域とファイル整理の注意を確認します。通常出力先の同一登録への復元では楽曲検索を維持し、追加・ルート出力先として採用する場所は検索対象から外れることを併記します。保存済みの通常出力先を変更する場合も、その旧パスが検索対象から外れることを同じ確認へまとめます。旧通常出力先を追加・ルート出力先へ転用する場合は、既管理領域を理由に検索除外の確認を省略しません。
 
-出力の確認は保存済み設定と今回のフォルダ選択・追加・削除・改名が作る対象だけから作り、操作の保存前に表示します。同値の選択では確認・保存・実処理を始めません。警告の比較元には確定済みreaderと所有者が保持するBMS登録を使い、別セクションの未確定候補を混ぜません。検証エラーは確認より先に拒否します。確認の取消では編集値を残し、保存・同期・ファイル変更へ進みません。正常保存後に同じ役割・パスを継続する場合は再確認せず、警告済みの永続状態も持ちません。BMSディレクトリ追加は登録済みルートや出力領域との同一・親子関係を拒否し、出力に必要な登録の削除は保護します。出力先の変更は対応する出力設定から行います。
+出力の確認は保存済み設定と今回のフォルダ選択・追加・削除・改名が作る対象だけから作り、操作の保存前に表示します。同値の選択では確認・保存・実処理を始めません。警告の比較元には確定済みreaderと所有者が保持するBMS登録を使い、別セクションの未確定候補を混ぜません。検証エラーは確認より先に拒否します。確認の取消では未受理の出力候補を復元し、保存・同期・ファイル変更へ進みません。正常保存後に同じ役割・パスを継続する場合は再確認せず、警告済みの永続状態も持ちません。BMSディレクトリ追加は登録済みルートや出力領域との同一・親子関係を拒否し、出力に必要な登録の削除は保護します。出力先の変更は対応する出力設定から行います。
 
 ### アプリデータの撤去
 
@@ -291,6 +295,7 @@ BMSディレクトリの追加・削除・複数選択・D&Dは設定画面内�
 
 | 保証 | 実装 | 検証 |
 | --- | --- | --- |
+| 出力への有効な導入先の取込み拒否と再操作 | `SettingsDialogViewModel.ValidateOutputBasePreservesInstallDirectory`、`CommitOutputSettingsAsync`、`RestoreUnacceptedOutputCandidates` | `SettingDialogCustomFolderOutputBaseTests.OutputBase_ProtectsConfirmedInstallDirectory` は通常・追加・ROOTの同一/包含親と大小文字・末尾・BMS2、元から未登録・欠落した導入先の互換性を確認する。`SettingDialogEditCompletionTests.OutputConfirmation_ProtectsInstallDirectoryUntilAnotherConfirmedRootIsSelected` は実user.config/XML/DB/配置の副作用0と案内、別導入先確定後の実移行・初期化検査を確認する。`OutputConfirmation_RepairsPartialMediaAndCleanupWithoutRepeatingSuccessfulProjection` は拒否修復後も受理済み宛先・改名対応を保つ。`OutputConfirmation_RejectedRepairPreservesAcceptedPlacement` はBusy・実登録検証拒否で受理済み要求を保持し、後続の実修復を完了する。初回段階保存は既存compiled picker系列、ユーザールート採用は既存通常/ROOT採用系列、翻訳キーは `LocalizationResourceParityTests` が分担する。 |
 | LR2の初回・未採用入力の検査 | [`Lr2ConfigSession.TryResolve`](../../../BeMusicSeeker/Models/LR2/Lr2ConfigOwner.cs) | [`LR2ConfigTests`](../../../BeMusicSeeker.Tests/Lr2/LR2ConfigTests.cs) は未指定・不正パス、不完全XML・必須構造欠落の拒否と元ファイル保持、xml/xmh・欠落登録・空jukeboxの受理と参照時の非変更を確認します。採用後の外部変更非採用は所有者の局所検証が分担します。 |
 | BMS候補・正本・公開入力の分離、同じ環境の再選択 | [`設定の局所確定`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)、[`Lr2ConfigOwner`](../../../BeMusicSeeker/Models/LR2/Lr2ConfigOwner.cs) | [`LR2設定の実接続`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) が出力変更後のユーザー候補保持、ユーザー登録Uを出力へ採用した後のU→B→BMS確定での非復活と候補差分・選択・取消、確定一覧が不変の出力保存での候補非更新、部分保存と実表削除、外部XML・mtime非採用を確認します。実保存の未知XML保持・保存失敗は[`所有者の局所検証`](../../../BeMusicSeeker.Tests/Lr2/Lr2ConfigOwnerTests.cs) が分担します。 |
 | 本文端と余白の一回適用、分類・見出し・操作の固定 | `SettingsWindow.xaml`、`SettingsControls.xaml`、11設定ページ | `SettingsWindowPresentationTests.SettingsWindow_SidebarReachesNativeClientEdgeWhilePageKeepsInnerSpacing` は左分類・本文端と内容inset、`SettingsWindow_AllPagesFitActualMinimumWidthViewport` は11ページの横方向到達性、`AudioSettingsPage_LongDeviceTestStatusWrapsAtMinimumWindowWidthAndKeepsFullAutomationName` は採用最小幅の長文折返しを確認する。`SettingsControlPresentationTests.SettingsWindow_NavigationAutomationSelectionSynchronizesPageAndResetsScroll` は本文移動中の見出し・フッター固定と分類変更時の先頭復帰を分担する。 |

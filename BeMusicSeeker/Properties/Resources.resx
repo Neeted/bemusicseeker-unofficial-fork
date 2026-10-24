@@ -3429,6 +3429,9 @@ uBMplayが正常に動作するか確認してください。</value>
   <data name="Label_CustomFolderOutputBase" xml:space="preserve">
     <value>カスタムフォルダ出力先</value>
   </data>
+  <data name="Validation_OutputBaseContainsInstallDirectoryFormat" xml:space="preserve">
+    <value>現在のインストール先「{0}」を出力先に含めることはできません。先に別の確定済みBMSディレクトリへインストール先を変更してから、出力先を選び直してください。</value>
+  </data>
   <data name="Validation_OutputBasesOverlapFormat" xml:space="preserve">
     <value>{0}と{1}には、同じフォルダや親子関係のフォルダを指定できません。</value>
   </data>

@@ -1240,6 +1240,7 @@
   "Insane_estimation_table_hard": "Insane BMS difficulty estimation table HARD",
   "Insane_estimation_table_fc": "Insane BMS difficulty estimation table FC",
   "Label_CustomFolderOutputBase": "Custom folder output destination",
+  "Validation_OutputBaseContainsInstallDirectoryFormat": "The output location cannot include the current installation directory \"{0}\". First change the installation directory to another confirmed BMS directory, then select the output location again.",
   "Validation_OutputBasesOverlapFormat": "{0} and {1} cannot be the same folder or parent and child folders.",
   "Validation_OutputBaseInsideBmsRootFormat": "{0} cannot be a child of a registered BMS directory.\nOutput destination: {1}\nRegistered directory: {2}",
   "Confirm_CustomFolderOutputSearchRootsRemovedFormat": "The following locations will no longer be searched for songs by this application.\n\n{0}",

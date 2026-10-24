@@ -1240,6 +1240,7 @@
   "Insane_estimation_table_hard": "발광 BMS 난도 추정표 HARD",
   "Insane_estimation_table_fc": "발광 BMS 난도 추정표 FC",
   "Label_CustomFolderOutputBase": "사용자 지정 폴더 출력 대상",
+  "Validation_OutputBaseContainsInstallDirectoryFormat": "출력 위치에 현재 설치 폴더 \"{0}\"을(를) 포함할 수 없습니다. 먼저 설치 폴더를 다른 확정된 BMS 폴더로 변경한 후 출력 위치를 다시 선택하세요.",
   "Validation_OutputBasesOverlapFormat": "{0}과(와) {1}에는 같은 폴더나 부모·자식 관계의 폴더를 지정할 수 없습니다.",
   "Validation_OutputBaseInsideBmsRootFormat": "{0}에는 등록된 BMS 디렉터리의 하위 폴더를 지정할 수 없습니다.\n출력 대상: {1}\n등록된 디렉터리: {2}",
   "Confirm_CustomFolderOutputSearchRootsRemovedFormat": "다음 위치는 이 앱의 곡 검색 대상에서 제외됩니다.\n\n{0}",

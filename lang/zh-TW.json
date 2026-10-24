@@ -1240,6 +1240,7 @@
   "Insane_estimation_table_hard": "發狂 BMS 難度推定表 HARD",
   "Insane_estimation_table_fc": "發狂 BMS 難度推定表 FC",
   "Label_CustomFolderOutputBase": "自訂資料夾輸出目標",
+  "Validation_OutputBaseContainsInstallDirectoryFormat": "輸出位置不能包含目前的安裝目錄「{0}」。請先將安裝目錄變更為另一個已確認的 BMS 目錄，再重新選擇輸出位置。",
   "Validation_OutputBasesOverlapFormat": "{0}和{1}不能指定為同一資料夾或具有父子關係的資料夾。",
   "Validation_OutputBaseInsideBmsRootFormat": "{0}不能指定為已登錄 BMS 目錄的子資料夾。\n輸出目標：{1}\n已登錄目錄：{2}",
   "Confirm_CustomFolderOutputSearchRootsRemovedFormat": "本應用程式將不再於以下位置搜尋歌曲。\n\n{0}",

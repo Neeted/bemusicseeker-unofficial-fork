@@ -1240,6 +1240,7 @@
   "Insane_estimation_table_hard": "発狂BMS難度推定表 HARD",
   "Insane_estimation_table_fc": "発狂BMS難度推定表 FC",
   "Label_CustomFolderOutputBase": "カスタムフォルダ出力先",
+  "Validation_OutputBaseContainsInstallDirectoryFormat": "現在のインストール先「{0}」を出力先に含めることはできません。先に別の確定済みBMSディレクトリへインストール先を変更してから、出力先を選び直してください。",
   "Validation_OutputBasesOverlapFormat": "{0}と{1}には、同じフォルダや親子関係のフォルダを指定できません。",
   "Validation_OutputBaseInsideBmsRootFormat": "{0}には、登録済みBMSディレクトリの子フォルダを指定できません。\n出力先: {1}\n登録済み: {2}",
   "Confirm_CustomFolderOutputSearchRootsRemovedFormat": "次の場所は、本アプリの楽曲検索対象から外れます。\n\n{0}",

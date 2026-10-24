@@ -1240,6 +1240,7 @@
   "Insane_estimation_table_hard": "Table d’estimation de difficulté Insane BMS HARD",
   "Insane_estimation_table_fc": "Table d’estimation de difficulté Insane BMS FC",
   "Label_CustomFolderOutputBase": "Destination de sortie des dossiers personnalisés",
+  "Validation_OutputBaseContainsInstallDirectoryFormat": "Le dossier de sortie ne peut pas contenir le dossier d’installation actuel « {0} ». Choisissez d’abord un autre dossier BMS confirmé comme dossier d’installation, puis sélectionnez à nouveau le dossier de sortie.",
   "Validation_OutputBasesOverlapFormat": "{0} et {1} ne peuvent pas être le même dossier ni des dossiers parent et enfant.",
   "Validation_OutputBaseInsideBmsRootFormat": "{0} ne peut pas être un sous-dossier d’un répertoire BMS enregistré.\nDestination de sortie : {1}\nRépertoire enregistré : {2}",
   "Confirm_CustomFolderOutputSearchRootsRemovedFormat": "Cette application ne recherchera plus de morceaux dans les emplacements suivants.\n\n{0}",

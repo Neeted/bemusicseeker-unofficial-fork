@@ -2900,6 +2900,9 @@ public class Resources
 
     public static string Label_CustomFolderOutputBase => ResourceManager.GetString("Label_CustomFolderOutputBase", resourceCulture);
 
+    /// <summary>現在の導入先を出力へ取り込む変更を拒否し、別の確定ルートへの変更を案内します。</summary>
+    public static string Validation_OutputBaseContainsInstallDirectoryFormat => ResourceManager.GetString("Validation_OutputBaseContainsInstallDirectoryFormat", resourceCulture);
+
     public static string Validation_OutputBasesOverlapFormat => ResourceManager.GetString("Validation_OutputBasesOverlapFormat", resourceCulture);
 
     public static string Validation_OutputBaseInsideBmsRootFormat => ResourceManager.GetString("Validation_OutputBaseInsideBmsRootFormat", resourceCulture);
