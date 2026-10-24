@@ -1221,7 +1221,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.AreEqual(Resources.Add_BMSDirectory, add.Content);
                 Assert.AreEqual(Resources.Remove_BMSDirectory, remove.Content);
 
-                owner.SettingDialog.AddBmsSearchRootPaths([addedRoot]);
+                owner.SettingDialog.AddBmsSearchRootPathsAsync([addedRoot]).GetAwaiter().GetResult();
                 Materialize(window);
                 Assert.AreEqual(3, roots.Items.Count);
                 Assert.IsTrue(roots.Items.Cast<string>().Any(path => string.Equals(path, addedRoot, StringComparison.OrdinalIgnoreCase)));
@@ -1229,9 +1229,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 roots.SelectedItem = secondRoot;
                 Materialize(window);
                 roots.GetBindingExpression(Selector.SelectedItemProperty)?.UpdateSource();
-                remove.GetBindingExpression(ButtonBase.CommandParameterProperty)?.UpdateTarget();
-                Assert.IsTrue(remove.Command.CanExecute(remove.CommandParameter));
-                remove.Command.Execute(remove.CommandParameter);
+                remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, remove));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "compiled-bms-removal-terminal");
                 Materialize(window);
                 Assert.IsFalse(roots.Items.Cast<string>().Any(path => string.Equals(path, secondRoot, StringComparison.OrdinalIgnoreCase)));
 

@@ -17,6 +17,13 @@ public partial class InstallSettingsPage : UserControl
         InitializeComponent();
     }
 
+    private async void installDirectorySelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not ComboBox { SelectedItem: string path } || Window.GetWindow(this) is not SettingsWindow window) { return; }
+        try { await window.HandleSelectBmsInstallDirectoryAsync(path); }
+        catch (Exception failure) { await window.HandleSettingsRouteFailureAsync(failure, "BMS install directory selection"); }
+    }
+
     private async void addBmsInstallDirButtonClick(object sender, RoutedEventArgs e)
     {
         SettingsWindow settingsWindow = Window.GetWindow(this) as SettingsWindow

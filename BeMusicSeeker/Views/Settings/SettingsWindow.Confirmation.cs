@@ -53,9 +53,6 @@ public partial class SettingsWindow
             case "confirm:bmt": return settings.CommitBmtSettingsAsync();
             case "confirm:environment": return settings.CommitEnvironmentAsync();
             case "retry:output": return settings.CommitOutputSettingsAsync("pending");
-            case "retry:output-normal": return settings.CommitOutputSettingsAsync("normal");
-            case "retry:output-root": return settings.CommitOutputSettingsAsync("root");
-            case "retry:output-additional": return settings.CommitOutputSettingsAsync("additional");
             case "retry:audio": settings.CommitAudioSettings(); break;
             case "retry:player": settings.CommitExternalPlayerSettings(); break;
             case "retry:image": settings.CommitImageSettings(); break;

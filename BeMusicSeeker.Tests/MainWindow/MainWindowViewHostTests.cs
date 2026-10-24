@@ -1214,7 +1214,7 @@ public sealed class MainWindowViewHostTests
         RunMainWindowOperationModeRestartScenario();
     }
 
-    /// <summary>モード確認中に実Closeが先着するとモード保存と再起動を追加実行せず、先行Closeの保存と終端だけを完了します。</summary>
+    /// <summary>モード確認中に実Closeが先着すると今回の選択を確定値へ戻し、モード保存と再起動を追加実行せず、先行Closeの保存と終端だけを完了します。</summary>
     [TestMethod]
     public void MainWindowCloseDuringModeConfirmationPreservesEarlierCloseWithoutModeSave()
     {
@@ -1229,10 +1229,19 @@ public sealed class MainWindowViewHostTests
             operationModeSaveFailure: true);
     }
 
+    /// <summary>実モード保存の失敗後は今回入力を保持します。保存先の解放だけでは再実行せず、同じ入力の明示再操作で保存と通常の再起動終端を完了します。</summary>
+    [TestMethod]
+    public void MainWindowOperationModeRestartSaveFailureAllowsExplicitRetry()
+    {
+        RunMainWindowOperationModeRestartScenario(operationModeSaveFailure: true, retryAfterSaveFailure: true);
+    }
+
     private static void RunMainWindowOperationModeRestartScenario(
         bool closeDuringConfirmation = false,
-        bool operationModeSaveFailure = false)
+        bool operationModeSaveFailure = false,
+        bool retryAfterSaveFailure = false)
     {
+        bool restartExpected = !closeDuringConfirmation && (!operationModeSaveFailure || retryAfterSaveFailure);
         using var directory = new TestTemporaryDirectory("main-window-mode-restart");
         string settingsPath = Path.Combine(directory.Path, "user.config");
         // 本番Settings.Defaultと同じく、UIのReloadと起動後の背景読取りが共有する同一instanceを同期化します。
@@ -1409,8 +1418,9 @@ public sealed class MainWindowViewHostTests
                         settingsSaveFailureReported.Task,
                         "MainWindowViewHostTests.mode-restart-save-failure");
                 }
+                // 保存前のClose先着拒否は確定表示へ戻し、実保存の失敗では今回入力を保持します。
                 Assert.AreEqual(
-                    true,
+                    !closeDuringConfirmation,
                     viewModel.SettingDialog.OperationModeLR2DB,
                     $"確認回数={settingsDialogs.ConfirmationCount}, モード保存回数={settingsSession.ModeSaveCount}, "
                         + $"編集完了中={viewModel.SettingDialog.IsEditCompletionInProgress}, "
@@ -1440,11 +1450,22 @@ public sealed class MainWindowViewHostTests
                 // 待機中の Close 再入も同じ terminal を共有します。
                 settingsBlocker?.Dispose();
                 settingsBlocker = null;
+                if (retryAfterSaveFailure)
+                {
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(1, settingsSession.ModeSaveCount, "保存先の解放だけでは失敗した要求を再実行しません。");
+                    Assert.IsFalse(settings.OperationModeLR2DB);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.SettingDialog.SelectOperationModeAsync(true), "operation mode explicit retry after save failure");
+                    Assert.AreEqual(2, settingsSession.ModeSaveCount);
+                    Assert.AreEqual(2, settingsDialogs.ConfirmationCount);
+                    Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(settingsPath).OperationModeLR2DB);
+                    Assert.AreEqual(1, reportedSettingsFailures.Count, "明示再操作の成功は最初の保存失敗を重複報告しません。");
+                }
                 window.Close();
                 observedClose.TrySetResult(window.CloseCompletion);
 
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, "MainWindowViewHostTests.mode-restart-dispatcher-marker");
-                if (!closeDuringConfirmation && !operationModeSaveFailure)
+                if (restartExpected)
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(
                         TestUiDispatcherHost.AwaitNotificationAsync(restartEntered.Task, window.CloseCompletion, "mode-restart.restart-start"),
@@ -1454,14 +1475,14 @@ public sealed class MainWindowViewHostTests
 
                 Assert.IsTrue(dispatcherMarkerObserved);
                 Assert.AreEqual(1, settingsSession.SaveCount);
-                Assert.AreEqual(closeDuringConfirmation || operationModeSaveFailure ? 0 : 1, lifetime.RestartCount);
+                Assert.AreEqual(restartExpected ? 1 : 0, lifetime.RestartCount);
                 Assert.AreEqual(1, lifetime.RequestShutdownCount);
-                if (!closeDuringConfirmation && !operationModeSaveFailure)
+                if (restartExpected)
                 {
                     Assert.IsTrue(IndexOfEvent(events, "restart") < IndexOfEvent(events, "shutdown"));
                 }
                 Settings persisted = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
-                Assert.AreEqual(!closeDuringConfirmation && !operationModeSaveFailure, persisted.OperationModeLR2DB);
+                Assert.AreEqual(restartExpected, persisted.OperationModeLR2DB);
                 Assert.AreEqual("history-initial", persisted.PlayHistorySelectedDisplayTargetIdentity);
                 Assert.IsTrue(persisted.ShowScoreViewerRegisterConfirmMsg);
 

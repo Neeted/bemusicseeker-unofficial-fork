@@ -404,6 +404,65 @@ public partial class SettingsDialogViewModel
     private bool bmsSaveIncomplete;
     private string replacementBmsInstallDir;
 
+    /// <summary>他の操作が採用されたときだけ破棄する、未確定の設定範囲です。受理済みの修復状態は含めません。</summary>
+    [Flags]
+    internal enum ConflictingCandidates { None = 0, Bms = 1, Lr2Details = 2 }
+
+    private ConflictingCandidates GetConflictingCandidates(ConflictingCandidates sections)
+    {
+        ConflictingCandidates result = ConflictingCandidates.None;
+        if (sections.HasFlag(ConflictingCandidates.Bms) && !bmsSaveIncomplete && (!GetConfirmedBmsRoots().SequenceEqual(AvailableBMSDirectories, StringComparer.OrdinalIgnoreCase) || !string.IsNullOrEmpty(replacementBmsInstallDir))) { result |= ConflictingCandidates.Bms; }
+        if (sections.HasFlag(ConflictingCandidates.Lr2Details) && (CaptureEnvironmentCandidate() with { OperationModeLR2DB = ApplicationSettings.OperationModeLR2DB }) != EnvironmentSettingsChange.Capture(ApplicationSettings)) { result |= ConflictingCandidates.Lr2Details; }
+        return result;
+    }
+
+    /// <summary>独立導入先の変更に、Windowが所有するBMS候補破棄確認が必要かを示します。実処理のBusyは含めません。</summary>
+    internal bool RequiresBmsInstallDirectoryConfirmation => GetConflictingCandidates(ConflictingCandidates.Bms) != ConflictingCandidates.None;
+
+    /// <summary>競合する未確定範囲の名称を含む確認を作ります。受理済みの修復状態は案内の対象に含めません。</summary>
+    private string BuildCandidateDiscardConfirmation(ConflictingCandidates sections)
+    {
+        ConflictingCandidates conflicts = GetConflictingCandidates(sections);
+        if (conflicts == ConflictingCandidates.None) { return null; }
+        var names = new List<string>();
+        if (conflicts.HasFlag(ConflictingCandidates.Bms)) { names.Add(Resources.Standalone_BMSDirectories.Trim().TrimEnd(':', '：')); }
+        if (conflicts.HasFlag(ConflictingCandidates.Lr2Details)) { names.Add(Resources.Settings_lr2_detailed_paths); }
+        return FormatResource(Resources.Settings_confirm_discard_conflicting_candidates, string.Join(" / ", names));
+    }
+
+    /// <summary>非同期操作の確認をUIを塞がずに待ちます。実際に破棄する範囲名を示し、候補破棄は採用点へ残します。</summary>
+    internal async Task<bool> ConfirmCandidateSwitchAsync(ConflictingCandidates sections)
+    {
+        string message = BuildCandidateDiscardConfirmation(sections);
+        return message == null || await ShowUiConfirmationAsync(message, "Settings candidate switch");
+    }
+
+    private async Task<bool> ShowUiConfirmationAsync(string message, string routeName)
+        => ToUiConfirmationDecision(await schemaDialogs.ConfirmAsync(new BeMusicSeeker.Views.Dialogs.UiConfirmationRequest(
+            message, Resources.Confirm, UiDialogButton.OKCancel, UiDialogIcon.Question)), routeName);
+
+    /// <summary>実受付・最終検証後の採用点で、関係する未確定範囲だけを最新確定値へ戻します。</summary>
+    internal void DiscardConflictingCandidates(ConflictingCandidates sections)
+    {
+        ConflictingCandidates conflicts = GetConflictingCandidates(sections);
+        if (conflicts.HasFlag(ConflictingCandidates.Bms)) { CancelBmsRoots(); }
+        if (conflicts.HasFlag(ConflictingCandidates.Lr2Details)) { CancelEnvironment(); }
+    }
+
+    private async Task<bool> PrepareBmsCandidateEditAsync()
+    {
+        if (!IsBmsSearchRootEditorEnabled || pendingOutputChange != null) { return false; }
+        if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Lr2Details) || !IsBmsSearchRootEditorEnabled || pendingOutputChange != null) { return false; }
+        return true;
+    }
+
+    private async Task<bool> PrepareLr2CandidateEditAsync()
+    {
+        if (!IsEnvironmentSelectionEnabled || bmsSaveIncomplete || pendingOutputChange != null) { return false; }
+        if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Bms) || !IsEnvironmentSelectionEnabled || bmsSaveIncomplete || pendingOutputChange != null) { return false; }
+        return true;
+    }
+
     /// <summary>保存済み局所組のscore又は旧新BMT反映が未完了で、明示再試行できることを示します。</summary>
     public bool IsScoreProcessingRetryRequired => (scoreReloadPending || pendingBeatorajaChange != null) && !IsEditCompletionInProgress;
 
@@ -464,9 +523,6 @@ public partial class SettingsDialogViewModel
         RaisePropertyChanged(nameof(IsBmsSaveIncomplete));
         RaisePropertyChanged(nameof(IsOutputSaveIncomplete));
         RaiseEnvironmentAvailabilityChanged();
-        RaisePropertyChanged(nameof(HasNormalOutputChanges));
-        RaisePropertyChanged(nameof(HasRootOutputChanges));
-        RaisePropertyChanged(nameof(HasAdditionalOutputChanges));
     }
 
     private IReadOnlyList<string> GetConfirmedBmsRoots()
@@ -514,11 +570,24 @@ public partial class SettingsDialogViewModel
         bool changed = !previousUserRoots.SequenceEqual(roots, StringComparer.OrdinalIgnoreCase)
             || !string.Equals(install, ApplicationSettings.BMSInstallDir, StringComparison.OrdinalIgnoreCase);
         if (!changed && !bmsSaveIncomplete && !fileDiffReloadPending) { return; }
+        if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Lr2Details) || !IsEditCompletionEnabled || statePort.IsLibraryOperationInProgress || pendingOutputChange != null) { return; }
         IsEditCompletionInProgress = true;
         try
         {
             async Task<StartupInitializationResult> SaveAndReload(LibraryFileMutationCapability capability)
             {
+                if (!CheckBmsRootsBeforeConfirmation(out string latestError, roots)) { ShowSettingValidationError(latestError); return null; }
+                previousUserRoots = GetConfirmedBmsRoots();
+                install = ApplicationSettings.BMSInstallDir;
+                if (!roots.Contains(install, StringComparer.OrdinalIgnoreCase))
+                {
+                    if (!roots.Contains(replacementBmsInstallDir, StringComparer.OrdinalIgnoreCase)) { ShowSettingValidationError(Resources.Error_InvalidBmsInstallDir); return null; }
+                    install = replacementBmsInstallDir;
+                }
+                changed = !previousUserRoots.SequenceEqual(roots, StringComparer.OrdinalIgnoreCase)
+                    || !string.Equals(install, ApplicationSettings.BMSInstallDir, StringComparison.OrdinalIgnoreCase);
+                if (!changed && !bmsSaveIncomplete && !fileDiffReloadPending) { return null; }
+                DiscardConflictingCandidates(ConflictingCandidates.Lr2Details);
                 if (changed || bmsSaveIncomplete)
                 {
                     if (ApplicationSettings.OperationModeLR2DB)
@@ -681,12 +750,21 @@ public partial class SettingsDialogViewModel
 
     private void SettingsOperationAvailabilityChanged(object sender, EventArgs args) => RaiseEnvironmentAvailabilityChanged();
 
-    /// <summary>モードの実選択は保存済みLR2組で反映し、未確定の個別パスを混ぜません。</summary>
-    internal Task SelectOperationModeAsync(bool value)
+    /// <summary>モードの実選択は保存済みLR2組で反映します。保存前の取消・拒否は確定値へ戻し、実保存の失敗では今回入力を残して明示再操作を可能にします。</summary>
+    internal async Task SelectOperationModeAsync(bool value)
     {
-        if (!IsEnvironmentSelectionEnabled) { return Task.CompletedTask; }
+        if (!IsEnvironmentSelectionEnabled) { return; }
         SetOperationModeSelection(value);
-        return CommitEnvironmentChangeAsync(EnvironmentSettingsChange.Capture(ApplicationSettings) with { OperationModeLR2DB = value });
+        bool saveStarted = false;
+        try
+        {
+            await CommitEnvironmentChangeAsync(EnvironmentSettingsChange.Capture(ApplicationSettings) with { OperationModeLR2DB = value },
+                replaceDetails: true, modeOnly: true, onSaveStarted: () => saveStarted = true);
+        }
+        finally
+        {
+            if (!environmentTransitionInProgress) { SetOperationModeSelection(saveStarted ? value : ApplicationSettings.OperationModeLR2DB); }
+        }
     }
 
     /// <summary>標準パスを解決できた今回のrootだけを反映します。不正入力から前の候補を確定しません。</summary>
@@ -699,14 +777,15 @@ public partial class SettingsDialogViewModel
             SetLr2PathSelectionError(Resources.Error_InvalidLR2RootPath);
             return Task.CompletedTask;
         }
-        LR2RootPath = root;
-        return CommitEnvironmentChangeAsync(new(operationModeLR2DB, root, song, config));
+        return CommitEnvironmentChangeAsync(new(ApplicationSettings.OperationModeLR2DB, root, song, config), replaceDetails: true);
     }
 
     /// <summary>個別song.db/XMLの候補を一回の選択保存・再起動で確定します。</summary>
     internal Task CommitEnvironmentAsync() => CommitEnvironmentChangeAsync(CaptureEnvironmentCandidate());
 
-    private async Task CommitEnvironmentChangeAsync(EnvironmentSettingsChange change)
+    /// <summary>環境の今回入力を確認・最終検証し、実受付後に保存します。</summary>
+    /// <param name="onSaveStarted">保存前の拒否と実保存の失敗を区別するため、保存を開始する採用点だけで呼びます。</param>
+    private async Task CommitEnvironmentChangeAsync(EnvironmentSettingsChange change, bool replaceDetails = false, bool modeOnly = false, Action onSaveStarted = null)
     {
         if (!IsEnvironmentSelectionEnabled || !operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation) { return; }
         if (bmsSaveIncomplete || pendingOutputChange != null)
@@ -721,10 +800,29 @@ public partial class SettingsDialogViewModel
             return;
         }
         if (change == EnvironmentSettingsChange.Capture(ApplicationSettings)) { return; }
+        ConflictingCandidates conflicts = ConflictingCandidates.Bms | (replaceDetails ? ConflictingCandidates.Lr2Details : ConflictingCandidates.None);
+        string confirmation = statePort.HasActiveLibraryProfile ? Resources.Confirm_RestartForOperationModeChange : null;
+        string discardConfirmation = BuildCandidateDiscardConfirmation(conflicts);
+        if (discardConfirmation != null)
+        { confirmation = string.Join(Environment.NewLine + Environment.NewLine, new[] { confirmation, discardConfirmation }.Where(text => text != null)); }
+        if (confirmation != null && !await ShowUiConfirmationAsync(confirmation, "Environment confirmation"))
+        {
+            SetOperationModeSelection(ApplicationSettings.OperationModeLR2DB);
+            return;
+        }
+        if (!IsEnvironmentSelectionEnabled || !operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation) { return; }
+        if (bmsSaveIncomplete || pendingOutputChange != null) { ShowSettingValidationError(Resources.Settings_repair_related_save); return; }
+        change = modeOnly ? EnvironmentSettingsChange.Capture(ApplicationSettings) with { OperationModeLR2DB = change.OperationModeLR2DB }
+            : change with { OperationModeLR2DB = ApplicationSettings.OperationModeLR2DB };
+        if (change == EnvironmentSettingsChange.Capture(ApplicationSettings)) { SetOperationModeSelection(ApplicationSettings.OperationModeLR2DB); return; }
+        if (change.OperationModeLR2DB && (!IsLR2SongDBPathValid(change.LR2SongDBPath)
+            || !lr2ConfigSession.TryResolve(change.LR2ConfigXmlPath, out candidateOwner, adoptInitial: false))) { return; }
         if (!statePort.HasActiveLibraryProfile)
         {
             try
             {
+                DiscardConflictingCandidates(conflicts);
+                onSaveStarted?.Invoke();
                 change.Commit(ApplicationSettings);
                 if (candidateOwner != null) { lr2ConfigSession.Adopt(candidateOwner); }
                 // 初回のモード・LR2 root保存も、次の初期化が捕捉する既存の確定配置へ同じ組を公開します。
@@ -739,13 +837,6 @@ public partial class SettingsDialogViewModel
                 RaiseValidationStateChanged();
             }
             catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } }
-            return;
-        }
-        if (!operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation) { return; }
-        if (!ShowUiConfirmation(Resources.Confirm_RestartForOperationModeChange, Resources.Confirm,
-            UiDialogIcon.Question, UiDialogButton.OKCancel, "Environment restart confirmation"))
-        {
-            CancelEnvironment();
             return;
         }
         if (operationAdmission.IsAdmissionClosed || statePort.IsLibraryOperationInProgress) { return; }
@@ -765,7 +856,11 @@ public partial class SettingsDialogViewModel
                 // 確認中に先着したL/Pを再検査し、保存の先着判断だけをshellへ渡します。
                 // 再起動の終端は待たず、受理Taskが戻った時点で解放して終了joinの自己待機を避けます。
                 accepted = await requestOperationModeRestart(new OperationModeRestartRequest(change,
-                    playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity));
+                    playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity, () =>
+                    {
+                        DiscardConflictingCandidates(conflicts);
+                        onSaveStarted?.Invoke();
+                    }));
             }
         }
         catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } }
@@ -878,13 +973,6 @@ public partial class SettingsDialogViewModel
         => target == null ? CustomFolderAdditionalOutputBaseDirList
             : CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(target.LR2CustomFolderAdditionalOutputBaseDirs);
 
-    /// <summary>通常出力の選択がまだ保存されていないことを示します。</summary>
-    public bool HasNormalOutputChanges => pendingOutputChange == null && !string.Equals(outputLR2CustomFolderOutputBaseDir, ApplicationSettings.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase);
-    /// <summary>ROOT出力の選択がまだ保存されていないことを示します。</summary>
-    public bool HasRootOutputChanges => pendingOutputChange == null && !string.Equals(outputLR2CustomFolderOutputBaseDirRootType, ApplicationSettings.LR2CustomFolderOutputBaseDirRootType, StringComparison.OrdinalIgnoreCase);
-    /// <summary>追加出力の操作がまだ保存されていないことを示します。</summary>
-    public bool HasAdditionalOutputChanges => pendingOutputChange == null && outputLR2CustomFolderAdditionalOutputBaseDirs != ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-
     private OutputConfigurationChange pendingOutputChange;
 
     private sealed class OutputConfigurationChange(CustomFolderOutputSettingsSnapshot previous, CustomFolderOutputSettingsSnapshot target,
@@ -932,23 +1020,28 @@ public partial class SettingsDialogViewModel
                 ShowRecommUpdatedMsg = ApplicationSettings.ShowRecommUpdatedMsg
             };
             if (section == "pending" && pendingOutputChange != null) { target = pendingOutputChange.Target; }
-            try
+            bool ValidateTarget()
             {
-                ValidateOutputBasePreservesInstallDirectory(target.LR2CustomFolderOutputBaseDir);
-                ValidateOutputBasePreservesInstallDirectory(target.LR2CustomFolderOutputBaseDirRootType);
-                foreach (string path in GetOutputAdditionalPaths(target)) { ValidateOutputBasePreservesInstallDirectory(path); }
+                try
+                {
+                    ValidateOutputBasePreservesInstallDirectory(target.LR2CustomFolderOutputBaseDir);
+                    ValidateOutputBasePreservesInstallDirectory(target.LR2CustomFolderOutputBaseDirRootType);
+                    foreach (string path in GetOutputAdditionalPaths(target)) { ValidateOutputBasePreservesInstallDirectory(path); }
+                }
+                catch (Exception failure) when (failure is ArgumentException or InvalidOperationException or NotSupportedException or System.IO.PathTooLongException)
+                { ShowSettingValidationError(failure.Message); return false; }
+                // 初回は未設定の別区分を残して順に保存できます。選択対象と設定済みの配置は検証し、開始時は両必須値を別途検証します。
+                bool requireNormal = statePort.HasActiveLibraryProfile || section is null or "normal" || !string.IsNullOrWhiteSpace(target.LR2CustomFolderOutputBaseDir);
+                bool requireRoot = statePort.HasActiveLibraryProfile || section is null or "root" || !string.IsNullOrWhiteSpace(target.LR2CustomFolderOutputBaseDirRootType);
+                string error;
+                if ((requireNormal && !ValidateCustomFolderOutputBaseDir(target.LR2CustomFolderOutputBaseDir, out error, target: target))
+                    || (requireRoot && !ValidateCustomFolderAsRootOutputBaseDir(target.LR2CustomFolderOutputBaseDirRootType, out error, target: target))
+                    || !ValidateCustomFolderAdditionalOutputBaseDirs(out error, target)) { ShowSettingValidationError(error); return false; }
+                return true;
             }
-            catch (Exception failure) when (failure is ArgumentException or InvalidOperationException or NotSupportedException or System.IO.PathTooLongException)
-            { ShowSettingValidationError(failure.Message); return; }
-            // 初回は未設定の別区分を残して順に保存できます。選択対象と設定済みの配置は検証し、開始時は両必須値を別途検証します。
-            bool requireNormal = statePort.HasActiveLibraryProfile || section is null or "normal" || !string.IsNullOrWhiteSpace(target.LR2CustomFolderOutputBaseDir);
-            bool requireRoot = statePort.HasActiveLibraryProfile || section is null or "root" || !string.IsNullOrWhiteSpace(target.LR2CustomFolderOutputBaseDirRootType);
-            string error;
-            if ((requireNormal && !ValidateCustomFolderOutputBaseDir(target.LR2CustomFolderOutputBaseDir, out error, target: target))
-                || (requireRoot && !ValidateCustomFolderAsRootOutputBaseDir(target.LR2CustomFolderOutputBaseDirRootType, out error, target: target))
-                || !ValidateCustomFolderAdditionalOutputBaseDirs(out error, target)) { ShowSettingValidationError(error); return; }
-            if (!ConfirmCustomFolderOutputChangesBeforeSave(target)) { return; }
+            if (!ValidateTarget()) { return; }
             if (pendingOutputChange == null && SameOutputPlacement(previous, target) && pendingCustomFolderAdditionalOutputBaseRenames.Count == 0) { return; }
+            if (!await ConfirmCustomFolderOutputChangesBeforeSaveAsync(target)) { return; }
             IsEditCompletionInProgress = true;
             try
             {
@@ -963,6 +1056,17 @@ public partial class SettingsDialogViewModel
                     using (playlistLease)
                     using (LibraryFileMutationCapability capability = playlistLease.CreateMutationCapability())
                     {
+                        if (bmsSaveIncomplete) { ShowSettingValidationError(Resources.Settings_repair_related_save); return; }
+                        if (section is "normal" or "root" or "additional")
+                        {
+                            previous = CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings);
+                            baseline = pendingOutputChange?.Target ?? previous;
+                            target = CopyOutputPlacement(baseline,
+                                normal: section == "normal" ? target.LR2CustomFolderOutputBaseDir : null,
+                                root: section == "root" ? target.LR2CustomFolderOutputBaseDirRootType : null,
+                                additional: section == "additional" ? target.LR2CustomFolderAdditionalOutputBaseDirs : null);
+                        }
+                        if (!ValidateTarget() || pendingOutputChange == null && SameOutputPlacement(previous, target) && pendingCustomFolderAdditionalOutputBaseRenames.Count == 0) { return; }
                         OutputConfigurationChange change = pendingOutputChange ?? new OutputConfigurationChange(previous, target,
                             section is null or "additional" ? new Dictionary<string, string>(pendingCustomFolderAdditionalOutputBaseRenames, StringComparer.OrdinalIgnoreCase) : new Dictionary<string, string>());
                         // 修復候補は受付・登録検証の成功まで受理済みTarget・改名・完了段階へ反映しません。
@@ -970,6 +1074,7 @@ public partial class SettingsDialogViewModel
                             ? new Dictionary<string, string>(pendingCustomFolderAdditionalOutputBaseRenames, StringComparer.OrdinalIgnoreCase) : change.Renames;
                         IReadOnlyDictionary<string, string> registrationRenames = GetOutputRegistrationRepairRenames(change, target, candidateRenames);
                         customFolderOutputPort.ValidateCustomFolderOutputRegistration(target, registrationRenames);
+                        DiscardConflictingCandidates(ConflictingCandidates.Bms | ConflictingCandidates.Lr2Details);
                         if (pendingOutputChange != null && !SameOutputPlacement(pendingOutputChange.Target, target))
                         {
                             OutputConfigurationChange repair = pendingOutputChange;
@@ -1022,14 +1127,12 @@ public partial class SettingsDialogViewModel
                         }
                         if (!change.Published)
                         {
-                            IReadOnlyList<string> previousUsers = GetConfirmedBmsRoots();
-                            string[] candidates = BmsRootPathList.ToArray();
-                            string selectedRoot = SelectedBmsSearchRootPath;
                             ApplicationSettings.Publish(values);
                             publishOutputPlacement();
                             if (ApplicationSettings.OperationModeLR2DB) { GetConfirmedLr2Owner().Publish(change.SavedRootChange, change.Target); }
                             change.Published = true;
-                            RebaseBmsRootCandidatesAfterOutputPublication(previousUsers, candidates, selectedRoot);
+                            CancelBmsRoots();
+                            RaisePropertyChanged(nameof(ConfirmedBMSDirectories));
                         }
                         if (statePort.HasActiveLibraryProfile)
                         {
@@ -1150,28 +1253,6 @@ public partial class SettingsDialogViewModel
         RaiseSectionRepairStateChanged();
     }
 
-    /// <summary>出力採用で確定ユーザー一覧が変わった場合だけ、未確定の追加・削除を新しい一覧へ引き継ぎます。選択を保ち、候補を保存しません。</summary>
-    private void RebaseBmsRootCandidatesAfterOutputPublication(IReadOnlyList<string> previousUsers, IReadOnlyList<string> candidates, string selectedRoot)
-    {
-        IReadOnlyList<string> currentUsers = GetConfirmedBmsRoots();
-        if (previousUsers.SequenceEqual(currentUsers, StringComparer.OrdinalIgnoreCase)) { return; }
-        IEnumerable<string> removed = previousUsers.Except(candidates, StringComparer.OrdinalIgnoreCase);
-        IEnumerable<string> added = candidates.Except(previousUsers, StringComparer.OrdinalIgnoreCase);
-        string[] next = currentUsers.Except(removed, StringComparer.OrdinalIgnoreCase).Concat(added)
-            .Where(path => !ApplicationSettings.OperationModeLR2DB || !IsUserVisibleBmsSearchRootExcludedPath(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        if (!candidates.SequenceEqual(next, StringComparer.OrdinalIgnoreCase))
-        {
-            BmsRootPathList.Clear();
-            foreach (string root in next) { BmsRootPathList.Add(root); }
-            SelectedBmsSearchRootPath = next.FirstOrDefault(path => string.Equals(path, selectedRoot, StringComparison.OrdinalIgnoreCase)) ?? next.FirstOrDefault();
-            RaisePropertyChanged(nameof(BmsRootPathList));
-            RaiseBmsListPropertyChanged(nameof(LR2ConfigBMSDirectories));
-            RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
-        }
-        RaisePropertyChanged(nameof(ConfirmedBMSDirectories));
-    }
-
     /// <summary>成立済み登録名から修復先への対応を計画します。未受理の候補を渡しても受理済み要求は更新しません。</summary>
     private static IReadOnlyDictionary<string, string> GetOutputRegistrationRepairRenames(OutputConfigurationChange change,
         CustomFolderOutputSettingsSnapshot target = null, IReadOnlyDictionary<string, string> candidateRenames = null)
@@ -1234,9 +1315,11 @@ public partial class SettingsDialogViewModel
     internal void CancelRightClickRecord(bool web) => rightClickActionSettingsEditor.DiscardSelectedRecord(ApplicationSettings.RightClickActionsJson, web);
 
     /// <summary>BMS局所確定の一覧だけを検証します。他セクションの候補は参照しません。</summary>
-    internal bool CheckBmsRootsBeforeConfirmation(out string error)
+    /// <param name="error">既存のBMS入力検証で見つかった理由。</param>
+    /// <param name="roots">操作が捕捉した一覧。省略時は表示候補を使い、採用時は他の候補へ読み替えません。</param>
+    internal bool CheckBmsRootsBeforeConfirmation(out string error, IReadOnlyList<string> roots = null)
     {
-        IReadOnlyList<string> roots = AvailableBMSDirectories;
+        roots ??= AvailableBMSDirectories;
         if (NormalizeStandaloneBmsRootPaths(roots).Count == 0) { error = Resources.Error_InvalidStandaloneBmsRootPaths; return false; }
         if (ApplicationSettings.OperationModeLR2DB && CollectNestedBmsSearchRootConflicts(roots).Count > 0)
         { error = BuildNestedBmsSearchRootConflictMessage(CollectNestedBmsSearchRootConflicts(roots)); return false; }

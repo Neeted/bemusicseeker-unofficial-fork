@@ -1357,5 +1357,7 @@
   "Playlist_json_export_paths_same": "ヘッダーとデータには異なる保存先を指定してください。",
   "Playlist_json_export_path_invalid": "有効なファイルパスを指定してください。",
   "Playlist_json_export_partial_failure": "ヘッダーは保存しましたが、データの保存に失敗しました。既存のデータは保持しています。保存先を確認して再度出力してください。",
-  "Error_ManagedPlaylistOutputOverlap": "管理プレイリストの出力先が同一または親子になっています。重ならない出力先を指定してください。"
+  "Error_ManagedPlaylistOutputOverlap": "管理プレイリストの出力先が同一または親子になっています。重ならない出力先を指定してください。",
+  "Settings_confirm_discard_conflicting_candidates": "{0} の未確定編集を取り消して進めますか？ 保存済みの設定と未完了の処理は保持します。",
+  "Settings_lr2_detailed_paths": "LR2の詳細パス"
 }

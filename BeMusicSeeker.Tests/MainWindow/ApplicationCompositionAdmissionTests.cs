@@ -99,7 +99,7 @@ public sealed partial class ApplicationCompositionTests
             viewModel.SettingDialog.BeatorajaPlayerId = "pending-score-player";
 
             await viewModel.SettingDialog.CommitScoreSettingsAsync();
-            viewModel.SettingDialog.AddBmsSearchRootPaths([Path.GetDirectoryName(path)]);
+            await viewModel.SettingDialog.AddBmsSearchRootPathsAsync([Path.GetDirectoryName(path)]);
             await viewModel.SettingDialog.CommitBmsRootsAsync();
 
             Assert.AreEqual(0, session.SaveCount);

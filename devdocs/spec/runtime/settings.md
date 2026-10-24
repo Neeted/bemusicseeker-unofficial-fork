@@ -172,7 +172,7 @@ LR2連携モードで `LR2RootPath` が空の既存設定は非推奨ですが�
 
 標準配置はルート配下の `LR2files/Database/song.db` と `LR2files/Config/config.xml` または `config.xmh` です。未採用のルート選択は候補と設定XMLを検証し、そのルートから解決した3パスで反映処理へ進みます。同じ採用済みルートの再選択では、個別指定のXMLもその識別を維持し、DBの標準配置への復帰とは分けます。モード選択は保存済みのLR2パスを使い、詳細欄の未確定パスを混ぜません。有効profileがある場合は保存前に再起動を確認し、承認後に必要な受付と選択保存から通常の終了・後継起動へ進みます。取消は保存済みの値へ戻します。無効な今回の選択やpicker取消で、以前の有効候補を確定しません。
 
-同じ正規化済みLR2ルートを選び直した場合は、構成が採用済みのXML識別と正本を使い、更新日時でXML候補を選び直しません。同値の組なら再保存・再起動しません。`song.db` がまだなくても標準パスを候補にできますが、保存時の必要条件は別途満たす必要があります。無効なルートや設定XMLでは保存済みの組と解析結果を保ちます。保存成功後に詳細候補と依存表示を確定値へ揃えます。
+同じ正規化済みLR2ルートを選び直した場合は、構成が採用済みのXML識別と正本を使い、更新日時でXML候補を選び直しません。同値の組なら再保存・再起動しません。`song.db` がまだなくても標準パスを候補にできますが、保存時の必要条件は別途満たす必要があります。無効なルートや設定XMLでは保存済みの組と解析結果を保ちます。保存成功後に詳細候補と依存表示を確定値へ揃えます。モード変更で実保存を試みた後に失敗した場合は、保存済みのモードと非終了状態を維持し、今回のモード選択を画面に残します。保存先の解放だけでは再実行せず、同じ入力の明示再操作で保存を試みます。保存前の取消・検証拒否・受付拒否では、今回のモード選択表示を確定値へ戻します。
 
 一般ページの初期閉状態の詳細Expanderでは `song.db` と `config.xml` / `config.xmh` の現在値を読み取り専用で表示し、それぞれの「参照」から個別に選択できます。個別参照の前には、通常はLR2ディレクトリから設定される標準配置を使うよう注意を表示し、利用者が同意した場合だけファイル選択へ進みます。選択したファイルだけを検証・変更し、もう一方のパスは変更しません。無効な候補では現在の有効な値と解析結果を保持します。
 
@@ -193,7 +193,7 @@ LR2連携でバックアップを有効化した場合は、当該項目の保�
 
 `ApplicationComposition` の `Lr2ConfigSession` が採用先を保持し、`Lr2ConfigOwner` がそのXML全文の正本を一つ所有します。初回採用後の外部XML変更・破損は参照・再表示・取消・同じパスの選択・保存前検証へ取り込みません。次の実際の書込みは、採用した全文と本アプリで成立した変更から行います。同内容の確定に外部修復のための再保存を加えません。新しいプロセスはその時点のファイルを読み込みます。
 
-画面のBMS編集候補は両モード共通のユーザー一覧で、管理登録を含めません。確定一覧は所有者の小さい変更不能な公開入力から投影します。別の出力保存は未確定のユーザー追加・削除を保存・破棄しません。出力を公開する直前の確定ユーザー一覧と編集候補を操作内で捕捉し、出力への採用で確定一覧が変わる場合だけ、新しい確定一覧へ候補の追加・削除を引き継ぎます。ユーザー一覧が変わらなければ候補を作り直さず、残る項目の選択も保ちます。採用済みの旧出力を次のBMS確定でユーザー登録へ復活させません。検索・導入・親フォルダcacheは登録と分類用出力配置を一緒に捕捉します。
+画面のBMS編集候補は両モード共通のユーザー一覧で、管理登録を含めません。確定一覧は所有者の小さい変更不能な公開入力から投影します。別の出力操作への切替は競合候補の破棄を確認し、実受付・最終検証に成功した採用点でBMS候補を破棄します。出力公開後は最新の確定一覧へ同期し、旧候補の追加・削除や選択を引き継ぎません。採用済みの旧出力を次のBMS確定でユーザー登録へ復活させません。検索・導入・親フォルダcacheは登録と分類用出力配置を一緒に捕捉します。
 
 保存は短いXML排他内で正本コピーに今回の変更を適用し、実保存成功後に通常文書を採用します。ディレクトリ準備・移行・DB・UI・プロセスの待機は排他外です。必要媒体の成立前は公開入力を変更せず、成立後は今回の登録差分・配置だけを公開します。例えばBMSのXMLだけA→Bに成功して公開Aの間にROOT登録Gを削除すると、正本BからGを除き、公開AからGだけを除きます。BMSの明示再試行は成功済みXMLを読み直したり保存し直したりせず、残る媒体成立後にBを公開し、Gを復活させません。
 
@@ -215,6 +215,16 @@ beatorajaのroot・選択player・派生するscore.dbとBMT出力先を一つ�
 
 処理外のClose・Esc・Alt+F4は候補だけを破棄します。通常項目の保存済み値は保持し、再表示は確定値から作ります。未了保存・実処理の再試行情報はWindowより長い当該操作担当の寿命で保持します。
 
+### 競合する候補の切替
+
+BMS一覧の編集中にモード・LR2ルート・LR2詳細パス・通常出力・ROOT出力・追加出力・独立導入先を変更する場合と、LR2詳細パスの編集中にBMSまたは出力を変更する場合は、競合する候補の破棄を確認し、実際に対象となるBMS一覧・LR2詳細パスの範囲名を案内します。無関係な候補とページ移動は保持します。受理済みの実処理、保存済み媒体、保存後未完了の修復情報は未確定候補に含めず、既存の受付で実際に競合する変更だけを制限します。
+
+即時保存は今回の入力を局所的に準備し、有効性と同値を判定してから確認します。取消・picker取消・同値・入力エラー・受付拒否では元候補を保持し、新しい保存と実処理を開始しません。確認承認後も必要な実受付・最新確定値による最終検証を行い、その採用点で関係候補だけを最新確定値へ戻して保存へ進みます。候補の追加・削除・詳細パス編集では、確認後に可否を再検査して有効な新候補の採用時だけ破棄します。候補編集自体にはL/P受付を追加せず、BMS一覧は既存の一覧編集可否、LR2詳細は既存の環境編集可否と、関連する保存後未了の条件を確認前後に検査します。BMS候補編集を無関係なライブラリ処理の状態だけで拒否しません。予約・自動再試行・巻き戻しは行いません。
+
+モードは今回の選択と他項目の確定値、LR2ルートは今回解決した標準組と確定モードだけを使い、詳細パスは自身の組として確定します。稼働中の再起動と候補破棄は一回の確認にまとめます。有効な環境を確定した結果、新しいBMS一覧に導入先がなければ環境の保存は成立し、利用開始前検査で止めます。自動代替や旧環境候補との合成は行いません。
+
+独立導入先は確定BMS一覧だけを選択肢にして即時保存します。項目保存自体には新たなL/Pや無関係処理による拒否を加えず、確認不要なら進行中の別Window操作Taskを置き換えません。BMS候補の破棄確認が必要な場合だけ既存の単一Window操作所有を使い、確認を受理できなければ元候補・確定導入先・選択表示を保持して次の明示操作を待ちます。BMS候補に追加しただけの場所は選べず、独立導入先の操作からBMS一覧を暗黙確定しません。BMS一覧の確定に必要な明示代替先は、従来どおり同じBMS編集内で扱います。
+
 ### 保存の受付と処理選択
 
 通常項目保存にL/Pを一律要求しません。実処理を伴う局所操作は[操作の競合ポリシー](../core/operation-concurrency-policy.md)の該当受付を使い、Busyは保存・後続処理0で候補を保ちます。出力配置の未受理候補は、確定配置または受理済み未完了要求の配置・改名対応へ戻します。
@@ -227,7 +237,7 @@ beatorajaのroot・選択player・派生するscore.dbとBMT出力先を一つ�
 | 音声backend・device・rate・format・buffer・WASAPI | 有効な組だけを保存し、現再生Task・譜面・playerは維持して次回開始から使う。品質・並列度は独立項目、音量は現再生へ即時反映する。device test自体は追加保存せず、交渉結果を書き戻さない。 |
 | 再生方式と必要exe、外部画像の有効とパス | 有効な組の成立時にそれぞれの関連組だけ自動確定する。方式は現player・曲・Taskを維持して次回の新規開始で置換し、その方式の形式能力で選曲する。操作能力と表示面は実置換に伴って更新し、画像は現表示へ反映する。LR2bodyPathは確定環境から導出する。 |
 | 右クリックaction、履歴プリセット | 一recordを確定し他recordの入力を混ぜない。削除・並替・既定値復帰は明示操作として保存する。右クリックactionの保存順は、未確定行を含む画面順から確定IDだけを投影し、新しい行の確定時にも表示位置を反映する。他行の未確定内容は保存しない。既存JSONを維持する。 |
-| 出力配置と追加先名 | 通常・ROOTはフォルダ選択と既存移行確認、追加先は追加・削除・改名から操作対象だけ確定する。取消は副作用0。失敗時だけ明示再試行を表示する。必要な保存、実移行、登録改名、検索rootのディスク保存、公開と通知まで追跡する。BMS候補を混ぜない。 |
+| 出力配置と追加先名 | 通常・ROOTはフォルダ選択と既存移行確認、追加先は追加・削除・改名から操作対象だけ確定する。取消は副作用0。未受理入力は確定配置へ戻して再操作とし、受理済みの保存・実処理が未了の場合だけ共通の出力再試行を表示する。必要な保存、実移行、登録改名、検索rootのディスク保存、公開と通知まで追跡する。BMS候補を混ぜない。 |
 | beatoraja root・player・派生path | 有効な選択で整合組を保存し、必要なスコアのみ再読込み・旧新BMT処理・表示を待つ。再起動しない。 |
 | mode・LR2基礎path | モード・ルート選択または詳細欄の明示確定から、その組だけを保存し既存の再起動受付・Close・join・後継起動へ進む。 |
 
@@ -297,7 +307,7 @@ BMSディレクトリの追加・削除・複数選択・D&Dは設定画面内�
 | --- | --- | --- |
 | 出力への有効な導入先の取込み拒否と再操作 | `SettingsDialogViewModel.ValidateOutputBasePreservesInstallDirectory`、`CommitOutputSettingsAsync`、`RestoreUnacceptedOutputCandidates` | `SettingDialogCustomFolderOutputBaseTests.OutputBase_ProtectsConfirmedInstallDirectory` は通常・追加・ROOTの同一/包含親と大小文字・末尾・BMS2、元から未登録・欠落した導入先の互換性を確認する。`SettingDialogEditCompletionTests.OutputConfirmation_ProtectsInstallDirectoryUntilAnotherConfirmedRootIsSelected` は実user.config/XML/DB/配置の副作用0と案内、別導入先確定後の実移行・初期化検査を確認する。`OutputConfirmation_RepairsPartialMediaAndCleanupWithoutRepeatingSuccessfulProjection` は拒否修復後も受理済み宛先・改名対応を保つ。`OutputConfirmation_RejectedRepairPreservesAcceptedPlacement` はBusy・実登録検証拒否で受理済み要求を保持し、後続の実修復を完了する。初回段階保存は既存compiled picker系列、ユーザールート採用は既存通常/ROOT採用系列、翻訳キーは `LocalizationResourceParityTests` が分担する。 |
 | LR2の初回・未採用入力の検査 | [`Lr2ConfigSession.TryResolve`](../../../BeMusicSeeker/Models/LR2/Lr2ConfigOwner.cs) | [`LR2ConfigTests`](../../../BeMusicSeeker.Tests/Lr2/LR2ConfigTests.cs) は未指定・不正パス、不完全XML・必須構造欠落の拒否と元ファイル保持、xml/xmh・欠落登録・空jukeboxの受理と参照時の非変更を確認します。採用後の外部変更非採用は所有者の局所検証が分担します。 |
-| BMS候補・正本・公開入力の分離、同じ環境の再選択 | [`設定の局所確定`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)、[`Lr2ConfigOwner`](../../../BeMusicSeeker/Models/LR2/Lr2ConfigOwner.cs) | [`LR2設定の実接続`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) が出力変更後のユーザー候補保持、ユーザー登録Uを出力へ採用した後のU→B→BMS確定での非復活と候補差分・選択・取消、確定一覧が不変の出力保存での候補非更新、部分保存と実表削除、外部XML・mtime非採用を確認します。実保存の未知XML保持・保存失敗は[`所有者の局所検証`](../../../BeMusicSeeker.Tests/Lr2/Lr2ConfigOwnerTests.cs) が分担します。 |
+| BMS候補の確認後破棄・正本・公開入力の分離 | `SettingsDialogViewModel.Confirmation`、`Lr2ConfigOwner` | `ConflictingBmsCandidates_SwitchOnlyAfterValidAcceptedOperation`は取消・承認・確認中P先着と無関係候補保持を通常入口で分担する。`Lr2OutputConfirmationDiscardsApprovedCandidatesWithoutResurrectingOldOutput`、`Lr2UserRootAdoptionDiscardsCandidatesBeforeMovingOutputAndConfirmingBms`は候補破棄後の旧管理登録非復活と一般ファイル保全を実ownerで確認する。XML部分成功・管理表削除は既存`Lr2Partial*`系列、compiled picker・実Bindingは`CompiledOutputSelection_CommitsOnlySelectedPlacementAndKeepsCancelledMedia`が分担する。 |
 | 本文端と余白の一回適用、分類・見出し・操作の固定 | `SettingsWindow.xaml`、`SettingsControls.xaml`、11設定ページ | `SettingsWindowPresentationTests.SettingsWindow_SidebarReachesNativeClientEdgeWhilePageKeepsInnerSpacing` は左分類・本文端と内容inset、`SettingsWindow_AllPagesFitActualMinimumWidthViewport` は11ページの横方向到達性、`AudioSettingsPage_LongDeviceTestStatusWrapsAtMinimumWindowWidthAndKeepsFullAutomationName` は採用最小幅の長文折返しを確認する。`SettingsControlPresentationTests.SettingsWindow_NavigationAutomationSelectionSynchronizesPageAndResetsScroll` は本文移動中の見出し・フッター固定と分類変更時の先頭復帰を分担する。 |
 | 環境カードの入力・確認・取消と表示 | [`GeneralSettingsPage`](../../../BeMusicSeeker/Views/Settings/Pages/GeneralSettingsPage.xaml)、[`SettingsControls`](../../../BeMusicSeeker/Views/Settings/SettingsControls.xaml) | `SettingDialogEditCompletionTests.OperationModeRadio_*` は両方向の選択状態と明示Clickから確認一回・保存一回、取消時の選択復元と無保存を確認する。標準RadioButtonのキー接続は型・イベント接続を静的確認し、実OSのSpace・Tab入力は実機推奨へ分担する。`SettingsWindowPresentationTests.SettingsWindow_EnvironmentCardsFitAndKeepWholeSurfaceInputAcrossLanguages` は通常／初期設定の最小幅・全6言語・全表面hit-test・テーマ・選択不可を担う。 |
 | 重複見出しの整理と名前・説明・検証の保持 | [`SettingsField`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、設定の各ページ | `SettingsWindowPresentationTests.SettingsPages_HeadingsAppearOnceAndEditorsKeepLocalizedAutomationNames` は実ページの単一見出しと入力名、`SettingsField_HiddenHeaderPreservesMeaningDescriptionAndValidationWithoutEmptySpace` は非表示時の領域・説明・状態・文言を確認する。既存の名前所有、検証配送、全ページ最小幅のケースを併用する。 |

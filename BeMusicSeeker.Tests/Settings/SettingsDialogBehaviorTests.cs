@@ -370,7 +370,7 @@ public sealed class SettingsDialogBehaviorTests
             var failure = new IOException("controlled settings continuation failure");
             if (failRuntime) { harness.SearchRoots.ApplyFailure = failure; }
             else { harness.State.ReloadFileDiffHandler = () => Task.FromException(failure); }
-            harness.Dialog.AddBmsSearchRootPaths([added]);
+            harness.Dialog.AddBmsSearchRootPathsAsync([added]).GetAwaiter().GetResult();
             await harness.Dialog.CommitBmsRootsAsync();
             Assert.AreSame(failure, failures.Single());
             Assert.IsTrue(harness.Dialog.IsFileDiffReloadPending);
@@ -388,6 +388,35 @@ public sealed class SettingsDialogBehaviorTests
         }, nameof(BmsConfirmation_RetriesRuntimeOrFileDiffFailureWithoutSavingAgain));
     }
 
+    /// <summary>無関係なライブラリ処理中も既存の画面編集可否に従ってBMS候補を追加・削除できます。実確定の拒否と、解放だけでは保存しない境界を確認します。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void BmsCandidateEditing_DuringLibraryProcessingDoesNotAcquireOrSave()
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new TemporaryDirectory("bms-candidate-library-processing");
+            Settings values = OpenPersistedSettings(directory.Path);
+            string oldRoot = values.BMSInstallDir;
+            string added = Directory.CreateDirectory(Path.Combine(directory.Path, "Added")).FullName;
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, libraryAttached: true);
+            byte[] before = File.ReadAllBytes(Path.Combine(directory.Path, "user.config"));
+            harness.State.IsLibraryOperationInProgress = true;
+            Assert.IsTrue(harness.Dialog.IsBmsSearchRootEditorEnabled);
+            await harness.Dialog.AddBmsSearchRootPathsAsync([added]);
+            await harness.Dialog.RemoveBmsSearchRootPathAsync(oldRoot);
+            CollectionAssert.AreEqual(new[] { added }, harness.Dialog.AvailableBMSDirectories);
+            harness.Dialog.ReplacementBmsInstallDir = added;
+            await harness.Dialog.CommitBmsRootsAsync();
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(Path.Combine(directory.Path, "user.config")));
+            Assert.AreEqual(0, harness.State.FileDiffReloadCount);
+            harness.State.IsLibraryOperationInProgress = false;
+            await Task.CompletedTask;
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(Path.Combine(directory.Path, "user.config")));
+            Assert.AreEqual(0, harness.State.FileDiffReloadCount);
+        }, nameof(BmsCandidateEditing_DuringLibraryProcessingDoesNotAcquireOrSave));
+    }
+
     /// <summary>追加と解除の最終一覧を一度保存し、導入先を外す場合は明示代替を必要とします。成功後は候補を解消し、差分も取消対象もない確定・取消を無効にします。</summary>
     [TestMethod]
     [DoNotParallelize]
@@ -401,9 +430,9 @@ public sealed class SettingsDialogBehaviorTests
             string newRoot = Directory.CreateDirectory(Path.Combine(directory.Path, "new-library")).FullName;
             string transient = Directory.CreateDirectory(Path.Combine(directory.Path, "transient")).FullName;
             using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, libraryAttached: true);
-            harness.Dialog.AddBmsSearchRootPaths([newRoot, transient]);
-            harness.Dialog.RemoveDirCommand.Execute(transient);
-            harness.Dialog.RemoveDirCommand.Execute(oldRoot);
+            harness.Dialog.AddBmsSearchRootPathsAsync([newRoot, transient]).GetAwaiter().GetResult();
+            harness.Dialog.RemoveBmsSearchRootPathAsync(transient).GetAwaiter().GetResult();
+            harness.Dialog.RemoveBmsSearchRootPathAsync(oldRoot).GetAwaiter().GetResult();
             byte[] before = File.ReadAllBytes(Path.Combine(directory.Path, "user.config"));
             await harness.Dialog.CommitBmsRootsAsync();
             CollectionAssert.AreEqual(before, File.ReadAllBytes(Path.Combine(directory.Path, "user.config")));
@@ -439,8 +468,8 @@ public sealed class SettingsDialogBehaviorTests
             values.BMSInstallDir = layout.BmsRoot; values.Save();
             var failures = new List<Exception>();
             using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, libraryAttached: true, reportApplyFailure: failures.Add);
-            harness.Dialog.AddBmsSearchRootPaths([newRoot]);
-            harness.Dialog.RemoveDirCommand.Execute(layout.BmsRoot);
+            harness.Dialog.AddBmsSearchRootPathsAsync([newRoot]).GetAwaiter().GetResult();
+            harness.Dialog.RemoveBmsSearchRootPathAsync(layout.BmsRoot).GetAwaiter().GetResult();
             harness.Dialog.ReplacementBmsInstallDir = newRoot;
             using (File.Open(Path.Combine(directory.Path, "user.config"), FileMode.Open, FileAccess.Read, FileShare.Read))
             { await harness.Dialog.CommitBmsRootsAsync(); }
@@ -454,14 +483,14 @@ public sealed class SettingsDialogBehaviorTests
             harness.Dialog.RequestOpen();
             harness.Dialog.SetPresentationActive(true);
             CollectionAssert.AreEqual(new[] { layout.BmsRoot }, harness.Dialog.AvailableBMSDirectories.ToArray());
-            harness.Dialog.RemoveDirCommand.Execute(layout.BmsRoot);
+            harness.Dialog.RemoveBmsSearchRootPathAsync(layout.BmsRoot).GetAwaiter().GetResult();
             string target = newRoot;
             if (revise)
             {
                 Directory.Delete(newRoot);
                 target = Directory.CreateDirectory(Path.Combine(directory.Path, "repaired-library")).FullName;
             }
-            harness.Dialog.AddBmsSearchRootPaths([target]);
+            harness.Dialog.AddBmsSearchRootPathsAsync([target]).GetAwaiter().GetResult();
             harness.Dialog.ReplacementBmsInstallDir = target;
             if (revise) { await harness.Dialog.CommitBmsRootsAsync(); }
             else

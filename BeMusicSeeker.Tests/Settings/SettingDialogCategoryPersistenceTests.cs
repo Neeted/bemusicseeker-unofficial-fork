@@ -174,6 +174,7 @@ public sealed partial class SettingDialogEditCompletionTests
     [DataRow("additional", "confirmation-cancel")]
     [DataRow("normal", "invalid-after-busy")]
     [DataRow("root", "invalid-after-busy")]
+    [DataRow("normal", "confirmation-busy")]
     [DataRow("additional", "invalid-after-busy")]
     public void CompiledOutputSelection_CommitsOnlySelectedPlacementAndKeepsCancelledMedia(string section, string outcome)
     {
@@ -198,12 +199,18 @@ public sealed partial class SettingDialogEditCompletionTests
             var failures = new List<Exception>();
             MainWindowViewModel owner = CreateViewModel(new SettingsEditSession(values), firstStartup: true, dialogs: dialogs, reportSettingsApplyFailure: failures.Add);
             SettingsWindow? window = null;
+            IDisposable? confirmationLease = null;
+            var confirmationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseConfirmation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             try
             {
+                string staged = Directory.CreateDirectory(Path.Combine(root, "BmsDraft")).FullName;
                 window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog };
                 scope.ShowAndWaitForContentRendered(window);
                 ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+                owner.SettingDialog.AddBmsSearchRootPathsAsync([staged]).GetAwaiter().GetResult();
+                CollectionAssert.Contains(owner.SettingDialog.AvailableBMSDirectories, staged);
                 var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
                 Button select;
                 if (section == "additional")
@@ -217,6 +224,10 @@ public sealed partial class SettingDialogEditCompletionTests
                     BeMusicSeeker.Views.Settings.SettingsPathPicker picker = FindDescendants<BeMusicSeeker.Views.Settings.SettingsPathPicker>(page)
                         .Single(item => item.GetBindingExpression(BeMusicSeeker.Views.Settings.SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == property);
                     select = FindDescendants<Button>(picker).Single();
+                }
+                if (outcome == "confirmation-busy")
+                {
+                    dialogs.ConfirmationObservedAsync = () => { confirmationEntered.TrySetResult(); return releaseConfirmation.Task; };
                 }
                 if (outcome == "invalid-after-busy")
                 {
@@ -232,12 +243,24 @@ public sealed partial class SettingDialogEditCompletionTests
                     dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Accepted, [root]));
                 }
                 select.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (outcome == "confirmation-busy")
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(confirmationEntered.Task, "output-confirmation-entered");
+                    Assert.IsFalse(window.WaitForOperationCompletionAsync().IsCompleted);
+                    window.Close();
+                    Assert.IsTrue(window.IsVisible, "確認中も実操作Taskを追跡し、通常Closeを拒否します。");
+                    CollectionAssert.Contains(owner.SettingDialog.AvailableBMSDirectories, staged);
+                    Assert.IsTrue(MainWindowViewModelTestFactory.GetComposition(owner).PlaylistOperationAdmission.TryEnter(out IDisposable acquired));
+                    confirmationLease = acquired;
+                    releaseConfirmation.TrySetResult();
+                }
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "output-selection-terminal");
                 Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
-                Assert.AreEqual(outcome == "invalid-after-busy" ? 2 : 0, dialogs.MessageCount, dialogs.LastMessageText);
+                Assert.AreEqual(outcome == "invalid-after-busy" ? 2 : outcome == "confirmation-busy" ? 1 : 0, dialogs.MessageCount, dialogs.LastMessageText);
                 Assert.AreEqual(outcome == "invalid-after-busy" ? 2 : 1, dialogs.FolderRequests.Count);
                 Assert.IsTrue(dialogs.FolderRequests.All(request => ReferenceEquals(window, request.Owner)));
                 Assert.AreEqual(outcome == "picker-cancel" ? 0 : 1, dialogs.ConfirmationCount);
+                Assert.AreEqual(outcome != "accept", owner.SettingDialog.AvailableBMSDirectories.Contains(staged), "競合候補は採用後だけ破棄し、picker取消・確認取消・受付拒否では保持します。");
                 Settings fresh = PortableSettingsPersistenceTests.OpenSettings(path);
                 if (outcome == "accept")
                 {
@@ -255,6 +278,9 @@ public sealed partial class SettingDialogEditCompletionTests
             }
             finally
             {
+                releaseConfirmation.TrySetResult();
+                confirmationLease?.Dispose();
+                if (window != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "output-picker-cleanup-terminal"); }
                 window?.CloseForOwnerShutdown();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "output-picker-owner-terminal");
                 owner.SettingDialog.Dispose();

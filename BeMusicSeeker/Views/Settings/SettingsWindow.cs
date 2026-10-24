@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -739,34 +740,39 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         string currentPath,
         string routeName)
     {
-        UiDialogResult confirmation = await dialogService.ConfirmAsync(new UiConfirmationRequest(
-            BeMusicSeeker.Properties.Resources.Settings_lr2_individual_path_warning,
-            BeMusicSeeker.Properties.Resources.Warning,
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Warning,
-            MessageBoxResult.Cancel,
-            owner: this));
-        ThrowIfDialogFailed(confirmation, routeName + " confirmation");
-        if (!confirmation.IsAccepted)
+        if (viewOperationInProgress || !settingDialogViewModel.IsEnvironmentSelectionEnabled) { return; }
+        await RunViewOperationAsync(async () =>
         {
-            return;
-        }
+            UiDialogResult confirmation = await dialogService.ConfirmAsync(new UiConfirmationRequest(
+                BeMusicSeeker.Properties.Resources.Settings_lr2_individual_path_warning,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Warning,
+                MessageBoxResult.Cancel,
+                owner: this));
+            ThrowIfDialogFailed(confirmation, routeName + " confirmation");
+            if (!confirmation.IsAccepted)
+            {
+                return;
+            }
 
-        UiFilePickerResult result = await dialogService.PickFileAsync(new UiFilePickerRequest(
-            title,
-            fileName,
-            PathToDirectoryOrSelf(currentPath),
-            filter,
-            defaultExtension: null,
-            multiselect: false,
-            ensureFileExists: true,
-            ensurePathExists: true,
-            owner: this));
-        ThrowIfPickerFailed(result.Status, result.Error, routeName);
-        if (result.Status == UiDialogStatus.Accepted)
-        {
-            settingDialogViewModel.SetFilePathFromPicker(propertyName, result.FileName);
-        }
+            UiFilePickerResult result = await dialogService.PickFileAsync(new UiFilePickerRequest(
+                title,
+                fileName,
+                PathToDirectoryOrSelf(currentPath),
+                filter,
+                defaultExtension: null,
+                multiselect: false,
+                ensureFileExists: true,
+                ensurePathExists: true,
+                owner: this));
+            ThrowIfPickerFailed(result.Status, result.Error, routeName);
+            if (result.Status == UiDialogStatus.Accepted)
+            {
+                await settingDialogViewModel.SelectLr2DetailPathAsync(propertyName, result.FileName);
+            }
+        });
+
     }
 
     /// <summary>未処理の設定操作失敗を元原因・経路付きで診断し、所有画面への結果通知を一回だけ試みます。通知・診断先の失敗は局所で終えます。</summary>
@@ -1116,20 +1122,43 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         {
             return;
         }
-        UiFolderPickerResult result = await dialogService.PickFolderAsync(new UiFolderPickerRequest(
-            BeMusicSeeker.Properties.Resources.Add_BMSDirectory,
-            settingDialogViewModel.SelectedBmsSearchRootPath,
-            multiselect: true,
-            Window.GetWindow(this)));
-        if (result == null)
+        if (viewOperationInProgress || !settingDialogViewModel.IsBmsSearchRootEditorEnabled) { return; }
+        await RunViewOperationAsync(async () =>
         {
-            throw new InvalidOperationException("BMS search root folder picker returned no result.");
-        }
-        ThrowIfPickerFailed(result.Status, result.Error, "BMS search root folder picker");
-        if (result.Status == UiDialogStatus.Accepted)
-        {
-            settingDialogViewModel.AddBmsSearchRootPaths(result.FolderPaths);
-        }
+            UiFolderPickerResult result = await dialogService.PickFolderAsync(new UiFolderPickerRequest(
+                BeMusicSeeker.Properties.Resources.Add_BMSDirectory,
+                settingDialogViewModel.SelectedBmsSearchRootPath,
+                multiselect: true,
+                Window.GetWindow(this)));
+            if (result == null)
+            {
+                throw new InvalidOperationException("BMS search root folder picker returned no result.");
+            }
+            ThrowIfPickerFailed(result.Status, result.Error, "BMS search root folder picker");
+            if (result.Status == UiDialogStatus.Accepted)
+            {
+                await settingDialogViewModel.AddBmsSearchRootPathsAsync(result.FolderPaths);
+            }
+        });
+
+    }
+
+    /// <summary>D&amp;DのBMS候補編集を確認から採用まで同じWindowのTaskとして所有します。</summary>
+    internal Task HandleDroppedBmsSearchRootPathsAsync(IEnumerable<string> paths)
+        => viewOperationInProgress ? Task.CompletedTask : RunViewOperationAsync(() => GetSettingDialogViewModel().AddBmsSearchRootPathsAsync(paths));
+
+    /// <summary>選択中のBMS候補を、競合候補確認と採用時再検査後に削除します。</summary>
+    internal Task HandleRemoveBmsSearchRootPathAsync()
+        => viewOperationInProgress ? Task.CompletedTask : RunViewOperationAsync(() => GetSettingDialogViewModel().RemoveBmsSearchRootPathAsync(GetSettingDialogViewModel().SelectedBmsSearchRootPath));
+
+    /// <summary>独立導入先の実選択を確認から項目保存まで同じWindowで追跡します。</summary>
+    internal Task HandleSelectBmsInstallDirectoryAsync(string path)
+    {
+        SettingsDialogViewModel settings = GetSettingDialogViewModel();
+        if (settings.RequiresBmsInstallDirectoryConfirmation && !viewOperationInProgress)
+        { return RunViewOperationAsync(() => settings.SelectBmsInstallDirectoryAsync(path)); }
+        // 確認不要の普通の項目保存は進行中の操作Taskを置き換えず、確認の受付拒否は表示だけを確定値へ戻します。
+        return settings.SelectBmsInstallDirectoryAsync(path, allowCandidateConfirmation: !viewOperationInProgress);
     }
 
     /// <summary>追加出力先の実選択と必要な登録変更だけを確定し、終端を所有します。</summary>

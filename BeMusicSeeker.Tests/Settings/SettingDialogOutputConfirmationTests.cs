@@ -71,7 +71,6 @@ public sealed partial class SettingDialogEditCompletionTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("normal"), "reject-install-output-adoption");
                     StringAssert.Contains(dialogs.LastMessageText, string.Format(Resources.Validation_OutputBaseContainsInstallDirectoryFormat, install));
                     Assert.AreEqual(oldOutput, owner.SettingDialog.LR2CustomFolderOutputDir);
-                    Assert.IsFalse(owner.SettingDialog.HasNormalOutputChanges);
                     Assert.IsFalse(owner.SettingDialog.IsOutputSaveIncomplete);
                     Assert.AreEqual(0, failures.Count);
                     Assert.AreEqual(0, dialogs.ConfirmationCount);
@@ -84,7 +83,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         Assert.AreEqual(1, reader.Table<BMSTable>().Count());
                         Assert.AreEqual(0L, reader.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'folder'"));
                     }
-                    owner.SettingDialog.BMSInstallDir = alternative;
+                    owner.SettingDialog.SelectBmsInstallDirectoryAsync(alternative).GetAwaiter().GetResult();
                     owner.SettingDialog.LR2CustomFolderOutputDir = install;
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("normal"), "adopt-output-after-install-change");
                     Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));

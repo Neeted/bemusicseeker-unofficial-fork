@@ -15,10 +15,12 @@ internal sealed class OperationModeRestartRequest
     /// </summary>
     /// <param name="environment">保存し後継へ渡す環境の最小組。</param>
     /// <param name="historyIdentity">再起動後に選択する履歴表示 target identity。</param>
-    internal OperationModeRestartRequest(EnvironmentSettingsChange environment, string historyIdentity)
+    /// <param name="beforeSave">先着受付成功後、保存直前に関係する未確定候補を破棄する処理。</param>
+    internal OperationModeRestartRequest(EnvironmentSettingsChange environment, string historyIdentity, Action beforeSave = null)
     {
         HistoryIdentity = historyIdentity;
         Environment = environment ?? throw new ArgumentNullException(nameof(environment));
+        BeforeSave = beforeSave;
     }
 
     /// <summary>保存する履歴表示対象の識別子を取得します。</summary>
@@ -26,6 +28,9 @@ internal sealed class OperationModeRestartRequest
 
     /// <summary>確定する環境の最小組です。</summary>
     internal EnvironmentSettingsChange Environment { get; }
+
+    /// <summary>受付拒否時には呼ばず、保存を開始する採用点で一回だけ呼ぶ候補破棄処理です。</summary>
+    internal Action BeforeSave { get; }
 
 }
 

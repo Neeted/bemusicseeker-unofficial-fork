@@ -3328,7 +3328,7 @@ public sealed partial class SettingDialogEditCompletionTests
             draft.PropertyChanged += (_, args) => notifications.Add(args.PropertyName ?? string.Empty);
 
             File.WriteAllBytes(songPath, []);
-            draft.SetFilePathFromPicker(nameof(draft.LR2SongDBPath), songPath);
+            draft.SelectLr2DetailPathAsync(nameof(draft.LR2SongDBPath), songPath).GetAwaiter().GetResult();
 
             CollectionAssert.Contains(notifications, nameof(draft.Lr2SongDbPathStatusText));
             CollectionAssert.Contains(notifications, nameof(draft.Lr2SongDbPathStatusKind));
@@ -3380,14 +3380,14 @@ public sealed partial class SettingDialogEditCompletionTests
             Assert.AreEqual(Resources.Settings_path_detected_from_individual_setting, dialog.Lr2SongDbPathStatusText);
             Assert.AreEqual(Resources.Settings_path_detected_from_individual_setting, dialog.Lr2ConfigPathStatusText);
 
-            dialog.SetFilePathFromPicker(nameof(dialog.LR2SongDBPath), standardSong);
-            dialog.SetFilePathFromPicker(nameof(dialog.LR2ConfigXmlPath), standardXmh);
+            dialog.SelectLr2DetailPathAsync(nameof(dialog.LR2SongDBPath), standardSong).GetAwaiter().GetResult();
+            dialog.SelectLr2DetailPathAsync(nameof(dialog.LR2ConfigXmlPath), standardXmh).GetAwaiter().GetResult();
 
             Assert.AreEqual(Resources.Settings_path_detected_from_lr2_root, dialog.Lr2SongDbPathStatusText);
             Assert.AreEqual(Resources.Settings_path_detected_from_lr2_root, dialog.Lr2ConfigPathStatusText);
 
-            dialog.SetFilePathFromPicker(nameof(dialog.LR2SongDBPath), individualSong);
-            dialog.SetFilePathFromPicker(nameof(dialog.LR2ConfigXmlPath), individualConfig);
+            dialog.SelectLr2DetailPathAsync(nameof(dialog.LR2SongDBPath), individualSong).GetAwaiter().GetResult();
+            dialog.SelectLr2DetailPathAsync(nameof(dialog.LR2ConfigXmlPath), individualConfig).GetAwaiter().GetResult();
 
             Assert.AreEqual(Resources.Settings_path_detected_from_individual_setting, dialog.Lr2SongDbPathStatusText);
             Assert.AreEqual(Resources.Settings_path_detected_from_individual_setting, dialog.Lr2ConfigPathStatusText);
@@ -3449,7 +3449,7 @@ public sealed partial class SettingDialogEditCompletionTests
             var session = new CountingSettingsEditSession(values);
             using SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
 
-            draft.SetFilePathFromPicker(nameof(draft.LR2ConfigXmlPath), malformedConfig);
+            draft.SelectLr2DetailPathAsync(nameof(draft.LR2ConfigXmlPath), malformedConfig).GetAwaiter().GetResult();
 
             Assert.AreEqual(config, draft.LR2ConfigXmlPath);
             Assert.IsTrue(draft.HasLr2PathSelectionError);
@@ -3640,17 +3640,17 @@ public sealed partial class SettingDialogEditCompletionTests
             var session = new CountingSettingsEditSession(values);
             using SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
 
-            draft.SetFilePathFromPicker(nameof(draft.LR2SongDBPath), invalidSong);
+            draft.SelectLr2DetailPathAsync(nameof(draft.LR2SongDBPath), invalidSong).GetAwaiter().GetResult();
             Assert.AreEqual(song, draft.LR2SongDBPath);
             Assert.IsTrue(draft.HasLr2PathSelectionError);
-            draft.SetFilePathFromPicker(nameof(draft.LR2SongDBPath), song);
+            draft.SelectLr2DetailPathAsync(nameof(draft.LR2SongDBPath), song).GetAwaiter().GetResult();
             Assert.IsFalse(draft.HasLr2PathSelectionError);
             Assert.AreEqual("Success", draft.Lr2SongDbPathStatusKind);
 
-            draft.SetFilePathFromPicker(nameof(draft.LR2ConfigXmlPath), invalidConfig);
+            draft.SelectLr2DetailPathAsync(nameof(draft.LR2ConfigXmlPath), invalidConfig).GetAwaiter().GetResult();
             Assert.AreEqual(config, draft.LR2ConfigXmlPath);
             Assert.IsTrue(draft.HasLr2PathSelectionError);
-            draft.SetFilePathFromPicker(nameof(draft.LR2ConfigXmlPath), config);
+            draft.SelectLr2DetailPathAsync(nameof(draft.LR2ConfigXmlPath), config).GetAwaiter().GetResult();
             Assert.IsFalse(draft.HasLr2PathSelectionError);
             Assert.AreEqual("Success", draft.Lr2ConfigPathStatusKind);
         }

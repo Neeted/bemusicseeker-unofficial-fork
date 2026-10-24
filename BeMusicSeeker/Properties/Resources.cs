@@ -3171,4 +3171,8 @@ public class Resources
 
     /// <summary>管理表の同一・包含出力を拒否する案内です。</summary>
     public static string Error_ManagedPlaylistOutputOverlap => ResourceManager.GetString(nameof(Error_ManagedPlaylistOutputOverlap), resourceCulture);
+    /// <summary>競合する未確定編集を破棄して別操作へ切り替える確認です。</summary>
+    public static string Settings_confirm_discard_conflicting_candidates => ResourceManager.GetString(nameof(Settings_confirm_discard_conflicting_candidates), resourceCulture);
+    /// <summary>未確定編集の破棄確認に示すLR2詳細パスの範囲名です。</summary>
+    public static string Settings_lr2_detailed_paths => ResourceManager.GetString(nameof(Settings_lr2_detailed_paths), resourceCulture);
 }

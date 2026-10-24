@@ -844,7 +844,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>導入先・検索 root・追加出力先・backup・restore・履歴 preset の各要求に正しい owner と選択条件を渡し、restore の取消／picker 失敗を尊重することを確認します。</summary>
+    /// <summary>導入先・検索 root・追加出力先・backup・restore・履歴 preset の各要求に正しい owner と選択条件を渡し、候補破棄確認とrestoreの取消／picker失敗を同じ注入先へ配送することを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_RemainingDialogRoutesUseInjectedServiceAndPreserveOutcomeContracts()
     {
@@ -866,9 +866,13 @@ public sealed class SettingsWindowPresentationTests
             {
                 values.OperationModeLR2DB = false;
             });
-                MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
-                using BeMusicSeeker.ViewModels.SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
                 var dialogs = new RecordingSettingsRouteDialogService(searchRoot, additionalOutputBase);
+                var composition = new ApplicationComposition(
+                    settingsEditSession: new NoOpSettingsEditSession(settings), settingsDialogService: dialogs,
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
+                using BeMusicSeeker.ViewModels.SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
                 window = new SettingsWindow(dialogs)
                 {
                     DataContext = owner.SettingDialog,
@@ -880,7 +884,10 @@ public sealed class SettingsWindowPresentationTests
                 Assert.IsNotNull(window.PlaylistWorkspace.PlaylistTreeTables);
                 window.HandleAddBmsInstallDirectory();
                 window.HandleAddBmsSearchRootPathsAsync().GetAwaiter().GetResult();
+                dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(window.HandleAddCustomFolderAdditionalOutputBase(), "additional-output-route-terminal");
+                Assert.AreEqual(1, dialogs.ConfirmationRequests.Count, "BMS候補から出力への切替は同じ設定確認サービスへ一回配送します。");
+                StringAssert.Contains(dialogs.ConfirmationRequests[0].MessageBoxText, Resources.Standalone_BMSDirectories.Trim().TrimEnd(':', '：'));
                 window.HandlePlaylistBackupAsync().GetAwaiter().GetResult();
 
                 dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.No);
@@ -905,15 +912,19 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(Resources.Sql_file_exts, dialogs.SaveFileRequests[0].Filter);
                 Assert.IsTrue(dialogs.SaveFileRequests[0].AddExtension);
                 Assert.AreSame(window, dialogs.SaveFileRequests[0].Owner);
-                Assert.AreEqual(2, dialogs.ConfirmationRequests.Count);
-                Assert.IsTrue(dialogs.ConfirmationRequests.All(request => ReferenceEquals(window, request.Owner)));
+                Assert.AreEqual(3, dialogs.ConfirmationRequests.Count);
+                UiConfirmationRequest[] restoreConfirmations = dialogs.ConfirmationRequests
+                    .Where(request => request.MessageBoxText == Resources.Confirm_RestorePlaylistBackup).ToArray();
+                Assert.AreEqual(2, restoreConfirmations.Length);
+                Assert.IsTrue(restoreConfirmations.All(request => ReferenceEquals(window, request.Owner)));
                 Assert.AreEqual(1, dialogs.FileRequests.Count);
                 Assert.AreEqual(UiDialogStatus.Failed, dialogs.FileResult.Status);
                 Assert.AreSame(window, dialogs.FileRequests[0].Owner);
                 Assert.AreEqual(typeof(PlayHistoryFolderDisplayPresetEditDialog), dialogs.LastWindowType);
                 Assert.AreSame(window, dialogs.LastWindowOwner);
                 Assert.IsInstanceOfType<PlayHistoryFolderDisplayPresetEditDialog>(dialogs.LastCreatedWindow);
-                CollectionAssert.Contains(owner.SettingDialog.AvailableBMSDirectories, searchRoot);
+                CollectionAssert.DoesNotContain(owner.SettingDialog.AvailableBMSDirectories, searchRoot);
+                CollectionAssert.AreEqual(owner.SettingDialog.ConfirmedBMSDirectories.ToArray(), owner.SettingDialog.AvailableBMSDirectories);
                 CollectionAssert.Contains(owner.SettingDialog.CustomFolderAdditionalOutputBaseDirList, additionalOutputBase);
             }
             finally
@@ -923,6 +934,126 @@ public sealed class SettingsWindowPresentationTests
                     window.CloseForOwnerShutdown();
                 }
                 Directory.Delete(scope, recursive: true);
+            }
+        });
+    }
+
+    /// <summary>出力への候補切替確認の表示不能をTaskの失敗として保ち、実Buttonでは一回通知して回収します。失敗では実設定・BMS候補・未受理出力を保持し、次の明示操作だけが保存します。</summary>
+    /// <remarks>WindowとViewModelへ同じ確認サービスを構成し、OwnerUnavailableと元例外付きFailedを取消・承認から区別します。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void SettingsWindow_OutputCandidateConfirmationFailurePreservesCauseAndAllowsNextExplicitClick(bool failedWithException)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "settings-output-confirmation-failure-" + Guid.NewGuid().ToString("N"));
+            MainWindowViewModel? owner = null;
+            SettingsWindow? window = null;
+            Exception? primaryFailure = null;
+            var unhandled = new List<Exception>();
+            DispatcherUnhandledExceptionEventHandler onUnhandled = (_, args) => { unhandled.Add(args.Exception); args.Handled = true; };
+            try
+            {
+                string install = Directory.CreateDirectory(Path.Combine(directory, "Install")).FullName;
+                string staged = Directory.CreateDirectory(Path.Combine(directory, "Staged")).FullName;
+                string additional = Directory.CreateDirectory(Path.Combine(directory, "Additional")).FullName;
+                string settingsPath = Path.Combine(directory, "user.config");
+                Settings settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                settings.OperationModeLR2DB = false;
+                settings.BMSRootPath = install;
+                settings.StandaloneBmsRootPaths = install;
+                settings.BMSInstallDir = install;
+                settings.LR2CustomFolderOutputBaseDir = string.Empty;
+                settings.LR2CustomFolderOutputBaseDirRootType = string.Empty;
+                settings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+                settings.Save();
+                var original = new IOException("output confirmation presenter failed");
+                var dialogs = new RecordingSettingsRouteDialogService
+                {
+                    ConfirmationResult = failedWithException ? UiDialogResult.Failed(original) : UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable)
+                };
+                var composition = new ApplicationComposition(
+                    settingsEditSession: new SettingsEditSession(settings), settingsDialogService: dialogs,
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                owner = composition.CreateMainWindowViewModelForTest();
+                window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog, PlaylistWorkspace = owner.PlaylistWorkspace };
+                window.Dispatcher.UnhandledException += onUnhandled;
+                windowTest.ShowAndWaitForContentRendered(window);
+                dialogs.ExpectedOwner = window;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.AddBmsSearchRootPathsAsync([staged]), "output-confirmation-bms-input");
+                byte[] before = File.ReadAllBytes(settingsPath);
+                void AssertUnaccepted()
+                {
+                    CollectionAssert.AreEqual(before, File.ReadAllBytes(settingsPath));
+                    CollectionAssert.Contains(owner.SettingDialog.AvailableBMSDirectories, staged);
+                    Assert.AreEqual(0, owner.SettingDialog.CustomFolderAdditionalOutputBaseDirList.Count);
+                    Assert.IsFalse(owner.SettingDialog.IsOutputSaveIncomplete);
+                    Assert.IsFalse(composition.OperationAdmission.IsActive);
+                    Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+                    Assert.AreEqual(0, Directory.EnumerateFileSystemEntries(additional).Count());
+                }
+                dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Accepted, [additional]));
+                Exception? confirmationFailure = null;
+                try { TestUiDispatcherHost.AwaitTaskOnDispatcher(window.HandleAddCustomFolderAdditionalOutputBase(), "output-confirmation-direct-failure"); }
+                catch (Exception failure) { confirmationFailure = failure; }
+                Assert.IsInstanceOfType<InvalidOperationException>(confirmationFailure);
+                if (failedWithException) { Assert.AreSame(original, confirmationFailure.InnerException); }
+                else { StringAssert.Contains(confirmationFailure.Message, nameof(UiDialogStatus.OwnerUnavailable)); }
+                AssertUnaccepted();
+                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                ListBox list = FindDescendants<ListBox>(page).Single(item => item.Name == "additionalOutputList");
+                Button add = FindDescendants<Button>((DependencyObject)list.Parent).Single(button => Equals(button.Content, Resources.Add));
+                void ClickAndAwait()
+                {
+                    dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Accepted, [additional]));
+                    Task click = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => add.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, add)));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(click, "output-confirmation-button-event");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "output-confirmation-button-terminal");
+                }
+                ClickAndAwait();
+                AssertUnaccepted();
+                Assert.AreEqual(1, dialogs.MessageRequests.Count, "実Buttonは表示失敗を取消に丸めず、一回だけ結果を通知します。");
+                Assert.AreEqual(0, unhandled.Count);
+                Assert.IsTrue(window.IsVisible);
+                dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+                ClickAndAwait();
+                Settings fresh = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                CollectionAssert.AreEqual(new[] { additional }, CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(fresh.LR2CustomFolderAdditionalOutputBaseDirs).ToArray());
+                CollectionAssert.AreEqual(new[] { install }, owner.SettingDialog.AvailableBMSDirectories);
+                Assert.AreEqual(install, fresh.StandaloneBmsRootPaths);
+                Assert.AreEqual(3, dialogs.ConfirmationRequests.Count);
+                Assert.AreEqual(1, dialogs.MessageRequests.Count);
+                Assert.AreEqual(0, unhandled.Count);
+                Assert.IsTrue(dialogs.FolderRequests.All(request => ReferenceEquals(window, request.Owner)));
+                Assert.IsTrue(window.IsVisible);
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                var cleanupFailures = new List<Exception>();
+                void Cleanup(Action action) { try { action(); } catch (Exception failure) { cleanupFailures.Add(failure); } }
+                if (window != null)
+                {
+                    Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "output-confirmation-cleanup"));
+                    window.Dispatcher.UnhandledException -= onUnhandled;
+                    Cleanup(window.CloseForOwnerShutdown);
+                }
+                if (owner != null)
+                {
+                    Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "output-confirmation-owner-cleanup"));
+                    Cleanup(owner.SettingDialog.Dispose);
+                }
+                Cleanup(() => Directory.Delete(directory, recursive: true));
+                if (cleanupFailures.Count > 0)
+                {
+                    var cleanupFailure = new AggregateException("output confirmation cleanup", cleanupFailures);
+                    if (primaryFailure == null) { throw cleanupFailure; }
+                    Console.WriteLine(cleanupFailure);
+                }
             }
         });
     }
@@ -2999,7 +3130,7 @@ public sealed class SettingsWindowPresentationTests
                 using SettingsDialogViewModel ownedDialogLifetime = mainViewModel.SettingDialog;
                 settings = mainViewModel.SettingDialog;
                 settings.LR2RootPath = root;
-                settings.LR2ConfigXmlPath = customConfig;
+                settings.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2ConfigXmlPath), customConfig).GetAwaiter().GetResult();
                 window = new SettingsWindow
                 {
                     DataContext = settings,

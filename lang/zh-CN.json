@@ -1357,5 +1357,7 @@
   "Playlist_json_export_paths_same": "头文件和数据文件必须使用不同的保存位置。",
   "Playlist_json_export_path_invalid": "请输入有效的文件路径。",
   "Playlist_json_export_partial_failure": "头文件已保存，但数据文件保存失败。已有数据已保留。请检查保存位置后重新导出。",
-  "Error_ManagedPlaylistOutputOverlap": "托管播放列表的输出目录相同或存在父子关系。请选择互不重叠的输出目录。"
+  "Error_ManagedPlaylistOutputOverlap": "托管播放列表的输出目录相同或存在父子关系。请选择互不重叠的输出目录。",
+  "Settings_confirm_discard_conflicting_candidates": "要取消 {0} 的未确认编辑并继续吗？已保存的设置和未完成的操作将保留。",
+  "Settings_lr2_detailed_paths": "LR2详细路径"
 }

@@ -523,7 +523,6 @@ public partial class SettingsDialogViewModel : ViewModel
 
 
 
-    private ListenerCommand<string> _RemoveDirCommand;
 
 
 
@@ -634,9 +633,6 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(CanRetryScoreSettings));
         RaisePropertyChanged(nameof(CanRetryImageSettings));
         RaisePropertyChanged(nameof(CanRetryExternalPlayerSettings));
-        RaisePropertyChanged(nameof(HasNormalOutputChanges));
-        RaisePropertyChanged(nameof(HasRootOutputChanges));
-        RaisePropertyChanged(nameof(HasAdditionalOutputChanges));
         RaisePropertyChanged(nameof(Lr2RootPathValidationMessage));
         RaisePropertyChanged(nameof(Lr2RootPathValidationStatus));
         RaisePropertyChanged(nameof(RequiresReplacementBmsInstallDir));
@@ -1375,7 +1371,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             return environmentLR2SongDBPath;
         }
-        set
+        private set
         {
             string previousPath = environmentLR2SongDBPath;
             if (IsLR2SongDBPathValid(value))
@@ -1407,7 +1403,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             return environmentLR2ConfigXmlPath;
         }
-        set
+        private set
         {
             string previousPath = environmentLR2ConfigXmlPath;
             bool previousParsed = isLr2ConfigPathParsed;
@@ -2005,24 +2001,42 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    public string BMSInstallDir
+    /// <summary>独立導入先として保存済みの値です。選択肢は確定BMS一覧だけから表示します。</summary>
+    public string BMSInstallDir => ApplicationSettings.BMSInstallDir;
+
+    /// <summary>独立導入先の今回入力だけを検証・確認し、採用時に競合BMS候補を破棄して保存します。BMS一覧は保存しません。</summary>
+    /// <param name="value">確定BMS一覧から今回選んだ導入先。</param>
+    /// <param name="allowCandidateConfirmation">Windowが破棄確認を所有できる場合だけtrue。確認不要の項目保存はこの可否に依存しません。</param>
+    internal async Task SelectBmsInstallDirectoryAsync(string value, bool allowCandidateConfirmation = true)
     {
-        get
+        try
         {
-            return ApplicationSettings.BMSInstallDir;
+            if (value == null || string.Equals(ApplicationSettings.BMSInstallDir, value, StringComparison.OrdinalIgnoreCase) || !IsBMSInstallDirValid(value)) { return; }
+            if (bmsSaveIncomplete || pendingOutputChange != null) { ShowSettingValidationError(Resources.Settings_repair_related_save); return; }
+            if (RequiresBmsInstallDirectoryConfirmation && !allowCandidateConfirmation) { return; }
+            if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Bms) || bmsSaveIncomplete || pendingOutputChange != null || !IsBMSInstallDirValid(value)) { return; }
+            if (string.Equals(ApplicationSettings.BMSInstallDir, value, StringComparison.OrdinalIgnoreCase)) { return; }
+            DiscardConflictingCandidates(ConflictingCandidates.Bms);
+            TryCommitSetting(nameof(BMSInstallDir), (nameof(Settings.BMSInstallDir), value));
         }
-        set
+        finally { RaisePropertyChanged(nameof(BMSInstallDir)); RaiseValidationStateChanged(); }
+    }
+
+    /// <summary>個別LR2パスの今回入力を検証し、非同期の候補確認と採用時再検査後に詳細組へ採用します。</summary>
+    internal async Task SelectLr2DetailPathAsync(string propertyName, string value)
+    {
+        bool IsValid() => propertyName switch
         {
-            if (value != null && !(ApplicationSettings.BMSInstallDir == value))
-            {
-                if (IsBMSInstallDirValid(value))
-                {
-                    if (!TryCommitSetting(nameof(BMSInstallDir), (nameof(Settings.BMSInstallDir), value))) { return; }
-                }
-                RaisePropertyChanged("BMSInstallDir");
-                RaiseValidationStateChanged();
-            }
-        }
+            nameof(LR2SongDBPath) => IsLR2SongDBPathValid(value),
+            nameof(LR2ConfigXmlPath) => lr2ConfigSession.TryResolve(value, out _, adoptInitial: false),
+            _ => throw new ArgumentOutOfRangeException(nameof(propertyName))
+        };
+        string previous = propertyName == nameof(LR2SongDBPath) ? environmentLR2SongDBPath : environmentLR2ConfigXmlPath;
+        void ApplyInput() { if (propertyName == nameof(LR2SongDBPath)) { LR2SongDBPath = value; } else { LR2ConfigXmlPath = value; } }
+        if (!IsValid() || PathsEqual(previous, value)) { ApplyInput(); return; }
+        if (!await PrepareLr2CandidateEditAsync() || !IsValid()) { return; }
+        DiscardConflictingCandidates(ConflictingCandidates.Bms);
+        ApplyInput();
     }
 
     /// <summary>ROOT出力の候補です。有効な確定導入先を含む親も拒否し、受理済み配置へ戻します。</summary>
@@ -2161,7 +2175,7 @@ public partial class SettingsDialogViewModel : ViewModel
         ShowUiMessage(errMsg, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
     }
 
-    private bool ConfirmCustomFolderOutputChangesBeforeSave(CustomFolderOutputSettingsSnapshot target = null)
+    private async Task<bool> ConfirmCustomFolderOutputChangesBeforeSaveAsync(CustomFolderOutputSettingsSnapshot target = null)
     {
         IReadOnlyList<string> warningSearchRoots = GetCustomFolderOutputWarningSearchRoots();
         IReadOnlyList<CustomFolderOutputBaseJukeboxAdoptionConflict> conflicts =
@@ -2179,6 +2193,8 @@ public partial class SettingsDialogViewModel : ViewModel
         }
 
         var messages = new List<string>();
+        string discardConfirmation = BuildCandidateDiscardConfirmation(ConflictingCandidates.Bms | ConflictingCandidates.Lr2Details);
+        if (discardConfirmation != null) { messages.Add(discardConfirmation); }
         if (conflicts.Count > 0)
         {
             messages.Add(BuildCustomFolderOutputBaseJukeboxAdoptionMessage(conflicts));
@@ -2194,12 +2210,9 @@ public partial class SettingsDialogViewModel : ViewModel
             return true;
         }
 
-        return ShowUiConfirmation(
+        return await ShowUiConfirmationAsync(
             FormatResource(BeMusicSeeker.Properties.Resources.Confirm_CustomFolderOutputChangesFormat,
                 string.Join(Environment.NewLine + Environment.NewLine, messages)),
-            BeMusicSeeker.Properties.Resources.Warning,
-            MessageBoxImage.Exclamation,
-            MessageBoxButton.OKCancel,
             "Custom folder output settings confirmation");
     }
 
@@ -3664,15 +3677,6 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>音声設定担当が所有するPlayerWASAPIParamを画面へ接続します。</summary>
     public bool PlayerWASAPIParam { get => audioDeviceTestWorkflow.PlayerWASAPIParam; set { bool previous = audioDeviceTestWorkflow.PlayerWASAPIParam; audioDeviceTestWorkflow.PlayerWASAPIParam = value; if (!Equals(previous, audioDeviceTestWorkflow.PlayerWASAPIParam)) { CommitAudioSettings(); } } }
 
-    public ListenerCommand<string> RemoveDirCommand
-    {
-        get
-        {
-            _RemoveDirCommand ??= new ListenerCommand<string>(RemoveBMSDirectoryFromSearchRoots);
-            return _RemoveDirCommand;
-        }
-    }
-
     public List<string> Languages => [.. cultureCatalog.Cultures.Keys];
 
     public string Language
@@ -4948,27 +4952,14 @@ public partial class SettingsDialogViewModel : ViewModel
             && string.Equals(table.CustomFolderOutputBaseName, baseName, StringComparison.OrdinalIgnoreCase));
     }
 
-    public void AddBmsSearchRootPaths(IEnumerable<string> paths)
-    {
-        AddBmsSearchRootPaths(paths, null);
-    }
+    /// <summary>複数BMS入力を検証し、競合詳細候補の確認後に一覧候補へまとめて追加します。保存は明示確定まで行いません。</summary>
+    public Task AddBmsSearchRootPathsAsync(IEnumerable<string> paths)
+        => ApplicationSettings.OperationModeLR2DB ? AddBMSDirectoriesToLR2ConfigAsync(paths) : AddStandaloneBmsRootPathsAsync(paths);
 
-    private void AddBmsSearchRootPaths(IEnumerable<string> paths, string settingPropertyPath)
-    {
-        if (ApplicationSettings.OperationModeLR2DB)
-        {
-            AddBMSDirectoriesToLR2Config(paths, settingPropertyPath);
-            return;
-        }
-        AddStandaloneBmsRootPathsCore(paths, settingPropertyPath);
-    }
+    /// <summary>単独モードのBMS候補を検証・確認後に追加し、確定値は変更しません。</summary>
+    public Task AddStandaloneBmsRootPathsAsync(IEnumerable<string> paths) => AddStandaloneBmsRootPathsCoreAsync(paths);
 
-    public void AddStandaloneBmsRootPaths(IEnumerable<string> paths)
-    {
-        AddStandaloneBmsRootPathsCore(paths, null);
-    }
-
-    private void AddStandaloneBmsRootPathsCore(IEnumerable<string> paths, string settingPropertyPath)
+    private async Task AddStandaloneBmsRootPathsCoreAsync(IEnumerable<string> paths)
     {
         try
         {
@@ -4980,6 +4971,12 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 return;
             }
+            if (!requestedPaths.Any(path => !BmsRootPathList.Contains(path, StringComparer.OrdinalIgnoreCase)) || !await PrepareBmsCandidateEditAsync()) { return; }
+            requestedPaths = [.. NormalizeExistingStandaloneBmsRootPathsWithoutLr2Compatibility(requestedPaths)];
+            if (requestedPaths.Count == 0) { return; }
+            requestedPath = requestedPaths[0];
+            if (!requestedPaths.Any(path => !BmsRootPathList.Contains(path, StringComparer.OrdinalIgnoreCase))) { return; }
+            DiscardConflictingCandidates(ConflictingCandidates.Lr2Details);
             foreach (string path in requestedPaths)
             {
                 if (!BmsRootPathList.Contains(path, StringComparer.OrdinalIgnoreCase))
@@ -4990,10 +4987,6 @@ public partial class SettingsDialogViewModel : ViewModel
             SelectedStandaloneBmsRootPath = BmsRootPathList.FirstOrDefault(path => string.Equals(path, requestedPath, StringComparison.OrdinalIgnoreCase))
                 ?? BmsRootPathList.FirstOrDefault(path => IsSameOrChildPath(requestedPath, path))
                 ?? BmsRootPathList.FirstOrDefault();
-            if (!string.IsNullOrWhiteSpace(settingPropertyPath))
-            {
-                GetType().GetProperty(settingPropertyPath).GetSetMethod().Invoke(this, [requestedPath]);
-            }
             string after = SerializeBmsRootPathsForChangeTracking(BmsRootPathList);
             RaisePropertyChanged(nameof(BmsRootPathList));
             RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
@@ -5002,11 +4995,11 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         catch (Exception ex)
         {
-            ShowUiMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
+            await ShowUiMessageAsync(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "BMS candidate edit");
         }
     }
 
-    private void AddBMSDirectoriesToLR2Config(IEnumerable<string> paths, string settingPropertyPath)
+    private async Task AddBMSDirectoriesToLR2ConfigAsync(IEnumerable<string> paths)
     {
         if (lr2config == null)
         {
@@ -5020,64 +5013,70 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 return;
             }
-            List<string> nonSjisPaths = [.. requestedPaths.Where(path => !path.IsSjisSchemeString())];
-            if (nonSjisPaths.Count > 0)
+            void ValidateAddition()
             {
-                throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_LR2UnicodePathUnsupported + Environment.NewLine + string.Join(Environment.NewLine, nonSjisPaths));
+                List<string> nonSjisPaths = [.. requestedPaths.Where(path => !path.IsSjisSchemeString())];
+                if (nonSjisPaths.Count > 0)
+                {
+                    throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_LR2UnicodePathUnsupported + Environment.NewLine + string.Join(Environment.NewLine, nonSjisPaths));
+                }
+                ThrowIfLr2IncompatibleStandaloneBmsRoots(requestedPaths);
+                IReadOnlyList<string> managedCustomFolderOutputRoots = GetUserVisibleBmsSearchRootExcludedDirectories();
+                string conflictingPath = requestedPaths.FirstOrDefault(path =>
+                    managedCustomFolderOutputRoots.Any(root => CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, root)));
+                if (!string.IsNullOrWhiteSpace(conflictingPath))
+                {
+                    throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_ManagedCustomFolderOutputCannotBeAddedAsBmsRoot + Environment.NewLine + conflictingPath);
+                }
+                if (requestedPaths.Any(path => BmsRootPathList.Any(existing => CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, existing)))
+                    || requestedPaths.Any(path => requestedPaths.Any(other => !string.Equals(path, other, StringComparison.OrdinalIgnoreCase)
+                        && CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, other))))
+                { throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_BmsSearchDirectoriesOverlap); }
             }
-            ThrowIfLr2IncompatibleStandaloneBmsRoots(requestedPaths);
-            IReadOnlyList<string> managedCustomFolderOutputRoots = GetUserVisibleBmsSearchRootExcludedDirectories();
-            string conflictingPath = requestedPaths.FirstOrDefault(path =>
-                managedCustomFolderOutputRoots.Any(root => CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, root)));
-            if (!string.IsNullOrWhiteSpace(conflictingPath))
-            {
-                throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_ManagedCustomFolderOutputCannotBeAddedAsBmsRoot + Environment.NewLine + conflictingPath);
-            }
-            if (requestedPaths.Any(path => BmsRootPathList.Any(existing => CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, existing)))
-                || requestedPaths.Any(path => requestedPaths.Any(other => !string.Equals(path, other, StringComparison.OrdinalIgnoreCase)
-                    && CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, other))))
-            { throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_BmsSearchDirectoriesOverlap); }
+            ValidateAddition();
+            if (!await PrepareBmsCandidateEditAsync()) { return; }
+            requestedPaths = [.. NormalizeExistingStandaloneBmsRootPathsWithoutLr2Compatibility(requestedPaths)];
+            if (requestedPaths.Count == 0) { return; }
+            requestedPath = requestedPaths[0];
+            ValidateAddition();
+            DiscardConflictingCandidates(ConflictingCandidates.Lr2Details);
             foreach (string path in requestedPaths) { BmsRootPathList.Add(path); }
             selectedLR2ConfigBmsDirectory = requestedPath;
             RaiseBmsListPropertyChanged(nameof(LR2ConfigBMSDirectories));
             RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
             RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
             RaiseValidationStateChanged();
-            if (!string.IsNullOrWhiteSpace(settingPropertyPath))
-            {
-                GetType().GetProperty(settingPropertyPath).GetSetMethod().Invoke(this, [requestedPath]);
-            }
         }
         catch (ArgumentException ex)
         {
-            ShowUiMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
+            await ShowUiMessageAsync(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "BMS candidate edit");
         }
         catch (Exception ex)
         {
-            ShowUiMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
+            await ShowUiMessageAsync(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "BMS candidate edit");
         }
     }
 
-    /// <summary>検索ルート登録解除を副作用前にL/Pで判定し、確認・保存・同権限の再読込みまで所有します。</summary>
-    private void RemoveBMSDirectoryFromSearchRoots(string dir)
+    /// <summary>選択したBMS登録の候補だけを削除します。競合詳細候補を非同期で確認し、保存は一覧の明示確定まで行いません。</summary>
+    internal async Task RemoveBmsSearchRootPathAsync(string dir)
     {
         if (ApplicationSettings.OperationModeLR2DB)
         {
-            Exception removalFailure = RemoveBMSDirectoryFromLR2Config(dir);
+            Exception removalFailure = await RemoveBMSDirectoryFromLR2ConfigAsync(dir);
             if (removalFailure != null)
             {
-                ShowUiMessage(removalFailure.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
+                await ShowUiMessageAsync(removalFailure.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "BMS candidate edit");
             }
             return;
         }
-        Exception standaloneRemovalFailure = RemoveStandaloneBmsRootPath(dir);
+        Exception standaloneRemovalFailure = await RemoveStandaloneBmsRootPathAsync(dir);
         if (standaloneRemovalFailure != null)
         {
-            ShowUiMessage(standaloneRemovalFailure.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
+            await ShowUiMessageAsync(standaloneRemovalFailure.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "BMS candidate edit");
         }
     }
 
-    private Exception RemoveStandaloneBmsRootPath(string dir)
+    private async Task<Exception> RemoveStandaloneBmsRootPathAsync(string dir)
     {
         if (string.IsNullOrWhiteSpace(dir))
         {
@@ -5088,6 +5087,10 @@ public partial class SettingsDialogViewModel : ViewModel
             string normalizedDir = TrimDirectorySeparatorUnlessRoot(Path.GetFullPath(dir.Trim()));
             string before = SerializeBmsRootPathsForChangeTracking(BmsRootPathList);
             List<string> remaining = [.. BmsRootPathList.Where(path => !string.Equals(path, normalizedDir, StringComparison.OrdinalIgnoreCase))];
+            if (remaining.Count == BmsRootPathList.Count || !await PrepareBmsCandidateEditAsync()) { return null; }
+            remaining = [.. BmsRootPathList.Where(path => !string.Equals(path, normalizedDir, StringComparison.OrdinalIgnoreCase))];
+            if (remaining.Count == BmsRootPathList.Count) { return null; }
+            DiscardConflictingCandidates(ConflictingCandidates.Lr2Details);
             BmsRootPathList.Clear();
             foreach (string path in remaining)
             {
@@ -5108,7 +5111,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private Exception RemoveBMSDirectoryFromLR2Config(string dir)
+    private async Task<Exception> RemoveBMSDirectoryFromLR2ConfigAsync(string dir)
     {
         if (dir == null)
         {
@@ -5116,24 +5119,33 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         try
         {
-            if (LR2CustomFolderOutputDir != null && (LR2CustomFolderOutputDir + Path.DirectorySeparatorChar).StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            void ValidateRemoval()
             {
-                throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveCustomFolderOutputDir);
+                if (LR2CustomFolderOutputDir != null && (LR2CustomFolderOutputDir + Path.DirectorySeparatorChar).StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveCustomFolderOutputDir);
+                }
+                if (CustomFolderAdditionalOutputBaseDirList.Any(path => path != null && (path + Path.DirectorySeparatorChar).StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+                {
+                    throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveAdditionalOutputBaseDir);
+                }
+                if (LR2CustomFolderAsRootOutputDir != null && (LR2CustomFolderAsRootOutputDir + Path.DirectorySeparatorChar).StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveRootCustomFolderOutputDir);
+                }
+                if (CreateRootFolderOutputDirectories(LR2CustomFolderAsRootOutputDir).Any(path => path != null && (path + Path.DirectorySeparatorChar).StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+                {
+                    throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveRootCustomFolderOutputDir);
+                }
             }
-            if (CustomFolderAdditionalOutputBaseDirList.Any(path => path != null && (path + Path.DirectorySeparatorChar).StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
-            {
-                throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveAdditionalOutputBaseDir);
-            }
-            if (LR2CustomFolderAsRootOutputDir != null && (LR2CustomFolderAsRootOutputDir + Path.DirectorySeparatorChar).StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveRootCustomFolderOutputDir);
-            }
-            if (CreateRootFolderOutputDirectories(LR2CustomFolderAsRootOutputDir).Any(path => path != null && (path + Path.DirectorySeparatorChar).StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
-            {
-                throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveRootCustomFolderOutputDir);
-            }
+            ValidateRemoval();
             string registeredPath = BmsRootPathList.FirstOrDefault(path => CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(path, dir));
-            bool removed = registeredPath != null && BmsRootPathList.Remove(registeredPath);
+            if (registeredPath == null || !await PrepareBmsCandidateEditAsync()) { return null; }
+            ValidateRemoval();
+            registeredPath = BmsRootPathList.FirstOrDefault(path => CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(path, dir));
+            if (registeredPath == null) { return null; }
+            DiscardConflictingCandidates(ConflictingCandidates.Lr2Details);
+            bool removed = BmsRootPathList.Remove(registeredPath);
             if (removed)
             {
                 if (string.Equals(selectedLR2ConfigBmsDirectory, dir, StringComparison.OrdinalIgnoreCase))

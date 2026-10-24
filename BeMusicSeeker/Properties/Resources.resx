@@ -4009,4 +4009,10 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Error_ManagedPlaylistOutputOverlap" xml:space="preserve">
     <value>管理プレイリストの出力先が同一または親子になっています。重ならない出力先を指定してください。</value>
   </data>
+  <data name="Settings_confirm_discard_conflicting_candidates" xml:space="preserve">
+    <value>{0} の未確定編集を取り消して進めますか？ 保存済みの設定と未完了の処理は保持します。</value>
+  </data>
+  <data name="Settings_lr2_detailed_paths" xml:space="preserve">
+    <value>LR2の詳細パス</value>
+  </data>
 </root>

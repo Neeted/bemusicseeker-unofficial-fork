@@ -1357,5 +1357,7 @@
   "Playlist_json_export_paths_same": "헤더와 데이터 파일의 저장 위치는 서로 달라야 합니다.",
   "Playlist_json_export_path_invalid": "유효한 파일 경로를 입력하세요.",
   "Playlist_json_export_partial_failure": "헤더는 저장했지만 데이터 저장에 실패했습니다. 기존 데이터는 유지됩니다. 저장 위치를 확인하고 다시 내보내세요.",
-  "Error_ManagedPlaylistOutputOverlap": "관리 재생 목록의 출력 폴더가 같거나 상위·하위 관계입니다. 서로 겹치지 않는 출력 폴더를 지정하세요."
+  "Error_ManagedPlaylistOutputOverlap": "관리 재생 목록의 출력 폴더가 같거나 상위·하위 관계입니다. 서로 겹치지 않는 출력 폴더를 지정하세요.",
+  "Settings_confirm_discard_conflicting_candidates": "{0}의 미확정 편집을 취소하고 계속하시겠습니까? 저장된 설정과 완료되지 않은 작업은 유지됩니다.",
+  "Settings_lr2_detailed_paths": "LR2 상세 경로"
 }

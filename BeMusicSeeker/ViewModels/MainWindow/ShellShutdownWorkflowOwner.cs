@@ -639,6 +639,7 @@ internal sealed class ShellShutdownWorkflowOwner
 
         try
         {
+            request.BeforeSave?.Invoke();
             settingsEditSession.SaveEnvironmentForRestart(request.Environment, request.HistoryIdentity);
             lock (syncRoot)
             {

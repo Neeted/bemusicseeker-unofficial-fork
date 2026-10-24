@@ -1357,5 +1357,7 @@
   "Playlist_json_export_paths_same": "The header and data files must have different destinations.",
   "Playlist_json_export_path_invalid": "Enter valid file paths.",
   "Playlist_json_export_partial_failure": "The header was saved, but the data file could not be saved. Existing data was kept. Check the destinations and export again.",
-  "Error_ManagedPlaylistOutputOverlap": "Managed playlist output directories are identical or nested. Choose output directories that do not overlap."
+  "Error_ManagedPlaylistOutputOverlap": "Managed playlist output directories are identical or nested. Choose output directories that do not overlap.",
+  "Settings_confirm_discard_conflicting_candidates": "Discard the unconfirmed edits to {0} and continue? Saved settings and unfinished operations will be kept.",
+  "Settings_lr2_detailed_paths": "LR2 detailed paths"
 }

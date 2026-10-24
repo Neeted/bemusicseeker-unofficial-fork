@@ -156,17 +156,25 @@ public partial class GeneralSettingsPage : UserControl
         }
     }
 
+    private async void buttonRemoveBmsSearchRootClicked(object sender, RoutedEventArgs e)
+    {
+        SettingsWindow window = GetSettingsWindow();
+        try { await window.HandleRemoveBmsSearchRootPathAsync(); }
+        catch (Exception failure) { await window.HandleSettingsRouteFailureAsync(failure, "BMS search root removal"); }
+    }
+
     private void bmsSearchRootPathListBoxDragOver(object sender, DragEventArgs e)
     {
         e.Effects = TryGetDroppedDirectories(e, out _) ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
 
-    private void bmsSearchRootPathListBoxDrop(object sender, DragEventArgs e)
+    private async void bmsSearchRootPathListBoxDrop(object sender, DragEventArgs e)
     {
         if (TryGetDroppedDirectories(e, out List<string> directories))
         {
-            GetViewModel().AddBmsSearchRootPaths(directories);
+            try { await GetSettingsWindow().HandleDroppedBmsSearchRootPathsAsync(directories); }
+            catch (Exception failure) { await GetSettingsWindow().HandleSettingsRouteFailureAsync(failure, "BMS search root drop"); }
         }
 
         e.Handled = true;

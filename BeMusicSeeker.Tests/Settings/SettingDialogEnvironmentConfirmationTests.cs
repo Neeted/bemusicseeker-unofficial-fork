@@ -77,8 +77,8 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, dialog.Lr2PlayHistorySchemaStatusSnapshot.Status);
                 }
                 Lr2PlayHistorySchemaStatusSnapshot? previousStatus = dialog.Lr2PlayHistorySchemaStatusSnapshot;
-                dialog.LR2SongDBPath = nextSong;
-                dialog.LR2ConfigXmlPath = nextConfig;
+                dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2SongDBPath), nextSong).GetAwaiter().GetResult();
+                dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2ConfigXmlPath), nextConfig).GetAwaiter().GetResult();
                 Assert.AreEqual(previousTarget, dialog.Lr2PlayHistoryScoreDbPath, "未確定XMLは履歴操作の対象を切り替えません。");
                 Assert.AreSame(previousStatus, dialog.Lr2PlayHistorySchemaStatusSnapshot);
                 Task ConfirmEnvironment() => initialRootSelection ? dialog.SelectLr2RootAsync(selectedRoot) : dialog.CommitEnvironmentAsync();
@@ -96,7 +96,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.InstallOrRepairLr2PlayHistorySchemaAsync(), "history-new-target-install");
                 Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, schema.Check(nextScore, isLr2LinkedProfile: true).Status);
                 Assert.AreEqual(nextScore, dialog.Lr2PlayHistorySchemaStatusSnapshot.ScoreDbPath);
-                Assert.AreEqual(1, dialogs.ConfirmationCount, "導入済み旧対象は確認せず、新対象の導入だけを確認します。");
+                Assert.AreEqual(initialRootSelection ? 2 : 1, dialogs.ConfirmationCount, "初回rootの詳細候補破棄と、新対象のschema導入だけを確認します。");
                 Assert.AreEqual(1, failures.Count);
                 CollectionAssert.AreEqual(previousDatabase, File.ReadAllBytes(oldScore), "旧DBのschemaと保存行は変更しません。");
                 using var verify = new SQLite.SQLiteConnection(nextScore, SQLite.SQLiteOpenFlags.ReadOnly);
@@ -129,13 +129,13 @@ public sealed partial class SettingDialogEditCompletionTests
             string savedSong = values.LR2SongDBPath;
             string savedConfig = values.LR2ConfigXmlPath;
             var failures = new List<Exception>();
-            var dialogs = new RecordingRootDialogService();
+            var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
             MainWindowViewModel owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, dialogs: dialogs, reportSettingsApplyFailure: failures.Add);
             using SettingsDialogViewModel dialog = owner.SettingDialog;
             ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
             (string draftSong, string draftConfig) = CreateValidLr2Layout(Path.Combine(root, "draft"));
-            dialog.LR2SongDBPath = draftSong;
-            dialog.LR2ConfigXmlPath = draftConfig;
+            dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2SongDBPath), draftSong).GetAwaiter().GetResult();
+            dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2ConfigXmlPath), draftConfig).GetAwaiter().GetResult();
             dialog.SelectOperationModeAsync(true).GetAwaiter().GetResult();
             Settings saved = PortableSettingsPersistenceTests.OpenSettings(path);
             Assert.IsTrue(saved.OperationModeLR2DB);
@@ -146,8 +146,8 @@ public sealed partial class SettingDialogEditCompletionTests
             Assert.IsTrue(dialog.IsInitialEnvironment);
             Assert.IsFalse(owner.HasActiveLibraryProfile);
             (string selectedSong, string selectedConfig) = CreateValidLr2Layout(Path.Combine(root, "selected"));
-            dialog.LR2SongDBPath = draftSong;
-            dialog.LR2ConfigXmlPath = draftConfig;
+            dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2SongDBPath), draftSong).GetAwaiter().GetResult();
+            dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2ConfigXmlPath), draftConfig).GetAwaiter().GetResult();
             dialog.SelectLr2RootAsync(Path.Combine(root, "missing")).GetAwaiter().GetResult();
             Assert.AreEqual(savedSong, values.LR2SongDBPath);
             foreach (ChartFileOperationSynchronizer admission in new[] { composition.OperationAdmission, composition.PlaylistOperationAdmission })
@@ -173,7 +173,7 @@ public sealed partial class SettingDialogEditCompletionTests
             using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
             { dialog.SelectLr2RootAsync(Path.Combine(root, "selected")).GetAwaiter().GetResult(); }
             Assert.AreEqual(1, failures.Count, "同値選択では再保存しません。");
-            Assert.AreEqual(0, dialogs.ConfirmationCount, "初回の成立設定は保存のみで走査・再起動確認を開始しません。");
+            Assert.AreEqual(2, dialogs.ConfirmationCount, "初回は競合する詳細候補の破棄だけを確認し、再起動は要求しません。");
         }
         finally { Directory.Delete(root, recursive: true); }
     }
@@ -201,15 +201,20 @@ public sealed partial class SettingDialogEditCompletionTests
                 SetActiveLibraryProfile(owner, true);
                 int restartRequests = 0;
                 owner.ShellShutdownWorkflow.OperationModeRestartRequested += () => restartRequests++;
+                string staged = Directory.CreateDirectory(Path.Combine(root, "PendingBms")).FullName;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AddBmsSearchRootPathsAsync([staged]), "mode-confirmation-bms-input");
                 byte[] before = File.ReadAllBytes(path);
-                dialogs.ConfirmationObserved = _ =>
+                dialogs.ConfirmationObserved = request =>
                 {
+                    StringAssert.Contains(request.MessageBoxText, Resources.Confirm_RestartForOperationModeChange);
+                    StringAssert.Contains(request.MessageBoxText, Resources.Standalone_BMSDirectories.Trim().TrimEnd(':', '：'));
                     Assert.IsFalse(composition.OperationAdmission.IsActive);
                     Assert.IsTrue(composition.PlaylistOperationAdmission.TryEnter(out IDisposable acquired));
                     heldPlaylist = acquired;
                     Assert.IsFalse(owner.IsLibraryOperationInProgress, "P-onlyの先着は起動・譜面変更状態だけでは検出できません。");
                 };
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SelectOperationModeAsync(true), "mode-confirmation-playlist-wins");
+                CollectionAssert.Contains(dialog.AvailableBMSDirectories, staged);
                 Assert.AreEqual(0, session.SaveCount);
                 Assert.AreEqual(0, restartRequests);
                 Assert.IsFalse(values.OperationModeLR2DB);
@@ -566,7 +571,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.IsFalse(cancel.IsEnabled);
                 string song = Path.Combine(root, "candidate.db");
                 File.WriteAllBytes(song, []);
-                settings.LR2SongDBPath = song;
+                settings.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2SongDBPath), song).GetAwaiter().GetResult();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(confirm.IsEnabled);
                 Assert.IsTrue(cancel.IsEnabled);
@@ -586,7 +591,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(confirm.IsEnabled);
                 File.Delete(song);
-                settings.LR2SongDBPath = song;
+                settings.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2SongDBPath), song).GetAwaiter().GetResult();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsFalse(confirm.IsEnabled);
                 Assert.IsTrue(cancel.IsEnabled);
