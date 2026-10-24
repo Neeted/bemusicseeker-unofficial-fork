@@ -752,6 +752,74 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 });
             var started = new List<Task>();
             Exception? primaryFailure = null;
+            PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+            var diagnostics = new ConcurrentQueue<(long Sequence, string Message)>();
+            long diagnosticSequence = 0;
+            BMSTable? observedTable = null;
+            BMSTableEntry? observedEntry = null;
+            PlaylistDetailRow? observedRow = null;
+            object? editedView = null;
+            FieldInfo? rowSourceField = typeof(PlaylistDetailRow).GetField("source", BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo? realizedRowsField = typeof(PlaylistDetailVirtualView).GetField("realizedRows", BindingFlags.Instance | BindingFlags.NonPublic);
+            string Identity(object? value) => value == null ? "none" : System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(value).ToString(CultureInfo.InvariantCulture);
+            void Record(string message) => diagnostics.Enqueue((Interlocked.Increment(ref diagnosticSequence), "thread=" + Environment.CurrentManagedThreadId + " " + message));
+            void RecordState(string stage)
+            {
+                // 各管理主体のlockは別々に解放し、診断から新しいlock順序や待機を作りません。
+                try
+                {
+                    PlaylistDetailSelection? selection = workspace.CapturePlaylistDetailSelection(out long selectionRevision);
+                    string builds;
+                    lock (workspace.DetailBuildState.SyncRoot)
+                    {
+                        PlaylistDetailBuildState state = workspace.DetailBuildState;
+                        builds = $"request={state.RequestVersion} completed={state.CompletedRequestVersion} worker={state.WorkerRunning}"
+                            + $" currentBuild={Identity(state.CurrentBuildRequest)} pendingBuild={Identity(state.PendingRequest)}";
+                    }
+                    string projection;
+                    lock (workspace.DetailViewState.SyncRoot)
+                    {
+                        PlaylistDetailSourceSnapshotState source = workspace.DetailViewState.Source;
+                        PlaylistDetailViewSnapshotState view = workspace.DetailViewState.View;
+                        PlaylistDetailSourceRow? entryProjection = null;
+                        if (observedEntry != null && source.Dependencies != null) { source.Dependencies.TryGet(observedEntry, out entryProjection); }
+                        Dictionary<BMSTableEntry, PlaylistDetailRow>? realized = view.Rows is PlaylistDetailVirtualView virtualView
+                            ? realizedRowsField?.GetValue(virtualView) as Dictionary<BMSTableEntry, PlaylistDetailRow> : null;
+                        PlaylistDetailRow? realizedRow = null;
+                        if (observedEntry != null && realized != null) { realized.TryGetValue(observedEntry, out realizedRow); }
+                        PlaylistDetailSourceRow? editedSource = observedRow == null ? null : rowSourceField?.GetValue(observedRow) as PlaylistDetailSourceRow;
+                        projection = $"sourceRows={Identity(source.Rows)} sourceGeneration={source.GenerationId} sourceTable={Identity(source.CurrentTable)}"
+                            + $" appliedEntryRevision={source.LastBuiltPlaylistRevision} sourceEntry={Identity(entryProjection?.Entry)} sourceMemo=[{entryProjection?.memo}]"
+                            + $" viewRows={Identity(view.Rows)} viewGeneration={view.GenerationId} editedView={Identity(editedView)} mainRows={Identity(fixture.ViewModel.MainChartList.Rows)}"
+                            + $" cachedRow={Identity(realizedRow)} editedRow={Identity(observedRow)} editedSource={Identity(editedSource)} editedSourceMemo=[{editedSource?.memo}] editedMemo=[{observedRow?.memo}]";
+                    }
+                    Record($"state={stage} selectionRevision={selectionRevision} selectionTable={Identity(selection?.Table)} selectionScope={selection?.Scope} selectionFolder=[{selection?.FolderName}]"
+                        + $" table={Identity(observedTable)} tableEntryRevision={observedTable?.PlaylistEntriesRevision} entry={Identity(observedEntry)} entryMemo=[{observedEntry?.memo}] {builds} {projection}");
+                }
+                catch (Exception failure) { Record("diagnostic_read_failed stage=" + stage + " cause=" + failure); }
+            }
+            Action<string>? previousWorkObserver = workspace.DetailWorkObserver;
+            workspace.DetailWorkObserver = kind => { previousWorkObserver?.Invoke(kind); Record("detail_work=" + kind); };
+            EventHandler<PlaylistTreeSelectionActivatedEventArgs> treeSelectionChanged = (_, request) =>
+                Record($"tree_selection revision={request.SelectionRevision} summary={request.IsSummary} table={Identity(request.Detail?.Table)} scope={request.Detail?.Scope} folder=[{request.Detail?.FolderName}]");
+            System.ComponentModel.PropertyChangedEventHandler rowsChanged = (_, change) =>
+            {
+                if (change.PropertyName == nameof(MainChartListViewModel.Rows)) { Record("rows_published mainRows=" + Identity(fixture.ViewModel.MainChartList.Rows)); }
+            };
+            EventHandler entryCommitsAvailable = (_, _) => Record("entry_commits_available");
+            System.ComponentModel.PropertyChangedEventHandler rowChanged = (_, change) =>
+            {
+                // source参照と確定値の読取りだけを行い、行の実体化やreceipt drainは行いません。
+                try
+                {
+                    PlaylistDetailSourceRow? source = observedRow == null ? null : rowSourceField?.GetValue(observedRow) as PlaylistDetailSourceRow;
+                    Record($"edited_row_changed property=[{change.PropertyName}] row={Identity(observedRow)} source={Identity(source)} sourceMemo=[{source?.memo}] memo=[{observedRow?.memo}]");
+                }
+                catch (Exception failure) { Record("diagnostic_row_read_failed cause=" + failure); }
+            };
+            workspace.TreeSelectionActivated += treeSelectionChanged;
+            fixture.ViewModel.MainChartList.PropertyChanged += rowsChanged;
+            fixture.Playlist.PlaylistEntryCommitsAvailable += entryCommitsAvailable;
             try
             {
                 string header = Path.Combine(fixture.Root, "detail-header.json");
@@ -766,7 +834,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 original.EnableExternalSync();
                 fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>([original]);
                 fixture.Playlist.CommitBMSTableWithEntriesToDB(original);
-                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
                 BMSTableEntry oldEntry = original.entries.Single();
                 workspace.RequestDetailSelection(original);
                 Task oldDetail = workspace.WaitForDetailBuildIdleAsync();
@@ -781,6 +848,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(resync, "detail-resync-actual-terminal");
                 BMSTable current = fixture.Playlist.BMSTables.Single();
                 BMSTableEntry currentEntry = current.entries.Single(entry => !entry.is_removed);
+                observedTable = current;
+                observedEntry = currentEntry;
+                RecordState("resync_terminal");
                 Assert.AreNotSame(original, current);
                 Assert.AreEqual(original.playlist_id, current.playlist_id);
                 Assert.AreEqual(oldEntry.md5, currentEntry.md5);
@@ -821,13 +891,19 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 PlaylistDetailRow currentRow = fixture.ViewModel.MainChartList.Rows[0] as PlaylistDetailRow
                     ?? throw new AssertFailedException("再同期後の実詳細行がありません。");
                 Assert.AreSame(currentEntry, currentRow.Entry);
+                observedRow = currentRow;
+                editedView = fixture.ViewModel.MainChartList.Rows;
+                currentRow.PropertyChanged += rowChanged;
+                RecordState("before_begin_edit");
                 var currentContext = new MainChartListCellEditContext(currentRow, nameof(PlaylistDetailRow.memo), ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
                 workspace.BeginDetailEdit(currentContext);
                 currentRow.memo = "fresh edit D";
+                RecordState("draft_set");
                 Assert.AreEqual(expectedMemo, currentEntry.memo, "入力draftは正規保存前にentryを変更しません。");
                 Task fresh = workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(currentContext, "fresh edit D", commit: true));
                 started.Add(fresh);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(fresh, "detail-current-row-save-terminal");
+                RecordState("save_terminal");
                 Assert.AreEqual(1, displayed.Count);
                 Assert.AreEqual("fresh edit D", currentEntry.memo);
                 Assert.AreEqual("fresh edit D", currentRow.memo);
@@ -843,6 +919,13 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             catch (Exception failure)
             {
                 primaryFailure = failure;
+                try
+                {
+                    RecordState("failure");
+                    foreach ((long sequence, string message) in diagnostics.OrderBy(item => item.Sequence))
+                    { Console.WriteLine("detail_edit_diagnostic sequence=" + sequence + " " + message); }
+                }
+                catch { /* 診断出力の失敗で元の表明・実処理失敗を置き換えません。 */ }
                 throw;
             }
             finally
@@ -852,7 +935,15 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(started), "detail-edit-all-started-terminal");
                 }
                 catch when (primaryFailure != null) { }
-                finally { fixture.Close(); }
+                finally
+                {
+                    if (observedRow != null) { observedRow.PropertyChanged -= rowChanged; }
+                    workspace.DetailWorkObserver = previousWorkObserver;
+                    workspace.TreeSelectionActivated -= treeSelectionChanged;
+                    fixture.ViewModel.MainChartList.PropertyChanged -= rowsChanged;
+                    fixture.Playlist.PlaylistEntryCommitsAvailable -= entryCommitsAvailable;
+                    fixture.Close();
+                }
             }
         });
     }

@@ -28,7 +28,7 @@ public partial class AdvancedSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandleUninstallLr2PlayHistorySchemaAsync();
+            await settingsWindow.HandleUninstallLr2PlayHistorySchemaAsync(reportFailure: true);
         }
         catch (Exception exception)
         {
@@ -41,7 +41,7 @@ public partial class AdvancedSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandleApplicationDataUninstallAsync();
+            await settingsWindow.HandleApplicationDataUninstallAsync(reportFailure: true);
         }
         catch (Exception exception)
         {

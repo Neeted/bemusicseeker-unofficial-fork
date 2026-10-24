@@ -135,7 +135,9 @@ public partial class SettingsDialogViewModel
         && (HasScoreSelectionChanges || scoreReloadPending);
 
     /// <summary>未了の旧新BMT又はスコア入力をroot変更で取り替えないようにします。</summary>
-    public bool IsBeatorajaSelectionEnabled => IsEnvironmentSelectionEnabled && pendingBmtChange == null && !scoreReloadPending;
+    public bool IsBeatorajaSelectionEnabled => IsSettingsOperationAvailable && IsBeatorajaSelectionCoreEnabled;
+
+    private bool IsBeatorajaSelectionCoreEnabled => IsEnvironmentSelectionCoreEnabled && pendingBmtChange == null && !scoreReloadPending;
 
     /// <summary>スコア入力はBMTの未了修復から独立し、保存済みスコアの反映中だけ制限します。</summary>
     public bool IsScoreSelectionEnabled => IsEnvironmentSelectionEnabled && !scoreReloadPending;
@@ -182,9 +184,12 @@ public partial class SettingsDialogViewModel
 
 
     /// <summary>保存済みの環境で一回初期化し、必須出力・UI公開の終端で初回設定を閉じます。</summary>
-    internal async Task StartConfirmedEnvironmentAsync()
+    internal Task StartConfirmedEnvironmentAsync() => RunSettingsOperationAsync(() => StartConfirmedEnvironmentCoreAsync());
+
+    /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
+    internal async Task StartConfirmedEnvironmentCoreAsync()
     {
-        if (statePort.HasActiveLibraryProfile || !IsEnvironmentSelectionEnabled) { return; }
+        if (statePort.HasActiveLibraryProfile || !IsEnvironmentSelectionCoreEnabled) { return; }
         if (!operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation)
         {
             await ShowUiMessageAsync(Resources.Warn_LibraryOperationBusy, Resources.Warning, UiDialogIcon.Exclamation, "initial settings admission");
@@ -236,9 +241,12 @@ public partial class SettingsDialogViewModel
     private BmtLocalChange pendingBmtChange;
 
     /// <summary>確定rootで解決したスコア項目だけを保存し、スコア読込みと必須表示の実終端を待ちます。</summary>
-    internal async Task CommitScoreSettingsAsync()
+    internal Task CommitScoreSettingsAsync() => RunSettingsOperationAsync(() => CommitScoreSettingsCoreAsync());
+
+    /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
+    internal async Task CommitScoreSettingsCoreAsync()
     {
-        if (!IsEditCompletionEnabled || statePort.IsLibraryOperationInProgress) { return; }
+        if (!IsSectionCompletionEnabled || statePort.IsLibraryOperationInProgress) { return; }
         if (!IsScoreSelectionValid) { ShowSettingValidationError(Resources.Error_InvalidBeatorajaScoreDbPath); return; }
         if (!HasScoreSelectionChanges && !scoreReloadPending) { return; }
         IsEditCompletionInProgress = true;
@@ -264,11 +272,14 @@ public partial class SettingsDialogViewModel
     }
 
     /// <summary>新rootを独立確定し、確定済みスコア使用方針とBMT方針で両取得先を反映します。旧root前提の候補は採用点でだけ破棄します。</summary>
-    internal async Task CommitBeatorajaRootSettingsAsync(string root = null)
+    internal Task CommitBeatorajaRootSettingsAsync(string root = null) => RunSettingsOperationAsync(() => CommitBeatorajaRootSettingsCoreAsync(root));
+
+    /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
+    internal async Task CommitBeatorajaRootSettingsCoreAsync(string root = null)
     {
-        if (!IsEditCompletionEnabled || statePort.IsLibraryOperationInProgress) { return; }
+        if (!IsSectionCompletionEnabled || statePort.IsLibraryOperationInProgress) { return; }
         bool retry = pendingBmtChange?.IsRootChange == true;
-        if (!retry && !IsBeatorajaSelectionEnabled) { return; }
+        if (!retry && !IsBeatorajaSelectionCoreEnabled) { return; }
         root ??= environmentBeatorajaRootPath;
         if (!retry && string.Equals(root, ApplicationSettings.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)) { return; }
         string player = retry ? ApplicationSettings.BeatorajaPlayerId : ResolveRootPlayer(root);
@@ -282,7 +293,7 @@ public partial class SettingsDialogViewModel
             if (ApplicationSettings.UseBeatorajaScoreDb && !IsBeatorajaScoreDbPathValid(scorePath))
             { ShowSettingValidationError(Resources.Error_InvalidBeatorajaScoreDbPath); return; }
             if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.BeatorajaScore | ConflictingCandidates.Bmt)) { return; }
-            if (!IsBeatorajaSelectionEnabled) { return; }
+            if (!IsBeatorajaSelectionCoreEnabled) { return; }
         }
         IsEditCompletionInProgress = true;
         try
@@ -351,7 +362,10 @@ public partial class SettingsDialogViewModel
     }
 
     /// <summary>BMT候補の組だけを保存し、旧新出力先を保持して全表投影・旧先整理・URL反映を待ちます。保存後の再試行は同じ要求だけを修復します。</summary>
-    internal async Task CommitBmtSettingsAsync()
+    internal Task CommitBmtSettingsAsync() => RunSettingsOperationAsync(() => CommitBmtSettingsCoreAsync());
+
+    /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
+    internal async Task CommitBmtSettingsCoreAsync()
     {
         if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress || statePort.IsLibraryOperationInProgress) { return; }
         BeatorajaBmtOptionsSnapshot target = pendingBmtChange?.Target;
@@ -460,7 +474,7 @@ public partial class SettingsDialogViewModel
         return result;
     }
 
-    /// <summary>独立導入先の変更に、Windowが所有するBMS候補破棄確認が必要かを示します。実処理のBusyは含めません。</summary>
+    /// <summary>独立導入先の変更に、設定担当が所有するBMS候補破棄確認が必要かを示します。実処理のBusyは含めません。</summary>
     internal bool RequiresBmsInstallDirectoryConfirmation => GetConflictingCandidates(ConflictingCandidates.Bms) != ConflictingCandidates.None;
 
     /// <summary>競合する未確定範囲の名称を含む確認を作ります。受理済みの修復状態は案内の対象に含めません。</summary>
@@ -533,15 +547,15 @@ public partial class SettingsDialogViewModel
 
     private async Task<bool> PrepareBmsCandidateEditAsync()
     {
-        if (!IsBmsSearchRootEditorEnabled || pendingOutputChange != null) { return false; }
-        if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Lr2Details) || !IsBmsSearchRootEditorEnabled || pendingOutputChange != null) { return false; }
+        if (!IsBmsSearchRootEditorCoreEnabled || pendingOutputChange != null) { return false; }
+        if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Lr2Details) || !IsBmsSearchRootEditorCoreEnabled || pendingOutputChange != null) { return false; }
         return true;
     }
 
     private async Task<bool> PrepareLr2CandidateEditAsync()
     {
-        if (!IsEnvironmentSelectionEnabled || bmsSaveIncomplete || pendingOutputChange != null) { return false; }
-        if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Bms) || !IsEnvironmentSelectionEnabled || bmsSaveIncomplete || pendingOutputChange != null) { return false; }
+        if (!IsEnvironmentSelectionCoreEnabled || bmsSaveIncomplete || pendingOutputChange != null) { return false; }
+        if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Bms) || !IsEnvironmentSelectionCoreEnabled || bmsSaveIncomplete || pendingOutputChange != null) { return false; }
         return true;
     }
 
@@ -582,7 +596,7 @@ public partial class SettingsDialogViewModel
         && (pendingBmtChange != null || !bmtEnableBeatorajaBmtOutput || BeatorajaConfigService.IsBeatorajaRootPathValid(ApplicationSettings.BeatorajaRootPath));
 
     /// <summary>BMTの未確定オプションだけに取消可能な差分があるかを示します。</summary>
-    public bool CanCancelBmtSettings => IsEditCompletionEnabled && HasBmtSelectionChanges;
+    public bool CanCancelBmtSettings => IsSectionCompletionEnabled && HasBmtSelectionChanges;
 
     private bool HasBmtSelectionChanges => (bmtEnableBeatorajaBmtOutput != ApplicationSettings.EnableBeatorajaBmtOutput
         || bmtKeepBeatorajaBmtFilesWhenOutputDisabled != ApplicationSettings.KeepBeatorajaBmtFilesWhenOutputDisabled
@@ -629,7 +643,10 @@ public partial class SettingsDialogViewModel
     }
 
     /// <summary>最終BMS一覧と必要な代替導入先を一組で確定し、保存成功後に代替候補を解消して差分再読込みを一度だけ実行します。</summary>
-    internal async Task CommitBmsRootsAsync()
+    internal Task CommitBmsRootsAsync() => RunSettingsOperationAsync(() => CommitBmsRootsCoreAsync());
+
+    /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
+    internal async Task CommitBmsRootsCoreAsync()
     {
         if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress || statePort.IsLibraryOperationInProgress) { return; }
         if (pendingOutputChange != null) { ShowSettingValidationError(Resources.Settings_repair_related_save); return; }
@@ -653,7 +670,7 @@ public partial class SettingsDialogViewModel
         bool changed = !previousUserRoots.SequenceEqual(roots, StringComparer.OrdinalIgnoreCase)
             || !string.Equals(install, ApplicationSettings.BMSInstallDir, StringComparison.OrdinalIgnoreCase);
         if (!changed && !bmsSaveIncomplete && !fileDiffReloadPending) { return; }
-        if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Lr2Details) || !IsEditCompletionEnabled || statePort.IsLibraryOperationInProgress || pendingOutputChange != null) { return; }
+        if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Lr2Details) || !IsSectionCompletionEnabled || statePort.IsLibraryOperationInProgress || pendingOutputChange != null) { return; }
         IsEditCompletionInProgress = true;
         try
         {
@@ -798,7 +815,9 @@ public partial class SettingsDialogViewModel
     public bool HasEnvironmentChanges => CaptureEnvironmentCandidate() != EnvironmentSettingsChange.Capture(ApplicationSettings);
 
     /// <summary>起動の準備・必須UI公開が終わり、LR2環境を編集できるかを示します。</summary>
-    public bool IsEnvironmentSelectionEnabled => IsEditCompletionEnabled && !environmentTransitionInProgress
+    public bool IsEnvironmentSelectionEnabled => IsSettingsOperationAvailable && IsEnvironmentSelectionCoreEnabled;
+
+    private bool IsEnvironmentSelectionCoreEnabled => IsSectionCompletionEnabled && !environmentTransitionInProgress
         && !statePort.IsLibraryOperationInProgress;
 
     /// <summary>確定済みの設定から初回開始を受け付けられるかを示します。</summary>
@@ -832,6 +851,7 @@ public partial class SettingsDialogViewModel
         RaisePropertyChanged(nameof(IsInitialEnvironment));
         RaisePropertyChanged(nameof(CanConfirmBmsRoots));
         RaisePropertyChanged(nameof(CanCancelBmsRoots));
+        RaisePropertyChanged(nameof(IsBmsInstallDirectorySelectionEnabled));
         RaisePropertyChanged(nameof(CanCancelBmtSettings));
         RaisePropertyChanged(nameof(CanConfirmBmtSettings));
     }
@@ -839,9 +859,16 @@ public partial class SettingsDialogViewModel
     private void SettingsOperationAvailabilityChanged(object sender, EventArgs args) => RaiseEnvironmentAvailabilityChanged();
 
     /// <summary>モードの実選択は保存済みLR2組で反映します。保存前の取消・拒否は確定値へ戻し、実保存の失敗では今回入力を残して明示再操作を可能にします。</summary>
-    internal async Task SelectOperationModeAsync(bool value)
+    internal Task SelectOperationModeAsync(bool value)
     {
-        if (!IsEnvironmentSelectionEnabled) { return; }
+        if (!IsEnvironmentSelectionEnabled) { RestoreOperationModeSelection(); return Task.CompletedTask; }
+        return RunSettingsOperationAsync(() => SelectOperationModeCoreAsync(value));
+    }
+
+    /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
+    internal async Task SelectOperationModeCoreAsync(bool value)
+    {
+        if (!IsEnvironmentSelectionCoreEnabled) { return; }
         SetOperationModeSelection(value);
         bool saveStarted = false;
         try
@@ -856,9 +883,12 @@ public partial class SettingsDialogViewModel
     }
 
     /// <summary>標準パスを解決できた今回のrootだけを反映します。不正入力から前の候補を確定しません。</summary>
-    internal Task SelectLr2RootAsync(string root)
+    internal Task SelectLr2RootAsync(string root) => RunSettingsOperationAsync(() => SelectLr2RootCoreAsync(root));
+
+    /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
+    internal Task SelectLr2RootCoreAsync(string root)
     {
-        if (!IsEnvironmentSelectionEnabled || root == null) { return Task.CompletedTask; }
+        if (!IsEnvironmentSelectionCoreEnabled || root == null) { return Task.CompletedTask; }
         if (!root.IsSjisSchemeString()) { ShowSettingValidationError(Resources.Error_LR2UnicodePathUnsupported); return Task.CompletedTask; }
         if (!TryBuildStandardLr2PathTuple(root, out string song, out string config, out _))
         {
@@ -869,13 +899,16 @@ public partial class SettingsDialogViewModel
     }
 
     /// <summary>個別song.db/XMLの候補を一回の選択保存・再起動で確定します。</summary>
-    internal Task CommitEnvironmentAsync() => CommitEnvironmentChangeAsync(CaptureEnvironmentCandidate());
+    internal Task CommitEnvironmentAsync() => RunSettingsOperationAsync(() => CommitEnvironmentCoreAsync());
+
+    /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
+    internal Task CommitEnvironmentCoreAsync() => CommitEnvironmentChangeAsync(CaptureEnvironmentCandidate());
 
     /// <summary>環境の今回入力を確認・最終検証し、実受付後に保存します。再起動で失われる未了修復は確認前後と採用点で保護し、関係候補を先に破棄しません。</summary>
     /// <param name="onSaveStarted">保存前の拒否と実保存の失敗を区別するため、保存を開始する採用点だけで呼びます。</param>
     private async Task CommitEnvironmentChangeAsync(EnvironmentSettingsChange change, bool replaceDetails = false, bool modeOnly = false, Action onSaveStarted = null)
     {
-        if (!IsEnvironmentSelectionEnabled || !operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation) { return; }
+        if (!IsEnvironmentSelectionCoreEnabled || !operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation) { return; }
         if (bmsSaveIncomplete || pendingOutputChange != null || IsEnvironmentRestartBlockedByRepair)
         {
             ShowSettingValidationError(Resources.Settings_repair_related_save);
@@ -898,7 +931,7 @@ public partial class SettingsDialogViewModel
             SetOperationModeSelection(ApplicationSettings.OperationModeLR2DB);
             return;
         }
-        if (!IsEnvironmentSelectionEnabled || !operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation) { return; }
+        if (!IsEnvironmentSelectionCoreEnabled || !operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation) { return; }
         if (bmsSaveIncomplete || pendingOutputChange != null || IsEnvironmentRestartBlockedByRepair) { ShowSettingValidationError(Resources.Settings_repair_related_save); return; }
         change = modeOnly ? EnvironmentSettingsChange.Capture(ApplicationSettings) with { OperationModeLR2DB = change.OperationModeLR2DB }
             : change with { OperationModeLR2DB = ApplicationSettings.OperationModeLR2DB };
@@ -1072,7 +1105,10 @@ public partial class SettingsDialogViewModel
 
     /// <summary>有効な導入先を保護して出力配置の最小組を保存し、実移行・登録・検索root保存・公開・通知の終端を待ちます。未受理候補は復元し、修復Targetは受付・登録検証後だけ更新します。</summary>
     /// <param name="section">normal・root・additionalは当該区分だけ、pendingは受理済み要求だけを扱います。nullは下位の配置候補組を確定します。</param>
-    internal async Task CommitOutputSettingsAsync(string section = null)
+    internal Task CommitOutputSettingsAsync(string section = null) => RunSettingsOperationAsync(() => CommitOutputSettingsCoreAsync(section));
+
+    /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
+    internal async Task CommitOutputSettingsCoreAsync(string section = null)
     {
         if (section is not (null or "normal" or "root" or "additional" or "pending")) { throw new ArgumentOutOfRangeException(nameof(section)); }
         bool accepted = false;

@@ -236,7 +236,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     using (lease)
                     {
                         select.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "output-rejected-candidate-terminal");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "output-rejected-candidate-terminal");
                     }
                     Assert.AreEqual(1, dialogs.MessageCount);
                     CollectionAssert.AreEqual(previousSettings, File.ReadAllBytes(path));
@@ -246,7 +246,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 if (outcome == "confirmation-busy")
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(confirmationEntered.Task, "output-confirmation-entered");
-                    Assert.IsFalse(window.WaitForOperationCompletionAsync().IsCompleted);
+                    Assert.IsFalse(owner.SettingDialog.SettingsOperationCompletionTask.IsCompleted);
                     window.Close();
                     Assert.IsTrue(window.IsVisible, "確認中も実操作Taskを追跡し、通常Closeを拒否します。");
                     CollectionAssert.Contains(owner.SettingDialog.AvailableBMSDirectories, staged);
@@ -254,7 +254,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     confirmationLease = acquired;
                     releaseConfirmation.TrySetResult();
                 }
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "output-selection-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "output-selection-terminal");
                 Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
                 Assert.AreEqual(outcome == "invalid-after-busy" ? 2 : outcome == "confirmation-busy" ? 1 : 0, dialogs.MessageCount, dialogs.LastMessageText);
                 Assert.AreEqual(outcome == "invalid-after-busy" ? 2 : 1, dialogs.FolderRequests.Count);
@@ -280,7 +280,7 @@ public sealed partial class SettingDialogEditCompletionTests
             {
                 releaseConfirmation.TrySetResult();
                 confirmationLease?.Dispose();
-                if (window != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "output-picker-cleanup-terminal"); }
+                if (window != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "output-picker-cleanup-terminal"); }
                 window?.CloseForOwnerShutdown();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "output-picker-owner-terminal");
                 owner.SettingDialog.Dispose();
@@ -346,7 +346,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         .Single(item => item.GetBindingExpression(BeMusicSeeker.Views.Settings.SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == property);
                     dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Accepted, [section == "normal" ? normal : rootOutput]));
                     FindDescendants<Button>(picker).Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "initial-output-picker-terminal");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "initial-output-picker-terminal");
                     completed++;
                     Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
                     Assert.AreEqual(0, dialogs.MessageCount, dialogs.LastMessageText);

@@ -461,12 +461,14 @@ public sealed partial class SettingDialogEditCompletionTests
         });
     }
 
-    /// <summary>両モードで選択済みの実RadioButtonから明示Clickによる確認を取り消すと、保存・再起動要求なしで元の選択へ戻ることを確認します。</summary>
+    /// <summary>両モードの実Radioで、確認取消と別実操作中の入口拒否を分け、保存・再起動なしで両選択表示を確定モードへ戻します。</summary>
     /// <remarks>確認前に反対の選択へ切り替え、取消が実際に選択表示を復元することをOS入力状態から分離して観測します。</remarks>
     [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void OperationModeRadio_RejectedClickRestoresSelectionWithoutSaveOrRestart(bool initialOperationMode)
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void OperationModeRadio_RejectedClickRestoresSelectionWithoutSaveOrRestart(bool initialOperationMode, bool operationBusy)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -486,18 +488,29 @@ public sealed partial class SettingDialogEditCompletionTests
                 using SettingsDialogViewModel dialog = CreateOperationModeDialog(settingsSession, dialogs, lifetime);
                 window = OpenSettingsWindow(windowTest, dialog);
 
-                RadioButton requestedMode = FindOperationModeRadio(window, useLr2: !initialOperationMode);
-                requestedMode.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
-                Assert.AreEqual(true, requestedMode.IsChecked);
-                requestedMode.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, requestedMode));
-                window.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
+                var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                Task? operation = operationBusy ? dialog.RunSettingsOperationAsync(() => release.Task) : null;
+                try
+                {
+                    RadioButton requestedMode = FindOperationModeRadio(window, useLr2: !initialOperationMode);
+                    Assert.AreEqual(!operationBusy, requestedMode.IsEnabled);
+                    requestedMode.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
+                    Assert.AreEqual(true, requestedMode.IsChecked);
+                    requestedMode.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, requestedMode));
+                    window.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
 
-                Assert.AreEqual(1, dialogs.ConfirmationCount);
-                Assert.AreEqual(0, settingsSession.SaveCount);
-                Assert.AreEqual(0, lifetime.RestartCount);
-                Assert.AreEqual(initialOperationMode, dialog.OperationModeLR2DB);
-                Assert.AreEqual(initialOperationMode, settings.OperationModeLR2DB);
-                AssertOperationModePresentation(window, initialOperationMode);
+                    Assert.AreEqual(operationBusy ? 0 : 1, dialogs.ConfirmationCount);
+                    Assert.AreEqual(0, settingsSession.SaveCount);
+                    Assert.AreEqual(0, lifetime.RestartCount);
+                    Assert.AreEqual(initialOperationMode, dialog.OperationModeLR2DB);
+                    Assert.AreEqual(initialOperationMode, settings.OperationModeLR2DB);
+                    AssertOperationModePresentation(window, initialOperationMode);
+                }
+                finally
+                {
+                    release.TrySetResult();
+                    if (operation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "mode-rejected-operation-terminal"); }
+                }
             }
             finally
             {
@@ -3062,12 +3075,23 @@ public sealed partial class SettingDialogEditCompletionTests
                 if (outcome == "busy") { Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out held)); }
                 Button button = FindDescendants<Button>(window).Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "SettingsImportBeatorajaTableUrls");
                 button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                terminal = window.WaitForOperationCompletionAsync();
+                terminal = settings.SettingsOperationCompletionTask;
                 if (outcome == "accepted")
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(summaryEntered.Task, terminal, "table URL summary gate"), "table URL summary arrival");
                     Assert.AreEqual(beatoraja, settings.BeatorajaRootPath);
-                    Assert.IsTrue(settings.CanCancelBmtSettings);
+                    Assert.AreNotEqual(fixture.Settings.EnableBeatorajaBmtOutput, settings.EnableBeatorajaBmtOutput, "取込みと無関係な候補を保持します。");
+                    Assert.IsTrue(settings.CanCancelBmtSettings, "取込みと無関係なBMT候補は同期取消できます。");
+                    Button cancelBmt = FindDescendants<Button>(window).Single(candidateButton => Equals(candidateButton.Tag, "cancel:bmt"));
+                    Assert.IsTrue(cancelBmt.IsEnabled);
+                    bool repairPending = settings.IsBmtProcessingRetryRequired;
+                    cancelBmt.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Assert.AreEqual(fixture.Settings.EnableBeatorajaBmtOutput, settings.EnableBeatorajaBmtOutput);
+                    Assert.IsFalse(settings.CanCancelBmtSettings);
+                    Assert.AreEqual(repairPending, settings.IsBmtProcessingRetryRequired);
+                    Assert.AreSame(terminal, settings.SettingsOperationCompletionTask);
+                    Assert.IsFalse(terminal.IsCompleted);
+                    Assert.AreEqual(1, confirmations);
                     Assert.IsFalse(terminal.IsCompleted);
                     window.Close();
                     Assert.IsTrue(window.IsVisible);
@@ -3083,7 +3107,8 @@ public sealed partial class SettingDialogEditCompletionTests
                 if (outcome != "accepted")
                 {
                     Assert.AreEqual(candidate, settings.BeatorajaRootPath);
-                    Assert.IsTrue(settings.CanCancelBmtSettings);
+                    Assert.AreNotEqual(fixture.Settings.EnableBeatorajaBmtOutput, settings.EnableBeatorajaBmtOutput, "取込みと無関係な候補を保持します。");
+                    Assert.IsTrue(settings.CanCancelBmtSettings, "取消・受付拒否の実終端後は候補操作を再開します。");
                     Assert.IsFalse(summaryEntered.Task.IsCompleted);
                 }
                 Assert.IsTrue(window.IsVisible);
@@ -3220,7 +3245,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         FindDescendants<Button>(picker).Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     }
                     else { playerSelection.SetCurrentValue(ComboBox.SelectedItemProperty, "playerB"); }
-                    apply = window.WaitForOperationCompletionAsync();
+                    apply = viewModel.SettingDialog.SettingsOperationCompletionTask;
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(completionUi.Entered.Task, apply), "score-only-real-publish-or-failure");
                     if (!completionUi.Entered.Task.IsCompleted) { TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "score-only-real-early-terminal"); Assert.Fail(string.Join(Environment.NewLine, failures)); }
                     Assert.IsFalse(apply.IsCompleted);
@@ -3316,7 +3341,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.IsTrue(start.IsEnabled);
                     start.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     start.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                    apply = window.WaitForOperationCompletionAsync();
+                    apply = viewModel.SettingDialog.SettingsOperationCompletionTask;
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(completionUi.Entered.Task, apply), "initial-lr2-ui-or-terminal");
                     if (!completionUi.Entered.Task.IsCompleted)
                     {
@@ -3352,7 +3377,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         Assert.IsTrue(start.IsEnabled);
                         completionUi.Arm();
                         start.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                        apply = window.WaitForOperationCompletionAsync();
+                        apply = viewModel.SettingDialog.SettingsOperationCompletionTask;
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(completionUi.Entered.Task, apply, "initial-repaired-required-ui"), "initial-repaired-required-ui");
                         completionUi.Release.TrySetResult();
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "initial-repaired-terminal");

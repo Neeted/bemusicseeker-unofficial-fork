@@ -44,7 +44,7 @@ public partial class GeneralSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandleOperationModeSelectionAsync(requestedOperationMode);
+            await settingsWindow.HandleOperationModeSelectionAsync(requestedOperationMode, reportFailure: true);
         }
         catch (Exception exception)
         {
@@ -57,7 +57,7 @@ public partial class GeneralSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandleLr2SongDbSyncDataResyncAsync();
+            await settingsWindow.HandleLr2SongDbSyncDataResyncAsync(reportFailure: true);
         }
         catch (Exception exception)
         {
@@ -70,7 +70,7 @@ public partial class GeneralSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandleInstallOrRepairLr2PlayHistorySchemaAsync();
+            await settingsWindow.HandleInstallOrRepairLr2PlayHistorySchemaAsync(reportFailure: true);
         }
         catch (Exception exception)
         {
@@ -83,7 +83,7 @@ public partial class GeneralSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandleAddBmsSearchRootPathsAsync();
+            await settingsWindow.HandleAddBmsSearchRootPathsAsync(reportFailure: true);
         }
         catch (Exception exception)
         {
@@ -96,7 +96,7 @@ public partial class GeneralSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandleBrowseLr2RootPathAsync();
+            await settingsWindow.HandleBrowseLr2RootPathAsync(reportFailure: true);
         }
         catch (Exception exception)
         {
@@ -109,7 +109,7 @@ public partial class GeneralSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandleBrowseLr2SongDbPathAsync();
+            await settingsWindow.HandleBrowseLr2SongDbPathAsync(reportFailure: true);
         }
         catch (Exception ex)
         {
@@ -122,7 +122,7 @@ public partial class GeneralSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandleBrowseLr2ConfigPathAsync();
+            await settingsWindow.HandleBrowseLr2ConfigPathAsync(reportFailure: true);
         }
         catch (Exception ex)
         {
@@ -135,7 +135,7 @@ public partial class GeneralSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandleBrowseBeatorajaRootPathAsync();
+            await settingsWindow.HandleBrowseBeatorajaRootPathAsync(reportFailure: true);
         }
         catch (Exception exception)
         {
@@ -148,7 +148,7 @@ public partial class GeneralSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandleImportBeatorajaTableUrls();
+            await settingsWindow.HandleImportBeatorajaTableUrls(reportFailure: true);
         }
         catch (Exception exception)
         {
@@ -159,7 +159,7 @@ public partial class GeneralSettingsPage : UserControl
     private async void buttonRemoveBmsSearchRootClicked(object sender, RoutedEventArgs e)
     {
         SettingsWindow window = GetSettingsWindow();
-        try { await window.HandleRemoveBmsSearchRootPathAsync(); }
+        try { await window.HandleRemoveBmsSearchRootPathAsync(reportFailure: true); }
         catch (Exception failure) { await window.HandleSettingsRouteFailureAsync(failure, "BMS search root removal"); }
     }
 
@@ -173,7 +173,7 @@ public partial class GeneralSettingsPage : UserControl
     {
         if (TryGetDroppedDirectories(e, out List<string> directories))
         {
-            try { await GetSettingsWindow().HandleDroppedBmsSearchRootPathsAsync(directories); }
+            try { await GetSettingsWindow().HandleDroppedBmsSearchRootPathsAsync(directories, reportFailure: true); }
             catch (Exception failure) { await GetSettingsWindow().HandleSettingsRouteFailureAsync(failure, "BMS search root drop"); }
         }
 

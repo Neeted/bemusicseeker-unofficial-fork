@@ -270,14 +270,29 @@ public sealed partial class SettingDialogEditCompletionTests
                 ComboBox combo = FindDescendants<ComboBox>(window).Single(item => item.GetBindingExpression(Selector.SelectedItemProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.BMSInstallDir));
                 CollectionAssert.Contains(combo.Items.Cast<string>().ToArray(), alternate);
                 CollectionAssert.DoesNotContain(combo.Items.Cast<string>().ToArray(), staged);
-                combo.SetCurrentValue(Selector.SelectedItemProperty, alternate);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "install-selection-terminal");
-                TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual(1, dialogs.ConfirmationCount);
-                Assert.AreEqual(accepted ? alternate : original, PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
-                Assert.AreEqual(accepted ? alternate : original, combo.SelectedItem);
-                Assert.AreEqual(!accepted, dialog.AvailableBMSDirectories.Contains(staged));
-                CollectionAssert.DoesNotContain(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), staged);
+                Assert.IsTrue(combo.IsEnabled);
+                bool enabledDuringAcceptedOperation = false;
+                System.ComponentModel.PropertyChangedEventHandler availabilityChanged = (_, change) =>
+                {
+                    if (change.PropertyName == nameof(SettingsDialogViewModel.IsBmsInstallDirectorySelectionEnabled)
+                        && !dialog.IsSettingsOperationAvailable && dialog.IsBmsInstallDirectorySelectionEnabled)
+                    { enabledDuringAcceptedOperation = true; }
+                };
+                dialog.PropertyChanged += availabilityChanged;
+                try
+                {
+                    combo.SetCurrentValue(Selector.SelectedItemProperty, alternate);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "install-selection-terminal");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(1, dialogs.ConfirmationCount);
+                    Assert.AreEqual(accepted ? alternate : original, PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
+                    Assert.AreEqual(accepted ? alternate : original, combo.SelectedItem);
+                    Assert.AreEqual(!accepted, dialog.AvailableBMSDirectories.Contains(staged));
+                    CollectionAssert.DoesNotContain(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), staged);
+                    Assert.IsTrue(combo.IsEnabled);
+                    Assert.AreEqual(accepted, enabledDuringAcceptedOperation, "採用点の候補破棄だけでも可否を通知し、取消では候補を保持します。");
+                }
+                finally { dialog.PropertyChanged -= availabilityChanged; }
             }
             catch (Exception failure) { primaryFailure = failure; throw; }
             finally { CompleteCandidateFixture(owner, root, null, window, primaryFailure); }
@@ -323,7 +338,7 @@ public sealed partial class SettingDialogEditCompletionTests
             finally { CompleteCandidateFixture(owner, root, null, null, primaryFailure); }
         });
     }
-    /// <summary>独立導入先は無関係なL/PやWindow操作中も普通の項目保存を行います。BMS破棄確認だけは単一Window所有に従い、受理できない選択を表示・候補・媒体へ残しません。</summary>
+    /// <summary>独立導入先は無関係なL/PやWindow操作中も普通の項目保存を行います。BMS破棄確認だけは設定担当の単一所有に従って無効表示と入口拒否を揃え、普通保存・同じTask・元候補と終端後再操作を保ちます。</summary>
     [DataTestMethod]
     [DataRow("library", false)]
     [DataRow("playlist", true)]
@@ -359,6 +374,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationInstall");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 ComboBox combo = FindDescendants<ComboBox>(window).Single(item => item.GetBindingExpression(Selector.SelectedItemProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.BMSInstallDir));
+                Assert.IsTrue(combo.IsEnabled, "設定実操作を受け付けられる間は候補確認付きの選択も可能です。");
                 if (busy == "window") { otherOperation = window.RunViewOperationAsync(() => release.Task); }
                 else
                 {
@@ -366,25 +382,29 @@ public sealed partial class SettingDialogEditCompletionTests
                     ChartFileOperationSynchronizer admission = busy == "library" ? composition.OperationAdmission : composition.PlaylistOperationAdmission;
                     Assert.IsTrue(admission.TryEnter(out IDisposable acquired)); held = acquired;
                 }
-                Task originalCompletion = window.WaitForOperationCompletionAsync();
-                combo.SetCurrentValue(Selector.SelectedItemProperty, alternate);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 bool rejected = busy == "window" && hasDraft;
+                Assert.AreEqual(!rejected, combo.IsEnabled, "設定busyでも確認不要の同期保存は有効に保ちます。");
+                Task originalCompletion = owner.SettingDialog.SettingsOperationCompletionTask;
+                combo.SetCurrentValue(Selector.SelectedItemProperty, alternate);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(rejected ? original : alternate, PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
                 Assert.AreEqual(rejected ? original : alternate, combo.SelectedItem);
                 Assert.AreEqual(rejected, dialog.AvailableBMSDirectories.Contains(staged));
                 Assert.AreEqual(hasDraft && !rejected ? 1 : 0, dialogs.ConfirmationCount);
                 if (busy == "window")
                 {
-                    Assert.AreSame(originalCompletion, window.WaitForOperationCompletionAsync());
+                    Assert.AreSame(originalCompletion, owner.SettingDialog.SettingsOperationCompletionTask);
                     Assert.IsFalse(originalCompletion.IsCompleted, "普通の保存も確認拒否も別操作Taskを置き換えません。");
                     window.Close(); Assert.IsTrue(window.IsVisible);
                     release.TrySetResult();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(otherOperation ?? throw new AssertFailedException("window operation missing"), "independent-install-other-operation");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsTrue(combo.IsEnabled, "実終端後は候補確認付きの明示選択も再開します。");
                     if (rejected)
                     {
                         combo.SetCurrentValue(Selector.SelectedItemProperty, alternate);
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "independent-install-explicit-retry");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "independent-install-explicit-retry");
                         Assert.AreEqual(1, dialogs.ConfirmationCount);
                         Assert.AreEqual(alternate, PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
                         CollectionAssert.DoesNotContain(dialog.AvailableBMSDirectories, staged);
@@ -409,7 +429,7 @@ public sealed partial class SettingDialogEditCompletionTests
         if (held != null) { Cleanup(held.Dispose); }
         if (window != null)
         {
-            Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "candidate-window-cleanup"));
+            Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(owner?.SettingDialog.SettingsOperationCompletionTask ?? Task.CompletedTask, "candidate-window-cleanup"));
             Cleanup(window.CloseForOwnerShutdown);
         }
         if (owner != null)

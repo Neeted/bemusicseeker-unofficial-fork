@@ -153,9 +153,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private SettingsWindow settingsWindow;
 
-    // 表示参照がモーダル終了で消えた後も、owner終了は受理済み設定操作の実Taskを回収します。
-    private Task settingsOperationCompletionTask = Task.CompletedTask;
-
     private TaskCompletionSource<object> settingsPresentationClosed;
 
 #nullable enable
@@ -1187,7 +1184,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         // 失敗後の再表示では、前の保存処理を次のモーダル画面の終了待ちにしない。
         RunOnUiThread(() =>
         {
-            if (!IsShellClosingOrClosed())
+            if (!IsShellClosingOrClosed() && (DataContext as MainWindowViewModel)?.SettingDialog.IsSettingsOperationAvailable == true)
             {
                 ShowSettingsWindow(requestedTimestamp);
             }
@@ -1283,16 +1280,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         finally
         {
             TaskCompletionSource<object> closed = settingsPresentationClosed;
-            if (settingsWindow != null)
-            {
-                // 表示が先に閉じる手動同期も、受理済み実Taskの終端をShellの終了へ引き継ぎます。
-                Task operation = settingsWindow.WaitForOperationCompletionAsync();
-                if (!operation.IsCompleted)
-                {
-                    settingsOperationCompletionTask = settingsOperationCompletionTask.IsCompleted
-                        ? operation : Task.WhenAll(settingsOperationCompletionTask, operation);
-                }
-            }
             settingsWindow = null;
             settingsPresentationClosed = null;
             PlaybackOverlayVisibility = previousPlaybackOverlayVisibility;
@@ -1338,7 +1325,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     private void CloseSettingsForOwnerShutdown()
     {
         if (settingsWindow == null) { return; }
-        settingsOperationCompletionTask = Task.WhenAll(settingsOperationCompletionTask, settingsWindow.WaitForOperationCompletionAsync());
         settingsWindow.CloseForOwnerShutdown();
     }
 
@@ -1350,7 +1336,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 "The settings window application-exit terminal must run on the MainWindow dispatcher.");
         }
 
-        settingsOperationCompletionTask = Task.WhenAll(settingsOperationCompletionTask, source.WaitForOperationCompletionAsync());
         source.CloseForOwnerShutdown();
         Close();
     }
@@ -1703,7 +1688,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         PlaylistPropertyDialog propertyDialog = activePlaylistPropertyDialog;
         PlaylistSummaryBulkEditDialog bulkEditDialog = activePlaylistSummaryBulkEditDialog;
         Task propertyOperationTask = propertyDialog?.WaitForOperationCompletionAsync() ?? Task.CompletedTask;
-        var settingsOperationTask = Task.WhenAll(settingsOperationCompletionTask, settingsWindow?.WaitForOperationCompletionAsync() ?? Task.CompletedTask);
+        Task settingsOperationTask = viewModel?.SettingDialog.SettingsOperationCompletionTask ?? Task.CompletedTask;
         Task bulkApplyTask = bulkEditDialog?.WaitForApplyCompletionAsync() ?? Task.CompletedTask;
         Task propertyCleanupTask = playlistPropertyDialogCleanupTask ?? Task.CompletedTask;
         Task bulkCleanupTask = playlistSummaryBulkEditDialogCleanupTask ?? Task.CompletedTask;

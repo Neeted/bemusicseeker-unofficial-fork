@@ -120,6 +120,7 @@ public partial class SettingsDialogViewModel : ViewModel
             isEditCompletionInProgress = value;
             RaisePropertyChanged(nameof(IsEditCompletionInProgress));
             RaisePropertyChanged(nameof(IsEditCompletionEnabled));
+            RaisePropertyChanged(nameof(CanUninstallApplicationData));
             RaisePropertyChanged(nameof(IsEditCancellationEnabled));
             RaisePropertyChanged(nameof(IsAudioOutputSelectionEnabled));
             RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));
@@ -134,7 +135,9 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>
     /// ライブラリ・出力の実処理を伴う次の局所確定を受け付けられるかを示します。独立同期確定の可否は分けて公開します。
     /// </summary>
-    public bool IsEditCompletionEnabled => !IsEditCompletionInProgress && !IsAudioDeviceTestInProgress;
+    public bool IsEditCompletionEnabled => IsSettingsOperationAvailable && IsSectionCompletionEnabled;
+
+    private bool IsSectionCompletionEnabled => !IsEditCompletionInProgress && !IsAudioDeviceTestInProgress;
 
     private bool environmentTransitionInProgress;
 
@@ -151,14 +154,14 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>
     /// 受理中の局所処理または音声テストを残さず、通常閉鎖できるかを示します。
     /// </summary>
-    public bool IsEditCancellationEnabled => !IsEditCompletionInProgress
+    public bool IsEditCancellationEnabled => IsSettingsOperationAvailable && !IsEditCompletionInProgress
         && !IsAudioDeviceTestInProgress;
 
     /// <summary>音声設定担当が所有するIsAudioDeviceTestInProgressを画面へ接続します。</summary>
     public bool IsAudioDeviceTestInProgress => audioDeviceTestWorkflow.IsAudioDeviceTestInProgress;
 
     /// <summary>音声設定担当が所有するIsAudioDeviceTestAvailableを画面へ接続します。</summary>
-    public bool IsAudioDeviceTestAvailable => !IsEditCompletionInProgress && audioDeviceTestWorkflow.IsAudioDeviceTestAvailable;
+    public bool IsAudioDeviceTestAvailable => IsSettingsOperationAvailable && !IsEditCompletionInProgress && audioDeviceTestWorkflow.IsAudioDeviceTestAvailable;
 
     /// <summary>音声設定担当が所有するAudioDeviceTestButtonContentを画面へ接続します。</summary>
     public string AudioDeviceTestButtonContent => audioDeviceTestWorkflow.AudioDeviceTestButtonContent;
@@ -206,7 +209,7 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <param name="deferPresentation">失敗後の再表示など、呼出元をモーダル表示で待たせない場合は true。</param>
     internal void RequestOpen(bool deferPresentation = false)
     {
-        if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress) { return; }
+        if (!IsSettingsOperationAvailable || IsEditCompletionInProgress || IsAudioDeviceTestInProgress) { return; }
         presentationPort?.OpenSettingsDialog(deferPresentation);
     }
 
@@ -238,7 +241,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void ExecuteCloseCommand()
     {
-        if (IsEditCompletionInProgress
+        if (!IsSettingsOperationAvailable || IsEditCompletionInProgress
             || IsAudioDeviceTestInProgress)
         {
             return;
@@ -302,9 +305,12 @@ public partial class SettingsDialogViewModel : ViewModel
     }
 
     /// <summary>手動同期の実受付時だけ関係環境候補を戻し、閉鎖を通知して実処理の終端を待ちます。</summary>
-    internal async Task RequestLr2SongDbSyncAsync(Action accepted = null)
+    internal Task RequestLr2SongDbSyncAsync(Action accepted = null) => RunSettingsOperationAsync(() => RequestLr2SongDbSyncCoreAsync(accepted));
+
+    /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
+    internal async Task RequestLr2SongDbSyncCoreAsync(Action accepted = null)
     {
-        if (!CanRequestLr2SongDbSyncDataResync) { return; }
+        if (!CanRequestLr2SongDbSyncCore) { return; }
         await lr2SongDbSyncWorkflow.RequestManualResyncAsync(admitted =>
         {
             if (!admitted) { return; }
@@ -572,13 +578,18 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>実操作の可否は確定済み環境だけから判定します。</summary>
     public bool CanUseLr2Features => ApplicationSettings.OperationModeLR2DB;
 
+    /// <summary>LR2連携が有効で別の設定実操作がない場合に、管理データ撤去を表示上許可します。</summary>
+    public bool CanUninstallApplicationData => CanUseLr2Features && IsEditCompletionEnabled;
+
     /// <summary>Gets whether the standalone library composition is selected.</summary>
     public bool IsStandaloneOperationMode => !OperationModeLR2DB;
 
     /// <summary>
     /// 設定画面から LR2 の派生データ再同期を要求できる状態かどうかを返します。
     /// </summary>
-    public bool CanRequestLr2SongDbSyncDataResync => statePort.HasActiveLibraryProfile
+    public bool CanRequestLr2SongDbSyncDataResync => IsSettingsOperationAvailable && CanRequestLr2SongDbSyncCore;
+
+    private bool CanRequestLr2SongDbSyncCore => statePort.HasActiveLibraryProfile
         && ApplicationSettings.OperationModeLR2DB && !scoreReloadPending && !fileDiffReloadPending
         && !statePort.IsLibraryOperationInProgress;
 
@@ -661,6 +672,9 @@ public partial class SettingsDialogViewModel : ViewModel
         RaiseValidationStateChanged();
     }
 
+    /// <summary>受付前に拒否したモード入力の両Radioを、保存済みモードへ再通知します。</summary>
+    internal void RestoreOperationModeSelection() => SetOperationModeSelection(ApplicationSettings.OperationModeLR2DB);
+
     private void SetOperationModeSelection(bool value)
     {
         operationModeLR2DB = value;
@@ -668,6 +682,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(IsStandaloneOperationMode));
         RaisePropertyChanged(nameof(IsOperationModeChanged));
         RaisePropertyChanged(nameof(CanUseLr2Features));
+        RaisePropertyChanged(nameof(CanUninstallApplicationData));
         RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
         RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
         RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));
@@ -829,7 +844,9 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>通常の導入先選択に使う最新の確定BMS一覧です。</summary>
     public IReadOnlyList<string> ConfirmedBMSDirectories => GetConfirmedBmsRoots();
 
-    public bool IsBmsSearchRootEditorEnabled => IsEditCompletionEnabled && (!ApplicationSettings.OperationModeLR2DB || lr2config != null);
+    public bool IsBmsSearchRootEditorEnabled => IsSettingsOperationAvailable && IsBmsSearchRootEditorCoreEnabled;
+
+    private bool IsBmsSearchRootEditorCoreEnabled => IsSectionCompletionEnabled && (!ApplicationSettings.OperationModeLR2DB || lr2config != null);
 
     internal Lr2PlayHistorySchemaStatusSnapshot Lr2PlayHistorySchemaStatusSnapshot => lr2PlayHistorySchemaStatusSnapshot;
 
@@ -863,7 +880,9 @@ public partial class SettingsDialogViewModel : ViewModel
     /// LR2 play history schema に対して enable/repair のどちらかを実行できるかを返します。
     /// UI では状態別にボタンを分けず、現在の schema 状態に応じて同じ操作境界へ集約します。
     /// </summary>
-    public bool CanInstallOrRepairLr2PlayHistorySchema =>
+    public bool CanInstallOrRepairLr2PlayHistorySchema => IsSettingsOperationAvailable && CanInstallOrRepairLr2PlayHistorySchemaCore;
+
+    private bool CanInstallOrRepairLr2PlayHistorySchemaCore =>
         ApplicationSettings.OperationModeLR2DB
         && !string.IsNullOrWhiteSpace(Lr2PlayHistoryScoreDbPath)
         && (lr2PlayHistorySchemaStatusSnapshot == null || CanInstallLr2PlayHistorySchema || CanRepairLr2PlayHistorySchema);
@@ -892,10 +911,15 @@ public partial class SettingsDialogViewModel : ViewModel
     /// Advanced の Danger zone から LR2 play history schema のアンインストール操作を開始できるかを返します。
     /// destructive な選択は押下後の確認ダイアログへ閉じ込めます。
     /// </summary>
-    public bool CanUninstallLr2PlayHistorySchema => ApplicationSettings.OperationModeLR2DB && !string.IsNullOrWhiteSpace(Lr2PlayHistoryScoreDbPath);
+    public bool CanUninstallLr2PlayHistorySchema => IsSettingsOperationAvailable && CanUninstallLr2PlayHistorySchemaCore;
+
+    private bool CanUninstallLr2PlayHistorySchemaCore => ApplicationSettings.OperationModeLR2DB && !string.IsNullOrWhiteSpace(Lr2PlayHistoryScoreDbPath);
 
     /// <summary>履歴schema変更をL/Pで副作用前に受理し、必要スコア再読込み・通知の実終端まで保持します。</summary>
-    internal async Task InstallOrRepairLr2PlayHistorySchemaAsync()
+    internal Task InstallOrRepairLr2PlayHistorySchemaAsync() => RunSettingsOperationAsync(() => InstallOrRepairLr2PlayHistorySchemaCoreAsync());
+
+    /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
+    internal async Task InstallOrRepairLr2PlayHistorySchemaCoreAsync()
     {
         if (!TryBeginBothSettingsAdmissions(out IDisposable admission, out LibraryFileMutationLease playlistLease))
         {
@@ -924,7 +948,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
 
         await RefreshLr2PlayHistorySchemaStatusAsync(force: true);
-        if (!CanInstallOrRepairLr2PlayHistorySchema)
+        if (!CanInstallOrRepairLr2PlayHistorySchemaCore)
         {
             return null;
         }
@@ -997,6 +1021,14 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>管理データ撤去の確認をL/Pで受理し、通常終了への要求受理だけを待って受付を解放します。削除の完了は待ちません。</summary>
     internal async Task<ApplicationDataUninstallResult> UninstallApplicationDataAsync(Func<ApplicationDataUninstallWorkflowOwner, string, Task<bool>> requestShutdown)
     {
+        ApplicationDataUninstallResult result = ApplicationDataUninstallResult.Blocked;
+        await RunSettingsOperationAsync(async () => result = await UninstallApplicationDataCoreAsync(requestShutdown));
+        return result;
+    }
+
+    /// <summary>受理済み撤去を通常終了へ渡し、要求元自身の終了完了は待ちません。</summary>
+    internal async Task<ApplicationDataUninstallResult> UninstallApplicationDataCoreAsync(Func<ApplicationDataUninstallWorkflowOwner, string, Task<bool>> requestShutdown)
+    {
         if (!workspacePort.HasPlaylistTables) { return ApplicationDataUninstallResult.NotStarted; }
         if (!TryBeginBothSettingsAdmissions(out IDisposable admission, out LibraryFileMutationLease playlistLease))
         {
@@ -1021,7 +1053,10 @@ public partial class SettingsDialogViewModel : ViewModel
     }
 
     /// <summary>履歴schema変更をL/Pで副作用前に受理し、必要スコア再読込み・通知の実終端まで保持します。</summary>
-    internal async Task UninstallLr2PlayHistorySchemaAsync()
+    internal Task UninstallLr2PlayHistorySchemaAsync() => RunSettingsOperationAsync(() => UninstallLr2PlayHistorySchemaCoreAsync());
+
+    /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
+    internal async Task UninstallLr2PlayHistorySchemaCoreAsync()
     {
         if (!TryBeginBothSettingsAdmissions(out IDisposable admission, out LibraryFileMutationLease playlistLease))
         {
@@ -1051,7 +1086,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
         await RefreshLr2PlayHistorySchemaStatusAsync(force: true);
         Lr2PlayHistorySchemaStatusSnapshot before = Lr2PlayHistorySchemaStatusSnapshot;
-        if (before == null || !CanUninstallLr2PlayHistorySchema)
+        if (before == null || !CanUninstallLr2PlayHistorySchemaCore)
         {
             return null;
         }
@@ -2019,10 +2054,22 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>独立導入先として保存済みの値です。選択肢は確定BMS一覧だけから表示します。</summary>
     public string BMSInstallDir => ApplicationSettings.BMSInstallDir;
 
+    /// <summary>確認不要の独立導入先選択は実操作中も有効に保ち、BMS候補の破棄確認が必要な選択だけ設定の単一受付に従って無効化します。</summary>
+    public bool IsBmsInstallDirectorySelectionEnabled => IsSettingsOperationAvailable || !RequiresBmsInstallDirectoryConfirmation;
+
     /// <summary>独立導入先の今回入力だけを検証・確認し、採用時に競合BMS候補を破棄して保存します。BMS一覧は保存しません。</summary>
     /// <param name="value">確定BMS一覧から今回選んだ導入先。</param>
     /// <param name="allowCandidateConfirmation">Windowが破棄確認を所有できる場合だけtrue。確認不要の項目保存はこの可否に依存しません。</param>
-    internal async Task SelectBmsInstallDirectoryAsync(string value, bool allowCandidateConfirmation = true)
+    internal Task SelectBmsInstallDirectoryAsync(string value, bool allowCandidateConfirmation = true)
+    {
+        if (!RequiresBmsInstallDirectoryConfirmation) { return SelectBmsInstallDirectoryCoreAsync(value, allowCandidateConfirmation: false); }
+        if (!allowCandidateConfirmation || !IsSettingsOperationAvailable)
+        { RaisePropertyChanged(nameof(BMSInstallDir)); return Task.CompletedTask; }
+        return RunSettingsOperationAsync(() => SelectBmsInstallDirectoryCoreAsync(value));
+    }
+
+    /// <summary>確認不要の同期保存、又は受理済みの候補確認を実行します。</summary>
+    internal async Task SelectBmsInstallDirectoryCoreAsync(string value, bool allowCandidateConfirmation = true)
     {
         try
         {
@@ -2038,7 +2085,10 @@ public partial class SettingsDialogViewModel : ViewModel
     }
 
     /// <summary>個別LR2パスの今回入力を検証し、非同期の候補確認と採用時再検査後に詳細組へ採用します。</summary>
-    internal async Task SelectLr2DetailPathAsync(string propertyName, string value)
+    internal Task SelectLr2DetailPathAsync(string propertyName, string value) => RunSettingsOperationAsync(() => SelectLr2DetailPathCoreAsync(propertyName, value));
+
+    /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
+    internal async Task SelectLr2DetailPathCoreAsync(string propertyName, string value)
     {
         bool IsValid() => propertyName switch
         {
@@ -4108,7 +4158,10 @@ public partial class SettingsDialogViewModel : ViewModel
     internal void SetAudioSettingsPageVisible(bool visible) => audioDeviceTestWorkflow.SetAudioSettingsPageVisible(visible);
 
     /// <summary>固定した下書きでテストし、音声担当が解放完了まで追跡します。</summary>
-    internal Task RunAudioDeviceTestAsync() => IsEditCompletionInProgress ? Task.CompletedTask : audioDeviceTestWorkflow.RunAudioDeviceTestAsync();
+    internal Task RunAudioDeviceTestAsync() => RunSettingsOperationAsync(() => RunAudioDeviceTestCoreAsync());
+
+    /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
+    internal Task RunAudioDeviceTestCoreAsync() => IsEditCompletionInProgress ? Task.CompletedTask : audioDeviceTestWorkflow.RunAudioDeviceTestAsync();
 
     /// <summary>音声一覧・能力照会・テストが実処理と表示終端を終えるTaskを取得します。終了時は先に表示を失効させます。</summary>
     internal Task AudioSettingsCompletionTask => audioDeviceTestWorkflow.AudioSettingsCompletionTask;
@@ -4967,12 +5020,16 @@ public partial class SettingsDialogViewModel : ViewModel
     }
 
     /// <summary>複数BMS入力を検証し、競合詳細候補の確認後に一覧候補へまとめて追加します。保存は明示確定まで行いません。</summary>
-    public Task AddBmsSearchRootPathsAsync(IEnumerable<string> paths)
-        => ApplicationSettings.OperationModeLR2DB ? AddBMSDirectoriesToLR2ConfigAsync(paths) : AddStandaloneBmsRootPathsAsync(paths);
+    public Task AddBmsSearchRootPathsAsync(IEnumerable<string> paths) => RunSettingsOperationAsync(() => AddBmsSearchRootPathsCoreAsync(paths));
+
+    /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
+    internal Task AddBmsSearchRootPathsCoreAsync(IEnumerable<string> paths)
+        => ApplicationSettings.OperationModeLR2DB ? AddBMSDirectoriesToLR2ConfigAsync(paths) : AddStandaloneBmsRootPathsCoreAsync(paths);
 
     /// <summary>単独モードのBMS候補を検証・確認後に追加し、確定値は変更しません。</summary>
-    public Task AddStandaloneBmsRootPathsAsync(IEnumerable<string> paths) => AddStandaloneBmsRootPathsCoreAsync(paths);
+    public Task AddStandaloneBmsRootPathsAsync(IEnumerable<string> paths) => RunSettingsOperationAsync(() => AddStandaloneBmsRootPathsCoreAsync(paths));
 
+    /// <summary>受理済みの単独BMS候補編集を、設定受付を取り直さず実行します。</summary>
     private async Task AddStandaloneBmsRootPathsCoreAsync(IEnumerable<string> paths)
     {
         try
@@ -5072,7 +5129,10 @@ public partial class SettingsDialogViewModel : ViewModel
     }
 
     /// <summary>選択したBMS登録の候補だけを削除します。競合詳細候補を非同期で確認し、保存は一覧の明示確定まで行いません。</summary>
-    internal async Task RemoveBmsSearchRootPathAsync(string dir)
+    internal Task RemoveBmsSearchRootPathAsync(string dir) => RunSettingsOperationAsync(() => RemoveBmsSearchRootPathCoreAsync(dir));
+
+    /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
+    internal async Task RemoveBmsSearchRootPathCoreAsync(string dir)
     {
         if (ApplicationSettings.OperationModeLR2DB)
         {
@@ -5326,6 +5386,7 @@ public partial class SettingsDialogViewModel : ViewModel
         if (args.PropertyName == nameof(IsAudioDeviceTestInProgress))
         {
             RaisePropertyChanged(nameof(IsEditCompletionEnabled));
+            RaisePropertyChanged(nameof(CanUninstallApplicationData));
             RaisePropertyChanged(nameof(IsEditCancellationEnabled));
             RaisePropertyChanged(nameof(IsIndependentSectionEnabled));
             RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));

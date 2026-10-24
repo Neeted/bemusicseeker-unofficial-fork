@@ -19,8 +19,8 @@ public partial class SettingsWindow
     private async void ScoreSelectionChanged(object sender, EventArgs e)
     {
         if (!presentationActivated || sender is not SettingsDialogViewModel settings || !settings.HasScoreSelectionChanges
-            || !settings.IsScoreSelectionValid || viewOperationInProgress || !settings.IsScoreSelectionEnabled) { return; }
-        try { await RunViewOperationAsync(settings.CommitScoreSettingsAsync); }
+            || !settings.IsScoreSelectionValid || !settings.IsSettingsOperationAvailable || !settings.IsScoreSelectionEnabled) { return; }
+        try { await RunViewOperationAsync(settings.CommitScoreSettingsCoreAsync, reportFailure: true); }
         catch (Exception failure) { await HandleSettingsRouteFailureAsync(failure, "score selection confirmation"); }
     }
 
@@ -29,13 +29,16 @@ public partial class SettingsWindow
         if (e.OriginalSource is not Button { Tag: string tag } || !tag.Contains(':', StringComparison.Ordinal)) { return; }
         SettingsDialogViewModel settings = GetSettingDialogViewModel();
         bool independentSection = tag[(tag.IndexOf(':') + 1)..] is "audio" or "image" or "player" or "web" or "program";
-        if (independentSection ? !settings.IsIndependentSectionEnabled : viewOperationInProgress || !settings.IsEditCompletionEnabled) { return; }
+        bool independentBmtCancellation = tag == "cancel:bmt";
+        if (independentBmtCancellation ? !settings.CanCancelBmtSettings
+            : independentSection ? !settings.IsIndependentSectionEnabled
+            : !settings.IsSettingsOperationAvailable || !settings.IsEditCompletionEnabled) { return; }
         e.Handled = true;
         try
         {
-            // 同期の局所確定はUIスレッドで終わり、受理中のL/P処理のTask・Close抑止を置き換えません。
-            if (independentSection) { await RunSectionActionAsync(settings, tag); }
-            else { await RunViewOperationAsync(() => RunSectionActionAsync(settings, tag)); }
+            // 同期の局所確定と無関係なBMT候補取消は、受理済み実操作のTask・Close抑止を置き換えません。
+            if (independentSection || independentBmtCancellation) { await RunSectionActionAsync(settings, tag); }
+            else { await RunViewOperationAsync(() => RunSectionActionAsync(settings, tag), reportFailure: true); }
         }
         catch (Exception exception) { await HandleSettingsRouteFailureAsync(exception, "settings section " + tag); }
     }
@@ -48,12 +51,12 @@ public partial class SettingsWindow
             case "confirm:program": settings.CommitRightClickRecord(false); break;
             case "cancel:web": settings.CancelRightClickRecord(true); break;
             case "cancel:program": settings.CancelRightClickRecord(false); break;
-            case "confirm:bms": return settings.CommitBmsRootsAsync();
-            case "retry:beatoraja-root": return settings.CommitBeatorajaRootSettingsAsync();
-            case "retry:score": return settings.CommitScoreSettingsAsync();
-            case "confirm:bmt": return settings.CommitBmtSettingsAsync();
-            case "confirm:environment": return settings.CommitEnvironmentAsync();
-            case "retry:output": return settings.CommitOutputSettingsAsync("pending");
+            case "confirm:bms": return settings.CommitBmsRootsCoreAsync();
+            case "retry:beatoraja-root": return settings.CommitBeatorajaRootSettingsCoreAsync();
+            case "retry:score": return settings.CommitScoreSettingsCoreAsync();
+            case "confirm:bmt": return settings.CommitBmtSettingsCoreAsync();
+            case "confirm:environment": return settings.CommitEnvironmentCoreAsync();
+            case "retry:output": return settings.CommitOutputSettingsCoreAsync("pending");
             case "retry:audio": settings.CommitAudioSettings(); break;
             case "retry:player": settings.CommitExternalPlayerSettings(); break;
             case "retry:image": settings.CommitImageSettings(); break;

@@ -48,10 +48,6 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
 
     private bool userCancellationQueued;
 
-    private bool viewOperationInProgress;
-
-    private TaskCompletionSource viewOperationCompletion;
-
     private readonly IUiDialogService dialogService;
 
     private readonly SettingsWindowApplicationExitTerminal applicationExitTerminal;
@@ -388,7 +384,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     private void QueueUserCancellation()
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        if (!settingDialogViewModel.IsEditCancellationEnabled || viewOperationInProgress || userCancellationQueued)
+        if (!settingDialogViewModel.IsEditCancellationEnabled || !GetSettingDialogViewModel().IsSettingsOperationAvailable || userCancellationQueued)
         {
             return;
         }
@@ -435,44 +431,18 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         QueueUserCancellation();
     }
 
-    private void BeginViewOperation()
+    /// <summary>画面のpicker・確認から実処理・後片付けまでを設定担当の単一受付へ渡します。</summary>
+    /// <param name="operation">受理後だけ実行する画面処理と設定core。</param>
+    /// <param name="reportFailure">実入力イベントが担当する失敗通知も同じTask内で回収する場合はtrue。直接呼出しは元例外を受け取ります。</param>
+    /// <param name="routeName">失敗診断へ渡す入力経路。省略時は呼出元メソッド名です。</param>
+    internal async Task RunViewOperationAsync(Func<Task> operation, bool reportFailure = false, [System.Runtime.CompilerServices.CallerMemberName] string routeName = null)
     {
-        if (viewOperationInProgress)
-        {
-            throw new InvalidOperationException("A settings window operation is already in progress.");
-        }
-
-        viewOperationInProgress = true;
-        viewOperationCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-    }
-
-    private void EndViewOperation()
-    {
-        viewOperationInProgress = false;
-        viewOperationCompletion?.TrySetResult();
-    }
-
-    /// <summary>所有者終了が、設定画面から開始した受理済み処理と通知の実終端を回収します。</summary>
-    internal Task WaitForOperationCompletionAsync() => viewOperationCompletion?.Task ?? Task.CompletedTask;
-
-    /// <summary>
-    /// 非同期処理の完了と利用者の閉じる操作の抑止を接続します。
-    /// 保存成功による表示終了後も処理を追跡し、破棄済み画面の操作受付は再開しません。
-    /// </summary>
-    /// <param name="operation">画面が閉じられた場合も完了まで追跡する処理。</param>
-    /// <returns>処理と画面側の後片付けの完了を表すタスク。</returns>
-    internal async Task RunViewOperationAsync(Func<Task> operation)
-    {
-        ArgumentNullException.ThrowIfNull(operation);
-        BeginViewOperation();
         try
         {
-            await operation();
+            await GetSettingDialogViewModel().RunSettingsOperationAsync(operation,
+                reportFailure ? failure => HandleSettingsRouteFailureAsync(failure, routeName) : null);
         }
-        finally
-        {
-            EndViewOperation();
-        }
+        catch when (reportFailure) { }
     }
 
     /// <summary>
@@ -480,14 +450,14 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     /// </summary>
     /// <param name="operation">ViewModel が所有する初期化・必須公開処理。</param>
     /// <returns>設定の反映と画面側の後片付けの完了を表すタスク。</returns>
-    internal async Task RunInitializationOperationAsync(Func<Task> operation)
+    internal async Task RunInitializationOperationAsync(Func<Task> operation, bool reportFailure = false)
     {
         ArgumentNullException.ThrowIfNull(operation);
         closeReason = SettingsWindowCloseReason.None;
         presentationCloseObserved = false;
         try
         {
-            await RunViewOperationAsync(operation);
+            await RunViewOperationAsync(operation, reportFailure);
         }
         finally
         {
@@ -495,20 +465,6 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             {
                 closeReason = SettingsWindowCloseReason.None;
             }
-        }
-    }
-
-    private async Task<TResult> RunViewOperationAsync<TResult>(Func<Task<TResult>> operation)
-    {
-        ArgumentNullException.ThrowIfNull(operation);
-        BeginViewOperation();
-        try
-        {
-            return await operation();
-        }
-        finally
-        {
-            EndViewOperation();
         }
     }
 
@@ -546,10 +502,10 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
 
     private async void buttonOKClick(object sender, RoutedEventArgs e)
     {
-        if (viewOperationInProgress || !GetSettingDialogViewModel().CanStartEnvironment) { return; }
+        if (!GetSettingDialogViewModel().IsSettingsOperationAvailable || !GetSettingDialogViewModel().CanStartEnvironment) { return; }
         try
         {
-            await RunInitializationOperationAsync(() => GetSettingDialogViewModel().StartConfirmedEnvironmentAsync());
+            await RunInitializationOperationAsync(() => GetSettingDialogViewModel().StartConfirmedEnvironmentCoreAsync(), reportFailure: true);
         }
         catch (Exception exception)
         {
@@ -681,30 +637,30 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         return string.IsNullOrWhiteSpace(second) ? string.Empty : Path.GetDirectoryName(second) ?? string.Empty;
     }
 
-    /// <summary>実radio入力のモード反映を同じWindowの操作Taskで追跡します。</summary>
-    internal Task HandleOperationModeSelectionAsync(bool value)
+    /// <summary>実radio入力のモード反映を設定担当の単一操作として追跡します。</summary>
+    internal Task HandleOperationModeSelectionAsync(bool value, bool reportFailure = false)
     {
         SettingsDialogViewModel settings = GetSettingDialogViewModel();
-        if (viewOperationInProgress || !settings.IsEnvironmentSelectionEnabled) { return Task.CompletedTask; }
-        return RunViewOperationAsync(() => settings.SelectOperationModeAsync(value));
+        if (!settings.IsEnvironmentSelectionEnabled) { settings.RestoreOperationModeSelection(); return Task.CompletedTask; }
+        return RunViewOperationAsync(() => settings.SelectOperationModeCoreAsync(value), reportFailure);
     }
 
     /// <summary>LR2 root選択の標準組を解決し、その明示入力だけを自動反映します。</summary>
-    internal async Task HandleBrowseLr2RootPathAsync()
+    internal async Task HandleBrowseLr2RootPathAsync(bool reportFailure = false)
     {
         SettingsDialogViewModel settings = GetSettingDialogViewModel();
-        if (viewOperationInProgress || !settings.IsEnvironmentSelectionEnabled) { return; }
+        if (!GetSettingDialogViewModel().IsSettingsOperationAvailable || !settings.IsEnvironmentSelectionEnabled) { return; }
         await RunViewOperationAsync(async () =>
         {
             UiFolderPickerResult result = await dialogService.PickFolderAsync(new UiFolderPickerRequest(null, settings.LR2RootPath, false, this));
             ThrowIfPickerFailed(result.Status, result.Error, "LR2 root folder picker");
             if (result.Status != UiDialogStatus.Accepted) { return; }
-            await settings.SelectLr2RootAsync(result.FolderPath);
-        });
+            await settings.SelectLr2RootCoreAsync(result.FolderPath);
+        }, reportFailure);
     }
 
     /// <summary>LR2 の song.db を個別指定する前に注意を確認し、受理された場合だけファイル選択を開きます。</summary>
-    internal Task HandleBrowseLr2SongDbPathAsync()
+    internal Task HandleBrowseLr2SongDbPathAsync(bool reportFailure = false)
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         return HandleBrowseLr2IndividualFilePathAsync(
@@ -714,11 +670,11 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             "song.db",
             "song.db (*.db)|*.db|" + BeMusicSeeker.Properties.Resources.All_file_exts,
             settingDialogViewModel.LR2SongDBPath,
-            "LR2 song database picker");
+            "LR2 song database picker", reportFailure);
     }
 
     /// <summary>LR2 の config.xml / config.xmh を個別指定する前に注意を確認し、受理された場合だけファイル選択を開きます。</summary>
-    internal Task HandleBrowseLr2ConfigPathAsync()
+    internal Task HandleBrowseLr2ConfigPathAsync(bool reportFailure = false)
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         return HandleBrowseLr2IndividualFilePathAsync(
@@ -728,7 +684,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             "config.xml",
             "|config.xm?|" + BeMusicSeeker.Properties.Resources.All_file_exts,
             settingDialogViewModel.LR2ConfigXmlPath,
-            "LR2 configuration picker");
+            "LR2 configuration picker", reportFailure);
     }
 
     private async Task HandleBrowseLr2IndividualFilePathAsync(
@@ -738,9 +694,9 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         string fileName,
         string filter,
         string currentPath,
-        string routeName)
+        string routeName, bool reportFailure)
     {
-        if (viewOperationInProgress || !settingDialogViewModel.IsEnvironmentSelectionEnabled) { return; }
+        if (!GetSettingDialogViewModel().IsSettingsOperationAvailable || !settingDialogViewModel.IsEnvironmentSelectionEnabled) { return; }
         await RunViewOperationAsync(async () =>
         {
             UiDialogResult confirmation = await dialogService.ConfirmAsync(new UiConfirmationRequest(
@@ -769,9 +725,9 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             ThrowIfPickerFailed(result.Status, result.Error, routeName);
             if (result.Status == UiDialogStatus.Accepted)
             {
-                await settingDialogViewModel.SelectLr2DetailPathAsync(propertyName, result.FileName);
+                await settingDialogViewModel.SelectLr2DetailPathCoreAsync(propertyName, result.FileName);
             }
-        });
+        }, reportFailure, routeName);
 
     }
 
@@ -833,31 +789,31 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         ThrowIfWindowDialogFailed(result.Status, result.Error, "Release notes dialog");
     }
 
-    /// <summary>beatorajaのroot選択と成立した局所組の必要処理を同じWindowで待ちます。</summary>
-    internal async Task HandleBrowseBeatorajaRootPathAsync()
+    /// <summary>beatorajaのroot選択と成立した局所組の必要処理を設定担当の単一操作として待ちます。</summary>
+    internal async Task HandleBrowseBeatorajaRootPathAsync(bool reportFailure = false)
     {
         SettingsDialogViewModel settings = GetSettingDialogViewModel();
-        if (viewOperationInProgress || !settings.IsBeatorajaSelectionEnabled) { return; }
+        if (!GetSettingDialogViewModel().IsSettingsOperationAvailable || !settings.IsBeatorajaSelectionEnabled) { return; }
         await RunViewOperationAsync(async () =>
         {
             UiFolderPickerResult result = await dialogService.PickFolderAsync(new UiFolderPickerRequest(null, settings.BeatorajaRootPath, false, this));
             ThrowIfPickerFailed(result.Status, result.Error, "beatoraja root folder picker");
             if (result.Status != UiDialogStatus.Accepted) { return; }
-            await settings.CommitBeatorajaRootSettingsAsync(result.FolderPath);
-        });
+            await settings.CommitBeatorajaRootSettingsCoreAsync(result.FolderPath);
+        }, reportFailure);
     }
 
     /// <summary>確定rootの実取込みを追跡し、実受付後だけroot候補を戻します。終端までCloseと同再操作を抑止します。</summary>
-    internal async Task HandleImportBeatorajaTableUrls()
+    internal async Task HandleImportBeatorajaTableUrls(bool reportFailure = false)
     {
-        if (viewOperationInProgress) { return; }
+        if (!GetSettingDialogViewModel().IsSettingsOperationAvailable) { return; }
         SettingsDialogViewModel settings = GetSettingDialogViewModel();
         PlaylistWorkspaceViewModel workspace = PlaylistWorkspace
             ?? throw new InvalidOperationException("Playlist workspace is unavailable.");
         await RunViewOperationAsync(() => workspace.StartBeatorajaTableUrlImport(settings.ConfirmedBeatorajaRootPath,
             () => settings.DiscardConflictingCandidates(SettingsDialogViewModel.ConflictingCandidates.BeatorajaRoot),
             settings.BuildAuxiliaryOperationConfirmation(BeMusicSeeker.Properties.Resources.Confirm_import_beatoraja_table_urls,
-                SettingsDialogViewModel.ConflictingCandidates.BeatorajaRoot)));
+                SettingsDialogViewModel.ConflictingCandidates.BeatorajaRoot)), reportFailure);
     }
 
     /// <summary>Owns the stage image picker route for the Appearance page.</summary>
@@ -903,17 +859,17 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     }
 
     /// <summary>通常出力先の実選択と既存確認・保存・移行の終端を所有します。</summary>
-    internal Task HandleBrowseLr2CustomFolderOutputDirectory()
-        => SelectOutputDirectoryAsync(nameof(SettingsDialogViewModel.LR2CustomFolderOutputDir), "normal");
+    internal Task HandleBrowseLr2CustomFolderOutputDirectory(bool reportFailure = false)
+        => SelectOutputDirectoryAsync(nameof(SettingsDialogViewModel.LR2CustomFolderOutputDir), "normal", reportFailure);
 
     /// <summary>ROOT出力先の実選択と既存確認・保存・移行の終端を所有します。</summary>
-    internal Task HandleBrowseLr2CustomFolderAsRootOutputDirectory()
-        => SelectOutputDirectoryAsync(nameof(SettingsDialogViewModel.LR2CustomFolderAsRootOutputDir), "root");
+    internal Task HandleBrowseLr2CustomFolderAsRootOutputDirectory(bool reportFailure = false)
+        => SelectOutputDirectoryAsync(nameof(SettingsDialogViewModel.LR2CustomFolderAsRootOutputDir), "root", reportFailure);
 
-    private async Task SelectOutputDirectoryAsync(string property, string section)
+    private async Task SelectOutputDirectoryAsync(string property, string section, bool reportFailure)
     {
         SettingsDialogViewModel settings = GetSettingDialogViewModel();
-        if (viewOperationInProgress || !settings.IsEditCompletionEnabled) { return; }
+        if (!GetSettingDialogViewModel().IsSettingsOperationAvailable || !settings.IsEditCompletionEnabled) { return; }
         await RunViewOperationAsync(async () =>
         {
             string initial = section == "normal" ? FirstNonEmpty(settings.LR2CustomFolderOutputDir, settings.LR2RootPath)
@@ -927,8 +883,8 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             // 無効選択で保持した以前の入力や同値選択から、失敗済み要求を暗黙に再開しません。
             if (string.Equals(previous, candidate, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(candidate, result.FolderPath, StringComparison.Ordinal)) { return; }
-            await settings.CommitOutputSettingsAsync(section);
-        });
+            await settings.CommitOutputSettingsCoreAsync(section);
+        }, reportFailure);
     }
 
     /// <summary>Owns the install-directory picker route for the Install page.</summary>
@@ -960,11 +916,12 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         }
     }
 
-    /// <summary>手動同期の実受付後にだけ閉鎖し、既存ownerとWindowで実処理の終端まで追跡します。</summary>
-    /// <returns>A task that completes when the resync request completes.</returns>
-    internal async Task HandleLr2SongDbSyncDataResyncAsync()
+    /// <summary>手動同期の実受付後にだけ閉鎖し、設定担当と既存ownerで実処理の終端まで追跡します。</summary>
+    /// <returns>受理済み同期の実処理・後片付け・担当通知の終端を表すTask。</returns>
+    internal async Task HandleLr2SongDbSyncDataResyncAsync(bool reportFailure = false)
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        if (!settingDialogViewModel.IsSettingsOperationAvailable) { return; }
         if (!settingDialogViewModel.CanRequestLr2SongDbSyncDataResync)
         {
             if (settingDialogViewModel.IsLr2SongDbSyncDataResyncBlockedByLibraryOperation)
@@ -973,7 +930,6 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             }
             return;
         }
-        if (viewOperationInProgress) { return; }
         Window owner = Owner ?? throw new InvalidOperationException("Settings window owner is unavailable.");
         await RunViewOperationAsync(async () =>
         {
@@ -987,7 +943,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             if (!confirmation.IsAccepted) { return; }
             try
             {
-                await settingDialogViewModel.RequestLr2SongDbSyncAsync(CloseForManualResync);
+                await settingDialogViewModel.RequestLr2SongDbSyncCoreAsync(CloseForManualResync);
             }
             catch (Exception ex)
             {
@@ -998,12 +954,12 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
                     MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK,
                     owner: owner), "LR2 manual resync failure notification");
             }
-        });
+        }, reportFailure);
     }
 
     /// <summary>画面の操作gate内で実バックアップと一回の結果通知を待ちます。処理済みの失敗を表示のために再送出しません。</summary>
     /// <returns>書込み・後片付け・通知、またはpicker取消の終端を表すTask。</returns>
-    internal async Task HandlePlaylistBackupAsync()
+    internal async Task HandlePlaylistBackupAsync(bool reportFailure = false)
     {
         PlaylistWorkspaceViewModel playlistWorkspace = PlaylistWorkspace
             ?? throw new InvalidOperationException("Playlist workspace is unavailable.");
@@ -1011,45 +967,48 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         {
             return;
         }
-        UiSaveFilePickerResult result = await dialogService.PickSaveFileAsync(new UiSaveFilePickerRequest(
-            BeMusicSeeker.Properties.Resources.Save_PlaylistBackup,
-            "BeMusicSeeker_backup.sql",
-            ".sql",
-            BeMusicSeeker.Properties.Resources.Sql_file_exts,
-            addExtension: true,
-            Window.GetWindow(this)));
-        ThrowIfPickerFailed(result.Status, result.Error, "Playlist backup save picker");
-        if (result.Status == UiDialogStatus.Accepted)
+        await RunViewOperationAsync(async () =>
         {
-            await RunViewOperationAsync(() => playlistWorkspace.BackupPlaylistAsync(result.FileName));
-        }
+            UiSaveFilePickerResult result = await dialogService.PickSaveFileAsync(new UiSaveFilePickerRequest(
+                BeMusicSeeker.Properties.Resources.Save_PlaylistBackup,
+                "BeMusicSeeker_backup.sql",
+                ".sql",
+                BeMusicSeeker.Properties.Resources.Sql_file_exts,
+                addExtension: true,
+                Window.GetWindow(this)));
+            ThrowIfPickerFailed(result.Status, result.Error, "Playlist backup save picker");
+            if (result.Status == UiDialogStatus.Accepted)
+            {
+                await playlistWorkspace.BackupPlaylistAsync(result.FileName);
+            }
+        }, reportFailure);
     }
 
-    /// <summary>Runs LR2 play-history schema installation inside the Window operation gate.</summary>
-    /// <returns>A task that completes when the schema operation finishes.</returns>
-    internal async Task HandleInstallOrRepairLr2PlayHistorySchemaAsync()
+    /// <summary>履歴schemaの導入・修復を設定担当の単一受付へ渡します。</summary>
+    /// <returns>履歴schemaの実処理・必要公開・担当通知の終端を表すTask。</returns>
+    internal async Task HandleInstallOrRepairLr2PlayHistorySchemaAsync(bool reportFailure = false)
     {
         if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
         {
             return;
         }
-        await RunViewOperationAsync(settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaAsync);
+        await RunViewOperationAsync(settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaCoreAsync, reportFailure);
     }
 
-    /// <summary>Runs LR2 play-history schema removal inside the Window operation gate.</summary>
-    /// <returns>A task that completes when the schema operation finishes.</returns>
-    internal async Task HandleUninstallLr2PlayHistorySchemaAsync()
+    /// <summary>履歴schemaの撤去を設定担当の単一受付へ渡します。</summary>
+    /// <returns>履歴schemaの実処理・必要公開・担当通知の終端を表すTask。</returns>
+    internal async Task HandleUninstallLr2PlayHistorySchemaAsync(bool reportFailure = false)
     {
         if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
         {
             return;
         }
-        await RunViewOperationAsync(settingDialogViewModel.UninstallLr2PlayHistorySchemaAsync);
+        await RunViewOperationAsync(settingDialogViewModel.UninstallLr2PlayHistorySchemaCoreAsync, reportFailure);
     }
 
     /// <summary>実復元と必要公開・出力が完了した場合だけshellの終了へ渡します。拒否・失敗では閉じず、任意通知の失敗は終了を妨げません。</summary>
     /// <returns>操作gate、復元、通知、必要な閉鎖の終端までを追跡するTask。</returns>
-    internal async Task HandlePlaylistRestoreAsync()
+    internal async Task HandlePlaylistRestoreAsync(bool reportFailure = false)
     {
         PlaylistWorkspaceViewModel playlistWorkspace = PlaylistWorkspace
             ?? throw new InvalidOperationException("Playlist workspace is unavailable.");
@@ -1058,29 +1017,29 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             return;
         }
         SettingsDialogViewModel settings = GetSettingDialogViewModel();
-        if (viewOperationInProgress || !await settings.CanStartRestoreBeforeExitAsync()) { return; }
-        UiDialogResult confirmation = await dialogService.ConfirmAsync(new UiConfirmationRequest(
-            settings.BuildExitOperationConfirmation(BeMusicSeeker.Properties.Resources.Confirm_RestorePlaylistBackup),
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Question,
-            MessageBoxResult.Cancel,
-            owner: Window.GetWindow(this)));
-        ThrowIfDialogFailed(confirmation, "Playlist backup restore confirmation");
-        if (!confirmation.IsAccepted || !await settings.CanStartRestoreBeforeExitAsync())
+        await RunViewOperationAsync(async () =>
         {
-            return;
-        }
-        UiFilePickerResult result = await dialogService.PickFileAsync(new UiFilePickerRequest(
-            BeMusicSeeker.Properties.Resources.Open_PlaylistBackup,
-            "BeMusicSeeker_backup.sql",
-            filter: BeMusicSeeker.Properties.Resources.Sql_file_exts,
-            defaultExtension: ".sql",
-            owner: Window.GetWindow(this)));
-        ThrowIfPickerFailed(result.Status, result.Error, "Playlist backup restore picker");
-        if (result.Status == UiDialogStatus.Accepted)
-        {
-            await RunViewOperationAsync(async () =>
+            if (!await settings.CanStartRestoreBeforeExitAsync()) { return; }
+            UiDialogResult confirmation = await dialogService.ConfirmAsync(new UiConfirmationRequest(
+                settings.BuildExitOperationConfirmation(BeMusicSeeker.Properties.Resources.Confirm_RestorePlaylistBackup),
+                BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Question,
+                MessageBoxResult.Cancel,
+                owner: Window.GetWindow(this)));
+            ThrowIfDialogFailed(confirmation, "Playlist backup restore confirmation");
+            if (!confirmation.IsAccepted || !await settings.CanStartRestoreBeforeExitAsync())
+            {
+                return;
+            }
+            UiFilePickerResult result = await dialogService.PickFileAsync(new UiFilePickerRequest(
+                BeMusicSeeker.Properties.Resources.Open_PlaylistBackup,
+                "BeMusicSeeker_backup.sql",
+                filter: BeMusicSeeker.Properties.Resources.Sql_file_exts,
+                defaultExtension: ".sql",
+                owner: Window.GetWindow(this)));
+            ThrowIfPickerFailed(result.Status, result.Error, "Playlist backup restore picker");
+            if (result.Status == UiDialogStatus.Accepted)
             {
                 if (!await playlistWorkspace.RestorePlaylistBackupAsync(result.FileName, settings.CanStartRestoreBeforeExitAsync))
                 {
@@ -1095,33 +1054,33 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
                     owner: Owner ?? this), "playlist restore shutdown notification");
                 // 必要公開・出力が成功した場合だけshellへ渡します。任意の案内失敗では終了を止めません。
                 applicationExitTerminal(this);
-            });
-        }
+            }
+        }, reportFailure);
     }
 
     /// <summary>確認済み撤去をShellの通常終了へ渡す窓口。終了全体は待たず、要求受理までを返します。</summary>
     internal Func<ApplicationDataUninstallWorkflowOwner, string, Task<bool>> RequestApplicationDataUninstall { get; set; }
 
     /// <summary>設定操作の実Taskを保ったまま撤去終了の要求受理まで進めます。</summary>
-    internal async Task HandleApplicationDataUninstallAsync()
+    internal async Task HandleApplicationDataUninstallAsync(bool reportFailure = false)
     {
         if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
         {
             return;
         }
-        await RunViewOperationAsync(() => settingDialogViewModel.UninstallApplicationDataAsync(
-            RequestApplicationDataUninstall ?? throw new InvalidOperationException("Application data uninstall shutdown route is unavailable.")));
+        await RunViewOperationAsync(() => settingDialogViewModel.UninstallApplicationDataCoreAsync(
+            RequestApplicationDataUninstall ?? throw new InvalidOperationException("Application data uninstall shutdown route is unavailable.")), reportFailure);
     }
 
-    /// <summary>Owns the multi-select BMS root picker route for the General page.</summary>
-    /// <returns>A task that completes after the picker result is applied.</returns>
-    internal async Task HandleAddBmsSearchRootPathsAsync()
+    /// <summary>全般ページの複数BMS選択を、pickerより前から設定担当の単一操作として追跡します。</summary>
+    /// <returns>選択・候補採用と担当通知の終端を表すTask。</returns>
+    internal async Task HandleAddBmsSearchRootPathsAsync(bool reportFailure = false)
     {
         if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
         {
             return;
         }
-        if (viewOperationInProgress || !settingDialogViewModel.IsBmsSearchRootEditorEnabled) { return; }
+        if (!GetSettingDialogViewModel().IsSettingsOperationAvailable || !settingDialogViewModel.IsBmsSearchRootEditorEnabled) { return; }
         await RunViewOperationAsync(async () =>
         {
             UiFolderPickerResult result = await dialogService.PickFolderAsync(new UiFolderPickerRequest(
@@ -1136,35 +1095,34 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             ThrowIfPickerFailed(result.Status, result.Error, "BMS search root folder picker");
             if (result.Status == UiDialogStatus.Accepted)
             {
-                await settingDialogViewModel.AddBmsSearchRootPathsAsync(result.FolderPaths);
+                await settingDialogViewModel.AddBmsSearchRootPathsCoreAsync(result.FolderPaths);
             }
-        });
+        }, reportFailure);
 
     }
 
-    /// <summary>D&amp;DのBMS候補編集を確認から採用まで同じWindowのTaskとして所有します。</summary>
-    internal Task HandleDroppedBmsSearchRootPathsAsync(IEnumerable<string> paths)
-        => viewOperationInProgress ? Task.CompletedTask : RunViewOperationAsync(() => GetSettingDialogViewModel().AddBmsSearchRootPathsAsync(paths));
+    /// <summary>D&amp;DのBMS候補編集を確認から採用まで設定担当の同じTaskとして所有します。</summary>
+    internal Task HandleDroppedBmsSearchRootPathsAsync(IEnumerable<string> paths, bool reportFailure = false)
+        => !GetSettingDialogViewModel().IsSettingsOperationAvailable ? Task.CompletedTask : RunViewOperationAsync(() => GetSettingDialogViewModel().AddBmsSearchRootPathsCoreAsync(paths), reportFailure);
 
     /// <summary>選択中のBMS候補を、競合候補確認と採用時再検査後に削除します。</summary>
-    internal Task HandleRemoveBmsSearchRootPathAsync()
-        => viewOperationInProgress ? Task.CompletedTask : RunViewOperationAsync(() => GetSettingDialogViewModel().RemoveBmsSearchRootPathAsync(GetSettingDialogViewModel().SelectedBmsSearchRootPath));
+    internal Task HandleRemoveBmsSearchRootPathAsync(bool reportFailure = false)
+        => !GetSettingDialogViewModel().IsSettingsOperationAvailable ? Task.CompletedTask : RunViewOperationAsync(() => GetSettingDialogViewModel().RemoveBmsSearchRootPathCoreAsync(GetSettingDialogViewModel().SelectedBmsSearchRootPath), reportFailure);
 
-    /// <summary>独立導入先の実選択を確認から項目保存まで同じWindowで追跡します。</summary>
-    internal Task HandleSelectBmsInstallDirectoryAsync(string path)
+    /// <summary>独立導入先の実選択を確認から項目保存まで設定担当で追跡します。</summary>
+    internal Task HandleSelectBmsInstallDirectoryAsync(string path, bool reportFailure = false)
     {
         SettingsDialogViewModel settings = GetSettingDialogViewModel();
-        if (settings.RequiresBmsInstallDirectoryConfirmation && !viewOperationInProgress)
-        { return RunViewOperationAsync(() => settings.SelectBmsInstallDirectoryAsync(path)); }
-        // 確認不要の普通の項目保存は進行中の操作Taskを置き換えず、確認の受付拒否は表示だけを確定値へ戻します。
-        return settings.SelectBmsInstallDirectoryAsync(path, allowCandidateConfirmation: !viewOperationInProgress);
+        if (settings.RequiresBmsInstallDirectoryConfirmation && settings.IsSettingsOperationAvailable)
+        { return RunViewOperationAsync(() => settings.SelectBmsInstallDirectoryCoreAsync(path), reportFailure); }
+        return settings.SelectBmsInstallDirectoryAsync(path);
     }
 
     /// <summary>追加出力先の実選択と必要な登録変更だけを確定し、終端を所有します。</summary>
-    internal async Task HandleAddCustomFolderAdditionalOutputBase()
+    internal async Task HandleAddCustomFolderAdditionalOutputBase(bool reportFailure = false)
     {
         SettingsDialogViewModel settings = GetSettingDialogViewModel();
-        if (viewOperationInProgress || !settings.IsEditCompletionEnabled) { return; }
+        if (!GetSettingDialogViewModel().IsSettingsOperationAvailable || !settings.IsEditCompletionEnabled) { return; }
         await RunViewOperationAsync(async () =>
         {
             UiFolderPickerResult result = await dialogService.PickFolderAsync(new UiFolderPickerRequest(
@@ -1175,23 +1133,23 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             string[] previous = settings.CustomFolderAdditionalOutputBaseDirList.ToArray();
             foreach (string directory in result.FolderPaths) { settings.AddCustomFolderAdditionalOutputBaseDir(directory); }
             if (previous.SequenceEqual(settings.CustomFolderAdditionalOutputBaseDirList, StringComparer.OrdinalIgnoreCase)) { return; }
-            await settings.CommitOutputSettingsAsync("additional");
-        });
+            await settings.CommitOutputSettingsCoreAsync("additional");
+        }, reportFailure);
     }
 
     /// <summary>追加先の削除・改名操作とその登録変更の実Taskを追跡します。</summary>
-    internal async Task ConfirmAdditionalOutputOperationAsync(bool rename)
+    internal async Task ConfirmAdditionalOutputOperationAsync(bool rename, bool reportFailure = false)
     {
         SettingsDialogViewModel settings = GetSettingDialogViewModel();
-        if (viewOperationInProgress || !settings.IsEditCompletionEnabled) { return; }
+        if (!GetSettingDialogViewModel().IsSettingsOperationAvailable || !settings.IsEditCompletionEnabled) { return; }
         await RunViewOperationAsync(async () =>
         {
             string[] previous = settings.CustomFolderAdditionalOutputBaseDirList.ToArray();
             if (rename) { settings.RenameSelectedCustomFolderAdditionalOutputBaseDir(); }
             else { settings.RemoveSelectedCustomFolderAdditionalOutputBaseDir(); }
             if (previous.SequenceEqual(settings.CustomFolderAdditionalOutputBaseDirList, StringComparer.OrdinalIgnoreCase)) { return; }
-            await settings.CommitOutputSettingsAsync("additional");
-        });
+            await settings.CommitOutputSettingsCoreAsync("additional");
+        }, reportFailure);
     }
 
     /// <summary>Opens a new play-history display preset editor owned by this Window.</summary>

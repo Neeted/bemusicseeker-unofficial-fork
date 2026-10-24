@@ -35,7 +35,7 @@ public partial class PlaylistSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandleBrowseLr2CustomFolderOutputDirectory();
+            await settingsWindow.HandleBrowseLr2CustomFolderOutputDirectory(reportFailure: true);
         }
         catch (Exception exception)
         {
@@ -48,7 +48,7 @@ public partial class PlaylistSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandleBrowseLr2CustomFolderAsRootOutputDirectory();
+            await settingsWindow.HandleBrowseLr2CustomFolderAsRootOutputDirectory(reportFailure: true);
         }
         catch (Exception exception)
         {
@@ -61,7 +61,7 @@ public partial class PlaylistSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandleAddCustomFolderAdditionalOutputBase();
+            await settingsWindow.HandleAddCustomFolderAdditionalOutputBase(reportFailure: true);
         }
         catch (Exception exception)
         {
@@ -74,7 +74,7 @@ public partial class PlaylistSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.ConfirmAdditionalOutputOperationAsync(rename: false);
+            await settingsWindow.ConfirmAdditionalOutputOperationAsync(rename: false, reportFailure: true);
         }
         catch (Exception exception)
         {
@@ -87,7 +87,7 @@ public partial class PlaylistSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.ConfirmAdditionalOutputOperationAsync(rename: true);
+            await settingsWindow.ConfirmAdditionalOutputOperationAsync(rename: true, reportFailure: true);
         }
         catch (Exception exception)
         {

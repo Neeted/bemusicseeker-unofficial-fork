@@ -22,7 +22,7 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class SettingDialogEditCompletionTests
 {
-    /// <summary>実ownerは設定の準備中・必須UI待ち・局所BMT待ちのTaskを表示参照の消去前に捕捉し、実終端前に保存・runtime終了へ進みません。</summary>
+    /// <summary>実ownerは設定担当から準備中・必須UI待ち・局所BMT待ちのTaskを直接取得し、実終端前に保存・runtime終了へ進みません。</summary>
     /// <remarks>実MainWindow・モーダル・compiled開始/BMTボタンとCloseを使用します。BMT物理媒体の整合は局所BMT系列が分担し、ここは実P内のport終端を保持します。</remarks>
     [DataTestMethod]
     [DataRow("preparation")]
@@ -128,7 +128,7 @@ public sealed partial class SettingDialogEditCompletionTests
                                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                         }
                         else { ((Button)presented.FindName("buttonOK")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }
-                        operation = presented.WaitForOperationCompletionAsync();
+                        operation = owner.SettingDialog.SettingsOperationCompletionTask;
                         Task arrival = boundary == "required-ui" ? ui.Entered.Task : entered.Task;
                         await TestUiDispatcherHost.AwaitNotificationAsync(arrival, operation, "accepted-settings-operation-boundary");
                         Assert.IsFalse(operation.IsCompleted);
@@ -241,7 +241,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         }));
                         FindDescendants<Button>(created).Single(button => Equals(button.Content, Resources.Lr2_song_db_sync_data_resync))
                             .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                        operation = created.WaitForOperationCompletionAsync();
+                        operation = owner.SettingDialog.SettingsOperationCompletionTask;
                     }));
                 }));
                 scope.PrepareForOwnedPresentation(main);
@@ -257,6 +257,10 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual(SettingsWindowCloseReason.ManualResync, settingsWindow.CloseReason);
                 Assert.IsFalse(settingsWindow.IsVisible);
                 Assert.IsNull(settingsWindow.DataContext);
+                Assert.AreSame(operation, owner.SettingDialog.SettingsOperationCompletionTask);
+                Assert.IsFalse(owner.SettingDialog.IsSettingsOperationAvailable);
+                owner.SettingDialog.RequestOpen();
+                Assert.IsFalse(settingsWindow.IsVisible, "自動閉鎖後も実終端までは再表示を拒否します。");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, operation,
                     "manual-resync-runtime-return-gate"), "manual-resync-runtime-return-gate");
                 Assert.IsTrue(terminalRuntime.WasAccepted);

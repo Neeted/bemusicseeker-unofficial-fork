@@ -1230,7 +1230,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Materialize(window);
                 roots.GetBindingExpression(Selector.SelectedItemProperty)?.UpdateSource();
                 remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, remove));
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "compiled-bms-removal-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "compiled-bms-removal-terminal");
                 Materialize(window);
                 Assert.IsFalse(roots.Items.Cast<string>().Any(path => string.Equals(path, secondRoot, StringComparison.OrdinalIgnoreCase)));
 
@@ -1250,7 +1250,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
         });
     }
 
-    /// <summary>実 backup/restore ボタンを実行し、SQL 保存条件付き picker と取消可能な復元確認を設定 Window の所有下へ一回配送することを確認します。</summary>
+    /// <summary>実backup/restoreとschema・撤去・明示音声テストは単一操作中に無効表示と入口拒否でpicker・確認・通知を始めません。録音の独立保存とページ移動を維持し、終端後のbackup/restoreだけ既存の所有pickerへ一回配送します。</summary>
     [TestMethod]
     public void BackupPageCompiledActionsUseSettingsOwnerForSaveAndRestore()
     {
@@ -1286,6 +1286,47 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     GetBindingPath(button, ContentControl.ContentProperty) == "Resources.Backup_playlist");
                 Button restoreButton = backupButtons.Single(button =>
                     GetBindingPath(button, ContentControl.ContentProperty) == "Resources.Backup_restore_playlist");
+                var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                Task operation = owner.SettingDialog.RunSettingsOperationAsync(() => release.Task);
+                Task terminal = owner.SettingDialog.SettingsOperationCompletionTask;
+                try
+                {
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsFalse(backupButton.IsEnabled);
+                    Assert.IsFalse(restoreButton.IsEnabled);
+                    backupButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, backupButton));
+                    restoreButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, restoreButton));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.HandleInstallOrRepairLr2PlayHistorySchemaAsync(), "busy-schema-install");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.HandleUninstallLr2PlayHistorySchemaAsync(), "busy-schema-remove");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.HandleApplicationDataUninstallAsync(), "busy-application-uninstall");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.RunAudioDeviceTestAsync(), "busy-audio-test");
+                    Assert.IsFalse(owner.SettingDialog.IsAudioDeviceTestInProgress);
+                    Assert.IsFalse(owner.SettingDialog.IsAudioDeviceTestAvailable);
+                    navigation.SelectedItem = window.FindName("navigationAdvanced");
+                    Materialize(window);
+                    var advanced = (AdvancedSettingsPage)content.Content;
+                    Button[] dangerButtons = FindLogicalDescendants<Button>(advanced).Where(button =>
+                        GetBindingPath(button, ContentControl.ContentProperty) is "Resources.Settings_uninstall_application_data" or "Resources.Lr2_play_history_schema_uninstall")
+                        .ToArray();
+                    Assert.AreEqual(2, dangerButtons.Length);
+                    Assert.IsTrue(dangerButtons.All(button => !button.IsEnabled));
+                    float quality = owner.SettingDialog.EncoderQuality == 0.5f ? 0.6f : 0.5f;
+                    owner.SettingDialog.EncoderQuality = quality;
+                    Assert.AreEqual(quality, owner.SettingDialog.EncoderQuality);
+                    Assert.AreSame(terminal, owner.SettingDialog.SettingsOperationCompletionTask);
+                    Assert.IsFalse(terminal.IsCompleted);
+                    Assert.AreEqual(0, dialogs.SaveFilePickerRequests.Count);
+                    Assert.IsNull(dialogs.LastConfirmationRequest);
+                    navigation.SelectedItem = window.FindName("navigationBackup");
+                    Materialize(window);
+                }
+                finally
+                {
+                    release.TrySetResult();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "compiled-busy-operation-terminal");
+                }
+                Assert.IsTrue(backupButton.IsEnabled);
+                Assert.IsTrue(restoreButton.IsEnabled);
                 backupButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, backupButton));
                 restoreButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, restoreButton));
                 TestUiDispatcherHost.ProcessQueuedPresentation();

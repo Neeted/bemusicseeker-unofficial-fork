@@ -293,13 +293,13 @@ public sealed partial class SettingDialogEditCompletionTests
                     dialogs.FileResults.Enqueue(new UiFilePickerResult(UiDialogStatus.Accepted, [selected]));
                     SettingsPathPicker picker = FindDescendants<SettingsPathPicker>(window).Single(item => item.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == property);
                     FindDescendants<Button>(picker).Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "LR2-individual-picker-terminal");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "LR2-individual-picker-terminal");
                     Assert.AreEqual(oldSong, PortableSettingsPersistenceTests.OpenSettings(path).LR2SongDBPath);
                     Assert.AreEqual(oldConfig, values.LR2ConfigXmlPath);
                     Assert.AreEqual(0, restarts);
                 }
                 FindDescendants<Button>(window).Single(button => Equals(button.Tag, "confirm:environment")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "LR2-detailed-confirmation-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "LR2-detailed-confirmation-terminal");
                 Settings saved = PortableSettingsPersistenceTests.OpenSettings(path);
                 Assert.AreEqual(song, saved.LR2SongDBPath);
                 Assert.AreEqual(config, saved.LR2ConfigXmlPath);
@@ -456,7 +456,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         var start = (Button)window.FindName("buttonOK");
                         Assert.IsTrue(start.IsEnabled);
                         start.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                        await window.WaitForOperationCompletionAsync();
+                        await owner.SettingDialog.SettingsOperationCompletionTask;
                     }
                     finally { if (window.IsVisible) { window.CloseForOwnerShutdown(); } }
                 }
@@ -662,7 +662,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 {
                     dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Accepted, [oldRoot.ToUpperInvariant()]));
                     FindDescendants<Button>(picker).Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "beatoraja-equivalent-root-picker-terminal");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "beatoraja-equivalent-root-picker-terminal");
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreEqual(oldRoot, values.BeatorajaRootPath);
                     Assert.AreEqual(oldRoot, dialog.BeatorajaRootPath);
@@ -691,14 +691,14 @@ public sealed partial class SettingDialogEditCompletionTests
                 dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel);
                 dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Accepted, [newRoot]));
                 FindDescendants<Button>(picker).Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "beatoraja-root-discard-cancelled");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "beatoraja-root-discard-cancelled");
                 Assert.AreEqual("draft-player", dialog.BeatorajaPlayerId);
                 Assert.IsTrue(dialog.EnableBeatorajaBmtOutput);
                 Assert.AreEqual(oldRoot, dialog.BeatorajaRootPath);
                 CollectionAssert.AreEqual(beforeRejectedRoot, File.ReadAllBytes(settingsPath));
                 dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.CancelledByUser));
                 FindDescendants<Button>(picker).Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "beatoraja-root-picker-cancelled");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "beatoraja-root-picker-cancelled");
                 Assert.AreEqual("draft-player", dialog.BeatorajaPlayerId);
                 Assert.IsTrue(dialog.EnableBeatorajaBmtOutput);
                 dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
@@ -707,7 +707,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 {
                     dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Accepted, [newRoot]));
                     FindDescendants<Button>(picker).Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "beatoraja-root-admission-refused");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "beatoraja-root-admission-refused");
                     Assert.AreEqual("draft-player", dialog.BeatorajaPlayerId);
                     Assert.IsTrue(dialog.EnableBeatorajaBmtOutput);
                     CollectionAssert.AreEqual(beforeRejectedRoot, File.ReadAllBytes(settingsPath));
@@ -716,7 +716,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 using (FileStream? blocker = failSave ? File.Open(settingsPath, FileMode.Open, FileAccess.Read, FileShare.Read) : null)
                 {
                     FindDescendants<Button>(picker).Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "beatoraja-root-picker-terminal");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "beatoraja-root-picker-terminal");
                 }
                 if (failSave)
                 {
@@ -730,7 +730,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.IsTrue(dialog.EnableBeatorajaBmtOutput);
                     dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Accepted, [newRoot]));
                     FindDescendants<Button>(picker).Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "beatoraja-root-save-explicit-retry");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "beatoraja-root-save-explicit-retry");
                 }
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 string expectedPlayer = configuredPlayerExists ? "z-player" : "a-player";
@@ -759,7 +759,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 }
                 string nextPlayer = configuredPlayerExists ? "a-player" : "z-player";
                 scorePlayer.SetCurrentValue(ComboBox.SelectedItemProperty, nextPlayer);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "beatoraja-player-selection-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "beatoraja-player-selection-terminal");
                 Assert.AreEqual(nextPlayer, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BeatorajaPlayerId);
                 Assert.AreEqual(BeatorajaConfigService.GetScoreDbPath(newRoot, nextPlayer), dialog.EnvironmentBeatorajaScoreDbPath);
             }

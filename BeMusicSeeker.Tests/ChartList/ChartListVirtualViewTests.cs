@@ -3184,7 +3184,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsFalse(empty.IsSortedFor(rows));
     }
 
-    /// <summary>所持tokenへ接続した実重複一覧の非対応sortは表示とowner条件を解除し、タイトル昇順の二行へ戻して要求残留と空表示を検出します。</summary>
+    /// <summary>実重複一覧の非対応sortは、要求受信でなくRowsとソート解除の実公開を待ち、owner/UIの解除とタイトル昇順の二行を確認します。通知は要求前に購読し、失敗時も解除します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task VirtualChartSubsetUnsupportedSort_ResetsToDefaultVirtualSort()
@@ -3208,18 +3208,40 @@ public sealed class ChartListVirtualViewTests
             typeof(MainWindowViewModel).GetField("treeViewFilterTypeSelected", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, MainViewUpdateMode.DuplicateFilterSelected);
             viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
             var sortRefresh = new TaskCompletionSource<MainChartListSortRequestedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
-            regularOwner.SortRefreshRequested += (_, request) => sortRefresh.TrySetResult(request);
-            viewModel.MainChartList.RequestSort("UnsupportedColumn", ListSortDirection.Descending);
-            MainChartListSortRequestedEventArgs sortRequest = await sortRefresh.Task;
+            var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            EventHandler<MainChartListSortRequestedEventArgs> sortRequested = (_, request) => sortRefresh.TrySetResult(request);
+            PropertyChangedEventHandler presentationChanged = (_, change) =>
+            {
+                if (change.PropertyName is nameof(MainChartListViewModel.Rows) or nameof(MainChartListViewModel.SortParameters)
+                    && viewModel.MainChartList.SortParameters == null
+                    && viewModel.MainChartList.Rows is ChartListVirtualView { Count: 2 })
+                {
+                    published.TrySetResult();
+                }
+            };
+            regularOwner.SortRefreshRequested += sortRequested;
+            viewModel.MainChartList.PropertyChanged += presentationChanged;
+            try
+            {
+                viewModel.MainChartList.RequestSort("UnsupportedColumn", ListSortDirection.Descending);
+                MainChartListSortRequestedEventArgs sortRequest = await sortRefresh.Task;
+                // 要求イベントはRefreshChartRowsViewのTaskを待ちません。後続の実公開まで通常のawaitで待ちます。
+                await published.Task;
 
-            Assert.AreEqual(MainChartListSortTarget.Regular, sortRequest.Target);
-            Assert.IsNull(regularOwner.CaptureSortParameters());
-            Assert.IsNull(viewModel.MainChartList.SortParameters);
-            var view = viewModel.MainChartList.Rows as ChartListVirtualView;
-            Assert.IsNotNull(view);
-            Assert.AreEqual(2, view.Count);
-            Assert.AreEqual("Alpha", ((LibraryChartRow)view[0]).Title);
-            Assert.AreEqual("Zeta", ((LibraryChartRow)view[1]).Title);
+                Assert.AreEqual(MainChartListSortTarget.Regular, sortRequest.Target);
+                Assert.IsNull(regularOwner.CaptureSortParameters());
+                Assert.IsNull(viewModel.MainChartList.SortParameters);
+                var view = viewModel.MainChartList.Rows as ChartListVirtualView;
+                Assert.IsNotNull(view);
+                Assert.AreEqual(2, view.Count);
+                Assert.AreEqual("Alpha", ((LibraryChartRow)view[0]).Title);
+                Assert.AreEqual("Zeta", ((LibraryChartRow)view[1]).Title);
+            }
+            finally
+            {
+                regularOwner.SortRefreshRequested -= sortRequested;
+                viewModel.MainChartList.PropertyChanged -= presentationChanged;
+            }
         }
         finally
         {

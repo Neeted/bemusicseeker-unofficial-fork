@@ -44,7 +44,7 @@ public partial class AudioSettingsPage : UserControl
             ?? throw new InvalidOperationException("Audio settings page is not hosted by SettingsWindow.");
         try
         {
-            await viewModel.RunAudioDeviceTestAsync();
+            await settingsWindow.RunViewOperationAsync(viewModel.RunAudioDeviceTestCoreAsync, reportFailure: true);
         }
         catch (Exception exception)
         {

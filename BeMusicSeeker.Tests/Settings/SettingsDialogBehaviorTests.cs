@@ -27,6 +27,84 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SettingsDialogBehaviorTests
 {
+    /// <summary>最初の待機前から実処理・後片付け・失敗通知まで単一受付を保ち、競合delegateを開始・予約せず、独立同期保存と失敗後の明示再操作を許可します。Window接続はcompiled系列が分担します。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void SettingsOperation_RejectsCompetingRequestsUntilCleanupAndFailureNotificationTerminate()
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new TemporaryDirectory("settings-operation-admission");
+            Settings values = OpenPersistedSettings(directory.Path);
+            using var harness = SettingsDialogHarness.Create(values);
+            SettingsDialogViewModel dialog = harness.Dialog;
+            var work = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var cleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var cleanupEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var notice = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var noticeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var expected = new IOException("operation failure");
+            int started = 0;
+            int competing = 0;
+            int notifications = 0;
+            Task operation = dialog.RunSettingsOperationAsync(async () =>
+            {
+                started++;
+                Assert.IsFalse(dialog.IsSettingsOperationAvailable, "最初の非同期待機より先に受付を閉じます。");
+                try { await work.Task; throw expected; }
+                finally { cleanupEntered.TrySetResult(); await cleanup.Task; }
+            }, async failure =>
+            {
+                Assert.AreSame(expected, failure);
+                notifications++;
+                noticeEntered.TrySetResult();
+                await notice.Task;
+            });
+            Task terminal = dialog.SettingsOperationCompletionTask;
+            async Task AssertRejected()
+            {
+                await dialog.RunSettingsOperationAsync(() => { competing++; return Task.CompletedTask; });
+                Assert.IsFalse(dialog.IsSettingsOperationAvailable);
+                Assert.IsFalse(dialog.IsEditCompletionEnabled);
+                Assert.AreSame(terminal, dialog.SettingsOperationCompletionTask);
+                Assert.IsFalse(terminal.IsCompleted);
+                Assert.AreEqual(0, competing);
+            }
+            Exception? primaryFailure = null;
+            try
+            {
+                await AssertRejected();
+                float quality = values.EncoderQuality == 0.5f ? 0.6f : 0.5f;
+                dialog.EncoderQuality = quality;
+                Assert.AreEqual(quality, values.EncoderQuality);
+                Assert.AreEqual(quality, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).EncoderQuality);
+                work.TrySetResult();
+                await cleanupEntered.Task;
+                await AssertRejected();
+                cleanup.TrySetResult();
+                await noticeEntered.Task;
+                await AssertRejected();
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                work.TrySetResult(); cleanup.TrySetResult(); notice.TrySetResult();
+                // 本体の失敗時も両Taskの終端を待ち、意図した操作失敗で元の表明失敗を置き換えません。
+                try { await Task.WhenAll(operation, terminal); }
+                catch when (primaryFailure != null) { }
+                catch (IOException failure) when (ReferenceEquals(expected, failure)) { }
+            }
+            IOException actual = await Assert.ThrowsExceptionAsync<IOException>(() => operation);
+            Assert.AreSame(expected, actual);
+            await terminal;
+            Assert.IsTrue(dialog.IsSettingsOperationAvailable);
+            await dialog.RunSettingsOperationAsync(() => { competing++; return Task.CompletedTask; });
+            Assert.AreEqual(1, competing, "拒否した要求は予約せず、新しい明示要求だけ一回受け付けます。");
+            Assert.AreEqual(1, started);
+            Assert.AreEqual(1, notifications);
+        }, nameof(SettingsOperation_RejectsCompetingRequestsUntilCleanupAndFailureNotificationTerminate));
+    }
+
     /// <summary>root確定は保存済みBMTとscore使用方針で両取得先を反映し、別BMT・score候補を採用せず破棄します。OFFのroot変更はscoreを再読込みせず、ONのroot/player変更は各一回です。物理出力・所有権は実媒体系列が分担します。</summary>
     [DataTestMethod]
     [DataRow(true, false, true, false, false)]
@@ -203,6 +281,15 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(bmtFails ? 0 : 1, harness.State.ScoreReloadCount);
             Assert.AreEqual(1, harness.Workspace.BmtRequests.Count);
             byte[] saved = File.ReadAllBytes(Path.Combine(directory.Path, "user.config"));
+            harness.Dialog.KeepBeatorajaBmtFilesWhenOutputDisabled = !values.KeepBeatorajaBmtFilesWhenOutputDisabled;
+            Assert.IsTrue(harness.Dialog.CanCancelBmtSettings);
+            Task preceding = harness.Dialog.SettingsOperationCompletionTask;
+            harness.Dialog.CancelBmtSettings();
+            Assert.AreEqual(values.KeepBeatorajaBmtFilesWhenOutputDisabled, harness.Dialog.KeepBeatorajaBmtFilesWhenOutputDisabled);
+            Assert.AreEqual(bmtFails, harness.Dialog.IsBmtProcessingRetryRequired, "候補取消は保存後未了の旧新要求を消しません。");
+            Assert.AreSame(preceding, harness.Dialog.SettingsOperationCompletionTask);
+            Assert.AreEqual(1, harness.Workspace.BmtRequests.Count);
+            CollectionAssert.AreEqual(saved, File.ReadAllBytes(Path.Combine(directory.Path, "user.config")));
             harness.State.ThrowOnScoreReload = false;
             await harness.Dialog.CommitScoreSettingsAsync();
             Assert.IsFalse(harness.Dialog.IsScoreReloadPending);
@@ -220,7 +307,7 @@ public sealed class SettingsDialogBehaviorTests
         }, nameof(BeatorajaRootConfirmation_RetainsIndependentPendingAndSuccessfulStages));
     }
 
-    /// <summary>LR2環境の再起動は、root保存後のBMT又はscore未了で拒否し候補と修復入力を保ちます。確認中に未了が成立しても採用せず、自身の明示修復後だけ再起動でき、BMT未了中の独立score保存は妨げません。</summary>
+    /// <summary>LR2環境の再起動は、root保存後のBMT又はscore未了で拒否し候補と修復入力を保ちます。確認中の別実操作は保存前に拒否し、既存未了は自身の明示修復後だけ再起動できます。BMT未了中の独立score保存は妨げません。</summary>
     [DataTestMethod]
     [DataRow("mode", true, false)]
     [DataRow("root", true, true)]
@@ -287,11 +374,33 @@ public sealed class SettingsDialogBehaviorTests
                 "root" => harness.Dialog.SelectLr2RootAsync(Path.Combine(directory.Path, "other-lr2")),
                 _ => harness.Dialog.CommitEnvironmentAsync()
             };
-            if (duringConfirmation) { dialogs.ConfirmationObservedAsync = CreateRepair; }
+            if (duringConfirmation)
+            {
+                dialogs.ConfirmationObservedAsync = async () =>
+                {
+                    Task original = harness.Dialog.SettingsOperationCompletionTask;
+                    await harness.Dialog.CommitBeatorajaRootSettingsAsync(next);
+                    await harness.Dialog.CommitScoreSettingsAsync();
+                    Assert.AreEqual(oldRoot, values.BeatorajaRootPath);
+                    Assert.AreEqual(0, harness.Workspace.BmtRequests.Count);
+                    Assert.AreEqual(0, harness.State.ScoreReloadCount);
+                    Assert.AreSame(original, harness.Dialog.SettingsOperationCompletionTask);
+                    Assert.IsFalse(original.IsCompleted);
+                };
+            }
             else { await CreateRepair(); }
             await ChangeEnvironment();
             dialogs.ConfirmationObservedAsync = null;
-            Assert.AreEqual(next, values.BeatorajaRootPath, "確認中のケースも実root保存後の失敗へ到達している必要があります。");
+            if (duringConfirmation)
+            {
+                Assert.AreEqual(1, restarts, "競合操作を予約せず、先に受理した環境変更だけを完了します。");
+                Assert.AreEqual(oldRoot, values.BeatorajaRootPath);
+                Assert.AreEqual(0, failures.Count);
+                Assert.IsFalse(harness.Dialog.IsBmtProcessingRetryRequired);
+                Assert.IsFalse(harness.Dialog.IsScoreReloadPending);
+                return;
+            }
+            Assert.AreEqual(next, values.BeatorajaRootPath);
             Assert.IsTrue(bmtFails ? harness.Dialog.IsBmtProcessingRetryRequired : harness.Dialog.IsScoreReloadPending);
             Assert.AreEqual(duringConfirmation ? 1 : 0, dialogs.ConfirmationCount);
             Assert.AreEqual(0, restarts);

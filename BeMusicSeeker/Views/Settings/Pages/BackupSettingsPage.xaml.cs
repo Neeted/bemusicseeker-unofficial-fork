@@ -28,7 +28,7 @@ public partial class BackupSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandlePlaylistBackupAsync();
+            await settingsWindow.HandlePlaylistBackupAsync(reportFailure: true);
         }
         catch (Exception exception)
         {
@@ -41,7 +41,7 @@ public partial class BackupSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandlePlaylistRestoreAsync();
+            await settingsWindow.HandlePlaylistRestoreAsync(reportFailure: true);
         }
         catch (Exception exception)
         {

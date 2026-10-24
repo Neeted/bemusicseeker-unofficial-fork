@@ -54,7 +54,7 @@ public partial class PlaybackSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandleBrowseLr2RootPathAsync();
+            await settingsWindow.HandleBrowseLr2RootPathAsync(reportFailure: true);
         }
         catch (Exception exception)
         {

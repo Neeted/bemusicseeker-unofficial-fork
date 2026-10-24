@@ -290,7 +290,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(0, presentation.CloseRequestCount);
                 dialogs.CompleteConfirmation(MessageBoxResult.Cancel);
 
-                AwaitViewOperationTerminal(window);
+                AwaitViewOperationTerminal(context.Settings);
 
                 Assert.IsTrue(window.IsVisible);
                 Assert.AreEqual(draftValue, context.Settings.ShowRecommUpdatedMsg);
@@ -301,7 +301,7 @@ public sealed class SettingsWindowPresentationTests
             finally
             {
                 dialogs.CompleteConfirmation(MessageBoxResult.Cancel);
-                AwaitViewOperationTerminal(window);
+                AwaitViewOperationTerminal(context.Settings);
                 if (window.IsVisible)
                 {
                     window.CloseForOwnerShutdown();
@@ -339,7 +339,7 @@ public sealed class SettingsWindowPresentationTests
                 window = new SettingsWindow { DataContext = context.Settings };
                 windowTest.ShowAndWaitForContentRendered(window);
                 ClickAdvancedDangerButton(window, Resources.Lr2_play_history_schema_uninstall);
-                AwaitViewOperationTerminal(window);
+                AwaitViewOperationTerminal(context.Settings);
 
                 Assert.AreEqual(1, schemaDialog.CallCount);
                 Assert.AreEqual(0, store.CallCount);
@@ -372,7 +372,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>schema 取消待ちを gate で保持した間は native Close を拒否し、取消後に操作を復帰して DB と draft を変更しないことを確認します。</summary>
+    /// <summary>有効なLR2環境のschema確認待ちでは再操作・撤去の無効表示と入口拒否を揃え、native Closeを拒否します。取消後は同じ候補・DBを保って操作を再開します。</summary>
     [TestMethod]
     public void AdvancedDangerZone_SchemaUninstallActualButtonBlocksNativeCloseUntilCancel()
     {
@@ -396,15 +396,28 @@ public sealed class SettingsWindowPresentationTests
                 ClickAdvancedDangerButton(window, Resources.Lr2_play_history_schema_uninstall);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(schemaDialog.Started.Task, "settings-schema-dialog-started");
                 Assert.IsTrue(((Grid)window.FindName("settingDialogOperationGrid")).IsEnabled, "無関係な通常項目は操作可能です。");
+                Button schemaButton = FindDescendants<Button>(window).Single(button => Equals(button.Content, Resources.Lr2_play_history_schema_uninstall));
+                Button uninstallButton = FindDescendants<Button>(window).Single(button => Equals(button.Content, Resources.Settings_uninstall_application_data));
+                Assert.IsFalse(schemaButton.IsEnabled);
+                Assert.IsFalse(uninstallButton.IsEnabled);
+                Task original = context.Settings.SettingsOperationCompletionTask;
+                schemaButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                uninstallButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.AreEqual(1, schemaDialog.CallCount);
+                Assert.AreEqual(0, dialogs.Messages.Count);
+                Assert.AreSame(original, context.Settings.SettingsOperationCompletionTask);
+                Assert.IsFalse(original.IsCompleted);
                 window.Close();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(0, presentation.CloseRequestCount);
                 Assert.AreEqual(0, store.CallCount);
 
                 schemaDialog.Complete(UiInteractionStatus.CancelledByUser);
-                AwaitViewOperationTerminal(window);
+                AwaitViewOperationTerminal(context.Settings);
 
                 Assert.IsTrue(window.IsVisible);
+                Assert.IsTrue(schemaButton.IsEnabled);
+                Assert.IsTrue(uninstallButton.IsEnabled);
                 Assert.AreEqual(draftValue, context.Settings.ShowRecommUpdatedMsg);
                 Assert.AreEqual(0, context.PlayHistory.InvalidationCount);
                 Assert.AreEqual(0, context.ReloadCount());
@@ -413,7 +426,7 @@ public sealed class SettingsWindowPresentationTests
             finally
             {
                 schemaDialog.Complete(UiInteractionStatus.CancelledByUser);
-                if (window != null) { AwaitViewOperationTerminal(window); }
+                if (context != null) { AwaitViewOperationTerminal(context.Settings); }
                 if (window?.IsVisible == true)
                 {
                     window.CloseForOwnerShutdown();
@@ -482,7 +495,7 @@ public sealed class SettingsWindowPresentationTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(dialogs.ConfirmationStarted.Task, "settings-schema-confirmation");
                 Assert.IsNotNull(dialogs.LastConfirmationRequest);
                 StringAssert.Contains(dialogs.LastConfirmationRequest.MessageBoxText, scoreDbPath);
-                AwaitViewOperationTerminal(window);
+                AwaitViewOperationTerminal(context.Settings);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.AreEqual(1, dialogs.ConfirmationCount);
@@ -520,7 +533,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 if (window?.IsVisible == true)
                 {
-                    AwaitViewOperationTerminal(window);
+                    if (context != null) { AwaitViewOperationTerminal(context.Settings); }
                     window.CloseForOwnerShutdown();
                 }
                 context?.Settings.Dispose();
@@ -571,7 +584,7 @@ public sealed class SettingsWindowPresentationTests
                     settings.EnableBeatorajaBmtOutput = !values.EnableBeatorajaBmtOutput;
                     Button button = FindDescendants<Button>(window).Single(candidate => Equals(candidate.Content, Resources.Lr2_song_db_sync_data_resync));
                     button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                    terminal = window.WaitForOperationCompletionAsync();
+                    terminal = settings.SettingsOperationCompletionTask;
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(dialogs.ConfirmationStarted.Task, "manual confirmation");
                     StringAssert.Contains(dialogs.LastConfirmationRequest.MessageBoxText, Resources.Settings_lr2_detailed_paths);
                     Assert.AreSame(window, dialogs.LastConfirmationRequest.Owner);
@@ -591,7 +604,8 @@ public sealed class SettingsWindowPresentationTests
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(runtime.AdmissionReported.Task, "manual accepted");
                         Assert.IsFalse(window.IsVisible);
                         Assert.AreEqual(Path.Combine(root, "LR2files", "Database", "song.db"), settings.LR2SongDBPath);
-                        Assert.IsTrue(settings.CanCancelBmtSettings, "手動閉鎖でも無関係な受理前候補を実処理へ混ぜません。");
+                        Assert.AreNotEqual(values.EnableBeatorajaBmtOutput, settings.EnableBeatorajaBmtOutput, "手動閉鎖でも無関係な候補を実処理へ混ぜません。");
+                        Assert.IsTrue(settings.CanCancelBmtSettings, "手動同期と無関係なBMT候補の同期取消可否は保持します。");
                         Assert.IsFalse(terminal.IsCompleted, "閉鎖後も実同期を追跡します。");
                     }
                     releaseTerminal.TrySetResult();
@@ -1005,7 +1019,7 @@ public sealed class SettingsWindowPresentationTests
                     dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Accepted, [additional]));
                     Task click = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => add.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, add)));
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(click, "output-confirmation-button-event");
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "output-confirmation-button-terminal");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "output-confirmation-button-terminal");
                 }
                 ClickAndAwait();
                 AssertUnaccepted();
@@ -1031,7 +1045,7 @@ public sealed class SettingsWindowPresentationTests
                 void Cleanup(Action action) { try { action(); } catch (Exception failure) { cleanupFailures.Add(failure); } }
                 if (window != null)
                 {
-                    Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "output-confirmation-cleanup"));
+                    Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(owner?.SettingDialog.SettingsOperationCompletionTask ?? Task.CompletedTask, "output-confirmation-cleanup"));
                     window.Dispatcher.UnhandledException -= onUnhandled;
                     Cleanup(window.CloseForOwnerShutdown);
                 }
@@ -1119,7 +1133,7 @@ public sealed class SettingsWindowPresentationTests
                 using (var locked = new FileStream(destination, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
                 {
                     ClickBackupPageButton(window, Resources.Backup_playlist);
-                    AwaitViewOperationTerminal(window);
+                    AwaitViewOperationTerminal(owner.SettingDialog);
                 }
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 CollectionAssert.AreEqual(oldBytes, File.ReadAllBytes(destination));
@@ -1138,7 +1152,7 @@ public sealed class SettingsWindowPresentationTests
 
                 dialogs.MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
                 ClickBackupPageButton(window, Resources.Backup_playlist);
-                AwaitViewOperationTerminal(window);
+                AwaitViewOperationTerminal(owner.SettingDialog);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 StringAssert.Contains(File.ReadAllText(destination), "Saved backup");
                 Assert.AreEqual(candidate, owner.SettingDialog.EnableBeatorajaBmtOutput);
@@ -1159,7 +1173,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 try
                 {
-                    if (window?.IsVisible == true) { AwaitViewOperationTerminal(window); }
+                    if (owner != null) { AwaitViewOperationTerminal(owner.SettingDialog); }
                 }
                 finally
                 {
@@ -1265,7 +1279,7 @@ public sealed class SettingsWindowPresentationTests
                 owner.SettingDialog.EnableBeatorajaBmtOutput = bmtDraft;
                 var grid = (Grid)window.FindName("settingDialogOperationGrid");
                 ClickBackupPageButton(window, Resources.Backup_restore_playlist);
-                AwaitViewOperationTerminal(window);
+                AwaitViewOperationTerminal(owner.SettingDialog);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(0, exitRequests);
                 Assert.AreEqual(bmtDraft, owner.SettingDialog.EnableBeatorajaBmtOutput);
@@ -1297,7 +1311,7 @@ public sealed class SettingsWindowPresentationTests
                 heldLease?.Dispose();
                 try
                 {
-                    if (window?.IsVisible == true) { AwaitViewOperationTerminal(window); }
+                    if (owner != null) { AwaitViewOperationTerminal(owner.SettingDialog); }
                 }
                 finally
                 {
@@ -4069,9 +4083,9 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>compiled schema操作の必須処理後に画面の操作受付が復帰した通知を待ちます。</summary>
-    private static void AwaitViewOperationTerminal(SettingsWindow window)
+    private static void AwaitViewOperationTerminal(SettingsDialogViewModel settings)
     {
-        TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "settings-view-operation-terminal");
+        TestUiDispatcherHost.AwaitTaskOnDispatcher(settings.SettingsOperationCompletionTask, "settings-view-operation-terminal");
     }
 
     private static void AssertInstalledSchema(string scoreDbPath, bool expectedInstalled)
@@ -4452,7 +4466,7 @@ public sealed class SettingsWindowPresentationTests
                         try
                         {
                             owner.SettingDialog.BmsRootPathList.Add(added);
-                            apply = window.RunViewOperationAsync(owner.SettingDialog.CommitBmsRootsAsync);
+                            apply = owner.SettingDialog.CommitBmsRootsAsync();
                             await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, apply, "same-settings-scan");
                             Assert.IsFalse(closed);
                             Assert.IsTrue(window.IsVisible);
@@ -4940,7 +4954,7 @@ public sealed class SettingsWindowPresentationTests
                 FindDescendants<Button>(general).Single(button => Equals(button.Tag, "confirm:bmt"))
                     .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(entered.Task, "BMT-section-accepted-P");
-                join = window.WaitForOperationCompletionAsync();
+                join = settings.SettingsOperationCompletionTask;
                 Assert.IsFalse(join.IsCompleted);
                 Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
                 Assert.IsTrue(settings.IsAudioOutputSelectionEnabled);
@@ -5022,7 +5036,7 @@ public sealed class SettingsWindowPresentationTests
                 var page = (FrameworkElement)((ContentControl)window!.FindName("settingsPageContent")).Content;
                 FindDescendants<Button>(page).Single(button => Equals(button.Tag, (section == "score" ? "retry:" : "confirm:") + section))
                     .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                AwaitViewOperationTerminal(window);
+                AwaitViewOperationTerminal(settings);
             }
             void AssertRetryBanner()
             {
@@ -5045,7 +5059,7 @@ public sealed class SettingsWindowPresentationTests
                 {
                     FindDescendants<CheckBox>(window).Single(check => check.Name == "useBeatorajaScoreDbCheckBox")
                         .SetCurrentValue(ToggleButton.IsCheckedProperty, false);
-                    AwaitViewOperationTerminal(window);
+                    AwaitViewOperationTerminal(settings);
                 }
                 else if (section == "bms") { settings.BmsRootPathList.Add(added); }
                 else { settings.KeepBeatorajaBmtFilesWhenOutputDisabled = false; }
