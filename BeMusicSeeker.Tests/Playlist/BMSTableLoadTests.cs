@@ -23,7 +23,13 @@ public sealed class BMSTableLoadTests
         BMSTableEntry first = new() { md5 = new string('a', 32), folder = "A", title = "first" };
         BMSTableEntry second = new() { md5 = new string('b', 32), folder = "B", title = "second" };
         var table = new BMSTable { playlist_id = 71, entries = [first, second] };
+        var orderInput = new List<string> { "B", "A" };
+        table.Folder_order = orderInput;
+        orderInput[0] = "caller change";
         IReadOnlyList<BMSTableEntry> published = table.entries;
+        IReadOnlyList<PlaylistFolderNode> nodes = table.FolderNodes;
+        IReadOnlyList<string> order = table.Folder_order, names = table.folder_list;
+        (PlaylistFolderNodeSpecialKind SpecialKind, string FolderName)[] nodeValues = nodes.Select(node => (node.SpecialKind, node.FolderName)).ToArray();
         BMSTableEntry[] expected = [first, second];
         string[] folders = table.folder_list.ToArray();
         int revision = table.PlaylistEntriesRevision;
@@ -37,6 +43,8 @@ public sealed class BMSTableLoadTests
             Assert.AreEqual("B", second.folder);
             Assert.IsTrue(table.entries.All(entry => ReferenceEquals(table, entry.parent) && entry.playlist_id == 71));
             CollectionAssert.AreEqual(folders, table.folder_list.ToArray());
+            CollectionAssert.AreEqual(new[] { "B", "A" }, table.Folder_order.ToArray());
+            CollectionAssert.AreEqual(nodeValues, table.FolderNodes.Select(node => (node.SpecialKind, node.FolderName)).ToArray());
             Assert.AreEqual(revision, table.PlaylistEntriesRevision);
         }
         if (published is ICollection<BMSTableEntry> collection)
@@ -71,6 +79,14 @@ public sealed class BMSTableLoadTests
             Check(concrete.Reverse);
             Check(() => concrete.Sort((left, right) => string.CompareOrdinal(right.title, left.title)));
         }
+        // 公開された構成・順序は標準interfaceからも変えられず、getterは同じ確定入力を返します。
+        if (nodes is IList<PlaylistFolderNode> mutableNodes) { Check(() => mutableNodes[0] = PlaylistFolderNode.CreateFolder("Changed")); Check(mutableNodes.Clear); }
+        if (names is IList<string> mutableNames) { Check(() => mutableNames[0] = "Changed"); Check(mutableNames.Clear); }
+        if (order is IList<string> mutableOrder) { Check(() => mutableOrder[0] = "Changed"); Check(mutableOrder.Clear); }
+        if (nodes is IList untypedNodes) { Check(() => untypedNodes[0] = PlaylistFolderNode.CreateFolder("Changed")); }
+        if (names is IList untypedNames) { Check(() => untypedNames[0] = "Changed"); }
+        if (order is IList untypedOrder) { Check(() => untypedOrder[0] = "Changed"); }
+        Assert.AreSame(nodes, table.FolderNodes); Assert.AreSame(names, table.folder_list); Assert.AreSame(order, table.Folder_order);
         first.memo = "edited";
         Assert.AreEqual("edited", table.entries[0].memo);
     }
@@ -449,9 +465,9 @@ public sealed class BMSTableLoadTests
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"st\",\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
 
         Assert.AreEqual("st", table.compat_prefix);
-        CollectionAssert.AreEqual(new[] { "st1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "st1" }, table.Folder_order.ToArray());
         Assert.AreEqual("st1", table.entries[0].folder);
-        CollectionAssert.AreEqual(new[] { "st1" }, table.folder_list);
+        CollectionAssert.AreEqual(new[] { "st1" }, table.folder_list.ToArray());
     }
 
     /// <summary>CP932 の日本語記号 symbol をそのまま接頭辞に採用し、数値 level の行と順を同じフォルダ名へ変換することを確認します。</summary>
@@ -461,7 +477,7 @@ public sealed class BMSTableLoadTests
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Insane\",\"symbol\":\"★\",\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
 
         Assert.AreEqual("★", table.compat_prefix);
-        CollectionAssert.AreEqual(new[] { "★1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "★1" }, table.Folder_order.ToArray());
         Assert.AreEqual("★1", table.entries[0].folder);
     }
 
@@ -472,7 +488,7 @@ public sealed class BMSTableLoadTests
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"st\",\"data_url\":\"score.json\",\"level_order\":[\"st1\"]}", "st1");
 
         Assert.AreEqual("st", table.compat_prefix);
-        CollectionAssert.AreEqual(new[] { "stst1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "stst1" }, table.Folder_order.ToArray());
         Assert.AreEqual("stst1", table.entries[0].folder);
     }
 
@@ -483,7 +499,7 @@ public sealed class BMSTableLoadTests
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"sl\",\"tag\":\"st\",\"data_url\":\"score.json\",\"level_order\":[\"X\"]}", "X");
 
         Assert.AreEqual("st", table.compat_prefix);
-        CollectionAssert.AreEqual(new[] { "stX" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "stX" }, table.Folder_order.ToArray());
         Assert.AreEqual("stX", table.entries[0].folder);
     }
 
@@ -494,7 +510,7 @@ public sealed class BMSTableLoadTests
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Unicode\",\"symbol\":\"st\",\"tag\":\"😀\",\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
 
         Assert.AreEqual("LEVEL ", table.compat_prefix);
-        CollectionAssert.AreEqual(new[] { "LEVEL 1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "LEVEL 1" }, table.Folder_order.ToArray());
         Assert.AreEqual("LEVEL 1", table.entries[0].folder);
     }
 
@@ -505,7 +521,7 @@ public sealed class BMSTableLoadTests
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Unicode\",\"symbol\":\"😀\",\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
 
         Assert.AreEqual("LEVEL ", table.compat_prefix);
-        CollectionAssert.AreEqual(new[] { "LEVEL 1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "LEVEL 1" }, table.Folder_order.ToArray());
         Assert.AreEqual("LEVEL 1", table.entries[0].folder);
     }
 
@@ -516,7 +532,7 @@ public sealed class BMSTableLoadTests
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"NoPrefix\",\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
 
         Assert.AreEqual("LEVEL ", table.compat_prefix);
-        CollectionAssert.AreEqual(new[] { "LEVEL 1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "LEVEL 1" }, table.Folder_order.ToArray());
         Assert.AreEqual("LEVEL 1", table.entries[0].folder);
     }
 
@@ -527,7 +543,7 @@ public sealed class BMSTableLoadTests
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"st\",\"data_url\":\"score.json\",\"level_order\":[\"-5\",0,1]}", "-5");
 
         Assert.AreEqual("st", table.compat_prefix);
-        CollectionAssert.AreEqual(new[] { "st-5", "st0", "st1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "st-5", "st0", "st1" }, table.Folder_order.ToArray());
         Assert.AreEqual("st-5", table.entries[0].folder);
     }
 
@@ -538,7 +554,7 @@ public sealed class BMSTableLoadTests
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"st\",\"compat_prefix\":\"\",\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
 
         Assert.AreEqual(string.Empty, table.compat_prefix);
-        CollectionAssert.AreEqual(new[] { "1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "1" }, table.Folder_order.ToArray());
         Assert.AreEqual("1", table.entries[0].folder);
     }
 
@@ -551,8 +567,8 @@ public sealed class BMSTableLoadTests
         table.LoadDataJSON("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song A\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Song B\",\"level\":\"2\"}]");
 
         Assert.AreEqual(string.Empty, table.compat_prefix);
-        CollectionAssert.AreEqual(new[] { "2", "1" }, table.Folder_order);
-        CollectionAssert.AreEqual(new[] { "2", "1" }, table.folder_list);
+        CollectionAssert.AreEqual(new[] { "2", "1" }, table.Folder_order.ToArray());
+        CollectionAssert.AreEqual(new[] { "2", "1" }, table.folder_list.ToArray());
     }
 
     /// <summary>明示された旧 LEVEL prefix は symbol より優先し、旧フォルダ名と順を読み戻せることを確認します。</summary>
@@ -562,7 +578,7 @@ public sealed class BMSTableLoadTests
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Legacy\",\"symbol\":\"st\",\"compat_prefix\":\"LEVEL \",\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
 
         Assert.AreEqual("LEVEL ", table.compat_prefix);
-        CollectionAssert.AreEqual(new[] { "LEVEL 1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "LEVEL 1" }, table.Folder_order.ToArray());
         Assert.AreEqual("LEVEL 1", table.entries[0].folder);
     }
 
@@ -573,7 +589,7 @@ public sealed class BMSTableLoadTests
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Explicit\",\"symbol\":\"st\",\"compat_prefix\":\"😀\",\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
 
         Assert.AreEqual("😀", table.compat_prefix);
-        CollectionAssert.AreEqual(new[] { "😀1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "😀1" }, table.Folder_order.ToArray());
         Assert.AreEqual("😀1", table.entries[0].folder);
     }
 
@@ -584,7 +600,7 @@ public sealed class BMSTableLoadTests
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"FolderOrder\",\"symbol\":\"st\",\"data_url\":\"score.json\",\"folder_order\":[\"st1\"]}", "1");
 
         Assert.AreEqual("st", table.compat_prefix);
-        CollectionAssert.AreEqual(new[] { "st1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "st1" }, table.Folder_order.ToArray());
         Assert.AreEqual("st1", table.entries[0].folder);
     }
 
@@ -597,8 +613,8 @@ public sealed class BMSTableLoadTests
         table.LoadDataJSON("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song A\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Song B\",\"level\":\"2\"}]");
 
         Assert.AreEqual("st", table.compat_prefix);
-        CollectionAssert.AreEqual(new[] { "st2", "st1" }, table.Folder_order);
-        CollectionAssert.AreEqual(new[] { "st2", "st1" }, table.folder_list);
+        CollectionAssert.AreEqual(new[] { "st2", "st1" }, table.Folder_order.ToArray());
+        CollectionAssert.AreEqual(new[] { "st2", "st1" }, table.folder_list.ToArray());
     }
 
     /// <summary>既に prefix を持つ folder_order は data 読込み後も重ねて prefix を付けず、同じ所属順を保つことを確認します。</summary>
@@ -610,8 +626,8 @@ public sealed class BMSTableLoadTests
         table.LoadDataJSON("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song A\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Song B\",\"level\":\"2\"}]");
 
         Assert.AreEqual("st", table.compat_prefix);
-        CollectionAssert.AreEqual(new[] { "st2", "st1" }, table.Folder_order);
-        CollectionAssert.AreEqual(new[] { "st2", "st1" }, table.folder_list);
+        CollectionAssert.AreEqual(new[] { "st2", "st1" }, table.Folder_order.ToArray());
+        CollectionAssert.AreEqual(new[] { "st2", "st1" }, table.folder_list.ToArray());
     }
 
     /// <summary>明示 null prefix は未設定として symbol 推定を使い、明示空 prefix との受理差を保つことを確認します。</summary>
@@ -621,7 +637,7 @@ public sealed class BMSTableLoadTests
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"st\",\"compat_prefix\":null,\"folder_sort_key\":\"\",\"folder_sort_ascending\":true,\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
 
         Assert.AreEqual("st", table.compat_prefix);
-        CollectionAssert.AreEqual(new[] { "st1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "st1" }, table.Folder_order.ToArray());
         Assert.AreEqual("st1", table.entries[0].folder);
     }
 
@@ -633,7 +649,7 @@ public sealed class BMSTableLoadTests
 
         Assert.AreEqual("st", table.compat_prefix);
         Assert.AreEqual("st0", table.entries[0].folder);
-        CollectionAssert.AreEqual(new[] { "st0" }, table.folder_list);
+        CollectionAssert.AreEqual(new[] { "st0" }, table.folder_list.ToArray());
     }
 
     /// <summary>header 順のない文字列 data level も互換 prefix を付け、推測による二重 prefix 除去で保存名を変えないことを確認します。</summary>
@@ -644,7 +660,7 @@ public sealed class BMSTableLoadTests
 
         Assert.AreEqual("st", table.compat_prefix);
         Assert.AreEqual("stst0", table.entries[0].folder);
-        CollectionAssert.AreEqual(new[] { "stst0" }, table.folder_list);
+        CollectionAssert.AreEqual(new[] { "stst0" }, table.folder_list.ToArray());
     }
 
     /// <summary>未設定 prefix の header を明示 prefix の header で再読込みすると、後の data は新 prefix を使い、前回の推定状態を残さないことを確認します。</summary>
@@ -677,16 +693,21 @@ public sealed class BMSTableLoadTests
             Folder_order = ["LEVEL 2", "LEVEL 1"]
         };
         int revisionBefore = table.PlaylistEntriesRevision;
+        IReadOnlyList<PlaylistFolderNode> oldNodes = table.FolderNodes;
+        IReadOnlyList<string> oldNames = table.folder_list, oldOrder = table.Folder_order;
         var changedProperties = new List<string>();
         table.PropertyChanged += (_, e) => changedProperties.Add(e.PropertyName!);
 
         bool changed = ApplyPrefixCandidate(table, "★");
 
         Assert.IsTrue(changed);
+        CollectionAssert.AreEqual(new[] { "LEVEL 2", "LEVEL 1" }, oldNames.ToArray());
+        CollectionAssert.AreEqual(new[] { "LEVEL 2", "LEVEL 1" }, oldOrder.ToArray());
+        CollectionAssert.AreEqual(new[] { "LEVEL 2", "LEVEL 1" }, oldNodes.Where(node => !node.IsSpecial).Select(node => node.FolderName).ToArray());
         Assert.AreEqual("★1", table.entries[0].folder);
         Assert.AreEqual("★2", table.entries[1].folder);
-        CollectionAssert.AreEqual(new[] { "★2", "★1" }, table.Folder_order);
-        CollectionAssert.AreEqual(new[] { "★2", "★1" }, table.folder_list);
+        CollectionAssert.AreEqual(new[] { "★2", "★1" }, table.Folder_order.ToArray());
+        CollectionAssert.AreEqual(new[] { "★2", "★1" }, table.folder_list.ToArray());
         CollectionAssert.AreEqual(new[] { "★2", "★1" }, table.FolderNodes.Where(node => !node.IsSpecial).Select(node => node.FolderName).ToList());
         Assert.AreEqual(lastUpdate, table.last_update);
         Assert.AreEqual(revisionBefore + 1, table.PlaylistEntriesRevision);
@@ -715,7 +736,7 @@ public sealed class BMSTableLoadTests
         Assert.IsTrue(changed);
         Assert.AreEqual("★Alpha", table.entries[0].folder);
         Assert.AreEqual("★Beta", table.entries[1].folder);
-        CollectionAssert.AreEqual(new[] { "★Alpha", "★Beta" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "★Alpha", "★Beta" }, table.Folder_order.ToArray());
     }
 
     /// <summary>現在時刻より未来の更新日時でも folder 作成・改名・行追加・削除が単調に日時を進め、時計で既存日時を巻き戻す誤りを検出します。</summary>
@@ -773,7 +794,7 @@ public sealed class BMSTableLoadTests
         Assert.IsTrue(changed);
         Assert.AreEqual("★1", table.entries[0].folder);
         Assert.AreEqual("★2", table.entries[1].folder);
-        CollectionAssert.AreEqual(new[] { "★2", "★1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "★2", "★1" }, table.Folder_order.ToArray());
     }
 
     /// <summary>変更先 prefix を既に含む別フォルダも変換対象とし、最終名が異なる場合は衝突として拒否しないことを確認します。</summary>
@@ -796,7 +817,7 @@ public sealed class BMSTableLoadTests
 
         Assert.AreEqual("★1", table.entries[0].folder);
         Assert.AreEqual("★★1", table.entries[1].folder);
-        CollectionAssert.AreEqual(new[] { "★1", "★★1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "★1", "★★1" }, table.Folder_order.ToArray());
     }
 
     /// <summary>prefix 変換で最終名が重なる場合は可否判断と実変更の両方で拒み、行と folder 順を一切変えないことを確認します。</summary>
@@ -819,7 +840,7 @@ public sealed class BMSTableLoadTests
 
         Assert.AreEqual("1", table.entries[0].folder);
         Assert.AreEqual("★1", table.entries[1].folder);
-        CollectionAssert.AreEqual(new[] { "1", "★1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "1", "★1" }, table.Folder_order.ToArray());
     }
 
     private static BMSTableEntry CreateEntry(string md5, string folder)

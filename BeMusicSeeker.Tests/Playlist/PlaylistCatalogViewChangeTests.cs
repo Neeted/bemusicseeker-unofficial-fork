@@ -857,9 +857,19 @@ public sealed class PlaylistCatalogViewChangeTests
         fixture.Workspace.PlaylistDetailReloadRefreshRequested += (_, _) => { reloads++; reload = fixture.Refresh(); };
         var work = new List<string>();
         fixture.Workspace.DetailWorkObserver = work.Add;
+        var published = new List<(string[] Nodes, int Saved)>();
+        table.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName != nameof(BMSTable.FolderNodes)) { return; }
+            using LR2SongDBExtended database = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+            published.Add((table.FolderNodes.Where(node => !node.IsSpecial).Select(node => node.FolderName).ToArray(),
+                database.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE folder='a';")));
+        };
         await fixture.Workspace.RenameFolderAsync(table, PlaylistFolderNode.CreateFolder("source"), "a");
         await reload;
-        CollectionAssert.AreEqual(new[] { "background", "a" }, table.folder_list);
+        Assert.IsTrue(published.Count > 0, "改名の確定構成通知が操作終端までに届きます。");
+        foreach ((string[] Nodes, int Saved) value in published) { CollectionAssert.AreEqual(new[] { "background", "a" }, value.Nodes); Assert.AreEqual(1, value.Saved); }
+        CollectionAssert.AreEqual(new[] { "background", "a" }, table.folder_list.ToArray());
         Assert.AreEqual("a", table.entries[0].folder);
         Assert.AreEqual(1, work.Count(kind => kind == "playlist_source_projection"));
         if (selectedFolder)

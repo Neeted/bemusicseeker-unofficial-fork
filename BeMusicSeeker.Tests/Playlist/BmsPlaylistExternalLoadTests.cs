@@ -544,8 +544,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
 
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath), baseTable);
 
-            CollectionAssert.AreEqual(new[] { "LOCAL 2", "LOCAL 1" }, table.Folder_order);
-            CollectionAssert.AreEqual(new[] { "LOCAL 2", "LOCAL 1" }, table.folder_list);
+            CollectionAssert.AreEqual(new[] { "LOCAL 2", "LOCAL 1" }, table.Folder_order.ToArray());
+            CollectionAssert.AreEqual(new[] { "LOCAL 2", "LOCAL 1" }, table.folder_list.ToArray());
         }
         finally
         {

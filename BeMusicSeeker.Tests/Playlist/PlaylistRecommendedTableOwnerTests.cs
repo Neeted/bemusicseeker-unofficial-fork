@@ -238,7 +238,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
             Assert.AreEqual(original.is_bmt_output, result.is_bmt_output);
         }
         Assert.AreEqual("R★", baseline.org_symbol);
-        CollectionAssert.AreEqual(new[] { "EASY", "NORMAL", "HARD", "FC" }, baseline.Folder_order);
+        CollectionAssert.AreEqual(new[] { "EASY", "NORMAL", "HARD", "FC" }, baseline.Folder_order.ToArray());
     }
 
     /// <summary>3推薦方針は一回のスコア捕捉を共有して異なる独立期待★を生成し、次の操作で再捕捉する。表ごとの重複読取りと操作を跨いだキャッシュを検出する。</summary>

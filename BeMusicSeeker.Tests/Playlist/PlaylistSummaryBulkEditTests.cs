@@ -186,7 +186,7 @@ public sealed class PlaylistSummaryBulkEditTests
         Assert.AreSame(target, table.entries[0]);
         Assert.AreEqual("current 0", target.memo);
         CollectionAssert.AreEqual(new[] { "Q1", "Q2", "QX", "QQ3" }, table.entries.Select(entry => entry.folder).ToArray());
-        CollectionAssert.AreEqual(new[] { "QQ3", "QX", "Q2", "Q1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "QQ3", "QX", "Q2", "Q1" }, table.Folder_order.ToArray());
         Assert.AreEqual(selectedFolder ? "Q1" : null, fixture.Workspace.CapturePlaylistDetailSelection().FolderName);
         Assert.AreEqual(table.PlaylistEntriesRevision, fixture.Workspace.DetailViewState.Source.LastBuiltPlaylistRevision);
         fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.Folder), ListSortDirection.Descending);

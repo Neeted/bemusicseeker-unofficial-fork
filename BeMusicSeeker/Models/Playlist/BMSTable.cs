@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -30,7 +31,13 @@ public partial class BMSTable : LR2SongDBExtended.playlist
 
     private static readonly JsonLoadSettings PlaylistJsonLoadSettings = new();
 
-    private List<string> _Folder_order;
+    // 順序は全置換するため木構造を持たず、不変配列を構築時に一度だけinterfaceとして保持します。
+    private IReadOnlyList<string> _Folder_order = ImmutableArray<string>.Empty;
+
+    /// <summary>確定した順序と表示構成を一組で公開します。取得側は再構築せず同じ不変入力を参照します。</summary>
+    private sealed record FolderState(IReadOnlyList<string> Order, IReadOnlyList<string> Names, IReadOnlyList<PlaylistFolderNode> Nodes);
+
+    private FolderState folderState = new(ImmutableArray<string>.Empty, ImmutableArray<string>.Empty, BuildFolderNodes([]));
 
     private List<LR2SongDBExtended.playlist_course> _Courses = [];
 
@@ -52,11 +59,13 @@ public partial class BMSTable : LR2SongDBExtended.playlist
 
     public string LoadedRawHeaderSha256 { get; private set; }
 
+    /// <summary>DB互換の明示順JSONを読み書きします。保存候補の符号化は未公開の候補順を使い、公開入力の取得とは分けます。</summary>
     public override string folder_order
     {
         get
         {
-            return new JArray(Folder_order).ToString(Formatting.Indented);
+            // DB保存候補は未公開のheaderも使うため、この保存属性だけは候補の明示順を読みます。
+            return new JArray(_Folder_order).ToString(Formatting.Indented);
         }
         set
         {
@@ -78,19 +87,21 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         }
     }
 
-    public List<string> Folder_order
+    /// <summary>確定済みの明示フォルダ順を取得し、設定時は入力を所有して表示構成と一緒に公開します。</summary>
+    public IReadOnlyList<string> Folder_order
     {
         get
         {
-            return _Folder_order;
+            return Volatile.Read(ref folderState).Order;
         }
         set
         {
-            if (_Folder_order != value)
+            if ((_Folder_order == null) != (value == null)
+                || !(_Folder_order ?? []).SequenceEqual(value ?? [], StringComparer.Ordinal))
             {
-                _Folder_order = value;
-                RaisePropertyChanged("Folder_order");
+                _Folder_order = value == null ? null : value.ToImmutableArray();
                 RebuildFolderState();
+                RaisePropertyChanged("Folder_order");
             }
         }
     }
@@ -460,20 +471,15 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         return defaultOutputDirectoryName;
     }
 
-    private List<string> _cached_folder_list;
-
-    private List<PlaylistFolderNode> _cached_folder_nodes;
-
     /// <summary>
     /// フォルダ名の並びを取得します。
-    /// UI の直接バインド元ではなく、互換処理や JSON 出力でも利用する派生値です。
+    /// 互換処理や JSON 出力が使う確定済みの不変入力であり、取得時に構築・複製しません。
     /// </summary>
-    public List<string> folder_list
+    public IReadOnlyList<string> folder_list
     {
         get
         {
-            EnsureFolderStateCache();
-            return _cached_folder_list;
+            return Volatile.Read(ref folderState).Names;
         }
         set
         {
@@ -483,14 +489,13 @@ public partial class BMSTable : LR2SongDBExtended.playlist
 
     /// <summary>
     /// プレイリストツリー表示用のフォルダノード一覧を取得します。
-    /// 特殊ノードと通常フォルダの両方を含みます。
+    /// 特殊ノードと通常フォルダを含む確定済みの不変入力です。画面に渡した同じ構成を選択の出自として保持できます。
     /// </summary>
     public IReadOnlyList<PlaylistFolderNode> FolderNodes
     {
         get
         {
-            EnsureFolderStateCache();
-            return _cached_folder_nodes;
+            return Volatile.Read(ref folderState).Nodes;
         }
     }
 
@@ -851,7 +856,7 @@ public partial class BMSTable : LR2SongDBExtended.playlist
     /// <returns>特殊ノードを含まない、並び順適用後のフォルダ名一覧。</returns>
     private List<string> getSortedFolderList()
     {
-        return GetSortedFolderList(activeFolderCounts.Keys.Select(key => key.Name), Folder_order);
+        return GetSortedFolderList(activeFolderCounts.Keys.Select(key => key.Name), _Folder_order);
     }
 
     /// <summary>
@@ -901,48 +906,34 @@ public partial class BMSTable : LR2SongDBExtended.playlist
     /// </summary>
     /// <param name="orderedFolderNames">表示順確定後の通常フォルダ名一覧。</param>
     /// <returns>プレイリストツリー表示用ノード一覧。</returns>
-    private List<PlaylistFolderNode> BuildFolderNodes(List<string> orderedFolderNames)
+    private static IReadOnlyList<PlaylistFolderNode> BuildFolderNodes(List<string> orderedFolderNames)
     {
         List<PlaylistFolderNode> list = [.. (from PlaylistFolderNodeSpecialKind kind in Enum.GetValues(typeof(PlaylistFolderNodeSpecialKind))
                                          where kind != PlaylistFolderNodeSpecialKind.None
                                          select PlaylistFolderNode.CreateSpecial(kind))];
         list.AddRange(orderedFolderNames.Select(folderName => PlaylistFolderNode.CreateFolder(folderName)));
-        return list;
+        return list.AsReadOnly();
     }
 
     /// <summary>
-    /// フォルダ状態に関する派生キャッシュを無効化します。
-    /// <see cref="folder_list"/> と <see cref="FolderNodes"/> は必ず同時に無効化します。
-    /// </summary>
-    private void InvalidateFolderStateCache()
-    {
-        _cached_folder_list = null;
-        _cached_folder_nodes = null;
-    }
-
-    /// <summary>
-    /// フォルダ状態キャッシュが未構築の場合に再計算します。
-    /// <see cref="_cached_folder_list"/> と <see cref="_cached_folder_nodes"/> の整合性をここで揃えます。
-    /// </summary>
-    private void EnsureFolderStateCache()
-    {
-        if (_cached_folder_list == null || _cached_folder_nodes == null)
-        {
-            List<string> sortedFolderList = getSortedFolderList();
-            _cached_folder_list = sortedFolderList;
-            _cached_folder_nodes = BuildFolderNodes(sortedFolderList);
-        }
-    }
-
-    /// <summary>
-    /// フォルダ状態の派生値を再構築し、関連プロパティ変更通知を発行します。
-    /// フォルダ構成が変わる更新経路は、このメソッドを通じて状態を同期します。
+    /// フォルダ状態を完成させて一度公開します。writer内の確定では通知を後段へ分離し、
+    /// 同じ表示順は再利用します。getterや選択受付へ構築を遅延しません。
     /// </summary>
     private void RebuildFolderState(bool publishNotifications = true)
     {
-        InvalidateFolderStateCache();
-        EnsureFolderStateCache();
-        if (publishNotifications)
+        FolderState previous = Volatile.Read(ref folderState);
+        List<string> sorted = getSortedFolderList();
+        bool namesChanged = !previous.Names.SequenceEqual(sorted, StringComparer.Ordinal);
+        IReadOnlyList<string> order = (_Folder_order == null) == (previous.Order == null)
+            && (_Folder_order ?? []).SequenceEqual(previous.Order ?? [], StringComparer.Ordinal)
+            ? previous.Order : _Folder_order;
+        if (namesChanged || !ReferenceEquals(order, previous.Order))
+        {
+            Volatile.Write(ref folderState, new FolderState(order,
+                namesChanged ? sorted.AsReadOnly() : previous.Names,
+                namesChanged ? BuildFolderNodes(sorted) : previous.Nodes));
+        }
+        if (publishNotifications && namesChanged)
         {
             RaisePropertyChanged("folder_list");
             RaisePropertyChanged("FolderNodes");
@@ -1006,7 +997,7 @@ public partial class BMSTable : LR2SongDBExtended.playlist
     {
         return entriesByFolder.Keys
             .Select(key => key.Name ?? string.Empty)
-            .Concat((Folder_order ?? []).Select(folder => folder ?? string.Empty))
+            .Concat((_Folder_order ?? []).Select(folder => folder ?? string.Empty))
             .Distinct(StringComparer.Ordinal);
     }
 

@@ -104,6 +104,8 @@ public sealed class PlaylistEntryCommitTests
         table.Folder_order = ["X", "P1"];
         fixture.Owner.ReplaceTablesWithEntries([table]);
         BMSTableEntry target = table.entries[0], retained = table.entries[1];
+        IReadOnlyList<PlaylistFolderNode> oldNodes = table.FolderNodes;
+        IReadOnlyList<string> oldOrder = table.Folder_order;
         PlaylistEntryReadSnapshot old = table.CaptureEntryReadSnapshot(target);
         DateTime lastUpdate = table.last_update;
         int version = table.PlaylistEntriesRevision;
@@ -119,6 +121,9 @@ public sealed class PlaylistEntryCommitTests
         Assert.AreEqual(0, fixture.Work.MembershipChanges);
         Assert.AreSame(target, table.entries[0]); Assert.AreSame(retained, table.entries[1]);
         Assert.AreEqual("1", target.folder); Assert.AreEqual("current memo", target.memo);
+        CollectionAssert.AreEqual(new[] { "X", "P1" }, oldOrder.ToArray());
+        CollectionAssert.AreEqual(new[] { "X", "P1" }, oldNodes.Where(node => !node.IsSpecial).Select(node => node.FolderName).ToArray());
+        CollectionAssert.AreEqual(new[] { "X", "1" }, table.FolderNodes.Where(node => !node.IsSpecial).Select(node => node.FolderName).ToArray());
         Assert.AreEqual("P1", old.Entries.Single().After.Folder);
         Assert.AreEqual(lastUpdate, table.last_update); Assert.AreEqual(version + 1, table.PlaylistEntriesRevision);
         CollectionAssert.AreEqual(new[] { "X", "1" }, receipt.FolderOrder.ToArray());
@@ -139,6 +144,8 @@ public sealed class PlaylistEntryCommitTests
         IReadOnlyList<BMSTableEntry>[] memberships = [.. fixture.Tables.Select(table => table.entries)];
         int[] versions = [.. fixture.Tables.Select(table => table.PlaylistEntriesRevision)];
         DateTime[] dates = [.. fixture.Tables.Select(table => table.last_update)];
+        IReadOnlyList<PlaylistFolderNode>[] oldNodes = fixture.Tables.Select(table => table.FolderNodes).ToArray();
+        IReadOnlyList<string>[] oldOrders = fixture.Tables.Select(table => table.Folder_order).ToArray();
         var edit = new PlaylistHeaderEdit
         {
             Fields = PlaylistHeaderFields.Name | PlaylistHeaderFields.CompatPrefix,
@@ -152,6 +159,7 @@ public sealed class PlaylistEntryCommitTests
         {
             BMSTable table = fixture.Tables[index];
             Assert.AreSame(memberships[index], table.entries);
+            Assert.AreSame(oldNodes[index], table.FolderNodes); Assert.AreSame(oldOrders[index], table.Folder_order);
             Assert.AreEqual("table-" + table.playlist_id, table.name);
             Assert.AreEqual(string.Empty, table.compat_prefix);
             Assert.AreEqual(versions[index], table.PlaylistEntriesRevision);
@@ -423,6 +431,8 @@ public sealed class PlaylistEntryCommitTests
         changed.folder = "source";
         table.entries = table.entries;
         table.Folder_order = ["source", "folder"];
+        IReadOnlyList<PlaylistFolderNode> oldNodes = table.FolderNodes;
+        IReadOnlyList<string> oldOrder = table.Folder_order;
         fixture.Owner.ReplaceTablesWithEntries([table]);
         fixture.Execute("CREATE TABLE entry_work (kind TEXT);",
             "CREATE TRIGGER count_delete AFTER DELETE ON playlist_entry BEGIN INSERT INTO entry_work VALUES ('delete'); END;",
@@ -437,14 +447,17 @@ public sealed class PlaylistEntryCommitTests
         Assert.AreSame(changed, table.entries[0]);
         Assert.AreSame(retained, table.entries[1]);
         Assert.AreEqual(destination, changed.folder);
+        CollectionAssert.AreEqual(new[] { "source", "folder" }, oldOrder.ToArray());
+        CollectionAssert.AreEqual(new[] { "source", "folder" }, oldNodes.Where(node => !node.IsSpecial).Select(node => node.FolderName).ToArray());
+        CollectionAssert.AreEqual(new[] { destination, "folder" }, table.FolderNodes.Where(node => !node.IsSpecial).Select(node => node.FolderName).ToArray());
         Assert.AreEqual("folder", retained.folder);
-        CollectionAssert.AreEqual(new[] { destination, "folder" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { destination, "folder" }, table.Folder_order.ToArray());
         CollectionAssert.AreEqual(new[] { destination, "folder" }, receipt.FolderOrder.ToArray());
         using LR2SongDBExtended db = fixture.OpenRead();
         Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT count(*) FROM entry_work WHERE kind = 'delete';"));
         Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT count(*) FROM entry_work WHERE kind = 'insert';"));
         Assert.AreEqual(background, db.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE playlist_id = 9201;"));
-        CollectionAssert.AreEqual(new[] { destination, "folder" }, db.Table<BMSTable>().Single(row => row.playlist_id == 9201).Folder_order);
+        CollectionAssert.AreEqual(new[] { destination, "folder" }, db.Table<BMSTable>().Single(row => row.playlist_id == 9201).Folder_order.ToArray());
     }
 
     /// <summary>memo 確定と URL 補完は所持数の依存を変更せず、既に温めた表の全 entry 再走査を要求しません。</summary>
@@ -453,6 +466,8 @@ public sealed class PlaylistEntryCommitTests
     {
         using var fixture = new Fixture(128);
         BMSTable table = fixture.Tables[0];
+        IReadOnlyList<PlaylistFolderNode> nodes = table.FolderNodes;
+        IReadOnlyList<string> names = table.folder_list, order = table.Folder_order;
         var hashes = new OwnedChartHashIndexSnapshot();
         hashes.AddMd5(table.entries[0].md5);
         var owned = new OwnedChartHashIndexVersionedSnapshot(hashes, 1, 0, 1, 1);
@@ -464,6 +479,7 @@ public sealed class PlaylistEntryCommitTests
         fixture.Commit(table.entries[0], "memo", "memo after");
         summary.GetOrBuildTableCount(table, owned, CancellationToken.None, out bool memoHit);
         Assert.IsTrue(memoHit);
+        Assert.AreSame(nodes, table.FolderNodes); Assert.AreSame(names, table.folder_list); Assert.AreSame(order, table.Folder_order);
         using (table.ReaderWriterLock.GetWriterGuard())
         {
             BMSTableEntry entry = table.entries[0];
@@ -473,8 +489,12 @@ public sealed class PlaylistEntryCommitTests
         }
         PlaylistSummaryCountResult last = summary.GetOrBuildTableCount(table, owned, CancellationToken.None, out bool urlHit);
         Assert.IsTrue(urlHit);
+        Assert.AreSame(nodes, table.FolderNodes); Assert.AreSame(names, table.folder_list); Assert.AreSame(order, table.Folder_order);
         Assert.AreEqual(128, last.TotalCharts);
         Assert.AreEqual(1, last.OwnedCharts);
+        Assert.AreEqual("memo after", table.entries[0].memo);
+        using LR2SongDBExtended database = fixture.OpenRead();
+        Assert.AreEqual("memo after", database.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE playlist_id=? AND md5=?;", table.playlist_id, table.entries[0].md5));
     }
 
     /// <summary>同表・同folder・NULL titleの背景だけを増やし、正規memo保存の候補SELECTの実VM_STEPが全件走査へ増えないことを確認します。</summary>

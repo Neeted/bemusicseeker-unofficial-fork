@@ -19,6 +19,7 @@ using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -42,6 +43,195 @@ namespace BeMusicSeeker.Tests;
 public sealed class MainWindowPlaylistWorkspaceWpfTests
 {
     private const string NativeModalFixturePlaylistName = "Native modal fixture";
+
+    /// <summary>実TreeViewの構造置換による親Selectedを発生させ、改名・prefix保存・別folder更新後の選択と詳細hashを確認します。復元配送前の明示選択も通し、古い復元の優先とOSフォーカス依存を検出します。</summary>
+    [TestMethod]
+    public void PlaylistFolderStructure_ActualTreeKeepsWorkspaceSelectionAndNewExplicitSelection()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope);
+            Exception? primaryFailure = null;
+            System.ComponentModel.DependencyPropertyDescriptor? descriptor = null;
+            TreeViewItem? observedItem = null;
+            TaskCompletionSource? bindingConsumer = null;
+            EventHandler targetChanged = (_, _) =>
+            {
+                if (bindingConsumer is TaskCompletionSource consumer)
+                {
+                    // 実target転送のmetadata callbackが予約したLoaded同期より後まで、UI consumerを待ちます。
+                    fixture.Window.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => consumer.TrySetResult()));
+                }
+            };
+            try
+            {
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                fixture.Table.compat_prefix = "P";
+                fixture.Table.entries = [new BMSTableEntry { md5 = new string('a', 32), title = "A", folder = "P1" },
+                new BMSTableEntry { md5 = new string('b', 32), title = "B", folder = "P2" }];
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                // fixtureの初期viewportでは特殊子だけが実体化するため、三つの対象子を表示できる領域を明示します。
+                var tree = (TreeView)fixture.Window.FindName("treeViewPlaylist");
+                tree.Height = 300;
+                tree.UpdateLayout();
+                var root = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                root.IsExpanded = true;
+                MaterializeTreeItems(root);
+                var tableItem = (TreeViewItem)root.ItemContainerGenerator.ContainerFromItem(fixture.Table);
+                observedItem = tableItem;
+                descriptor = System.ComponentModel.DependencyPropertyDescriptor.FromProperty(MainWindow.PlaylistFolderNodesProperty, typeof(TreeViewItem));
+                descriptor.AddValueChanged(tableItem, targetChanged);
+                tableItem.IsExpanded = true;
+                MaterializeTreeItems(tableItem);
+                Task ObserveStructureTransfer()
+                {
+                    bindingConsumer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    return bindingConsumer.Task;
+                }
+                TreeViewItem Folder(string name)
+                {
+                    return FindDescendants<TreeViewItem>(tableItem).FirstOrDefault(item => item.DataContext is PlaylistFolderNode folder && !folder.IsSpecial && folder.FolderName == name)
+                        ?? throw new AssertFailedException($"フォルダ'{name}'の表示コンテナがありません（対象数={tableItem.Items.Count}、生成状態={tableItem.ItemContainerGenerator.Status}）。");
+                }
+                void AssertSelection(string name, string hash)
+                {
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "folder-tree-detail-idle");
+                    Assert.AreEqual(name, workspace.CapturePlaylistDetailSelection().FolderName);
+                    Assert.IsTrue(Folder(name).IsSelected);
+                    Assert.AreEqual(name, ((PlaylistFolderNode)((TreeView)fixture.Window.FindName("treeViewPlaylist")).SelectedItem).FolderName);
+                    CollectionAssert.AreEqual(new[] { hash }, workspace.DetailViewState.Source.Rows.Select(row => row.Entry.md5).ToArray());
+                }
+                Folder("P1").IsSelected = true;
+                AssertSelection("P1", new string('a', 32));
+                long beforeClick;
+                workspace.CapturePlaylistDetailSelection(out beforeClick);
+                Folder("P1").RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                { RoutedEvent = Mouse.PreviewMouseDownEvent });
+                workspace.CapturePlaylistDetailSelection(out long afterClick);
+                Assert.IsTrue(afterClick > beforeClick, "選択済みfolderの再クリックも実compiledイベントから要求を更新します。");
+                AssertSelection("P1", new string('a', 32));
+                int parentSelections = 0;
+                tableItem.AddHandler(TreeViewItem.SelectedEvent, new RoutedEventHandler((_, args) =>
+                {
+                    if (ReferenceEquals(args.OriginalSource, tableItem)) { parentSelections++; }
+                }), handledEventsToo: true);
+                Task renameTransfer = ObserveStructureTransfer();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.RenameFolderAsync(fixture.Table,
+                    PlaylistFolderNode.CreateFolder("P1"), "P3"), "folder-tree-rename");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(renameTransfer, "folder-tree-rename-ui-consumer");
+                AssertSelection("P3", new string('a', 32));
+                Assert.IsTrue(parentSelections > 0, "実ItemsSource置換の親選択イベントを通過します。");
+                Task<PlaylistPropertyDialogViewModel> opening = workspace.OpenPropertyDialogAsync(fixture.Table);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(opening, "folder-tree-property-open");
+                using (PlaylistPropertyDialogViewModel dialog = opening.Result)
+                {
+                    dialog.compat_prefix = "Q";
+                    Task prefixTransfer = ObserveStructureTransfer();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SaveAndApplyAsync(), "folder-tree-prefix-save");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(prefixTransfer, "folder-tree-prefix-ui-consumer");
+                }
+                AssertSelection("Q3", new string('a', 32));
+                Task otherTransfer = ObserveStructureTransfer();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.RenameFolderAsync(fixture.Table,
+                    PlaylistFolderNode.CreateFolder("Q2"), "Q4"), "folder-tree-other-rename");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(otherTransfer, "folder-tree-other-ui-consumer");
+                AssertSelection("Q3", new string('a', 32));
+
+                // 同じ共通更新境界をUI上で実行し、Loadedの復元を配送する前に別folderの実選択を確定します。
+                int beforeReplacement = parentSelections;
+                Task orderedTransfer = ObserveStructureTransfer();
+                fixture.Table.Folder_order = ["Q4", "Q3"];
+                BindingExpression structureBinding = BindingOperations.GetBindingExpression(tableItem, MainWindow.PlaylistFolderNodesProperty)
+                    ?? throw new AssertFailedException("compiledフォルダ構成Bindingがありません。");
+                structureBinding.UpdateTarget();
+                Assert.IsTrue(parentSelections > beforeReplacement, "復元配送前に実構造置換の親選択を発生させます。");
+                Assert.AreEqual("Q3", workspace.CapturePlaylistDetailSelection().FolderName, "構造置換の親選択を利用者の選択と解釈しません。");
+                tableItem.UpdateLayout();
+                Folder("Q4").IsSelected = true;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(orderedTransfer, "folder-tree-order-ui-consumer");
+                AssertSelection("Q4", new string('b', 32));
+
+                void RenameForCollision(string before, string after)
+                {
+                    Task transfer = ObserveStructureTransfer();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.RenameFolderAsync(fixture.Table,
+                        PlaylistFolderNode.CreateFolder(before), after), "folder-tree-collision-rename");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(transfer, "folder-tree-collision-rename-ui");
+                }
+                void SavePrefixBeforeFolderNotification(string prefix, Action choose)
+                {
+                    Task<PlaylistPropertyDialogViewModel> create = workspace.OpenPropertyDialogAsync(fixture.Table);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(create, "folder-tree-gated-property-open");
+                    using PlaylistPropertyDialogViewModel dialog = create.Result;
+                    using var release = new ManualResetEventSlim();
+                    var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    int held = 0;
+                    System.ComponentModel.PropertyChangedEventHandler hold = (_, args) =>
+                    {
+                        if (args.PropertyName != nameof(BMSTable.PlaylistEntriesRevision) || Interlocked.Exchange(ref held, 1) != 0) { return; }
+                        reached.TrySetResult();
+                        release.Wait();
+                    };
+                    fixture.Table.PropertyChanged += hold;
+                    Task transfer = ObserveStructureTransfer();
+                    Task? saving = null;
+                    Exception? stageFailure = null;
+                    try
+                    {
+                        dialog.compat_prefix = prefix;
+                        saving = dialog.SaveAndApplyAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(
+                            reached.Task, saving, "folder-tree-committed-before-notification"), "folder-tree-prefix-gate");
+                        choose();
+                    }
+                    catch (Exception failure) { stageFailure = failure; throw; }
+                    finally
+                    {
+                        release.Set();
+                        try { if (saving != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(saving, "folder-tree-prefix-gate-terminal"); } }
+                        catch (Exception cleanupFailure) when (stageFailure != null) { stageFailure.Data["PrefixGateCleanupFailure"] = cleanupFailure.ToString(); }
+                        finally { fixture.Table.PropertyChanged -= hold; }
+                    }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(transfer, "folder-tree-gated-prefix-ui-consumer");
+                }
+
+                // 旧表示QQ1と新表示QQ1が別hashを指す。モデル確定と画面配送の間で、実ItemsSource由来の要求を区別します。
+                RenameForCollision("Q3", "Q1");
+                RenameForCollision("Q4", "QQ1");
+                Folder("Q1").IsSelected = true;
+                AssertSelection("Q1", new string('a', 32));
+                object oldDisplayed = tableItem.ItemsSource;
+                SavePrefixBeforeFolderNotification("QQ", () =>
+                {
+                    Assert.AreSame(oldDisplayed, tableItem.ItemsSource, "保存後も旧構成を表示している区間です。");
+                    Assert.IsTrue(fixture.Table.FolderNodes.Any(node => !node.IsSpecial && node.FolderName == "QQQ1"));
+                    Folder("QQ1").IsSelected = true;
+                    Assert.AreEqual("QQ1", workspace.CapturePlaylistDetailSelection().FolderName);
+                });
+                AssertSelection("QQQ1", new string('b', 32));
+
+                SavePrefixBeforeFolderNotification("QQQ", () =>
+                {
+                    int oldParents = parentSelections;
+                    structureBinding.UpdateTarget();
+                    Assert.AreSame(fixture.Table.FolderNodes, tableItem.ItemsSource);
+                    Assert.IsTrue(parentSelections > oldParents, "新構成の実置換も親Selectedを通ります。");
+                    tableItem.UpdateLayout();
+                    Folder("QQQ1").IsSelected = true;
+                });
+                AssertSelection("QQQ1", new string('a', 32));
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                if (observedItem != null) { descriptor?.RemoveValueChanged(observedItem, targetChanged); }
+                try { fixture.Close(); }
+                catch (Exception cleanupFailure) when (primaryFailure != null) { primaryFailure.Data["FolderTreeCleanupFailure"] = cleanupFailure.ToString(); }
+            }
+        });
+    }
 
     /// <summary>実MainWindowの単一配送から、開いたplaylistへ保守値・独立score・別表参照を局所配送します。score版とMD5の実batch・行通知・drain終端を待ち、実controlと集計TextBlockのBinding、無関係行・未訪問BMSONを確認し、条件網羅は各ownerへ分担します。</summary>
     [TestMethod]
@@ -315,6 +505,28 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 BMSTable saved = fixture.Playlist.BMSTables.Single(table => table.name == "First compiled output");
                 string file = Path.Combine(fixture.Root, "custom", "First compiled output", "0000.lr2folder");
                 Assert.IsTrue(File.Exists(file));
+                // 新規保存した同じ表を通常詳細で編集し、その後の構成更新まで接続します。分類・出力の条件網羅は下位へ分担します。
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                var sourceEntry = new BMSTableEntry { md5 = new string('a', 32), title = "Seed", folder = "Source" };
+                fixture.Table.entries = [sourceEntry];
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.AddRowsToFolderAsync(
+                    [new PlaylistDetailSourceRow(sourceEntry, resolvedChart: null).CreateViewRow()], saved), "new-playlist-add-row");
+                workspace.RequestDetailSelection(saved);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "new-playlist-open-detail");
+                PlaylistDetailRow edited = fixture.ViewModel.MainChartList.Rows[0] as PlaylistDetailRow
+                    ?? throw new AssertFailedException("新規保存した表の通常詳細行がありません。");
+                var edit = new MainChartListCellEditContext(edited, nameof(PlaylistDetailRow.memo), ChartOperationSourceScope.PlaylistMissing, MainViewOperationSection.Playlist);
+                workspace.BeginDetailEdit(edit);
+                edited.memo = "new playlist memo";
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.CompleteDetailEdit(
+                    new MainChartListCellEditEndedEventArgs(edit, "new playlist memo", commit: true)), "new-playlist-detail-edit");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.CreateFolderAsync(saved), "new-playlist-folder-update");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "new-playlist-after-folder-update");
+                Assert.AreSame(saved, workspace.CapturePlaylistDetailSelection().Table);
+                Assert.AreEqual(PlaylistDetailSelectionScope.OrdinaryRoot, workspace.CapturePlaylistDetailSelection().Scope);
+                Assert.AreEqual("new playlist memo", saved.entries.Single(entry => entry.md5 == new string('a', 32)).memo);
                 using LR2SongDBExtended db = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly();
                 Assert.AreEqual(1, db.Table<BMSTable>().Count(table => table.name == "First compiled output"));
                 Assert.AreEqual(saved.playlist_id, db.Table<BMSTable>().Single(table => table.name == "First compiled output").playlist_id);

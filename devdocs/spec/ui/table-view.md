@@ -18,6 +18,12 @@
 
 並べ替え状態は通常一覧の `SortParameters`、履歴の `PlayHistorySortParameters` を `MainTableSortParameters` へ切り替えて公開します。プレイリスト一覧は独立した `PlaylistSummarySortParameters` を使います。
 
+### プレイリストツリーの選択
+
+プレイリストツリーのフォルダ構成更新では、workspaceの選択を正本にします。ItemsSourceの置換中にWPFが選択する親を新しい利用者選択として採用せず、コンテナ生成後に同じ選択revisionの表示だけを同期します。改名・接頭辞変更は確定した対応へ追従し、別フォルダ更新と特殊NO SONGノードの選択を保ちます。同期配送前の新しい明示選択を古い復元で上書きしません。通常の初回選択、再クリックとキーボード選択は従来の要求経路を使います。選択フォルダの削除先は[保存仕様](../playlist/storage-and-export.md#手動編集と失敗)に従います。
+
+通常Selectedと再クリックは、実際に表示された親TreeViewItemのItemsSourceを選択の出自として渡します。モデル確定後も旧表示が残る間のクリックは旧構成の対応へ追従し、新表示からの同名キーの選択へ旧対応を再適用しません。要求の複製・表参照差替えでも出自を保持し、現在のモデル構成へ暗黙に読み替えません。LampViewerも存在確認と同じ公開構成を使います。
+
 ### スクロール領域
 
 `Surface` とセル編集面は表の全面を共有し、共通スクロールバーを前面へ重ねます。専用の行・列、固定ガター、ダミー列、不透明な交点は設けません。バーの表示切替で描画領域やセル座標の幅・高さを変えません。見た目と固定16 DIPの入力領域は[外観仕様](appearance.md#スクロールとフォーカス)に従います。
@@ -241,6 +247,12 @@ DPIは変更コールバックと描画開始時の環境確認で追従しま�
 一覧ヘッダーの上端には `Table.HeaderGridLineBrush` による1 DIPの線を表示幅全体へ描画します。線の中心は上端から0.5 DIPに置き、端で半分が欠けることを避けます。通常一覧・プレイリスト概要とも、保留・プレイログの追加ツールバーや表示列・データ行の有無によらず上枠を表示し、追加ツールバー側には下枠を重ねません。データ行の罫線・行高・スクロール計算は維持します。
 
 ## 実装とテストの対応
+
+[`MainWindowPlaylistWorkspaceWpfTests.PlaylistFolderStructure_ActualTreeKeepsWorkspaceSelectionAndNewExplicitSelection`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) は実TreeViewの構造置換・親Selected・改名・接頭辞保存・別フォルダ更新と、復元配送前の明示選択を通し、ツリー・workspace・詳細hashの一致を確認します。選択の判断と削除先の条件差は [`PlaylistWorkspaceActionWorkflowTests.PlaylistFolderMutation_PreservesOrRemapsSelectionAndDetail`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)、新構成の同キー明示選択と旧prefix対応の衝突は同クラスの `PlaylistPropertySave_NewExplicitSelectionDoesNotApplyOldPrefixMap` が担います。表置換と古い要求の拒否は既存の詳細更新・外部表置換系列へ維持します。
+
+同じ実ツリー代表で、prefix確定後・構成通知前の旧ItemsSourceから選択する区間と、新Bindingを適用して同名の別譜面を選択する区間を制御します。通常Selectedはキー操作後も使う確定経路として確認し、再クリックは実PreviewMouseDownから配送します。物理キーとOSフォーカス移動は自動検証の保証に含めません。構成Bindingのtarget転送と、その後の遅延選択同期の終端を待ち、workerの完了や一般的なidleから表示成功を推測しません。
+
+同WPFクラスの `PlaylistPropertyNewDraft_CompiledNameAndSaveCompleteFirstLr2Output` は新規作成のcompiled入力・初回保存・閉鎖から、同じ表への譜面追加、通常詳細編集、フォルダ構成更新までを接続し、選択と編集済み値の維持を確認します。分類・必要出力・保存失敗の条件網羅はworkspaceの既存系列へ分担します。
 
 セルeditorの余白は `CreateCellEditorTemplate` の静的差分と `MainWindowChartPresentationWpfTests` の共通入力位置の検査で確認します。実編集の開始・入力所有・編集中操作は既存 `CustomTableEditingTests` が担当し、Surfaceと有効viewportの保証は以下の既存viewport・navigationケースへ残します。
 

@@ -425,7 +425,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                     Assert.AreEqual(id, header.playlist_id);
                     Assert.AreEqual(uri, header.Page_url.AbsoluteUri);
                     Assert.AreEqual(outputDirectory, header.Output_dir);
-                    CollectionAssert.AreEqual(new[] { "old" }, header.Folder_order);
+                    CollectionAssert.AreEqual(new[] { "old" }, header.Folder_order.ToArray());
                     BMSTableEntry entry = verify.Table<BMSTableEntry>().Single(row => row.playlist_id == id);
                     Assert.AreEqual(new string(hashDigit, 32), entry.md5);
                     Assert.AreEqual(name + " song", entry.title);

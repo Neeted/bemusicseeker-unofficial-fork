@@ -239,7 +239,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 StringAssert.Contains(failure!.ToString(), "playlist mutation DB write failure", mutationKind);
                 Assert.AreEqual(initialRevision, table.PlaylistEntriesRevision, mutationKind);
                 Assert.AreEqual(initialLastUpdate, table.last_update, mutationKind);
-                CollectionAssert.AreEqual(initialFolderOrder, table.Folder_order, mutationKind);
+                CollectionAssert.AreEqual(initialFolderOrder, table.Folder_order.ToArray(), mutationKind);
                 CollectionAssert.AreEqual(
                     new BMSTableEntry[] { targetEntry, retainedEntry },
                     table.entries.ToArray(),
@@ -255,7 +255,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                     BMSTable persistedTable = verifyFailedWrite.Table<BMSTable>()
                         .Single(item => item.playlist_id == playlistId);
                     Assert.AreEqual("Mutation failure target", persistedTable.name, mutationKind);
-                    CollectionAssert.AreEqual(initialFolderOrder, persistedTable.Folder_order, mutationKind);
+                    CollectionAssert.AreEqual(initialFolderOrder, persistedTable.Folder_order.ToArray(), mutationKind);
                     List<BMSTableEntry> persistedEntries = [.. verifyFailedWrite.Table<BMSTableEntry>()
                         .Where(item => item.playlist_id == playlistId && !item.is_removed)
                         .OrderBy(item => item.md5, StringComparer.Ordinal)];
@@ -386,7 +386,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         switch (mutationKind)
         {
             case "rename-folder":
-                CollectionAssert.Contains(persistedTable.Folder_order, "AfterFailure", mutationKind);
+                CollectionAssert.Contains(persistedTable.Folder_order.ToArray(), "AfterFailure", mutationKind);
                 Assert.IsTrue(persistedEntries.Any(entry => entry.md5 == targetEntry.md5 && entry.folder == "AfterFailure"), mutationKind);
                 Assert.IsFalse(persistedEntries.Any(entry => entry.folder == "FailedFolder"), mutationKind);
                 return;
@@ -399,7 +399,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 Assert.IsFalse(persistedEntries.Any(entry => entry.folder == "FailedFolder"), mutationKind);
                 return;
             case "remove-folder":
-                CollectionAssert.DoesNotContain(persistedTable.Folder_order, "Original", mutationKind);
+                CollectionAssert.DoesNotContain(persistedTable.Folder_order.ToArray(), "Original", mutationKind);
                 Assert.IsTrue(persistedEntries.Any(entry => entry.md5 == targetEntry.md5 && string.IsNullOrEmpty(entry.folder)), mutationKind);
                 return;
             case "remove-entry":
@@ -1100,7 +1100,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.IsFalse(table.is_external_sync);
             Assert.AreEqual("LEVEL 1", table.entries[0].folder);
             Assert.AreEqual("LEVEL ★1", table.entries[1].folder);
-            CollectionAssert.AreEqual(new[] { "LEVEL 1", "LEVEL ★1" }, table.Folder_order);
+            CollectionAssert.AreEqual(new[] { "LEVEL 1", "LEVEL ★1" }, table.Folder_order.ToArray());
             Assert.AreEqual("LEVEL 1", workspace.CapturePlaylistDetailSelection()!.FolderName);
             CollectionAssert.Contains(workspace.GetPlaylistKeywordValueCandidates().ToArray(), "External:Name");
             Assert.IsTrue(keywordValueCandidatesChangedCount > 0);

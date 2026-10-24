@@ -1760,8 +1760,8 @@ internal sealed class PlaylistAggregatePersistenceOwner
         {
             throw new ArgumentNullException("newTable");
         }
-        List<string> oldFolderList = oldTable.folder_list;
-        List<string> newFolderList = newTable.folder_list;
+        IReadOnlyList<string> oldFolderList = oldTable.folder_list;
+        IReadOnlyList<string> newFolderList = newTable.folder_list;
         return newTable.entries.Count != matchedOldEntryCount || matchedOldEntryCount != oldTable.entries.Where(entry => !entry.is_removed).Count() || oldFolderList.Except(newFolderList).Any() || newFolderList.Except(oldFolderList).Any();
     }
 

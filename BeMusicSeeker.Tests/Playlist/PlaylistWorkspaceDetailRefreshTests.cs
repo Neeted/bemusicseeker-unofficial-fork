@@ -915,17 +915,23 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.IsNull(workspace.CapturePlaylistDetailSelection().Table);
     }
 
-    /// <summary>表参照置換と通常・空名folderの改名に選択を追従させ、未所持scopeを誤改名しません。</summary>
+    /// <summary>表参照置換と実構成の通常・空名folder改名に選択を追従させ、未所持scopeを誤改名しません。実保存の条件とツリー表示はaction workflow・WPF代表へ分担します。</summary>
     [TestMethod]
-    public void TreeSelection_OwnerPreservesReplacementRemapAndCurrentTarget()
+    public async Task TreeSelection_OwnerPreservesReplacementRemapAndCurrentTarget()
     {
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
-        var oldTable = new BMSTable();
-        var newTable = new BMSTable();
+        var oldTable = new BMSTable { entries = [new BMSTableEntry { md5 = new string('a', 32), folder = "AA1" }] };
+        var newTable = new BMSTable
+        {
+            entries = [new BMSTableEntry { md5 = new string('a', 32), folder = "AAA1" },
+                new BMSTableEntry { md5 = new string('b', 32), folder = "AA1" },
+                new BMSTableEntry { md5 = new string('c', 32), folder = "Folder A" },
+                new BMSTableEntry { md5 = new string('d', 32), folder = string.Empty }]
+        };
         PlaylistTreeSelectionActivatedEventArgs? request = null;
         workspace.TreeSelectionActivated += (_, e) => request = e;
 
-        workspace.RequestDetailSelection(oldTable, PlaylistFolderNode.CreateFolder("Folder A"));
+        workspace.RequestDetailSelection(oldTable, oldTable.FolderNodes.Single(node => !node.IsSpecial), oldTable.FolderNodes);
         PlaylistTreeSelectionActivatedEventArgs selected = request
             ?? throw new AssertFailedException("Detail selection activation was not raised.");
 
@@ -933,15 +939,25 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         PlaylistDetailSelection replaced = workspace.CapturePlaylistDetailSelection()
             ?? throw new AssertFailedException("Replaced detail selection was not retained.");
         Assert.AreSame(newTable, replaced.Table);
-        Assert.AreEqual("Folder A", replaced.FolderName);
+        Assert.AreEqual("AA1", replaced.FolderName);
         Assert.IsFalse(workspace.IsCurrentPlaylistDetailSelection(selected.Detail, selected.SelectionRevision));
 
+        Assert.IsTrue(workspace.RemapCurrentPlaylistDetailFolderSelection(newTable,
+            new Dictionary<string, string> { ["AA1"] = "AAA1" }));
+        Assert.AreEqual("AAA1", workspace.CapturePlaylistDetailSelection().FolderName);
+        await workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistFilterSelected, false, default);
+        CollectionAssert.AreEqual(new[] { new string('a', 32) }, workspace.DetailViewState.Source.Rows.Select(row => row.Entry.md5).ToArray());
+
+        workspace.RequestDetailSelection(newTable, PlaylistFolderNode.CreateFolder("Folder A"), newTable.FolderNodes);
+        newTable.RenameFolder("Folder A", "Folder B");
         Assert.IsTrue(workspace.RemapCurrentPlaylistDetailFolderSelection(
             newTable,
             new Dictionary<string, string> { ["Folder A"] = "Folder B" }));
         Assert.AreEqual("Folder B", workspace.CapturePlaylistDetailSelection().FolderName);
 
         workspace.RequestDetailSelection(newTable, PlaylistFolderNode.CreateFolder(string.Empty));
+        newTable.RenameFolder(string.Empty, "Root Renamed");
         Assert.IsTrue(workspace.RemapCurrentPlaylistDetailFolderSelection(
             newTable,
             new Dictionary<string, string> { [string.Empty] = "Root Renamed" }));

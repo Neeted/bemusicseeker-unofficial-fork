@@ -41,6 +41,74 @@ namespace BeMusicSeeker.Views;
 /// </summary>
 public partial class MainWindow : Window, IComponentConnector, IStyleConnector, ISettingDialogPresentationPort
 {
+    /// <summary>フォルダ構成の置換中に発生する親選択を分離する、ツリー専用の表示入力です。</summary>
+    public static readonly DependencyProperty PlaylistFolderNodesProperty = DependencyProperty.RegisterAttached(
+        "PlaylistFolderNodes", typeof(IEnumerable), typeof(MainWindow),
+        new PropertyMetadata(null, OnPlaylistFolderNodesChanged));
+
+    /// <summary>ツリーへ渡すフォルダ構成を取得します。</summary>
+    public static IEnumerable GetPlaylistFolderNodes(DependencyObject target) => (IEnumerable)target.GetValue(PlaylistFolderNodesProperty);
+
+    /// <summary>ツリーへ渡すフォルダ構成を設定します。選択の正本はworkspaceが保持します。</summary>
+    public static void SetPlaylistFolderNodes(DependencyObject target, IEnumerable value) => target.SetValue(PlaylistFolderNodesProperty, value);
+
+    private static void OnPlaylistFolderNodesChanged(DependencyObject target, DependencyPropertyChangedEventArgs args)
+    {
+        if (target is not TreeViewItem item) { return; }
+        if (Window.GetWindow(item) is MainWindow window)
+        {
+            window.ReplacePlaylistFolderNodes(item, (IEnumerable)args.NewValue);
+        }
+        else { item.ItemsSource = (IEnumerable)args.NewValue; }
+    }
+
+    private bool replacingPlaylistFolderNodes;
+
+    private void ReplacePlaylistFolderNodes(TreeViewItem item, IEnumerable nodes)
+    {
+        replacingPlaylistFolderNodes = true;
+        try { item.ItemsSource = nodes; }
+        finally { replacingPlaylistFolderNodes = false; }
+        if (item.DataContext is BMSTable table) { QueuePlaylistFolderSelectionSynchronization(table); }
+    }
+
+    private void PlaylistDetailFolderSelectionRemapped(object sender, EventArgs args)
+    {
+        if (DataContext is MainWindowViewModel viewModel)
+        {
+            QueuePlaylistFolderSelectionSynchronization(viewModel.PlaylistWorkspace.CapturePlaylistDetailSelection()?.Table);
+        }
+    }
+
+    private void QueuePlaylistFolderSelectionSynchronization(BMSTable table)
+    {
+        if (DataContext is not MainWindowViewModel viewModel) { return; }
+        PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
+        PlaylistDetailSelection selection = workspace.CapturePlaylistDetailSelection(out long revision);
+        if (selection?.Table != table || table == null) { return; }
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            // コンテナ生成待ちの間に選ばれた別項目を、古い表示復元で巻き戻しません。
+            if (terminalShutdownStarted != 0 || !workspace.IsCurrentPlaylistDetailSelection(selection, revision)) { return; }
+            TreeViewItem tableItem = TryGetPlaylistTreeViewItem(table, out _, out _);
+            if (tableItem == null) { return; }
+            TreeViewItem targetItem = tableItem;
+            if (selection.Scope == PlaylistDetailSelectionScope.Folder)
+            {
+                PlaylistFolderNode node = table.FolderNodes.FirstOrDefault(candidate => selection.FolderName != null
+                    ? !candidate.IsSpecial && candidate.FolderName == selection.FolderName
+                    : candidate.SpecialKind == PlaylistFolderNodeSpecialKind.NotOwned);
+                if (node == null) { return; } // 改名の対応確定通知が届いた時に、新しい選択名で同期します。
+                tableItem.IsExpanded = true;
+                targetItem = TryGetChildTreeViewItemByDataContext(tableItem, node, "playlist_folder_update");
+            }
+            if (targetItem == null || !workspace.IsCurrentPlaylistDetailSelection(selection, revision)) { return; }
+            replacingPlaylistFolderNodes = true;
+            try { targetItem.IsSelected = true; }
+            finally { replacingPlaylistFolderNodes = false; }
+        }));
+    }
+
     public static readonly DependencyProperty PlaybackOverlayVisibilityProperty = DependencyProperty.Register(
         nameof(PlaybackOverlayVisibility),
         typeof(Visibility),
@@ -521,6 +589,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         AddHandler(UIElement.PreviewMouseDownEvent, new MouseButtonEventHandler(keywordSearchWindowPreviewMouseDown), true);
         Deactivated += MainWindow_Deactivated;
         viewModel.PlaylistWorkspace.PlaylistSummarySelectionRestoreRequested += MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;
+        viewModel.PlaylistWorkspace.DetailFolderSelectionRemapped += PlaylistDetailFolderSelectionRemapped;
         SubscribeViewModelUiInteractions(viewModel);
         Closed += MainWindow_Closed;
         ContentRendered += MainWindow_ContentRendered;
@@ -1721,6 +1790,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         if (viewModel != null)
         {
             viewModel.PlaylistWorkspace.PlaylistSummarySelectionRestoreRequested -= MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;
+            viewModel.PlaylistWorkspace.DetailFolderSelectionRemapped -= PlaylistDetailFolderSelectionRemapped;
         }
         CancelRelatedDocumentRequest();
         CloseContextMenuIfOpen(_lastOpenedContextMenu);
@@ -3385,9 +3455,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private bool TrySelectChildTreeViewItemByDataContext(TreeViewItem rootTreeViewItem, object targetDataContext, string logScope)
     {
+        TreeViewItem item = TryGetChildTreeViewItemByDataContext(rootTreeViewItem, targetDataContext, logScope);
+        if (item == null) { return false; }
+        SelectTreeViewItemWithFocus(item);
+        return true;
+    }
+
+    private TreeViewItem TryGetChildTreeViewItemByDataContext(TreeViewItem rootTreeViewItem, object targetDataContext, string logScope)
+    {
         if (rootTreeViewItem == null || targetDataContext == null)
         {
-            return false;
+            return null;
         }
         var treeViewItem = rootTreeViewItem.ItemContainerGenerator
             .ContainerFromItem(targetDataContext) as TreeViewItem;
@@ -3409,10 +3487,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         if (treeViewItem == null)
         {
             NLogWrapper.FileLogger?.Info(logScope + " selection_fallback reason=container_not_realized root=" + rootTreeViewItem.Header + " target=" + targetDataContext);
-            return false;
+            return null;
         }
-        SelectTreeViewItemWithFocus(treeViewItem);
-        return true;
+        return treeViewItem;
     }
 
     private static bool TryRealizeVirtualizedTreeItem(TreeViewItem rootTreeViewItem, int targetIndex)
@@ -3483,10 +3560,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         BMSTable bmsTable = null;
+        IReadOnlyList<PlaylistFolderNode> folderNodes = null;
         PlaylistFolderNode selectedFolderNode = null;
         if (selectedItem.DataContext is BMSTable bMSTable2)
         {
             bmsTable = bMSTable2;
+            folderNodes = selectedItem.ItemsSource as IReadOnlyList<PlaylistFolderNode>;
         }
         else
         {
@@ -3501,10 +3580,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 ancestor = FindAncestor<TreeViewItem>(VisualTreeHelper.GetParent(ancestor));
             }
             bmsTable = ancestor?.DataContext as BMSTable;
+            folderNodes = ancestor?.ItemsSource as IReadOnlyList<PlaylistFolderNode>;
         }
         if (bmsTable != null)
         {
-            viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode);
+            viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode, folderNodes);
         }
     }
 
@@ -3617,7 +3697,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void playlistTableSelected(object sender, RoutedEventArgs e)
     {
-        if (suppressPlaylistLampTreeSelection)
+        if (suppressPlaylistLampTreeSelection || replacingPlaylistFolderNodes)
         {
             e.Handled = true;
             return;
@@ -3646,7 +3726,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             selectedFolderNode = folderNode;
         }
         e.Handled = true;
-        viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode);
+        viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode,
+            treeViewItem.ItemsSource as IReadOnlyList<PlaylistFolderNode>);
     }
 
     private void treeViewItemOnRightClick(object sender, MouseButtonEventArgs e)

@@ -1104,7 +1104,7 @@
                   <Setter Property="Focusable" Value="True" />
                   <Setter Property="Header" Value="{Binding name}" />
                   <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderPlaylistTable}" />
-                  <Setter Property="ItemsSource" Value="{Binding FolderNodes, Mode=OneWay}" />
+                  <Setter Property="v:MainWindow.PlaylistFolderNodes" Value="{Binding FolderNodes, Mode=OneWay}" />
                   <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource treeViewPlaylistTableContextMenu}" />
                   <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
                   <Setter Property="UIElement.AllowDrop" Value="True" />

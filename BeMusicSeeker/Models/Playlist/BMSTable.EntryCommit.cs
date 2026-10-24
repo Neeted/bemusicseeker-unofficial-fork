@@ -108,7 +108,7 @@ public partial class BMSTable
         // 通知は排他解放後の確定結果配送が担います。
         _PlaylistEntriesRevision++;
         return new(this, previous, _PlaylistEntriesRevision, [.. changes],
-            FolderOrder: folderOrderChanged ? [.. _Folder_order] : default);
+            FolderOrder: folderOrderChanged ? (_Folder_order ?? []).ToImmutableArray() : default);
     }
 
     /// <summary>writer 内で同じ entry の旧新値と明示順序を捕捉します。</summary>
@@ -165,8 +165,8 @@ public partial class BMSTable
         }
         if (map.Count > 0)
         {
-            header._Folder_order = [.. (header._Folder_order ?? []).Select(folder =>
-                map.TryGetValue(folder ?? string.Empty, out string rewritten) ? rewritten : folder).Distinct(StringComparer.Ordinal)];
+            header._Folder_order = (header._Folder_order ?? []).Select(folder =>
+                map.TryGetValue(folder ?? string.Empty, out string rewritten) ? rewritten : folder).Distinct(StringComparer.Ordinal).ToImmutableArray();
         }
         return new EntryMutation
         {
@@ -178,17 +178,19 @@ public partial class BMSTable
             LastUpdate = last_update,
             Header = header,
             HeaderEdit = edit,
-            FolderOrder = (_Folder_order ?? []).SequenceEqual(header._Folder_order ?? [], StringComparer.Ordinal) ? default : [.. header._Folder_order]
+            FolderOrder = (_Folder_order ?? []).SequenceEqual(header._Folder_order ?? [], StringComparer.Ordinal) ? default : (header._Folder_order ?? []).ToImmutableArray()
         };
     }
 
     /// <summary>編集対象のheader属性だけを無通知で設定します。候補準備とDB確定後の同writer内で使用します。</summary>
-    internal void ApplyHeaderFields(PlaylistHeaderEdit edit)
+    /// <param name="edit">同じwriter内の現行値から準備した編集内容。</param>
+    /// <param name="applyFolderOrder">候補準備では順序を所有します。確定時はfalseとし、完成済み候補の不変順序を共有します。</param>
+    internal void ApplyHeaderFields(PlaylistHeaderEdit edit, bool applyFolderOrder = true)
     {
         bool Has(PlaylistHeaderFields field) => (edit.Fields & field) != 0;
         ApplyCommittedPlaylistNames(Has(PlaylistHeaderFields.Name) ? edit.Name : name,
             Has(PlaylistHeaderFields.Symbol) ? edit.Symbol : symbol);
-        if (Has(PlaylistHeaderFields.FolderOrder)) { _Folder_order = [.. edit.FolderOrder]; }
+        if (applyFolderOrder && Has(PlaylistHeaderFields.FolderOrder)) { _Folder_order = edit.FolderOrder; }
         if (Has(PlaylistHeaderFields.FolderSortKey)) { folder_sort_key = edit.FolderSortKey; }
         if (Has(PlaylistHeaderFields.FolderSortAscending)) { folder_sort_ascending = edit.FolderSortAscending; }
         if (Has(PlaylistHeaderFields.IgnoreFolderOutput)) { ignore_folder_output = edit.IgnoreFolderOutput; }
@@ -202,7 +204,6 @@ public partial class BMSTable
         if (Has(PlaylistHeaderFields.CustomFolderOutputBaseName)) { custom_folder_output_base_name = edit.CustomFolderOutputBaseName; }
         if (Has(PlaylistHeaderFields.IsRootFolder)) { is_root_folder = edit.IsRootFolder; }
         if (Has(PlaylistHeaderFields.CompatPrefix)) { compat_prefix = edit.CompatPrefix; }
-        InvalidateFolderStateCache();
     }
 
     /// <summary>DB確定後のheader通知をguard解放後に試みます。失敗しても後続通知を試み、確定値は戻しません。</summary>
@@ -376,8 +377,9 @@ public partial class BMSTable
         if (order.SequenceEqual(_Folder_order ?? [])) { return mutation; }
         DateTime lastUpdate = mutation.Changes.IsEmpty ? GetNextLastUpdate(last_update) : mutation.LastUpdate;
         BMSTable header = CreatePersistenceHeaderSnapshot(lastUpdate);
-        header._Folder_order = order;
-        return mutation with { Header = header, LastUpdate = lastUpdate, FolderOrder = [.. order] };
+        var frozenOrder = order.ToImmutableArray();
+        header._Folder_order = frozenOrder;
+        return mutation with { Header = header, LastUpdate = lastUpdate, FolderOrder = frozenOrder };
     }
 
     private void RemoveIndexedEntry(BMSTableEntry entry)
@@ -416,11 +418,17 @@ public partial class BMSTable
         }
         _entries = mutation.Entries;
         _entriesView = _entries;
-        if (mutation.HeaderEdit != null) { ApplyHeaderFields(mutation.HeaderEdit); }
+        if (mutation.HeaderEdit != null) { ApplyHeaderFields(mutation.HeaderEdit, applyFolderOrder: false); }
         if (!playlist_id.HasValue) { playlist_id = mutation.Header.playlist_id; bmt_sort = mutation.Header.bmt_sort; }
         last_update = mutation.LastUpdate;
-        if (!mutation.FolderOrder.IsDefault) { _Folder_order = [.. mutation.FolderOrder]; }
-        InvalidateFolderStateCache();
+        if (!mutation.FolderOrder.IsDefault) { _Folder_order = mutation.Header._Folder_order; }
+        if (!mutation.FolderOrder.IsDefault || mutation.Changes.Any(change =>
+            change.BeforeOrder.HasValue != change.AfterOrder.HasValue
+            || change.Before?.Folder != change.After?.Folder
+            || change.Before?.IsRemoved != change.After?.IsRemoved))
+        {
+            RebuildFolderState(publishNotifications: false);
+        }
         return CommitEntryValues(mutation.Changes, folderOrderChanged: !mutation.FolderOrder.IsDefault);
     }
 

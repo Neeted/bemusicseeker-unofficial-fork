@@ -227,6 +227,93 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+    /// <summary>改名・別folderの更新・特殊子と内容あり/空folder削除を実保存し、選択requestと詳細hashを照合して旧名復元や一律root選択を検出します。WPFの構造置換イベントは実MainWindow代表へ分担します。</summary>
+    [DataTestMethod]
+    [DataRow("rename")]
+    [DataRow("other")]
+    [DataRow("special")]
+    [DataRow("remove")]
+    [DataRow("empty")]
+    public async Task PlaylistFolderMutation_PreservesOrRemapsSelectionAndDetail(string operation)
+    {
+        using PlaylistWorkspaceTestPorts.OwnedPlaylistStore owned = PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
+        var table = new BMSTable
+        {
+            playlist_id = 4202,
+            name = "Folders",
+            is_external_sync = false,
+            is_bmt_output = false,
+            entries = [new BMSTableEntry { md5 = new string('a', 32), title = "A", folder = "A" },
+                new BMSTableEntry { md5 = new string('b', 32), title = "B", folder = "B" },
+                new BMSTableEntry { md5 = BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER, folder = "Empty" }]
+        };
+        owned.Store.BMSTables.Add(table);
+        owned.Store.CommitBMSTableWithEntriesToDB(table);
+        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+        { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => owned.Store,
+            playlistWorkspaceDialogService: dialogs);
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        workspace.RequestDetailSelection(table, operation == "special"
+            ? PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned)
+            : PlaylistFolderNode.CreateFolder(operation == "empty" ? "Empty" : "A"));
+        workspace.SetDetailDataSource(new PlaylistDetailDataSource(new TestBmsLibrary(owned.SongDbPath), owned.Store, new MainChartRowProjectionOwner()));
+        workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+        if (operation is "remove" or "empty")
+        {
+            await workspace.PlaylistRemovalWorkflow.RemoveFolderAsync(table, PlaylistFolderNode.CreateFolder(operation == "empty" ? "Empty" : "A"));
+        }
+        else { await workspace.RenameFolderAsync(table, PlaylistFolderNode.CreateFolder(operation == "other" ? "B" : "A"), "C"); }
+        PlaylistDetailSelection selection = workspace.CapturePlaylistDetailSelection();
+        Assert.AreSame(table, selection.Table);
+        Assert.AreEqual(operation == "empty" ? PlaylistDetailSelectionScope.OrdinaryRoot : PlaylistDetailSelectionScope.Folder, selection.Scope);
+        Assert.AreEqual(operation switch { "rename" => "C", "remove" => "", "other" => "A", _ => null }, selection.FolderName);
+        Assert.AreEqual(operation == "special" ? PlaylistDetailFilter.PlaylistNotOwnedFilterSelected : PlaylistDetailFilter.PlaylistFilter, selection.Filter);
+        await workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistFilterSelected, false, default);
+        string[] expected = operation is "special" or "empty" ? [new string('a', 32), new string('b', 32)] : [new string('a', 32)];
+        CollectionAssert.AreEquivalent(expected, workspace.DetailViewState.Source.Rows.Select(row => row.Entry.md5).ToArray());
+    }
+
+    /// <summary>prefix確定後・旧対応通知前に同じキーを明示選択し、新Q1が旧Q1の対応先QQ1へ再変換されないことを、実保存と詳細hashで確認します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PlaylistPropertySave_NewExplicitSelectionDoesNotApplyOldPrefixMap(bool useLamp)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        fixture.Table.entries = fixture.Table.entries.Append(new BMSTableEntry
+        { md5 = new string('a', 32), folder = "Q1", title = "old Q1" }).ToList();
+        fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+        fixture.Workspace.RequestDetailSelection(fixture.Table, PlaylistFolderNode.CreateFolder("Q1"));
+        bool selected = false;
+        fixture.Table.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(BMSTable.FolderNodes) && !selected)
+            {
+                selected = true;
+                if (useLamp)
+                {
+                    Assert.IsTrue(fixture.Workspace.TryRequestPlaylistLampNavigation(PlaylistLampSegmentInvocationRequest.ForClear(
+                        fixture.Table.playlist_id.ToString(), "Q1", PlaylistLampClearCategory.NP)));
+                }
+                else
+                {
+                    IReadOnlyList<PlaylistFolderNode> nodes = fixture.Table.FolderNodes;
+                    fixture.Workspace.RequestDetailSelection(fixture.Table, nodes.Single(node => !node.IsSpecial && node.FolderName == "Q1"), nodes);
+                }
+            }
+        };
+        using PlaylistPropertyDialogViewModel dialog = await fixture.Workspace.OpenPropertyDialogAsync(fixture.Table)
+            ?? throw new AssertFailedException();
+        dialog.compat_prefix = "Q";
+        Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+        Assert.IsTrue(selected);
+        Assert.AreEqual("Q1", fixture.Workspace.CapturePlaylistDetailSelection().FolderName);
+        await fixture.Refresh();
+        CollectionAssert.AreEqual(new[] { 1.ToString("x32") }, fixture.Workspace.DetailViewState.Source.Rows.Select(row => row.Entry.md5).ToArray());
+    }
+
     /// <summary>実property prefix保存を全体/選択folder詳細へ配送し、非表示入力・次sort/filter・memo編集の実終端を確認します。</summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -242,12 +329,26 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         BMSTableEntry target = table.entries[0];
         DateTime date = table.last_update;
         Task selectionRefresh = Task.CompletedTask;
+        var published = new List<(string[] Nodes, string[] Saved)>();
+        table.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName != nameof(BMSTable.FolderNodes)) { return; }
+            using LR2SongDBExtended database = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+            published.Add((table.FolderNodes.Where(node => !node.IsSpecial).Select(node => node.FolderName).ToArray(),
+                database.Query<BMSTableEntry>("SELECT * FROM playlist_entry WHERE playlist_id=7492 ORDER BY title;").Select(entry => entry.folder).ToArray()));
+        };
         fixture.Workspace.PlaylistDetailReloadRefreshRequested += (_, _) => { selectionRefresh = fixture.Refresh(); };
         using PlaylistPropertyDialogViewModel dialog = await fixture.Workspace.OpenPropertyDialogAsync(table)
             ?? throw new AssertFailedException("Property dialog was not created.");
         dialog.compat_prefix = "Q";
         Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
         await selectionRefresh;
+        Assert.IsTrue(published.Count > 0, "確定構成の通知が操作終端までに届きます。");
+        foreach ((string[] Nodes, string[] Saved) value in published)
+        {
+            CollectionAssert.AreEqual(new[] { "QQ3", "QX", "Q2", "Q1" }, value.Nodes);
+            CollectionAssert.AreEqual(new[] { "Q1", "Q2", "QX", "QQ3" }, value.Saved);
+        }
         Assert.AreEqual("P1", old.Folder, "旧捕捉値は書き換えません。");
         Assert.AreSame(target, table.entries[0]); Assert.AreEqual(date, table.last_update);
         Assert.AreEqual(selectedFolder ? "Q1" : null, fixture.Workspace.CapturePlaylistDetailSelection().FolderName);
@@ -1676,7 +1777,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.AreSame(target, table.entries[0]);
         Assert.AreEqual(version + (afterCommit ? 1 : 0), table.PlaylistEntriesRevision);
         Assert.AreEqual(date, table.last_update);
-        CollectionAssert.AreEqual(afterCommit ? new[] { "QQ3", "QX", "Q2", "Q1" } : new[] { "Q3", "X", "P2", "P1" }, table.Folder_order);
+        CollectionAssert.AreEqual(afterCommit ? new[] { "QQ3", "QX", "Q2", "Q1" } : new[] { "Q3", "X", "P2", "P1" }, table.Folder_order.ToArray());
         using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
         Assert.AreEqual(afterCommit ? "Q" : "P", verify.ExecuteScalar<string>("SELECT compat_prefix FROM playlist WHERE playlist_id=7492;"));
         Assert.AreEqual(afterCommit ? "Q1" : "P1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id=7492 AND title='entry 0';"));

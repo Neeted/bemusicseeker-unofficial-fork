@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using BeMusicSeeker.Models;
@@ -131,12 +132,10 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     /// <summary>
-    /// Converts a typed viewer category into one atomic playlist selection and filter
-    /// publication. Overall requests select the active table root; folder requests retain
-    /// the existing normal-folder guard.
+    /// 確定済みの同じ公開構成でフォルダの存在を確認し、その構成を出自として選択とフィルターを公開します。
     /// </summary>
-    /// <param name="request">The scoped viewer category intent.</param>
-    /// <returns><see langword="true"/> when a request was accepted for presentation.</returns>
+    /// <param name="request">対象表とカテゴリーを指定する選択要求。</param>
+    /// <returns>表示要求を受け付けた場合は<see langword="true"/>。</returns>
     internal bool TryRequestPlaylistLampNavigation(PlaylistLampViewerNavigationRequest request)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.PlaylistId))
@@ -145,9 +144,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         BMSTable activeTable = FindActivePlaylistTableById(request.PlaylistId);
+        IReadOnlyList<PlaylistFolderNode> folderNodes = activeTable?.FolderNodes;
         if (activeTable == null
             || (request.Scope == PlaylistLampViewerNavigationScope.Folder
-                && !ContainsNormalFolder(activeTable, request.FolderName)))
+                && !ContainsNormalFolder(folderNodes, request.FolderName)))
         {
             return false;
         }
@@ -166,7 +166,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 ? PlaylistDetailSelectionScope.OverallNormalFolders
                 : PlaylistDetailSelectionScope.Folder,
             request.Scope == PlaylistLampViewerNavigationScope.Overall ? null : request.FolderName,
-            PlaylistDetailFilter.PlaylistFilter);
+            PlaylistDetailFilter.PlaylistFilter, folderNodes);
         long revision;
         lock (playlistDetailSelectionSyncRoot)
         {
@@ -270,11 +270,11 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    private static bool ContainsNormalFolder(BMSTable table, string folderName)
+    private static bool ContainsNormalFolder(IReadOnlyList<PlaylistFolderNode> nodes, string folderName)
     {
-        return table != null
+        return nodes != null
             && !string.Equals(folderName, "[NO SONG]", StringComparison.Ordinal)
-            && (table.folder_list ?? []).Any(folder => string.Equals(folder, folderName, StringComparison.Ordinal));
+            && nodes.Any(node => !node.IsSpecial && string.Equals(node.FolderName, folderName, StringComparison.Ordinal));
     }
 }
 

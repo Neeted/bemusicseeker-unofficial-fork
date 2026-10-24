@@ -116,6 +116,10 @@ DB接続・短いモデルロックを解放してからUIスケジューラー�
 
 ### 手動編集と失敗
 
+選択中の通常フォルダを改名した場合は、確定した名前の対応へ選択を移します。接頭辞変更でも同じ対応を使い、別フォルダと特殊NO SONGノードの選択を保ちます。フォルダ削除では内容の移動先の空名フォルダを選び、そのノードが残らない場合は表本体を選びます。更新後に利用者が新しく明示選択した項目には、旧構成の改名対応を再適用しません。ツリー・workspace・詳細集合を一致させ、構造置換の親選択を明示選択と混同しません。
+
+フォルダノード・通常名の並び・明示順序は確定した不変入力として公開します。必要な構成変更は既存writer内で完成させてから公開し、DB確定前の候補で現在の入力を変更しません。getter・選択受付・要求の複製で再構築や列複製をせず、MEMO・URL・level等の構成に依存しない編集では同じ入力を再利用します。必要通知はguard解放後に行い、捕捉済みの旧入力は後の構成変更でも書き換えません。
+
 フォルダ作成・改名・削除、譜面削除、ドロップを一つの編集として扱います。対象folderの行と移動先で衝突する候補だけを準備し、DB確定まで同じ表・entry参照、所属、フォルダ順、更新日時、entry版を変更しません。少数folder変更のために全entryを退避・再取込み・DB全置換しません。全表の交換や無条件の再読込み、永続的な取消履歴・再試行は使いません。複数表の削除は受理した有限の対象を一回のDB保存へまとめます。DB確定後の出力・公開失敗で成功済み事実を戻しません。プロパティ保存では必要な索引・現行参照の公開と任意通知を区別し、進捗・処理後通知の失敗を保存失敗や次回の未完了出力へ持ち越しません。必要出力の継続は保存値と未完了の事実だけを保持し、過去の例外を次の明示保存へ再合成しません。
 
 永続化成功後だけ確定差分の表示反映、成功通知、`afterApply` を進めます。サマリーの一括変更も同様で、DB前失敗を成功扱いにして索引・検索候補・整列・表示更新やダイアログ終了を進めません。DB前には候補をliveへ適用せず、DB後の必要出力・通知失敗では確定値を維持して同じ結果を配送します。モデルの準備途中ではプロパティ通知を公開しません。
@@ -188,6 +192,10 @@ SQL復元では、既存のカスタムフォルダ出力済み状態を三表�
 SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行をダンプ・復元・表示へ公開しません。読取り失敗を解放失敗より主原因にします。同期 `LoadPlaylistDump` は移行等のDB専用入口に限り、設定画面は非同期復元を使います。
 
 ## 実装とテストの対応
+
+フォルダ改名・別フォルダの更新・NO SONG・内容あり削除から空名フォルダへの移動・空フォルダ削除から表本体への移動は [`PlaylistWorkspaceActionWorkflowTests.PlaylistFolderMutation_PreservesOrRemapsSelectionAndDetail`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs) が実保存、選択requestと詳細hashを確認します。同クラスの `PlaylistPropertySave_PrefixReceiptUpdatesExistingDetailAndLaterRequests` は通常のprefix追従と後続編集、`PlaylistPropertySave_NewExplicitSelectionDoesNotApplyOldPrefixMap` は確定後の同キー明示選択を守る境界を担います。実ツリーの選択同期は [一覧仕様](../ui/table-view.md#実装とテストの対応) のWPF代表へ分担します。
+
+[`BMSTableLoadTests`](../../../BeMusicSeeker.Tests/Playlist/BMSTableLoadTests.cs) は構成・明示順の変更不能性と旧公開入力の不変を確認します。[`PlaylistEntryCommitTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistEntryCommitTests.cs) はprefix・改名確定後の公開値、DB前失敗の旧構成維持、MEMO・実行時URL補完での構成再利用を既存16/128件の仕事量・保存保証と合わせて確認します。保存済み構成の通知時点は上記property保存と [`PlaylistCatalogViewChangeTests.WorkspaceRenameFolder_UsesReceiptAndRefreshesOnlyRemappedSelection`](../../../BeMusicSeeker.Tests/Playlist/PlaylistCatalogViewChangeTests.cs) が公開値とreadonly DBで確認し、実Binding終端はWPF代表へ分担します。
 
 `PlaylistUrlCompletionTests.DetailEdit_LocalAttributesPersistThroughFreshPlaylistAndPresentation` は通常ローカル表のLevel・Url・Url_diff・comment・memoを1属性ずつ実保存Taskの終端まで待ち、現在entry、編集row、同期source、新表示row、read-only DB、新playlistと表示rowまで独立期待を照合する。新playlistは実repositoryからヘッダーを読み、実hydration ownerで対象表を読み込む。起動時の全初期化はこの保存読戻しの保証対象に含めない。未編集属性・識別子と別entryを保つ。列割当の全5属性は `CustomTableColumnFactoryTests`、F2/Enterの上位端末は `MainWindowChartPresentationWpfTests`、実効URL確定と必要LR2出力・確定後失敗は既存の詳細編集系列へ分担する。
 
