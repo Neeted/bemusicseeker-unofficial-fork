@@ -4015,4 +4015,7 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Settings_lr2_detailed_paths" xml:space="preserve">
     <value>LR2の詳細パス</value>
   </data>
+  <data name="Settings_candidates_discarded_on_exit" xml:space="preserve">
+    <value>終了時に未確定の設定候補は破棄され、次回起動へ引き継がれません。</value>
+  </data>
 </root>

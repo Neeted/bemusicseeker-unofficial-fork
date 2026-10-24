@@ -14,8 +14,9 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// L/Pを副作用前に非待機取得し、読込み・DB・必要UI公開と出力の終端まで保持します。
     /// 拒否や失敗は終了を許可せず、確定後の失敗でも復元済みDBを巻き戻しません。結果通知はL/P解放後に一回試みます。
     /// </summary>
+    /// <param name="canApplyBeforeExit">実L/P受付後、終了で失う設定修復入力がないかを最終検査する窓口。拒否なら読込み・DB変更を行いません。</param>
     /// <returns>実復元と必要公開・出力が全て完了した場合だけtrue。任意通知の失敗はこの結果を変えません。</returns>
-    internal async Task<bool> RestorePlaylistBackupAsync(string fileName)
+    internal async Task<bool> RestorePlaylistBackupAsync(string fileName, Func<Task<bool>> canApplyBeforeExit = null)
     {
         ArgumentNullException.ThrowIfNull(fileName);
         BMSLibrary library = getPlaylistLibrary();
@@ -43,6 +44,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         using (playlistLease)
                         using (LibraryFileMutationCapability authority = tables.CreatePlaylistMutationCapability(playlistLease))
                         {
+                            if (canApplyBeforeExit != null && !await canApplyBeforeExit()) { return false; }
                             string playlistDump = await Task.Run(() => File.ReadAllText(fileName, Encoding.UTF8));
                             await tables.RestorePlaylistDumpAsync(playlistDump, authority);
                         }

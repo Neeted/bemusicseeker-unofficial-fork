@@ -31,7 +31,8 @@ internal static class Lr2SongDbSyncRequestCoordinator
     /// <param name="capability">受理済み必須継続の共通権限。nullは新規受付。</param>
     /// <param name="acceptedBackground">外側起動登録の識別。全体同期の新規受付は背景でも非待機です。</param>
     /// <param name="capturePreparationInputs">受付取得後、非同期準備へ渡す前に小さい生成設定入力を捕捉する処理。</param>
-    /// <returns>実終端後の同期状態。開始競合は副作用と警告を行わず現在表示を返し、admissionResultへfalseを渡します。</returns>
+    /// <param name="admissionResult">実L/P取得と終了・実行要否検査後の受付結果。同一署名Completedによる正常省略もtrueです。成功通知の例外でも両受付を解放し、準備せずに元失敗を伝播します。</param>
+    /// <returns>実終端後の同期状態。開始競合は副作用と警告を行わず現在表示を返します。受付拒否・終了・モード外などの不成立はadmissionResultへfalseを渡します。正常省略は保存済みCompletedを保持します。</returns>
     internal static async Task<Lr2SongDbSyncStatusSnapshot> QueueAsync(
         BMSLibrary.Lr2SynchronizationOwner host, string reason, bool force,
         Func<LibraryFileMutationLease, BmsLibraryOptionsSnapshot, Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData,
@@ -50,7 +51,6 @@ internal static class Lr2SongDbSyncRequestCoordinator
             if (playlistCapability != null) { playlistLease = host.PlaylistOperationAdmission.Borrow(playlistCapability); }
             else if (host.PlaylistOperationAdmission.TryEnter(out IDisposable acquired)) { playlistLease = (LibraryFileMutationLease)acquired; }
             else { admissionResult?.Invoke(false); return host.GetLr2SongDbSyncStatusSnapshot(); }
-            admissionResult?.Invoke(true);
             using LibraryFileMutationLease playlistOperation = playlistLease;
             using LibraryFileMutationCapability playlistAuthority = playlistOperation.CreateMutationCapability();
             using LibraryFileMutationCapability primaryAuthority = lease.CreateMutationCapability();
@@ -60,12 +60,19 @@ internal static class Lr2SongDbSyncRequestCoordinator
             string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
             Lr2SongDbSyncStatusSnapshot status = host.EvaluateLr2SongDbSyncStatus(options.OperationModeLR2DB, signature, DateTime.UtcNow);
             host.PublishLr2SongDbSyncStatus(status);
-            if (host.TrySkipForShutdown("lr2_song_db_sync", reason)) { return status; }
+            if (host.TrySkipForShutdown("lr2_song_db_sync", reason)) { admissionResult?.Invoke(false); return status; }
+            if (!force && options.OperationModeLR2DB && status.Status == Lr2SongDbSyncStatusKind.Completed)
+            {
+                admissionResult?.Invoke(true);
+                return status;
+            }
             if (!options.OperationModeLR2DB || (!force && !status.IsNeeded)
                 || (!force && !allowIncompleteToQueue && (status.Status == Lr2SongDbSyncStatusKind.Incomplete || status.StoredStatus == Lr2SongDbSyncStatusKind.Incomplete)))
             {
+                admissionResult?.Invoke(false);
                 return status;
             }
+            admissionResult?.Invoke(true);
             int version = host.BeginRequest(authority, originatingRequest,
                 CreateRuntimeLr2SongDbSyncStatus(Lr2SongDbSyncStatusKind.Running, signature,
                     prepareGeneratedData != null ? "preparing" : "queued", 0, 0, null, 0, 0));

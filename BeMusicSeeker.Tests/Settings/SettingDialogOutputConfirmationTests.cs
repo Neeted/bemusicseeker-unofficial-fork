@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -490,7 +491,7 @@ public sealed partial class SettingDialogEditCompletionTests
 
     /// <summary>
     /// 追加先削除後の物理投影失敗と改名後のDB同期失敗で、確定ヘッダーと未了出力を保持します。
-    /// 再表示・通常保存は暗黙修復せず、明示操作は同値または修正先Cを投影してA/Bの旧管理物だけを整理します。
+    /// 再表示・通常保存は暗黙修復せず、明示操作は同値または修正先Cを投影してA/Bの旧管理物だけを整理します。改名後のDB未了代表は復元拒否でも旧新入力と修復可能性を保持します。
     /// </summary>
     [DataTestMethod]
     [DataRow(false, false)] // Extra削除後の新先物理書込みを共有拒否し、旧登録名がなくても再試行します。
@@ -602,6 +603,29 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual(acceptedRegistrations, PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderAdditionalOutputBaseDirs);
                     Assert.IsTrue(File.Exists(oldFile));
                     Assert.IsTrue(File.Exists(newFile), "DB同期失敗は部分生成された物理出力を巻き戻しません。");
+                    if (renameAdditionalBase && !correctPendingDestination)
+                    {
+                        byte[] pendingSettings = File.ReadAllBytes(settingsPath);
+                        byte[] pendingXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
+                        byte[] oldOutput = File.ReadAllBytes(oldFile);
+                        byte[] partialOutput = File.ReadAllBytes(newFile);
+                        string selectedDestination = owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseDir;
+                        Task<bool> restoreAllowed = owner.SettingDialog.CanStartRestoreBeforeExitAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(restoreAllowed, "restore-refuses-pending-output-migration");
+                        Assert.IsFalse(restoreAllowed.GetAwaiter().GetResult());
+                        Assert.IsTrue(owner.SettingDialog.IsOutputSaveIncomplete);
+                        Assert.AreEqual(selectedDestination, owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseDir);
+                        Assert.AreEqual(acceptedRegistrations, values.LR2CustomFolderAdditionalOutputBaseDirs);
+                        Assert.AreEqual(1, failures.Count, "復元拒否は出力修復を開始しません。");
+                        CollectionAssert.AreEqual(pendingSettings, File.ReadAllBytes(settingsPath));
+                        CollectionAssert.AreEqual(pendingXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
+                        CollectionAssert.AreEqual(oldOutput, File.ReadAllBytes(oldFile));
+                        CollectionAssert.AreEqual(partialOutput, File.ReadAllBytes(newFile));
+                        using LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
+                        Assert.AreEqual(expectedName, db.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id).custom_folder_output_base_name);
+                        Assert.AreEqual(0L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", newFile));
+                        Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", oldFile));
+                    }
                     outputBlocker?.Dispose(); outputBlocker = null;
                     if (renameAdditionalBase)
                     {
@@ -634,6 +658,12 @@ public sealed partial class SettingDialogEditCompletionTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync(correctPendingDestination ? "additional" : "pending"), "output-explicit-materialization-repair");
                     Assert.AreEqual(1, failures.Count, string.Join(Environment.NewLine, failures));
                     Assert.IsFalse(owner.SettingDialog.IsOutputSaveIncomplete);
+                    if (renameAdditionalBase && !correctPendingDestination)
+                    {
+                        Task<bool> restoreAllowed = owner.SettingDialog.CanStartRestoreBeforeExitAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(restoreAllowed, "restore-allows-repaired-output-migration");
+                        Assert.IsTrue(restoreAllowed.GetAwaiter().GetResult());
+                    }
                     string finalFile = correctPendingDestination ? correctedFile : newFile;
                     string finalRegistrations = correctPendingDestination
                         ? CustomFolderOutputBaseRegistry.SerializeBaseDirectories([corrected]) : acceptedRegistrations;

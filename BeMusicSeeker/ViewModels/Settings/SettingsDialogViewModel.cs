@@ -301,9 +301,16 @@ public partial class SettingsDialogViewModel : ViewModel
         return ReloadFileDiffCoreAsync(capability);
     }
 
-    internal async Task RequestLr2SongDbSyncAsync()
+    /// <summary>手動同期の実受付時だけ関係環境候補を戻し、閉鎖を通知して実処理の終端を待ちます。</summary>
+    internal async Task RequestLr2SongDbSyncAsync(Action accepted = null)
     {
-        await lr2SongDbSyncWorkflow.RequestManualResyncAsync().ConfigureAwait(false);
+        if (!CanRequestLr2SongDbSyncDataResync) { return; }
+        await lr2SongDbSyncWorkflow.RequestManualResyncAsync(admitted =>
+        {
+            if (!admitted) { return; }
+            DiscardConflictingCandidates(ConflictingCandidates.Lr2Details | ConflictingCandidates.Lr2Mode);
+            accepted?.Invoke();
+        });
     }
 
     private async Task<StartupInitializationResult> ReloadFileDiffCoreAsync(LibraryFileMutationCapability capability = null)
@@ -925,7 +932,7 @@ public partial class SettingsDialogViewModel : ViewModel
         string scoreDbPath = Lr2PlayHistoryScoreDbPath;
         bool isLr2LinkedProfile = ApplicationSettings.OperationModeLR2DB;
         UiDialogResult confirmation = await schemaDialogs.ConfirmAsync(new UiConfirmationRequest(
-            BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_play_history_schema_install_or_repair
+            BuildAuxiliaryOperationConfirmation(BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_play_history_schema_install_or_repair, ConflictingCandidates.Lr2Details | ConflictingCandidates.Lr2Mode)
                 + Environment.NewLine
                 + Environment.NewLine
                 + "score DB: "
@@ -940,6 +947,9 @@ public partial class SettingsDialogViewModel : ViewModel
             return null;
         }
 
+        if (isLr2LinkedProfile != ApplicationSettings.OperationModeLR2DB
+            || !string.Equals(scoreDbPath, ResolveLr2PlayHistoryScoreDbPath(), StringComparison.OrdinalIgnoreCase)) { return null; }
+        DiscardConflictingCandidates(ConflictingCandidates.Lr2Details | ConflictingCandidates.Lr2Mode);
         try
         {
             Lr2PlayHistorySchemaCheckResult result = await Task.Run(() =>
@@ -1001,7 +1011,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             string songDbPath = ApplicationSettings.LR2SongDBPath;
             result = await applicationDataUninstallWorkflow.ConfirmAsync(new ApplicationDataUninstallRequest(
-                workspacePort.HasPlaylistTables, statePort.IsLibraryOperationInProgress));
+                workspacePort.HasPlaylistTables, statePort.IsLibraryOperationInProgress, BuildExitOperationConfirmation(BeMusicSeeker.Properties.Resources.Confirm_UninstallApplicationData)));
             if (result.Outcome == ApplicationDataUninstallOutcome.Approved)
             {
                 await requestShutdown(applicationDataUninstallWorkflow, songDbPath);
@@ -1071,13 +1081,16 @@ public partial class SettingsDialogViewModel : ViewModel
             throw new InvalidOperationException("LR2 play history schema dialog port is not configured.");
         }
 
-        UiInteractionResult<Lr2PlayHistorySchemaUninstallMode> dialogResult = await schemaWindowDialogs.ShowAsync(scoreDbPath);
+        UiInteractionResult<Lr2PlayHistorySchemaUninstallMode> dialogResult = await schemaWindowDialogs.ShowAsync(scoreDbPath, candidateDiscardNotice: BuildCandidateDiscardConfirmation(ConflictingCandidates.Lr2Details | ConflictingCandidates.Lr2Mode));
         ThrowIfWindowDialogNotShown(dialogResult, "LR2 play history schema uninstall dialog");
         if (!dialogResult.IsAccepted)
         {
             return null;
         }
 
+        if (isLr2LinkedProfile != ApplicationSettings.OperationModeLR2DB
+            || !string.Equals(scoreDbPath, ResolveLr2PlayHistoryScoreDbPath(), StringComparison.OrdinalIgnoreCase)) { return null; }
+        DiscardConflictingCandidates(ConflictingCandidates.Lr2Details | ConflictingCandidates.Lr2Mode);
         Lr2PlayHistorySchemaUninstallMode uninstallMode = dialogResult.Value;
         try
         {
@@ -1277,7 +1290,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             return null;
         }
-        return Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(ApplicationSettings.LR2RootPath, () => lr2config?.Capture().PlayerId);
+        return Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(ApplicationSettings.LR2RootPath, () => GetConfirmedLr2Owner()?.Capture().PlayerId);
     }
 
     private void RaiseLr2PlayHistorySchemaStatusChanged()

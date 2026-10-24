@@ -11,6 +11,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.Tests.BmsLibraryInitializationTestSupport;
 
@@ -266,7 +267,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.IsNull(fixture.Result?.EstimatedInstallReceipt);
     }
 
-    /// <summary>交差するXだけをBusyで保留し、独立A/Bを一バッチで確定します。Pを解放してもXを再実行しません。</summary>
+    /// <summary>交差するXだけをBusyで保留し、独立A/Bを一バッチで確定します。必要同期の実P競合は必須失敗と同期未完了案内を保ち、P解放後もXや同期を再実行しません。</summary>
     [TestMethod]
     public async Task AutomaticContinuation_ExcludesOnlyPlaylistBusyTargetWithoutReplay()
     {
@@ -289,6 +290,13 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.IsTrue(string.Equals(crossing, fixture.Library.ChartPackagesPending.Single().path, StringComparison.OrdinalIgnoreCase));
             Assert.AreEqual(2, fixture.Library.ChartPackagesInstalled.Count);
             Assert.IsTrue(fixture.Result.SynchronizationIncomplete, "末尾の同期も外部Pを迂回しません。");
+            Assert.IsTrue(fixture.Result.HasRequiredFailure);
+            UiMessageRequest? report = FileDbMutationReport.CreatePackageInstall("playlist-busy-install", fixture.Result);
+            Assert.IsNotNull(report);
+            Assert.AreEqual(System.Windows.MessageBoxImage.Hand, report.Icon);
+            StringAssert.Contains(report.MessageBoxText, BeMusicSeeker.Properties.Resources.PackageInstallReport_SynchronizationIncomplete);
+            Assert.AreEqual(0, fixture.Library.Lr2SongDbSyncRequestedVersion);
+            Assert.AreEqual(0, fixture.Library.Lr2SongDbSyncCompletedVersion);
         }
         finally { held.Dispose(); }
         Assert.IsTrue(File.Exists(Path.Combine(crossing, "x.bms")));
@@ -296,9 +304,12 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.IsTrue(File.Exists(Path.Combine(fixture.Destination, "a.bms")));
         Assert.IsTrue(File.Exists(Path.Combine(fixture.Destination, "b.bms")));
         Assert.AreEqual(1, fixture.Library.ChartPackagesPending.Count);
+        Assert.AreEqual(0, fixture.Library.Lr2SongDbSyncRequestedVersion, "P解放は必要同期を自動再開しません。");
+        Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
+        Assert.IsFalse(fixture.Library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
     }
 
-    /// <summary>実取り込みから実coordinator/SQLiteへ一回同期し、推定失敗・取消や後段の境界取消でも安全に確定した分を失いません。同期失敗も元原因を保持します。</summary>
+    /// <summary>実取り込みから実coordinator/SQLiteへ一回同期し、推定失敗・取消や後段の境界取消でも安全に確定した分を失いません。同期失敗も元原因を保持します。正常行は同じ初期化で次の取り込みも実行し、Completed省略を成功結果・非エラー案内へ接続します。</summary>
     [TestMethod]
     [DataRow(0)] // 正常後段。
     [DataRow(1)] // 初段成功後の推定失敗。
@@ -371,20 +382,45 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         {
             Assert.IsTrue(fixture.Result.WorkflowFailures.Any(failure => failure.ToString().Contains("automatic-terminal-sync", StringComparison.Ordinal)));
         }
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly();
-        Assert.IsNotNull(db.Table<LR2SongDB.song>().Single(row => row.path.EndsWith("normal.bms", StringComparison.OrdinalIgnoreCase)));
-        foreach (string name in new[] { "a.bms", "b.bms" })
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
         {
-            bool installed = failureKind == 0 || (failureKind is 3 or 5 && name == successfulChart);
-            Assert.AreEqual(installed, db.Find<LR2SongDB.song>(Path.Combine(fixture.Destination, name)) != null);
+            Assert.IsNotNull(db.Table<LR2SongDB.song>().Single(row => row.path.EndsWith("normal.bms", StringComparison.OrdinalIgnoreCase)));
+            foreach (string name in new[] { "a.bms", "b.bms" })
+            {
+                bool installed = failureKind == 0 || (failureKind is 3 or 5 && name == successfulChart);
+                Assert.AreEqual(installed, db.Find<LR2SongDB.song>(Path.Combine(fixture.Destination, name)) != null);
+            }
+            Assert.IsTrue(db.Table<LR2SongDB.folder>().Any(row => row.path.TrimEnd(Path.DirectorySeparatorChar) == fixture.Destination));
+            if (failureKind == 5)
+            {
+                Assert.AreEqual(2, fixture.Result.RegisteredPackages.Count);
+                Assert.IsNotNull(fixture.Result.EstimatedInstallReceipt);
+                Assert.IsNotNull(fixture.Result.EstimatedInstallReceipt.PhysicalFailure);
+                Assert.IsFalse(fixture.Result.ManualRecoveryRequired);
+            }
         }
-        Assert.IsTrue(db.Table<LR2SongDB.folder>().Any(row => row.path.TrimEnd(Path.DirectorySeparatorChar) == fixture.Destination));
-        if (failureKind == 5)
+        if (failureKind == 0)
         {
-            Assert.AreEqual(2, fixture.Result.RegisteredPackages.Count);
+            PackageInstallCommandResult firstResult = fixture.Result;
+            string followup = fixture.WriteInput("Followup", "followup.bms", "followup");
+            Assert.IsTrue(fixture.Owner.Enqueue([followup]));
+            await fixture.Owner.WaitForIdleAsync();
+            Assert.IsNotNull(fixture.Result);
+            Assert.AreNotSame(firstResult, fixture.Result, "二回目の実終端結果を観測します。");
+            Assert.IsNull(fixture.Failure);
+            Assert.IsFalse(fixture.Result.SynchronizationIncomplete);
+            Assert.IsFalse(fixture.Result.HasRequiredFailure);
+            Assert.IsNull(fixture.Result.EstimationFailure);
+            Assert.AreEqual(0, fixture.Result.WorkflowFailures.Count);
             Assert.IsNotNull(fixture.Result.EstimatedInstallReceipt);
-            Assert.IsNotNull(fixture.Result.EstimatedInstallReceipt.PhysicalFailure);
-            Assert.IsFalse(fixture.Result.ManualRecoveryRequired);
+            Assert.IsTrue(fixture.Result.EstimatedInstallReceipt.DurableCommit);
+            Assert.IsTrue(File.Exists(Path.Combine(fixture.Destination, "followup.bms")));
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+            { Assert.IsNotNull(verify.Find<LR2SongDB.song>(Path.Combine(fixture.Destination, "followup.bms"))); }
+            Assert.AreEqual(1, fixture.Library.Lr2SongDbSyncRequestedVersion, "署名有効のCompletedでは全体同期を新規実行しません。");
+            Assert.AreEqual(1, fixture.Library.Lr2SongDbSyncCompletedVersion);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, fixture.Library.GetLr2SongDbSyncStatusSnapshot().Status);
+            Assert.IsNull(FileDbMutationReport.CreatePackageInstall("completed-noop-install", fixture.Result));
         }
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
     }

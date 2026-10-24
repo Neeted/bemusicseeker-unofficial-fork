@@ -20,9 +20,11 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
         var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var runtime = new RecordingRuntime { QueueTask = terminal.Task };
         var owner = new Lr2SongDbSyncWorkflowOwner(runtime);
-        Task operation = owner.RequestManualResyncAsync();
+        bool? admitted = null;
+        Task<bool> operation = owner.RequestManualResyncAsync(value => admitted = value);
         try
         {
+            Assert.AreEqual(true, admitted);
             Assert.IsFalse(operation.IsCompleted);
             Assert.AreEqual(1, runtime.QueueCalls.Count);
             Assert.AreEqual("setting_dialog_manual_resync", runtime.QueueCalls[0].Reason);
@@ -30,7 +32,7 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
             Assert.IsFalse(runtime.QueueCalls[0].InitializationResult is not null);
             Assert.IsFalse(runtime.QueueCalls[0].AcceptedBackground);
             terminal.TrySetResult();
-            await operation;
+            Assert.IsTrue(await operation);
         }
         finally { terminal.TrySetResult(); await operation; }
     }
@@ -149,8 +151,9 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
             bool force,
             bool prepareGeneratedData = false,
             bool allowIncompleteToQueue = true,
-            LibraryFileInitializationResult? initializationResult = null, LibraryFileMutationCapability? capability = null, bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null, Lr2SongDbSyncPreparedDataSurface? preparedSurface = null, OperationProgressRequest? originatingRequest = null, BmsLibraryOptionsSnapshot? optionsSnapshot = null)
+            LibraryFileInitializationResult? initializationResult = null, LibraryFileMutationCapability? capability = null, bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null, Lr2SongDbSyncPreparedDataSurface? preparedSurface = null, OperationProgressRequest? originatingRequest = null, BmsLibraryOptionsSnapshot? optionsSnapshot = null, Action<bool>? admissionResult = null)
         {
+            admissionResult?.Invoke(true);
             if (prepareGeneratedData)
             {
                 Events.Add("prepare-playlist:" + reason);

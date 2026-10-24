@@ -282,6 +282,8 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(0, schemaDialog.CallCount);
 
                 Assert.IsTrue(dialogs.ConfirmationStarted.Task.IsCompletedSuccessfully);
+                Assert.AreEqual(1, dialogs.ConfirmationCount);
+                StringAssert.Contains(dialogs.LastConfirmationRequest.MessageBoxText, Resources.Settings_candidates_discarded_on_exit);
                 Assert.IsTrue(((Grid)window.FindName("settingDialogOperationGrid")).IsEnabled, "無関係な通常項目は操作可能です。");
                 window.Close();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -534,98 +536,89 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.Invoke(EnsureCanonicalApplicationResources);
     }
 
-    /// <summary>実再同期ボタンと owned 確認の承認後に設定画面を閉じ、強制同期を一回配送して DataContext を解除することを確認します。</summary>
-    [TestMethod]
-    public void SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow()
+    /// <summary>実同期ボタンの確認取消・実受付拒否・受理成功を分け、実受付前の画面/環境候補保持と、受理後閉鎖・強制要求・実Task終端の所有を確認します。</summary>
+    /// <remarks>compiled buttonの接続をここで、実L/Pの競合と準備0をBmsLibraryLr2SongDbSyncTestsで分担します。</remarks>
+    [DataTestMethod]
+    [DataRow("cancel")]
+    [DataRow("busy")]
+    [DataRow("accepted")]
+    public void SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow(string outcome)
     {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        TestUiDispatcherHost.RunWindowTest(scope =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
-            var runtime = new RecordingManualResyncRuntime();
-            using SettingsDialogViewModel settings = CreateManualResyncSettingsDialog(owner, runtime);
-            var ownerWindow = new Window
-            {
-                Width = 320,
-                Height = 200,
-                ShowInTaskbar = false,
-                WindowStartupLocation = WindowStartupLocation.Manual
-            };
-            var window = new SettingsWindow
-            {
-                DataContext = settings,
-                PlaybackPanel = owner.PlaybackPanel,
-                PlaylistWorkspace = owner.PlaylistWorkspace
-            };
-            Window? confirmationWindow = null;
-            Exception? confirmationFailure = null;
-
+            string root = CreateDangerSchemaScope(out Settings values, out _);
             try
             {
-                windowTest.PrepareForOwnedPresentation(ownerWindow);
-                ownerWindow.Show();
-                ownerWindow.UpdateLayout();
-                window.Owner = ownerWindow;
-                windowTest.ShowAndWaitForContentRendered(window);
-                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
-                Button resyncButton = FindDescendants<Button>(page)
-                    .Single(candidate => Equals(candidate.Content, Resources.Lr2_song_db_sync_data_resync));
-                Assert.IsTrue(settings.CanRequestLr2SongDbSyncDataResync);
-                Assert.IsTrue(resyncButton.IsEnabled);
-
-                window.Dispatcher.BeginInvoke(
-                    DispatcherPriority.Loaded,
-                    (Action)(() =>
+                MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+                using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
+                var releaseAdmission = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var releaseTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var runtime = new RecordingManualResyncRuntime { Admitted = outcome == "accepted", AdmissionWait = releaseAdmission.Task, TerminalWait = releaseTerminal.Task };
+                using SettingsDialogViewModel settings = CreateManualResyncSettingsDialog(owner, runtime, values);
+                string draft = Path.Combine(Directory.CreateDirectory(Path.Combine(root, "candidate")).FullName, "song.db");
+                StartupLibraryConstructionTestSupport.CreateSongDatabase(draft);
+                var dialogs = new DangerDialogService { HoldConfirmation = true };
+                var ownerWindow = new Window { Width = 320, Height = 200, ShowInTaskbar = false };
+                var window = new SettingsWindow(dialogs) { DataContext = settings };
+                Task? terminal = null;
+                try
+                {
+                    scope.PrepareForOwnedPresentation(ownerWindow);
+                    ownerWindow.Show(); ownerWindow.UpdateLayout();
+                    window.Owner = ownerWindow;
+                    scope.ShowAndWaitForContentRendered(window);
+                    settings.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2SongDBPath), draft).GetAwaiter().GetResult();
+                    settings.EnableBeatorajaBmtOutput = !values.EnableBeatorajaBmtOutput;
+                    Button button = FindDescendants<Button>(window).Single(candidate => Equals(candidate.Content, Resources.Lr2_song_db_sync_data_resync));
+                    button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    terminal = window.WaitForOperationCompletionAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialogs.ConfirmationStarted.Task, "manual confirmation");
+                    StringAssert.Contains(dialogs.LastConfirmationRequest.MessageBoxText, Resources.Settings_lr2_detailed_paths);
+                    Assert.AreSame(window, dialogs.LastConfirmationRequest.Owner);
+                    Assert.IsTrue(window.IsVisible);
+                    Assert.AreEqual(draft, settings.LR2SongDBPath);
+                    Assert.AreEqual(0, runtime.QueueCount);
+                    dialogs.CompleteConfirmation(outcome == "cancel" ? MessageBoxResult.Cancel : MessageBoxResult.OK);
+                    if (outcome != "cancel")
                     {
-                        try
-                        {
-                            confirmationWindow = Application.Current.Windows
-                                .OfType<Window>()
-                                .Single(candidate => candidate.IsVisible
-                                    && ReferenceEquals(candidate.Owner, window));
-                            Assert.IsInstanceOfType<ThemedWindow>(confirmationWindow);
-                            Assert.AreEqual(Resources.Confirm, confirmationWindow!.Title);
-                            Button acceptButton = FindDescendants<Button>(confirmationWindow!)
-                                .Single(candidate => Equals(candidate.Content, "OK"));
-                            acceptButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, acceptButton));
-                        }
-                        catch (Exception exception)
-                        {
-                            confirmationFailure = exception;
-                            confirmationWindow?.Close();
-                        }
-                    }));
-
-                resyncButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, resyncButton));
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    runtime.QueueAccepted.Task,
-                    "Manual LR2 resync runtime request acceptance");
-                RecordingManualResyncRuntime.QueueCall call = runtime.QueueAccepted.Task.GetAwaiter().GetResult();
-
-                Assert.IsNull(confirmationFailure);
-                Assert.IsNotNull(confirmationWindow);
-                Assert.IsFalse(window.IsVisible);
-                Assert.AreEqual(SettingsWindowCloseReason.ManualResync, window.CloseReason);
-                Assert.IsNull(window.DataContext);
-                Assert.AreEqual(1, runtime.QueueCount);
-                Assert.AreEqual("setting_dialog_manual_resync", call.Reason);
-                Assert.IsTrue(call.Force);
-            }
-            finally
-            {
-                if (confirmationWindow?.IsVisible == true)
-                {
-                    confirmationWindow.Close();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(runtime.QueueAccepted.Task, "manual runtime reached");
+                        Assert.IsTrue(window.IsVisible, "runtimeへの委譲だけではまだ受理されていません。");
+                        Assert.AreEqual(draft, settings.LR2SongDBPath);
+                    }
+                    releaseAdmission.TrySetResult();
+                    if (outcome == "accepted")
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(runtime.AdmissionReported.Task, "manual accepted");
+                        Assert.IsFalse(window.IsVisible);
+                        Assert.AreEqual(Path.Combine(root, "LR2files", "Database", "song.db"), settings.LR2SongDBPath);
+                        Assert.IsTrue(settings.CanCancelBmtSettings, "手動閉鎖でも無関係な受理前候補を実処理へ混ぜません。");
+                        Assert.IsFalse(terminal.IsCompleted, "閉鎖後も実同期を追跡します。");
+                    }
+                    releaseTerminal.TrySetResult();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "manual terminal");
+                    Assert.AreEqual(outcome == "cancel" ? 0 : 1, runtime.QueueCount);
+                    if (outcome != "accepted")
+                    {
+                        Assert.IsTrue(window.IsVisible);
+                        Assert.AreEqual(draft, settings.LR2SongDBPath);
+                        Assert.IsTrue(settings.CanCancelBmtSettings);
+                    }
+                    Assert.AreEqual(Path.Combine(root, "LR2files", "Database", "song.db"), values.LR2SongDBPath, "候補を確定環境へ便乗保存しません。");
+                    Assert.AreEqual(1, dialogs.ConfirmationCount);
                 }
-                if (window.IsVisible)
+                finally
                 {
-                    window.CloseForOwnerShutdown();
-                }
-                if (ownerWindow.IsVisible)
-                {
-                    ownerWindow.Close();
+                    dialogs.CompleteConfirmation(MessageBoxResult.Cancel);
+                    releaseAdmission.TrySetResult(); releaseTerminal.TrySetResult();
+                    try { if (terminal != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "manual cleanup"); } }
+                    finally
+                    {
+                        try { window.CloseForOwnerShutdown(); }
+                        finally { ownerWindow.Close(); }
+                    }
                 }
             }
+            finally { Directory.Delete(root, recursive: true); }
         });
     }
 
@@ -914,7 +907,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreSame(window, dialogs.SaveFileRequests[0].Owner);
                 Assert.AreEqual(3, dialogs.ConfirmationRequests.Count);
                 UiConfirmationRequest[] restoreConfirmations = dialogs.ConfirmationRequests
-                    .Where(request => request.MessageBoxText == Resources.Confirm_RestorePlaylistBackup).ToArray();
+                    .Where(request => request.MessageBoxText.StartsWith(Resources.Confirm_RestorePlaylistBackup, StringComparison.Ordinal)).ToArray();
                 Assert.AreEqual(2, restoreConfirmations.Length);
                 Assert.IsTrue(restoreConfirmations.All(request => ReferenceEquals(window, request.Owner)));
                 Assert.AreEqual(1, dialogs.FileRequests.Count);
@@ -1058,7 +1051,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>実backupボタンからatomic writerの公開を失敗させ、旧bytes・一回の結果通知・grid再開と次の明示保存を保ちます。picker取消では通知・変更を始めません。</summary>
+    /// <summary>実backupボタンからatomic writerの公開を失敗させ、旧bytes・一回の結果通知・grid再開と次の明示保存を保ちます。成功/失敗/取消でも別のBMT候補を保存・破棄しません。picker取消では通知・変更を始めません。</summary>
     /// <remarks>実BAMLのasyncイベントとWorkspace・ファイル公開を接続し、失敗ダイアログがさらに失敗してもdispatcherへ漏れないことを観測します。</remarks>
     [TestMethod]
     public void BackupPage_WriteFailureAndBrokenNoticeRetainBytesAndAcceptNextExplicitClick()
@@ -1120,6 +1113,8 @@ public sealed class SettingsWindowPresentationTests
                 };
                 window.Dispatcher.UnhandledException += onUnhandled;
                 windowTest.ShowAndWaitForContentRendered(window);
+                bool candidate = !owner.SettingDialog.EnableBeatorajaBmtOutput;
+                owner.SettingDialog.EnableBeatorajaBmtOutput = candidate;
                 var grid = (Grid)window.FindName("settingDialogOperationGrid");
                 using (var locked = new FileStream(destination, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
                 {
@@ -1128,6 +1123,7 @@ public sealed class SettingsWindowPresentationTests
                 }
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 CollectionAssert.AreEqual(oldBytes, File.ReadAllBytes(destination));
+                Assert.AreEqual(candidate, owner.SettingDialog.EnableBeatorajaBmtOutput);
                 Assert.AreEqual(1, dialogs.MessageRequests.Count);
                 Assert.AreEqual(1, notifications.Count);
                 Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error,
@@ -1145,6 +1141,7 @@ public sealed class SettingsWindowPresentationTests
                 AwaitViewOperationTerminal(window);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 StringAssert.Contains(File.ReadAllText(destination), "Saved backup");
+                Assert.AreEqual(candidate, owner.SettingDialog.EnableBeatorajaBmtOutput);
                 Assert.AreEqual(2, dialogs.SaveFileRequests.Count);
                 Assert.AreEqual(2, dialogs.MessageRequests.Count);
                 byte[] savedBytes = File.ReadAllBytes(destination);
@@ -1152,6 +1149,7 @@ public sealed class SettingsWindowPresentationTests
                 ClickBackupPageButton(window, Resources.Backup_playlist);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 CollectionAssert.AreEqual(savedBytes, File.ReadAllBytes(destination));
+                Assert.AreEqual(candidate, owner.SettingDialog.EnableBeatorajaBmtOutput);
                 Assert.AreEqual(3, dialogs.SaveFileRequests.Count);
                 Assert.AreEqual(2, dialogs.MessageRequests.Count);
                 Assert.AreEqual(1, secondaryFailures.Count, "次の成功と取消では通知失敗の診断を重ねません。");
@@ -1198,6 +1196,7 @@ public sealed class SettingsWindowPresentationTests
     /// <summary>実restoreボタンのL/P Busyと受付閉鎖ではdumpを読まず、必須UI完了失敗では確定DBを保持します。いずれも終了端末を呼ばず、次要求を自動再生しません。</summary>
     /// <remarks>Busyの入力を存在しないdumpにして副作用前の拒否を区別し、実DBとcompiledイベント・設定gridの実終端を観測します。</remarks>
     [DataTestMethod]
+    [DataRow("picker-cancel")]
     [DataRow("library-busy")]
     [DataRow("playlist-busy")]
     [DataRow("admission-closed")]
@@ -1254,7 +1253,7 @@ public sealed class SettingsWindowPresentationTests
                 var dialogs = new RecordingSettingsRouteDialogService
                 {
                     ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
-                    FileResult = new UiFilePickerResult(UiDialogStatus.Accepted, [dump])
+                    FileResult = condition == "picker-cancel" ? new UiFilePickerResult(UiDialogStatus.CancelledByUser) : new UiFilePickerResult(UiDialogStatus.Accepted, [dump])
                 };
                 int exitRequests = 0;
                 owner = MainWindowViewModelTestFactory.Create();
@@ -1262,11 +1261,16 @@ public sealed class SettingsWindowPresentationTests
                 { DataContext = owner.SettingDialog, PlaylistWorkspace = workspace };
                 dialogs.ExpectedOwner = window;
                 windowTest.ShowAndWaitForContentRendered(window);
+                bool bmtDraft = !owner.SettingDialog.EnableBeatorajaBmtOutput;
+                owner.SettingDialog.EnableBeatorajaBmtOutput = bmtDraft;
                 var grid = (Grid)window.FindName("settingDialogOperationGrid");
                 ClickBackupPageButton(window, Resources.Backup_restore_playlist);
                 AwaitViewOperationTerminal(window);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(0, exitRequests);
+                Assert.AreEqual(bmtDraft, owner.SettingDialog.EnableBeatorajaBmtOutput);
+                Assert.AreEqual(1, dialogs.ConfirmationRequests.Count);
+                StringAssert.Contains(dialogs.ConfirmationRequests.Single().MessageBoxText, Resources.Settings_candidates_discarded_on_exit);
                 Assert.AreEqual(0, dialogs.MessageRequests.Count);
                 Assert.IsTrue(window.IsVisible);
                 Assert.IsTrue(grid.IsEnabled);
@@ -1276,7 +1280,7 @@ public sealed class SettingsWindowPresentationTests
                     Assert.AreEqual(2, playlist.BMSTables.Single().playlist_id, "必要公開の後段失敗で採用済み集合を巻き戻さない。");
                 }
                 else { Assert.AreSame(oldTable, playlist.BMSTables.Single()); }
-                Assert.AreEqual(committedFailure ? 0 : 1, rejected);
+                Assert.AreEqual(committedFailure || condition == "picker-cancel" ? 0 : 1, rejected);
                 Assert.AreEqual(committedFailure ? 1 : 0, notifications.Count);
                 using (LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly())
                 {
@@ -4966,7 +4970,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>保存後の各実処理失敗を当該欄にも表示し、閉鎖・再表示後も維持します。同値の明示再試行は保存し直さず、成功時だけ案内を解消します。</summary>
+    /// <summary>保存後の各実処理失敗を当該欄にも表示し、閉鎖・再表示後も維持します。同値の明示再試行は保存し直さず、成功時だけ案内を解消します。未了中の復元は確認・picker・保存へ進まず、画面と自身の再試行を保ちます。</summary>
     /// <remarks>実providerとcompiledボタン・bannerを接続します。scoreの再試行はBusy中の再表示・解消・再度のBusyにも追従し、通知だけでは実行しません。Score/FileDiffの実モデル反映とBMTの実ファイル投影はEditCompletion系列が分担し、ここでは実処理portの失敗・成功を固定します。</remarks>
     [DataTestMethod]
     [DataRow("score", nameof(SettingsDialogViewModel.IsScoreProcessingRetryRequired))]
@@ -5004,6 +5008,10 @@ public sealed class SettingsWindowPresentationTests
             var workspace = new DangerWorkspacePort
             { ExportOperation = () => { operations++; return fail ? Task.FromException(new IOException("BMT processing failed")) : Task.CompletedTask; } };
             var failures = new List<Exception>();
+            var restoreDialogs = new RecordingSettingsRouteDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
+            };
             DangerDialogContext context = CreateDangerDialog(owner, new DangerSettingsEditSession(values, []),
                 MainWindowViewModelTestFactory.GetComposition(owner), new DangerDialogService(), new DangerSchemaDialogPort(), new DangerApplicationDataStore(),
                 workspace: workspace, statePort: statePort, reportFailure: failures.Add);
@@ -5026,7 +5034,7 @@ public sealed class SettingsWindowPresentationTests
             }
             try
             {
-                window = new SettingsWindow { DataContext = settings };
+                window = new SettingsWindow(restoreDialogs) { DataContext = settings, PlaylistWorkspace = owner.PlaylistWorkspace };
                 scope.ShowAndWaitForContentRendered(window);
                 if (section != "score")
                 {
@@ -5044,6 +5052,19 @@ public sealed class SettingsWindowPresentationTests
                 if (section != "score") { ClickConfirm(); }
                 Assert.AreEqual(1, failures.Count);
                 AssertRetryBanner();
+                Assert.IsNotNull(window.PlaylistWorkspace.PlaylistTreeTables);
+                byte[] confirmedBeforeRestore = File.ReadAllBytes(config);
+                int savesBeforeRestore = context.SettingsSession.SaveCount;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.HandlePlaylistRestoreAsync(), "restore preserves pending repair");
+                Assert.IsTrue(window.IsVisible);
+                Assert.AreEqual(0, restoreDialogs.ConfirmationRequests.Count, "未了修復がある間は復元確認へ進みません。");
+                Assert.AreEqual(0, restoreDialogs.FileRequests.Count, "未了修復がある間は復元pickerを開きません。");
+                Assert.AreEqual(0, restoreDialogs.MessageRequests.Count, "終了通知へ進みません。");
+                Assert.AreEqual(savesBeforeRestore, context.SettingsSession.SaveCount);
+                CollectionAssert.AreEqual(confirmedBeforeRestore, File.ReadAllBytes(config));
+                Assert.AreEqual(1, operations, "復元拒否で修復を再開しません。");
+                Assert.AreEqual(1, failures.Count, "復元拒否で保存・処理の新しい失敗を作りません。");
+                AssertRetryBanner();
                 if (section == "bmt") { Assert.IsFalse(settings.IsBeatorajaSelectionEnabled); }
                 Settings fresh = PortableSettingsPersistenceTests.OpenSettings(config);
                 if (section == "score") { Assert.IsFalse(fresh.UseBeatorajaScoreDb); }
@@ -5051,7 +5072,7 @@ public sealed class SettingsWindowPresentationTests
                 else { Assert.IsFalse(fresh.KeepBeatorajaBmtFilesWhenOutputDisabled); }
                 window.CloseForOwnerShutdown();
                 if (section == "score") { statePort.SetLibraryOperationInProgress(true); }
-                window = new SettingsWindow { DataContext = settings };
+                window = new SettingsWindow(restoreDialogs) { DataContext = settings, PlaylistWorkspace = owner.PlaylistWorkspace };
                 scope.ShowAndWaitForContentRendered(window);
                 AssertRetryBanner();
                 if (section == "score")
@@ -5082,6 +5103,12 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(1, failures.Count, "成功媒体を再保存せず同じ操作だけを再試行します。");
                 Assert.AreEqual(false, typeof(SettingsDialogViewModel).GetProperty(stateProperty)!.GetValue(settings));
                 Assert.IsTrue(settings.IsEditCancellationEnabled);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.HandlePlaylistRestoreAsync(), "restore allowed after explicit repair");
+                Assert.AreEqual(1, restoreDialogs.ConfirmationRequests.Count, "自身の明示修復成功後は復元確認へ進めます。");
+                Assert.AreEqual(0, restoreDialogs.FileRequests.Count, "確認取消なので実復元へ進みません。");
+                Assert.AreEqual(2, operations);
+                Assert.AreEqual(savesBeforeRestore, context.SettingsSession.SaveCount);
+                Assert.IsTrue(window.IsVisible);
             }
             finally
             {
@@ -5224,10 +5251,10 @@ public sealed class SettingsWindowPresentationTests
 
     private static SettingsDialogViewModel CreateManualResyncSettingsDialog(
         MainWindowViewModel owner,
-        RecordingManualResyncRuntime runtime)
+        RecordingManualResyncRuntime runtime, Settings? values = null)
     {
         var settingsSession = new ManualResyncSettingsEditSession(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            values ?? MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = true;
             }));
@@ -5322,6 +5349,11 @@ public sealed class SettingsWindowPresentationTests
 
     private sealed class RecordingManualResyncRuntime : ILr2SongDbSyncWorkflowRuntime
     {
+        internal bool Admitted { get; set; } = true;
+        internal Task AdmissionWait { get; set; } = Task.CompletedTask;
+        internal Task TerminalWait { get; set; } = Task.CompletedTask;
+        internal TaskCompletionSource AdmissionReported { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         private readonly object gate = new();
 
         private readonly List<QueueCall> queueCalls = [];
@@ -5349,7 +5381,7 @@ public sealed class SettingsWindowPresentationTests
             bool force,
             bool prepareGeneratedData = false,
             bool allowIncompleteToQueue = true,
-            LibraryFileInitializationResult? initializationResult = null, LibraryFileMutationCapability? capability = null, bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null, Lr2SongDbSyncPreparedDataSurface? preparedSurface = null, OperationProgressRequest? originatingRequest = null, BmsLibraryOptionsSnapshot? optionsSnapshot = null)
+            LibraryFileInitializationResult? initializationResult = null, LibraryFileMutationCapability? capability = null, bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null, Lr2SongDbSyncPreparedDataSurface? preparedSurface = null, OperationProgressRequest? originatingRequest = null, BmsLibraryOptionsSnapshot? optionsSnapshot = null, Action<bool>? admissionResult = null)
         {
             QueueCall call = new(reason, force, allowIncompleteToQueue);
             lock (gate)
@@ -5358,8 +5390,11 @@ public sealed class SettingsWindowPresentationTests
             }
 
             QueueAccepted.TrySetResult(call);
-            await Task.CompletedTask;
-            return true;
+            await AdmissionWait;
+            admissionResult?.Invoke(Admitted);
+            AdmissionReported.TrySetResult();
+            if (Admitted) { await TerminalWait; }
+            return Admitted;
         }
 
 
@@ -5674,7 +5709,7 @@ public sealed class SettingsWindowPresentationTests
 
         public Task<UiInteractionResult<Lr2PlayHistorySchemaUninstallMode>> ShowAsync(
             string scoreDbPath,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default, string? candidateDiscardNotice = null)
         {
             CallCount++;
             Started.TrySetResult();

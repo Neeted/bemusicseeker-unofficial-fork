@@ -20,13 +20,18 @@ internal enum ApplicationDataUninstallOutcome
 
 internal sealed class ApplicationDataUninstallRequest
 {
+    /// <summary>既存撤去確認へ設定の終了案内を統合するため、受付時の状態と確認本文を捕捉します。</summary>
     internal ApplicationDataUninstallRequest(
         bool isWorkspaceReady,
-        bool isLibraryOperationInProgress)
+        bool isLibraryOperationInProgress, string confirmationMessage = null)
     {
+        ConfirmationMessage = confirmationMessage;
         IsWorkspaceReady = isWorkspaceReady;
         IsLibraryOperationInProgress = isLibraryOperationInProgress;
     }
+
+    /// <summary>設定候補の破棄案内を含めた既存撤去確認。省略時は通常の撤去確認です。</summary>
+    internal string ConfirmationMessage { get; }
 
     internal bool IsWorkspaceReady { get; }
 
@@ -104,7 +109,7 @@ internal sealed class ApplicationDataUninstallWorkflowOwner
         }
 
         UiDialogResult confirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
-            BeMusicSeeker.Properties.Resources.Confirm_UninstallApplicationData,
+            request.ConfirmationMessage ?? BeMusicSeeker.Properties.Resources.Confirm_UninstallApplicationData,
             BeMusicSeeker.Properties.Resources.Confirm,
             MessageBoxButton.OKCancel,
             MessageBoxImage.Question,

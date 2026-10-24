@@ -847,13 +847,17 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         });
     }
 
-    /// <summary>Starts the workspace-owned beatoraja table import requested by the General page.</summary>
-    internal void HandleImportBeatorajaTableUrls()
+    /// <summary>確定rootの実取込みを追跡し、実受付後だけroot候補を戻します。終端までCloseと同再操作を抑止します。</summary>
+    internal async Task HandleImportBeatorajaTableUrls()
     {
-        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        PlaylistWorkspaceViewModel playlistWorkspace = PlaylistWorkspace
+        if (viewOperationInProgress) { return; }
+        SettingsDialogViewModel settings = GetSettingDialogViewModel();
+        PlaylistWorkspaceViewModel workspace = PlaylistWorkspace
             ?? throw new InvalidOperationException("Playlist workspace is unavailable.");
-        playlistWorkspace.StartBeatorajaTableUrlImport(settingDialogViewModel.ConfirmedBeatorajaRootPath);
+        await RunViewOperationAsync(() => workspace.StartBeatorajaTableUrlImport(settings.ConfirmedBeatorajaRootPath,
+            () => settings.DiscardConflictingCandidates(SettingsDialogViewModel.ConflictingCandidates.BeatorajaRoot),
+            settings.BuildAuxiliaryOperationConfirmation(BeMusicSeeker.Properties.Resources.Confirm_import_beatoraja_table_urls,
+                SettingsDialogViewModel.ConflictingCandidates.BeatorajaRoot)));
     }
 
     /// <summary>Owns the stage image picker route for the Appearance page.</summary>
@@ -956,7 +960,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         }
     }
 
-    /// <summary>Closes with the manual-resync reason and runs the ViewModel-owned LR2 resync.</summary>
+    /// <summary>手動同期の実受付後にだけ閉鎖し、既存ownerとWindowで実処理の終端まで追跡します。</summary>
     /// <returns>A task that completes when the resync request completes.</returns>
     internal async Task HandleLr2SongDbSyncDataResyncAsync()
     {
@@ -969,34 +973,32 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             }
             return;
         }
-        if (UiDialogRoute.ShowMessageBox(
-            Window.GetWindow(this),
-            BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_song_db_sync_data_resync,
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Question,
-            MessageBoxResult.Cancel) != MessageBoxResult.OK)
-        {
-            return;
-        }
+        if (viewOperationInProgress) { return; }
         Window owner = Owner ?? throw new InvalidOperationException("Settings window owner is unavailable.");
-        CloseForManualResync();
-        await Dispatcher.Yield(DispatcherPriority.Background);
-        try
+        await RunViewOperationAsync(async () =>
         {
-            await settingDialogViewModel.RequestLr2SongDbSyncAsync();
-        }
-        catch (Exception ex)
-        {
-            TryLogSettingsRouteFailure(ex, "LR2 manual resync");
-            await ShowSettingsMessageBestEffortAsync(new UiMessageRequest(
-                BeMusicSeeker.Properties.Resources.Msg_error_unexpected,
-                BeMusicSeeker.Properties.Resources.Error,
-                MessageBoxButton.OK,
-                MessageBoxImage.Hand,
-                MessageBoxResult.OK,
-                owner: owner), "LR2 manual resync failure notification");
-        }
+            UiDialogResult confirmation = await dialogService.ConfirmAsync(new UiConfirmationRequest(
+                settingDialogViewModel.BuildAuxiliaryOperationConfirmation(
+                    BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_song_db_sync_data_resync,
+                    SettingsDialogViewModel.ConflictingCandidates.Lr2Details | SettingsDialogViewModel.ConflictingCandidates.Lr2Mode),
+                BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question,
+                MessageBoxResult.Cancel, owner: this));
+            ThrowIfDialogFailed(confirmation, "LR2 manual resync confirmation");
+            if (!confirmation.IsAccepted) { return; }
+            try
+            {
+                await settingDialogViewModel.RequestLr2SongDbSyncAsync(CloseForManualResync);
+            }
+            catch (Exception ex)
+            {
+                TryLogSettingsRouteFailure(ex, "LR2 manual resync");
+                await ShowSettingsMessageBestEffortAsync(new UiMessageRequest(
+                    BeMusicSeeker.Properties.Resources.Msg_error_unexpected,
+                    BeMusicSeeker.Properties.Resources.Error,
+                    MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK,
+                    owner: owner), "LR2 manual resync failure notification");
+            }
+        });
     }
 
     /// <summary>画面の操作gate内で実バックアップと一回の結果通知を待ちます。処理済みの失敗を表示のために再送出しません。</summary>
@@ -1055,15 +1057,17 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         {
             return;
         }
+        SettingsDialogViewModel settings = GetSettingDialogViewModel();
+        if (viewOperationInProgress || !await settings.CanStartRestoreBeforeExitAsync()) { return; }
         UiDialogResult confirmation = await dialogService.ConfirmAsync(new UiConfirmationRequest(
-            BeMusicSeeker.Properties.Resources.Confirm_RestorePlaylistBackup,
+            settings.BuildExitOperationConfirmation(BeMusicSeeker.Properties.Resources.Confirm_RestorePlaylistBackup),
             BeMusicSeeker.Properties.Resources.Confirm,
             MessageBoxButton.OKCancel,
             MessageBoxImage.Question,
             MessageBoxResult.Cancel,
             owner: Window.GetWindow(this)));
         ThrowIfDialogFailed(confirmation, "Playlist backup restore confirmation");
-        if (!confirmation.IsAccepted)
+        if (!confirmation.IsAccepted || !await settings.CanStartRestoreBeforeExitAsync())
         {
             return;
         }
@@ -1078,7 +1082,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         {
             await RunViewOperationAsync(async () =>
             {
-                if (!await playlistWorkspace.RestorePlaylistBackupAsync(result.FileName))
+                if (!await playlistWorkspace.RestorePlaylistBackupAsync(result.FileName, settings.CanStartRestoreBeforeExitAsync))
                 {
                     return;
                 }

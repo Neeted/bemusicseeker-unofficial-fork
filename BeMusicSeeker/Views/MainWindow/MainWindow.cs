@@ -782,7 +782,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         request.Confirmed = ShowUiConfirmation(
-            BeMusicSeeker.Properties.Resources.Confirm_import_beatoraja_table_urls,
+            request.Message,
             BeMusicSeeker.Properties.Resources.Confirm,
             MessageBoxImage.Question,
             MessageBoxButton.OKCancel,
@@ -1214,6 +1214,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         finally
         {
             TaskCompletionSource<object> closed = settingsPresentationClosed;
+            if (settingsWindow != null)
+            {
+                // 表示が先に閉じる手動同期も、受理済み実Taskの終端をShellの終了へ引き継ぎます。
+                Task operation = settingsWindow.WaitForOperationCompletionAsync();
+                if (!operation.IsCompleted)
+                {
+                    settingsOperationCompletionTask = settingsOperationCompletionTask.IsCompleted
+                        ? operation : Task.WhenAll(settingsOperationCompletionTask, operation);
+                }
+            }
             settingsWindow = null;
             settingsPresentationClosed = null;
             PlaybackOverlayVisibility = previousPlaybackOverlayVisibility;

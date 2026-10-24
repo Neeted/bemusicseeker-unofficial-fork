@@ -74,14 +74,15 @@ internal interface ILr2SongDbSyncWorkflowRuntime
     /// <summary>全体同期はLとPを準備前に非待機取得し、実worker・状態保存・cleanupの終端まで保持します。</summary>
     /// <param name="capability">受理済み必須継続の生存権限。nullは新しい要求です。</param>
     /// <param name="acceptedBackground">外側起動登録の識別。新しい全体同期は背景登録でも競合時に待ちません。</param>
-    /// <returns>取得できた要求は実終端後にtrue、開始競合や未接続は副作用なしでfalse。元失敗と取消を伝播します。</returns>
+    /// <param name="admissionResult">実L/P取得と最終検査後の受付結果を準備前に通知する窓口。同一署名Completedの正常省略もtrueです。</param>
+    /// <returns>受理した要求は実終端後にtrue。同一署名Completedの正常省略もtrueで、実行不成立・開始競合・未接続はfalseです。元失敗と取消を伝播します。</returns>
     Task<bool> QueueAsync(
         string reason,
         bool force,
         bool prepareGeneratedData = false,
         bool allowIncompleteToQueue = true,
         LibraryFileInitializationResult initializationResult = null, LibraryFileMutationCapability capability = null,
-        bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability playlistCapability = null, Lr2SongDbSyncPreparedDataSurface preparedSurface = null, OperationProgressRequest originatingRequest = null, BmsLibraryOptionsSnapshot optionsSnapshot = null);
+        bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability playlistCapability = null, Lr2SongDbSyncPreparedDataSurface preparedSurface = null, OperationProgressRequest originatingRequest = null, BmsLibraryOptionsSnapshot optionsSnapshot = null, Action<bool> admissionResult = null);
 
     /// <summary>受理済み設定後更新の実処理とcleanupを非同期で追跡します。</summary>
     Task SyncExternalFolderRowsForCustomFolderOutputBaseChangeAsync(string reason, LibraryFileMutationCapability capability = null, LibraryFileMutationCapability playlistCapability = null);
@@ -117,11 +118,12 @@ internal sealed class BmsLr2SongDbSyncWorkflowRuntime : ILr2SongDbSyncWorkflowRu
         bool prepareGeneratedData = false,
         bool allowIncompleteToQueue = true,
         LibraryFileInitializationResult initializationResult = null, LibraryFileMutationCapability capability = null,
-        bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability playlistCapability = null, Lr2SongDbSyncPreparedDataSurface preparedSurface = null, OperationProgressRequest originatingRequest = null, BmsLibraryOptionsSnapshot optionsSnapshot = null)
+        bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability playlistCapability = null, Lr2SongDbSyncPreparedDataSurface preparedSurface = null, OperationProgressRequest originatingRequest = null, BmsLibraryOptionsSnapshot optionsSnapshot = null, Action<bool> admissionResult = null)
     {
         BMSLibrary library = libraryProvider();
         if (library == null)
         {
+            admissionResult?.Invoke(false);
             return false;
         }
 
@@ -149,7 +151,7 @@ internal sealed class BmsLr2SongDbSyncWorkflowRuntime : ILr2SongDbSyncWorkflowRu
             force,
             prepareWithLease,
             allowIncompleteToQueue,
-            initializationResult, capability, acceptedBackground, capturePreparationInputs: capturePreparationInputs, playlistCapability: playlistCapability, optionsSnapshot: optionsSnapshot, admissionResult: result => admitted = result, preparedSurface: preparedSurface, originatingRequest: originatingRequest).ConfigureAwait(false);
+            initializationResult, capability, acceptedBackground, capturePreparationInputs: capturePreparationInputs, playlistCapability: playlistCapability, optionsSnapshot: optionsSnapshot, admissionResult: result => { admitted = result; admissionResult?.Invoke(result); }, preparedSurface: preparedSurface, originatingRequest: originatingRequest).ConfigureAwait(false);
         return admitted;
     }
 
@@ -206,11 +208,11 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
         this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
     }
 
-    /// <summary>新しい明示同期を非待機で受付し、準備・保存・cleanupの実終端を待ちます。</summary>
-    internal async Task RequestManualResyncAsync()
+    /// <summary>新しい明示同期の実受付結果を準備前に通知し、準備・保存・cleanupの実終端後に受理の有無を返します。</summary>
+    internal async Task<bool> RequestManualResyncAsync(Action<bool> admissionResult = null)
     {
-        if (!CanRun()) { return; }
-        await QueueCoreAsync("setting_dialog_manual_resync", force: true).ConfigureAwait(false);
+        if (!CanRun()) { admissionResult?.Invoke(false); return false; }
+        return await runtime.QueueAsync("setting_dialog_manual_resync", force: true, prepareGeneratedData: true, admissionResult: admissionResult).ConfigureAwait(false);
     }
 
     /// <summary>受理済み差分の共通権限でLR2の実終端を待ち、失敗時は後段へ進みません。</summary>

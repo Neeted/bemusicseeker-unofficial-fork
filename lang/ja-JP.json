@@ -1,4 +1,5 @@
 {
+  "Settings_candidates_discarded_on_exit": "終了時に未確定の設定候補は破棄され、次回起動へ引き継がれません。",
   "Details_show_diag_new_install_description": "インストール先が未設定の保留パッケージを新規として導入する際の確認です。インストール先が設定済みの場合は、OFFでも確認を省略できません。",
   "Details_test_delete_pending_source_after_install_description": "導入後に残った既所持譜面と空の元フォルダを整理します。未所持や判定できない残存物は削除しません。OFFでも移動した元ファイルは残りません。",
   "Details_test_keep_smart_overwrite_protected_by_rename_description": "スマート上書きがONのときだけ適用します。同名の対象ファイルは上書きせず、必要に応じて連番付きの名前で導入します。同内容の重複は増やしません。",

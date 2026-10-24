@@ -14,7 +14,7 @@ beatorajaに登録した難易度表URLを、プレイリストとBMT出力の�
 
 ### 入力と実行順
 
-設定画面の `BeatorajaRootPath` の表示値を使い、未保存でもボタン押下時の値で実行します。`config_sys.json` の `tableURL` から文字列を順序付きで読み、空文字を除き、同じ絶対URLは先頭だけを採用します。絶対URIとして解釈できない値は失敗件数へ含めます。
+設定の確定済み `BeatorajaRootPath` を使います。別rootの候補がある場合は破棄確認し、取消・検証不成立・実P受付拒否では元候補を保持します。実受付と最終検査後にroot候補だけを確定値へ戻し、他セクションの候補は保持します。設定Windowは実取込みTaskの終端までClose・同再操作を拒否します。`config_sys.json` の `tableURL` から文字列を順序付きで読み、空文字を除き、同じ絶対URLは先頭だけを採用します。絶対URIとして解釈できない値は失敗件数へ含めます。
 
 確認後、既存表のページURLまたは絶対ヘッダーURLとの一致を調べます。一致する表は再取得せず順序反映だけの対象とします。未登録URLは通常の外部表取得を試み、失敗した場合だけ対応するBMTキャッシュから復元します。
 
@@ -67,8 +67,9 @@ BMT出力を無効から有効へ切り替える際、有効なbeatorajaルー�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 確定root・候補破棄確認・実受付とWindowの寿命 | [`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs)、[`PlaylistWorkspaceViewModel.BeatorajaTableUrlImport`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.BeatorajaTableUrlImport.cs) | `SettingDialogEditCompletionTests.BeatorajaTableUrlButton_DeliversConfirmedRootToWorkspace` は実buttonで確認取消/P拒否時の候補保持、確定rootの既存URL、受理後の関係候補だけの破棄、実取込みTask終端前のClose/同再操作拒否を確認する。 |
 | 取得・既存一致・復元・生URL・重複名・失敗集計 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) |
-| 新規2件・既存・管理外URL・残り管理表の実取込みと終端 | [`PlaylistWorkspaceViewModel.BeatorajaTableUrlImport`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.BeatorajaTableUrlImport.cs) | [`PlaylistWorkspaceExternalSourceTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceExternalSourceTests.cs) の `StartBeatorajaTableUrlImport_NewTablePublishesOwnedProgressAndSuccessfulSummary` は正常・実一括参照通知失敗の2行を固定HTTPとfile入力から実Start・取得・登録へ通す。B/E/U/AのURIとKindはImported/Existing/Failed/Imported、失敗行ではB/Aの主結果直後に同URI・同表名・同じ元例外のWarningが続く。登録2・既存1・失敗1・復元0、警告0/2を独立期待と照合する。新readonly接続の正ID・entry所属と内容、既存表と残り二表のID・内容・相対順、DB/summary/config順、確定5表IDの管理台帳とU不在、管理外BMT bytes・他configキーを確認する。既存URLの未使用HTTPから再取得なしを観測し、通信中のBusyと要求元・操作ID・対象URI・activeからinactiveを維持する。本文gate中に捕捉した受付終端Taskと通知を競争させ、全gate解放後に実取込みとconsumerを回収してからHTTPとtempを破棄する。BMT形式・所有fingerprint・部分出力は既存BMT系列へ分担し、逆完了順やURL間の並列開始を要求しない。 |
+| 新規2件・既存・管理外URL・残り管理表の実取込みと終端 | [`PlaylistWorkspaceViewModel.BeatorajaTableUrlImport`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.BeatorajaTableUrlImport.cs) | [`PlaylistWorkspaceExternalSourceTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceExternalSourceTests.cs) の `StartBeatorajaTableUrlImport_NewTablePublishesOwnedProgressAndSuccessfulSummary` は正常・実一括参照通知失敗の2行を固定HTTPとfile入力から実Start・取得・登録へ通す。B/E/U/AのURIとKindはImported/Existing/Failed/Imported、失敗行ではB/Aの主結果直後に同URI・同表名・同じ元例外のWarningが続く。登録2・既存1・失敗1・復元0、警告0/2を独立期待と照合する。新readonly接続の正ID・entry所属と内容、既存表と残り二表のID・内容・相対順、DB/summary/config順、確定5表IDの管理台帳とU不在、管理外BMT bytes・他configキーを確認する。既存URLの未使用HTTPから再取得なしを観測し、通信中のBusyと要求元・操作ID・対象URI・activeからinactiveを維持する。実Startが返す取込みTaskと通知を競争させ、全gate解放後に実取込みとconsumerを回収してからHTTPとtempを破棄する。BMT形式・所有fingerprint・部分出力は既存BMT系列へ分担し、逆完了順やURL間の並列開始を要求しない。 |
 | 順序と台帳・設定URL同期 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) |
 
 ## 関連資料

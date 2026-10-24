@@ -33,6 +33,7 @@
                 CanContentScroll="False">
   <StackPanel>
     <TextBlock TextWrapping="Wrap" Margin="{StaticResource App.Layout.SectionMargin}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_uninstall_desc, Mode=OneWay}" />
+    <TextBlock TextWrapping="Wrap" Text="{Binding CandidateDiscardNotice}" />
     <GroupBox Style="{StaticResource App.Canonical.GroupBoxStyle}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_uninstall_score_db, Mode=OneWay}" Margin="{StaticResource App.Layout.SectionMargin}">
       <TextBox Style="{StaticResource App.Canonical.TextBoxStyle}" Text="{Binding ScoreDbPath, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" />
     </GroupBox>

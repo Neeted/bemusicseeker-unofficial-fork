@@ -1,4 +1,5 @@
 {
+  "Settings_candidates_discarded_on_exit": "Les réglages non confirmés seront abandonnés à la fermeture et ne seront pas repris au prochain lancement.",
   "Details_show_diag_new_install_description": "Contrôle la confirmation lors de l’installation comme nouveau d’un paquet en attente sans destination définie. Si une destination est déjà définie, la confirmation reste obligatoire même si cette option est désactivée.",
   "Details_test_delete_pending_source_after_install_description": "Nettoie les partitions déjà possédées qui restent après l’installation et les dossiers source vides. Les éléments restants non possédés ou non identifiables ne sont pas supprimés. Même si l’option est désactivée, les fichiers déplacés ne restent pas à la source.",
   "Details_test_keep_smart_overwrite_protected_by_rename_description": "S’applique uniquement si l’écrasement intelligent est activé. Les fichiers concernés de même nom sont installés avec un numéro si nécessaire, sans écraser les existants. Les contenus identiques ne sont pas dupliqués.",

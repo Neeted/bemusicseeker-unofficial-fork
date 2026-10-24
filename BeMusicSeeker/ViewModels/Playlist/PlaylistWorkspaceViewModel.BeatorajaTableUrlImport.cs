@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -20,7 +19,8 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler<BeatorajaTableUrlImportSummaryReadyEventArgs> BeatorajaTableUrlImportSummaryReady;
 
-    internal void StartBeatorajaTableUrlImport(string rootPath)
+    /// <summary>確定rootの取込みを開始し、実受付の通知と、取得・DB・出力・通知を含む実終端Taskを返します。</summary>
+    internal Task StartBeatorajaTableUrlImport(string rootPath, Action onAccepted = null, string confirmationMessage = null)
     {
         bool started = false;
         LibraryFileMutationLease admission = null;
@@ -35,7 +35,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization,
                     BeMusicSeeker.Properties.Resources.Warning,
                     "beatoraja Table URL import initialization notification");
-                return;
+                return Task.CompletedTask;
             }
             if (!BeatorajaConfigService.IsBeatorajaRootPathValid(rootPath))
             {
@@ -44,18 +44,25 @@ public sealed partial class PlaylistWorkspaceViewModel
                     BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaRootPath,
                     BeMusicSeeker.Properties.Resources.Error,
                     "beatoraja Table URL import root path validation notification");
-                return;
+                return Task.CompletedTask;
             }
 
-            if (!RequestBeatorajaTableUrlImportConfirmation()) { return; }
+            if (!RequestBeatorajaTableUrlImportConfirmation(confirmationMessage)) { return Task.CompletedTask; }
             if (!playlistStore.TryEnterPlaylistMutation(out IDisposable accepted))
             {
                 RequestBeatorajaTableUrlImportNotification(BeatorajaTableUrlImportNotificationKind.Warning,
                     BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
                     BeMusicSeeker.Properties.Resources.Warning, "beatoraja Table URL import Busy");
-                return;
+                return Task.CompletedTask;
             }
             admission = (LibraryFileMutationLease)accepted;
+            if (!BeatorajaConfigService.IsBeatorajaRootPathValid(rootPath))
+            {
+                RequestBeatorajaTableUrlImportNotification(BeatorajaTableUrlImportNotificationKind.Error,
+                    BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaRootPath, BeMusicSeeker.Properties.Resources.Error,
+                    "beatoraja Table URL import final root validation");
+                return Task.CompletedTask;
+            }
             IReadOnlyList<string> rawUrls = BeatorajaConfigService.ReadTableUrls(rootPath);
             if (rawUrls.Count == 0)
             {
@@ -64,7 +71,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_no_urls,
                     BeMusicSeeker.Properties.Resources.Information,
                     "beatoraja Table URL import no URLs notification");
-                return;
+                return Task.CompletedTask;
             }
             IReadOnlyList<BeatorajaTableUrlImportTarget> targets = BuildBeatorajaTableUrlImportTargets(rawUrls);
             if (targets.Count == 0)
@@ -74,12 +81,14 @@ public sealed partial class PlaylistWorkspaceViewModel
                     BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_no_urls,
                     BeMusicSeeker.Properties.Resources.Information,
                     "beatoraja Table URL import no valid URLs notification");
-                return;
+                return Task.CompletedTask;
             }
 
             string tablePath = BeatorajaConfigService.GetTablePath(rootPath);
+            onAccepted?.Invoke();
+            var operation = Task.Run(() => ImportBeatorajaTableUrlsAsync(playlistStore, rootPath, tablePath, targets, admission));
             started = true;
-            Task.Run(() => ImportBeatorajaTableUrlsAsync(playlistStore, rootPath, tablePath, targets, admission)).ObserveFault("ImportBeatorajaTableUrlsAsync");
+            return operation;
         }
         catch (Exception ex)
         {
@@ -97,6 +106,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 admission?.Dispose();
             }
         }
+        return Task.CompletedTask;
     }
 
     internal bool HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(string rootPath)
@@ -379,9 +389,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         return PlaylistSyncAttemptResult.CreateSuccess(importedTable, importedTable, item?.Target?.Uri, updated: false);
     }
 
-    private bool RequestBeatorajaTableUrlImportConfirmation()
+    private bool RequestBeatorajaTableUrlImportConfirmation(string confirmationMessage)
     {
-        BeatorajaTableUrlImportConfirmationRequestedEventArgs request = new();
+        BeatorajaTableUrlImportConfirmationRequestedEventArgs request = new() { Message = confirmationMessage ?? BeMusicSeeker.Properties.Resources.Confirm_import_beatoraja_table_urls };
         (BeatorajaTableUrlImportConfirmationRequested
             ?? throw new InvalidOperationException("beatoraja Table URL import confirmation routing is not configured."))
             (this, request);
@@ -609,6 +619,9 @@ internal enum BeatorajaTableUrlImportNotificationKind
 
 internal sealed class BeatorajaTableUrlImportConfirmationRequestedEventArgs : EventArgs
 {
+    /// <summary>既存の取込み確認と、同じ承認で戻す環境候補の案内です。</summary>
+    internal string Message { get; init; }
+
     internal bool Confirmed { get; set; }
 }
 

@@ -1843,9 +1843,11 @@ public sealed class MainWindowViewModelStartupProgressTests
         internal Task OptionalWork => optionalWork.Task.Unwrap();
         internal bool OptionalStartedAfterCompletion { get; private set; }
         internal int CompletionNotifications { get; private set; }
+        /// <summary>専用設定・DB・既存構成で起動と処理終端を準備します。</summary>
+        /// <param name="rootFileEnumerator">実LR2同期にも使う列挙境界。省略時は既存ケースの未接続Everything入力を維持します。</param>
         internal CompletionFixture(IStartupLibraryInitializationFailurePresenter? failurePresenter = null,
             Func<IBMSPlayer>? defaultPlayer = null, bool lr2Mode = false, IApplicationLifetimePort? lifetime = null,
-            Action<Exception>? settingsFailureReporter = null, Func<Settings, ISettingsEditSession>? settingsSessionFactory = null, bool isolateSortWarmup = false)
+            Action<Exception>? settingsFailureReporter = null, Func<Settings, ISettingsEditSession>? settingsSessionFactory = null, bool isolateSortWarmup = false, IRootFileEnumerator? rootFileEnumerator = null)
         {
             this.isolateSortWarmup = isolateSortWarmup;
             Lifetime = lifetime ?? new TestApplicationLifetime(firstStartup: true);
@@ -1907,6 +1909,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             Library = new TestBmsLibrary(songDb, lr2Mode ? Composition.ResolveLr2Config(lr2Config) : null, null, null, null,
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), CaptureOptions,
                 chartFileScanner: CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), []),
+                rootFileEnumerator: rootFileEnumerator,
                 operationAdmission: Composition.OperationAdmission, playlistOperationAdmission: Composition.PlaylistOperationAdmission);
             Playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDb, Settings,
                 getLr2Config: lr2Mode ? Composition.ResolveLr2Config(lr2Config) : null, library: Library);

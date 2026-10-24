@@ -232,6 +232,75 @@ public sealed class Lr2PlayHistorySchemaUiTests
         }
     }
 
+    /// <summary>導入確認は確定XMLのplayer DBと候補破棄案内を一回で示し、取消/L/P拒否/DB不成立では候補と両DBを保持します。成功時だけ関係XML候補を戻します。</summary>
+    /// <remarks>実SQLiteを別playerで区別し、設定VMの通常入口からcache失効/必要score処理まで確認します。compiled buttonの閉鎖抑止はWindow系列へ分担します。</remarks>
+    [DoNotParallelize]
+    [DataTestMethod]
+    [DataRow("cancel")]
+    [DataRow("library-busy")]
+    [DataRow("playlist-busy")]
+    [DataRow("invalid-db")]
+    [DataRow("accepted")]
+    public void SettingDialogViewModel_InstallUsesConfirmedPlayerAndPreservesCandidatesUntilAccepted(string outcome)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            string root = Path.Combine(Path.GetTempPath(), "Lr2SchemaConfirmed-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            MainWindowViewModel? owner = null;
+            SettingsDialogViewModel? dialog = null;
+            IDisposable? held = null;
+            try
+            {
+                Settings values = CreateConfirmedSchemaSettings(root);
+                string score = Path.Combine(root, "LR2files", "Database", "Score", "player1.db");
+                if (outcome == "invalid-db") { File.WriteAllText(score, "invalid SQLite"); }
+                else { using var db = new SQLiteConnection(score); db.CreateTable<LR2ScoreDB.score>(); db.CreateTable<LR2ScoreDB.player>(); }
+                owner = MainWindowViewModelTestFactory.Create();
+                ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
+                var dialogs = new RecordingUiDialogService { AcceptConfirmation = outcome == "accepted" };
+                var history = new RecordingPlayHistoryPort();
+                var state = new TestSettingsDialogStatePort(owner, () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded)));
+                dialog = new SettingsDialogViewModel(state, owner.PlaylistWorkspace, owner.PlaylistWorkspace, history,
+                    owner.LibraryFolderTree, composition, owner.PlaybackPanel, owner.Lr2SongDbSyncWorkflow,
+                    settingsEditSession: new SettingsEditSession(values), applicationLifetime: TestApplicationContext.CreateLifetime(),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(), schemaDialogs: dialogs, schemaWindowDialogs: dialogs,
+                    externalShellGateway: ExternalShellGatewayPolicy.Current, applicationPathSnapshot: ApplicationPathPolicy.Current,
+                    audioDeviceCatalog: new TestAudioDeviceCatalog(), audioSettingsGateway: new TestAudioSettingsGateway(),
+                    audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create(), operationAdmission: composition.OperationAdmission);
+                string draft = StageDifferentSchemaCandidate(dialog, root);
+                byte[] saved = File.ReadAllBytes(Path.Combine(root, "user.config"));
+                byte[] sourceBefore = File.ReadAllBytes(score);
+                string candidateDb = Path.Combine(root, "LR2files", "Database", "Score", "player2.db");
+                byte[] candidateBefore = File.ReadAllBytes(candidateDb);
+                if (outcome is "library-busy" or "playlist-busy")
+                { Assert.IsTrue((outcome == "library-busy" ? composition.OperationAdmission : composition.PlaylistOperationAdmission).TryEnter(out held)); }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.InstallOrRepairLr2PlayHistorySchemaAsync(), "confirmed schema install");
+                Assert.AreEqual(outcome == "accepted" ? values.LR2ConfigXmlPath : draft, dialog.LR2ConfigXmlPath);
+                Assert.IsTrue(dialog.EnableBeatorajaBmtOutput);
+                CollectionAssert.AreEqual(saved, File.ReadAllBytes(Path.Combine(root, "user.config")));
+                CollectionAssert.AreEqual(candidateBefore, File.ReadAllBytes(candidateDb));
+                if (outcome is "accepted" or "cancel")
+                {
+                    Assert.AreEqual(1, dialogs.ConfirmationCount);
+                    StringAssert.Contains(dialogs.LastConfirmation, score);
+                    StringAssert.Contains(dialogs.LastConfirmation, Resources.Settings_lr2_detailed_paths);
+                }
+                else { Assert.AreEqual(0, dialogs.ConfirmationCount); }
+                if (outcome == "accepted")
+                {
+                    Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, new Lr2PlayHistorySchemaService().Check(score, true).Status);
+                    Assert.AreEqual(1, history.InvalidationCount);
+                }
+                else { CollectionAssert.AreEqual(sourceBefore, File.ReadAllBytes(score)); Assert.AreEqual(0, history.InvalidationCount); }
+                held?.Dispose(); held = null;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(outcome == "accepted" ? 1 : 0, history.InvalidationCount, "受付解放だけで自動再操作しません。");
+            }
+            finally { held?.Dispose(); dialog?.Dispose(); owner?.SettingDialog.Dispose(); Directory.Delete(root, recursive: true); }
+        });
+    }
+
     /// <summary>
     /// trigger解除を設定画面から実DBへ反映し、成功通知・履歴cache失効・score再読込み・Repairable表示を一度接続する。
     /// </summary>
@@ -244,7 +313,8 @@ public sealed class Lr2PlayHistorySchemaUiTests
         Directory.CreateDirectory(directoryPath);
         try
         {
-            string scoreDbPath = Path.Combine(directoryPath, "score.db");
+            Settings values = CreateConfirmedSchemaSettings(directoryPath);
+            string scoreDbPath = Path.Combine(directoryPath, "LR2files", "Database", "Score", "player1.db");
             CreateInstalledScoreDb(scoreDbPath);
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             using SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
@@ -273,7 +343,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             new ApplicationComposition(uiScheduler: new WpfUiScheduler(() => System.Windows.Threading.Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()),
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
-            settingsEditSession: SettingsEditSession.CreateDefault(),
+            settingsEditSession: new SettingsEditSession(values),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             schemaDialogs: dialogs,
@@ -283,10 +353,18 @@ public sealed class Lr2PlayHistorySchemaUiTests
             audioDeviceCatalog: new TestAudioDeviceCatalog(),
             audioSettingsGateway: new TestAudioSettingsGateway(),
             audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
-            SetPrivateField(settingDialog, "operationModeLR2DB", true);
-            SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
 
+
+            string candidate = StageDifferentSchemaCandidate(settingDialog, directoryPath);
+            string candidateDb = Path.Combine(directoryPath, "LR2files", "Database", "Score", "player2.db");
+            byte[] candidateBefore = File.ReadAllBytes(candidateDb);
+            byte[] saved = File.ReadAllBytes(Path.Combine(directoryPath, "user.config"));
             await settingDialog.UninstallLr2PlayHistorySchemaAsync();
+            Assert.AreEqual(dialogs.AcceptUninstall ? values.LR2ConfigXmlPath : candidate, settingDialog.LR2ConfigXmlPath);
+            Assert.IsTrue(settingDialog.EnableBeatorajaBmtOutput);
+            StringAssert.Contains(dialogs.LastCandidateDiscardNotice, Resources.Settings_lr2_detailed_paths);
+            CollectionAssert.AreEqual(candidateBefore, File.ReadAllBytes(candidateDb));
+            CollectionAssert.AreEqual(saved, File.ReadAllBytes(Path.Combine(directoryPath, "user.config")));
 
             Assert.AreEqual(1, dialogs.WindowCount);
             Assert.AreEqual(1, dialogs.MessageCount);
@@ -324,7 +402,8 @@ public sealed class Lr2PlayHistorySchemaUiTests
         Directory.CreateDirectory(directoryPath);
         try
         {
-            string scoreDbPath = Path.Combine(directoryPath, "score.db");
+            Settings values = CreateConfirmedSchemaSettings(directoryPath);
+            string scoreDbPath = Path.Combine(directoryPath, "LR2files", "Database", "Score", "player1.db");
             CreateInstalledScoreDb(scoreDbPath);
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             using SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
@@ -352,7 +431,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             new ApplicationComposition(uiScheduler: new WpfUiScheduler(() => System.Windows.Threading.Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()),
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
-            settingsEditSession: SettingsEditSession.CreateDefault(),
+            settingsEditSession: new SettingsEditSession(values),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             schemaDialogs: dialogs,
@@ -362,10 +441,18 @@ public sealed class Lr2PlayHistorySchemaUiTests
             audioDeviceCatalog: new TestAudioDeviceCatalog(),
             audioSettingsGateway: new TestAudioSettingsGateway(),
             audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
-            SetPrivateField(settingDialog, "operationModeLR2DB", true);
-            SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
 
+
+            string candidate = StageDifferentSchemaCandidate(settingDialog, directoryPath);
+            string candidateDb = Path.Combine(directoryPath, "LR2files", "Database", "Score", "player2.db");
+            byte[] candidateBefore = File.ReadAllBytes(candidateDb);
+            byte[] saved = File.ReadAllBytes(Path.Combine(directoryPath, "user.config"));
             await settingDialog.UninstallLr2PlayHistorySchemaAsync();
+            Assert.AreEqual(dialogs.AcceptUninstall ? values.LR2ConfigXmlPath : candidate, settingDialog.LR2ConfigXmlPath);
+            Assert.IsTrue(settingDialog.EnableBeatorajaBmtOutput);
+            StringAssert.Contains(dialogs.LastCandidateDiscardNotice, Resources.Settings_lr2_detailed_paths);
+            CollectionAssert.AreEqual(candidateBefore, File.ReadAllBytes(candidateDb));
+            CollectionAssert.AreEqual(saved, File.ReadAllBytes(Path.Combine(directoryPath, "user.config")));
 
             Assert.AreEqual(1, dialogs.WindowCount);
             Assert.AreEqual(1, dialogs.MessageCount);
@@ -401,7 +488,8 @@ public sealed class Lr2PlayHistorySchemaUiTests
         Directory.CreateDirectory(directoryPath);
         try
         {
-            string scoreDbPath = Path.Combine(directoryPath, "score.db");
+            Settings values = CreateConfirmedSchemaSettings(directoryPath);
+            string scoreDbPath = Path.Combine(directoryPath, "LR2files", "Database", "Score", "player1.db");
             CreateInstalledScoreDb(scoreDbPath);
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             using SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
@@ -425,7 +513,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             new ApplicationComposition(uiScheduler: new WpfUiScheduler(() => System.Windows.Threading.Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()),
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
-            settingsEditSession: SettingsEditSession.CreateDefault(),
+            settingsEditSession: new SettingsEditSession(values),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             schemaDialogs: dialogs,
@@ -435,10 +523,18 @@ public sealed class Lr2PlayHistorySchemaUiTests
             audioDeviceCatalog: new TestAudioDeviceCatalog(),
             audioSettingsGateway: new TestAudioSettingsGateway(),
             audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
-            SetPrivateField(settingDialog, "operationModeLR2DB", true);
-            SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
 
+
+            string candidate = StageDifferentSchemaCandidate(settingDialog, directoryPath);
+            string candidateDb = Path.Combine(directoryPath, "LR2files", "Database", "Score", "player2.db");
+            byte[] candidateBefore = File.ReadAllBytes(candidateDb);
+            byte[] saved = File.ReadAllBytes(Path.Combine(directoryPath, "user.config"));
             await settingDialog.UninstallLr2PlayHistorySchemaAsync();
+            Assert.AreEqual(dialogs.AcceptUninstall ? values.LR2ConfigXmlPath : candidate, settingDialog.LR2ConfigXmlPath);
+            Assert.IsTrue(settingDialog.EnableBeatorajaBmtOutput);
+            StringAssert.Contains(dialogs.LastCandidateDiscardNotice, Resources.Settings_lr2_detailed_paths);
+            CollectionAssert.AreEqual(candidateBefore, File.ReadAllBytes(candidateDb));
+            CollectionAssert.AreEqual(saved, File.ReadAllBytes(Path.Combine(directoryPath, "user.config")));
 
             Assert.AreEqual(1, dialogs.WindowCount);
             Assert.AreEqual(0, dialogs.MessageCount);
@@ -469,6 +565,32 @@ public sealed class Lr2PlayHistorySchemaUiTests
             }));
     }
 
+    private static string StageDifferentSchemaCandidate(SettingsDialogViewModel dialog, string root)
+    {
+        string draft = Path.Combine(Directory.CreateDirectory(Path.Combine(root, "candidate")).FullName, "config.xml");
+        File.WriteAllText(draft, "<config><system/><jukebox/><player><id>player2</id></player></config>");
+        CreateInstalledScoreDb(Path.Combine(root, "LR2files", "Database", "Score", "player2.db"));
+        dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2ConfigXmlPath), draft).GetAwaiter().GetResult();
+        Assert.AreEqual(draft, dialog.LR2ConfigXmlPath, dialog.Lr2PathSelectionError);
+        dialog.EnableBeatorajaBmtOutput = true;
+        return draft;
+    }
+
+    private static Settings CreateConfirmedSchemaSettings(string root)
+    {
+        string config = Path.Combine(root, "LR2files", "Config", "config.xml");
+        Directory.CreateDirectory(Path.Combine(root, "LR2files", "Config"));
+        Directory.CreateDirectory(Path.Combine(root, "LR2files", "Database", "Score"));
+        File.WriteAllText(config, "<config><system/><jukebox/><player><id>player1</id></player></config>");
+        Settings values = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config"));
+        values.OperationModeLR2DB = true;
+        values.LR2RootPath = root;
+        values.LR2ConfigXmlPath = config;
+        values.LR2SongDBPath = Path.Combine(root, "song.db");
+        values.Save();
+        return values;
+    }
+
     private static void CreateInstalledScoreDb(string scoreDbPath)
     {
         using (var db = new SQLiteConnection(scoreDbPath))
@@ -495,6 +617,9 @@ public sealed class Lr2PlayHistorySchemaUiTests
         internal int WindowCount { get; private set; }
 
         internal bool AcceptUninstall { get; set; }
+        internal bool AcceptConfirmation { get; set; }
+        internal string LastConfirmation { get; private set; } = string.Empty;
+        internal string LastCandidateDiscardNotice { get; private set; } = string.Empty;
 
         internal Lr2PlayHistorySchemaUninstallMode SelectedUninstallMode { get; set; }
 
@@ -510,7 +635,8 @@ public sealed class Lr2PlayHistorySchemaUiTests
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         {
             ConfirmationCount++;
-            return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
+            LastConfirmation = request.MessageBoxText;
+            return Task.FromResult(UiDialogResult.FromMessageBoxResult(AcceptConfirmation ? MessageBoxResult.OK : MessageBoxResult.Cancel));
         }
 
         public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(UiWindowDialogRequest<TWindow, TResult> request, CancellationToken cancellationToken = default)
@@ -529,8 +655,9 @@ public sealed class Lr2PlayHistorySchemaUiTests
 
         public Task<UiInteractionResult<Lr2PlayHistorySchemaUninstallMode>> ShowAsync(
             string scoreDbPath,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default, string? candidateDiscardNotice = null)
         {
+            LastCandidateDiscardNotice = candidateDiscardNotice ?? string.Empty;
             WindowCount++;
             if (!AcceptUninstall)
             {

@@ -1062,6 +1062,93 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>復元の最終検査を実L/P取得中に呼び、拒否ではdump読取り・DB変更・出力へ進まず、終了不可を返して両受付を解放します。</summary>
+    /// <remarks>存在しないdumpと通知0で読取り前の拒否を識別します。設定候補ごとの拒否条件はSettings系列、実復元の成功・必須失敗は隣接ケースが分担します。</remarks>
+    [TestMethod]
+    public async Task PlaylistWorkspaceRestorePlaylistBackupAsync_FinalCheckRefusesInsideAdmissionWithoutSideEffects()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspacePersistenceCommandTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsLibrary? library = null;
+        TestBmsPlaylist? playlist = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        try
+        {
+            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            library = new TestBmsLibrary(songDbPath);
+            int customOutputInputs = 0;
+            int bmtOutputInputs = 0;
+            var outputPort = new TestLr2PlaylistFolderSynchronizationPort(songDbPath);
+            playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath,
+                () => { customOutputInputs++; return new CustomFolderOutputSettingsSnapshot(); },
+                beatorajaBmtOptionsProvider: () => { bmtOutputInputs++; return new BeatorajaBmtOptionsSnapshot(); },
+                lr2PlaylistFolderSynchronization: outputPort);
+            var table = new BMSTable
+            {
+                playlist_id = 4203,
+                name = "Keep on final refusal",
+                symbol = "keep",
+                entries = [new BMSTableEntry { md5 = new string('a', 32), title = "Keep entry", folder = "Folder" }]
+            };
+            playlist.BMSTables.Add(table);
+            playlist.CommitBMSTableWithEntriesToDB(table);
+            workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(playlist, library);
+            List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
+            customOutputInputs = 0;
+            bmtOutputInputs = 0;
+            outputPort.Operations.Clear();
+            int checks = 0;
+            bool libraryHeldDuringCheck = false;
+            bool playlistHeldDuringCheck = false;
+            Task<bool> RefuseBeforeExitAsync()
+            {
+                checks++;
+                libraryHeldDuringCheck = !library.OperationAdmission.TryEnter(out IDisposable libraryLease);
+                libraryLease?.Dispose();
+                playlistHeldDuringCheck = !playlist.TryEnterPlaylistMutation(out IDisposable playlistLease);
+                playlistLease?.Dispose();
+                return Task.FromResult(false);
+            }
+            string missingDump = Path.Combine(directory, "missing.sql");
+            Assert.IsFalse(File.Exists(missingDump));
+
+            Assert.IsFalse(await workspace.RestorePlaylistBackupAsync(missingDump, RefuseBeforeExitAsync), "最終検査の拒否では終了を許可しません。");
+
+            Assert.AreEqual(1, checks);
+            Assert.IsTrue(libraryHeldDuringCheck, "最終検査は実L取得後に行います。");
+            Assert.IsTrue(playlistHeldDuringCheck, "最終検査は実P取得後に行います。");
+            Assert.AreEqual(0, notifications.Count, "読込みへ進むと存在しないdumpの失敗通知が発生します。");
+            Assert.AreEqual(0, customOutputInputs);
+            Assert.AreEqual(0, bmtOutputInputs);
+            Assert.AreEqual(0, outputPort.Operations.Count);
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            {
+                BMSTable persisted = verify.Table<BMSTable>().Single();
+                Assert.AreEqual(4203, persisted.playlist_id);
+                Assert.AreEqual("Keep on final refusal", persisted.name);
+                Assert.AreEqual("keep", persisted.symbol);
+                Assert.AreEqual("Keep entry", verify.Table<LR2SongDBExtended.playlist_entry>().Single().title);
+            }
+            Assert.AreSame(table, playlist.BMSTables.Single());
+            Assert.AreSame(table, workspace.CapturePlaylistTreeTablesSnapshot().Single());
+            Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable nextLibraryLease));
+            using (nextLibraryLease)
+            {
+                Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable nextPlaylistLease));
+                nextPlaylistLease.Dispose();
+            }
+        }
+        finally
+        {
+            workspace?.RefreshPlaylistTreeTables(null);
+            playlist?.RequestShutdown("restore-final-refusal-fixture");
+            library?.RequestShutdown("restore-final-refusal-fixture");
+            if (Directory.Exists(directory)) { Directory.Delete(directory, recursive: true); }
+        }
+    }
+
     /// <summary>backup読取り失敗ではDB・モデル・公開一覧の既存表を保持し、L/P解放後にErrorを一回通知して終了不可を返します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceRestorePlaylistBackupAsync_ReportsReadFailureWithoutAuthorizingExit()

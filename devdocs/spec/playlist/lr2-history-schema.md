@@ -77,6 +77,8 @@ LR2が使うSQLite 3.6.7で動くSQLを使います。UPSERT構文、CTE、ウ�
 
 ### 検査結果と変更操作
 
+設定の導入・修復・撤去は、確定したLR2 rootと詳細XMLのplayerから対象DBを解決します。未確定XMLのplayerは使いません。対象を変える環境候補の破棄案内を既存の導入確認・撤去範囲選択へ統合し、取消・検証不成立・受付拒否では元候補と両環境のDBを保持します。既存L/P受付と最終対象検査を通った後に関係候補だけを戻し、cache失効・必要score再読込みまで同じTaskで待ちます。[設定の補助操作](../runtime/settings.md#補助操作の対象受付閉鎖)に従います。
+
 | 状態 | 条件と操作 |
 | --- | --- |
 | `Installed` | 必要表・列・索引・トリガーが揃う。導入処理は変更しない。 |
@@ -97,6 +99,8 @@ LR2が使うSQLite 3.6.7で動くSQLを使います。UPSERT構文、CTE、ウ�
 | 列・索引・トリガー・衝突・明示操作 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs) | [`Lr2PlayHistorySchemaServiceTests`](../../../BeMusicSeeker.Tests/PlayHistory/Lr2PlayHistorySchemaServiceTests.cs) |
 | 状態表示・導入と削除の受付 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs) | [`Lr2PlayHistorySchemaUiTests`](../../../BeMusicSeeker.Tests/PlayHistory/Lr2PlayHistorySchemaUiTests.cs) |
 | 記録された値と読取り条件 | [`Lr2PlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistoryReader.cs) | [`PlayHistoryReadModelTests`](../../../BeMusicSeeker.Tests/PlayHistory/PlayHistoryReadModelTests.cs) |
+
+設定からの対象選択・確認・受付は `Lr2PlayHistorySchemaUiTests` の `SettingDialogViewModel_InstallUsesConfirmedPlayerAndPreservesCandidatesUntilAccepted` と既存導入拒否/撤去系列で、別XMLのplayer DBを変更しないことと候補保持・cache失効・再読込みを確認します。実buttonの接続とClose抑止は `SettingsWindowPresentationTests` の導入/撤去代表が分担します。
 
 ## 関連資料
 

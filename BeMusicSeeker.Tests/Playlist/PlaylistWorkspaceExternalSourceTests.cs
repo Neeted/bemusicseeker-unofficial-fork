@@ -31,7 +31,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         Directory.CreateDirectory(directory);
         TestBmsPlaylist? playlist = null;
         PlaylistWorkspaceViewModel? workspace = null;
-        bool started = false;
+        Task operation = Task.CompletedTask;
         TaskCompletionSource<BeatorajaTableUrlImportSummary> completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
@@ -83,11 +83,10 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 var document = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config));
                 document["tableURL"] = new Newtonsoft.Json.Linq.JArray(input.Select(id => "https://example.com/table" + id));
                 File.WriteAllText(config, document.ToString());
-                started = true;
-                workspace.StartBeatorajaTableUrlImport(root);
-                await TestUiDispatcherHost.AwaitNotificationAsync(completed.Task, playlist.WaitForPlaylistMutationIdleAsync(), "existing BMT URL import summary");
+                operation = workspace.StartBeatorajaTableUrlImport(root);
+                await TestUiDispatcherHost.AwaitNotificationAsync(completed.Task, operation, "existing BMT URL import summary");
                 BeatorajaTableUrlImportSummary summary = await completed.Task;
-                await playlist.WaitForPlaylistMutationIdleAsync();
+                await operation;
                 Assert.AreEqual(0, summary.FailedCount);
                 Assert.AreEqual(input.Length, summary.Outcomes.Count);
                 Assert.IsTrue(summary.Outcomes.All(outcome => outcome.Kind == BeatorajaTableUrlImportOutcomeKind.Existing));
@@ -109,7 +108,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         {
             try
             {
-                if (started && playlist != null) { await playlist.WaitForPlaylistMutationIdleAsync(); }
+                await operation;
             }
             finally
             {
@@ -366,9 +365,8 @@ public sealed class PlaylistWorkspaceExternalSourceTests
 
 
             started = true;
-            workspace.StartBeatorajaTableUrlImport(beatorajaRoot);
-            // Startが同期確保した受付の終端を本文gate中に捕捉し、通知欠落も同じ実Taskとの競争で検出する。
-            importCompletion = playlist.WaitForPlaylistMutationIdleAsync();
+            importCompletion = workspace.StartBeatorajaTableUrlImport(beatorajaRoot);
+            // 実Startが返す取込みTaskで、通信から出力・通知・受付解放までを回収します。
             await TestUiDispatcherHost.AwaitNotificationAsync(server.HeadersSent.Task, importCompletion, "new table import HTTP headers");
             Assert.ThrowsException<InvalidOperationException>(() => playlist.AcquirePlaylistMutationLease("beatoraja-import-communication-busy"));
             Assert.IsFalse(importCompletion.IsCompleted);

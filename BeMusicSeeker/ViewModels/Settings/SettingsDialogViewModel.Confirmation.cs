@@ -446,7 +446,7 @@ public partial class SettingsDialogViewModel
 
     /// <summary>他の操作が採用されたときだけ破棄する、未確定の設定範囲です。受理済みの修復状態は含めません。</summary>
     [Flags]
-    internal enum ConflictingCandidates { None = 0, Bms = 1, Lr2Details = 2, BeatorajaScore = 4, Bmt = 8 }
+    internal enum ConflictingCandidates { None = 0, Bms = 1, Lr2Details = 2, BeatorajaScore = 4, Bmt = 8, Lr2Mode = 16, BeatorajaRoot = 32 }
 
     private ConflictingCandidates GetConflictingCandidates(ConflictingCandidates sections)
     {
@@ -455,6 +455,8 @@ public partial class SettingsDialogViewModel
         if (sections.HasFlag(ConflictingCandidates.Lr2Details) && (CaptureEnvironmentCandidate() with { OperationModeLR2DB = ApplicationSettings.OperationModeLR2DB }) != EnvironmentSettingsChange.Capture(ApplicationSettings)) { result |= ConflictingCandidates.Lr2Details; }
         if (sections.HasFlag(ConflictingCandidates.BeatorajaScore) && HasScoreSelectionChanges) { result |= ConflictingCandidates.BeatorajaScore; }
         if (sections.HasFlag(ConflictingCandidates.Bmt) && HasBmtSelectionChanges) { result |= ConflictingCandidates.Bmt; }
+        if (sections.HasFlag(ConflictingCandidates.Lr2Mode) && operationModeLR2DB != ApplicationSettings.OperationModeLR2DB) { result |= ConflictingCandidates.Lr2Mode; }
+        if (sections.HasFlag(ConflictingCandidates.BeatorajaRoot) && !string.Equals(environmentBeatorajaRootPath, ApplicationSettings.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)) { result |= ConflictingCandidates.BeatorajaRoot; }
         return result;
     }
 
@@ -471,6 +473,8 @@ public partial class SettingsDialogViewModel
         if (conflicts.HasFlag(ConflictingCandidates.Lr2Details)) { names.Add(Resources.Settings_lr2_detailed_paths); }
         if (conflicts.HasFlag(ConflictingCandidates.BeatorajaScore)) { names.Add(Resources.Use_beatoraja_scoreDB); }
         if (conflicts.HasFlag(ConflictingCandidates.Bmt)) { names.Add(Resources.Use_beatoraja_bmt_output); }
+        if (conflicts.HasFlag(ConflictingCandidates.Lr2Mode)) { names.Add(Resources.Operation_Mode_LR2); }
+        if (conflicts.HasFlag(ConflictingCandidates.BeatorajaRoot)) { names.Add(Resources.FilePath_beatoraja_root); }
         return FormatResource(Resources.Settings_confirm_discard_conflicting_candidates, string.Join(" / ", names));
     }
 
@@ -490,7 +494,13 @@ public partial class SettingsDialogViewModel
     {
         ConflictingCandidates conflicts = GetConflictingCandidates(sections);
         if (conflicts.HasFlag(ConflictingCandidates.Bms)) { CancelBmsRoots(); }
-        if (conflicts.HasFlag(ConflictingCandidates.Lr2Details)) { CancelEnvironment(); }
+        if ((conflicts & (ConflictingCandidates.Lr2Details | ConflictingCandidates.Lr2Mode)) != 0) { CancelEnvironment(); }
+        if (conflicts.HasFlag(ConflictingCandidates.BeatorajaRoot))
+        {
+            environmentBeatorajaRootPath = ApplicationSettings.BeatorajaRootPath;
+            RefreshEnvironmentBeatorajaCandidate();
+            RaisePropertyChanged(nameof(BeatorajaRootPath));
+        }
         if (sections.HasFlag(ConflictingCandidates.BeatorajaScore))
         {
             scoreUseBeatorajaScoreDb = ApplicationSettings.UseBeatorajaScoreDb;
@@ -500,6 +510,25 @@ public partial class SettingsDialogViewModel
             RaiseEnvironmentBeatorajaCandidateChanged();
         }
         if (conflicts.HasFlag(ConflictingCandidates.Bmt)) { CancelBmtSettings(); }
+    }
+
+    /// <summary>補助操作の既存確認へ、実行対象を変える未確定入力の破棄案内だけを併記します。</summary>
+    internal string BuildAuxiliaryOperationConfirmation(string message, ConflictingCandidates sections)
+    {
+        string discard = BuildCandidateDiscardConfirmation(sections);
+        return discard == null ? message : message + Environment.NewLine + Environment.NewLine + discard;
+    }
+
+    /// <summary>終了を伴う確認へ、未確定候補を次回へ引き継がない案内を統合します。</summary>
+    internal string BuildExitOperationConfirmation(string message)
+        => message + Environment.NewLine + Environment.NewLine + Resources.Settings_candidates_discarded_on_exit;
+
+    /// <summary>復元後の終了で失われる、BMS差分再読込みを含む保存後の未了修復入力があれば復元を拒否します。通常候補は対象外です。</summary>
+    internal async Task<bool> CanStartRestoreBeforeExitAsync()
+    {
+        if (!bmsSaveIncomplete && !fileDiffReloadPending && pendingOutputChange == null && pendingBmtChange == null && !scoreReloadPending) { return true; }
+        await ShowUiMessageAsync(Resources.Settings_repair_related_save, Resources.Error, UiDialogIcon.Hand, "Restore pending settings repair");
+        return false;
     }
 
     private async Task<bool> PrepareBmsCandidateEditAsync()

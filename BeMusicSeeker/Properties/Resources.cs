@@ -3175,4 +3175,6 @@ public class Resources
     public static string Settings_confirm_discard_conflicting_candidates => ResourceManager.GetString(nameof(Settings_confirm_discard_conflicting_candidates), resourceCulture);
     /// <summary>未確定編集の破棄確認に示すLR2詳細パスの範囲名です。</summary>
     public static string Settings_lr2_detailed_paths => ResourceManager.GetString(nameof(Settings_lr2_detailed_paths), resourceCulture);
+    /// <summary>終了時の未確定候補の破棄を既存確認へ併記する案内です。</summary>
+    public static string Settings_candidates_discarded_on_exit => ResourceManager.GetString(nameof(Settings_candidates_discarded_on_exit), resourceCulture);
 }

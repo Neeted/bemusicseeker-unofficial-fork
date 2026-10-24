@@ -1,4 +1,5 @@
 {
+  "Settings_candidates_discarded_on_exit": "結束時將捨棄尚未確認的設定，不會保留至下次啟動。",
   "Details_show_diag_new_install_description": "用於確認將未設定安裝目標的待處理套件作為新套件安裝。若已設定安裝目標，即使為 OFF 也無法省略確認。",
   "Details_test_delete_pending_source_after_install_description": "清理安裝後殘留的已擁有譜面和空的原始資料夾。不刪除未擁有或無法判定的殘留項目。即使為 OFF，已移動的原始檔案也不會保留。",
   "Details_test_keep_smart_overwrite_protected_by_rename_description": "僅在智慧覆寫為 ON 時生效。對於同名的目標檔案，不進行覆寫，而是按需以帶序號的名稱安裝。不會增加內容相同的重複檔案。",

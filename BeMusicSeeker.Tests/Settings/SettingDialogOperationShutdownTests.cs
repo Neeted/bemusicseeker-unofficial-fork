@@ -173,6 +173,154 @@ public sealed partial class SettingDialogEditCompletionTests
         });
     }
 
+    /// <summary>手動同期の実受付でSettingsモーダルだけが先に閉じても、MainWindowは引き継いだ実Taskの終端まで終了・保存・runtime終了を待ちます。</summary>
+    /// <remarks>実MainWindow・実モーダル・実ボタン/確認・通常owner/実LR2受付を接続します。実同期完了後のruntime返却だけを保持し、library自身の終了待ちによってSettings Taskの引継ぎ欠落が隠れない条件にします。</remarks>
+    [TestMethod]
+    public void MainWindow_ManualResyncModalClosesBeforeTaskAndShellShutdownJoinsTransferredOperation()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var lifetime = new SettingsOperationLifetime();
+            CountingSettingsEditSession? session = null;
+            using var fixture = new MainWindowViewModelStartupProgressTests.CompletionFixture(lr2Mode: true, lifetime: lifetime, rootFileEnumerator: new FastRootFileEnumerator(),
+                settingsSessionFactory: values =>
+                {
+                    values.Save();
+                    return session = new CountingSettingsEditSession(values) { PersistOwnedValues = true };
+                });
+            CountingSettingsEditSession settingsSession = session ?? throw new AssertFailedException("設定sessionが構成されていません。");
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var actualRuntime = new BmsLr2SongDbSyncWorkflowRuntime(() => fixture.Library, () => fixture.Playlist, () => fixture.Settings.OperationModeLR2DB);
+            var terminalRuntime = new SettingsOperationTerminalRuntime(actualRuntime, entered, release.Task);
+            MainWindowViewModel owner = fixture.Owner;
+            Window? previousMain = Application.Current.MainWindow;
+            SettingsWindow? settingsWindow = null;
+            Window? confirmationWindow = null;
+            Exception? confirmationFailure = null;
+            Task? operation = null;
+            Exception? bodyFailure = null;
+            var ownership = new MainWindowTestLifetime(owner, lifetime.ShutdownRequested.Task);
+            try
+            {
+                Assert.IsTrue(owner.SettingDialog.CheckValidationForInitialization(out string validationFailure), validationFailure);
+                fixture.OptionalRelease.TrySetResult();
+                Task initialization = owner.ShellActivationWorkflow.ActivateRenderedShell(() => { }, _ => { }, () => false);
+                fixture.Track(initialization);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "manual-resync-shell-initialization");
+                Assert.IsTrue(owner.IsInitializationCompleted && owner.HasActiveLibraryProfile);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "manual-resync-shell-background-terminal");
+                owner.SettingDialog.Dispose();
+                var dialog = new SettingsDialogViewModel(owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
+                    fixture.Composition, owner.PlaybackPanel, new Lr2SongDbSyncWorkflowOwner(terminalRuntime), settingsSession,
+                    applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    externalShellGateway: ExternalShellGatewayPolicy.Current, applicationPathSnapshot: fixture.Composition.ApplicationPathSnapshot,
+                    audioDeviceCatalog: new TestAudioDeviceCatalog(), audioSettingsGateway: new SettingsAudioGateway(() => fixture.Settings),
+                    audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
+                PropertyInfo settingDialogProperty = typeof(MainWindowViewModel).GetProperty(nameof(MainWindowViewModel.SettingDialog))
+                    ?? throw new AssertFailedException("設定ViewModelの接続プロパティがありません。");
+                settingDialogProperty.SetValue(owner, dialog);
+                BassAudioRuntime.Initialize();
+                MainWindow main = ownership.CreateWindow(() => new MainWindow(owner, created =>
+                {
+                    settingsWindow = created;
+                    scope.PrepareForOwnedPresentation(created);
+                    created.ContentRendered += (_, _) => created.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, (Action)(() =>
+                    {
+                        // 実確認のモーダルloopで既存OKボタンを承認します。物理入力やフォーカスは使いません。
+                        created.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, (Action)(() =>
+                        {
+                            try
+                            {
+                                confirmationWindow = Application.Current.Windows.OfType<Window>()
+                                    .Single(window => window.IsVisible && ReferenceEquals(window.Owner, created));
+                                FindDescendants<Button>(confirmationWindow).Single(button => Equals(button.Content, "OK"))
+                                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                            }
+                            catch (Exception failure) { confirmationFailure = failure; confirmationWindow?.Close(); created.CloseForOwnerShutdown(); }
+                        }));
+                        FindDescendants<Button>(created).Single(button => Equals(button.Content, Resources.Lr2_song_db_sync_data_resync))
+                            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        operation = created.WaitForOperationCompletionAsync();
+                    }));
+                }));
+                scope.PrepareForOwnedPresentation(main);
+                Application.Current.MainWindow = main;
+                main.Show(); main.UpdateLayout();
+                int savesBefore = settingsSession.SaveCount;
+                owner.SettingDialog.OpenCommand.Execute();
+                // Executeの復帰はShowDialogとMainWindowのfinallyを通過した後です。この後で初めてShellを閉じます。
+                Assert.IsNull(confirmationFailure);
+                Assert.IsNotNull(confirmationWindow);
+                Assert.IsNotNull(settingsWindow);
+                Assert.IsNotNull(operation);
+                Assert.AreEqual(SettingsWindowCloseReason.ManualResync, settingsWindow.CloseReason);
+                Assert.IsFalse(settingsWindow.IsVisible);
+                Assert.IsNull(settingsWindow.DataContext);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, operation,
+                    "manual-resync-runtime-return-gate"), "manual-resync-runtime-return-gate");
+                Assert.IsTrue(terminalRuntime.WasAccepted);
+                Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
+                Assert.IsFalse(fixture.Composition.PlaylistOperationAdmission.IsActive);
+                Assert.IsFalse(operation.IsCompleted);
+                main.Close();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "manual-resync-shell-preparation-terminal");
+                Assert.IsTrue(owner.ShellShutdownWorkflow.IsShutdownPrepared);
+                // UI上の同期呼出しだけでは終了用Dispatcher操作がまだ始まらないため、実際に配送を進めます。
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(main.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle).Task,
+                    "manual-resync-shell-terminal-dispatch");
+                Assert.IsFalse(main.CloseCompletion.IsCompleted);
+                Assert.IsFalse(lifetime.ShutdownRequested.Task.IsCompleted);
+                Assert.IsFalse(BassAudioRuntime.OperationGate.AdmissionClosed);
+                Assert.AreEqual(savesBefore, settingsSession.SaveCount);
+                release.TrySetResult();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "manual-resync-transferred-task-terminal");
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(main.CloseCompletion, "manual-resync-shell-terminal");
+                Assert.IsTrue(lifetime.ShutdownRequested.Task.IsCompleted);
+                Assert.IsTrue(settingsSession.SaveCount > savesBefore);
+            }
+            catch (Exception failure) { bodyFailure = failure; throw; }
+            finally
+            {
+                release.TrySetResult(); fixture.OptionalRelease.TrySetResult();
+                try
+                {
+                    if (confirmationWindow?.IsVisible == true) { confirmationWindow.Close(); }
+                    if (operation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "manual-resync-shell-cleanup-operation"); }
+                }
+                finally
+                {
+                    settingsWindow?.CloseForOwnerShutdown();
+                    ownership.DisposeAfterBodyFailure(bodyFailure);
+                    Application.Current.MainWindow = previousMain;
+                }
+            }
+        });
+    }
+
+    /// <summary>実LR2処理と両受付の解放を終えた後の返却Taskだけを保持し、Shellが独立に所有するSettings Taskの待機を識別します。</summary>
+    private sealed class SettingsOperationTerminalRuntime(ILr2SongDbSyncWorkflowRuntime actual, TaskCompletionSource entered, Task release) : ILr2SongDbSyncWorkflowRuntime
+    {
+        public bool IsLr2ModeEnabled => actual.IsLr2ModeEnabled;
+        public bool IsLibraryAvailable => actual.IsLibraryAvailable;
+        internal bool WasAccepted { get; private set; }
+        public async Task<bool> QueueAsync(string reason, bool force, bool prepareGeneratedData = false, bool allowIncompleteToQueue = true,
+            LibraryFileInitializationResult? initializationResult = null, LibraryFileMutationCapability? capability = null,
+            bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null,
+            Lr2SongDbSyncPreparedDataSurface? preparedSurface = null, OperationProgressRequest? originatingRequest = null,
+            BmsLibraryOptionsSnapshot? optionsSnapshot = null, Action<bool>? admissionResult = null)
+        {
+            bool accepted = await actual.QueueAsync(reason, force, prepareGeneratedData, allowIncompleteToQueue, initializationResult,
+                capability, acceptedBackground, includeBuiltinGeneratedData, playlistCapability, preparedSurface, originatingRequest,
+                optionsSnapshot, value => { WasAccepted = value; admissionResult?.Invoke(value); });
+            if (accepted) { entered.TrySetResult(); await release; }
+            return accepted;
+        }
+        public Task SyncExternalFolderRowsForCustomFolderOutputBaseChangeAsync(string reason,
+            LibraryFileMutationCapability? capability = null, LibraryFileMutationCapability? playlistCapability = null)
+            => actual.SyncExternalFolderRowsForCustomFolderOutputBaseChangeAsync(reason, capability, playlistCapability);
+    }
+
     private sealed class SettingsOperationLifetime : IApplicationLifetimePort
     {
         internal TaskCompletionSource ShutdownRequested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

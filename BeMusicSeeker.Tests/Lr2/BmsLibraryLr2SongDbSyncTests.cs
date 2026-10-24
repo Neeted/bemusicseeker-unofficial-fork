@@ -692,7 +692,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     /// <summary>
-    /// LR2無効時は不要状態を返して背景処理を投稿せず、モード外の同期開始を防ぐ。
+    /// LR2無効時は最終検査のfalseを一回通知し、準備・投稿前に両受付を解放して不要状態を返します。
     /// </summary>
     [TestMethod]
     public async Task QueueLr2SongDbSync_DoesNotQueueWhenLr2ModeDisabled()
@@ -710,7 +710,18 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 return true;
             };
 
-            Lr2SongDbSyncStatusSnapshot snapshot = await library.QueueLr2SongDbSyncAsync("test_l2_mode_disabled");
+            int prepared = 0;
+            List<bool> admissions = [];
+            Lr2SongDbSyncStatusSnapshot snapshot = await library.QueueLr2SongDbSyncAsync("test_l2_mode_disabled",
+                prepareGeneratedData: (_, _) => { prepared++; return Lr2SongDbSyncPreparedDataSurface.Empty; },
+                admissionResult: admissions.Add);
+
+            CollectionAssert.AreEqual(new[] { false }, admissions);
+            Assert.AreEqual(0, prepared);
+            Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable nextLibrary));
+            nextLibrary.Dispose();
+            Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable nextPlaylist));
+            nextPlaylist.Dispose();
 
             Assert.AreEqual(Lr2SongDbSyncStatusKind.NotNeeded, snapshot.Status);
             Assert.AreEqual(1, library.Lr2SongDbSyncStatusVersion);
@@ -724,6 +735,42 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         {
             ResetTouchedSettings();
         }
+    }
+
+    /// <summary>同一署名の保存済みCompletedでは通常要求の同期を省略し、完了状態・run・DBを保持して新要求と準備を開始せず、L/Pを解放します。</summary>
+    /// <remarks>状態保存の本番窓口で入力を作ります。省略後の取り込み成功分類と案内はAutomaticContinuationの実owner系列が分担します。</remarks>
+    [TestMethod]
+    public async Task QueueLr2SongDbSync_CompletedSignatureSkipsWithoutStartingOrChangingStoredCompletion()
+    {
+        using var scope = TestDatabaseScope.Create();
+        var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true };
+        string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
+        DateTime completedAt = new(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+        { Lr2SongDbSyncStatusService.MarkCompleted(setup, signature, "previous-completed-run", 7, completedAt); }
+        var library = new TestBmsLibrary(scope.SongDbPath, null, null, null,
+            () => options, TestBmsFactory.MissingEverythingBridge, settings: testSettings);
+        byte[] before = File.ReadAllBytes(scope.SongDbPath);
+        int prepared = 0;
+        try
+        {
+            Lr2SongDbSyncStatusSnapshot result = await library.QueueLr2SongDbSyncAsync("completed-normal-request",
+                prepareGeneratedData: (_, _) => { prepared++; return Lr2SongDbSyncPreparedDataSurface.Empty; });
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, result.Status);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, result.StoredStatus);
+            Assert.AreEqual(signature, result.Signature);
+            Assert.AreEqual("previous-completed-run", result.RunId);
+            Assert.AreEqual(completedAt, result.CompletedAt);
+            Assert.AreEqual(0, prepared);
+            Assert.AreEqual(0, library.Lr2SongDbSyncRequestedVersion);
+            Assert.AreEqual(0, library.Lr2SongDbSyncCompletedVersion);
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(scope.SongDbPath));
+            Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable nextLibrary));
+            nextLibrary.Dispose();
+            Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable nextPlaylist));
+            nextPlaylist.Dispose();
+        }
+        finally { library.RequestShutdown("completed-normal-request-cleanup"); }
     }
 
     /// <summary>
@@ -1670,18 +1717,22 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     /// <summary>
-    /// ライブラリ・playlistどちらの競合も準備・保存前に見送り、途中取得した権を解放して解除後の隠れた再実行を起こさない。
+    /// ライブラリ・playlistの競合/受付閉鎖は、直接要求と通常の手動同期ownerの両方で準備・保存前に拒否します。実受付結果のfalse通知・部分権限解放・自動再実行0を確認します。
     /// </summary>
     [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task QueueLr2SongDbSync_CompetingAdmissionSkipsBeforePreparationAndReleasesPartialLease(bool playlistBusy)
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public async Task QueueLr2SongDbSync_CompetingAdmissionSkipsBeforePreparationAndReleasesPartialLease(bool playlistBusy, bool closed)
     {
         using var scope = TestDatabaseScope.Create();
         var library = new TestBmsLibrary(scope.SongDbPath, null, null, null,
             () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true }, TestBmsFactory.MissingEverythingBridge, settings: testSettings);
         ChartFileOperationSynchronizer gate = playlistBusy ? library.Lr2Synchronization.PlaylistOperationAdmission : library.OperationAdmission;
-        Assert.IsTrue(gate.TryEnter(out IDisposable incumbent));
+        IDisposable? incumbent = null;
+        if (closed) { gate.CloseAdmission(); }
+        else { Assert.IsTrue(gate.TryEnter(out incumbent)); }
         int prepared = 0;
         int requestedBefore = library.Lr2SongDbSyncRequestedVersion;
         int completedBefore = library.Lr2SongDbSyncCompletedVersion;
@@ -1693,6 +1744,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 prepareGeneratedData: (_, _) => { prepared++; return Lr2SongDbSyncPreparedDataSurface.Empty; },
                 admissionResult: value => admitted = value);
             Assert.AreEqual(false, admitted);
+            admitted = null;
+            var runtime = new BmsLr2SongDbSyncWorkflowRuntime(() => library,
+                () => { prepared++; throw new AssertFailedException("拒否後は生成入力を取得しません。"); }, () => true);
+            var owner = new Lr2SongDbSyncWorkflowOwner(runtime);
+            Assert.IsFalse(await owner.RequestManualResyncAsync(value => admitted = value));
+            Assert.AreEqual(false, admitted);
             Assert.AreEqual(0, prepared);
             Assert.AreEqual(requestedBefore, library.Lr2SongDbSyncRequestedVersion);
             Assert.AreEqual(completedBefore, library.Lr2SongDbSyncCompletedVersion);
@@ -1703,12 +1760,49 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable released));
                 released.Dispose();
             }
-            incumbent.Dispose();
+            incumbent?.Dispose();
             Assert.AreEqual(0, prepared, "解除は予約済み再実行を起こしません。");
-            Assert.IsTrue(gate.TryEnter(out IDisposable next));
-            next.Dispose();
+            Assert.AreEqual(!closed, gate.TryEnter(out IDisposable next));
+            next?.Dispose();
         }
-        finally { incumbent.Dispose(); library.RequestShutdown("whole-admission-cleanup"); }
+        finally { incumbent?.Dispose(); library.RequestShutdown("whole-admission-cleanup"); }
+    }
+
+    /// <summary>通常の手動同期ownerへ実受付を通知する処理が失敗しても、元例外を伝播し、準備/保存前にL/Pの両方を解放します。</summary>
+    /// <remarks>通常起動の状態評価で状態表が準備された後の手動同期を接続します。実runtimeと実DBの同じ受付点を通し、通知失敗を受理成功として隠す実装とPの解放漏れを検出します。</remarks>
+    [TestMethod]
+    public async Task QueueLr2SongDbSync_AdmissionNotificationFailureReleasesBothLeasesBeforePreparation()
+    {
+        using var scope = TestDatabaseScope.Create();
+        var library = new TestBmsLibrary(scope.SongDbPath, null, null, null,
+            () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true }, TestBmsFactory.MissingEverythingBridge, settings: testSettings);
+        int prepared = 0;
+        int requestedBefore = library.Lr2SongDbSyncRequestedVersion;
+        int completedBefore = library.Lr2SongDbSyncCompletedVersion;
+        using (var initialized = new LR2SongDBExtended(scope.SongDbPath))
+        { BmsLibraryDbGateway.EnsureLr2SongDbSyncStatusSchema(initialized); }
+        byte[] before = File.ReadAllBytes(scope.SongDbPath);
+        var failure = new InvalidOperationException("acceptance presentation failed");
+        bool? admitted = null;
+        var runtime = new BmsLr2SongDbSyncWorkflowRuntime(() => library, () => { prepared++; throw new AssertFailedException("通知失敗後は準備へ進みません。"); }, () => true);
+        var owner = new Lr2SongDbSyncWorkflowOwner(runtime);
+        try
+        {
+            InvalidOperationException actual = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+                owner.RequestManualResyncAsync(value => { admitted = value; throw failure; }));
+            Assert.AreSame(failure, actual);
+            Assert.AreEqual(true, admitted);
+            Assert.AreEqual(0, prepared);
+            Assert.AreEqual(requestedBefore, library.Lr2SongDbSyncRequestedVersion);
+            Assert.AreEqual(completedBefore, library.Lr2SongDbSyncCompletedVersion);
+            Assert.IsFalse(library.Lr2SongDbSyncRunning);
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(scope.SongDbPath));
+            Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable nextLibrary));
+            nextLibrary.Dispose();
+            Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable nextPlaylist));
+            nextPlaylist.Dispose();
+        }
+        finally { library.RequestShutdown("admission-notification-failure-cleanup"); }
     }
 
     /// <summary>

@@ -3011,40 +3011,91 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>一般ページの実Table URLボタンは、保存済みの有効rootをworkspaceへ渡し、その空URL一覧の案内へ到達します。</summary>
-    /// <remarks>compiled buttonから実workspaceまでの配線をここで保持します。取込みのDB・出力終端はPlaylistの既存取込み系列が分担します。</remarks>
-    [TestMethod]
-    public void BeatorajaTableUrlButton_DeliversConfirmedRootToWorkspace()
+    /// <summary>一般ページの実Table URLボタンで確定rootと別候補を識別し、破棄取消/実P拒否では保持、受理後は関係rootだけを戻して実通知終端までClose/同再操作を拒否します。</summary>
+    /// <remarks>実workspaceの既存URL入力を使ってHTTPを避け、DB/順序/BMTの詳細はPlaylist系列へ分担します。通知gateを実Taskより先に完了条件にしません。</remarks>
+    [DataTestMethod]
+    [DataRow("cancel")]
+    [DataRow("busy")]
+    [DataRow("accepted")]
+    public void BeatorajaTableUrlButton_DeliversConfirmedRootToWorkspace(string outcome)
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
             using var fixture = new MainWindowViewModelStartupProgressTests.CompletionFixture(lifetime: TestApplicationContext.CreateLifetime(firstStartup: false));
             string root = fixture.Settings.BMSRootPath;
             string beatoraja = Directory.CreateDirectory(Path.Combine(root, "beatoraja")).FullName;
-            File.WriteAllText(Path.Combine(beatoraja, "beatoraja.jar"), string.Empty);
-            File.WriteAllText(Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName), "{}");
+            string candidate = Directory.CreateDirectory(Path.Combine(root, "candidate-beatoraja")).FullName;
+            foreach (string path in new[] { beatoraja, candidate }) { File.WriteAllText(Path.Combine(path, "beatoraja.jar"), string.Empty); }
+            File.WriteAllText(Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName), "{\"tableURL\":[\"https://example.invalid/existing\"]}");
+            File.WriteAllText(Path.Combine(candidate, BeatorajaConfigService.ConfigFileName), "{\"tableURL\":[\"https://example.invalid/candidate\"]}");
             fixture.OptionalRelease.TrySetResult();
             fixture.Settings.BeatorajaRootPath = beatoraja;
             Task<bool> initial = fixture.Start();
             TestUiDispatcherHost.AwaitTaskOnDispatcher(initial, "table-url-button-initialize");
             Assert.IsTrue(initial.GetAwaiter().GetResult());
             TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "table-url-button-background");
-            var notices = new List<string>();
+            fixture.Playlist.BMSTables.Add(new BMSTable { playlist_id = 999, name = "Existing", Page_url = new Uri("https://example.invalid/existing") });
+            fixture.Playlist.CommitBMSTableHeaderToDB(fixture.Playlist.BMSTables.Last());
+            SettingsDialogViewModel settings = fixture.Owner.SettingDialog;
+            fixture.Dialogs.ConfirmationResult = outcome == "cancel" ? MessageBoxResult.Cancel : MessageBoxResult.Yes;
             int confirmations = 0;
-            fixture.Owner.PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += (_, request) => { confirmations++; request.Confirmed = true; };
+            fixture.Owner.PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += (_, request) => { confirmations++; StringAssert.Contains(request.Message, Resources.FilePath_beatoraja_root); request.Confirmed = outcome != "cancel"; };
+            var summaryEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var release = new System.Threading.ManualResetEventSlim();
+            BeatorajaTableUrlImportSummary? summary = null;
+            fixture.Owner.PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += (_, request) =>
+            {
+                summary = request.Summary;
+                summaryEntered.TrySetResult();
+                release.Wait();
+            };
+            var notices = new List<string>();
             fixture.Owner.PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += (_, request) => notices.Add(request.Message);
-            var window = new SettingsWindow { DataContext = fixture.Owner.SettingDialog, PlaylistWorkspace = fixture.Owner.PlaylistWorkspace };
+            var window = new SettingsWindow { DataContext = settings, PlaylistWorkspace = fixture.Owner.PlaylistWorkspace };
+            IDisposable? held = null;
+            Task? terminal = null;
             try
             {
                 scope.ShowAndWaitForContentRendered(window);
-                FindDescendants<Button>(window).Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "SettingsImportBeatorajaTableUrls")
-                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                settings.BeatorajaRootPath = candidate;
+                settings.EnableBeatorajaBmtOutput = !fixture.Settings.EnableBeatorajaBmtOutput;
+                if (outcome == "busy") { Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out held)); }
+                Button button = FindDescendants<Button>(window).Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "SettingsImportBeatorajaTableUrls");
+                button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                terminal = window.WaitForOperationCompletionAsync();
+                if (outcome == "accepted")
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(summaryEntered.Task, terminal, "table URL summary gate"), "table URL summary arrival");
+                    Assert.AreEqual(beatoraja, settings.BeatorajaRootPath);
+                    Assert.IsTrue(settings.CanCancelBmtSettings);
+                    Assert.IsFalse(terminal.IsCompleted);
+                    window.Close();
+                    Assert.IsTrue(window.IsVisible);
+                    button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Assert.AreEqual(1, confirmations);
+                    Assert.IsNotNull(summary);
+                    Assert.AreEqual(1, summary.Outcomes.Count);
+                    Assert.AreEqual(BeatorajaTableUrlImportOutcomeKind.Existing, summary.Outcomes[0].Kind);
+                }
+                release.Set();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "table URL actual terminal");
                 Assert.AreEqual(1, confirmations);
-                CollectionAssert.AreEqual(new[] { Resources.Beatoraja_table_url_import_no_urls }, notices);
+                if (outcome != "accepted")
+                {
+                    Assert.AreEqual(candidate, settings.BeatorajaRootPath);
+                    Assert.IsTrue(settings.CanCancelBmtSettings);
+                    Assert.IsFalse(summaryEntered.Task.IsCompleted);
+                }
+                Assert.IsTrue(window.IsVisible);
                 Assert.AreEqual(beatoraja, fixture.Settings.BeatorajaRootPath);
+                held?.Dispose(); held = null;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(1, confirmations);
             }
             finally
             {
+                release.Set(); held?.Dispose();
+                if (terminal != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "table URL cleanup"); }
                 window.CloseForOwnerShutdown();
             }
         });

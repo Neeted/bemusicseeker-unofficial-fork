@@ -148,7 +148,7 @@ public partial class GeneralSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            settingsWindow.HandleImportBeatorajaTableUrls();
+            await settingsWindow.HandleImportBeatorajaTableUrls();
         }
         catch (Exception exception)
         {
