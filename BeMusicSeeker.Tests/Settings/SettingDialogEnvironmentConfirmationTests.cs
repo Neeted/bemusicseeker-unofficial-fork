@@ -512,7 +512,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 {
                     owner.SettingDialog.BeatorajaRootPath = newRoot;
                     owner.SettingDialog.BeatorajaPlayerId = "invalid-score-candidate";
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitScoreSettingsAsync(), "beatoraja-invalid-score");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitBeatorajaRootSettingsAsync(), "beatoraja-invalid-score");
                     Assert.AreEqual(1, dialogs.MessageCount);
                     Assert.AreEqual(Resources.Error_InvalidBeatorajaScoreDbPath, dialogs.LastMessageText);
                     Assert.AreEqual(0, dialogs.ConfirmationCount);
@@ -611,13 +611,13 @@ public sealed partial class SettingDialogEditCompletionTests
         });
     }
 
-    /// <summary>実root pickerの同値選択は保存済み表記・候補・再試行表示を保ち、有効な別rootの選択だけがplayer・派生先を自動保存してBMT候補を保持します。</summary>
+    /// <summary>実root pickerの同値選択は保存済み表記・候補・再試行表示を保ち、有効な別rootの選択は旧root前提候補を確認し、確定方針でplayer・派生先だけ保存して関係候補を破棄します。</summary>
     /// <remarks>configured採用と一覧先頭の既存解決、保存失敗後の明示修復を確認します。同値での保存・処理要求0は狭いBMT方針検査も分担します。</remarks>
     [DataTestMethod]
     [DataRow(true, false)]
     [DataRow(false, false)]
     [DataRow(true, true)] // 実providerの保存拒否では組を公開せず、同じ局所候補を明示再試行できます。
-    public void BeatorajaRootPicker_AutomaticallySavesResolvedLocalGroupAndKeepsBmtDraft(bool configuredPlayerExists, bool failSave)
+    public void BeatorajaRootPicker_SavesConfirmedPolicyAndDiscardsOnlyRelatedDrafts(bool configuredPlayerExists, bool failSave)
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
@@ -639,7 +639,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 values.UseBeatorajaScoreDb = true;
                 values.Save();
                 var failures = new List<Exception>();
-                var dialogs = new RecordingRootDialogService();
+                var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
                 var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values),
                     reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, audioDeviceCatalog: new TestAudioDeviceCatalog(),
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
@@ -687,6 +687,31 @@ public sealed partial class SettingDialogEditCompletionTests
                 scorePlayer.SetCurrentValue(ComboBox.SelectedItemProperty, "draft-player");
                 dialog.EnableBeatorajaBmtOutput = true;
                 dialog.BeatorajaBmtHashOutputMode = "PreferSha256Only";
+                byte[] beforeRejectedRoot = File.ReadAllBytes(settingsPath);
+                dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel);
+                dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Accepted, [newRoot]));
+                FindDescendants<Button>(picker).Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "beatoraja-root-discard-cancelled");
+                Assert.AreEqual("draft-player", dialog.BeatorajaPlayerId);
+                Assert.IsTrue(dialog.EnableBeatorajaBmtOutput);
+                Assert.AreEqual(oldRoot, dialog.BeatorajaRootPath);
+                CollectionAssert.AreEqual(beforeRejectedRoot, File.ReadAllBytes(settingsPath));
+                dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.CancelledByUser));
+                FindDescendants<Button>(picker).Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "beatoraja-root-picker-cancelled");
+                Assert.AreEqual("draft-player", dialog.BeatorajaPlayerId);
+                Assert.IsTrue(dialog.EnableBeatorajaBmtOutput);
+                dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+                Assert.IsTrue(composition.PlaylistOperationAdmission.TryEnter(out IDisposable? refusedLease));
+                using (refusedLease)
+                {
+                    dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Accepted, [newRoot]));
+                    FindDescendants<Button>(picker).Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "beatoraja-root-admission-refused");
+                    Assert.AreEqual("draft-player", dialog.BeatorajaPlayerId);
+                    Assert.IsTrue(dialog.EnableBeatorajaBmtOutput);
+                    CollectionAssert.AreEqual(beforeRejectedRoot, File.ReadAllBytes(settingsPath));
+                }
                 dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Accepted, [newRoot]));
                 using (FileStream? blocker = failSave ? File.Open(settingsPath, FileMode.Open, FileAccess.Read, FileShare.Read) : null)
                 {
@@ -701,12 +726,10 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual(BeatorajaConfigService.GetScoreDbPath(oldRoot, "old-player"), unchanged.BeatorajaScoreDbPath);
                     Assert.AreEqual(BeatorajaConfigService.GetTablePath(oldRoot), unchanged.BeatorajaBmtTablePath);
                     Assert.AreEqual(1, failures.Count);
-                    File.WriteAllText(Path.Combine(newRoot, BeatorajaConfigService.ConfigFileName), System.Text.Json.JsonSerializer.Serialize(
-                        new { playerpath = "later-profiles", playername = "z-player", tablepath = "later-tables", tableURL = Array.Empty<string>() }));
-                    TestUiDispatcherHost.ProcessQueuedPresentation();
-                    Button retry = FindDescendants<Button>(window).Single(button => Equals(button.Tag, "retry:score"));
-                    Assert.IsTrue(retry.IsEnabled); Assert.AreEqual(Visibility.Visible, retry.Visibility);
-                    retry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Assert.AreEqual("draft-player", dialog.BeatorajaPlayerId);
+                    Assert.IsTrue(dialog.EnableBeatorajaBmtOutput);
+                    dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Accepted, [newRoot]));
+                    FindDescendants<Button>(picker).Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(window.WaitForOperationCompletionAsync(), "beatoraja-root-save-explicit-retry");
                 }
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -722,9 +745,9 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual(expectedPlayer, scorePlayer.SelectedItem);
                 Assert.IsTrue(saved.UseBeatorajaScoreDb);
                 Assert.IsFalse(saved.EnableBeatorajaBmtOutput);
-                Assert.IsTrue(dialog.EnableBeatorajaBmtOutput);
-                Assert.AreEqual("PreferSha256Only", dialog.BeatorajaBmtHashOutputMode);
-                Assert.AreEqual(0, dialogs.ConfirmationCount);
+                Assert.IsFalse(dialog.EnableBeatorajaBmtOutput);
+                Assert.AreEqual(saved.BeatorajaBmtHashOutputMode, dialog.BeatorajaBmtHashOutputMode);
+                Assert.AreEqual(failSave ? 4 : 3, dialogs.ConfirmationCount);
                 Assert.IsTrue(window.IsVisible);
                 Assert.IsTrue(dialog.IsInitialEnvironment);
                 Assert.IsFalse(owner.ShellShutdownWorkflow.IsShutdownRequested);
@@ -778,7 +801,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>局所root保存後の旧新BMT・URL整理を実媒体で待ち、旧URL又は新出力失敗後も同じ旧新対象を明示修復します。BMT候補を混ぜず再起動しません。</summary>
+    /// <summary>局所root保存後の旧新BMT・URL整理を実媒体で待ち、旧URL又は新出力失敗後も同じ旧新対象を明示修復します。BMT候補を混ぜず、未了中のLR2再起動を拒否して修復後だけ受理します。</summary>
     [DataTestMethod]
     [DataRow("success")]
     [DataRow("old-url-failure")]
@@ -800,6 +823,7 @@ public sealed partial class SettingDialogEditCompletionTests
             }
             string configPath = Path.Combine(root, "settings", "user.config");
             Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(configPath));
+            (values.LR2SongDBPath, values.LR2ConfigXmlPath) = CreateValidLr2Layout(Path.Combine(root, "lr2"));
             values.BeatorajaRootPath = oldRoot;
             values.BeatorajaBmtTablePath = Path.Combine(oldRoot, "table");
             values.EnableBeatorajaBmtOutput = true;
@@ -865,7 +889,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     owner.SettingDialog.UseExternalPanelImage = true;
                     string oldConfig = Path.Combine(oldRoot, BeatorajaConfigService.ConfigFileName);
                     using (FileStream? blocker = failureStage == "old-url-failure" ? File.Open(oldConfig, FileMode.Open, FileAccess.Read, FileShare.Read) : null)
-                    { TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitScoreSettingsAsync(), "beatoraja-local-bmt-terminal"); }
+                    { TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitBeatorajaRootSettingsAsync(), "beatoraja-local-bmt-terminal"); }
                     Settings saved = PortableSettingsPersistenceTests.OpenSettings(configPath);
                     Assert.AreEqual(newRoot, saved.BeatorajaRootPath);
                     Assert.IsFalse(saved.UseBeatorajaScoreDb);
@@ -876,8 +900,13 @@ public sealed partial class SettingDialogEditCompletionTests
                     if (failureStage != "success")
                     {
                         Assert.IsTrue(failures.Count + events.Count(item => item == "notification") > 0);
-                        Assert.IsTrue(owner.SettingDialog.IsScoreProcessingRetryRequired);
-                        Assert.IsTrue(owner.SettingDialog.CanRetryScoreSettings);
+                        Assert.IsTrue(owner.SettingDialog.IsBmtProcessingRetryRequired);
+                        Assert.IsTrue(owner.SettingDialog.CanRetryBeatorajaRootSettings);
+                        byte[] beforeRestart = File.ReadAllBytes(configPath);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SelectOperationModeAsync(true), "pending-real-bmt-restart-refused");
+                        Assert.IsNull(shutdown, "旧新BMTの未了修復を失うLR2再起動は受理しません。");
+                        Assert.IsFalse(values.OperationModeLR2DB);
+                        CollectionAssert.AreEqual(beforeRestart, File.ReadAllBytes(configPath));
                         Assert.IsFalse(owner.SettingDialog.IsBeatorajaSelectionEnabled);
                         owner.SettingDialog.BeatorajaRootPath = Path.Combine(root, "third-root");
                         Assert.AreEqual(newRoot, owner.SettingDialog.BeatorajaRootPath, "修復入力を別rootで上書きしません。");
@@ -896,13 +925,14 @@ public sealed partial class SettingDialogEditCompletionTests
                         owner.SettingDialog.SetPresentationActive(false);
                         owner.SettingDialog.SetPresentationActive(true);
                         Assert.AreEqual(Path.Combine(newRoot, "table"), owner.SettingDialog.EnvironmentBeatorajaBmtTablePath);
-                        Assert.IsTrue(owner.SettingDialog.CanRetryScoreSettings);
+                        Assert.IsTrue(owner.SettingDialog.CanRetryBeatorajaRootSettings);
                         Assert.AreEqual(notificationsBeforeReopen, events.Count(item => item == "notification"), "再表示は修復を自動実行しません。");
                         using (File.Open(configPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-                        { TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitScoreSettingsAsync(), "beatoraja-local-bmt-explicit-repair"); }
+                        using (FileStream? completedOldUrl = failureStage == "new-output-failure" ? File.Open(oldConfig, FileMode.Open, FileAccess.Read, FileShare.Read) : null)
+                        { TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitBeatorajaRootSettingsAsync(), "beatoraja-local-bmt-explicit-repair"); }
                     }
                     else { Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures)); }
-                    Assert.IsFalse(owner.SettingDialog.IsScoreProcessingRetryRequired);
+                    Assert.IsFalse(owner.SettingDialog.IsBmtProcessingRetryRequired);
                     Assert.AreEqual(2, Directory.GetFiles(Path.Combine(newRoot, "table"), "*.bmt").Length);
                     CollectionAssert.Contains(BeatorajaConfigService.ReadTableUrls(newRoot).ToArray(), "bemusicseeker://playlist/671");
                     Assert.IsFalse(Directory.Exists(Path.Combine(newRoot, "later-tables")), "再試行は保存時に捕捉した出力先で物理出力とURL同期を完了します。");
@@ -911,6 +941,9 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual("unmanaged", File.ReadAllText(Path.Combine(oldRoot, "table", "unmanaged.bmt")));
                     Assert.AreEqual("unmanaged", File.ReadAllText(Path.Combine(newRoot, "table", "unmanaged.bmt")));
                     Assert.IsNull(shutdown);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SelectOperationModeAsync(true), "repaired-real-bmt-restart-accepted");
+                    Assert.IsNotNull(shutdown, "自身の明示修復後はLR2再起動を受理します。");
+                    Assert.AreEqual(1, events.Count(item => item == "close"));
                 }
                 finally
                 {

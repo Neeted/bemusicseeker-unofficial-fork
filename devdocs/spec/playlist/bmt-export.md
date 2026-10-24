@@ -12,7 +12,7 @@
 
 ### 有効条件と場所
 
-`EnableBeatorajaBmtOutput` が有効で、ルートに `config_sys.json` と `beatoraja.jar` または `beatoraja.exe` がある場合に出力します。出力先は `tablepath` から求め、相対ならbeatorajaルートを基準にします。派生値の `BeatorajaBmtTablePath` は画面から直接編集しません。プレイヤーとスコアDBも同じルートの `playerpath` と選択IDから求めます。
+`EnableBeatorajaBmtOutput` が有効で、ルートに `config_sys.json` と `beatoraja.jar` または `beatoraja.exe` がある場合に出力します。出力先は `tablepath` から求め、相対ならbeatorajaルートを基準にします。派生値の `BeatorajaBmtTablePath` は画面から直接編集しません。スコアは確定ルートの `playerpath` と選択IDから独立して解決し、スコア操作からBMT出力先を解決・保存しません。
 
 対象は `is_bmt_output=true` の表です。全出力では対象外の管理ファイルとURLを除きます。これは、全体設定を無効にしたとき既存出力を残す `KeepBeatorajaBmtFilesWhenOutputDisabled` とは別です。
 
@@ -45,9 +45,9 @@ MD5とSHA-256が別譜面を指す場合はMD5を正本とし、危険な対の�
 
 LR2出力先、ルート型、LR2出力種類だけの変更ではBMTを再生成しません。BMTの有効状態・出力先変更は全出力と旧先の整理を行いますが、無効化時の保持設定が有効ならファイル・台帳・URLを残します。BMT組の局所確定と同値の明示再更新は全表へ再生成を要求し、必要出力とTable URL反映の完了を待ちます。未変更判定による生成省略を適用せず、同値では設定を再保存しません。確定済み環境の初回開始も初期化の必要BMTへ全表投影を要求します。無関係な通常項目の保存はBMTを開始しません。出力無効時は既存の保持・整理条件に従います。表削除はその表の管理ファイルとURLだけを外します。
 
-beatorajaディレクトリの有効な選択は、保存済みのBMT方針で旧新出力先と管理URLを局所反映し、アプリ再起動を要求しません。未確定のBMTオプションは使いません。保存後の失敗では当該担当が必要な旧新入力と未了事実を保持し、同セクションの明示再試行で修復します。再表示や別設定の保存で旧先整理を暗黙に再開しません。操作と保存の正本は[設定](../runtime/settings.md#beatorajaの局所反映)です。
+beatorajaディレクトリの有効な選択は、保存済みのBMT方針で旧新出力先と管理URLを局所反映し、アプリ再起動を要求しません。未確定のBMTオプションは使いません。保存後の失敗では当該担当が必要な旧新入力と未了事実を保持し、同セクションの明示再試行で修復します。再表示や別設定の保存で旧先整理を暗黙に再開しません。root保存後に必要なスコア反映待ちはBMT失敗でも保持し、score再試行からBMTを再開しません。成功済みBMTは後のscore失敗でも繰り返しません。操作と保存の正本は[設定](../runtime/settings.md#beatorajaの局所反映)です。
 
-同じbeatorajaディレクトリで外部configの`tablepath`が変わった場合も、BMT組の明示確定は保存前の旧出力先と新出力先・option組を捕捉します。旧先整理を行う場合は台帳を消す前に旧管理URLを除き、新先の全表出力とURL同期まで待ちます。同じ出力先のまま無効化して整理する場合も、URL更新の失敗で再試行入力を失わないよう、台帳削除前に旧管理URLを除きます。保存後の明示再試行は当初の旧新先・option組を使い、外部configの後続変更で置き換えず、設定を再保存しません。無効化と保持ONの組では旧URLの事前整理も行いません。
+BMT確定は確定rootとBMT自身の候補を使い、score使用・playerの不備や別候補には依存しません。同じbeatorajaディレクトリで外部configの`tablepath`が変わった場合も、BMT組の明示確定は保存前の旧出力先と新出力先・option組を捕捉します。旧先整理を行う場合は台帳を消す前に旧管理URLを除き、新先の全表出力とURL同期まで待ちます。同じ出力先のまま無効化して整理する場合も、URL更新の失敗で再試行入力を失わないよう、台帳削除前に旧管理URLを除きます。保存後の明示再試行は当初の旧新先・option組を使い、外部configの後続変更で置き換えず、設定を再保存しません。無効化と保持ONの組では旧URLの事前整理も行いません。
 
 出力無効時の通常の編集・削除・順序変更はBMTのI/Oを行いません。無効化を保存する明示的な全体出力だけが保持設定に従って既存出力を整理します。保持設定が有効なら読取不能の台帳にも通常編集を依存させません。
 
@@ -129,7 +129,7 @@ beatorajaの登録URL取込みでは成功・既存一致した表を元URL順�
 | 形式・ハッシュ・空表・未変更判定・台帳破損・削除失敗 | [`BmtTableExportService`](../../../BeMusicSeeker/Models/Playlist/BmtTableExportService.cs) | [`BmtTableExportServiceTests`](../../../BeMusicSeeker.Tests/Playlist/BmtTableExportServiceTests.cs) |
 | 必要出力の直接待機・URL同期・0件・元操作の部分失敗 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) |
 | 部分変更・全量現在集合・無効保持・明示整理、置換不能台帳の順序同期 | [`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs) | [`BmsPlaylistMigrationAndRegistrationTests.BeatorajaBmtOperations_PreserveUnchangedOwnershipAndSeparateUrlSyncFromOutput`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) が実SQLite・台帳・gzip・configで未変更表と管理外データを確認する。 |
-| BMT組の局所確定・同値全表修復、DB正本保全と通常出力の省略 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、`PlaylistBmtOutputOwner` | [`SettingDialogEditCompletionTests.BmtConfirmation_ReoutputsAllTablesAndRepairsPartialProjectionWithoutSavingAgain`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)。同rootのA→B→C・現在先の再設定で各確定後の設定・全表・台帳・旧先整理・URLと各先の管理外保全、実二表の途中失敗後にconfigが再変更されても当初の先で修復すること、無効保持と同値再更新を確認します。 |
+| BMT組の局所確定・同値全表修復、DB正本保全と通常出力の省略 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、`PlaylistBmtOutputOwner` | [`SettingDialogEditCompletionTests.BmtConfirmation_ReoutputsAllTablesAndRepairsPartialProjectionWithoutSavingAgain`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)。外部tablepath変更後のscore操作による媒体・URL非変更と、その後のBMT明示移行、同rootのA→B→C・現在先の再設定で各確定後の設定・全表・台帳・旧先整理・URLと各先の管理外保全、実二表の途中失敗後にconfigが再変更されても当初の先で修復すること、無効保持と同値再更新を確認します。 |
 | 同じ出力先の無効化とURL更新失敗後の明示修復 | `SettingsDialogViewModel.CommitBmtSettingsAsync` | [`SettingDialogEditCompletionTests.BmtDisable_SameOutputUrlFailureRetainsOwnershipUntilExplicitRetry`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) は実configの置換拒否時の台帳・管理URL保持、再表示・別保存での無作用と、再保存なしの明示修復による管理物だけの除去を確認します。 |
 | 通知故障と実出力結果の分離 | [`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs) | [`BmsPlaylistMigrationAndRegistrationTests.RegisteredBatch_AwaitsActualBmtOutputAndPreservesCommittedDatabaseOnOutputFailure`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)で通知故障時の実BMT・台帳・設定成功と、実台帳失敗時のDB保持を確認する。[`BmtTableExportServiceTests.OrderedProjectionProgressPublisherSerializesCallbacksInCompletionOrder`](../../../BeMusicSeeker.Tests/Playlist/BmtTableExportServiceTests.cs)で先行通知故障後も後続通知を直列に試みる。 |
 | 順序四入口のDB・サマリー・configと同じP寿命、無変更、取込み後配置 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistWorkspacePersistenceCommandTests.BmtOrderCommands_CompleteDatabaseSummaryAndConfigInOneAcceptedTask`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs)、[`PlaylistWorkspaceExternalSourceTests.BeatorajaTableUrlImport_ExistingTablesKeepInputFrontOrderAndRemainingRelativeOrder`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceExternalSourceTests.cs)。画面の選択・Bindingは既存 [`MainWindowPlaylistWorkspaceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) が分担する。 |

@@ -19,7 +19,7 @@ public partial class SettingsWindow
     private async void ScoreSelectionChanged(object sender, EventArgs e)
     {
         if (!presentationActivated || sender is not SettingsDialogViewModel settings || !settings.HasScoreSelectionChanges
-            || !settings.IsScoreSelectionValid || viewOperationInProgress || !settings.IsBeatorajaSelectionEnabled) { return; }
+            || !settings.IsScoreSelectionValid || viewOperationInProgress || !settings.IsScoreSelectionEnabled) { return; }
         try { await RunViewOperationAsync(settings.CommitScoreSettingsAsync); }
         catch (Exception failure) { await HandleSettingsRouteFailureAsync(failure, "score selection confirmation"); }
     }
@@ -49,6 +49,7 @@ public partial class SettingsWindow
             case "cancel:web": settings.CancelRightClickRecord(true); break;
             case "cancel:program": settings.CancelRightClickRecord(false); break;
             case "confirm:bms": return settings.CommitBmsRootsAsync();
+            case "retry:beatoraja-root": return settings.CommitBeatorajaRootSettingsAsync();
             case "retry:score": return settings.CommitScoreSettingsAsync();
             case "confirm:bmt": return settings.CommitBmtSettingsAsync();
             case "confirm:environment": return settings.CommitEnvironmentAsync();

@@ -1428,10 +1428,10 @@ public sealed class MainWindowViewModelStartupProgressTests
         });
     }
 
-    /// <summary>バックアップ項目の保存通知故障は保存済み値を保ち、有効な実beatoraja DBへの使用切替で起こるScore確定の必須UI失敗はpendingと確定値を保持します。Scoreの成功後だけ既存URL方針の後続を登録し、次の明示確定で再試行します。</summary>
+    /// <summary>バックアップ項目の保存通知故障は保存済み値を保ち、有効な実beatoraja DBへの使用切替で起こるScore確定の必須UI失敗はpendingと確定値を保持します。Score成功・必須UI失敗・明示再試行はURL補完を登録せず、通常の共通score入口でも同じ契約を保ちます。</summary>
     [DataTestMethod]
     [DataRow(true)] // 必須UI失敗ではpendingを残し、次の明示確定までURL workを開始しません。
-    [DataRow(false)] // 別項目の保存通知故障はScore成功とURL workを変えません。
+    [DataRow(false)] // 別項目の保存通知故障はScore成功を変えず、起動・全再初期化のURL補完契機は保ちます。
     [DoNotParallelize]
     public void SettingsScoreCompletion_RequiredUiFailureAndSavedNoticeFailureKeepDistinctFollowUp(bool uiFails)
     {
@@ -1440,39 +1440,26 @@ public sealed class MainWindowViewModelStartupProgressTests
             var failures = new List<Exception>();
             using var fixture = new CompletionFixture(lr2Mode: true, lifetime: new TestApplicationLifetime(firstStartup: false), settingsFailureReporter: failures.Add);
             fixture.OptionalRelease.TrySetResult();
+            var initialUrlProgress = new ConcurrentQueue<StartupBackgroundTaskProgressSnapshot>();
+            fixture.Scheduler.ProgressChanged += progress =>
+            {
+                if (progress.Name == "playlist_url_completion") { initialUrlProgress.Enqueue(progress); }
+            };
             Task<bool> initial = fixture.Start();
             TestUiDispatcherHost.AwaitTaskOnDispatcher(initial, "settings-score-initial");
             Assert.IsTrue(initial.GetAwaiter().GetResult());
             TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "settings-score-prior-follow-up");
+            Assert.IsTrue(initialUrlProgress.Any(progress => progress.IsRunning), "通常起動のURL補完契機を保ちます。");
             var uiFailure = new IOException("required score UI failed");
             var noticeFailure = new IOException("saved backup notice failed");
             var notices = new List<UiMessageRequest>();
-            var urlStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var urlRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var urlWork = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
             int registrations = 0;
-            int starts = 0;
             Func<string, string, string, Func<Task>, bool> scheduler = fixture.Playlist.StartupBackgroundTaskScheduler
                 ?? throw new InvalidOperationException("Actual playlist scheduler is unavailable.");
-            async Task RunUrlAsync(Func<Task> work)
-            {
-                Interlocked.Increment(ref starts);
-                Assert.IsFalse(fixture.Owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
-                Assert.IsFalse(fixture.Owner.IsLibraryOperationInProgress);
-                urlStarted.TrySetResult();
-                await urlRelease.Task;
-                await work();
-            }
             fixture.Playlist.StartupBackgroundTaskScheduler = (name, reason, dependency, work) =>
             {
-                if (name != "playlist_url_completion") { return scheduler(name, reason, dependency, work); }
-                registrations++;
-                return scheduler(name, reason, dependency, () =>
-                {
-                    Task actual = RunUrlAsync(work);
-                    urlWork.TrySetResult(actual);
-                    return actual;
-                });
+                if (name == "playlist_url_completion") { registrations++; }
+                return scheduler(name, reason, dependency, work);
             };
             SettingsDialogViewModel dialog = fixture.Owner.SettingDialog;
             string beatoraja = Path.Combine(fixture.Settings.BMSRootPath, "beatoraja");
@@ -1484,7 +1471,10 @@ public sealed class MainWindowViewModelStartupProgressTests
             {
                 scoreDb.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
             }
-            dialog.BeatorajaRootPath = beatoraja;
+            fixture.Settings.Commit((nameof(Settings.BeatorajaRootPath), beatoraja),
+                (nameof(Settings.BeatorajaPlayerId), "saved-score-player"), (nameof(Settings.BeatorajaScoreDbPath), scorePath));
+            dialog.SetPresentationActive(false);
+            dialog.SetPresentationActive(true);
             dialog.UseBeatorajaScoreDb = true;
             Assert.IsTrue(dialog.IsScoreSelectionValid);
             // 通常項目の確定をScoreへ混ぜず、後続が採用する既存の確定方針をfixtureへ与えます。
@@ -1529,7 +1519,6 @@ public sealed class MainWindowViewModelStartupProgressTests
                 if (uiFails)
                 {
                     Assert.AreEqual(0, registrations, "保存済みURL変更でも必須UI失敗時は新規登録しません。");
-                    Assert.AreEqual(0, starts);
                     dialog.RequestOpen();
                     Task retry = dialog.CommitScoreSettingsAsync();
                     fixture.Track(retry);
@@ -1538,19 +1527,23 @@ public sealed class MainWindowViewModelStartupProgressTests
                     Assert.AreEqual(1, failures.Count);
                     Assert.AreEqual(1, notices.Count, "確定済み保存の案内を再試行で重ねません。");
                 }
-                Assert.AreEqual(1, registrations, "Score成功の共通ownerが保存済み設定で一回登録します。Settings側から重ねません。");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    TestUiDispatcherHost.AwaitNotificationAsync(urlStarted.Task, urlWork.Task.Unwrap(), "settings-score-url-started"),
-                    "settings-score-url-started");
-                Assert.AreEqual(1, starts);
-                urlRelease.TrySetResult();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(urlWork.Task.Unwrap(), "settings-score-actual-url-terminal");
+                Assert.AreEqual(0, registrations, "ScoreOnlyの共通完了はURL補完を予約しません。");
+                Task reload = fixture.Owner.ReloadScoresOnlyAsync();
+                fixture.Track(reload);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(reload, "ordinary-score-only-terminal");
+                Assert.AreEqual(0, registrations, "通常のスコア再読込み入口でも予約しません。");
+                if (!uiFails)
+                {
+                    Task reinitialize = fixture.Owner.ReinitializeLibraryAsync();
+                    fixture.Track(reinitialize);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reinitialize, "full-reinitialize-url-trigger");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "full-reinitialize-url-terminal");
+                    Assert.AreEqual(1, registrations, "全再初期化のURL補完契機を保ちます。");
+                }
             }
             finally
             {
                 fixture.Ui.Release.TrySetResult();
-                urlRelease.TrySetResult();
-                if (urlWork.Task.IsCompletedSuccessfully) { TestUiDispatcherHost.AwaitTaskOnDispatcher(urlWork.Task.Unwrap(), "settings-score-url-cleanup"); }
             }
         });
     }

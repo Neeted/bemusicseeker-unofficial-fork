@@ -23,7 +23,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class SettingDialogEditCompletionTests
 {
     /// <summary>実ownerは設定の準備中・必須UI待ち・局所BMT待ちのTaskを表示参照の消去前に捕捉し、実終端前に保存・runtime終了へ進みません。</summary>
-    /// <remarks>実MainWindow・モーダル・compiled開始/player入力とCloseを使用します。BMT物理媒体の整合は局所BMT系列が分担し、ここは実P内のport終端を保持します。</remarks>
+    /// <remarks>実MainWindow・モーダル・compiled開始/BMTボタンとCloseを使用します。BMT物理媒体の整合は局所BMT系列が分担し、ここは実P内のport終端を保持します。</remarks>
     [DataTestMethod]
     [DataRow("preparation")]
     [DataRow("required-ui")]
@@ -39,10 +39,7 @@ public sealed partial class SettingDialogEditCompletionTests
             Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config")));
             string validSong = values.LR2SongDBPath;
             string oldBeatoraja = Path.Combine(root, "old-beatoraja");
-            string newBeatoraja = Path.Combine(root, "new-beatoraja");
             WriteBeatorajaRoot(oldBeatoraja, "old", ["old"], createScoreFiles: false);
-            WriteBeatorajaRoot(newBeatoraja, "invalid", ["invalid", "valid"], createScoreFiles: false);
-            File.WriteAllBytes(BeatorajaConfigService.GetScoreDbPath(newBeatoraja, "valid"), []);
             values.BeatorajaRootPath = oldBeatoraja;
             values.BeatorajaPlayerId = "old";
             values.BeatorajaScoreDbPath = BeatorajaConfigService.GetScoreDbPath(oldBeatoraja, "old");
@@ -127,10 +124,8 @@ public sealed partial class SettingDialogEditCompletionTests
                     {
                         if (boundary == "local-bmt")
                         {
-                            owner.SettingDialog.UseBeatorajaScoreDb = true;
-                            owner.SettingDialog.BeatorajaRootPath = newBeatoraja;
-                            ComboBox player = FindDescendants<ComboBox>(presented).Single(item => item.GetBindingExpression(ComboBox.SelectedItemProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.BeatorajaPlayerId));
-                            player.SetCurrentValue(ComboBox.SelectedItemProperty, "valid");
+                            FindDescendants<Button>(presented).Single(button => Equals(button.Tag, "confirm:bmt"))
+                                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                         }
                         else { ((Button)presented.FindName("buttonOK")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }
                         operation = presented.WaitForOperationCompletionAsync();

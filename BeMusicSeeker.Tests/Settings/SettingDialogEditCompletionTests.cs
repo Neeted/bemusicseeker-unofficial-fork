@@ -570,7 +570,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>同rootのA→B→Cと現在先の再設定は各確定Task内で旧管理物・両表の内容とhash方式・台帳・URL・設定を揃え、管理外を保持します。保存後失敗は捕捉済みの先とhash方式で修復し、無効保持・正本hash・同値の非再保存も保ちます。</summary>
+    /// <summary>外部tablepath変更後のscore操作は実媒体・URLを変えず、不正なscore候補もBMT確定を妨げません。同rootのA→B→Cと現在先の再設定は各確定Task内で旧管理物・両表の内容とhash方式・台帳・URL・設定を揃え、管理外を保持します。保存後失敗は捕捉済みの先とhash方式で修復し、無効保持・正本hash・同値の非再保存も保ちます。</summary>
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
@@ -656,6 +656,19 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual("new unmanaged", File.ReadAllText(newUnmanaged));
                 return;
             }
+            // 外部tablepath変更後のscore操作は旧新の実媒体・台帳・URLを一切変更しません。
+            var beforeScoreFiles = Directory.GetFiles(previousOutput).Concat(Directory.GetFiles(output))
+                .ToDictionary(path => path, File.ReadAllBytes);
+            byte[] beforeScoreConfig = File.ReadAllBytes(config);
+            dialog.BeatorajaPlayerId = "score-only-player";
+            await dialog.CommitScoreSettingsAsync();
+            Assert.AreEqual(previousOutput, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BeatorajaBmtTablePath);
+            foreach ((string path, byte[] contents) in beforeScoreFiles) { CollectionAssert.AreEqual(contents, File.ReadAllBytes(path)); }
+            CollectionAssert.AreEquivalent(beforeScoreFiles.Keys.ToArray(), Directory.GetFiles(previousOutput).Concat(Directory.GetFiles(output)).ToArray());
+            CollectionAssert.AreEqual(beforeScoreConfig, File.ReadAllBytes(config));
+            // スコアの未成立候補があっても、次のBMT確定は確定rootと自身の候補で移行できます。
+            dialog.UseBeatorajaScoreDb = true;
+            Assert.IsFalse(dialog.IsScoreSelectionValid);
             owner.SettingDialog.BeatorajaBmtHashOutputMode = "PreferSha256Only";
             string secondName = previousManifest["playlists"]?["2"]?["file"]?.ToObject<string>() ?? throw new AssertFailedException("二表目の実出力台帳がありません。");
             string secondFile = Path.Combine(output, secondName);
@@ -683,6 +696,10 @@ public sealed partial class SettingDialogEditCompletionTests
                 Settings saved = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
                 Assert.AreEqual(output, saved.BeatorajaBmtTablePath);
                 Assert.AreEqual("PreferSha256Only", saved.BeatorajaBmtHashOutputMode);
+                // 初回の実ファイルロック失敗は対象の旧形式を保ちます。次のURL同期失敗より前に観測します。
+                using (var oldStream = new System.IO.Compression.GZipStream(File.OpenRead(secondFile), System.IO.Compression.CompressionMode.Decompress))
+                using (var oldReader = new StreamReader(oldStream))
+                { Assert.IsNotNull(Newtonsoft.Json.Linq.JObject.Parse(oldReader.ReadToEnd()).SelectToken("folder[0].songs[0].md5")); }
                 string currentConfig = File.ReadAllText(config);
                 try
                 {
@@ -700,9 +717,6 @@ public sealed partial class SettingDialogEditCompletionTests
                 {
                     File.WriteAllText(config, currentConfig);
                 }
-                using var oldStream = new System.IO.Compression.GZipStream(File.OpenRead(secondFile), System.IO.Compression.CompressionMode.Decompress);
-                using var oldReader = new StreamReader(oldStream);
-                Assert.IsNotNull(Newtonsoft.Json.Linq.JObject.Parse(oldReader.ReadToEnd()).SelectToken("folder[0].songs[0].md5"));
             }
             // 同値の明示再更新は成功媒体を再保存せず、既存ファイルに外部変更があっても全表を再投影します。
             string firstFile = Directory.GetFiles(output, "*.bmt").Single(path => path != secondFile);
@@ -2997,6 +3011,45 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>一般ページの実Table URLボタンは、保存済みの有効rootをworkspaceへ渡し、その空URL一覧の案内へ到達します。</summary>
+    /// <remarks>compiled buttonから実workspaceまでの配線をここで保持します。取込みのDB・出力終端はPlaylistの既存取込み系列が分担します。</remarks>
+    [TestMethod]
+    public void BeatorajaTableUrlButton_DeliversConfirmedRootToWorkspace()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            using var fixture = new MainWindowViewModelStartupProgressTests.CompletionFixture(lifetime: TestApplicationContext.CreateLifetime(firstStartup: false));
+            string root = fixture.Settings.BMSRootPath;
+            string beatoraja = Directory.CreateDirectory(Path.Combine(root, "beatoraja")).FullName;
+            File.WriteAllText(Path.Combine(beatoraja, "beatoraja.jar"), string.Empty);
+            File.WriteAllText(Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName), "{}");
+            fixture.OptionalRelease.TrySetResult();
+            fixture.Settings.BeatorajaRootPath = beatoraja;
+            Task<bool> initial = fixture.Start();
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(initial, "table-url-button-initialize");
+            Assert.IsTrue(initial.GetAwaiter().GetResult());
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "table-url-button-background");
+            var notices = new List<string>();
+            int confirmations = 0;
+            fixture.Owner.PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += (_, request) => { confirmations++; request.Confirmed = true; };
+            fixture.Owner.PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += (_, request) => notices.Add(request.Message);
+            var window = new SettingsWindow { DataContext = fixture.Owner.SettingDialog, PlaylistWorkspace = fixture.Owner.PlaylistWorkspace };
+            try
+            {
+                scope.ShowAndWaitForContentRendered(window);
+                FindDescendants<Button>(window).Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "SettingsImportBeatorajaTableUrls")
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.AreEqual(1, confirmations);
+                CollectionAssert.AreEqual(new[] { Resources.Beatoraja_table_url_import_no_urls }, notices);
+                Assert.AreEqual(beatoraja, fixture.Settings.BeatorajaRootPath);
+            }
+            finally
+            {
+                window.CloseForOwnerShutdown();
+            }
+        });
+    }
+
     /// <summary>スコア組の確定から同じL/Pを実ScoreOnlyモデルへ渡し、実親解放後の純通知と必須UIの実終端まで同じWindowの受理Taskを追跡します。</summary>
     /// <remarks>実compiled選択からWindowの受理Taskへ接続し、実設定・モデル・UI完了を確認します。純通知を保持点にせず既存UI gateで実Taskを待ちます。</remarks>
     [DataTestMethod]
@@ -3150,20 +3203,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     CollectionAssert.DoesNotContain(presentation.Requests, "close");
                     Assert.IsTrue(!composition.OperationAdmission.IsActive);
                     Assert.IsTrue(!composition.PlaylistOperationAdmission.IsActive);
-                    if (changeRoot)
-                    {
-                        // 取込みbuttonは、未適用root候補ではなく確定rootの空URL一覧を読みます。
-                        var importNotices = new List<string>();
-                        int confirmations = 0;
-                        viewModel.PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += (_, request) => { confirmations++; request.Confirmed = true; };
-                        viewModel.PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += (_, request) => importNotices.Add(request.Message);
-                        viewModel.SettingDialog.BeatorajaRootPath = Path.Combine(root, "unconfirmed-root");
-                        FindDescendants<Button>(window).Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "SettingsImportBeatorajaTableUrls")
-                            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                        Assert.AreEqual(1, confirmations);
-                        CollectionAssert.AreEqual(new[] { Resources.Beatoraja_table_url_import_no_urls }, importNotices);
-                        Assert.AreEqual(nextBeatoraja, values.BeatorajaRootPath);
-                    }
+
                 }
                 finally
                 {

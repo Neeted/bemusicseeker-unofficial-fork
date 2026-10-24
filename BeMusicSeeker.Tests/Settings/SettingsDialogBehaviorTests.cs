@@ -27,14 +27,14 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SettingsDialogBehaviorTests
 {
-    /// <summary>局所root反映は保存済みBMT方針と旧新の派生先だけを出力担当へ渡し、旧新ともscore使用OFFなら異なるplayerが解決されてもscore-onlyを要求しません。使用切替とONのroot/player変更は一回ずつ要求し、物理出力・保持・所有権は実媒体系列が分担します。</summary>
+    /// <summary>root確定は保存済みBMTとscore使用方針で両取得先を反映し、別BMT・score候補を採用せず破棄します。OFFのroot変更はscoreを再読込みせず、ONのroot/player変更は各一回です。物理出力・所有権は実媒体系列が分担します。</summary>
     [DataTestMethod]
     [DataRow(true, false, true, false, false)]
     [DataRow(false, true, true, true, false)]
     [DataRow(false, false, true, false, true)]
     [DataRow(true, false, false, true, true)]
     [DoNotParallelize]
-    public void BeatorajaRootConfirmation_PassesSavedBmtPolicyWithoutDraftOptions(bool enabled, bool keepFiles, bool registerUrls, bool oldUseScore, bool newUseScore)
+    public void BeatorajaRootConfirmation_PassesSavedBmtPolicyWithoutDraftOptions(bool enabled, bool keepFiles, bool registerUrls, bool oldUseScore, bool draftUseScore)
     {
         RunOnUiDispatcher(async () =>
         {
@@ -63,7 +63,8 @@ public sealed class SettingsDialogBehaviorTests
             values.BeatorajaBmtHashOutputMode = "Original";
             values.Save();
             using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true,
-                reportApplyFailure: failure => Assert.Fail(failure.ToString()));
+                reportApplyFailure: failure => Assert.Fail(failure.ToString()),
+                dialogs: new RecordingDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) });
             int saves = 0;
             System.Configuration.SettingsSavingEventHandler saving = (_, _) => saves++;
             values.SettingsSaving += saving;
@@ -84,9 +85,9 @@ public sealed class SettingsDialogBehaviorTests
             harness.Dialog.KeepBeatorajaBmtFilesWhenOutputDisabled = !keepFiles;
             harness.Dialog.RegisterBeatorajaBmtUrls = !registerUrls;
             harness.Dialog.BeatorajaBmtHashOutputMode = "PreferSha256Only";
-            harness.Dialog.UseBeatorajaScoreDb = newUseScore;
+            harness.Dialog.UseBeatorajaScoreDb = draftUseScore;
             harness.Dialog.BeatorajaRootPath = newRoot;
-            await harness.Dialog.CommitScoreSettingsAsync();
+            await harness.Dialog.CommitBeatorajaRootSettingsAsync();
             Assert.AreEqual(1, harness.Workspace.BmtRequests.Count);
             (string CleanupPath, bool ForceProjection, BeatorajaBmtOptionsSnapshot? Options) request = harness.Workspace.BmtRequests.Single();
             Assert.AreEqual(Path.Combine(oldRoot, "tables"), request.CleanupPath);
@@ -104,10 +105,12 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(keepFiles, saved.KeepBeatorajaBmtFilesWhenOutputDisabled);
             Assert.AreEqual(registerUrls, saved.RegisterBeatorajaBmtUrls);
             Assert.AreEqual("new-player", saved.BeatorajaPlayerId);
-            Assert.AreEqual(newUseScore, saved.UseBeatorajaScoreDb);
+            Assert.AreEqual(oldUseScore, saved.UseBeatorajaScoreDb);
+            Assert.AreEqual(oldUseScore, harness.Dialog.UseBeatorajaScoreDb);
+            Assert.IsFalse(harness.Dialog.CanCancelBmtSettings);
             Assert.AreEqual(0, harness.State.InitializeCount);
-            Assert.AreEqual(oldUseScore || newUseScore ? 1 : 0, harness.State.ScoreReloadCount);
-            if (oldUseScore && newUseScore)
+            Assert.AreEqual(oldUseScore ? 1 : 0, harness.State.ScoreReloadCount);
+            if (oldUseScore)
             {
                 string alternate = Directory.CreateDirectory(Path.Combine(newRoot, "player", "alternate")).FullName;
                 File.WriteAllBytes(Path.Combine(alternate, "score.db"), []);
@@ -118,6 +121,211 @@ public sealed class SettingsDialogBehaviorTests
                 Assert.AreEqual(0, harness.State.InitializeCount);
             }
         }, nameof(BeatorajaRootConfirmation_PassesSavedBmtPolicyWithoutDraftOptions));
+    }
+
+    /// <summary>score確定は確定rootのDBだけを保存し、別root・BMT候補を保持します。score失敗後の明示再試行もBMTを出力せず、BMT確定は不正なscore候補に依存しません。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void ScoreConfirmation_KeepsRootAndBmtCandidatesAndNeverRestartsBmt()
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new TemporaryDirectory("score-independent");
+            Settings values = OpenPersistedSettings(directory.Path);
+            string root = CreateBeatorajaRoot(directory.Path, "saved");
+            string otherRoot = CreateBeatorajaRoot(directory.Path, "draft");
+            values.BeatorajaRootPath = root;
+            values.BeatorajaPlayerId = "player";
+            values.BeatorajaScoreDbPath = Path.Combine(root, "player", "player", "score.db");
+            values.BeatorajaBmtTablePath = Path.Combine(root, "table");
+            values.Save();
+            var failures = new List<Exception>();
+            var dialogs = new RecordingDialogService();
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, reportApplyFailure: failures.Add, dialogs: dialogs);
+            harness.Dialog.BeatorajaRootPath = otherRoot;
+            harness.Dialog.EnableBeatorajaBmtOutput = true;
+            harness.Dialog.UseBeatorajaScoreDb = true;
+            harness.State.ThrowOnScoreReload = true;
+            await harness.Dialog.CommitScoreSettingsAsync();
+            Assert.IsTrue(harness.Dialog.IsScoreReloadPending);
+            Assert.AreEqual(root, values.BeatorajaRootPath);
+            Assert.AreEqual(Path.Combine(root, "player", "player", "score.db"), values.BeatorajaScoreDbPath);
+            Assert.AreEqual(otherRoot, harness.Dialog.BeatorajaRootPath);
+            Assert.IsFalse(values.EnableBeatorajaBmtOutput);
+            Assert.IsTrue(harness.Dialog.EnableBeatorajaBmtOutput);
+            Assert.AreEqual(0, harness.Workspace.BmtRequests.Count);
+            Assert.AreEqual(0, dialogs.ConfirmationCount);
+            harness.State.ThrowOnScoreReload = false;
+            await harness.Dialog.CommitScoreSettingsAsync();
+            Assert.IsFalse(harness.Dialog.IsScoreReloadPending);
+            Assert.AreEqual(2, harness.State.ScoreReloadCount);
+            Assert.AreEqual(0, harness.Workspace.BmtRequests.Count);
+            harness.Dialog.BeatorajaPlayerId = "missing-score";
+            Assert.IsFalse(harness.Dialog.IsScoreSelectionValid);
+            await harness.Dialog.CommitBmtSettingsAsync();
+            Assert.AreEqual(root, harness.Workspace.BmtRequests.Single().Options?.BeatorajaRootPath);
+            Assert.AreEqual("missing-score", harness.Dialog.BeatorajaPlayerId);
+            Assert.AreEqual("player", values.BeatorajaPlayerId);
+            Assert.AreEqual(otherRoot, harness.Dialog.BeatorajaRootPath);
+            Assert.AreEqual(0, dialogs.ConfirmationCount);
+            Assert.AreEqual(1, failures.Count);
+        }, nameof(ScoreConfirmation_KeepsRootAndBmtCandidatesAndNeverRestartsBmt));
+    }
+
+    /// <summary>root保存後のBMT失敗でscore待ちを落とさず、score retryはBMTを触りません。逆にBMT成功後のscore失敗でも保存と成功済みBMTを反復せず、残る段階だけ明示修復します。</summary>
+    [DataTestMethod]
+    [DataRow(true)] // 先にBMT失敗。scoreだけ先に修復してもBMT待ちは独立して残ります。
+    [DataRow(false)] // BMT成功後にscore失敗。score修復はBMT成功を反復しません。
+    [DoNotParallelize]
+    public void BeatorajaRootConfirmation_RetainsIndependentPendingAndSuccessfulStages(bool bmtFails)
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new TemporaryDirectory("root-stages");
+            Settings values = OpenPersistedSettings(directory.Path);
+            string root = CreateBeatorajaRoot(directory.Path, "old");
+            string next = CreateBeatorajaRoot(directory.Path, "new");
+            values.BeatorajaRootPath = root;
+            values.BeatorajaPlayerId = "player";
+            values.BeatorajaScoreDbPath = Path.Combine(root, "player", "player", "score.db");
+            values.BeatorajaBmtTablePath = Path.Combine(root, "table");
+            values.UseBeatorajaScoreDb = true;
+            values.Save();
+            var failures = new List<Exception>();
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, reportApplyFailure: failures.Add);
+            harness.Workspace.ThrowOnBmt = bmtFails;
+            harness.State.ThrowOnScoreReload = !bmtFails;
+            await harness.Dialog.CommitBeatorajaRootSettingsAsync(next);
+            Assert.AreEqual(next, values.BeatorajaRootPath);
+            Assert.IsTrue(harness.Dialog.IsScoreReloadPending, "root保存時のscore待ちはBMTの成否に依存しません。");
+            Assert.AreEqual(bmtFails, harness.Dialog.IsBmtProcessingRetryRequired);
+            Assert.IsTrue(harness.Dialog.IsEnvironmentSelectionEnabled, "無関係なLR2環境編集を未了BMTで止めません。");
+            Assert.AreEqual(bmtFails ? 0 : 1, harness.State.ScoreReloadCount);
+            Assert.AreEqual(1, harness.Workspace.BmtRequests.Count);
+            byte[] saved = File.ReadAllBytes(Path.Combine(directory.Path, "user.config"));
+            harness.State.ThrowOnScoreReload = false;
+            await harness.Dialog.CommitScoreSettingsAsync();
+            Assert.IsFalse(harness.Dialog.IsScoreReloadPending);
+            Assert.AreEqual(1, harness.Workspace.BmtRequests.Count, "score retryは未了BMTを暗黙に再開しません。");
+            if (bmtFails)
+            {
+                Assert.IsTrue(harness.Dialog.CanRetryBeatorajaRootSettings);
+                harness.Workspace.ThrowOnBmt = false;
+                await harness.Dialog.CommitBeatorajaRootSettingsAsync();
+                Assert.IsFalse(harness.Dialog.IsBmtProcessingRetryRequired);
+                Assert.AreEqual(1, harness.State.ScoreReloadCount, "成功済みscoreはroot修復で反復しません。");
+            }
+            CollectionAssert.AreEqual(saved, File.ReadAllBytes(Path.Combine(directory.Path, "user.config")));
+            Assert.AreEqual(1, failures.Count);
+        }, nameof(BeatorajaRootConfirmation_RetainsIndependentPendingAndSuccessfulStages));
+    }
+
+    /// <summary>LR2環境の再起動は、root保存後のBMT又はscore未了で拒否し候補と修復入力を保ちます。確認中に未了が成立しても採用せず、自身の明示修復後だけ再起動でき、BMT未了中の独立score保存は妨げません。</summary>
+    [DataTestMethod]
+    [DataRow("mode", true, false)]
+    [DataRow("root", true, true)]
+    [DataRow("details", false, false)]
+    [DataRow("mode", false, true)]
+    [DoNotParallelize]
+    public void EnvironmentRestart_ProtectsPendingBeatorajaRepairBeforeDiscard(string route, bool bmtFails, bool duringConfirmation)
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new TemporaryDirectory("restart-repair-lifetime");
+            Settings values = OpenPersistedSettings(directory.Path);
+            string oldRoot = CreateBeatorajaRoot(directory.Path, "old");
+            string next = CreateBeatorajaRoot(directory.Path, "next");
+            (string SongDbPath, string ConfigPath, string BmsRoot) lr2 = CreateValidLr2Layout(Path.Combine(directory.Path, "lr2"));
+            (string SongDbPath, string ConfigPath, string BmsRoot) otherLr2 = CreateValidLr2Layout(Path.Combine(directory.Path, "other-lr2"));
+            File.WriteAllBytes(Path.Combine(directory.Path, "other-lr2", "LR2body.exe"), []);
+            values.LR2RootPath = Path.Combine(directory.Path, "lr2");
+            values.LR2SongDBPath = lr2.SongDbPath;
+            values.LR2ConfigXmlPath = lr2.ConfigPath;
+            values.BeatorajaRootPath = oldRoot;
+            values.BeatorajaPlayerId = "player";
+            values.BeatorajaScoreDbPath = Path.Combine(oldRoot, "player", "player", "score.db");
+            values.BeatorajaBmtTablePath = Path.Combine(oldRoot, "table");
+            values.UseBeatorajaScoreDb = true;
+            values.Save();
+            int restarts = 0;
+            var failures = new List<Exception>();
+            var dialogs = new RecordingDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, dialogs: dialogs,
+                reportApplyFailure: failures.Add, restart: request =>
+                {
+                    request.BeforeSave?.Invoke();
+                    request.Environment.Commit(values);
+                    restarts++;
+                    return Task.FromResult(true);
+                });
+            string draft = Directory.CreateDirectory(Path.Combine(directory.Path, "draft-bms")).FullName;
+            if (route == "details") { await harness.Dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2SongDBPath), otherLr2.SongDbPath); }
+            else { await harness.Dialog.AddBmsSearchRootPathsAsync([draft]); }
+            async Task CreateRepair()
+            {
+                harness.Workspace.ThrowOnBmt = bmtFails;
+                harness.State.ThrowOnScoreReload = !bmtFails;
+                await harness.Dialog.CommitBeatorajaRootSettingsAsync(next);
+                if (bmtFails)
+                {
+                    await harness.Dialog.CommitScoreSettingsAsync();
+                    harness.Dialog.UseBeatorajaScoreDb = false;
+                    await harness.Dialog.CommitScoreSettingsAsync();
+                    Assert.IsFalse(values.UseBeatorajaScoreDb, "BMT未了でも独立したscore使用切替は保存できます。");
+                    Assert.IsTrue(harness.Dialog.IsBmtProcessingRetryRequired);
+                    Assert.AreEqual(1, harness.Workspace.BmtRequests.Count);
+                }
+                else { Assert.IsTrue(harness.Dialog.IsScoreReloadPending); }
+            }
+            Task ChangeEnvironment() => route switch
+            {
+                "mode" => harness.Dialog.SelectOperationModeAsync(true),
+                "root" => harness.Dialog.SelectLr2RootAsync(Path.Combine(directory.Path, "other-lr2")),
+                _ => harness.Dialog.CommitEnvironmentAsync()
+            };
+            if (duringConfirmation) { dialogs.ConfirmationObservedAsync = CreateRepair; }
+            else { await CreateRepair(); }
+            await ChangeEnvironment();
+            dialogs.ConfirmationObservedAsync = null;
+            Assert.AreEqual(next, values.BeatorajaRootPath, "確認中のケースも実root保存後の失敗へ到達している必要があります。");
+            Assert.IsTrue(bmtFails ? harness.Dialog.IsBmtProcessingRetryRequired : harness.Dialog.IsScoreReloadPending);
+            Assert.AreEqual(duringConfirmation ? 1 : 0, dialogs.ConfirmationCount);
+            Assert.AreEqual(0, restarts);
+            Assert.AreEqual(lr2.SongDbPath, values.LR2SongDBPath);
+            Assert.IsFalse(values.OperationModeLR2DB);
+            if (route != "details") { CollectionAssert.Contains(harness.Dialog.AvailableBMSDirectories, draft); }
+            if (route == "details") { Assert.AreEqual(otherLr2.SongDbPath, harness.Dialog.LR2SongDBPath); }
+            bool ordinaryValue = !values.ShowNewPackageInstallConfirmMsg;
+            harness.Dialog.ShowNewPackageInstallConfirmMsg = ordinaryValue;
+            Assert.AreEqual(ordinaryValue, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).ShowNewPackageInstallConfirmMsg);
+            Assert.IsTrue(harness.Dialog.IsEnvironmentSelectionEnabled);
+            Assert.IsTrue(harness.Dialog.CanConfirmBmtSettings);
+            Assert.IsFalse(harness.Dialog.CanConfirmEnvironment);
+            harness.Workspace.ThrowOnBmt = false;
+            harness.State.ThrowOnScoreReload = false;
+            if (bmtFails) { await harness.Dialog.CommitBmtSettingsAsync(); }
+            else { await harness.Dialog.CommitScoreSettingsAsync(); }
+            Assert.IsFalse(harness.Dialog.IsBmtProcessingRetryRequired);
+            Assert.IsFalse(harness.Dialog.IsScoreReloadPending);
+            await ChangeEnvironment();
+            Assert.AreEqual(1, restarts, "修復後の明示操作だけが再起動へ進みます。");
+            if (route != "details") { CollectionAssert.DoesNotContain(harness.Dialog.AvailableBMSDirectories, draft); }
+            Assert.AreEqual(1, failures.Count, string.Join(Environment.NewLine, failures));
+        }, nameof(EnvironmentRestart_ProtectsPendingBeatorajaRepairBeforeDiscard));
+    }
+
+    private static string CreateBeatorajaRoot(string parent, string name)
+    {
+        string root = Directory.CreateDirectory(Path.Combine(parent, name)).FullName;
+        File.WriteAllText(Path.Combine(root, "beatoraja.jar"), string.Empty);
+        File.WriteAllText(Path.Combine(root, BeatorajaConfigService.ConfigFileName), "{}");
+        string player = Directory.CreateDirectory(Path.Combine(root, "player", "player")).FullName;
+        File.WriteAllBytes(Path.Combine(player, "score.db"), []);
+        return root;
     }
 
     /// <summary>音声候補だけの確定が実XMLと次回gateway入力を更新し、標準compositionの現再生Task・曲・playerと別セクション候補を維持します。</summary>
@@ -753,7 +961,8 @@ public sealed class SettingsDialogBehaviorTests
         internal static SettingsDialogHarness Create(Settings values, bool activeLibraryProfile = false,
             Action<Exception>? reportApplyFailure = null, bool libraryAttached = false, Func<Task>? reloadFileDiff = null,
             ApplicationComposition? composition = null, ISettingsDialogPlayerFactoryPort? playerFactory = null,
-            ISettingsDialogPlaybackRuntimePort? playbackRuntime = null)
+            ISettingsDialogPlaybackRuntimePort? playbackRuntime = null, RecordingDialogService? dialogs = null,
+            Func<OperationModeRestartRequest, Task<bool>>? restart = null)
         {
             var state = new RecordingSettingsStatePort(activeLibraryProfile) { ReloadFileDiffHandler = reloadFileDiff };
             var workspace = new RecordingWorkspacePort();
@@ -766,13 +975,13 @@ public sealed class SettingsDialogBehaviorTests
             var sync = new Lr2SongDbSyncWorkflowOwner(new NoOpLr2SongDbSyncRuntime());
             Task<bool> UnexpectedRestart(OperationModeRestartRequest _) => throw new AssertFailedException("局所設定の確認から環境再起動しません。");
             SettingsDialogViewModel dialog = composition != null
-                ? composition.CreateSettingDialogViewModel(state, workspace, output, history, roots, selectedFactory, playback, sync, UnexpectedRestart)
+                ? composition.CreateSettingDialogViewModel(state, workspace, output, history, roots, selectedFactory, playback, sync, restart ?? UnexpectedRestart)
                 : new SettingsDialogViewModel(state, workspace, output, history, roots, selectedFactory, playback, sync,
                     new SettingsEditSession(values), applicationLifetime: TestApplicationContext.CreateLifetime(),
-                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(), schemaDialogs: new RecordingDialogService(),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(), schemaDialogs: dialogs ?? new RecordingDialogService(),
                     reportApplyFailure: reportApplyFailure, externalShellGateway: ExternalShellGatewayPolicy.Current,
                     applicationPathSnapshot: ApplicationPathPolicy.Current, audioDeviceCatalog: new TestAudioDeviceCatalog(),
-                    audioSettingsGateway: new TestAudioSettingsGateway(), requestOperationModeRestart: UnexpectedRestart,
+                    audioSettingsGateway: new TestAudioSettingsGateway(), requestOperationModeRestart: restart ?? UnexpectedRestart,
                     audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
             return new SettingsDialogHarness(dialog, state, roots, workspace);
         }
@@ -881,6 +1090,8 @@ public sealed class SettingsDialogBehaviorTests
 
         internal IList<string>? Sequence { get; set; }
 
+        internal Func<Task>? ConfirmationObservedAsync { get; set; }
+
         internal UiDialogResult MessageResult { get; set; }
             = UiDialogResult.Failed(new InvalidOperationException("unexpected settings behavior message"));
 
@@ -897,11 +1108,12 @@ public sealed class SettingsDialogBehaviorTests
             return Task.FromResult(MessageResult);
         }
 
-        public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
+        public async Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         {
             ConfirmationCount++;
             Sequence?.Add("confirm");
-            return Task.FromResult(ConfirmationResult);
+            if (ConfirmationObservedAsync != null) { await ConfirmationObservedAsync(); }
+            return ConfirmationResult;
         }
 
         public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
@@ -938,6 +1150,8 @@ public sealed class SettingsDialogBehaviorTests
 
     private sealed class RecordingWorkspacePort : ISettingsDialogWorkspacePort
     {
+        internal bool ThrowOnBmt { get; set; }
+
         internal List<(string CleanupPath, bool ForceProjection, BeatorajaBmtOptionsSnapshot? Options)> BmtRequests { get; } = [];
 
         public bool HasPlaylistTables
@@ -973,6 +1187,7 @@ public sealed class SettingsDialogBehaviorTests
         public Task ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability, bool forceProjection = false, BeatorajaBmtOptionsSnapshot? options = null)
         {
             BmtRequests.Add((cleanupTablePath, forceProjection, options));
+            if (ThrowOnBmt) { throw new IOException("BMT failed"); }
             return Task.CompletedTask;
         }
 
@@ -1071,6 +1286,8 @@ public sealed class SettingsDialogBehaviorTests
         internal bool IsLibraryAttachedValue { get; set; }
 
         internal IList<string>? Sequence { get; set; }
+
+        internal Func<Task>? ConfirmationObservedAsync { get; set; }
 
         internal int ApplyCount { get; private set; }
 

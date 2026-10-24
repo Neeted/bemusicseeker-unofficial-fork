@@ -84,11 +84,12 @@
 
       </StackPanel>
 
+      <Button Tag="retry:beatoraja-root" AutomationProperties.AutomationId="SettingsRetryBeatorajaRoot" Style="{StaticResource SettingsQuietButtonStyle}" HorizontalAlignment="Left" Visibility="{Binding CanRetryBeatorajaRootSettings, Converter={StaticResource BooleanToVisibilityConverter}}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_retry, Mode=OneWay}" />
       <StackPanel>
 
 
         <Button HorizontalAlignment="Left" Margin="0,16,0,8" Style="{StaticResource SettingsQuietButtonStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Import_beatoraja_table_urls_button, Mode=OneWay}" AutomationProperties.AutomationId="SettingsImportBeatorajaTableUrls" Click="importBeatorajaTableUrlsButtonClick" />
-        <StackPanel IsEnabled="{Binding IsBeatorajaSelectionEnabled}">
+        <StackPanel IsEnabled="{Binding IsScoreSelectionEnabled}">
         <CheckBox x:Name="useBeatorajaScoreDbCheckBox" Margin="0,8,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_beatoraja_scoreDB, Mode=OneWay}" IsChecked="{Binding UseBeatorajaScoreDb}" />
         <settings:SettingsField Margin="26,8,0,16" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Beatoraja_player, Mode=OneWay}" IsEnabled="{Binding UseBeatorajaScoreDb}"><ComboBox ItemsSource="{Binding AvailableBeatorajaPlayers}" SelectedItem="{Binding BeatorajaPlayerId}" /></settings:SettingsField>
 <settings:SettingsStatusBanner Margin="0,8,0,8" Icon="!" Status="Warning" Style="{StaticResource SettingsMultilineStringStatusBannerStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_processing_retry}" Visibility="{Binding IsScoreProcessingRetryRequired, Converter={StaticResource BooleanToVisibilityConverter}}" />

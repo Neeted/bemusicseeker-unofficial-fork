@@ -843,12 +843,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             UiFolderPickerResult result = await dialogService.PickFolderAsync(new UiFolderPickerRequest(null, settings.BeatorajaRootPath, false, this));
             ThrowIfPickerFailed(result.Status, result.Error, "beatoraja root folder picker");
             if (result.Status != UiDialogStatus.Accepted) { return; }
-            string previous = settings.BeatorajaRootPath;
-            settings.SetRootFolderPathFromPicker(nameof(settings.BeatorajaRootPath), result.FolderPath);
-            if (string.Equals(previous, settings.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(result.FolderPath, settings.BeatorajaRootPath, StringComparison.Ordinal)
-                || !settings.IsScoreSelectionValid) { return; }
-            await settings.CommitScoreSettingsAsync();
+            await settings.CommitBeatorajaRootSettingsAsync(result.FolderPath);
         });
     }
 

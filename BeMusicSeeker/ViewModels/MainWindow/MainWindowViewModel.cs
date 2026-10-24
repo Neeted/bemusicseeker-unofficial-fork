@@ -3085,6 +3085,7 @@ public partial class MainWindowViewModel : ViewModel,
     internal event Action RequiredStartupUiApplying;
 
     /// <summary>親L/P解放後に必須UI・hostを直接待ち、同じ操作の成功公開・解禁・任意登録閉鎖と開始を順に終えます。</summary>
+    /// <remarks>ScoreOnlyはプレイリスト入力を変えないためURL補完を予約せず、起動・全再初期化等の既存契機を維持します。</remarks>
     private async Task<StartupInitializationResult> CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result, bool isNormalStartup = false)
     {
         try
@@ -3197,9 +3198,9 @@ public partial class MainWindowViewModel : ViewModel,
                     startupBackgroundTaskScheduler.BeginAdditionalProgress(operationToken, additionalGeneration);
                 }
                 files.ScheduleInitializationFollowUp(result.RequiredResult?.FileResult.FollowUp, result.RequiredResult?.ChartInfo);
-                tables.SchedulePlaylistUrlCompletionRefresh("initialization_completed");
                 if (result.OperationKind != StartupProgressOperationKind.ScoreOnly)
                 {
+                    tables.SchedulePlaylistUrlCompletionRefresh("initialization_completed");
                     PlaylistWorkspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
                 }
                 if (result.OperationKind is StartupProgressOperationKind.Startup or StartupProgressOperationKind.FullReinitialize)

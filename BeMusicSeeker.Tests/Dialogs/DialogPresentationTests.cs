@@ -28,7 +28,7 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class DialogPresentationTests
 {
-    /// <summary>各dialogの実表示で役割別styleと外部sentinel・Applicationへの非波及を確認します。設定の環境カードと通常ラジオを区別し、BMS/BMT・選択recordの確定はPrimary、取消はQuietとして確認します。</summary>
+    /// <summary>各dialogの実表示で役割別styleと外部sentinel・Applicationへの非波及を確認します。設定の環境カードと通常ラジオを区別し、BMS/BMT・選択recordの確定はPrimary、取消とroot/scoreの再試行はQuietとして確認します。</summary>
     [DataTestMethod]
     [DataRow("SettingsWindow")]
     [DataRow("ReleaseNotesWindow")]
@@ -685,6 +685,7 @@ public sealed class DialogPresentationTests
                 ButtonWithAutomationId("SettingsCancelbms", DialogButtonRole.Quiet, "settings discard BMS root candidates"),
                 ButtonWithAutomationId("SettingsResyncLr2SongDb", DialogButtonRole.Neutral, "settings resync song database"),
                 ButtonWithAutomationId("SettingsInstallOrRepairLr2PlayHistorySchema", DialogButtonRole.Neutral, "settings install or repair schema"),
+                ButtonWithAutomationId("SettingsRetryBeatorajaRoot", DialogButtonRole.Quiet, "settings retry beatoraja root reflection"),
                 ButtonWithAutomationId("SettingsImportBeatorajaTableUrls", DialogButtonRole.Quiet, "settings import table URLs"),
                 ButtonWithAutomationId("SettingsRetryScore", DialogButtonRole.Quiet, "settings retry score source"),
                 ButtonWithAutomationId("SettingsConfirmbmt", DialogButtonRole.Primary, "settings confirm BMT output"),
