@@ -40,7 +40,7 @@ internal static class BmsPlaylistTestSupport
     internal static BMSPlaylist CreatePlaylist(
         string songDbPath,
         ILr2PlaylistFolderSynchronizationPort synchronization = null!,
-        Func<LR2Config> getLr2Config = null!,
+        Lr2ConfigOwner getLr2Config = null!,
         Settings? settings = null)
     {
         settings ??= MainWindowViewModelTestFactory.CreateIsolatedSettings();
@@ -73,7 +73,7 @@ internal static class BmsPlaylistTestSupport
         BMSPlaylist playlist,
         BMSLibrary library,
         Func<CustomFolderOutputSettingsSnapshot>? settingsProvider = null,
-        Func<LR2Config>? lr2ConfigProvider = null,
+        Func<Lr2ConfigOwner>? lr2ConfigProvider = null,
         Action<string>? summaryWarningLog = null)
     {
         settingsProvider ??= () => new CustomFolderOutputSettingsSnapshot();

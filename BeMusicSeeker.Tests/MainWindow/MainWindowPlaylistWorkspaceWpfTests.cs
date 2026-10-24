@@ -286,7 +286,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 values.BMSInstallDir = songs;
                 var config = new LR2Config(values.LR2ConfigXmlPath);
                 config.AddBMSSearchDirectories([songs]);
-                config.Save();
+                config.Save(config.ConfigFilePath);
                 File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
                 values.LR2CustomFolderOutputBaseDir = Path.Combine(root, "custom");
                 values.LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "root-custom");
@@ -2190,7 +2190,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     values.BMSInstallDir = songs;
                     var config = new LR2Config(values.LR2ConfigXmlPath);
                     config.AddBMSSearchDirectories([songs]);
-                    config.Save();
+                    config.Save(config.ConfigFilePath);
                     File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
                     values.LR2CustomFolderOutputBaseDir = Path.Combine(root, "custom");
                     values.LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "root-custom");
@@ -3864,10 +3864,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             applicationLifetime: lifetime,
             applicationPathSnapshot: applicationPath,
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-        LR2Config? lr2Config = settings.OperationModeLR2DB ? new LR2Config(settings.LR2ConfigXmlPath) : null;
+        Lr2ConfigOwner? lr2ConfigOwner = settings.OperationModeLR2DB ? composition.ResolveLr2Config(settings.LR2ConfigXmlPath) : null;
         var library = new TestBmsLibrary(
             songDbPath,
-            getLR2Config: () => lr2Config,
+            getLR2Config: lr2ConfigOwner,
             _lr2ScoreDB: scoreDbPath,
             startupRequiredFileScanReason: null,
             optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
@@ -3875,7 +3875,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             playlistOperationAdmission: composition.PlaylistOperationAdmission);
         var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath,
             () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings),
-            getLr2Config: () => lr2Config,
+            getLr2Config: lr2ConfigOwner,
             beatorajaBmtOptionsProvider: bmtOptionsProvider,
             recommendationScoreReader: recommendationScoreReader, settings: settings);
         var table = new BMSTable

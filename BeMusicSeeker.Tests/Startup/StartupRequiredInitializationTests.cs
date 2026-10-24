@@ -733,7 +733,8 @@ public sealed class StartupRequiredInitializationTests
             var config = new LR2Config(configPath);
             string[] scanRoots = outputOutsideScanRoot ? [root] : [root, OutputDirectory];
             config.SetBMSSearchDirectories(scanRoots);
-            config.Save();
+            config.Save(config.ConfigFilePath);
+            var configOwner = new Lr2ConfigOwner(config);
             string? scorePath = null;
             if (withSavedScore)
             {
@@ -757,7 +758,7 @@ public sealed class StartupRequiredInitializationTests
                 ScanBmsFilesOnStartup = true
             };
             Scanner = new FreshChartFileScanner(ChartPath, scanRoots);
-            Library = new TestBmsLibrary(SongDbPath, () => config, scorePath, null, () => options, TestBmsFactory.MissingEverythingBridge,
+            Library = new TestBmsLibrary(SongDbPath, configOwner, scorePath, null, () => options, TestBmsFactory.MissingEverythingBridge,
                 chartFileScanner: Scanner, rootFileEnumerator: new FixtureRootFileEnumerator(), settings: settings, uiScheduler: new TestUiScheduler(() => null))
             { SearchTargets = [.. scanRoots] };
             // 後続保守はこのfixtureで開始しない。必須処理がschedulerを待つとテストが完了しない。
@@ -769,7 +770,7 @@ public sealed class StartupRequiredInitializationTests
                     LR2RootPath = scope.DirectoryPath,
                     LR2CustomFolderOutputBaseDir = normalOutputBase,
                     LR2CustomFolderOutputBaseDirRootType = rootOutputBase
-                }, () => config,
+                }, configOwner,
                 () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(settings),
                 () => new BeatorajaBmtOptionsSnapshot
                 {

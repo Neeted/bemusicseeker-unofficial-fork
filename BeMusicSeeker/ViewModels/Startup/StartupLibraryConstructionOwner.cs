@@ -92,7 +92,7 @@ internal sealed class StartupLibraryConstructionOwner
     private static LibraryDirectoryPreflightRequest CreateStartupDirectoryPreflightRequest(
         StartupSettingsSnapshot startupSettings,
         CustomFolderOutputSettingsSnapshot customFolderSettings,
-        LR2Config startupLr2Config)
+        Lr2ConfigOwner startupLr2Config)
     {
         if (startupSettings == null)
         {
@@ -104,7 +104,7 @@ internal sealed class StartupLibraryConstructionOwner
             customFolderSettings);
         IReadOnlyList<string> registeredRoots = startupSettings.OperationModeLR2DB
             ? (startupLr2Config ?? throw new ArgumentNullException(nameof(startupLr2Config)))
-                .GetBMSSearchDirectoriesForChangeTracking()
+                .Capture().RegisteredRoots
             : startupSettings.StandaloneBmsRootPaths;
         return new LibraryDirectoryPreflightService().CreateRequest(
             registeredRoots,
@@ -113,18 +113,18 @@ internal sealed class StartupLibraryConstructionOwner
     }
 
     /// <summary>設定XMLと登録先を副作用のない作業スレッドで検査し、同じXML入力を構築へ渡します。</summary>
-    internal static Task<(bool ConfigValid, LR2Config Config)> PrepareDirectoriesAsync(
+    internal static Task<(bool ConfigValid, Lr2ConfigOwner Config)> PrepareDirectoriesAsync(
         StartupSettingsSnapshot startupSettings,
-        CustomFolderOutputSettingsSnapshot customFolderSettings)
+        CustomFolderOutputSettingsSnapshot customFolderSettings, Lr2ConfigSession configSession)
     {
         return Task.Run(() =>
         {
-            LR2Config config = null;
+            Lr2ConfigOwner config = null;
             if (startupSettings.OperationModeLR2DB
-                && !LR2Config.TryLoad(startupSettings.LR2ConfigXmlPath, out config))
+                && !configSession.TryResolve(startupSettings.LR2ConfigXmlPath, out config))
             {
                 // 検査入力を構成できない場合は設定不備へ戻し、空ルートでの検査成功にしません。
-                return (ConfigValid: false, Config: (LR2Config)null);
+                return (ConfigValid: false, Config: (Lr2ConfigOwner)null);
             }
 
             LibraryDirectoryPreflightRequest request = CreateStartupDirectoryPreflightRequest(
@@ -138,22 +138,22 @@ internal sealed class StartupLibraryConstructionOwner
 
     /// <summary>
     /// 検証済みの起動設定から、ライブラリが利用するモード別のプロファイルを構成します。
-    /// LR2設定はディレクトリ検査で読み込んだ同じインスタンスを使用します。
+    /// LR2設定は構成の寿命で採用した同じ全文所有者を使用します。
     /// </summary>
     internal static LibraryProfile CreateProfile(
         StartupSettingsSnapshot startupSettings,
-        LR2Config startupLr2Config, ApplicationPathSnapshot paths)
+        Lr2ConfigOwner startupLr2Config, ApplicationPathSnapshot paths)
     {
         if (startupSettings.OperationModeLR2DB)
         {
-            LR2Config lr2config = startupLr2Config ?? throw new ArgumentNullException(nameof(startupLr2Config));
-            if (lr2config.EnsureDatabaseAutoReloadManualOnly()) { lr2config.Save(); }
-            string scoreDbPath = Lr2ScoreDbPathResolver.ResolvePlayerScoreDbPath(startupSettings.LR2RootPath, lr2config.GetPlayerId);
+            Lr2ConfigOwner lr2config = startupLr2Config ?? throw new ArgumentNullException(nameof(startupLr2Config));
+            lr2config.EnsureDatabaseAutoReloadManualOnly();
+            string scoreDbPath = Lr2ScoreDbPathResolver.ResolvePlayerScoreDbPath(startupSettings.LR2RootPath, () => lr2config.Capture().PlayerId);
             return new LibraryProfile(
                 operationModeLR2DB: true,
                 songDbPath: startupSettings.LR2SongDBPath,
                 searchRoots: [],
-                lr2ConfigProvider: () => lr2config,
+                lr2ConfigOwner: lr2config,
                 lr2ScoreDbPath: scoreDbPath,
                 canWriteLr2Config: true,
                 canOutputLr2Folders: true,
@@ -167,7 +167,7 @@ internal sealed class StartupLibraryConstructionOwner
             operationModeLR2DB: false,
             songDbPath: standaloneSongDb.SongDbPath,
             searchRoots: startupSettings.StandaloneBmsRootPaths,
-            lr2ConfigProvider: null,
+            lr2ConfigOwner: null,
             lr2ScoreDbPath: null,
             canWriteLr2Config: false,
             canOutputLr2Folders: false,
@@ -179,7 +179,7 @@ internal sealed class StartupLibraryConstructionOwner
     /// <summary>検証済み設定の通常出力先を、親受付内で同じLR2設定へ一度登録します。</summary>
     internal static void RepairCustomFolderSearchRoots(
         StartupSettingsSnapshot startupSettings,
-        LR2Config startupLr2Config)
+        Lr2ConfigOwner startupLr2Config)
     {
         if (!startupSettings.OperationModeLR2DB)
         {
@@ -187,15 +187,12 @@ internal sealed class StartupLibraryConstructionOwner
         }
 
         ArgumentNullException.ThrowIfNull(startupLr2Config);
-        CustomFolderOutputBaseSearchRootSyncResult result =
-            CustomFolderOutputBaseSearchRootSyncService.RepairNormalOutputBaseRoots(
-                startupLr2Config,
-                startupSettings.LR2CustomFolderOutputBaseDir,
-                startupSettings.LR2CustomFolderAdditionalOutputBaseDirs);
-        if (result.Changed)
-        {
-            startupLr2Config.Save();
-        }
+        // ディレクトリ準備はXML排他外で済ませ、純粋な登録差分だけを渡します。
+        IReadOnlyList<string> before = startupLr2Config.CaptureSaved().RegisteredRoots;
+        var draft = LR2Config.CreateRootPlanningDocument(startupLr2Config.ConfigFilePath, before);
+        CustomFolderOutputBaseSearchRootSyncService.RepairNormalOutputBaseRoots(draft,
+            startupSettings.LR2CustomFolderOutputBaseDir, startupSettings.LR2CustomFolderAdditionalOutputBaseDirs);
+        startupLr2Config.SaveRoots(new Lr2RootChange(before, draft.GetBMSSearchDirectoriesForChangeTracking()));
     }
 
     /// <summary>

@@ -30,7 +30,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
 
     private readonly Action<BMSTable, string> ensureEntriesLoaded;
 
-    private readonly Func<LR2Config> lr2ConfigProvider;
+    private readonly Lr2ConfigOwner lr2ConfigOwner;
 
     private readonly PlaylistCustomFolderOutputStatusOwner statusOwner;
 
@@ -49,7 +49,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         Func<CustomFolderOutputSettingsSnapshot> settingsProvider,
         Func<IReadOnlyList<BMSTable>> tablesSnapshotProvider,
         Action<BMSTable, string> ensureEntriesLoaded,
-        Func<LR2Config> lr2ConfigProvider,
+        Lr2ConfigOwner lr2ConfigOwner,
         PlaylistCustomFolderOutputStatusOwner statusOwner,
         Func<BMSTable, CustomFolderOutputSettingsSnapshot, string> outputDirectoryResolver,
         Action<string> logPerformance,
@@ -61,7 +61,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         this.settingsProvider = settingsProvider ?? throw new ArgumentNullException(nameof(settingsProvider));
         this.tablesSnapshotProvider = tablesSnapshotProvider ?? throw new ArgumentNullException(nameof(tablesSnapshotProvider));
         this.ensureEntriesLoaded = ensureEntriesLoaded ?? throw new ArgumentNullException(nameof(ensureEntriesLoaded));
-        this.lr2ConfigProvider = lr2ConfigProvider ?? throw new ArgumentNullException(nameof(lr2ConfigProvider));
+        this.lr2ConfigOwner = lr2ConfigOwner;
         this.statusOwner = statusOwner ?? throw new ArgumentNullException(nameof(statusOwner));
         this.outputDirectoryResolver = outputDirectoryResolver ?? throw new ArgumentNullException(nameof(outputDirectoryResolver));
         this.logPerformance = logPerformance;
@@ -73,7 +73,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
     /// <summary>
     /// 表の読込み時に不足するルート出力ディレクトリを補います。外側のBMS親登録は設定不備として拒否し、
     /// 復元用の基点・旧子登録の完全な整理は表読込み後の同期へ委ねます。
-    /// 書込みは最新XMLへ当該登録だけを適用し、保持済み文書で後の局所確定を上書きしません。
+    /// 書込みは共有所有者の現在正本へ当該登録差分だけを適用し、別操作の未公開値を先行公開しません。
     /// </summary>
     internal bool SyncRootFolderOutputDirectoriesToLr2Config(CustomFolderOutputSettingsSnapshot settings)
     {
@@ -83,7 +83,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         }
 
         ValidateOutputLayout(settings);
-        LR2Config currentConfig = lr2ConfigProvider();
+        Lr2ConfigOwner currentConfig = lr2ConfigOwner;
         if (currentConfig == null)
         {
             throw new InvalidOperationException("LR2 configuration is required for custom-folder search-root synchronization.");
@@ -99,9 +99,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             return false;
         }
 
-        // 設定の局所保存後も、保持済みの旧文書で新しいユーザールートを上書きしません。
-        var config = new LR2Config(currentConfig.ConfigFilePath);
-        List<string> beforeDirectories = config.GetBMSSearchDirectoriesForChangeTracking();
+        // 正本の登録から差分を準備し、他の成立済み通常変更を保ちます。
+        IReadOnlyList<string> beforeDirectories = currentConfig.CaptureSaved().RegisteredRoots;
         CustomFolderOutputBaseSearchRootSyncService.ValidateOutputBaseAgainstSearchRoots(
             settings.LR2CustomFolderOutputBaseDirRootType, beforeDirectories,
             Resources.Label_RootOutputBase, allowRegisteredChildren: true);
@@ -117,10 +116,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             return false;
         }
 
-        config.SetBMSSearchDirectories(beforeDirectories
-            .Concat(expectedDirectories)
-            .Distinct(StringComparer.OrdinalIgnoreCase));
-        config.Save();
+        currentConfig.SaveRoots(new Lr2RootChange([], expectedDirectories));
         return true;
     }
 
@@ -130,18 +126,14 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
     /// </summary>
     internal bool SyncCustomFolderOutputSearchRootsAfterSettingsChange(
         string previousRootOutputBaseDirectory,
-        LR2Config configOverride,
         CustomFolderOutputSettingsSnapshot settings)
     {
         if (settings == null || !settings.OperationModeLR2DB) { return false; }
-        LR2Config config = configOverride ?? lr2ConfigProvider();
-        if (config == null) { throw new InvalidOperationException("LR2 configuration is required for custom-folder search-root synchronization."); }
-        if (configOverride == null) { config = new LR2Config(config.ConfigFilePath); }
-        List<string> before = config.GetBMSSearchDirectoriesForChangeTracking();
+        Lr2ConfigOwner owner = lr2ConfigOwner ?? throw new InvalidOperationException("LR2 configuration is required for custom-folder search-root synchronization.");
+        IReadOnlyList<string> before = owner.CaptureSaved().RegisteredRoots;
         IReadOnlyList<string> next = PrepareCustomFolderOutputSearchRoots(previousRootOutputBaseDirectory, before, settings);
         if (next.SequenceEqual(before, StringComparer.OrdinalIgnoreCase)) { return false; }
-        config.SetBMSSearchDirectories(next);
-        config.Save();
+        owner.SaveRoots(new Lr2RootChange(before, next));
         return true;
     }
 

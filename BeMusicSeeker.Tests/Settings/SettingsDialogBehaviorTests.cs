@@ -683,7 +683,7 @@ public sealed class SettingsDialogBehaviorTests
 
         var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
         config.SetBMSSearchDirectories(searchRoots);
-        config.Save();
+        config.Save(config.ConfigFilePath);
         return (songDbPath, configPath, bmsRoot);
     }
 
@@ -1064,7 +1064,7 @@ public sealed class SettingsDialogBehaviorTests
             return false;
         }
 
-        public void ApplySearchTargets(IReadOnlyList<string> searchTargets)
+        public void ApplyStandaloneSearchTargets(IReadOnlyList<string> searchTargets)
         {
             ApplyCount++;
             LastSearchTargets = [.. searchTargets];

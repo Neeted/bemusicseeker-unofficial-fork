@@ -195,7 +195,8 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
     internal bool HasOwnedChartUnderRealPath(string directoryPath)
         => library?.HasOwnedChartUnderRealPath(directoryPath) == true;
 
-    internal void ApplySearchTargets(IReadOnlyList<string> searchTargets)
+    /// <summary>単独動作で成立したユーザー一覧だけを既存ライブラリへ渡します。LR2の登録は共有所有者から捕捉します。</summary>
+    internal void ApplyStandaloneSearchTargets(IReadOnlyList<string> searchTargets)
     {
         if (library == null)
         {
@@ -209,8 +210,8 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
     bool ISettingsDialogSearchRootRuntimePort.HasOwnedChartUnderRealPath(string directoryPath)
         => HasOwnedChartUnderRealPath(directoryPath);
 
-    void ISettingsDialogSearchRootRuntimePort.ApplySearchTargets(IReadOnlyList<string> searchTargets)
-        => ApplySearchTargets(searchTargets);
+    void ISettingsDialogSearchRootRuntimePort.ApplyStandaloneSearchTargets(IReadOnlyList<string> searchTargets)
+        => ApplyStandaloneSearchTargets(searchTargets);
 
     void ISettingsDialogSearchRootRuntimePort.InvalidateLibraryFolderCache()
         => InvalidateLibraryFolderCache();

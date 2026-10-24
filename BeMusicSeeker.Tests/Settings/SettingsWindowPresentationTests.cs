@@ -4314,7 +4314,7 @@ public sealed class SettingsWindowPresentationTests
                     {
                         try
                         {
-                            owner.SettingDialog.StandaloneBmsRootPathList.Add(added);
+                            owner.SettingDialog.BmsRootPathList.Add(added);
                             apply = window.RunViewOperationAsync(owner.SettingDialog.CommitBmsRootsAsync);
                             await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, apply, "same-settings-scan");
                             Assert.IsFalse(closed);
@@ -4906,7 +4906,7 @@ public sealed class SettingsWindowPresentationTests
                         .SetCurrentValue(ToggleButton.IsCheckedProperty, false);
                     AwaitViewOperationTerminal(window);
                 }
-                else if (section == "bms") { settings.StandaloneBmsRootPathList.Add(added); }
+                else if (section == "bms") { settings.BmsRootPathList.Add(added); }
                 else { settings.KeepBeatorajaBmtFilesWhenOutputDisabled = false; }
                 if (section != "score") { ClickConfirm(); }
                 Assert.AreEqual(1, failures.Count);

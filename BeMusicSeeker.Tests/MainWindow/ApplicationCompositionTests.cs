@@ -49,7 +49,7 @@ public sealed partial class ApplicationCompositionTests
                 operationModeLR2DB: false,
                 songDbPath: songDbPath,
                 searchRoots: [tempDirectory],
-                lr2ConfigProvider: () => null!,
+                lr2ConfigOwner: null,
                 lr2ScoreDbPath: null,
                 canWriteLr2Config: false,
                 canOutputLr2Folders: false,
@@ -120,7 +120,7 @@ public sealed partial class ApplicationCompositionTests
                 operationModeLR2DB: false,
                 songDbPath: Path.Combine(tempDirectory, "missing", "song.db"),
                 searchRoots: [tempDirectory],
-                lr2ConfigProvider: () => null!,
+                lr2ConfigOwner: null,
                 lr2ScoreDbPath: null,
                 canWriteLr2Config: false,
                 canOutputLr2Folders: false,
@@ -331,7 +331,7 @@ public sealed partial class ApplicationCompositionTests
                 LR2bodyPath = executablePath
             };
 
-            IBMSPlayer player = composition.CreateBmsPlayer(settings, () => new LR2Config(configPath));
+            IBMSPlayer player = composition.CreateBmsPlayer(settings, () => composition.ResolveLr2Config(configPath));
 
             Assert.IsInstanceOfType(player, typeof(LR2body));
             Assert.AreEqual(executablePath, player.ExePath);

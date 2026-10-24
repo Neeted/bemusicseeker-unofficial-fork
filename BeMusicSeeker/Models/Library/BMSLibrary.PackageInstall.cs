@@ -220,8 +220,9 @@ public partial class BMSLibrary
                 }
                 workflow = prepared;
                 token.ThrowIfCancellationRequested();
-                bool canInstall = !options.KeepInstallablePackagesPending && SearchTargets?.Any() == true
-                    && LongPathFileSystem.DirectoryExists(SearchTargets.First()) && catalogFileMutationAdmissionOwner.IsConverged;
+                IReadOnlyList<string> searchRoots = GetAvailableSearchRoots(options);
+                bool canInstall = !options.KeepInstallablePackagesPending && searchRoots.Count > 0
+                    && LongPathFileSystem.DirectoryExists(searchRoots[0]) && catalogFileMutationAdmissionOwner.IsConverged;
                 bool hasPermittedPhysicalMutation = false;
                 if (canInstall && !token.IsCancellationRequested)
                 {
@@ -542,9 +543,9 @@ public partial class BMSLibrary
                     QueuePackageEntryNotificationPublication(packageEntryNotificationDeferrals);
                 });
 
-                bool canAutoInstallToLibrary = SearchTargets != null
-                    && SearchTargets.Count() > 0
-                    && LongPathFileSystem.DirectoryExists(SearchTargets[0]);
+                IReadOnlyList<string> searchRoots = GetAvailableSearchRoots(options);
+                bool canAutoInstallToLibrary = searchRoots.Count > 0
+                    && LongPathFileSystem.DirectoryExists(searchRoots[0]);
                 bool catalogPathConverged = catalogFileMutationAdmissionOwner.IsConverged;
                 if (!catalogPathConverged
                     && !options.KeepInstallablePackagesPending

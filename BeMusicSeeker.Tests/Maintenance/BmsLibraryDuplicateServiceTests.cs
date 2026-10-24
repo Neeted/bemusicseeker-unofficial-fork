@@ -1269,9 +1269,10 @@ public sealed class BmsLibraryDuplicateServiceTests
             {
                 ChartFile sourceFile = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceChartPath));
                 LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, tempRootPath);
+                var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
                 var library = new TestBmsLibrary(
                     songDbPath,
-                    () => lr2Config,
+                    lr2ConfigOwner,
                     null,
                     new TestFileMutationService(),
                     new RecordingDialogService(),

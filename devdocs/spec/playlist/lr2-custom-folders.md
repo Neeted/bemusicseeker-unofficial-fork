@@ -114,10 +114,13 @@ ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) IS 
 
 起動の保存済み表の必要出力は、最小カタログと必要譜面情報・ハッシュの準備後、親L/P内で直接待ちます。外部ネットワーク同期は親受付解放・操作解禁後です。全体LR2が必要なら修復と共通の生成・検証経路から完全な面を一度だけ返します。開始・更新・全終端は空でない発生元と同じ親関係を持つ要求識別で通知し、BMTはschedulerの暗黙実行文脈を参照しません。カスタム修復のfinallyにも同じ要求を渡します。実出力の接続は[`StartupRequiredInitializationTests`](../../../BeMusicSeeker.Tests/Startup/StartupRequiredInitializationTests.cs)、BMTの生産側通知は[`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)で確認します。
 
+ROOT登録の補完・同期、表削除、プロパティ、一括編集は同じLR2設定所有者へ今回の登録差分を渡します。ディレクトリ準備・出力移行はXML保存排他外で行い、保存失敗は正本へ採用しません。公開では別セクションの部分保存を巻き込みません。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 同じLR2正本へのROOT登録保存と限定公開 | [`PlaylistCustomFolderOutputMaintenanceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistCustomFolderOutputMaintenanceOwner.cs)、[`Lr2ConfigOwner`](../../../BeMusicSeeker/Models/LR2/Lr2ConfigOwner.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)、[`PlaylistSummaryBulkEditTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs) が各入口の保存・出力を、[`部分保存と実表削除`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) が別操作の未公開値を巻き込まないことを確認します。 |
 | 同一・包含の両方向拒否、名前表記と区切り境界 | `ManagedPlaylistOutputPlacement` | `ManagedPlaylistOutputPlacementTests.FinalDirectories_RejectOnlyIdenticalOrNestedPaths` は条件表を共通判定へ集約する。 |
 | 保存済み不正配置の出力・削除・移行・root準備拒否 | `PlaylistCustomFolderOutputMaintenanceOwner` | `BmsPlaylistCustomFolderOutputTests.SavedNestedOutput_RejectsOutputAndRemovalBeforeMutation`、`BmsPlaylistMigrationAndRegistrationTests.MigrateCustomFolderOutputDirectory_RejectsSavedNestedLayout` は旧保存値から実経路を通し、DB・ファイルを保全する。 |
 | 同一表の旧新、旧path再利用、管理基点外 | 移行の旧先整理 | `BmsPlaylistMigrationAndRegistrationTests.MigrateCustomFolderOutputDirectory_PreservesSameTableDestination` と既存の管理基点外・`Folder`/`Folder2`・設定再試行ケースで維持する。 |

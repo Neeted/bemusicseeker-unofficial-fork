@@ -546,9 +546,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 file = file with { Token = new OwnedChartToken() };
                 file = file with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
                 LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, tempRootPath);
+                var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
                 var library = new TestBmsLibrary(
                     songDbPath,
-                    () => lr2Config,
+                    lr2ConfigOwner,
                     null,
                     new TestFileMutationService(),
                     new RecordingDialogService(),
@@ -670,9 +671,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 }
 
                 LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, libraryRootPath);
+
+                var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
                 var library = new TestBmsLibrary(
                     songDbPath,
-                    () => lr2Config,
+                    lr2ConfigOwner,
                     null,
                     new TestFileMutationService(),
                     new RecordingDialogService(),
@@ -1147,9 +1150,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 file = file with { Title = "PackFinalizationFailure", RawTitle = "PackFinalizationFailure" };
                 file = file with { Artist = "Artist", RawArtist = "Artist" };
                 LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, tempRootPath);
+                var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
                 var library = new TestBmsLibrary(
                     songDbPath,
-                    () => lr2Config,
+                    lr2ConfigOwner,
                     null,
                     new TestFileMutationService(),
                     new RecordingDialogService(),

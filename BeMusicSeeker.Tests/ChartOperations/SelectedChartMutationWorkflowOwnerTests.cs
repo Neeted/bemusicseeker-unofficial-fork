@@ -495,7 +495,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             Directory.CreateDirectory(blockedDestination);
             string lr2Root = Path.Combine(root, "LR2");
             LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(lr2Root, source);
-            var library = new TestBmsLibrary(songDbPath, () => config, null, null,
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
+            var library = new TestBmsLibrary(songDbPath, configOwner, null, null,
                 new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 () => new BmsLibraryOptionsSnapshot
                 {

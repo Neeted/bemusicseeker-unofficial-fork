@@ -91,7 +91,7 @@ public sealed class MainWindowViewHostTests
                     }));
                 viewModel = composition.CreateMainWindowViewModel();
                 BMSLibrary library = composition.CreateBmsLibrary(new LibraryProfile(false, songDbPath, [],
-                    () => null!, null, false, false, false, false, "notification-terminal"));
+                    null, null, false, false, false, false, "notification-terminal"));
                 viewModel.PackageInstallWorkflow.AttachLibrary(library);
                 viewModel.PackageInstallWorkflow.FailurePublished += failure =>
                 {

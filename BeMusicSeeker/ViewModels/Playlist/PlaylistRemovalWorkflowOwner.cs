@@ -24,7 +24,7 @@ internal sealed class PlaylistRemovalWorkflowOwner
 
     private readonly Func<BMSLibrary> playlistLibraryProvider;
 
-    private readonly Func<LR2Config> lr2ConfigProvider;
+    private readonly Func<Lr2ConfigOwner> lr2ConfigProvider;
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
 
@@ -48,7 +48,7 @@ internal sealed class PlaylistRemovalWorkflowOwner
         IUiDialogService dialogs,
         Func<BMSPlaylist> playlistStoreProvider,
         Func<BMSLibrary> playlistLibraryProvider,
-        Func<LR2Config> lr2ConfigProvider,
+        Func<Lr2ConfigOwner> lr2ConfigProvider,
         Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider,
         Func<BMSPlaylist, PlaylistWorkspaceMutationKind, IDisposable> tryBeginPlaylistMutation = null)
     {
@@ -247,10 +247,9 @@ internal sealed class PlaylistRemovalWorkflowOwner
     {
         if (settings.OperationModeLR2DB && table.is_root_folder && !string.IsNullOrWhiteSpace(table.Output_dir))
         {
-            LR2Config lr2config = new((lr2ConfigProvider() ?? throw new InvalidOperationException("LR2 config provider is not configured.")).ConfigFilePath);
-            lr2config.RemoveBMSSearchDirectories([ResolveCustomFolderOutputDirectory(table,
-                "playlist remove custom folder output directory notification", settings)]);
-            lr2config.Save();
+            Lr2ConfigOwner owner = lr2ConfigProvider() ?? throw new InvalidOperationException("LR2 config owner is not configured.");
+            string removed = ResolveCustomFolderOutputDirectory(table, "playlist remove custom folder output directory notification", settings);
+            owner.SaveRoots(new Lr2RootChange([removed], []));
         }
     }
 

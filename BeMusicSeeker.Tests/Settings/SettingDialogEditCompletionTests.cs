@@ -1823,13 +1823,17 @@ public sealed partial class SettingDialogEditCompletionTests
 
     /// <summary>BMS一覧の局所確定は実差分を同じL/Pで処理し、DBと画面へ今回の譜面を反映するまで閉鎖を要求しません。</summary>
     /// <remarks>初期化後の独立保守と区別し、当該確定Taskの実終端でDBと必須UIを観測します。</remarks>
-    [TestMethod]
-    public void BmsConfirmation_CompletesRealFileDiffBeforeClosing()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void BmsConfirmation_CompletesRealFileDiffBeforeClosing(bool lr2)
     {
         string root = CreateTemporaryRoot();
+        string initialRoot = Path.Combine(root, "Songs");
+        Directory.CreateDirectory(initialRoot);
         string addedRoot = Path.Combine(root, "added");
         Directory.CreateDirectory(addedRoot);
-        string chartA = Path.Combine(root, "a.bms");
+        string chartA = Path.Combine(initialRoot, "a.bms");
         string chartB = Path.Combine(addedRoot, "b.bms");
         File.WriteAllText(chartA, "#PLAYER 1\n#TITLE Folder A\n#BPM 120\n#00111:01\n");
         using var release = new ManualResetEventSlim();
@@ -1838,13 +1842,13 @@ public sealed partial class SettingDialogEditCompletionTests
         {
             TestUiDispatcherHost.Invoke(() =>
             {
-                Settings values = CreateValidStandaloneSettings(root);
+                Settings values = lr2 ? CreateValidCustomFolderSettings(root, []) : CreateValidStandaloneSettings(initialRoot);
                 values.ScanBmsFilesOnStartup = true;
                 values.StartupSelectInstallPending = false;
                 var session = new CountingSettingsEditSession(values);
                 var failures = new List<Exception>();
                 var scanner = new SettingsChartFileScanner(CapturedChartFileScanner.FromFixture([chartA],
-                    new Dictionary<string, IEnumerable<string>> { [root] = [] }, [root]));
+                    new Dictionary<string, IEnumerable<string>> { [initialRoot] = [] }, [initialRoot]));
                 var ui = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
                 int defaultPlayerCount = 0;
                 var composition = new ApplicationComposition(settingsEditSession: session, reportSettingsApplyFailure: failures.Add,
@@ -1852,7 +1856,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(), applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
                     chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator(),
                     defaultBmsPlayerFactory: () => { defaultPlayerCount++; return new RecordingPlaybackPlayer(); });
-                var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []) { InitialSearchTargets = [root] };
+                var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []) { InitialSearchTargets = lr2 ? [] : [initialRoot] };
                 var owner = new MainWindowViewModel(composition, factory);
                 Task? settingsLibraryTerminal = null;
                 Task? settingsPlaylistTerminal = null;
@@ -1874,13 +1878,16 @@ public sealed partial class SettingDialogEditCompletionTests
                     Task<bool> initialize = owner.InitializeAsync();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(initialize, "folder-settings-initialize");
                     Assert.IsTrue(initialize.GetAwaiter().GetResult());
+                    if (lr2) { AwaitStartupBackgroundCompletionOnDispatcher(owner, "lr2-confirm-initial-background"); }
                     Assert.AreEqual(1, defaultPlayerCount, "単独動作の実構築は既定playerを一回接続します。");
                     File.WriteAllText(chartB, "#PLAYER 1\n#TITLE Folder B\n#BPM 120\n#00111:01\n");
                     var next = CapturedChartFileScanner.FromFixture([chartA, chartB],
-                        new Dictionary<string, IEnumerable<string>> { [root] = [], [addedRoot] = [] }, [root]);
+                        new Dictionary<string, IEnumerable<string>> { [initialRoot] = [], [addedRoot] = [] }, [initialRoot]);
                     next.ScanObserved = () => { settingsLibraryTerminal = composition.OperationAdmission.WaitForIdleAsync(); settingsPlaylistTerminal = composition.PlaylistOperationAdmission.WaitForIdleAsync(); entered.TrySetResult(); release.Wait(); };
                     scanner.Current = next;
-                    owner.SettingDialog.StandaloneBmsRootPathList.Add(addedRoot);
+                    var capturedRoots = new List<IReadOnlyList<string>>();
+                    scanner.RootsObserved = roots => capturedRoots.Add(roots);
+                    owner.SettingDialog.BmsRootPathList.Add(addedRoot);
                     apply = owner.SettingDialog.CommitBmsRootsAsync();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, apply, "folder-settings-scan"), "folder-settings-scan");
                     Assert.IsFalse(apply.IsCompleted);
@@ -1897,11 +1904,32 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual(1, defaultPlayerCount, "Folder段階はplayerの再構築を追加しません。");
                     BMSLibrary library = factory.CreatedLibrary ?? throw new InvalidOperationException("Actual library is unavailable.");
                     Assert.AreEqual("Folder B", library.BmsCharts.Single(chart => chart.Path == chartB).RawTitle);
-                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(composition.ApplicationPathSnapshot.StandaloneSongDbPath).OpenSongDbReadOnly())
+                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(lr2 ? values.LR2SongDBPath : composition.ApplicationPathSnapshot.StandaloneSongDbPath).OpenSongDbReadOnly())
                     { Assert.AreEqual("Folder B", db.Table<LR2SongDB.song>().Single(row => row.path == chartB).title); }
+                    if (lr2)
+                    {
+                        BMSPlaylist playlist = factory.CreatedPlaylist ?? throw new InvalidOperationException("Actual playlist is unavailable.");
+                        Assert.IsTrue(capturedRoots.Any(roots => roots.Contains(addedRoot, StringComparer.OrdinalIgnoreCase)), "同じ確定操作の実走査へ新登録を渡します。");
+                        CollectionAssert.Contains(composition.ResolveLr2Config(values.LR2ConfigXmlPath).Capture().RegisteredRoots.ToArray(), addedRoot);
+                        CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), addedRoot);
+                    }
                     Assert.IsTrue(owner.MainChartList.Rows.OfType<LibraryChartRow>().Any(row => row.Title == "Folder B"));
                     Assert.IsTrue(settingsLibraryTerminal.IsCompletedSuccessfully);
                     Assert.IsTrue(settingsPlaylistTerminal.IsCompletedSuccessfully);
+                    if (lr2)
+                    {
+                        next.ScanObserved = null;
+                        capturedRoots.Clear();
+                        File.WriteAllText(values.LR2ConfigXmlPath, "<external-broken");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ReloadFileDiffAsync(), "lr2-confirm-next-diff");
+                        Assert.IsTrue(capturedRoots.Any(roots => roots.Contains(addedRoot, StringComparer.OrdinalIgnoreCase)), "次の差分も同じ公開済み登録を走査します。");
+                        capturedRoots.Clear();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ReinitializeLibraryAsync(), "lr2-confirm-reinitialize");
+                        Assert.IsTrue(capturedRoots.Any(roots => roots.Contains(addedRoot, StringComparer.OrdinalIgnoreCase)), "全再初期化も同じ公開済み登録を走査します。");
+                        CollectionAssert.Contains(library.Lr2Synchronization.CaptureBmsDirectories().RequestedRoots.ToArray(), addedRoot);
+                        Assert.AreEqual("Folder B", library.BmsCharts.Single(chart => chart.Path == chartB).RawTitle);
+                        Assert.IsTrue(owner.MainChartList.Rows.OfType<LibraryChartRow>().Any(row => row.Title == "Folder B"));
+                    }
                 }
                 finally
                 {
@@ -1973,8 +2001,6 @@ public sealed partial class SettingDialogEditCompletionTests
     [DataRow("startup", true)] // 通常起動のFailed結果でも設定を案内します。
     [DataRow("typed", false)] // 型付き終端は警告Task失敗を設定検証結果へ混ぜません。
     [DataRow("typed", true)] // 型付き終端はFailed結果でもSettingsRequiredを維持します。
-    [DataRow("apply", false)] // 実Applyの保存・Close後に設定不備が判明し、警告失敗後も再編集へ戻ります。
-    [DataRow("apply", true)] // 実ApplyのFailed結果でもcleanup・元ファイルと再編集を保持します。
     public void InvalidLr2Settings_OptionalWarningFailureRetainsSettingsOutcomeAndGuidance(string entry, bool failedResult)
     {
         string root = CreateTemporaryRoot();
@@ -1991,7 +2017,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 File.WriteAllText(configPath, "<config>");
                 invalidConfigBefore = File.ReadAllBytes(configPath);
             }
-            if (entry != "apply") { InvalidateConfig(); }
+            InvalidateConfig();
             TestUiDispatcherHost.Invoke(() =>
             {
                 var session = new CountingSettingsEditSession(settings);
@@ -2025,19 +2051,11 @@ public sealed partial class SettingDialogEditCompletionTests
                 dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
                 {
                     sequence.Add(request);
-                    if (request == "close" && entry == "apply") { InvalidateConfig(); }
                     if (request == "open") { ObserveCleanup("open", string.Empty); }
                 }));
                 try
                 {
-                    if (entry == "apply")
-                    {
-                        InvalidateConfig();
-                        dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
-                        Task operation = dialog.StartConfirmedEnvironmentAsync();
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "invalid-lr2-warning-failed-apply");
-                    }
-                    else if (entry == "typed")
+                    if (entry == "typed")
                     {
                         Task<StartupInitializationResult> operation = ((ISettingsDialogStatePort)owner).InitializeLibraryAsync(null);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "invalid-lr2-warning-failed-typed");
@@ -2062,7 +2080,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         Assert.IsFalse(observation.PlaylistActive, observation.Phase);
                         Assert.IsFalse(observation.UiBlocked, observation.Phase);
                         Assert.IsFalse(observation.OperationInProgress, observation.Phase);
-                        Assert.AreEqual(entry == "apply" && observation.Phase != "terminal", observation.Editing, observation.Phase);
+                        Assert.IsFalse(observation.Editing, observation.Phase);
                     }
                     Assert.IsFalse(owner.IsInitializationCompleted);
                     Assert.IsFalse(owner.HasActiveLibraryProfile);
@@ -2126,9 +2144,10 @@ public sealed partial class SettingDialogEditCompletionTests
                     applicationPathSnapshot: applicationPath,
                     rootFileEnumerator: new FastRootFileEnumerator(),
                     fileDbMutationDialogService: dialogs);
+                Lr2ConfigOwner configOwner = composition.ResolveLr2Config(settings.LR2ConfigXmlPath);
                 var library = new TestBmsLibrary(
                     songDbPath,
-                    () => config,
+                    configOwner,
                     _lr2ScoreDB: null,
                     startupRequiredFileScanReason: null,
                     optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
@@ -2139,7 +2158,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     rootFileEnumerator: new FastRootFileEnumerator(),
                     operationAdmission: composition.OperationAdmission,
                     playlistOperationAdmission: composition.PlaylistOperationAdmission);
-                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings, () => config, library: library);
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings, configOwner, library: library);
                 MainWindowViewModel viewModel = new(
                     composition,
                     new LateFailureStartupLibraryFactory(library, playlist));
@@ -2934,7 +2953,7 @@ public sealed partial class SettingDialogEditCompletionTests
             (string songDb, string configPath) = CreateValidLr2Layout(root);
             var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
             config.AddBMSSearchDirectories([musicRoot]);
-            config.Save();
+            config.Save(config.ConfigFilePath);
             Settings values = CreateValidStandaloneSettings(musicRoot);
             values.OperationModeLR2DB = true;
             values.LR2RootPath = root;
@@ -3164,7 +3183,7 @@ public sealed partial class SettingDialogEditCompletionTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
-    /// <summary>実開始buttonの連打は一回だけ受理し、必須UI待ちで同WindowとClose抑止を保持します。実UI失敗は同Windowで修復再開始でき、成功だけ閉じます。</summary>
+    /// <summary>実開始buttonの連打は一回だけ受理し、必須UI待ちで親権限の解放と同WindowのClose抑止を確認します。UI失敗は同Windowで修復再開始でき、成功後は別に任意背景の実終端とL/P解放を待ちます。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -3253,9 +3272,12 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.IsTrue(viewModel.HasActiveLibraryProfile);
                     Assert.IsTrue(viewModel.IsInitializationCompleted);
                     Assert.AreEqual(0, dialogs.MessageCount, "受理済み初期化を自己Busyとして拒否しません。");
+                    // 必須初期化の完了後も、登録済み保守はL/Pを新たに取得できます。現在のleaseだけでなく実仕事の終端を先に待ちます。
+                    AwaitStartupBackgroundCompletionOnDispatcher(viewModel, "initial-lr2-settings-startup-background-terminal");
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(composition.OperationAdmission.WaitForIdleAsync(), "initial-lr2-settings-library-terminal");
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(composition.PlaylistOperationAdmission.WaitForIdleAsync(), "initial-lr2-settings-playlist-terminal");
                     Assert.IsFalse(composition.OperationAdmission.IsActive);
+                    Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
                     using LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
                     Assert.IsTrue(db.Table<LR2SongDB.song>().Any() || !values.ScanBmsFilesOnStartup,
                         "同権限の実初期化と背景の実終端を確認し、登録だけからwhole Completedを強制しません。");
@@ -3271,6 +3293,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     viewModel.SettingDialog.Dispose();
                 }
                 Assert.IsFalse(composition.OperationAdmission.IsActive, "全背景Taskとcleanupの実終端後に受付を解放します。");
+                Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive, "全背景Taskとcleanupの実終端後にPも解放します。");
             });
         }
         finally { Directory.Delete(root, recursive: true); }
@@ -3469,9 +3492,9 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>同じ有効 root の再選択で個別 DB／config を標準 tuple と由来へ戻し、同値 root として更新を省く誤りを検出します。</summary>
+    /// <summary>同じ有効rootの再選択では採用済み個別XMLを維持し、DBの標準配置への復帰とXMLの個別指定の表示を区別します。</summary>
     [TestMethod]
-    public void Lr2RootPicker_ReselectingSameRootRestoresStandardTupleAndSource()
+    public void Lr2RootPicker_ReselectingSameRootKeepsAdoptedXmlAndRestoresStandardSongDb()
     {
         string scope = CreateTemporaryRoot();
         try
@@ -3494,9 +3517,9 @@ public sealed partial class SettingDialogEditCompletionTests
 
             Assert.AreEqual(root, draft.LR2RootPath);
             Assert.AreEqual(standardSong, draft.LR2SongDBPath);
-            Assert.AreEqual(standardConfig, draft.LR2ConfigXmlPath);
+            Assert.AreEqual(customConfig, draft.LR2ConfigXmlPath);
             Assert.AreEqual(Resources.Settings_path_detected_from_lr2_root, draft.Lr2SongDbPathStatusText);
-            Assert.AreEqual(Resources.Settings_path_detected_from_lr2_root, draft.Lr2ConfigPathStatusText);
+            Assert.AreEqual(Resources.Settings_path_detected_from_individual_setting, draft.Lr2ConfigPathStatusText);
             Assert.IsFalse(draft.HasLr2PathSelectionError);
         }
         finally
@@ -3849,13 +3872,14 @@ public sealed partial class SettingDialogEditCompletionTests
                     applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     settingsDialogService: dialogs, fileDbMutationDialogService: dialogs, defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer());
                 var config = new LR2Config(values.LR2ConfigXmlPath);
-                var actualLibrary = new TestBmsLibrary(targetDb, () => config, null, mutation, null, scheduler,
+                Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
+                var actualLibrary = new TestBmsLibrary(targetDb, configOwner, null, mutation, null, scheduler,
                     () => BmsLibraryOptionsSnapshot.CreateCurrent(values), chartFileScanner: CapturedChartFileScanner.FromFixture([],
                     new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [Path.Combine(root, "Songs")] = [] }, [Path.Combine(root, "Songs")]),
                     operationAdmission: composition.OperationAdmission,
                     playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: values, rootFileEnumerator: new FastRootFileEnumerator());
                 library = actualLibrary;
-                playlist = MainWindowViewModelTestFactory.CreatePlaylist(targetDb, values, () => config, library: actualLibrary);
+                playlist = MainWindowViewModelTestFactory.CreatePlaylist(targetDb, values, configOwner, library: actualLibrary);
                 var activeOwner = new MainWindowViewModel(composition, new LateFailureStartupLibraryFactory(actualLibrary, playlist));
                 owner = activeOwner;
                 var presentation = new RecordingSettingsDialogPresentationPort();
@@ -3872,7 +3896,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     var applicationPort = (IStartupLibraryApplicationPort)activeOwner;
                     applicationPort.AttachStartupLibrary(actualLibrary);
                     applicationPort.AttachStartupServices(new StartupLibraryServices(new LibraryProfile(true, targetDb,
-                        [Path.Combine(root, "Songs")], () => config, null, true, true, false, false, "leap-reinitialize-fixture"), actualLibrary, playlist));
+                        [Path.Combine(root, "Songs")], configOwner, null, true, true, false, false, "leap-reinitialize-fixture"), actualLibrary, playlist));
                 }
                 dialogs.ConfirmationObserved = request =>
                 {
@@ -4105,7 +4129,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
         var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
         config.AddBMSSearchDirectories(roots);
-        config.Save();
+        config.Save(config.ConfigFilePath);
         return values;
     }
 
@@ -4358,9 +4382,15 @@ public sealed partial class SettingDialogEditCompletionTests
     {
         /// <summary>次の実走査へ渡す、fixtureで捕捉した現在のファイル入力です。</summary>
         internal IChartFileScanner Current { get; set; } = initial;
+        /// <summary>実走査へ渡したrootを、固定走査結果と独立に観測します。</summary>
+        internal Action<IReadOnlyList<string>>? RootsObserved { get; set; }
         public ChartScanExecutionResult Scan(IEnumerable<string> roots, IEnumerable<string> extensions, bool verboseLog = false,
             bool includeTextSurface = true, bool includeDirectorySurface = false)
-            => Current.Scan(roots, extensions, verboseLog, includeTextSurface, includeDirectorySurface);
+        {
+            string[] capturedRoots = roots.ToArray();
+            RootsObserved?.Invoke(capturedRoots);
+            return Current.Scan(capturedRoots, extensions, verboseLog, includeTextSurface, includeDirectorySurface);
+        }
     }
 
     private static Settings CreateValidStandaloneSettings(string root, Settings? ownedValues = null)
@@ -5068,7 +5098,7 @@ public sealed partial class SettingDialogEditCompletionTests
 
         internal IReadOnlyList<string> LastSearchTargets { get; private set; } = [];
 
-        public void ApplySearchTargets(IReadOnlyList<string> searchTargets)
+        public void ApplyStandaloneSearchTargets(IReadOnlyList<string> searchTargets)
         {
             LastSearchTargets = [.. (searchTargets ?? [])];
             sequence.Add("apply");

@@ -17,7 +17,7 @@ using Ribbit.Windows;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-public sealed class ExternalPlayerProcessGatewayTests
+public sealed partial class ExternalPlayerProcessGatewayTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
@@ -115,7 +115,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             var gateway = new RecordingExternalPlayerProcessGateway();
             var player = new LR2body(
                 executablePath,
-                new LR2Config(configPath),
+                new Lr2ConfigOwner(new LR2Config(configPath)),
                 new SettingsPlayerSettingsGateway(() => testSettings),
                 gateway);
             ((IExternalWindowPlayer)player).AttachWindowHost(new Win32ExternalPlayerWindowHost(IntPtr.Zero));
@@ -321,7 +321,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             var settingsGateway = new RecordingPlayerSettingsGateway();
             var player = new LR2body(
                 executablePath,
-                new LR2Config(configPath),
+                new Lr2ConfigOwner(new LR2Config(configPath)),
                 settingsGateway,
                 gateway);
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
@@ -371,7 +371,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             };
             var player = new LR2body(
                 executablePath,
-                new LR2Config(configPath),
+                new Lr2ConfigOwner(new LR2Config(configPath)),
                 new RecordingPlayerSettingsGateway(),
                 gateway,
                 new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(100)));
@@ -396,7 +396,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             string configPath = CreateLr2Config(
                 root,
                 "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode><customfolder>保存済み</customfolder></system><sound><volumemaster>23</volumemaster></sound><jukebox /></config>");
-            LR2Config playerConfig = new(configPath);
+            Lr2ConfigOwner playerConfig = new(new LR2Config(configPath));
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.KeepRunning = true;
             gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
@@ -409,12 +409,12 @@ public sealed class ExternalPlayerProcessGatewayTests
                 Assert.AreEqual("100", ReadLr2Value(temporaryDocument, "sound", "volumemaster"));
                 Assert.AreEqual("1", ReadLr2Value(temporaryDocument, "sound", "volumeflag"));
 
-                LR2Config settingsDraft = new(configPath);
+                Lr2ConfigSnapshot settingsDraft = playerConfig.Capture();
                 Assert.AreEqual("640", ReadLr2Value(settingsDraft, "system", "windowsize_x"));
                 Assert.AreEqual("480", ReadLr2Value(settingsDraft, "system", "windowsize_y"));
                 Assert.AreEqual("0", ReadLr2Value(settingsDraft, "system", "screenmode"));
                 Assert.AreEqual("23", ReadLr2Value(settingsDraft, "sound", "volumemaster"));
-                Assert.IsNull(settingsDraft.Element("config")?.Element("sound")?.Element("volumeflag"));
+                Assert.AreEqual(23, settingsDraft.MasterVolume);
             };
             var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)));
             var player = new LR2body(
@@ -430,7 +430,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             Assert.AreEqual("480", ReadLr2Value(playerConfig, "system", "windowsize_y"));
             Assert.AreEqual("0", ReadLr2Value(playerConfig, "system", "screenmode"));
             Assert.AreEqual("23", ReadLr2Value(playerConfig, "sound", "volumemaster"));
-            Assert.IsNull(playerConfig.Element("config")?.Element("sound")?.Element("volumeflag"));
+            Assert.AreEqual(23, playerConfig.Capture().MasterVolume);
             var restoredDocument = XDocument.Load(configPath);
             Assert.AreEqual("保存済み", ReadLr2Value(restoredDocument, "system", "customfolder"));
             Assert.AreEqual("640", ReadLr2Value(restoredDocument, "system", "windowsize_x"));
@@ -461,14 +461,14 @@ public sealed class ExternalPlayerProcessGatewayTests
             string configPath = CreateLr2Config(
                 root,
                 "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster></sound><jukebox><path>RootA\\</path></jukebox></config>");
-            LR2Config playerConfig = new(configPath);
-            LR2Config? settingsDraft = null;
+            Lr2ConfigOwner playerConfig = new(new LR2Config(configPath));
+            Lr2ConfigSnapshot? settingsDraft = null;
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.KeepRunning = true;
             gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
             gateway.Session.BeforeStart = () =>
             {
-                settingsDraft = new LR2Config(configPath);
+                settingsDraft = playerConfig.Capture();
                 Assert.AreEqual("640", ReadLr2Value(settingsDraft, "system", "windowsize_x"));
                 Assert.AreEqual("23", ReadLr2Value(settingsDraft, "sound", "volumemaster"));
             };
@@ -483,8 +483,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             player.PlayStart(chartPath, (EventHandler)null!);
 
             Assert.IsNotNull(settingsDraft);
-            LR2Config completedSettingsDraft = settingsDraft!;
-            Assert.IsTrue(completedSettingsDraft.RemoveBMSSearchDirectoriesAndSave([Path.Combine(root, "RootA")]));
+            playerConfig.SaveRoots(new Lr2RootChange([Path.Combine(root, "RootA")], []));
             var savedAfterRootEdit = XDocument.Load(configPath);
             Assert.IsNull(savedAfterRootEdit.Element("config")?.Element("jukebox")?.Element("path"));
             Assert.AreEqual("640", ReadLr2Value(savedAfterRootEdit, "system", "windowsize_x"));
@@ -508,7 +507,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             string configPath = CreateLr2Config(
                 root,
                 "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster><volumeflag>0</volumeflag></sound><jukebox /></config>");
-            LR2Config playerConfig = new(configPath);
+            Lr2ConfigOwner playerConfig = new(new LR2Config(configPath));
             var startFailure = new InvalidOperationException("start rejected");
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.StartException = startFailure;
@@ -557,7 +556,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)));
             var player = new LR2body(
                 executablePath,
-                new LR2Config(configPath),
+                new Lr2ConfigOwner(new LR2Config(configPath)),
                 new RecordingPlayerSettingsGateway(),
                 gateway,
                 new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(80)));
@@ -605,7 +604,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             };
             var player = new LR2body(
                 executablePath,
-                new LR2Config(configPath),
+                new Lr2ConfigOwner(new LR2Config(configPath)),
                 new RecordingPlayerSettingsGateway(),
                 gateway,
                 new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
@@ -647,7 +646,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             };
             var player = new LR2body(
                 executablePath,
-                new LR2Config(configPath),
+                new Lr2ConfigOwner(new LR2Config(configPath)),
                 new RecordingPlayerSettingsGateway(),
                 gateway,
                 new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(80)));
@@ -702,7 +701,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             {
                 var player = new LR2body(
                     executablePath,
-                    new LR2Config(configPath),
+                    new Lr2ConfigOwner(new LR2Config(configPath)),
                     new RecordingPlayerSettingsGateway(),
                     gateway,
                     new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(80)));
@@ -733,6 +732,18 @@ public sealed class ExternalPlayerProcessGatewayTests
         File.WriteAllText(configPath, xml, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         return configPath;
     }
+
+    private static string ReadLr2Value(Lr2ConfigOwner owner, string section, string name) => ReadLr2Value(owner.Capture(), section, name);
+
+    private static string ReadLr2Value(Lr2ConfigSnapshot snapshot, string section, string name) => name switch
+    {
+        "windowsize_x" => snapshot.WindowSizeX.ToString(),
+        "windowsize_y" => snapshot.WindowSizeY.ToString(),
+        "screenmode" => snapshot.ScreenModeWindow ? "1" : "0",
+        "volumemaster" => snapshot.MasterVolume.ToString(),
+        "volumeflag" => snapshot.VolumeEnabled ? "1" : "0",
+        _ => throw new ArgumentException(name)
+    };
 
     private static string? ReadLr2Value(XDocument document, string sectionName, string fieldName)
     {

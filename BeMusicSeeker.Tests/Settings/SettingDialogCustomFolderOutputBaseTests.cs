@@ -20,15 +20,16 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SettingDialogCustomFolderOutputBaseTests
 {
-    /// <summary>実portの準備結果を専用XMLへ保存します。設定本体の二媒体・一回保存は局所確定テストが分担します。</summary>
-    private static bool SavePreparedCustomFolderSearchRoots(ISettingsDialogCustomFolderOutputPort port, string configPath,
+    /// <summary>実portの準備結果を同じ構成のXML所有者へ保存・公開します。設定本体の二媒体・一回保存は局所確定テストが分担します。</summary>
+    private bool SavePreparedCustomFolderSearchRoots(MainWindowViewModel viewModel,
         string previousRoot, CustomFolderOutputSettingsSnapshot settings)
     {
-        var config = new LR2Config(configPath);
-        List<string> before = config.GetBMSSearchDirectoriesForChangeTracking();
-        IReadOnlyList<string> next = port.PrepareCustomFolderOutputSearchRoots(previousRoot, settings, before);
+        Lr2ConfigOwner owner = MainWindowViewModelTestFactory.GetComposition(viewModel).ResolveLr2Config(testSettings.LR2ConfigXmlPath);
+        IReadOnlyList<string> before = owner.CaptureSaved().RegisteredRoots;
+        IReadOnlyList<string> next = ((ISettingsDialogCustomFolderOutputPort)viewModel.PlaylistWorkspace)
+            .PrepareCustomFolderOutputSearchRoots(previousRoot, settings, before);
         bool changed = !next.SequenceEqual(before, StringComparer.OrdinalIgnoreCase);
-        if (changed) { config.SetBMSSearchDirectories(next); config.Save(); }
+        if (changed) { owner.SaveRoots(new Lr2RootChange(before, next)); }
         return changed;
     }
 
@@ -649,7 +650,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 songDbPath,
                 [new BMSTable { is_root_folder = true, Output_dir = "PlaylistOutput" }]);
 
-            bool changed = SavePreparedCustomFolderSearchRoots((ISettingsDialogCustomFolderOutputPort)viewModel.PlaylistWorkspace, config.ConfigFilePath,
+            bool changed = SavePreparedCustomFolderSearchRoots(viewModel,
                     string.Empty,
                     CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings));
 
@@ -692,7 +693,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 songDbPath,
                 [new BMSTable { is_root_folder = true, Output_dir = "MissingPlaylistOutput" }]);
 
-            bool changed = SavePreparedCustomFolderSearchRoots((ISettingsDialogCustomFolderOutputPort)viewModel.PlaylistWorkspace, config.ConfigFilePath,
+            bool changed = SavePreparedCustomFolderSearchRoots(viewModel,
                     string.Empty,
                     CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings));
 
@@ -744,7 +745,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             List<string> before = config.GetBMSSearchDirectoriesForChangeTracking();
             byte[] savedXml = File.ReadAllBytes(testSettings.LR2ConfigXmlPath);
             Assert.ThrowsException<ArgumentException>(() =>
-                SavePreparedCustomFolderSearchRoots((ISettingsDialogCustomFolderOutputPort)viewModel.PlaylistWorkspace, config.ConfigFilePath,
+                SavePreparedCustomFolderSearchRoots(viewModel,
                         string.Empty, CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings)));
 
             CollectionAssert.AreEqual(before, config.GetBMSSearchDirectoriesForChangeTracking());
@@ -1038,7 +1039,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                     [new BMSTable { is_root_folder = true, Output_dir = "PlaylistOutput" }]);
 
                 var startupSettings = CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings);
-                bool changed = SavePreparedCustomFolderSearchRoots((ISettingsDialogCustomFolderOutputPort)viewModel.PlaylistWorkspace, config.ConfigFilePath, startupSettings.LR2CustomFolderOutputBaseDirRootType, startupSettings);
+                bool changed = SavePreparedCustomFolderSearchRoots(viewModel, startupSettings.LR2CustomFolderOutputBaseDirRootType, startupSettings);
 
                 Assert.IsTrue(changed);
                 config = new LR2Config(config.ConfigFilePath);
@@ -1108,7 +1109,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[\"changed-additional\"]";
             testSettings.BMSInstallDir = manualBmsRoot;
 
-            bool changed = SavePreparedCustomFolderSearchRoots((ISettingsDialogCustomFolderOutputPort)viewModel.PlaylistWorkspace, config.ConfigFilePath, startupSettings.LR2CustomFolderOutputBaseDirRootType, startupSettings);
+            bool changed = SavePreparedCustomFolderSearchRoots(viewModel, startupSettings.LR2CustomFolderOutputBaseDirRootType, startupSettings);
 
             Assert.IsTrue(changed);
             config = new LR2Config(config.ConfigFilePath);
@@ -1151,13 +1152,14 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     {
         testSettings.OperationModeLR2DB = true;
         testSettings.LR2ConfigXmlPath = Path.Combine(config.LR2RootPath, "LR2files", "Config", "config.xml");
-        config.Save();
+        config.Save(config.ConfigFilePath);
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
-        // 初期化を走らせない fixture の実 LR2 設定を出力窓口へ渡します。
+        // 初期化を走らせないfixtureでも、設定と出力窓口へ同じ構成寿命のXML所有者を接続します。
         // SettingsDialog の購読 lifetime は各呼出元が実観測の終端まで所有します。
         try
         {
-            SetViewModelField(viewModel, "lr2config", config);
+            Lr2ConfigOwner owner = MainWindowViewModelTestFactory.GetComposition(viewModel).ResolveLr2Config(config.ConfigFilePath);
+            SetViewModelField(viewModel, "lr2config", owner);
             return viewModel;
         }
         catch
@@ -1178,9 +1180,9 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
     private static void SetViewModelField(MainWindowViewModel viewModel, string fieldName, object value)
     {
-        typeof(MainWindowViewModel)
-            .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(viewModel, value);
+        FieldInfo field = typeof(MainWindowViewModel).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("指定された画面fixtureフィールドがありません: " + fieldName);
+        field.SetValue(viewModel, value);
     }
 
     private void ReplacePlayHistoryDisplayTargetSets(
@@ -1196,7 +1198,8 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
     private void SetViewModelTables(MainWindowViewModel viewModel, string songDbPath, BMSTable[] tables)
     {
-        TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings);
+        MainWindowViewModelTestFactory.GetComposition(viewModel).Lr2ConfigSession.TryResolve(testSettings.LR2ConfigXmlPath, out Lr2ConfigOwner? config);
+        TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings, getLr2Config: config);
         playlist.BMSTables = new ObservableCollection<BMSTable>(tables);
         SetViewModelField(viewModel, "tables", playlist);
         viewModel.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);

@@ -263,6 +263,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             LR2Config config = CreateLr2Config(tempDirectory, Path.Combine(tempDirectory, "ManualBmsRoot"));
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             var table = new BMSTable
             {
                 playlist_id = 7303,
@@ -271,7 +272,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             };
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                () => config,
+                configOwner,
                 null,
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
@@ -281,12 +282,12 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
 
-            Assert.IsTrue(playlist.SyncCustomFolderOutputSearchRootsAfterSettingsChange(settingsRootOutputBaseDir, config));
+            Assert.IsTrue(playlist.SyncCustomFolderOutputSearchRootsAfterSettingsChange(settingsRootOutputBaseDir));
 
             string providerRootOutput = Path.Combine(providerRootOutputBaseDir, table.Output_dir);
-            CollectionAssert.Contains(config.GetBMSSearchDirectories(), providerRootOutput);
-            CollectionAssert.Contains(config.GetBMSSearchDirectories(), providerNormalOutputBaseDir);
-            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), settingsRootOutputBaseDir);
+            CollectionAssert.Contains(configOwner.Capture().RegisteredRoots.ToArray(), providerRootOutput);
+            CollectionAssert.Contains(configOwner.Capture().RegisteredRoots.ToArray(), providerNormalOutputBaseDir);
+            CollectionAssert.DoesNotContain(configOwner.Capture().RegisteredRoots.ToArray(), settingsRootOutputBaseDir);
             Assert.IsTrue(Directory.Exists(providerRootOutput));
         }
         finally
@@ -475,6 +476,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             File.WriteAllText(newHeader, "{\"name\":\"External migration\",\"symbol\":\"X\",\"data_url\":\"new-data.json\"}");
             File.WriteAllText(newData, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Added\",\"level\":\"2\"}]");
             LR2Config config = CreateLr2Config(directory, a);
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = true;
@@ -488,8 +490,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 LR2CustomFolderOutputBaseDirRootType = root,
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
-            var library = new TestBmsLibrary(songPath, () => config, null, null, () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
-            playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath, () => output, () => config,
+            var library = new TestBmsLibrary(songPath, configOwner, null, null, () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+            playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath, () => output, configOwner,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt }, settings: settings);
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(oldHeader));
@@ -510,7 +512,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             File.WriteAllText(otherFile, "other");
             string unmanaged = Path.Combine(directory, "unmanaged.txt");
             File.WriteAllText(unmanaged, "keep");
-            workspace = CreatePlaylistWorkspace(playlist, library, () => output, () => config);
+            workspace = CreatePlaylistWorkspace(playlist, library, () => output, () => configOwner);
             int replacements = 0;
             afterReplace = (_, change) =>
             {
@@ -622,6 +624,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             Directory.CreateDirectory(bmt);
             string manifest = Path.Combine(bmt, BmtTableExportService.ManifestFileName);
             LR2Config config = CreateLr2Config(directory, Path.Combine(directory, "manual-root"), a);
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             CustomFolderOutputSettingsSnapshot outputSettings = new()
             {
                 OperationModeLR2DB = true,
@@ -639,10 +642,10 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 values.LR2CustomFolderOutputBaseDirRootType = rootBase;
                 values.EnablePlaylistUrlCompletion = false;
             });
-            library = new TestBmsLibrary(songPath, () => config, null, null,
+            library = new TestBmsLibrary(songPath, configOwner, null, null,
                 () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
             playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath,
-                () => outputSettings, () => config,
+                () => outputSettings, configOwner,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () =>
                 {
@@ -668,7 +671,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             playlist.CommitBMSTablesWithEntriesToDB([table, other]);
             playlist.ReOutputCustomFolder(table);
             Assert.IsTrue(Directory.GetFiles(a, "*.lr2folder").Length > 0);
-            PlaylistWorkspaceViewModel workspace = CreatePlaylistWorkspace(playlist, library, () => outputSettings, () => config);
+            PlaylistWorkspaceViewModel workspace = CreatePlaylistWorkspace(playlist, library, () => outputSettings, () => configOwner);
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) =>
             {
                 if (holdNotification && failurePoint != "bmt") { entered.TrySetResult(); release.Wait(); }
@@ -2238,7 +2241,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             };
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                () => CreateLr2Config(lr2RootPath, bmsRoot),
+                new Lr2ConfigOwner(CreateLr2Config(lr2RootPath, bmsRoot)),
                 null,
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
@@ -2307,7 +2310,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 Folder_order = ["Folder A"]
             };
             TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty);
-            BMSPlaylist playlist = CreatePlaylist(songDbPath, synchronization, () => CreateLr2Config(lr2RootPath, bmsRoot), settings: testSettings);
+            BMSPlaylist playlist = CreatePlaylist(songDbPath, synchronization, new Lr2ConfigOwner(CreateLr2Config(lr2RootPath, bmsRoot)), settings: testSettings);
             playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
             var progressLabels = new List<string>();
 
@@ -2377,6 +2380,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 }
             }
             LR2Config config = CreateLr2Config(lr2RootPath, bmsRoot);
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             CustomFolderOutputSettingsSnapshot outputSettings = new()
             {
                 OperationModeLR2DB = true,
@@ -2388,7 +2392,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty);
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                () => config,
+                configOwner,
                 null,
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
@@ -2408,7 +2412,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 db.Execute("DELETE FROM folder WHERE path = ?;", outputDirectoryRowPath);
             }
             config.SetBMSSearchDirectories([bmsRoot]);
-            config.Save();
+            config.Save(config.ConfigFilePath);
             await playlist.ReloadTablesAsync(exportBeatorajaBmt: false);
 
             var persistedConfig = new LR2Config(config.ConfigFilePath);
@@ -2529,7 +2533,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 ],
                 Folder_order = ["Folder A", "Folder B"]
             };
-            var playlist = new TestBmsPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            var playlist = new TestBmsPlaylist(songDbPath, new Lr2ConfigOwner(CreateLr2Config(lr2RootPath, bmsRoot)), CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -2666,7 +2670,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new TestBmsPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            var playlist = new TestBmsPlaylist(songDbPath, new Lr2ConfigOwner(CreateLr2Config(lr2RootPath, bmsRoot)), CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -2940,7 +2944,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 ],
                 Folder_order = ["Folder C"]
             };
-            Func<LR2Config> lr2ConfigProvider = () => CreateLr2Config(lr2RootPath, bmsRoot);
+            Lr2ConfigOwner lr2ConfigProvider = new(CreateLr2Config(lr2RootPath, bmsRoot));
             var library = new TestBmsLibrary(songDbPath, lr2ConfigProvider, settings: testSettings);
             var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath,
                 () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings), lr2ConfigProvider, settings: testSettings)
@@ -3063,7 +3067,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 ],
                 Folder_order = ["Child Folder"]
             };
-            var playlist = new TestBmsPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            var playlist = new TestBmsPlaylist(songDbPath, new Lr2ConfigOwner(CreateLr2Config(lr2RootPath, bmsRoot)), CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { parentTable, childTable })
             };
@@ -3612,9 +3616,10 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             Directory.CreateDirectory(Path.GetDirectoryName(oldOutputPath)!);
             File.WriteAllText(oldOutputPath, "#TITLE stale normal output", Encoding.GetEncoding("shift_jis"));
             LR2Config config = CreateLr2Config(tempDirectory, Path.Combine(tempDirectory, "ManualBmsRoot"));
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                () => config,
+                configOwner,
                 null,
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
@@ -3629,7 +3634,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 playlist,
                 library,
                 getViewModelSettings,
-                () => config);
+                () => configOwner);
 
             dialog = await workspace.OpenPropertyDialogAsync(table);
             Assert.IsFalse(playlist.IsWriteLockHeldBMSTables);

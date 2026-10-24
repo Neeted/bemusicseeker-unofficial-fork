@@ -27,9 +27,11 @@ internal interface ILr2SynchronizationDataPort
 
     TimeSpan CurrentChartInfoParseTimeout { get; }
 
-    Lr2SearchRootSnapshot CaptureBmsDirectories();
+    /// <summary>一操作で捕捉済みの登録と配置を使い、存在確認と管理領域除外を行います。</summary>
+    Lr2SearchRootSnapshot CaptureBmsDirectories(BmsLibraryOptionsSnapshot options = null);
 
-    LR2Config CreateCurrentLr2ConfigOrNull();
+    /// <summary>XMLを共有せず、構成寿命の所有者から公開済みの読取り値を捕捉します。</summary>
+    Lr2ConfigSnapshot CaptureLr2Config();
 
     Lr2SongDbSyncAppManagedOutputScope CaptureLr2SongDbSyncAppManagedOutputScope(
         BmsLibraryOptionsSnapshot options, bool throwOnFailure = false);
@@ -250,92 +252,35 @@ internal sealed class Lr2ChartInfoCapability : ILr2ChartInfoCapability
     }
 }
 
-internal sealed class Lr2ConfigSnapshotProvider
-{
-    private readonly Func<LR2Config> provider;
-
-    internal Lr2ConfigSnapshotProvider(Func<LR2Config> provider)
-    {
-        this.provider = provider ?? throw new ArgumentNullException(nameof(provider));
-    }
-
-    internal LR2Config GetOrNull()
-    {
-        return TryGet(out LR2Config config) ? config : null;
-    }
-
-    internal bool TryGet(out LR2Config config)
-    {
-        config = null;
-        try
-        {
-            config = provider();
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// 更新入口用に設定を取得します。テストや standalone composition の
-    /// 明示 SearchTargets を壊さないため、未接続なら null を返します。
-    /// </summary>
-    internal LR2Config GetConfiguredOrNull()
-    {
-        return provider();
-    }
-}
-
+/// <summary>共有XML所有者の公開入力または独立構成の確定一覧から、操作ごとの走査対象を作ります。</summary>
 internal sealed class Lr2SearchRootSnapshotOwner
 {
-    private readonly Lr2ConfigSnapshotProvider configProvider;
+    private readonly Lr2ConfigOwner configOwner;
     private readonly Func<BmsLibraryOptionsSnapshot> optionsProvider;
 
+    /// <summary>採用済みXMLの読込みを繰り返さず、同じ所有者と設定捕捉元を接続します。</summary>
     internal Lr2SearchRootSnapshotOwner(
-        Lr2ConfigSnapshotProvider configProvider,
+        Lr2ConfigOwner configOwner,
         Func<BmsLibraryOptionsSnapshot> optionsProvider)
     {
-        this.configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
+        this.configOwner = configOwner;
         this.optionsProvider = optionsProvider ?? throw new ArgumentNullException(nameof(optionsProvider));
     }
 
-    internal List<string> SearchTargets { get; set; } = [];
+    /// <summary>LR2所有者を利用しない独立構成の確定一覧です。採用済みLR2登録は複製しません。</summary>
+    internal List<string> StandaloneSearchTargets { get; set; } = [];
 
-    internal Lr2SearchRootSnapshot Capture()
+    /// <summary>走査の登録と出力配置を一度捕捉し、ファイルの現在の利用可能性だけを検査します。</summary>
+    internal Lr2SearchRootSnapshot Capture(BmsLibraryOptionsSnapshot options = null)
     {
-        BmsLibraryOptionsSnapshot options = optionsProvider()
+        options ??= optionsProvider()
             ?? throw new InvalidOperationException("BMS library options snapshot provider returned null.");
-        if (options?.OperationModeLR2DB == true)
-        {
-            try
-            {
-                bool configRead = configProvider.TryGet(out LR2Config config);
-                if (!configRead)
-                {
-                    // The previous facade route cleared the in-memory roots when LR2
-                    // configuration could not be read.  Keep that failure contract
-                    // explicit instead of retaining stale search targets.
-                    SearchTargets = [];
-                }
-                else if (config != null)
-                {
-                    SearchTargets = config.GetBMSSearchDirectories() ?? [];
-                }
-            }
-            catch
-            {
-                // Configuration extraction is part of the same read boundary;
-                // malformed values have the established empty-root contract.
-                SearchTargets = [];
-            }
-        }
-        IEnumerable<string> requestedRoots = SearchTargets ?? [];
+        Lr2ConfigSnapshot captured = options.OperationModeLR2DB ? options.Lr2Input ?? configOwner?.Capture() : null;
+        IEnumerable<string> requestedRoots = captured?.RegisteredRoots ?? StandaloneSearchTargets;
+        options = WithCapturedPlacement(options, captured);
         HashSet<string> excludedRoots = CreateExcludedCustomOutputRoots(options);
-        List<string> existingRoots = [.. requestedRoots
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Where(LongPathFileSystem.DirectoryExists)];
+        List<string> existingRoots = captured != null ? [.. captured.CaptureExistingSearchRoots()]
+            : [.. requestedRoots.Where(path => !string.IsNullOrWhiteSpace(path)).Where(LongPathFileSystem.DirectoryExists)];
         List<string> roots = [.. existingRoots
             .Where(path => !IsExcludedCustomOutputSearchRoot(path, excludedRoots))];
         return new Lr2SearchRootSnapshot(
@@ -357,18 +302,10 @@ internal sealed class Lr2SearchRootSnapshotOwner
     {
         options ??= optionsProvider()
             ?? throw new InvalidOperationException("BMS library options snapshot provider returned null.");
-        if (options.OperationModeLR2DB == true)
-        {
-            LR2Config config = configProvider.GetConfiguredOrNull();
-            if (config != null)
-            {
-                SearchTargets = config.GetBMSSearchDirectoriesForChangeTracking() ?? [];
-            }
-        }
-
-        List<string> requestedRoots = [.. (SearchTargets ?? [])
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Select(path => path.Trim())];
+        Lr2ConfigSnapshot captured = options.OperationModeLR2DB ? options.Lr2Input ?? configOwner?.Capture() : null;
+        options = WithCapturedPlacement(options, captured);
+        List<string> requestedRoots = [.. (captured?.RegisteredRoots ?? StandaloneSearchTargets)
+            .Where(path => !string.IsNullOrWhiteSpace(path)).Select(path => path.Trim())];
         HashSet<string> excludedRoots = CreateExcludedCustomOutputRoots(options);
         List<string> scanRoots = [.. requestedRoots
             .Where(path => !IsExcludedCustomOutputSearchRoot(path, excludedRoots))];
@@ -379,6 +316,12 @@ internal sealed class Lr2SearchRootSnapshotOwner
             excludedCustomOutputRootCount: requestedRoots.Count - scanRoots.Count,
             configuredCustomOutputRootCount: excludedRoots.Count,
             requestedRoots: requestedRoots);
+    }
+
+    private static BmsLibraryOptionsSnapshot WithCapturedPlacement(BmsLibraryOptionsSnapshot options, Lr2ConfigSnapshot captured)
+    {
+        if (captured?.Placement == null) { return options; }
+        return options.WithLr2Placement(captured.Placement);
     }
 
     private static HashSet<string> CreateExcludedCustomOutputRoots(BmsLibraryOptionsSnapshot options)
@@ -492,7 +435,7 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
     private readonly EverythingNative everythingNative;
     private readonly Func<BmsLibraryOptionsSnapshot> currentOptionsSnapshot;
     private readonly Lr2SearchRootSnapshotOwner searchRootSnapshotOwner;
-    private readonly Lr2ConfigSnapshotProvider configProvider;
+    private readonly Lr2ConfigOwner configOwner;
 
     internal Lr2SynchronizationDataPort(
         BmsLibraryDbGateway dbGateway,
@@ -502,7 +445,7 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
         EverythingNative everythingNative,
         Func<BmsLibraryOptionsSnapshot> currentOptionsSnapshot,
         Lr2SearchRootSnapshotOwner searchRootSnapshotOwner,
-        Lr2ConfigSnapshotProvider configProvider)
+        Lr2ConfigOwner configOwner)
     {
         this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
         this.catalogMutationOwner = catalogMutationOwner ?? throw new ArgumentNullException(nameof(catalogMutationOwner));
@@ -511,7 +454,7 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
         this.everythingNative = everythingNative ?? throw new ArgumentNullException(nameof(everythingNative));
         this.currentOptionsSnapshot = currentOptionsSnapshot ?? throw new ArgumentNullException(nameof(currentOptionsSnapshot));
         this.searchRootSnapshotOwner = searchRootSnapshotOwner ?? throw new ArgumentNullException(nameof(searchRootSnapshotOwner));
-        this.configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
+        this.configOwner = configOwner;
     }
 
     public BmsLibraryOptionsSnapshot CurrentOptionsSnapshot => currentOptionsSnapshot()
@@ -527,9 +470,11 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
 
     public TimeSpan CurrentChartInfoParseTimeout => chartInfoCapability.CurrentParseTimeout;
 
-    public Lr2SearchRootSnapshot CaptureBmsDirectories() => searchRootSnapshotOwner.Capture();
+    /// <inheritdoc />
+    public Lr2SearchRootSnapshot CaptureBmsDirectories(BmsLibraryOptionsSnapshot options = null) => searchRootSnapshotOwner.Capture(options);
 
-    public LR2Config CreateCurrentLr2ConfigOrNull() => configProvider.GetOrNull();
+    /// <inheritdoc />
+    public Lr2ConfigSnapshot CaptureLr2Config() => configOwner?.Capture();
 
     public Lr2SongDbSyncAppManagedOutputScope CaptureLr2SongDbSyncAppManagedOutputScope(
         BmsLibraryOptionsSnapshot options, bool throwOnFailure = false) =>

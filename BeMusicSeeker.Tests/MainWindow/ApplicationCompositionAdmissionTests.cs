@@ -160,7 +160,7 @@ public sealed partial class ApplicationCompositionTests
             applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             fileDbMutationDialogService: dialogs, settingsDialogService: dialogs);
         MainWindowViewModel viewModel = TestUiDispatcherHost.Dispatcher.Invoke(composition.CreateMainWindowViewModel);
-        var profile = new LibraryProfile(true, scope.SongDbPath, [], () => null!, null, false, false, false, false, "admission-lr2-test");
+        var profile = new LibraryProfile(true, scope.SongDbPath, [], null, null, false, false, false, false, "admission-lr2-test");
         BMSLibrary library = composition.CreateBmsLibrary(profile);
         BMSPlaylist playlist = composition.CreateBmsPlaylist(profile, library);
         var runtime = new BmsLr2SongDbSyncWorkflowRuntime(() => library, () => playlist, () => true);
@@ -238,7 +238,7 @@ public sealed partial class ApplicationCompositionTests
             uiScheduler: new TestUiScheduler(() => null),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-        var profile = new LibraryProfile(true, scope.SongDbPath, [], () => null!, null, false, true, false, false, "binding-output-test");
+        var profile = new LibraryProfile(true, scope.SongDbPath, [], null, null, false, true, false, false, "binding-output-test");
         BMSLibrary library = composition.CreateBmsLibrary(profile);
         BMSPlaylist playlist = composition.CreateBmsPlaylist(profile, library);
         var table = new BMSTable
@@ -316,7 +316,7 @@ public sealed partial class ApplicationCompositionTests
             rootFileEnumerator: new EmptyAdmissionRootFileEnumerator(),
             uiScheduler: new TestUiScheduler(() => null),
             applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-        var profile = new LibraryProfile(true, scope.SongDbPath, [], () => null!, null, false, true, false, false, "capture-output-test");
+        var profile = new LibraryProfile(true, scope.SongDbPath, [], null, null, false, true, false, false, "capture-output-test");
         BMSLibrary library = composition.CreateBmsLibrary(profile);
         BMSPlaylist playlist = composition.CreateBmsPlaylist(profile, library);
         var table = new BMSTable
@@ -429,7 +429,7 @@ public sealed partial class ApplicationCompositionTests
             TestBmsFactory.AvailableEverythingBridge, scanner, new TestUiScheduler(() => null), new FastRootFileEnumerator(),
             operationAdmission: composition.OperationAdmission)
         { SearchTargets = [music], BmsCharts = [], BmsonCharts = [] };
-        var profile = new LibraryProfile(lr2Mode, scope.SongDbPath, [music], () => null!, null, false, lr2Mode, false, false, "parallel-daily-test");
+        var profile = new LibraryProfile(lr2Mode, scope.SongDbPath, [music], null, null, false, lr2Mode, false, false, "parallel-daily-test");
         BMSPlaylist playlist = composition.CreateBmsPlaylist(profile, library);
         var table = new BMSTable
         {

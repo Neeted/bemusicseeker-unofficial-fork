@@ -50,7 +50,7 @@ internal static class StartupLibraryConstructionTestSupport
             operationModeLR2DB,
             songDbPath: songDbPath,
             searchRoots: searchRoots,
-            lr2ConfigProvider: () => null!,
+            lr2ConfigOwner: null,
             lr2ScoreDbPath: null,
             canWriteLr2Config: false,
             canOutputLr2Folders: false,

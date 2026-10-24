@@ -15,7 +15,7 @@ internal sealed class PlaylistPropertySaveService
 
     private readonly Func<BMSLibrary> getLibrary;
 
-    private readonly Func<LR2Config> getLr2Config;
+    private readonly Func<Lr2ConfigOwner> getLr2Config;
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> getSettings;
 
@@ -49,7 +49,7 @@ internal sealed class PlaylistPropertySaveService
     internal PlaylistPropertySaveService(
         Func<BMSPlaylist> playlistStore,
         Func<BMSLibrary> library,
-        Func<LR2Config> lr2Config,
+        Func<Lr2ConfigOwner> lr2Config,
         Func<CustomFolderOutputSettingsSnapshot> settings)
     {
         getPlaylistStore = playlistStore ?? throw new ArgumentNullException(nameof(playlistStore));
@@ -676,14 +676,9 @@ internal sealed class PlaylistPropertySaveService
         {
             try
             {
-                // 当該登録だけを最新XMLへ変更し、別の局所確定を保持します。
-                LR2Config config = new((getLr2Config() ?? throw new InvalidOperationException("LR2 configuration is not available.")).ConfigFilePath);
-                IEnumerable<string> directories = config.GetBMSSearchDirectoriesForChangeTracking();
-                if (pending.WasRootFolder) { directories = directories.Except([pending.OldOutputDirectory], StringComparer.OrdinalIgnoreCase); }
-                if (pending.IsRootFolder) { directories = directories.Union([pending.NewOutputDirectory], StringComparer.OrdinalIgnoreCase); }
-                config.SetBMSSearchDirectories(directories.Distinct(StringComparer.OrdinalIgnoreCase));
-                // Save失敗後はメモリだけ更新済みでも、同じ明示継続でディスク保存を省略しない。
-                config.Save();
+                Lr2ConfigOwner owner = getLr2Config() ?? throw new InvalidOperationException("LR2 configuration is not available.");
+                owner.SaveRoots(new Lr2RootChange(pending.WasRootFolder ? [pending.OldOutputDirectory] : [],
+                    pending.IsRootFolder ? [pending.NewOutputDirectory] : []));
                 pending.NeedsSearchPathSave = false;
             }
             catch (Exception failure) { failures.Add(failure); }

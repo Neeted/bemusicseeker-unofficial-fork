@@ -694,7 +694,8 @@ public partial class BMSLibrary : ObservableObject
 
     private Lr2PlayHistorySchemaCheckResult lr2PlayHistorySchemaCheckResult;
 
-    private readonly Func<LR2Config> lr2config;
+    /// <summary>構成とPlaylist・試聴が共有するLR2全文所有者です。文書をconsumerへ渡しません。</summary>
+    private readonly Lr2ConfigOwner lr2config;
 
     private readonly LibraryResourceIndexOwner libraryResourceIndexOwner = new(
         LibraryResourceIndex.CreateFromScanResult(new ChartScanResult()));
@@ -1408,11 +1409,12 @@ public partial class BMSLibrary : ObservableObject
         }
         List<string> installedChartPaths = CreateInstalledChartPathSnapshotForParentFolderCache(stageMarker);
         stageMarker?.Invoke("path_snapshot_complete", null);
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         ParentFolderListCacheSnapshot snapshot = parentFolderCacheService.BuildSnapshot(
             version,
             installedChartPaths,
-            getBMSDirectories(),
-            CurrentOptionsSnapshot);
+            lr2SearchRootSnapshotOwner.Capture(options).Roots,
+            options);
         stageMarker?.Invoke("cache_build_complete", null);
         return snapshot;
     }
@@ -2418,14 +2420,15 @@ public partial class BMSLibrary : ObservableObject
 
     private readonly Lr2SearchRootSnapshotOwner lr2SearchRootSnapshotOwner;
 
+    /// <summary>単独動作の確定検索先です。LR2の登録はXML所有者の公開入力から捕捉します。</summary>
     public List<string> SearchTargets
     {
-        get => lr2SearchRootSnapshotOwner?.SearchTargets ?? [];
+        get => lr2SearchRootSnapshotOwner?.StandaloneSearchTargets ?? [];
         set
         {
             if (lr2SearchRootSnapshotOwner != null)
             {
-                lr2SearchRootSnapshotOwner.SearchTargets = value ?? [];
+                lr2SearchRootSnapshotOwner.StandaloneSearchTargets = value ?? [];
             }
         }
     }
@@ -2482,8 +2485,8 @@ public partial class BMSLibrary : ObservableObject
 
     private readonly Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider;
 
-    private BmsLibraryOptionsSnapshot CurrentOptionsSnapshot => optionsSnapshotProvider()
-        ?? throw new InvalidOperationException("BMS library options snapshot provider returned null.");
+    private BmsLibraryOptionsSnapshot CurrentOptionsSnapshot => (optionsSnapshotProvider()
+        ?? throw new InvalidOperationException("BMS library options snapshot provider returned null.")).WithLr2Input(lr2config?.Capture());
 
     private BmsLibraryInstallEstimationService CreateInstallEstimationService()
     {
@@ -2622,7 +2625,7 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="playlistOperationAdmission">再構築前後で構成が共有するP受付。独立構成は専用受付を作り、DB・処理・終了状態はこのライブラリへ個別に所有します。</param>
     internal BMSLibrary(
         string _lr2SongDB,
-        Func<LR2Config> getLR2Config,
+        Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
         string startupRequiredFileScanReason,
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
@@ -2648,7 +2651,7 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="playlistOperationAdmission">再構築前後で構成が共有するP受付。独立構成は専用受付を作り、DB・処理・終了状態はこのライブラリへ個別に所有します。</param>
     internal BMSLibrary(
         string _lr2SongDB,
-        Func<LR2Config> getLR2Config,
+        Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
         IFileMutationService fileMutationService,
         IBmsLibraryDialogService dialogService,
@@ -2677,7 +2680,7 @@ public partial class BMSLibrary : ObservableObject
         }
         catalogOwnedCollectionOwner.RefreshPublisher = normalLibraryRefreshPublisher;
         lr2SynchronizationRuntimeState = new(LogInstallPerformance);
-        lr2config = getLR2Config ?? (() => null);
+        lr2config = getLR2Config;
         playlistReferenceOwner = new(normalLibraryRefreshPublisher,
             () => TryInvokePostLeaseNotification(() => RaisePropertyChanged(nameof(NormalLibraryRefreshNotificationVersion)), "playlist_reference_change_notification_failed"));
         lr2SongDBPath = _lr2SongDB;
@@ -2685,6 +2688,7 @@ public partial class BMSLibrary : ObservableObject
         this.startupRequiredFileScanReason = startupRequiredFileScanReason;
         this.optionsSnapshotProvider = optionsSnapshotProvider
             ?? throw new ArgumentNullException(nameof(optionsSnapshotProvider));
+        lr2config?.SetPlacement((this.optionsSnapshotProvider() ?? throw new InvalidOperationException("BMS library options snapshot provider returned null.")).CaptureOutputPlacement());
         this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
         this.applicationPathSnapshot = applicationPathSnapshot
             ?? throw new ArgumentNullException(nameof(applicationPathSnapshot));
@@ -2707,9 +2711,8 @@ public partial class BMSLibrary : ObservableObject
         catalogMutationOwner = new(
             catalogOwnedCollectionOwner,
             dbGateway);
-        Lr2ConfigSnapshotProvider lr2ConfigSnapshotProvider = new(lr2config);
         lr2SearchRootSnapshotOwner = new(
-            lr2ConfigSnapshotProvider,
+            lr2config,
             () => CurrentOptionsSnapshot);
         Lr2SynchronizationDataPort lr2SynchronizationDataPort = new(
             dbGateway,
@@ -2719,7 +2722,7 @@ public partial class BMSLibrary : ObservableObject
             everythingNative,
             () => CurrentOptionsSnapshot,
             lr2SearchRootSnapshotOwner,
-            lr2ConfigSnapshotProvider);
+            lr2config);
         Lr2SynchronizationRuntimePort lr2SynchronizationRuntimePort = new(
             lr2SynchronizationRuntimeState,
             scopedOperationDialogService);
@@ -7107,6 +7110,10 @@ public partial class BMSLibrary : ObservableObject
             return requestVersion != deferredRankingRefreshRequestedVersion;
         }
     }
+
+    private IReadOnlyList<string> GetAvailableSearchRoots(BmsLibraryOptionsSnapshot options)
+        => options.OperationModeLR2DB && options.Lr2Input != null
+            ? options.Lr2Input.CaptureExistingSearchRoots() : SearchTargets;
 
     private List<string> getBMSDirectories()
     {

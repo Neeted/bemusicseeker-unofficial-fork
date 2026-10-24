@@ -1155,6 +1155,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(directory, "RootOutput");
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
             LR2Config config = CreateLr2Config(testSettings.LR2RootPath, bmsRoot);
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             var table = new BMSTable
             {
                 playlist_id = 8012,
@@ -1191,7 +1192,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                         discoveryComplete: true)
                     : CustomFolderOutputPhysicalSurface.Empty
             };
-            playlist = new TestBmsPlaylist(songDbPath, () => config, synchronization, settings: testSettings)
+            playlist = new TestBmsPlaylist(songDbPath, configOwner, synchronization, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>([table]),
                 StartupBackgroundTaskScheduler = (_, _, _, _) => false
@@ -1258,6 +1259,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             string bmsRoot = Path.Combine(directory, "BMS");
             Directory.CreateDirectory(bmsRoot);
             LR2Config config = CreateLr2Config(lr2Root, bmsRoot);
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             string outputBase = Path.Combine(directory, "RootOutput");
             Directory.CreateDirectory(outputBase);
             File.WriteAllText(Path.Combine(outputBase, "BlockedRoot"), "directory creation collision");
@@ -1268,7 +1270,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 LR2CustomFolderOutputBaseDirRootType = outputBase
             };
             playlist = new TestBmsPlaylist(
-                dbPath, () => config, null, null,
+                dbPath, configOwner, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 () => settings,
@@ -1415,6 +1417,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootOutput");
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
             LR2Config config = CreateLr2Config(lr2RootPath, bmsRoot);
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             CustomFolderOutputSettingsSnapshot repairSettings = new()
             {
                 OperationModeLR2DB = true,
@@ -1462,7 +1465,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             }
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                () => config,
+                configOwner,
                 null,
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
@@ -1646,6 +1649,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootOutput");
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
             LR2Config config = CreateLr2Config(lr2RootPath, bmsRoot);
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             CustomFolderOutputSettingsSnapshot repairSettings = new()
             {
                 OperationModeLR2DB = true,
@@ -1658,7 +1662,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                () => config,
+                configOwner,
                 null,
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
@@ -1708,6 +1712,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootOutput");
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
             LR2Config config = CreateLr2Config(lr2RootPath, bmsRoot);
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             CustomFolderOutputSettingsSnapshot repairSettings = new()
             {
                 OperationModeLR2DB = true,
@@ -1748,7 +1753,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             var outputAdmission = new ChartFileOperationSynchronizer();
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                () => config,
+                configOwner,
                 null,
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),

@@ -104,7 +104,7 @@ public partial class SettingsDialogViewModel
         operationModeLR2DB = ApplicationSettings.OperationModeLR2DB;
         RefreshSectionCandidates();
         RefreshParsedLr2ConfigState(showSelectionError: false, useLr2Mode: ApplicationSettings.OperationModeLR2DB);
-        RefreshStandaloneBmsRootPathsFromSettings();
+        RefreshBmsRootCandidatesFromSettings();
         CancelBmsRoots();
         RefreshCustomFolderAdditionalOutputBaseDirsFromSettings();
         RefreshPlayHistoryFolderDisplayPresetsFromSettings();
@@ -400,7 +400,6 @@ public partial class SettingsDialogViewModel
         RaisePropertyChanged(nameof(BeatorajaBmtHashOutputMode));
         RaiseEnvironmentAvailabilityChanged();
     }
-    private IReadOnlyList<string> confirmedBmsRoots;
     private IReadOnlyList<string> savedBmsXmlRoots;
     private bool bmsSaveIncomplete;
     private string replacementBmsInstallDir;
@@ -472,22 +471,22 @@ public partial class SettingsDialogViewModel
 
     private IReadOnlyList<string> GetConfirmedBmsRoots()
     {
-        if (confirmedBmsRoots != null) { return confirmedBmsRoots; }
         if (!ApplicationSettings.OperationModeLR2DB)
-        {
-            return confirmedBmsRoots = StandaloneBmsRootPathSettings.Deserialize(ApplicationSettings.StandaloneBmsRootPaths, ApplicationSettings.BMSRootPath);
-        }
-        if (!LR2Config.TryLoad(ApplicationSettings.LR2ConfigXmlPath, out LR2Config config)) { return []; }
-        IReadOnlyList<string> excluded = GetUserVisibleBmsSearchRootExcludedDirectories();
-        return confirmedBmsRoots = config.GetBMSSearchDirectoriesForChangeTracking()
-            .Where(path => !ContainsSameOrChildDirectory(excluded, path)).ToArray();
+        { return StandaloneBmsRootPathSettings.Deserialize(ApplicationSettings.StandaloneBmsRootPaths, ApplicationSettings.BMSRootPath); }
+        Lr2ConfigSnapshot snapshot = GetConfirmedLr2Owner()?.Capture();
+        if (snapshot == null) { return []; }
+        CustomFolderOutputSettingsSnapshot placement = snapshot.Placement;
+        IReadOnlyList<string> excluded = placement == null ? GetUserVisibleBmsSearchRootExcludedDirectories()
+            : CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(new[] { placement.LR2CustomFolderOutputBaseDir,
+                placement.LR2CustomFolderOutputBaseDirRootType }.Concat(CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(placement.LR2CustomFolderAdditionalOutputBaseDirs)));
+        return snapshot.RegisteredRoots.Where(path => !ContainsSameOrChildDirectory(excluded, path)).ToArray();
     }
 
-    private bool IsConfirmedManagedOutputPath(string path)
+    private IReadOnlyList<string> CaptureConfirmedManagedOutputRoots()
     {
         var managed = new List<string> { ApplicationSettings.LR2CustomFolderOutputBaseDir, ApplicationSettings.LR2CustomFolderOutputBaseDirRootType };
         managed.AddRange(CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs));
-        return ContainsSameOrChildDirectory(managed, path);
+        return CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(managed);
     }
 
     /// <summary>最終BMS一覧と必要な代替導入先を一組で確定し、保存成功後に代替候補を解消して差分再読込みを一度だけ実行します。</summary>
@@ -511,7 +510,8 @@ public partial class SettingsDialogViewModel
             }
             install = replacementBmsInstallDir;
         }
-        bool changed = !GetConfirmedBmsRoots().SequenceEqual(roots, StringComparer.OrdinalIgnoreCase)
+        IReadOnlyList<string> previousUserRoots = GetConfirmedBmsRoots();
+        bool changed = !previousUserRoots.SequenceEqual(roots, StringComparer.OrdinalIgnoreCase)
             || !string.Equals(install, ApplicationSettings.BMSInstallDir, StringComparison.OrdinalIgnoreCase);
         if (!changed && !bmsSaveIncomplete && !fileDiffReloadPending) { return; }
         IsEditCompletionInProgress = true;
@@ -525,20 +525,13 @@ public partial class SettingsDialogViewModel
                     {
                         if (savedBmsXmlRoots == null || !savedBmsXmlRoots.SequenceEqual(roots, StringComparer.OrdinalIgnoreCase))
                         {
-                            if (!LR2Config.TryLoad(ApplicationSettings.LR2ConfigXmlPath, out LR2Config latest))
-                            {
-                                throw new InvalidOperationException(Resources.Error_InvalidLR2SongDbOrConfigPath);
-                            }
-                            IEnumerable<string> managed = latest.GetBMSSearchDirectoriesReadOnly().Where(IsConfirmedManagedOutputPath);
-                            latest.SetBMSSearchDirectories(managed.Concat(roots));
-                            latest.EnsureDatabaseAutoReloadManualOnly();
-                            latest.Save();
+                            Lr2ConfigOwner owner = GetConfirmedLr2Owner() ?? throw new InvalidOperationException(Resources.Error_InvalidLR2SongDbOrConfigPath);
+                            owner.SaveUserRoots(roots, CaptureConfirmedManagedOutputRoots());
                             savedBmsXmlRoots = roots.ToArray();
                             bmsSaveIncomplete = true;
                         }
                         ApplicationSettings.Commit((nameof(Settings.BMSInstallDir), install));
-                        LR2Config.TryLoad(ApplicationSettings.LR2ConfigXmlPath, out LR2Config committedConfig);
-                        lr2config = committedConfig;
+                        GetConfirmedLr2Owner().PublishUserRoots(previousUserRoots, roots);
                     }
                     else
                     {
@@ -546,7 +539,6 @@ public partial class SettingsDialogViewModel
                         ApplicationSettings.Commit((nameof(Settings.StandaloneBmsRootPaths), serialized),
                             (nameof(Settings.BMSRootPath), roots[0]), (nameof(Settings.BMSInstallDir), install));
                     }
-                    confirmedBmsRoots = roots.ToArray();
                     RaisePropertyChanged(nameof(ConfirmedBMSDirectories));
                     savedBmsXmlRoots = null;
                     bmsSaveIncomplete = false;
@@ -555,7 +547,7 @@ public partial class SettingsDialogViewModel
                 if (statePort.HasActiveLibraryProfile)
                 {
                     SetFileDiffReloadPending(true);
-                    searchRootRuntimePort.ApplySearchTargets(roots);
+                    if (!ApplicationSettings.OperationModeLR2DB) { searchRootRuntimePort.ApplyStandaloneSearchTargets(roots); }
                     return await ReloadFileDiffAsync(capability);
                 }
                 return null;
@@ -572,20 +564,8 @@ public partial class SettingsDialogViewModel
     {
         replacementBmsInstallDir = null;
         IReadOnlyList<string> roots = GetConfirmedBmsRoots();
-        if (ApplicationSettings.OperationModeLR2DB)
-        {
-            if (LR2Config.TryLoad(ApplicationSettings.LR2ConfigXmlPath, out LR2Config config))
-            {
-                IEnumerable<string> managed = config.GetBMSSearchDirectoriesReadOnly().Where(IsConfirmedManagedOutputPath);
-                config.SetBMSSearchDirectories(managed.Concat(roots));
-                lr2config = config;
-            }
-        }
-        else
-        {
-            StandaloneBmsRootPathList.Clear();
-            foreach (string root in roots) { StandaloneBmsRootPathList.Add(root); }
-        }
+        BmsRootPathList.Clear();
+        foreach (string root in roots) { BmsRootPathList.Add(root); }
         RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
         RaisePropertyChanged(nameof(ReplacementBmsInstallDir));
     }
@@ -597,13 +577,13 @@ public partial class SettingsDialogViewModel
         Settings settings = ApplicationSettings;
         if (settings.OperationModeLR2DB)
         {
-            if (!IsLR2SongDBPathValid(settings.LR2SongDBPath) || !LR2Config.TryLoad(settings.LR2ConfigXmlPath, out _))
+            if (!IsLR2SongDBPathValid(settings.LR2SongDBPath) || !lr2ConfigSession.TryResolve(settings.LR2ConfigXmlPath, out _))
             { failures.Add(Resources.Error_InvalidLR2SongDbOrConfigPath); }
             if (string.IsNullOrWhiteSpace(settings.LR2CustomFolderOutputBaseDir)) { failures.Add(Resources.Error_CustomFolderOutputPathNotSet); }
             if (string.IsNullOrWhiteSpace(settings.LR2CustomFolderOutputBaseDirRootType)) { failures.Add(Resources.Error_CustomFolderRootOutputPathNotSet); }
-            if (LR2Config.TryLoad(settings.LR2ConfigXmlPath, out LR2Config confirmedConfig))
+            if (lr2ConfigSession.TryResolve(settings.LR2ConfigXmlPath, out Lr2ConfigOwner confirmedConfig))
             {
-                IReadOnlyList<NestedBmsSearchRootConflict> conflicts = CollectNestedBmsSearchRootConflicts(confirmedConfig.GetBMSSearchDirectoriesForChangeTracking());
+                IReadOnlyList<NestedBmsSearchRootConflict> conflicts = CollectNestedBmsSearchRootConflicts(confirmedConfig.Capture().RegisteredRoots);
                 if (conflicts.Count > 0) { failures.Add(BuildNestedBmsSearchRootConflictMessage(conflicts)); }
                 try
                 {
@@ -618,7 +598,7 @@ public partial class SettingsDialogViewModel
                         (string Path, string Label, bool Root) output = bases[index];
                         CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(output.Path, output.Label);
                         CustomFolderOutputBaseSearchRootSyncService.ValidateOutputBaseAgainstSearchRoots(output.Path,
-                            confirmedConfig.GetBMSSearchDirectoriesForChangeTracking(), output.Label, allowRegisteredChildren: output.Root);
+                            confirmedConfig.Capture().RegisteredRoots, output.Label, allowRegisteredChildren: output.Root);
                         if (!output.Root && !names.Add(CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(output.Path)))
                         { failures.Add(FormatResource(Resources.Validation_OutputBaseNameDuplicateFormat, CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(output.Path))); }
                         foreach ((string Path, string Label, bool Root) other in bases.Take(index)) { ValidateOutputBasesDoNotOverlap(output.Path, output.Label, other.Path, other.Label); }
@@ -645,7 +625,7 @@ public partial class SettingsDialogViewModel
         if (settings.UsePlayerBMIIDXView && !IsBMIIDXViewPathValid(settings.BMIIDXViewPath)) { failures.Add(Resources.Error_InvalidBMIIDXViewPath); }
         if (settings.UsePlayerLR2body)
         {
-            if (!IsLR2PlayerRootPathValid(settings.LR2RootPath) || !LR2Config.TryLoad(settings.LR2ConfigXmlPath, out _)) { failures.Add(Resources.Error_InvalidLR2RootPath); }
+            if (!IsLR2PlayerRootPathValid(settings.LR2RootPath) || !lr2ConfigSession.TryResolve(settings.LR2ConfigXmlPath, out _)) { failures.Add(Resources.Error_InvalidLR2RootPath); }
             string executable = StartupSettingsSnapshot.CreateCurrent(settings).LR2bodyPath;
             if (!System.IO.File.Exists(executable)) { failures.Add(FormatResource(Resources.Error_LR2ExecutableNotFoundFormat, executable)); }
             if ((int)settings.LR2bodyResolution.X <= 0 || (int)settings.LR2bodyResolution.Y <= 0) { failures.Add(Resources.Error_InvalidLR2WindowSize); }
@@ -678,7 +658,7 @@ public partial class SettingsDialogViewModel
     public bool CanConfirmEnvironment => HasEnvironmentChanges && IsEnvironmentSelectionEnabled
         && !bmsSaveIncomplete && pendingOutputChange == null
         && operationAdmission.CanEnter && customFolderOutputPort.CanBeginOutputOperation
-        && (!operationModeLR2DB || IsLR2SongDBPathValid(environmentLR2SongDBPath) && LR2Config.TryLoad(environmentLR2ConfigXmlPath, out _));
+        && (!operationModeLR2DB || IsLR2SongDBPathValid(environmentLR2SongDBPath) && lr2ConfigSession.TryResolve(environmentLR2ConfigXmlPath, out _, adoptInitial: false));
 
     /// <summary>無効な候補も含め、LR2詳細だけを最新確定値へ戻せます。</summary>
     public bool CanCancelEnvironment => HasEnvironmentChanges && IsEditCompletionEnabled && !environmentTransitionInProgress;
@@ -734,8 +714,8 @@ public partial class SettingsDialogViewModel
             ShowSettingValidationError(Resources.Settings_repair_related_save);
             return;
         }
-        if (change.OperationModeLR2DB && (!IsLR2SongDBPathValid(change.LR2SongDBPath)
-            || !LR2Config.TryLoad(change.LR2ConfigXmlPath, out _)))
+        bool validConfig = lr2ConfigSession.TryResolve(change.LR2ConfigXmlPath, out Lr2ConfigOwner candidateOwner, adoptInitial: false);
+        if (change.OperationModeLR2DB && (!IsLR2SongDBPathValid(change.LR2SongDBPath) || !validConfig))
         {
             ShowSettingValidationError(Resources.Error_InvalidLR2SongDbOrConfigPath);
             return;
@@ -746,9 +726,10 @@ public partial class SettingsDialogViewModel
             try
             {
                 change.Commit(ApplicationSettings);
+                if (candidateOwner != null) { lr2ConfigSession.Adopt(candidateOwner); }
                 // 初回のモード・LR2 root保存も、次の初期化が捕捉する既存の確定配置へ同じ組を公開します。
                 publishOutputPlacement();
-                confirmedBmsRoots = null;
+
                 CancelEnvironment();
                 RefreshParsedLr2ConfigState(showSelectionError: false, useLr2Mode: ApplicationSettings.OperationModeLR2DB);
                 ResetLr2PlayHistorySchemaStatus();
@@ -798,7 +779,7 @@ public partial class SettingsDialogViewModel
         environmentLR2RootPath = ApplicationSettings.LR2RootPath;
         environmentLR2SongDBPath = ApplicationSettings.LR2SongDBPath;
         environmentLR2ConfigXmlPath = ApplicationSettings.LR2ConfigXmlPath;
-        isLr2ConfigPathParsed = LR2Config.TryLoad(environmentLR2ConfigXmlPath, out _);
+        isLr2ConfigPathParsed = lr2ConfigSession.TryResolve(environmentLR2ConfigXmlPath, out _);
         SetLr2PathSelectionErrorWithoutNotification(string.Empty);
         RaisePropertyChanged(nameof(OperationModeLR2DB));
         RaisePropertyChanged(nameof(IsStandaloneOperationMode));
@@ -882,7 +863,7 @@ public partial class SettingsDialogViewModel
     private string ExternalPlayerValidationError => externalPlayerUsePlayeruBMplay && !IsuBMplayPathValid(externalPlayeruBMplayPath) ? Resources.Error_InvalidUBMPlayExecutablePath
             : externalPlayerUsePlayerBMIIDXView && !IsBMIIDXViewPathValid(externalPlayerBMIIDXViewPath) ? Resources.Error_InvalidBMIIDXViewPath
             : externalPlayerUsePlayerLR2body && (!IsLR2PlayerRootPathValid(ApplicationSettings.LR2RootPath)
-                || !LR2Config.TryLoad(ApplicationSettings.LR2ConfigXmlPath, out _)
+                || !lr2ConfigSession.TryResolve(ApplicationSettings.LR2ConfigXmlPath, out _)
                 || !System.IO.File.Exists(StartupSettingsSnapshot.CreateCurrent(ApplicationSettings).LR2bodyPath)) ? Resources.Error_InvalidLR2RootPath : null;
     /// <summary>成立した再生方式の保存が未完了であることを示します。</summary>
     public bool CanRetryExternalPlayerSettings => ExternalPlayerValidationError == null
@@ -920,6 +901,7 @@ public partial class SettingsDialogViewModel
         internal bool RootHeadersCommitted = string.Equals(previous.LR2CustomFolderOutputBaseDirRootType, target.LR2CustomFolderOutputBaseDirRootType, StringComparison.OrdinalIgnoreCase);
         internal bool RegistrationHeadersCommitted = string.Equals(previous.LR2CustomFolderAdditionalOutputBaseDirs, target.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal) && renames.Count == 0;
         internal CustomFolderOutputSettingsSnapshot SavedSearchRootsTarget;
+        internal Lr2RootChange SavedRootChange = new([], []);
         internal bool Published;
         internal bool ExternalRowsComplete;
         internal List<CustomFolderMigrationReceipt> Migrations { get; } = [];
@@ -998,7 +980,9 @@ public partial class SettingsDialogViewModel
                     {
                         try
                         {
-                            if (!LR2Config.TryLoad(ApplicationSettings.LR2ConfigXmlPath, out LR2Config latest)) { throw new InvalidOperationException(Resources.Error_InvalidLR2SongDbOrConfigPath); }
+                            Lr2ConfigOwner owner = GetConfirmedLr2Owner() ?? throw new InvalidOperationException(Resources.Error_InvalidLR2SongDbOrConfigPath);
+                            IReadOnlyList<string> before = owner.CaptureSaved().RegisteredRoots;
+                            var latest = LR2Config.CreateRootPlanningDocument(owner.ConfigFilePath, before);
                             // 初回・修復の表依存ROOT登録は初期化時に揃えます。無関係な未修復先へはアクセスしません。
                             if (statePort.HasActiveLibraryProfile)
                             {
@@ -1016,7 +1000,7 @@ public partial class SettingsDialogViewModel
                                 CustomFolderOutputBaseSearchRootSyncService.CompleteAdditionalOutputBaseRootSync(latest, plan);
                             }
                             // メモリ上のChangedだけで省略せず、未了のディスク保存を必ず終えます。
-                            latest.Save();
+                            change.SavedRootChange = change.SavedRootChange.Then(owner.SaveRoots(new Lr2RootChange(before, latest.GetBMSSearchDirectoriesForChangeTracking()), publish: false));
                             change.SavedSearchRootsTarget = change.Target;
                             change.SearchRootsPrevious = change.Target;
                         }
@@ -1024,9 +1008,14 @@ public partial class SettingsDialogViewModel
                     }
                     if (!change.Published)
                     {
+                        IReadOnlyList<string> previousUsers = GetConfirmedBmsRoots();
+                        string[] candidates = BmsRootPathList.ToArray();
+                        string selectedRoot = SelectedBmsSearchRootPath;
                         ApplicationSettings.Publish(values);
                         publishOutputPlacement();
+                        if (ApplicationSettings.OperationModeLR2DB) { GetConfirmedLr2Owner().Publish(change.SavedRootChange, change.Target); }
                         change.Published = true;
+                        RebaseBmsRootCandidatesAfterOutputPublication(previousUsers, candidates, selectedRoot);
                     }
                     if (statePort.HasActiveLibraryProfile)
                     {
@@ -1125,6 +1114,28 @@ public partial class SettingsDialogViewModel
         }
         catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } }
         finally { IsEditCompletionInProgress = false; RaiseSectionRepairStateChanged(); }
+    }
+
+    /// <summary>出力採用で確定ユーザー一覧が変わった場合だけ、未確定の追加・削除を新しい一覧へ引き継ぎます。選択を保ち、候補を保存しません。</summary>
+    private void RebaseBmsRootCandidatesAfterOutputPublication(IReadOnlyList<string> previousUsers, IReadOnlyList<string> candidates, string selectedRoot)
+    {
+        IReadOnlyList<string> currentUsers = GetConfirmedBmsRoots();
+        if (previousUsers.SequenceEqual(currentUsers, StringComparer.OrdinalIgnoreCase)) { return; }
+        IEnumerable<string> removed = previousUsers.Except(candidates, StringComparer.OrdinalIgnoreCase);
+        IEnumerable<string> added = candidates.Except(previousUsers, StringComparer.OrdinalIgnoreCase);
+        string[] next = currentUsers.Except(removed, StringComparer.OrdinalIgnoreCase).Concat(added)
+            .Where(path => !ApplicationSettings.OperationModeLR2DB || !IsUserVisibleBmsSearchRootExcludedPath(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (!candidates.SequenceEqual(next, StringComparer.OrdinalIgnoreCase))
+        {
+            BmsRootPathList.Clear();
+            foreach (string root in next) { BmsRootPathList.Add(root); }
+            SelectedBmsSearchRootPath = next.FirstOrDefault(path => string.Equals(path, selectedRoot, StringComparison.OrdinalIgnoreCase)) ?? next.FirstOrDefault();
+            RaisePropertyChanged(nameof(BmsRootPathList));
+            RaiseBmsListPropertyChanged(nameof(LR2ConfigBMSDirectories));
+            RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
+        }
+        RaisePropertyChanged(nameof(ConfirmedBMSDirectories));
     }
 
     private static IReadOnlyDictionary<string, string> GetOutputRegistrationRepairRenames(OutputConfigurationChange change)

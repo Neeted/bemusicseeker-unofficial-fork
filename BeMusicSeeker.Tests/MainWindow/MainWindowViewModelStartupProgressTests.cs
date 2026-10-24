@@ -1298,7 +1298,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 operationModeLR2DB: false,
                 songDbPath,
                 [tempDirectory],
-                lr2ConfigProvider: null,
+                lr2ConfigOwner: null,
                 lr2ScoreDbPath: null,
                 canWriteLr2Config: false,
                 canOutputLr2Folders: false,
@@ -1871,7 +1871,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 Directory.CreateDirectory(songs);
                 var config = new LR2Config(lr2Config);
                 config.AddBMSSearchDirectories([songs]);
-                config.Save();
+                config.Save(config.ConfigFilePath);
                 Directory.CreateDirectory(Path.Combine(directory, "NormalOutput"));
                 Directory.CreateDirectory(Path.Combine(directory, "RootOutput"));
             }
@@ -1911,12 +1911,12 @@ public sealed class MainWindowViewModelStartupProgressTests
                 uiScheduler: Ui, applicationLifetime: Lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 applicationPathSnapshot: path, fileDbMutationDialogService: Dialogs, settingsDialogService: Dialogs,
                 defaultBmsPlayerFactory: defaultPlayer);
-            Library = new TestBmsLibrary(songDb, lr2Mode ? () => new LR2Config(lr2Config) : null, null, null, null,
+            Library = new TestBmsLibrary(songDb, lr2Mode ? Composition.ResolveLr2Config(lr2Config) : null, null, null, null,
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), CaptureOptions,
                 chartFileScanner: CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), []),
                 operationAdmission: Composition.OperationAdmission, playlistOperationAdmission: Composition.PlaylistOperationAdmission);
             Playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDb, Settings,
-                getLr2Config: lr2Mode ? () => new LR2Config(lr2Config) : null, library: Library);
+                getLr2Config: lr2Mode ? Composition.ResolveLr2Config(lr2Config) : null, library: Library);
             Owner = new MainWindowViewModel(Composition, new CompletionLibraryFactory(Library, Playlist),
                 startupLibraryInitializationFailurePresenter: failurePresenter ?? new CallbackFailurePresenter(_ => { }));
             if (isolateSortWarmup)

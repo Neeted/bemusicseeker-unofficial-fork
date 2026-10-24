@@ -139,7 +139,7 @@ public partial class BMSPlaylist : ObservableObject
     /// <summary>
     /// LR2 設定を取得するための遅延評価デリゲートです。
     /// </summary>
-    private readonly Func<LR2Config> lr2config;
+    private readonly Lr2ConfigOwner lr2config;
 
     /// <summary>
     /// beatoraja `.bmt` 出力時に playlist entry の欠けている hash を補完する resolver を取得します。
@@ -657,7 +657,7 @@ public partial class BMSPlaylist : ObservableObject
     /// </summary>
     /// <param name="libraryBindings">所有ライブラリの能力。</param>
     /// <param name="_lr2SongDB">曲DBのパス。</param>
-    /// <param name="getLR2Config">LR2設定の取得能力。</param>
+    /// <param name="getLR2Config">構成の寿命で共有し、登録差分の保存と限定公開を行うLR2所有者。</param>
     /// <param name="_lr2ScoreDB">任意のLR2スコアDBパス。</param>
     /// <param name="playlistUrlCompletionOptionsProvider">プレイリストURL補完設定の取得能力。</param>
     /// <param name="beatorajaBmtOptionsProvider">beatoraja BMT設定の取得能力。</param>
@@ -672,7 +672,7 @@ public partial class BMSPlaylist : ObservableObject
     internal BMSPlaylist(
         BmsPlaylistLibraryBindings libraryBindings,
         string _lr2SongDB,
-        Func<LR2Config> getLR2Config,
+        Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider,
         Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider,
@@ -711,7 +711,7 @@ public partial class BMSPlaylist : ObservableObject
     /// 通常の所有ライブラリへの接続をテストの構成へ混入させません。
     /// </summary>
     /// <param name="_lr2SongDB">曲DBのパス。</param>
-    /// <param name="getLR2Config">LR2設定の取得能力。</param>
+    /// <param name="getLR2Config">構成の寿命で共有し、登録差分の保存と限定公開を行うLR2所有者。</param>
     /// <param name="_lr2ScoreDB">任意のLR2スコアDBパス。</param>
     /// <param name="getBeatorajaBmtSongHashResolver">beatoraja出力のハッシュ照合能力を作る関数。</param>
     /// <param name="playlistUrlCompletionOptionsProvider">プレイリストURL補完設定の取得能力。</param>
@@ -727,7 +727,7 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="openEntryWriteConnection">entry保存に使うDB接続の構成依存。省略時は通常の曲DB接続を作ります。</param>
     internal BMSPlaylist(
         string _lr2SongDB,
-        Func<LR2Config> getLR2Config,
+        Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
         Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver,
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider,
@@ -760,7 +760,7 @@ public partial class BMSPlaylist : ObservableObject
         playlistPersistenceRepository = new PlaylistPersistenceRepository(_lr2SongDB, openEntryWriteConnection);
         playlistAggregatePersistenceOwner = new PlaylistAggregatePersistenceOwner(playlistPersistenceRepository, rwlockBMSTables, this.uiScheduler);
         playlistAggregatePersistenceOwner.SetActiveCollection([], _BMSTables);
-        lr2config = (getLR2Config ?? (Func<LR2Config>)(() => (LR2Config)null));
+        lr2config = getLR2Config;
         beatorajaBmtSongHashResolverFactory = getBeatorajaBmtSongHashResolver;
         this.playlistUrlCompletionOptionsProvider = playlistUrlCompletionOptionsProvider
             ?? throw new ArgumentNullException(nameof(playlistUrlCompletionOptionsProvider));
@@ -924,7 +924,7 @@ public partial class BMSPlaylist : ObservableObject
             this.customFolderOutputSettingsProvider,
             () => GetCustomFolderTablesSnapshot(),
             EnsurePlaylistEntriesLoaded,
-            () => lr2config(),
+            lr2config,
             customFolderOutputStatusOwner,
             ResolveCustomFolderOutputDirectory,
             LogPlaylistPerformance,
@@ -1011,7 +1011,7 @@ public partial class BMSPlaylist : ObservableObject
         settings ??= GetCustomFolderOutputSettings();
         // 読取りと独立走査の合流後に設定正本を更新し、並列の見出し読取りへ書込みを混ぜない。
         bool rootsChanged = await Task.Run(() => SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
-            settings.LR2CustomFolderOutputBaseDirRootType, null, settings)).ConfigureAwait(false);
+            settings.LR2CustomFolderOutputBaseDirRootType, settings)).ConfigureAwait(false);
         return await HydrateRequiredAsync("Initialize", true, verifyRows || rootsChanged, capability, prepareAllCustomFolders, originatingRequest, settings, forceBeatorajaBmtProjection).ConfigureAwait(false);
     }
 
@@ -1382,29 +1382,24 @@ public partial class BMSPlaylist : ObservableObject
     /// 設定保存後の旧 root の除去と、起動後に残った親 root の adoption 整理を同じ playlist owner で行います。
     /// </summary>
     /// <param name="previousRootOutputBaseDirectory">保存前に設定されていた root output base。起動後の修復では現在値を渡します。</param>
-    /// <param name="configOverride">呼び出し側が保持している LR2Config。未指定時は playlist の provider を使います。</param>
     /// <returns>LR2Config が変更された場合は <see langword="true"/>。</returns>
     internal bool SyncCustomFolderOutputSearchRootsAfterSettingsChange(
-        string previousRootOutputBaseDirectory,
-        LR2Config configOverride = null)
+        string previousRootOutputBaseDirectory)
     {
         return SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
             previousRootOutputBaseDirectory,
-            configOverride,
             settings: null);
     }
 
     internal bool SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
         string previousRootOutputBaseDirectory,
-        LR2Config configOverride,
         CustomFolderOutputSettingsSnapshot settings)
     {
         using (rwlockBMSTables.GetReaderGuard())
         {
             return customFolderOutputMaintenanceOwner.SyncCustomFolderOutputSearchRootsAfterSettingsChange(
                 previousRootOutputBaseDirectory,
-                configOverride,
-                settings ?? GetCustomFolderOutputSettings());
+                    settings ?? GetCustomFolderOutputSettings());
         }
     }
 

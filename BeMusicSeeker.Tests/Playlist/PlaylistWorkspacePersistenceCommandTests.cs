@@ -605,6 +605,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Directory.CreateDirectory(bmsRoot);
             string lr2Root = Path.Combine(tempDirectory, "LR2");
             LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(lr2Root, bmsRoot);
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             string outputBase = Path.Combine(tempDirectory, "custom");
             string bmtRoot = Path.Combine(tempDirectory, "beatoraja");
             string bmtOutput = Path.Combine(bmtRoot, "table");
@@ -628,7 +629,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 BeatorajaRootPath = bmtRoot,
                 RegisterBeatorajaBmtUrls = true
             };
-            playlist = new TestBmsPlaylist(songDbPath, () => config, null, null,
+            playlist = new TestBmsPlaylist(songDbPath, configOwner, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => bmtSettings, () => outputSettings,
                 BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             { BMSTables = new ObservableCollection<BMSTable>([new BMSTable { playlist_id = 1, name = "Before restore", symbol = "before" }]) };

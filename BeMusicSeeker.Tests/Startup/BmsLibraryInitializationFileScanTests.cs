@@ -55,6 +55,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             + "</path></jukebox></config>",
             Encoding.UTF8);
         var lr2Config = new LR2Config(configPath);
+        var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
         BmsLibraryOptionsSnapshot options = new()
         {
             OperationModeLR2DB = true,
@@ -75,7 +76,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             [bmsDirectoryPath]);
         var library = new TestBmsLibrary(
             songDbPath,
-            getLR2Config: () => lr2Config,
+            getLR2Config: lr2ConfigOwner,
             _lr2ScoreDB: null,
             startupRequiredFileScanReason: null,
             optionsSnapshotProvider: () => options,

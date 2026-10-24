@@ -143,7 +143,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         Func<BMSPlaylist> playlistStoreProvider,
         PlaylistPropertySaveService propertySaveService,
         Func<BMSLibrary> playlistLibraryProvider,
-        Func<LR2Config> lr2ConfigProvider,
+        Func<Lr2ConfigOwner> lr2ConfigProvider,
         Action<string> summaryBulkWarningLog,
         ObservableCollection<BMSTable> emptyPlaylistTreeSource,
         Func<string, Func<Task>, bool> playlistLibraryIndexPrewarmScheduler,

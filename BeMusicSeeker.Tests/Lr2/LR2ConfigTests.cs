@@ -22,9 +22,9 @@ public sealed class LR2ConfigTests
     [DataRow("")]
     [DataRow("   ")]
     [DataRow("invalid\0path")]
-    public void TryLoad_UnsetOrInvalidPathReturnsNoConfig(string? path)
+    public void SessionTryResolve_UnsetOrInvalidPathReturnsNoConfig(string? path)
     {
-        Assert.IsFalse(LR2Config.TryLoad(path!, out LR2Config config));
+        Assert.IsFalse(new Lr2ConfigSession().TryResolve(path, out Lr2ConfigOwner? config));
         Assert.IsNull(config);
     }
 
@@ -37,13 +37,13 @@ public sealed class LR2ConfigTests
     [DataRow("<config />")]
     [DataRow("<config><system /></config>")]
     [DataRow("<other><jukebox /></other>")]
-    public void TryLoad_InvalidDocumentRejectsWithoutChangingFile(string xml)
+    public void SessionTryResolve_InvalidDocumentRejectsWithoutChangingFile(string xml)
     {
         WithConfigFile(xml, configPath =>
         {
             byte[] before = File.ReadAllBytes(configPath);
 
-            Assert.IsFalse(LR2Config.TryLoad(configPath, out LR2Config config));
+            Assert.IsFalse(new Lr2ConfigSession().TryResolve(configPath, out Lr2ConfigOwner? config));
             Assert.IsNull(config);
             Assert.ThrowsException<XmlException>(() => new LR2Config(configPath));
             CollectionAssert.AreEqual(before, File.ReadAllBytes(configPath));
@@ -57,22 +57,23 @@ public sealed class LR2ConfigTests
     [DataTestMethod]
     [DataRow("config.xml")]
     [DataRow("config.xmh")]
-    public void TryLoad_ValidConfigPreservesUnavailableRegisteredRoots(string fileName)
+    public void SessionTryResolve_ValidConfigPreservesUnavailableRegisteredRoots(string fileName)
     {
         WithConfigFile("<config><jukebox><path>missing-bms</path></jukebox></config>", configPath =>
         {
-            string candidatePath = Path.Combine(Path.GetDirectoryName(configPath)!, fileName);
+            string candidatePath = Path.Combine(Path.GetDirectoryName(configPath) ?? throw new AssertFailedException(), fileName);
             if (!string.Equals(configPath, candidatePath, StringComparison.Ordinal))
             {
                 File.Move(configPath, candidatePath);
             }
             byte[] before = File.ReadAllBytes(candidatePath);
-            string lr2Root = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(candidatePath)))!;
+            string lr2Root = Directory.GetParent(candidatePath)?.Parent?.Parent?.FullName ?? throw new AssertFailedException();
             string missingRoot = Path.Combine(lr2Root, "missing-bms");
 
             Assert.IsFalse(Directory.Exists(missingRoot));
-            Assert.IsTrue(LR2Config.TryLoad(candidatePath, out LR2Config config));
-            CollectionAssert.AreEqual(new[] { missingRoot }, config.GetBMSSearchDirectoriesForChangeTracking());
+            Assert.IsTrue(new Lr2ConfigSession().TryResolve(candidatePath, out Lr2ConfigOwner? config));
+            Assert.IsNotNull(config);
+            CollectionAssert.AreEqual(new[] { missingRoot }, config.Capture().RegisteredRoots.ToArray());
             CollectionAssert.AreEqual(before, File.ReadAllBytes(candidatePath));
         });
     }
@@ -82,15 +83,16 @@ public sealed class LR2ConfigTests
     /// </summary>
     /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
-    public void TryLoad_EmptyJukeboxIsValidWithoutCreatingOptionalSections()
+    public void SessionTryResolve_EmptyJukeboxIsValidWithoutCreatingOptionalSections()
     {
         WithConfigFile("<config><jukebox /></config>", configPath =>
         {
             byte[] before = File.ReadAllBytes(configPath);
 
-            Assert.IsTrue(LR2Config.TryLoad(configPath, out LR2Config config));
-            Assert.AreEqual(0, config.GetBMSSearchDirectoriesForChangeTracking().Count);
-            Assert.IsNull(config.Element("config")!.Element("system"));
+            Assert.IsTrue(new Lr2ConfigSession().TryResolve(configPath, out Lr2ConfigOwner? config));
+            Assert.IsNotNull(config);
+            Assert.AreEqual(0, config.Capture().RegisteredRoots.Count);
+            Assert.IsNull(XDocument.Load(configPath).Element("config")?.Element("system"));
             CollectionAssert.AreEqual(before, File.ReadAllBytes(configPath));
         });
     }
@@ -108,7 +110,7 @@ public sealed class LR2ConfigTests
 
             Assert.IsTrue(changed);
             Assert.AreEqual(LR2Config.DatabaseAutoReloadManualOnly, config.GetDatabaseAutoReloadMode());
-            config.Save();
+            config.Save(config.ConfigFilePath);
             Assert.AreEqual("0", XDocument.Load(configPath).Element("config")?.Element("system")?.Element("autoreload")?.Value);
         });
     }
@@ -142,7 +144,7 @@ public sealed class LR2ConfigTests
 
             Assert.IsTrue(changed);
             Assert.AreEqual(LR2Config.DatabaseAutoReloadManualOnly, config.GetDatabaseAutoReloadMode());
-            config.Save();
+            config.Save(config.ConfigFilePath);
             Assert.AreEqual("0", XDocument.Load(configPath).Element("config")?.Element("system")?.Element("autoreload")?.Value);
         });
     }
@@ -158,9 +160,8 @@ public sealed class LR2ConfigTests
             "<?xml version=\"1.0\" encoding=\"utf-8\"?><config><system><customfolder>日本語</customfolder></system><jukebox /></config>",
             delegate (string configPath, LR2Config config)
             {
-                config.EnsureDatabaseAutoReloadManualOnly();
-
-                config.Save();
+                var owner = new Lr2ConfigOwner(config);
+                owner.EnsureDatabaseAutoReloadManualOnly();
 
                 byte[] bytes = File.ReadAllBytes(configPath);
                 string savedXml = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetString(bytes);
@@ -184,7 +185,7 @@ public sealed class LR2ConfigTests
         {
             byte[] previousBytes = File.ReadAllBytes(configPath);
             string[] siblingPathsBefore = Directory.GetFiles(Path.GetDirectoryName(configPath)!);
-            config.EnsureDatabaseAutoReloadManualOnly();
+            var owner = new Lr2ConfigOwner(config);
 
             using (var lockedDestination = new FileStream(
                 configPath,
@@ -192,7 +193,7 @@ public sealed class LR2ConfigTests
                 FileAccess.ReadWrite,
                 FileShare.None))
             {
-                IOException failure = Assert.ThrowsException<IOException>(() => config.Save());
+                IOException failure = Assert.ThrowsException<IOException>(() => owner.EnsureDatabaseAutoReloadManualOnly());
 
                 Assert.IsNotNull(failure.InnerException);
                 StringAssert.Contains(failure.Message, Path.GetDirectoryName(configPath));
@@ -200,7 +201,7 @@ public sealed class LR2ConfigTests
             }
 
             CollectionAssert.AreEqual(previousBytes, File.ReadAllBytes(configPath));
-            Assert.AreEqual(LR2Config.DatabaseAutoReloadManualOnly, config.GetDatabaseAutoReloadMode());
+            Assert.AreEqual(2, owner.CaptureSaved().DatabaseAutoReloadMode);
         });
     }
 
@@ -209,12 +210,13 @@ public sealed class LR2ConfigTests
     /// </summary>
     /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
-    public void RemoveBMSSearchDirectoriesAndSave_WhenDestinationCannotBeReplaced_RestoresDocument()
+    public void OwnerRemoveRoots_WhenDestinationCannotBeReplaced_PreservesSavedInput()
     {
         WithConfig("<config><system /><jukebox><path>Managed\\</path></jukebox></config>", delegate (string configPath, LR2Config config)
         {
             byte[] previousBytes = File.ReadAllBytes(configPath);
             string[] siblingPathsBefore = Directory.GetFiles(Path.GetDirectoryName(configPath)!);
+            var owner = new Lr2ConfigOwner(config);
 
             using (var lockedDestination = new FileStream(
                 configPath,
@@ -223,7 +225,7 @@ public sealed class LR2ConfigTests
                 FileShare.None))
             {
                 IOException failure = Assert.ThrowsException<IOException>(() =>
-                    config.RemoveBMSSearchDirectoriesAndSave(["Managed"]));
+                    owner.SaveRoots(new Lr2RootChange(owner.CaptureSaved().RegisteredRoots, [])));
                 Assert.IsNotNull(failure.InnerException);
                 StringAssert.Contains(failure.Message, Path.GetDirectoryName(configPath));
                 CollectionAssert.AreEquivalent(siblingPathsBefore, Directory.GetFiles(Path.GetDirectoryName(configPath)!));
@@ -232,7 +234,7 @@ public sealed class LR2ConfigTests
             CollectionAssert.AreEqual(previousBytes, File.ReadAllBytes(configPath));
             CollectionAssert.AreEqual(
                 new[] { "Managed" },
-                config.GetBMSSearchDirectoriesForChangeTracking().Select(Path.GetFileName).ToArray());
+                owner.CaptureSaved().RegisteredRoots.Select(Path.GetFileName).ToArray());
         });
     }
 
@@ -559,7 +561,7 @@ public sealed class LR2ConfigTests
             string additionalBase = outputIsParent ? parent : child;
             Directory.CreateDirectory(bmsRoot);
             config.AddBMSSearchDirectories([bmsRoot]);
-            config.Save();
+            config.Save(config.ConfigFilePath);
             byte[] savedXml = File.ReadAllBytes(configPath);
 
             Assert.ThrowsException<ArgumentException>(() =>

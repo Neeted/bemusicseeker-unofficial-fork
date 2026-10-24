@@ -139,8 +139,9 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
             string lr2Root = Path.Combine(root, "LR2");
             LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(lr2Root, root);
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             var filesystem = new TestFileMutationService();
-            var library = new TestBmsLibrary(songDbPath, () => config, null, filesystem, null,
+            var library = new TestBmsLibrary(songDbPath, configOwner, null, filesystem, null,
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = afterCommit, LR2RootPath = lr2Root })
             {

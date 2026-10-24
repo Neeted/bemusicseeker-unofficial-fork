@@ -73,7 +73,7 @@ public sealed class Lr2SongDbSyncInputBuilderTests
         };
         var library = new TestBmsLibrary(
             scope.SongDbPath,
-            () => null,
+            null,
             null,
             "builder_no_scan",
             () => options);

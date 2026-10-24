@@ -1226,8 +1226,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 ],
                 Folder_order = ["Folder C"]
             };
-            Func<LR2Config> lr2ConfigProvider = () =>
-                BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, bmsRoot);
+            Lr2ConfigOwner lr2ConfigProvider = new(BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, bmsRoot));
             var scheduler = new QueuedUiScheduler();
             var library = new TestBmsLibrary(
                     scope.SongDbPath,
@@ -1381,8 +1380,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 ],
                 Folder_order = ["Folder D"]
             };
-            Func<LR2Config> lr2ConfigProvider = () =>
-                BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, bmsRoot);
+            Lr2ConfigOwner lr2ConfigProvider = new(BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, bmsRoot));
             var options = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
             bool failPreflight = false;
             var library = new TestBmsLibrary(
@@ -1390,11 +1388,15 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 lr2ConfigProvider,
                 null,
                 null,
-                () => Volatile.Read(ref failPreflight)
-                    ? throw new InvalidOperationException("forced full preflight failure")
-                    : options,
+                () => options,
                 applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
-                uiScheduler: new InlineUiScheduler(), settings: testSettings);
+                uiScheduler: new InlineUiScheduler(), rootFileEnumerator: new CapturedRootFileEnumerator(new Dictionary<string, RootFileEnumerationEntry>())
+                {
+                    BeforeEnumeration = () =>
+                    {
+                        if (Volatile.Read(ref failPreflight)) { throw new InvalidOperationException("forced full preflight failure"); }
+                    }
+                }, settings: testSettings);
             var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), scope.SongDbPath,
                 () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings), lr2ConfigProvider, settings: testSettings)
             {
@@ -3432,7 +3434,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 LR2CustomFolderAdditionalOutputBaseDirs = [],
                 LR2CustomFolderOutputBaseDirRootType = string.Empty
             };
-            var library = new TestBmsLibrary(scope.SongDbPath, () => null!, null, "test", () => options, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, null, null, "test", () => options, settings: testSettings)
             {
                 SearchTargets = [],
                 BmsCharts = []
@@ -3486,7 +3488,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 LR2CustomFolderAdditionalOutputBaseDirs = [],
                 LR2CustomFolderOutputBaseDirRootType = string.Empty
             };
-            var library = new TestBmsLibrary(scope.SongDbPath, () => null!, null, "test", () => options, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, null, null, "test", () => options, settings: testSettings)
             {
                 SearchTargets = [],
                 BmsCharts = []
@@ -3539,7 +3541,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 LR2CustomFolderAdditionalOutputBaseDirs = [],
                 LR2CustomFolderOutputBaseDirRootType = string.Empty
             };
-            var library = new TestBmsLibrary(scope.SongDbPath, () => null!, null, "test", () => options, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, null, null, "test", () => options, settings: testSettings)
             {
                 SearchTargets = [],
                 BmsCharts = []
@@ -4212,7 +4214,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         };
         var library = new TestBmsLibrary(
             scope.SongDbPath,
-            () => null!,
+            null,
             null,
             "test",
             () => options, settings: testSettings)
@@ -5149,8 +5151,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 });
             }
             var options = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
-            // 既存の設定取得境界へ到達した実Taskで待ち、表示の排出を終結条件にしない。
-            int inputSurfaceOptionsGateArmed = 0;
+            // 実同期workerの開始通知で待ち、設定の再取得や表示の排出を終結条件にしません。
             library = new TestBmsLibrary(
                 scope.SongDbPath,
                 getLR2Config: null,
@@ -5158,19 +5159,16 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 fileMutationService: null,
                 dialogService: null,
                 uiScheduler: scheduler,
-                optionsSnapshotProvider: () =>
-                {
-                    if (Volatile.Read(ref inputSurfaceOptionsGateArmed) != 0)
-                    {
-                        inputSurfaceEntered.TrySetResult(true);
-                        inputSurfaceGate.Wait();
-                    }
-
-                    return options;
-                }, settings: testSettings)
+                optionsSnapshotProvider: () => options, settings: testSettings)
             {
                 SearchTargets = [rootDirectory],
                 BmsCharts = []
+            };
+            library.StartupBackgroundTaskReporter = (name, status, _, _, _) =>
+            {
+                if (name != "lr2_song_db_sync" || status != "start") { return; }
+                inputSurfaceEntered.TrySetResult(true);
+                inputSurfaceGate.Wait();
             };
             initializationInput = new(InvokeCaptureLr2SongDbSyncScanSurface(
                 library,
@@ -5184,10 +5182,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             queuedOperation = library.QueueLr2SongDbSyncAsync("test_preflight_shutdown", force: true,
                 prepareGeneratedData: (_, _) =>
                 {
-                    Volatile.Write(ref inputSurfaceOptionsGateArmed, 1);
                     return Lr2SongDbSyncPreparedDataSurface.Empty;
                 }, initializationResult: initializationInput, preparedSurface: preparedInput);
-            await TestUiDispatcherHost.AwaitNotificationAsync(inputSurfaceEntered.Task, queuedOperation, "lr2.shutdown.input-surface-entered");
+            await TestUiDispatcherHost.AwaitNotificationAsync(inputSurfaceEntered.Task, queuedOperation, "lr2.shutdown.worker-entered");
             library.RequestShutdown("test_preflight_shutdown");
             inputSurfaceGate.Set();
             await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => queuedOperation);
@@ -6492,7 +6489,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllText(lr2FolderPath, "#TITLE Favorite", Encoding.GetEncoding("shift_jis"));
             testSettings.LR2RootPath = lr2Root;
             LR2Config config = CreateLr2Config(lr2Root, customFolderMask: 0x2, titleFlashHours: 24, bmsRoot);
-            var library = new TestBmsLibrary(scope.SongDbPath, () => config, settings: testSettings)
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
+            var library = new TestBmsLibrary(scope.SongDbPath, configOwner, settings: testSettings)
             {
                 SearchTargets = [bmsRoot],
                 BmsCharts = []
@@ -6553,8 +6551,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllText(lr2FolderPath, "#TITLE Random", Encoding.GetEncoding("shift_jis"));
             testSettings.LR2RootPath = lr2Root;
             LR2Config config = CreateLr2Config(lr2Root, customFolderMask: 0x1, titleFlashHours: 24, bmsRoot);
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             var options = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
-            var library = new TestBmsLibrary(scope.SongDbPath, () => config, null, null, () => options, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, configOwner, null, null, () => options, settings: testSettings)
             {
                 SearchTargets = [bmsRoot],
                 BmsCharts = []
@@ -6628,7 +6627,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllText(lr2FolderPath, "#TITLE Course", Encoding.GetEncoding("shift_jis"));
             testSettings.LR2RootPath = lr2Root;
             LR2Config config = CreateLr2Config(lr2Root, customFolderMask: 0, titleFlashHours: 24, bmsRoot);
-            var library = new TestBmsLibrary(scope.SongDbPath, () => config, settings: testSettings)
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
+            var library = new TestBmsLibrary(scope.SongDbPath, configOwner, settings: testSettings)
             {
                 SearchTargets = [bmsRoot],
                 BmsCharts = []
@@ -6691,7 +6691,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllText(lr2FolderPath, "#TITLE New Song", Encoding.GetEncoding("shift_jis"));
             testSettings.LR2RootPath = lr2Root;
             LR2Config config = CreateLr2Config(lr2Root, customFolderMask: 0, titleFlashHours: 24, bmsRoot);
-            var library = new TestBmsLibrary(scope.SongDbPath, () => config, settings: testSettings)
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
+            var library = new TestBmsLibrary(scope.SongDbPath, configOwner, settings: testSettings)
             {
                 SearchTargets = [bmsRoot],
                 BmsCharts = [file]
@@ -7395,11 +7396,15 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))];
         }
 
+        /// <summary>実列挙の到達点だけを制御し、捕捉した列挙結果は変更しません。</summary>
+        internal Action? BeforeEnumeration { get; init; }
+
         public RootFileEnumerationResult EnumerateFiles(
             IEnumerable<string> rootDirectories,
             IEnumerable<RootFileEnumerationGroup> groups,
             bool verboseLog = false)
         {
+            BeforeEnumeration?.Invoke();
             var result = new RootFileEnumerationResult
             {
                 Success = true,

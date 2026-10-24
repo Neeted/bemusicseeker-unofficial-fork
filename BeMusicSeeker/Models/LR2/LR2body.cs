@@ -17,7 +17,7 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
 
     private readonly ExternalPlayerWaitPolicy waitPolicy;
 
-    private readonly LR2Config lr2Config;
+    private readonly Lr2ConfigOwner lr2Config;
 
     private string BMSFilePathPlaying;
 
@@ -33,9 +33,7 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
 
     private readonly object lockThis = new();
 
-    private LR2Config.PreviewScope previewScope;
-
-    private bool previewPublished;
+    private Lr2ConfigOwner.PreviewScope previewScope;
 
     private string _exePath;
 
@@ -103,9 +101,10 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
 
     public int LastMeasure { get; }
 
+    /// <summary>構成が採用した同じXML所有者へ試聴一時出力を接続します。</summary>
     internal LR2body(
         string exePath,
-        LR2Config config,
+        Lr2ConfigOwner config,
         IPlayerSettingsGateway playerSettingsGateway,
         IExternalPlayerProcessGateway processGateway,
         ExternalPlayerWaitPolicy waitPolicy = null)
@@ -137,6 +136,7 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             process = LR2bodyProcess;
             if (process == null)
             {
+                LR2bodyExited(null, EventArgs.Empty);
                 return;
             }
             Exception handlerFailure = null;
@@ -202,6 +202,7 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         lock (lockThis)
         {
             isPausing = false;
+            if (previewScope != null) { CloseProcess(); }
             IReadOnlyList<IExternalPlayerProcessSession> existingProcesses = processGateway.FindExisting(
                 ExternalPlayerProcessDiscoveryRequest.Create("LR2body", "LRHbody"));
             if (existingProcesses.Count != 0)
@@ -256,7 +257,6 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                     isWindowMode: true,
                     masterVolume: settings.PlayerVolume,
                     isVolumeEnabled: true);
-                previewPublished = true;
                 ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
                 process.Start();
                 processStarted = true;
@@ -314,7 +314,7 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                     }
                 }
 
-                if (previewPublished && previewScope != null && !previewRestoreAttempted)
+                if (previewScope?.Overlay == true && !previewRestoreAttempted)
                 {
                     previewRestoreAttempted = true;
                     try
@@ -327,7 +327,8 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                     }
                 }
 
-                if (!retainStartedProcess && (processCleanupFailure == null || !processStarted))
+                if (!retainStartedProcess && (processCleanupFailure == null || !processStarted)
+                    && previewScope?.Overlay != true)
                 {
                     if (previewScope != null)
                     {
@@ -342,7 +343,6 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                         if (previewEndFailure == null)
                         {
                             previewScope = null;
-                            previewPublished = false;
                         }
                     }
                 }
@@ -581,34 +581,17 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                 return;
             }
 
-            Exception restoreFailure = null;
             try
             {
-                if (previewPublished)
-                {
-                    lr2Config.RestorePreview(previewScope);
-                }
+                lr2Config.RestorePreview(previewScope);
             }
             catch (Exception exception)
             {
-                restoreFailure = exception;
+                // process終了後もscopeを保持し、Stop/Close/次の明示開始から復元を再試行します。
+                throw CreatePreviewFailure(new InvalidOperationException("LR2 preview restore failed."), exception);
             }
-            try
-            {
-                lr2Config.EndPreview(previewScope);
-            }
-            catch (Exception exception)
-            {
-                restoreFailure = CombineFailures(restoreFailure, exception);
-            }
+            lr2Config.EndPreview(previewScope);
             previewScope = null;
-            previewPublished = false;
-            if (restoreFailure != null)
-            {
-                throw CreatePreviewFailure(
-                    new InvalidOperationException("LR2 preview restore failed."),
-                    restoreFailure);
-            }
         }
     }
 }

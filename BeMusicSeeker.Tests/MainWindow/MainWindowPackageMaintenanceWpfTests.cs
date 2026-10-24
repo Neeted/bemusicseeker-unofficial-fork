@@ -244,6 +244,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 string dbPath = Path.Combine(root, "song.db");
                 string lr2Root = Path.Combine(root, "LR2");
                 LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(lr2Root, root);
+                var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
                 using (var db = new LR2SongDBExtended(dbPath))
                 {
                     db.CreateTable<LR2SongDB.song>();
@@ -258,7 +259,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     applicationLifetime: TestApplicationContext.CreateLifetime(),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     fileDbMutationDialogService: dialogs);
-                var library = new TestBmsLibrary(dbPath, () => config, null,
+                var library = new TestBmsLibrary(dbPath, configOwner, null,
                     new ResilientFileMutationService(), dialogs,
                     new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     () => new BmsLibraryOptionsSnapshot

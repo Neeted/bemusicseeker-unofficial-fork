@@ -5,7 +5,8 @@ using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal sealed class BmsLibraryOptionsSnapshot
+/// <summary>一操作の設定とLR2公開入力を捕捉し、登録と分類用配置が異なる時点へずれないようにします。</summary>
+internal sealed record BmsLibraryOptionsSnapshot
 {
     public bool OperationModeLR2DB { get; init; }
 
@@ -72,6 +73,33 @@ internal sealed class BmsLibraryOptionsSnapshot
     public string BMSInstallDir { get; init; }
 
     public int PendingInstallEstimateMaxParallelPackages { get; init; }
+
+    /// <summary>今回の操作で登録と配置を一緒に捕捉した公開入力です。</summary>
+    internal BeMusicSeeker.Models.LR2.Lr2ConfigSnapshot Lr2Input { get; init; }
+
+    /// <summary>操作の他設定を保ち、同時捕捉した登録・配置を接続します。</summary>
+    internal BmsLibraryOptionsSnapshot WithLr2Input(BeMusicSeeker.Models.LR2.Lr2ConfigSnapshot input)
+        => (input?.Placement == null ? this : WithLr2Placement(input.Placement)) with { Lr2Input = input };
+
+    /// <summary>所有者へ初回の分類用配置だけを渡します。</summary>
+    internal CustomFolderOutputSettingsSnapshot CaptureOutputPlacement() => new()
+    {
+        OperationModeLR2DB = OperationModeLR2DB,
+        LR2RootPath = LR2RootPath,
+        LR2CustomFolderOutputBaseDir = LR2CustomFolderOutputBaseDir,
+        LR2CustomFolderOutputBaseDirRootType = LR2CustomFolderOutputBaseDirRootType,
+        LR2CustomFolderAdditionalOutputBaseDirs = LR2CustomFolderAdditionalOutputBaseDirsSerialized
+            ?? CustomFolderOutputBaseRegistry.SerializeBaseDirectories(LR2CustomFolderAdditionalOutputBaseDirs)
+    };
+
+    /// <summary>同時捕捉した公開済み配置を、登録と同じ操作入力へ反映します。</summary>
+    internal BmsLibraryOptionsSnapshot WithLr2Placement(CustomFolderOutputSettingsSnapshot placement) => this with
+    {
+        LR2CustomFolderOutputBaseDir = placement.LR2CustomFolderOutputBaseDir,
+        LR2CustomFolderOutputBaseDirRootType = placement.LR2CustomFolderOutputBaseDirRootType,
+        LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(placement.LR2CustomFolderAdditionalOutputBaseDirs),
+        LR2CustomFolderAdditionalOutputBaseDirsSerialized = placement.LR2CustomFolderAdditionalOutputBaseDirs
+    };
 
     /// <summary>受理する処理の設定入力を捕捉します。出力配置だけは保存段階で公開済みの値に揃えます。</summary>
     /// <param name="settings">非配置設定を読む共有設定。</param>

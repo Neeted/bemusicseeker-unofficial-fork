@@ -39,11 +39,12 @@ public sealed partial class SettingDialogEditCompletionTests
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
                 MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
                 var config = new LR2Config(values.LR2ConfigXmlPath);
-                SetPrivateField(owner, "lr2config", config);
+                Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
+                SetPrivateField(owner, "lr2config", configOwner);
                 SetActiveLibraryProfile(owner, true);
                 var parent = new BMSTable { playlist_id = 7196, name = "Parent" };
                 var child = new BMSTable { playlist_id = 7197, name = "Child", Output_dir = @"Parent\Child", custom_folder_output_base_name = "Extra" };
-                var playlist = new TestBmsPlaylist(values.LR2SongDBPath, () => config, null, null,
+                var playlist = new TestBmsPlaylist(values.LR2SongDBPath, configOwner, null, null,
                     () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(values), () => BeatorajaBmtOptionsSnapshot.CreateCurrent(values),
                     composition.CustomFolderOutputSettingsProvider,
                     BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(values.LR2SongDBPath, CustomFolderOutputPhysicalSurface.Empty),
@@ -136,7 +137,8 @@ public sealed partial class SettingDialogEditCompletionTests
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
                 MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
                 var config = new LR2Config(values.LR2ConfigXmlPath);
-                SetPrivateField(owner, "lr2config", config);
+                Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
+                SetPrivateField(owner, "lr2config", configOwner);
                 SetActiveLibraryProfile(owner, true);
                 var table = new BMSTable
                 {
@@ -161,7 +163,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     entries = [BmsPlaylistTestSupport.CreateEntry(new string('c', 32), "Extra Folder")],
                     Folder_order = ["Extra Folder"]
                 };
-                var playlist = new TestBmsPlaylist(values.LR2SongDBPath, () => config, null, null,
+                var playlist = new TestBmsPlaylist(values.LR2SongDBPath, configOwner, null, null,
                     () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(values), () => BeatorajaBmtOptionsSnapshot.CreateCurrent(values),
                     composition.CustomFolderOutputSettingsProvider,
                     BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(values.LR2SongDBPath, CustomFolderOutputPhysicalSurface.Empty),
@@ -318,11 +320,9 @@ public sealed partial class SettingDialogEditCompletionTests
                     xmlBlocker?.Dispose(); xmlBlocker = null;
                     string laterUserRoot = Path.Combine(root, "LaterUserRoot");
                     Directory.CreateDirectory(laterUserRoot);
-                    var latest = new LR2Config(values.LR2ConfigXmlPath);
-                    latest.AddBMSSearchDirectories([laterUserRoot]);
-                    latest.Save();
+                    composition.ResolveLr2Config(values.LR2ConfigXmlPath).SaveRoots(new Lr2RootChange([], [laterUserRoot]));
                     playlist.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(values.LR2CustomFolderOutputBaseDirRootType,
-                        configOverride: null, CustomFolderOutputSettingsSnapshot.CreateCurrent(values));
+                        CustomFolderOutputSettingsSnapshot.CreateCurrent(values));
                     CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), laterUserRoot,
                         "日常のroot同期も保持済み旧XDocumentで後の確定登録を上書きしません。");
                 }
@@ -378,7 +378,8 @@ public sealed partial class SettingDialogEditCompletionTests
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
                 MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
                 var config = new LR2Config(values.LR2ConfigXmlPath);
-                SetPrivateField(owner, "lr2config", config);
+                Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
+                SetPrivateField(owner, "lr2config", configOwner);
                 SetActiveLibraryProfile(owner, true);
                 var table = new BMSTable
                 {
@@ -394,7 +395,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     Folder_order = ["Folder"]
                 };
                 var normalTable = new BMSTable { playlist_id = 7196, name = "Parent", Output_dir = "Parent" };
-                var playlist = new TestBmsPlaylist(values.LR2SongDBPath, () => config, null, null,
+                var playlist = new TestBmsPlaylist(values.LR2SongDBPath, configOwner, null, null,
                     () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(values), () => BeatorajaBmtOptionsSnapshot.CreateCurrent(values),
                     composition.CustomFolderOutputSettingsProvider,
                     BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(values.LR2SongDBPath, CustomFolderOutputPhysicalSurface.Empty),

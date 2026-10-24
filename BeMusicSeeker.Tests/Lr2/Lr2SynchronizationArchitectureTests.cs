@@ -341,10 +341,10 @@ public sealed class Lr2SynchronizationArchitectureTests
     }
 
     /// <summary>
-    /// 保証：LR2検索先から管理出力基点と子孫を除外し、設定読込み失敗時は旧検索先を使わず、独立モードではLR2設定失敗に依存しない。
+    /// 保証：LR2検索先から管理出力基点と子孫を除外し、独立モードではLR2設定に依存しない。
     /// </summary>
     [TestMethod]
-    public void SearchRootSnapshotPreservesExcludedDescendantsAndClearsAfterConfigFailure()
+    public void SearchRootSnapshotPreservesExcludedDescendantsAndStandaloneRoots()
     {
         string tempRoot = Path.Combine(
             Path.GetTempPath(),
@@ -363,43 +363,23 @@ public sealed class Lr2SynchronizationArchitectureTests
                 LR2CustomFolderOutputBaseDirRootType = excludedRoot
             };
             var owner = new Lr2SearchRootSnapshotOwner(
-                new Lr2ConfigSnapshotProvider(() => null),
+                null,
                 () => options)
             {
-                SearchTargets = [excludedRoot, excludedChild, retainedRoot]
+                StandaloneSearchTargets = [excludedRoot, excludedChild, retainedRoot]
             };
 
             CollectionAssert.AreEqual(new[] { retainedRoot }, owner.Capture().Roots.ToArray());
-
-            var throwingOwner = new Lr2SearchRootSnapshotOwner(
-                new Lr2ConfigSnapshotProvider(() => throw new InvalidOperationException("config unavailable")),
-                () => options)
-            {
-                SearchTargets = [retainedRoot]
-            };
-
-            CollectionAssert.AreEqual(Array.Empty<string>(), throwingOwner.Capture().Roots.ToArray());
-
-            string malformedConfigPath = Path.Combine(tempRoot, "config.xml");
-            File.WriteAllText(malformedConfigPath, "<root />");
-            var malformedConfigOwner = new Lr2SearchRootSnapshotOwner(
-                new Lr2ConfigSnapshotProvider(() => new BeMusicSeeker.Models.LR2.LR2Config(malformedConfigPath)),
-                () => options)
-            {
-                SearchTargets = [retainedRoot]
-            };
-
-            CollectionAssert.AreEqual(Array.Empty<string>(), malformedConfigOwner.Capture().Roots.ToArray());
 
             var normalModeOptions = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = false
             };
             var normalModeOwner = new Lr2SearchRootSnapshotOwner(
-                new Lr2ConfigSnapshotProvider(() => throw new InvalidOperationException("config unavailable")),
+                null,
                 () => normalModeOptions)
             {
-                SearchTargets = [retainedRoot]
+                StandaloneSearchTargets = [retainedRoot]
             };
 
             CollectionAssert.AreEqual(new[] { retainedRoot }, normalModeOwner.Capture().Roots.ToArray());
@@ -420,7 +400,7 @@ public sealed class Lr2SynchronizationArchitectureTests
     public void SearchRootSnapshotRejectsNullOptionsProvider()
     {
         var owner = new Lr2SearchRootSnapshotOwner(
-            new Lr2ConfigSnapshotProvider(() => null),
+            null,
             () => null);
 
         Assert.ThrowsException<InvalidOperationException>(() => owner.Capture());
@@ -449,10 +429,10 @@ public sealed class Lr2SynchronizationArchitectureTests
                 LR2CustomFolderAdditionalOutputBaseDirs = [excludedRoot]
             };
             var owner = new Lr2SearchRootSnapshotOwner(
-                new Lr2ConfigSnapshotProvider(() => null),
+                null,
                 () => options)
             {
-                SearchTargets = [excludedRoot, excludedChild]
+                StandaloneSearchTargets = [excludedRoot, excludedChild]
             };
 
             CollectionAssert.AreEqual(Array.Empty<string>(), owner.Capture().Roots.ToArray());

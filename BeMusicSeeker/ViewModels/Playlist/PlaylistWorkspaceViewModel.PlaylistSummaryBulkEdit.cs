@@ -16,7 +16,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     private const string PlaylistSummaryBulkProgressSource = "playlist_summary_bulk";
 
 
-    private readonly Func<LR2Config> getLr2Config;
+    private readonly Func<Lr2ConfigOwner> getLr2Config;
     private readonly Action<string> summaryBulkWarningLog;
     private PlaylistSummaryBulkEditDialogViewModel activeSummaryBulkEditDialog;
     internal event EventHandler<PlaylistSummaryBulkInvalidOutputDirectoryEventArgs> PlaylistSummaryBulkInvalidOutputDirectoryRequested;
@@ -115,11 +115,6 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     // 集約編集のXML書込みも、他のセクションが確定した最新の登録を基にします。
-    private LR2Config GetLr2Config()
-    {
-        LR2Config current = getLr2Config();
-        return current == null ? null : new LR2Config(current.ConfigFilePath);
-    }
 
     // 属性の旧値は編集入口が所有し、保存境界の失敗だけで戻します。確定後の出力失敗は保存済み値を保ちます。
     private static void PersistPlaylistSummaryHeaderChanges(Action persist, Action restore)
@@ -1249,7 +1244,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         CustomFolderOutputSettingsSnapshot settings)
     {
         if (settings?.OperationModeLR2DB != true) { return; }
-        LR2Config lr2config = GetLr2Config();
+        Lr2ConfigOwner lr2config = getLr2Config();
         if (lr2config == null)
         {
             return;
@@ -1262,7 +1257,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             return;
         }
 
-        List<string> bmsSearchDirectories = lr2config.GetBMSSearchDirectoriesForChangeTracking();
         IEnumerable<string> removeDirectories = (outputDirPathBeforeByTable ?? new Dictionary<BMSTable, string>())
             .Where(item => item.Key != null && item.Key.is_root_folder)
             .Select(item => item.Value)
@@ -1273,11 +1267,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 "playlist summary root output directory notification",
                 settings))
             .Where(directory => !string.IsNullOrWhiteSpace(directory));
-        lr2config.SetBMSSearchDirectories(bmsSearchDirectories
-            .Except(removeDirectories, StringComparer.OrdinalIgnoreCase)
-            .Union(addDirectories)
-            .Distinct(StringComparer.OrdinalIgnoreCase));
-        lr2config.Save();
+        lr2config.SaveRoots(new Lr2RootChange(removeDirectories, addDirectories));
     }
 
     /// <summary>開始時と同じstoreの全正本参照をP内で検証し、出力種別の保存と必要出力を待ちます。</summary>
@@ -1517,10 +1507,9 @@ public sealed partial class PlaylistWorkspaceViewModel
             },
             "playlist summary root folder notification");
 
-        LR2Config lr2config = settings.OperationModeLR2DB ? GetLr2Config() : null;
+        Lr2ConfigOwner lr2config = settings.OperationModeLR2DB ? getLr2Config() : null;
         if (lr2config != null)
         {
-            List<string> bmsSearchDirectories = lr2config.GetBMSSearchDirectoriesForChangeTracking();
             if (isRootFolder)
             {
                 IEnumerable<string> addDirectories = changedTables
@@ -1530,16 +1519,12 @@ public sealed partial class PlaylistWorkspaceViewModel
                         "playlist summary root output directory notification",
                         settings))
                     .Where(directory => !string.IsNullOrWhiteSpace(directory));
-                lr2config.SetBMSSearchDirectories(bmsSearchDirectories
-                    .Union(addDirectories)
-                    .Distinct(StringComparer.OrdinalIgnoreCase));
+                lr2config.SaveRoots(new Lr2RootChange([], addDirectories));
             }
             else
             {
-                lr2config.SetBMSSearchDirectories(bmsSearchDirectories
-                    .Except(outputDirPathBeforeByTable.Values, StringComparer.OrdinalIgnoreCase));
+                lr2config.SaveRoots(new Lr2RootChange(outputDirPathBeforeByTable.Values, []));
             }
-            lr2config.Save();
         }
 
         await tables.BmtOutput.ExportTablesAsync(changedTables, "playlist_summary_root_folder_changed", authority);

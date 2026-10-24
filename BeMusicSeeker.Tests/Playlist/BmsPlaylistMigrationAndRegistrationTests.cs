@@ -719,6 +719,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             Directory.CreateDirectory(targetDir);
             File.WriteAllText(targetPath, "#TITLE provider target", Encoding.GetEncoding("shift_jis"));
             LR2Config config = CreateLr2Config(lr2RootPath, targetDir);
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             using (var db = new LR2SongDBExtended(songDbPath))
             {
                 db.CreateTable<LR2SongDB.folder>();
@@ -766,7 +767,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 () => playlist,
                 PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
                 () => library,
-                () => config,
+                () => configOwner,
                 _ => { },
                 new ObservableCollection<BMSTable>(),
                 (_, _) => false,
@@ -1702,11 +1703,12 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootOutput");
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
             LR2Config config = CreateLr2Config(testSettings.LR2RootPath, outputBase);
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             byte[] oldXml = File.ReadAllBytes(config.ConfigFilePath);
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var existing = new BMSTable { playlist_id = 7821, name = "Child", Output_dir = Path.Combine("Parent", "Child") };
-            var playlist = new TestBmsPlaylist(songDbPath, () => config,
+            var playlist = new TestBmsPlaylist(songDbPath, configOwner,
                 CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>([existing])

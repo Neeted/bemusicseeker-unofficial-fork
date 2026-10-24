@@ -288,7 +288,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Directory.CreateDirectory(previousRoot);
                 var config = new BeMusicSeeker.Models.LR2.LR2Config(values.LR2ConfigXmlPath);
                 config.AddBMSSearchDirectories([previousNormal]);
-                config.Save();
+                config.Save(config.ConfigFilePath);
                 Directory.Delete(previousNormal);
                 Directory.Delete(previousRoot);
                 Directory.Delete(Path.Combine(root, "UnavailableNormal"));

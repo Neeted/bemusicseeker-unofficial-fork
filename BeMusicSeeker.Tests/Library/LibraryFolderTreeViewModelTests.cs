@@ -547,7 +547,7 @@ public sealed class LibraryFolderTreeViewModelTests
             cacheRefreshRequests = 0;
 
             int propertyChangesBeforeInvalidation = parentFolderPropertyChanges;
-            owner.ApplySearchTargets([replacementRoot, secondRoot]);
+            owner.ApplyStandaloneSearchTargets([replacementRoot, secondRoot]);
             CollectionAssert.AreEqual(
                 new[] { replacementRoot, secondRoot },
                 library.SearchTargets.ToArray());
@@ -584,7 +584,7 @@ public sealed class LibraryFolderTreeViewModelTests
         owner.CacheRefreshRequested += (_, _) => refreshRequests++;
 
         Assert.IsFalse(owner.IsLibraryAttached);
-        owner.ApplySearchTargets(["detached"]);
+        owner.ApplyStandaloneSearchTargets(["detached"]);
         owner.InvalidateLibraryFolderCache();
 
         Assert.AreEqual(0, refreshRequests);

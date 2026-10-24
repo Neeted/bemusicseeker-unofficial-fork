@@ -83,7 +83,7 @@ internal static class MainWindowViewModelTestFactory
     internal static TestBmsPlaylist CreatePlaylist(
         string songDbPath,
         Settings settings,
-        Func<LR2Config>? getLr2Config = null,
+        Lr2ConfigOwner? getLr2Config = null,
         Func<CancellationToken, Task<WalkureScoreInput>>? recommendationScoreReader = null,
         BMSLibrary? library = null)
     {

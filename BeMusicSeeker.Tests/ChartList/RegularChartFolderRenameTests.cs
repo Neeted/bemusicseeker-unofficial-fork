@@ -95,9 +95,10 @@ public sealed class RegularChartFolderRenameTests
             if (finalizationFails)
             {
                 LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, libraryRoot);
+                var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
                 library = new TestBmsLibrary(
                     songDbPath,
-                    () => lr2Config,
+                    lr2ConfigOwner,
                     null,
                     null,
                     dialogs,
@@ -494,9 +495,10 @@ public sealed class RegularChartFolderRenameTests
             {
                 ChartFile file = CreateTestableBmsFile(chartPath);
                 LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, libraryRoot);
+                var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
                 var library = new TestBmsLibrary(
                     songDbPath,
-                    () => lr2Config,
+                    lr2ConfigOwner,
                     null,
                     null,
                     dialogs,

@@ -48,7 +48,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
 
     internal TestBmsLibrary(
         string songDbPath,
-        Func<LR2Config> getLR2Config = null,
+        Lr2ConfigOwner getLR2Config = null,
         string _lr2ScoreDB = null,
         string startupRequiredFileScanReason = null,
         Settings settings = null)
@@ -59,7 +59,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
 
     internal TestBmsLibrary(
         string songDbPath,
-        Func<LR2Config> getLR2Config,
+        Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
         IFileMutationService fileMutationService,
         Settings settings = null)
@@ -70,7 +70,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
 
     internal TestBmsLibrary(
         string songDbPath,
-        Func<LR2Config> getLR2Config,
+        Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
         IFileMutationService fileMutationService,
         IBmsLibraryDialogService dialogService,
@@ -85,7 +85,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
     /// </summary>
     internal TestBmsLibrary(
         string songDbPath,
-        Func<LR2Config> getLR2Config,
+        Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
         IFileMutationService fileMutationService,
         IBmsLibraryDialogService dialogService,
@@ -108,7 +108,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
 
     internal TestBmsLibrary(
         string songDbPath,
-        Func<LR2Config> getLR2Config,
+        Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
         IFileMutationService fileMutationService,
         IBmsLibraryDialogService dialogService,
@@ -129,7 +129,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
     /// <param name="playlistOperationAdmission">実起動構成と共有するプレイリスト局所受付。</param>
     internal TestBmsLibrary(
         string songDbPath,
-        Func<LR2Config> getLR2Config,
+        Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
         IFileMutationService fileMutationService,
         IBmsLibraryDialogService dialogService,
@@ -165,7 +165,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
     /// <param name="playlistOperationAdmission">同compositionのプレイリスト局所受付。</param>
     internal TestBmsLibrary(
         string songDbPath,
-        Func<LR2Config> getLR2Config,
+        Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
         string startupRequiredFileScanReason,
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
@@ -192,7 +192,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
     /// <param name="playlistOperationAdmission">同compositionのプレイリスト局所受付。</param>
     internal TestBmsLibrary(
         string songDbPath,
-        Func<LR2Config> getLR2Config,
+        Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
         string startupRequiredFileScanReason,
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
@@ -272,7 +272,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
         BmsPlaylistLibraryBindings libraryBindings,
         string songDbPath,
         Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider,
-        Func<LR2Config> getLr2Config = null,
+        Lr2ConfigOwner getLr2Config = null,
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider = null,
         Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider = null,
         Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null,
@@ -303,7 +303,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
 
     internal TestBmsPlaylist(
         string songDbPath,
-        Func<LR2Config> getLr2Config = null,
+        Lr2ConfigOwner getLr2Config = null,
         string scoreDbPath = null,
         Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver = null,
         Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null,
@@ -371,7 +371,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
 
     internal TestBmsPlaylist(
         string songDbPath,
-        Func<LR2Config> getLr2Config,
+        Lr2ConfigOwner getLr2Config,
         ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization,
         Settings settings = null)
         : base(
@@ -412,7 +412,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
     /// <summary>明示設定と読取り・UI反映の境界を接続し、実保存経路を持つプレイリストを作成します。</summary>
     internal TestBmsPlaylist(
         string songDbPath,
-        Func<LR2Config> getLr2Config,
+        Lr2ConfigOwner getLr2Config,
         string scoreDbPath,
         Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver,
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider,

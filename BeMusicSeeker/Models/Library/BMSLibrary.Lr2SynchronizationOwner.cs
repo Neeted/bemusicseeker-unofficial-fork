@@ -272,7 +272,7 @@ public partial class BMSLibrary
                 }
 
                 var stopwatch = Stopwatch.StartNew();
-                Lr2SearchRootSnapshot rootSnapshot = data.CaptureBmsDirectories();
+                Lr2SearchRootSnapshot rootSnapshot = data.CaptureBmsDirectories(options);
                 List<string> roots = [.. rootSnapshot.Roots];
                 List<string> builtinSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options);
                 List<string> discoveryDirectories = NormalizeDistinctDirectories(CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(roots, options));
@@ -353,7 +353,7 @@ public partial class BMSLibrary
 
         internal Lr2BuiltinCustomFolderSettings CreateCurrentLr2BuiltinCustomFolderSettings(DateTime nowUtc)
         {
-            LR2Config config = data.CreateCurrentLr2ConfigOrNull();
+            Lr2ConfigSnapshot config = data.CaptureLr2Config();
             return Lr2BuiltinCustomFolderSettings.CreateFromAddDates(
                 config,
                 data.CaptureBmsFilesSnapshot()
@@ -874,7 +874,7 @@ public partial class BMSLibrary
                         throw new InvalidOperationException("LR2 normal-folder catalog snapshot is unavailable.");
                     }
 
-                    roots = [.. data.CaptureBmsDirectories().Roots];
+                    roots = [.. data.CaptureBmsDirectories(options).Roots];
                     if (roots.Count > 0)
                     {
                         syncInput = Lr2NormalFolderSyncScopeBuilder.CreateForCatalogMutation(roots, receipt);
@@ -1254,7 +1254,7 @@ public partial class BMSLibrary
         private Lr2SongDbSyncInputRootSnapshot CreateLr2SongDbSyncInputRootSnapshot(BmsLibraryOptionsSnapshot options)
         {
             DateTime capturedAtUtc = DateTime.UtcNow;
-            List<string> rootDirectories = [.. data.CaptureBmsDirectories().Roots];
+            List<string> rootDirectories = [.. data.CaptureBmsDirectories(options).Roots];
             return new Lr2SongDbSyncInputRootSnapshot(
                 capturedAtUtc,
                 rootDirectories,
@@ -1270,7 +1270,7 @@ public partial class BMSLibrary
             List<string> lr2BuiltinFolderSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options);
             return new Lr2SongDbSyncInputSettingsSnapshot(
                 Lr2BuiltinCustomFolderSettings.CreateFromAddDates(
-                    data.CreateCurrentLr2ConfigOrNull(),
+                    data.CaptureLr2Config(),
                     (songRows ?? []).Select(chart => chart?.AddDate),
                     nowUtc),
                 lr2BuiltinFolderSourceDirectories,

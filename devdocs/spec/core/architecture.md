@@ -134,10 +134,13 @@ BASS・7zは `libs/x64`、Everything連携は `native`、言語ファイルは `
 
 構成が共有するSettingsは確定値だけを保持します。通常項目は対象キーだけを保存し、成功後に公開します。環境・音声・BMS・出力等の候補は既存の機能担当に局所化します。二媒体や移行の保存済み事実はその担当の寿命で保持します。
 
+LR2設定の全文正本は構成寿命の `Lr2ConfigOwner` が所有し、`Lr2ConfigSession` が採用先を保持します。LibraryProfile・設定画面・Playlist・LR2bodyはこの所有者を共用し、XML全文を個別に保持・再読込みするproviderは置きません。実処理は登録と配置を含む変更不能な小さい公開入力、保存計画は操作内の作業コピーを使います。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| LR2全文所有と構成寿命 | [`Lr2ConfigOwner`](../../../BeMusicSeeker/Models/LR2/Lr2ConfigOwner.cs)、[`ApplicationComposition`](../../../BeMusicSeeker/ViewModels/MainWindow/ApplicationComposition.cs) | [`所有者の局所検証`](../../../BeMusicSeeker.Tests/Lr2/Lr2ConfigOwnerTests.cs) が全文と公開入力の区別を、[`構成寿命`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionLr2OwnerTests.cs) がスタンドアロンLR2プレイヤー再生成を確認します。 |
 | 再構築前後のプレイリスト受付と個別storeの分離 | `ApplicationComposition`、`BMSLibrary`、`BmsPlaylistLibraryBindings` | [`ApplicationCompositionTests`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionTests.cs) の `CompositionCreatesPlaylistWithTypedLibraryBindings`は同じ構成のP共有、Lとの分離、個別主体・DB・終了状態、旧終了後の生存権限借用と別構成の権限拒否を確認する。 |
 | 構成から共有する論理受付と背景入力更新の順序 | [`ApplicationComposition`](../../../BeMusicSeeker/ViewModels/MainWindow/ApplicationComposition.cs)、[`ChartFileOperationSynchronizer`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartFileOperationSynchronizer.cs) | [導入先推定の対応表](../library/install-estimation.md#実装とテストの対応)の標準構成接続と本番mutation port・実背景更新の回帰で確認する。 |
 | 設定保存の型と互換性 | [Settings.cs](../../../BeMusicSeeker/Properties/Settings.cs)、[PortableSettingsProvider.cs](../../../BeMusicSeeker/Properties/PortableSettingsProvider.cs) | [PortableSettingsPersistenceTests](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) の `SaveRoundTripsThroughFreshGeneratedSettingsAndPreservesUnknownKeys`: 新しい設定インスタンスでの再読込みと未知キーの保持。 |

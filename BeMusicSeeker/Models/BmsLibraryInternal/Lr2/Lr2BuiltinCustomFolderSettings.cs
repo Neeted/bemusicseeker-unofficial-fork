@@ -32,24 +32,26 @@ internal sealed class Lr2BuiltinCustomFolderSettings
         IncludeNewSongFolder = includeNewSongFolder;
     }
 
+    /// <summary>同じ公開済みLR2入力と譜面の追加日時から、組込みfolderの対象を決めます。XMLを読み直しません。</summary>
     public static Lr2BuiltinCustomFolderSettings Create(
-        LR2Config config,
+        Lr2ConfigSnapshot config,
         IEnumerable<ChartFile> songRows,
         DateTime nowUtc)
     {
-        int customFolderMask = Math.Max(0, config?.GetCustomFolderMask() ?? 0);
-        int titleFlashHours = Math.Max(0, config?.GetTitleFlashHours() ?? 24);
+        int customFolderMask = Math.Max(0, config?.CustomFolderMask ?? 0);
+        int titleFlashHours = Math.Max(0, config?.TitleFlashHours ?? 24);
         bool includeNewSongFolder = HasRecentSongAddDates((songRows ?? []).Select(song => song?.AddDate), titleFlashHours, nowUtc);
         return new Lr2BuiltinCustomFolderSettings(customFolderMask, titleFlashHours, includeNewSongFolder);
     }
 
+    /// <summary>捕捉済みの通常設定と追加日時だけから、新曲folderの有効性を決めます。</summary>
     public static Lr2BuiltinCustomFolderSettings CreateFromAddDates(
-        LR2Config config,
+        Lr2ConfigSnapshot config,
         IEnumerable<int?> songAddDates,
         DateTime nowUtc)
     {
-        int customFolderMask = Math.Max(0, config?.GetCustomFolderMask() ?? 0);
-        int titleFlashHours = Math.Max(0, config?.GetTitleFlashHours() ?? 24);
+        int customFolderMask = Math.Max(0, config?.CustomFolderMask ?? 0);
+        int titleFlashHours = Math.Max(0, config?.TitleFlashHours ?? 24);
         bool includeNewSongFolder = HasRecentSongAddDates(songAddDates, titleFlashHours, nowUtc);
         return new Lr2BuiltinCustomFolderSettings(customFolderMask, titleFlashHours, includeNewSongFolder);
     }

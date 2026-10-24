@@ -179,7 +179,8 @@ internal interface ISettingsDialogSearchRootRuntimePort
 
     bool HasOwnedChartUnderRealPath(string directoryPath);
 
-    void ApplySearchTargets(IReadOnlyList<string> searchTargets);
+    /// <summary>独立モードで成立したユーザー一覧を、既存ライブラリの確定入力へ反映します。LR2は共有所有者から直接捕捉します。</summary>
+    void ApplyStandaloneSearchTargets(IReadOnlyList<string> searchTargets);
 
     void InvalidateLibraryFolderCache();
 }

@@ -118,7 +118,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                         fileDbMutationDialogService: new FileDbReportRecordingDialogs());
                     viewModel = composition.CreateMainWindowViewModel();
                     scheduler.ReleaseAll();
-                    library = composition.CreateBmsLibrary(new LibraryProfile(false, songDbPath, [], () => null!, null,
+                    library = composition.CreateBmsLibrary(new LibraryProfile(false, songDbPath, [], null, null,
                         false, false, false, false, "package-dispatch-test"));
                     viewModel.PackageInstallWorkflow.AttachLibrary(library);
                     scheduler.ReleaseAll();

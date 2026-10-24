@@ -239,6 +239,9 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     internal Func<InstallDestinationWorkflowSettingsSnapshot> InstallDestinationSettingsProvider =>
         installDestinationSettingsProvider;
 
+    /// <summary>初回設定・ライブラリ・プレイヤー再生成をまたいで同じLR2正本を保持します。</summary>
+    internal Lr2ConfigSession Lr2ConfigSession { get; } = new();
+
     internal ISettingsEditSession SettingsEditSession => settingsEditSession;
 
     internal IUiScheduler UiScheduler => uiScheduler;
@@ -279,7 +282,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Action<Exception, string> beatorajaTableUrlImportWarningLog,
         Action<string> beatorajaTableUrlImportInfoLog,
         Func<BMSLibrary> libraryProvider,
-        Func<LR2Config> lr2ConfigProvider,
+        Func<Lr2ConfigOwner> lr2ConfigProvider,
         Action<string> summaryBulkWarningLog,
         ObservableCollection<BMSTable> emptyPlaylistTreeSource,
         Func<string, Func<Task>, bool> playlistLibraryIndexPrewarmScheduler,
@@ -401,6 +404,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             audioDeviceCatalog: audioDeviceCatalog,
             audioSettingsGateway: audioSettingsGateway,
             operationAdmission: OperationAdmission,
+            lr2ConfigSession: Lr2ConfigSession,
             publishOutputPlacement: () => Volatile.Write(ref appliedCustomFolderOutputPlacement,
                 CustomFolderOutputSettingsSnapshot.CreateCurrent(settingsEditSession.Values)));
     }
@@ -547,9 +551,12 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             warningLog);
     }
 
+    /// <summary>プレイヤーも構成が保持する採用済み正本を使います。</summary>
+    internal Lr2ConfigOwner ResolveLr2Config(string path) => Lr2ConfigSession.Resolve(path);
+
     internal IBMSPlayer CreateBmsPlayer(
         StartupSettingsSnapshot startupSettings,
-        Func<LR2Config> createLr2PlayerConfig)
+        Func<Lr2ConfigOwner> createLr2PlayerConfig)
     {
         if (startupSettings == null)
         {
@@ -588,7 +595,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         }
         IBMSPlayer player = CreateBmsPlayer(
             settings,
-            () => new LR2Config(settings.LR2ConfigXmlPath));
+            () => ResolveLr2Config(settings.LR2ConfigXmlPath));
         if (player != null)
         {
             return player;
@@ -615,7 +622,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         }
         return new BMSLibrary(
             libraryProfile.SongDbPath,
-            libraryProfile.Lr2ConfigProvider,
+            libraryProfile.Lr2ConfigOwner,
             libraryProfile.Lr2ScoreDbPath,
             libraryProfile.StartupRequiredFileScanReason,
             bmsLibraryOptionsProvider,
@@ -647,7 +654,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         return new BMSPlaylist(
             new BmsPlaylistLibraryBindings(library),
             libraryProfile.SongDbPath,
-            libraryProfile.Lr2ConfigProvider,
+            libraryProfile.Lr2ConfigOwner,
             libraryProfile.Lr2ScoreDbPath,
             playlistUrlCompletionOptionsProvider,
             beatorajaBmtOptionsProvider,

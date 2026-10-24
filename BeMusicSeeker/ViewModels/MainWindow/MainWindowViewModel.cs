@@ -526,7 +526,7 @@ public partial class MainWindowViewModel : ViewModel,
         TryLogStartupPostInitializationComplete();
     }
 
-    private LR2Config lr2config;
+    private Lr2ConfigOwner lr2config;
 
     private PropertyChangedEventListener listenerForBMSLibrary;
 
@@ -3001,13 +3001,13 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
-    private LR2Config CreateLR2PlayerConfig(StartupSettingsSnapshot startupSettings)
+    private Lr2ConfigOwner CreateLR2PlayerConfig(StartupSettingsSnapshot startupSettings)
     {
         if (startupSettings.OperationModeLR2DB && lr2config != null)
         {
             return lr2config;
         }
-        return new LR2Config(startupSettings.LR2ConfigXmlPath);
+        return applicationComposition.ResolveLr2Config(startupSettings.LR2ConfigXmlPath);
     }
 
     /// <summary>
@@ -3405,7 +3405,7 @@ public partial class MainWindowViewModel : ViewModel,
         string text = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? string.Empty;
         WindowTitle = "BeMusicSeeker Unofficial Fork - " + text;
         StartupSettingsSnapshot startupSettings = null;
-        LR2Config startupLr2Config;
+        Lr2ConfigOwner startupLr2Config;
         AppSchemaPreflightResult schemaApproval = null;
         CustomFolderOutputSettingsSnapshot startupCustomFolderSettings = null;
         long operationToken = 0L;
@@ -3418,9 +3418,9 @@ public partial class MainWindowViewModel : ViewModel,
                 startupCustomFolderSettings = customFolderOutputSettingsProvider()
                     ?? throw new InvalidOperationException("Custom-folder output settings provider returned null during startup.");
             }
-            (bool configValid, LR2Config config) = await StartupLibraryConstructionOwner.PrepareDirectoriesAsync(
+            (bool configValid, Lr2ConfigOwner config) = await StartupLibraryConstructionOwner.PrepareDirectoriesAsync(
                 startupSettings,
-                startupCustomFolderSettings);
+                startupCustomFolderSettings, applicationComposition.Lr2ConfigSession);
             startupLr2Config = config;
             string startupValidationErrorMessage = BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath;
             if (!configValid || !SettingDialog.CheckValidationForInitialization(out startupValidationErrorMessage))
@@ -3476,6 +3476,7 @@ public partial class MainWindowViewModel : ViewModel,
             StartupLibraryConstructionOwner.RepairCustomFolderSearchRoots(startupSettings, startupLr2Config);
             LibraryProfile libraryProfile = StartupLibraryConstructionOwner.CreateProfile(startupSettings, startupLr2Config, applicationComposition.ApplicationPathSnapshot);
             lr2config = startupLr2Config;
+            if (startupLr2Config != null) { applicationComposition.Lr2ConfigSession.Adopt(startupLr2Config); }
             StartupLibraryServices libraryServices = startupLibraryConstructionOwner.CreateAndApply(
                 libraryProfile,
                 this, capability, files, tables);
@@ -4094,12 +4095,11 @@ public partial class MainWindowViewModel : ViewModel,
             return null;
         }
         if (lr2config == null
-            && !string.IsNullOrWhiteSpace(settings.LR2ConfigXmlPath)
-            && File.Exists(settings.LR2ConfigXmlPath))
+            && !string.IsNullOrWhiteSpace(settings.LR2ConfigXmlPath))
         {
-            lr2config = new LR2Config(settings.LR2ConfigXmlPath);
+            lr2config = applicationComposition.ResolveLr2Config(settings.LR2ConfigXmlPath);
         }
-        return Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(settings.LR2RootPath, () => lr2config?.GetPlayerId());
+        return Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(settings.LR2RootPath, () => lr2config?.Capture().PlayerId);
     }
 
     private string ResolveMainViewBeatorajaPlayHistoryScoreDbPath()

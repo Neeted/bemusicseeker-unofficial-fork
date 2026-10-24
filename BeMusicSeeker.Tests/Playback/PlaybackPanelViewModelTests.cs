@@ -5309,7 +5309,7 @@ public sealed class PlaybackPanelViewModelTests
         File.WriteAllText(configPath, "<config><system><windowsize_x>800</windowsize_x><windowsize_y>600</windowsize_y><screenmode>1</screenmode></system><sound><volumemaster>100</volumemaster></sound><jukebox /></config>");
         string executable = Path.Combine(directory, "LR2body.exe");
         File.WriteAllBytes(executable, []);
-        var player = new LR2body(executable, new LR2Config(configPath),
+        var player = new LR2body(executable, new Lr2ConfigOwner(new LR2Config(configPath)),
             new ExternalPlayerProcessGatewayTests.RecordingPlayerSettingsGateway(),
             processGateway ?? new ExternalPlayerProcessGatewayTests.RecordingExternalPlayerProcessGateway());
         ((IExternalWindowPlayer)player).AttachWindowHost(new ExternalPlayerProcessGatewayTests.RecordingExternalPlayerWindowHost(default));

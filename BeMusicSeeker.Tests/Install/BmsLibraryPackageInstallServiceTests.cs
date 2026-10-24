@@ -1040,9 +1040,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             string destinationChartPath = Path.Combine(sourceDirectoryPath, "chart.bme");
             ChartFile chart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceChartPath));
             LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, sourceDirectoryPath);
+            var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
             var library = new TestBmsLibrary(
                 songDbPath,
-                () => lr2Config,
+                lr2ConfigOwner,
                 null,
                 new RealFileMutationService(),
                 new RecordingDialogService(),
@@ -2849,9 +2850,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     .Save(configPath);
                 config = new LR2Config(configPath);
             }
+            Lr2ConfigOwner? configOwner = config == null ? null : new Lr2ConfigOwner(config);
             var library = new TestBmsLibrary(
                 songDbPath,
-                () => config!,
+                configOwner,
                 null!,
                 new RealFileMutationService(),
                 new RecordingDialogService(),
