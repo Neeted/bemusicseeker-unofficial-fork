@@ -42,14 +42,6 @@
       <SolidColorBrush x:Key="PlaylistLamp.Rank.F" Color="#005CFF" />
       <SolidColorBrush x:Key="PlaylistLamp.Rank.NP" Color="#f3f4f6" />
 
-      <Style x:Key="lampCardStyle" TargetType="{x:Type Border}">
-        <Setter Property="Background" Value="{DynamicResource App.SurfaceBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="5" />
-        <Setter Property="Padding" Value="16,8" />
-        <Setter Property="Margin" Value="0,0,8,8" />
-      </Style>
       <Style x:Key="lampBarButtonStyle" TargetType="{x:Type Button}">
         <Setter Property="Padding" Value="0" />
         <Setter Property="Margin" Value="0" />
@@ -164,15 +156,32 @@
           <DataTrigger Binding="{Binding PaletteKey}" Value="Rank.NP"><Setter Property="Background" Value="{DynamicResource PlaylistLamp.Rank.NP}" /></DataTrigger>
         </Style.Triggers>
       </Style>
-      <DataTemplate x:Key="lampStatCardTemplate">
-        <Border Style="{StaticResource lampCardStyle}"
-                Width="{Binding CardWidth}"
-                AutomationProperties.AutomationId="PlaylistLampViewerStatCard">
+      <DataTemplate x:Key="lampStatisticTemplate">
+        <StackPanel Orientation="Horizontal" AutomationProperties.AutomationId="PlaylistLampViewerStatistic" AutomationProperties.Name="{Binding DetailText}">
+          <Border Width="1" Margin="8,2" Background="{DynamicResource App.BorderBrush}">
+            <Border.Style>
+              <Style TargetType="Border">
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter}, Path=(ItemsControl.AlternationIndex)}" Value="0">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </Border.Style>
+          </Border>
           <StackPanel>
-            <TextBlock Text="{Binding Label}" Foreground="{DynamicResource App.SubtleTextBrush}" FontSize="11" TextWrapping="Wrap" />
-            <TextBlock Text="{Binding Value}" Foreground="{DynamicResource App.TextBrush}" FontSize="17" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding Label}" Foreground="{DynamicResource App.SubtleTextBrush}" FontSize="12" />
+            <TextBlock Text="{Binding Value}" AutomationProperties.Name="{Binding DetailText}" Foreground="{DynamicResource App.TextBrush}" FontSize="18" FontWeight="SemiBold" Margin="0,4,0,0" />
           </StackPanel>
-        </Border>
+        </StackPanel>
+      </DataTemplate>
+      <DataTemplate x:Key="lampStatisticGroupTemplate">
+        <ItemsControl ItemsSource="{Binding}" ItemTemplate="{StaticResource lampStatisticTemplate}" AlternationCount="4" Margin="0,0,24,8" AutomationProperties.AutomationId="PlaylistLampViewerStatisticGroup">
+          <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+        </ItemsControl>
+      </DataTemplate>
+      <DataTemplate x:Key="lampSupplementaryStatisticTemplate">
+        <TextBlock Text="{Binding DetailText}" Margin="0,0,24,0" FontSize="11" Foreground="{DynamicResource App.SubtleTextBrush}" AutomationProperties.AutomationId="PlaylistLampViewerSupplementaryStatistic" AutomationProperties.Name="{Binding DetailText}" />
       </DataTemplate>
       <DataTemplate x:Key="lampLegendTemplate">
         <Border Style="{StaticResource lampLegendStyle}"
@@ -289,9 +298,14 @@
         </StackPanel>
       </StackPanel>
     </Grid>
-    <ItemsControl Grid.Row="1" Margin="16,0,8,0" ItemsSource="{Binding StatisticsCards}" ItemTemplate="{StaticResource lampStatCardTemplate}">
-      <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-    </ItemsControl>
+    <StackPanel Grid.Row="1" Margin="16,0,16,12">
+      <ItemsControl ItemsSource="{Binding StatisticGroups}" ItemTemplate="{StaticResource lampStatisticGroupTemplate}" AutomationProperties.AutomationId="PlaylistLampViewerStatistics">
+        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+      </ItemsControl>
+      <ItemsControl ItemsSource="{Binding SupplementaryStatistics}" ItemTemplate="{StaticResource lampSupplementaryStatisticTemplate}">
+        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+      </ItemsControl>
+    </StackPanel>
     <Grid Grid.Row="2" Margin="0" Visibility="{Binding IsGraphVisible, Converter={StaticResource lampBoolVisibility}}">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />

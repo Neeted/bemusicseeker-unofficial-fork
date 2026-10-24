@@ -1090,6 +1090,7 @@
   "PlaylistLampViewer_percentage_mode": "Pourcentage",
   "PlaylistLampViewer_count_mode": "Nombre de morceaux",
   "PlaylistLampViewer_latest": "Dernier état",
+  "PlaylistLampViewer_statistic_detail_format": "{0} : {1}",
   "PlaylistLampViewer_segment_detail_format": "{0} : {1} ({2})",
   "PlaylistLampViewer_segment_unavailable_detail_format": "{0} : {1} ({2})",
   "PlaylistLampViewer_percentage_format": "{0:N2} %",

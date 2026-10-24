@@ -61,9 +61,11 @@ DPI変更時はWPFの標準処理を維持し、独自のフォルダ名・件�
 
 有効な実エントリだけを集計し、未所持のエントリも総数に含めます。全体の割合の分母は総数、フォルダの割合はそのフォルダの実エントリ数です。分母が0なら「利用不可」とし、0%にはしません。
 
-カードの順序は、総数、所持数、未所持数、所持率、使用中のスコア情報源、プレイ済み数、未プレイ数、プレイ率、EXスコア率の算術平均、全体クリア率、プレイリスト最終更新です。クリア率は `ASSIST` 以上の数を総数で割り、`FAILED` と `NP` を含めません。
+統計は、総数・所持数・未所持数・所持率、プレイ済み数・未プレイ数・プレイ率、EXスコア率の算術平均・全体クリア率の3群で表示します。各項目は上に控えめな色のラベル、下にやや大きく太い値を左寄せで並べ、群内の項目間だけに控えめな縦線を置きます。群間は広く空け、見出しを置きません。背景・囲み枠・角丸・固定項目幅を設けず内容幅で配置し、ラベルと値の途中では改行しません。外周は16 DIPを維持し、既定1290×820 DIPの日本語9項目は一段に収めます。最小820×560 DIPなど狭い場合は必要に応じて群単位で折り返し、行端に区切り線を残しません。
 
-スコアを取得できない場合は、プレイ済み数からクリア率までの5枚をまとめて省略し、グラフとその操作も表示しないか無効にします。所持状態のカードは維持します。空の集計や全件未プレイに置き換えず、この状態だけでビューアを終端にしません。
+使用中のスコア情報源とプレイリスト最終更新は、統計の下に小さな通常文字の補助行として表示します。補助行のラベル・値の連結と統計の読み上げ名は、言語ごとの書式を使います。統計と補助行の文言は言語変更へ追従し、テーマ変更はラベル・値・区切り線の意味色へ反映します。これらの表示更新だけでは集計・取得要求やグラフの投影を変更しません。クリア率は `ASSIST` 以上の数を総数で割り、`FAILED` と `NP` を含めません。
+
+スコアを取得できない場合は、プレイ済み数からクリア率までの5項目をまとめて省略し、グラフとその操作も表示しないか無効にします。所持状態の統計と補助行は維持します。空の集計や全件未プレイに置き換えず、この状態だけでビューアを終端にしません。
 
 | 情報源・区分 | 表示規則 |
 | --- | --- |
@@ -71,9 +73,9 @@ DPI変更時はWPFの標準処理を維持し、独自のフォルダ名・件�
 | DJレベル | `AAA`、`AA`、`A`、`B`、`C`、`D`、`E`、`F`、`NP` の順。値 `MAX` は `AAA` に含める。 |
 | DJレベルF | プレイ済みの `F` と値 `INVALID` を含む。`NO_PLAY` / `NO_SONG` は含めない。 |
 | NP | 未プレイまたはスコアなし。専用のNSカテゴリは作らない。 |
-| LR2 | カード、凡例、全体・フォルダのバー、ツールチップ、Automationのすべてで `MAX` と `EXHARD` を除く。 |
+| LR2 | 凡例、全体・フォルダのバー、ツールチップ、Automationのすべてで `MAX` と `EXHARD` を除く。 |
 
-`playlist.last_update` はローカルの壁時計値です。タイムゾーンを割り当てたり変換したりせず、`ToString("g", CurrentCulture)` で末尾のカードに表示します。NULLは「利用不可」です。スコア情報源の `LastUpdatedUtc` / `SourceLastUpdatedUtc` を代わりに使いません。
+`playlist.last_update` はローカルの壁時計値です。タイムゾーンを割り当てたり変換したりせず、`ToString("g", CurrentCulture)` で補助行に表示します。NULLは「利用不可」です。スコア情報源の `LastUpdatedUtc` / `SourceLastUpdatedUtc` を代わりに使いません。
 
 ### 基準日のスコア
 
@@ -117,7 +119,7 @@ DPI変更時はWPFの標準処理を維持し、独自のフォルダ名・件�
 
 各行は「ラベル、6 DIPの余白、バー、6 DIPの余白、件数」です。書体と現在の内容から幅を測り、両領域で共有します。ラベルは170 DIP、件数はローカライズした `N0(9999)` の幅を上限とします。件数は単位なしの `N0` 表記です。行更新後に再計算し、長いラベルには省略記号と全文のツールチップを使います。区切り線は設けず、バーが重ならない行間を確保します。
 
-正の件数だけを重み付きの標準 `Button` として配置し、最後の区間に占有幅内の端数のピクセルを割り当て、利用可能幅を超えないようにします。0件は正の幅やボタンを持ちません。既定幅1290 DIPではカードと `MAX` から `NP` の凡例をそれぞれ一行に収め、狭い場合は折り返せます。
+正の件数だけを重み付きの標準 `Button` として配置し、最後の区間に占有幅内の端数のピクセルを割り当て、利用可能幅を超えないようにします。0件は正の幅やボタンを持ちません。既定幅1290 DIPでは日本語の統計9項目と `MAX` から `NP` の凡例をそれぞれ一行に収め、狭い場合は折り返せます。
 
 凡例にはラベルと件数を表示します。バー内の割合・曲数は完全に収まるときだけ表示し、切れた文字や省略記号にしません。正の件数のツールチップとAutomation名には、完全なラベル・件数・0ではない割合を残します。表示精度より小さい正の割合は、0ではなくローカライズした下限表現にします。
 
@@ -148,6 +150,7 @@ DPI変更時はWPFの標準処理を維持し、独自のフォルダ名・件�
 | Dispatcher配送後の古い結果・閉鎖後結果の非採用 | [ViewModel](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistLampViewerViewModel.cs) | [ViewModelテスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerViewModelTests.cs)で実Dispatcherを使い、投入済み旧結果による日付・表示・操作の巻戻りを防ぐことを確認する。 |
 | 初回・表示中の取得失敗、複数窓、対象削除、再読込み | [窓の管理](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindowManager.cs) | [管理主体テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowManagerTests.cs)で未取得表示と別窓の独立、初回削除案内、表示中の対象だけの閉鎖、同じ対象の再読込みで閉じないことを確認する。 |
 | 実閉鎖の先行、初回取消し、開始済み日付取得の終端 | [窓の管理](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindowManager.cs) | [管理主体テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowManagerTests.cs)で実 `Closed`、所有集合からの除去、UI応答、受理済み処理の回収、遅い完了でも再表示しないことを確認する。 |
+| 統計3群と補助2件、内容幅・群単位の折返し、言語・テーマ・Automation | [ViewModel](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistLampViewerViewModel.cs)、[画面](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindow.xaml) | [ViewModelテスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerViewModelTests.cs)の `Viewer_statisticsKeepOwnershipPlayAndScoreGroupsSeparateFromSupplementaryDetails` で異なる値の所属と書式を、[表示テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowPresentationTests.cs)の `Viewer_statisticsUseContentWidthsAndWrapWholeGroupsWhileTrackingLanguageAndTheme` で既定日本語・最小幅・大数値・長い翻訳・明暗テーマの実配置と、ja/en/fr/zh-CNの言語切替後の画面・Automationの翻訳書式を確認する。利用不可時の4項目と補助2件は既存LR2表示ケース、失敗時の存在数と利用不可はViewModelケースが担う。 |
 | 表示モード、尺度、幅不変の即時ラベル、切替の副作用なし | [ViewModel](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistLampViewerViewModel.cs)、[画面](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindow.xaml.cs) | [表示テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowPresentationTests.cs)で100/50/0件・特殊行・未実体化最大行、左右の尺度、参照・選択・スクロールの保持、モード切替時の捕捉・集計・一覧要求がないことを確認する。 |
 | 日付の言語・テーマ追従、初期化順と表示更新の副作用なし | [共通日付表示](../../../BeMusicSeeker/Views/DatePickerPresentation.cs)、[言語サービス](../../../BeMusicSeeker/ViewModels/ResourceService.cs)、[画面](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindow.xaml) | `PlaylistLampViewerWindowPresentationTests.Viewer_datePresentationTracksApplicationCultureWithoutChangingTheQuery` でnull／固定の月日、en/frの月日交換、非Gregorianの追加JSON言語と標準のLostFocus／開く操作、週開始が同じ言語間、開いた同じPopupとCalendar、月年表示維持、標準ボタンの一回接続と取得回数不変を確認する。同日・最新の再取得抑止は `PlaylistLampViewerSessionTests.Session_queryUpdateKeepsTheLatestImmutableQuery` が担う。 |
 | 日付変更・最新復帰・LR2・利用不可、複数窓とモードの独立 | [ViewModel](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistLampViewerViewModel.cs)、[画面](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindow.xaml.cs) | [表示テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowPresentationTests.cs)で操作による再取得と表示モード保持、全0件・フォルダなし、ラベル収容を確認する。翻訳は共通の `LocalizationResourceParityTests` で確認する。 |

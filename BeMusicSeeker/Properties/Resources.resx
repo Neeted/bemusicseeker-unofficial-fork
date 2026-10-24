@@ -3121,6 +3121,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="PlaylistLampViewer_unavailable" xml:space="preserve"><value>利用不可</value></data>
   <data name="PlaylistLampViewer_selected" xml:space="preserve"><value>選択中</value></data>
   <data name="PlaylistLampViewer_not_selected" xml:space="preserve"><value>未選択</value></data>
+  <data name="PlaylistLampViewer_statistic_detail_format" xml:space="preserve"><value>{0}: {1}</value></data>
   <data name="PlaylistLampViewer_segment_detail_format" xml:space="preserve"><value>{0}: {1} ({2})</value></data>
   <data name="PlaylistLampViewer_segment_detail_adaptive_format" xml:space="preserve"><value>{0}: {1} ({2})</value></data>
   <data name="PlaylistLampViewer_segment_unavailable_detail_format" xml:space="preserve"><value>{0}: {1}（{2}）</value></data>

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -101,13 +102,69 @@ public sealed class PlaylistLampViewerViewModelTests
                 Assert.IsTrue(viewModel.IsFailure);
                 Assert.IsFalse(viewModel.IsGraphVisible);
                 Assert.AreEqual(Resources.PlaylistLampViewer_unavailable, viewModel.ScoreSourceText);
-                Assert.IsTrue(viewModel.StatisticsCards.All(card => card.Value == Resources.PlaylistLampViewer_unavailable));
+                Assert.AreEqual(1, viewModel.StatisticGroups.Count);
+                Assert.AreEqual(4, viewModel.StatisticGroups.Single().Count);
+                Assert.AreEqual(2, viewModel.SupplementaryStatistics.Count);
+                Assert.IsTrue(viewModel.StatisticGroups.SelectMany(group => group).Concat(viewModel.SupplementaryStatistics)
+                    .All(item => item.Value == Resources.PlaylistLampViewer_unavailable));
             }
             finally
             {
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.DisposeAsync().AsTask(), "failed projection drain");
             }
         });
+    }
+
+    /// <summary>異なる有効な集計値を表示境界へ与え、9項目の群所属・順序・書式と補助2件を確認します。計算の正しさは既存の集計テストが担当します。</summary>
+    [TestMethod]
+    public void Viewer_statisticsKeepOwnershipPlayAndScoreGroupsSeparateFromSupplementaryDetails()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            var timestamp = new DateTime(2026, 8, 29, 10, 49, 7, DateTimeKind.Unspecified);
+            var executor = new StatisticsBuildExecutor(timestamp);
+            var session = new PlaylistLampViewerSession("playlist", new DateSource(), buildExecutor: executor);
+            using var viewModel = new PlaylistLampViewerViewModel("playlist", "table", session, TestUiDispatcherHost.Dispatcher, _ => { });
+            try
+            {
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.StartAsync(), "statistics projection");
+                string[][] labels =
+                [
+                    [Resources.PlaylistLampViewer_total, Resources.PlaylistLampViewer_owned, Resources.PlaylistLampViewer_missing, Resources.PlaylistLampViewer_ownership_rate],
+                    [Resources.PlaylistLampViewer_played, Resources.PlaylistLampViewer_no_play, Resources.PlaylistLampViewer_play_rate],
+                    [Resources.PlaylistLampViewer_average_ex_rate, Resources.PlaylistLampViewer_clear_rate]
+                ];
+                string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);
+                string Rate(double value) => PlaylistLampViewerPercentageFormatter.Format(value, CultureInfo.CurrentCulture);
+                string[][] values = [[Count(210000), Count(145000), Count(65000), Rate(145000d / 210000 * 100)],
+                    [Count(123000), Count(87000), Rate(123000d / 210000 * 100)], [Rate(73.4), Rate(41)]];
+                Assert.AreEqual(3, viewModel.StatisticGroups.Count);
+                for (int group = 0; group < labels.Length; group++)
+                {
+                    CollectionAssert.AreEqual(labels[group], viewModel.StatisticGroups[group].Select(item => item.Label).ToArray());
+                    CollectionAssert.AreEqual(values[group], viewModel.StatisticGroups[group].Select(item => item.Value).ToArray());
+                }
+                CollectionAssert.AreEqual(new[] { Resources.PlaylistLampViewer_score_source, Resources.PlaylistLampViewer_playlist_last_update },
+                    viewModel.SupplementaryStatistics.Select(item => item.Label).ToArray());
+                CollectionAssert.AreEqual(new[] { Resources.PlaylistLampViewer_source_lr2, timestamp.ToString("g", CultureInfo.CurrentCulture) },
+                    viewModel.SupplementaryStatistics.Select(item => item.Value).ToArray());
+            }
+            finally
+            {
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.DisposeAsync().AsTask(), "statistics projection drain");
+            }
+        });
+    }
+
+    private sealed class StatisticsBuildExecutor(DateTime timestamp) : IPlaylistLampViewerBuildExecutor
+    {
+        public Task<PlaylistLampAggregationResult> BuildAsync(PlaylistLampAggregationRequest request, PlaylistLampAggregationService aggregation, CancellationToken token)
+        {
+            var statistics = new PlaylistLampStatistics(210000, 145000, 65000, 123000, 87000,
+                145000d / 210000, 123000d / 210000, 0.734, 0.41, true, null, timestamp);
+            return Task.FromResult(new PlaylistLampAggregationResult(request.PlaylistId, PlaylistLampViewerState.Ready,
+                [], [], [], statistics, request.ScoreSnapshot, null, request.Query));
+        }
     }
 
     private sealed class DateSource(bool failLatest = false) : IPlaylistLampViewerDataSource

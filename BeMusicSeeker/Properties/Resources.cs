@@ -2447,6 +2447,9 @@ public class Resources
     /// <summary>Localized unselected-state label.</summary>
     public static string PlaylistLampViewer_not_selected => ResourceManager.GetString("PlaylistLampViewer_not_selected", resourceCulture);
 
+    /// <summary>ランプ統計の補助表示と読み上げでラベル・値を連結する翻訳書式です。</summary>
+    public static string PlaylistLampViewer_statistic_detail_format => ResourceManager.GetString("PlaylistLampViewer_statistic_detail_format", resourceCulture);
+
     /// <summary>Localized segment detail format.</summary>
     public static string PlaylistLampViewer_segment_detail_format => ResourceManager.GetString("PlaylistLampViewer_segment_detail_format", resourceCulture);
 

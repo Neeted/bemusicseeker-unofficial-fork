@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
@@ -134,7 +135,9 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
 
     private readonly ObservableCollection<PlaylistLampViewerFolderRowViewModel> folderRows = [];
 
-    private readonly ObservableCollection<PlaylistLampViewerStatCardViewModel> statisticsCards = [];
+    private readonly ObservableCollection<IReadOnlyList<PlaylistLampViewerStatistic>> statisticGroups = [];
+
+    private readonly ObservableCollection<PlaylistLampViewerStatistic> supplementaryStatistics = [];
 
     private readonly TaskCompletionSource<PlaylistLampAggregationResult> firstPresentable =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -178,6 +181,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         result = session.Current;
         selectedAsOfDate = result?.Query?.SelectedLocalDate;
         session.ResultChanged += SessionResultChanged;
+        ResourceService.Current.PropertyChanged += ResourceServicePropertyChanged;
         ApplyResult(session.Generation, result);
     }
 
@@ -264,7 +268,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
     /// <summary>Current aggregation state. The state is consumed by owner lifecycle, not shown as routine status text.</summary>
     public PlaylistLampViewerState State => result?.State ?? PlaylistLampViewerState.Loading;
 
-    /// <summary>Localized score-source value for the source statistic card.</summary>
+    /// <summary>補助行へ表示する情報源と利用可否の文字列です。</summary>
     public string ScoreSourceText
     {
         get
@@ -289,7 +293,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         }
     }
 
-    /// <summary>Whether score-dependent graph and card values are available.</summary>
+    /// <summary>スコアに依存するグラフと統計値を利用できるかを示します。</summary>
     public bool IsScoreDataAvailable => result?.ScoreDataAvailable == true;
 
     /// <summary>Whether the current ready result is score-degraded.</summary>
@@ -328,12 +332,11 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
     /// <summary>Current normal-folder rows in source order.</summary>
     public ObservableCollection<PlaylistLampViewerFolderRowViewModel> FolderRows => folderRows;
 
-    /// <summary>
-    /// Current statistics in their visual and semantic order. Score-dependent cards are
-    /// omitted when the score source is unavailable or failed, while the legacy local
-    /// playlist last update remains the final card in either state.
-    /// </summary>
-    public ObservableCollection<PlaylistLampViewerStatCardViewModel> StatisticsCards => statisticsCards;
+    /// <summary>所持、プレイ、スコアの順に並ぶ統計群です。スコア利用不可時は所持群だけを残します。</summary>
+    public ObservableCollection<IReadOnlyList<PlaylistLampViewerStatistic>> StatisticGroups => statisticGroups;
+
+    /// <summary>情報源とローカル壁時計のプレイリスト最終更新を表示する補助項目です。</summary>
+    public ObservableCollection<PlaylistLampViewerStatistic> SupplementaryStatistics => supplementaryStatistics;
 
     /// <summary>Currently selected folder segment in this window.</summary>
     public PlaylistLampViewerSegmentViewModel SelectedSegment => selectedSegment;
@@ -405,6 +408,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
             return;
         }
         session.ResultChanged -= SessionResultChanged;
+        ResourceService.Current.PropertyChanged -= ResourceServicePropertyChanged;
         firstPresentable.TrySetCanceled();
         TerminalResultChanged = null;
         session.Dispose();
@@ -472,7 +476,6 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         clearSegments.Clear();
         rankSegments.Clear();
         folderRows.Clear();
-        statisticsCards.Clear();
 
         if (next.State is PlaylistLampViewerState.Ready or PlaylistLampViewerState.Empty
             && next.ScoreDataAvailable)
@@ -496,7 +499,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         }
 
         maximumFolderCount = folderRows.Select(row => row.Count).DefaultIfEmpty(0).Max();
-        AddStatisticsCards(next);
+        RefreshStatistics();
         if (next.State is not PlaylistLampViewerState.Loading)
         {
             firstPresentable.TrySetResult(next);
@@ -518,35 +521,46 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
                     and not PlaylistLampClearCategory.EXHARD));
     }
 
-    private void AddStatisticsCards(PlaylistLampAggregationResult next)
+    private void ResourceServicePropertyChanged(object sender, PropertyChangedEventArgs e)
     {
-        PlaylistLampStatistics statistics = next.State == PlaylistLampViewerState.Failed ? null : next.Statistics;
-        statisticsCards.Add(Card(Resources.PlaylistLampViewer_total, FormatCount(statistics?.TotalCount)));
-        statisticsCards.Add(Card(Resources.PlaylistLampViewer_owned, FormatCount(statistics?.OwnedCount)));
-        statisticsCards.Add(Card(Resources.PlaylistLampViewer_missing, FormatCount(statistics?.MissingCount)));
-        statisticsCards.Add(Card(Resources.PlaylistLampViewer_ownership_rate, FormatPercentage(statistics?.OwnershipPercentage)));
-        statisticsCards.Add(Card(Resources.PlaylistLampViewer_score_source, ScoreSourceText));
-        if (next.ScoreDataAvailable
-            && (next.State is PlaylistLampViewerState.Ready or PlaylistLampViewerState.Empty))
+        if (e.PropertyName != nameof(ResourceService.Resources) || Volatile.Read(ref disposed) != 0)
         {
-            statisticsCards.Add(Card(Resources.PlaylistLampViewer_played, FormatCount(statistics?.PlayedCount)));
-            statisticsCards.Add(Card(Resources.PlaylistLampViewer_no_play, FormatCount(statistics?.UnplayedCount)));
-            statisticsCards.Add(Card(Resources.PlaylistLampViewer_play_rate, FormatPercentage(statistics?.PlayPercentage)));
-            statisticsCards.Add(Card(Resources.PlaylistLampViewer_average_ex_rate, FormatPercentage(statistics?.AverageExRatePercentage)));
-            statisticsCards.Add(Card(Resources.PlaylistLampViewer_clear_rate, FormatPercentage(statistics?.ClearPercentage)));
+            return;
         }
-        statisticsCards.Add(Card(
-            Resources.PlaylistLampViewer_playlist_last_update,
-            FormatTimestamp(statistics?.PlaylistLastUpdated),
-            isWide: true));
+        // 言語変更は表示だけを更新し、結果適用やグラフの再構築を起こしません。
+        RefreshStatistics();
+        RaisePropertyChanged(nameof(WindowTitle));
+        RaisePropertyChanged(nameof(ScoreSourceText));
     }
 
-    private static PlaylistLampViewerStatCardViewModel Card(
-        string label,
-        string value,
-        bool isWide = false)
+    private void RefreshStatistics()
     {
-        return new PlaylistLampViewerStatCardViewModel(label, value, isWide);
+        statisticGroups.Clear();
+        supplementaryStatistics.Clear();
+        PlaylistLampStatistics statistics = State == PlaylistLampViewerState.Failed ? null : result?.Statistics;
+        statisticGroups.Add(new PlaylistLampViewerStatistic[]
+        {
+            new(Resources.PlaylistLampViewer_total, FormatCount(statistics?.TotalCount)),
+            new(Resources.PlaylistLampViewer_owned, FormatCount(statistics?.OwnedCount)),
+            new(Resources.PlaylistLampViewer_missing, FormatCount(statistics?.MissingCount)),
+            new(Resources.PlaylistLampViewer_ownership_rate, FormatPercentage(statistics?.OwnershipPercentage))
+        });
+        if (IsScoreDataAvailable && (State is PlaylistLampViewerState.Ready or PlaylistLampViewerState.Empty))
+        {
+            statisticGroups.Add(new PlaylistLampViewerStatistic[]
+            {
+                new(Resources.PlaylistLampViewer_played, FormatCount(statistics?.PlayedCount)),
+                new(Resources.PlaylistLampViewer_no_play, FormatCount(statistics?.UnplayedCount)),
+                new(Resources.PlaylistLampViewer_play_rate, FormatPercentage(statistics?.PlayPercentage))
+            });
+            statisticGroups.Add(new PlaylistLampViewerStatistic[]
+            {
+                new(Resources.PlaylistLampViewer_average_ex_rate, FormatPercentage(statistics?.AverageExRatePercentage)),
+                new(Resources.PlaylistLampViewer_clear_rate, FormatPercentage(statistics?.ClearPercentage))
+            });
+        }
+        supplementaryStatistics.Add(new(Resources.PlaylistLampViewer_score_source, ScoreSourceText));
+        supplementaryStatistics.Add(new(Resources.PlaylistLampViewer_playlist_last_update, FormatTimestamp(statistics?.PlaylistLastUpdated)));
     }
 
     private static string FormatCount(int? value)
@@ -830,35 +844,30 @@ internal sealed class PlaylistLampViewerFolderRowViewModel : ViewModel
     public string CountText => Count.ToString("N0", CultureInfo.CurrentCulture);
 }
 
-/// <summary>One visible statistic card in the lamp viewer.</summary>
-internal sealed class PlaylistLampViewerStatCardViewModel
+/// <summary>統計と補助行で共用する、翻訳済みのラベルと書式済みの値です。</summary>
+internal sealed class PlaylistLampViewerStatistic
 {
-    private const double RegularCardWidth = 100d;
-
-    private const double WideCardWidth = 180d;
-
-    /// <summary>Creates a statistic card.</summary>
-    /// <param name="label">Localized card label.</param>
-    /// <param name="value">Localized card value.</param>
-    /// <param name="isWide">Whether the card has the wider last-update layout role.</param>
-    internal PlaylistLampViewerStatCardViewModel(string label, string value, bool isWide = false)
+    /// <summary>内容幅で表示する一つの項目を生成します。</summary>
+    /// <param name="label">翻訳済みラベル。</param>
+    /// <param name="value">既存の文化圏規則で書式化した値。</param>
+    internal PlaylistLampViewerStatistic(string label, string value)
     {
         Label = label ?? string.Empty;
         Value = value ?? string.Empty;
-        IsWideLayout = isWide;
     }
 
-    /// <summary>Localized label.</summary>
+    /// <summary>翻訳済みラベルです。</summary>
     public string Label { get; }
 
-    /// <summary>Localized value.</summary>
+    /// <summary>書式済みの値です。</summary>
     public string Value { get; }
 
-    /// <summary>Whether this card uses the wider semantic layout role.</summary>
-    public bool IsWideLayout { get; }
-
-    /// <summary>Width assigned to this card's rendered layout role.</summary>
-    public double CardWidth => IsWideLayout ? WideCardWidth : RegularCardWidth;
+    /// <summary>翻訳書式でラベルと値を連結した、補助行の表示と各項目の読み上げに使う全文です。</summary>
+    public string DetailText => string.Format(
+        CultureInfo.CurrentCulture,
+        Resources.PlaylistLampViewer_statistic_detail_format,
+        Label,
+        Value);
 }
 
 /// <summary>Localized labels for semantic lamp categories.</summary>
