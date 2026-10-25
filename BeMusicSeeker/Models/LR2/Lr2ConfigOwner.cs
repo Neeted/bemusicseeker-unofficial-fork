@@ -83,6 +83,14 @@ internal sealed class Lr2ConfigOwner
             publish, normalized);
     }
 
+    /// <summary>今回の公開済み登録と入力から計画した出力一覧を、同値でも明示保存します。未公開の過去要求は計画の基準にしません。</summary>
+    internal Lr2RootChange SaveOutputRoots(IReadOnlyList<string> previous, IReadOnlyList<string> next)
+    {
+        Lr2RootChange change = new Lr2RootChange(previous, next).Normalize(document.NormalizeRequestedSearchDirectory);
+        Save(config => config.SetBMSSearchDirectories(next), publicationChange: change, forceSave: true);
+        return change;
+    }
+
     /// <summary>必要媒体成立後に今回の登録差分と分類用配置だけを公開します。全文の未公開値を巻き込みません。</summary>
     internal void Publish(Lr2RootChange change, CustomFolderOutputSettingsSnapshot placement = null)
     {
@@ -217,10 +225,6 @@ internal sealed class Lr2RootChange
     internal Lr2RootChange Normalize(Func<string, string> normalize) => new(
         removed.Select(normalize).Where(path => !string.IsNullOrWhiteSpace(path)),
         added.Select(normalize).Where(path => !string.IsNullOrWhiteSpace(path)));
-
-    /// <summary>同じ未了要求の候補修正でも、これまで保存に成功した変更を累積します。</summary>
-    internal Lr2RootChange Then(Lr2RootChange next) => new(removed.Concat(next.removed),
-        added.Except(next.removed, StringComparer.OrdinalIgnoreCase).Concat(next.added));
 
     /// <summary>指定した現在登録へ、今回の削除・追加だけを反映します。</summary>
     internal IReadOnlyList<string> Apply(IEnumerable<string> current) => Array.AsReadOnly(current

@@ -582,6 +582,101 @@ public sealed class PlaylistSummaryBulkEditTests
         }
     }
 
+    /// <summary>未登録名から通常・追加先への一覧再選択で実DBと必要出力を確定し、通常先の無関係なファイル・管理行を保ちます。外部名初期化では未登録名を維持して出力だけを停止します。</summary>
+    [DataTestMethod]
+    [DataRow("normal")]
+    [DataRow("additional")]
+    [DataRow("external-name")]
+    public async Task BulkOutputChange_UnregisteredOldBasePreservesUnrelatedNormalOutput(string operation)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistSummaryBulkEditTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsPlaylist? playlist = null;
+        try
+        {
+            string songDb = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songDb);
+            string normal = Path.Combine(directory, "Normal"), additional = Path.Combine(directory, "Additional");
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            settings.OperationModeLR2DB = true;
+            settings.EnableBeatorajaBmtOutput = false;
+            settings.EnablePlaylistUrlCompletion = false;
+            settings.LR2RootPath = directory;
+            settings.LR2CustomFolderOutputBaseDir = normal;
+            settings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(directory, "Root");
+            settings.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additional]);
+            playlist = new TestBmsPlaylist(songDb,
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDb, CustomFolderOutputPhysicalSurface.Empty), settings: settings);
+            var table = new BMSTable
+            {
+                playlist_id = 8103,
+                name = "Unknown",
+                symbol = "T",
+                custom_folder_output_base_name = "Missing",
+                entries = [CreateEntry(new string('a', 32), "Folder")],
+                Folder_order = ["Folder"],
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+            };
+            string header = Path.Combine(directory, "header.json");
+            File.WriteAllBytes(header, CreateUtf8BomBytes("{\"name\":\"External\",\"symbol\":\"E\",\"data_url\":\"data.json\"}"));
+            File.WriteAllBytes(Path.Combine(directory, "data.json"), CreateUtf8BomBytes("[]"));
+            table.Header_url = new Uri(header);
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            playlist.CommitBMSTablesWithEntriesToDB([table]);
+            string unrelatedDirectory = Path.Combine(normal, "Unknown");
+            Directory.CreateDirectory(unrelatedDirectory);
+            string sentinel = Path.Combine(unrelatedDirectory, "keep.txt");
+            File.WriteAllText(sentinel, "unrelated normal output");
+            // 通常先を選ぶ場合、その表ディレクトリは新しい管理領域です。管理行の保全は兄弟領域で確認します。
+            // 追加先を選ぶ場合は、旧先と誤認されていた通常先の同名ディレクトリ内の行を保全します。
+            string preservedRowPath = operation == "normal" ? Path.Combine(normal, "Sibling", "keep.lr2folder") : sentinel;
+            using (var db = new LR2SongDBExtended(songDb))
+            {
+                db.InsertOrReplace(new LR2SongDB.folder { path = preservedRowPath, title = "Keep", type = 2 }, typeof(LR2SongDB.folder));
+            }
+            using PlaylistWorkspaceViewModel workspace = CreatePlaylistWorkspace(playlist, null!,
+                settingsProvider: () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings));
+            PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel draft = workspace.OpenSummaryBulkEditDialog([new PlaylistSummaryRow { TableRef = table }])
+                ?? throw new AssertFailedException("一括編集を準備できません。");
+            string? expectedBase = operation == "normal" ? null : operation == "additional" ? "Additional" : "Missing";
+            if (operation == "external-name")
+            {
+                draft.InitializeNameFromExternal = true;
+                await draft.ApplyExternalPropertyInitializationAsync();
+            }
+            else
+            {
+                draft.OutputBaseOption = draft.OutputBaseOptions.Single(option => !option.IsNoChange && option.BaseName == expectedBase);
+                await draft.ApplyOutputBaseAsync();
+            }
+            Assert.AreEqual(expectedBase, table.custom_folder_output_base_name);
+            Assert.AreEqual(operation == "external-name" ? "External" : "Unknown", table.name);
+            Assert.AreEqual("unrelated normal output", File.ReadAllText(sentinel));
+            using LR2SongDBExtended read = new BmsLibraryDbGateway(songDb).OpenSongDbReadOnly();
+            BMSTable saved = read.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id);
+            Assert.AreEqual(expectedBase, saved.custom_folder_output_base_name);
+            Assert.AreEqual(table.name, saved.name);
+            Assert.AreEqual("Keep", read.Table<LR2SongDB.folder>().Single(row => row.path == preservedRowPath).title);
+            if (operation == "external-name")
+            {
+                Assert.IsFalse(Directory.GetFiles(normal, "*.lr2folder", SearchOption.AllDirectories).Any());
+                Assert.IsFalse(Directory.Exists(additional));
+            }
+            else
+            {
+                string output = Path.Combine(operation == "normal" ? normal : additional, "Unknown", "0000.lr2folder");
+                Assert.IsTrue(File.Exists(output), "未解決の旧先を同一先として扱わず、選択した新先へ生成します。");
+                Assert.AreEqual("Folder", read.Table<LR2SongDB.folder>().Single(row => row.path == output).title);
+            }
+        }
+        finally
+        {
+            playlist?.RequestShutdown("unknown-bulk-output-fixture");
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     /// <summary>BMT・外部同期・root・出力mask・基点の保存を実DB triggerで失敗させ、同じ表と保存値を戻し、同じdraftの次の明示反映を保存します。</summary>
     [DataTestMethod]
     // 各条件は別の保存列を変更し、同じdraftで失敗後の再保存を観測します。

@@ -196,7 +196,7 @@ public sealed partial class SettingDialogEditCompletionTests
         });
     }
 
-    /// <summary>今回の同値・不正入力だけで破棄確認へ進まず、元BMS候補と確定媒体を保ちます。確認承認を入力の採用と取り違える経路を防ぎます。</summary>
+    /// <summary>今回の同値・不正入力だけで破棄確認へ進まず、元BMS候補と確定媒体を保ちます。出力は初期Binding相当の同値通知を対象とし、明示再選択の再保存とは分けます。</summary>
     [DataTestMethod]
     [DataRow("root")]
     [DataRow("song")]
@@ -227,7 +227,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     case "song": dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2SongDBPath), Path.Combine(root, "Missing", "song.db")).GetAwaiter().GetResult(); break;
                     case "config": dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2ConfigXmlPath), Path.Combine(root, "Missing", "config.xml")).GetAwaiter().GetResult(); break;
                     case "install": dialog.SelectBmsInstallDirectoryAsync(values.BMSInstallDir).GetAwaiter().GetResult(); break;
-                    case "output": TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync("normal"), "same-output"); break;
+                    case "output": dialog.LR2CustomFolderOutputDir = values.LR2CustomFolderOutputBaseDir; break;
                 }
                 Assert.AreEqual(0, dialogs.ConfirmationCount);
                 CollectionAssert.Contains(dialog.AvailableBMSDirectories, staged);
@@ -331,7 +331,6 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual(originalOutput, dialog.LR2CustomFolderOutputDir);
                 CollectionAssert.Contains(dialog.AvailableBMSDirectories, staged);
                 CollectionAssert.AreEqual(beforeXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
-                Assert.IsFalse(dialog.IsOutputSaveIncomplete);
                 StringAssert.Contains(dialogs.LastMessageText, string.Format(Resources.Validation_OutputBaseContainsInstallDirectoryFormat, alternate));
             }
             catch (Exception failure) { primaryFailure = failure; throw; }

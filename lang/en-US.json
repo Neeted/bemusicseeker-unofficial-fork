@@ -1,4 +1,6 @@
 {
+  "Warn_CustomFolderCleanupFailed": "The new outputs were saved, but files or LR2 folder records at the old output locations could not be cleaned up.\nOld locations: {0}\nCause: {1}",
+  "Warn_UnregisteredCustomFolderOutputBase": "LR2 output for table \"{0}\" is stopped because additional output location \"{1}\" is not registered. Select an output location again in the table properties.",
   "Settings_candidates_discarded_on_exit": "Unconfirmed settings will be discarded on exit and will not carry over to the next launch.",
   "Details_show_diag_new_install_description": "Controls confirmation when installing a pending package as new with no destination set. If a destination is already set, confirmation is still required even when this is OFF.",
   "Details_test_delete_pending_source_after_install_description": "Clean up owned charts left after installation and empty source folders. Unowned or unclassified remaining items are not deleted. Files that were moved do not remain at the source even when this is OFF.",

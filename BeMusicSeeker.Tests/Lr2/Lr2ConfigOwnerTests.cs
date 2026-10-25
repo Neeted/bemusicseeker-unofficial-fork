@@ -83,8 +83,7 @@ public sealed class Lr2ConfigOwnerTests
             string finalRoot = reviseCandidate ? "C" : "B";
             if (reviseCandidate)
             {
-                string savedB = owner.CaptureSaved().RegisteredRoots.Single(path => Path.GetFileName(path) == "B");
-                bms = bms.Then(owner.SaveRoots(new Lr2RootChange([savedB], ["C"]), publish: false));
+                bms = owner.SaveOutputRoots(oldInput.RegisteredRoots, ["C", g]);
             }
             owner.SaveRoots(new Lr2RootChange([g], []));
             CollectionAssert.AreEqual(new[] { "A" }, owner.Capture().RegisteredRoots.Select(Path.GetFileName).ToArray());

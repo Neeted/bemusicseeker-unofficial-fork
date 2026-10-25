@@ -27,6 +27,97 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsPlaylistCustomFolderOutputTests
 {
+    /// <summary>既存DBの未登録名は通常出力だけを止めて対象名を知らせ、正常な兄弟表とROOT出力を継続します。プロパティの未変更保存でも名を保ち、通常先の再選択で解消します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task UnregisteredOutputBase_PreservesNameAndStopsOnlyNormalOutputUntilReselected(bool useSummaryFlags)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistCustomFolderOutputTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        PlaylistWorkspaceViewModel? workspace = null;
+        PlaylistPropertyDialogViewModel? dialog = null;
+        TestBmsPlaylist? playlist = null;
+        try
+        {
+            string songPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string normal = Path.Combine(directory, "Normal"), root = Path.Combine(directory, "Root");
+            var settings = new CustomFolderOutputSettingsSnapshot
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = directory,
+                LR2CustomFolderOutputBaseDir = normal,
+                LR2CustomFolderOutputBaseDirRootType = root,
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            var config = new Lr2ConfigOwner(CreateLr2Config(directory, normal));
+            config.SetPlacement(settings);
+            var library = new TestBmsLibrary(songPath, config, null, null, () => BmsLibraryOptionsSnapshot.CreateCurrent(testSettings));
+            playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath, () => settings, config,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), settings: testSettings);
+            BMSTable Table(int id, string name, string? baseName) => new()
+            {
+                playlist_id = id,
+                name = name,
+                custom_folder_output_base_name = baseName,
+                symbol = "T",
+                entries = [CreateEntry(new string('a', 32), "Folder")],
+                Folder_order = ["Folder"],
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+            };
+            playlist.BMSTables = new ObservableCollection<BMSTable>([Table(7901, "Unknown", "Missing"), Table(7902, "Healthy", null)]);
+            playlist.CommitBMSTablesWithEntriesToDB(playlist.BMSTables);
+            playlist.BMSTables = new ObservableCollection<BMSTable>(new PlaylistPersistenceRepository(songPath).LoadPlaylistHeaders());
+            BMSTable unknown = playlist.BMSTables.Single(table => table.playlist_id == 7901);
+            using (PlaylistOperationNotificationOwner.OperationNotificationSession notifications = playlist.OperationNotificationOwner.BeginSession())
+            {
+                playlist.RegenerateCustomFolderOutputs([], settings);
+                PlaylistOperationNotificationOwner.OperationNotification warning = notifications.TakeReceipt().Notifications.Single();
+                StringAssert.Contains(warning.Message, "Unknown"); StringAssert.Contains(warning.Message, "Missing");
+            }
+            Assert.IsFalse(Directory.Exists(Path.Combine(normal, "Unknown")));
+            Assert.IsTrue(File.Exists(Path.Combine(normal, "Healthy", "0000.lr2folder")));
+            workspace = CreatePlaylistWorkspace(playlist, library, () => settings, () => config);
+            workspace.IsPlaylistSummaryMode = true;
+            workspace.RebuildPlaylistSummaryView(runAsync: false);
+            Assert.AreEqual("Missing", workspace.PlaylistSummaryView.Single(row => row.PlaylistId == 7901).OutputBaseDisplayName);
+            workspace.IsPlaylistSummaryMode = false;
+            if (useSummaryFlags)
+            {
+                PlaylistSummaryRow[] rows = new[] { new PlaylistSummaryRow { PlaylistId = unknown.playlist_id, TableRef = unknown } };
+                await workspace.ApplyPlaylistSummaryFlags(rows, isRootFolder: true);
+                Assert.IsTrue(File.Exists(Path.Combine(root, "Unknown", "0000.lr2folder")));
+                await workspace.ApplyPlaylistSummaryFlags(rows, isRootFolder: false);
+                Assert.IsFalse(Directory.Exists(Path.Combine(normal, "Unknown")));
+                Assert.AreEqual("Missing", unknown.custom_folder_output_base_name);
+            }
+            dialog = await workspace.OpenPropertyDialogAsync(unknown) ?? throw new AssertFailedException("Missing dialog.");
+            Assert.AreEqual("Missing", dialog.custom_folder_output_base_option.BaseName);
+            Assert.AreEqual("Missing", dialog.custom_folder_output_base_option.Label);
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+            Assert.AreEqual("Missing", unknown.custom_folder_output_base_name);
+            dialog.is_root_folder = true;
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+            Assert.IsTrue(File.Exists(Path.Combine(root, "Unknown", "0000.lr2folder")));
+            Assert.AreEqual("Missing", unknown.custom_folder_output_base_name);
+            dialog.is_root_folder = false;
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+            Assert.IsFalse(Directory.Exists(Path.Combine(normal, "Unknown")));
+            dialog.custom_folder_output_base_option = dialog.OutputBaseOptions.Single(option => option.BaseName == null);
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+            Assert.IsTrue(File.Exists(Path.Combine(normal, "Unknown", "0000.lr2folder")));
+            using LR2SongDBExtended read = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly();
+            Assert.IsNull(read.Table<BMSTable>().Single(table => table.playlist_id == 7901).custom_folder_output_base_name);
+        }
+        finally
+        {
+            dialog?.Dispose(); workspace?.Dispose(); playlist?.RequestShutdown("unknown-output-fixture");
+            Directory.Delete(directory, true);
+        }
+    }
+
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
     /// <summary>利用者フォルダを実出力し、Shift_JIS本文と対応するLR2の種別・カテゴリ・SQL・日時を同じ生成結果から保存します。ファイルだけ更新してDB行を残す誤りを検出します。</summary>

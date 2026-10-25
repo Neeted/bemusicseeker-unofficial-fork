@@ -1184,8 +1184,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (string.IsNullOrWhiteSpace(change.EffectiveOutputDirAfter)) { continue; }
             string candidate = ManagedPlaylistOutputPlacement.Resolve(change.DesiredName, change.DesiredOutputDir,
                 change.Table.custom_folder_output_base_name, change.Table.is_root_folder, settings);
-            if (finalDirectories.Any(item => !ReferenceEquals(item.Key, change.Table)
-                && ManagedPlaylistOutputPlacement.Overlaps(candidate, item.Value)))
+            if (!string.IsNullOrWhiteSpace(candidate) && finalDirectories.Any(item => !ReferenceEquals(item.Key, change.Table)
+                && !string.IsNullOrWhiteSpace(item.Value) && ManagedPlaylistOutputPlacement.Overlaps(candidate, item.Value)))
             {
                 LogPlaylistSummaryBulkWarning("playlist_summary_external_property_initialization_skipped reason=overlapping_output_dir table=" + change.Table.name);
                 continue;
@@ -1223,11 +1223,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                 settings.LR2CustomFolderOutputBaseDir,
                 settings.LR2CustomFolderAdditionalOutputBaseDirs,
                 out beforeBaseDirectory);
-            if (!beforeBaseDirectoryResolved)
-            {
-                beforeBaseDirectory = settings.LR2CustomFolderOutputBaseDir;
-                beforeBaseDirectoryResolved = !string.IsNullOrWhiteSpace(beforeBaseDirectory);
-            }
         }
         if (!beforeBaseDirectoryResolved || string.IsNullOrWhiteSpace(beforeBaseDirectory))
         {
@@ -1531,7 +1526,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         RequestPlaylistSummaryRefresh("playlist_properties_bulk_changed");
     }
 
-    /// <summary>P取得・借用後に開始時と同じstoreの全正本参照を検証し、基点変更と必要出力の実終端まで保持します。</summary>
+    /// <summary>P取得・借用後に開始時と同じstoreの全正本参照を検証し、基点変更と必要出力の実終端まで保持します。未登録名の旧先は推測せず、選択された新先へ生成します。</summary>
     /// <param name="expectedStore">編集開始時に捕捉したstoreの同一参照。省略時は直接操作として現在storeの対象を検証します。</param>
     internal async Task ApplyPlaylistSummaryOutputBase(IEnumerable<PlaylistSummaryRow> rows, string outputBaseName, LibraryFileMutationCapability capability = null, BMSPlaylist expectedStore = null)
     {
@@ -1581,11 +1576,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     settings.LR2CustomFolderOutputBaseDir,
                     settings.LR2CustomFolderAdditionalOutputBaseDirs,
                     out string beforeBaseDirectory);
-                if (!beforeBaseDirectoryResolved)
-                {
-                    beforeBaseDirectory = settings.LR2CustomFolderOutputBaseDir;
-                    beforeBaseDirectoryResolved = !string.IsNullOrWhiteSpace(beforeBaseDirectory);
-                }
+                // 未登録名の旧先は推測しません。旧先なしで新先を生成し、通常先の無関係な出力を整理対象から外します。
                 string beforeDirectory = settings.OperationModeLR2DB
                     && beforeBaseDirectoryResolved
                     && !string.IsNullOrWhiteSpace(table.Output_dir)

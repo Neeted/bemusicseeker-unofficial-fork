@@ -4018,4 +4018,12 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Settings_candidates_discarded_on_exit" xml:space="preserve">
     <value>終了時に未確定の設定候補は破棄され、次回起動へ引き継がれません。</value>
   </data>
+  <data name="Warn_UnregisteredCustomFolderOutputBase" xml:space="preserve">
+    <value>表「{0}」の追加出力先「{1}」が登録されていないため、LR2出力を停止しました。表のプロパティで保存先を選び直してください。</value>
+  </data>
+  <data name="Warn_CustomFolderCleanupFailed" xml:space="preserve">
+    <value>新しい出力先への反映は完了しましたが、旧出力先のファイルまたはLR2管理行を整理できませんでした。
+旧出力先: {0}
+原因: {1}</value>
+  </data>
 </root>

@@ -528,7 +528,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private string selectedCustomFolderAdditionalOutputBaseName;
 
-    private readonly Dictionary<string, string> pendingCustomFolderAdditionalOutputBaseRenames = new(StringComparer.OrdinalIgnoreCase);
+    private KeyValuePair<string, string>? customFolderAdditionalOutputBaseRename;
 
 
 
@@ -2053,9 +2053,8 @@ public partial class SettingsDialogViewModel : ViewModel
         try
         {
             if (value == null || string.Equals(ApplicationSettings.BMSInstallDir, value, StringComparison.OrdinalIgnoreCase) || !IsBMSInstallDirValid(value)) { return; }
-            if (pendingOutputChange != null) { ShowSettingValidationError(Resources.Settings_repair_related_save); return; }
             if (RequiresBmsInstallDirectoryConfirmation && !allowCandidateConfirmation) { return; }
-            if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Bms) || pendingOutputChange != null || !IsBMSInstallDirValid(value)) { return; }
+            if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Bms) || !IsBMSInstallDirValid(value)) { return; }
             if (string.Equals(ApplicationSettings.BMSInstallDir, value, StringComparison.OrdinalIgnoreCase)) { return; }
             DiscardConflictingCandidates(ConflictingCandidates.Bms);
             TryCommitSetting(nameof(BMSInstallDir), (nameof(Settings.BMSInstallDir), value));
@@ -4089,7 +4088,7 @@ public partial class SettingsDialogViewModel : ViewModel
         bool pathsChanged = !CustomFolderAdditionalOutputBaseDirList.SequenceEqual(paths, StringComparer.OrdinalIgnoreCase);
         string selectedPath = paths.FirstOrDefault();
         bool selectedChanged = !string.Equals(selectedCustomFolderAdditionalOutputBaseDir, selectedPath, StringComparison.OrdinalIgnoreCase);
-        bool pendingRenamesChanged = pendingCustomFolderAdditionalOutputBaseRenames.Count > 0;
+        bool pendingRenamesChanged = customFolderAdditionalOutputBaseRename.HasValue;
         if (!pathsChanged && !selectedChanged && !pendingRenamesChanged)
         {
             return;
@@ -4108,7 +4107,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         if (pendingRenamesChanged)
         {
-            pendingCustomFolderAdditionalOutputBaseRenames.Clear();
+            customFolderAdditionalOutputBaseRename = null;
         }
         RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
     }
@@ -4669,7 +4668,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
     }
 
-    /// <summary>追加出力候補の末尾名を変更します。拒否時は受理済み配置と改名対応を維持します。</summary>
+    /// <summary>追加出力候補の末尾名を変更します。拒否時は公開済み配置へ戻します。</summary>
     public void RenameSelectedCustomFolderAdditionalOutputBaseDir()
     {
         string selectedPath = SelectedCustomFolderAdditionalOutputBaseDir;
@@ -4696,7 +4695,7 @@ public partial class SettingsDialogViewModel : ViewModel
                     break;
                 }
             }
-            TrackCustomFolderAdditionalOutputBaseRename(oldName, newName);
+            customFolderAdditionalOutputBaseRename = new(oldName, newName);
             SelectedCustomFolderAdditionalOutputBaseDir = newPath;
             UpdateAdditionalOutputCandidate();
             RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
@@ -4706,33 +4705,6 @@ public partial class SettingsDialogViewModel : ViewModel
             RestoreUnacceptedOutputCandidates();
             ShowUiMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
         }
-    }
-
-    private void TrackCustomFolderAdditionalOutputBaseRename(string oldName, string newName)
-    {
-        oldName = CustomFolderOutputBaseRegistry.NormalizeBaseName(oldName);
-        newName = CustomFolderOutputBaseRegistry.NormalizeBaseName(newName);
-        if (string.Equals(oldName, newName, StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        string originalName = pendingCustomFolderAdditionalOutputBaseRenames.FirstOrDefault(pair =>
-            string.Equals(pair.Value, oldName, StringComparison.OrdinalIgnoreCase)).Key;
-        if (!string.IsNullOrWhiteSpace(originalName))
-        {
-            if (string.Equals(originalName, newName, StringComparison.OrdinalIgnoreCase))
-            {
-                pendingCustomFolderAdditionalOutputBaseRenames.Remove(originalName);
-            }
-            else
-            {
-                pendingCustomFolderAdditionalOutputBaseRenames[originalName] = newName;
-            }
-            return;
-        }
-
-        pendingCustomFolderAdditionalOutputBaseRenames[oldName] = newName;
     }
 
     private void ValidateCustomFolderAdditionalOutputBasePath(string path, string oldPath)

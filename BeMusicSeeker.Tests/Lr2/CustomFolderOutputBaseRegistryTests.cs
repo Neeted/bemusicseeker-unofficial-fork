@@ -39,11 +39,11 @@ public sealed class CustomFolderOutputBaseRegistryTests
     }
 
     /// <summary>
-    /// 保存した追加基点名が未登録なら通常基点を選び、不明な名前から無効な出力先を作る誤りを検出します。
+    /// 保存した追加基点名が未登録なら解決を停止し、通常先への読み替えを検出します。
     /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void GetCustomFolderOutputDirectory_FallsBackToDefaultForUnknownAdditionalOutputBase()
+    public void GetCustomFolderOutputDirectory_StopsOutputForUnknownAdditionalOutputBase()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "CustomFolderOutputBaseRegistryTests", Guid.NewGuid().ToString("N"));
         string normalOutputBase = Path.Combine(tempDirectory, "Default");
@@ -57,8 +57,9 @@ public sealed class CustomFolderOutputBaseRegistryTests
             custom_folder_output_base_name = "Missing"
         };
 
+        Assert.AreEqual("Missing", CustomFolderOutputBaseRegistry.GetDisplayName("Missing", normalOutputBase, serializedAdditionalOutputBases));
         Assert.AreEqual(
-            Path.Combine(normalOutputBase, "Table"),
+            null,
             BMSPlaylist.GetCustomFolderOutputDirectory(
                 table,
                 normalOutputBase,

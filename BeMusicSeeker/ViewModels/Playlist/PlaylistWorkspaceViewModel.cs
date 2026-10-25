@@ -374,28 +374,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         => customFolderOutputSettingsProvider()
             ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
 
-    void ISettingsDialogCustomFolderOutputPort.ChangeCustomFolderBaseDirectoryWithSettings(
-        string outputDirBaseBefore,
-        string outputDirBaseAfter,
-        string additionalOutputBaseDirsBefore,
-        string additionalOutputBaseDirsAfter,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability, Action<CustomFolderMigrationReceipt> migrationObserver, IReadOnlyDictionary<string, string> outputBaseRenames)
-        => getPlaylistStore()?.ChangeCustomFolderBaseDirectoryWithSettings(
-            outputDirBaseBefore,
-            outputDirBaseAfter,
-            additionalOutputBaseDirsBefore,
-            additionalOutputBaseDirsAfter,
-            settings, capability, migrationObserver, outputBaseRenames);
-
-    void ISettingsDialogCustomFolderOutputPort.ChangeCustomFolderBaseDirectoryRootWithSettings(
-        string outputDirBaseBefore,
-        string outputDirBaseAfter,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability, Action<CustomFolderMigrationReceipt> migrationObserver)
-        => getPlaylistStore()?.ChangeCustomFolderBaseDirectoryRootWithSettings(
-            outputDirBaseBefore,
-            outputDirBaseAfter,
-            settings, capability, migrationObserver);
-
     void ISettingsDialogCustomFolderOutputPort.ValidateCustomFolderOutputRegistration(
         CustomFolderOutputSettingsSnapshot settings, IReadOnlyDictionary<string, string> renames)
         => getPlaylistStore()?.ValidateCustomFolderOutputRegistration(settings, renames);
@@ -406,18 +384,15 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         => getPlaylistStore()?.PrepareCustomFolderOutputSearchRoots(previousRootOutputBaseDirectory, currentDirectories, settings, renames)
             ?? currentDirectories;
 
-    int ISettingsDialogCustomFolderOutputPort.ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
-        string previousAdditionalOutputBaseDirectories,
-        IReadOnlyDictionary<string, string> pendingRenames,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability, Action<CustomFolderMigrationReceipt> migrationObserver)
-        => getPlaylistStore()?.ApplyCustomFolderAdditionalOutputBaseRegistrationChangesWithSettings(
-            previousAdditionalOutputBaseDirectories,
-            pendingRenames,
-            settings, capability, migrationObserver) ?? 0;
+    IReadOnlyList<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation> ISettingsDialogCustomFolderOutputPort.CommitCustomFolderOutputSettings(
+        CustomFolderOutputSettingsSnapshot previous, CustomFolderOutputSettingsSnapshot target,
+        IReadOnlyDictionary<string, string> renames, LibraryFileMutationCapability capability)
+        => getPlaylistStore()?.CommitCustomFolderOutputSettings(previous, target, renames, capability) ?? [];
 
-    void ISettingsDialogCustomFolderOutputPort.RetryCustomFolderMigrations(IReadOnlyList<CustomFolderMigrationReceipt> receipts,
+    void ISettingsDialogCustomFolderOutputPort.RegenerateCustomFolderOutputs(
+        IReadOnlyList<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation> previousLocations,
         CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability)
-        => getPlaylistStore()?.RetryCustomFolderMigrations(receipts, settings, capability);
+        => getPlaylistStore()?.RegenerateCustomFolderOutputs(previousLocations, settings, capability);
 
     internal event Action<PlaylistSummarySelectionRestoreRequest> PlaylistSummarySelectionRestoreRequested;
 

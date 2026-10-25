@@ -894,9 +894,8 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             if (result.Status != UiDialogStatus.Accepted) { return; }
             settings.SetRootFolderPathFromPicker(property, result.FolderPath);
             string candidate = section == "normal" ? settings.LR2CustomFolderOutputDir : settings.LR2CustomFolderAsRootOutputDir;
-            // 無効選択で保持した以前の入力や同値選択から、失敗済み要求を暗黙に再開しません。
-            if (string.Equals(previous, candidate, StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(candidate, result.FolderPath, StringComparison.Ordinal)) { return; }
+            // 無効選択で保持した以前の候補から保存しません。同値の明示選択は再保存します。
+            if (!string.Equals(candidate, result.FolderPath, StringComparison.Ordinal)) { return; }
             await settings.CommitOutputSettingsCoreAsync(section);
         }, reportFailure);
     }

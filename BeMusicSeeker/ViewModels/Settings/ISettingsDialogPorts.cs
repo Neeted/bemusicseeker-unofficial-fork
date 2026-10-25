@@ -127,39 +127,20 @@ internal interface ISettingsDialogCustomFolderOutputPort
     /// <summary>表の変更後配置を設定・DB・XML保存前に検査し、同一・親子の管理出力先を拒否します。</summary>
     void ValidateCustomFolderOutputRegistration(CustomFolderOutputSettingsSnapshot settings, IReadOnlyDictionary<string, string> renames);
 
-    /// <summary>通常出力の実移行を行い、header確定後の投影・整理の未了入力を局所保存担当へ返します。</summary>
-    /// <param name="migrationObserver">header確定直後に対象を受け取り、投影失敗後も同じreceiptを保持する担当。指定時の旧先整理は一括再試行へ委ねます。</param>
-    /// <param name="outputBaseRenames">同じ受理要求で承認した現在名から最終名への対応。追加先の改名前も最終配置として検査します。</param>
-    void ChangeCustomFolderBaseDirectoryWithSettings(
-        string outputDirBaseBefore,
-        string outputDirBaseAfter,
-        string additionalOutputBaseDirsBefore,
-        string additionalOutputBaseDirsAfter,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null,
-            IReadOnlyDictionary<string, string> outputBaseRenames = null);
-
-    /// <summary>ルート型の実移行を行い、header確定後の投影・整理の未了入力を局所保存担当へ返します。</summary>
-    /// <param name="migrationObserver">header確定直後に対象を受け取り、投影失敗後も同じreceiptを保持する担当。指定時の旧先整理は一括再試行へ委ねます。</param>
-    void ChangeCustomFolderBaseDirectoryRootWithSettings(
-        string outputDirBaseBefore,
-        string outputDirBaseAfter,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null);
-
-    /// <summary>捕捉済み登録からルート型の最終一覧を返します。文書・保存境界を共有せず、設定担当が通常出力と一回のXML保存へまとめます。</summary>
-    IReadOnlyList<string> PrepareCustomFolderOutputSearchRoots(
-        string previousRootOutputBaseDirectory,
+    /// <summary>捕捉済み登録からROOT型の最終一覧を準備し、設定担当が通常出力と一回のXML保存へまとめます。</summary>
+    IReadOnlyList<string> PrepareCustomFolderOutputSearchRoots(string previousRootOutputBaseDirectory,
         CustomFolderOutputSettingsSnapshot settings, IReadOnlyList<string> currentDirectories,
         IReadOnlyDictionary<string, string> renames = null);
 
-    /// <summary>実登録の対応と追加出力を変更し、保存済み登録と投影・整理の未了入力を局所保存担当へ返します。</summary>
-    /// <param name="migrationObserver">header確定直後に移行対象を受け取り、投影失敗後も同じreceiptで未了だけを保持する担当。指定時の旧先整理は一括再試行へ委ねます。</param>
-    int ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
-        string previousAdditionalOutputBaseDirectories,
-        IReadOnlyDictionary<string, string> pendingRenames,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null);
-    /// <summary>捕捉済み対象を今回の確定配置へ投影し、成立済み投影を繰り返さず未了の旧先整理まで明示再試行します。</summary>
-    void RetryCustomFolderMigrations(IReadOnlyList<CustomFolderMigrationReceipt> receipts,
+    /// <summary>今回の旧配置を捕捉し、不変な追加名更新を一括DB保存後に公開します。生成物へはまだ作用しません。</summary>
+    IReadOnlyList<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation> CommitCustomFolderOutputSettings(
+        CustomFolderOutputSettingsSnapshot previous, CustomFolderOutputSettingsSnapshot target,
+        IReadOnlyDictionary<string, string> renames, LibraryFileMutationCapability capability);
+
+    /// <summary>採用済み設定と現在正本から生成し、今回だけの旧配置を整理します。未了要求は保持しません。</summary>
+    void RegenerateCustomFolderOutputs(IReadOnlyList<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation> previousLocations,
         CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability);
+
 }
 
 internal interface ISettingsDialogPlayHistoryPort

@@ -1962,276 +1962,54 @@ public partial class BMSPlaylist : ObservableObject
         }
     }
 
-    /// <summary>
-    /// 通常プレイリストのカスタムフォルダ出力先ベースディレクトリ変更を反映します。
-    /// </summary>
-    /// <param name="outputDirBaseBefore">変更前のベースディレクトリ。</param>
-    /// <param name="outputDirBaseAfter">変更後のベースディレクトリ。</param>
-    public void ChangeCustomFolderBaseDirectory(
-        string outputDirBaseBefore,
-        string outputDirBaseAfter,
-        string additionalOutputBaseDirsBefore = null,
-        string additionalOutputBaseDirsAfter = null)
+    /// <summary>今回の旧配置と変更不能な登録名更新を捕捉し、全headerのDB成功後だけ表メモリを変更します。</summary>
+    internal IReadOnlyList<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation> CommitCustomFolderOutputSettings(
+        CustomFolderOutputSettingsSnapshot previous, CustomFolderOutputSettingsSnapshot target,
+        IReadOnlyDictionary<string, string> renames, LibraryFileMutationCapability capability = null)
     {
-        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
-        ChangeCustomFolderBaseDirectoryWithSettings(
-            outputDirBaseBefore,
-            outputDirBaseAfter,
-            additionalOutputBaseDirsBefore,
-            additionalOutputBaseDirsAfter,
-            settings);
-    }
-
-    /// <summary>捕捉設定と生存権限で通常形式の出力基点を変更します。設定の外側受付を取り直さず、物理変更と保存を終えます。</summary>
-    /// <param name="migrationObserver">ヘッダーDB確定直後にreceiptを渡します。投影・整理の例外後も局所保存担当が未了範囲を所有します。</param>
-    /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
-    /// <param name="outputBaseRenames">同じ設定要求で承認した現在名から最終名への対応。追加先ヘッダー確定前の配置解決に共有します。</param>
-    internal void ChangeCustomFolderBaseDirectoryWithSettings(
-        string outputDirBaseBefore,
-        string outputDirBaseAfter,
-        string additionalOutputBaseDirsBefore,
-        string additionalOutputBaseDirsAfter,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null,
-        IReadOnlyDictionary<string, string> outputBaseRenames = null)
-    {
-        using LibraryFileMutationLease admission = AcquirePlaylistMutationLease("ChangeCustomFolderBaseDirectoryWithSettings", capability: capability);
-        using LibraryFileMutationCapability authority = admission.CreateMutationCapability();
-
-        settings ??= GetCustomFolderOutputSettings();
-        additionalOutputBaseDirsBefore ??= settings.LR2CustomFolderAdditionalOutputBaseDirs;
-        additionalOutputBaseDirsAfter ??= settings.LR2CustomFolderAdditionalOutputBaseDirs;
-        var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
-        var outputBaseDirPathBeforeByTable = new Dictionary<BMSTable, string>();
+        using LibraryFileMutationLease admission = AcquirePlaylistMutationLease(nameof(CommitCustomFolderOutputSettings), capability: capability);
+        ValidateCustomFolderOutputRegistration(target, renames);
+        var locations = new List<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation>();
+        var updates = new List<(BMSTable Table, string Name)>();
+        var oldNames = CustomFolderOutputBaseRegistry.CreateAdditionalEntries(
+            CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(previous.LR2CustomFolderAdditionalOutputBaseDirs))
+            .Select(entry => entry.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         using (rwlockBMSTables.GetReaderGuard())
         {
-            foreach (BMSTable item in BMSTables.Where(t =>
-                !t.is_root_folder
-                && !string.IsNullOrWhiteSpace(t.Output_dir)))
+            foreach (BMSTable table in BMSTables)
             {
-                bool oldBaseResolved = CustomFolderOutputBaseRegistry.TryResolveNormalOutputBaseDirectory(
-                    item.custom_folder_output_base_name,
-                    outputDirBaseBefore,
-                    additionalOutputBaseDirsBefore,
-                    out string oldBaseDirectory);
-                bool newBaseResolved = CustomFolderOutputBaseRegistry.TryResolveNormalOutputBaseDirectory(
-                    item.custom_folder_output_base_name,
-                    outputDirBaseAfter,
-                    additionalOutputBaseDirsAfter,
-                    out string newBaseDirectory);
-                if (!oldBaseResolved
-                    || !newBaseResolved
-                    || !IsSameCustomFolderDirectory(oldBaseDirectory, outputDirBaseBefore)
-                    || !IsSameCustomFolderDirectory(newBaseDirectory, outputDirBaseAfter)
-                    || IsSameCustomFolderDirectory(oldBaseDirectory, newBaseDirectory))
+                string oldBase = table.is_root_folder ? previous.LR2CustomFolderOutputBaseDirRootType
+                    : CustomFolderOutputBaseRegistry.ResolveNormalOutputBaseDirectory(table.custom_folder_output_base_name,
+                        previous.LR2CustomFolderOutputBaseDir, previous.LR2CustomFolderAdditionalOutputBaseDirs);
+                if (!string.IsNullOrWhiteSpace(oldBase) && !string.IsNullOrWhiteSpace(table.Output_dir))
                 {
-                    continue;
+                    locations.Add(new(table, Path.Combine(oldBase, table.Output_dir), oldBase, table.is_root_folder));
                 }
-                outputDirPathBeforeByTable[item] = Path.Combine(oldBaseDirectory, item.Output_dir);
-                outputBaseDirPathBeforeByTable[item] = oldBaseDirectory;
+                string oldName = table.custom_folder_output_base_name;
+                if (string.IsNullOrWhiteSpace(oldName)) { continue; }
+                string nextName = oldName;
+                if (renames?.TryGetValue(oldName, out string renamed) == true
+                    && CustomFolderOutputBaseRegistry.ContainsBaseName(renamed, target.LR2CustomFolderAdditionalOutputBaseDirs)) { nextName = renamed; }
+                else if (oldNames.Contains(oldName) && !CustomFolderOutputBaseRegistry.ContainsBaseName(oldName, target.LR2CustomFolderAdditionalOutputBaseDirs)) { nextName = null; }
+                if (!string.Equals(oldName, nextName, StringComparison.Ordinal)) { updates.Add((table, nextName)); }
             }
         }
-        MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
-            outputDirPathBeforeByTable.Keys,
-            outputDirPathBeforeByTable,
-            "setting_custom_folder_output_base_dir_changed",
-            wasRootFolderBeforeByTable: outputDirPathBeforeByTable.Keys.ToDictionary(table => table, _ => false),
-            outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
-            settings: settings, capability: authority, migrationObserver: migrationObserver, outputBaseRenames: outputBaseRenames);
+        playlistAggregatePersistenceOwner.ReplaceOutputBaseNames(updates.AsReadOnly());
+        if (updates.Count > 0) { ApplyCommittedPlaylistReferenceHeaders(CaptureReferenceHeaders(updates.Select(update => update.Table))); }
+        return locations.AsReadOnly();
     }
 
-    /// <summary>
-    /// ルートプレイリストのカスタムフォルダ出力先ベースディレクトリ変更を反映します。
-    /// </summary>
-    /// <param name="outputDirBaseBefore">変更前のベースディレクトリ。</param>
-    /// <param name="outputDirBaseAfter">変更後のベースディレクトリ。</param>
-    public void ChangeCustomFolderBaseDirectoryRoot(
-        string outputDirBaseBefore,
-        string outputDirBaseAfter)
+    /// <summary>現在の保存済み表と採用済み設定から全出力を生成し、今回捕捉した旧配置だけを整理します。</summary>
+    internal void RegenerateCustomFolderOutputs(
+        IReadOnlyList<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation> previousLocations,
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null)
     {
-        ChangeCustomFolderBaseDirectoryRootWithSettings(
-            outputDirBaseBefore,
-            outputDirBaseAfter,
-            settings: null);
-    }
-
-    /// <summary>捕捉設定と生存権限でルート形式の出力基点を変更し、元のファイル・DB結果を維持します。</summary>
-    /// <param name="migrationObserver">ヘッダーDB確定直後、新先投影前にreceiptを渡します。</param>
-    /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
-    internal void ChangeCustomFolderBaseDirectoryRootWithSettings(
-        string outputDirBaseBefore,
-        string outputDirBaseAfter,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null)
-    {
-        using LibraryFileMutationLease admission = AcquirePlaylistMutationLease("ChangeCustomFolderBaseDirectoryRootWithSettings", capability: capability);
+        using LibraryFileMutationLease admission = AcquirePlaylistMutationLease(nameof(RegenerateCustomFolderOutputs), capability: capability);
         using LibraryFileMutationCapability authority = admission.CreateMutationCapability();
-
-        settings ??= GetCustomFolderOutputSettings();
-        var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
-        var outputBaseDirPathBeforeByTable = new Dictionary<BMSTable, string>();
-        using (rwlockBMSTables.GetReaderGuard())
-        {
-            foreach (BMSTable item in BMSTables.Where(t => t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)))
-            {
-                outputDirPathBeforeByTable[item] = Path.Combine(outputDirBaseBefore, item.Output_dir);
-                outputBaseDirPathBeforeByTable[item] = outputDirBaseBefore;
-            }
-        }
-        MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
-            outputDirPathBeforeByTable.Keys,
-            outputDirPathBeforeByTable,
-            "setting_custom_folder_root_output_base_dir_changed",
-            wasRootFolderBeforeByTable: outputDirPathBeforeByTable.Keys.ToDictionary(table => table, _ => true),
-            rootOutputBaseDirBefore: outputDirBaseBefore,
-            outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
-            settings: settings, capability: authority, migrationObserver: migrationObserver);
-    }
-
-    /// <summary>
-    /// 追加カスタムフォルダ出力先の登録変更をプレイリスト本体へ反映し、必要な移行を実行します。
-    /// </summary>
-    /// <param name="previousAdditionalOutputBaseDirectories">変更前の追加出力先定義。</param>
-    /// <param name="pendingRenames">編集中に確定した登録名の変更。</param>
-    /// <param name="migrationObserver">実登録のヘッダーDB確定直後、新先投影前にreceiptを渡します。</param>
-    /// <param name="settings">変更後のカスタムフォルダ出力設定。</param>
-    /// <returns>変更したプレイリスト数。</returns>
-    /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
-    internal int ApplyCustomFolderAdditionalOutputBaseRegistrationChangesWithSettings(
-        string previousAdditionalOutputBaseDirectories,
-        IReadOnlyDictionary<string, string> pendingRenames,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null)
-    {
-        using LibraryFileMutationLease admission = AcquirePlaylistMutationLease("ApplyCustomFolderAdditionalOutputBaseRegistrationChangesWithSettings", capability: capability);
-        using LibraryFileMutationCapability authority = admission.CreateMutationCapability();
-
-        if (settings == null || BMSTables == null)
-        {
-            return 0;
-        }
-
-        ValidateCustomFolderOutputRegistration(settings, pendingRenames);
-
-        IReadOnlyList<CustomFolderOutputBaseEntry> oldEntries = CustomFolderOutputBaseRegistry.CreateAdditionalEntries(
-            CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(previousAdditionalOutputBaseDirectories));
-        IReadOnlyList<CustomFolderOutputBaseEntry> newEntries = CustomFolderOutputBaseRegistry.CreateAdditionalEntries(
-            CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(settings.LR2CustomFolderAdditionalOutputBaseDirs));
-        var newByName = newEntries
-            .GroupBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-        var oldByName = oldEntries
-            .GroupBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-        var processedTables = new HashSet<BMSTable>();
-        var changedTables = new List<BMSTable>();
-        var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
-        var outputBaseDirPathBeforeByTable = new Dictionary<BMSTable, string>();
-
-        using (rwlockBMSTables.GetWriterGuard())
-        {
-            foreach (CustomFolderOutputBaseEntry oldEntry in oldEntries)
-            {
-                string newName = null;
-                if (pendingRenames != null
-                    && pendingRenames.TryGetValue(oldEntry.Name, out string renamedName)
-                    && newByName.ContainsKey(renamedName))
-                {
-                    newName = renamedName;
-                }
-                else if (newByName.ContainsKey(oldEntry.Name))
-                {
-                    newName = oldEntry.Name;
-                }
-
-                string newBasePath = newName == null
-                    ? settings.LR2CustomFolderOutputBaseDir
-                    : newByName[newName].Path;
-                if (newName != null
-                    && string.Equals(oldEntry.Name, newName, StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(
-                        CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(oldEntry.Path),
-                        CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(newBasePath),
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                ApplyCustomFolderOutputBaseNameChange(
-                    oldEntry.Name,
-                    oldEntry.Path,
-                    newName,
-                    processedTables,
-                    changedTables,
-                    outputDirPathBeforeByTable,
-                    outputBaseDirPathBeforeByTable,
-                    settings);
-            }
-
-            foreach (CustomFolderOutputBaseEntry newEntry in newEntries)
-            {
-                if (oldByName.ContainsKey(newEntry.Name))
-                {
-                    continue;
-                }
-
-                ApplyCustomFolderOutputBaseNameChange(
-                    newEntry.Name,
-                    null,
-                    newEntry.Name,
-                    processedTables,
-                    changedTables,
-                    outputDirPathBeforeByTable,
-                    outputBaseDirPathBeforeByTable,
-                    settings);
-            }
-        }
-
-        if (changedTables.Count > 0)
-        {
-            MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
-                changedTables,
-                outputDirPathBeforeByTable,
-                "setting_custom_folder_output_base_registration_changed",
-                outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
-                settings: settings, capability: authority, migrationObserver: migrationObserver);
-        }
-        return changedTables.Count;
-    }
-
-    private void ApplyCustomFolderOutputBaseNameChange(
-        string oldBaseName,
-        string oldBasePath,
-        string newBaseName,
-        ISet<BMSTable> processedTables,
-        ICollection<BMSTable> changedTables,
-        IDictionary<BMSTable, string> outputDirPathBeforeByTable,
-        IDictionary<BMSTable, string> outputBaseDirPathBeforeByTable,
-        CustomFolderOutputSettingsSnapshot settings)
-    {
-        if (string.IsNullOrWhiteSpace(oldBaseName))
-        {
-            return;
-        }
-
-        foreach (BMSTable table in BMSTables.Where(table =>
-            table != null
-            && !processedTables.Contains(table)
-            && string.Equals(table.custom_folder_output_base_name, oldBaseName, StringComparison.OrdinalIgnoreCase)))
-        {
-            processedTables.Add(table);
-            string outputDirName = table.Output_dir;
-            string beforeDirectory = !string.IsNullOrWhiteSpace(oldBasePath)
-                && !string.IsNullOrWhiteSpace(outputDirName)
-                ? Path.Combine(oldBasePath, outputDirName)
-                : null;
-            if (settings.OperationModeLR2DB
-                && !table.is_root_folder
-                && !string.IsNullOrWhiteSpace(beforeDirectory))
-            {
-                outputDirPathBeforeByTable.Add(table, beforeDirectory);
-                outputBaseDirPathBeforeByTable.Add(table, oldBasePath);
-            }
-            table.custom_folder_output_base_name = CustomFolderOutputBaseRegistry.NormalizeBaseName(newBaseName);
-            changedTables.Add(table);
-        }
+        BMSTable[] tables;
+        using (rwlockBMSTables.GetReaderGuard()) { tables = BMSTables.ToArray(); }
+        customFolderOutputMaintenanceOwner.RegenerateCustomFolderOutputs(tables, previousLocations, settings,
+            request => SyncCustomFolderRowsBatch(request, authority));
     }
 
     /// <summary>
@@ -2705,6 +2483,7 @@ public partial class BMSPlaylist : ObservableObject
 
             try
             {
+                if (customFolderOutputMaintenanceOwner.NotifyUnregisteredOutputBase(table, settings)) { continue; }
                 string outputDirectory = ResolveCustomFolderOutputDirectory(table, settings);
                 if (string.IsNullOrWhiteSpace(outputDirectory))
                 {
@@ -3657,7 +3436,14 @@ public partial class BMSPlaylist : ObservableObject
     internal void ValidateCustomFolderOutputRegistration(CustomFolderOutputSettingsSnapshot settings,
         IReadOnlyDictionary<string, string> renames)
     {
-        ValidateCustomFolderOutputLayout(settings, table => ManagedPlaylistOutputPlacement.Resolve(table, settings, renames));
+        var finalNames = new Dictionary<string, string>(renames ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase);
+        foreach (CustomFolderOutputBaseEntry oldEntry in CustomFolderOutputBaseRegistry.CreateAdditionalEntries(
+            CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(GetCustomFolderOutputSettings().LR2CustomFolderAdditionalOutputBaseDirs)))
+        {
+            if (!finalNames.ContainsKey(oldEntry.Name)
+                && !CustomFolderOutputBaseRegistry.ContainsBaseName(oldEntry.Name, settings.LR2CustomFolderAdditionalOutputBaseDirs)) { finalNames[oldEntry.Name] = null; }
+        }
+        ValidateCustomFolderOutputLayout(settings, table => ManagedPlaylistOutputPlacement.Resolve(table, settings, finalNames));
     }
 
     private IReadOnlyList<BMSTable> GetCustomFolderTablesSnapshot()
@@ -4734,21 +4520,6 @@ public partial class BMSPlaylist : ObservableObject
         }
     }
 
-    /// <summary>設定操作が保持するヘッダー確定済み移行を、今回の確定設定と同じ明示要求のPで一括修復します。</summary>
-    /// <param name="receipts">新旧すべての移行成立事実と未了範囲です。成功済み投影を共有して重複を避けます。</param>
-    /// <param name="settings">今回受理した出力先と保護範囲です。</param>
-    /// <param name="capability">同じ設定操作が保持する生存P権限です。</param>
-    internal void RetryCustomFolderMigrations(IReadOnlyList<CustomFolderMigrationReceipt> receipts,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability)
-    {
-        ArgumentNullException.ThrowIfNull(receipts);
-        ArgumentNullException.ThrowIfNull(settings);
-        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("settings migration retry", capability: capability);
-        using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
-        customFolderOutputMaintenanceOwner.RetryCustomFolderMigrations(receipts, settings,
-            request => SyncCustomFolderRowsBatch(request, authority));
-    }
-
     /// <summary>
     /// カスタムフォルダ出力先を複数プレイリスト分まとめて移行し、プレイリスト本体のヘッダ情報だけを永続化します。
     /// DB確定後の移行・公開失敗は確定後の分類で返し、保存済みヘッダーを復元しません。
@@ -4758,7 +4529,6 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="reason">性能ログに残す理由。</param>
     /// <param name="progressCallback">処理済み件数、全件数、処理中プレイリスト名を通知する callback。</param>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTables"/> が <see langword="null"/> の場合。</exception>
-    /// <param name="migrationObserver">ヘッダーDB確定直後、新先投影前にreceiptを通知します。設定呼出元は成立事実と未了範囲を保持し、旧先整理を一括修復へ引き継ぎます。</param>
     /// <param name="outputBaseRenames">未改名の表を含む場合の承認済み最終登録対応。移行準備から候補出力・整理先の決定まで共有します。</param>
     internal void MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
         IEnumerable<BMSTable> bmsTables,
@@ -4768,7 +4538,7 @@ public partial class BMSPlaylist : ObservableObject
         IReadOnlyDictionary<BMSTable, bool> wasRootFolderBeforeByTable = null,
         string rootOutputBaseDirBefore = null,
         IReadOnlyDictionary<BMSTable, string> outputBaseDirPathBeforeByTable = null,
-        CustomFolderOutputSettingsSnapshot settings = null, LibraryFileMutationCapability capability = null, Action<CustomFolderMigrationReceipt> migrationObserver = null,
+        CustomFolderOutputSettingsSnapshot settings = null, LibraryFileMutationCapability capability = null,
         IReadOnlyDictionary<string, string> outputBaseRenames = null)
     {
         using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB", capability: capability);
@@ -4815,22 +4585,14 @@ public partial class BMSPlaylist : ObservableObject
             IReadOnlyList<PlaylistReferenceTableHeader> referenceHeaders = CommitPreparedBMSTableHeadersToDB(tableList);
             try
             {
-                var receipt = new CustomFolderMigrationReceipt(preparation);
-                migrationObserver?.Invoke(receipt);
                 CompleteRequiredReferenceAndOutputs(() => ApplyCommittedPlaylistReferenceHeaders(referenceHeaders), () =>
                 {
                     CustomFolderBatchOutputResult result = customFolderOutputMaintenanceOwner.MaterializePreparedCustomFolderMigration(
                         preparation,
                         reason,
                         request => SyncCustomFolderRowsBatch(request, mutationCapability));
-                    // 通知が失敗しても成立した投影を再実行しないよう、公開より先に事実を保存します。
-                    receipt.MaterializationPreparation = preparation;
-                    receipt.MaterializationCompleted = true;
-                    if (migrationObserver == null)
-                    {
-                        customFolderOutputMaintenanceOwner.CompletePreparedMigrationCleanup(receipt,
-                            request => SyncCustomFolderRowsBatch(request, mutationCapability), result);
-                    }
+                    customFolderOutputMaintenanceOwner.CompletePreparedMigrationCleanup(preparation,
+                        request => SyncCustomFolderRowsBatch(request, mutationCapability), result);
                     customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback);
                 });
             }
@@ -5180,6 +4942,7 @@ public partial class BMSPlaylist : ObservableObject
             settings.LR2CustomFolderAdditionalOutputBaseDirs);
     }
 
+    /// <summary>ROOTはROOT基点、通常型は保存済み追加名から実効先を解決します。未登録追加名は出力停止を表すnullを返します。</summary>
     public static string GetCustomFolderOutputDirectory(
         BMSTable bmsTable,
         string normalOutputBaseDirectory,
@@ -5192,6 +4955,7 @@ public partial class BMSPlaylist : ObservableObject
                 bmsTable.custom_folder_output_base_name,
                 normalOutputBaseDirectory,
                 serializedAdditionalOutputBaseDirectories);
+        if (!bmsTable.is_root_folder && !string.IsNullOrWhiteSpace(bmsTable.custom_folder_output_base_name) && outputBaseDirectory == null) { return null; }
         return Path.Combine(outputBaseDirectory, bmsTable.Output_dir);
     }
 }

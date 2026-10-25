@@ -8,13 +8,14 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// <summary>LR2管理表の実効絶対パスを比較し、同一・親子の出力配置を副作用前に拒否します。</summary>
 internal static class ManagedPlaylistOutputPlacement
 {
-    /// <summary>保存前の表属性から実効絶対パスを求めます。出力名の既存の変換規則を共有します。</summary>
+    /// <summary>保存前の表属性から実効絶対パスを求めます。未登録の追加名は出力停止を表すnullとし、ROOTは追加名を使いません。</summary>
     internal static string Resolve(string name, string outputDirectory, string baseName, bool isRoot,
         CustomFolderOutputSettingsSnapshot settings)
     {
         string outputBase = isRoot ? settings.LR2CustomFolderOutputBaseDirRootType
             : CustomFolderOutputBaseRegistry.ResolveNormalOutputBaseDirectory(baseName,
                 settings.LR2CustomFolderOutputBaseDir, settings.LR2CustomFolderAdditionalOutputBaseDirs);
+        if (!isRoot && !string.IsNullOrWhiteSpace(baseName) && outputBase == null) { return null; }
         return Normalize(Path.Combine(outputBase, BMSTable.ResolveOutputDirectoryName(name, outputDirectory)));
     }
 
@@ -24,7 +25,7 @@ internal static class ManagedPlaylistOutputPlacement
     {
         string baseName = table.custom_folder_output_base_name;
         if (baseName != null && renames?.TryGetValue(baseName, out string renamed) == true
-            && CustomFolderOutputBaseRegistry.ContainsBaseName(renamed, settings.LR2CustomFolderAdditionalOutputBaseDirs))
+            && (renamed == null || CustomFolderOutputBaseRegistry.ContainsBaseName(renamed, settings.LR2CustomFolderAdditionalOutputBaseDirs)))
         {
             baseName = renamed;
         }
@@ -43,12 +44,13 @@ internal static class ManagedPlaylistOutputPlacement
             || Lr2FolderPath.IsSameOrDescendantNormalized(right, left);
     }
 
-    /// <summary>変更後の集合全体を検査します。大文字小文字だけの差も同一として拒否します。</summary>
+    /// <summary>変更後の実効先集合を検査します。未解決の表は他表を止めず個別通知へ委ね、大文字小文字だけの差も同一として拒否します。</summary>
     internal static bool IsValid(IEnumerable<string> directories)
     {
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string directory in directories)
         {
+            if (string.IsNullOrWhiteSpace(directory)) { continue; }
             if (!paths.Add(Normalize(directory))) { return false; }
         }
         foreach (string path in paths)

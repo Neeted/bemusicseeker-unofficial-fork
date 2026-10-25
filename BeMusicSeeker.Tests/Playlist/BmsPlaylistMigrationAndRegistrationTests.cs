@@ -24,6 +24,52 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsPlaylistMigrationAndRegistrationTests
 {
+    /// <summary>追加名の二表目で実DB保存を拒否しても全表の公開名とDB旧名を保ちます。拒否解除後の新要求だけで改名・削除を確定し、無関係表の未知名を保存します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void OutputSettings_HeaderFailureKeepsAllPublishedNames(bool remove)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistMigrationAndRegistrationTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string songPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string oldBase = Path.Combine(directory, "Old"), newBase = Path.Combine(directory, "New");
+            CustomFolderOutputSettingsSnapshot before = new() { LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([oldBase]) };
+            CustomFolderOutputSettingsSnapshot after = new() { LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories(remove ? [] : [newBase]) };
+            BMSTable[] tables = new[] { new BMSTable { playlist_id = 7601, name = "One", custom_folder_output_base_name = "Old" },
+                new BMSTable { playlist_id = 7602, name = "Two", custom_folder_output_base_name = "Old" },
+                new BMSTable { playlist_id = 7603, name = "Other", custom_folder_output_base_name = "Missing" } };
+            var playlist = new TestBmsPlaylist(songPath, settings: testSettings) { BMSTables = new ObservableCollection<BMSTable>(tables) };
+            try
+            {
+                playlist.CommitBMSTableHeadersToDB(tables);
+                using (var db = new LR2SongDBExtended(songPath))
+                { db.Execute("CREATE TRIGGER fail_later_header BEFORE INSERT ON playlist WHEN NEW.playlist_id = 7602 BEGIN SELECT RAISE(ABORT, 'second header failed'); END;"); }
+                var renames = new Dictionary<string, string> { ["Old"] = "New" };
+                Assert.ThrowsException<SQLite.SQLiteException>(() => playlist.CommitCustomFolderOutputSettings(before, after, renames));
+                Assert.AreEqual("Old", tables[0].custom_folder_output_base_name);
+                Assert.AreEqual("Old", tables[1].custom_folder_output_base_name);
+                using (LR2SongDBExtended read = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+                { Assert.AreEqual(2, read.Table<BMSTable>().Count(table => table.custom_folder_output_base_name == "Old")); }
+                using (var db = new LR2SongDBExtended(songPath)) { db.Execute("DROP TRIGGER fail_later_header;"); }
+                playlist.CommitCustomFolderOutputSettings(before, after, renames);
+                string? expected = remove ? null : "New";
+                Assert.AreEqual(expected, tables[0].custom_folder_output_base_name);
+                Assert.AreEqual(expected, tables[1].custom_folder_output_base_name);
+                Assert.AreEqual("Missing", tables[2].custom_folder_output_base_name);
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly();
+                Assert.AreEqual(expected, verify.Table<BMSTable>().Single(table => table.playlist_id == 7601).custom_folder_output_base_name);
+                Assert.AreEqual(expected, verify.Table<BMSTable>().Single(table => table.playlist_id == 7602).custom_folder_output_base_name);
+                Assert.AreEqual("Missing", verify.Table<BMSTable>().Single(table => table.playlist_id == 7603).custom_folder_output_base_name);
+            }
+            finally { playlist.RequestShutdown("output-header-fixture"); }
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
     /// <summary>通常型からルート型へ実移行し、旧ファイル・旧親DB行を除去して新しい表ルート階層を保存します。型変更で旧投影を残す誤りと親hashの混同を検出します。</summary>
@@ -986,7 +1032,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
     [DataRow(false)]
     [DataRow(true)]
     [TestCategory("Playlist")]
-    public void ChangeCustomFolderBaseDirectory_UsesInjectedSettingsAndPreservesCommittedDestinationAfterOldCleanupFailure(bool failCleanup)
+    public void RegenerateCustomFolderOutputs_UsesInjectedSettingsAndPreservesCommittedDestinationAfterOldCleanupFailure(bool failCleanup)
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -1040,7 +1086,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             using (PlaylistOperationNotificationOwner.OperationNotificationSession notifications = playlist.OperationNotificationOwner.BeginSession())
             {
                 using (FileStream? deletionBlocker = failCleanup ? new FileStream(oldPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite) : null)
-                { playlist.ChangeCustomFolderBaseDirectory(oldBaseDir, providerNewBaseDir); }
+                { playlist.RegenerateCustomFolderOutputs([new(table, oldDirectory, oldBaseDir, false)], outputSettings); }
                 PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = notifications.TakeReceipt();
                 if (failCleanup)
                 {
@@ -1083,7 +1129,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
     /// <summary>追加先名を解決できない表は既定基点の変更対象にせず、旧既定先のファイルとDB行を保持します。未解決の配置を既定配置と推測して移行する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void ChangeCustomFolderBaseDirectory_DoesNotFallbackToDefaultBaseWhenSavedAdditionalBaseIsMissing()
+    public void RegenerateCustomFolderOutputs_DoesNotFallbackToDefaultBaseWhenSavedAdditionalBaseIsMissing()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -1123,11 +1169,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
 
-            playlist.ChangeCustomFolderBaseDirectory(
-                oldDefaultBaseDir,
-                newDefaultBaseDir,
-                additionalOutputBaseDirsBefore: "[]",
-                additionalOutputBaseDirsAfter: "[]");
+            using (PlaylistOperationNotificationOwner.OperationNotificationSession notifications = playlist.OperationNotificationOwner.BeginSession())
+            {
+                playlist.RegenerateCustomFolderOutputs([], CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings));
+                Assert.IsTrue(notifications.TakeReceipt().Notifications.Any(notification => notification.Message.Contains("MissingAdditionalBase", StringComparison.Ordinal)));
+            }
 
             Assert.IsTrue(Directory.Exists(targetDir));
             Assert.IsTrue(File.Exists(targetPath));
@@ -1586,6 +1632,57 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 Directory.Delete(tempDirectory, recursive: true);
             }
         }
+    }
+
+    /// <summary>未登録追加名を持つ単独表の登録ではLR2出力だけを止め、名前を実DBに保持し、BMT出力を完了します。旧通常先の管理外ファイルも保全します。</summary>
+    [TestMethod]
+    public async Task ExternalTableRegistration_UnregisteredOutputBasePreservesHeaderAndCompletesBmt()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistMigrationAndRegistrationTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsPlaylist? playlist = null;
+        try
+        {
+            string songPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string normal = Path.Combine(directory, "Normal"), bmt = Path.Combine(directory, "Bmt");
+            string sentinel = Path.Combine(normal, "Unregistered", "keep.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(sentinel) ?? throw new InvalidOperationException());
+            File.WriteAllText(sentinel, "keep");
+            var library = new TestBmsLibrary(songPath, settings: testSettings);
+            playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath,
+                () => new CustomFolderOutputSettingsSnapshot
+                {
+                    OperationModeLR2DB = true,
+                    LR2CustomFolderOutputBaseDir = normal,
+                    LR2CustomFolderOutputBaseDirRootType = Path.Combine(directory, "Root"),
+                    LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+                },
+                beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot
+                { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt }, settings: testSettings)
+            { BMSTables = new ObservableCollection<BMSTable>() };
+            var table = new BMSTable
+            {
+                name = "Unregistered",
+                symbol = "U",
+                Output_dir = "Unregistered",
+                custom_folder_output_base_name = "Missing",
+                entries = [CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder")]
+            };
+            using PlaylistOperationNotificationOwner.OperationNotificationSession notifications = playlist.OperationNotificationOwner.BeginSession();
+            await playlist.ExternalSyncOwner.RegistrateExternalTableAsync(table, false, "unregistered-single-output");
+            Assert.IsTrue(playlist.BMSTables.Contains(table));
+            using LR2SongDBExtended read = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly();
+            Assert.AreEqual("Missing", read.Table<BMSTable>().Single().custom_folder_output_base_name);
+            Assert.AreEqual(1L, read.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist_entry WHERE playlist_id = ?;", table.playlist_id));
+            Assert.AreEqual(1, Directory.GetFiles(bmt, "*.bmt").Length);
+            Assert.AreEqual("keep", File.ReadAllText(sentinel));
+            Assert.AreEqual(0, Directory.GetFiles(normal, "*.lr2folder", SearchOption.AllDirectories).Length);
+            PlaylistOperationNotificationOwner.OperationNotification warning = notifications.TakeReceipt().Notifications.Single();
+            StringAssert.Contains(warning.Message, "Unregistered");
+            StringAssert.Contains(warning.Message, "Missing");
+        }
+        finally { playlist?.RequestShutdown("unregistered-single-output"); Directory.Delete(directory, true); }
     }
 
     /// <summary>単独・二表バッチの実登録で注入先へ必要出力を生成し、保存値側には生成しません。バッチだけ別の設定元へ戻る誤りを検出します。</summary>

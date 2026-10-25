@@ -1,4 +1,6 @@
 {
+  "Warn_CustomFolderCleanupFailed": "新输出已保存，但无法清理旧输出位置的文件或 LR2 文件夹记录。\n旧位置：{0}\n原因：{1}",
+  "Warn_UnregisteredCustomFolderOutputBase": "表“{0}”的附加输出位置“{1}”尚未注册，已停止该表的 LR2 输出。请在表属性中重新选择保存位置。",
   "Settings_candidates_discarded_on_exit": "退出时将丢弃尚未确认的设置，不会保留到下次启动。",
   "Details_show_diag_new_install_description": "用于确认将未设置安装目标的待处理包作为新包安装。若已设置安装目标，即使为 OFF 也无法省略确认。",
   "Details_test_delete_pending_source_after_install_description": "清理安装后残留的已拥有谱面和空的原始文件夹。不删除未拥有或无法判定的残留项目。即使为 OFF，已移动的原始文件也不会保留。",

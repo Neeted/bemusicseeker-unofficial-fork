@@ -1,4 +1,6 @@
 {
+  "Warn_CustomFolderCleanupFailed": "新しい出力先への反映は完了しましたが、旧出力先のファイルまたはLR2管理行を整理できませんでした。\n旧出力先: {0}\n原因: {1}",
+  "Warn_UnregisteredCustomFolderOutputBase": "表「{0}」の追加出力先「{1}」が登録されていないため、LR2出力を停止しました。表のプロパティで保存先を選び直してください。",
   "Settings_candidates_discarded_on_exit": "終了時に未確定の設定候補は破棄され、次回起動へ引き継がれません。",
   "Details_show_diag_new_install_description": "インストール先が未設定の保留パッケージを新規として導入する際の確認です。インストール先が設定済みの場合は、OFFでも確認を省略できません。",
   "Details_test_delete_pending_source_after_install_description": "導入後に残った既所持譜面と空の元フォルダを整理します。未所持や判定できない残存物は削除しません。OFFでも移動した元ファイルは残りません。",

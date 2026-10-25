@@ -63,8 +63,6 @@ public partial class SettingsDialogViewModel
 
     private bool TryCommitSetting(string propertyName, params (string Name, object Value)[] changes)
     {
-        if (changes.Any(item => item.Name == nameof(Settings.BMSInstallDir)) && pendingOutputChange != null)
-        { ShowSettingValidationError(Resources.Settings_repair_related_save); RaisePropertyChanged(propertyName); return false; }
         try
         {
             bool changed = changes.Any(item => !Equals(ApplicationSettings[item.Name], item.Value));
@@ -540,25 +538,25 @@ public partial class SettingsDialogViewModel
     internal string BuildExitOperationConfirmation(string message)
         => message + Environment.NewLine + Environment.NewLine + Resources.Settings_candidates_discarded_on_exit;
 
-    /// <summary>復元後の終了で失われる、出力・BMT・スコアの保存後未了入力があれば復元を拒否します。通常候補とBMSの過去失敗は対象外です。</summary>
+    /// <summary>復元後の終了で失われるBMT・スコアの保存後未了入力があれば復元を拒否します。出力とBMSの過去失敗は対象外です。</summary>
     internal async Task<bool> CanStartRestoreBeforeExitAsync()
     {
-        if (pendingOutputChange == null && pendingBmtChange == null && !scoreReloadPending) { return true; }
+        if (pendingBmtChange == null && !scoreReloadPending) { return true; }
         await ShowUiMessageAsync(Resources.Settings_repair_related_save, Resources.Error, UiDialogIcon.Hand, "Restore pending settings repair");
         return false;
     }
 
     private async Task<bool> PrepareBmsCandidateEditAsync()
     {
-        if (!IsBmsSearchRootEditorCoreEnabled || pendingOutputChange != null) { return false; }
-        if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Lr2Details) || !IsBmsSearchRootEditorCoreEnabled || pendingOutputChange != null) { return false; }
+        if (!IsBmsSearchRootEditorCoreEnabled) { return false; }
+        if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Lr2Details) || !IsBmsSearchRootEditorCoreEnabled) { return false; }
         return true;
     }
 
     private async Task<bool> PrepareLr2CandidateEditAsync()
     {
-        if (!IsEnvironmentSelectionCoreEnabled || pendingOutputChange != null) { return false; }
-        if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Bms) || !IsEnvironmentSelectionCoreEnabled || pendingOutputChange != null) { return false; }
+        if (!IsEnvironmentSelectionCoreEnabled) { return false; }
+        if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Bms) || !IsEnvironmentSelectionCoreEnabled) { return false; }
         return true;
     }
 
@@ -587,7 +585,7 @@ public partial class SettingsDialogViewModel
         || !string.IsNullOrEmpty(replacementBmsInstallDir));
 
     /// <summary>有効な今回入力を、公開値と同値でも関連媒体へ明示保存できます。</summary>
-    public bool CanConfirmBmsRoots => IsEditCompletionEnabled && !statePort.IsLibraryOperationInProgress && pendingOutputChange == null
+    public bool CanConfirmBmsRoots => IsEditCompletionEnabled && !statePort.IsLibraryOperationInProgress
         && CheckBmsRootsBeforeConfirmation(out _)
         && (!RequiresReplacementBmsInstallDir || AvailableBMSDirectories.Contains(replacementBmsInstallDir, StringComparer.OrdinalIgnoreCase));
 
@@ -603,8 +601,6 @@ public partial class SettingsDialogViewModel
         || bmtRegisterBeatorajaBmtUrls != ApplicationSettings.RegisterBeatorajaBmtUrls
         || bmtBeatorajaBmtHashOutputMode != ApplicationSettings.BeatorajaBmtHashOutputMode);
 
-    /// <summary>出力の保存・実処理・後片付けに未了段階があることを表示します。</summary>
-    public bool IsOutputSaveIncomplete => pendingOutputChange != null;
 
     /// <summary>導入先が最終候補一覧から外れるときだけ代替選択を表示します。</summary>
     public bool RequiresReplacementBmsInstallDir => !AvailableBMSDirectories.Contains(ApplicationSettings.BMSInstallDir, StringComparer.OrdinalIgnoreCase);
@@ -614,7 +610,6 @@ public partial class SettingsDialogViewModel
 
     private void RaiseSectionRepairStateChanged()
     {
-        RaisePropertyChanged(nameof(IsOutputSaveIncomplete));
         RaiseEnvironmentAvailabilityChanged();
     }
 
@@ -645,7 +640,6 @@ public partial class SettingsDialogViewModel
     internal async Task CommitBmsRootsCoreAsync()
     {
         if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress || statePort.IsLibraryOperationInProgress) { return; }
-        if (pendingOutputChange != null) { ShowSettingValidationError(Resources.Settings_repair_related_save); return; }
         IReadOnlyList<string> roots = AvailableBMSDirectories.ToArray();
         string replacementInstall = replacementBmsInstallDir;
         if (!CheckBmsRootsBeforeConfirmation(out string rootError, roots))
@@ -663,7 +657,7 @@ public partial class SettingsDialogViewModel
             }
             install = replacementInstall;
         }
-        if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Lr2Details) || !IsSectionCompletionEnabled || statePort.IsLibraryOperationInProgress || pendingOutputChange != null) { return; }
+        if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Lr2Details) || !IsSectionCompletionEnabled || statePort.IsLibraryOperationInProgress) { return; }
         IsEditCompletionInProgress = true;
         try
         {
@@ -811,7 +805,7 @@ public partial class SettingsDialogViewModel
 
     /// <summary>LR2詳細の適用可能差分だけを確定できます。rootが空でも有効な個別パスを受理し、再起動で失われる未了修復がある間は確定しません。</summary>
     public bool CanConfirmEnvironment => HasEnvironmentChanges && IsEnvironmentSelectionEnabled
-        && pendingOutputChange == null && !IsEnvironmentRestartBlockedByRepair
+        && !IsEnvironmentRestartBlockedByRepair
         && operationAdmission.CanEnter && customFolderOutputPort.CanBeginOutputOperation
         && (!operationModeLR2DB || IsLR2SongDBPathValid(environmentLR2SongDBPath) && lr2ConfigSession.TryResolve(environmentLR2ConfigXmlPath, out _, adoptInitial: false));
 
@@ -890,7 +884,7 @@ public partial class SettingsDialogViewModel
     private async Task CommitEnvironmentChangeAsync(EnvironmentSettingsChange change, bool replaceDetails = false, bool modeOnly = false, Action onSaveStarted = null)
     {
         if (!IsEnvironmentSelectionCoreEnabled || !operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation) { return; }
-        if (pendingOutputChange != null || IsEnvironmentRestartBlockedByRepair)
+        if (IsEnvironmentRestartBlockedByRepair)
         {
             ShowSettingValidationError(Resources.Settings_repair_related_save);
             return;
@@ -913,7 +907,7 @@ public partial class SettingsDialogViewModel
             return;
         }
         if (!IsEnvironmentSelectionCoreEnabled || !operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation) { return; }
-        if (pendingOutputChange != null || IsEnvironmentRestartBlockedByRepair) { ShowSettingValidationError(Resources.Settings_repair_related_save); return; }
+        if (IsEnvironmentRestartBlockedByRepair) { ShowSettingValidationError(Resources.Settings_repair_related_save); return; }
         change = modeOnly ? EnvironmentSettingsChange.Capture(ApplicationSettings) with { OperationModeLR2DB = change.OperationModeLR2DB }
             : change with { OperationModeLR2DB = ApplicationSettings.OperationModeLR2DB };
         if (change == EnvironmentSettingsChange.Capture(ApplicationSettings)) { SetOperationModeSelection(ApplicationSettings.OperationModeLR2DB); return; }
@@ -1062,43 +1056,20 @@ public partial class SettingsDialogViewModel
         => target == null ? CustomFolderAdditionalOutputBaseDirList
             : CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(target.LR2CustomFolderAdditionalOutputBaseDirs);
 
-    private OutputConfigurationChange pendingOutputChange;
-
-    private sealed class OutputConfigurationChange(CustomFolderOutputSettingsSnapshot previous, CustomFolderOutputSettingsSnapshot target,
-        IReadOnlyDictionary<string, string> renames)
-    {
-        internal CustomFolderOutputSettingsSnapshot Previous { get; set; } = previous;
-        internal CustomFolderOutputSettingsSnapshot Target { get; set; } = target;
-        internal CustomFolderOutputSettingsSnapshot SearchRootsPrevious { get; set; } = previous;
-        internal IReadOnlyDictionary<string, string> Renames { get; set; } = renames;
-        // 確定済みheaderの登録対応を保持し、投影失敗や候補修正後も現在の実登録から移行します。
-        internal Dictionary<string, string> CompletedRegistrationRenames { get; } = new(StringComparer.OrdinalIgnoreCase);
-        internal CustomFolderOutputSettingsSnapshot SavedSettingsTarget;
-        internal bool NormalHeadersCommitted = string.Equals(previous.LR2CustomFolderOutputBaseDir, target.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase);
-        internal bool RootHeadersCommitted = string.Equals(previous.LR2CustomFolderOutputBaseDirRootType, target.LR2CustomFolderOutputBaseDirRootType, StringComparison.OrdinalIgnoreCase);
-        internal bool RegistrationHeadersCommitted = string.Equals(previous.LR2CustomFolderAdditionalOutputBaseDirs, target.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal) && renames.Count == 0;
-        internal CustomFolderOutputSettingsSnapshot SavedSearchRootsTarget;
-        internal Lr2RootChange SavedRootChange = new([], []);
-        internal bool Published;
-        internal bool ExternalRowsComplete;
-        internal List<CustomFolderMigrationReceipt> Migrations { get; } = [];
-    }
-
-    /// <summary>有効な導入先を保護して出力配置の最小組を保存し、実移行・登録・検索root保存・公開・通知の終端を待ちます。未受理候補は復元し、修復Targetは受付・登録検証後だけ更新します。</summary>
-    /// <param name="section">normal・root・additionalは当該区分だけ、pendingは受理済み要求だけを扱います。nullは下位の配置候補組を確定します。</param>
+    /// <summary>今回入力と他区分の最新確定値を保存し、必要header DBの成功後に公開して現在正本から生成します。過去要求は保持しません。</summary>
+    /// <param name="section">normal・root・additionalは当該区分だけを扱い、他区分は最新確定値を使います。</param>
     internal Task CommitOutputSettingsAsync(string section = null) => RunSettingsOperationAsync(() => CommitOutputSettingsCoreAsync(section));
 
     /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
     internal async Task CommitOutputSettingsCoreAsync(string section = null)
     {
-        if (section is not (null or "normal" or "root" or "additional" or "pending")) { throw new ArgumentOutOfRangeException(nameof(section)); }
+        if (section is not (null or "normal" or "root" or "additional")) { throw new ArgumentOutOfRangeException(nameof(section)); }
         bool accepted = false;
         try
         {
-            if (section == "pending" && pendingOutputChange == null) { return; }
             if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress || statePort.IsLibraryOperationInProgress) { return; }
             var previous = CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings);
-            CustomFolderOutputSettingsSnapshot baseline = pendingOutputChange?.Target ?? previous;
+            CustomFolderOutputSettingsSnapshot baseline = previous;
             var target = new CustomFolderOutputSettingsSnapshot
             {
                 OperationModeLR2DB = ApplicationSettings.OperationModeLR2DB,
@@ -1110,8 +1081,8 @@ public partial class SettingsDialogViewModel
                 PlaylistDefaultIgnoreFolderOutput = ApplicationSettings.PlaylistDefaultIgnoreFolderOutput,
                 ShowRecommUpdatedMsg = ApplicationSettings.ShowRecommUpdatedMsg
             };
-            if (section == "pending" && pendingOutputChange != null) { target = pendingOutputChange.Target; }
-            var requestedRenames = new Dictionary<string, string>(pendingCustomFolderAdditionalOutputBaseRenames, StringComparer.OrdinalIgnoreCase);
+            var requestedRenames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (customFolderAdditionalOutputBaseRename is { } rename) { requestedRenames.Add(rename.Key, rename.Value); }
             bool ValidateTarget()
             {
                 try
@@ -1132,7 +1103,7 @@ public partial class SettingsDialogViewModel
                 return true;
             }
             if (!ValidateTarget()) { return; }
-            if (pendingOutputChange == null && SameOutputPlacement(previous, target) && requestedRenames.Count == 0) { return; }
+            if (section == "additional" && SameOutputPlacement(previous, target) && requestedRenames.Count == 0) { return; }
             if (!await ConfirmCustomFolderOutputChangesBeforeSaveAsync(target)) { return; }
             IsEditCompletionInProgress = true;
             try
@@ -1148,173 +1119,59 @@ public partial class SettingsDialogViewModel
                     using (playlistLease)
                     using (LibraryFileMutationCapability capability = playlistLease.CreateMutationCapability())
                     {
-                        if (section is "normal" or "root" or "additional")
-                        {
-                            previous = CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings);
-                            baseline = pendingOutputChange?.Target ?? previous;
-                            target = CopyOutputPlacement(baseline,
-                                normal: section == "normal" ? target.LR2CustomFolderOutputBaseDir : null,
-                                root: section == "root" ? target.LR2CustomFolderOutputBaseDirRootType : null,
-                                additional: section == "additional" ? target.LR2CustomFolderAdditionalOutputBaseDirs : null);
-                        }
-                        if (!ValidateTarget() || pendingOutputChange == null && SameOutputPlacement(previous, target) && requestedRenames.Count == 0) { return; }
-                        OutputConfigurationChange change = pendingOutputChange ?? new OutputConfigurationChange(previous, target,
-                            section is null or "additional" ? requestedRenames : new Dictionary<string, string>());
-                        // 修復候補は受付・登録検証の成功まで受理済みTarget・改名・完了段階へ反映しません。
-                        IReadOnlyDictionary<string, string> candidateRenames = pendingOutputChange != null && !SameOutputPlacement(change.Target, target)
-                            ? requestedRenames : change.Renames;
-                        IReadOnlyDictionary<string, string> registrationRenames = GetOutputRegistrationRepairRenames(change, target, candidateRenames);
-                        customFolderOutputPort.ValidateCustomFolderOutputRegistration(target, registrationRenames);
+                        if (!ValidateTarget()) { return; }
+                        IReadOnlyDictionary<string, string> renames = section is null or "additional"
+                            ? requestedRenames : new Dictionary<string, string>();
+                        customFolderOutputPort.ValidateCustomFolderOutputRegistration(target, renames);
                         DiscardConflictingCandidates(ConflictingCandidates.Bms | ConflictingCandidates.Lr2Details);
-                        if (pendingOutputChange != null && !SameOutputPlacement(pendingOutputChange.Target, target))
-                        {
-                            OutputConfigurationChange repair = pendingOutputChange;
-                            repair.Target = target;
-                            repair.Renames = requestedRenames;
-                            repair.NormalHeadersCommitted = string.Equals(repair.Previous.LR2CustomFolderOutputBaseDir, target.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase);
-                            repair.RootHeadersCommitted = string.Equals(repair.Previous.LR2CustomFolderOutputBaseDirRootType, target.LR2CustomFolderOutputBaseDirRootType, StringComparison.OrdinalIgnoreCase);
-                            repair.RegistrationHeadersCommitted = string.Equals(repair.Previous.LR2CustomFolderAdditionalOutputBaseDirs, target.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal);
-                            repair.Published = SameOutputPlacement(CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings), target);
-                            repair.ExternalRowsComplete = false;
-                        }
                         accepted = true;
-                        pendingOutputChange = change;
                         (string Name, object Value)[] values = [
-                            (nameof(Settings.LR2CustomFolderOutputBaseDir), change.Target.LR2CustomFolderOutputBaseDir),
-                        (nameof(Settings.LR2CustomFolderOutputBaseDirRootType), change.Target.LR2CustomFolderOutputBaseDirRootType),
-                        (nameof(Settings.LR2CustomFolderAdditionalOutputBaseDirs), change.Target.LR2CustomFolderAdditionalOutputBaseDirs)];
-                        if (change.SavedSettingsTarget == null || !SameOutputPlacement(change.SavedSettingsTarget, change.Target))
-                        { ApplicationSettings.Persist(values); change.SavedSettingsTarget = change.Target; }
-                        // 改名済みヘッダーと旧配置readerを混成させないため、必要媒体を先に保存し、同じL/P内で公開・移行します。
-                        if ((change.SavedSearchRootsTarget == null || !SameOutputPlacement(change.SavedSearchRootsTarget, change.Target)) && ApplicationSettings.OperationModeLR2DB)
+                            (nameof(Settings.LR2CustomFolderOutputBaseDir), target.LR2CustomFolderOutputBaseDir),
+                            (nameof(Settings.LR2CustomFolderOutputBaseDirRootType), target.LR2CustomFolderOutputBaseDirRootType),
+                            (nameof(Settings.LR2CustomFolderAdditionalOutputBaseDirs), target.LR2CustomFolderAdditionalOutputBaseDirs)];
+                        ApplicationSettings.Persist(values);
+                        Lr2RootChange rootChange = null;
+                        if (ApplicationSettings.OperationModeLR2DB)
                         {
                             try
                             {
                                 Lr2ConfigOwner owner = GetConfirmedLr2Owner() ?? throw new InvalidOperationException(Resources.Error_InvalidLR2SongDbOrConfigPath);
-                                IReadOnlyList<string> before = owner.CaptureSaved().RegisteredRoots;
+                                IReadOnlyList<string> before = owner.Capture().RegisteredRoots;
                                 var latest = LR2Config.CreateRootPlanningDocument(owner.ConfigFilePath, before);
-                                // 初回・修復の表依存ROOT登録は初期化時に揃えます。無関係な未修復先へはアクセスしません。
                                 if (statePort.HasActiveLibraryProfile)
                                 {
                                     latest.SetBMSSearchDirectories(customFolderOutputPort.PrepareCustomFolderOutputSearchRoots(
-                                        change.SearchRootsPrevious.LR2CustomFolderOutputBaseDirRootType, change.Target,
-                                        latest.GetBMSSearchDirectoriesForChangeTracking(), registrationRenames));
+                                        previous.LR2CustomFolderOutputBaseDirRootType, target, before, renames));
                                 }
-                                if (statePort.HasActiveLibraryProfile
-                                    || !string.Equals(change.SearchRootsPrevious.LR2CustomFolderOutputBaseDir, change.Target.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase)
-                                    || !string.Equals(change.SearchRootsPrevious.LR2CustomFolderAdditionalOutputBaseDirs, change.Target.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal))
+                                // 初回ROOT選択は未修復の通常先に触れず、関係する登録だけを準備してXML自体は必ず再保存します。
+                                if (statePort.HasActiveLibraryProfile || section is null or "normal" or "additional")
                                 {
                                     CustomFolderOutputBaseSearchRootSyncPlan plan = CustomFolderOutputBaseSearchRootSyncService.PrepareNormalOutputBaseRoots(latest,
-                                        change.SearchRootsPrevious.LR2CustomFolderOutputBaseDir, change.Target.LR2CustomFolderOutputBaseDir,
-                                        change.SearchRootsPrevious.LR2CustomFolderAdditionalOutputBaseDirs, change.Target.LR2CustomFolderAdditionalOutputBaseDirs, []);
+                                        previous.LR2CustomFolderOutputBaseDir, target.LR2CustomFolderOutputBaseDir,
+                                        previous.LR2CustomFolderAdditionalOutputBaseDirs, target.LR2CustomFolderAdditionalOutputBaseDirs, []);
                                     CustomFolderOutputBaseSearchRootSyncService.CompleteAdditionalOutputBaseRootSync(latest, plan);
                                 }
-                                // メモリ上のChangedだけで省略せず、未了のディスク保存を必ず終えます。
-                                change.SavedRootChange = change.SavedRootChange.Then(owner.SaveRoots(new Lr2RootChange(before, latest.GetBMSSearchDirectoriesForChangeTracking()), publish: false));
-                                change.SavedSearchRootsTarget = change.Target;
-                                change.SearchRootsPrevious = change.Target;
+                                rootChange = owner.SaveOutputRoots(before, latest.GetBMSSearchDirectoriesForChangeTracking());
                             }
                             catch (Exception failure) { throw new PartialSettingsSaveException(ApplicationSettings.LR2ConfigXmlPath, failure); }
                         }
-                        if (!change.Published)
-                        {
-                            var beforePublish = CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings);
-                            ApplicationSettings.Publish(values);
-                            AdoptPublishedOutputCandidates(section, beforePublish, change.Target);
-                            publishOutputPlacement();
-                            if (ApplicationSettings.OperationModeLR2DB) { GetConfirmedLr2Owner().Publish(change.SavedRootChange, change.Target); }
-                            change.Published = true;
-                            CancelBmsRoots();
-                            RaisePropertyChanged(nameof(ConfirmedBMSDirectories));
-                        }
+                        IReadOnlyList<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation> previousLocations = [];
                         if (statePort.HasActiveLibraryProfile)
                         {
-                            await Task.Run(() =>
-                            {
-                                if (!change.NormalHeadersCommitted)
-                                {
-                                    void AcceptNormalHeaders()
-                                    {
-                                        change.Previous = CopyOutputPlacement(change.Previous, normal: change.Target.LR2CustomFolderOutputBaseDir);
-                                        change.NormalHeadersCommitted = true;
-                                    }
-                                    if (!string.Equals(change.Previous.LR2CustomFolderOutputBaseDir, change.Target.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        customFolderOutputPort.ChangeCustomFolderBaseDirectoryWithSettings(change.Previous.LR2CustomFolderOutputBaseDir,
-                                        change.Target.LR2CustomFolderOutputBaseDir, change.Previous.LR2CustomFolderAdditionalOutputBaseDirs,
-                                        change.Target.LR2CustomFolderAdditionalOutputBaseDirs, change.Target, capability, receipt =>
-                                        {
-                                            change.Migrations.Add(receipt);
-                                            AcceptNormalHeaders();
-                                        }, registrationRenames);
-                                    }
-                                    AcceptNormalHeaders();
-                                }
-                                if (!change.RegistrationHeadersCommitted)
-                                {
-                                    IReadOnlyDictionary<string, string> currentRenames = GetOutputRegistrationRepairRenames(change);
-                                    void AcceptRegistrationHeaders()
-                                    {
-                                        if (change.RegistrationHeadersCommitted) { return; }
-                                        foreach ((string oldName, string newName) in currentRenames)
-                                        {
-                                            string[] origins = change.CompletedRegistrationRenames.Where(pair => string.Equals(pair.Value, oldName, StringComparison.OrdinalIgnoreCase)).Select(pair => pair.Key).ToArray();
-                                            if (origins.Length == 0) { change.CompletedRegistrationRenames[oldName] = newName; }
-                                            else { foreach (string origin in origins) { change.CompletedRegistrationRenames[origin] = newName; } }
-                                        }
-                                        change.Previous = CopyOutputPlacement(change.Previous, additional: change.Target.LR2CustomFolderAdditionalOutputBaseDirs);
-                                        change.RegistrationHeadersCommitted = true;
-                                    }
-                                    customFolderOutputPort.ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
-                                        change.Previous.LR2CustomFolderAdditionalOutputBaseDirs, currentRenames, change.Target, capability, receipt =>
-                                        {
-                                            change.Migrations.Add(receipt);
-                                            AcceptRegistrationHeaders();
-                                        });
-                                    AcceptRegistrationHeaders();
-                                }
-                                if (!change.RootHeadersCommitted)
-                                {
-                                    void AcceptRootHeaders()
-                                    {
-                                        change.Previous = CopyOutputPlacement(change.Previous, root: change.Target.LR2CustomFolderOutputBaseDirRootType);
-                                        change.RootHeadersCommitted = true;
-                                    }
-                                    if (!string.Equals(change.Previous.LR2CustomFolderOutputBaseDirRootType, change.Target.LR2CustomFolderOutputBaseDirRootType, StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        customFolderOutputPort.ChangeCustomFolderBaseDirectoryRootWithSettings(change.Previous.LR2CustomFolderOutputBaseDirRootType,
-                                        change.Target.LR2CustomFolderOutputBaseDirRootType, change.Target, capability, receipt =>
-                                        {
-                                            change.Migrations.Add(receipt);
-                                            AcceptRootHeaders();
-                                        });
-                                    }
-                                    AcceptRootHeaders();
-                                }
-                            });
+                            previousLocations = await Task.Run(() => customFolderOutputPort.CommitCustomFolderOutputSettings(previous, target, renames, capability));
                         }
+                        ApplicationSettings.Publish(values);
+                        AdoptPublishedOutputCandidates(section, target);
+                        publishOutputPlacement();
+                        if (rootChange != null) { GetConfirmedLr2Owner().Publish(rootChange, target); }
+                        CancelBmsRoots();
+                        RaisePropertyChanged(nameof(ConfirmedBMSDirectories));
                         if (statePort.HasActiveLibraryProfile)
                         {
-                            await Task.Run(() => customFolderOutputPort.RetryCustomFolderMigrations(change.Migrations, change.Target, capability));
-                        }
-                        if (statePort.HasActiveLibraryProfile && !change.ExternalRowsComplete)
-                        {
+                            await Task.Run(() => customFolderOutputPort.RegenerateCustomFolderOutputs(previousLocations, target, capability));
                             using LibraryFileMutationCapability primary = operationAdmission.CreateMutationCapability(lease);
                             await lr2SongDbSyncWorkflow.SyncExternalFolderRowsAfterCustomFolderOutputBaseSettingsChangeAsync(
                                 "output settings confirmation", primary, capability);
-                            change.ExternalRowsComplete = true;
-                        }
-                        change.Migrations.RemoveAll(receipt => receipt.CleanupCompleted);
-                        if (change.Migrations.Count == 0) { pendingOutputChange = null; }
-                        if (section is null or "additional") { pendingCustomFolderAdditionalOutputBaseRenames.Clear(); }
-                        else if (section == "pending")
-                        {
-                            foreach ((string original, string targetName) in change.Renames)
-                            {
-                                if (pendingCustomFolderAdditionalOutputBaseRenames.TryGetValue(original, out string candidate)
-                                    && string.Equals(candidate, targetName, StringComparison.OrdinalIgnoreCase))
-                                { pendingCustomFolderAdditionalOutputBaseRenames.Remove(original); }
-                            }
                         }
                     }
                 }
@@ -1325,23 +1182,31 @@ public partial class SettingsDialogViewModel
             catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } }
             finally { IsEditCompletionInProgress = false; RaiseSectionRepairStateChanged(); }
         }
-        finally { if (!accepted) { RestoreUnacceptedOutputCandidates(); } }
+        finally
+        {
+            if (!accepted) { RestoreUnacceptedOutputCandidates(); }
+            else if (section is null or "additional")
+            {
+                // 即時確定した追加操作の対応は終端で捨て、保存失敗後も次の操作を公開済みの名前から始めます。
+                AdoptPublishedOutputCandidates("additional", CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings));
+            }
+        }
     }
 
     // 保存前に再表示した欄も採用済み配置へ揃えます。別区分の未確定候補は触りません。
-    private void AdoptPublishedOutputCandidates(string section, CustomFolderOutputSettingsSnapshot previous, CustomFolderOutputSettingsSnapshot target)
+    private void AdoptPublishedOutputCandidates(string section, CustomFolderOutputSettingsSnapshot target)
     {
-        if (section is null or "normal" || section == "pending" && !string.Equals(previous.LR2CustomFolderOutputBaseDir, target.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase))
+        if (section is null or "normal")
         {
             outputLR2CustomFolderOutputBaseDir = target.LR2CustomFolderOutputBaseDir;
             RaisePropertyChanged(nameof(LR2CustomFolderOutputDir));
         }
-        if (section is null or "root" || section == "pending" && !string.Equals(previous.LR2CustomFolderOutputBaseDirRootType, target.LR2CustomFolderOutputBaseDirRootType, StringComparison.OrdinalIgnoreCase))
+        if (section is null or "root")
         {
             outputLR2CustomFolderOutputBaseDirRootType = target.LR2CustomFolderOutputBaseDirRootType;
             RaisePropertyChanged(nameof(LR2CustomFolderAsRootOutputDir));
         }
-        if (section is null or "additional" || section == "pending" && !string.Equals(previous.LR2CustomFolderAdditionalOutputBaseDirs, target.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal))
+        if (section is null or "additional")
         {
             outputLR2CustomFolderAdditionalOutputBaseDirs = target.LR2CustomFolderAdditionalOutputBaseDirs;
             RefreshCustomFolderAdditionalOutputBaseDirsFromSettings();
@@ -1349,42 +1214,18 @@ public partial class SettingsDialogViewModel
         RaiseValidationStateChanged();
     }
 
-    /// <summary>未受理の出力候補を確定配置へ、修復中は受理済み配置と改名対応へ局所復元し、再操作を可能にします。</summary>
+    /// <summary>未受理の出力候補だけを現在の公開済み配置へ戻します。</summary>
     internal void RestoreUnacceptedOutputCandidates()
     {
-        CustomFolderOutputSettingsSnapshot target = pendingOutputChange?.Target ?? CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings);
+        var target = CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings);
         outputLR2CustomFolderOutputBaseDir = target.LR2CustomFolderOutputBaseDir;
         outputLR2CustomFolderOutputBaseDirRootType = target.LR2CustomFolderOutputBaseDirRootType;
         outputLR2CustomFolderAdditionalOutputBaseDirs = target.LR2CustomFolderAdditionalOutputBaseDirs;
         RefreshCustomFolderAdditionalOutputBaseDirsFromSettings();
-        if (pendingOutputChange != null)
-        {
-            foreach ((string original, string renamed) in pendingOutputChange.Renames) { pendingCustomFolderAdditionalOutputBaseRenames[original] = renamed; }
-        }
         RaisePropertyChanged(nameof(LR2CustomFolderOutputDir));
         RaisePropertyChanged(nameof(LR2CustomFolderAsRootOutputDir));
         RaiseValidationStateChanged();
         RaiseSectionRepairStateChanged();
-    }
-
-    /// <summary>成立済み登録名から修復先への対応を計画します。未受理の候補を渡しても受理済み要求は更新しません。</summary>
-    private static IReadOnlyDictionary<string, string> GetOutputRegistrationRepairRenames(OutputConfigurationChange change,
-        CustomFolderOutputSettingsSnapshot target = null, IReadOnlyDictionary<string, string> candidateRenames = null)
-    {
-        var renames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach ((string original, string targetName) in candidateRenames ?? change.Renames)
-        {
-            string current = change.CompletedRegistrationRenames.TryGetValue(original, out string completed) ? completed : original;
-            renames[current] = targetName;
-        }
-        var targetNames = CustomFolderOutputBaseRegistry.CreateAdditionalEntries(CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict((target ?? change.Target).LR2CustomFolderAdditionalOutputBaseDirs))
-            .Select(entry => entry.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach ((string original, string current) in change.CompletedRegistrationRenames)
-        {
-            // 取消・再表示で元の確定名へ戻した場合も、成立済みの登録対応を明示して戻します。
-            if (!renames.ContainsKey(current) && targetNames.Contains(original) && !targetNames.Contains(current)) { renames[current] = original; }
-        }
-        return renames;
     }
 
     private static CustomFolderOutputSettingsSnapshot CopyOutputPlacement(CustomFolderOutputSettingsSnapshot source,

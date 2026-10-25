@@ -609,7 +609,7 @@ internal sealed class PlaylistPropertySaveService
         CustomFolderOutputSettingsSnapshot settings = commit.Settings;
         if (!settings.OperationModeLR2DB) { return; }
         pending.Settings = settings;
-        pending.HasPreviousOutput = baseline.HasPreviousOutput;
+        pending.HasPreviousOutput = baseline.HasPreviousOutput && !string.IsNullOrWhiteSpace(baseline.OutputDirectoryPath);
         pending.OldOutputDirectory = baseline.OutputDirectoryPath;
         pending.NewOutputDirectory = ResolveCustomFolderOutputDirectory(commit.Table, settings);
         pending.WasRootFolder = baseline.IsRootFolder;
@@ -658,7 +658,7 @@ internal sealed class PlaylistPropertySaveService
         {
             try
             {
-                PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderBatchOutputResult migration = pending.HasPreviousOutput
+                PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderBatchOutputResult migration = pending.HasPreviousOutput && !string.IsNullOrWhiteSpace(pending.NewOutputDirectory)
                     ? store.MigrateCustomFolderOutputDirectoryWithSettings(commit.Table,
                     pending.OldOutputDirectory, pending.NewOutputDirectory, pending.WasRootFolder,
                     pending.WasRootFolder ? pending.OldOutputBase : null,

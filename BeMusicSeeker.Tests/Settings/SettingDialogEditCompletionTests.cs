@@ -4827,7 +4827,13 @@ public sealed partial class SettingDialogEditCompletionTests
         ISettingsDialogWorkspacePort,
         ISettingsDialogCustomFolderOutputPort
     {
-        public void RetryCustomFolderMigrations(IReadOnlyList<CustomFolderMigrationReceipt> receipts,
+
+
+        public IReadOnlyList<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation> CommitCustomFolderOutputSettings(
+            CustomFolderOutputSettingsSnapshot previous, CustomFolderOutputSettingsSnapshot target,
+            IReadOnlyDictionary<string, string> renames, LibraryFileMutationCapability capability) => [];
+
+        public void RegenerateCustomFolderOutputs(IReadOnlyList<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation> previousLocations,
             CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability)
         { }
 
@@ -4869,22 +4875,9 @@ public sealed partial class SettingDialogEditCompletionTests
         public Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string operationName) =>
             operation();
 
-        public void ChangeCustomFolderBaseDirectoryWithSettings(
-            string outputDirBaseBefore,
-            string outputDirBaseAfter,
-            string additionalOutputBaseDirsBefore,
-            string additionalOutputBaseDirsAfter,
-            CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability? capability = null, Action<CustomFolderMigrationReceipt>? migrationObserver = null,
-            IReadOnlyDictionary<string, string>? outputBaseRenames = null)
-        {
-        }
 
-        public void ChangeCustomFolderBaseDirectoryRootWithSettings(
-            string outputDirBaseBefore,
-            string outputDirBaseAfter,
-            CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability? capability = null, Action<CustomFolderMigrationReceipt>? migrationObserver = null)
-        {
-        }
+
+
 
         public void ValidateCustomFolderOutputRegistration(CustomFolderOutputSettingsSnapshot settings,
             IReadOnlyDictionary<string, string> renames)
@@ -4893,10 +4886,7 @@ public sealed partial class SettingDialogEditCompletionTests
         public IReadOnlyList<string> PrepareCustomFolderOutputSearchRoots(string previousRootOutputBaseDirectory,
             CustomFolderOutputSettingsSnapshot settings, IReadOnlyList<string> currentDirectories, IReadOnlyDictionary<string, string>? renames = null) => currentDirectories;
 
-        public int ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
-            string previousAdditionalOutputBaseDirectories,
-            IReadOnlyDictionary<string, string> pendingRenames,
-            CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability? capability = null, Action<CustomFolderMigrationReceipt>? migrationObserver = null) => 0;
+
 
 #pragma warning disable CS0067 // インターフェイスのイベント面を満たすが、このテストダブルでは発火させない。
         public event EventHandler<PlaylistCatalogChangedEventArgs>? PlaylistCatalogChanged;

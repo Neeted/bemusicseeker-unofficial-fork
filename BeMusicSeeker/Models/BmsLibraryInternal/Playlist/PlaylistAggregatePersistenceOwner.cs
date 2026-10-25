@@ -663,6 +663,35 @@ internal sealed class PlaylistAggregatePersistenceOwner
         }
     }
 
+    /// <summary>追加先名だけの変更を不変入力から準備し、同じ既存IDへ一括保存した後に正本の名前を公開します。</summary>
+    internal void ReplaceOutputBaseNames(IReadOnlyList<(BMSTable Table, string Name)> updates)
+    {
+        if (updates.Count == 0) { return; }
+        using (activeCollectionLock.GetReaderGuard())
+        {
+            lock (synchronization)
+            {
+                EnsureWriteAllowedUnsafe(updates.Select(update => update.Table).ToList(), false, true);
+                var headers = new List<BMSTable>();
+                foreach ((BMSTable table, string name) in updates)
+                {
+                    using (table.ReaderWriterLock.GetReaderGuard())
+                    {
+                        BMSTable header = table.CreatePersistenceHeaderSnapshot(table.last_update);
+                        header.custom_folder_output_base_name = name;
+                        headers.Add(header);
+                    }
+                }
+                repository.ReplaceHeaders(headers);
+                foreach ((BMSTable table, string name) in updates)
+                {
+                    using (table.ReaderWriterLock.GetWriterGuard()) { table.custom_folder_output_base_name = name; }
+                }
+                persistenceGeneration++;
+            }
+        }
+    }
+
     internal void ReplaceHeader(
         BMSTable table,
         bool allowReloadReservation = false,

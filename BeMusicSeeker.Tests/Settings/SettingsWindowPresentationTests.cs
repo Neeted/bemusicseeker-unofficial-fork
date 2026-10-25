@@ -997,7 +997,6 @@ public sealed class SettingsWindowPresentationTests
                     CollectionAssert.AreEqual(before, File.ReadAllBytes(settingsPath));
                     CollectionAssert.Contains(owner.SettingDialog.AvailableBMSDirectories, staged);
                     Assert.AreEqual(0, owner.SettingDialog.CustomFolderAdditionalOutputBaseDirList.Count);
-                    Assert.IsFalse(owner.SettingDialog.IsOutputSaveIncomplete);
                     Assert.IsFalse(composition.OperationAdmission.IsActive);
                     Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
                     Assert.AreEqual(0, Directory.EnumerateFileSystemEntries(additional).Count());

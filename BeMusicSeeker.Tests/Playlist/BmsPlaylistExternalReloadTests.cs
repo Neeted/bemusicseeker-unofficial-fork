@@ -997,16 +997,18 @@ public sealed class BmsPlaylistExternalReloadTests
             Assert.IsTrue(changed.All(item => item.Succeeded && item.Updated));
             Assert.IsTrue(session.TakeReceipt().IsEmpty);
             updated = playlist.BMSTables.Single(table => table.playlist_id == id);
+            // 保持した利用者の追加先名を登録して出力します。未登録名の停止条件は出力担当のテストへ分担します。
+            string additionalOutputBase = Path.Combine(directory, "CustomName");
             settings = new CustomFolderOutputSettingsSnapshot
             {
                 OperationModeLR2DB = true,
                 LR2RootPath = directory,
                 LR2CustomFolderOutputBaseDir = Path.Combine(directory, "Output"),
                 LR2CustomFolderOutputBaseDirRootType = Path.Combine(directory, "RootOutput"),
-                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+                LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalOutputBase])
             };
             playlist.ReOutputCustomFoldersAndCommitHeadersToDB([updated], "local-recommendations-output");
-            string lr2Path = Path.Combine(settings.LR2CustomFolderOutputBaseDir, updated.Output_dir, "0000.lr2folder");
+            string lr2Path = Path.Combine(additionalOutputBase, updated.Output_dir, "0000.lr2folder");
             Assert.IsTrue(File.Exists(lr2Path));
             StringAssert.Contains(ReadShiftJisText(lr2Path), "#TITLE");
             using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())

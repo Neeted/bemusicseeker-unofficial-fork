@@ -466,8 +466,16 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         return options.FirstOrDefault(option =>
                 !option.IsNoChange
                 && string.Equals(option.BaseName, normalized, StringComparison.OrdinalIgnoreCase))
+            ?? (normalized == null ? null : AddUnregisteredOutputBaseOption(normalized))
             ?? options.FirstOrDefault(option => !option.IsNoChange && option.BaseName == null)
             ?? options.FirstOrDefault();
+    }
+
+    private PlaylistCustomFolderOutputBaseOption AddUnregisteredOutputBaseOption(string name)
+    {
+        var option = new PlaylistCustomFolderOutputBaseOption(name, name);
+        _outputBaseOptions = OutputBaseOptions.Append(option).ToArray();
+        return option;
     }
 
     internal PlaylistPropertyDialogViewModel(

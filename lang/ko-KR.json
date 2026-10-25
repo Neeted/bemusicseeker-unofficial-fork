@@ -1,4 +1,6 @@
 {
+  "Warn_CustomFolderCleanupFailed": "새 출력은 저장되었지만 이전 출력 위치의 파일 또는 LR2 폴더 레코드를 정리하지 못했습니다.\n이전 위치: {0}\n원인: {1}",
+  "Warn_UnregisteredCustomFolderOutputBase": "추가 출력 위치 “{1}”이 등록되지 않아 표 “{0}”의 LR2 출력을 중지했습니다. 표 속성에서 저장 위치를 다시 선택해 주세요.",
   "Settings_candidates_discarded_on_exit": "종료 시 확정하지 않은 설정 후보는 버려지며 다음 실행으로 이어지지 않습니다.",
   "Details_show_diag_new_install_description": "설치 대상이 설정되지 않은 보류 패키지를 새로 설치할 때의 확인입니다. 설치 대상이 설정되어 있으면 OFF여도 확인을 생략할 수 없습니다.",
   "Details_test_delete_pending_source_after_install_description": "설치 후 남은 보유 채보와 빈 원본 폴더를 정리합니다. 미보유 항목이나 판정할 수 없는 잔여물은 삭제하지 않습니다. OFF여도 이동한 원본 파일은 남지 않습니다.",

@@ -212,6 +212,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             return new CustomFolderOutputPreparation([], [], settings, 0);
         }
 
+        if (NotifyUnregisteredOutputBase(table, settings)) { return new CustomFolderOutputPreparation([], [], settings, 0); }
         ValidateOutputLayout(settings);
         ensureEntriesLoaded(table, "ReOutputCustomFolder");
         PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection projection = CreateProjection(table, settings);
@@ -271,8 +272,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
     }
 
     /// <summary>
-    /// Hydrates a single table and builds the destination projection before
-    /// admission.  No filesystem or LR2 row mutation is performed here.
+    /// 単一表の移行投影を準備します。未登録追加先の通常表は通知して対象から外し、正本保存や独立したBMT処理は妨げません。
     /// </summary>
     internal CustomFolderMigrationPreparation PrepareCustomFolderOutputMigration(
         BMSTable table,
@@ -290,6 +290,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             return new CustomFolderMigrationPreparation([], settings, []);
         }
 
+        if (NotifyUnregisteredOutputBase(table, settings)) { return new CustomFolderMigrationPreparation([], settings, []); }
         ValidateOutputLayout(settings);
         if (!string.IsNullOrWhiteSpace(outputDirectoryAfter))
         {
@@ -336,7 +337,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         MigrationPlan plan = preparation.Plans.FirstOrDefault();
         if (plan == null)
         {
-            return new CustomFolderBatchOutputResult();
+            return new CustomFolderBatchOutputResult { Succeeded = true };
         }
 
         try
@@ -447,17 +448,16 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         var plans = new List<MigrationPlan>();
         foreach (BMSTable table in tables ?? [])
         {
-            if (table == null
-                || string.IsNullOrWhiteSpace(table.Output_dir)
-                || outputDirectoriesBefore?.TryGetValue(table, out string beforeDirectory) != true
-                || string.IsNullOrWhiteSpace(beforeDirectory))
+            if (table == null || string.IsNullOrWhiteSpace(table.Output_dir)) { continue; }
+            string beforeDirectory = outputDirectoriesBefore?.TryGetValue(table, out string previous) == true ? previous : null;
+            string afterDirectory = ManagedPlaylistOutputPlacement.Resolve(table, settings, outputBaseRenames);
+            if (string.IsNullOrWhiteSpace(afterDirectory))
             {
+                NotifyUnregisteredOutputBase(table, settings);
                 continue;
             }
-
             ensureEntriesLoaded(table, "MigrateCustomFolderOutputDirectories");
-            string afterDirectory = ManagedPlaylistOutputPlacement.Resolve(table, settings, outputBaseRenames);
-            if (string.IsNullOrWhiteSpace(afterDirectory) || IsSameDirectory(beforeDirectory, afterDirectory))
+            if (IsSameDirectory(beforeDirectory, afterDirectory))
             {
                 continue;
             }
@@ -534,176 +534,95 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         return result;
     }
 
-    /// <summary>
-    /// 未了receiptの表identityを現在ヘッダーと受理済み設定で再準備し、実成立先の共有後に旧先整理を進めます。
-    /// 元Preparationは旧先整理の入力として維持し、修復先の成立事実だけを別に更新します。
-    /// </summary>
-    internal void RetryCustomFolderMigrations(IReadOnlyList<CustomFolderMigrationReceipt> receipts,
-        CustomFolderOutputSettingsSnapshot settings,
+    /// <summary>今回の変更前だけを表す不変な整理入力です。後続操作へ保持しません。</summary>
+    internal sealed record PreviousOutputLocation(BMSTable Table, string Directory, string BaseDirectory, bool IsRoot);
+
+    /// <summary>現在正本から生成し、成立した生成の後だけ今回の旧配置を整理します。必要生成の失敗は伝播し、旧先整理の失敗は対象と原因を通知して終端します。</summary>
+    internal void RegenerateCustomFolderOutputs(IReadOnlyList<BMSTable> tables,
+        IReadOnlyList<PreviousOutputLocation> previousLocations, CustomFolderOutputSettingsSnapshot settings,
         Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization)
     {
-        ArgumentNullException.ThrowIfNull(receipts);
-        ArgumentNullException.ThrowIfNull(settings);
-        ArgumentNullException.ThrowIfNull(syncMaterialization);
-        ValidateOutputLayout(settings);
-        // 再投影する表は既存の生存検査を維持し、成立済み出力の旧絶対path整理には新しい拒否を加えません。
-        ValidateCurrentTables([.. receipts.Where(receipt => !receipt.MaterializationCompleted)
-            .SelectMany(receipt => receipt.Preparation.Tables).Distinct()]);
-        var successfulPlans = new Dictionary<BMSTable, Dictionary<string, MigrationPlan>>();
-        foreach (CustomFolderMigrationReceipt receipt in receipts.Where(receipt => receipt.MaterializationCompleted))
+        if (!settings.OperationModeLR2DB) { return; }
+        CustomFolderOutputPreparation preparation = PrepareTables(tables, "settings output", true, true, settings);
+        CustomFolderBatchOutputResult result = ReOutputPreparedTablesAsync(preparation, "settings output",
+            "settings_output_regenerate", false, false, syncMaterialization).GetAwaiter().GetResult();
+        PublishPostLeaseResult(result, null);
+        if (!result.Succeeded)
         {
-            foreach (MigrationPlan plan in receipt.MaterializationPreparation.Plans)
+            throw new InvalidOperationException(string.Format(Resources.Warn_CustomFolderOutputFailed,
+                string.Join(", ", preparation.Tables.Select(table => table.name)),
+                string.Join(", ", result.Materialization?.UnverifiedFilePaths ?? [])));
+        }
+        string[] protectedDirectories = preparation.Projections.Select(projection => projection.OutputDirectory).ToArray();
+        var plans = new List<MigrationPlan>();
+        foreach (PreviousOutputLocation previous in previousLocations ?? [])
+        {
+            string current = ResolveOutputDirectory(previous.Table, settings);
+            if (string.IsNullOrWhiteSpace(current) || IsSameDirectory(current, previous.Directory)) { continue; }
+            plans.Add(new MigrationPlan
             {
-                if (!successfulPlans.TryGetValue(plan.Table, out Dictionary<string, MigrationPlan> destinations))
-                {
-                    destinations = new Dictionary<string, MigrationPlan>(StringComparer.OrdinalIgnoreCase);
-                    successfulPlans.Add(plan.Table, destinations);
-                }
-                destinations[CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(plan.OutputDirectoryAfter)] = plan;
-            }
+                Table = previous.Table,
+                OutputDirectoryBefore = previous.Directory,
+                OutputDirectoryAfter = current,
+                WasRootFolderBefore = previous.IsRoot,
+                RootOutputBaseDirectoryBefore = previous.BaseDirectory,
+                OutputBaseDirectoryBefore = previous.BaseDirectory
+            });
         }
-
-        var retryPlans = new Dictionary<BMSTable, MigrationPlan>();
-        var materializationPlans = new List<MigrationPlan>();
-        var pendingPreparations = new Dictionary<CustomFolderMigrationReceipt, CustomFolderMigrationPreparation>();
-        foreach (CustomFolderMigrationReceipt receipt in receipts.Where(receipt => !receipt.MaterializationCompleted))
+        try
         {
-            var plans = new List<MigrationPlan>();
-            foreach (MigrationPlan original in receipt.Preparation.Plans)
-            {
-                if (!retryPlans.TryGetValue(original.Table, out MigrationPlan plan))
-                {
-                    string afterDirectory = ResolveOutputDirectory(original.Table, settings);
-                    if (successfulPlans.TryGetValue(original.Table, out Dictionary<string, MigrationPlan> destinations)
-                        && destinations.TryGetValue(CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(afterDirectory), out MigrationPlan successful))
-                    {
-                        plan = successful;
-                    }
-                    else
-                    {
-                        ensureEntriesLoaded(original.Table, "RetryCustomFolderMigrations");
-                        plan = new MigrationPlan
-                        {
-                            Table = original.Table,
-                            OutputDirectoryBefore = original.OutputDirectoryBefore,
-                            OutputDirectoryAfter = afterDirectory,
-                            SameDirectory = IsSameDirectory(original.OutputDirectoryBefore, afterDirectory),
-                            Projection = CreateProjection(original.Table, settings, afterDirectory)
-                        };
-                        // 旧先の再利用も投影対象です。同一pathを除外すると、失敗した出力を修復できません。
-                        PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(plan.Projection);
-                        materializationPlans.Add(plan);
-                    }
-                    retryPlans.Add(original.Table, plan);
-                }
-                plans.Add(plan);
-            }
-            pendingPreparations.Add(receipt, new CustomFolderMigrationPreparation(plans, settings, []));
+            CustomFolderBatchOutputResult cleanup = CompletePreparedMigrationCleanup(new(plans, settings, protectedDirectories), syncMaterialization);
+            PublishPostLeaseResult(cleanup, null);
         }
-
-        CustomFolderBatchOutputResult materializationResult = null;
-        if (materializationPlans.Count > 0)
+        catch (Exception failure)
         {
-            PrepareProjectionSurfaceAndScopes(materializationPlans.Select(plan => plan.Projection).ToArray(),
-                settings, "RetryCustomFolderMigrations");
-            materializationResult = MaterializePreparedCustomFolderMigration(
-                new CustomFolderMigrationPreparation(materializationPlans, settings, []),
-                "settings_custom_folder_migration_retry", syncMaterialization);
-        }
-        // 全投影・DB同期成立後、他receiptによる充足も含めて保存し、公開・整理失敗で成立先を失いません。
-        foreach ((CustomFolderMigrationReceipt receipt, CustomFolderMigrationPreparation preparation) in pendingPreparations)
-        {
-            receipt.MaterializationPreparation = preparation;
-            receipt.MaterializationCompleted = true;
-        }
-        if (materializationResult != null)
-        {
-            PublishPostLeaseResult(materializationResult, null);
-        }
-        IReadOnlyCollection<string> currentOutputs = CreateMigrationDestinationDirectories(null, settings);
-        foreach (CustomFolderMigrationReceipt receipt in receipts.Where(receipt => !receipt.CleanupCompleted))
-        {
-            CustomFolderBatchOutputResult result = CompletePreparedMigrationCleanup(receipt,
-                syncMaterialization, currentProtectedDirectories: currentOutputs);
-            PublishPostLeaseResult(result, null);
+            // 設定操作は新先への生成まで成立済みです。旧先整理の残存だけを通知し、後続の必要同期へ進みます。
+            // 表プロパティ保存の未完了継続は別契約のため、共有の整理処理では例外を変換しません。
+            notificationOwner.QueueWarning(string.Format(Resources.Warn_CustomFolderCleanupFailed,
+                string.Join(Environment.NewLine, plans.Select(plan => plan.OutputDirectoryBefore).Distinct(StringComparer.OrdinalIgnoreCase)), failure.Message));
         }
     }
 
-    /// <summary>成立済み投影を再生成せず、捕捉した旧絶対path・型・保護範囲で未了の整理を進めます。</summary>
-    /// <param name="receipt">元の整理入力と物理/DB整理の成立事実です。</param>
-    /// <param name="syncMaterialization">同じ生存P権限で旧DB行を一括整理する処理です。</param>
-    /// <param name="result">初回投影の結果へ整理結果を加える場合の結果です。</param>
-    /// <param name="currentProtectedDirectories">一括修復の受理済み設定から捕捉した現出力です。旧path再利用時も成立出力を守ります。</param>
-    internal CustomFolderBatchOutputResult CompletePreparedMigrationCleanup(CustomFolderMigrationReceipt receipt,
+    /// <summary>今回生成した出力を保全し、既知の旧表管理ディレクトリと対応行を整理します。ファイル削除失敗は結果へ残し、DB整理の例外は呼出元へ返します。</summary>
+    internal CustomFolderBatchOutputResult CompletePreparedMigrationCleanup(CustomFolderMigrationPreparation preparation,
         Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization,
-        CustomFolderBatchOutputResult result = null, IReadOnlyCollection<string> currentProtectedDirectories = null)
+        CustomFolderBatchOutputResult result = null)
     {
-        ArgumentNullException.ThrowIfNull(receipt);
-        ArgumentNullException.ThrowIfNull(syncMaterialization);
-        CustomFolderMigrationPreparation preparation = receipt.Preparation;
         result ??= new CustomFolderBatchOutputResult { Succeeded = true };
-        if (currentProtectedDirectories != null)
-        {
-            // 修復した候補が旧pathを新たな出力に再利用する場合、成立済みの現出力を削除しません。
-            preparation = new CustomFolderMigrationPreparation(
-                preparation.Plans.Where(plan => !IsPathUnderAnyDirectory(plan.OutputDirectoryBefore, currentProtectedDirectories)), preparation.Settings,
-                preparation.ProtectedDirectories.Concat(currentProtectedDirectories));
-        }
+        var pruneScopes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (MigrationPlan plan in preparation.Plans)
         {
-            if (receipt.CleanedDirectories.Contains(plan)) { continue; }
-            IReadOnlyCollection<string> managedBases = CreateManagedOutputBaseScopes(
-                plan.Table,
-                plan.WasRootFolderBefore,
-                plan.RootOutputBaseDirectoryBefore,
-                plan.OutputBaseDirectoryBefore,
-                plan.InferOutputBaseDirectoryBeforeWhenMissing,
-                preparation.Settings);
-            IReadOnlyCollection<string> pruneScopes = CreateDirectoryPruneScopes(
-                plan.OutputDirectoryBefore, plan.WasRootFolderBefore,
-                plan.RootOutputBaseDirectoryBefore, preparation.Settings);
-            bool deletionFailure;
-            if (DeleteOutputDirectoryTree(
-                plan.OutputDirectoryBefore,
-                managedBases,
-                preparation.ProtectedDirectories,
-                out deletionFailure))
+            if (string.IsNullOrWhiteSpace(plan.OutputDirectoryBefore)) { continue; }
+            IReadOnlyCollection<string> managedBases = CreateManagedOutputBaseScopes(plan.Table, plan.WasRootFolderBefore,
+                plan.RootOutputBaseDirectoryBefore, plan.OutputBaseDirectoryBefore,
+                plan.InferOutputBaseDirectoryBeforeWhenMissing, preparation.Settings);
+            if (DeleteOutputDirectoryTree(plan.OutputDirectoryBefore, managedBases, preparation.ProtectedDirectories, out bool deletionFailure))
             {
-                foreach (string scope in pruneScopes)
-                {
-                    receipt.PendingDatabasePruneScopes.Add(scope);
-                }
-                receipt.CleanedDirectories.Add(plan);
+                foreach (string scope in CreateDirectoryPruneScopes(plan.OutputDirectoryBefore, plan.WasRootFolderBefore,
+                    plan.RootOutputBaseDirectoryBefore, preparation.Settings)) { pruneScopes.Add(scope); }
             }
-            else
+            else if (deletionFailure)
             {
+                result.WarningMessage = string.Format(Resources.Warn_FileOrDirDeleteFailed, plan.OutputDirectoryBefore);
                 result.Succeeded = false;
-                if (deletionFailure)
-                {
-                    result.WarningMessage = string.Format(
-                        Resources.Warn_FileOrDirDeleteFailed,
-                        plan.OutputDirectoryBefore);
-                }
             }
         }
-
-        if (receipt.PendingDatabasePruneScopes.Count > 0)
+        if (pruneScopes.Count > 0)
         {
-            SyncPrunedRows(
-                syncMaterialization,
-                [.. receipt.PendingDatabasePruneScopes],
-                CreateDestinationRowScopes(
-                    preparation.ProtectedDirectories,
-                    preparation.Plans.Select(plan => plan.OutputDirectoryBefore),
-                    preparation.Settings),
-                CreateDestinationAncestorRows(
-                    preparation.ProtectedDirectories,
-                    preparation.Plans.Select(plan => plan.OutputDirectoryBefore),
-                    preparation.Settings));
-            receipt.PendingDatabasePruneScopes.Clear();
+            SyncPrunedRows(syncMaterialization, pruneScopes.ToArray(),
+                CreateDestinationRowScopes(preparation.ProtectedDirectories, preparation.Plans.Select(plan => plan.OutputDirectoryBefore), preparation.Settings),
+                CreateDestinationAncestorRows(preparation.ProtectedDirectories, preparation.Plans.Select(plan => plan.OutputDirectoryBefore), preparation.Settings));
         }
-        receipt.CleanupCompleted = result.Succeeded;
         return result;
+    }
+
+    /// <summary>未登録名を使う通常表だけを停止し、元の対象名と保存先名を通知します。ROOTでは追加名を使いません。</summary>
+    internal bool NotifyUnregisteredOutputBase(BMSTable table, CustomFolderOutputSettingsSnapshot settings)
+    {
+        bool unknown = table != null && !table.is_root_folder && !string.IsNullOrWhiteSpace(table.custom_folder_output_base_name)
+            && !CustomFolderOutputBaseRegistry.ContainsBaseName(table.custom_folder_output_base_name, settings.LR2CustomFolderAdditionalOutputBaseDirs);
+        if (unknown) { notificationOwner.QueueWarning(string.Format(Resources.Warn_UnregisteredCustomFolderOutputBase, table.name, table.custom_folder_output_base_name)); }
+        return unknown;
     }
 
     /// <summary>
@@ -735,6 +654,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
                 continue;
             }
 
+            if (NotifyUnregisteredOutputBase(table, settings)) { progress.Advance(++processed, tables.Count); continue; }
             try
             {
                 ensureEntriesLoaded(table, operation ?? "ReOutputCustomFolders");

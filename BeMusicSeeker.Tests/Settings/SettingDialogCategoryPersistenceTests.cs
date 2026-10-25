@@ -161,11 +161,13 @@ public sealed partial class SettingDialogEditCompletionTests
         });
     }
 
-    /// <summary>通常・ROOT・追加先の実compiled選択入口から保存し、picker取消と移行確認取消では実二媒体を変更しません。移行本体と未了だけの修復はOutputConfirmationが分担します。</summary>
+    /// <summary>通常・ROOT・追加先の実compiled選択入口から保存し、picker取消と確認取消では実二媒体を変更しません。同値の通常・ROOT明示選択も共有拒否したXMLの再保存へ到達し、初期Bindingは保存しません。媒体失敗と生成・整理はOutputConfirmationが分担します。</summary>
     [DataTestMethod]
     [DataRow("normal", "accept")]
     [DataRow("root", "accept")]
     [DataRow("additional", "accept")]
+    [DataRow("normal", "same")]
+    [DataRow("root", "same")]
     [DataRow("normal", "picker-cancel")]
     [DataRow("root", "picker-cancel")]
     [DataRow("additional", "picker-cancel")]
@@ -187,6 +189,7 @@ public sealed partial class SettingDialogEditCompletionTests
             values.Save();
             string oldNormal = values.LR2CustomFolderOutputBaseDir;
             string oldRoot = values.LR2CustomFolderOutputBaseDirRootType;
+            if (outcome == "same") { target = section == "normal" ? oldNormal : oldRoot; }
             byte[] previousSettings = File.ReadAllBytes(path);
             byte[] previousConfig = File.ReadAllBytes(values.LR2ConfigXmlPath);
             var dialogs = new RecordingRootDialogService
@@ -200,15 +203,18 @@ public sealed partial class SettingDialogEditCompletionTests
             MainWindowViewModel owner = CreateViewModel(new SettingsEditSession(values), firstStartup: true, dialogs: dialogs, reportSettingsApplyFailure: failures.Add);
             SettingsWindow? window = null;
             IDisposable? confirmationLease = null;
+            FileStream? blockedConfig = null;
             var confirmationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var releaseConfirmation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             try
             {
+                if (outcome == "same") { blockedConfig = File.Open(values.LR2ConfigXmlPath, FileMode.Open, FileAccess.Read, FileShare.Read); }
                 string staged = Directory.CreateDirectory(Path.Combine(root, "BmsDraft")).FullName;
                 window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog };
                 scope.ShowAndWaitForContentRendered(window);
                 ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(0, failures.Count, "初期Bindingの同値通知では保存しません。");
                 owner.SettingDialog.AddBmsSearchRootPathsAsync([staged]).GetAwaiter().GetResult();
                 CollectionAssert.Contains(owner.SettingDialog.AvailableBMSDirectories, staged);
                 var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
@@ -255,14 +261,14 @@ public sealed partial class SettingDialogEditCompletionTests
                     releaseConfirmation.TrySetResult();
                 }
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "output-selection-terminal");
-                Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                Assert.AreEqual(outcome == "same" ? 1 : 0, failures.Count, string.Join(Environment.NewLine, failures));
                 Assert.AreEqual(outcome == "invalid-after-busy" ? 2 : outcome == "confirmation-busy" ? 1 : 0, dialogs.MessageCount, dialogs.LastMessageText);
                 Assert.AreEqual(outcome == "invalid-after-busy" ? 2 : 1, dialogs.FolderRequests.Count);
                 Assert.IsTrue(dialogs.FolderRequests.All(request => ReferenceEquals(window, request.Owner)));
                 Assert.AreEqual(outcome == "picker-cancel" ? 0 : 1, dialogs.ConfirmationCount);
-                Assert.AreEqual(outcome != "accept", owner.SettingDialog.AvailableBMSDirectories.Contains(staged), "競合候補は採用後だけ破棄し、picker取消・確認取消・受付拒否では保持します。");
+                Assert.AreEqual(outcome is not ("accept" or "same"), owner.SettingDialog.AvailableBMSDirectories.Contains(staged), "競合候補は採用後だけ破棄し、picker取消・確認取消・受付拒否では保持します。");
                 Settings fresh = PortableSettingsPersistenceTests.OpenSettings(path);
-                if (outcome == "accept")
+                if (outcome is "accept" or "same")
                 {
                     Assert.AreEqual(section == "normal" ? target : oldNormal, fresh.LR2CustomFolderOutputBaseDir);
                     Assert.AreEqual(section == "root" ? target : oldRoot, fresh.LR2CustomFolderOutputBaseDirRootType);
@@ -278,6 +284,7 @@ public sealed partial class SettingDialogEditCompletionTests
             }
             finally
             {
+                blockedConfig?.Dispose();
                 releaseConfirmation.TrySetResult();
                 confirmationLease?.Dispose();
                 if (window != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "output-picker-cleanup-terminal"); }

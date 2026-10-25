@@ -1981,6 +1981,12 @@ public class Resources
 
 
 
+    /// <summary>未登録の追加出力先を参照する表と元の保存先名を案内します。</summary>
+    public static string Warn_UnregisteredCustomFolderOutputBase => ResourceManager.GetString("Warn_UnregisteredCustomFolderOutputBase", resourceCulture);
+
+    /// <summary>新しい出力の確定後に整理できなかった旧出力先と原因を表示します。</summary>
+    public static string Warn_CustomFolderCleanupFailed => ResourceManager.GetString("Warn_CustomFolderCleanupFailed", resourceCulture);
+
     public static string Warn_CustomFolderOutputFailed => ResourceManager.GetString("Warn_CustomFolderOutputFailed", resourceCulture);
 
 

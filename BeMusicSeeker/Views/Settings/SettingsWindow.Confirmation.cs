@@ -56,7 +56,6 @@ public partial class SettingsWindow
             case "retry:score": return settings.CommitScoreSettingsCoreAsync();
             case "confirm:bmt": return settings.CommitBmtSettingsCoreAsync();
             case "confirm:environment": return settings.CommitEnvironmentCoreAsync();
-            case "retry:output": return settings.CommitOutputSettingsCoreAsync("pending");
             case "retry:audio": settings.CommitAudioSettings(); break;
             case "retry:player": settings.CommitExternalPlayerSettings(); break;
             case "retry:image": settings.CommitImageSettings(); break;

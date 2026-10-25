@@ -33,7 +33,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 var failures = new List<Exception>();
                 var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK) };
                 var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values),
-                    reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs,
+                    reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, playlistWorkspaceDialogService: dialogs,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
                 MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
@@ -69,10 +69,8 @@ public sealed partial class SettingDialogEditCompletionTests
                     byte[] oldSettings = File.ReadAllBytes(settingsPath);
                     byte[] oldXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
                     owner.SettingDialog.LR2CustomFolderOutputDir = install;
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("normal"), "reject-install-output-adoption");
                     StringAssert.Contains(dialogs.LastMessageText, string.Format(Resources.Validation_OutputBaseContainsInstallDirectoryFormat, install));
                     Assert.AreEqual(oldOutput, owner.SettingDialog.LR2CustomFolderOutputDir);
-                    Assert.IsFalse(owner.SettingDialog.IsOutputSaveIncomplete);
                     Assert.AreEqual(0, failures.Count);
                     Assert.AreEqual(0, dialogs.ConfirmationCount);
                     CollectionAssert.AreEqual(oldSettings, File.ReadAllBytes(settingsPath));
@@ -88,7 +86,6 @@ public sealed partial class SettingDialogEditCompletionTests
                     owner.SettingDialog.LR2CustomFolderOutputDir = install;
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("normal"), "adopt-output-after-install-change");
                     Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
-                    Assert.IsFalse(owner.SettingDialog.IsOutputSaveIncomplete);
                     Assert.AreEqual(install, PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderOutputBaseDir);
                     Assert.AreEqual(alternative, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BMSInstallDir);
                     Assert.IsTrue(File.Exists(Path.Combine(install, "Table", "0000.lr2folder")));
@@ -125,7 +122,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 var failures = new List<Exception>();
                 var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK) };
                 var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values),
-                    reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs,
+                    reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, playlistWorkspaceDialogService: dialogs,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
                 MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
@@ -178,535 +175,358 @@ public sealed partial class SettingDialogEditCompletionTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
-    /// <summary>二媒体の未了中は旧配置と表登録を保ち、明示修復後の実FS/DB移行・旧先整理失敗では新先を保ちます。同値は成功媒体と実投影を繰り返さず、候補修正と再表示後も成立出力を削除しません。</summary>
+    /// <summary>user.config失敗ではXMLへ進まず、部分保存後の同じ入力でも成功済みconfigを再保存します。Closeと別dirty保存は先行保存を戻さず、次の同区分・別区分選択は公開値と今回入力だけを保存します。</summary>
     [DataTestMethod]
-    [DataRow(false, false, false)] // 通常A/Parent→BのXML保存失敗後、追加Extra/Parent/Child→Extra2も修正し両移行を完了します。
-    [DataRow(true, false, false)]
-    [DataRow(false, true, false)]
-    [DataRow(true, true, false)]
-    [DataRow(false, false, true)] // 実旧行DELETEだけをtriggerで失敗させ、成功先と媒体を保って未了DB整理だけを再試行します。
-    [DataRow(false, true, true)] // 追加先の成立済み改名対応も、旧DB整理失敗で失いません。
-    public void OutputConfirmation_RepairsPartialMediaAndCleanupWithoutRepeatingSuccessfulProjection(bool reuseOriginalDestination, bool renameAdditionalBase, bool failOldDatabaseCleanup)
+    [DataRow("normal")]
+    [DataRow("root")]
+    [DataRow("additional")]
+    public void OutputConfirmation_LatestSelectionResavesBothMediaAfterPartialFailure(string section)
     {
-        RunPartialOutputRepair(reuseOriginalDestination, renameAdditionalBase, failOldDatabaseCleanup);
-    }
-
-    /// <summary>二媒体未了の修復候補をBusy・実登録検証で拒否しても元のTarget・完了段階を保ち、次の明示修復が受理済み配置で完了します。導入先保護と共用する候補復元の境界を確認します。</summary>
-    [DataTestMethod]
-    [DataRow("busy")]
-    [DataRow("registration")]
-    public void OutputConfirmation_RejectedRepairPreservesAcceptedPlacement(string rejection)
-    {
-        RunPartialOutputRepair(false, false, false, rejection);
-    }
-
-    private void RunPartialOutputRepair(bool reuseOriginalDestination, bool renameAdditionalBase, bool failOldDatabaseCleanup, string? rejectedRepair = null)
-    {
-        string root = CreateTemporaryRoot();
+        string directory = CreateTemporaryRoot();
         try
         {
-            string settingsPath = Path.Combine(root, "settings", "user.config");
-            Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(settingsPath));
-            bool changeAdditionalDuringRepair = !reuseOriginalDestination && !renameAdditionalBase && !failOldDatabaseCleanup;
-            string outputDirectory = changeAdditionalDuringRepair ? "Parent" : "Table";
-            string extra = Path.Combine(root, "Extra");
-            string extraAfter = Path.Combine(root, "Extra2");
-            string extraOldFile = Path.Combine(extra, "Parent", "Child", "0000.lr2folder");
-            string extraNewFile = Path.Combine(extraAfter, "Parent", "Child", "0000.lr2folder");
-            if (changeAdditionalDuringRepair)
-            {
-                Directory.CreateDirectory(Path.Combine(extra, "Parent", "Child"));
-                File.WriteAllText(extraOldFile, "#TITLE extra old");
-                values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([extra]);
-            }
-            string original = renameAdditionalBase ? Path.Combine(root, "OriginalAdditional") : values.LR2CustomFolderOutputBaseDir;
-            if (renameAdditionalBase)
-            {
-                Directory.CreateDirectory(original);
-                values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([original]);
-            }
+            string settingsPath = Path.Combine(directory, "settings", "user.config");
+            Settings values = CreateValidCustomFolderSettings(directory, [], PortableSettingsPersistenceTests.OpenSettings(settingsPath));
             values.Save();
-            string destination = Path.Combine(root, "MovedOutput");
-            string oldFile = Path.Combine(original, outputDirectory, "0000.lr2folder");
-            string newFile = Path.Combine(destination, outputDirectory, "0000.lr2folder");
-            Directory.CreateDirectory(Path.GetDirectoryName(oldFile)!);
-            File.WriteAllText(oldFile, "#TITLE old");
-            PlaylistPersistenceRepository.EnsureSchema(values.LR2SongDBPath);
             TestUiDispatcherHost.Invoke(() =>
             {
                 var failures = new List<Exception>();
-                var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK) };
                 var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values),
-                    reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs,
+                    reportSettingsApplyFailure: failures.Add,
+                    settingsDialogService: new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK) },
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
                 MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
-                var config = new LR2Config(values.LR2ConfigXmlPath);
-                Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
-                SetPrivateField(owner, "lr2config", configOwner);
-                SetActiveLibraryProfile(owner, true);
-                var table = new BMSTable
+                SetActiveLibraryProfile(owner, false);
+                SettingsDialogViewModel dialog = owner.SettingDialog;
+                Lr2ConfigOwner xml = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
+                string normal = values.LR2CustomFolderOutputBaseDir, root = values.LR2CustomFolderOutputBaseDirRootType;
+                string first = Path.Combine(directory, "First"), latest = Path.Combine(directory, "Latest");
+                void Choose(string path)
                 {
-                    playlist_id = 7194,
-                    name = "Table",
-                    symbol = "T",
-                    Output_dir = outputDirectory,
-                    custom_folder_output_base_name = renameAdditionalBase ? "OriginalAdditional" : string.Empty,
-                    ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                        & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
-                        & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
-                    entries = [BmsPlaylistTestSupport.CreateEntry(new string('a', 32), "Folder")],
-                    Folder_order = ["Folder"]
-                };
-                var extraTable = new BMSTable
-                {
-                    playlist_id = 7193,
-                    name = "Child",
-                    Output_dir = Path.Combine("Parent", "Child"),
-                    custom_folder_output_base_name = "Extra",
-                    ignore_folder_output = table.ignore_folder_output,
-                    entries = [BmsPlaylistTestSupport.CreateEntry(new string('c', 32), "Extra Folder")],
-                    Folder_order = ["Extra Folder"]
-                };
-                var playlist = new TestBmsPlaylist(values.LR2SongDBPath, configOwner, null, null,
-                    () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(values), () => BeatorajaBmtOptionsSnapshot.CreateCurrent(values),
-                    composition.CustomFolderOutputSettingsProvider,
-                    BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(values.LR2SongDBPath, CustomFolderOutputPhysicalSurface.Empty),
-                    mutationAdmission: composition.PlaylistOperationAdmission, settings: values)
-                { BMSTables = new ObservableCollection<BMSTable>(changeAdditionalDuringRepair ? [table, extraTable] : [table]) };
-                SetPrivateField(owner, "tables", playlist);
-                owner.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);
-                FileStream? oldBlocker = null;
-                FileStream? xmlBlocker = null;
-                FileStream? settingsBlocker = null;
-                FileStream? outputBlocker = null;
+                    if (section == "normal") { dialog.LR2CustomFolderOutputDir = path; }
+                    else if (section == "root") { dialog.LR2CustomFolderAsRootOutputDir = path; }
+                    else { dialog.AddCustomFolderAdditionalOutputBaseDir(path); }
+                }
+                string Read(Settings settings) => section == "normal" ? settings.LR2CustomFolderOutputBaseDir
+                    : section == "root" ? settings.LR2CustomFolderOutputBaseDirRootType : settings.LR2CustomFolderAdditionalOutputBaseDirs;
+                string Expected(string path) => section == "additional" ? CustomFolderOutputBaseRegistry.SerializeBaseDirectories([path]) : path;
                 try
                 {
-                    if (!failOldDatabaseCleanup) { oldBlocker = new FileStream(oldFile, FileMode.Open, FileAccess.Read, FileShare.Read); }
-                    xmlBlocker = new FileStream(values.LR2ConfigXmlPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                    if (renameAdditionalBase)
+                    byte[] oldXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
+                    string old = Read(values);
+                    if (section != "normal") { dialog.LR2CustomFolderOutputDir = Path.Combine(directory, "NormalCandidate"); }
+                    if (section != "root") { dialog.LR2CustomFolderAsRootOutputDir = Path.Combine(directory, "RootCandidate"); }
+                    Choose(first);
+                    using (File.Open(settingsPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    { TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync(section), "output-config-failure"); }
+                    Assert.AreEqual(1, failures.Count);
+                    Assert.AreEqual(old, Read(values));
+                    Assert.AreEqual(old, Read(PortableSettingsPersistenceTests.OpenSettings(settingsPath)));
+                    CollectionAssert.AreEqual(oldXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
+                    Choose(first);
+                    using (File.Open(values.LR2ConfigXmlPath, FileMode.Open, FileAccess.Read, FileShare.Read))
                     {
-                        owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseDir = original;
-                        owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseName = "MovedOutput";
-                        owner.SettingDialog.RenameSelectedCustomFolderAdditionalOutputBaseDir();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync(section), "output-partial-save");
                     }
-                    else { owner.SettingDialog.LR2CustomFolderOutputDir = destination; }
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync(renameAdditionalBase ? "additional" : "normal"), "output-partial-save");
-                    Assert.AreEqual(1, failures.Count, string.Join(Environment.NewLine, failures));
-                    Assert.IsTrue(owner.SettingDialog.IsOutputSaveIncomplete);
-                    string SavedPath(Settings settings) => renameAdditionalBase
-                        ? CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(settings.LR2CustomFolderAdditionalOutputBaseDirs)[0]
-                        : settings.LR2CustomFolderOutputBaseDir;
-                    Assert.AreEqual(original, SavedPath(values));
-                    Assert.AreEqual(original, renameAdditionalBase
-                        ? CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(composition.CustomFolderOutputSettingsProvider().LR2CustomFolderAdditionalOutputBaseDirs)[0]
-                        : composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDir);
-                    Assert.AreEqual(destination, SavedPath(PortableSettingsPersistenceTests.OpenSettings(settingsPath)));
-                    Assert.IsFalse(File.Exists(newFile), "必要媒体が未了の間は実移行を開始しません。");
-                    Assert.AreEqual(renameAdditionalBase ? "OriginalAdditional" : string.Empty, table.custom_folder_output_base_name);
-                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly())
-                    { Assert.AreEqual(0L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'folder'"), "未了媒体の修復前に実出力用のfolder表も作りません。"); }
-                    if (rejectedRepair != null)
+                    Assert.AreEqual(2, failures.Count);
+                    Assert.AreEqual(old, Read(values));
+                    Settings partial = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                    Assert.AreEqual(Expected(first), Read(partial));
+                    if (section != "normal") { Assert.AreEqual(normal, partial.LR2CustomFolderOutputBaseDir); }
+                    if (section != "root") { Assert.AreEqual(root, partial.LR2CustomFolderOutputBaseDirRootType); }
+                    CollectionAssert.AreEqual(oldXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
+                    Choose(first);
+                    using (File.Open(settingsPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    { TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync(section), "output-config-resave-failure"); }
+                    Assert.AreEqual(3, failures.Count, "先行成功したuser.configも同じ入力で再保存します。");
+                    Assert.AreEqual(old, Read(values));
+                    CollectionAssert.AreEqual(oldXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
+                    values.TreeViewWidth = 321d; values.Save();
+                    Assert.AreEqual(Expected(first), Read(PortableSettingsPersistenceTests.OpenSettings(settingsPath)));
+                    byte[] saved = File.ReadAllBytes(settingsPath);
+                    dialog.CloseCommand.Execute();
+                    CollectionAssert.AreEqual(saved, File.ReadAllBytes(settingsPath));
+                    CollectionAssert.AreEqual(oldXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
+                    Assert.AreEqual(normal, dialog.LR2CustomFolderOutputDir);
+                    Assert.AreEqual(root, dialog.LR2CustomFolderAsRootOutputDir);
+                    Assert.AreEqual(0, dialog.CustomFolderAdditionalOutputBaseDirList.Count);
+                    if (section == "normal")
                     {
-                        // Extra/Parent/Childの削除候補は、受理済み通常B/Parentとの包含を実登録検査で拒否します。
-                        byte[] beforeRejectedSettings = File.ReadAllBytes(settingsPath);
-                        byte[] beforeRejectedXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
-                        owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseDir = extra;
-                        owner.SettingDialog.RemoveSelectedCustomFolderAdditionalOutputBaseDir();
-                        if (rejectedRepair == "busy")
-                        {
-                            Assert.IsTrue(composition.OperationAdmission.TryEnter(out IDisposable held));
-                            using (held) { TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("additional"), "output-repair-busy-rejection"); }
-                            Assert.AreEqual(1, failures.Count);
-                        }
-                        else
-                        {
-                            TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("additional"), "output-repair-registration-rejection");
-                            Assert.AreEqual(2, failures.Count);
-                            StringAssert.Contains(failures[^1].Message, Resources.Error_ManagedPlaylistOutputOverlap);
-                        }
-                        Assert.IsTrue(owner.SettingDialog.IsOutputSaveIncomplete);
-                        Assert.AreEqual(destination, owner.SettingDialog.LR2CustomFolderOutputDir);
-                        CollectionAssert.AreEqual(new[] { extra }, owner.SettingDialog.CustomFolderAdditionalOutputBaseDirList.ToArray());
-                        CollectionAssert.AreEqual(beforeRejectedSettings, File.ReadAllBytes(settingsPath));
-                        CollectionAssert.AreEqual(beforeRejectedXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
-                        Assert.AreEqual("#TITLE old", File.ReadAllText(oldFile));
-                        Assert.IsFalse(File.Exists(newFile));
-                        Assert.AreEqual("Extra", extraTable.custom_folder_output_base_name);
+                        string other = Path.Combine(directory, "OtherAdditional");
+                        dialog.AddCustomFolderAdditionalOutputBaseDir(other);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync("additional"), "output-other-section-after-partial");
+                        Settings otherSaved = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                        Assert.AreEqual(normal, otherSaved.LR2CustomFolderOutputBaseDir);
+                        Assert.AreEqual(CustomFolderOutputBaseRegistry.SerializeBaseDirectories([other]), otherSaved.LR2CustomFolderAdditionalOutputBaseDirs);
+                        CollectionAssert.DoesNotContain(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), first);
                     }
-                    // 未受理の導入先採用で、媒体保存済みのTarget・改名対応を失わないことを後続の実retryで検出します。
-                    byte[] pendingSettings = File.ReadAllBytes(settingsPath);
-                    byte[] pendingXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
-                    if (renameAdditionalBase)
+                    Choose(latest);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync(section), "output-latest-save");
+                    Assert.AreEqual(3, failures.Count, string.Join(Environment.NewLine, failures));
+                    Assert.AreEqual(Expected(latest), Read(values));
+                    Assert.AreEqual(Expected(latest), Read(PortableSettingsPersistenceTests.OpenSettings(settingsPath)));
+                    CollectionAssert.DoesNotContain(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), first);
+                    CollectionAssert.DoesNotContain(xml.Capture().RegisteredRoots.ToArray(), first);
+                    if (section != "additional")
                     {
-                        owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseName = Path.GetFileName(values.BMSInstallDir);
-                        owner.SettingDialog.RenameSelectedCustomFolderAdditionalOutputBaseDir();
-                        CollectionAssert.AreEqual(new[] { destination }, owner.SettingDialog.CustomFolderAdditionalOutputBaseDirList.ToArray());
+                        // 同値候補のsetter通知は保存せず、明示確定だけが共有違反を検出します。
+                        Choose(latest);
+                        Assert.AreEqual(3, failures.Count);
+                        using (File.Open(values.LR2ConfigXmlPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                        { TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync(section), "output-explicit-same-save"); }
+                        Assert.AreEqual(4, failures.Count);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync(section), "output-explicit-same-success");
+                        Assert.AreEqual(Expected(latest), Read(PortableSettingsPersistenceTests.OpenSettings(settingsPath)));
                     }
-                    else
-                    {
-                        owner.SettingDialog.LR2CustomFolderOutputDir = values.BMSInstallDir;
-                        Assert.AreEqual(destination, owner.SettingDialog.LR2CustomFolderOutputDir);
-                    }
-                    StringAssert.Contains(dialogs.LastMessageText, string.Format(Resources.Validation_OutputBaseContainsInstallDirectoryFormat, values.BMSInstallDir));
-                    CollectionAssert.AreEqual(pendingSettings, File.ReadAllBytes(settingsPath));
-                    CollectionAssert.AreEqual(pendingXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
-                    Assert.IsFalse(File.Exists(newFile));
-                    owner.SettingDialog.ShowRecommUpdatedMsg = !owner.SettingDialog.ShowRecommUpdatedMsg;
-                    xmlBlocker.Dispose(); xmlBlocker = null;
-                    if (renameAdditionalBase && reuseOriginalDestination)
-                    {
-                        owner.SettingDialog.SetPresentationActive(false);
-                        owner.SettingDialog.RequestOpen();
-                        owner.SettingDialog.SetPresentationActive(true);
-                        Assert.IsTrue(owner.SettingDialog.IsOutputSaveIncomplete);
-                        owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseDir = original;
-                        owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseName = "MovedOutput";
-                        owner.SettingDialog.RenameSelectedCustomFolderAdditionalOutputBaseDir();
-                    }
-                    if (changeAdditionalDuringRepair)
-                    {
-                        owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseDir = extra;
-                        owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseName = "Extra2";
-                        owner.SettingDialog.RenameSelectedCustomFolderAdditionalOutputBaseDir();
-                    }
-                    // 同値はXMLだけを修復し、追加先も修正したケースは両媒体へ新候補を保存します。
-                    if (failOldDatabaseCleanup)
-                    {
-                        using var db = new LR2SongDBExtended(values.LR2SongDBPath);
-                        db.CreateTable<LR2SongDB.folder>();
-                        db.InsertOrReplace(new LR2SongDB.folder { path = oldFile, title = "Old managed output", type = 2 }, typeof(LR2SongDB.folder));
-                        string oldSql = oldFile.Replace("'", "''", StringComparison.Ordinal);
-                        db.Execute($"CREATE TRIGGER reject_old_output_cleanup BEFORE DELETE ON folder WHEN OLD.path = '{oldSql}' BEGIN SELECT RAISE(ABORT, 'test_old_output_cleanup_failed'); END;");
-                    }
-                    if (!changeAdditionalDuringRepair) { settingsBlocker = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite); }
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync(changeAdditionalDuringRepair ? "additional" : "pending"), "output-repair-required-media");
-                    int expectedFailures = (failOldDatabaseCleanup ? 2 : 1) + (rejectedRepair == "registration" ? 1 : 0);
-                    Assert.AreEqual(expectedFailures, failures.Count, string.Join(Environment.NewLine, failures));
-                    if (failOldDatabaseCleanup) { StringAssert.Contains(failures[^1].ToString(), "test_old_output_cleanup_failed"); }
-                    Assert.IsTrue(File.Exists(newFile));
-                    Assert.AreEqual(!failOldDatabaseCleanup, File.Exists(oldFile));
-                    Assert.AreEqual(destination, SavedPath(values));
-                    Assert.AreEqual(renameAdditionalBase ? "MovedOutput" : string.Empty, table.custom_folder_output_base_name);
-                    Assert.IsTrue(owner.SettingDialog.IsOutputSaveIncomplete, "実移行成立後の旧先整理失敗は新先を保って明示再試行を待ちます。");
-                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly())
-                    {
-                        Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", newFile));
-                        if (failOldDatabaseCleanup) { Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", oldFile)); }
-                    }
-                    oldBlocker?.Dispose(); oldBlocker = null;
-                    settingsBlocker?.Dispose(); settingsBlocker = null;
-                    string laterOldFile = Path.Combine(Path.GetDirectoryName(oldFile)!, "later-unmanaged.txt");
-                    if (failOldDatabaseCleanup)
-                    {
-                        using var db = new LR2SongDBExtended(values.LR2SongDBPath);
-                        db.Execute("DROP TRIGGER reject_old_output_cleanup;");
-                        string newSql = newFile.Replace("'", "''", StringComparison.Ordinal);
-                        db.Execute($"CREATE TRIGGER reject_completed_projection BEFORE INSERT ON folder WHEN NEW.path = '{newSql}' BEGIN SELECT RAISE(ABORT, 'test_completed_projection_repeated'); END;");
-                        // 成立済み物理整理を繰り返すと、この後から現れた管理外入力を削除してしまいます。
-                        Directory.CreateDirectory(Path.GetDirectoryName(laterOldFile)!);
-                        File.WriteAllText(laterOldFile, "keep later input");
-                        oldBlocker = new FileStream(laterOldFile, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    }
-                    owner.SettingDialog.ShowDiffBMSInstallConfirmMsg = !owner.SettingDialog.ShowDiffBMSInstallConfirmMsg;
-                    if (failOldDatabaseCleanup)
-                    {
-                        using var db = new LR2SongDBExtended(values.LR2SongDBPath);
-                        Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", oldFile), "通常保存は可能になった旧DB行整理を暗黙再開しません。");
-                    }
-                    else { Assert.IsTrue(File.Exists(oldFile), "無関係な通常項目の保存は、可能になった旧先整理を暗黙再開しません。"); }
-                    if (!failOldDatabaseCleanup && (reuseOriginalDestination || renameAdditionalBase))
-                    {
-                        if (renameAdditionalBase)
-                        {
-                            owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseName = reuseOriginalDestination ? "OriginalAdditional" : "RepairedAdditional";
-                            owner.SettingDialog.RenameSelectedCustomFolderAdditionalOutputBaseDir();
-                        }
-                        else { owner.SettingDialog.LR2CustomFolderOutputDir = original; }
-                    }
-                    else
-                    {
-                        // 成立した両媒体と投影の再書込みを実FSで拒否し、未了整理だけが動くことを検査します。
-                        settingsBlocker = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                        xmlBlocker = new FileStream(values.LR2ConfigXmlPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                        outputBlocker = new FileStream(newFile, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    }
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync(failOldDatabaseCleanup || !reuseOriginalDestination && !renameAdditionalBase
-                        ? "pending" : renameAdditionalBase ? "additional" : "normal"), "output-explicit-repair");
-                    Assert.AreEqual(expectedFailures, failures.Count, string.Join(Environment.NewLine, failures));
-                    Assert.IsFalse(owner.SettingDialog.IsOutputSaveIncomplete);
-                    using (File.Open(settingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                    { TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("additional"), "output-completed-registration-noop"); }
-                    Assert.AreEqual(expectedFailures, failures.Count, "完了した改名を次の同値操作へ残さず、追加保存・出力を始めません。");
-                    string final = reuseOriginalDestination ? original : renameAdditionalBase && !failOldDatabaseCleanup ? Path.Combine(root, "RepairedAdditional") : destination;
-                    Assert.AreEqual(final, SavedPath(values));
-                    Assert.AreEqual(final, SavedPath(PortableSettingsPersistenceTests.OpenSettings(settingsPath)));
-                    if (renameAdditionalBase)
-                    {
-                        Assert.AreEqual(failOldDatabaseCleanup ? "MovedOutput" : reuseOriginalDestination ? "OriginalAdditional" : "RepairedAdditional", table.custom_folder_output_base_name);
-                        using LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
-                        Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", Path.Combine(final, outputDirectory, "0000.lr2folder")));
-                    }
-                    Assert.IsTrue(File.Exists(Path.Combine(final, outputDirectory, "0000.lr2folder")));
-                    Assert.IsFalse(File.Exists(reuseOriginalDestination || (renameAdditionalBase && !failOldDatabaseCleanup) ? newFile : oldFile));
-                    if (failOldDatabaseCleanup)
-                    {
-                        Assert.IsTrue(File.Exists(laterOldFile), "旧先の物理整理は成立済みなので、未了DB整理だけを実行します。");
-                        using var db = new LR2SongDBExtended(values.LR2SongDBPath);
-                        Assert.AreEqual(0L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", oldFile));
-                        Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", newFile));
-                    }
-                    if (changeAdditionalDuringRepair)
-                    {
-                        Assert.AreEqual("Extra2", extraTable.custom_folder_output_base_name);
-                        Assert.IsTrue(File.Exists(extraNewFile));
-                        Assert.IsFalse(File.Exists(extraOldFile));
-                        using LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
-                        Assert.AreEqual("Extra2", db.Table<BMSTable>().Single(item => item.playlist_id == extraTable.playlist_id).custom_folder_output_base_name);
-                        Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", extraNewFile));
-                        Assert.AreEqual(0L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", extraOldFile));
-                        CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), extraAfter);
-                    }
-                    CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), final);
-                    xmlBlocker?.Dispose(); xmlBlocker = null;
-                    string laterUserRoot = Path.Combine(root, "LaterUserRoot");
-                    Directory.CreateDirectory(laterUserRoot);
-                    composition.ResolveLr2Config(values.LR2ConfigXmlPath).SaveRoots(new Lr2RootChange([], [laterUserRoot]));
-                    playlist.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(values.LR2CustomFolderOutputBaseDirRootType,
-                        CustomFolderOutputSettingsSnapshot.CreateCurrent(values));
-                    CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), laterUserRoot,
-                        "日常のroot同期も保持済み旧XDocumentで後の確定登録を上書きしません。");
                 }
                 finally
                 {
-                    outputBlocker?.Dispose(); settingsBlocker?.Dispose(); xmlBlocker?.Dispose(); oldBlocker?.Dispose();
-                    playlist.RequestShutdown("output-settings-fixture");
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "output-settings-owner-cleanup");
-                    owner.SettingDialog.Dispose();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "output-partial-owner-cleanup");
+                    dialog.Dispose();
                 }
             });
         }
-        finally { Directory.Delete(root, recursive: true); }
+        finally { Directory.Delete(directory, true); }
     }
 
-    /// <summary>
-    /// 追加先削除後の物理投影失敗と改名後のDB同期失敗で、確定ヘッダーと未了出力を保持します。
-    /// 再表示・通常保存は暗黙修復せず、明示操作は同値または修正先Cを投影してA/Bの旧管理物だけを整理します。改名後のDB未了代表は復元拒否でも旧新入力と修復可能性を保持します。
-    /// </summary>
+    /// <summary>改名のDB失敗後、同じruntimeは旧公開名から新操作を始めます。fresh ownerはdiskの新定義だけを読み、保存されなかった旧名を過去の改名対応で補わず、表の再選択で解消します。</summary>
     [DataTestMethod]
-    [DataRow(false, false)] // Extra削除後の新先物理書込みを共有拒否し、旧登録名がなくても再試行します。
-    [DataRow(true, false)] // Extra改名後のfolder INSERTを拒否し、物理生成済み・DB未了を修復します。
-    [DataRow(true, true)] // 未成立BからCへ修正し、通常先と包含名でも追加先の現在名を解決し、新旧receiptの成功共有でCの二重投影を防ぎます。
-    public void OutputConfirmation_RepairsHeaderCommittedMigrationAfterProjectionFailure(bool renameAdditionalBase, bool correctPendingDestination)
+    [DataRow(false)]
+    [DataRow(true)]
+    public void OutputConfirmation_HeaderFailureUsesPublishedNamesOrFreshSavedDefinitions(bool reopenOwner)
     {
+        string directory = CreateTemporaryRoot();
+        try
+        {
+            string settingsPath = Path.Combine(directory, "settings", "user.config");
+            string original = Path.Combine(directory, "Original"), failed = Path.Combine(directory, "Failed"), latest = Path.Combine(directory, "Latest");
+            Settings values = CreateValidCustomFolderSettings(directory, [original], PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+            values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([original]);
+            values.Save();
+            PlaylistPersistenceRepository.EnsureSchema(values.LR2SongDBPath);
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var failures = new List<Exception>();
+                (MainWindowViewModel Owner, TestBmsPlaylist Playlist, ApplicationComposition Composition) OpenOwner(Settings settings)
+                {
+                    var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK) };
+                    var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(settings),
+                        reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, playlistWorkspaceDialogService: dialogs,
+                        uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                        applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                    MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
+                    Lr2ConfigOwner config = composition.ResolveLr2Config(settings.LR2ConfigXmlPath);
+                    SetPrivateField(owner, "lr2config", config);
+                    SetActiveLibraryProfile(owner, true);
+                    var playlist = new TestBmsPlaylist(settings.LR2SongDBPath, config, null, null,
+                        () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(settings), () => BeatorajaBmtOptionsSnapshot.CreateCurrent(settings),
+                        composition.CustomFolderOutputSettingsProvider,
+                        BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(settings.LR2SongDBPath, CustomFolderOutputPhysicalSurface.Empty),
+                        mutationAdmission: composition.PlaylistOperationAdmission, settings: settings)
+                    { BMSTables = new ObservableCollection<BMSTable>(new PlaylistPersistenceRepository(settings.LR2SongDBPath).LoadPlaylistHeaders()) };
+                    SetPrivateField(owner, "tables", playlist);
+                    owner.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);
+                    return (owner, playlist, composition);
+                }
+                void CloseOwner(MainWindowViewModel owner, TestBmsPlaylist playlist)
+                {
+                    playlist.RequestShutdown("output-header-owner");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "output-header-owner-cleanup");
+                    owner.SettingDialog.Dispose();
+                }
+                (MainWindowViewModel Owner, TestBmsPlaylist Playlist, ApplicationComposition Composition) current = OpenOwner(values);
+                try
+                {
+                    var table = new BMSTable
+                    {
+                        playlist_id = 7199,
+                        name = "Table",
+                        symbol = "T",
+                        custom_folder_output_base_name = "Original",
+                        ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                        entries = [BmsPlaylistTestSupport.CreateEntry(new string('d', 32), "Folder")],
+                        Folder_order = ["Folder"]
+                    };
+                    current.Playlist.BMSTables.Add(table);
+                    current.Playlist.CommitBMSTableWithEntriesToDB(table);
+                    current.Owner.PlaylistWorkspace.RefreshPlaylistTreeTables(current.Playlist);
+                    using (var db = new LR2SongDBExtended(values.LR2SongDBPath))
+                    { db.Execute("CREATE TRIGGER fail_output_header BEFORE INSERT ON playlist WHEN NEW.playlist_id = 7199 BEGIN SELECT RAISE(ABORT, 'header failed'); END;"); }
+                    SettingsDialogViewModel dialog = current.Owner.SettingDialog;
+                    dialog.SelectedCustomFolderAdditionalOutputBaseDir = original;
+                    dialog.SelectedCustomFolderAdditionalOutputBaseName = "Failed";
+                    dialog.RenameSelectedCustomFolderAdditionalOutputBaseDir();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync("additional"), "output-header-failure");
+                    Assert.AreEqual(1, failures.Count);
+                    Assert.IsInstanceOfType<SQLite.SQLiteException>(failures[0]);
+                    Assert.AreEqual("Original", table.custom_folder_output_base_name);
+                    CollectionAssert.AreEqual(new[] { original }, dialog.CustomFolderAdditionalOutputBaseDirList.ToArray());
+                    Assert.AreEqual(CustomFolderOutputBaseRegistry.SerializeBaseDirectories([original]), values.LR2CustomFolderAdditionalOutputBaseDirs);
+                    Assert.AreEqual(CustomFolderOutputBaseRegistry.SerializeBaseDirectories([failed]), PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderAdditionalOutputBaseDirs);
+                    using (LR2SongDBExtended read = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly())
+                    { Assert.AreEqual("Original", read.Table<BMSTable>().Single().custom_folder_output_base_name); }
+                    using (var db = new LR2SongDBExtended(values.LR2SongDBPath)) { db.Execute("DROP TRIGGER fail_output_header;"); }
+                    if (reopenOwner)
+                    {
+                        CloseOwner(current.Owner, current.Playlist);
+                        values = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                        current = OpenOwner(values);
+                        dialog = current.Owner.SettingDialog;
+                        table = current.Playlist.BMSTables.Single();
+                    }
+                    dialog.SelectedCustomFolderAdditionalOutputBaseDir = reopenOwner ? failed : original;
+                    dialog.SelectedCustomFolderAdditionalOutputBaseName = "Latest";
+                    dialog.RenameSelectedCustomFolderAdditionalOutputBaseDir();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync("additional"), "output-header-next-request");
+                    Assert.AreEqual(1, failures.Count, string.Join(Environment.NewLine, failures));
+                    Assert.AreEqual(reopenOwner ? "Original" : "Latest", table.custom_folder_output_base_name);
+                    Assert.AreEqual(CustomFolderOutputBaseRegistry.SerializeBaseDirectories([latest]), values.LR2CustomFolderAdditionalOutputBaseDirs);
+                    Assert.AreEqual(!reopenOwner, File.Exists(Path.Combine(latest, "Table", "0000.lr2folder")));
+                    Assert.IsFalse(Directory.Exists(Path.Combine(values.LR2CustomFolderOutputBaseDir, "Table")));
+                    if (reopenOwner)
+                    {
+                        Task<PlaylistPropertyDialogViewModel> opening = current.Owner.PlaylistWorkspace.OpenPropertyDialogAsync(table);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(opening, "output-header-open-property");
+                        PlaylistPropertyDialogViewModel property = opening.GetAwaiter().GetResult() ?? throw new AssertFailedException("Missing property dialog.");
+                        using (property)
+                        {
+                            Assert.AreEqual("Original", property.custom_folder_output_base_option.BaseName);
+                            property.custom_folder_output_base_option = property.OutputBaseOptions.Single(option => option.BaseName == "Latest");
+                            Task<PlaylistPropertyDialogOperationResult> saving = property.SaveAndApplyAsync();
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(saving, "output-header-reselect");
+                            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, saving.GetAwaiter().GetResult());
+                        }
+                        Assert.IsTrue(File.Exists(Path.Combine(latest, "Table", "0000.lr2folder")));
+                    }
+                    using LR2SongDBExtended verify = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
+                    Assert.AreEqual("Latest", verify.Table<BMSTable>().Single().custom_folder_output_base_name);
+                }
+                finally
+                {
+                    using (var db = new LR2SongDBExtended(values.LR2SongDBPath)) { db.Execute("DROP TRIGGER IF EXISTS fail_output_header;"); }
+                    CloseOwner(current.Owner, current.Playlist);
+                }
+            });
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    /// <summary>生成失敗と旧先のファイル・DB行整理失敗を区別し、採用済み設定を保ちます。整理失敗は対象と原因を通知して後続同期へ進み、次の明示選択で過去旧先を全回収しません。</summary>
+    [DataTestMethod]
+    [DataRow("generation")]
+    [DataRow("file-cleanup")]
+    [DataRow("row-cleanup")]
+    public void OutputConfirmation_GenerationAndCleanupFailuresAllowLatestRequest(string failureKind)
+    {
+        bool cleanupOnly = failureKind != "generation", rowCleanup = failureKind == "row-cleanup";
         string root = CreateTemporaryRoot();
         try
         {
             string settingsPath = Path.Combine(root, "settings", "user.config");
-            Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(settingsPath));
-            string original = Path.Combine(root, "Extra");
-            string destination = renameAdditionalBase ? Path.Combine(root, "MovedExtra") : values.LR2CustomFolderOutputBaseDir;
-            string corrected = Path.Combine(root, "CorrectedExtra");
-            Directory.CreateDirectory(original);
-            values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([original]);
+            string alternative = Path.Combine(root, "OtherSongs");
+            Settings values = CreateValidCustomFolderSettings(root, [alternative], PortableSettingsPersistenceTests.OpenSettings(settingsPath));
             values.Save();
-            string outputDirectory = correctPendingDestination ? Path.Combine("Parent", "Child") : "Table";
-            string oldFile = Path.Combine(original, outputDirectory, "0000.lr2folder");
-            string newFile = Path.Combine(destination, outputDirectory, "0000.lr2folder");
-            string correctedFile = Path.Combine(corrected, outputDirectory, "0000.lr2folder");
-            string unmanagedFile = Path.Combine(original, "unmanaged.txt");
-            Directory.CreateDirectory(Path.GetDirectoryName(oldFile)!);
-            File.WriteAllText(oldFile, "#TITLE old");
-            File.WriteAllText(unmanagedFile, "keep unmanaged sibling");
             PlaylistPersistenceRepository.EnsureSchema(values.LR2SongDBPath);
             TestUiDispatcherHost.Invoke(() =>
             {
                 var failures = new List<Exception>();
                 var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK) };
                 var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values),
-                    reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs,
+                    reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, playlistWorkspaceDialogService: dialogs,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
                 MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
-                var config = new LR2Config(values.LR2ConfigXmlPath);
                 Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
                 SetPrivateField(owner, "lr2config", configOwner);
                 SetActiveLibraryProfile(owner, true);
                 var table = new BMSTable
                 {
-                    playlist_id = 7195,
+                    playlist_id = 7198,
                     name = "Table",
                     symbol = "T",
-                    Output_dir = outputDirectory,
-                    custom_folder_output_base_name = "Extra",
                     ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                        & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
-                        & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
-                    entries = [BmsPlaylistTestSupport.CreateEntry(new string('b', 32), "Folder")],
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    entries = [BmsPlaylistTestSupport.CreateEntry(new string('d', 32), "Folder")],
                     Folder_order = ["Folder"]
                 };
-                var normalTable = new BMSTable { playlist_id = 7196, name = "Parent", Output_dir = "Parent" };
                 var playlist = new TestBmsPlaylist(values.LR2SongDBPath, configOwner, null, null,
                     () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(values), () => BeatorajaBmtOptionsSnapshot.CreateCurrent(values),
                     composition.CustomFolderOutputSettingsProvider,
                     BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(values.LR2SongDBPath, CustomFolderOutputPhysicalSurface.Empty),
                     mutationAdmission: composition.PlaylistOperationAdmission, settings: values)
-                { BMSTables = new ObservableCollection<BMSTable>(correctPendingDestination ? [table, normalTable] : [table]) };
+                { BMSTables = new ObservableCollection<BMSTable>([table]) };
                 SetPrivateField(owner, "tables", playlist);
                 owner.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);
-                FileStream? outputBlocker = null;
-                FileStream? settingsBlocker = null;
+                var warnings = new List<string>();
+                owner.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
+                    warnings.AddRange(request.Receipt.Notifications.Select(notification => notification.Message));
+                var externalSync = new RecordingOutputSettingsSyncRuntime();
+                SetPrivateField(owner.SettingDialog, "lr2SongDbSyncWorkflow", new Lr2SongDbSyncWorkflowOwner(externalSync));
                 try
                 {
                     playlist.CommitBMSTableWithEntriesToDB(table);
-                    if (correctPendingDestination) { playlist.CommitBMSTableHeadersToDB([normalTable]); }
-                    using (var db = new LR2SongDBExtended(values.LR2SongDBPath))
+                    string oldFile = Path.Combine(values.LR2CustomFolderOutputBaseDir, "Table", "0000.lr2folder");
+                    Directory.CreateDirectory(Path.GetDirectoryName(oldFile)!);
+                    File.WriteAllText(oldFile, "old output");
+                    string selected = Path.Combine(root, "SelectedOutput"), latest = Path.Combine(root, "LatestOutput");
+                    string selectedFile = Path.Combine(selected, "Table", "0000.lr2folder");
+                    string blockedFile = cleanupOnly ? oldFile : selectedFile;
+                    if (rowCleanup)
                     {
+                        using var db = new LR2SongDBExtended(values.LR2SongDBPath);
                         db.CreateTable<LR2SongDB.folder>();
-                        db.InsertOrReplace(new LR2SongDB.folder { path = oldFile, title = "Old managed output", type = 2 }, typeof(LR2SongDB.folder));
-                        if (renameAdditionalBase)
-                        {
-                            string newSql = newFile.Replace("'", "''", StringComparison.Ordinal);
-                            db.Execute($"CREATE TRIGGER reject_new_output_sync BEFORE INSERT ON folder WHEN NEW.path = '{newSql}' BEGIN SELECT RAISE(ABORT, 'test_new_output_sync_failed'); END;");
-                        }
-                    }
-                    if (!renameAdditionalBase)
-                    {
-                        Directory.CreateDirectory(Path.GetDirectoryName(newFile)!);
-                        File.WriteAllText(newFile, "blocked destination");
-                        outputBlocker = new FileStream(newFile, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    }
-                    owner.SettingDialog.SetPresentationActive(true);
-                    string stagedBms = Directory.CreateDirectory(Path.Combine(root, "StagedBms")).FullName;
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.AddBmsSearchRootPathsAsync([stagedBms]), "output-confirmation-unrelated-bms-candidate");
-                    owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseDir = original;
-                    if (renameAdditionalBase)
-                    {
-                        owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseName = "MovedExtra";
-                        owner.SettingDialog.RenameSelectedCustomFolderAdditionalOutputBaseDir();
-                    }
-                    else { owner.SettingDialog.RemoveSelectedCustomFolderAdditionalOutputBaseDir(); }
-                    bool closedDuringConfirmation = false;
-                    dialogs.ConfirmationObserved = _ =>
-                    {
-                        owner.SettingDialog.SetPresentationActive(false);
-                        owner.SettingDialog.SetPresentationActive(true);
-                        closedDuringConfirmation = true;
-                    };
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("additional"), "output-header-committed-projection-failure");
-                    dialogs.ConfirmationObserved = null;
-                    Assert.IsTrue(closedDuringConfirmation, "出力先と改名対応は確認より先に捕捉し、通常閉鎖による候補リセットへ依存しません。");
-                    Assert.AreEqual(1, failures.Count, string.Join(Environment.NewLine, failures));
-                    if (renameAdditionalBase) { StringAssert.Contains(failures[0].ToString(), "test_new_output_sync_failed"); }
-                    Assert.IsTrue(owner.SettingDialog.IsOutputSaveIncomplete);
-                    string? expectedName = renameAdditionalBase ? "MovedExtra" : null;
-                    Assert.AreEqual(expectedName, table.custom_folder_output_base_name);
-                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly())
-                    {
-                        BMSTable persisted = db.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id);
-                        Assert.AreEqual(expectedName, persisted.custom_folder_output_base_name,
-                            "headerのDB確定は新先出力失敗でも戻さず、削除した追加先の参照はNULLにします。");
-                        Assert.AreEqual(outputDirectory, persisted.Output_dir);
-                        Assert.AreEqual(0L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", newFile));
-                        Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", oldFile));
-                    }
-                    string acceptedRegistrations = CustomFolderOutputBaseRegistry.SerializeBaseDirectories(renameAdditionalBase ? [destination] : []);
-                    Assert.AreEqual(acceptedRegistrations, values.LR2CustomFolderAdditionalOutputBaseDirs);
-                    CollectionAssert.AreEqual(renameAdditionalBase ? new[] { destination } : Array.Empty<string>(), owner.SettingDialog.CustomFolderAdditionalOutputBaseDirList.ToArray(),
-                        "保存前の再表示で戻った旧候補は、保存採用時に新配置へ揃え、後段失敗でも戻しません。");
-                    Assert.AreEqual(acceptedRegistrations, PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderAdditionalOutputBaseDirs);
-                    Assert.IsTrue(File.Exists(oldFile));
-                    Assert.IsTrue(File.Exists(newFile), "DB同期失敗は部分生成された物理出力を巻き戻しません。");
-                    if (renameAdditionalBase && !correctPendingDestination)
-                    {
-                        byte[] pendingSettings = File.ReadAllBytes(settingsPath);
-                        byte[] pendingXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
-                        byte[] oldOutput = File.ReadAllBytes(oldFile);
-                        byte[] partialOutput = File.ReadAllBytes(newFile);
-                        string selectedDestination = owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseDir;
-                        Task<bool> restoreAllowed = owner.SettingDialog.CanStartRestoreBeforeExitAsync();
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(restoreAllowed, "restore-refuses-pending-output-migration");
-                        Assert.IsFalse(restoreAllowed.GetAwaiter().GetResult());
-                        Assert.IsTrue(owner.SettingDialog.IsOutputSaveIncomplete);
-                        Assert.AreEqual(selectedDestination, owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseDir);
-                        Assert.AreEqual(acceptedRegistrations, values.LR2CustomFolderAdditionalOutputBaseDirs);
-                        Assert.AreEqual(1, failures.Count, "復元拒否は出力修復を開始しません。");
-                        CollectionAssert.AreEqual(pendingSettings, File.ReadAllBytes(settingsPath));
-                        CollectionAssert.AreEqual(pendingXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
-                        CollectionAssert.AreEqual(oldOutput, File.ReadAllBytes(oldFile));
-                        CollectionAssert.AreEqual(partialOutput, File.ReadAllBytes(newFile));
-                        using LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
-                        Assert.AreEqual(expectedName, db.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id).custom_folder_output_base_name);
-                        Assert.AreEqual(0L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", newFile));
-                        Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", oldFile));
-                    }
-                    outputBlocker?.Dispose(); outputBlocker = null;
-                    if (renameAdditionalBase)
-                    {
-                        using var db = new LR2SongDBExtended(values.LR2SongDBPath);
-                        db.Execute("DROP TRIGGER reject_new_output_sync;");
-                    }
-                    owner.SettingDialog.SetPresentationActive(false);
-                    owner.SettingDialog.RequestOpen();
-                    owner.SettingDialog.SetPresentationActive(true);
-                    owner.SettingDialog.ShowRecommUpdatedMsg = !owner.SettingDialog.ShowRecommUpdatedMsg;
-                    Assert.IsTrue(owner.SettingDialog.IsOutputSaveIncomplete);
-                    Assert.IsTrue(File.Exists(oldFile), "再表示・無関係な保存は未了整理を暗黙再開しません。");
-                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly())
-                    { Assert.AreEqual(0L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", newFile), "再表示・通常保存は未了DB同期も開始しません。"); }
-                    if (correctPendingDestination)
-                    {
-                        owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseDir = destination;
-                        owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseName = "CorrectedExtra";
-                        owner.SettingDialog.RenameSelectedCustomFolderAdditionalOutputBaseDir();
-                        using var db = new LR2SongDBExtended(values.LR2SongDBPath);
-                        db.Execute("CREATE TABLE successful_projection_audit (path TEXT PRIMARY KEY);");
-                        string correctedSql = correctedFile.Replace("'", "''", StringComparison.Ordinal);
-                        db.Execute($"CREATE TRIGGER reject_repeated_corrected_projection BEFORE INSERT ON folder WHEN NEW.path = '{correctedSql}' AND EXISTS (SELECT 1 FROM successful_projection_audit WHERE path = NEW.path) BEGIN SELECT RAISE(ABORT, 'test_corrected_projection_repeated'); END;");
-                        db.Execute($"CREATE TRIGGER record_corrected_projection AFTER INSERT ON folder WHEN NEW.path = '{correctedSql}' BEGIN INSERT INTO successful_projection_audit(path) VALUES (NEW.path); END;");
+                        db.InsertOrReplace(new LR2SongDB.folder { path = oldFile, title = "old output", type = 2 }, typeof(LR2SongDB.folder));
+                        db.Execute("CREATE TRIGGER fail_old_output_row BEFORE DELETE ON folder WHEN OLD.path = '" + oldFile.Replace("'", "''", StringComparison.Ordinal)
+                            + "' BEGIN SELECT RAISE(ABORT, 'old-output-row-delete-fault'); END;");
                     }
                     else
                     {
-                        settingsBlocker = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        Directory.CreateDirectory(Path.GetDirectoryName(blockedFile)!);
+                        File.WriteAllText(blockedFile, "blocked output");
                     }
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync(correctPendingDestination ? "additional" : "pending"), "output-explicit-materialization-repair");
-                    Assert.AreEqual(1, failures.Count, string.Join(Environment.NewLine, failures));
-                    Assert.IsFalse(owner.SettingDialog.IsOutputSaveIncomplete);
-                    if (renameAdditionalBase && !correctPendingDestination)
+                    using (rowCleanup ? null : File.Open(blockedFile, FileMode.Open, FileAccess.ReadWrite, FileShare.Read))
                     {
-                        Task<bool> restoreAllowed = owner.SettingDialog.CanStartRestoreBeforeExitAsync();
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(restoreAllowed, "restore-allows-repaired-output-migration");
-                        Assert.IsTrue(restoreAllowed.GetAwaiter().GetResult());
+                        owner.SettingDialog.LR2CustomFolderOutputDir = selected;
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("normal"), "output-selected-failure");
                     }
-                    string finalFile = correctPendingDestination ? correctedFile : newFile;
-                    string finalRegistrations = correctPendingDestination
-                        ? CustomFolderOutputBaseRegistry.SerializeBaseDirectories([corrected]) : acceptedRegistrations;
-                    Assert.AreEqual(finalRegistrations, values.LR2CustomFolderAdditionalOutputBaseDirs);
-                    Assert.AreEqual(finalRegistrations, PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderAdditionalOutputBaseDirs);
-                    Assert.IsTrue(File.Exists(finalFile));
-                    Assert.IsFalse(File.Exists(oldFile));
-                    Assert.IsTrue(File.Exists(unmanagedFile));
-                    if (correctPendingDestination) { Assert.IsFalse(File.Exists(newFile), "部分生成されたBの整理も新receiptが保持します。"); }
-                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly())
+                    Assert.AreEqual(cleanupOnly ? 0 : 1, failures.Count);
+                    Assert.AreEqual(selected, values.LR2CustomFolderOutputBaseDir);
+                    Assert.AreEqual(selected, PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderOutputBaseDir);
+                    Assert.AreEqual(selected, composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDir);
+                    CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), selected);
+                    Assert.AreEqual(cleanupOnly, File.ReadAllText(selectedFile) != "blocked output");
+                    Assert.AreEqual(!rowCleanup, File.Exists(oldFile));
+                    Assert.AreEqual(cleanupOnly ? 1 : 0, externalSync.ExternalSyncCount, "旧先整理だけの失敗でも必要な外部同期へ進みます。");
+                    if (cleanupOnly) { Assert.IsTrue(warnings.Any(warning => warning.Contains(Path.GetDirectoryName(oldFile)!, StringComparison.Ordinal))); }
+                    if (rowCleanup)
                     {
-                        Assert.AreEqual(correctPendingDestination ? "CorrectedExtra" : expectedName,
-                            db.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id).custom_folder_output_base_name);
-                        Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", finalFile));
-                        Assert.AreEqual(0L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", oldFile));
-                        if (correctPendingDestination)
-                        {
-                            Assert.AreEqual(0L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?", newFile));
-                            Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM successful_projection_audit WHERE path = ?", correctedFile));
-                        }
+                        Assert.IsTrue(warnings.Any(warning => warning.Contains("old-output-row-delete-fault", StringComparison.Ordinal)));
+                        using LR2SongDBExtended read = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
+                        Assert.AreEqual(1, read.Table<LR2SongDB.folder>().Count(row => row.path == oldFile));
+                        Assert.AreEqual(1, read.Table<LR2SongDB.folder>().Count(row => row.path == selectedFile));
+                        using var db = new LR2SongDBExtended(values.LR2SongDBPath);
+                        db.Execute("DROP TRIGGER fail_old_output_row;");
                     }
-                    CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(),
-                        correctPendingDestination ? corrected : destination);
+                    owner.SettingDialog.LR2CustomFolderOutputDir = latest;
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("normal"), "output-latest-after-failure");
+                    Assert.AreEqual(cleanupOnly ? 0 : 1, failures.Count, string.Join(Environment.NewLine, failures));
+                    Assert.AreEqual(latest, values.LR2CustomFolderOutputBaseDir);
+                    Assert.IsTrue(File.Exists(Path.Combine(latest, "Table", "0000.lr2folder")));
+                    Assert.AreEqual(cleanupOnly ? 2 : 1, externalSync.ExternalSyncCount);
+                    if (rowCleanup)
+                    {
+                        using LR2SongDBExtended read = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
+                        Assert.AreEqual(1, read.Table<LR2SongDB.folder>().Count(row => row.path == oldFile), "次操作は過去の旧行整理を再開しません。");
+                    }
+                    else { Assert.IsTrue(File.Exists(oldFile), "次操作は過去の旧先回収を再開しません。"); }
+
                 }
                 finally
                 {
-                    settingsBlocker?.Dispose(); outputBlocker?.Dispose();
-                    playlist.RequestShutdown("output-header-migration-fixture");
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "output-header-migration-owner-cleanup");
+                    using (var db = new LR2SongDBExtended(values.LR2SongDBPath)) { db.Execute("DROP TRIGGER IF EXISTS fail_old_output_row;"); }
+                    playlist.RequestShutdown("install-directory-output-fixture");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "install-directory-output-owner-cleanup");
                     owner.SettingDialog.Dispose();
                 }
             });
@@ -714,4 +534,28 @@ public sealed partial class SettingDialogEditCompletionTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
+
+    /// <summary>設定操作から必要外部同期への接続を観測し、生成と旧行整理の実DB検証には関与しません。</summary>
+    private sealed class RecordingOutputSettingsSyncRuntime : ILr2SongDbSyncWorkflowRuntime
+    {
+        public bool IsLr2ModeEnabled => true;
+        public bool IsLibraryAvailable => true;
+        internal int ExternalSyncCount { get; private set; }
+
+        public Task<bool> QueueAsync(string reason, bool force, bool prepareGeneratedData = false, bool allowIncompleteToQueue = true,
+            LibraryFileInitializationResult? initializationResult = null, LibraryFileMutationCapability? capability = null,
+            bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null,
+            Lr2SongDbSyncPreparedDataSurface? preparedSurface = null, OperationProgressRequest? originatingRequest = null,
+            BmsLibraryOptionsSnapshot? optionsSnapshot = null, Action<bool>? admissionResult = null)
+            => throw new AssertFailedException("Output settings must use the external-folder continuation.");
+
+        public Task SyncExternalFolderRowsForCustomFolderOutputBaseChangeAsync(string reason,
+            LibraryFileMutationCapability? capability = null, LibraryFileMutationCapability? playlistCapability = null)
+        {
+            Assert.IsNotNull(capability);
+            Assert.IsNotNull(playlistCapability);
+            ExternalSyncCount++;
+            return Task.CompletedTask;
+        }
+    }
 }
