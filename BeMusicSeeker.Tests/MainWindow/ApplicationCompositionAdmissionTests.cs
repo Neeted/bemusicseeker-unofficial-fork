@@ -14,7 +14,7 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class ApplicationCompositionTests
 {
-    /// <summary>実初期化後のBusyはカタログ変更・再読込・再生開始とライブラリ依存の局所確定を副作用前に拒否し、無関係な項目保存と候補・選択を維持します。解放後の明示操作で共有受付を確認します。</summary>
+    /// <summary>実初期化後のBusyは依存操作を副作用前に拒否し、通常項目保存・候補・選択を維持します。通常Closeは未保存候補だけを確定値へ戻し、保存bytesを変えません。解放後の明示再生で共有受付を確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task StandardComposition_RejectsDependentOperationsWhileSavingOrdinaryItemsAndKeepingCandidates()
@@ -109,13 +109,20 @@ public sealed partial class ApplicationCompositionTests
             viewModel.MainChartList.SelectedIndex = -1;
             viewModel.MainChartList.SelectedIndex = 0;
             Assert.AreEqual(0, viewModel.MainChartList.SelectedIndex);
+            Assert.AreEqual("pending-score-player", viewModel.SettingDialog.BeatorajaPlayerId, "Busyによる確定拒否では未確定候補を破棄しません。");
+            string settingsPath = Path.Combine(root, "user.config");
+            string confirmedPlayer = PortableSettingsPersistenceTests.OpenSettings(settingsPath).BeatorajaPlayerId;
+            Assert.AreNotEqual("pending-score-player", confirmedPlayer);
+            byte[] savedSettingsBeforeClose = File.ReadAllBytes(settingsPath);
             viewModel.SettingDialog.CloseCommand.Execute();
             Assert.AreEqual(!before, viewModel.SettingDialog.KeepInstallablePackagesPending);
+            Assert.AreEqual(confirmedPlayer, viewModel.SettingDialog.BeatorajaPlayerId, "通常Closeでは未確定候補を最新の確定値へ戻します。");
+            CollectionAssert.AreEqual(savedSettingsBeforeClose, File.ReadAllBytes(settingsPath), "通常Closeは候補を保存せず、保存済み通常項目も変更しません。");
             lease?.Dispose();
             await viewModel.PlaybackPanel.StartAtIndex(0);
             Assert.IsTrue(player.Commands.Any(command => command == "PlayStart:" + path));
-            Assert.AreEqual("pending-score-player", viewModel.SettingDialog.BeatorajaPlayerId);
-            Assert.AreNotEqual("pending-score-player", PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config")).BeatorajaPlayerId);
+            Assert.AreEqual(confirmedPlayer, viewModel.SettingDialog.BeatorajaPlayerId);
+            Assert.AreEqual(confirmedPlayer, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BeatorajaPlayerId);
         }
         finally
         {

@@ -15,6 +15,7 @@ using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
@@ -372,9 +373,9 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>有効なLR2環境のschema確認待ちでは再操作・撤去の無効表示と入口拒否を揃え、native Closeを拒否します。取消後は同じ候補・DBを保って操作を再開します。</summary>
+    /// <summary>有効なLR2環境のschema確認待ちでは再操作・撤去の無効表示と入口拒否を揃えます。通常Close要求と実Taskの終端を分け、取消後は同じDBで操作を再開します。</summary>
     [TestMethod]
-    public void AdvancedDangerZone_SchemaUninstallActualButtonBlocksNativeCloseUntilCancel()
+    public void AdvancedDangerZone_SchemaUninstallActualButtonKeepsTaskUntilCancel()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -409,7 +410,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.IsFalse(original.IsCompleted);
                 window.Close();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual(0, presentation.CloseRequestCount);
+                Assert.AreEqual(1, presentation.CloseRequestCount, "通常Closeは実処理の取消や完了とは別に受け付けます。");
                 Assert.AreEqual(0, store.CallCount);
 
                 schemaDialog.Complete(UiInteractionStatus.CancelledByUser);
@@ -1329,7 +1330,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>実restoreのDB・必要UI公開が成功すれば、完了receiptと終了案内が失敗してもshell端末を一回呼び実Closeします。最終通知へL/Pを持ち越しません。</summary>
+    /// <summary>実restoreの必要UI待ち中はClose・Escを保留し、DB・必要UI公開が成功すれば、完了receiptと終了案内が失敗してもshell端末を一回呼び実Closeします。最終通知へL/Pを持ち越しません。</summary>
     [TestMethod]
     public void BackupPage_RestoreSuccessClosesOnceDespiteCompletionAndExitNoticeFailures()
     {
@@ -1414,6 +1415,13 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(2, playlist.BMSTables.Single().playlist_id);
                 Assert.IsTrue(window.IsVisible);
                 Assert.AreEqual(0, exits, "必要UIの実完了前に終了を許可しない。");
+                window.Close();
+                window.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), 0, Key.Escape) { RoutedEvent = Keyboard.KeyDownEvent });
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(window.IsVisible, "復元の必要UI終端は通常CloseとEscで捨てません。");
+                Assert.IsFalse(closed.Task.IsCompleted);
+                Assert.IsFalse(owner.SettingDialog.SettingsOperationCompletionTask.IsCompleted);
+
                 Assert.AreEqual(0, dialogs.MessageRequests.Count);
                 complete.TrySetResult();
                 TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "compiled restore success Close");
@@ -2456,6 +2464,8 @@ public sealed class SettingsWindowPresentationTests
             MainWindow? mainWindow = null;
             Task? audioTestTask = null;
             Task? interactionTask = null;
+            var reopenedAudioPresentation = new TaskCompletionSource<SettingsWindow>(TaskCreationOptions.RunContinuationsAsynchronously);
+            int audioPresentationCount = 0;
             ExceptionDispatchInfo? bodyFailure = null;
             Exception? cleanupFailure = null;
             try
@@ -2463,9 +2473,15 @@ public sealed class SettingsWindowPresentationTests
                 mainWindow = ownership.CreateWindow(() => new MainWindow(viewModel, createdSettingsWindow =>
                 {
                     settingsWindow = createdSettingsWindow;
+                    int presentationNumber = ++audioPresentationCount;
                     windowTest.PrepareForOwnedPresentation(createdSettingsWindow);
                     createdSettingsWindow.ContentRendered += (_, _) =>
                     {
+                        if (presentationNumber > 1)
+                        {
+                            reopenedAudioPresentation.TrySetResult(createdSettingsWindow);
+                            return;
+                        }
                         // OnContentRenderedがpresentationを有効化してから、本番と同じ表示中の要求を受理します。
                         createdSettingsWindow.Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
                             (Action)(() => interactionTask = ExerciseOwnerShutdownAsync()));
@@ -2477,6 +2493,7 @@ public sealed class SettingsWindowPresentationTests
                 mainWindow.UpdateLayout();
 
                 dialog.OpenCommand.Execute();
+                if (!enumerateDevices) { dialog.RequestOpen(deferPresentation: true); }
                 Assert.IsNotNull(interactionTask);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(interactionTask, "owner-shutdown-audio-interaction");
 
@@ -2500,6 +2517,19 @@ public sealed class SettingsWindowPresentationTests
                             Assert.IsTrue(runtime.Started.Task.IsCompleted,
                                 "The accepted test ended before the native runtime gate was reached.");
                             await runtime.Started.Task;
+                            Task accepted = dialog.SettingsOperationCompletionTask;
+                            var oldClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                            presentedSettings.Closed += (_, _) => oldClosed.TrySetResult();
+                            presentedSettings.Close();
+                            await oldClosed.Task;
+                            Assert.IsNull(presentedSettings.DataContext);
+                            Assert.IsFalse(accepted.IsCompleted);
+                            presentedSettings = await reopenedAudioPresentation.Task;
+                            Assert.AreSame(accepted, dialog.SettingsOperationCompletionTask);
+                            Assert.IsFalse(dialog.IsAudioOutputSelectionEnabled);
+                            Assert.IsFalse(dialog.IsAudioDeviceTestAvailable);
+                            await dialog.RunAudioDeviceTestAsync();
+                            Assert.AreSame(accepted, dialog.SettingsOperationCompletionTask);
                         }
                         shell.Close();
                         Assert.AreEqual(SettingsWindowCloseReason.OwnerShutdown, presentedSettings.CloseReason);
@@ -4407,7 +4437,7 @@ public sealed class SettingsWindowPresentationTests
     }
 
 
-    /// <summary>起動後続を回収した通常保存で、実Close、DataContext解除、modal復帰後も実Folder Taskと親L/Pが生存し、main上で終端します。</summary>
+    /// <summary>実確定ボタンからの通常保存で、実Close・modal復帰と同じMainWindowからの再表示後も同じFolder Task・制限・親L/Pを保持し、Shell終了が実終端を待ちます。</summary>
     [TestMethod]
     public void MainWindow_NormalSettingsCloseEndsModalBeforeActualFileDiffTerminates()
     {
@@ -4444,6 +4474,7 @@ public sealed class SettingsWindowPresentationTests
             MainWindow? main = null;
             SettingsWindow? settings = null;
             Task? apply = null;
+            int settingsPresentationCount = 0;
             bool closed = false;
             var observed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             ExceptionDispatchInfo? failure = null;
@@ -4459,14 +4490,33 @@ public sealed class SettingsWindowPresentationTests
                 main = ownership.CreateWindow(() => new MainWindow(owner, window =>
                 {
                     settings = window;
+                    settingsPresentationCount++;
                     windowTest.PrepareForOwnedPresentation(window);
                     window.Closed += (_, _) => closed = true;
                     window.ContentRendered += async (_, _) =>
                     {
                         try
                         {
-                            owner.SettingDialog.BmsRootPathList.Add(added);
-                            apply = owner.SettingDialog.CommitBmsRootsAsync();
+                            if (apply != null)
+                            {
+                                Assert.AreSame(apply, owner.SettingDialog.SettingsOperationCompletionTask);
+                                Assert.IsFalse(apply.IsCompleted);
+                                Assert.IsFalse(owner.SettingDialog.IsEditCompletionEnabled);
+                                Button confirm = FindDescendants<Button>(window).Single(button => Equals(button.Tag, "confirm:bms"));
+                                Assert.IsFalse(confirm.IsEnabled);
+                                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationRecording");
+                                TestUiDispatcherHost.ProcessQueuedPresentation();
+                                float quality = owner.SettingDialog.EncoderQuality == 0.5f ? 0.6f : 0.5f;
+                                owner.SettingDialog.EncoderQuality = quality;
+                                Assert.AreEqual(quality, values.EncoderQuality);
+                                Assert.AreSame(apply, owner.SettingDialog.SettingsOperationCompletionTask);
+                                window.Close();
+                                return;
+                            }
+                            await owner.SettingDialog.AddBmsSearchRootPathsAsync([added]);
+                            FindDescendants<Button>(window).Single(button => Equals(button.Tag, "confirm:bms"))
+                                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                            apply = owner.SettingDialog.SettingsOperationCompletionTask;
                             await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, apply, "same-settings-scan");
                             Assert.IsFalse(closed);
                             Assert.IsTrue(window.IsVisible);
@@ -4478,17 +4528,10 @@ public sealed class SettingsWindowPresentationTests
                             owner.SettingDialog.ShowRecommUpdatedMsg = ordinary;
                             Assert.AreEqual(ordinary, values.ShowRecommUpdatedMsg);
                             window.Close();
-                            Assert.IsTrue(window.IsVisible, "当該処理中の利用者Closeを拒否します。");
-                            release.Set();
-                            await apply;
-                            Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
-                            Assert.IsFalse(composition.OperationAdmission.IsActive);
-                            Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
-                            Assert.IsTrue(window.IsVisible);
-                            window.CloseFromPresentation();
+                            // モーダルの復帰を先に観測し、実Folder Taskの入力gateをここでは解放しません。
                         }
                         catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); window.CloseForOwnerShutdown(); }
-                        finally { release.Set(); observed.TrySetResult(); }
+                        finally { observed.TrySetResult(); }
                     };
                 }));
                 Application.Current.MainWindow = main;
@@ -4522,6 +4565,24 @@ public sealed class SettingsWindowPresentationTests
                 Assert.IsNull(settings.DataContext);
                 Assert.IsFalse(settings.IsVisible);
                 Assert.AreEqual(previousOverlay, main.PlaybackOverlayVisibility);
+                Assert.IsNotNull(apply);
+                Assert.IsFalse(apply.IsCompleted, "通常Closeとmodal復帰は受理済み実Taskの終端ではありません。");
+                Assert.IsTrue(composition.OperationAdmission.IsActive);
+                Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
+                owner.SettingDialog.OpenCommand.Execute();
+                failure?.Throw();
+                Assert.AreEqual(2, settingsPresentationCount, "同じMainWindowが処理中にも新しい設定Windowを表示します。");
+                Assert.IsNotNull(settings);
+                Assert.IsNull(settings.DataContext);
+                Assert.IsFalse(apply.IsCompleted);
+                main.Close();
+                Assert.IsFalse(lifetime.ShutdownRequested.Task.IsCompleted, "閉じた設定Windowへの参照を失ってもShellは同じTaskをjoinします。");
+                release.Set();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "normal-settings-file-diff-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(lifetime.ShutdownRequested.Task, "normal-settings-shell-terminal");
+                Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                Assert.IsFalse(composition.OperationAdmission.IsActive);
+                Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
             }
             catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
             finally
@@ -4851,10 +4912,10 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>再読込み pending で取消不能な設定 Window は native Close でも取消完了を要求しないことを確認します。</summary>
+    /// <summary>保存後の再読込み未了があっても通常Closeを要求でき、修復の事実は閉鎖で消さないことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
-    public void NativeClose_WhenCancellationIsDisabled_DoesNotRequestCancelCompletion()
+    public void NativeClose_WithPendingScoreRepairRequestsCloseAndKeepsRepair()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -4871,21 +4932,28 @@ public sealed class SettingsWindowPresentationTests
             window.Dispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
 
             Assert.AreEqual(1, presentation.CloseRequestCount);
+            Assert.IsTrue(viewModel.SettingDialog.IsScoreReloadPending);
         });
     }
 
-    /// <summary>view 操作の実 Task を gate で保持した間は native Close を拒否し、終端後の明示 Close でだけ取消完了を要求することを確認します。</summary>
-    [TestMethod]
+    /// <summary>通常Close/Escは受理済みTaskを完了させず実WindowとDataContextだけを閉じ、再表示でも同じTask・制限と独立保存を維持します。実MainWindow接続はFileDiff系列が分担します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
     [DoNotParallelize]
-    public void RunViewOperation_BlocksNativeCloseUntilOperationCompletes()
+    public void RunViewOperation_NormalCloseAndEscapePreserveTaskAcrossReopen(bool escape)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(values);
             using SettingsDialogViewModel ownedDialogLifetime = viewModel.SettingDialog;
             var presentation = new RecordingPresentationPort();
             viewModel.SettingDialog.AttachPresentationPort(presentation);
             var window = new SettingsWindow { DataContext = viewModel.SettingDialog };
+            SettingsWindow? reopened = null;
+            presentation.CloseAction = window.CloseFromPresentation;
+            windowTest.ShowAndWaitForContentRendered(window);
             SynchronizationContext? previousContext = SynchronizationContext.Current;
             SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(window.Dispatcher));
             var operationCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -4894,17 +4962,36 @@ public sealed class SettingsWindowPresentationTests
             {
                 operation = window.RunViewOperationAsync(() => operationCompletion.Task);
 
-                window.Close();
-                window.Dispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
-                Assert.AreEqual(0, presentation.CloseRequestCount);
+                Task terminal = viewModel.SettingDialog.SettingsOperationCompletionTask;
+                var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                window.Closed += (_, _) => closed.TrySetResult();
+                if (escape)
+                {
+                    window.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), 0, Key.Escape) { RoutedEvent = Keyboard.KeyDownEvent });
+                }
+                else { window.Close(); }
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "settings-normal-close");
+                Assert.AreEqual(1, presentation.CloseRequestCount);
+                Assert.IsNull(window.DataContext);
+                Assert.IsFalse(operation.IsCompleted);
+                reopened = new SettingsWindow { DataContext = viewModel.SettingDialog };
+                presentation.CloseAction = reopened.CloseFromPresentation;
+                windowTest.ShowAndWaitForContentRendered(reopened);
+                Assert.AreSame(terminal, viewModel.SettingDialog.SettingsOperationCompletionTask);
+                Assert.IsFalse(viewModel.SettingDialog.IsEditCompletionEnabled);
+                ((ListBox)reopened.FindName("settingsNavigation")).SelectedItem = reopened.FindName("navigationRecording");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                float quality = viewModel.SettingDialog.EncoderQuality == 0.5f ? 0.6f : 0.5f;
+                viewModel.SettingDialog.EncoderQuality = quality;
+                Assert.AreEqual(quality, values.EncoderQuality);
 
                 operationCompletion.SetResult();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "settings-view-operation-terminal");
                 Assert.IsTrue(operation.IsCompletedSuccessfully);
 
-                window.Close();
-                window.Dispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
-                Assert.AreEqual(1, presentation.CloseRequestCount);
+                int started = 0;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(reopened.RunViewOperationAsync(() => { started++; return Task.CompletedTask; }), "settings-next-explicit-operation");
+                Assert.AreEqual(1, started);
             }
             finally
             {
@@ -4913,12 +5000,17 @@ public sealed class SettingsWindowPresentationTests
                 {
                     if (operation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "settings-view-operation-finally"); }
                 }
-                finally { SynchronizationContext.SetSynchronizationContext(previousContext); }
+                finally
+                {
+                    if (window.IsVisible) { window.CloseForOwnerShutdown(); }
+                    if (reopened?.IsVisible == true) { reopened.CloseForOwnerShutdown(); }
+                    SynchronizationContext.SetSynchronizationContext(previousContext);
+                }
             }
         });
     }
 
-    /// <summary>BMTの実P受付を保持するcompiledボタン操作中も独立した画像確定は保存でき、CloseとownerのjoinはBMTの実終端を待ちます。</summary>
+    /// <summary>BMTの実P受付を保持するcompiledボタン操作中も独立した画像確定と通常Closeは可能で、ownerのjoinだけはBMTの実終端を待ちます。</summary>
     /// <remarks>全表の実ファイル投影はSettingDialogEditCompletionTestsが分担し、このケースはP内の外部処理だけをgateで固定して実Windowの配送・別カテゴリ保存・寿命を保証します。</remarks>
     [TestMethod]
     public void BmtButtonWhileOutputIsPending_AllowsIndependentImageConfirmationAndPreservesOwnerJoin()
@@ -4946,6 +5038,7 @@ public sealed class SettingsWindowPresentationTests
                 new DangerDialogService(), new DangerSchemaDialogPort(), new DangerApplicationDataStore(), workspace: workspace);
             using SettingsDialogViewModel settings = context.Settings;
             var window = new SettingsWindow { DataContext = settings };
+            settings.AttachPresentationPort(new RecordingPresentationPort { CloseAction = window.CloseFromPresentation });
             Task? join = null;
             try
             {
@@ -4968,8 +5061,7 @@ public sealed class SettingsWindowPresentationTests
                 Settings fresh = PortableSettingsPersistenceTests.OpenSettings(configPath);
                 Assert.IsTrue(fresh.UseExternalPanelImage, "独立した局所確定はP待機中も実providerへ保存します。");
                 window.Close();
-                Assert.IsTrue(window.IsVisible);
-                window.CloseForOwnerShutdown();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsNull(window.DataContext);
                 Assert.IsFalse(join.IsCompleted, "表示の失効は受理済みTaskの終端ではありません。");
             }
@@ -4985,18 +5077,16 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>保存後の各実処理失敗を当該欄にも表示し、閉鎖・再表示後も維持します。同値の明示再試行は保存し直さず、成功時だけ案内を解消します。未了中の復元は確認・picker・保存へ進まず、画面と自身の再試行を保ちます。</summary>
-    /// <remarks>実providerとcompiledボタン・bannerを接続します。scoreの再試行はBusy中の再表示・解消・再度のBusyにも追従し、通知だけでは実行しません。Score/FileDiffの実モデル反映とBMTの実ファイル投影はEditCompletion系列が分担し、ここでは実処理portの失敗・成功を固定します。</remarks>
+    /// <remarks>実providerとcompiledボタン・bannerを接続します。scoreの再試行はBusy中の再表示・解消・再度のBusyにも追従し、通知だけでは実行しません。Scoreの実モデル反映とBMTの実ファイル投影はEditCompletion系列が分担し、ここでは実処理portの失敗・成功を固定します。</remarks>
     [DataTestMethod]
     [DataRow("score", nameof(SettingsDialogViewModel.IsScoreProcessingRetryRequired))]
-    [DataRow("bms", nameof(SettingsDialogViewModel.IsBmsProcessingRetryRequired))]
     [DataRow("bmt", nameof(SettingsDialogViewModel.IsBmtProcessingRetryRequired))]
     public void SectionProcessingFailure_ShowsRetryAfterReopenAndClearsOnlyAfterExplicitSuccess(string section, string stateProperty)
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
             string root = Path.Combine(Path.GetTempPath(), "SettingsSectionRetry-" + Guid.NewGuid().ToString("N"));
-            string added = Path.Combine(root, "added");
-            Directory.CreateDirectory(added);
+            Directory.CreateDirectory(root);
             string config = Path.Combine(root, "user.config");
             Settings values = PortableSettingsPersistenceTests.OpenSettings(config);
             values.OperationModeLR2DB = false;
@@ -5053,7 +5143,6 @@ public sealed class SettingsWindowPresentationTests
                 if (section != "score")
                 {
                     Assert.IsFalse(FindDescendants<Button>(window).Single(button => Equals(button.Tag, "cancel:" + section)).IsEnabled);
-                    if (section == "bms") { Assert.IsFalse(FindDescendants<Button>(window).Single(button => Equals(button.Tag, "confirm:bms")).IsEnabled); }
                 }
                 if (section == "score")
                 {
@@ -5061,7 +5150,6 @@ public sealed class SettingsWindowPresentationTests
                         .SetCurrentValue(ToggleButton.IsCheckedProperty, false);
                     AwaitViewOperationTerminal(settings);
                 }
-                else if (section == "bms") { settings.BmsRootPathList.Add(added); }
                 else { settings.KeepBeatorajaBmtFilesWhenOutputDisabled = false; }
                 if (section != "score") { ClickConfirm(); }
                 Assert.AreEqual(1, failures.Count);
@@ -5082,7 +5170,6 @@ public sealed class SettingsWindowPresentationTests
                 if (section == "bmt") { Assert.IsFalse(settings.IsBeatorajaSelectionEnabled); }
                 Settings fresh = PortableSettingsPersistenceTests.OpenSettings(config);
                 if (section == "score") { Assert.IsFalse(fresh.UseBeatorajaScoreDb); }
-                else if (section == "bms") { StringAssert.Contains(fresh.StandaloneBmsRootPaths, added); }
                 else { Assert.IsFalse(fresh.KeepBeatorajaBmtFilesWhenOutputDisabled); }
                 window.CloseForOwnerShutdown();
                 if (section == "score") { statePort.SetLibraryOperationInProgress(true); }

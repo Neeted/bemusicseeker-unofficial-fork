@@ -1184,7 +1184,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         // 失敗後の再表示では、前の保存処理を次のモーダル画面の終了待ちにしない。
         RunOnUiThread(() =>
         {
-            if (!IsShellClosingOrClosed() && (DataContext as MainWindowViewModel)?.SettingDialog.IsSettingsOperationAvailable == true)
+            if (!IsShellClosingOrClosed() && (DataContext as MainWindowViewModel)?.SettingDialog.IsEditCancellationEnabled == true)
             {
                 ShowSettingsWindow(requestedTimestamp);
             }

@@ -576,6 +576,9 @@ public sealed partial class SettingDialogEditCompletionTests
                         File.WriteAllText(newFile, "blocked destination");
                         outputBlocker = new FileStream(newFile, FileMode.Open, FileAccess.Read, FileShare.Read);
                     }
+                    owner.SettingDialog.SetPresentationActive(true);
+                    string stagedBms = Directory.CreateDirectory(Path.Combine(root, "StagedBms")).FullName;
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.AddBmsSearchRootPathsAsync([stagedBms]), "output-confirmation-unrelated-bms-candidate");
                     owner.SettingDialog.SelectedCustomFolderAdditionalOutputBaseDir = original;
                     if (renameAdditionalBase)
                     {
@@ -583,7 +586,16 @@ public sealed partial class SettingDialogEditCompletionTests
                         owner.SettingDialog.RenameSelectedCustomFolderAdditionalOutputBaseDir();
                     }
                     else { owner.SettingDialog.RemoveSelectedCustomFolderAdditionalOutputBaseDir(); }
+                    bool closedDuringConfirmation = false;
+                    dialogs.ConfirmationObserved = _ =>
+                    {
+                        owner.SettingDialog.SetPresentationActive(false);
+                        owner.SettingDialog.SetPresentationActive(true);
+                        closedDuringConfirmation = true;
+                    };
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("additional"), "output-header-committed-projection-failure");
+                    dialogs.ConfirmationObserved = null;
+                    Assert.IsTrue(closedDuringConfirmation, "出力先と改名対応は確認より先に捕捉し、通常閉鎖による候補リセットへ依存しません。");
                     Assert.AreEqual(1, failures.Count, string.Join(Environment.NewLine, failures));
                     if (renameAdditionalBase) { StringAssert.Contains(failures[0].ToString(), "test_new_output_sync_failed"); }
                     Assert.IsTrue(owner.SettingDialog.IsOutputSaveIncomplete);
@@ -600,6 +612,8 @@ public sealed partial class SettingDialogEditCompletionTests
                     }
                     string acceptedRegistrations = CustomFolderOutputBaseRegistry.SerializeBaseDirectories(renameAdditionalBase ? [destination] : []);
                     Assert.AreEqual(acceptedRegistrations, values.LR2CustomFolderAdditionalOutputBaseDirs);
+                    CollectionAssert.AreEqual(renameAdditionalBase ? new[] { destination } : Array.Empty<string>(), owner.SettingDialog.CustomFolderAdditionalOutputBaseDirList.ToArray(),
+                        "保存前の再表示で戻った旧候補は、保存採用時に新配置へ揃え、後段失敗でも戻しません。");
                     Assert.AreEqual(acceptedRegistrations, PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderAdditionalOutputBaseDirs);
                     Assert.IsTrue(File.Exists(oldFile));
                     Assert.IsTrue(File.Exists(newFile), "DB同期失敗は部分生成された物理出力を巻き戻しません。");

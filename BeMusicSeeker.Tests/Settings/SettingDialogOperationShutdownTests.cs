@@ -259,8 +259,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.IsNull(settingsWindow.DataContext);
                 Assert.AreSame(operation, owner.SettingDialog.SettingsOperationCompletionTask);
                 Assert.IsFalse(owner.SettingDialog.IsSettingsOperationAvailable);
-                owner.SettingDialog.RequestOpen();
-                Assert.IsFalse(settingsWindow.IsVisible, "自動閉鎖後も実終端までは再表示を拒否します。");
+                Assert.IsTrue(owner.SettingDialog.IsEditCancellationEnabled, "自動閉鎖後も同じTaskを保持し、通常の再表示・閉鎖は実操作の終端と分けます。");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, operation,
                     "manual-resync-runtime-return-gate"), "manual-resync-runtime-return-gate");
                 Assert.IsTrue(terminalRuntime.WasAccepted);

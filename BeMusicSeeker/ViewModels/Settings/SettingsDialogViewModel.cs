@@ -126,7 +126,6 @@ public partial class SettingsDialogViewModel : ViewModel
             RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));
             RaisePropertyChanged(nameof(IsScoreProcessingRetryRequired));
             RaisePropertyChanged(nameof(CanRetryScoreSettings));
-            RaisePropertyChanged(nameof(IsBmsProcessingRetryRequired));
             RaisePropertyChanged(nameof(IsAudioDeviceTestAvailable));
             RaiseEnvironmentAvailabilityChanged();
         }
@@ -152,10 +151,9 @@ public partial class SettingsDialogViewModel : ViewModel
     }
 
     /// <summary>
-    /// 受理中の局所処理または音声テストを残さず、通常閉鎖できるかを示します。
+    /// 受理済みの通常操作を継続したまま閉鎖できます。初回開始・再起動・復元・撤去は既存の必須終端を待ちます。
     /// </summary>
-    public bool IsEditCancellationEnabled => IsSettingsOperationAvailable && !IsEditCompletionInProgress
-        && !IsAudioDeviceTestInProgress;
+    public bool IsEditCancellationEnabled => !settingsOperationRequiresPresentation && !environmentTransitionInProgress;
 
     /// <summary>音声設定担当が所有するIsAudioDeviceTestInProgressを画面へ接続します。</summary>
     public bool IsAudioDeviceTestInProgress => audioDeviceTestWorkflow.IsAudioDeviceTestInProgress;
@@ -201,15 +199,13 @@ public partial class SettingsDialogViewModel : ViewModel
 
     internal bool IsScoreReloadPending => scoreReloadPending;
 
-    internal bool IsFileDiffReloadPending => fileDiffReloadPending;
-
     /// <summary>
-    /// 設定画面の表示を要求します。音声一覧は音声ページの初回表示時に取得します。
+    /// 設定画面の表示を要求します。通常操作中も同じTaskと制限を再接続し、必須終端・Shell終了中は再表示しません。音声一覧は音声ページの初回表示時に取得します。
     /// </summary>
     /// <param name="deferPresentation">失敗後の再表示など、呼出元をモーダル表示で待たせない場合は true。</param>
     internal void RequestOpen(bool deferPresentation = false)
     {
-        if (!IsSettingsOperationAvailable || IsEditCompletionInProgress || IsAudioDeviceTestInProgress) { return; }
+        if (operationAdmission.IsAdmissionClosed || !IsEditCancellationEnabled) { return; }
         presentationPort?.OpenSettingsDialog(deferPresentation);
     }
 
@@ -241,14 +237,13 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void ExecuteCloseCommand()
     {
-        if (!IsSettingsOperationAvailable || IsEditCompletionInProgress
-            || IsAudioDeviceTestInProgress)
+        if (!IsEditCancellationEnabled)
         {
             return;
         }
 
         SetAudioSettingsPageVisible(false);
-
+        InitializeSectionEditors();
         ClosePresentation();
     }
 
@@ -280,14 +275,13 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    /// <summary>受付外の実必須UIと成功公開まで待ち、その操作で成立した再読込みだけ既存pendingから解除します。公開後の通知失敗は再読込みを要求しません。</summary>
+    /// <summary>受付外の実必須UIと成功公開まで待ち、その操作で成立したスコア読込みだけ既存pendingから解除します。</summary>
     private async Task<StartupInitializationResult> CompleteRequiredSettingsInitializationAsync(StartupInitializationResult result)
     {
         result = await statePort.CompleteRequiredInitializationAfterAdmissionAsync(result);
         if (result?.CompletionPublished == true && statePort.IsInitializationCompletionCurrent(result.OperationToken))
         {
             if (result.OperationKind is StartupProgressOperationKind.Startup or StartupProgressOperationKind.FullReinitialize or StartupProgressOperationKind.ScoreOnly) { SetScoreReloadPending(false); }
-            if (result.OperationKind is StartupProgressOperationKind.Startup or StartupProgressOperationKind.FullReinitialize or StartupProgressOperationKind.ReloadFileDiff) { SetFileDiffReloadPending(false); }
         }
         return result;
     }
@@ -321,7 +315,6 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private async Task<StartupInitializationResult> ReloadFileDiffCoreAsync(LibraryFileMutationCapability capability = null)
     {
-        SetFileDiffReloadPending(true);
         return await statePort.ReloadFileDiffAsync(capability);
     }
 
@@ -345,19 +338,6 @@ public partial class SettingsDialogViewModel : ViewModel
         RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
     }
 
-    private void SetFileDiffReloadPending(bool value)
-    {
-        if (fileDiffReloadPending == value)
-        {
-            return;
-        }
-
-        fileDiffReloadPending = value;
-        RaisePropertyChanged(nameof(IsBmsProcessingRetryRequired));
-        RaisePropertyChanged(nameof(IsEditCancellationEnabled));
-        RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
-    }
-
     private Settings ApplicationSettings => settingsEditSession.Values;
 
     private readonly EventHandler libraryOperationAvailabilityChangedHandler;
@@ -377,7 +357,6 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool scoreReloadPending;
 
-    private bool fileDiffReloadPending;
 
 
     private readonly Dictionary<string, PlayerResolution> lr2bodyResolutions = new()
@@ -590,7 +569,7 @@ public partial class SettingsDialogViewModel : ViewModel
     public bool CanRequestLr2SongDbSyncDataResync => IsSettingsOperationAvailable && CanRequestLr2SongDbSyncCore;
 
     private bool CanRequestLr2SongDbSyncCore => statePort.HasActiveLibraryProfile
-        && ApplicationSettings.OperationModeLR2DB && !scoreReloadPending && !fileDiffReloadPending
+        && ApplicationSettings.OperationModeLR2DB && !scoreReloadPending
         && !statePort.IsLibraryOperationInProgress;
 
     /// <summary>
@@ -1022,7 +1001,7 @@ public partial class SettingsDialogViewModel : ViewModel
     internal async Task<ApplicationDataUninstallResult> UninstallApplicationDataAsync(Func<ApplicationDataUninstallWorkflowOwner, string, Task<bool>> requestShutdown)
     {
         ApplicationDataUninstallResult result = ApplicationDataUninstallResult.Blocked;
-        await RunSettingsOperationAsync(async () => result = await UninstallApplicationDataCoreAsync(requestShutdown));
+        await RunSettingsOperationAsync(async () => result = await UninstallApplicationDataCoreAsync(requestShutdown), requiresPresentation: true);
         return result;
     }
 
@@ -2074,9 +2053,9 @@ public partial class SettingsDialogViewModel : ViewModel
         try
         {
             if (value == null || string.Equals(ApplicationSettings.BMSInstallDir, value, StringComparison.OrdinalIgnoreCase) || !IsBMSInstallDirValid(value)) { return; }
-            if (bmsSaveIncomplete || pendingOutputChange != null) { ShowSettingValidationError(Resources.Settings_repair_related_save); return; }
+            if (pendingOutputChange != null) { ShowSettingValidationError(Resources.Settings_repair_related_save); return; }
             if (RequiresBmsInstallDirectoryConfirmation && !allowCandidateConfirmation) { return; }
-            if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Bms) || bmsSaveIncomplete || pendingOutputChange != null || !IsBMSInstallDirValid(value)) { return; }
+            if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Bms) || pendingOutputChange != null || !IsBMSInstallDirValid(value)) { return; }
             if (string.Equals(ApplicationSettings.BMSInstallDir, value, StringComparison.OrdinalIgnoreCase)) { return; }
             DiscardConflictingCandidates(ConflictingCandidates.Bms);
             TryCommitSetting(nameof(BMSInstallDir), (nameof(Settings.BMSInstallDir), value));
@@ -4134,6 +4113,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
     }
 
+    /// <summary>表示だけを有効・失効にし、再表示の候補を最新確定値から作ります。受理済みTaskと保存後の修復要求は保持します。</summary>
     internal void SetPresentationActive(bool active)
     {
         bool presentationOpening = active && !isPresentationActive;

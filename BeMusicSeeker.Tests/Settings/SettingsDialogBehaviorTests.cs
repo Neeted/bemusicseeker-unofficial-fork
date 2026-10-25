@@ -670,39 +670,52 @@ public sealed class SettingsDialogBehaviorTests
         }, nameof(OrdinarySaveFailureKeepsOnlyThatItemsPreviousValue));
     }
 
-    /// <summary>実保存後の実行対象反映または差分失敗から、成立済み保存を繰り返さず同じ局所入口で未了処理を明示再試行します。</summary>
+    /// <summary>保存後のruntime配送／差分失敗を通知して終端し、次の別入力は保存から処理します。configロック下で旧保存を流用する再試行を検出します。</summary>
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]
     [DoNotParallelize]
-    public void BmsConfirmation_RetriesRuntimeOrFileDiffFailureWithoutSavingAgain(bool failRuntime)
+    public void BmsConfirmation_RuntimeOrFileDiffFailureAllowsLatestInputResave(bool failRuntime)
     {
         RunOnUiDispatcher(async () =>
         {
-            using var directory = new TemporaryDirectory("bms-runtime-repair");
+            using var directory = new TemporaryDirectory("bms-runtime-resave");
             Settings values = OpenPersistedSettings(directory.Path);
+            string configPath = Path.Combine(directory.Path, "user.config");
             var failures = new List<Exception>();
             using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, libraryAttached: true, reportApplyFailure: failures.Add);
             string added = Directory.CreateDirectory(Path.Combine(directory.Path, "added")).FullName;
+            string latest = Directory.CreateDirectory(Path.Combine(directory.Path, "latest")).FullName;
             var failure = new IOException("controlled settings continuation failure");
             if (failRuntime) { harness.SearchRoots.ApplyFailure = failure; }
             else { harness.State.ReloadFileDiffHandler = () => Task.FromException(failure); }
-            harness.Dialog.AddBmsSearchRootPathsAsync([added]).GetAwaiter().GetResult();
+            await harness.Dialog.AddBmsSearchRootPathsAsync([added]);
             await harness.Dialog.CommitBmsRootsAsync();
             Assert.AreSame(failure, failures.Single());
-            Assert.IsTrue(harness.Dialog.IsFileDiffReloadPending);
-            Assert.IsTrue(harness.Dialog.CanConfirmBmsRoots, "保存済み一覧と同値でも未了の処理を明示再試行できます。");
-            CollectionAssert.Contains(StandaloneBmsRootPathSettings.Deserialize(PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).StandaloneBmsRootPaths).ToArray(), added);
+            CollectionAssert.Contains(StandaloneBmsRootPathSettings.Deserialize(PortableSettingsPersistenceTests.OpenSettings(configPath).StandaloneBmsRootPaths).ToArray(), added);
+            CollectionAssert.Contains(harness.Dialog.ConfirmedBMSDirectories.ToArray(), added);
+            Assert.IsTrue(await harness.Dialog.CanStartRestoreBeforeExitAsync(), "BMSの過去失敗だけでは復元を拒否しません。");
             harness.Dialog.ShowNewPackageInstallConfirmMsg = false;
             harness.SearchRoots.ApplyFailure = null;
             harness.State.ReloadFileDiffHandler = null;
-            using (File.Open(Path.Combine(directory.Path, "user.config"), FileMode.Open, FileAccess.Read, FileShare.Read))
+            await harness.Dialog.AddBmsSearchRootPathsAsync([latest]);
+            foreach (string root in harness.Dialog.AvailableBMSDirectories.Where(root => root != latest).ToArray())
+            { await harness.Dialog.RemoveBmsSearchRootPathAsync(root); }
+            harness.Dialog.ReplacementBmsInstallDir = latest;
+            using (File.Open(configPath, FileMode.Open, FileAccess.Read, FileShare.Read))
             { await harness.Dialog.CommitBmsRootsAsync(); }
-            Assert.AreEqual(1, failures.Count);
+            Assert.AreEqual(2, failures.Count, "前回の保存成立を流用せず、今回のconfig保存失敗を通知します。");
+            Assert.AreEqual(1, harness.SearchRoots.ApplyCount);
+            Assert.AreEqual(failRuntime ? 0 : 1, harness.State.FileDiffReloadCount);
+            CollectionAssert.DoesNotContain(harness.Dialog.ConfirmedBMSDirectories.ToArray(), latest);
+            await harness.Dialog.CommitBmsRootsAsync();
+            Assert.AreEqual(2, failures.Count, string.Join(Environment.NewLine, failures));
             Assert.AreEqual(2, harness.SearchRoots.ApplyCount);
             Assert.AreEqual(failRuntime ? 1 : 2, harness.State.FileDiffReloadCount);
-            Assert.IsFalse(harness.Dialog.IsFileDiffReloadPending);
-        }, nameof(BmsConfirmation_RetriesRuntimeOrFileDiffFailureWithoutSavingAgain));
+            CollectionAssert.AreEqual(new[] { latest }, harness.Dialog.ConfirmedBMSDirectories.ToArray());
+            Assert.AreEqual(latest, PortableSettingsPersistenceTests.OpenSettings(configPath).BMSInstallDir);
+            Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(configPath).ShowNewPackageInstallConfirmMsg);
+        }, nameof(BmsConfirmation_RuntimeOrFileDiffFailureAllowsLatestInputResave));
     }
 
     /// <summary>無関係なライブラリ処理中も既存の画面編集可否に従ってBMS候補を追加・削除できます。実確定の拒否と、解放だけでは保存しない境界を確認します。</summary>
@@ -734,7 +747,7 @@ public sealed class SettingsDialogBehaviorTests
         }, nameof(BmsCandidateEditing_DuringLibraryProcessingDoesNotAcquireOrSave));
     }
 
-    /// <summary>追加と解除の最終一覧を一度保存し、導入先を外す場合は明示代替を必要とします。成功後は候補を解消し、差分も取消対象もない確定・取消を無効にします。</summary>
+    /// <summary>追加と解除の最終一覧を一度保存し、導入先を外す場合は明示代替を必要とします。成功後は候補を解消し、同値の明示確定でも再保存・必要再読込みを行います。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void BmsRootConfirmationUsesFinalListAndExplicitInstallReplacement()
@@ -760,67 +773,266 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(newRoot, fresh.BMSInstallDir);
             CollectionAssert.AreEqual(new[] { newRoot }, StandaloneBmsRootPathSettings.Deserialize(fresh.StandaloneBmsRootPaths).ToArray());
             Assert.AreEqual(1, harness.State.FileDiffReloadCount);
-            Assert.IsFalse(harness.Dialog.CanConfirmBmsRoots);
+            Assert.IsTrue(harness.Dialog.CanConfirmBmsRoots);
             Assert.IsFalse(harness.Dialog.CanCancelBmsRoots);
             await harness.Dialog.CommitBmsRootsAsync();
-            Assert.AreEqual(1, harness.State.FileDiffReloadCount);
+            Assert.AreEqual(2, harness.State.FileDiffReloadCount);
         }, nameof(BmsRootConfirmationUsesFinalListAndExplicitInstallReplacement));
     }
 
-    /// <summary>LR2 XMLだけ保存済みの失敗から、旧整合reader・無関係保存・再表示保持と、成功媒体の省略または候補修正による修復を実両ファイルで確認します。</summary>
-    [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
+    /// <summary>既存workspace準備待ち中の閉鎖・再表示が今回のBMS一覧と明示代替導入先を失わせず、捕捉入力だけを保存します。成功後の同値明示確定も新要求として再保存し、無関係な候補を保ちます。</summary>
+    [TestMethod]
     [DoNotParallelize]
-    public void Lr2PartialSaveRetainsFactsUntilExplicitRepair(bool revise)
+    public void BmsConfirmation_CapturesRootsAndReplacementBeforeCloseDuringPreparation()
     {
         RunOnUiDispatcher(async () =>
         {
-            using var directory = new TemporaryDirectory("lr2-partial-save");
+            using var directory = new TemporaryDirectory("bms-close-confirmation");
+            Settings values = OpenPersistedSettings(directory.Path);
+            string original = values.BMSInstallDir;
+            string target = Directory.CreateDirectory(Path.Combine(directory.Path, "target")).FullName;
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var failures = new List<Exception>();
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, reportApplyFailure: failures.Add);
+            harness.Workspace.BeforeOperationAsync = () => { entered.TrySetResult(); return release.Task; };
+            SettingsDialogViewModel dialog = harness.Dialog;
+            dialog.SetPresentationActive(true);
+            await dialog.AddBmsSearchRootPathsAsync([target]);
+            await dialog.RemoveBmsSearchRootPathAsync(original);
+            dialog.ReplacementBmsInstallDir = target;
+            dialog.EnableBeatorajaBmtOutput = true;
+            Task operation = dialog.CommitBmsRootsAsync();
+            try
+            {
+                await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, operation, "settings preparation entered");
+                Task terminal = dialog.SettingsOperationCompletionTask;
+                Assert.IsTrue(dialog.IsEditCancellationEnabled);
+                dialog.CloseCommand.Execute();
+                dialog.SetPresentationActive(false);
+                dialog.SetPresentationActive(true);
+                CollectionAssert.AreEqual(new[] { original }, dialog.AvailableBMSDirectories.ToArray());
+                Assert.IsNull(dialog.ReplacementBmsInstallDir);
+                Assert.IsFalse(dialog.EnableBeatorajaBmtOutput);
+                Assert.AreSame(terminal, dialog.SettingsOperationCompletionTask);
+                Assert.IsFalse(terminal.IsCompleted);
+                dialog.StartupSortCachePrewarmPriority = 3;
+                dialog.UseExternalPanelImage = true;
+                Assert.AreEqual(0, harness.State.FileDiffReloadCount);
+                release.TrySetResult();
+                await operation;
+                Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                Assert.AreEqual(target, values.BMSInstallDir);
+                CollectionAssert.AreEqual(new[] { target }, StandaloneBmsRootPathSettings.Deserialize(values.StandaloneBmsRootPaths).ToArray());
+                Assert.AreEqual(1, harness.State.FileDiffReloadCount);
+                Assert.AreEqual(3, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).StartupSortCachePrewarmPriority);
+                CollectionAssert.AreEqual(new[] { target }, dialog.AvailableBMSDirectories.ToArray(), "保存前に再表示しても、保存成功後の候補は最新確定一覧に揃います。");
+                Assert.IsFalse(dialog.CanCancelBmsRoots);
+                Assert.IsTrue(dialog.CanConfirmBmsRoots);
+                Assert.IsTrue(dialog.UseExternalPanelImage, "保存対象外の未成立画像候補を全初期化しません。");
+                await dialog.CommitBmsRootsAsync();
+                Assert.AreEqual(2, harness.State.FileDiffReloadCount, "明示再確定は最新の捕捉一覧で再保存し、旧候補へ戻しません。");
+            }
+            finally { release.TrySetResult(); await operation; }
+        }, nameof(BmsConfirmation_CapturesRootsAndReplacementBeforeCloseDuringPreparation));
+    }
+
+    /// <summary>保存前の準備中に通常閉鎖・再表示した各欄は、捕捉入力の保存採用時に自分の候補だけを確定値へ揃えます。後段失敗でも旧候補へ戻さず、無関係な未成立画像候補を保持します。</summary>
+    [DataTestMethod]
+    [DataRow("score", false)]
+    [DataRow("score", true)]
+    [DataRow("bmt", false)]
+    [DataRow("bmt", true)]
+    [DataRow("root", false)]
+    [DataRow("output", false)]
+    [DoNotParallelize]
+    public void SectionConfirmation_PreparationReopenAdoptsOnlySavedSection(string section, bool failContinuation)
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new TemporaryDirectory("section-preparation-reopen");
+            Settings values = OpenPersistedSettings(directory.Path);
+            string root = CreateBeatorajaRoot(directory.Path, "saved");
+            string nextRoot = CreateBeatorajaRoot(directory.Path, "next");
+            string nextScore = Path.Combine(Directory.CreateDirectory(Path.Combine(root, "player", "next-player")).FullName, "score.db");
+            File.WriteAllBytes(nextScore, []);
+            values.BeatorajaRootPath = root;
+            values.BeatorajaPlayerId = "player";
+            values.BeatorajaScoreDbPath = Path.Combine(root, "player", "player", "score.db");
+            values.BeatorajaBmtTablePath = Path.Combine(root, "table");
+            values.KeepBeatorajaBmtFilesWhenOutputDisabled = false;
+            values.LR2CustomFolderOutputBaseDir = Directory.CreateDirectory(Path.Combine(directory.Path, "output")).FullName;
+            values.LR2CustomFolderOutputBaseDirRootType = Directory.CreateDirectory(Path.Combine(directory.Path, "root-output")).FullName;
+            values.LR2CustomFolderAdditionalOutputBaseDirs = string.Empty;
+            values.Save();
+            string nextOutput = Directory.CreateDirectory(Path.Combine(directory.Path, "next-output")).FullName;
+            var failures = new List<Exception>();
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, reportApplyFailure: failures.Add);
+            SettingsDialogViewModel dialog = harness.Dialog;
+            dialog.SetPresentationActive(true);
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            harness.Workspace.BeforeOperationAsync = () => { entered.TrySetResult(); return release.Task; };
+            harness.State.ThrowOnScoreReload = failContinuation && section == "score";
+            harness.Workspace.ThrowOnBmt = failContinuation && section == "bmt";
+            Task operation;
+            switch (section)
+            {
+                case "score": dialog.BeatorajaPlayerId = "next-player"; dialog.UseBeatorajaScoreDb = true; operation = dialog.CommitScoreSettingsAsync(); break;
+                case "bmt": dialog.KeepBeatorajaBmtFilesWhenOutputDisabled = true; operation = dialog.CommitBmtSettingsAsync(); break;
+                case "root": dialog.BeatorajaRootPath = nextRoot; operation = dialog.CommitBeatorajaRootSettingsAsync(); break;
+                default: dialog.LR2CustomFolderOutputDir = nextOutput; operation = dialog.CommitOutputSettingsAsync("normal"); break;
+            }
+            try
+            {
+                await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, operation, "settings preparation entered");
+                dialog.CloseCommand.Execute();
+                dialog.SetPresentationActive(false);
+                dialog.SetPresentationActive(true);
+                Assert.AreEqual(root, dialog.BeatorajaRootPath);
+                Assert.AreEqual("player", dialog.BeatorajaPlayerId);
+                Assert.IsFalse(dialog.KeepBeatorajaBmtFilesWhenOutputDisabled);
+                Assert.AreEqual(values.LR2CustomFolderOutputBaseDir, dialog.LR2CustomFolderOutputDir);
+                dialog.UseExternalPanelImage = true;
+                release.TrySetResult();
+                await operation;
+                Assert.AreEqual(failContinuation ? 1 : 0, failures.Count, string.Join(Environment.NewLine, failures));
+                Assert.IsTrue(dialog.UseExternalPanelImage);
+                Assert.IsFalse(values.UseExternalPanelImage);
+                Assert.AreEqual(values.BeatorajaRootPath, dialog.BeatorajaRootPath);
+                Assert.AreEqual(values.UseBeatorajaScoreDb, dialog.UseBeatorajaScoreDb);
+                Assert.AreEqual(values.BeatorajaPlayerId, dialog.BeatorajaPlayerId);
+                Assert.AreEqual(values.BeatorajaScoreDbPath, dialog.BeatorajaScoreDbPath);
+                Assert.IsFalse(dialog.HasScoreSelectionChanges);
+                Assert.IsFalse(dialog.CanCancelBmtSettings);
+                Assert.AreEqual(values.LR2CustomFolderOutputBaseDir, dialog.LR2CustomFolderOutputDir);
+                if (section == "score") { Assert.IsTrue(values.UseBeatorajaScoreDb); Assert.AreEqual(nextScore, values.BeatorajaScoreDbPath); Assert.AreEqual(failContinuation, dialog.IsScoreReloadPending); }
+                if (section == "bmt") { Assert.IsTrue(values.KeepBeatorajaBmtFilesWhenOutputDisabled); Assert.AreEqual(failContinuation, dialog.IsBmtProcessingRetryRequired); }
+                if (section == "root") { Assert.AreEqual(nextRoot, values.BeatorajaRootPath); }
+                if (section == "output") { Assert.AreEqual(nextOutput, values.LR2CustomFolderOutputBaseDir); }
+            }
+            finally { release.TrySetResult(); await operation; }
+        }, nameof(SectionConfirmation_PreparationReopenAdoptsOnlySavedSection));
+    }
+
+    /// <summary>実XML→configの保存境界で失敗を作り、旧公開値・Close非保存・次回disk読取りと最新入力の再保存を確認します。同入力XML再保存、runtime同値config再保存をロックで識別します。</summary>
+    [DataTestMethod]
+    [DataRow("xml-failure")]
+    [DataRow("latest-input")]
+    [DataRow("same-input")]
+    [DataRow("runtime-equal")]
+    [DoNotParallelize]
+    public void Lr2BmsExplicitConfirmationResavesLatestInputAcrossMediaFailures(string scenario)
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new TemporaryDirectory("lr2-latest-save");
             (string SongDbPath, string ConfigPath, string BmsRoot) layout = CreateValidLr2Layout(directory.Path);
-            string newRoot = Directory.CreateDirectory(Path.Combine(directory.Path, "new-library")).FullName;
+            var xml = System.Xml.Linq.XDocument.Load(layout.ConfigPath);
+            (xml.Root ?? throw new AssertFailedException()).Add(new System.Xml.Linq.XElement("unknown", "preserved"));
+            xml.Save(layout.ConfigPath);
+            string first = Directory.CreateDirectory(Path.Combine(directory.Path, "first")).FullName;
+            string latest = Directory.CreateDirectory(Path.Combine(directory.Path, "latest")).FullName;
+            string configPath = Path.Combine(directory.Path, "user.config");
             Settings values = OpenPersistedSettings(directory.Path);
             values.OperationModeLR2DB = true;
             values.LR2RootPath = directory.Path; values.LR2ConfigXmlPath = layout.ConfigPath; values.LR2SongDBPath = layout.SongDbPath;
             values.BMSInstallDir = layout.BmsRoot; values.Save();
             var failures = new List<Exception>();
             using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, libraryAttached: true, reportApplyFailure: failures.Add);
-            harness.Dialog.AddBmsSearchRootPathsAsync([newRoot]).GetAwaiter().GetResult();
-            harness.Dialog.RemoveBmsSearchRootPathAsync(layout.BmsRoot).GetAwaiter().GetResult();
-            harness.Dialog.ReplacementBmsInstallDir = newRoot;
-            using (File.Open(Path.Combine(directory.Path, "user.config"), FileMode.Open, FileAccess.Read, FileShare.Read))
-            { await harness.Dialog.CommitBmsRootsAsync(); }
-            Assert.AreEqual(1, failures.Count);
-            Assert.AreEqual(layout.BmsRoot, values.BMSInstallDir);
-            Assert.IsTrue(harness.Dialog.CanConfirmBmsRoots, "二媒体の部分保存後も代替候補を保ち、同内容を明示再試行できます。");
-            CollectionAssert.AreEqual(new[] { newRoot }, new LR2Config(layout.ConfigPath).GetBMSSearchDirectoriesReadOnly().ToArray());
-            Assert.AreEqual(0, harness.State.FileDiffReloadCount);
-            harness.Dialog.StartupSortCachePrewarmPriority = 3;
-            harness.Dialog.SetPresentationActive(false);
-            harness.Dialog.RequestOpen();
-            harness.Dialog.SetPresentationActive(true);
-            CollectionAssert.AreEqual(new[] { layout.BmsRoot }, harness.Dialog.AvailableBMSDirectories.ToArray());
-            harness.Dialog.RemoveBmsSearchRootPathAsync(layout.BmsRoot).GetAwaiter().GetResult();
-            string target = newRoot;
-            if (revise)
+            SettingsDialogViewModel dialog = harness.Dialog;
+            async Task Select(string target)
             {
-                Directory.Delete(newRoot);
-                target = Directory.CreateDirectory(Path.Combine(directory.Path, "repaired-library")).FullName;
+                await dialog.AddBmsSearchRootPathsAsync([target]);
+                foreach (string root in dialog.AvailableBMSDirectories.Where(root => root != target).ToArray())
+                { await dialog.RemoveBmsSearchRootPathAsync(root); }
+                dialog.ReplacementBmsInstallDir = target;
             }
-            harness.Dialog.AddBmsSearchRootPathsAsync([target]).GetAwaiter().GetResult();
-            harness.Dialog.ReplacementBmsInstallDir = target;
-            if (revise) { await harness.Dialog.CommitBmsRootsAsync(); }
+            await Select(first);
+            byte[] originalConfig = File.ReadAllBytes(configPath);
+            string blockedPath = scenario == "xml-failure" ? layout.ConfigPath : configPath;
+            using (File.Open(blockedPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            { await dialog.CommitBmsRootsAsync(); }
+            Assert.AreEqual(1, failures.Count, "部分保存を全成功として終えません。");
+            if (scenario == "xml-failure") { Assert.IsInstanceOfType<IOException>(failures[0]); }
             else
             {
-                using (File.Open(layout.ConfigPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-                { await harness.Dialog.CommitBmsRootsAsync(); }
+                var saveFailure = (PortableSettingsException)failures[0];
+                Assert.AreEqual(configPath, saveFailure.FilePath);
+                Assert.AreEqual("Save", saveFailure.Operation);
+                Assert.IsInstanceOfType<IOException>(saveFailure.InnerException);
             }
-            Assert.AreEqual(1, failures.Count, "同内容再試行は成功済みXMLを再保存せず、修正入力は必要なXMLだけ修正保存します。");
+            Assert.AreEqual(layout.BmsRoot, values.BMSInstallDir);
+            Assert.AreEqual(layout.BmsRoot, PortableSettingsPersistenceTests.OpenSettings(configPath).BMSInstallDir);
+            CollectionAssert.AreEqual(originalConfig, File.ReadAllBytes(configPath));
+            CollectionAssert.AreEqual(new[] { layout.BmsRoot }, dialog.ConfirmedBMSDirectories.ToArray());
+            CollectionAssert.AreEqual(new[] { scenario == "xml-failure" ? layout.BmsRoot : first }, new LR2Config(layout.ConfigPath).GetBMSSearchDirectoriesReadOnly().ToArray());
+            Assert.AreEqual(0, harness.State.FileDiffReloadCount);
+            int expectedFailures = 1;
+            string target = first;
+            if (scenario is "latest-input" or "runtime-equal")
+            {
+                dialog.StartupSortCachePrewarmPriority = 3;
+                values.TreeViewWidth = 321d; values.Save();
+                byte[] partialConfig = File.ReadAllBytes(configPath);
+                byte[] partialXml = File.ReadAllBytes(layout.ConfigPath);
+                dialog.CloseCommand.Execute();
+                dialog.SetPresentationActive(false);
+                dialog.SetPresentationActive(true);
+                CollectionAssert.AreEqual(new[] { layout.BmsRoot }, dialog.AvailableBMSDirectories.ToArray());
+                Assert.IsNull(dialog.ReplacementBmsInstallDir);
+                Assert.IsFalse(dialog.CanCancelBmsRoots);
+                Assert.IsTrue(dialog.CanConfirmBmsRoots, "公開値と同値の候補も明示確定できます。");
+                CollectionAssert.AreEqual(partialConfig, File.ReadAllBytes(configPath));
+                CollectionAssert.AreEqual(partialXml, File.ReadAllBytes(layout.ConfigPath));
+                var nextOwner = new Lr2ConfigOwner(new LR2Config(layout.ConfigPath));
+                CollectionAssert.AreEqual(new[] { first }, nextOwner.Capture().RegisteredRoots.ToArray(), "次回初期読取りはdiskで成立したXMLを使います。");
+                Assert.AreEqual(layout.BmsRoot, PortableSettingsPersistenceTests.OpenSettings(configPath).BMSInstallDir);
+                Assert.AreEqual(0, harness.State.FileDiffReloadCount);
+                dialog.UseExternalPanelImage = true;
+                if (scenario == "latest-input") { target = latest; await Select(target); }
+                else
+                {
+                    target = layout.BmsRoot;
+                    using (File.Open(configPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    { await dialog.CommitBmsRootsAsync(); }
+                    expectedFailures++;
+                    Assert.AreEqual(expectedFailures, failures.Count, "同値config項目も明示保存し、保存失敗を通知します。");
+                    Assert.AreEqual(configPath, ((PortableSettingsException)failures.Last()).FilePath);
+                    CollectionAssert.AreEqual(new[] { target }, new LR2Config(layout.ConfigPath).GetBMSSearchDirectoriesReadOnly().ToArray());
+                    Assert.AreEqual(0, harness.State.FileDiffReloadCount);
+                }
+            }
+            else if (scenario == "same-input")
+            {
+                using (File.Open(layout.ConfigPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                { await dialog.CommitBmsRootsAsync(); }
+                expectedFailures++;
+                Assert.AreEqual(expectedFailures, failures.Count, "同じ一覧でも成功XML段階と同内容XML保存を省略しません。");
+                Assert.IsInstanceOfType<IOException>(failures.Last());
+                Assert.AreEqual(layout.BmsRoot, values.BMSInstallDir);
+                Assert.AreEqual(0, harness.State.FileDiffReloadCount);
+            }
+            else { target = latest; await Select(target); }
+            await dialog.CommitBmsRootsAsync();
+            Assert.AreEqual(expectedFailures, failures.Count, string.Join(Environment.NewLine, failures));
             Assert.AreEqual(target, values.BMSInstallDir);
-            Assert.AreEqual(3, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).StartupSortCachePrewarmPriority);
+            Assert.AreEqual(target, PortableSettingsPersistenceTests.OpenSettings(configPath).BMSInstallDir);
             CollectionAssert.AreEqual(new[] { target }, new LR2Config(layout.ConfigPath).GetBMSSearchDirectoriesReadOnly().ToArray());
+            CollectionAssert.AreEqual(new[] { target }, dialog.ConfirmedBMSDirectories.ToArray());
+            CollectionAssert.AreEqual(new[] { target }, dialog.AvailableBMSDirectories.ToArray());
+            Assert.IsFalse(dialog.CanCancelBmsRoots);
             Assert.AreEqual(1, harness.State.FileDiffReloadCount);
-        }, nameof(Lr2PartialSaveRetainsFactsUntilExplicitRepair));
+            Assert.AreEqual("preserved", System.Xml.Linq.XDocument.Load(layout.ConfigPath).Root?.Element("unknown")?.Value);
+            Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(configPath).UseExternalPanelImage);
+            if (scenario is "latest-input" or "runtime-equal")
+            {
+                Assert.AreEqual(3, PortableSettingsPersistenceTests.OpenSettings(configPath).StartupSortCachePrewarmPriority);
+                Assert.AreEqual(321d, PortableSettingsPersistenceTests.OpenSettings(configPath).TreeViewWidth);
+                Assert.IsTrue(dialog.UseExternalPanelImage, "自己欄の採用は無関係な候補を消しません。");
+            }
+            Assert.IsTrue(await dialog.CanStartRestoreBeforeExitAsync());
+        }, nameof(Lr2BmsExplicitConfirmationResavesLatestInputAcrossMediaFailures));
     }
 
     /// <summary>右クリックrecordの確定が別recordの不正候補を保存せず、実JSONの他recordを保持することを確認します。</summary>
@@ -1267,7 +1479,7 @@ public sealed class SettingsDialogBehaviorTests
         {
             get
             {
-                return false;
+                return BeforeOperationAsync != null;
             }
         }
 
@@ -1300,9 +1512,12 @@ public sealed class SettingsDialogBehaviorTests
             return Task.CompletedTask;
         }
 
-        public Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string operationName)
+        internal Func<Task>? BeforeOperationAsync { get; set; }
+
+        public async Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string operationName)
         {
-            return operation();
+            if (BeforeOperationAsync != null) { await BeforeOperationAsync(); }
+            await operation();
         }
 
 #pragma warning disable CS0067 // インターフェイスのイベント面を満たすが、このテストダブルでは発火させない。

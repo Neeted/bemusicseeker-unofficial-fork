@@ -43,7 +43,7 @@ internal sealed class Lr2ConfigOwner
     }
 
     /// <summary>短い排他内で正本コピーだけを変更し、実保存成功後に通常文書を採用します。処理待機やファイル準備は呼出前に済ませます。</summary>
-    private Lr2RootChange Save(Action<LR2Config> change, bool publish = false, Lr2RootChange publicationChange = null)
+    private Lr2RootChange Save(Action<LR2Config> change, bool publish = false, Lr2RootChange publicationChange = null, bool forceSave = false)
     {
         ArgumentNullException.ThrowIfNull(change);
         lock (gate)
@@ -51,7 +51,7 @@ internal sealed class Lr2ConfigOwner
             LR2Config next = new(document);
             change(next);
             Lr2RootChange roots = new(document.GetBMSSearchDirectoriesForChangeTracking(), next.GetBMSSearchDirectoriesForChangeTracking());
-            if (!XNode.DeepEquals(document, next))
+            if (forceSave || !XNode.DeepEquals(document, next))
             {
                 Write(next);
                 document = next;
@@ -61,7 +61,7 @@ internal sealed class Lr2ConfigOwner
         }
     }
 
-    /// <summary>今回確定するユーザー一覧だけを変更し、捕捉済み管理領域の登録と通常値を保って保存します。公開は必要媒体の成立後に行います。</summary>
+    /// <summary>今回確定するユーザー一覧だけを変更し、捕捉済み管理領域の登録と通常値を保ち、同内容でも明示保存します。公開は必要媒体の成立後に行います。</summary>
     internal void SaveUserRoots(IReadOnlyList<string> roots, IReadOnlyList<string> managedBoundaries)
         => Save(config =>
         {
@@ -69,7 +69,7 @@ internal sealed class Lr2ConfigOwner
                 .Where(path => managedBoundaries.Any(boundary => Lr2FolderPath.IsSameOrDescendant(path, boundary)));
             config.SetBMSSearchDirectories(managed.Concat(roots));
             config.EnsureDatabaseAutoReloadManualOnly();
-        });
+        }, forceSave: true);
 
     /// <summary>起動時の手動再読込み専用設定を、通常文書の保存成功後に採用・公開します。</summary>
     internal void EnsureDatabaseAutoReloadManualOnly() => Save(config => config.EnsureDatabaseAutoReloadManualOnly(), publish: true);

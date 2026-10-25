@@ -136,7 +136,7 @@ public sealed partial class SettingDialogEditCompletionTests
         });
     }
 
-    /// <summary>XMLだけBMS Bへ成功した後の実ROOT表G削除が公開Aを保ち、残媒体だけのBMS明示再試行でBを公開してGを復活させません。</summary>
+    /// <summary>XMLだけBMS Bへ成功した後の実ROOT表G削除が公開Aを保ち、最新候補の両媒体再保存でBを公開してGを復活させません。</summary>
     [TestMethod]
     public void Lr2PartialBmsSaveRetainsDeletedManagedRootThroughExplicitRetry()
     {
@@ -170,10 +170,8 @@ public sealed partial class SettingDialogEditCompletionTests
             CollectionAssert.DoesNotContain(owner.Capture().RegisteredRoots.ToArray(), managed);
             CollectionAssert.Contains(owner.CaptureSaved().RegisteredRoots.ToArray(), added);
             CollectionAssert.Contains(owner.Capture().RegisteredRoots.ToArray(), original);
-            using (File.Open(values.LR2ConfigXmlPath, FileMode.Open, FileAccess.Read, FileShare.None))
-            { TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitBmsRootsAsync(), "lr2-explicit-retry"); }
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitBmsRootsAsync(), "lr2-explicit-retry");
             Assert.AreEqual(1, failures.Count, string.Join(Environment.NewLine, failures));
-            Assert.IsFalse(dialog.IsBmsSaveIncomplete);
             CollectionAssert.Contains(owner.Capture().RegisteredRoots.ToArray(), added);
             CollectionAssert.DoesNotContain(owner.Capture().RegisteredRoots.ToArray(), original);
             CollectionAssert.DoesNotContain(owner.Capture().RegisteredRoots.ToArray(), managed);

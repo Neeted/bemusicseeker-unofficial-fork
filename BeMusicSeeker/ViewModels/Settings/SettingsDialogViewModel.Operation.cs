@@ -6,9 +6,10 @@ namespace BeMusicSeeker.ViewModels;
 public partial class SettingsDialogViewModel
 {
     private Task settingsOperationCompletion = Task.CompletedTask;
+    private bool settingsOperationRequiresPresentation;
 
-    /// <summary>設定から明示する非同期実操作を、新たに一件受け付けられるかを示します。</summary>
-    public bool IsSettingsOperationAvailable => settingsOperationCompletion.IsCompleted;
+    /// <summary>終了受付が開いており、設定から明示する非同期実操作を新たに一件受け付けられるかを示します。</summary>
+    public bool IsSettingsOperationAvailable => !operationAdmission.IsAdmissionClosed && settingsOperationCompletion.IsCompleted;
 
     /// <summary>表示Windowの有無によらず、受理済み処理・後片付け・必須公開と担当通知の実終端を返します。</summary>
     internal Task SettingsOperationCompletionTask => settingsOperationCompletion;
@@ -17,12 +18,14 @@ public partial class SettingsDialogViewModel
     /// <remarks>設定入力と同じUIスレッドで呼びます。処理完了の通知だけから次の受付を先行解禁しません。</remarks>
     /// <param name="operation">同じ設定受付を取り直さず実行する処理。L/Pの実受付と最終検査はこの中で行います。</param>
     /// <param name="recoverFailure">画面入口が担当する失敗通知。指定時も元の失敗は呼出元へ返します。</param>
-    internal Task RunSettingsOperationAsync(Func<Task> operation, Func<Exception, Task> recoverFailure = null)
+    /// <param name="requiresPresentation">初回開始・再起動・復元・撤去など、既存の必須終端まで通常閉鎖を保留する操作です。</param>
+    internal Task RunSettingsOperationAsync(Func<Task> operation, Func<Exception, Task> recoverFailure = null, bool requiresPresentation = false)
     {
         ArgumentNullException.ThrowIfNull(operation);
         if (!IsSettingsOperationAvailable) { return Task.CompletedTask; }
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         settingsOperationCompletion = completion.Task;
+        settingsOperationRequiresPresentation = requiresPresentation;
         RaiseSettingsOperationAvailabilityChanged();
         return CompleteAsync();
 
@@ -36,6 +39,7 @@ public partial class SettingsDialogViewModel
             }
             finally
             {
+                settingsOperationRequiresPresentation = false;
                 completion.TrySetResult();
                 RaiseSettingsOperationAvailabilityChanged();
             }

@@ -36,9 +36,9 @@ public partial class SettingsWindow
         e.Handled = true;
         try
         {
-            // 同期の局所確定と無関係なBMT候補取消は、受理済み実操作のTask・Close抑止を置き換えません。
+            // 同期の局所確定と無関係なBMT候補取消は、受理済み実操作のTaskと制限を置き換えません。
             if (independentSection || independentBmtCancellation) { await RunSectionActionAsync(settings, tag); }
-            else { await RunViewOperationAsync(() => RunSectionActionAsync(settings, tag), reportFailure: true); }
+            else { await RunViewOperationAsync(() => RunSectionActionAsync(settings, tag), reportFailure: true, requiresPresentation: tag == "confirm:environment"); }
         }
         catch (Exception exception) { await HandleSettingsRouteFailureAsync(exception, "settings section " + tag); }
     }

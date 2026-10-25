@@ -3024,7 +3024,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>一般ページの実Table URLボタンで確定rootと別候補を識別し、破棄取消/実P拒否では保持、受理後は関係rootだけを戻して実通知終端までClose/同再操作を拒否します。</summary>
+    /// <summary>一般ページの実Table URLボタンで確定rootと別候補を識別し、破棄取消/実P拒否では保持、受理後は関係rootだけを戻して実通知終端まで同再操作を拒否します。通常Closeは同じTaskを保持して許可します。</summary>
     /// <remarks>実workspaceの既存URL入力を使ってHTTPを避け、DB/順序/BMTの詳細はPlaylist系列へ分担します。通知gateを実Taskより先に完了条件にしません。</remarks>
     [DataTestMethod]
     [DataRow("cancel")]
@@ -3093,8 +3093,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.IsFalse(terminal.IsCompleted);
                     Assert.AreEqual(1, confirmations);
                     Assert.IsFalse(terminal.IsCompleted);
-                    window.Close();
-                    Assert.IsTrue(window.IsVisible);
+                    Assert.IsTrue(settings.IsEditCancellationEnabled, "通知未終端でも通常Closeは同じTaskを保持したまま許可します。");
                     button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     Assert.AreEqual(1, confirmations);
                     Assert.IsNotNull(summary);
@@ -3249,8 +3248,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(completionUi.Entered.Task, apply), "score-only-real-publish-or-failure");
                     if (!completionUi.Entered.Task.IsCompleted) { TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "score-only-real-early-terminal"); Assert.Fail(string.Join(Environment.NewLine, failures)); }
                     Assert.IsFalse(apply.IsCompleted);
-                    window.Close();
-                    Assert.IsTrue(window.IsVisible);
+                    Assert.IsTrue(viewModel.SettingDialog.IsEditCancellationEnabled, "必須公開の実終端待ちと通常Closeを区別します。");
                     Assert.IsTrue(!composition.OperationAdmission.IsActive);
                     Assert.IsTrue(!composition.PlaylistOperationAdmission.IsActive);
                     Assert.IsTrue(published.Task.IsCompleted);

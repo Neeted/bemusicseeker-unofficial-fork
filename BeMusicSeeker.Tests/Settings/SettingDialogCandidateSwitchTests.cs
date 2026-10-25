@@ -396,7 +396,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 {
                     Assert.AreSame(originalCompletion, owner.SettingDialog.SettingsOperationCompletionTask);
                     Assert.IsFalse(originalCompletion.IsCompleted, "普通の保存も確認拒否も別操作Taskを置き換えません。");
-                    window.Close(); Assert.IsTrue(window.IsVisible);
+                    Assert.IsTrue(dialog.IsEditCancellationEnabled, "通常閉鎖の可否と確認付き項目の単一受付を分けます。");
                     release.TrySetResult();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(otherOperation ?? throw new AssertFailedException("window operation missing"), "independent-install-other-operation");
                     TestUiDispatcherHost.ProcessQueuedPresentation();
