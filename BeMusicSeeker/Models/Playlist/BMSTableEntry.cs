@@ -572,7 +572,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         return string.IsNullOrWhiteSpace(text) || Uri.TryCreate(text, UriKind.Absolute, out uri);
     }
 
-    /// <summary>writer 内の現在値から作った候補へ、一つの draft 属性だけを適用します。URL の空白だけの入力は未設定にし、当該補完も解除します。</summary>
+    /// <summary>writer 内の現在値から作った候補へ、一つの draft 属性だけを適用します。Level は地域小数の数値全体入力と従来のピリオド・装飾入力を受理し、空白だけなら null、非数値なら旧値を保ちます。URL の空白だけの入力は未設定にし、当該補完も解除します。</summary>
     /// <exception cref="UriFormatException">空白だけではない URL 入力が絶対 URI として無効です。</exception>
     internal void ApplyEditDraft(string propertyName, string text)
     {
@@ -583,9 +583,21 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
                 if (string.IsNullOrWhiteSpace(text)) { level = null; }
                 else
                 {
-                    Match match = numParseRegex.Match(text.Trim());
-                    if (match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Float,
-                            CultureInfo.InvariantCulture, out double number)) { level = number; }
+                    string trimmed = text.Trim();
+                    CultureInfo culture = CultureInfo.CurrentCulture;
+                    string separator = culture.NumberFormat.NumberDecimalSeparator;
+                    // 地域表示の小数だけを先に扱います。桁区切り・指数は許さず、従来の部分抽出の意味を保ちます。
+                    if (separator != "." && trimmed.Contains(separator, StringComparison.Ordinal)
+                        && double.TryParse(trimmed, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, culture, out double regionalNumber))
+                    {
+                        level = regionalNumber;
+                    }
+                    else
+                    {
+                        Match match = numParseRegex.Match(trimmed);
+                        if (match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Float,
+                                CultureInfo.InvariantCulture, out double number)) { level = number; }
+                    }
                 }
                 break;
             case nameof(Url):

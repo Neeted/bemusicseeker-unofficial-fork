@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -9,6 +10,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Tests.Helpers;
+using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -212,29 +214,80 @@ public sealed class PlaylistEntryCommitTests
         Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='playlist_entry_idx_uniq';"));
     }
 
-    /// <summary>Level の既存抽出・非数値維持・空 null を DB と不変捕捉で確認し、入力文字列の正本化と非編集値の巻戻しを検出します。</summary>
+    /// <summary>地域表示の往復と明示小数、従来のピリオド・装飾入力、非数値維持・空 null を正本・不変差分・DBで確認し、切捨て・桁区切り解釈と非編集値の巻戻しを検出します。</summary>
     [DataTestMethod]
-    [DataRow("★12.5", 12.5)]
-    [DataRow("A", 2d)]
-    [DataRow("", null)]
-    public void CommitDraft_LevelUsesSavedNumberAndKeepsOtherValues(string text, double? expected)
+    // text=null は実 source/row の地域表示をそのまま確定し、独立した表示文字列とも照合します。
+    [DataRow("fr-FR", 1.5, null, 1.5, "1,5")]
+    [DataRow("fr-FR", -1.5, null, -1.5, "-1,5")]
+    [DataRow("de-DE", 1.5, null, 1.5, "1,5")]
+    [DataRow("de-DE", -1.5, null, -1.5, "-1,5")]
+    [DataRow("en-US", 1.5, null, 1.5, "1.5")]
+    [DataRow("en-US", -1.5, null, -1.5, "-1.5")]
+    // 明示変更は同値入力だけを特別扱いして保存を捨てる実装を識別します。
+    [DataRow("fr-FR", 1.5, "2,5", 2.5, null)]
+    [DataRow("fr-FR", 1.5, "-2,5", -2.5, null)]
+    [DataRow("de-DE", 1.5, "2,5", 2.5, null)]
+    [DataRow("de-DE", 1.5, "-2,5", -2.5, null)]
+    // de-DE のピリオドは桁区切りでも、従来入力を15/-15へ変えません。
+    [DataRow("fr-FR", 2d, "1.5", 1.5, null)]
+    [DataRow("fr-FR", 2d, "-1.5", -1.5, null)]
+    [DataRow("fr-FR", 2d, "★1.5", 1.5, null)]
+    [DataRow("fr-FR", 2d, "★-1.5", -1.5, null)]
+    [DataRow("de-DE", 2d, "1.5", 1.5, null)]
+    [DataRow("de-DE", 2d, "-1.5", -1.5, null)]
+    [DataRow("de-DE", 2d, "★1.5", 1.5, null)]
+    [DataRow("de-DE", 2d, "★-1.5", -1.5, null)]
+    [DataRow("en-US", 2d, "1.5", 1.5, null)]
+    [DataRow("en-US", 2d, "-1.5", -1.5, null)]
+    [DataRow("en-US", 2d, "★1.5", 1.5, null)]
+    [DataRow("en-US", 2d, "★-1.5", -1.5, null)]
+    // 整数・空表示と旧3条件を保持し、null前後・空白だけの解除も同じ保存境界で扱います。
+    [DataRow("fr-FR", 12d, null, 12d, "12")]
+    [DataRow("fr-FR", null, null, null, "")]
+    [DataRow("en-US", 2d, "★12.5", 12.5, null)]
+    [DataRow("en-US", 2d, "A", 2d, null)]
+    [DataRow("en-US", 2d, "", null, null)]
+    [DataRow("fr-FR", 1.5, "", null, null)]
+    [DataRow("fr-FR", 1.5, "  ", null, null)]
+    [DataRow("fr-FR", 1.5, "A", 1.5, null)]
+    [DataRow("fr-FR", null, "A", null, null)]
+    public void CommitDraft_LevelUsesSavedNumberAndKeepsOtherValues(string culture, double? initialLevel, string? text, double? expected, string? displayed)
     {
-        using var fixture = new Fixture();
-        BMSTable table = fixture.Tables[0];
-        BMSTableEntry entry = table.entries[0];
-        PlaylistEntryReadSnapshot old = table.CaptureEntryReadSnapshot(entry);
-        int lookupVersion = table.EntryLookupRevision;
-        PlaylistEntryCommitReceipt receipt = fixture.Commit(entry, "Level", text);
-        Assert.AreEqual(expected, entry.level);
-        Assert.AreEqual("memo before", entry.memo);
-        Assert.AreEqual("comment before", entry.comment);
-        Assert.AreEqual(new Uri("https://example.test/original"), entry.Url);
-        Assert.AreEqual(2d, old.Entries.Single().After.Level);
-        Assert.AreEqual(lookupVersion, table.EntryLookupRevision);
-        Assert.AreEqual(expected == 2 ? old.Revision : old.Revision + 1, receipt.Revision);
-        Assert.AreEqual(table.PlaylistEntriesRevision, table.CaptureEntryReadSnapshot(entry).Revision);
-        using LR2SongDBExtended db = fixture.OpenRead();
-        Assert.AreEqual(expected, db.ExecuteScalar<double?>("SELECT level FROM playlist_entry WHERE playlist_id = 9201 AND title = 'row-0';"));
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        CultureInfo previousUiCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en-US");
+            using var fixture = new Fixture(initialLevel: initialLevel);
+            BMSTable table = fixture.Tables[0];
+            BMSTableEntry entry = table.entries[0];
+            if (text == null)
+            {
+                text = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow().Level;
+                Assert.AreEqual(displayed, text);
+            }
+            PlaylistEntryReadSnapshot old = table.CaptureEntryReadSnapshot(entry);
+            int lookupVersion = table.EntryLookupRevision;
+            PlaylistEntryCommitReceipt receipt = fixture.Commit(entry, "Level", text);
+            Assert.AreEqual(expected, entry.level);
+            Assert.AreEqual("memo before", entry.memo);
+            Assert.AreEqual("comment before", entry.comment);
+            Assert.AreEqual(new Uri("https://example.test/original"), entry.Url);
+            Assert.AreEqual(initialLevel, old.Entries.Single().After.Level);
+            Assert.AreEqual(lookupVersion, table.EntryLookupRevision);
+            Assert.AreEqual(expected == initialLevel ? old.Revision : old.Revision + 1, receipt.Revision);
+            if (expected != initialLevel) { Assert.AreEqual(expected, receipt.Changes.Single().After.Level); }
+            else { Assert.IsTrue(receipt.Changes.IsEmpty); }
+            Assert.AreEqual(table.PlaylistEntriesRevision, table.CaptureEntryReadSnapshot(entry).Revision);
+            using LR2SongDBExtended db = fixture.OpenRead();
+            Assert.AreEqual(expected, db.ExecuteScalar<double?>("SELECT level FROM playlist_entry WHERE playlist_id = 9201 AND title = 'row-0';"));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUiCulture;
+        }
     }
 
     /// <summary>DB 前の実 trigger 失敗で live/header/版/配送を保持し、同じ entry への次保存と別参照の拒否を確認します。</summary>
@@ -694,26 +747,26 @@ public sealed class PlaylistEntryCommitTests
         internal BMSTable[] Tables { get; }
         internal List<PlaylistEntryCommitReceipt> Receipts { get; } = [];
 
-        internal Fixture(int background = 2, Func<string, LR2SongDBExtended>? openEntryWriteConnection = null)
+        internal Fixture(int background = 2, Func<string, LR2SongDBExtended>? openEntryWriteConnection = null, double? initialLevel = 2d)
         {
             Directory.CreateDirectory(directory);
             dbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
             PlaylistPersistenceRepository.EnsureSchema(dbPath);
             Repository = new(dbPath, openEntryWriteConnection);
             Owner = new(Repository, collectionLock, new TestUiScheduler(() => null), Work);
-            Tables = [CreateTable(9201, background), CreateTable(9202, 2)];
+            Tables = [CreateTable(9201, background, initialLevel), CreateTable(9202, 2)];
             Owner.MarkActiveTables(Tables);
             Owner.ReplaceTablesWithEntries(Tables);
         }
 
-        private static BMSTable CreateTable(int id, int count) => new()
+        private static BMSTable CreateTable(int id, int count, double? initialLevel = 2d) => new()
         {
             playlist_id = id,
             name = "table-" + id,
             last_update = new DateTime(2026, 1, 1),
             entries = [.. Enumerable.Range(0, count).Select(index => new BMSTableEntry
             {
-                md5 = (index + 1).ToString("x32"), title = "row-" + index, folder = "folder", level = 2,
+                md5 = (index + 1).ToString("x32"), title = "row-" + index, folder = "folder", level = initialLevel,
                 memo = "memo before", comment = "comment before", Url = new Uri("https://example.test/original")
             })]
         };

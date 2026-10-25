@@ -44,6 +44,112 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 {
     private const string NativeModalFixturePlaylistName = "Native modal fixture";
 
+    /// <summary>fr-FRの実ENTRY LEVELセルで表示1,5を無変更Enterし、別小数入力のEscapeでも正本・DB・次の編集表示が1.5を保つことを確認します。</summary>
+    /// <remarks>実列・Binding・F2/Enter/Escapeからdefault端末への接続を担当します。文化別の数値条件は保存主体へ分担し、数値文化と翻訳文化を分けます。</remarks>
+    [TestMethod]
+    public void EntryLevel_CurrentCultureRoundTripAndCancelKeepSavedNumber()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            CultureInfo previousCulture = CultureInfo.CurrentCulture;
+            CultureInfo previousUiCulture = CultureInfo.CurrentUICulture;
+            ActualMainWindowFixture? fixture = null;
+            Task? terminal = null;
+            Exception? primary = null;
+            try
+            {
+                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+                CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en-US");
+                fixture = CreateActualMainWindowFixture(scope);
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                fixture.Table.is_external_sync = false;
+                var entry = new BMSTableEntry { md5 = new string('a', 32), title = "Culture target", level = 1.5 };
+                var other = new BMSTableEntry { md5 = new string('b', 32), title = "Other row", level = 7.5 };
+                fixture.Table.entries = [entry, other];
+                fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>([fixture.Table]);
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                playlistRoot.IsExpanded = true;
+                MaterializeTreeItems(playlistRoot);
+                TreeViewItem tableItem = playlistRoot.ItemContainerGenerator.ContainerFromItem(fixture.Table) as TreeViewItem
+                    ?? throw new AssertFailedException("保存した表の実ツリー項目がありません。");
+                tableItem.IsSelected = true;
+                workspace.RequestDetailSelection(fixture.Table);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
+                    MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, false, default), "culture-detail-build");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "culture-detail-owner-idle");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var table = (CustomTableView)fixture.Window.FindName("customTableView");
+                BindingOperations.GetBindingExpression(table, CustomTableView.ItemsSourceProperty)?.UpdateTarget();
+                var columns = new CustomTableColumnSettings();
+                columns.EntryLevel.Visibility = Visibility.Visible;
+                table.Columns = [.. CustomTableColumnFactory.CreateMainColumns(columns).Where(column => column.EditPropertyName == nameof(PlaylistDetailRow.Level))];
+                table.Width = 300; table.Height = 100;
+                table.Measure(new Size(300, 100)); table.Arrange(new Rect(0, 0, 300, 100));
+                table.SelectRowsByPredicate(row => row is PlaylistDetailRow detail && ReferenceEquals(detail.Entry, entry));
+                table.UpdateLayout();
+                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                Assert.AreEqual("1,5", Editor()?.Text);
+                Assert.IsTrue(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+                // Pの終端は保存・必要表示・draft cleanupの後です。同値でDB差分がなくても実終端を待ちます。
+                Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+                terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "culture-level-enter-terminal");
+                AssertSavedNumberAndDisplay();
+
+                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                TextBox editor = Editor() ?? throw new AssertFailedException("実ENTRY LEVELセルのeditorがありません。");
+                Assert.AreEqual("1,5", editor.Text);
+                editor.Text = "2,5";
+                Assert.IsTrue(table.HandleKeyDown(Key.Escape, ModifierKeys.None));
+                // 取消は保存せず同期的にdraft/sessionを終了します。受付終端も回収してから次の実セルを確認します。
+                terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "culture-level-cancel-terminal");
+                AssertSavedNumberAndDisplay();
+
+                TextBox? Editor() => table.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).SingleOrDefault();
+                void AssertSavedNumberAndDisplay()
+                {
+                    Assert.IsNull(Editor());
+                    Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+                    Assert.AreEqual(1.5, entry.level);
+                    Assert.AreEqual(7.5, other.level);
+                    PlaylistDetailRow current = fixture.ViewModel.MainChartList.Rows.OfType<PlaylistDetailRow>().Single(row => ReferenceEquals(row.Entry, entry));
+                    Assert.AreEqual("1,5", current.Level);
+                    using LR2SongDBExtended db = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly();
+                    Assert.AreEqual(1.5, db.ExecuteScalar<double?>("SELECT level FROM playlist_entry WHERE title = 'Culture target';"));
+                    Assert.AreEqual(7.5, db.ExecuteScalar<double?>("SELECT level FROM playlist_entry WHERE title = 'Other row';"));
+                    Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                    Assert.AreEqual("1,5", Editor()?.Text);
+                    Assert.IsTrue(table.HandleKeyDown(Key.Escape, ModifierKeys.None));
+                    Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+                }
+            }
+            catch (Exception failure) { primary = failure; throw; }
+            finally
+            {
+                try
+                {
+                    try { if (terminal != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "culture-level-cleanup"); } }
+                    catch (Exception cleanupFailure) when (primary != null) { primary.Data["EntryLevelTerminalCleanupFailure"] = cleanupFailure.ToString(); }
+                    finally
+                    {
+                        try { fixture?.Close(); }
+                        catch (Exception cleanupFailure) when (primary != null) { primary.Data["EntryLevelWindowCleanupFailure"] = cleanupFailure.ToString(); }
+                    }
+                }
+                finally
+                {
+                    CultureInfo.CurrentCulture = previousCulture;
+                    CultureInfo.CurrentUICulture = previousUiCulture;
+                }
+            }
+        });
+    }
+
     /// <summary>実default端末で詳細とsummaryを一つずつ編集し、入力editorの閉鎖後も出力待ちの間は論理編集/Pを保持して、実controlへ正規化済み正本値を反映してから受付を解放します。</summary>
     /// <remarks>compiled入力・Binding・実MainWindow接続を担当します。全属性・失敗条件と少数編集の仕事量はowner系列へ分担します。</remarks>
     [TestMethod]
