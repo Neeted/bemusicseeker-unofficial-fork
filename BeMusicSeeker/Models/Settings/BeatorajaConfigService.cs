@@ -114,17 +114,18 @@ internal static class BeatorajaConfigService
     }
 
     /// <summary>既存ルートの管理URLを原子的に同期し、構成ファイルの読取り・解析・置換失敗を対象パスと元原因付きで返します。</summary>
-    internal static void SyncTableUrls(string rootPath, IEnumerable<string> currentManagedUrls, IEnumerable<string> previousManagedUrls, Func<bool> shouldProceed = null)
+    /// <returns>現在集合に一致するか原子的な書込みが成功した場合はtrue。対象外rootまたは継続条件の取消で何もしなかった場合はfalse。</returns>
+    internal static bool SyncTableUrls(string rootPath, IEnumerable<string> currentManagedUrls, IEnumerable<string> previousManagedUrls, Func<bool> shouldProceed = null)
     {
         if (!HasBeatorajaRootFiles(rootPath))
         {
-            return;
+            return false;
         }
         lock (ConfigWriteLock)
         {
             if (shouldProceed?.Invoke() == false)
             {
-                return;
+                return false;
             }
             string configPath = GetConfigPath(rootPath);
             JObject config = ReadConfigForBmt(rootPath);
@@ -147,14 +148,15 @@ internal static class BeatorajaConfigService
             var tableUrl = new JArray(existingUrls.Concat(appendedUrls));
             if (JToken.DeepEquals(config["tableURL"], tableUrl))
             {
-                return;
+                return true;
             }
             if (shouldProceed?.Invoke() == false)
             {
-                return;
+                return false;
             }
             config["tableURL"] = tableUrl;
             WriteConfigAtomic(configPath, config);
+            return true;
         }
     }
 

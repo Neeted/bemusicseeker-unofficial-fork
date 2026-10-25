@@ -58,6 +58,8 @@ LR2 XMLの検索登録は最新文書のユーザールートと管理出力root
 
 LR2 XMLとuser.configの両方が必要な場合、成功済み媒体を巻き戻さず、必要媒体の成立前は稼働readerの旧公開値を保ちます。部分保存を全成功と通知しません。次の明示操作は、その時点の最新入力の関連項目を両媒体へ改めて保存でき、成功媒体省略の段階管理や過去要求の固定は行いません。入力修正を認め、未知キー・未知XML要素・管理登録・無関係な最新確定値を保ちます。通常閉鎖・再表示では媒体を再読込み・再保存せず、次回起動はdisk上の保存済み値を読みます。二媒体全体の原子性・自動巻戻し・修復台帳は追加しません。[設定の保存受付](settings.md#保存の受付と処理選択)を正本とし、出力先は必要な表header DBの保存も公開前に終えます。
 
+BMTの異物理先変更は、新先の必要ファイルと管理情報を先に準備し、user.config保存成功で採用します。準備または設定保存の失敗では旧採用を維持し、新先の部分生成物の完全撤去は要求しません。採用後のURL切替・旧先整理の失敗では新採用を維持して部分失敗を通知します。[BMTのURL同期](../playlist/bmt-export.md#table-url同期)に従い、旧要求や成功段階を次操作へ保存せず、今回の最新入力を処理します。
+
 再生位置の変更はメモリー上に保持し、停止、次曲、プレイヤー変更のたびに保存しません。局所項目保存には混ぜず、画面外の保存で変更済み項目として渡します。設定を閉じても実行中に得た再生位置を取り消しません。正常終了では最終位置を取得してから一回保存します。保存失敗は診断・通知しつつ終了を進め、強制終了時の最終位置の永続化は保証しません。
 
 ## 実装とテストの対応
@@ -69,6 +71,7 @@ LR2 XMLとuser.configの両方が必要な場合、成功済み媒体を巻き�
 | 起動時の致命的失敗・警告・回復 | [`ApplicationSettingsLifecycle`](../../../BeMusicSeeker/Models/Settings/ApplicationSettingsLifecycle.cs) | [`ApplicationSettingsLifecycleTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationSettingsLifecycleTests.cs) |
 | 旧設定の移入と正規化 | [`LegacyUserConfigMigrator`](../../../BeMusicSeeker/Properties/LegacyUserConfigMigrator.cs) | [`PortableSettingsMigrationTests`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsMigrationTests.cs)、[`PlayerPanelStateSettingsCompatibilityTests`](../../../BeMusicSeeker.Tests/Playback/PlayerPanelStateSettingsCompatibilityTests.cs) |
 | LR2 XMLの一回保存・後の確定登録の保全 | [局所出力確定](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)、[`PlaylistCustomFolderOutputMaintenanceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistCustomFolderOutputMaintenanceOwner.cs)、[表プロパティ保存](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertySaveService.cs)、[集約編集](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.PlaylistSummaryBulkEdit.cs)、[表削除](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistRemovalWorkflowOwner.cs) | [`SettingDialogEditCompletionTests.OutputConfirmation_LatestSelectionResavesBothMediaAfterPartialFailure`](../../../BeMusicSeeker.Tests/Settings/SettingDialogOutputConfirmationTests.cs) は部分保存後の最新入力と同値明示保存を実媒体で確認する。表操作の保存・出力は [`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)、[`PlaylistWorkspaceActionWorkflowTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)、[`PlaylistSummaryBulkEditTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs) が分担する。 |
+| BMT準備後の設定採用・採用前後の実保存失敗 | [設定の局所確定](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)、[`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs) | `SettingDialogEditCompletionTests.BmtSettingsAdoption_PreservesAdoptedMediaAndAllowsCurrentNextInput` が実ファイル/manifest準備失敗、user.config置換失敗、採用後のURL/整理失敗をfresh readerと媒体で区別する。 |
 | 保存時の画面と値の保持 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | [`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) |
 
 ## 関連資料

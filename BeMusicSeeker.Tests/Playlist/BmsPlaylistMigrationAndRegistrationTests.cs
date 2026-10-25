@@ -2288,7 +2288,144 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
-    /// <summary>変更元のPで生成・同期の実失敗と対象原因を待ち、破損・読取不能を置換せず次操作へ解放します。</summary>
+    /// <summary>物理削除だけが失敗しても確定台帳のURL所有解除を公開し、元失敗の報告終端までPを保持します。通常削除の他表保全と無効全整理の終了回収を実媒体で確認します。</summary>
+    [DataTestMethod]
+    [DataRow(false)] // 通常削除: 他表を保持し、報告後は次のPを取得できる。
+    [DataRow(true)] // 無効・保持OFFの全整理: 報告中の終了要求でも既受理Taskを回収する。
+    public async Task BeatorajaBmtOwnershipRelease_PublishesCommittedUrlsDespiteDeleteFailure(bool cleanupAll)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistMigrationAndRegistrationTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var reported = new TaskCompletionSource<IReadOnlyList<BmtTableExportService.FileOperationFailure>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        TestBmsPlaylist? playlist = null;
+        Task? operation = null;
+        FileStream? held = null;
+        Exception? bodyFailure = null;
+        try
+        {
+            string db = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(db);
+            string output = Path.Combine(directory, "table");
+            Directory.CreateDirectory(output);
+            File.WriteAllText(Path.Combine(directory, "beatoraja.jar"), string.Empty);
+            string config = Path.Combine(directory, BeatorajaConfigService.ConfigFileName);
+            string[] unmanagedUrls = ["https://example.com/user-first", "https://example.com/user-second"];
+            File.WriteAllText(config, new JObject { ["tablepath"] = "table", ["tableURL"] = new JArray(unmanagedUrls) }.ToString());
+            var options = new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaRootPath = directory, RegisterBeatorajaBmtUrls = true };
+            BMSTable first = new() { playlist_id = 8141, name = "First", bmt_sort = 1, entries = [new() { title = "First song", md5 = new string('a', 32), folder = "Folder" }] };
+            BMSTable second = new() { playlist_id = 8142, name = "Second", bmt_sort = 2, entries = [new() { title = "Second song", md5 = new string('b', 32), folder = "Folder" }] };
+            playlist = new TestBmsPlaylist(db, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => options, () => new CustomFolderOutputSettingsSnapshot(),
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(db, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            { BMSTables = new ObservableCollection<BMSTable>([first, second]) };
+            playlist.CommitBMSTablesWithEntriesToDB([first, second]);
+            await playlist.BmtOutput.ExportAllAsync("ownership-initial");
+            List<BmtTableExportService.ManagedTableUrlEntry> initial = BmtTableExportService.ReadManagedTableUrls(output);
+            BmtTableExportService.ManagedTableUrlEntry firstOwned = initial.Single(entry => entry.PlaylistIdentity == "8141");
+            BmtTableExportService.ManagedTableUrlEntry secondOwned = initial.Single(entry => entry.PlaylistIdentity == "8142");
+            string firstPath = Path.Combine(output, firstOwned.FileName);
+            string secondPath = Path.Combine(output, secondOwned.FileName);
+            byte[] secondBytes = File.ReadAllBytes(secondPath);
+            string unmanagedPath = Path.Combine(output, "user.bmt");
+            byte[] unmanagedBytes = [10, 20, 30];
+            File.WriteAllBytes(unmanagedPath, unmanagedBytes);
+            // 管理外URLを管理URL間へ置き、同期による管理外の相対順保持も観測する。
+            var initialConfig = JObject.Parse(File.ReadAllText(config));
+            initialConfig["tableURL"] = new JArray(unmanagedUrls[0], firstOwned.Url, unmanagedUrls[1], secondOwned.Url);
+            File.WriteAllText(config, initialConfig.ToString());
+            held = new FileStream(firstPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            playlist.BmtOutput.FailureReporter = failures =>
+            {
+                reported.TrySetResult(failures);
+                release.Task.GetAwaiter().GetResult();
+            };
+            if (cleanupAll)
+            {
+                options = new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = false, KeepBeatorajaBmtFilesWhenOutputDisabled = false, BeatorajaRootPath = directory, RegisterBeatorajaBmtUrls = true };
+                operation = playlist.BmtOutput.ExportAllAsync("ownership-cleanup");
+            }
+            else
+            {
+                // 上位が削除を確定した集合をownerへ渡す。DB削除自体の保証は上位の既存ケースが担当する。
+                playlist.BMSTables.Remove(first);
+                operation = playlist.BmtOutput.RemoveTablesAsync([first], "ownership-remove");
+            }
+            Task reached = await Task.WhenAny(reported.Task, operation);
+            if (reached == operation) { await operation; }
+            Assert.AreSame(reported.Task, reached);
+            IReadOnlyList<BmtTableExportService.FileOperationFailure> failures = await reported.Task;
+            Assert.AreEqual(1, failures.Count);
+            Assert.AreEqual(firstPath, failures[0].Path);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(failures[0].Cause));
+            Assert.IsFalse(operation.IsCompleted);
+            bool acquired = playlist.TryEnterPlaylistMutation(out IDisposable competing);
+            competing?.Dispose();
+            Assert.IsFalse(acquired);
+            Task idle = playlist.WaitForPlaylistMutationIdleAsync();
+            Assert.IsFalse(idle.IsCompleted);
+            if (cleanupAll)
+            {
+                playlist.RequestShutdown("ownership-report-pending");
+                bool admittedAfterShutdown = playlist.TryEnterPlaylistMutation(out IDisposable afterShutdown);
+                afterShutdown?.Dispose();
+                Assert.IsFalse(admittedAfterShutdown);
+                Assert.IsFalse(idle.IsCompleted);
+            }
+            var manifest = JObject.Parse(File.ReadAllText(Path.Combine(output, BmtTableExportService.ManifestFileName)));
+            string?[] files = manifest["files"]?.Values<string>().ToArray() ?? throw new AssertFailedException("管理台帳にfilesがありません。");
+            CollectionAssert.Contains(files, firstOwned.FileName);
+            Assert.IsTrue(File.Exists(firstPath));
+            Assert.IsNull(manifest["playlists"]?["8141"]);
+            CollectionAssert.AreEqual(unmanagedBytes, File.ReadAllBytes(unmanagedPath));
+            if (cleanupAll)
+            {
+                Assert.AreEqual(1, files.Length);
+                Assert.AreEqual(0, ((JObject?)manifest["playlists"])?.Count ?? 0);
+                Assert.IsFalse(File.Exists(secondPath));
+                CollectionAssert.AreEqual(unmanagedUrls, BeatorajaConfigService.ReadTableUrls(directory).ToArray());
+            }
+            else
+            {
+                Assert.AreEqual(2, files.Length);
+                Assert.IsNotNull(manifest["playlists"]?["8142"]);
+                CollectionAssert.AreEqual(secondBytes, File.ReadAllBytes(secondPath));
+                CollectionAssert.AreEqual(unmanagedUrls.Append(secondOwned.Url).ToArray(), BeatorajaConfigService.ReadTableUrls(directory).ToArray());
+            }
+            release.TrySetResult();
+            await Assert.ThrowsExceptionAsync<PlaylistMutationPostCommitException>(() => operation);
+            await idle;
+            Assert.IsFalse(playlist.HasShutdownBlockingWork);
+            if (!cleanupAll)
+            {
+                bool nextAccepted = playlist.TryEnterPlaylistMutation(out IDisposable next);
+                next?.Dispose();
+                Assert.IsTrue(nextAccepted);
+            }
+        }
+        catch (Exception exception) { bodyFailure = exception; throw; }
+        finally
+        {
+            release.TrySetResult();
+            List<Exception> cleanupFailures = [];
+            try { if (operation != null) { await operation; } }
+            catch (PlaylistMutationPostCommitException) { /* 本体で失敗終端を検査し、ここでは所有Taskだけを回収する。 */ }
+            catch (Exception exception) { cleanupFailures.Add(exception); }
+            try { if (playlist != null) { playlist.RequestShutdown("ownership-fixture-end"); await playlist.WaitForPlaylistMutationIdleAsync(); } }
+            catch (Exception exception) { cleanupFailures.Add(exception); }
+            try { held?.Dispose(); }
+            catch (Exception exception) { cleanupFailures.Add(exception); }
+            try { Directory.Delete(directory, recursive: true); }
+            catch (Exception exception) { cleanupFailures.Add(exception); }
+            if (cleanupFailures.Count > 0)
+            {
+                if (bodyFailure != null) { cleanupFailures.Insert(0, bodyFailure); }
+                throw new AggregateException(cleanupFailures);
+            }
+        }
+    }
+
+    /// <summary>変更元のPで生成・同期の実失敗と対象原因を待ち、未確定の台帳からURLを公開せず次操作へ解放します。削除だけの失敗は確定したURL解除を反映します。</summary>
     [TestMethod]
     // 個別削除・台帳読取り/破損・台帳公開・二重失敗を、実共有拒否とfailureKindで区別する。
     [DataRow("delete")]
@@ -2311,9 +2448,16 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             File.WriteAllText(stalePath, "owned");
             string manifestPath = Path.Combine(output, BmtTableExportService.ManifestFileName);
             File.WriteAllText(manifestPath, "{\"files\":[\"stale.bmt\"],\"playlists\":{\"1\":{\"file\":\"stale.bmt\",\"url\":\"https://example.com/old\"}}}");
+            File.WriteAllText(Path.Combine(directory, "beatoraja.jar"), string.Empty);
+            string configPath = Path.Combine(directory, BeatorajaConfigService.ConfigFileName);
+            string[] unmanagedUrls = ["https://example.com/user-first", "https://example.com/user-second"];
+            File.WriteAllText(configPath, new JObject { ["tablepath"] = "table", ["tableURL"] = new JArray(unmanagedUrls[0], "https://example.com/old", unmanagedUrls[1]) }.ToString());
+            byte[] originalConfig = File.ReadAllBytes(configPath);
+            string unmanagedPath = Path.Combine(output, "user.bmt");
+            File.WriteAllText(unmanagedPath, "user-content");
             var playlist = new TestBmsPlaylist(songDbPath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
-                () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = output },
+                () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = output, BeatorajaRootPath = directory, RegisterBeatorajaBmtUrls = true },
                 () => new CustomFolderOutputSettingsSnapshot(),
                 CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             { BMSTables = new ObservableCollection<BMSTable>() };
@@ -2345,11 +2489,14 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             if (failureKind == "delete")
             {
                 Assert.AreEqual(stalePath, capturedReports[0].Path);
+                CollectionAssert.AreEqual(unmanagedUrls, BeatorajaConfigService.ReadTableUrls(directory).ToArray());
             }
             else
             {
                 StringAssert.Contains(capturedReports[0].Cause, manifestPath);
+                CollectionAssert.AreEqual(originalConfig, File.ReadAllBytes(configPath));
             }
+            Assert.AreEqual("user-content", File.ReadAllText(unmanagedPath));
 
             if (failureKind == "delete-and-publish")
             {

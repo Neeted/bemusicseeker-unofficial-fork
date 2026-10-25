@@ -3976,8 +3976,6 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Settings_confirm_environment" xml:space="preserve"><value>環境を確定（稼働中は再起動）</value></data>
   <data name="Settings_start_environment" xml:space="preserve"><value>この環境で開始</value></data>
   <data name="Settings_cancel_changes" xml:space="preserve"><value>この変更を取り消す</value></data>
-  <data name="Settings_processing_retry" xml:space="preserve"><value>設定は保存済みですが、処理が完了していません。同じ確定ボタンで再試行してください。</value></data>
-  <data name="Settings_repair_related_save" xml:space="preserve"><value>関連する保存が未完了です。同じセクションで内容を修正するか、再試行して保存を完了してください。</value></data>
   <data name="Settings_replacement_install" xml:space="preserve"><value>一覧から外れる導入先の代替</value></data>
   <data name="Settings_use_on_start" xml:space="preserve"><value>保存済みの設定は「この環境で開始」で使用します。</value></data>
   <data name="Settings_confirm_record" xml:space="preserve"><value>この項目を確定</value></data>
@@ -4026,4 +4024,6 @@ ON：すべての使用リソースを要求し、不足時は保留にします
 旧出力先: {0}
 原因: {1}</value>
   </data>
+  <data name="Settings_bmt_url_switch_failed" xml:space="preserve"><value>新しいBMT設定は保存しましたが、管理URLを切り替えられませんでした。旧管理URLが有効なまま残っている可能性があります。この失敗後、旧出力先のファイルの追加整理は行っていません。</value></data>
+  <data name="Settings_bmt_files_remain" xml:space="preserve"><value>新しいBMT設定と管理URLを反映しましたが、一部の旧管理ファイルを削除できず残っています。</value></data>
 </root>

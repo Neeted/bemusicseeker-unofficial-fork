@@ -248,8 +248,10 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <param name="operation">保存・反映・内部再読込みと後片付けを行う処理。</param>
     /// <param name="playlistCapability">同じ操作の生存P権限。内部継続へ明示的に借用します。</param>
     /// <param name="playlistLease">同じ操作のP。両受付の実終端解放後に専用preflight警告を提示します。</param>
+    /// <param name="completionResult">親受付解放後の必須表示・通知へ渡す今回の結果。</param>
+    /// <param name="primaryFailure">採用済みBMT等の先行失敗。後続のscore・必須UIを回収してから伝播し、二次失敗でも保持します。</param>
     /// <returns>実処理終端、受付解放と失敗通知までを表すTask。</returns>
-    private async Task CompleteAcceptedSettingsOperationAsync(IDisposable lease, Func<LibraryFileMutationCapability, Task> operation, LibraryFileMutationCapability playlistCapability = null, IDisposable playlistLease = null, Func<StartupInitializationResult> completionResult = null)
+    private async Task CompleteAcceptedSettingsOperationAsync(IDisposable lease, Func<LibraryFileMutationCapability, Task> operation, LibraryFileMutationCapability playlistCapability = null, IDisposable playlistLease = null, Func<StartupInitializationResult> completionResult = null, Func<Exception> primaryFailure = null)
     {
         try
         {
@@ -267,8 +269,12 @@ public partial class SettingsDialogViewModel : ViewModel
         catch (LibraryDirectoryPreflightException failure)
         {
             await statePort.PresentLibraryDirectoryWarningAsync(failure);
+            if (primaryFailure?.Invoke() is Exception original) { throw new AggregateException(original, failure); }
             throw;
         }
+        catch (Exception failure) when (primaryFailure?.Invoke() != null)
+        { throw new AggregateException(primaryFailure(), failure); }
+        if (primaryFailure?.Invoke() is Exception cause) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(cause).Throw(); }
     }
 
     /// <summary>受理済みの共通権限で差分とLR2必須継続の実終端を待ち、失敗を呼出元の解放後通知へ伝播します。</summary>
@@ -1549,7 +1555,6 @@ public partial class SettingsDialogViewModel : ViewModel
         set
         {
             string path = value ?? string.Empty;
-            if (pendingBmtChange != null) { return; }
             if (string.Equals(environmentBeatorajaRootPath, path, StringComparison.OrdinalIgnoreCase))
             {
                 return;

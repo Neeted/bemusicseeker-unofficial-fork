@@ -1340,8 +1340,6 @@
   "Settings_confirm_environment": "确认环境（运行时重新启动）",
   "Settings_start_environment": "使用此环境启动",
   "Settings_cancel_changes": "取消这些更改",
-  "Settings_processing_retry": "设置已保存，但处理尚未完成。请使用同一确认按钮重试。",
-  "Settings_repair_related_save": "相关保存尚未完成。请在该部分修正内容或重试以完成保存。",
   "Settings_replacement_install": "替代被移除的安装位置",
   "Settings_use_on_start": "保存的设置将在使用此环境启动时生效。",
   "Settings_confirm_record": "保存此条目",
@@ -1362,5 +1360,7 @@
   "Playlist_json_export_partial_failure": "头文件已保存，但数据文件保存失败。已有数据已保留。请检查保存位置后重新导出。",
   "Error_ManagedPlaylistOutputOverlap": "托管播放列表的输出目录相同或存在父子关系。请选择互不重叠的输出目录。",
   "Settings_confirm_discard_conflicting_candidates": "要取消 {0} 的未确认编辑并继续吗？已保存的设置和未完成的操作将保留。",
-  "Settings_lr2_detailed_paths": "LR2详细路径"
+  "Settings_lr2_detailed_paths": "LR2详细路径",
+  "Settings_bmt_url_switch_failed": "新的BMT设置已保存，但无法切换表格URL。旧的受管理URL可能仍然有效。此次失败后，未对旧输出位置的文件进行进一步清理。",
+  "Settings_bmt_files_remain": "新的BMT设置和表格URL已应用，但部分旧的受管理文件无法删除，仍然保留。"
 }

@@ -1138,7 +1138,14 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             ISettingsDialogWorkspacePort settingsPort = workspace;
 
             settingsPort.SchedulePlaylistUrlCompletionRefresh("settings-test");
-            await settingsPort.ExportBeatorajaBmtAsync("settings-test", null, null);
+            var options = new BeatorajaBmtOptionsSnapshot { KeepBeatorajaBmtFilesWhenOutputDisabled = true };
+            Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable admitted));
+            using (admitted)
+            using (LibraryFileMutationCapability capability = playlist.CreatePlaylistMutationCapability(admitted))
+            {
+                BeatorajaBmtPreparation preparation = await settingsPort.PrepareBeatorajaBmtSettingsAsync(options, options, capability);
+                await settingsPort.CompleteBeatorajaBmtSettingsAsync(preparation, capability);
+            }
 
             CollectionAssert.AreEqual(
                 new[] { "playlist_url_completion:settings-test" },
@@ -1163,7 +1170,9 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         ISettingsDialogWorkspacePort settingsPort = workspace;
 
         settingsPort.SchedulePlaylistUrlCompletionRefresh("detached-test");
-        await settingsPort.ExportBeatorajaBmtAsync("detached-test", null, null);
+        var options = new BeatorajaBmtOptionsSnapshot();
+        BeatorajaBmtPreparation preparation = await settingsPort.PrepareBeatorajaBmtSettingsAsync(options, options, null);
+        await settingsPort.CompleteBeatorajaBmtSettingsAsync(preparation, null);
     }
 
     /// <summary>en-USの4桁年を通常新規取込みから実一括取得・登録へ通し、成功通知・公開所属・freshなDBの追加日を一致させます。</summary>

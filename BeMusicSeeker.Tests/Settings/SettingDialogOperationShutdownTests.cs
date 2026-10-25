@@ -342,7 +342,15 @@ public sealed partial class SettingDialogEditCompletionTests
         public IReadOnlyList<PlaylistTablePresentationSnapshot> CapturePlaylistPresentationSnapshots() => [];
         public bool HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(string root) => false;
         public void SchedulePlaylistUrlCompletionRefresh(string reason) { }
-        public Task ExportBeatorajaBmtAsync(string reason, string cleanup, LibraryFileMutationCapability capability, bool forceProjection = false, BeatorajaBmtOptionsSnapshot? options = null) => export();
+        public async Task<BeatorajaBmtPreparation> PrepareBeatorajaBmtSettingsAsync(BeatorajaBmtOptionsSnapshot previous, BeatorajaBmtOptionsSnapshot target, LibraryFileMutationCapability capability)
+        {
+            await export();
+            return new(previous, target, [], []);
+        }
+
+        public Task CompleteBeatorajaBmtSettingsAsync(BeatorajaBmtPreparation preparation, LibraryFileMutationCapability capability)
+            => Task.CompletedTask;
+
         public Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string name) => operation();
         public event EventHandler<PlaylistCatalogChangedEventArgs> PlaylistCatalogChanged { add { } remove { } }
     }

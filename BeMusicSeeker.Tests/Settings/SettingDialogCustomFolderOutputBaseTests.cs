@@ -1265,8 +1265,10 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         public bool HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(string path)
             => inner.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(path);
         public void SchedulePlaylistUrlCompletionRefresh(string reason) => inner.SchedulePlaylistUrlCompletionRefresh(reason);
-        public Task ExportBeatorajaBmtAsync(string reason, string path, LibraryFileMutationCapability capability, bool forceProjection = false, BeatorajaBmtOptionsSnapshot? options = null)
-            => inner.ExportBeatorajaBmtAsync(reason, path, capability, forceProjection, options);
+        public Task<BeatorajaBmtPreparation> PrepareBeatorajaBmtSettingsAsync(BeatorajaBmtOptionsSnapshot previous, BeatorajaBmtOptionsSnapshot target, LibraryFileMutationCapability capability)
+            => inner.PrepareBeatorajaBmtSettingsAsync(previous, target, capability);
+        public Task CompleteBeatorajaBmtSettingsAsync(BeatorajaBmtPreparation preparation, LibraryFileMutationCapability capability)
+            => inner.CompleteBeatorajaBmtSettingsAsync(preparation, capability);
         public Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string name)
             => inner.RunWithPlaylistOperationNotificationsAsync(operation, name);
         public event EventHandler<PlaylistCatalogChangedEventArgs> PlaylistCatalogChanged

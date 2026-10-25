@@ -685,7 +685,6 @@ public sealed class DialogPresentationTests
                 ButtonWithAutomationId("SettingsCancelbms", DialogButtonRole.Quiet, "settings discard BMS root candidates"),
                 ButtonWithAutomationId("SettingsResyncLr2SongDb", DialogButtonRole.Neutral, "settings resync song database"),
                 ButtonWithAutomationId("SettingsInstallOrRepairLr2PlayHistorySchema", DialogButtonRole.Neutral, "settings install or repair schema"),
-                ButtonWithAutomationId("SettingsRetryBeatorajaRoot", DialogButtonRole.Quiet, "settings retry beatoraja root reflection"),
                 ButtonWithAutomationId("SettingsImportBeatorajaTableUrls", DialogButtonRole.Quiet, "settings import table URLs"),
                 ButtonWithAutomationId("SettingsConfirmbmt", DialogButtonRole.Primary, "settings confirm BMT output"),
                 ButtonWithAutomationId("SettingsCancelbmt", DialogButtonRole.Quiet, "settings discard BMT candidates"),

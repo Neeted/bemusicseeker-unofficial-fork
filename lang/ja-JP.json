@@ -1340,8 +1340,6 @@
   "Settings_confirm_environment": "環境を確定（稼働中は再起動）",
   "Settings_start_environment": "この環境で開始",
   "Settings_cancel_changes": "この変更を取り消す",
-  "Settings_processing_retry": "設定は保存済みですが、処理が完了していません。同じ確定ボタンで再試行してください。",
-  "Settings_repair_related_save": "関連する保存が未完了です。同じセクションで内容を修正するか、再試行して保存を完了してください。",
   "Settings_replacement_install": "一覧から外れる導入先の代替",
   "Settings_use_on_start": "保存済みの設定は「この環境で開始」で使用します。",
   "Settings_confirm_record": "この項目を確定",
@@ -1362,5 +1360,7 @@
   "Playlist_json_export_partial_failure": "ヘッダーは保存しましたが、データの保存に失敗しました。既存のデータは保持しています。保存先を確認して再度出力してください。",
   "Error_ManagedPlaylistOutputOverlap": "管理プレイリストの出力先が同一または親子になっています。重ならない出力先を指定してください。",
   "Settings_confirm_discard_conflicting_candidates": "{0} の未確定編集を取り消して進めますか？ 保存済みの設定と未完了の処理は保持します。",
-  "Settings_lr2_detailed_paths": "LR2の詳細パス"
+  "Settings_lr2_detailed_paths": "LR2の詳細パス",
+  "Settings_bmt_url_switch_failed": "新しいBMT設定は保存しましたが、管理URLを切り替えられませんでした。旧管理URLが有効なまま残っている可能性があります。この失敗後、旧出力先のファイルの追加整理は行っていません。",
+  "Settings_bmt_files_remain": "新しいBMT設定と管理URLを反映しましたが、一部の旧管理ファイルを削除できず残っています。"
 }

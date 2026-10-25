@@ -1032,7 +1032,6 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         SettingsDialogViewModel settings = GetSettingDialogViewModel();
         await RunViewOperationAsync(async () =>
         {
-            if (!await settings.CanStartRestoreBeforeExitAsync()) { return; }
             UiDialogResult confirmation = await dialogService.ConfirmAsync(new UiConfirmationRequest(
                 settings.BuildExitOperationConfirmation(BeMusicSeeker.Properties.Resources.Confirm_RestorePlaylistBackup),
                 BeMusicSeeker.Properties.Resources.Confirm,
@@ -1041,7 +1040,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
                 MessageBoxResult.Cancel,
                 owner: Window.GetWindow(this)));
             ThrowIfDialogFailed(confirmation, "Playlist backup restore confirmation");
-            if (!confirmation.IsAccepted || !await settings.CanStartRestoreBeforeExitAsync())
+            if (!confirmation.IsAccepted)
             {
                 return;
             }
@@ -1054,7 +1053,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             ThrowIfPickerFailed(result.Status, result.Error, "Playlist backup restore picker");
             if (result.Status == UiDialogStatus.Accepted)
             {
-                if (!await playlistWorkspace.RestorePlaylistBackupAsync(result.FileName, settings.CanStartRestoreBeforeExitAsync))
+                if (!await playlistWorkspace.RestorePlaylistBackupAsync(result.FileName))
                 {
                     return;
                 }

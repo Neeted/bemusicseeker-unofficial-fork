@@ -1340,8 +1340,6 @@
   "Settings_confirm_environment": "Apply environment (restart when running)",
   "Settings_start_environment": "Start with this environment",
   "Settings_cancel_changes": "Discard these changes",
-  "Settings_processing_retry": "The settings are saved, but processing is incomplete. Use the same confirmation button to retry.",
-  "Settings_repair_related_save": "A related save is incomplete. Correct the values in that section or retry to finish saving.",
   "Settings_replacement_install": "Replacement for the removed install destination",
   "Settings_use_on_start": "Saved settings will be used when you start with this environment.",
   "Settings_confirm_record": "Save this record",
@@ -1362,5 +1360,7 @@
   "Playlist_json_export_partial_failure": "The header was saved, but the data file could not be saved. Existing data was kept. Check the destinations and export again.",
   "Error_ManagedPlaylistOutputOverlap": "Managed playlist output directories are identical or nested. Choose output directories that do not overlap.",
   "Settings_confirm_discard_conflicting_candidates": "Discard the unconfirmed edits to {0} and continue? Saved settings and unfinished operations will be kept.",
-  "Settings_lr2_detailed_paths": "LR2 detailed paths"
+  "Settings_lr2_detailed_paths": "LR2 detailed paths",
+  "Settings_bmt_url_switch_failed": "The new BMT settings were saved, but table URLs could not be switched. Previous managed URLs may still be active. No further file cleanup was performed at the previous output location after this failure.",
+  "Settings_bmt_files_remain": "The new BMT settings and table URLs were applied, but some previous managed files could not be removed."
 }

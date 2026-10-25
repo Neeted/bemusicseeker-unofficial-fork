@@ -90,10 +90,11 @@ internal interface ISettingsDialogWorkspacePort
 
     void SchedulePlaylistUrlCompletionRefresh(string reason);
 
-    /// <summary>同じP権限で全表BMTの生成・旧配置回収・設定反映の実終端を待ち、元失敗を伝播します。</summary>
-    /// <param name="forceProjection">同じ全表出力で、署名一致による生成省略を迂回するか。</param>
-    /// <param name="options">局所反映が捕捉した組。指定時は出力先とURL同期先を再解決せず使い、省略時は現在の確定値とconfigの出力先を使います。</param>
-    Task ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability, bool forceProjection = false, BeatorajaBmtOptionsSnapshot options = null);
+    /// <summary>同じPで新先の全表と管理情報を準備します。設定・管理URLと異物理先の旧出力は維持し、同物理先は現在の正本から再生成します。</summary>
+    Task<BeatorajaBmtPreparation> PrepareBeatorajaBmtSettingsAsync(BeatorajaBmtOptionsSnapshot previous, BeatorajaBmtOptionsSnapshot target, LibraryFileMutationCapability capability);
+
+    /// <summary>設定採用後の管理URL切替と、成功時だけの旧先整理を同じPで終端します。</summary>
+    Task CompleteBeatorajaBmtSettingsAsync(BeatorajaBmtPreparation preparation, LibraryFileMutationCapability capability);
 
     Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string operationName);
 

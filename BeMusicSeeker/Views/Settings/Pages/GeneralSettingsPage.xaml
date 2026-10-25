@@ -83,7 +83,6 @@
 
       </StackPanel>
 
-      <Button Tag="retry:beatoraja-root" AutomationProperties.AutomationId="SettingsRetryBeatorajaRoot" Style="{StaticResource SettingsQuietButtonStyle}" HorizontalAlignment="Left" Visibility="{Binding CanRetryBeatorajaRootSettings, Converter={StaticResource BooleanToVisibilityConverter}}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_retry, Mode=OneWay}" />
       <StackPanel>
 
 
@@ -99,7 +98,6 @@
         <CheckBox Margin="26,0,0,0" IsEnabled="{Binding EnableBeatorajaBmtOutput}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Register_beatoraja_bmt_urls, Mode=OneWay}" IsChecked="{Binding RegisterBeatorajaBmtUrls}" />
         </StackPanel>
       </StackPanel>
-    <settings:SettingsStatusBanner Margin="0,8,0,8" Icon="!" Status="Warning" Style="{StaticResource SettingsMultilineStringStatusBannerStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_processing_retry}" Visibility="{Binding IsBmtProcessingRetryRequired, Converter={StaticResource BooleanToVisibilityConverter}}" />
 <StackPanel Orientation="Horizontal" Margin="0,8,0,0"><Button Tag="confirm:bmt" Style="{StaticResource SettingsPrimaryButtonStyle}" IsEnabled="{Binding CanConfirmBmtSettings}" AutomationProperties.AutomationId="SettingsConfirmbmt" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_confirm_bmt, Mode=OneWay}" /><Button Tag="cancel:bmt" Style="{StaticResource SettingsQuietButtonStyle}" AutomationProperties.AutomationId="SettingsCancelbmt" Margin="8,0,0,0" IsEnabled="{Binding CanCancelBmtSettings}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_cancel_changes, Mode=OneWay}" /></StackPanel></StackPanel></settings:SettingsSection>
 
   </StackPanel>

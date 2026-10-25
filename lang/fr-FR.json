@@ -1340,8 +1340,6 @@
   "Settings_confirm_environment": "Appliquer l’environnement (redémarrage si actif)",
   "Settings_start_environment": "Démarrer avec cet environnement",
   "Settings_cancel_changes": "Annuler ces modifications",
-  "Settings_processing_retry": "Les paramètres sont enregistrés, mais le traitement est incomplet. Réessayez avec le même bouton de confirmation.",
-  "Settings_repair_related_save": "Un enregistrement lié est incomplet. Corrigez les valeurs dans cette section ou réessayez.",
   "Settings_replacement_install": "Nouvelle destination d’installation",
   "Settings_use_on_start": "Les réglages enregistrés seront utilisés au démarrage de cet environnement.",
   "Settings_confirm_record": "Enregistrer cette entrée",
@@ -1362,5 +1360,7 @@
   "Playlist_json_export_partial_failure": "L’en-tête a été enregistré, mais les données n’ont pas pu être enregistrées. Les données existantes ont été conservées. Vérifiez les destinations et réexportez.",
   "Error_ManagedPlaylistOutputOverlap": "Les dossiers de sortie des playlists gérées sont identiques ou imbriqués. Choisissez des dossiers qui ne se chevauchent pas.",
   "Settings_confirm_discard_conflicting_candidates": "Abandonner les modifications non confirmées de {0} et continuer ? Les paramètres enregistrés et les opérations inachevées seront conservés.",
-  "Settings_lr2_detailed_paths": "Chemins détaillés de LR2"
+  "Settings_lr2_detailed_paths": "Chemins détaillés de LR2",
+  "Settings_bmt_url_switch_failed": "Les nouveaux paramètres BMT ont été enregistrés, mais les URL des tables n’ont pas pu être remplacées. Les anciennes URL gérées peuvent rester actives. Aucun nettoyage supplémentaire des fichiers à l’ancien emplacement de sortie n’a été effectué après cet échec.",
+  "Settings_bmt_files_remain": "Les nouveaux paramètres BMT et les URL des tables ont été appliqués, mais certains anciens fichiers gérés n’ont pas pu être supprimés."
 }

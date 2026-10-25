@@ -5051,10 +5051,10 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>BMT保存後の実処理失敗を当該欄にも表示し、閉鎖・再表示後も維持します。同値の明示再試行は保存し直さず、成功時だけ案内を解消します。未了中の復元は確認・picker・保存へ進まず、画面と自身の再試行を保ちます。</summary>
-    /// <remarks>実providerとcompiledボタン・bannerを接続します。Scoreの実モデル反映とBMTの実ファイル投影はEditCompletion系列が分担し、ここでは実処理portの失敗・成功を固定します。</remarks>
+    /// <summary>BMTの失敗を通知し、通常閉鎖・再表示で自動実行せず、次の明示更新と既存の復元確認へ進みます。</summary>
+    /// <remarks>実providerとcompiledボタン・通常閉鎖/再表示を接続します。Scoreの実モデル反映とBMTの実ファイル投影はEditCompletion系列が分担し、ここでは実処理portの失敗・成功を固定します。</remarks>
     [TestMethod]
-    public void BmtProcessingFailure_ShowsRetryAfterReopenAndClearsOnlyAfterExplicitSuccess()
+    public void BmtProcessingFailure_AllowsExplicitCurrentUpdateAndRestoreAfterReopen()
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
@@ -5101,14 +5101,6 @@ public sealed class SettingsWindowPresentationTests
                     .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 AwaitViewOperationTerminal(settings);
             }
-            void AssertRetryBanner()
-            {
-                var page = (FrameworkElement)((ContentControl)window!.FindName("settingsPageContent")).Content;
-                SettingsStatusBanner banner = FindDescendants<SettingsStatusBanner>(page).Single(item =>
-                    item.GetBindingExpression(UIElement.VisibilityProperty)?.ParentBinding.Path.Path == nameof(SettingsDialogViewModel.IsBmtProcessingRetryRequired));
-                Assert.AreEqual(Visibility.Visible, banner.Visibility);
-                Assert.AreEqual(Resources.Settings_processing_retry, banner.Content);
-            }
             try
             {
                 window = new SettingsWindow(restoreDialogs) { DataContext = settings, PlaylistWorkspace = owner.PlaylistWorkspace };
@@ -5117,40 +5109,37 @@ public sealed class SettingsWindowPresentationTests
                 settings.KeepBeatorajaBmtFilesWhenOutputDisabled = false;
                 ClickConfirm();
                 Assert.AreEqual(1, failures.Count);
-                AssertRetryBanner();
                 Assert.IsNotNull(window.PlaylistWorkspace.PlaylistTreeTables);
                 byte[] confirmedBeforeRestore = File.ReadAllBytes(config);
                 int savesBeforeRestore = context.SettingsSession.SaveCount;
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.HandlePlaylistRestoreAsync(), "restore preserves pending repair");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.HandlePlaylistRestoreAsync(), "restore after BMT failure");
                 Assert.IsTrue(window.IsVisible);
-                Assert.AreEqual(0, restoreDialogs.ConfirmationRequests.Count, "未了修復がある間は復元確認へ進みません。");
-                Assert.AreEqual(0, restoreDialogs.FileRequests.Count, "未了修復がある間は復元pickerを開きません。");
+                Assert.AreEqual(1, restoreDialogs.ConfirmationRequests.Count, "過去BMT失敗だけでは復元確認を拒否しません。");
+                Assert.AreEqual(0, restoreDialogs.FileRequests.Count, "既存の復元確認の取消ではpickerを開きません。");
                 Assert.AreEqual(0, restoreDialogs.MessageRequests.Count, "終了通知へ進みません。");
                 Assert.AreEqual(savesBeforeRestore, context.SettingsSession.SaveCount);
                 CollectionAssert.AreEqual(confirmedBeforeRestore, File.ReadAllBytes(config));
-                Assert.AreEqual(1, operations, "復元拒否で修復を再開しません。");
-                Assert.AreEqual(1, failures.Count, "復元拒否で保存・処理の新しい失敗を作りません。");
-                AssertRetryBanner();
-                Assert.IsFalse(settings.IsBeatorajaSelectionEnabled);
+                Assert.AreEqual(1, operations, "復元確認の取消でBMTを再実行しません。");
+                Assert.AreEqual(1, failures.Count, "復元確認の取消で保存・処理の新しい失敗を作りません。");
+                Assert.IsTrue(settings.IsBeatorajaSelectionEnabled);
                 Settings fresh = PortableSettingsPersistenceTests.OpenSettings(config);
                 Assert.IsFalse(fresh.KeepBeatorajaBmtFilesWhenOutputDisabled);
-                window.CloseForOwnerShutdown();
+                window.Close();
                 window = new SettingsWindow(restoreDialogs) { DataContext = settings, PlaylistWorkspace = owner.PlaylistWorkspace };
                 scope.ShowAndWaitForContentRendered(window);
-                AssertRetryBanner();
                 Assert.IsFalse(FindDescendants<Button>(window).Single(button => Equals(button.Tag, "cancel:bmt")).IsEnabled);
-                Assert.IsTrue(FindDescendants<Button>(window).Single(button => Equals(button.Tag, "confirm:bmt")).IsEnabled, "差分なしでも保存後の必要処理を修復できます。");
+                Assert.IsTrue(FindDescendants<Button>(window).Single(button => Equals(button.Tag, "confirm:bmt")).IsEnabled, "差分なしでも現在設定から全表を明示更新できます。");
                 fail = false;
-                using (var blockedSettings = new FileStream(config, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) { ClickConfirm(); }
+                Assert.AreEqual(1, operations, "再表示は自動更新しません。");
+                ClickConfirm();
                 Assert.AreEqual(2, operations);
-                Assert.AreEqual(1, failures.Count, "成功媒体を再保存せず同じ操作だけを再試行します。");
-                Assert.AreEqual(false, settings.IsBmtProcessingRetryRequired);
+                Assert.AreEqual(1, failures.Count, "次の明示更新が成功し、新しい失敗を通知しません。");
                 Assert.IsTrue(settings.IsEditCancellationEnabled);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.HandlePlaylistRestoreAsync(), "restore allowed after explicit repair");
-                Assert.AreEqual(1, restoreDialogs.ConfirmationRequests.Count, "自身の明示修復成功後は復元確認へ進めます。");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.HandlePlaylistRestoreAsync(), "restore after explicit current update");
+                Assert.AreEqual(2, restoreDialogs.ConfirmationRequests.Count, "明示更新後も通常の復元確認へ進めます。");
                 Assert.AreEqual(0, restoreDialogs.FileRequests.Count, "確認取消なので実復元へ進みません。");
                 Assert.AreEqual(2, operations);
-                Assert.AreEqual(savesBeforeRestore, context.SettingsSession.SaveCount);
+                Assert.IsTrue(context.SettingsSession.SaveCount >= savesBeforeRestore);
                 Assert.IsTrue(window.IsVisible);
             }
             finally
@@ -5775,10 +5764,11 @@ public sealed class SettingsWindowPresentationTests
         {
         }
 
-        public Task ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability, bool forceProjection = false, BeatorajaBmtOptionsSnapshot? options = null)
-        {
-            return ExportOperation?.Invoke() ?? Task.CompletedTask;
-        }
+        public Task<BeatorajaBmtPreparation> PrepareBeatorajaBmtSettingsAsync(BeatorajaBmtOptionsSnapshot previous, BeatorajaBmtOptionsSnapshot target, LibraryFileMutationCapability capability)
+            => Task.FromResult(new BeatorajaBmtPreparation(previous, target, [], []));
+
+        public Task CompleteBeatorajaBmtSettingsAsync(BeatorajaBmtPreparation preparation, LibraryFileMutationCapability capability)
+            => ExportOperation?.Invoke() ?? Task.CompletedTask;
 
         public Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string operationName) => operation();
 

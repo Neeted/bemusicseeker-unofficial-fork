@@ -3141,10 +3141,6 @@ public class Resources
     /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
     public static string Settings_cancel_changes => ResourceManager.GetString("Settings_cancel_changes", resourceCulture);
     /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
-    public static string Settings_repair_related_save => ResourceManager.GetString("Settings_repair_related_save", resourceCulture);
-    /// <summary>保存後に未完了となった局所処理の再試行案内を取得します。</summary>
-    public static string Settings_processing_retry => ResourceManager.GetString("Settings_processing_retry", resourceCulture);
-    /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
     public static string Settings_replacement_install => ResourceManager.GetString("Settings_replacement_install", resourceCulture);
     /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
     public static string Settings_use_on_start => ResourceManager.GetString("Settings_use_on_start", resourceCulture);
@@ -3183,4 +3179,8 @@ public class Resources
     public static string Settings_lr2_detailed_paths => ResourceManager.GetString(nameof(Settings_lr2_detailed_paths), resourceCulture);
     /// <summary>終了時の未確定候補の破棄を既存確認へ併記する案内です。</summary>
     public static string Settings_candidates_discarded_on_exit => ResourceManager.GetString(nameof(Settings_candidates_discarded_on_exit), resourceCulture);
+    /// <summary>BMT設定の保存後にURL切替が失敗し、旧URL残存の可能性と失敗後の追加整理を行わなかったことを伝えます。</summary>
+    public static string Settings_bmt_url_switch_failed => ResourceManager.GetString(nameof(Settings_bmt_url_switch_failed), resourceCulture);
+    /// <summary>設定採用後のBMT部分失敗を、URL残存と物理ファイル残存で区別する案内です。</summary>
+    public static string Settings_bmt_files_remain => ResourceManager.GetString(nameof(Settings_bmt_files_remain), resourceCulture);
 }

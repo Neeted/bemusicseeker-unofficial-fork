@@ -22,6 +22,7 @@ using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using ManagedBass;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json.Linq;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 using SQLite;
@@ -583,41 +584,82 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>不正なscore候補もBMT確定を妨げません。同rootのA→B→Cと現在先の再設定は各確定Task内で旧管理物・両表の内容とhash方式・台帳・URL・設定を揃え、管理外を保持します。保存後失敗は捕捉済みの先とhash方式で修復し、無効保持・正本hash・同値の非再保存も保ちます。</summary>
+    /// <summary>準備・設定保存・URL切替・旧先整理の実媒体故障を区別し、採用点、管理外保全、最新入力への次変更を保証します。同先の形式変更/再更新は全表と正本hashを確認します。</summary>
     [DataTestMethod]
-    [DataRow(false, false)]
-    [DataRow(true, false)]
-    [DataRow(false, true)]
-    public async Task BmtConfirmation_ReoutputsAllTablesAndRepairsPartialProjectionWithoutSavingAgain(bool failSecondWrite, bool keepDisabledOutput)
+    [DataRow("success")]
+    [DataRow("prepare-file")]
+    [DataRow("prepare-manifest")]
+    [DataRow("save")]
+    [DataRow("root-prepare-file")] // score使用ONの新rootでも、準備失敗は採用・score読込みより前に終えます。
+    [DataRow("root-save")] // 新先の準備後に設定保存だけを失敗させ、旧root採用を保ちます。
+    [DataRow("same-root-url")]
+    [DataRow("new-root-url")]
+    [DataRow("old-root-url")]
+    [DataRow("cleanup")]
+    [DataRow("shared-output")]
+    [DataRow("same-output")]
+    [DataRow("register-off")]
+    [DataRow("disable-keep")]
+    [DataRow("disable-remove")]
+    [DataRow("disable-missing-runtime")] // 旧rootのjarだけが失われても、必要URL解除の無作用を成功にしません。
+    [DataRow("old-root-missing-runtime")] // 別rootへの採用後も、旧URL解除未完了なら旧ファイルを保持します。
+    [DataRow("keep-missing-runtime")] // 保持ONは構成対象外でもURL/ファイルを変更しません。
+    [DataRow("no-owned-urls-missing-runtime")] // URL所有がないfiles-only台帳はURL解除を必要条件にしません。
+    [DataRow("empty-old-root")] // 未指定の旧rootへURL同期を要求せず、有効な新rootへ移行できます。
+    public async Task BmtSettingsAdoption_PreservesAdoptedMediaAndAllowsCurrentNextInput(string scenario)
     {
         string root = CreateTemporaryRoot();
         MainWindowViewModel? owner = null;
         BMSPlaylist? playlist = null;
+        Exception? primaryFailure = null;
+        var cleanupFailures = new List<Exception>();
+        void Cleanup(Action action) { try { action(); } catch (Exception failure) { cleanupFailures.Add(failure); } }
         try
         {
-            string beatoraja = Path.Combine(root, "beatoraja");
-            string previousOutput = Path.Combine(beatoraja, "table");
-            string output = Path.Combine(beatoraja, "replacement-table");
-            Directory.CreateDirectory(previousOutput);
-            Directory.CreateDirectory(output);
-            File.WriteAllText(Path.Combine(beatoraja, "beatoraja.jar"), string.Empty);
-            string config = Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName);
-            File.WriteAllText(config, "{\"tablepath\":\"table\",\"tableURL\":[\"https://example.com/unmanaged\"]}");
+            string oldRoot = Directory.CreateDirectory(Path.Combine(root, "beatoraja-A")).FullName;
+            string nextRoot = scenario is "new-root-url" or "old-root-url" or "shared-output" or "root-prepare-file" or "root-save" or "old-root-missing-runtime" or "empty-old-root"
+                ? Directory.CreateDirectory(Path.Combine(root, "beatoraja-B")).FullName : oldRoot;
+            string oldOutput = Directory.CreateDirectory(Path.Combine(oldRoot, "table")).FullName;
+            bool keepDisabled = scenario is "disable-keep" or "keep-missing-runtime";
+            bool removeDisabled = scenario is "disable-remove" or "disable-missing-runtime" or "no-owned-urls-missing-runtime";
+            bool sameOutput = scenario is "same-output" or "shared-output" or "register-off" || keepDisabled || removeDisabled;
+            string output = sameOutput ? oldOutput : Directory.CreateDirectory(Path.Combine(nextRoot, "replacement")).FullName;
+            const string unmanagedUrl = "https://example.invalid/user-first";
+            const string otherUrl = "https://example.invalid/user-second";
+            const string obsoleteUrl = "https://example.invalid/obsolete";
+            foreach (string path in new[] { oldRoot, nextRoot }.Distinct())
+            {
+                File.WriteAllText(Path.Combine(path, "beatoraja.jar"), string.Empty);
+                File.WriteAllText(Path.Combine(path, BeatorajaConfigService.ConfigFileName), new Newtonsoft.Json.Linq.JObject
+                { ["tablepath"] = oldOutput, ["tableURL"] = new Newtonsoft.Json.Linq.JArray(unmanagedUrl, otherUrl) }.ToString());
+            }
+            string config = Path.Combine(nextRoot, BeatorajaConfigService.ConfigFileName);
+            string oldConfig = Path.Combine(oldRoot, BeatorajaConfigService.ConfigFileName);
             string settingsPath = Path.Combine(root, "settings", "user.config");
             Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(settingsPath));
-            values.BeatorajaRootPath = beatoraja;
-            values.BeatorajaBmtTablePath = previousOutput;
+            values.BeatorajaRootPath = oldRoot;
+            values.BeatorajaBmtTablePath = oldOutput;
             values.EnableBeatorajaBmtOutput = true;
             values.RegisterBeatorajaBmtUrls = true;
             values.BeatorajaBmtHashOutputMode = "Original";
-            bool initialKeepDisabledFiles = values.KeepBeatorajaBmtFilesWhenOutputDisabled;
+            bool originalKeep = values.KeepBeatorajaBmtFilesWhenOutputDisabled;
+            if (scenario is "root-prepare-file" or "root-save")
+            {
+                foreach (string path in new[] { oldRoot, nextRoot })
+                {
+                    string playerPath = Directory.CreateDirectory(Path.Combine(path, "player", "player")).FullName;
+                    File.WriteAllBytes(Path.Combine(playerPath, "score.db"), []);
+                }
+                values.UseBeatorajaScoreDb = true;
+                values.BeatorajaPlayerId = "player";
+                values.BeatorajaScoreDbPath = Path.Combine(oldRoot, "player", "player", "score.db");
+            }
             values.Save();
-            var session = new CountingSettingsEditSession(values) { PersistOwnedValues = true };
             List<Exception> failures = [];
-            TestUiDispatcherHost.Invoke(() => owner = CreateViewModel(session, firstStartup: false, reportSettingsApplyFailure: failures.Add,
-                playbackRuntimePort: new TestSettingsDialogPlaybackRuntimePort()));
+            TestUiDispatcherHost.Invoke(() => owner = CreateViewModel(new CountingSettingsEditSession(values) { PersistOwnedValues = true },
+                firstStartup: false, reportSettingsApplyFailure: failures.Add, playbackRuntimePort: new TestSettingsDialogPlaybackRuntimePort(),
+                dialogs: new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) }));
             Assert.IsNotNull(owner);
-            SettingsDialogViewModel dialog = owner.SettingDialog;
             SetActiveLibraryProfile(owner, true);
             string db = BmsPlaylistTestSupport.CreateTempSongDbPath(root);
             PlaylistPersistenceRepository.EnsureSchema(db);
@@ -634,314 +676,201 @@ public sealed partial class SettingDialogEditCompletionTests
             foreach (BMSTable table in tables) { playlist.BMSTables.Add(table); }
             playlist.CommitBMSTablesWithEntriesToDB(tables);
             await playlist.BmtOutput.ExportAllAsync("initial-original");
-            string previousManifestPath = Path.Combine(previousOutput, BmtTableExportService.ManifestFileName);
-            var previousManifest = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(previousManifestPath));
-            // 現在の表にはない旧管理URLを含め、新旧に共通するURLの再登録だけでは整理漏れを隠せない入力にします。
-            const string obsoleteUrl = "https://example.com/previously-managed";
-            File.WriteAllText(Path.Combine(previousOutput, "obsolete.bmt"), "old managed output");
-            ((Newtonsoft.Json.Linq.JArray)previousManifest["files"]!).Add("obsolete.bmt");
-            previousManifest["playlists"]!["obsolete"] = new Newtonsoft.Json.Linq.JObject { ["file"] = "obsolete.bmt", ["url"] = obsoleteUrl };
-            File.WriteAllText(previousManifestPath, previousManifest.ToString());
-            BeatorajaConfigService.SyncTableUrls(beatoraja, [.. BeatorajaConfigService.ReadTableUrls(beatoraja), obsoleteUrl], []);
-            string oldUnmanaged = Path.Combine(previousOutput, "user.txt");
-            string newUnmanaged = Path.Combine(output, "user.txt");
-            File.WriteAllText(oldUnmanaged, "old unmanaged");
-            File.WriteAllText(newUnmanaged, "new unmanaged");
+            string oldManifestPath = Path.Combine(oldOutput, BmtTableExportService.ManifestFileName);
+            var oldManifest = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(oldManifestPath));
+            string obsoleteFile = Path.Combine(oldOutput, "obsolete.bmt");
+            File.WriteAllText(obsoleteFile, "old managed");
+            ((Newtonsoft.Json.Linq.JArray)oldManifest["files"]!).Add("obsolete.bmt");
+            oldManifest["playlists"]!["obsolete"] = new Newtonsoft.Json.Linq.JObject { ["file"] = "obsolete.bmt", ["url"] = obsoleteUrl };
+            File.WriteAllText(oldManifestPath, oldManifest.ToString());
+            BeatorajaConfigService.SyncTableUrls(oldRoot, [.. BeatorajaConfigService.ReadTableUrls(oldRoot), obsoleteUrl], []);
+            string unmanagedFile = Path.Combine(oldOutput, "user.bmt");
+            File.WriteAllBytes(unmanagedFile, [1, 255, 42]);
+            if (scenario is "no-owned-urls-missing-runtime" or "empty-old-root")
+            {
+                BeatorajaConfigService.SyncTableUrls(oldRoot, [], BmtTableExportService.ReadManagedTableUrls(oldOutput).Select(entry => entry.Url));
+                if (scenario == "no-owned-urls-missing-runtime")
+                {
+                    oldManifest["playlists"] = new Newtonsoft.Json.Linq.JObject();
+                    File.WriteAllText(oldManifestPath, oldManifest.ToString());
+                }
+                else { values.BeatorajaRootPath = string.Empty; values.Save(); }
+            }
+            if (scenario.EndsWith("missing-runtime", StringComparison.Ordinal)) { File.Delete(Path.Combine(oldRoot, "beatoraja.jar")); }
+            Dictionary<string, byte[]> beforeFiles = Directory.GetFiles(oldOutput).ToDictionary(path => path, File.ReadAllBytes);
+            string[] beforeUrls = BeatorajaConfigService.ReadTableUrls(oldRoot).ToArray();
             var configDocument = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config));
-            configDocument["tablepath"] = "replacement-table";
+            configDocument["tablepath"] = scenario == "same-output" ? output.ToUpperInvariant() + Path.DirectorySeparatorChar : output;
             File.WriteAllText(config, configDocument.ToString());
-            var presentation = new RecordingSettingsDialogPresentationPort();
-            owner.SettingDialog.AttachPresentationPort(presentation);
-            if (keepDisabledOutput)
+            byte[] configBefore = File.ReadAllBytes(config);
+            string targetManifest = Path.Combine(output, BmtTableExportService.ManifestFileName);
+            string? blockedPath = scenario switch
             {
-                Dictionary<string, byte[]> previousFiles = Directory.GetFiles(previousOutput).ToDictionary(path => path, File.ReadAllBytes);
-                string[] previousUrls = BeatorajaConfigService.ReadTableUrls(beatoraja).ToArray();
-                dialog.EnableBeatorajaBmtOutput = false;
-                dialog.KeepBeatorajaBmtFilesWhenOutputDisabled = true;
-                await dialog.CommitBmtSettingsAsync();
-                Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
-                Assert.IsFalse(dialog.IsBmtProcessingRetryRequired);
-                Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(settingsPath).EnableBeatorajaBmtOutput);
-                foreach ((string path, byte[] contents) in previousFiles) { CollectionAssert.AreEqual(contents, File.ReadAllBytes(path)); }
-                CollectionAssert.AreEquivalent(previousFiles.Keys.ToArray(), Directory.GetFiles(previousOutput));
-                CollectionAssert.AreEqual(previousUrls, BeatorajaConfigService.ReadTableUrls(beatoraja).ToArray());
-                Assert.IsFalse(File.Exists(Path.Combine(output, BmtTableExportService.ManifestFileName)));
-                Assert.AreEqual("new unmanaged", File.ReadAllText(newUnmanaged));
-                return;
+                "prepare-file" or "root-prepare-file" => Path.Combine(output, BmtTableExportService.CreatePlaylistExportMetadata(tables[1]).FileName),
+                "prepare-manifest" => targetManifest,
+                "save" or "root-save" => settingsPath,
+                "same-root-url" or "new-root-url" => config,
+                "old-root-url" => oldConfig,
+                "cleanup" or "disable-remove" => obsoleteFile,
+                _ => null
+            };
+            if (scenario is "prepare-file" or "root-prepare-file" && blockedPath is string blockedFile) { File.Copy(Path.Combine(oldOutput, BmtTableExportService.CreatePlaylistExportMetadata(tables[1]).FileName), blockedFile); }
+            if (scenario == "prepare-manifest") { File.WriteAllText(targetManifest, "{\"files\":[],\"playlists\":{}}"); }
+            SettingsDialogViewModel dialog = owner.SettingDialog;
+            dialog.UseExternalPanelImage = true;
+            dialog.BeatorajaPlayerId = "invalid-score-draft";
+            bool rootChange = nextRoot != oldRoot;
+            if (!rootChange)
+            {
+                dialog.BeatorajaBmtHashOutputMode = "PreferSha256Only";
+                dialog.RegisterBeatorajaBmtUrls = scenario != "register-off";
+                dialog.KeepBeatorajaBmtFilesWhenOutputDisabled = keepDisabled;
+                dialog.EnableBeatorajaBmtOutput = !keepDisabled && !removeDisabled;
             }
-            // スコアの未成立候補があっても、次のBMT確定は確定rootと自身の候補で移行できます。
-            dialog.UseBeatorajaScoreDb = true;
-            Assert.IsFalse(dialog.IsScoreSelectionValid);
-            owner.SettingDialog.BeatorajaBmtHashOutputMode = "PreferSha256Only";
-            string secondName = previousManifest["playlists"]?["2"]?["file"]?.ToObject<string>() ?? throw new AssertFailedException("二表目の実出力台帳がありません。");
-            string secondFile = Path.Combine(output, secondName);
-            File.Copy(Path.Combine(previousOutput, secondName), secondFile);
-            int outputWarnings = 0;
-            owner.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += (_, request) => outputWarnings += request.Receipt.Notifications.Count;
-            using (FileStream? blockedSecond = failSecondWrite ? new FileStream(secondFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite) : null)
-            { await owner.SettingDialog.CommitBmtSettingsAsync(); }
-            if (!failSecondWrite) { AssertCompletedOutput(output, previousOutput); }
-            if (failSecondWrite)
+            bool? preparedAtAdoption = null, oldFilesAtAdoption = null, oldUrlsAtAdoption = null;
+            void ObserveAdoption(object? sender, PropertyChangedEventArgs args)
             {
-                Assert.IsTrue(outputWarnings + failures.Count > 0, "実出力の途中失敗を通知先へ渡します。");
-                Assert.IsTrue(dialog.IsBmtProcessingRetryRequired, "実投影失敗はBMT欄の再試行案内にも残します。");
-                Assert.IsFalse(dialog.IsBeatorajaSelectionEnabled);
-                Assert.IsTrue(dialog.CanConfirmBmtSettings, "同じrootのBMT修正・再試行は受け付けます。");
-                dialog.BeatorajaRootPath = Path.Combine(root, "other-beatoraja");
-                Assert.AreEqual(beatoraja, dialog.BeatorajaRootPath, "未了の出力先をroot変更で取りこぼしません。");
-                configDocument = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config));
-                configDocument["tablepath"] = "moved-again";
-                File.WriteAllText(config, configDocument.ToString());
-                dialog.SetPresentationActive(false);
-                dialog.SetPresentationActive(true);
-                dialog.RequireCompleteUsedResourcesForAutoInstall = !dialog.RequireCompleteUsedResourcesForAutoInstall;
-                Assert.IsTrue(dialog.IsBmtProcessingRetryRequired, "再表示や別項目の保存は未了投影を再開しません。");
-                Settings saved = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
-                Assert.AreEqual(output, saved.BeatorajaBmtTablePath);
-                Assert.AreEqual("PreferSha256Only", saved.BeatorajaBmtHashOutputMode);
-                // 初回の実ファイルロック失敗は対象の旧形式を保ちます。次のURL同期失敗より前に観測します。
-                using (var oldStream = new System.IO.Compression.GZipStream(File.OpenRead(secondFile), System.IO.Compression.CompressionMode.Decompress))
-                using (var oldReader = new StreamReader(oldStream))
-                { Assert.IsNotNull(Newtonsoft.Json.Linq.JObject.Parse(oldReader.ReadToEnd()).SelectToken("folder[0].songs[0].md5")); }
-                string currentConfig = File.ReadAllText(config);
-                try
+                if (args.PropertyName != (rootChange ? nameof(Settings.BeatorajaRootPath) : nameof(Settings.BeatorajaBmtTablePath))) { return; }
+                preparedAtAdoption = File.Exists(targetManifest) && tables.All(table => File.Exists(Path.Combine(output, BmtTableExportService.CreatePlaylistExportMetadata(table).FileName)));
+                oldFilesAtAdoption = File.Exists(obsoleteFile);
+                oldUrlsAtAdoption = BeatorajaConfigService.ReadTableUrls(oldRoot).Contains(obsoleteUrl);
+            }
+            values.PropertyChanged += ObserveAdoption;
+            try
+            {
+                using FileStream? blocked = blockedPath == null ? null : new FileStream(blockedPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                if (rootChange) { await dialog.CommitBeatorajaRootSettingsAsync(nextRoot); }
+                else { await dialog.CommitBmtSettingsAsync(); }
+                bool adopted = scenario is not ("prepare-file" or "prepare-manifest" or "save" or "root-prepare-file" or "root-save");
+                Settings reader = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                Assert.AreEqual(Path.TrimEndingDirectorySeparator(adopted ? output : oldOutput), Path.TrimEndingDirectorySeparator(reader.BeatorajaBmtTablePath), ignoreCase: true);
+                Assert.AreEqual(adopted ? nextRoot : oldRoot, reader.BeatorajaRootPath);
+                Assert.AreEqual(!adopted || !keepDisabled && !removeDisabled, reader.EnableBeatorajaBmtOutput);
+                Assert.AreEqual(adopted && !rootChange ? keepDisabled : originalKeep, reader.KeepBeatorajaBmtFilesWhenOutputDisabled);
+                Assert.AreEqual(!(adopted && scenario == "register-off"), reader.RegisterBeatorajaBmtUrls);
+                Assert.AreEqual(adopted && !rootChange ? "PreferSha256Only" : "Original", reader.BeatorajaBmtHashOutputMode);
+                Assert.IsTrue(dialog.UseExternalPanelImage);
+                Assert.IsFalse(reader.UseExternalPanelImage);
+                if (!rootChange) { Assert.AreEqual("invalid-score-draft", dialog.BeatorajaPlayerId); }
+                if (adopted && !sameOutput)
                 {
-                    File.WriteAllText(config, "{ invalid JSON");
-                    dialog.SetPresentationActive(false);
-                    dialog.SetPresentationActive(true);
-                    Assert.IsTrue(dialog.CanConfirmBmtSettings, "保存済み要求の再試行入口は現在configの新規確定用検証で閉じません。");
-                    int failuresBeforeInvalidConfigRetry = outputWarnings + failures.Count;
+                    Assert.AreEqual(true, preparedAtAdoption, "採用公開時には必要ファイルと管理情報が既にあります。");
+                    Assert.AreEqual(true, oldFilesAtAdoption);
+                    Assert.AreEqual(beforeUrls.Contains(obsoleteUrl), oldUrlsAtAdoption);
+                }
+                bool urlFailure = scenario is "same-root-url" or "new-root-url" or "old-root-url" or "disable-missing-runtime" or "old-root-missing-runtime";
+                bool hasFailure = !adopted || urlFailure || scenario is "cleanup" or "disable-remove";
+                Assert.AreEqual(hasFailure ? 1 : 0, failures.Count, "old URL remains=" + BeatorajaConfigService.ReadTableUrls(oldRoot).Contains(obsoleteUrl)
+                    + "; old file remains=" + File.Exists(obsoleteFile) + "; adopted enabled=" + reader.EnableBeatorajaBmtOutput
+                    + Environment.NewLine + string.Join(Environment.NewLine, failures));
+                if (!adopted || urlFailure)
+                {
+                    Assert.IsTrue(File.Exists(obsoleteFile));
+                    foreach ((string path, byte[] bytes) in beforeFiles) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
+                    if (scenario is "prepare-file" or "prepare-manifest" or "root-prepare-file")
+                    {
+                        Assert.IsTrue(File.Exists(Path.Combine(output, BmtTableExportService.CreatePlaylistExportMetadata(tables[0]).FileName)), "新先の一部実生成後に失敗させます。");
+                        if (scenario == "prepare-manifest") { Assert.AreEqual(0, BmtTableExportService.ReadManagedTableUrls(output).Count, "置換失敗で旧台帳を維持します。"); }
+                    }
+                    CollectionAssert.AreEqual(beforeUrls, BeatorajaConfigService.ReadTableUrls(oldRoot).ToArray());
+                    if (scenario is "save" or "root-save") { Assert.IsTrue(File.Exists(targetManifest)); Assert.AreEqual(2, Directory.GetFiles(output, "*.bmt").Length); }
+                    if (urlFailure) { StringAssert.Contains(failures[0].Message, Resources.Settings_bmt_url_switch_failed); }
+                    if (scenario is "same-root-url" or "new-root-url") { CollectionAssert.AreEqual(configBefore, File.ReadAllBytes(config)); }
+                    if (scenario is "old-root-url" or "old-root-missing-runtime") { CollectionAssert.Contains(BeatorajaConfigService.ReadTableUrls(nextRoot).ToArray(), "bemusicseeker://playlist/1"); }
+                }
+                else if (keepDisabled)
+                {
+                    foreach (KeyValuePair<string, byte[]> file in beforeFiles) { CollectionAssert.AreEqual(file.Value, File.ReadAllBytes(file.Key)); }
+                    CollectionAssert.AreEqual(beforeUrls, BeatorajaConfigService.ReadTableUrls(oldRoot).ToArray());
+                    Assert.IsFalse(reader.EnableBeatorajaBmtOutput);
+                }
+                else
+                {
+                    string[] expected = scenario == "register-off" || removeDisabled ? [unmanagedUrl, otherUrl]
+                        : [unmanagedUrl, otherUrl, "bemusicseeker://playlist/1", "bemusicseeker://playlist/2"];
+                    CollectionAssert.AreEqual(expected, BeatorajaConfigService.ReadTableUrls(nextRoot).ToArray());
+                    if (rootChange) { CollectionAssert.AreEqual(new[] { unmanagedUrl, otherUrl }, BeatorajaConfigService.ReadTableUrls(oldRoot).ToArray()); }
+                    if (scenario is "cleanup" or "disable-remove")
+                    { Assert.IsTrue(File.Exists(obsoleteFile)); StringAssert.Contains(failures[0].Message, Resources.Settings_bmt_files_remain); }
+                    else { Assert.IsFalse(File.Exists(obsoleteFile)); }
+                    if (!removeDisabled) { AssertProjection(output, rootChange ? "Original" : "PreferSha256Only"); }
+                }
+                CollectionAssert.AreEqual(new byte[] { 1, 255, 42 }, File.ReadAllBytes(unmanagedFile));
+                if (scenario == "cleanup")
+                {
+                    string finalOutput = Path.Combine(nextRoot, "C");
+                    var currentConfig = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config));
+                    currentConfig["tablepath"] = finalOutput;
+                    File.WriteAllText(config, currentConfig.ToString());
                     await dialog.CommitBmtSettingsAsync();
-                    Assert.IsTrue(outputWarnings + failures.Count > failuresBeforeInvalidConfigRetry, "必要なURL同期の読取失敗を成功へ置き換えません。");
-                    Assert.IsTrue(dialog.IsBmtProcessingRetryRequired, "同期失敗後も当初の旧新出力先を明示再試行できます。");
-                    Assert.IsTrue(dialog.CanConfirmBmtSettings);
-                }
-                finally
-                {
-                    File.WriteAllText(config, currentConfig);
+                    Assert.AreEqual(finalOutput, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BeatorajaBmtTablePath);
+                    AssertProjection(finalOutput, "PreferSha256Only");
+                    Assert.AreEqual(1, failures.Count, "過去のA残存は次のC確定を拒否しません。");
                 }
             }
-            // 同値の明示再更新は成功媒体を再保存せず、既存ファイルに外部変更があっても全表を再投影します。
-            string firstFile = Directory.GetFiles(output, "*.bmt").Single(path => path != secondFile);
-            int failuresBeforeRepair = failures.Count;
-            if (!failSecondWrite) { Assert.AreEqual(0, failuresBeforeRepair); }
-            File.WriteAllText(firstFile, "projection requires repair");
-            using (var blockedSettings = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-            { await owner.SettingDialog.CommitBmtSettingsAsync(); }
-            AssertCompletedOutput(output, previousOutput);
-            Assert.IsFalse(dialog.IsBmtProcessingRetryRequired, "全表の明示再更新が成功した時だけ案内を解消します。");
-            Assert.IsTrue(dialog.IsBeatorajaSelectionEnabled);
-            Assert.AreEqual(failuresBeforeRepair, failures.Count, string.Join(Environment.NewLine, failures));
-            Assert.IsFalse(File.Exists(previousManifestPath));
-            Assert.AreEqual(0, Directory.GetFiles(previousOutput, "*.bmt").Length);
-            Assert.AreEqual("old unmanaged", File.ReadAllText(oldUnmanaged));
-            Assert.AreEqual("new unmanaged", File.ReadAllText(newUnmanaged));
-            Assert.IsFalse(Directory.Exists(Path.Combine(beatoraja, "moved-again")), "外部configの後続変更は未了要求の新先を置き換えません。");
-            values.Reload();
-            Assert.AreEqual("PreferSha256Only", values.BeatorajaBmtHashOutputMode);
-            Assert.AreEqual(output, values.BeatorajaBmtTablePath);
-            string[] files = Directory.GetFiles(output, "*.bmt");
-            Assert.AreEqual(2, files.Length);
+            finally { values.PropertyChanged -= ObserveAdoption; }
+            if (scenario is "prepare-file" or "same-root-url")
+            {
+                string finalOutput = Path.Combine(nextRoot, "latest-C");
+                var latestConfig = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config));
+                latestConfig["tablepath"] = finalOutput;
+                File.WriteAllText(config, latestConfig.ToString());
+                tables[0].entries.Single().title = "Latest saved song";
+                playlist.CommitBMSTablesWithEntriesToDB(tables);
+                dialog.BeatorajaBmtHashOutputMode = "PreferSha256Only";
+                await dialog.CommitBmtSettingsAsync();
+                Assert.AreEqual(finalOutput, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BeatorajaBmtTablePath);
+                AssertProjection(finalOutput, "PreferSha256Only");
+                Assert.AreEqual(1, failures.Count, "前回の準備/URL失敗で次の最新Cを固定・拒否しません。");
+                if (scenario == "same-root-url") { Assert.IsTrue(File.Exists(obsoleteFile), "今回と無関係になった過去Aの回収を推測しません。"); }
+            }
+            if (scenario == "same-output")
+            {
+                File.WriteAllText(Path.Combine(output, BmtTableExportService.CreatePlaylistExportMetadata(tables[0]).FileName), "external corruption");
+                await dialog.CommitBmtSettingsAsync();
+                AssertProjection(output, "PreferSha256Only");
+            }
             var repository = new PlaylistPersistenceRepository(db);
             foreach (BMSTable table in tables)
             {
-                BMSTableEntry persisted = repository.LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: true).Single();
-                int id = table.playlist_id ?? throw new InvalidOperationException("入力表のIDがありません。");
-                Assert.AreEqual(id, persisted.playlist_id);
-                Assert.AreEqual(new string((char)('a' + id), 32), persisted.md5);
-                Assert.AreEqual(new string((char)('a' + id), 64), persisted.sha256);
+                BMSTableEntry stored = repository.LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: true).Single();
+                Assert.AreEqual(table.entries.Single().md5, stored.md5);
+                Assert.AreEqual(table.entries.Single().sha256, stored.sha256);
             }
-            CollectionAssert.AreEqual(new[] { "https://example.com/unmanaged", "bemusicseeker://playlist/1", "bemusicseeker://playlist/2" },
-                BeatorajaConfigService.ReadTableUrls(beatoraja).ToArray());
-            Dictionary<string, byte[]> bytes = files.ToDictionary(path => path, File.ReadAllBytes);
-            Dictionary<string, DateTime> times = files.ToDictionary(path => path, File.GetLastWriteTimeUtc);
-            configDocument = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config));
-            configDocument["tablepath"] = "replacement-table";
-            File.WriteAllText(config, configDocument.ToString());
-            await playlist.BmtOutput.ExportTablesAsync(tables, "next-same-mode");
-            foreach (string file in files)
+            void AssertProjection(string path, string mode)
             {
-                CollectionAssert.AreEqual(bytes[file], File.ReadAllBytes(file));
-                Assert.AreEqual(times[file], File.GetLastWriteTimeUtc(file));
-            }
-            string finalOutput = Directory.CreateDirectory(Path.Combine(beatoraja, "final-table")).FullName;
-            string finalUnmanaged = Path.Combine(finalOutput, "user.txt");
-            File.WriteAllBytes(finalUnmanaged, [0, 255, 17, 42]);
-            configDocument["tablepath"] = "final-table";
-            File.WriteAllText(config, configDocument.ToString());
-            await dialog.CommitBmtSettingsAsync();
-            AssertCompletedOutput(finalOutput, output);
-            // 現在先を再設定した要求も、実ファイルを全表修復してから終端します。
-            File.WriteAllText(Directory.GetFiles(finalOutput, "*.bmt")[0], "repair current output");
-            using (var blockedSettings = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-            { await dialog.CommitBmtSettingsAsync(); }
-            AssertCompletedOutput(finalOutput, output);
-
-            void AssertCompletedOutput(string currentOutput, string oldOutput)
-            {
-                Assert.IsFalse(dialog.IsBmtProcessingRetryRequired);
-                Settings saved = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
-                Assert.AreEqual(beatoraja, saved.BeatorajaRootPath);
-                Assert.AreEqual(currentOutput, saved.BeatorajaBmtTablePath);
-                Assert.IsTrue(saved.EnableBeatorajaBmtOutput);
-                Assert.IsTrue(saved.RegisterBeatorajaBmtUrls);
-                Assert.AreEqual(initialKeepDisabledFiles, saved.KeepBeatorajaBmtFilesWhenOutputDisabled);
-                Assert.AreEqual("PreferSha256Only", saved.BeatorajaBmtHashOutputMode);
-                Assert.IsFalse(File.Exists(Path.Combine(oldOutput, BmtTableExportService.ManifestFileName)));
-                Assert.AreEqual(0, Directory.GetFiles(oldOutput, "*.bmt").Length);
-                var manifest = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(Path.Combine(currentOutput, BmtTableExportService.ManifestFileName)));
-                var managedFiles = manifest["files"] as Newtonsoft.Json.Linq.JArray;
-                var managedPlaylists = manifest["playlists"] as Newtonsoft.Json.Linq.JObject;
-                Assert.IsNotNull(managedFiles);
-                Assert.IsNotNull(managedPlaylists);
-                Assert.AreEqual(2, managedFiles.Count);
-                Assert.AreEqual(2, managedPlaylists.Count);
-                CollectionAssert.AreEquivalent(new[] { "1", "2" }, managedPlaylists.Properties().Select(property => property.Name).ToArray());
-                string[] currentFiles = Directory.GetFiles(currentOutput, "*.bmt");
-                Assert.AreEqual(2, currentFiles.Length);
-                string[]? managedFileNames = managedFiles.ToObject<string[]>();
-                Assert.IsNotNull(managedFileNames);
-                CollectionAssert.AreEquivalent(currentFiles.Select(Path.GetFileName).ToArray(), managedFileNames);
-                foreach (int id in new[] { 1, 2 })
+                List<BmtTableExportService.ManagedTableUrlEntry> managed = BmtTableExportService.ReadManagedTableUrls(path);
+                Assert.AreEqual(2, managed.Count);
+                foreach (BMSTable table in tables)
                 {
-                    string expectedUrl = "bemusicseeker://playlist/" + id;
-                    var managedPlaylist = managedPlaylists[id.ToString()] as Newtonsoft.Json.Linq.JObject;
-                    Assert.IsNotNull(managedPlaylist);
-                    Assert.AreEqual(expectedUrl, managedPlaylist.Value<string>("url"));
-                    string? fileName = managedPlaylist.Value<string>("file");
-                    Assert.IsNotNull(fileName);
-                    CollectionAssert.Contains(managedFileNames, fileName);
-                    using var stream = new System.IO.Compression.GZipStream(File.OpenRead(Path.Combine(currentOutput, fileName)), System.IO.Compression.CompressionMode.Decompress);
+                    using var stream = new System.IO.Compression.GZipStream(File.OpenRead(Path.Combine(path, BmtTableExportService.CreatePlaylistExportMetadata(table).FileName)), System.IO.Compression.CompressionMode.Decompress);
                     using var reader = new StreamReader(stream);
-                    var document = Newtonsoft.Json.Linq.JObject.Parse(reader.ReadToEnd());
-                    Assert.AreEqual(expectedUrl, document.Value<string>("url"));
-                    Assert.AreEqual("Both " + id, document.Value<string>("name"));
-                    var folders = document["folder"] as Newtonsoft.Json.Linq.JArray;
-                    Assert.IsNotNull(folders);
-                    Assert.AreEqual(1, folders.Count);
-                    Assert.AreEqual("Folder", folders[0].Value<string>("name"));
-                    var songs = folders[0]["songs"] as Newtonsoft.Json.Linq.JArray;
-                    Assert.IsNotNull(songs);
-                    Assert.AreEqual(1, songs.Count);
-                    Assert.AreEqual("Song " + id, songs[0].Value<string>("title"));
-                    Assert.IsNull(songs[0]["md5"], "各確定Taskの終端時点で両表をPreferSha256Onlyへ更新します。");
-                    Assert.AreEqual(new string((char)('a' + id), 64), songs[0].Value<string>("sha256"));
+                    JToken? song = Newtonsoft.Json.Linq.JObject.Parse(reader.ReadToEnd()).SelectToken("folder[0].songs[0]");
+                    Assert.IsNotNull(song);
+                    Assert.AreEqual(table.entries.Single().title, song.Value<string>("title"));
+                    Assert.AreEqual(mode == "Original" ? table.entries.Single().md5 : null, song.Value<string>("md5"));
+                    Assert.AreEqual(table.entries.Single().sha256, song.Value<string>("sha256"));
                 }
-                CollectionAssert.AreEqual(new[] { "https://example.com/unmanaged", "bemusicseeker://playlist/1", "bemusicseeker://playlist/2" },
-                    BeatorajaConfigService.ReadTableUrls(beatoraja).ToArray());
-                CollectionAssert.AreEqual(System.Text.Encoding.UTF8.GetBytes("old unmanaged"), File.ReadAllBytes(oldUnmanaged));
-                CollectionAssert.AreEqual(System.Text.Encoding.UTF8.GetBytes("new unmanaged"), File.ReadAllBytes(newUnmanaged));
-                if (currentOutput != output) { CollectionAssert.AreEqual(new byte[] { 0, 255, 17, 42 }, File.ReadAllBytes(Path.Combine(currentOutput, "user.txt"))); }
             }
         }
+        catch (Exception failure) { primaryFailure = failure; throw; }
         finally
         {
-            playlist?.RequestShutdown("settings-bmt-projection-fixture");
+            Cleanup(() => playlist?.RequestShutdown("settings-bmt-media-fixture"));
             if (owner != null)
             {
-                TestUiDispatcherHost.Invoke(() =>
+                Cleanup(() => TestUiDispatcherHost.Invoke(() =>
                 {
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "settings-bmt-projection-owner-terminal");
-                    owner.SettingDialog.Dispose();
-                });
+                    Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "settings-bmt-media-owner-terminal"));
+                    Cleanup(owner.SettingDialog.Dispose);
+                }));
             }
-            Directory.Delete(root, recursive: true);
-        }
-    }
-
-    /// <summary>同一先のBMT無効化でURL更新が失敗しても台帳を失わず、再表示・別保存では再開せず、明示再試行だけで管理URLと管理物を除去します。</summary>
-    [TestMethod]
-    public async Task BmtDisable_SameOutputUrlFailureRetainsOwnershipUntilExplicitRetry()
-    {
-        string root = CreateTemporaryRoot();
-        MainWindowViewModel? owner = null;
-        BMSPlaylist? playlist = null;
-        try
-        {
-            string beatoraja = Directory.CreateDirectory(Path.Combine(root, "beatoraja")).FullName;
-            string output = Directory.CreateDirectory(Path.Combine(beatoraja, "table")).FullName;
-            File.WriteAllText(Path.Combine(beatoraja, "beatoraja.jar"), string.Empty);
-            string config = Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName);
-            const string unmanagedUrl = "https://example.com/unmanaged";
-            const string oldManagedUrl = "https://example.com/previously-managed";
-            File.WriteAllText(config, "{\"tablepath\":\"table\",\"tableURL\":[\"" + unmanagedUrl + "\",\"" + oldManagedUrl + "\"]}");
-            string managedFile = Path.Combine(output, "obsolete.bmt");
-            string unmanagedFile = Path.Combine(output, "user.bmt");
-            File.WriteAllText(managedFile, "managed");
-            File.WriteAllText(unmanagedFile, "unmanaged");
-            string manifest = Path.Combine(output, BmtTableExportService.ManifestFileName);
-            File.WriteAllText(manifest, new Newtonsoft.Json.Linq.JObject
+            Cleanup(() => Directory.Delete(root, recursive: true));
+            if (cleanupFailures.Count > 0)
             {
-                ["files"] = new Newtonsoft.Json.Linq.JArray("obsolete.bmt"),
-                ["playlists"] = new Newtonsoft.Json.Linq.JObject
-                {
-                    ["obsolete"] = new Newtonsoft.Json.Linq.JObject { ["url"] = oldManagedUrl, ["file"] = "obsolete.bmt" }
-                }
-            }.ToString());
-            byte[] originalManifest = File.ReadAllBytes(manifest);
-            byte[] originalConfig = File.ReadAllBytes(config);
-            string settingsPath = Path.Combine(root, "settings", "user.config");
-            Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(settingsPath));
-            values.BeatorajaRootPath = beatoraja;
-            values.BeatorajaBmtTablePath = output;
-            values.EnableBeatorajaBmtOutput = true;
-            values.KeepBeatorajaBmtFilesWhenOutputDisabled = false;
-            values.RegisterBeatorajaBmtUrls = true;
-            values.Save();
-            var session = new CountingSettingsEditSession(values) { PersistOwnedValues = true };
-            List<Exception> failures = [];
-            TestUiDispatcherHost.Invoke(() => owner = CreateViewModel(session, firstStartup: false, reportSettingsApplyFailure: failures.Add,
-                playbackRuntimePort: new TestSettingsDialogPlaybackRuntimePort()));
-            Assert.IsNotNull(owner);
-            SetActiveLibraryProfile(owner, true);
-            string db = BmsPlaylistTestSupport.CreateTempSongDbPath(root);
-            PlaylistPersistenceRepository.EnsureSchema(db);
-            playlist = AttachPlaylistTables(owner, root, existingDatabasePath: db);
-            SettingsDialogViewModel dialog = owner.SettingDialog;
-            dialog.EnableBeatorajaBmtOutput = false;
-            using (File.Open(config, FileMode.Open, FileAccess.Read, FileShare.Read))
-            {
-                await dialog.CommitBmtSettingsAsync();
+                if (primaryFailure != null) { primaryFailure.Data["CleanupFailures"] = new AggregateException(cleanupFailures); }
+                else { throw new AggregateException(cleanupFailures); }
             }
-            Assert.AreEqual(1, failures.Count, "必要URL更新の実置換失敗を設定操作の失敗として通知します。");
-            Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(settingsPath).EnableBeatorajaBmtOutput);
-            Assert.IsTrue(dialog.IsBmtProcessingRetryRequired);
-            Assert.IsTrue(dialog.CanConfirmBmtSettings);
-            CollectionAssert.AreEqual(originalManifest, File.ReadAllBytes(manifest), "URL更新前に台帳を消すと再試行入力を失います。");
-            CollectionAssert.AreEqual(originalConfig, File.ReadAllBytes(config));
-            Assert.AreEqual("managed", File.ReadAllText(managedFile));
-
-            dialog.SetPresentationActive(false);
-            dialog.SetPresentationActive(true);
-            dialog.RequireCompleteUsedResourcesForAutoInstall = !dialog.RequireCompleteUsedResourcesForAutoInstall;
-            Assert.IsTrue(dialog.IsBmtProcessingRetryRequired);
-            CollectionAssert.AreEqual(originalManifest, File.ReadAllBytes(manifest));
-            CollectionAssert.AreEqual(originalConfig, File.ReadAllBytes(config));
-            int savesBeforeRetry = session.SaveCount;
-            using (File.Open(settingsPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-            {
-                await dialog.CommitBmtSettingsAsync();
-            }
-            Assert.AreEqual(savesBeforeRetry, session.SaveCount, "保存済み無効化は再保存せず修復します。");
-            Assert.AreEqual(1, failures.Count, string.Join(Environment.NewLine, failures));
-            Assert.IsFalse(dialog.IsBmtProcessingRetryRequired);
-            Assert.IsFalse(File.Exists(manifest));
-            Assert.IsFalse(File.Exists(managedFile));
-            Assert.AreEqual("unmanaged", File.ReadAllText(unmanagedFile));
-            CollectionAssert.AreEqual(new[] { unmanagedUrl }, BeatorajaConfigService.ReadTableUrls(beatoraja).ToArray());
-        }
-        finally
-        {
-            playlist?.RequestShutdown("settings-bmt-disable-fixture");
-            if (owner != null)
-            {
-                TestUiDispatcherHost.Invoke(() =>
-                {
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "settings-bmt-disable-owner-terminal");
-                    owner.SettingDialog.Dispose();
-                });
-            }
-            Directory.Delete(root, recursive: true);
         }
     }
 
@@ -3065,11 +2994,9 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.IsTrue(settings.CanCancelBmtSettings, "取込みと無関係なBMT候補は同期取消できます。");
                     Button cancelBmt = FindDescendants<Button>(window).Single(candidateButton => Equals(candidateButton.Tag, "cancel:bmt"));
                     Assert.IsTrue(cancelBmt.IsEnabled);
-                    bool repairPending = settings.IsBmtProcessingRetryRequired;
                     cancelBmt.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     Assert.AreEqual(fixture.Settings.EnableBeatorajaBmtOutput, settings.EnableBeatorajaBmtOutput);
                     Assert.IsFalse(settings.CanCancelBmtSettings);
-                    Assert.AreEqual(repairPending, settings.IsBmtProcessingRetryRequired);
                     Assert.AreSame(terminal, settings.SettingsOperationCompletionTask);
                     Assert.IsFalse(terminal.IsCompleted);
                     Assert.AreEqual(1, confirmations);
@@ -3276,6 +3203,123 @@ public sealed partial class SettingDialogEditCompletionTests
             });
         }
         finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>標準compositionのroot確定で旧rootのURL解除だけを失敗させ、新root採用・実SQLite score反映・必要UI終端と旧BMT保持を同じTaskで確認します。</summary>
+    [TestMethod]
+    public void BeatorajaRootConfirmation_UrlFailurePublishesRealNewRootScoreBeforeTerminal()
+    {
+        string root = CreateTemporaryRoot();
+        Exception? primaryFailure = null;
+        var cleanupFailures = new List<Exception>();
+        void Cleanup(Action action) { try { action(); } catch (Exception failure) { cleanupFailures.Add(failure); } }
+        try
+        {
+            string music = Directory.CreateDirectory(Path.Combine(root, "music")).FullName;
+            string oldRoot = Directory.CreateDirectory(Path.Combine(root, "A")).FullName;
+            string newRoot = Directory.CreateDirectory(Path.Combine(root, "B")).FullName;
+            string hash = new('a', 64);
+            foreach ((string playerRoot, int perfect) in new[] { (oldRoot, 10), (newRoot, 40) })
+            {
+                File.WriteAllText(Path.Combine(playerRoot, "beatoraja.jar"), string.Empty);
+                File.WriteAllText(Path.Combine(playerRoot, BeatorajaConfigService.ConfigFileName), "{\"playername\":\"player\",\"tablepath\":\"table\",\"tableURL\":[\"https://example.invalid/user\"]}");
+                string profile = Directory.CreateDirectory(Path.Combine(playerRoot, "player", "player")).FullName;
+                using var db = new SQLiteConnection(Path.Combine(profile, "score.db"));
+                db.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
+                db.Execute("INSERT INTO score VALUES (?, 0, 4, ?, 0, 0, 0, 100, 50, 5, 1, 1)", hash, perfect);
+            }
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                string settingsPath = Path.Combine(root, "settings", "user.config");
+                Settings values = CreateValidStandaloneSettings(music, PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+                values.BeatorajaRootPath = oldRoot;
+                values.BeatorajaPlayerId = "player";
+                values.BeatorajaScoreDbPath = Path.Combine(oldRoot, "player", "player", "score.db");
+                values.UseBeatorajaScoreDb = true;
+                values.BeatorajaBmtTablePath = Path.Combine(oldRoot, "table");
+                values.EnableBeatorajaBmtOutput = true;
+                values.RegisterBeatorajaBmtUrls = true;
+                values.Save();
+                var failures = new List<Exception>();
+                var dialogs = new RecordingRootDialogService();
+                var completionUi = new MainWindowViewModelStartupProgressTests.CompletionUiScheduler(new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
+                var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values), reportSettingsApplyFailure: failures.Add,
+                    uiScheduler: completionUi, applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(), applicationPathSnapshot: TestBmsFactory.AvailableEverythingBridge,
+                    rootFileEnumerator: new FastRootFileEnumerator(), fileDbMutationDialogService: dialogs, settingsDialogService: dialogs);
+                var scoreDialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
+                var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
+                {
+                    InitialSearchTargets = [music],
+                    LibraryCreator = profile => new BMSLibrary(profile.SongDbPath, profile.Lr2ConfigOwner, profile.Lr2ScoreDbPath,
+                        null, scoreDialogs, profile.StartupRequiredFileScanReason, composition.BmsLibraryOptionsProvider, composition.UiScheduler,
+                        composition.ApplicationPathSnapshot, rootFileEnumerator: new FastRootFileEnumerator(),
+                        operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission)
+                };
+                var owner = new MainWindowViewModel(composition, factory);
+                Task? operation = null;
+                try
+                {
+                    Task<bool> initialize = owner.InitializeAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(initialize, "root-bmt-score-initialize");
+                    Assert.IsTrue(initialize.GetAwaiter().GetResult());
+                    AwaitStartupBackgroundCompletionOnDispatcher(owner, "root-bmt-score-background");
+                    BMSLibrary library = factory.CreatedLibrary ?? throw new AssertFailedException("実libraryがありません。");
+                    BMSPlaylist playlist = factory.CreatedPlaylist ?? throw new AssertFailedException("実playlistがありません。");
+                    ChartScoreSnapshot Lookup() => library.ResolveChartScoreSnapshot(ChartFileKind.Bms, Path.Combine(music, "chart.bms"), string.Empty, hash);
+                    Assert.AreEqual(20, Lookup().Score);
+                    var table = new BMSTable
+                    {
+                        playlist_id = 1,
+                        name = "Real root",
+                        Folder_order = ["Folder"],
+                        entries = [new BMSTableEntry { md5 = new string('b', 32), sha256 = hash, title = "Song", folder = "Folder" }]
+                    };
+                    playlist.BMSTables.Add(table);
+                    playlist.CommitBMSTablesWithEntriesToDB([table]);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(playlist.BmtOutput.ExportAllAsync("root-bmt-initial"), "root-bmt-initial-output");
+                    string oldFile = Path.Combine(values.BeatorajaBmtTablePath, BmtTableExportService.CreatePlaylistExportMetadata(table).FileName);
+                    completionUi.IsCompletionBoundary = () => !composition.OperationAdmission.IsActive && !composition.PlaylistOperationAdmission.IsActive;
+                    completionUi.Arm();
+                    using (File.Open(Path.Combine(oldRoot, BeatorajaConfigService.ConfigFileName), FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    {
+                        operation = owner.SettingDialog.CommitBeatorajaRootSettingsAsync(newRoot);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(completionUi.Entered.Task, operation, "root-bmt-score-required-ui"), "root-bmt-score-ui-arrival");
+                        Assert.IsFalse(operation.IsCompleted);
+                        Assert.AreEqual(newRoot, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BeatorajaRootPath);
+                        Assert.AreEqual(80, Lookup().Score);
+                        Assert.IsTrue(File.Exists(oldFile));
+                        CollectionAssert.Contains(BeatorajaConfigService.ReadTableUrls(newRoot).ToArray(), "bemusicseeker://playlist/1");
+                        CollectionAssert.Contains(BeatorajaConfigService.ReadTableUrls(oldRoot).ToArray(), "bemusicseeker://playlist/1");
+                        Assert.IsFalse(composition.OperationAdmission.IsActive);
+                        Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+                        completionUi.Release.TrySetResult();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "root-bmt-score-terminal");
+                    }
+                    Assert.AreEqual(1, failures.Count);
+                    StringAssert.Contains(failures[0].Message, Resources.Settings_bmt_url_switch_failed);
+                    Assert.AreEqual(80, Lookup().Score);
+                    Assert.IsTrue(owner.SettingDialog.IsBeatorajaSelectionEnabled);
+                }
+                finally
+                {
+                    completionUi.Release.TrySetResult();
+                    if (operation != null) { Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "root-bmt-score-operation-cleanup")); }
+                    Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "root-bmt-score-owner-cleanup"));
+                    Cleanup(owner.SettingDialog.Dispose);
+                }
+            });
+        }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            Cleanup(() => Directory.Delete(root, recursive: true));
+            if (cleanupFailures.Count > 0)
+            {
+                if (primaryFailure != null) { primaryFailure.Data["CleanupFailures"] = new AggregateException(cleanupFailures); }
+                else { throw new AggregateException(cleanupFailures); }
+            }
+        }
     }
 
     /// <summary>実score DBのA成功→BのSELECT失敗→C成功を通常設定入口で処理し、確定rootのplayerpath、関連項目だけの保存と実BMT媒体・URLへの無影響を確認します。</summary>
@@ -5006,10 +5050,11 @@ public sealed partial class SettingDialogEditCompletionTests
         {
         }
 
-        public Task ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability, bool forceProjection = false, BeatorajaBmtOptionsSnapshot? options = null)
-        {
-            return Task.CompletedTask;
-        }
+        public Task<BeatorajaBmtPreparation> PrepareBeatorajaBmtSettingsAsync(BeatorajaBmtOptionsSnapshot previous, BeatorajaBmtOptionsSnapshot target, LibraryFileMutationCapability capability)
+            => Task.FromResult(new BeatorajaBmtPreparation(previous, target, [], []));
+
+        public Task CompleteBeatorajaBmtSettingsAsync(BeatorajaBmtPreparation preparation, LibraryFileMutationCapability capability)
+            => Task.CompletedTask;
 
         public Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string operationName) =>
             operation();
