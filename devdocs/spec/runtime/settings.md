@@ -282,6 +282,8 @@ LR2で変更前に有効な `BMSInstallDir` が、今回の通常・追加・ROO
 
 カスタムフォルダ出力先は本アプリの管理領域です。通常出力先だけは従来互換のため楽曲検索に残し、追加通常出力先とルートフォルダ出力先は楽曲検索から除きます。いずれも一般ページのBMSディレクトリ一覧、導入候補、フォルダツリーには混ぜません。楽曲検索の対象とLR2の `jukebox` 登録は区別し、出力に必要な登録は維持します。
 
+一般BMS一覧と確定導入候補から除く範囲は、通常・追加・ROOTの各出力基点全体とその子孫です。ドライブルートやUNC共有ルートも同じ意味で扱い、大小文字・末尾区切りの差で除外が変わらないようにします。接頭辞だけが一致する兄弟、別ドライブ・別共有、無関係な欠落登録は保持します。実在する管理出力を導入先の保存入口へ渡した場合も拒否し、最新の確定導入先を保持します。表削除の対象範囲は基点全体ではなく[当該表ディレクトリ](../playlist/lr2-custom-folders.md#管理領域の整理)です。
+
 出力基点同士の同一・親子関係は禁止します。既存の `jukebox` 登録に対しては、次の配置だけを許可します。比較には表示用一覧で除外する前の登録を使い、現在存在しないパスも残して正規化したパス関係を検証します。
 
 | 指定する出力先と既存登録の関係 | 通常出力先・追加通常出力先 | ルートフォルダ出力先 |
@@ -319,6 +321,8 @@ BMSディレクトリの追加・削除・複数選択・D&Dは設定画面内�
 
 | 保証 | 実装 | 検証 |
 | --- | --- | --- |
+| 管理基点の形状・表記に依存しない一般候補と導入先の分離 | `CustomFolderOutputBaseSearchRootSyncService.IsSameOrChildDirectory`、`SettingsDialogViewModel` の候補投影・保存検証 | [`LR2ConfigTests`](../../../BeMusicSeeker.Tests/Lr2/LR2ConfigTests.cs) の `OutputBaseContainsDirectory_RespectsRootAndDirectoryBoundaries` は方向・区切り境界を、[`SettingDialogCustomFolderOutputBaseTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCustomFolderOutputBaseTests.cs) の `Lr2BmsDirectoryChoices_*` と `RootOutputCandidate_AcceptsDriveAndShareRootsWithoutPublishing` は実VMの両候補・管理登録保持・ルート受理を確認します。UNCは共有へ接続しません。 |
+| ドライブルートの出力確定、実在管理先の保存拒否、通常導入後の表削除保全 | 設定の局所確定、実ライブラリ、`PlaylistRemovalWorkflowOwner` | [`SettingDialogLr2OwnerTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) の `Lr2DriveRootOutput_PreservesConfirmedInstallThroughGenerationInstallationAndTableRemoval` は専用一時領域へのドライブ別名で実settings・XML・SQLite・生成物・導入済み楽曲を確認します。通常Close後の候補再構成も含み、実Windowの表示・選択接続は既存compiled系列へ分担します。 |
 | 保存前の再表示後に採用した欄の候補同期 | 設定の局所確定と各欄編集処理 | `SettingsDialogBehaviorTests.BmsConfirmation_CapturesRootsAndReplacementBeforeCloseDuringPreparation` と `SectionConfirmation_PreparationReopenAdoptsOnlySavedSection` が保存前の再表示、捕捉入力の保存、自己欄の同期と無関係な画像候補の保持を確認する。 |
 | 通常Close・Esc・再表示と受理済み入力の寿命 | 設定ViewModel・WindowとMainWindowの表示/終了接続 | `SettingsWindowPresentationTests.RunViewOperation_NormalCloseAndEscapePreserveTaskAcrossReopen` は実Close/Esc・新Window・同一Taskを、`MainWindow_NormalSettingsCloseEndsModalBeforeActualFileDiffTerminates` は実MainWindowとFileDiff・L/P・終了joinを確認する。`BackupPage_RestoreSuccessClosesOnceDespiteCompletionAndExitNoticeFailures` は必要UI待ちのClose/Esc保留を分担する。 |
 | 非同期実操作の単一受付、拒否前副作用なし、独立同期保存と終端 | `SettingsDialogViewModel.Operation`、設定Windowと各ページ | `SettingsDialogBehaviorTests`、`SettingsWindowCompiledBehaviorTests`、`SettingDialogEditCompletionTests`でVMの受付・実Radio・実入口とShell直接joinを分担する。自動音声列挙・能力照会は既存音声系列が担う。 |

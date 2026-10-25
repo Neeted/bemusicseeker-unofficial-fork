@@ -14,6 +14,28 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class LR2ConfigTests
 {
+    /// <summary>ドライブ・UNCルートと通常基点の包含を方向付きで判定し、大小文字・末尾区切りの差を吸収しつつ接頭辞兄弟や別領域を保持します。実媒体へはアクセスしません。</summary>
+    [DataTestMethod]
+    [DataRow(@"D:\", @"D:\", true)]
+    [DataRow(@"D:\", @"d:\Table", true)]
+    [DataRow(@"D:\", @"D:\Table\Level", true)]
+    [DataRow(@"D:\", @"E:\Table", false)]
+    [DataRow(@"D:\Managed", @"d:\managed\", true)]
+    [DataRow(@"D:\Managed", @"D:\Managed\Child", true)]
+    [DataRow(@"D:\Managed\", @"D:\ManagedSibling", false)]
+    [DataRow(@"D:\Managed\", @"D:\", false)]
+    [DataRow(@"\\test-server\share\", @"\\test-server\share", true)]
+    [DataRow(@"\\test-server\share\", @"\\TEST-SERVER\SHARE\Table", true)]
+    [DataRow(@"\\test-server\share\", @"\\test-server\share\Table\Level", true)]
+    [DataRow(@"\\test-server\share", @"\\test-server\share\Table", true)]
+    [DataRow(@"\\test-server\share\", @"\\test-server\share2\Table", false)]
+    [DataRow(@"\\test-server\share\", @"\\other-server\share\Table", false)]
+    [DataRow(@"\\test-server\share\Managed", @"\\test-server\share\ManagedSibling", false)]
+    public void OutputBaseContainsDirectory_RespectsRootAndDirectoryBoundaries(string parent, string candidate, bool expected)
+    {
+        Assert.AreEqual(expected, CustomFolderOutputBaseSearchRootSyncService.IsSameOrChildDirectory(candidate, parent));
+    }
+
     /// <summary>
     /// 未指定・空白・不正文字の設定パスは読取り不能として返し、設定があるという誤報を防ぐ。
     /// </summary>

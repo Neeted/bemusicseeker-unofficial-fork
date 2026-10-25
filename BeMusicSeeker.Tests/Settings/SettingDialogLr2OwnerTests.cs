@@ -1,9 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
@@ -15,6 +19,211 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class SettingDialogEditCompletionTests
 {
+    /// <summary>ルート出力への有効導入先の取込みを副作用前に拒否し、別の確定先への保存後は管理先を候補・保存から除外して通常導入と表削除を接続します。</summary>
+    /// <remarks>専用ドライブ別名、実settings/XML/SQLite、標準compositionの生成・導入・削除を通し、候補表示だけの成功や存在しない導入先による偶然の拒否を区別します。</remarks>
+    [TestMethod]
+    public void Lr2DriveRootOutput_PreservesConfirmedInstallThroughGenerationInstallationAndTableRemoval()
+    {
+        OwnedSettingsDrive? drive = null;
+        WithInitializedLr2Owner((root, values) =>
+        {
+            OwnedSettingsDrive owned = drive ?? throw new AssertFailedException("専用ドライブが未準備です。");
+            owned.AssertOwned();
+            string existing = Directory.CreateDirectory(Path.Combine(owned.Root, "ExistingSongs")).FullName;
+            values.BMSInstallDir = existing;
+            values.FolderNameFormat = "%TITLE%";
+            values.KeepInstallablePackagesPending = false;
+            LR2Config config = new(values.LR2ConfigXmlPath);
+            config.AddBMSSearchDirectories([existing]);
+            config.Save(config.ConfigFilePath);
+            File.WriteAllText(Path.Combine(owned.Root, "outside-table.txt"), "inside volume, outside table");
+            File.WriteAllText(Path.Combine(root, "outside-volume.txt"), "outside volume");
+        }, (root, values, composition, shell, factory, failures, dialogs) =>
+        {
+            OwnedSettingsDrive owned = drive ?? throw new AssertFailedException();
+            owned.AssertOwned();
+            SettingsDialogViewModel dialog = shell.SettingDialog;
+            BMSPlaylist playlist = factory.CreatedPlaylist ?? throw new AssertFailedException();
+            BMSLibrary library = factory.CreatedLibrary ?? throw new AssertFailedException();
+            Lr2ConfigOwner config = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
+            string settingsPath = Path.Combine(root, "settings", "user.config");
+            string originalRoot = values.LR2CustomFolderOutputBaseDirRootType;
+            string originalInstall = values.BMSInstallDir;
+            string songs = Path.Combine(root, "Songs");
+            string managed = Path.Combine(owned.Root, "Table");
+            var table = new BMSTable
+            {
+                playlist_id = 8291,
+                name = "Table",
+                symbol = "T",
+                Output_dir = "Table",
+                is_root_folder = true,
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                entries = [BmsPlaylistTestSupport.CreateEntry(new string('d', 32), "Folder")],
+                Folder_order = ["Folder"]
+            };
+            playlist.BMSTables.Add(table);
+            playlist.CommitBMSTableWithEntriesToDB(table);
+            playlist.ReOutputCustomFolder(table);
+            playlist.SyncCustomFolderOutputSearchRootsAfterSettingsChange(originalRoot);
+            string oldFile = Path.Combine(originalRoot, "Table", "0000.lr2folder");
+            byte[] oldOutput = File.ReadAllBytes(oldFile);
+            byte[] oldSettings = File.ReadAllBytes(settingsPath);
+            byte[] oldXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
+            string[] oldFolderRows = ReadFolderPaths();
+            Assert.IsTrue(Directory.Exists(originalInstall));
+            CollectionAssert.Contains(dialog.ConfirmedBMSDirectories.ToArray(), originalInstall);
+            Assert.AreEqual(string.Empty, dialog.BmsInstallDirValidationMessage);
+
+            dialog.LR2CustomFolderAsRootOutputDir = owned.Root;
+            StringAssert.Contains(dialogs.LastMessageText, string.Format(Resources.Validation_OutputBaseContainsInstallDirectoryFormat, originalInstall));
+            Assert.AreEqual(originalRoot, dialog.LR2CustomFolderAsRootOutputDir);
+            Assert.AreEqual(originalRoot, values.LR2CustomFolderOutputBaseDirRootType);
+            Assert.AreEqual(originalInstall, values.BMSInstallDir);
+            Assert.AreEqual(0, dialogs.ConfirmationCount);
+            CollectionAssert.AreEqual(oldSettings, File.ReadAllBytes(settingsPath));
+            CollectionAssert.AreEqual(oldXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
+            CollectionAssert.AreEqual(oldOutput, File.ReadAllBytes(oldFile));
+            CollectionAssert.AreEquivalent(oldFolderRows, ReadFolderPaths());
+            Assert.IsFalse(Directory.Exists(managed));
+
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SelectBmsInstallDirectoryAsync(songs), "drive-root-select-install");
+            dialog.LR2CustomFolderAsRootOutputDir = owned.Root;
+            Assert.AreEqual(owned.Root, dialog.LR2CustomFolderAsRootOutputDir);
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync("root"), "drive-root-output");
+            Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+            Assert.AreEqual(owned.Root, PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderOutputBaseDirRootType);
+            Assert.AreEqual(songs, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BMSInstallDir);
+            Assert.IsTrue(File.Exists(Path.Combine(managed, "0000.lr2folder")));
+            Assert.IsFalse(File.Exists(oldFile));
+            CollectionAssert.Contains(ReadRegisteredRoots(), managed);
+            CollectionAssert.Contains(ReadFolderPaths(), Path.Combine(managed, "0000.lr2folder"));
+            AssertCandidates();
+            dialog.LR2CustomFolderOutputDir = Path.Combine(root, "UnconfirmedNormal");
+            dialog.CloseCommand.Execute();
+            dialog.CancelBmsRoots();
+            AssertCandidates();
+            Assert.AreEqual(Path.Combine(root, "NormalOutput"), PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderOutputBaseDir);
+
+            oldSettings = File.ReadAllBytes(settingsPath);
+            oldXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
+            Assert.IsTrue(Directory.Exists(managed));
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SelectBmsInstallDirectoryAsync(managed), "drive-root-reject-managed-install");
+            Assert.AreEqual(songs, values.BMSInstallDir);
+            Assert.AreEqual(songs, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BMSInstallDir);
+            CollectionAssert.AreEqual(oldSettings, File.ReadAllBytes(settingsPath));
+            CollectionAssert.AreEqual(oldXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
+            CollectionAssert.Contains(ReadRegisteredRoots(), managed);
+
+            string package = Directory.CreateDirectory(Path.Combine(root, "Package")).FullName;
+            string sourceChart = Path.Combine(package, "Song.bms");
+            File.WriteAllText(sourceChart, BmsLibraryInitializationTestSupport.CreateValidBmsText("Song"));
+            byte[] chart = File.ReadAllBytes(sourceChart);
+            byte[] audio = [1, 2, 3];
+            File.WriteAllBytes(Path.Combine(package, "sound.wav"), audio);
+            Task<PackageInstallCommandResult> install = library.InstallChartPackagesAutoWithProgressAsync([package], CancellationToken.None, new SettingsInstallProgressWriter());
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(install, "drive-root-normal-install");
+            PackageInstallCommandResult result = install.GetAwaiter().GetResult();
+            Assert.IsTrue(result.HasDurableCommit);
+            Assert.IsFalse(result.HasRequiredFailure);
+            string installedChart = Path.Combine(songs, "Song", "Song.bms");
+            AssertSong();
+
+            var removal = new PlaylistRemovalWorkflowOwner(dialogs, () => playlist, () => library, () => config, composition.CustomFolderOutputSettingsProvider);
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(removal.RemoveTreeTableAsync(table, () => { }), "drive-root-remove-table");
+            Assert.IsFalse(Directory.Exists(managed));
+            Assert.IsFalse(playlist.BMSTables.Contains(table));
+            CollectionAssert.DoesNotContain(ReadRegisteredRoots(), managed);
+            CollectionAssert.DoesNotContain(config.Capture().RegisteredRoots.ToArray(), managed);
+            Assert.IsFalse(ReadFolderPaths().Any(path => path.StartsWith(managed + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly())
+            { Assert.AreEqual(0, db.Table<BMSTable>().Count(row => row.playlist_id == table.playlist_id)); }
+            AssertSong();
+            Assert.AreEqual("inside volume, outside table", File.ReadAllText(Path.Combine(owned.Root, "outside-table.txt")));
+            Assert.AreEqual("outside volume", File.ReadAllText(Path.Combine(root, "outside-volume.txt")));
+            Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+
+            string[] ReadRegisteredRoots() => new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().ToArray();
+            string[] ReadFolderPaths()
+            {
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
+                return db.Table<LR2SongDB.folder>().Select(row => row.path).ToArray();
+            }
+            void AssertCandidates()
+            {
+                CollectionAssert.Contains(dialog.AvailableBMSDirectories, songs);
+                CollectionAssert.Contains(dialog.ConfirmedBMSDirectories.ToArray(), songs);
+                CollectionAssert.DoesNotContain(dialog.AvailableBMSDirectories, managed);
+                CollectionAssert.DoesNotContain(dialog.ConfirmedBMSDirectories.ToArray(), managed);
+                CollectionAssert.DoesNotContain(dialog.AvailableBMSDirectories, originalInstall);
+            }
+            void AssertSong()
+            {
+                CollectionAssert.AreEqual(chart, File.ReadAllBytes(installedChart));
+                CollectionAssert.AreEqual(audio, File.ReadAllBytes(Path.Combine(songs, "Song", "sound.wav")));
+                Assert.AreEqual(installedChart, library.BmsCharts.Single().Path);
+                Assert.AreEqual(installedChart, library.ChartPackagesInstalled.Single().ChartEntries.Single().Chart.Path);
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
+                Assert.AreEqual(installedChart, db.Table<LR2SongDB.song>().Single().path);
+            }
+        }, ownedResource: root => drive = OwnedSettingsDrive.Create(root));
+    }
+
+    /// <summary>導入の進捗通知だけを終端判定から切り離し、実導入Taskを待つ代表用の受信先です。</summary>
+    private sealed class SettingsInstallProgressWriter : IPackageInstallProgressWriter
+    {
+        public void TryWrite(PackageInstallProgressUpdate update) { }
+    }
+
+    /// <summary>この設定fixtureの一時実パスだけへ専用ドライブ別名を割り当て、全owner終端後に自分の定義だけを解除します。</summary>
+    private sealed class OwnedSettingsDrive(string device, string target) : IDisposable
+    {
+        internal string Root => device + @"\";
+
+        internal static OwnedSettingsDrive Create(string root)
+        {
+            string directory = Directory.CreateDirectory(Path.Combine(root, "ManagedVolume")).FullName;
+            string target = @"\??\" + directory;
+            foreach (char letter in "ZYXWVUTSRQPONMLKJIHGFED")
+            {
+                string device = letter + ":";
+                if (ReadTargets(device).Length != 0 || Environment.GetLogicalDrives().Contains(device + @"\", StringComparer.OrdinalIgnoreCase)) { continue; }
+                if (!DefineDosDevice(0x1 | 0x8, device, target)) { throw new Win32Exception(Marshal.GetLastWin32Error()); }
+                var owned = new OwnedSettingsDrive(device, target);
+                try { owned.AssertOwned(); return owned; }
+                catch { owned.Dispose(); throw; }
+            }
+            throw new AssertFailedException("専用ドライブ別名を取得できません。");
+        }
+
+        /// <summary>書込みを始める前に唯一の定義がケース所有の実パスであることを確認します。</summary>
+        internal void AssertOwned() => CollectionAssert.AreEqual(new[] { target }, ReadTargets(device));
+
+        public void Dispose()
+        {
+            // EXACT_MATCH_ON_REMOVE により、別の定義が追加されても自分の固有target以外を解除しません。
+            if (!DefineDosDevice(0x1 | 0x2 | 0x4 | 0x8, device, target)) { throw new Win32Exception(Marshal.GetLastWin32Error()); }
+            CollectionAssert.DoesNotContain(ReadTargets(device), target);
+        }
+
+        private static string[] ReadTargets(string device)
+        {
+            char[] buffer = new char[32768];
+            uint length = QueryDosDevice(device, buffer, buffer.Length);
+            if (length != 0) { return new string(buffer, 0, checked((int)length)).Split('\0', StringSplitOptions.RemoveEmptyEntries); }
+            int error = Marshal.GetLastWin32Error();
+            if (error == 2) { return []; }
+            throw new Win32Exception(error);
+        }
+
+        [DllImport("kernel32.dll", EntryPoint = "DefineDosDeviceW", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool DefineDosDevice(uint flags, string device, string target);
+
+        [DllImport("kernel32.dll", EntryPoint = "QueryDosDeviceW", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern uint QueryDosDevice(string device, [Out] char[] target, int maximumLength);
+    }
+
     /// <summary>起動XMLに登録済みの管理AをBへ移す前に未確定のユーザー追加・削除の破棄を確認し、その後のC確定でAをユーザー登録へ復活させません。</summary>
     /// <remarks>旧Aの実在だけを条件差とし、実設定保存・出力port・共有profileを動かします。</remarks>
     [DataTestMethod]
@@ -232,11 +441,15 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     private static void WithInitializedLr2Owner(Action<string, Settings>? prepare,
-        Action<string, Settings, ApplicationComposition, MainWindowViewModel, StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory, List<Exception>, RecordingRootDialogService> run, Action<string, Settings, MainWindowViewModel>? beforeInitialize = null)
+        Action<string, Settings, ApplicationComposition, MainWindowViewModel, StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory, List<Exception>, RecordingRootDialogService> run, Action<string, Settings, MainWindowViewModel>? beforeInitialize = null,
+        Func<string, IDisposable>? ownedResource = null)
     {
         string root = CreateTemporaryRoot();
+        IDisposable? resource = null;
+        Exception? primaryFailure = null;
         try
         {
+            resource = ownedResource?.Invoke(root);
             Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "settings", "user.config")));
             prepare?.Invoke(root, values);
             values.ScanBmsFilesOnStartup = true;
@@ -270,6 +483,17 @@ public sealed partial class SettingDialogEditCompletionTests
                 }
             });
         }
-        finally { Directory.Delete(root, recursive: true); }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            try
+            {
+                resource?.Dispose();
+                // root はこのfixtureが生成した実パスです。別名ルートを再帰削除しません。
+                Directory.Delete(root, recursive: true);
+            }
+            catch (Exception cleanupFailure) when (primaryFailure != null)
+            { throw new AggregateException(primaryFailure, cleanupFailure); }
+        }
     }
 }

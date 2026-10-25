@@ -1986,15 +1986,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private static bool ContainsSameOrChildDirectory(IEnumerable<string> parentDirectories, string targetDirectory)
     {
-        string normalizedTargetDirectory = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(targetDirectory);
-        return !string.IsNullOrWhiteSpace(normalizedTargetDirectory)
-            && parentDirectories != null
-            && parentDirectories.Any(parentDirectory =>
-            {
-                string normalizedParentDirectory = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(parentDirectory);
-                return !string.IsNullOrWhiteSpace(normalizedParentDirectory)
-                    && IsSameOrChildPath(normalizedTargetDirectory, normalizedParentDirectory);
-            });
+        return parentDirectories != null
+            && parentDirectories.Any(parentDirectory => CustomFolderOutputBaseSearchRootSyncService.IsSameOrChildDirectory(targetDirectory, parentDirectory));
     }
 
     /// <summary>未確定のユーザーBMS検索先一覧です。保存済みXMLや公開入力とは独立しています。</summary>
@@ -2297,11 +2290,11 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 string left = normalizedRoots[leftIndex];
                 string right = normalizedRoots[rightIndex];
-                if (IsSameOrChildPath(right, left))
+                if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrChildDirectory(right, left))
                 {
                     conflicts.Add(new NestedBmsSearchRootConflict(left, right));
                 }
-                else if (IsSameOrChildPath(left, right))
+                else if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrChildDirectory(left, right))
                 {
                     conflicts.Add(new NestedBmsSearchRootConflict(right, left));
                 }
@@ -2381,7 +2374,7 @@ public partial class SettingsDialogViewModel : ViewModel
             foreach (string jukeboxRoot in normalizedJukeboxRoots)
             {
                 if (string.IsNullOrWhiteSpace(jukeboxRoot)
-                    || IsSameOrChildOfAnyRoot(jukeboxRoot, normalizedPreviousManagedRoots)
+                    || ContainsSameOrChildDirectory(normalizedPreviousManagedRoots, jukeboxRoot)
                     || (candidate.IsNormalOutput
                         && CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(candidatePath, previousNormalOutputBase)
                         && CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(jukeboxRoot, previousNormalOutputBase))
@@ -2398,14 +2391,6 @@ public partial class SettingsDialogViewModel : ViewModel
             }
         }
         return conflicts;
-    }
-
-    private static bool IsSameOrChildOfAnyRoot(string path, IEnumerable<string> roots)
-    {
-        string normalizedPath = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path);
-        return !string.IsNullOrWhiteSpace(normalizedPath)
-            && roots != null
-            && roots.Any(root => IsSameOrChildPath(normalizedPath, root));
     }
 
     private static string BuildCustomFolderOutputBaseJukeboxAdoptionMessage(IReadOnlyList<CustomFolderOutputBaseJukeboxAdoptionConflict> conflicts)
@@ -4029,16 +4014,6 @@ public partial class SettingsDialogViewModel : ViewModel
         return string.Join(Environment.NewLine, normalized);
     }
 
-    private static bool IsSameOrChildPath(string candidate, string parent)
-    {
-        if (string.Equals(candidate, parent, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-        string parentWithSeparator = TrimDirectorySeparatorUnlessRoot(parent) + Path.DirectorySeparatorChar;
-        return candidate.StartsWith(parentWithSeparator, StringComparison.OrdinalIgnoreCase);
-    }
-
     private static string TrimDirectorySeparatorUnlessRoot(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -5008,7 +4983,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 }
             }
             SelectedStandaloneBmsRootPath = BmsRootPathList.FirstOrDefault(path => string.Equals(path, requestedPath, StringComparison.OrdinalIgnoreCase))
-                ?? BmsRootPathList.FirstOrDefault(path => IsSameOrChildPath(requestedPath, path))
+                ?? BmsRootPathList.FirstOrDefault(path => CustomFolderOutputBaseSearchRootSyncService.IsSameOrChildDirectory(requestedPath, path))
                 ?? BmsRootPathList.FirstOrDefault();
             string after = SerializeBmsRootPathsForChangeTracking(BmsRootPathList);
             RaisePropertyChanged(nameof(BmsRootPathList));

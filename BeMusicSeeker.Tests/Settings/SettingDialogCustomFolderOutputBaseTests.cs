@@ -449,6 +449,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             foreach (string path in registered.Where(path => path != missing)) { Directory.CreateDirectory(path); }
             LR2Config config = CreateConfig(root);
             config.SetBMSSearchDirectories(registered);
+            string[] retainedRegistrations = config.GetBMSSearchDirectoriesForChangeTracking().ToArray();
             testSettings.LR2CustomFolderOutputBaseDir = normal;
             testSettings.LR2CustomFolderOutputBaseDirRootType = configureRootOutputs ? rootOutput : string.Empty;
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additional]);
@@ -459,14 +460,87 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 ? [manual, missing, sibling, candidateNormal]
                 : [manual, missing, Path.Combine(rootOutput, "Playlist"), sibling, candidateNormal];
             CollectionAssert.AreEqual(expected, dialog.LR2ConfigBMSDirectories);
+            CollectionAssert.AreEqual(expected, dialog.ConfirmedBMSDirectories.ToArray());
             dialog.LR2CustomFolderOutputDir = candidateNormal;
             dialog.LR2CustomFolderAsRootOutputDir = candidateRoot;
             CollectionAssert.AreEqual(expected, dialog.LR2ConfigBMSDirectories);
+            CollectionAssert.AreEqual(expected, dialog.ConfirmedBMSDirectories.ToArray());
             Assert.AreEqual(normal, testSettings.LR2CustomFolderOutputBaseDir);
+            CollectionAssert.AreEquivalent(retainedRegistrations, new LR2Config(config.ConfigFilePath).GetBMSSearchDirectoriesForChangeTracking().ToArray());
             testSettings.BMSInstallDir = missing;
             Assert.AreEqual(Resources.Error_InvalidBmsInstallDir, dialog.BmsInstallDirValidationMessage);
             testSettings.BMSInstallDir = manual;
             Assert.AreEqual(string.Empty, dialog.BmsInstallDirValidationMessage);
+        }
+        finally { TryDeleteDirectory(root); }
+    }
+
+    /// <summary>保存済み基点がドライブ・UNCルートでも一般一覧と導入候補から全子孫を除き、欠落登録・別領域・必要なjukebox登録を保ちます。</summary>
+    /// <remarks>実XMLと設定ownerを接続しますが合成パスの存在確認や出力は行いません。実在管理先の保存拒否は実ownerの導入・削除代表が担当します。</remarks>
+    [DataTestMethod]
+    [DataRow("root", @"V:\", @"W:\Songs")]
+    [DataRow("root", @"\\test-server\share\", @"\\test-server\share2\Songs")]
+    [DataRow("root", @"\\test-server\share", @"\\other-server\share\Songs")]
+    [DataRow("normal", @"V:\", @"W:\Songs")]
+    [DataRow("normal", @"\\test-server\share\", @"\\test-server\share2\Songs")]
+    [DataRow("additional", @"V:\", @"W:\Songs")]
+    [DataRow("additional", @"\\test-server\share\", @"\\test-server\share2\Songs")]
+    public void Lr2BmsDirectoryChoices_RootShapedOutputsKeepOnlyUnmanagedCandidates(string role, string managed, string unrelated)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string manual = Path.Combine(root, "Manual");
+            string missing = Path.Combine(root, "Missing");
+            string normal = role == "normal" ? managed : Path.Combine(root, "Normal");
+            string additional = role == "additional" ? managed : Path.Combine(root, "Additional");
+            string rootOutput = role == "root" ? managed : Path.Combine(root, "Root");
+            string[] registered = [manual, missing, normal, additional, rootOutput, Path.Combine(managed, "Table"), Path.Combine(managed, "Table", "Level"), unrelated];
+            LR2Config config = CreateConfig(root);
+            config.SetBMSSearchDirectories(registered);
+            string[] retainedRegistrations = config.GetBMSSearchDirectoriesForChangeTracking().ToArray();
+            testSettings.LR2CustomFolderOutputBaseDir = normal;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = rootOutput;
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additional]);
+            testSettings.BMSInstallDir = manual;
+            MainWindowViewModel owner = CreateViewModel(config);
+            using SettingsDialogViewModel dialog = owner.SettingDialog;
+            string[] expected = [manual, missing, unrelated];
+            CollectionAssert.AreEquivalent(expected, dialog.LR2ConfigBMSDirectories);
+            CollectionAssert.AreEquivalent(expected, dialog.AvailableBMSDirectories);
+            CollectionAssert.AreEquivalent(expected, dialog.ConfirmedBMSDirectories.ToArray());
+            Lr2ConfigOwner configOwner = MainWindowViewModelTestFactory.GetComposition(owner).ResolveLr2Config(config.ConfigFilePath);
+            CollectionAssert.AreEquivalent(retainedRegistrations, configOwner.Capture().RegisteredRoots.ToArray());
+            CollectionAssert.AreEquivalent(retainedRegistrations, new LR2Config(config.ConfigFilePath).GetBMSSearchDirectoriesForChangeTracking().ToArray());
+        }
+        finally { TryDeleteDirectory(root); }
+    }
+
+    /// <summary>他基点・有効導入先と交差しないドライブ・UNCルートを新しいROOT候補として受理し、未確定の選択では公開候補を変更しません。</summary>
+    /// <remarks>登録はローカルの実パスだけにして、合成UNCへの存在確認・実I/Oを伴わずsetterの入力検査を確認します。</remarks>
+    [DataTestMethod]
+    [DataRow(@"V:\")]
+    [DataRow(@"\\test-server\share\")]
+    public void RootOutputCandidate_AcceptsDriveAndShareRootsWithoutPublishing(string candidate)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string manual = Directory.CreateDirectory(Path.Combine(root, "Manual")).FullName;
+            string original = Path.Combine(root, "Root");
+            LR2Config config = CreateConfig(root);
+            config.SetBMSSearchDirectories([manual]);
+            testSettings.LR2CustomFolderOutputBaseDir = Path.Combine(root, "Normal");
+            testSettings.LR2CustomFolderOutputBaseDirRootType = original;
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            testSettings.BMSInstallDir = manual;
+            MainWindowViewModel owner = CreateViewModel(config);
+            using SettingsDialogViewModel dialog = owner.SettingDialog;
+            dialog.LR2CustomFolderAsRootOutputDir = candidate;
+            Assert.AreEqual(candidate, dialog.LR2CustomFolderAsRootOutputDir);
+            Assert.AreEqual(original, testSettings.LR2CustomFolderOutputBaseDirRootType);
+            CollectionAssert.AreEqual(new[] { manual }, dialog.AvailableBMSDirectories);
+            CollectionAssert.AreEqual(new[] { manual }, dialog.ConfirmedBMSDirectories.ToArray());
         }
         finally { TryDeleteDirectory(root); }
     }
