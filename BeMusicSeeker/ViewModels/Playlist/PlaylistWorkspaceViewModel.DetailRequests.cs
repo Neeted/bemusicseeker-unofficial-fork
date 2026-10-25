@@ -161,10 +161,16 @@ public sealed partial class PlaylistWorkspaceViewModel
         => PlaylistDetailBuildQueueCoordinator.WaitForRequestCompletionAsync(DetailBuildState, requestVersion);
 
     /// <summary>
-    /// Returns a task that completes after the captured detail-build worker lifecycle has stopped.
+    /// 捕捉した詳細構築workerと単一entry配送の実Taskが終端するまで待ちます。
+    /// 配送の成否は元の編集Task・診断へ渡し、停止待ちで過去の操作失敗を再送出しません。
     /// </summary>
-    internal Task WaitForDetailBuildIdleAsync()
-        => PlaylistDetailBuildQueueCoordinator.WaitForIdleAsync(DetailBuildState);
+    internal async Task WaitForDetailBuildIdleAsync()
+    {
+        Task build = PlaylistDetailBuildQueueCoordinator.WaitForIdleAsync(DetailBuildState);
+        Task delivery = WaitForDetailEntryDeliveryAsync();
+        try { await Task.WhenAll(build, delivery).ConfigureAwait(false); }
+        catch when (!build.IsFaulted && !build.IsCanceled) { /* 既存の単一配送Taskを回収済みです。 */ }
+    }
 
     internal string DescribeDetailBuildState(Func<bool, string> formatBool)
     {

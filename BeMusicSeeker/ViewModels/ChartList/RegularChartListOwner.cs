@@ -988,19 +988,19 @@ internal sealed partial class RegularChartListOwner : IDisposable
             && target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination);
     }
 
-    internal void CompleteCellEdit(MainChartListCellEditEndedEventArgs request)
+    /// <summary>通常・保留セルの実編集Taskを返し、必要表示と受付終端を端末の所有者へ接続します。取消・対象外は変更しません。</summary>
+    internal Task CompleteCellEdit(MainChartListCellEditEndedEventArgs request)
     {
         if (request == null || !request.Commit)
         {
-            return;
+            return Task.CompletedTask;
         }
         MainChartListCellEditContext context = request.Context;
         if (string.Equals(context.PropertyName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal)
             && GridRowResolver.TryGetFolderEditChartOperationTarget(context.Row, context.SourceScope, out ChartOperationTarget folderTarget)
             && RenameChartFolderRequest.TryCreate(folderTarget, out RenameChartFolderRequest renameRequest))
         {
-            _ = RenameChartFolderAsync(renameRequest, request.Text);
-            return;
+            return RenameChartFolderAsync(renameRequest, request.Text);
         }
         if (string.Equals(context.PropertyName, "instl_dst", StringComparison.Ordinal)
             && IsInstallDestinationEditSection(context.OperationSection)
@@ -1008,10 +1008,9 @@ internal sealed partial class RegularChartListOwner : IDisposable
             && installTarget.HasCapability(ChartOperationCapabilities.UpdateInstallDestination)
             && PendingInstallDestinationEditRequest.TryCreate(installTarget, out PendingInstallDestinationEditRequest installRequest))
         {
-            pendingPackageWorkflow
-                .SetPendingAsync(installRequest, request.Text)
-                .ObserveFault("regularChartListSetPendingInstallDestination");
+            return pendingPackageWorkflow.SetPendingAsync(installRequest, request.Text);
         }
+        return Task.CompletedTask;
     }
 
     /// <summary>改名を対象確定前にLへ非待機受付し、実変更・必要公開・通知・cleanupの終端まで保持します。Busyで予約しません。</summary>
@@ -1112,11 +1111,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
                             + " candidatePaths="
                             + string.Join("|", mutationReceipt?.CandidatePaths ?? []));
                     }
-                    else
+                    if (mutationReceipt?.DurableCommit == true)
                     {
-                        QueueLatestNormalLibraryRefreshNotification(
-                            "library_charts_changed",
-                            expectedLibrary: library);
                         InvalidatePathMutationCaches(library);
                     }
                 }
@@ -1135,10 +1131,9 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 {
                     normalLibraryRefreshApplySuppressed = false;
                 }
-                QueueLatestNormalLibraryRefreshNotification(
-                    "library_charts_changed",
-                    expectedLibrary: library);
             }
+            Task requiredDelivery = mutationReceipt?.DurableCommit == true && IsCurrentLibrary(library)
+                ? DeliverPendingLibraryChangesAsync(library, CancellationToken.None) : Task.CompletedTask;
             if (suppressionStarted)
             {
                 CaptureNotification(() => PublishRefreshSuppressionChanged(isSuppressed: false));
@@ -1151,6 +1146,18 @@ internal sealed partial class RegularChartListOwner : IDisposable
             {
                 CaptureCleanupFailure(dialogScope.Dispose, failures);
                 CaptureNotification(dialogScope.Flush);
+            }
+            // ThreadStaticの短いdialog scopeを外してから非同期待機し、元workerへscopeを残しません。
+            try { await requiredDelivery.ConfigureAwait(false); }
+            catch (Exception failure)
+            {
+                if (!IsCurrentLibrary(library)) { /* 表示所有者の停止・交換後は旧表示を必要条件にしません。 */ }
+                else if (failures.Count == 0) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
+                else
+                {
+                    try { logWarning("regular_chart_folder_rename_projection_failed " + failure); }
+                    catch { /* 診断先の故障で先行する物理・出力の原因を置換しません。 */ }
+                }
             }
             if (operationAdmitted)
             {

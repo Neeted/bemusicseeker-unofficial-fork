@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -203,12 +204,7 @@ public sealed class RegularChartFolderRenameTests
                 Assert.IsFalse(Directory.Exists(sourceDirectory));
                 Assert.IsTrue(Directory.Exists(destinationDirectory));
                 Assert.IsTrue(File.Exists(destinationChartPath));
-                Assert.AreEqual(
-                    finalizationFails ? 0 : 1,
-                    Volatile.Read(ref appliedCount),
-                    finalizationFails
-                        ? "A durable finalization failure must not apply a success refresh."
-                        : "The mutation notification must apply once after the gate is released.");
+                Assert.AreEqual(1, Volatile.Read(ref appliedCount), "LR2終端の結果にかかわらずDB確定値を必要配送します。");
                 Assert.AreEqual(finalizationFails ? 1 : 0, dialogs.Messages.Count);
             }
             finally
@@ -333,9 +329,9 @@ public sealed class RegularChartFolderRenameTests
     }
 
 
-    /// <summary>最初のrename終端後は未処理の表示更新を待たず次のrenameを実行し、二つの物理移動と通知集約を確認して描画待ちによる受付停滞を検出します。</summary>
+    /// <summary>実改名の物理・DB確定後も現在行の必要配送まではLを保持し、確定したパスとFolderの表示後に次の明示改名を受け付けます。</summary>
     [TestMethod]
-    public void ExplicitFolderRenames_AfterFirstTerminalDoNotWaitForDisplayRefreshDrain()
+    public void FolderRenames_WaitForCurrentRowsBeforeReleasingAdmission()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -358,8 +354,9 @@ public sealed class RegularChartFolderRenameTests
             RenameChartFolderRequest secondRequest = CreateRenameRequest(secondFile);
             var pendingActions = new Queue<Action>();
             using var actionQueued = new ManualResetEventSlim();
+            var table = new MainChartListViewModel();
             using RegularChartListOwner owner = CreateOwner(
-                new MainChartListViewModel(),
+                table,
                 CreateWorkspaceForOwner(),
                 action => action(),
                 new ActionQueueUiScheduler(action =>
@@ -381,12 +378,25 @@ public sealed class RegularChartFolderRenameTests
             catchUp();
             owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None).GetAwaiter().GetResult();
             actionQueued.Reset();
+            owner.ApplyMainLibraryView(new ChartListRefreshRoute(ChartListRefreshRouteKind.ContinueMainLibrary,
+                MainViewUpdateMode.FolderFilterSelected, MainViewUpdateMode.FolderFilterSelected, MainViewUpdateMode.FolderFilterSelected,
+                isPlaylistTreeActive: false, includeBmsonRows: false), library, null, null, false, Stopwatch.StartNew());
+            LibraryChartRow firstRow = table.Rows[0] as LibraryChartRow ?? throw new AssertFailedException("最初の改名対象がありません。");
+            LibraryChartRow secondRow = table.Rows[1] as LibraryChartRow ?? throw new AssertFailedException("次の改名対象がありません。");
 
             Task firstRename = owner.RenameChartFolderAsync(firstRequest, "first-destination");
             actionQueued.Wait();
+            Assert.IsFalse(firstRename.IsCompleted);
+            Assert.IsFalse(library.OperationAdmission.TryEnter(out IDisposable rejected)); rejected?.Dispose();
+            Action firstDelivery;
+            lock (pendingActions) { firstDelivery = pendingActions.Dequeue(); }
+            firstDelivery();
             firstRename.GetAwaiter().GetResult();
+            Assert.AreEqual(Path.Combine(libraryRoot, "first-destination", "first.bms"), firstRow.path);
+            Assert.AreEqual("first-destination", firstRow.Folder);
+            actionQueued.Reset();
             Task secondRename = owner.RenameChartFolderAsync(secondRequest, "second-destination");
-            secondRename.GetAwaiter().GetResult();
+            actionQueued.Wait();
 
             Assert.IsTrue(Directory.Exists(Path.Combine(libraryRoot, "first-destination")));
             Assert.IsTrue(Directory.Exists(Path.Combine(libraryRoot, "second-destination")));
@@ -397,6 +407,8 @@ public sealed class RegularChartFolderRenameTests
                 coalescedRefresh = pendingActions.Dequeue();
             }
             coalescedRefresh();
+            secondRename.GetAwaiter().GetResult();
+            Assert.AreEqual(Path.Combine(libraryRoot, "second-destination", "second.bms"), secondRow.path);
             owner.StopAsync().GetAwaiter().GetResult();
         });
     }
@@ -448,7 +460,7 @@ public sealed class RegularChartFolderRenameTests
             Task renameTask = owner.RenameChartFolderAsync(request, "queued-destination");
             actionQueued.Wait();
             Task stopTask = owner.StopAsync();
-            Assert.IsFalse(stopTask.Wait(TimeSpan.FromMilliseconds(250)));
+            Assert.IsFalse(stopTask.IsCompleted);
 
             Action pendingAction;
             lock (pendingActions)
@@ -463,12 +475,12 @@ public sealed class RegularChartFolderRenameTests
         });
     }
 
-    /// <summary>実LR2終端SQL失敗では物理・譜面DBの成功分を保持して成功更新を出さず、通知失敗の有無によらず元SQL失敗と一回通知、作業解放後も保持するLを確認します。</summary>
+    /// <summary>実LR2終端SQL失敗でも物理・譜面DBの確定値を現在行へ反映し、元SQL失敗と一回通知を保持して必要表示・cleanup後にLを解放します。</summary>
     [TestMethod]
     // falseは案内成功、trueは案内経路もIOExceptionを投げる条件です。
     [DataRow(false)]
     [DataRow(true)]
-    public void FolderRename_Lr2FinalizationFailureDoesNotApplySuccessRefresh(bool reporterThrows)
+    public void FolderRename_Lr2FinalizationFailureStillDisplaysCommittedValues(bool reporterThrows)
     {
 
         WithTemporarySongDb(delegate (string songDbPath)
@@ -541,6 +553,10 @@ public sealed class RegularChartFolderRenameTests
                     mutationDialogs: dialogs,
                     chartMutationActivity: activity);
                 owner.AttachNormalLibraryRefreshSource(library);
+                owner.ApplyMainLibraryView(new ChartListRefreshRoute(ChartListRefreshRouteKind.ContinueMainLibrary,
+                    MainViewUpdateMode.FolderFilterSelected, MainViewUpdateMode.FolderFilterSelected, MainViewUpdateMode.FolderFilterSelected,
+                    isPlaylistTreeActive: false, includeBmsonRows: false), library, null, null, false, Stopwatch.StartNew());
+                LibraryChartRow row = table.Rows[0] as LibraryChartRow ?? throw new AssertFailedException("改名対象の現在行がありません。");
                 owner.NormalLibraryRefreshApplied += (_, args) =>
                 {
                     if (args.NotificationBatch.HasRefreshNotification)
@@ -566,7 +582,9 @@ public sealed class RegularChartFolderRenameTests
                 Assert.IsTrue(File.Exists(destinationChartPath));
                 Assert.AreEqual(chartPath, file.Path);
                 Assert.AreEqual(destinationChartPath, library.BmsCharts[0].Path);
-                Assert.AreEqual(0, Volatile.Read(ref normalRefreshApplyCount));
+                Assert.AreEqual(1, Volatile.Read(ref normalRefreshApplyCount));
+                Assert.AreEqual(destinationChartPath, row.path);
+                Assert.AreEqual("PackFinalizationFailure", row.Folder);
                 Assert.AreEqual(1, dialogs.Messages.Count);
                 Assert.AreEqual(0, dialogs.ModelMessages, "Canonical reporting suppresses the lower receipt-backed dialog.");
                 Assert.AreEqual(MessageBoxImage.Error, dialogs.Messages[0].Icon);

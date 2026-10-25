@@ -1635,7 +1635,9 @@ public partial class MainWindowViewModel : ViewModel,
                 BeginUiUpdateSuppression(refreshMask);
                 break;
             case PendingPackageMutationAppliedEventArgs mutationApplied:
-                if (!TryDispatchPackageInstallUi(() => ApplyPendingPackageMutation(mutationApplied)))
+                if (mutationApplied.HasLocalDestinationProjection)
+                { mutationApplied.Presentation = uiScheduler.InvokeAsync(() => ApplyPendingPackageMutation(mutationApplied)); }
+                else if (!TryDispatchPackageInstallUi(() => ApplyPendingPackageMutation(mutationApplied)))
                 {
                     ReportPackageInstallWorkflowNotificationFailure(
                         new InvalidOperationException("Pending-package workflow UI publication was rejected."));
@@ -1648,16 +1650,15 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void ApplyPendingPackageMutation(PendingPackageMutationAppliedEventArgs mutationApplied)
     {
-        MainChartList.RowProjection.UpdateTransientStates(
-            mutationApplied.ChangedCharts,
-            forceInstallDestinationProjection: true);
+        regularChartListOwner.ApplyPendingDestinationProjection(mutationApplied);
         if (mutationApplied.InstallDestinationStateChanged)
         {
             InvalidateNormalLibrarySortDependency(
                 MainViewDataDependency.InstallDestination,
                 NormalLibraryInstallDestinationChangedReason);
         }
-        if (mutationApplied.InstallDestinationStateChanged || mutationApplied.IdentitySortKeyChanged)
+        if (mutationApplied.IdentitySortKeyChanged
+            || mutationApplied.InstallDestinationStateChanged && !mutationApplied.HasLocalDestinationProjection)
         {
             RefreshLibraryMainViewForDataDependency(
                 mutationApplied.IdentitySortKeyChanged
@@ -2483,7 +2484,7 @@ public partial class MainWindowViewModel : ViewModel,
             PlaylistWorkspace.CompleteDetailEdit(request).ObserveFault("playlistDetailCellEditCommit");
             return;
         }
-        regularChartListOwner.CompleteCellEdit(request);
+        regularChartListOwner.CompleteCellEdit(request).ObserveFault("regularChartListCellEditCommit");
     }
 
     /// <summary>一回取得した同じ確定batchを、workspaceと通常一覧の既存接続へ渡します。</summary>

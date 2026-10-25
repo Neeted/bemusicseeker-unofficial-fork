@@ -746,7 +746,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
 
     private long playlistSummaryRowsCacheGeneration;
 
-    private List<PlaylistSummaryRow> playlistSummaryRowsCache = [];
+    private readonly PlaylistSummaryVersionedCollection playlistSummaryRowsCache = new();
 
     private bool playlistSummaryRowsCacheValid;
 
@@ -1613,7 +1613,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         }
     }
 
-    internal bool TrySetPlaylistSummaryRowsCache(IEnumerable<PlaylistSummaryRow> rows, long dataRebuildGeneration)
+    /// <summary>UI公開時に現行raw行と表参照索引を揃えます。未読込み表を含むrawも保持し、再利用不可なら次の明示要求では再構築します。</summary>
+    internal bool TrySetPlaylistSummaryRowsCache(IEnumerable<PlaylistSummaryRow> rows, long dataRebuildGeneration, bool reusable = true)
     {
         lock (playlistSummaryTransitionLock)
         {
@@ -1621,8 +1622,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             {
                 return false;
             }
-            playlistSummaryRowsCache = [.. (rows ?? [])];
-            playlistSummaryRowsCacheValid = true;
+            playlistSummaryRowsCache.ReplaceItemsWithoutNotification(rows as IReadOnlyList<PlaylistSummaryRow> ?? [.. (rows ?? [])], dataRebuildGeneration);
+            playlistSummaryRowsCacheValid = reusable;
             playlistSummaryRowsCacheDataRebuildGeneration = dataRebuildGeneration;
             playlistSummaryRowsCacheGeneration++;
             return true;
@@ -1651,7 +1652,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             throw new ArgumentException("Playlist summary rows are required.", nameof(request));
         }
 
-        string nextSummaryText = request.SummaryText ?? string.Empty;
+        string nextSummaryText;
         PlaylistSummaryPresentationIdentity identity = request.Identity
             ?? new PlaylistSummaryPresentationIdentity(
                 request.CacheGeneration
@@ -1678,7 +1679,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             }
 
             rowsChanged = !Equals(appliedPlaylistSummaryIdentity, identity);
-            textChanged = playlistSummaryText != nextSummaryText;
             if (rowsChanged)
             {
                 playlistSummaryView.ReplaceItemsWithoutNotification(
@@ -1687,6 +1687,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
                 appliedPlaylistSummaryIdentity = identity;
                 Interlocked.Exchange(ref lastPlaylistSummaryBuildCompletedTimestamp, Stopwatch.GetTimestamp());
             }
+            nextSummaryText = request.SummaryText ?? FormatPlaylistSummaryText(playlistSummaryView.TotalCharts, playlistSummaryView.Count);
+            textChanged = playlistSummaryText != nextSummaryText;
             playlistSummaryText = nextSummaryText;
             appliedPlaylistSummaryPerformanceInteraction = PerformanceInteraction.Existing(
                 "playlist_summary",
@@ -1825,7 +1827,8 @@ internal sealed class PlaylistSummaryApplyRequest
 {
     internal IReadOnlyList<PlaylistSummaryRow> Rows { get; set; }
 
-    internal string SummaryText { get; set; } = string.Empty;
+    /// <summary>明示文言。省略時は採用collectionの件数・譜面数から同じ公開処理で生成します。</summary>
+    internal string SummaryText { get; set; }
 
     internal PlaylistSummaryPresentationIdentity Identity { get; set; }
 
@@ -1854,13 +1857,17 @@ internal sealed class PlaylistSummaryPresentationIdentity : IEquatable<PlaylistS
 
     internal long SourceVersion { get; }
 
-    private string KeywordFilter { get; }
+    /// <summary>現在viewへ採用済みの条件。セルの局所再評価は未採用要求の条件を使いません。</summary>
+    internal string KeywordFilter { get; }
 
-    private PlaylistOwnedFilter OwnedFilter { get; }
+    /// <summary>現在viewへ採用済みの条件。セルの局所再評価は未採用要求の条件を使いません。</summary>
+    internal PlaylistOwnedFilter OwnedFilter { get; }
 
-    private string SortColumn { get; }
+    /// <summary>現在viewへ採用済みの条件。セルの局所再評価は未採用要求の条件を使いません。</summary>
+    internal string SortColumn { get; }
 
-    private ListSortDirection SortDirection { get; }
+    /// <summary>現在viewへ採用済みの条件。セルの局所再評価は未採用要求の条件を使いません。</summary>
+    internal ListSortDirection SortDirection { get; }
 
     public bool Equals(PlaylistSummaryPresentationIdentity other)
     {
@@ -1888,20 +1895,116 @@ internal sealed class PlaylistSummaryPresentationIdentity : IEquatable<PlaylistS
     }
 }
 
+/// <summary>採用済み行・表参照/位置索引・件数を同じ寿命で保持し、一括採用と局所編集を接続します。</summary>
 internal sealed class PlaylistSummaryVersionedCollection : ObservableCollection<PlaylistSummaryRow>
 {
+    private readonly Dictionary<BMSTable, (PlaylistSummaryRow Row, int Index)> rowsByTable = new(ReferenceEqualityComparer.Instance);
+
     internal long Version { get; private set; }
 
+    /// <summary>採用行の譜面数合計。一括採用時に集計し、局所加入・離脱で差し引きます。</summary>
+    internal int TotalCharts { get; private set; }
+
+    /// <summary>現在の表参照に対応する行を、一覧の列挙・実体化をせず取得します。旧表と同IDの別参照は一致させません。</summary>
+    internal bool TryGetTableRow(BMSTable table, out PlaylistSummaryRow row)
+    {
+        row = null;
+        if (table == null || !rowsByTable.TryGetValue(table, out (PlaylistSummaryRow Row, int Index) entry)) { return false; }
+        row = entry.Row;
+        return true;
+    }
+
+    /// <summary>本番の一括置換境界で行・版・表参照索引を揃え、公開通知は呼出元へ委ねます。</summary>
     internal void ReplaceItemsWithoutNotification(
         IReadOnlyList<PlaylistSummaryRow> rows,
         long version)
     {
         Items.Clear();
+        rowsByTable.Clear();
+        TotalCharts = 0;
         for (int index = 0; index < rows.Count; index++)
         {
             Items.Add(rows[index]);
+            TotalCharts = checked(TotalCharts + (rows[index]?.TotalCharts ?? 0));
+            if (rows[index]?.TableRef is BMSTable table) { rowsByTable.TryAdd(table, (rows[index], index)); }
         }
         Version = version;
+    }
+
+    /// <summary>cacheの失効・停止で行を解放するとき、同じ寿命の表参照索引も解放します。</summary>
+    protected override void ClearItems()
+    {
+        rowsByTable.Clear();
+        TotalCharts = 0;
+        base.ClearItems();
+    }
+
+    /// <summary>現在対象の旧位置を確保してから属性を反映し、対象だけのfilterと二分比較で集合・位置・件数を更新します。</summary>
+    internal System.Collections.Specialized.NotifyCollectionChangedEventArgs ApplySavedProperties(
+        BMSTable table, PlaylistSummaryRow raw, IComparer<PlaylistSummaryRow> comparer, Func<PlaylistSummaryRow, bool> matches, out int projectedRows)
+    {
+        TryGetTableRow(table, out PlaylistSummaryRow current);
+        int oldIndex = current == null ? -1 : rowsByTable[table].Index;
+        // raw/currentが同じ参照でも、旧位置の検索より先にsortキーを書き換えません。
+        projectedRows = 0;
+        if (raw != null) { raw.ApplySavedProperties(table, notify: false); projectedRows++; }
+        if (current != null && !ReferenceEquals(current, raw)) { current.ApplySavedProperties(table, notify: false); projectedRows++; }
+        PlaylistSummaryRow target = current ?? raw;
+        if (target == null) { return null; }
+        bool included = matches(target);
+        if (current != null && !included)
+        {
+            Items.RemoveAt(oldIndex); rowsByTable.Remove(table); TotalCharts -= current.TotalCharts;
+            ReindexShiftedReferences(oldIndex, Items.Count - 1);
+            return new(System.Collections.Specialized.NotifyCollectionChangedAction.Remove, current, oldIndex);
+        }
+        if (!included) { return null; }
+        if (current != null) { Items.RemoveAt(oldIndex); }
+        int low = 0, high = Items.Count;
+        while (low < high)
+        {
+            int middle = low + (high - low) / 2;
+            if (comparer.Compare(Items[middle], target) < 0) { low = middle + 1; } else { high = middle; }
+        }
+        // 同値域の上端も二分探索し、全体の安定sortと同じ相対順を保ちます。
+        int nextIndex = low;
+        if (oldIndex >= low)
+        {
+            high = Items.Count;
+            while (low < high)
+            {
+                int middle = low + (high - low) / 2;
+                if (comparer.Compare(Items[middle], target) <= 0) { low = middle + 1; } else { high = middle; }
+            }
+            nextIndex = Math.Min(oldIndex, low);
+        }
+        Items.Insert(nextIndex, target);
+        ReindexShiftedReferences(current == null ? nextIndex : Math.Min(oldIndex, nextIndex),
+            current == null ? Items.Count - 1 : Math.Max(oldIndex, nextIndex));
+        if (current == null)
+        {
+            TotalCharts = checked(TotalCharts + target.TotalCharts);
+            return new(System.Collections.Specialized.NotifyCollectionChangedAction.Add, target, nextIndex);
+        }
+        return nextIndex == oldIndex ? null : new(System.Collections.Specialized.NotifyCollectionChangedAction.Move, target, nextIndex, oldIndex);
+    }
+
+    // 値・filter・比較の全件評価はしません。Listの参照移動区間だけ、同じ索引の位置を追従させます。
+    private void ReindexShiftedReferences(int first, int last)
+    {
+        for (int index = first; index <= last; index++)
+        {
+            if (Items[index].TableRef is BMSTable table) { rowsByTable[table] = (Items[index], index); }
+        }
+    }
+
+    /// <summary>局所更新済みcollectionの変更だけをBindingへ公開します。</summary>
+    internal void PublishLocalChange(System.Collections.Specialized.NotifyCollectionChangedEventArgs change)
+    {
+        if (change == null) { return; }
+        OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+        OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+        OnCollectionChanged(change);
     }
 
     internal void PublishReset()

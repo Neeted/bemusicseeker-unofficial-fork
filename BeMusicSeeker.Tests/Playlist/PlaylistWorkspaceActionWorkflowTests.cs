@@ -28,6 +28,513 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistWorkspaceActionWorkflowTests
 {
+    /// <summary>実buildのraw公開が編集より先/後でも、公開時の正本属性でfilter加入し、別row採用・cache可否に依存せず現在結果を保ちます。後発buildを編集の終端条件へ足しません。</summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task SummaryCellEdit_ReplacedRowAndCurrentCacheReceiveSavedProperties(bool uncacheable, bool publishFirst)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        if (uncacheable)
+        {
+            var unloaded = new BMSTable { playlist_id = 9000, name = "Unloaded" };
+            unloaded.MarkEntriesNotLoaded();
+            fixture.Playlist.BMSTables.Add(unloaded);
+        }
+        var service = new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library, () => null!, () => new CustomFolderOutputSettingsSnapshot());
+        bool queueRaw = false, holdSave = false;
+        Action? rawAction = null;
+        var rawDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, propertySaveService: service,
+            presentationRefreshDeferredProvider: _ => true,
+            restoreUiApplyScheduler: async action =>
+            {
+                if (queueRaw) { rawAction = action; await rawDone.Task; return; }
+                if (holdSave && fixture.Table.name == "Saved swapped name")
+                { entered.TrySetResult(); await release.Task; }
+                action();
+            });
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        workspace.RequestPlaylistSummaryMode(true);
+        workspace.RebuildPlaylistSummaryView(runAsync: false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        PlaylistSummaryRow editingRow = workspace.PlaylistSummaryView.Single(row => ReferenceEquals(row.TableRef, fixture.Table));
+        workspace.PlaylistSummaryKeywordFilter = "name:Saved";
+        queueRaw = true;
+        workspace.RebuildPlaylistSummaryView(runAsync: false);
+        queueRaw = false;
+        Assert.IsNotNull(rawAction);
+        Assert.IsFalse(workspace.IsPlaylistSummaryDataBuildIdle);
+        holdSave = true;
+        Task<PlaylistSummaryPropertyEditCompletion> edit = workspace.CompleteSummaryPropertyEditAsync(editingRow,
+            nameof(PlaylistSummaryRow.Name), "  Saved swapped name  ", true);
+        void PublishRaw()
+        {
+            Action publish = rawAction ?? throw new AssertFailedException("raw公開が予約されていません。");
+            rawAction = null;
+            try { publish(); rawDone.TrySetResult(); }
+            catch (Exception failure) { rawDone.TrySetException(failure); throw; }
+        }
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, edit, "summary-raw-publication");
+            if (publishFirst) { PublishRaw(); }
+            release.TrySetResult();
+            Assert.IsTrue((await edit).IsApplied);
+            Assert.AreEqual("Saved swapped name", workspace.PlaylistSummaryView.Single(row => ReferenceEquals(row.TableRef, fixture.Table)).Name);
+            Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+            if (!publishFirst)
+            {
+                Assert.IsFalse(workspace.IsPlaylistSummaryDataBuildIdle, "独立buildのUIを待たず編集が終端します。");
+                PublishRaw();
+            }
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            PlaylistSummaryRow current = workspace.PlaylistSummaryView.Single();
+            Assert.AreNotSame(editingRow, current);
+            Assert.AreEqual("Saved swapped name", current.Name);
+            Assert.AreEqual(fixture.Table.Output_dir, current.FolderName);
+            Assert.IsTrue(current.FolderNameUndefined);
+            List<PlaylistSummaryRow> cache = workspace.GetPlaylistSummaryRowsCacheSnapshot(out _, out _);
+            if (uncacheable) { Assert.IsNull(cache); }
+            else { Assert.AreEqual("Saved swapped name", cache.Single().Name); }
+        }
+        finally
+        {
+            holdSave = false; queueRaw = false; release.TrySetResult();
+            if (rawAction != null) { PublishRaw(); }
+            rawDone.TrySetResult();
+            await edit;
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        }
+    }
+
+    /// <summary>少数編集は全体再構築/整列を開始せず、別主キー同値時のName移動、派生値、filter離脱と件数を現在条件で更新します。無関係な16/128表で対象投影/filterと二分比較の仕事量を観測します。</summary>
+    [DataTestMethod]
+    [DataRow(16, nameof(PlaylistSummaryRow.TotalCharts))]
+    [DataRow(128, nameof(PlaylistSummaryRow.TotalCharts))]
+    [DataRow(16, nameof(PlaylistSummaryRow.Name))]
+    [DataRow(128, nameof(PlaylistSummaryRow.Name))]
+    [DataRow(16, nameof(PlaylistSummaryRow.LastUpdate))]
+    [DataRow(128, nameof(PlaylistSummaryRow.LastUpdate))]
+    public async Task SummaryCellEdit_LocallyMaintainsOrderFilterAndDerivedValues(int unrelated, string sortColumn)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        fixture.Table.name = "A";
+        foreach (int index in Enumerable.Range(0, unrelated))
+        {
+            fixture.Playlist.BMSTables.Add(new BMSTable { playlist_id = 8000 + index, name = $"B{index:D3}", last_update = new DateTime(2026, 2, 1), entries = fixture.Table.entries.Select(entry => new BMSTableEntry { md5 = entry.md5 }).ToList() });
+        }
+        fixture.Playlist.CommitBMSTableHeaderToDB(fixture.Table);
+        var logs = new List<string>();
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, propertySaveService: fixture.Service,
+            detailRetentionLog: logs.Add, presentationRefreshDeferredProvider: _ => true);
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
+        workspace.RequestPlaylistSummaryMode(true);
+        workspace.RequestPlaylistSummarySort(sortColumn, sortColumn == nameof(PlaylistSummaryRow.TotalCharts)
+            ? System.ComponentModel.ListSortDirection.Descending : System.ComponentModel.ListSortDirection.Ascending);
+        workspace.DrainDeferredPlaylistSummaryRefresh(true, false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        PlaylistSummaryRow target = workspace.PlaylistSummaryView[0];
+        Assert.AreSame(fixture.Table, target.TableRef);
+        logs.Clear();
+        int dataReservations = 0;
+        workspace.PlaylistPresentationRefreshRequested += (_, request) =>
+        { if (request.Kind == PlaylistPresentationRefreshKind.SummaryData) { dataReservations++; } };
+        long dataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+        long presentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration;
+        long cacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
+        Assert.IsTrue((await workspace.CompleteSummaryPropertyEditAsync(target, nameof(PlaylistSummaryRow.Name), "  Z saved  ", true)).IsApplied);
+        Assert.AreSame(target, sortColumn == nameof(PlaylistSummaryRow.LastUpdate)
+            ? workspace.PlaylistSummaryView[0] : workspace.PlaylistSummaryView[^1]);
+        Assert.AreEqual("Z saved", target.Name);
+        Assert.AreEqual(fixture.Table.Output_dir, target.FolderName);
+        Assert.IsTrue(target.FolderNameUndefined);
+        Assert.AreEqual(fixture.Table.last_update, target.LastUpdate);
+        Assert.IsTrue((await workspace.CompleteSummaryPropertyEditAsync(target, nameof(PlaylistSummaryRow.Symbol), "  S  ", true)).IsApplied);
+        Assert.AreEqual("S", target.Symbol);
+        Assert.IsTrue((await workspace.CompleteSummaryPropertyEditAsync(target, nameof(PlaylistSummaryRow.CompatPrefix), "  Q ", true)).IsApplied);
+        Assert.AreEqual("Q ", target.CompatPrefix);
+        await workspace.WaitForDetailBuildIdleAsync();
+        Assert.AreEqual(0, dataReservations, "実entry配送を購読しても全summary更新を予約しません。");
+        Assert.AreEqual(dataGeneration, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+        Assert.AreEqual(presentationGeneration, workspace.CurrentPlaylistSummaryPresentationGeneration);
+        Assert.AreEqual(cacheGeneration, workspace.CurrentPlaylistSummaryRowsCacheGeneration);
+        Assert.IsFalse(workspace.HasDeferredPlaylistSummaryRefresh());
+        Assert.IsFalse(logs.Any(message => message.StartsWith("playlist_summary_build ", StringComparison.Ordinal) || message.StartsWith("playlist_summary_present ", StringComparison.Ordinal)));
+        string[] edits = logs.Where(message => message.StartsWith("playlist_summary_edit ", StringComparison.Ordinal)).ToArray();
+        Assert.AreEqual(3, edits.Length);
+        foreach (string message in edits)
+        {
+            Assert.IsTrue(message.Contains("projectedRows=1 filteredRows=1", StringComparison.Ordinal));
+            int comparisons = int.Parse(message.Split("comparisons=", StringSplitOptions.None)[1], CultureInfo.InvariantCulture);
+            Assert.IsTrue(comparisons <= 2 * (int)Math.Ceiling(Math.Log2(unrelated + 1)) + 2, message);
+        }
+        workspace.PlaylistSummaryKeywordFilter = "name:Z";
+        workspace.RefreshPlaylistSummaryPresentation();
+        Assert.AreEqual(1, workspace.PlaylistSummaryView.Count);
+        Assert.IsTrue((await workspace.CompleteSummaryPropertyEditAsync(target, nameof(PlaylistSummaryRow.Name), "Gone", true)).IsApplied);
+        Assert.AreEqual(0, workspace.PlaylistSummaryView.Count);
+        Assert.AreEqual(string.Format(Resources.Playlist_summary_format, 0, 0), workspace.PlaylistSummaryText);
+    }
+
+    /// <summary>treeの実entry配送を保存scope後まで遅らせても、自分のprefix差分はsummary予約/世代/cacheを失効させません。独立sort/buildを保持し、一般folder変更と件数変更の必要更新は残します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SummaryPrefixCell_DelayedEntryDeliveryPreservesIndependentRequest(bool independentBuild)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        fixture.Table.name = "A";
+        fixture.Playlist.CommitBMSTableHeaderToDB(fixture.Table);
+        fixture.Playlist.BMSTables.Add(new BMSTable { playlist_id = 9000, name = "B", compat_prefix = "R", entries = [] });
+        bool holdEntry = false, holdFinal = false, queueIndependent = false;
+        Action? entryAction = null, independentAction = null;
+        var entryDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finalEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finalDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var independentDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task independentApply = Task.CompletedTask;
+        PlaylistWorkspaceViewModel? workspace = null;
+        Task Schedule(Action action)
+        {
+            if (queueIndependent) { independentAction = action; return independentApply = independentDone.Task; }
+            if (holdEntry && fixture.Table.compat_prefix == "Z")
+            { holdEntry = false; entryAction = action; return entryDone.Task; }
+            action();
+            if (holdFinal && workspace?.PlaylistSummaryView.Any(row => ReferenceEquals(row.TableRef, fixture.Table) && row.CompatPrefix == "Z") == true)
+            { holdFinal = false; finalEntered.TrySetResult(); return finalDone.Task; }
+            return Task.CompletedTask;
+        }
+        using PlaylistWorkspaceViewModel owned = workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, propertySaveService: fixture.Service,
+            presentationRefreshDeferredProvider: _ => true, restoreUiApplyScheduler: Schedule);
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
+        workspace.RequestPlaylistSummaryMode(true);
+        workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.CompatPrefix), System.ComponentModel.ListSortDirection.Ascending);
+        workspace.DrainDeferredPlaylistSummaryRefresh(true, false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        PlaylistSummaryRow target = workspace.PlaylistSummaryView.Single(row => ReferenceEquals(row.TableRef, fixture.Table));
+        int dataReservations = 0;
+        workspace.PlaylistPresentationRefreshRequested += (_, request) =>
+        { if (request.Kind == PlaylistPresentationRefreshKind.SummaryData) { dataReservations++; } };
+        long dataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+        long presentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration;
+        long cacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
+        holdEntry = holdFinal = true;
+        Task<PlaylistSummaryPropertyEditCompletion> edit = workspace.CompleteSummaryPropertyEditAsync(target, nameof(PlaylistSummaryRow.CompatPrefix), "Z", true);
+        void Publish(ref Action? pending, TaskCompletionSource done)
+        {
+            Action apply = pending ?? throw new AssertFailedException("実UI処理が予約されていません。");
+            pending = null;
+            try { apply(); done.TrySetResult(); }
+            catch (Exception failure) { done.TrySetException(failure); throw; }
+        }
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(finalEntered.Task, edit, "prefix-required-current-row");
+            Assert.IsNotNull(entryAction);
+            Assert.AreEqual(0, dataReservations);
+            Assert.AreEqual(dataGeneration, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+            Assert.AreEqual(presentationGeneration, workspace.CurrentPlaylistSummaryPresentationGeneration);
+            Assert.AreEqual(cacheGeneration, workspace.CurrentPlaylistSummaryRowsCacheGeneration);
+            CollectionAssert.AreEqual(new[] { "B", "A" }, workspace.PlaylistSummaryView.Select(row => row.Name).ToArray());
+            queueIndependent = true;
+            if (independentBuild) { workspace.RequestPlaylistSummaryDataRefresh("independent_prefix_build", rebuildAsync: false); }
+            workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.Name), System.ComponentModel.ListSortDirection.Ascending);
+            workspace.DrainDeferredPlaylistSummaryRefresh(false, false);
+            queueIndependent = false;
+            Assert.IsNotNull(independentAction);
+            finalDone.TrySetResult();
+            Assert.IsTrue((await edit).IsApplied);
+            Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+            Assert.IsFalse(independentApply.IsCompleted);
+            Assert.IsFalse(workspace.WaitForDetailBuildIdleAsync().IsCompleted, "保存scope後も自分のentry配送は未終端です。");
+            dataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+            presentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration;
+            cacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
+            Publish(ref entryAction, entryDone);
+            await workspace.WaitForDetailBuildIdleAsync();
+            Assert.AreEqual(independentBuild ? 1 : 0, dataReservations);
+            Assert.AreEqual(dataGeneration, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+            Assert.AreEqual(presentationGeneration, workspace.CurrentPlaylistSummaryPresentationGeneration);
+            Assert.AreEqual(cacheGeneration, workspace.CurrentPlaylistSummaryRowsCacheGeneration);
+            Assert.IsFalse(workspace.HasDeferredPlaylistSummaryRefresh());
+            Publish(ref independentAction, independentDone);
+            await independentApply;
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            CollectionAssert.AreEqual(new[] { "A", "B" }, workspace.PlaylistSummaryView.Select(row => row.Name).ToArray());
+            Assert.AreEqual("Z", workspace.PlaylistSummaryView[0].CompatPrefix);
+            CollectionAssert.AreEqual(new[] { "Z1", "Z2", "ZX", "ZQ3" }, fixture.Table.entries.Select(entry => entry.folder).ToArray());
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+            { CollectionAssert.AreEquivalent(new[] { "Z1", "Z2", "ZX", "ZQ3" }, db.Query<BMSTableEntry>("SELECT * FROM playlist_entry WHERE playlist_id=7492;").Select(entry => entry.folder).ToArray()); }
+            int beforeGeneral = dataReservations;
+            Assert.IsTrue(fixture.Playlist.RenameFolderBMSTable(fixture.Table, "Z1", "General"));
+            await workspace.WaitForDetailBuildIdleAsync();
+            Assert.IsTrue(dataReservations > beforeGeneral, "一般のfolder変更は必要summary更新を維持します。");
+            workspace.DrainDeferredPlaylistSummaryRefresh(false, false);
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            Assert.AreEqual(fixture.Table.last_update, workspace.PlaylistSummaryView.Single(row => ReferenceEquals(row.TableRef, fixture.Table)).LastUpdate);
+            beforeGeneral = dataReservations;
+            Assert.IsTrue(fixture.Playlist.RemoveEntriesBMSTable([fixture.Table.entries.First(entry => entry.folder == "General")], fixture.Table));
+            await workspace.WaitForDetailBuildIdleAsync();
+            Assert.IsTrue(dataReservations > beforeGeneral, "件数に依存する削除のsummary更新を省略しません。");
+            workspace.DrainDeferredPlaylistSummaryRefresh(false, false);
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            Assert.AreEqual(3, workspace.PlaylistSummaryView.Single(row => ReferenceEquals(row.TableRef, fixture.Table)).TotalCharts);
+        }
+        finally
+        {
+            holdEntry = holdFinal = queueIndependent = false;
+            finalDone.TrySetResult();
+            if (entryAction != null) { Publish(ref entryAction, entryDone); }
+            entryDone.TrySetResult();
+            if (independentAction != null) { Publish(ref independentAction, independentDone); }
+            independentDone.TrySetResult();
+            await edit;
+            await independentApply;
+            await workspace.WaitForDetailBuildIdleAsync();
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        }
+    }
+
+    /// <summary>summaryセル保存の準備中に詳細へ移動しても、同じ実購読がprefix差分を現在source/viewへ反映し、summary世代の失効を重ねません。</summary>
+    [TestMethod]
+    public async Task SummaryPrefixCell_DeliveryUpdatesDetailSelectedDuringSave()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool hold = false;
+        var service = new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library, () => null!, () =>
+        {
+            if (hold) { entered.TrySetResult(); release.Wait(); }
+            return new CustomFolderOutputSettingsSnapshot();
+        });
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, propertySaveService: service, presentationRefreshDeferredProvider: _ => true);
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        workspace.SetDetailDataSource(new PlaylistDetailDataSource(fixture.Library, fixture.Playlist, new MainChartRowProjectionOwner()));
+        workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
+        workspace.RequestPlaylistSummaryMode(true);
+        workspace.DrainDeferredPlaylistSummaryRefresh(true, false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        PlaylistSummaryRow summary = workspace.PlaylistSummaryView.Single();
+        hold = true;
+        Task<PlaylistSummaryPropertyEditCompletion> edit = workspace.CompleteSummaryPropertyEditAsync(summary, nameof(PlaylistSummaryRow.CompatPrefix), "Z", true);
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, edit, "prefix-save-before-detail-selection");
+            workspace.RequestPlaylistSummaryMode(false);
+            workspace.RequestDetailSelection(fixture.Table);
+            workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+            workspace.InitializePlaylistDetailSort(new ChartListSortParameters { ColumnsName = nameof(PlaylistDetailRow.Folder), Direction = System.ComponentModel.ListSortDirection.Ascending });
+            workspace.IsPlaylistDetailViewActive = true;
+            await workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, false, default);
+            PlaylistDetailSourceRow old = workspace.DetailViewState.Source.Rows.Single(row => row.Entry.title == "entry 0");
+            Assert.AreEqual("P1", old.Folder);
+            int applied = 0;
+            workspace.DetailWorkObserver = kind => { if (kind == "playlist_entry_commit_applied") { applied++; } };
+            long generation = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+            hold = false; release.Set();
+            Assert.IsTrue((await edit).IsApplied);
+            await workspace.WaitForDetailBuildIdleAsync();
+            Assert.AreEqual(generation, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+            Assert.IsTrue(applied > 0, "正規entry配送を捨てず、現在の詳細へ局所適用します。");
+            Assert.AreEqual(fixture.Table.PlaylistEntriesRevision, workspace.DetailViewState.Source.LastBuiltPlaylistRevision);
+            Assert.AreEqual("P1", old.Folder);
+            Assert.AreEqual("Z1", workspace.DetailViewState.Source.Rows.Single(row => row.Entry.title == "entry 0").Folder);
+            CollectionAssert.AreEqual(new[] { "Z1", "Z2", "ZQ3", "ZX" }, workspace.DetailViewState.View.Rows.Cast<PlaylistDetailRow>().Select(row => row.Folder).ToArray());
+        }
+        finally
+        {
+            hold = false; release.Set();
+            await edit;
+            await workspace.WaitForDetailBuildIdleAsync();
+        }
+    }
+
+    /// <summary>保存準備中に変更されたfilterで旧属性が除外されても、保存後はraw対象だけを判定して現在viewへ加入し件数を直します。</summary>
+    [TestMethod]
+    public async Task SummaryCellEdit_JoinsCurrentFilterAfterSavePreparation()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool hold = false;
+        var service = new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library, () => null!, () =>
+        {
+            if (hold) { entered.TrySetResult(); release.Wait(); }
+            return new CustomFolderOutputSettingsSnapshot();
+        });
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, propertySaveService: service, presentationRefreshDeferredProvider: _ => true);
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        workspace.RequestPlaylistSummaryMode(true);
+        workspace.RebuildPlaylistSummaryView(runAsync: false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        PlaylistSummaryRow target = workspace.PlaylistSummaryView.Single();
+        hold = true;
+        Task<PlaylistSummaryPropertyEditCompletion> edit = workspace.CompleteSummaryPropertyEditAsync(target, nameof(PlaylistSummaryRow.Name), "Joined", true);
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, edit, "summary-save-preparation");
+            workspace.PlaylistSummaryKeywordFilter = "name:Joined";
+            workspace.RefreshPlaylistSummaryPresentation();
+            Assert.AreEqual(0, workspace.PlaylistSummaryView.Count);
+            hold = false; release.Set();
+            Assert.IsTrue((await edit).IsApplied);
+            Assert.AreSame(target, workspace.PlaylistSummaryView.Single());
+            Assert.AreEqual(string.Format(Resources.Playlist_summary_format, 4, 1), workspace.PlaylistSummaryText);
+        }
+        finally { hold = false; release.Set(); await edit; }
+    }
+
+    /// <summary>未採用のName降順要求を編集中の現在TotalCharts降順へ混ぜず、編集は要求のUIを待たず終端し、独立要求自身は最新名で採用されます。</summary>
+    [TestMethod]
+    public async Task SummaryCellEdit_PreservesIndependentSortAndCurrentConditions()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        fixture.Table.name = "Zeta";
+        fixture.Table.entries = fixture.Table.entries.Take(2).ToList();
+        BMSTable[] peers = [new() { playlist_id = 1, name = "Beta", entries = [new() { md5 = "00000000000000000000000000000001" }, new() { md5 = "00000000000000000000000000000002" }, new() { md5 = "00000000000000000000000000000003" }] },
+            new() { playlist_id = 3, name = "Omega", entries = [new() { md5 = "00000000000000000000000000000001" }, new() { md5 = "00000000000000000000000000000002" }] }, new() { playlist_id = 4, name = "Alpha", entries = [new() { md5 = "00000000000000000000000000000001" }] }];
+        foreach (BMSTable peer in peers) { fixture.Playlist.BMSTables.Add(peer); }
+        fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+        bool holdEdit = false, holdSort = false;
+        Action? sortAction = null;
+        Task sortApply = Task.CompletedTask;
+        var sortDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var editEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var editRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, propertySaveService: fixture.Service, presentationRefreshDeferredProvider: _ => true,
+            restoreUiApplyScheduler: action =>
+            {
+                Task task = Apply(action);
+                if (holdSort) { sortApply = task; }
+                return task;
+            });
+        async Task Apply(Action action)
+        {
+            if (holdSort) { sortAction = action; await sortDone.Task; return; }
+            if (holdEdit && fixture.Table.name == "Aardvark") { editEntered.TrySetResult(); await editRelease.Task; }
+            action();
+        }
+        void PublishSort()
+        {
+            Action publish = sortAction ?? throw new AssertFailedException("独立sortが予約されていません。");
+            sortAction = null;
+            try { publish(); sortDone.TrySetResult(); }
+            catch (Exception failure) { sortDone.TrySetException(failure); throw; }
+        }
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        workspace.RequestPlaylistSummaryMode(true);
+        workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.TotalCharts), System.ComponentModel.ListSortDirection.Descending);
+        workspace.RebuildPlaylistSummaryView(runAsync: false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        PlaylistSummaryRow target = workspace.PlaylistSummaryView.Single(row => ReferenceEquals(row.TableRef, fixture.Table));
+        holdEdit = true;
+        Task<PlaylistSummaryPropertyEditCompletion> edit = workspace.CompleteSummaryPropertyEditAsync(target, nameof(PlaylistSummaryRow.Name), "Aardvark", true);
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(editEntered.Task, edit, "summary-independent-sort");
+            holdSort = true;
+            workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.Name), System.ComponentModel.ListSortDirection.Descending);
+            workspace.DrainDeferredPlaylistSummaryRefresh(false, false);
+            holdSort = false;
+            Assert.IsNotNull(sortAction);
+            editRelease.TrySetResult();
+            Assert.IsTrue((await edit).IsApplied);
+            Assert.IsFalse(sortDone.Task.IsCompleted);
+            CollectionAssert.AreEqual(new[] { "Beta", "Aardvark", "Omega", "Alpha" }, workspace.PlaylistSummaryView.Select(row => row.Name).ToArray());
+            Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+            PublishSort();
+            await sortApply;
+            CollectionAssert.AreEqual(new[] { "Omega", "Beta", "Alpha", "Aardvark" }, workspace.PlaylistSummaryView.Select(row => row.Name).ToArray());
+        }
+        finally
+        {
+            holdEdit = holdSort = false; editRelease.TrySetResult();
+            if (sortAction != null) { PublishSort(); }
+            sortDone.TrySetResult();
+            await sortApply;
+            await edit;
+        }
+    }
+
+    /// <summary>summaryの正規化済み正本値を現在行へ局所通知し、必要表示の実終端までPを保ちます。出力・表示失敗でも保存値と次の明示受付を保持し、全summary再構築へ委ねません。</summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task SummaryCellEdit_WaitsForSavedValuePresentationAndPreservesFailure(bool outputFails, bool presentationFails)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(enableBmtOutput: outputFails);
+        var service = new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library, () => null!, () => new CustomFolderOutputSettingsSnapshot());
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PlaylistSummaryRow? row = null;
+        var diagnostics = new List<Exception>();
+        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+        { MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+        bool gate = false;
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, propertySaveService: service, playlistWorkspaceDialogService: dialogs,
+            reloadFailureLog: (failure, _) => diagnostics.Add(failure), restoreUiApplyScheduler: async action =>
+            {
+                action();
+                if (!gate || row?.Name != "Saved name") { return; }
+                entered.TrySetResult(); await release.Task;
+                if (presentationFails) { throw new InvalidOperationException("required summary presentation failed"); }
+            });
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        workspace.RequestPlaylistSummaryMode(true);
+        workspace.RebuildPlaylistSummaryView(runAsync: false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        row = workspace.PlaylistSummaryView.Single();
+        gate = true;
+        int rebuilds = 0, nameChanges = 0;
+        workspace.PlaylistPresentationRefreshRequested += (_, request) =>
+        { if (request.Kind == PlaylistPresentationRefreshKind.SummaryData) { rebuilds++; } };
+        row.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(PlaylistSummaryRow.Name)) { nameChanges++; } };
+        using FileStream? blocker = outputFails ? new FileStream(fixture.BmtManifestPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None) : null;
+        Task<PlaylistSummaryPropertyEditCompletion> edit = workspace.CompleteSummaryPropertyEditAsync(row, nameof(PlaylistSummaryRow.Name), "  Saved name  ", true);
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, edit, "summary-required-presentation");
+            Assert.IsFalse(edit.IsCompleted);
+            Assert.AreEqual("Saved name", fixture.Table.name);
+            Assert.AreEqual("Saved name", row.Name);
+            Assert.IsFalse(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable rejected)); rejected?.Dispose();
+        }
+        finally { gate = false; release.TrySetResult(); }
+        PlaylistSummaryPropertyEditCompletion result = await edit;
+        Assert.AreEqual(!outputFails && !presentationFails, result.IsApplied);
+        if (outputFails)
+        {
+            StringAssert.Contains(dialogs.LastMessageRequest.MessageBoxText, "playlist_property_save");
+            Assert.IsFalse(dialogs.LastMessageRequest.MessageBoxText.Contains("required summary presentation failed", StringComparison.Ordinal));
+        }
+        else if (presentationFails) { StringAssert.Contains(dialogs.LastMessageRequest.MessageBoxText, "required summary presentation failed"); }
+        Assert.AreEqual("Saved name", row.Name);
+        Assert.AreEqual(1, nameChanges);
+        Assert.AreEqual(0, rebuilds, "セル編集の必要表示は全summary構築を開始しません。");
+        using (LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        { Assert.AreEqual("Saved name", verify.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id=7492;")); }
+        Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable next)); next.Dispose();
+        if (outputFails && presentationFails)
+        { Assert.IsTrue(diagnostics.Any(failure => failure.Message == "required summary presentation failed")); }
+    }
+
     /// <summary>小さい複数対象を一度捕捉してID解決・同参照検証し、対象数分の正本全走査を防ぎます。IDなしの現参照、選択重複と曖昧IDの全体拒否も同じ要求境界で確認します。</summary>
     [TestMethod]
     public async Task PlaylistBulkPreparationAndApply_CaptureCurrentCollectionOncePerRequest()

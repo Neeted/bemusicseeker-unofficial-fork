@@ -28,6 +28,72 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistWorkspacePersistenceCommandTests
 {
+    /// <summary>実workerのrawからDispatcher適用へ接続し、通常・表示失敗・交換・停止でもAction後のscheduler実Taskより先にbuild idleへ抜けません。entry集計はworker、通知はUIに属します。</summary>
+    [DataTestMethod]
+    [DataRow("normal")]
+    [DataRow("failure")]
+    [DataRow("hidden")]
+    [DataRow("stop")]
+    [DoNotParallelize]
+    public async Task SummaryBuild_OwnsDispatcherApplicationThroughSchedulerCompletion(string outcome)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var execute = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var executed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var complete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? apply = null;
+        bool scheduledFromWorker = false, publishedOnUi = true;
+        async Task Apply(Action action)
+        {
+            await execute.Task;
+            await TestUiDispatcherHost.Dispatcher.InvokeAsync(action).Task;
+            executed.TrySetResult();
+            await complete.Task;
+            if (outcome == "failure") { throw new InvalidOperationException("summary UI completion failure"); }
+        }
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, presentationRefreshDeferredProvider: _ => true,
+            restoreUiApplyScheduler: action =>
+            {
+                scheduledFromWorker = !TestUiDispatcherHost.Dispatcher.CheckAccess();
+                apply = Apply(action);
+                entered.TrySetResult();
+                return apply;
+            }, restoreUiThreadCheck: () => TestUiDispatcherHost.Dispatcher.CheckAccess());
+        workspace.PlaylistSummaryView.CollectionChanged += (_, _) => publishedOnUi &= TestUiDispatcherHost.Dispatcher.CheckAccess();
+        TestUiDispatcherHost.Invoke(() => workspace.RequestPlaylistSummaryMode(true));
+        workspace.RebuildPlaylistSummaryView();
+        Task idle = workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, idle, "summary-build-ui-scheduled");
+            Assert.IsNotNull(apply);
+            if (outcome == "hidden") { TestUiDispatcherHost.Invoke(() => workspace.RequestPlaylistSummaryMode(false)); }
+            if (outcome == "stop") { workspace.StopPlaylistSummaryDataBuild(); }
+            execute.TrySetResult();
+            await TestUiDispatcherHost.AwaitNotificationAsync(executed.Task, apply, "summary-build-ui-executed");
+            Assert.IsTrue(scheduledFromWorker);
+            Assert.IsTrue(publishedOnUi);
+            Assert.IsFalse(idle.IsCompleted);
+            Assert.IsFalse(workspace.IsPlaylistSummaryDataBuildIdle);
+            if (outcome is "normal" or "failure") { Assert.AreEqual("Prefix", workspace.PlaylistSummaryView.Single().Name); }
+            else { Assert.AreEqual(0, workspace.PlaylistSummaryView.Count); }
+            complete.TrySetResult();
+            if (outcome == "failure")
+            { Assert.AreEqual("summary UI completion failure", (await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => apply)).Message); }
+            else { await apply; }
+            await idle;
+        }
+        finally
+        {
+            execute.TrySetResult(); complete.TrySetResult();
+            try { if (apply != null) { await apply; } }
+            catch (InvalidOperationException failure) when (outcome == "failure" && failure.Message == "summary UI completion failure") { }
+            await idle;
+        }
+    }
+
     /// <summary>順序四入口を実DB・本番サマリー・configへ接続し、同期前のP保持、ドラッグ選択世代、無変更と次操作を確認します。</summary>
     [DataTestMethod]
     // 四つの入口へ異なる選択を渡し、どれも独立期待の3→1→2へ並べ替えます。

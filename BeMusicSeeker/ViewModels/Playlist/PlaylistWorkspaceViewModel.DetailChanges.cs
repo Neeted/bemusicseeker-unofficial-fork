@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -14,6 +15,8 @@ public sealed partial class PlaylistWorkspaceViewModel
     private BMSPlaylist detailEntryCommitStore;
     private Func<BMSLibrary, CancellationToken, Task> libraryChangeDelivery;
     private readonly List<PlaylistEntryCommitReceipt> deferredEntryCommits = [];
+    private readonly object detailEntryDeliveryLock = new();
+    private Task detailEntryDelivery = Task.CompletedTask;
     private int? summaryOwnedHashContentVersion;
 
     /// <summary>初回構築と局所更新の実投影地点を観測します。通常実行では未設定です。</summary>
@@ -55,18 +58,32 @@ public sealed partial class PlaylistWorkspaceViewModel
         // キューを読む consumer は workspace 接続一つに限定し、構築中要求へも同じ結果を渡します。
         ImmutableArray<PlaylistEntryCommitReceipt> receipts = store.DrainPlaylistEntryCommits();
         if (receipts.IsEmpty) { return; }
-        dispatchPresentation(() =>
+        lock (detailEntryDeliveryLock)
+        {
+            PlaylistPropertyEditSession propertyEdit = Volatile.Read(ref summaryPropertyEditSession);
+            bool refreshSummary = receipts.Any(receipt => RequiresSummaryDataRefresh(receipt, propertyEdit));
+            detailEntryDelivery = DeliverEntryCommitsAsync(detailEntryDelivery, store, receipts, refreshSummary);
+            detailEntryDelivery.ObserveFault("playlist_entry_change_delivery");
+        }
+    }
+
+    private Task WaitForDetailEntryDeliveryAsync()
+    {
+        lock (detailEntryDeliveryLock) { return detailEntryDelivery; }
+    }
+
+    private async Task DeliverEntryCommitsAsync(Task previous, BMSPlaylist store, ImmutableArray<PlaylistEntryCommitReceipt> receipts, bool refreshSummary)
+    {
+        // 単一consumerの配送順を保ち、前回操作の失敗を次の明示編集へ持ち越しません。
+        try { await previous.ConfigureAwait(false); }
+        catch { /* 元Taskの所有者が失敗を観測します。後続差分の配送は続けます。 */ }
+        await playlistRestoreUiApplyScheduler(() =>
         {
             if (!ReferenceEquals(store, detailEntryCommitStore)) { return; }
-            bool summaryChanged = false;
             lock (DetailBuildState.SyncRoot)
             {
                 foreach (PlaylistEntryCommitReceipt receipt in receipts)
                 {
-                    summaryChanged |= !receipt.FolderOrder.IsDefault
-                        || receipt.Changes.Any(change => change.Before == null || change.After == null
-                            || change.Before.Folder != change.After.Folder || change.Before.IsRemoved != change.After.IsRemoved
-                            || !CatalogReadSnapshot.LookupKeyComparer.Equals(LookupKey(change.Before), LookupKey(change.After)));
                     BufferEntryCommit(DetailBuildState.CurrentBuildRequest, receipt);
                     BufferEntryCommit(DetailBuildState.PendingRequest, receipt);
                     lock (DetailViewState.SyncRoot)
@@ -75,7 +92,16 @@ public sealed partial class PlaylistWorkspaceViewModel
                             && (ReferenceEquals(DetailViewState.Source.CurrentTable, receipt.Table)
                                 || DetailViewState.Source.Rows.Count > 0 && ReferenceEquals(DetailViewState.Source.Rows[0].Entry.parent, receipt.Table)))
                         {
-                            if (EnsureDetailDependencies().PendingReferenceProjections.Count > 0
+                            PlaylistDetailDependencies dependencies = EnsureDetailDependencies();
+                            if (TryApplyEditedEntryValues(dependencies, receipt))
+                            {
+                                if (deferredEntryCommits.Any(value => ReferenceEquals(value.Table, receipt.Table)))
+                                { deferredEntryCommits.Add(receipt); }
+                                else { DetailViewState.Source.LastBuiltPlaylistRevision = receipt.Revision; }
+                                UpdateDetailIdentities();
+                                ReportDetailWork("playlist_entry_commit_applied");
+                            }
+                            else if (dependencies.PendingReferenceProjections.Count > 0
                                 || deferredEntryCommits.Any(value => ReferenceEquals(value.Table, receipt.Table))
                                 || !TryApplyEntryCommit(EnsureDetailDependencies(), receipt, DetailViewState.View.Rows as PlaylistDetailVirtualView,
                                 DetailViewState.View.CurrentIdentity, DetailViewState.Source.LastBuiltLibraryIndexVersion))
@@ -91,8 +117,41 @@ public sealed partial class PlaylistWorkspaceViewModel
                 }
             }
             PublishDetailChanges();
-            if (summaryChanged) { RequestPlaylistSummaryDataRefresh("playlist_entry_lookup_changed"); }
-        });
+            if (refreshSummary) { RequestPlaylistSummaryDataRefresh("playlist_entry_lookup_changed"); }
+        }).ConfigureAwait(false);
+    }
+
+    // Pで他の正本変更を除外した自分のprefix保存だけは、件数に依存しないfolder差分を局所反映します。
+    // 開始版も照合して古い未drain差分を巻き込まず、判定をawait前に固定して保存scope後の配送でも保ちます。
+    private static bool RequiresSummaryDataRefresh(PlaylistEntryCommitReceipt receipt, PlaylistPropertyEditSession propertyEdit)
+    {
+        bool countChanged = receipt.Changes.Any(change => change.Before == null || change.After == null
+            || change.Before.IsRemoved != change.After.IsRemoved
+            || !CatalogReadSnapshot.LookupKeyComparer.Equals(LookupKey(change.Before), LookupKey(change.After)));
+        if (countChanged) { return true; }
+        bool folderChanged = !receipt.FolderOrder.IsDefault
+            || receipt.Changes.Any(change => change.Before.Folder != change.After.Folder);
+        if (!folderChanged) { return false; }
+        bool ownPrefixEdit = propertyEdit != null
+            && ReferenceEquals(propertyEdit.Table, receipt.Table)
+            && propertyEdit.OriginalValues.EntriesRevision == receipt.BaseRevision
+            && !string.Equals(propertyEdit.OriginalValues.CompatPrefix, propertyEdit.Values.CompatPrefix, StringComparison.Ordinal);
+        return !ownPrefixEdit;
+    }
+
+    private bool TryApplyEditedEntryValues(PlaylistDetailDependencies dependencies, PlaylistEntryCommitReceipt receipt)
+    {
+        if (!receipt.FolderOrder.IsDefault || receipt.Changes.Any(change => change.Before == null || change.After == null
+            || change.Before.Folder != change.After.Folder || change.Before.IsRemoved != change.After.IsRemoved
+            || !CatalogReadSnapshot.LookupKeyComparer.Equals(LookupKey(change.Before), LookupKey(change.After))
+            || !dependencies.TryGet(change.Entry, out _))) { return false; }
+        foreach (PlaylistEntryChange change in receipt.Changes)
+        {
+            dependencies.TryGet(change.Entry, out PlaylistDetailSourceRow before);
+            ReportDetailWork("playlist_source_projection");
+            ReplaceDetailProjection(dependencies, before, before.WithEditedValues(change.After));
+        }
+        return true;
     }
 
     private static void BufferEntryCommit(PlaylistBuildRequest request, PlaylistEntryCommitReceipt receipt)

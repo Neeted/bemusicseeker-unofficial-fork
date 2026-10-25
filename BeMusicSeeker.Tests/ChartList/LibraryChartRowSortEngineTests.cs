@@ -696,6 +696,23 @@ public sealed class LibraryChartRowSortEngineTests
 
     }
 
+    /// <summary>主キー降順でもName/IDの同値順は昇順を保ち、null既定・未知列fallbackと全体整列/局所比較の一致を検証します。</summary>
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void PlaylistSummarySortEngine_PreservesTieBreakDefaultsAndFallback()
+    {
+        PlaylistSummaryRow?[] rows = [new() { PlaylistId = 3, Name = "B", TotalCharts = 2 },
+            new() { PlaylistId = 2, Name = "A", TotalCharts = 2 }, new() { PlaylistId = 1, Name = "a", TotalCharts = 2 },
+            new() { PlaylistId = 4, Name = "C", TotalCharts = 1 }, null];
+        var sort = new ChartListSortParameters { ColumnsName = nameof(PlaylistSummaryRow.TotalCharts), Direction = ListSortDirection.Descending };
+        List<PlaylistSummaryRow> sorted = PlaylistSummarySortEngine.Sort(rows, sort, out _);
+        CollectionAssert.AreEqual(new int?[] { 1, 2, 3, 4, null }, sorted.Select(row => row?.PlaylistId).ToArray());
+        IComparer<PlaylistSummaryRow> comparer = PlaylistSummarySortEngine.CreateComparer(sort, out _);
+        for (int index = 1; index < sorted.Count; index++) { Assert.IsTrue(comparer.Compare(sorted[index - 1], sorted[index]) <= 0); }
+        sort.ColumnsName = "unknown";
+        CollectionAssert.AreEqual(new int?[] { 4, 3, 1, 2, null }, PlaylistSummarySortEngine.Sort(rows, sort, out _).Select(row => row?.PlaylistId).ToArray());
+    }
+
     /// <summary>表summaryのfolder名を名前と異なる順へ並べ、表名で代替して比較する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]

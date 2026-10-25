@@ -81,7 +81,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     /// <summary>
-    /// 新しいサマリー行を構築し、この画面が所有する絞込み・ソート結果を公開します。
+    /// workerでentryを集計し、既存UI適用Taskの終端まで同じbuild寿命でraw公開・絞込み・ソート・採用を回収します。
     /// ページのない内蔵表にはブラウザーで開くリンクを作りません。
     /// </summary>
     /// <param name="runAsync">スレッドプールで構築するか。</param>
@@ -118,7 +118,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         IReadOnlyDictionary<string, PlaylistSyncRuntimeStatus> syncStatusSnapshot = CapturePlaylistSyncStatusSnapshot();
 
         long dataRebuildGeneration = buildRequest.Generation;
-        void Execute()
+        async Task Execute()
         {
             var stopwatch = Stopwatch.StartNew();
             if (Net10PerformanceLog.IsEnabled)
@@ -162,12 +162,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return;
             }
 
-            bool cacheStored = buildResult.UnloadedTableCount == 0
-                && TrySetPlaylistSummaryRowsCache(buildResult.Rows, dataRebuildGeneration);
-            long? cacheGeneration = cacheStored
-                ? CurrentPlaylistSummaryRowsCacheGeneration
-                : null;
-
             string sortColumn = PlaylistSummarySortParameters?.ColumnsName ?? nameof(PlaylistSummaryRow.Name);
             string sortDirection = PlaylistSummarySortParameters?.Direction.ToString() ?? ListSortDirection.Ascending.ToString();
             OwnedChartHashIndexVersionedSnapshot ownedSnapshot = buildResult.OwnedHashSnapshot;
@@ -191,20 +185,20 @@ public sealed partial class PlaylistWorkspaceViewModel
                 + " elapsedMs=" + buildMs);
 
             long presentationGeneration = BeginPlaylistSummaryPresentationGeneration();
-            ApplyPlaylistSummaryPresentation(
+            await ApplyPlaylistSummaryPresentationAsync(
                 buildResult.Rows,
                 stopwatch,
                 buildMs,
                 presentationGeneration,
                 dataRebuildGeneration: dataRebuildGeneration,
-                cacheGeneration: cacheGeneration);
+                rawCacheReusable: buildResult.UnloadedTableCount == 0).ConfigureAwait(false);
         }
 
-        void Action()
+        async Task Action()
         {
             try
             {
-                Execute();
+                await Execute().ConfigureAwait(false);
             }
             finally
             {
@@ -228,13 +222,13 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         else
         {
-            Action();
+            Action().ObserveFault("RebuildPlaylistSummaryView");
         }
         return dataRebuildGeneration;
     }
 
     /// <summary>
-    /// Reapplies filtering and sorting to the current raw-row cache, rebuilding data when no fresh cache exists.
+    /// 現在rawから要求条件を再評価し、同じUI処理で採用します。再利用不可のrawならentry集計から再構築します。
     /// </summary>
     internal void RefreshPlaylistSummaryPresentation()
     {
@@ -248,13 +242,13 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         long presentationGeneration = BeginPlaylistSummaryPresentationGeneration();
-        ApplyPlaylistSummaryPresentation(
+        ApplyPlaylistSummaryPresentationAsync(
             cachedRows,
             Stopwatch.StartNew(),
             0L,
             presentationGeneration,
             cacheGeneration: cacheGeneration,
-            isCacheHit: true);
+            isCacheHit: true).ObserveFault("RefreshPlaylistSummaryPresentation");
     }
 
     private PlaylistSummaryRowsBuildResult BuildPlaylistSummaryRows(
@@ -338,12 +332,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                     table.custom_folder_output_base_name,
                     customFolderOutputSettings.LR2CustomFolderOutputBaseDir,
                     customFolderOutputSettings.LR2CustomFolderAdditionalOutputBaseDirs),
-                Name = table.name ?? string.Empty,
-                FolderName = table.Output_dir ?? string.Empty,
-                FolderNameUndefined = IsPlaylistSummaryFolderNameUndefined(table),
-                CompatPrefix = table.compat_prefix ?? string.Empty,
-                Symbol = table.symbol ?? string.Empty,
-                LastUpdate = table.last_update,
                 TotalCharts = totalCharts,
                 OwnedCharts = ownedCharts,
                 MissingCharts = totalCharts - ownedCharts,
@@ -365,133 +353,87 @@ public sealed partial class PlaylistWorkspaceViewModel
         return result;
     }
 
-    private void ApplyPlaylistSummaryPresentation(
+    /// <summary>要求条件の捕捉後、rawの正本属性投影・cache公開・filter/sort・view採用を同一UI処理で完結し、その実Taskを返します。</summary>
+    private Task ApplyPlaylistSummaryPresentationAsync(
         List<PlaylistSummaryRow> rawRows,
         Stopwatch stopwatch,
         long buildMs,
         long presentationGeneration,
         long? dataRebuildGeneration = null,
         long? cacheGeneration = null,
-        bool isCacheHit = false)
+        bool isCacheHit = false,
+        bool? rawCacheReusable = null)
     {
         List<PlaylistSummaryRow> safeRawRows = rawRows ?? [];
-        long interactionId = dataRebuildGeneration ?? presentationGeneration;
-        var performanceInteraction = PerformanceInteraction.Existing(
-            "playlist_summary",
-            interactionId,
-            presentationGeneration);
-        if (Net10PerformanceLog.IsEnabled && isCacheHit)
-        {
-            Net10PerformanceLog.Write(
-                performanceInteraction,
-                "input_accepted",
-                "source=summary_cache");
-            Net10PerformanceLog.Write(
-                performanceInteraction,
-                "owner_queued",
-                "source=summary_cache");
-            Net10PerformanceLog.Write(
-                performanceInteraction,
-                "owner_started",
-                "source=summary_cache");
-        }
         string keywordFilter = PlaylistSummaryKeywordFilter;
         PlaylistOwnedFilter ownedFilter = PlaylistSummaryOwnedFilter;
-        ChartListSortParameters currentSort = PlaylistSummarySortParameters;
-        string sortColumn = currentSort?.ColumnsName ?? nameof(PlaylistSummaryRow.Name);
-        ListSortDirection sortDirection = currentSort?.Direction ?? ListSortDirection.Ascending;
         var sortParameters = new ChartListSortParameters
         {
-            ColumnsName = sortColumn,
-            Direction = sortDirection
+            ColumnsName = PlaylistSummarySortParameters?.ColumnsName ?? nameof(PlaylistSummaryRow.Name),
+            Direction = PlaylistSummarySortParameters?.Direction ?? ListSortDirection.Ascending
         };
-        PlaylistSummaryPresentationResult presentationResult = BuildPlaylistSummaryPresentationRows(
-            safeRawRows,
-            keywordFilter,
-            ownedFilter,
-            sortParameters);
-        long sourceVersion = cacheGeneration
-            ?? -(dataRebuildGeneration ?? presentationGeneration);
-        var identity = new PlaylistSummaryPresentationIdentity(
-            sourceVersion,
-            keywordFilter,
-            ownedFilter,
-            sortColumn,
-            sortDirection);
-        string summaryText = string.Format(
-            BeMusicSeeker.Properties.Resources.Playlist_summary_format,
-            presentationResult.Rows.Sum(row => row.TotalCharts),
-            presentationResult.Rows.Count);
+        var interaction = PerformanceInteraction.Existing("playlist_summary", dataRebuildGeneration ?? presentationGeneration, presentationGeneration);
         if (Net10PerformanceLog.IsEnabled)
         {
-            Net10PerformanceLog.Write(
-                performanceInteraction,
-                "snapshot_query_projection",
-                "phase=presentation"
-                + " inputRows=" + safeRawRows.Count
-                + " outputRows=" + presentationResult.Rows.Count
-                + " filterMs=" + presentationResult.FilterElapsedMs
-                + " sortMs=" + presentationResult.SortElapsedMs);
+            if (isCacheHit)
+            {
+                Net10PerformanceLog.Write(interaction, "input_accepted", "source=summary_cache");
+                Net10PerformanceLog.Write(interaction, "owner_queued", "source=summary_cache");
+                Net10PerformanceLog.Write(interaction, "owner_started", "source=summary_cache");
+            }
+            if (!playlistRestoreUiThreadCheck()) { Net10PerformanceLog.Write(interaction, "ui_queued", "rows=" + safeRawRows.Count); }
         }
-        if (!CanApplyPlaylistSummaryPresentation(presentationGeneration, dataRebuildGeneration, cacheGeneration))
-        {
-            LogStalePresentation(safeRawRows.Count, presentationGeneration, dataRebuildGeneration, cacheGeneration);
-            return;
-        }
-
-        void Reflect()
+        return playlistRestoreUiApplyScheduler(() =>
         {
             if (!CanApplyPlaylistSummaryPresentation(presentationGeneration, dataRebuildGeneration, cacheGeneration))
             {
+                LogStalePresentation(safeRawRows.Count, presentationGeneration, dataRebuildGeneration, cacheGeneration);
                 return;
             }
+            if (Net10PerformanceLog.IsEnabled) { Net10PerformanceLog.Write(interaction, "ui_started"); }
+            // この列挙で未表示のrawも正本属性へ揃えるため、filter済みの古い候補や候補別deltaは残しません。
+            IEnumerable<PlaylistSummaryRow> projected = safeRawRows.Select(row =>
+            {
+                if (row.TableRef != null) { row.ApplySavedProperties(row.TableRef, notify: false); }
+                return row;
+            });
+            PlaylistSummaryPresentationResult result = BuildPlaylistSummaryPresentationRows(projected, keywordFilter, ownedFilter, sortParameters);
             if (Net10PerformanceLog.IsEnabled)
             {
-                Net10PerformanceLog.Write(
-                    performanceInteraction,
-                    "ui_started");
+                Net10PerformanceLog.Write(interaction, "snapshot_query_projection", "phase=presentation inputRows=" + safeRawRows.Count
+                    + " outputRows=" + result.Rows.Count + " filterMs=" + result.FilterElapsedMs + " sortMs=" + result.SortElapsedMs);
             }
+            long? appliedCacheGeneration = cacheGeneration;
+            if (rawCacheReusable.HasValue && dataRebuildGeneration.HasValue
+                && TrySetPlaylistSummaryRowsCache(safeRawRows, dataRebuildGeneration.Value, rawCacheReusable.Value))
+            {
+                appliedCacheGeneration = CurrentPlaylistSummaryRowsCacheGeneration;
+            }
+            var identity = new PlaylistSummaryPresentationIdentity(
+                appliedCacheGeneration ?? -(dataRebuildGeneration ?? presentationGeneration), keywordFilter, ownedFilter,
+                sortParameters.ColumnsName, sortParameters.Direction);
             bool applied = TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
             {
-                Rows = presentationResult.Rows,
-                SummaryText = summaryText,
+                Rows = result.Rows,
                 Identity = identity,
                 PresentationGeneration = presentationGeneration,
                 DataRebuildGeneration = dataRebuildGeneration,
-                CacheGeneration = cacheGeneration
+                CacheGeneration = appliedCacheGeneration
             });
             if (applied && Net10PerformanceLog.IsEnabled)
-            {
-                Net10PerformanceLog.Write(
-                    performanceInteraction,
-                    "ui_applied",
-                    "rows=" + presentationResult.Rows.Count
-                    + " dataGeneration=" + (dataRebuildGeneration ?? 0L)
-                    + " cacheGeneration=" + (cacheGeneration ?? 0L));
-            }
-        }
-
-        if (!playlistRestoreUiThreadCheck() && Net10PerformanceLog.IsEnabled)
-        {
-            Net10PerformanceLog.Write(
-                performanceInteraction,
-                "ui_queued",
-                "rows=" + presentationResult.Rows.Count);
-        }
-        dispatchPresentation(Reflect);
-
-        Interlocked.Exchange(ref lastPlaylistSummaryBuildElapsedMs, stopwatch.ElapsedMilliseconds);
-        LogBuild("playlist_summary_present inputCount=" + safeRawRows.Count
-            + " filteredCount=" + presentationResult.FilteredCount
-            + " viewCount=" + presentationResult.Rows.Count
-            + " filterMs=" + presentationResult.FilterElapsedMs
-            + " sortMs=" + presentationResult.SortElapsedMs
-            + " totalMs=" + stopwatch.ElapsedMilliseconds
-            + " sortColumn=" + presentationResult.SortColumn
-            + " sortDirection=" + presentationResult.SortDirection
-            + " sortProfile=" + presentationResult.SortProfile
-            + (buildMs > 0 ? " buildMs=" + buildMs + " summaryCacheHit=false" : " summaryCacheHit=true"));
+            { Net10PerformanceLog.Write(interaction, "ui_applied", "rows=" + result.Rows.Count); }
+            Interlocked.Exchange(ref lastPlaylistSummaryBuildElapsedMs, stopwatch.ElapsedMilliseconds);
+            LogBuild("playlist_summary_present inputCount=" + safeRawRows.Count
+                + " filteredCount=" + result.FilteredCount + " viewCount=" + result.Rows.Count
+                + " filterMs=" + result.FilterElapsedMs + " sortMs=" + result.SortElapsedMs
+                + " totalMs=" + stopwatch.ElapsedMilliseconds + " sortColumn=" + result.SortColumn
+                + " sortDirection=" + result.SortDirection + " sortProfile=" + result.SortProfile
+                + " buildMs=" + buildMs + " summaryCacheHit=" + isCacheHit);
+        });
     }
+
+    private static string FormatPlaylistSummaryText(int charts, int tables)
+        => string.Format(BeMusicSeeker.Properties.Resources.Playlist_summary_format, charts, tables);
 
     private bool CanApplyPlaylistSummaryPresentation(
         long presentationGeneration,
@@ -584,18 +526,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             PlaylistOwnedFilter.OwnedIncomplete => row.TotalCharts == 0 || row.OwnedCharts < row.TotalCharts,
             _ => true
         };
-    }
-
-    private static bool IsPlaylistSummaryFolderNameUndefined(BMSTable table)
-    {
-        if (table == null)
-        {
-            return true;
-        }
-        string explicitOutputDirectoryName = BMSTable.NormalizeOutputDirectoryName(table.output_dir);
-        string defaultOutputDirectoryName = BMSTable.CreateDefaultOutputDirectoryName(table.name);
-        return string.IsNullOrWhiteSpace(explicitOutputDirectoryName)
-            || string.Equals(explicitOutputDirectoryName, defaultOutputDirectoryName, StringComparison.Ordinal);
     }
 
     private static PlaylistSyncRuntimeStatus GetPlaylistSyncRuntimeStatus(

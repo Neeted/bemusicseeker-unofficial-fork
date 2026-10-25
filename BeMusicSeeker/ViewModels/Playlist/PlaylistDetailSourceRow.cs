@@ -324,6 +324,37 @@ internal sealed class PlaylistDetailSourceRow
         scoreDifficulty = effectiveScoreSnapshot.ScoreDifficulty;
     }
 
+    /// <summary>同じentryの確定編集属性だけを置換し、遅延中の所持・参照投影を保持します。lookupや所属を変更する差分には使いません。</summary>
+    internal PlaylistDetailSourceRow WithEditedValues(PlaylistEntryValue value)
+    {
+        var copy = (PlaylistDetailSourceRow)MemberwiseClone();
+        copy.EntryValue = EntryValue with
+        {
+            Level = value.Level,
+            Url = value.Url,
+            UrlDiff = value.UrlDiff,
+            EffectiveUrl = value.EffectiveUrl,
+            EffectiveUrlDiff = value.EffectiveUrlDiff,
+            Comment = value.Comment,
+            Memo = value.Memo
+        };
+        if (resolvedChartSnapshot == null) { copy.Chart = ChartFileProjection.WithScore(copy.CreateChartFile(), effectiveScoreSnapshot); }
+        copy.EntryLevelSortKey = value.Level;
+        copy.Level = value.Level?.ToString() ?? copy.Chart?.LevelText ?? string.Empty;
+        copy.Url = value.EffectiveUrl;
+        copy.Url_diff = value.EffectiveUrlDiff;
+        copy.comment = value.Comment ?? string.Empty;
+        copy.memo = value.Memo ?? string.Empty;
+        copy.SearchText = copy.BuildSearchText();
+        return copy;
+    }
+
+    /// <summary>確定編集属性だけが現在の入力へ反映済みかを比較し、同値保存で不要な投影を繰り返しません。</summary>
+    internal bool HasEditedValues(PlaylistEntryValue value)
+        => EntryValue.Level == value.Level && Equals(EntryValue.Url, value.Url) && Equals(EntryValue.UrlDiff, value.UrlDiff)
+            && Equals(EntryValue.EffectiveUrl, value.EffectiveUrl) && Equals(EntryValue.EffectiveUrlDiff, value.EffectiveUrlDiff)
+            && EntryValue.Comment == value.Comment && EntryValue.Memo == value.Memo;
+
     internal PlaylistDetailSourceRow WithEntryChartInfo(BeMusicSeeker.Models.ChartDetails chartInfo)
     {
         var copy = (PlaylistDetailSourceRow)MemberwiseClone();

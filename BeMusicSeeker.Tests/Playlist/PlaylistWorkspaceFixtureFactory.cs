@@ -60,6 +60,7 @@ internal static class PlaylistWorkspaceFixtureFactory
         return workspace;
     }
 
+    /// <summary>専用workspaceへ既存の配送/適用Taskと集約診断を接続し、各ケースが実終端と局所仕事量を観測できるようにします。</summary>
     internal static PlaylistWorkspaceViewModel CreateDetailWorkspace(
         out FakePlaylistDetailDataSource dataSource,
         Func<string, Func<Task>, bool>? prewarmScheduler = null,
@@ -83,7 +84,8 @@ internal static class PlaylistWorkspaceFixtureFactory
         Func<bool>? restoreUiThreadCheck = null,
         Action<Uri>? browserOpenSink = null,
         PlaylistPropertySaveService? propertySaveService = null,
-        IUiDialogService? playlistWorkspaceDialogService = null)
+        IUiDialogService? playlistWorkspaceDialogService = null,
+        Action<string>? detailRetentionLog = null)
     {
         var workspace = new PlaylistWorkspaceViewModel(
             dispatchPresentation ?? (action => action()),
@@ -91,7 +93,7 @@ internal static class PlaylistWorkspaceFixtureFactory
             new PlaylistDetailBuildState(),
             new PlaylistDetailViewState(),
             _ => { },
-            _ => { },
+            detailRetentionLog ?? (_ => { }),
             () => new CustomFolderOutputSettingsSnapshot(),
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),

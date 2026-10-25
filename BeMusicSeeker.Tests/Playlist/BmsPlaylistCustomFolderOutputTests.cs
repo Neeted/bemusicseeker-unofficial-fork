@@ -3218,6 +3218,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     // 空receiptでは表示を試みずconsumerだけを故障させる。実表示故障はLR2書込み失敗から生成されたWarningへ重ねる。
     [DataRow("none")]
     [DataRow("preparation")]
+    [DataRow("preparation_projection")]
     [DataRow("output")]
     [DataRow("empty_receipt_consumer")]
     [DataRow("output_notification")]
@@ -3227,6 +3228,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [DataRow("database_empty_receipt_consumer")]
     public async Task DetailEdit_ReoutputsLr2FolderRowsForLevelProjection(string failureStage)
     {
+        bool failRequiredProjection = failureStage == "preparation_projection";
+        if (failRequiredProjection) { failureStage = "preparation"; }
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         FileStream? outputBlocker = null;
@@ -3235,6 +3238,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         PlaylistWorkspaceViewModel? workspace = null;
         var receiptEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseReceipt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entryPresentationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseEntryPresentation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
             string providerOutputBaseDir = Path.Combine(tempDirectory, "ProviderCustomFolder");
@@ -3255,6 +3260,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             var presentationFailure = new InvalidOperationException("detail warning presentation failed");
             var consumerFailure = new InvalidOperationException("detail empty receipt consumer failed");
             var diagnosticFailure = new InvalidOperationException("detail receipt diagnostic failed");
+            var requiredProjectionFailure = new InvalidOperationException("detail required projection failed");
             bool failEmptyConsumer = failureStage.EndsWith("empty_receipt_consumer", StringComparison.Ordinal);
             bool failPresentation = failureStage == "output_notification";
             Func<CustomFolderOutputSettingsSnapshot> getOutputSettings = () =>
@@ -3309,7 +3315,17 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                     diagnostics.Add((exception, diagnostic));
                     if (failureStage is "empty_receipt_consumer" or "output_notification") { throw diagnosticFailure; }
                 },
-                playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
+                playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
+                restoreUiApplyScheduler: async action =>
+                {
+                    if (injectFailure && failureStage is "none" or "preparation")
+                    {
+                        entryPresentationEntered.TrySetResult();
+                        await releaseEntryPresentation.Task;
+                    }
+                    action();
+                    if (injectFailure && failRequiredProjection) { throw requiredProjectionFailure; }
+                });
             var entryDeliveries = new List<string>();
             workspace.DetailWorkObserver = kind => entryDeliveries.Add(kind);
             var source = new PlaylistDetailSourceRow(entry, resolvedChart: null);
@@ -3356,6 +3372,17 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             }
             injectFailure = true;
             edit = workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "12", commit: true));
+            if (failureStage is "none" or "preparation")
+            {
+                await TestUiDispatcherHost.AwaitNotificationAsync(entryPresentationEntered.Task, edit, "detail-edit.required-projection");
+                Assert.IsFalse(edit.IsCompleted);
+                Assert.IsTrue(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+                Assert.AreEqual(12, entry.level, "必要表示の配送待ちでも正本の保存は確定しています。");
+                bool admitted = playlist.TryEnterPlaylistMutation(out IDisposable blocked);
+                blocked?.Dispose();
+                Assert.IsFalse(admitted, "正常と確定後出力失敗の双方で、必要表示より先にPを解放しません。");
+                releaseEntryPresentation.TrySetResult();
+            }
             Task? mutationIdle = null;
             if (failureStage is "empty_receipt_consumer" or "output_notification")
             {
@@ -3409,7 +3436,12 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                     StringAssert.Contains(failure.InnerException.Message, "Playlist BMT output");
                 }
             }
-            if (failEmptyConsumer || failPresentation)
+            if (failRequiredProjection)
+            {
+                Assert.AreEqual(1, diagnostics.Count);
+                Assert.AreSame(requiredProjectionFailure, diagnostics[0].Exception);
+            }
+            else if (failEmptyConsumer || failPresentation)
             {
                 Assert.AreEqual(1, diagnostics.Count);
                 Assert.AreSame(failPresentation ? presentationFailure : consumerFailure, diagnostics[0].Exception,
@@ -3479,8 +3511,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 using LR2SongDBExtended verifyRetry = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(12, verifyRetry.Table<BMSTableEntry>().Single().level, "同じ入力の再保存も実DBへ反映します。");
             }
-            else if (failureStage is "empty_receipt_consumer" or "output_notification")
+            else if (failureStage is "empty_receipt_consumer" or "output_notification" || failRequiredProjection)
             {
+                if (failRequiredProjection) { injectFailure = false; }
                 failEmptyConsumer = false;
                 failPresentation = false;
                 outputBlocker?.Dispose();
@@ -3510,6 +3543,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         finally
         {
             releaseReceipt.TrySetResult();
+            releaseEntryPresentation.TrySetResult();
             if (edit != null) { try { await edit; } catch (Exception) { } }
             if (playlist != null) { await playlist.WaitForPlaylistMutationIdleAsync(); }
             if (workspace != null)

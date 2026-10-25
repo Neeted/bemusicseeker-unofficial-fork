@@ -49,12 +49,15 @@ internal sealed class PendingPackageMutationAppliedEventArgs : PendingPackageWor
         IEnumerable<ChartFile> changedCharts = null,
         bool installDestinationStateChanged = false,
         bool identitySortKeyChanged = false,
-        bool displayStateChanged = false)
+        bool displayStateChanged = false,
+        IEnumerable<ChartFile> projectionCharts = null)
     {
         ChangedCharts = Array.AsReadOnly(changedCharts?.ToArray() ?? Array.Empty<ChartFile>());
         InstallDestinationStateChanged = installDestinationStateChanged;
         IdentitySortKeyChanged = identitySortKeyChanged;
         DisplayStateChanged = displayStateChanged;
+        ProjectionCharts = projectionCharts == null ? ChangedCharts : Array.AsReadOnly(projectionCharts.ToArray());
+        HasLocalDestinationProjection = projectionCharts != null;
     }
 
     /// <summary>一覧の一時状態へ反映する変更済みの単独譜面。</summary>
@@ -65,6 +68,15 @@ internal sealed class PendingPackageMutationAppliedEventArgs : PendingPackageWor
     internal bool IdentitySortKeyChanged { get; }
 
     internal bool DisplayStateChanged { get; }
+
+    /// <summary>現在行を局所更新する対象です。正本を持つpackage行は一時状態辞書へ入れず、このキーだけを再評価します。</summary>
+    internal IReadOnlyList<ChartFile> ProjectionCharts { get; }
+
+    /// <summary>セル編集が確定対象を渡し、既存一覧の局所反映だけで表示を終える要求です。他の推定・消去操作の更新方針は維持します。</summary>
+    internal bool HasLocalDestinationProjection { get; }
+
+    /// <summary>受信側が接続する必要表示の実Task。送信側は論理受付を保持したままこの終端を回収します。</summary>
+    internal Task Presentation { get; set; } = Task.CompletedTask;
 }
 
 internal sealed class PendingPackageMutationResult
@@ -523,7 +535,7 @@ internal sealed class PendingPackageWorkflowOwner
         });
     }
 
-    /// <summary>導入先の手動編集結果を通知し、編集が拒否された場合も確定済みの表示へ戻します。</summary>
+    /// <summary>導入先セル編集を必要表示の実Taskまで同じLで保持し、短い抑制/activityの解除後も受付を先に解放しません。拒否時も確定済み表示へ戻します。</summary>
     internal Task SetPendingAsync(
         PendingInstallDestinationEditRequest request,
         string destinationDirectory)
@@ -542,7 +554,8 @@ internal sealed class PendingPackageWorkflowOwner
             {
                 ChartFile changedChart = operationStore.SetPending(library, request, destinationDirectory);
                 return changedChart == null ? null : request.PackageEntry == null ? [changedChart] : [];
-            }, operationGate, refreshRejectedEdit: true);
+            }, operationGate, refreshRejectedEdit: true,
+                projectionCharts: () => new[] { request.PackageEntry?.Chart ?? request.GetOrCreateChartEntry()?.Chart });
         });
     }
 
@@ -1463,7 +1476,7 @@ internal sealed class PendingPackageWorkflowOwner
     }
 
     /// <summary>
-    /// 導入先変更の排他・更新抑制を終えた後に、一つの完了通知を公開します。
+    /// 導入先変更の短い更新抑制を終え、必要表示の実Taskを回収するまで論理Lを保持します。
     /// null は編集拒否、空集合はパッケージ正本だけを変更した結果を表します。
     /// </summary>
     private async Task ExecuteInstallDestinationMutation(
@@ -1471,19 +1484,42 @@ internal sealed class PendingPackageWorkflowOwner
         IDisposable operationGate,
         bool requiresLibrary = true,
         bool identitySortKeyChanged = false,
-        bool refreshRejectedEdit = false)
+        bool refreshRejectedEdit = false,
+        Func<IEnumerable<ChartFile>> projectionCharts = null)
     {
         IReadOnlyList<ChartFile> changedCharts = null;
-        if (await Execute(
-            (library, operationStore) => changedCharts = mutation(library, operationStore),
-            requiresLibrary: requiresLibrary,
-            acquiredOperationGate: operationGate))
+        // セル編集だけは必要表示までLを延ばします。他の推定・消去操作は既存の受付終端を維持します。
+        using (refreshRejectedEdit ? operationGate : null)
         {
-            PublishMutationApplied(
-                changedCharts,
-                installDestinationStateChanged: changedCharts != null,
-                identitySortKeyChanged: identitySortKeyChanged,
-                displayStateChanged: changedCharts == null && refreshRejectedEdit);
+            ExceptionDispatchInfo failure = null;
+            bool mutationCompleted = false;
+            try
+            {
+                await Execute((library, operationStore) =>
+                {
+                    changedCharts = mutation(library, operationStore);
+                    mutationCompleted = true;
+                }, requiresLibrary: requiresLibrary, acquiredOperationGate: operationGate,
+                    releaseAcquiredOperationGate: !refreshRejectedEdit).ConfigureAwait(false);
+            }
+            catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
+            if (mutationCompleted && (failure == null || refreshRejectedEdit))
+            {
+                try
+                {
+                    await PublishMutationApplied(changedCharts,
+                        installDestinationStateChanged: changedCharts != null,
+                        identitySortKeyChanged: identitySortKeyChanged,
+                        displayStateChanged: changedCharts == null && refreshRejectedEdit,
+                        projectionCharts: projectionCharts?.Invoke()).ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    if (failure == null) { failure = ExceptionDispatchInfo.Capture(exception); }
+                    else { LogPendingPresentationFailure(exception); }
+                }
+            }
+            failure?.Throw();
         }
     }
 
@@ -1499,19 +1535,31 @@ internal sealed class PendingPackageWorkflowOwner
                 && !packageKeys.Contains(ChartFileRuntimeStateKey.Create(chart)))];
     }
 
-    private void PublishMutationApplied(
+    private async Task PublishMutationApplied(
         IEnumerable<ChartFile> changedCharts = null,
         bool installDestinationStateChanged = false,
         bool identitySortKeyChanged = false,
-        bool displayStateChanged = false)
+        bool displayStateChanged = false,
+        IEnumerable<ChartFile> projectionCharts = null)
     {
-        WorkflowChanged?.Invoke(
-            this,
-            new PendingPackageMutationAppliedEventArgs(
-                changedCharts,
-                installDestinationStateChanged,
-                identitySortKeyChanged,
-                displayStateChanged));
+        var request = new PendingPackageMutationAppliedEventArgs(changedCharts,
+            installDestinationStateChanged, identitySortKeyChanged, displayStateChanged, projectionCharts);
+        ExceptionDispatchInfo failure = null;
+        try { WorkflowChanged?.Invoke(this, request); }
+        catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
+        try { await request.Presentation.ConfigureAwait(false); }
+        catch (Exception exception)
+        {
+            if (failure == null) { throw; }
+            LogPendingPresentationFailure(exception);
+        }
+        failure?.Throw();
+    }
+
+    private static void LogPendingPresentationFailure(Exception exception)
+    {
+        try { Ribbit.Logging.NLogWrapper.FileLogger.Warn(exception, "pending_destination_projection_failed"); }
+        catch { /* 診断先の故障で先行する保存・cleanupの原因を置換しません。 */ }
     }
 
     private T Read<T>(

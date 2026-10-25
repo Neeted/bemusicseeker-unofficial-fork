@@ -44,6 +44,125 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 {
     private const string NativeModalFixturePlaylistName = "Native modal fixture";
 
+    /// <summary>実default端末で詳細とsummaryを一つずつ編集し、入力editorの閉鎖後も出力待ちの間は論理編集/Pを保持して、実controlへ正規化済み正本値を反映してから受付を解放します。</summary>
+    /// <remarks>compiled入力・Binding・実MainWindow接続を担当します。全属性・失敗条件と少数編集の仕事量はowner系列へ分担します。</remarks>
+    [TestMethod]
+    public void CellEdits_DefaultTerminalsDisplaySavedValuesBeforeAdmissionEnds()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            bool holdOutput = false;
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope, bmtOptionsProvider: () =>
+            {
+                if (holdOutput) { entered.TrySetResult(); release.Task.GetAwaiter().GetResult(); }
+                return new BeatorajaBmtOptionsSnapshot();
+            });
+            Task? terminal = null;
+            Exception? primary = null;
+            try
+            {
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                fixture.Table.is_external_sync = false;
+                fixture.Table.entries = [new BMSTableEntry { md5 = new string('a', 32), title = "Cell edit", level = 1 }];
+                fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>([fixture.Table]);
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                playlistRoot.IsExpanded = true;
+                MaterializeTreeItems(playlistRoot);
+                TreeViewItem tableItem = playlistRoot.ItemContainerGenerator.ContainerFromItem(fixture.Table) as TreeViewItem
+                    ?? throw new AssertFailedException("保存した表の実ツリー項目がありません。");
+                tableItem.IsSelected = true;
+                workspace.RequestDetailSelection(fixture.Table);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
+                    MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, false, default), "actual-cell-detail-build");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "actual-cell-detail-owner-idle");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var table = (CustomTableView)fixture.Window.FindName("customTableView");
+                BindingOperations.GetBindingExpression(table, CustomTableView.ItemsSourceProperty)?.UpdateTarget();
+                var columns = new CustomTableColumnSettings();
+                columns.EntryLevel.Visibility = Visibility.Visible;
+                table.Columns = [.. CustomTableColumnFactory.CreateMainColumns(columns).Where(column => column.EditPropertyName == nameof(PlaylistDetailRow.Level))];
+                table.Width = 300; table.Height = 100;
+                table.Measure(new Size(300, 100)); table.Arrange(new Rect(0, 0, 300, 100));
+                table.SelectRowsByPredicate(_ => true);
+                table.UpdateLayout();
+                Assert.AreEqual(1, ((System.Collections.IList)table.ItemsSource).Count,
+                    $"entries={fixture.Table.entries.Count} source={workspace.DetailViewState.Source.Rows.Count} view={workspace.DetailViewState.View.Rows.Count} main={fixture.ViewModel.MainChartList.Rows.Count} active={ReferenceEquals(workspace.DetailViewState.Source.CurrentTable, fixture.Table)} binding={BindingOperations.GetBindingExpression(table, CustomTableView.ItemsSourceProperty)?.Status} "
+                    + workspace.DescribeDetailBuildState(value => value.ToString()));
+                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                TextBox editor = Editor(table) ?? throw new AssertFailedException("実詳細セルのeditorがありません。");
+                editor.Text = "★12.5";
+                holdOutput = true;
+                Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+                terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, terminal,
+                    "actual-detail-output"), "actual-detail-output-entry");
+                Assert.IsNull(Editor(table));
+                Assert.IsTrue(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+                Assert.IsFalse(terminal.IsCompleted);
+                Assert.IsFalse(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable blocked)); blocked?.Dispose();
+                holdOutput = false; release.TrySetResult();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "actual-detail-edit-terminal");
+                PlaylistDetailRow row = fixture.ViewModel.MainChartList.Rows[0] as PlaylistDetailRow ?? throw new AssertFailedException();
+                Assert.AreEqual("12.5", row.Level);
+                Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                Assert.AreEqual("12.5", Editor(table)?.Text);
+                table.HandleKeyDown(Key.Escape, ModifierKeys.None);
+
+                workspace.SetPlaylistSummaryMode(true);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                workspace.RebuildPlaylistSummaryView(runAsync: false);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "actual-cell-summary-build");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                summary.Columns = [.. summary.Columns.Where(column => column.EditPropertyName == nameof(PlaylistSummaryRow.Name))];
+                summary.Width = 300; summary.Height = 100;
+                summary.Measure(new Size(300, 100)); summary.Arrange(new Rect(0, 0, 300, 100));
+                summary.SelectRowsByPredicate(_ => true);
+                summary.UpdateLayout();
+                entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                Assert.IsTrue(summary.HandleKeyDown(Key.F2, ModifierKeys.None));
+                editor = Editor(summary) ?? throw new AssertFailedException("実summaryセルのeditorがありません。");
+                editor.Text = "  Saved summary  ";
+                holdOutput = true;
+                Task summaryEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => summary.HandleKeyDown(Key.Return, ModifierKeys.None));
+                terminal = summaryEvent;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, summaryEvent,
+                    "actual-summary-output"), "actual-summary-output-entry");
+                Assert.IsNull(Editor(summary));
+                Assert.IsFalse(summaryEvent.IsCompleted);
+                Assert.IsFalse(fixture.Playlist.TryEnterPlaylistMutation(out blocked)); blocked?.Dispose();
+                holdOutput = false; release.TrySetResult();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(summaryEvent, "actual-summary-edit-terminal");
+                Assert.AreEqual("Saved summary", workspace.PlaylistSummaryView.Single().Name);
+                Assert.IsTrue(summary.HandleKeyDown(Key.F2, ModifierKeys.None));
+                Assert.AreEqual("Saved summary", Editor(summary)?.Text);
+                summary.HandleKeyDown(Key.Escape, ModifierKeys.None);
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly();
+                Assert.AreEqual(12.5, verify.Table<BMSTableEntry>().Single(entry => entry.playlist_id == fixture.Table.playlist_id).level);
+                Assert.AreEqual("Saved summary", verify.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id=1;"));
+            }
+            catch (Exception failure) { primary = failure; throw; }
+            finally
+            {
+                holdOutput = false; release.TrySetResult();
+                try { if (terminal != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "actual-cell-cleanup"); } }
+                catch when (primary != null) { }
+                finally { fixture.Close(); }
+            }
+
+            static TextBox? Editor(CustomTableView table) => table.Children.OfType<Canvas>()
+                .SelectMany(canvas => canvas.Children.OfType<TextBox>()).SingleOrDefault();
+        });
+    }
+
     /// <summary>実TreeViewの構造置換による親Selectedを発生させ、改名・prefix保存・別folder更新後の選択と詳細hashを確認します。復元配送前の明示選択も通し、古い復元の優先とOSフォーカス依存を検出します。</summary>
     [TestMethod]
     public void PlaylistFolderStructure_ActualTreeKeepsWorkspaceSelectionAndNewExplicitSelection()

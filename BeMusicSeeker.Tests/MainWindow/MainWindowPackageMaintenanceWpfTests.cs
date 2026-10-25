@@ -934,18 +934,15 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.AreSame(entry, target.PackageEntry);
                 Assert.IsTrue(PendingInstallDestinationEditRequest.TryCreate(target, out PendingInstallDestinationEditRequest edit));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PendingPackages.SetPendingAsync(edit, candidate), "Related candidate selection");
-                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(candidate, row.instl_dst);
                 AssertEvidence();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PendingPackages.SetPendingAsync(edit, string.Empty), "empty destination edit");
-                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(string.Empty, row.instl_dst);
                 Assert.AreEqual(string.Empty, row.InstallDestinationTitle);
                 Assert.AreEqual(string.Empty, row.InstallDestinationArtist);
                 CollectionAssert.AreEqual(new[] { candidate }, row.Chart.InstallDestinationSuggestions.ToArray());
                 Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PendingPackages.SetPendingAsync(edit, candidate), "Related candidate reselection");
-                TestUiDispatcherHost.ProcessQueuedPresentation();
                 AssertEvidence();
                 MenuItem clear = group.Items.OfType<MenuItem>().Single(item => Equals(item.Header, Resources.Clear_estimation));
                 Assert.AreEqual(100, row.Chart.WAVHealth);

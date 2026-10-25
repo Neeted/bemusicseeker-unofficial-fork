@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -14,6 +16,8 @@ public sealed partial class PlaylistWorkspaceViewModel
     private PlaylistPropertyDialogViewModel activePropertyDialog;
 
     private int propertyDialogOpenInProgress;
+    // 既存編集sessionの対象・開始版で、自分のprefix差分だけをdrain時に分類します。保存終端で参照を解放します。
+    private PlaylistPropertyEditSession summaryPropertyEditSession;
 
     internal event EventHandler<PlaylistPropertyValidationErrorEventArgs> PlaylistPropertyValidationError;
 
@@ -171,9 +175,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 PlaylistKeywordValueCandidatesChanged?.Invoke(this, EventArgs.Empty);
             }
-            RequestPlaylistSummaryDataRefresh(
-                request.Reason,
-                request.RebuildAsync);
+            if (Volatile.Read(ref summaryPropertyEditSession) == null)
+            { RequestPlaylistSummaryDataRefresh(request.Reason, request.RebuildAsync); }
         });
     }
 
@@ -189,7 +192,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             PublishPlaylistCatalogChanged();
             PlaylistKeywordValueCandidatesChanged?.Invoke(this, EventArgs.Empty);
-            PublishEntriesChanged(request.Table, request.RefreshSummaryIfVisible);
+            PublishEntriesChanged(request.Table, request.RefreshSummaryIfVisible && Volatile.Read(ref summaryPropertyEditSession) == null);
         });
     }
 
@@ -337,6 +340,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             && propertySaveService?.ContainsActiveTable(row.TableRef) == true;
     }
 
+    /// <summary>表属性の正本保存・必要出力・正規化済みセル表示を同じPで終えます。確定後失敗でも表示を試み、全summary再構築を開始しません。</summary>
     internal async Task<PlaylistSummaryPropertyEditCompletion> CompleteSummaryPropertyEditAsync(
         PlaylistSummaryRow row,
         string propertyName,
@@ -426,6 +430,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         PlaylistPropertySaveCommit commit = null;
         try
         {
+            Volatile.Write(ref summaryPropertyEditSession, editSession);
             PlaylistPropertyValues values = editSession.Values;
             switch (propertyName)
             {
@@ -434,6 +439,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         string name = (text ?? string.Empty).Trim();
                         if (string.Equals(values.Name ?? string.Empty, name, StringComparison.Ordinal))
                         {
+                            await ApplySummarySavedPropertiesAsync(table);
                             return true;
                         }
                         values.Name = name;
@@ -449,6 +455,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                             BMSTable.NormalizeOutputDirectoryName(outputDirectory),
                             StringComparison.Ordinal))
                         {
+                            await ApplySummarySavedPropertiesAsync(table);
                             return true;
                         }
                         values.OutputDirectory = outputDirectory;
@@ -459,6 +466,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         string compatPrefix = (text ?? string.Empty).TrimStart();
                         if (string.Equals(values.CompatPrefix ?? string.Empty, compatPrefix, StringComparison.Ordinal))
                         {
+                            await ApplySummarySavedPropertiesAsync(table);
                             return true;
                         }
                         values.CompatPrefix = compatPrefix;
@@ -469,6 +477,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         string symbol = (text ?? string.Empty).Trim();
                         if (string.Equals(values.Symbol ?? string.Empty, symbol, StringComparison.Ordinal))
                         {
+                            await ApplySummarySavedPropertiesAsync(table);
                             return true;
                         }
                         values.Symbol = symbol;
@@ -483,14 +492,57 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return false;
             }
             editSession.Adopt(commit);
+            try
+            {
+                await ApplySummarySavedPropertiesAsync(commit.Table).ConfigureAwait(true);
+            }
+            catch (Exception failure)
+            {
+                if (commit.Exception == null) { throw; }
+                TryLogPlaylistDropSecondaryFailure(failure, "playlist_summary_edit_projection_failed");
+            }
             service.PublishSaveFailure(commit);
             return true;
         }
         finally
         {
+            Volatile.Write(ref summaryPropertyEditSession, null);
             editSession?.Dispose();
         }
     }
+
+    private Task ApplySummarySavedPropertiesAsync(BMSTable table)
+        => playlistRestoreUiApplyScheduler(() =>
+        {
+            PlaylistSummaryRow current = null;
+            System.Collections.Specialized.NotifyCollectionChangedEventArgs change = null;
+            bool textChanged = false;
+            int projectedRows = 0, filteredRows = 0, comparisons = 0;
+            lock (playlistSummaryTransitionLock)
+            {
+                playlistSummaryRowsCache.TryGetTableRow(table, out PlaylistSummaryRow raw);
+                if (isPlaylistSummaryMode && appliedPlaylistSummaryIdentity is PlaylistSummaryPresentationIdentity identity)
+                {
+                    playlistSummaryView.TryGetTableRow(table, out current);
+                    var sort = new ChartListSortParameters { ColumnsName = identity.SortColumn, Direction = identity.SortDirection };
+                    IComparer<PlaylistSummaryRow> comparer = PlaylistSummarySortEngine.CreateComparer(sort, out _);
+                    var countedComparer = Comparer<PlaylistSummaryRow>.Create((left, right) => { comparisons++; return comparer.Compare(left, right); });
+                    change = playlistSummaryView.ApplySavedProperties(table, raw, countedComparer,
+                        target => { filteredRows++; return ApplyPlaylistSummaryFilters([target], identity.KeywordFilter, identity.OwnedFilter).Any(); }, out projectedRows);
+                    string nextText = FormatPlaylistSummaryText(playlistSummaryView.TotalCharts, playlistSummaryView.Count);
+                    textChanged = playlistSummaryText != nextText;
+                    playlistSummaryText = nextText;
+                }
+                else if (raw != null) { raw.ApplySavedProperties(table, notify: false); projectedRows++; }
+            }
+            // 表示交換後の旧rowは完了対象にしません。現在行だけ派生属性と局所集合変更を通知します。
+            LogBuild("playlist_summary_edit projectedRows=" + projectedRows + " filteredRows=" + filteredRows + " comparisons=" + comparisons);
+            var failures = new List<Exception>();
+            if (current != null) { TryPublish(current.PublishSavedProperties, failures); }
+            TryPublish(() => playlistSummaryView.PublishLocalChange(change), failures);
+            if (textChanged) { TryPublish(() => RaisePropertyChanged(nameof(PlaylistSummaryText)), failures); }
+            if (failures.Count > 0) { throw new PlaylistSummaryPublishException(new AggregateException(failures)); }
+        });
 
     private static bool IsSummaryPropertyEditable(string propertyName)
     {

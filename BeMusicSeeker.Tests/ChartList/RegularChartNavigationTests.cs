@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -15,6 +17,67 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class RegularChartNavigationTests
 {
+    /// <summary>通常と保留の必要導入先反映を、16/128行の同じ一対象へ実ownerから配送します。全source・順序buffer・未訪問行の生成を増やさず、現在値と既実体化の背景行を保持します。</summary>
+    [DataTestMethod]
+    [DataRow(16, false)]
+    [DataRow(128, false)]
+    [DataRow(16, true)]
+    [DataRow(128, true)]
+    public void InstallDestinationProjection_UpdatesOnlyDependentRows(int count, bool package)
+    {
+        WithTemporarySongDb(songDb =>
+        {
+            var charts = Enumerable.Range(0, count).Select(index => ChartTestValues.Empty() with
+            {
+                Path = Path.Combine(Path.GetDirectoryName(songDb)!, index + ".bms"),
+                Md5 = (index + 1).ToString("x32"),
+                Title = index == 0 ? "A target" : "B background " + index
+            }).ToList();
+            var library = new TestBmsLibrary(songDb) { BmsCharts = charts };
+            var table = new MainChartListViewModel();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(table));
+            PackageChartEntry? entry = null;
+            var work = new List<(string Kind, int Count)>();
+            if (package)
+            {
+                PackageChartEntry[] entries = charts.Select(PackageChartEntry.FromChart).ToArray(); entry = entries[0];
+                var scores = new ChartListScoreInput(null);
+                List<ChartListSourceRow> source = table.RowProjection.BuildPackageSourceRows(null, entries, false, scores);
+                table.Rows = new ChartListVirtualView(source, ChartListOrder.CreateTitleAscending(source),
+                    row => table.RowProjection.CreateSubsetRow(null, row, false), scoreInput: scores,
+                    observeWork: (kind, amount) => work.Add((kind, amount)));
+            }
+            else
+            {
+                owner.ApplyMainLibraryView(new ChartListRefreshRoute(ChartListRefreshRouteKind.ContinueMainLibrary,
+                    MainViewUpdateMode.FolderFilterSelected, MainViewUpdateMode.FolderFilterSelected, MainViewUpdateMode.FolderFilterSelected,
+                    false, false), library, null, null, false, Stopwatch.StartNew());
+            }
+            ChartListVirtualView view = table.Rows as ChartListVirtualView ?? throw new AssertFailedException();
+            LibraryChartRow target = view[0] as LibraryChartRow ?? throw new AssertFailedException();
+            LibraryChartRow background = view[1] as LibraryChartRow ?? throw new AssertFailedException();
+            Assert.AreEqual(string.Empty, target.instl_dst);
+            table.RowProjection.NormalInputWorkObserver = (kind, amount) => work.Add((kind, amount));
+            work.Clear();
+            string destination = Path.Combine(Path.GetDirectoryName(songDb)!, "installed");
+            ChartFile changed;
+            if (entry != null) { entry.ApplyInstallDestinationMetadata(destination, "Saved destination", "Saved artist"); changed = entry.Chart; }
+            else { changed = target.Chart with { InstallDestination = destination, InstallDestinationTitle = "Saved destination", InstallDestinationArtist = "Saved artist" }; }
+            owner.ApplyPendingDestinationProjection(new PendingPackageMutationAppliedEventArgs(package ? [] : [changed], true,
+                projectionCharts: [changed]));
+            Assert.AreEqual(destination, target.instl_dst);
+            Assert.AreEqual("Saved destination", target.InstallDestinationTitle);
+            Assert.AreEqual(string.Empty, background.instl_dst);
+            Assert.AreSame(view, table.Rows);
+            Assert.AreSame(background, view[1]);
+            Assert.AreEqual(2, view.RealizedRowCount);
+            Assert.AreEqual(0, work.Where(item => item.Kind is "order_buffer" or "package_projection").Sum(item => item.Count));
+            Assert.IsTrue(work.Where(item => item.Kind is "source_visit" or "projection" or "hash_dependency_visit").Sum(item => item.Count) <= 4,
+                "一対象の導入先変更で背景件数に比例する入力仕事をしません。");
+            table.RowProjection.NormalInputWorkObserver = null;
+        });
+    }
+
     /// <summary>保留セル編集の受理から完了まで実pending ownerへ元package項目と入力先を配送し、導入先だけの変更通知を返して別譜面編集や余分なライブラリ変更を検出します。</summary>
     [TestMethod]
     public async Task InstlDstCellEdit_UsesPendingOwnerWithExactChartTargetAndText()
@@ -55,7 +118,8 @@ public sealed class RegularChartNavigationTests
             beginning = request.Context;
             request.Accepted = owner.CanBeginCellEdit(request.Context);
         };
-        table.CellEditEndedRequested += (_, request) => owner.CompleteCellEdit(request);
+        Task? editTask = null;
+        table.CellEditEndedRequested += (_, request) => editTask = owner.CompleteCellEdit(request);
 
         ChartFile file = ChartTestValues.Empty() with
         {
@@ -77,7 +141,10 @@ public sealed class RegularChartNavigationTests
 
         table.NotifyCellEditStarted(row, "instl_dst");
         table.RequestCellEditEnded(row, "instl_dst", destination, commit: true);
+        Task acceptedEdit = editTask ?? throw new AssertFailedException("実編集Taskが端末へ返されませんでした。");
+        await TestUiDispatcherHost.AwaitNotificationAsync(workflowCompletion.Task, acceptedEdit, "pending-cell-owner-delivery");
         PendingPackageMutationAppliedEventArgs applied = await workflowCompletion.Task;
+        await acceptedEdit;
 
         Assert.IsNotNull(store.LastPendingRequest);
         Assert.AreSame(entry, store.LastPendingRequest!.PackageEntry);

@@ -25,6 +25,180 @@ public sealed class PlaylistCatalogViewChangeTests
 {
     public TestContext? TestContext { get; set; }
 
+    /// <summary>確定差分の適用後も実配送Taskが未終端ならdraft/Pを保持し、配送失敗時も正本値の表示と編集解除を終えて元失敗を返します。次の明示編集で再受付できます。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task DetailEdit_WaitsForRequiredDeliveryAndCleansUpOnFailure(bool failPresentation)
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool gate = false;
+        var failure = new InvalidOperationException("required entry presentation failed");
+        await using var fixture = new Fixture(16, entryDeliveryScheduler: async action =>
+        {
+            action();
+            if (!gate) { return; }
+            entered.TrySetResult();
+            await release.Task;
+            if (failPresentation) { throw failure; }
+        });
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var row = (PlaylistDetailRow)rows[0];
+        var context = new MainChartListCellEditContext(row, nameof(PlaylistDetailRow.Level), ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+        fixture.Workspace.BeginDetailEdit(context);
+        row.Level = "★12.5";
+        gate = true;
+        Task edit = fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "★12.5", true));
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, edit, "entry-required-delivery");
+            Assert.IsFalse(edit.IsCompleted);
+            Assert.IsTrue(fixture.Workspace.DetailViewState.Source.IsPlaylistCellEditing);
+            Assert.AreEqual(12.5, row.Entry.level);
+            Assert.AreEqual("★12.5", row.Level, "必要配送の実終端まではdraftを閉じません。");
+            Assert.IsFalse(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable rejected));
+            rejected?.Dispose();
+        }
+        finally { gate = false; release.TrySetResult(); }
+        if (failPresentation) { Assert.AreSame(failure, await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => edit)); }
+        else { await edit; }
+        Assert.AreEqual("12.5", row.Level);
+        Assert.IsFalse(fixture.Workspace.DetailViewState.Source.IsPlaylistCellEditing);
+        await fixture.Workspace.WaitForDetailBuildIdleAsync();
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable next)); next.Dispose();
+        fixture.Workspace.BeginDetailEdit(context); row.Level = "12.5";
+        await fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "12.5", true));
+        Assert.AreEqual("12.5", row.Level, "同値の明示保存へ以前の表示失敗を持ち越しません。");
+        fixture.Workspace.BeginDetailEdit(context); row.Level = "13";
+        await fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "13", true));
+        Assert.AreEqual("13", row.Level);
+    }
+
+    /// <summary>譜面情報の新SHA参照捕捉中に別版を確定して旧entry投影を保留し、その間の明示編集を局所確定します。後着参照で確定memoを旧値へ戻さず、譜面情報と参照値も回収します。</summary>
+    [TestMethod]
+    public async Task DetailEdit_DelayedReferenceProjectionKeepsCommittedEntryValues()
+    {
+        await using var fixture = new Fixture(16, prepareTable: (_, entries) => entries[0].sha256 = null);
+        ChartFile chart = fixture.Library.BmsCharts[0];
+        fixture.Library.BmsCharts = fixture.Library.BmsCharts.Skip(1).ToList();
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var target = (PlaylistDetailRow)rows[15];
+        Assert.AreEqual("entry 0", target.Entry.title);
+        Assert.IsNull(target.ChartNotes);
+        bool changedReference = false;
+        fixture.PauseDelivery = true;
+        fixture.Workspace.DetailWorkObserver = kind =>
+        {
+            if (kind != "playlist_source_projection" || changedReference) { return; }
+            changedReference = true;
+            using LibraryFileMutationLease lease = fixture.Playlist.AcquirePlaylistMutationLease("reference_during_detail_projection");
+            using LibraryFileMutationCapability capability = lease.CreateMutationCapability();
+            fixture.Playlist.CommitPlaylistHeaderEdits(new Dictionary<BMSTable, PlaylistHeaderEdit>
+            { [target.Entry.parent] = new() { Fields = PlaylistHeaderFields.Symbol, Symbol = "AFTER" } }, capability);
+        };
+        fixture.Library.BuildAndPersistInlineChartInfoForInstalledCharts("pending_reference_detail", [chart]);
+        while (!changedReference && fixture.DeliverOne()) { }
+        Assert.IsTrue(changedReference);
+        Assert.IsNull(target.ChartNotes, "新SHA参照の捕捉版へ未到達の投影はまだ公開しません。");
+        var context = new MainChartListCellEditContext(target, nameof(PlaylistDetailRow.memo), ChartOperationSourceScope.PlaylistMissing, MainViewOperationSection.Playlist);
+        fixture.Workspace.BeginDetailEdit(context); target.memo = "saved after reference capture";
+        await fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "saved after reference capture", true));
+        Assert.AreEqual("saved after reference capture", target.memo);
+        Assert.IsFalse(fixture.Workspace.DetailViewState.Source.IsPlaylistCellEditing);
+        Assert.IsNull(target.ChartNotes);
+        fixture.Deliver();
+        Assert.AreEqual("saved after reference capture", target.memo);
+        Assert.AreEqual(1, target.ChartNotes);
+        Assert.AreEqual("AFTER", target.RefTablesSymbols);
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+    }
+
+    /// <summary>別の明示sortを採用準備で保持しても、現在行への編集は必要な局所反映・cleanupで終端します。後発候補を解放した後も確定memoを保ち、候補採用待ちへの完了引継ぎを検出します。</summary>
+    [TestMethod]
+    public async Task DetailEdit_IndependentSortDoesNotDelayCellCompletion()
+    {
+        await using var fixture = new Fixture(16);
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        var row = (PlaylistDetailRow)rows[0];
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler block = (_, _) =>
+        { entered.TrySetResult(); release.Task.GetAwaiter().GetResult(); };
+        fixture.MainTable.RowsReplacing += block;
+        fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.Title), ListSortDirection.Descending);
+        Task sort = fixture.Refresh();
+        Task? edit = null;
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, sort, "independent-sort-presentation");
+            var context = new MainChartListCellEditContext(row, nameof(PlaylistDetailRow.memo), ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+            fixture.Workspace.BeginDetailEdit(context); row.memo = "saved independently";
+            edit = fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "saved independently", true));
+            await edit;
+            Assert.IsFalse(sort.IsCompleted);
+            Assert.AreEqual("saved independently", row.memo);
+            Assert.IsFalse(fixture.Workspace.DetailViewState.Source.IsPlaylistCellEditing);
+            Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable next)); next.Dispose();
+        }
+        finally
+        {
+            release.TrySetResult();
+            if (edit != null) { await edit; }
+            await sort;
+            fixture.MainTable.RowsReplacing -= block;
+        }
+        PlaylistDetailSourceRow current = fixture.Workspace.DetailViewState.Source.Rows.Single(value => ReferenceEquals(value.Entry, row.Entry));
+        Assert.AreEqual("saved independently", current.memo);
+    }
+
+    /// <summary>保存後のentry配送を保留して別表を実表示し、旧編集の配送・cleanup後も新表示の行と値を保持します。旧対象への表示適用を新表示へ読み替える誤りを検出します。</summary>
+    [TestMethod]
+    public async Task DetailEdit_ReplacedDisplayKeepsNewTableRows()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool hold = false;
+        await using var fixture = new Fixture(3, entryDeliveryScheduler: async action =>
+        {
+            if (hold) { entered.TrySetResult(); await release.Task; }
+            action();
+        });
+        var other = new BMSTable
+        {
+            playlist_id = 4190,
+            name = "Other",
+            is_external_sync = false,
+            entries = [new BMSTableEntry { md5 = new string('e', 32), title = "Other row", memo = "new display" }]
+        };
+        fixture.Playlist.BMSTables.Add(other); fixture.Playlist.CommitBMSTableWithEntriesToDB(other);
+        await fixture.Refresh();
+        PlaylistDetailRow old = fixture.Workspace.DetailViewState.View.Rows[0] as PlaylistDetailRow ?? throw new AssertFailedException();
+        var context = new MainChartListCellEditContext(old, nameof(PlaylistDetailRow.memo), ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+        fixture.Workspace.BeginDetailEdit(context); old.memo = "old target saved"; hold = true;
+        Task edit = fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "old target saved", true));
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, edit, "old-view-entry-delivery");
+            fixture.Workspace.RequestDetailSelection(other);
+            await fixture.Refresh();
+            IList rows = fixture.Workspace.DetailViewState.View.Rows;
+            PlaylistDetailRow current = rows[0] as PlaylistDetailRow ?? throw new AssertFailedException();
+            Assert.AreSame(other.entries[0], current.Entry);
+            hold = false; release.TrySetResult(); await edit;
+            Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+            Assert.AreSame(current, rows[0]);
+            Assert.AreEqual("new display", current.memo);
+            Assert.AreEqual("old target saved", old.Entry.memo);
+            Assert.IsFalse(fixture.Workspace.DetailViewState.Source.IsPlaylistCellEditing);
+        }
+        finally { hold = false; release.TrySetResult(); await edit; }
+    }
+
     /// <summary>別表Bへの実workspace追加・property保存・削除と参照選択を同drainでAへ反映します。背景E/Hだけを増やし、必須出力以外の参照・投影・順序仕事が増えないことを確認します。</summary>
     [TestMethod]
     public async Task OtherTableEntryAndHeaderCommits_UpdateReferenceSearchAndSortLocally()
@@ -1456,7 +1630,8 @@ public sealed class PlaylistCatalogViewChangeTests
         /// <summary>所属・hash索引を確立するentries取込み前に表と未登録entryを準備し、初回捕捉も同じ正規保存値から開始します。</summary>
         internal Fixture(int count, bool bmson = false, string? firstFolder = null,
             bool regularDelivery = false, bool oracleScores = false, bool connectDelivery = true,
-            Func<string, LR2SongDBExtended>? openEntryWriteConnection = null, Action<BMSTable, List<BMSTableEntry>>? prepareTable = null)
+            Func<string, LR2SongDBExtended>? openEntryWriteConnection = null, Action<BMSTable, List<BMSTableEntry>>? prepareTable = null,
+            Func<Action, Task>? entryDeliveryScheduler = null)
         {
             this.bmson = bmson;
             Directory.CreateDirectory(directory);
@@ -1521,7 +1696,7 @@ public sealed class PlaylistCatalogViewChangeTests
             Playlist.CommitBMSTableWithEntriesToDB(table);
             Workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _, playlistStoreProvider: () => Playlist,
                 playlistLibraryProvider: () => Library,
-                dispatchPresentation: action => action());
+                dispatchPresentation: action => action(), restoreUiApplyScheduler: entryDeliveryScheduler);
             Workspace.SetDetailDataSource(new PlaylistDetailDataSource(Library, Playlist, new MainChartRowProjectionOwner()));
             Workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             MainTable = (MainChartListViewModel)(typeof(PlaylistWorkspaceViewModel).GetField("detailMainChartList",
@@ -1624,6 +1799,11 @@ public sealed class PlaylistCatalogViewChangeTests
         }
 
         internal void Deliver() { while (deliveries.Count > 0) { deliveries.Dequeue()(); } }
+        internal bool DeliverOne()
+        {
+            if (deliveries.Count == 0) { return false; }
+            deliveries.Dequeue()(); return true;
+        }
         public async ValueTask DisposeAsync()
         {
             Workspace.DetailWorkObserver = null;

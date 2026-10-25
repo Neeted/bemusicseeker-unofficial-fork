@@ -31,13 +31,13 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     /// <summary>
     /// プレイリスト詳細のセル編集をP内で保存し、関連出力・通知の実試行とsession終端まで待ちます。
-    /// 操作後の任意表示の失敗は局所診断し、保存・出力・取消の結果へ加えません。
+    /// 確定値の必要表示と編集解除を終えてからPを解放し、先行失敗を保ちます。
     /// 再同期前の古い項目は保存せず通知し、最新行からの明示編集を受け付けます。
     /// URL の空白だけの入力は未設定への解除として保存し、非空の無効な絶対 URI は保存しません。
     /// </summary>
     /// <param name="request">一覧から受け取った編集結果。</param>
     /// <returns>
-    /// 保存・必要出力・通知session終端までを追跡するTask。DB未確定の失敗だけを戻し、確定後の出力・取消・receipt取得やsession寿命の失敗は確定値と元原因を保持します。
+    /// 保存・必要出力・必要表示・編集cleanupまでを追跡するTask。確定後の失敗でも保存値を保ち、先行する元原因を返します。
     /// </returns>
     /// <exception cref="PlaylistMutationPostCommitException">保存後の必要処理が失敗または取り消されました。先行の実失敗を保ち、二次receipt・session失敗は局所診断します。</exception>
     internal async Task CompleteDetailEdit(MainChartListCellEditEndedEventArgs request)
@@ -46,6 +46,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
+        IDisposable admission = null;
+        LibraryFileMutationCapability authority = null;
+        ExceptionDispatchInfo primaryFailure = null;
+        bool saveAttempted = false;
         try
         {
             if (!request.Commit
@@ -56,14 +60,13 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             BMSPlaylist store = getPlaylistStore();
             if (store == null) { return; }
-            if (!store.TryEnterPlaylistMutation(out IDisposable admission))
+            if (!store.TryEnterPlaylistMutation(out admission))
             {
                 RaiseMutationRejected(PlaylistWorkspaceMutationKind.PropertySave, isBusy: true, isStale: false);
                 return;
             }
             SetDetailEntryCommitStore(store);
-            using IDisposable accepted = admission;
-            using LibraryFileMutationCapability authority = store.CreatePlaylistMutationCapability(admission);
+            authority = store.CreatePlaylistMutationCapability(admission);
             if (!store.ContainsCurrentDetailEntry(playlistRow.Entry))
             {
                 RaiseMutationRejected(PlaylistWorkspaceMutationKind.PropertySave, isBusy: false, isStale: true);
@@ -75,26 +78,58 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 return;
             }
+            lock (detailEntryDeliveryLock)
+            { if (detailEntryDelivery.IsCompleted) { detailEntryDelivery = Task.CompletedTask; } }
+            saveAttempted = true;
             await Task.Run(() => CommitRow(playlistRow, propertyName, request.Text, authority)).ConfigureAwait(true);
         }
+        catch (Exception failure) { primaryFailure = ExceptionDispatchInfo.Capture(failure); }
         finally
         {
-            // 任意表示の失敗で先行する DB・必要出力・session の結果を置換しません。
-            TryCompleteDetailEditPresentation(() =>
+            try
             {
-                PlaylistDetailSourceRow current;
-                lock (DetailViewState.SyncRoot) { EnsureDetailDependencies().TryGet(playlistRow.Entry, out current); }
-                if (current != null) { playlistRow.ApplySource(current); }
-            }, "playlist_detail_edit_projection_failed");
-            TryCompleteDetailEditPresentation(playlistRow.EndDraft, "playlist_detail_edit_draft_notification_failed");
-            TryCompleteDetailEditPresentation(CompleteDetailEditSession, "playlist_detail_edit_refresh_notification_failed");
+                if (saveAttempted)
+                {
+                    await WaitForDetailEntryDeliveryAsync().ConfigureAwait(true);
+                }
+            }
+            catch (Exception failure) { CapturePresentationFailure(failure, "playlist_detail_edit_projection_failed"); }
+            try
+            {
+                if (saveAttempted)
+                {
+                    PlaylistEntryValue saved;
+                    using (playlistRow.Entry.parent.ReaderWriterLock.GetReaderGuard()) { saved = playlistRow.Entry.CaptureValue(); }
+                    PlaylistDetailSourceRow current;
+                    lock (DetailViewState.SyncRoot)
+                    {
+                        PlaylistDetailDependencies dependencies = EnsureDetailDependencies();
+                        dependencies.TryGet(playlistRow.Entry, out current);
+                        // 同値保存ではreceiptを作らないため、直前の表示失敗後もこの明示要求の正本値を必要反映します。
+                        if (current != null && !current.HasEditedValues(saved))
+                        {
+                            PlaylistDetailSourceRow next = current.WithEditedValues(saved);
+                            ReplaceDetailProjection(dependencies, current, next); current = next;
+                        }
+                    }
+                    if (current != null) { playlistRow.ApplySource(current); }
+                }
+            }
+            catch (Exception failure) { CapturePresentationFailure(failure, "playlist_detail_edit_row_projection_failed"); }
+            try { playlistRow.EndDraft(); }
+            catch (Exception failure) { CapturePresentationFailure(failure, "playlist_detail_edit_draft_notification_failed"); }
+            try { CompleteDetailEditSession(); }
+            catch (Exception failure) { CapturePresentationFailure(failure, "playlist_detail_edit_refresh_notification_failed"); }
+            authority?.Dispose();
+            admission?.Dispose();
+            primaryFailure?.Throw();
         }
-    }
 
-    private void TryCompleteDetailEditPresentation(Action presentation, string reason)
-    {
-        try { presentation(); }
-        catch (Exception failure) { TryLogPlaylistDropSecondaryFailure(failure, reason); }
+        void CapturePresentationFailure(Exception failure, string reason)
+        {
+            if (primaryFailure == null) { primaryFailure = ExceptionDispatchInfo.Capture(failure); }
+            else { TryLogPlaylistDropSecondaryFailure(failure, reason); }
+        }
     }
 
     private async Task CommitRow(PlaylistDetailRow playlistRow, string propertyName, string text, LibraryFileMutationCapability capability)

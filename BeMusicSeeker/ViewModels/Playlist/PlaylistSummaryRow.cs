@@ -1,11 +1,39 @@
 using System;
+using System.ComponentModel;
 using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
 
 [Serializable]
-public class PlaylistSummaryRow
+public class PlaylistSummaryRow : INotifyPropertyChanged
 {
+    /// <summary>確定した編集属性と派生表示の変更を現在行のBindingへ通知します。</summary>
+    [field: NonSerialized]
+    public event PropertyChangedEventHandler PropertyChanged;
+
+    /// <summary>保存済み正本の編集属性と派生表示を対象行だけへ反映します。rawcacheは無通知で進め、現在行だけBindingへ通知します。</summary>
+    internal void ApplySavedProperties(BMSTable table, bool notify = true)
+    {
+        using (table.ReaderWriterLock.GetReaderGuard())
+        {
+            Name = table.name ?? string.Empty;
+            FolderName = table.Output_dir ?? string.Empty;
+            string explicitDirectory = BMSTable.NormalizeOutputDirectoryName(table.output_dir);
+            FolderNameUndefined = string.IsNullOrWhiteSpace(explicitDirectory)
+                || string.Equals(explicitDirectory, BMSTable.CreateDefaultOutputDirectoryName(table.name), StringComparison.Ordinal);
+            CompatPrefix = table.compat_prefix ?? string.Empty;
+            Symbol = table.symbol ?? string.Empty;
+            LastUpdate = table.last_update;
+        }
+        if (notify) { PublishSavedProperties(); }
+    }
+
+    /// <summary>現在表示への確定属性通知を、collectionの局所変更と同じUI処理で発行します。</summary>
+    internal void PublishSavedProperties()
+    {
+        foreach (string property in new[] { nameof(Name), nameof(FolderName), nameof(FolderNameUndefined), nameof(CompatPrefix), nameof(Symbol), nameof(LastUpdate) })
+        { PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(property)); }
+    }
     public int? PlaylistId { get; set; }
 
     public string OutputBaseName { get; set; } = string.Empty;

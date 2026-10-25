@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -10,6 +11,20 @@ namespace BeMusicSeeker.ViewModels;
 
 internal sealed partial class RegularChartListOwner
 {
+    /// <summary>導入先の確定対象だけを既存入力・実体化行・依存順序へ反映します。表示交換後は現在viewを対象とし、全source再構築を行いません。</summary>
+    internal void ApplyPendingDestinationProjection(PendingPackageMutationAppliedEventArgs mutation)
+    {
+        mainChartList.RowProjection.UpdateTransientStates(mutation.ChangedCharts, forceInstallDestinationProjection: true);
+        if (!mutation.HasLocalDestinationProjection || mainChartList.Rows is not ChartListVirtualView view) { return; }
+        using IDisposable selection = view.PreserveSelection();
+        bool changed = view.RefreshKeyDependencies(
+            mutation.ProjectionCharts.Where(chart => chart != null).Select(chart => chart.Md5),
+            mutation.ProjectionCharts.Where(chart => chart != null).Select(chart => chart.Sha256),
+            row => row.RefreshDisplayForDataDependency(MainViewDataDependency.InstallDestination));
+        if (changed) { view.PublishOrderChanged(); }
+        mainChartList.UpdateSummaryText(view);
+    }
+
     /// <summary>
     /// 新規・保留packageの入口をUIで捕捉し、入力準備、警告、順序と検索をworkerで計算します。
     /// UI入力捕捉の予約中も既存要求IDで失効を判定し、新しい選択のleaseを取り直しません。

@@ -27,7 +27,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         else
         {
             if (pending.Key is CatalogCommitReceipt catalog) { DetailViewState.Source.LastBuiltLibraryIndexVersion = catalog.Revision; }
-            if (pending.Key is PlaylistEntryCommitReceipt entries) { DetailViewState.Source.LastBuiltPlaylistRevision = entries.Revision; }
+            if (pending.Key is PlaylistEntryCommitReceipt entries) { DetailViewState.Source.LastBuiltPlaylistRevision = Math.Max(DetailViewState.Source.LastBuiltPlaylistRevision, entries.Revision); }
             if (pending.Value.ChartInfoVersion.HasValue)
             { DetailViewState.Source.LastBuiltChartInfoIndexVersion = Math.Max(DetailViewState.Source.LastBuiltChartInfoIndexVersion, pending.Value.ChartInfoVersion.Value); }
         }
@@ -97,6 +97,10 @@ public sealed partial class PlaylistWorkspaceViewModel
             else
             {
                 PlaylistDetailSourceRow after = input == null ? change.After : change.After.WithReferenceDisplay(input);
+                // 参照待ちの間に同じentryが編集済みなら、捕捉後の確定編集属性を現在入力から保ちます。
+                // 編集側で保留投影全体を走査せず、この対象を実際に適用する一回だけ照合します。
+                if (before != null && change.Before != null && !ReferenceEquals(before.EntryValue, change.Before.EntryValue))
+                { after = after.WithEditedValues(before.EntryValue); }
                 ReplaceDetailProjection(dependencies, before, after, view, identity);
             }
         }

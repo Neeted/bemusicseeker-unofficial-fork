@@ -865,6 +865,53 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             events);
     }
 
+    /// <summary>導入先セル編集は短い抑制/activityを閉じても必要表示Taskの終端まで実Lを保持し、表示失敗を伝えて解放します。終端後の明示編集だけを再受付します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SetPendingAsync_HoldsAdmissionThroughRequiredPresentation(bool failPresentation)
+    {
+        var events = new List<string>();
+        ChartFile chart = CreateChart();
+        var store = new RecordingStore(events) { SetResult = chart };
+        var gate = new ChartFileOperationSynchronizer();
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs(), chartFileOperations: gate);
+        Assert.IsTrue(PendingInstallDestinationEditRequest.TryCreate(CreateTarget(chart), out PendingInstallDestinationEditRequest request));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool hold = true;
+        var failure = new InvalidOperationException("required pending presentation failed");
+        owner.WorkflowChanged += (_, args) =>
+        {
+            if (args is PendingPackageMutationAppliedEventArgs applied && hold)
+            {
+                Assert.AreSame(request.PackageEntry!.Chart, applied.ProjectionCharts.Single());
+                applied.Presentation = Present();
+            }
+        };
+        async Task Present()
+        {
+            entered.TrySetResult(); await release.Task;
+            if (failPresentation) { throw failure; }
+        }
+        Task edit = owner.SetPendingAsync(request, @"C:\Installed");
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, edit, "pending-required-presentation");
+            Assert.IsFalse(edit.IsCompleted);
+            Assert.AreEqual(@"C:\Installed", store.LastDestinationDirectory);
+            Assert.IsTrue(events.Contains("suppression-end"));
+            Assert.IsTrue(events.Contains("activity-end"));
+            Assert.IsFalse(gate.TryEnter(out IDisposable rejected)); rejected?.Dispose();
+        }
+        finally { hold = false; release.TrySetResult(); }
+        if (failPresentation) { Assert.AreSame(failure, await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => edit)); }
+        else { await edit; }
+        Assert.IsTrue(gate.TryEnter(out IDisposable next)); next.Dispose();
+        await owner.SetPendingAsync(request, @"C:\Next");
+        Assert.AreEqual(@"C:\Next", store.LastDestinationDirectory);
+    }
+
     /// <summary>保留導入先の消去が失敗しても抑制とactivityを閉じ、元失敗を伝えて成功の一覧更新を通知しない。</summary>
     [TestMethod]
     public async Task ClearPendingAsync_PropagatesFailureAndClosesMutationBoundary()
