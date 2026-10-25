@@ -30,6 +30,8 @@ GitHubの既定ブランチと通常のPR先は `dev` です。閲覧・clone・
 
 `dev` から分岐した通常の作業ブランチは、個々のコミットを維持して1本の履歴へ統合します。原則として `git merge --ff-only` を使い、通常作業の統合だけを目的とするマージコミットは作りません。
 
+複数ワークツリーの作業ブランチも、ルートが `dev` への統合を一件ずつ管理します。各単位の設計・検証・独立レビューを省略せず、先の統合後の最新 `dev` に対して次のブランチを確認します。ワークツリーの所有と独立性は[並列作業](agent-workflow.md#並列作業)、重い検証の開始調整と同一版の結果再利用は[検証仕様](testing.md#複数ワークツリーの検証)に従います。
+
 検証後に作業ツリーをクリーンにし、統合先の `dev` を最新にしてから統合します。各コマンドの成功を確認してから次へ進みます。
 
 ```powershell
@@ -38,7 +40,7 @@ git pull --ff-only
 git merge --ff-only codex/変更内容
 ```
 
-作業ブランチの統合がfast-forwardできない場合は停止し、自動的にマージコミットを作る方法へ切り替えません。未公開で他者が依存していない作業ブランチは、そのブランチ上で `git rebase dev` により最新の `dev` へ更新します。競合があれば解消し、更新後の版に必要な[検証](testing.md)を行ってから、`dev` 上で `git merge --ff-only` による統合を再実行します。
+作業ブランチの統合がfast-forwardできない場合は停止し、自動的にマージコミットやsquashへ切り替えません。未公開で他者が依存していない作業ブランチは、そのブランチ上で `git rebase dev` により最新の `dev` へ更新します。競合があれば解消し、更新後の差分と基底の影響に応じて必要な[検証](testing.md)と[レビュー](agent-workflow.md#最終レビューの再レビューと再計画)を行ってから、`dev` 上で `git merge --ff-only` による統合を再実行します。
 
 `dev`・`main` と公開済みの履歴はrebaseしません。公開・共有済みの作業ブランチなど、履歴を書き換えられない場合は更新方法を相談します。通常作業でマージコミットを残すのは、他者が依存する履歴の維持や分岐経緯の記録など、理由を明示して利用者または保守者と合意した場合に限ります。
 
@@ -138,7 +140,7 @@ Releaseの公開に失敗したらmainを送信しません。mainへの送信�
 
 | 仕様項目 | 実装箇所 | テスト・確認方法 |
 | --- | --- | --- |
-| ブランチと作業起点・統合方法 | [AGENTS.md](../../../AGENTS.md)、[CONTRIBUTING.md](../../../CONTRIBUTING.md)、[開発手順](../../setup.md)、GitHubのブランチ・タグ設定 | 文書と設定を照合する。統合手順は隔離したリポジトリの実Gitでfast-forward、分岐時の停止、作業ブランチのrebase、公開履歴のマージを確認する。 |
+| ブランチと作業起点・統合方法 | [AGENTS.md](../../../AGENTS.md)、[CONTRIBUTING.md](../../../CONTRIBUTING.md)、[開発手順](../../setup.md)、GitHubのブランチ・タグ設定 | 文書と設定を照合する。統合手順は隔離したリポジトリの実Gitでfast-forward、分岐時の停止、作業ブランチのrebase、公開履歴のマージを確認する。複数ワークツリーの統合順序と、更新後の必要な検証・レビューは担当間の引継ぎと対象版を照合する。 |
 | バージョンの正本・互換ファイル不変・公開順序 | [release.ps1](../../../scripts/release.ps1) | [ReleaseScriptVersionSourceTests](../../../BeMusicSeeker.Tests/Verification/ReleaseScriptVersionSourceTests.cs): 隔離repoと実Git、GitHub CLIの代替を使い、本番スクリプトの入口から生成物・参照・失敗時の副作用を確認する。 |
 | 正式リリース前の配布物生成と引渡し | [publish.ps1](../../../scripts/publish.ps1)、[verify-refactor.ps1](../../../scripts/verify-refactor.ps1) | 公開候補のFullで配布物生成、既存データ利用、更新・起動を確認する。 |
 | 表示リソースの整合 | [Resources.resx](../../../BeMusicSeeker/Properties/Resources.resx)、[翻訳](../../../lang) | [LocalizationResourceParityTests](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs)。履歴内容は差分で確認する。 |

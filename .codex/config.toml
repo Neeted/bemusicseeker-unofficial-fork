@@ -1,9 +1,9 @@
 [agents]
 enabled = true
-# 全担当をルートが直接呼び、テスト設計の後に引継ぎを点検する。
-# 停止・待機中も上限に含め、障害解決担当の枠を確保する。
-# レビュー領域と共有依存を凍結し、範囲外の修正と並行して予備・最終レビューを進める。
-max_concurrent_threads_per_session = 3
+# 主担当を除き、同時に開いている子担当スレッドの上限。
+# 64は容量の余裕値であり、運用人数の目標や必須上限ではない。必要な委譲を妨げる場合は見直す。
+# ワークツリー数・所有・委譲の運用は devdocs/spec/development/agent-workflow.md に従う。
+max_concurrent_threads_per_session = 64
 
 [features.multi_agent_v2]
 enabled = true
