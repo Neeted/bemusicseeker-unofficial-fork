@@ -102,15 +102,13 @@ BMSONを通常一覧に含める範囲は、通常のルート・フォルダ・
 
 ### 保存成績の再読込みと旧結果
 
-`ScoreTableLoadResult` は今回の読取り結果、`ScoreSnapshot` は採用済みの成績を表します。正常に取得した0件も有効な結果です。取得成功なら今回の内容を採用し、正常空なら旧成績を取り除けます。未設定は既存の未設定時の扱いに従います。
+`ScoreTableLoadResult` は今回の読取り結果、`ScoreSnapshot` は今回採用した成績と取得状態を表します。正常に取得した0件も有効な結果です。取得成功なら今回の内容を採用し、正常空なら旧成績を取り除きます。未設定は既存の未設定時の扱いに従います。
 
-設定済みDBの初回・切替後・再読込みの取得失敗は、一回の読取り要求につき一回、既存のスコア読取り失敗警告を受付と初期化排他の解放後に通知します。未設定と正常空は失敗通知を出しません。別の情報源や異なるDBパスの旧結果へ代替せず、採用できる旧結果がなければ `Failed` と今回の対象パスを保持します。
+設定済みDBの初回・切替後・再読込みの取得失敗は、一回の読取り要求につき一回、既存のスコア読取り失敗警告を受付と初期化排他の解放後に通知します。未設定と正常空は失敗通知を出しません。失敗は `Failed` と今回の対象情報源・パスで公開し、同じ情報源・DBパスであっても旧成績を今回の成功結果へ流用しません。旧snapshot・取得時刻・実体の退避と復元は行いません。
 
-同じ情報源と読取りDBパスに有効な旧結果がある再読込みでは、取得失敗の空辞書を採用しません。旧成績、lookup、購読、取得時刻と利用可能性を保ち、今回の失敗だけを既存の受付外案内へ渡します。内容が変わらなければ表示用snapshotを再構築しません。設定に従う未送信表示の解除など、別の明示的な変更は通常どおり反映します。
+次の通常要求は最新の保存済み設定から読み、成功した結果を反映します。失敗要求の固定、その場の再試行、複数情報源の結果キャッシュ、恒久的な無効化状態は設けません。旧実体の購読は通常のsnapshot交換で解除します。
 
-保持は次の通常要求の成功を妨げず、その場の再試行、複数情報源の結果キャッシュ、恒久的な無効化状態を設けません。失敗した候補の状態を、有効な旧結果の取得状態へ上書きしません。
-
-有効な旧成績がない取得失敗では、通常一覧の表示・検索は従来のスコアなしの投影を使います。所持譜面はNO PLAY相当となり、スコア条件だけの受付制限、三値判定、getterの例外は追加しません。この既定値は読取り成功を意味せず、今回の失敗結果と案内を保ちます。ランプ集計のスコア利用可否は[ランプビューア](../playlist/lamp-viewer.md)の個別契約に従います。
+取得失敗では、通常一覧の表示・検索はスコアなしの投影を使います。所持譜面はNO PLAY相当となり、スコア条件だけの受付制限、三値判定、getterの例外は追加しません。この既定値は読取り成功を意味せず、今回の失敗結果と案内を保ちます。ランプ集計のスコア利用可否は[ランプビューア](../playlist/lamp-viewer.md)の個別契約に従います。
 
 ### 操作対象と権限
 
@@ -206,7 +204,7 @@ UIスレッド上で選択を固定し、機能別の要求へ変換してから
 | 捕捉入力と共通payloadの保存行非依存 | `BmsChartFileParser`、`BmsonChartFileParser`、`ChartFile`、共通要求・結果 | [`BMSFileSnapshotTests`](../../../BeMusicSeeker.Tests/Chart/BMSFileSnapshotTests.cs) は捕捉後のファイル置換から独立したhash・時刻・生メタデータを確認する。[`CommonChartPayloadContractTests`](../../../BeMusicSeeker.Tests/Chart/CommonChartPayloadContractTests.cs) は代表compiled型の保持状態・公開境界の引数と戻り値・parser戻り値、空のsealed tokenを確認する。 |
 | 所持tokenの寿命・確認後固定対象 | `OwnedChartToken`、`LibraryChartRef`、`ChartStorageTargetSet` | [`OwnedChartTokenTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartTokenTests.cs) は通常値適用・移転の継承、新規置換・DB再読込みの再発行、同path/hash置換による旧参照の退役と捕捉値の不変性を確認する。 |
 | 共通現在値・識別条件・所持集合 | [`ChartFile`](../../../BeMusicSeeker/Models/Chart/ChartFile.cs)、[`ChartFileProjection`](../../../BeMusicSeeker/Models/Chart/ChartFileProjection.cs)、[`OwnedChartCollectionState`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/OwnedChartCollectionState.cs) | [`OwnedChartCollectionProjectionTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionProjectionTests.cs)、[`OwnedChartCollectionLookupMembershipTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionLookupMembershipTests.cs) |
-| 保存成績の再読込み失敗、有効な旧結果と通常空の採用 | [ライブラリ採用](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs)、[読取り結果](../../../BeMusicSeeker/Models/BmsLibraryInternal/Score/ScoreTableLoadResult.cs)、[初期化サービス](../../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/BmsLibraryInitializationService.cs) | [保存成績の採用テスト](../../../BeMusicSeeker.Tests/Startup/BmsLibrarySavedScoreAvailabilityTests.cs)で実DBの初回失敗・同種別DBパス切替失敗の一回通知とFailed・対象パス・旧値非混入・通常一覧のNO PLAY、未設定・正常空の無通知、旧非空・正常空の保持、案内の受付解放後配送、次の正常取得を確認する。一要求の読取りが一回で再試行しないことは初期化サービスと呼出し経路の静的確認で分担する。[ランプ入力テスト](../../../BeMusicSeeker.Tests/Playlist/BmsLibraryPlaylistLampDataSourceTests.cs)は保持した実成績から明示捕捉・集計できることを分担する。 |
+| 保存成績の再読込み失敗、非成功投影と次の正常結果の採用 | [ライブラリ採用](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs)、[読取り結果](../../../BeMusicSeeker/Models/BmsLibraryInternal/Score/ScoreTableLoadResult.cs)、[初期化サービス](../../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/BmsLibraryInitializationService.cs) | [保存成績の採用テスト](../../../BeMusicSeeker.Tests/Startup/BmsLibrarySavedScoreAvailabilityTests.cs)で実DBの初回失敗・同種別DBパス切替失敗の一回通知とFailed・対象パス・旧値非混入・通常一覧のNO PLAY、未設定・正常空の無通知、同一DBの非空成功後の失敗と旧購読解除、案内の受付解放後配送、次の正常空取得を確認する。一要求の読取りが一回で再試行しないことは初期化サービスと呼出し経路の静的確認で分担する。[ランプ入力テスト](../../../BeMusicSeeker.Tests/Playlist/BmsLibraryPlaylistLampDataSourceTests.cs)は実読取り失敗後の明示捕捉が利用不可となり、次の成功で新成績を捕捉できることと、捕捉済み不変入力が変わらないことを分担する。 |
 | 実パス参照・導入先状態の分離 | [`LibraryChartRef`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/LibraryChartRef.cs)、[`OwnedChartCollectionState`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/OwnedChartCollectionState.cs) | [`OwnedChartCollectionReferenceIndexTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionReferenceIndexTests.cs)、[`OwnedChartCollectionInstalledOverlayTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionInstalledOverlayTests.cs) |
 | 変更・ハッシュ更新・通知 | [`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.cs) | [`OwnedChartCollectionLibraryMutationTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionLibraryMutationTests.cs)、[`OwnedChartCollectionInlineDigestTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionInlineDigestTests.cs)、[`OwnedChartCollectionRefreshTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionRefreshTests.cs) |
 | パッケージ投影の変更通知 | [`PackageChartEntry`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/PackageChartEntry.cs) | [`PackageChartEntryNotificationTests`](../../../BeMusicSeeker.Tests/Install/PackageChartEntryNotificationTests.cs) |

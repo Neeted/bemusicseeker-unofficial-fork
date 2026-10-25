@@ -3260,10 +3260,6 @@ public partial class MainWindowViewModel : ViewModel,
     Task<StartupInitializationResult> ISettingsDialogStatePort.CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result)
         => CompleteRequiredInitializationAfterAdmissionAsync(result);
 
-    /// <summary>設定の実完了公開と保存通知後の継続に、既存の操作tokenと画面終了の判定を接続します。</summary>
-    bool ISettingsDialogStatePort.IsInitializationCompletionCurrent(long operationToken)
-        => !IsRequiredInitializationShutdownRequested && IsStartupCompletionTokenCurrent(operationToken);
-
     /// <summary>構成済みモデルまたは画面寿命の終了を、起動成功・解禁の直前に確認します。</summary>
     private bool IsRequiredInitializationShutdownRequested => ShellShutdownWorkflow?.IsShutdownRequested == true || files?.IsShutdownRequested == true
         || chartFileOperations.IsAdmissionClosed || applicationComposition.PlaylistOperationAdmission.IsAdmissionClosed;

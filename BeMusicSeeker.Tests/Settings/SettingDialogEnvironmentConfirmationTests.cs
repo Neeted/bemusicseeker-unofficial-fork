@@ -611,7 +611,7 @@ public sealed partial class SettingDialogEditCompletionTests
         });
     }
 
-    /// <summary>実root pickerの同値選択は保存済み表記・候補・再試行表示を保ち、有効な別rootの選択は旧root前提候補を確認し、確定方針でplayer・派生先だけ保存して関係候補を破棄します。</summary>
+    /// <summary>実root pickerの同値選択は保存済み表記・候補を保ち、有効な別rootの選択は旧root前提候補を確認し、確定方針でplayer・派生先だけ保存して関係候補を破棄します。</summary>
     /// <remarks>configured採用と一覧先頭の既存解決、保存失敗後の明示修復を確認します。同値での保存・処理要求0は狭いBMT方針検査も分担します。</remarks>
     [DataTestMethod]
     [DataRow(true, false)]
@@ -650,7 +650,6 @@ public sealed partial class SettingDialogEditCompletionTests
                 scope.ShowAndWaitForContentRendered(window);
                 ComboBox scorePlayer = FindDescendants<ComboBox>(window).Single(item => item.GetBindingExpression(ComboBox.SelectedItemProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.BeatorajaPlayerId));
                 SettingsPathPicker picker = FindDescendants<SettingsPathPicker>(window).Single(item => item.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.BeatorajaRootPath));
-                Button scoreRetry = FindDescendants<Button>(window).Single(button => Equals(button.Tag, "retry:score"));
                 byte[] originalSettings = File.ReadAllBytes(settingsPath);
                 int saves = 0;
                 int selectionChanges = 0;
@@ -670,8 +669,6 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual(values.BeatorajaScoreDbPath, dialog.EnvironmentBeatorajaScoreDbPath);
                     Assert.AreEqual(values.BeatorajaBmtTablePath, dialog.EnvironmentBeatorajaBmtTablePath);
                     Assert.IsFalse(dialog.HasScoreSelectionChanges);
-                    Assert.IsFalse(dialog.CanRetryScoreSettings);
-                    Assert.AreNotEqual(Visibility.Visible, scoreRetry.Visibility);
                     Assert.AreEqual(0, saves);
                     Assert.AreEqual(0, selectionChanges, "同値pickerは自動反映の選択通知も発行しません。");
                     Assert.AreEqual(0, failures.Count);

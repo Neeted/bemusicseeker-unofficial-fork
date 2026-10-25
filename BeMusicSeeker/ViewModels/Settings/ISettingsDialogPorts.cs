@@ -44,9 +44,6 @@ internal interface ISettingsDialogStatePort
 
     bool IsLibraryOperationInProgress { get; }
 
-    /// <summary>受付外の通知から再入した後も、捕捉した既存操作識別が現在の結果を表すかを確認します。新しい世代や保留状態は作りません。</summary>
-    bool IsInitializationCompletionCurrent(long operationToken);
-
     /// <summary>
     /// 保存済み設定の必須Taskとcleanupの実終端を待ちます。借用時は元の失敗も局所結果へ載せ、外側親解放後の共通終端へ渡します。
     /// 設定画面の再表示は呼出元が担当します。

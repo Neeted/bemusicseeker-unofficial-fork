@@ -53,7 +53,6 @@ public partial class SettingsWindow
             case "cancel:program": settings.CancelRightClickRecord(false); break;
             case "confirm:bms": return settings.CommitBmsRootsCoreAsync();
             case "retry:beatoraja-root": return settings.CommitBeatorajaRootSettingsCoreAsync();
-            case "retry:score": return settings.CommitScoreSettingsCoreAsync();
             case "confirm:bmt": return settings.CommitBmtSettingsCoreAsync();
             case "confirm:environment": return settings.CommitEnvironmentCoreAsync();
             case "retry:audio": settings.CommitAudioSettings(); break;

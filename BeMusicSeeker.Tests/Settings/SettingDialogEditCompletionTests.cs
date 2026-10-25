@@ -583,7 +583,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>外部tablepath変更後のscore操作は実媒体・URLを変えず、不正なscore候補もBMT確定を妨げません。同rootのA→B→Cと現在先の再設定は各確定Task内で旧管理物・両表の内容とhash方式・台帳・URL・設定を揃え、管理外を保持します。保存後失敗は捕捉済みの先とhash方式で修復し、無効保持・正本hash・同値の非再保存も保ちます。</summary>
+    /// <summary>不正なscore候補もBMT確定を妨げません。同rootのA→B→Cと現在先の再設定は各確定Task内で旧管理物・両表の内容とhash方式・台帳・URL・設定を揃え、管理外を保持します。保存後失敗は捕捉済みの先とhash方式で修復し、無効保持・正本hash・同値の非再保存も保ちます。</summary>
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
@@ -669,16 +669,6 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual("new unmanaged", File.ReadAllText(newUnmanaged));
                 return;
             }
-            // 外部tablepath変更後のscore操作は旧新の実媒体・台帳・URLを一切変更しません。
-            var beforeScoreFiles = Directory.GetFiles(previousOutput).Concat(Directory.GetFiles(output))
-                .ToDictionary(path => path, File.ReadAllBytes);
-            byte[] beforeScoreConfig = File.ReadAllBytes(config);
-            dialog.BeatorajaPlayerId = "score-only-player";
-            await dialog.CommitScoreSettingsAsync();
-            Assert.AreEqual(previousOutput, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BeatorajaBmtTablePath);
-            foreach ((string path, byte[] contents) in beforeScoreFiles) { CollectionAssert.AreEqual(contents, File.ReadAllBytes(path)); }
-            CollectionAssert.AreEquivalent(beforeScoreFiles.Keys.ToArray(), Directory.GetFiles(previousOutput).Concat(Directory.GetFiles(output)).ToArray());
-            CollectionAssert.AreEqual(beforeScoreConfig, File.ReadAllBytes(config));
             // スコアの未成立候補があっても、次のBMT確定は確定rootと自身の候補で移行できます。
             dialog.UseBeatorajaScoreDb = true;
             Assert.IsFalse(dialog.IsScoreSelectionValid);
@@ -1789,7 +1779,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>score 保留・起動操作の block に再同期可否が追従し、無関係な title 変更では再通知せず、Dispose 後は可否購読を解除することを確認します。</summary>
+    /// <summary>起動操作の block に再同期可否が追従し、無関係な title 変更では再通知せず、Dispose 後は可否購読を解除することを確認します。</summary>
     [TestMethod]
     public async Task SettingDialogViewModel_OwnsLr2ManualResyncAvailability()
     {
@@ -1805,15 +1795,6 @@ public sealed partial class SettingDialogEditCompletionTests
             var changedProperties = new List<string>();
             dialog.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName!);
 
-            Assert.IsTrue(dialog.CanRequestLr2SongDbSyncDataResync);
-
-            InvokePrivateMethod(dialog, "SetScoreReloadPending", true);
-
-            Assert.IsFalse(dialog.CanRequestLr2SongDbSyncDataResync);
-            CollectionAssert.Contains(changedProperties, nameof(dialog.CanRequestLr2SongDbSyncDataResync));
-
-            changedProperties.Clear();
-            InvokePrivateMethod(dialog, "SetScoreReloadPending", false);
             Assert.IsTrue(dialog.CanRequestLr2SongDbSyncDataResync);
 
             viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
@@ -3295,6 +3276,165 @@ public sealed partial class SettingDialogEditCompletionTests
             });
         }
         finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>実score DBのA成功→BのSELECT失敗→C成功を通常設定入口で処理し、確定rootのplayerpath、関連項目だけの保存と実BMT媒体・URLへの無影響を確認します。</summary>
+    /// <remarks>標準compositionの実score通知・必要表示まで待ちます。Window接続とL/P解放後の必須UI待機は隣接するcompiled選択試験が分担します。</remarks>
+    [TestMethod]
+    public void ScoreConfirmation_ReadFailureAllowsAnotherPlayerWithoutChangingBmt()
+    {
+        string root = CreateTemporaryRoot();
+        Exception? primaryFailure = null;
+        var cleanupFailures = new List<Exception>();
+        void Cleanup(Action action) { try { action(); } catch (Exception failure) { cleanupFailures.Add(failure); } }
+        try
+        {
+            string music = Directory.CreateDirectory(Path.Combine(root, "music")).FullName;
+            string beatoraja = Directory.CreateDirectory(Path.Combine(root, "beatoraja")).FullName;
+            string draftRoot = Directory.CreateDirectory(Path.Combine(root, "draft-beatoraja")).FullName;
+            string oldOutput = Directory.CreateDirectory(Path.Combine(beatoraja, "table")).FullName;
+            string newOutput = Directory.CreateDirectory(Path.Combine(beatoraja, "other-table")).FullName;
+            File.WriteAllText(Path.Combine(beatoraja, "beatoraja.jar"), string.Empty);
+            File.WriteAllText(Path.Combine(draftRoot, "beatoraja.jar"), string.Empty);
+            string config = Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName);
+            File.WriteAllText(config, "{\"playername\":\"A\",\"playerpath\":\"profiles\",\"tablepath\":\"table\",\"tableURL\":[\"https://example.com/unmanaged\"]}");
+            File.WriteAllText(Path.Combine(draftRoot, BeatorajaConfigService.ConfigFileName), "{}");
+            string hash = new('a', 64);
+            foreach ((string player, int perfect) in new[] { ("A", 10), ("B", 0), ("C", 40) })
+            {
+                string path = Path.Combine(Directory.CreateDirectory(Path.Combine(beatoraja, "profiles", player)).FullName, "score.db");
+                using var db = new SQLiteConnection(path);
+                if (player == "B") { db.Execute("CREATE TABLE unrelated (id INTEGER)"); }
+                else
+                {
+                    db.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
+                    db.Execute("INSERT INTO score VALUES (?, 0, 4, ?, 0, 0, 0, 100, 50, 5, 1, 1)", hash, perfect);
+                }
+            }
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                string settingsPath = Path.Combine(root, "settings", "user.config");
+                Settings values = CreateValidStandaloneSettings(music, PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+                values.UseBeatorajaScoreDb = true;
+                values.BeatorajaRootPath = beatoraja;
+                values.BeatorajaPlayerId = "A";
+                values.BeatorajaScoreDbPath = Path.Combine(beatoraja, "profiles", "A", "score.db");
+                values.BeatorajaBmtTablePath = oldOutput;
+                values.EnableBeatorajaBmtOutput = true;
+                values.RegisterBeatorajaBmtUrls = true;
+                values.BeatorajaBmtHashOutputMode = "Original";
+                values.Save();
+                var failures = new List<Exception>();
+                var dialogs = new RecordingRootDialogService();
+                var composition = new ApplicationComposition(settingsEditSession: new CountingSettingsEditSession(values) { PersistOwnedValues = true },
+                    reportSettingsApplyFailure: failures.Add, uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    applicationPathSnapshot: TestBmsFactory.AvailableEverythingBridge, rootFileEnumerator: new FastRootFileEnumerator(),
+                    fileDbMutationDialogService: dialogs, settingsDialogService: dialogs);
+                var scoreDialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
+                var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
+                {
+                    InitialSearchTargets = [music],
+                    // score読取り・投影は実モデルで行い、Windowの不要な警告終端だけを既存記録窓口へ接続します。
+                    LibraryCreator = profile => new BMSLibrary(profile.SongDbPath, profile.Lr2ConfigOwner, profile.Lr2ScoreDbPath,
+                        null, scoreDialogs, profile.StartupRequiredFileScanReason, composition.BmsLibraryOptionsProvider,
+                        composition.UiScheduler, composition.ApplicationPathSnapshot, rootFileEnumerator: new FastRootFileEnumerator(),
+                        operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission)
+                };
+                var owner = new MainWindowViewModel(composition, factory);
+                Task? apply = null;
+                try
+                {
+                    Task<bool> initialize = owner.InitializeAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(initialize, "score-next-real-initialize");
+                    Assert.IsTrue(initialize.GetAwaiter().GetResult());
+                    AwaitStartupBackgroundCompletionOnDispatcher(owner, "score-next-startup-background");
+                    BMSLibrary library = factory.CreatedLibrary ?? throw new AssertFailedException("Library was not attached.");
+                    BMSPlaylist playlist = factory.CreatedPlaylist ?? throw new AssertFailedException("Playlist was not attached.");
+                    ChartScoreSnapshot Lookup() => library.ResolveChartScoreSnapshot(ChartFileKind.Bms, Path.Combine(music, "chart.bms"), string.Empty, hash);
+                    Assert.AreEqual(20, Lookup().Score);
+                    var table = new BMSTable
+                    {
+                        playlist_id = 1,
+                        name = "Score independent",
+                        bmt_sort = 1,
+                        last_update = new DateTime(2024, 1, 1),
+                        Folder_order = ["Folder"],
+                        entries = [new BMSTableEntry { title = "Song", md5 = new string('b', 32), sha256 = hash, folder = "Folder" }]
+                    };
+                    playlist.BMSTables.Add(table);
+                    playlist.CommitBMSTablesWithEntriesToDB([table]);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(playlist.BmtOutput.ExportAllAsync("score-test-initial"), "score-next-initial-bmt");
+                    Assert.IsTrue(File.Exists(Path.Combine(oldOutput, BmtTableExportService.ManifestFileName)));
+                    File.WriteAllText(Path.Combine(oldOutput, "user.txt"), "old unmanaged");
+                    File.WriteAllText(Path.Combine(newOutput, "user.txt"), "new unmanaged");
+                    var externalConfig = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config));
+                    externalConfig["tablepath"] = "other-table";
+                    File.WriteAllText(config, externalConfig.ToString());
+                    var files = Directory.GetFiles(oldOutput).Concat(Directory.GetFiles(newOutput)).ToDictionary(path => path, File.ReadAllBytes);
+                    byte[] configBefore = File.ReadAllBytes(config);
+                    string[] urls = BeatorajaConfigService.ReadTableUrls(beatoraja).ToArray();
+                    int messagesBefore = scoreDialogs.Calls.Count;
+                    SettingsDialogViewModel dialog = owner.SettingDialog;
+                    dialog.BeatorajaRootPath = draftRoot;
+                    dialog.BeatorajaBmtHashOutputMode = "PreferSha256Only";
+                    bool savedKeep = values.KeepBeatorajaBmtFilesWhenOutputDisabled;
+                    dialog.KeepBeatorajaBmtFilesWhenOutputDisabled = !savedKeep;
+                    values.Commit((nameof(Settings.ShowNewPackageInstallConfirmMsg), !values.ShowNewPackageInstallConfirmMsg));
+                    bool independentValue = values.ShowNewPackageInstallConfirmMsg;
+                    var row = LibraryChartRow.FromChartFile(new ChartFile(ChartFileKind.Bms, Path.Combine(music, "chart.bms"), string.Empty, hash,
+                        "Title", "Title", "Artist", "Genre", "Folder", string.Empty, string.Empty, null, null, null));
+                    row.SetScoreProjectionProvider(chart => library.ResolveChartScoreSnapshot(chart.Kind, chart.Path, chart.Md5, chart.Sha256), () => library.ScoreSnapshotVersion);
+                    foreach (string player in new[] { "B", "C" })
+                    {
+                        dialog.BeatorajaPlayerId = player;
+                        apply = dialog.CommitScoreSettingsAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "score-next-" + player);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.RegularChartList.DeliverPendingLibraryChangesAsync(library, CancellationToken.None), "score-next-delivery-" + player);
+                        Settings fresh = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                        Assert.AreEqual(player, fresh.BeatorajaPlayerId);
+                        Assert.AreEqual(Path.Combine(beatoraja, "profiles", player, "score.db"), fresh.BeatorajaScoreDbPath);
+                        Assert.IsTrue(fresh.UseBeatorajaScoreDb);
+                        Assert.AreEqual(beatoraja, fresh.BeatorajaRootPath);
+                        Assert.AreEqual(oldOutput, fresh.BeatorajaBmtTablePath);
+                        Assert.AreEqual("Original", fresh.BeatorajaBmtHashOutputMode);
+                        Assert.AreEqual(savedKeep, fresh.KeepBeatorajaBmtFilesWhenOutputDisabled);
+                        Assert.AreEqual(independentValue, fresh.ShowNewPackageInstallConfirmMsg);
+                        Assert.AreEqual(draftRoot, dialog.BeatorajaRootPath);
+                        Assert.AreEqual("PreferSha256Only", dialog.BeatorajaBmtHashOutputMode);
+                        Assert.AreEqual(!savedKeep, dialog.KeepBeatorajaBmtFilesWhenOutputDisabled);
+                        Assert.AreEqual(player == "B" ? ScoreTableLoadStatus.Failed : ScoreTableLoadStatus.Loaded, library.GetScoreSnapshotForDiagnostics().LoadStatus);
+                        Assert.AreEqual(player == "B" ? null : (int?)80, Lookup().Score);
+                        Assert.AreEqual(player == "B" ? null : (int?)80, row.Chart.Score.Score);
+                        Assert.AreEqual(messagesBefore + 1, scoreDialogs.Calls.Count);
+                        Assert.AreEqual(Resources.Error_RecommendationScoreReadFailed, scoreDialogs.Calls.Last().Message);
+                        CollectionAssert.AreEquivalent(files.Keys.ToArray(), Directory.GetFiles(oldOutput).Concat(Directory.GetFiles(newOutput)).ToArray());
+                        foreach ((string path, byte[] bytes) in files) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
+                        CollectionAssert.AreEqual(configBefore, File.ReadAllBytes(config));
+                        CollectionAssert.AreEqual(urls, BeatorajaConfigService.ReadTableUrls(beatoraja).ToArray());
+                    }
+                    Assert.AreEqual(0, dialogs.ConfirmationCount);
+                    Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                }
+                finally
+                {
+                    if (apply != null) { Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "score-next-operation-cleanup")); }
+                    Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "score-next-owner-cleanup"));
+                    Cleanup(owner.SettingDialog.Dispose);
+                }
+            });
+        }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            Cleanup(() => Directory.Delete(root, recursive: true));
+            if (cleanupFailures.Count > 0)
+            {
+                var cleanupFailure = new AggregateException("score confirmation cleanup", cleanupFailures);
+                if (primaryFailure == null) { throw cleanupFailure; }
+                primaryFailure.Data["ScoreConfirmationCleanupFailure"] = cleanupFailure.ToString();
+            }
+        }
     }
 
     /// <summary>実開始buttonの連打は一回だけ受理し、必須UI待ちで親権限の解放と同WindowのClose抑止を確認します。UI失敗は同Windowで修復再開始でき、成功後は別に任意背景の実終端とL/P解放を待ちます。</summary>
@@ -4798,7 +4938,6 @@ public sealed partial class SettingDialogEditCompletionTests
 
         public bool IsLibraryOperationInProgress => false;
 
-        public bool IsInitializationCompletionCurrent(long operationToken) => operationToken == 0L;
 
         public Task<StartupInitializationResult> CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result)
             => Task.FromResult(result with { CompletionPublished = result.Outcome == StartupInitializationOutcome.Succeeded });

@@ -13,7 +13,7 @@ using SQLite;
 
 namespace BeMusicSeeker.Tests;
 
-/// <summary>保存成績の実再読込みで、有効な旧結果の保持と次の通常要求への接続を確認します。</summary>
+/// <summary>保存成績の実再読込みで、失敗時の非成功投影と次の通常要求への接続を確認します。</summary>
 [TestClass]
 public sealed class BmsLibrarySavedScoreAvailabilityTests
 {
@@ -81,58 +81,45 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
         fixture.AssertNoPlayProjection();
     }
 
-    /// <summary>
-    /// 同じLR2・beatoraja DBのSELECT失敗では採用済み成績・lookup・購読・時刻・版を保ち、
-    /// 正常0件も有効な旧結果として扱う。障害解消後は正常空を採用し、旧値を永久保持しない。
-    /// </summary>
+    /// <summary>同じLR2・beatoraja DBのSELECT失敗は旧成績を流用せず、一度警告してNO PLAYへ投影します。次の正常空を採用し、旧実体のsetterを再購読しません。</summary>
     [DataTestMethod]
-    [DataRow(false, false)]
-    [DataRow(true, false)]
-    [DataRow(false, true)]
-    public void InitializeScoresOnly_FailedReloadRetainsLoadedResultAndNextSuccessAdoptsEmpty(bool beatoraja, bool empty)
+    [DataRow(false)]
+    [DataRow(true)]
+    public void InitializeScoresOnly_FailedReloadDropsOldResultAndNextSuccessAdoptsEmpty(bool beatoraja)
     {
-        using var fixture = new ScoreFixture(beatoraja, empty);
+        using var fixture = new ScoreFixture(beatoraja, empty: false);
         fixture.Library.InitializeScoresOnly(null);
         BMSLibrary.ScoreSnapshot loaded = fixture.Library.GetScoreSnapshotForDiagnostics();
-        BMSScore? score = beatoraja ? loaded.ScoresBySha256.Values.SingleOrDefault() : loaded.Scores.SingleOrDefault();
-        if (score != null) { score.ranking = 3; }
-        BMSLibrary.ScoreSnapshot previous = fixture.Library.GetScoreSnapshotForDiagnostics();
-        DateTime loadedAtUtc = previous.LoadedAtUtc;
-        int loadedVersion = previous.Version;
-        Assert.IsTrue(fixture.Library.ScoreSnapshotReady);
-        Assert.AreEqual(empty ? 0 : 1, fixture.Library.ScoreSubscriptionCount);
+        BMSScore score = beatoraja ? loaded.ScoresBySha256.Values.Single() : loaded.Scores.Single();
+        Assert.AreEqual(20, fixture.Lookup().Score);
         fixture.BreakScoreSelect();
 
         fixture.Library.InitializeScoresOnly(null);
 
-        Assert.AreSame(previous, fixture.Library.GetScoreSnapshotForDiagnostics());
-        Assert.AreEqual(loadedAtUtc, fixture.Library.GetScoreSnapshotForDiagnostics().LoadedAtUtc);
-        Assert.AreEqual(loadedVersion, fixture.Library.ScoreSnapshotVersion);
-        Assert.AreEqual(ScoreTableLoadStatus.Loaded, previous.LoadStatus);
-        Assert.IsTrue(fixture.Library.ScoreSnapshotReady);
-        Assert.AreEqual(empty ? 0 : 1, fixture.Library.ScoreSubscriptionCount);
+        BMSLibrary.ScoreSnapshot failed = fixture.Library.GetScoreSnapshotForDiagnostics();
+        Assert.AreEqual(ScoreTableLoadStatus.Failed, failed.LoadStatus);
+        Assert.AreEqual(fixture.ScorePath, failed.ScoreDbPath);
+        Assert.AreEqual(beatoraja ? ActiveScoreSource.Beatoraja : ActiveScoreSource.Lr2, failed.ActiveScoreSource);
+        Assert.IsFalse(fixture.Library.ScoreSnapshotReady);
+        Assert.AreEqual(0, fixture.Library.ScoreSubscriptionCount);
         Assert.AreEqual(1, fixture.Dialogs.Messages.Count);
-        Assert.AreEqual(empty ? null : 20, fixture.Lookup().Score);
-        if (score != null)
-        {
-            int version = fixture.Library.ScoreSnapshotVersion;
-            score.ranking = 7;
-            Assert.AreEqual(version + 1, fixture.Library.ScoreSnapshotVersion);
-            Assert.AreEqual(7, fixture.Lookup().Ranking, "保持した実体の通常setterと購読も引き続き利用します。");
-        }
+        fixture.AssertNoPlayProjection();
+        int failedVersion = fixture.Library.ScoreSnapshotVersion;
+        score.ranking = 7;
+        Assert.AreEqual(failedVersion, fixture.Library.ScoreSnapshotVersion);
+        fixture.AssertNoPlayProjection();
 
         fixture.RestoreEmptyScoreTable();
         fixture.Library.InitializeScoresOnly(null);
 
-        Assert.AreNotSame(previous, fixture.Library.GetScoreSnapshotForDiagnostics());
         Assert.AreEqual(ScoreTableLoadStatus.Loaded, fixture.Library.GetScoreSnapshotForDiagnostics().LoadStatus);
         Assert.IsTrue(fixture.Library.ScoreSnapshotReady);
-        Assert.IsNull(fixture.Lookup().Score);
+        fixture.AssertNoPlayProjection();
         Assert.AreEqual(0, fixture.Library.ScoreSubscriptionCount);
         Assert.AreEqual(1, fixture.Dialogs.Messages.Count);
     }
 
-    /// <summary>実再読込みの失敗案内は旧成績を利用可能に保ち、親Lと初期化排他の解放後に既存警告文言で一度届きます。</summary>
+    /// <summary>実再読込みの失敗案内は非成功の投影とともに、親Lと初期化排他の解放後に既存警告文言で一度届きます。</summary>
     [TestMethod]
     public void InitializeScoresOnly_FailedReloadReportsAfterAdmissionAndInitializationLocksAreReleased()
     {
@@ -151,12 +138,12 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
         fixture.Library.InitializeScoresOnly(null);
 
         Assert.AreEqual(1, observations.Count);
-        Assert.AreEqual((true, true, true, (int?)20), observations.Single());
+        Assert.AreEqual((true, true, false, (int?)null), observations.Single());
         Assert.AreEqual((Resources.Error_RecommendationScoreReadFailed, Resources.MessageBoxTitle_Warning,
             UiDialogButton.OK, UiDialogIcon.Exclamation), fixture.Dialogs.Messages.Single());
     }
 
-    /// <summary>再読込み失敗で旧成績を保っても、無効設定に従う未送信表示の解除は一回のsnapshot公開にまとめ、元の取得時刻を維持します。</summary>
+    /// <summary>再読込み失敗は旧未送信表示を含む成績を外し、一回のsnapshot公開と一度の案内で非成功を投影します。</summary>
     [TestMethod]
     public void InitializeScoresOnly_FailedReloadStillClearsUnsentStatusWithOnePublication()
     {
@@ -172,12 +159,10 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
         try
         {
             fixture.Library.InitializeScoresOnly(null);
-            Assert.IsFalse(score.IsLr2IrScoreUnsent);
-            Assert.AreSame(score, fixture.Library.GetBMSScores().Single());
+            Assert.AreEqual(0, fixture.Library.GetBMSScores().Count);
             Assert.AreEqual(previous.Version + 1, fixture.Library.ScoreSnapshotVersion);
-            Assert.AreEqual(previous.LoadedAtUtc, fixture.Library.GetScoreSnapshotForDiagnostics().LoadedAtUtc);
-            Assert.IsTrue(fixture.Library.ScoreSnapshotReady);
-            Assert.AreEqual(20, fixture.Lookup().Score);
+            Assert.IsFalse(fixture.Library.ScoreSnapshotReady);
+            fixture.AssertNoPlayProjection();
             Assert.AreEqual(1, publications);
             Assert.AreEqual(1, fixture.Dialogs.Messages.Count);
         }

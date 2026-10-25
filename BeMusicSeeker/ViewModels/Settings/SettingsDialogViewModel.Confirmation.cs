@@ -128,17 +128,13 @@ public partial class SettingsDialogViewModel
         || BeatorajaConfigService.IsBeatorajaRootPathValid(ApplicationSettings.BeatorajaRootPath)
             && IsBeatorajaScoreDbPathValid(scoreBeatorajaScoreDbPath);
 
-    /// <summary>スコア候補の保存、又は保存後のスコア読込みだけを明示再試行できます。</summary>
-    public bool CanRetryScoreSettings => IsEditCompletionEnabled && !statePort.IsLibraryOperationInProgress && IsScoreSelectionValid
-        && (HasScoreSelectionChanges || scoreReloadPending);
-
-    /// <summary>未了の旧新BMT又はスコア入力をroot変更で取り替えないようにします。</summary>
+    /// <summary>未了の旧新BMT入力をroot変更で取り替えないようにします。</summary>
     public bool IsBeatorajaSelectionEnabled => IsSettingsOperationAvailable && IsBeatorajaSelectionCoreEnabled;
 
-    private bool IsBeatorajaSelectionCoreEnabled => IsEnvironmentSelectionCoreEnabled && pendingBmtChange == null && !scoreReloadPending;
+    private bool IsBeatorajaSelectionCoreEnabled => IsEnvironmentSelectionCoreEnabled && pendingBmtChange == null;
 
-    /// <summary>スコア入力はBMTの未了修復から独立し、保存済みスコアの反映中だけ制限します。</summary>
-    public bool IsScoreSelectionEnabled => IsEnvironmentSelectionEnabled && !scoreReloadPending;
+    /// <summary>スコア入力は過去の読込み失敗とBMTの未了修復から独立し、現在の実操作中だけ制限します。</summary>
+    public bool IsScoreSelectionEnabled => IsEnvironmentSelectionEnabled;
 
     /// <summary>root変更に伴う旧新BMT反映を、rootの明示操作から修復できます。</summary>
     public bool CanRetryBeatorajaRootSettings => IsEditCompletionEnabled && !statePort.IsLibraryOperationInProgress
@@ -146,7 +142,6 @@ public partial class SettingsDialogViewModel
 
     private void OnScoreSelectionChanged()
     {
-        RaisePropertyChanged(nameof(CanRetryScoreSettings));
         ScoreSelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -246,10 +241,11 @@ public partial class SettingsDialogViewModel
     {
         if (!IsSectionCompletionEnabled || statePort.IsLibraryOperationInProgress) { return; }
         if (!IsScoreSelectionValid) { ShowSettingValidationError(Resources.Error_InvalidBeatorajaScoreDbPath); return; }
-        if (!HasScoreSelectionChanges && !scoreReloadPending) { return; }
+        if (!HasScoreSelectionChanges) { return; }
         bool useScore = scoreUseBeatorajaScoreDb;
         string player = scoreBeatorajaPlayerId;
         string scorePath = scoreBeatorajaScoreDbPath;
+        bool requiresReload = ApplicationSettings.UseBeatorajaScoreDb || useScore;
         IsEditCompletionInProgress = true;
         try
         {
@@ -257,14 +253,12 @@ public partial class SettingsDialogViewModel
             {
                 if (useScore != ApplicationSettings.UseBeatorajaScoreDb || player != ApplicationSettings.BeatorajaPlayerId || scorePath != ApplicationSettings.BeatorajaScoreDbPath)
                 {
-                    bool requiresReload = ApplicationSettings.UseBeatorajaScoreDb || useScore;
                     ApplicationSettings.Commit((nameof(Settings.UseBeatorajaScoreDb), useScore),
                         (nameof(Settings.BeatorajaPlayerId), player),
                         (nameof(Settings.BeatorajaScoreDbPath), scorePath));
-                    if (statePort.HasActiveLibraryProfile && requiresReload) { SetScoreReloadPending(true); }
                     DiscardConflictingCandidates(ConflictingCandidates.BeatorajaScore);
                 }
-                return statePort.HasActiveLibraryProfile && scoreReloadPending ? await ReloadScoresOnlyAsync(capability) : null;
+                return statePort.HasActiveLibraryProfile && requiresReload ? await statePort.ReloadScoresOnlyAsync(capability) : null;
             }
             if (statePort.HasActiveLibraryProfile) { await RunLibrarySettingsOperationAsync(SaveAndReload); }
             else if (operationAdmission.CanEnter && customFolderOutputPort.CanBeginOutputOperation) { await SaveAndReload(null); }
@@ -313,8 +307,6 @@ public partial class SettingsDialogViewModel
                     ApplicationSettings.Commit((nameof(Settings.BeatorajaRootPath), root),
                         (nameof(Settings.BeatorajaPlayerId), player), (nameof(Settings.BeatorajaScoreDbPath), scorePath),
                         (nameof(Settings.BeatorajaBmtTablePath), tablePath));
-                    // BMTが先に失敗しても必要なスコア反映の事実を失いません。
-                    if (statePort.HasActiveLibraryProfile && ApplicationSettings.UseBeatorajaScoreDb) { SetScoreReloadPending(true); }
                     pendingBmtChange = new(previous, BeatorajaBmtOptionsSnapshot.CreateCurrent(ApplicationSettings));
                     DiscardConflictingCandidates(ConflictingCandidates.BeatorajaScore | ConflictingCandidates.Bmt);
                     environmentBeatorajaRootPath = root;
@@ -322,7 +314,7 @@ public partial class SettingsDialogViewModel
                     RaisePropertyChanged(nameof(BeatorajaRootPath));
                 }
                 await CompletePendingBmtChangeAsync(capability?.PlaylistCapability);
-                return statePort.HasActiveLibraryProfile && scoreReloadPending ? await ReloadScoresOnlyAsync(capability) : null;
+                return statePort.HasActiveLibraryProfile && ApplicationSettings.UseBeatorajaScoreDb ? await statePort.ReloadScoresOnlyAsync(capability) : null;
             }
             if (statePort.HasActiveLibraryProfile) { await RunLibrarySettingsOperationAsync(SaveAndReflect); }
             else if (operationAdmission.CanEnter && customFolderOutputPort.CanBeginOutputOperation) { await SaveAndReflect(null); }
@@ -538,10 +530,10 @@ public partial class SettingsDialogViewModel
     internal string BuildExitOperationConfirmation(string message)
         => message + Environment.NewLine + Environment.NewLine + Resources.Settings_candidates_discarded_on_exit;
 
-    /// <summary>復元後の終了で失われるBMT・スコアの保存後未了入力があれば復元を拒否します。出力とBMSの過去失敗は対象外です。</summary>
+    /// <summary>復元後の終了で失われるBMTの保存後未了入力があれば復元を拒否します。</summary>
     internal async Task<bool> CanStartRestoreBeforeExitAsync()
     {
-        if (pendingBmtChange == null && !scoreReloadPending) { return true; }
+        if (pendingBmtChange == null) { return true; }
         await ShowUiMessageAsync(Resources.Settings_repair_related_save, Resources.Error, UiDialogIcon.Hand, "Restore pending settings repair");
         return false;
     }
@@ -560,9 +552,6 @@ public partial class SettingsDialogViewModel
         return true;
     }
 
-    /// <summary>保存済みスコアの読込み又は必須表示が未完了であることを示します。</summary>
-    public bool IsScoreProcessingRetryRequired => scoreReloadPending && !IsEditCompletionInProgress;
-
     /// <summary>BMTの保存後実処理の失敗を保持し、同じボタンによる全表再更新を案内します。</summary>
     public bool IsBmtProcessingRetryRequired => pendingBmtChange != null && !IsEditCompletionInProgress;
 
@@ -570,7 +559,6 @@ public partial class SettingsDialogViewModel
     {
         RaisePropertyChanged(nameof(IsBmtProcessingRetryRequired));
         RaiseEnvironmentAvailabilityChanged();
-        RaisePropertyChanged(nameof(CanRetryScoreSettings));
     }
 
     /// <summary>導入先が最終BMS一覧から外れる場合にだけ利用する明示的な代替候補です。</summary>
@@ -800,8 +788,8 @@ public partial class SettingsDialogViewModel
         && operationAdmission.CanEnter && customFolderOutputPort.CanBeginOutputOperation
         && CheckValidationForInitialization(out _);
 
-    // 再起動はこの担当が保持する旧新BMT・スコア待ちの寿命を終えるため、LR2環境の確定だけを制限します。
-    private bool IsEnvironmentRestartBlockedByRepair => statePort.HasActiveLibraryProfile && (pendingBmtChange != null || scoreReloadPending);
+    // 再起動はこの担当が保持する旧新BMT待ちの寿命を終えるため、LR2環境の確定だけを制限します。
+    private bool IsEnvironmentRestartBlockedByRepair => statePort.HasActiveLibraryProfile && pendingBmtChange != null;
 
     /// <summary>LR2詳細の適用可能差分だけを確定できます。rootが空でも有効な個別パスを受理し、再起動で失われる未了修復がある間は確定しません。</summary>
     public bool CanConfirmEnvironment => HasEnvironmentChanges && IsEnvironmentSelectionEnabled
@@ -822,7 +810,6 @@ public partial class SettingsDialogViewModel
         RaisePropertyChanged(nameof(IsScoreSelectionEnabled));
         RaisePropertyChanged(nameof(CanRetryBeatorajaRootSettings));
         RaisePropertyChanged(nameof(CanStartEnvironment));
-        RaisePropertyChanged(nameof(CanRetryScoreSettings));
         RaisePropertyChanged(nameof(IsInitialEnvironment));
         RaisePropertyChanged(nameof(CanConfirmBmsRoots));
         RaisePropertyChanged(nameof(CanCancelBmsRoots));

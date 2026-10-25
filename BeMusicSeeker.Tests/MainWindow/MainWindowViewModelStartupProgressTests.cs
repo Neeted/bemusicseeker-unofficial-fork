@@ -1428,9 +1428,9 @@ public sealed class MainWindowViewModelStartupProgressTests
         });
     }
 
-    /// <summary>バックアップ項目の保存通知故障は保存済み値を保ち、有効な実beatoraja DBへの使用切替で起こるScore確定の必須UI失敗はpendingと確定値を保持します。Score成功・必須UI失敗・明示再試行はURL補完を登録せず、通常の共通score入口でも同じ契約を保ちます。</summary>
+    /// <summary>バックアップ項目の保存通知故障は保存済み値を保ち、有効な実beatoraja DBへの使用切替で起こるScore確定の必須UI失敗後は次の有効入力を確定できます。Score成功・必須UI失敗・次入力確定はURL補完を登録せず、通常の共通score入口でも同じ契約を保ちます。</summary>
     [DataTestMethod]
-    [DataRow(true)] // 必須UI失敗ではpendingを残し、次の明示確定までURL workを開始しません。
+    [DataRow(true)] // 必須UI失敗後も次の入力を確定し、URL workを開始しません。
     [DataRow(false)] // 別項目の保存通知故障はScore成功を変えず、起動・全再初期化のURL補完契機は保ちます。
     [DoNotParallelize]
     public void SettingsScoreCompletion_RequiredUiFailureAndSavedNoticeFailureKeepDistinctFollowUp(bool uiFails)
@@ -1493,14 +1493,21 @@ public sealed class MainWindowViewModelStartupProgressTests
             fixture.Ui.IsCompletionBoundary = () => !fixture.Composition.OperationAdmission.IsActive
                 && !fixture.Composition.PlaylistOperationAdmission.IsActive && fixture.Owner.IsLibraryOperationInProgress;
             fixture.Ui.Arm();
+            PlayHistoryViewRequest historyRequest = fixture.Owner.PlayHistory.BeginRequest(PlayHistoryPeriodRequest.All(), string.Empty, string.Empty, 0);
+            CancellationToken historyCancellation = fixture.Owner.PlayHistory.GetCancellationToken(historyRequest.RequestId);
             Task apply = dialog.CommitScoreSettingsAsync();
             fixture.Track(apply);
+            Task ownedOperation = dialog.SettingsOperationCompletionTask;
             try
             {
                 AwaitArrival(fixture.Ui.Entered.Task, apply, "settings-score-required-ui");
                 Assert.IsFalse(apply.IsCompleted);
                 Assert.AreEqual(1, notices.Count, "Scoreは別項目の案内を再表示しません。");
-                Assert.IsTrue(dialog.IsScoreReloadPending, "core成功だけでは必要UIまでのpendingを解除しません。");
+                Assert.AreSame(ownedOperation, dialog.SettingsOperationCompletionTask);
+                Assert.IsFalse(ownedOperation.IsCompleted);
+                Assert.IsFalse(dialog.IsSettingsOperationAvailable, "親L/P解放後も必須UIまで設定Taskを所有します。");
+                Assert.IsTrue(historyCancellation.IsCancellationRequested);
+                Assert.IsNull(fixture.Owner.PlayHistory.SnapshotActiveRequest());
                 Assert.AreEqual(0, registrations);
                 Assert.AreEqual("saved-score-player", fixture.Settings.BeatorajaPlayerId);
                 Assert.IsTrue(fixture.Settings.UseBeatorajaScoreDb);
@@ -1515,15 +1522,17 @@ public sealed class MainWindowViewModelStartupProgressTests
                 Assert.AreEqual(Resources.Msg_LR2ConfigBackupEnabledNextStartup, notices.Single().MessageBoxText);
                 Assert.AreEqual(Resources.Confirm, notices.Single().Caption);
                 Assert.AreEqual(System.Windows.MessageBoxImage.Asterisk, notices.Single().Icon);
-                Assert.AreEqual(uiFails, dialog.IsScoreReloadPending);
+                Assert.IsTrue(ownedOperation.IsCompleted);
+                Assert.IsTrue(dialog.IsScoreSelectionEnabled);
                 if (uiFails)
                 {
                     Assert.AreEqual(0, registrations, "保存済みURL変更でも必須UI失敗時は新規登録しません。");
                     dialog.RequestOpen();
+                    dialog.UseBeatorajaScoreDb = false;
                     Task retry = dialog.CommitScoreSettingsAsync();
                     fixture.Track(retry);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(retry, "settings-score-next-explicit-apply");
-                    Assert.IsFalse(dialog.IsScoreReloadPending);
+                    Assert.IsFalse(fixture.Settings.UseBeatorajaScoreDb);
                     Assert.AreEqual(1, failures.Count);
                     Assert.AreEqual(1, notices.Count, "確定済み保存の案内を再試行で重ねません。");
                 }

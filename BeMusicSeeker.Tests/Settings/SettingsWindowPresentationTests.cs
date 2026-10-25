@@ -4911,30 +4911,6 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>保存後の再読込み未了があっても通常Closeを要求でき、修復の事実は閉鎖で消さないことを確認します。</summary>
-    [TestMethod]
-    [DoNotParallelize]
-    public void NativeClose_WithPendingScoreRepairRequestsCloseAndKeepsRepair()
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
-            using SettingsDialogViewModel ownedDialogLifetime = viewModel.SettingDialog;
-            var presentation = new RecordingPresentationPort();
-            viewModel.SettingDialog.AttachPresentationPort(presentation);
-            typeof(SettingsDialogViewModel)
-                .GetField("scoreReloadPending", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .SetValue(viewModel.SettingDialog, true);
-            var window = new SettingsWindow { DataContext = viewModel.SettingDialog };
-
-            window.Close();
-            window.Dispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
-
-            Assert.AreEqual(1, presentation.CloseRequestCount);
-            Assert.IsTrue(viewModel.SettingDialog.IsScoreReloadPending);
-        });
-    }
-
     /// <summary>通常Close/Escは受理済みTaskを完了させず実WindowとDataContextだけを閉じ、再表示でも同じTask・制限と独立保存を維持します。実MainWindow接続はFileDiff系列が分担します。</summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -5075,12 +5051,10 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>保存後の各実処理失敗を当該欄にも表示し、閉鎖・再表示後も維持します。同値の明示再試行は保存し直さず、成功時だけ案内を解消します。未了中の復元は確認・picker・保存へ進まず、画面と自身の再試行を保ちます。</summary>
-    /// <remarks>実providerとcompiledボタン・bannerを接続します。scoreの再試行はBusy中の再表示・解消・再度のBusyにも追従し、通知だけでは実行しません。Scoreの実モデル反映とBMTの実ファイル投影はEditCompletion系列が分担し、ここでは実処理portの失敗・成功を固定します。</remarks>
-    [DataTestMethod]
-    [DataRow("score", nameof(SettingsDialogViewModel.IsScoreProcessingRetryRequired))]
-    [DataRow("bmt", nameof(SettingsDialogViewModel.IsBmtProcessingRetryRequired))]
-    public void SectionProcessingFailure_ShowsRetryAfterReopenAndClearsOnlyAfterExplicitSuccess(string section, string stateProperty)
+    /// <summary>BMT保存後の実処理失敗を当該欄にも表示し、閉鎖・再表示後も維持します。同値の明示再試行は保存し直さず、成功時だけ案内を解消します。未了中の復元は確認・picker・保存へ進まず、画面と自身の再試行を保ちます。</summary>
+    /// <remarks>実providerとcompiledボタン・bannerを接続します。Scoreの実モデル反映とBMTの実ファイル投影はEditCompletion系列が分担し、ここでは実処理portの失敗・成功を固定します。</remarks>
+    [TestMethod]
+    public void BmtProcessingFailure_ShowsRetryAfterReopenAndClearsOnlyAfterExplicitSuccess()
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
@@ -5123,7 +5097,7 @@ public sealed class SettingsWindowPresentationTests
             void ClickConfirm()
             {
                 var page = (FrameworkElement)((ContentControl)window!.FindName("settingsPageContent")).Content;
-                FindDescendants<Button>(page).Single(button => Equals(button.Tag, (section == "score" ? "retry:" : "confirm:") + section))
+                FindDescendants<Button>(page).Single(button => Equals(button.Tag, "confirm:bmt"))
                     .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 AwaitViewOperationTerminal(settings);
             }
@@ -5131,7 +5105,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 var page = (FrameworkElement)((ContentControl)window!.FindName("settingsPageContent")).Content;
                 SettingsStatusBanner banner = FindDescendants<SettingsStatusBanner>(page).Single(item =>
-                    item.GetBindingExpression(UIElement.VisibilityProperty)?.ParentBinding.Path.Path == stateProperty);
+                    item.GetBindingExpression(UIElement.VisibilityProperty)?.ParentBinding.Path.Path == nameof(SettingsDialogViewModel.IsBmtProcessingRetryRequired));
                 Assert.AreEqual(Visibility.Visible, banner.Visibility);
                 Assert.AreEqual(Resources.Settings_processing_retry, banner.Content);
             }
@@ -5139,18 +5113,9 @@ public sealed class SettingsWindowPresentationTests
             {
                 window = new SettingsWindow(restoreDialogs) { DataContext = settings, PlaylistWorkspace = owner.PlaylistWorkspace };
                 scope.ShowAndWaitForContentRendered(window);
-                if (section != "score")
-                {
-                    Assert.IsFalse(FindDescendants<Button>(window).Single(button => Equals(button.Tag, "cancel:" + section)).IsEnabled);
-                }
-                if (section == "score")
-                {
-                    FindDescendants<CheckBox>(window).Single(check => check.Name == "useBeatorajaScoreDbCheckBox")
-                        .SetCurrentValue(ToggleButton.IsCheckedProperty, false);
-                    AwaitViewOperationTerminal(settings);
-                }
-                else { settings.KeepBeatorajaBmtFilesWhenOutputDisabled = false; }
-                if (section != "score") { ClickConfirm(); }
+                Assert.IsFalse(FindDescendants<Button>(window).Single(button => Equals(button.Tag, "cancel:bmt")).IsEnabled);
+                settings.KeepBeatorajaBmtFilesWhenOutputDisabled = false;
+                ClickConfirm();
                 Assert.AreEqual(1, failures.Count);
                 AssertRetryBanner();
                 Assert.IsNotNull(window.PlaylistWorkspace.PlaylistTreeTables);
@@ -5166,42 +5131,20 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(1, operations, "復元拒否で修復を再開しません。");
                 Assert.AreEqual(1, failures.Count, "復元拒否で保存・処理の新しい失敗を作りません。");
                 AssertRetryBanner();
-                if (section == "bmt") { Assert.IsFalse(settings.IsBeatorajaSelectionEnabled); }
+                Assert.IsFalse(settings.IsBeatorajaSelectionEnabled);
                 Settings fresh = PortableSettingsPersistenceTests.OpenSettings(config);
-                if (section == "score") { Assert.IsFalse(fresh.UseBeatorajaScoreDb); }
-                else { Assert.IsFalse(fresh.KeepBeatorajaBmtFilesWhenOutputDisabled); }
+                Assert.IsFalse(fresh.KeepBeatorajaBmtFilesWhenOutputDisabled);
                 window.CloseForOwnerShutdown();
-                if (section == "score") { statePort.SetLibraryOperationInProgress(true); }
                 window = new SettingsWindow(restoreDialogs) { DataContext = settings, PlaylistWorkspace = owner.PlaylistWorkspace };
                 scope.ShowAndWaitForContentRendered(window);
                 AssertRetryBanner();
-                if (section == "score")
-                {
-                    Button retry = FindDescendants<Button>(window).Single(button => Equals(button.Tag, "retry:score"));
-                    Assert.AreEqual(Visibility.Collapsed, retry.Visibility, "Busy中の再表示では再試行を受け付けません。");
-                    statePort.SetLibraryOperationInProgress(false);
-                    TestUiDispatcherHost.ProcessQueuedPresentation();
-                    Assert.AreEqual(Visibility.Visible, retry.Visibility, "Busy解消の通知で明示再試行を表示します。");
-                    Assert.IsTrue(retry.IsEnabled);
-                    statePort.SetLibraryOperationInProgress(true);
-                    TestUiDispatcherHost.ProcessQueuedPresentation();
-                    Assert.AreEqual(Visibility.Collapsed, retry.Visibility, "表示中にBusyになった場合も操作可否へ追従します。");
-                    statePort.SetLibraryOperationInProgress(false);
-                    TestUiDispatcherHost.ProcessQueuedPresentation();
-                    Assert.AreEqual(Visibility.Visible, retry.Visibility);
-                    Assert.IsTrue(retry.IsEnabled);
-                    Assert.AreEqual(1, operations, "Busyの解消・再表示だけでは修復を自動実行しません。");
-                }
-                if (section != "score")
-                {
-                    Assert.IsFalse(FindDescendants<Button>(window).Single(button => Equals(button.Tag, "cancel:" + section)).IsEnabled);
-                    Assert.IsTrue(FindDescendants<Button>(window).Single(button => Equals(button.Tag, "confirm:" + section)).IsEnabled, "差分なしでも保存後の必要処理を修復できます。");
-                }
+                Assert.IsFalse(FindDescendants<Button>(window).Single(button => Equals(button.Tag, "cancel:bmt")).IsEnabled);
+                Assert.IsTrue(FindDescendants<Button>(window).Single(button => Equals(button.Tag, "confirm:bmt")).IsEnabled, "差分なしでも保存後の必要処理を修復できます。");
                 fail = false;
                 using (var blockedSettings = new FileStream(config, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) { ClickConfirm(); }
                 Assert.AreEqual(2, operations);
                 Assert.AreEqual(1, failures.Count, "成功媒体を再保存せず同じ操作だけを再試行します。");
-                Assert.AreEqual(false, typeof(SettingsDialogViewModel).GetProperty(stateProperty)!.GetValue(settings));
+                Assert.AreEqual(false, settings.IsBmtProcessingRetryRequired);
                 Assert.IsTrue(settings.IsEditCancellationEnabled);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(window.HandlePlaylistRestoreAsync(), "restore allowed after explicit repair");
                 Assert.AreEqual(1, restoreDialogs.ConfirmationRequests.Count, "自身の明示修復成功後は復元確認へ進めます。");
@@ -5209,6 +5152,84 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(2, operations);
                 Assert.AreEqual(savesBeforeRestore, context.SettingsSession.SaveCount);
                 Assert.IsTrue(window.IsVisible);
+            }
+            finally
+            {
+                if (window?.IsVisible == true) { window.CloseForOwnerShutdown(); }
+                Directory.Delete(root, recursive: true);
+            }
+        });
+    }
+
+    /// <summary>score失敗後も復元確認へ進み、通常閉鎖・再表示で自動実行せず、次の有効な実入力を保存・読込みできます。</summary>
+    /// <remarks>実providerとcompiled CheckBoxの接続を確認します。実SQLite失敗とモデル投影はEditCompletion/Startup系列が担います。</remarks>
+    [TestMethod]
+    public void ScoreProcessingFailure_AllowsNextSelectionAndRestoreAfterReopen()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string root = Path.Combine(Path.GetTempPath(), "SettingsScoreNext-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            string config = Path.Combine(root, "user.config");
+            Settings values = PortableSettingsPersistenceTests.OpenSettings(config);
+            string beatoraja = Directory.CreateDirectory(Path.Combine(root, "beatoraja")).FullName;
+            File.WriteAllText(Path.Combine(beatoraja, "beatoraja.jar"), string.Empty);
+            File.WriteAllText(Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName), "{\"playername\":\"player\"}");
+            string scorePath = Path.Combine(Directory.CreateDirectory(Path.Combine(beatoraja, "player", "player")).FullName, "score.db");
+            File.WriteAllBytes(scorePath, []);
+            values.OperationModeLR2DB = false;
+            values.BMSRootPath = root;
+            values.StandaloneBmsRootPaths = root;
+            values.BMSInstallDir = root;
+            values.BeatorajaRootPath = beatoraja;
+            values.BeatorajaPlayerId = "player";
+            values.BeatorajaScoreDbPath = scorePath;
+            values.UseBeatorajaScoreDb = true;
+            values.Save();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(values);
+            owner.SettingDialog.Dispose();
+            bool fail = true;
+            int operations = 0;
+            var statePort = new DangerStatePort(() =>
+            {
+                operations++;
+                return Task.FromResult(new StartupInitializationResult(fail ? StartupInitializationOutcome.OperationFailed : StartupInitializationOutcome.Succeeded,
+                    Failure: fail ? new IOException("score processing failed") : null, OperationKind: StartupProgressOperationKind.ScoreOnly));
+            });
+            var failures = new List<Exception>();
+            var restoreDialogs = new RecordingSettingsRouteDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel) };
+            DangerDialogContext context = CreateDangerDialog(owner, new DangerSettingsEditSession(values, []),
+                MainWindowViewModelTestFactory.GetComposition(owner), new DangerDialogService(), new DangerSchemaDialogPort(), new DangerApplicationDataStore(),
+                statePort: statePort, reportFailure: failures.Add);
+            using SettingsDialogViewModel settings = context.Settings;
+            SettingsWindow? window = null;
+            try
+            {
+                window = new SettingsWindow(restoreDialogs) { DataContext = settings, PlaylistWorkspace = owner.PlaylistWorkspace };
+                scope.ShowAndWaitForContentRendered(window);
+                FindDescendants<CheckBox>(window).Single(check => check.Name == "useBeatorajaScoreDbCheckBox")
+                    .SetCurrentValue(ToggleButton.IsCheckedProperty, false);
+                AwaitViewOperationTerminal(settings);
+                Assert.AreEqual(1, failures.Count);
+                Assert.AreEqual(1, operations);
+                Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(config).UseBeatorajaScoreDb);
+                Assert.IsTrue(settings.IsScoreSelectionEnabled);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.HandlePlaylistRestoreAsync(), "restore after score failure");
+                Assert.AreEqual(1, restoreDialogs.ConfirmationRequests.Count);
+                Assert.AreEqual(0, restoreDialogs.FileRequests.Count);
+                Assert.AreEqual(1, operations);
+                window.Close();
+                window = new SettingsWindow(restoreDialogs) { DataContext = settings, PlaylistWorkspace = owner.PlaylistWorkspace };
+                scope.ShowAndWaitForContentRendered(window);
+                Assert.AreEqual(1, operations, "再表示だけでは処理しません。");
+                CheckBox checkbox = FindDescendants<CheckBox>(window).Single(check => check.Name == "useBeatorajaScoreDbCheckBox");
+                Assert.IsTrue(checkbox.IsEnabled);
+                fail = false;
+                checkbox.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
+                AwaitViewOperationTerminal(settings);
+                Assert.AreEqual(2, operations);
+                Assert.AreEqual(1, failures.Count);
+                Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(config).UseBeatorajaScoreDb);
             }
             finally
             {
@@ -5389,7 +5410,6 @@ public sealed class SettingsWindowPresentationTests
 
         public bool IsLibraryOperationInProgress => false;
 
-        public bool IsInitializationCompletionCurrent(long operationToken) => operationToken == 0L;
 
         public Task<StartupInitializationResult> CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result)
             => Task.FromResult(result with { CompletionPublished = result.Outcome == StartupInitializationOutcome.Succeeded });
@@ -5576,7 +5596,6 @@ public sealed class SettingsWindowPresentationTests
 
         public bool IsLibraryOperationInProgress => false;
 
-        public bool IsInitializationCompletionCurrent(long operationToken) => operationToken == 0L;
 
         public Task<StartupInitializationResult> CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result)
             => Task.FromResult(result with { CompletionPublished = result.Outcome == StartupInitializationOutcome.Succeeded });
@@ -5629,7 +5648,6 @@ public sealed class SettingsWindowPresentationTests
             LibraryOperationAvailabilityChanged?.Invoke(this, EventArgs.Empty);
         }
 
-        public bool IsInitializationCompletionCurrent(long operationToken) => operationToken == 0L;
 
         public Task<StartupInitializationResult> CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result)
             => Task.FromResult(result with { CompletionPublished = result.Outcome == StartupInitializationOutcome.Succeeded });

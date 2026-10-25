@@ -178,7 +178,6 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
 
     public bool IsLibraryOperationInProgress => owner.IsLibraryOperationInProgress;
 
-    public bool IsInitializationCompletionCurrent(long operationToken) => ((ISettingsDialogStatePort)owner).IsInitializationCompletionCurrent(operationToken);
 
     public Task<StartupInitializationResult> CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result)
         => result.Settings == null ? Task.FromResult(result with { CompletionPublished = result.Outcome == StartupInitializationOutcome.Succeeded })

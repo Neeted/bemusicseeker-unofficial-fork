@@ -122,7 +122,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
         });
     }
 
-    /// <summary>実DBの再読取り失敗では旧成績を利用可能な集計入力として保ち、次の成功と所属・所持変更を明示捕捉へ反映する。前の不変入力の破壊と外部DB変更の自動採用も検出する。</summary>
+    /// <summary>実DBの再読取り失敗後の明示捕捉は利用不可となり、次の成功と所属・所持変更を明示捕捉へ反映する。前の不変入力の破壊と外部DB変更の自動採用も検出する。</summary>
     [TestMethod]
     public async Task CaptureAsync_recapturesCurrentMembershipOwnershipAndApplicationScore()
     {
@@ -163,9 +163,8 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
                 }
                 library.InitializeScoresOnly(null);
                 PlaylistLampAggregationRequest afterFailure = await source.CaptureAsync(PlaylistLampViewerQuery.Latest("21"), default);
-                Assert.AreEqual(ScoreTableLoadStatus.Loaded, afterFailure.ScoreSnapshot.LoadStatus);
-                Assert.IsTrue(afterFailure.ScoreSnapshot.IsScoreDataAvailable);
-                Assert.AreEqual(20, afterFailure.ScoreSnapshot.Resolve(afterFailure.Entries.Single()).ExScore);
+                Assert.AreEqual(ScoreTableLoadStatus.Failed, afterFailure.ScoreSnapshot.LoadStatus);
+                Assert.IsFalse(afterFailure.ScoreSnapshot.IsScoreDataAvailable);
                 using (var db = new LR2ScoreDBExtended(scorePath)) { db.Execute("ALTER TABLE retained_score RENAME TO score"); }
                 library.InitializeScoresOnly(null);
                 library.BmsCharts = [CreateLibraryFile("C:/charts/source.bms", hash, sha)];

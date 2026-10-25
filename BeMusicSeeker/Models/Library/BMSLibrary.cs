@@ -311,7 +311,7 @@ public partial class BMSLibrary : ObservableObject
 
         internal ActiveScoreSource ActiveScoreSource { get; set; }
 
-        /// <summary>採用済み成績の読取りDBパスです。再読込み失敗時の同一情報源判定に使います。</summary>
+        /// <summary>今回採用した取得結果の読取りDBパスです。失敗時も今回の取得対象を記録します。</summary>
         internal string ScoreDbPath { get; set; } = string.Empty;
 
         /// <summary>score table のロード状態です。</summary>
@@ -4489,8 +4489,7 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="reason">ログ出力用の更新理由。</param>
     /// <returns>採用済みsnapshotの純通知。通常の通知故障は確定状態と元の操作結果を変更しません。</returns>
     /// <param name="scoreDbPath">今回採用する読取りDBパス。未指定なら既存snapshotから引き継ぎます。</param>
-    /// <param name="loadedAtUtc">旧結果を保持して未送信表示だけ解除する場合の、元の取得時刻。</param>
-    private Action RefreshScoreSnapshotFromCurrentScores(string reason, string scoreDbPath = null, DateTime? loadedAtUtc = null)
+    private Action RefreshScoreSnapshotFromCurrentScores(string reason, string scoreDbPath = null)
     {
         List<BMSScore> scoresSnapshot;
         Dictionary<string, BMSScore> beatorajaScoresSnapshot;
@@ -4544,7 +4543,7 @@ public partial class BMSLibrary : ObservableObject
                 var next = new ScoreSnapshot
                 {
                     Version = version,
-                    LoadedAtUtc = loadedAtUtc ?? DateTime.UtcNow,
+                    LoadedAtUtc = DateTime.UtcNow,
                     BuildElapsedMs = stopwatch.ElapsedMilliseconds,
                     Scores = scoresSnapshot,
                     ScoresByHash = scoresByHash,
@@ -5470,13 +5469,11 @@ public partial class BMSLibrary : ObservableObject
         CompleteLibraryDatabaseLoadProgress();
     }
 
-    /// <summary>保存済みスコアを一度読み、同じ情報源の有効旧結果は失敗時に保持します。採用と今回の失敗案内を分離し、IRは後続の明示要求とします。</summary>
+    /// <summary>保存済み設定のスコアを一度読み、失敗も今回の結果として公開します。旧結果へ戻さず、IRは後続の明示要求とします。</summary>
     /// <returns>実親解放後に実行するスコアの純通知と、今回の取得が失敗した場合の案内。</returns>
     private Action LoadSavedScores(BmsLibraryOptionsSnapshot options)
     {
         ScoreTableLoadResult attempt;
-        ScoreSnapshot previous;
-        bool retainPrevious;
         using (rwlockBMSScores.GetWriterGuard())
         {
             attempt = initializationService.LoadScoreTable(dbGateway, options);
@@ -5490,43 +5487,32 @@ public partial class BMSLibrary : ObservableObject
                 + " failure=" + (attempt.FailureMessage ?? string.Empty)
                 + " lr2PlayHistorySchemaStatus=" + (attempt.Lr2PlayHistorySchemaCheckResult?.Status.ToString() ?? "Unknown"));
             lr2PlayHistorySchemaCheckResult = attempt.Lr2PlayHistorySchemaCheckResult;
-            lock (lockScoreSnapshot) { previous = scoreSnapshot; }
-            retainPrevious = attempt.Status == ScoreTableLoadStatus.Failed
-                && previous?.LoadStatus == ScoreTableLoadStatus.Loaded
-                && previous.ActiveScoreSource == attempt.ActiveScoreSource
-                && string.Equals(previous.ScoreDbPath, attempt.ScoreDbPath, StringComparison.Ordinal);
-            if (!retainPrevious)
+            activeScoreSource = attempt.ActiveScoreSource;
+            scoreTableLoadStatus = attempt.Status;
+            scoreTableLoadFailureMessage = attempt.FailureMessage ?? string.Empty;
+            if (attempt.ActiveScoreSource == ActiveScoreSource.Beatoraja)
             {
-                activeScoreSource = attempt.ActiveScoreSource;
-                scoreTableLoadStatus = attempt.Status;
-                scoreTableLoadFailureMessage = attempt.FailureMessage ?? string.Empty;
-                if (attempt.ActiveScoreSource == ActiveScoreSource.Beatoraja)
-                {
-                    LR2ID = 0;
-                    BMSScores = [];
-                    beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(attempt.BeatorajaScoresBySha256, StringComparer.OrdinalIgnoreCase);
-                }
-                else if (attempt.ActiveScoreSource == ActiveScoreSource.Lr2)
-                {
-                    LR2ID = attempt.Scores.Count > 0 ? attempt.LR2Id : 0;
-                    beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
-                    BMSScores = attempt.Scores;
-                }
-                else
-                {
-                    LR2ID = 0;
-                    BMSScores = [];
-                    beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
-                }
+                LR2ID = 0;
+                BMSScores = [];
+                beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(attempt.BeatorajaScoresBySha256, StringComparer.OrdinalIgnoreCase);
             }
-            // 保持時も先行したIR処理の世代を失効させ、今回の明示要求を通常どおり終端します。
+            else if (attempt.ActiveScoreSource == ActiveScoreSource.Lr2)
+            {
+                LR2ID = attempt.Scores.Count > 0 ? attempt.LR2Id : 0;
+                beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
+                BMSScores = attempt.Scores;
+            }
+            else
+            {
+                LR2ID = 0;
+                BMSScores = [];
+                beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
+            }
+            // 先行したIR処理の世代を失効させ、今回の明示要求を終端します。
             scoreSourceGeneration++;
         }
-        bool unsentChanged = !options.EnableDownloadLr2IrScoreAndDetectUnsent && ClearScoreUnsentStatus();
-        Action notification = !retainPrevious || unsentChanged
-            ? RefreshScoreSnapshotFromCurrentScores("score_tbl_load", retainPrevious ? previous.ScoreDbPath : attempt.ScoreDbPath,
-                retainPrevious ? previous.LoadedAtUtc : null)
-            : null;
+        if (!options.EnableDownloadLr2IrScoreAndDetectUnsent) { ClearScoreUnsentStatus(); }
+        Action notification = RefreshScoreSnapshotFromCurrentScores("score_tbl_load", attempt.ScoreDbPath);
         if (attempt.Status != ScoreTableLoadStatus.Failed) { return notification; }
         return () =>
         {

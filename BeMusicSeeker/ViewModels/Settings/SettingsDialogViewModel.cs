@@ -124,8 +124,6 @@ public partial class SettingsDialogViewModel : ViewModel
             RaisePropertyChanged(nameof(IsEditCancellationEnabled));
             RaisePropertyChanged(nameof(IsAudioOutputSelectionEnabled));
             RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));
-            RaisePropertyChanged(nameof(IsScoreProcessingRetryRequired));
-            RaisePropertyChanged(nameof(CanRetryScoreSettings));
             RaisePropertyChanged(nameof(IsAudioDeviceTestAvailable));
             RaiseEnvironmentAvailabilityChanged();
         }
@@ -197,8 +195,6 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>音声一覧の取得中・取得失敗の状態を画面へ接続します。</summary>
     public string AudioDeviceListStatusMessage => audioDeviceTestWorkflow.AudioDeviceListStatusMessage;
 
-    internal bool IsScoreReloadPending => scoreReloadPending;
-
     /// <summary>
     /// 設定画面の表示を要求します。通常操作中も同じTaskと制限を再接続し、必須終端・Shell終了中は再表示しません。音声一覧は音声ページの初回表示時に取得します。
     /// </summary>
@@ -264,7 +260,7 @@ public partial class SettingsDialogViewModel : ViewModel
             StartupInitializationResult result = completionResult?.Invoke();
             if (result != null)
             {
-                result = await CompleteRequiredSettingsInitializationAsync(result);
+                result = await statePort.CompleteRequiredInitializationAfterAdmissionAsync(result);
                 if (result.Failure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(result.Failure).Throw(); }
             }
         }
@@ -273,23 +269,6 @@ public partial class SettingsDialogViewModel : ViewModel
             await statePort.PresentLibraryDirectoryWarningAsync(failure);
             throw;
         }
-    }
-
-    /// <summary>受付外の実必須UIと成功公開まで待ち、その操作で成立したスコア読込みだけ既存pendingから解除します。</summary>
-    private async Task<StartupInitializationResult> CompleteRequiredSettingsInitializationAsync(StartupInitializationResult result)
-    {
-        result = await statePort.CompleteRequiredInitializationAfterAdmissionAsync(result);
-        if (result?.CompletionPublished == true && statePort.IsInitializationCompletionCurrent(result.OperationToken))
-        {
-            if (result.OperationKind is StartupProgressOperationKind.Startup or StartupProgressOperationKind.FullReinitialize or StartupProgressOperationKind.ScoreOnly) { SetScoreReloadPending(false); }
-        }
-        return result;
-    }
-
-    /// <summary>取得済み受付内で検証・保存、実Closeと必要な再初期化の終端まで処理します。</summary>
-    private Task<StartupInitializationResult> ReloadScoresOnlyAsync(LibraryFileMutationCapability capability)
-    {
-        return ReloadScoresOnlyCoreAsync(capability);
     }
 
     /// <summary>受理済みの共通権限で差分とLR2必須継続の実終端を待ち、失敗を呼出元の解放後通知へ伝播します。</summary>
@@ -318,26 +297,6 @@ public partial class SettingsDialogViewModel : ViewModel
         return await statePort.ReloadFileDiffAsync(capability);
     }
 
-    private async Task<StartupInitializationResult> ReloadScoresOnlyCoreAsync(LibraryFileMutationCapability capability)
-    {
-        SetScoreReloadPending(true);
-        return await statePort.ReloadScoresOnlyAsync(capability);
-    }
-
-    private void SetScoreReloadPending(bool value)
-    {
-        if (scoreReloadPending == value)
-        {
-            return;
-        }
-
-        scoreReloadPending = value;
-        RaisePropertyChanged(nameof(IsScoreProcessingRetryRequired));
-        RaiseEnvironmentAvailabilityChanged();
-        RaisePropertyChanged(nameof(IsEditCancellationEnabled));
-        RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
-    }
-
     private Settings ApplicationSettings => settingsEditSession.Values;
 
     private readonly EventHandler libraryOperationAvailabilityChangedHandler;
@@ -353,11 +312,6 @@ public partial class SettingsDialogViewModel : ViewModel
     private bool isPresentationActive;
 
     private readonly PropertyChangedEventListener resourceServiceEventListener;
-
-
-    private bool scoreReloadPending;
-
-
 
     private readonly Dictionary<string, PlayerResolution> lr2bodyResolutions = new()
         {
@@ -569,7 +523,7 @@ public partial class SettingsDialogViewModel : ViewModel
     public bool CanRequestLr2SongDbSyncDataResync => IsSettingsOperationAvailable && CanRequestLr2SongDbSyncCore;
 
     private bool CanRequestLr2SongDbSyncCore => statePort.HasActiveLibraryProfile
-        && ApplicationSettings.OperationModeLR2DB && !scoreReloadPending
+        && ApplicationSettings.OperationModeLR2DB
         && !statePort.IsLibraryOperationInProgress;
 
     /// <summary>
@@ -628,7 +582,6 @@ public partial class SettingsDialogViewModel : ViewModel
     private void RaiseValidationStateChanged()
     {
         RaiseEnvironmentAvailabilityChanged();
-        RaisePropertyChanged(nameof(CanRetryScoreSettings));
         RaisePropertyChanged(nameof(CanRetryImageSettings));
         RaisePropertyChanged(nameof(CanRetryExternalPlayerSettings));
         RaisePropertyChanged(nameof(Lr2RootPathValidationMessage));
@@ -974,7 +927,7 @@ public partial class SettingsDialogViewModel : ViewModel
                     "LR2 play history schema install success notification");
                 if (statePort.HasActiveLibraryProfile)
                 {
-                    return await ReloadScoresOnlyAsync(capability);
+                    return await statePort.ReloadScoresOnlyAsync(capability);
                 }
                 return null;
             }
@@ -1127,7 +1080,7 @@ public partial class SettingsDialogViewModel : ViewModel
                     "LR2 play history schema uninstall success notification");
                 if (statePort.HasActiveLibraryProfile)
                 {
-                    return await ReloadScoresOnlyAsync(capability);
+                    return await statePort.ReloadScoresOnlyAsync(capability);
                 }
                 return null;
             }
@@ -1575,7 +1528,6 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         set
         {
-            if (scoreReloadPending) { return; }
             if (scoreUseBeatorajaScoreDb != value)
             {
                 scoreUseBeatorajaScoreDb = value;
@@ -1597,7 +1549,7 @@ public partial class SettingsDialogViewModel : ViewModel
         set
         {
             string path = value ?? string.Empty;
-            if (scoreReloadPending || pendingBmtChange != null) { return; }
+            if (pendingBmtChange != null) { return; }
             if (string.Equals(environmentBeatorajaRootPath, path, StringComparison.OrdinalIgnoreCase))
             {
                 return;
@@ -1630,7 +1582,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         set
         {
-            if (value == null || scoreReloadPending) { return; }
+            if (value == null) { return; }
             string playerId = value;
             if (scoreBeatorajaPlayerId == playerId)
             {
