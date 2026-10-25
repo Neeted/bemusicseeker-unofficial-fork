@@ -833,6 +833,7 @@
   "Confirm_DuplicateReinstallSkipped": "Le même fichier BMS est déjà installé,\nla réinstallation a donc été ignorée.\nVoulez-vous déplacer le fichier vers la corbeille ?\n\nCible de réinstallation : \n{0}\n\nDéjà installé : \n{1}\n\n",
   "Warn_DriveRootBmsSkipped": "Les fichiers BMS à la racine du lecteur seront ignorés.",
   "Error_RenameFailed": "Une erreur s'est produite lors du renommage.\nL'opération sera ignorée.\n\nCible : {0}\n{1}",
+  "Warn_CannotMoveRegisteredBmsRoot": "Un dossier contenant une racine BMS enregistrée ne peut pas être déplacé.\nCible : {0}",
   "Warn_CannotRenameRootFolder": "Les dossiers racine ne peuvent pas être renommés.\n\nCible : {0}",
   "Warn_RenameFolderNotExists": "Le renommage a été annulé car le dossier cible n'existe pas.\nCible : {0}",
   "Error_MoveDestRootNotFound": "Le dossier racine de destination n'existe pas.\n{0}",

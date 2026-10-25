@@ -833,6 +833,7 @@
   "Confirm_DuplicateReinstallSkipped": "相同的BMS檔案已經安裝，\n因此略過了重新安裝。\n是否要將該檔案移至資源回收筒？\n\n重新安裝對象: \n{0}\n\n已安裝: \n{1}\n\n",
   "Warn_DriveRootBmsSkipped": "位於磁碟根目錄的BMS檔案將被略過。",
   "Error_RenameFailed": "重新命名過程中發生錯誤。\n將略過此操作。\n\n目標: {0}\n{1}",
+  "Warn_CannotMoveRegisteredBmsRoot": "無法移動包含已註冊 BMS 根目錄本體的資料夾。\n目標: {0}",
   "Warn_CannotRenameRootFolder": "無法重新命名根資料夾。\n\n目標: {0}",
   "Warn_RenameFolderNotExists": "由於目標資料夾不存在，重新命名已取消。\n目標: {0}",
   "Error_MoveDestRootNotFound": "目標根資料夾不存在。\n{0}",

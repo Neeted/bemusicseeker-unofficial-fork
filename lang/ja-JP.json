@@ -833,6 +833,7 @@
   "Confirm_DuplicateReinstallSkipped": "同一のBMSファイルが既にインストールされているため\n再インストールがスキップされました。\n対象のファイルをごみ箱へ移動しますか?\n\n再インストール対象: \n{0}\n\nインストール済み: \n{1}\n\n",
   "Warn_DriveRootBmsSkipped": "ドライブ直下にあるBMSファイルはスキップされます。",
   "Error_RenameFailed": "リネーム中に下記のエラーが発生しました。\n操作をスキップします\n\n対象: {0}\n{1}",
+  "Warn_CannotMoveRegisteredBmsRoot": "登録BMSルート本体を含むフォルダは移動できません。\n対象: {0}",
   "Warn_CannotRenameRootFolder": "ルートフォルダをリネームすることはできません\n\n対象: {0}",
   "Warn_RenameFolderNotExists": "対象のフォルダが存在しないためリネームを中止しました。\n対象: {0}",
   "Error_MoveDestRootNotFound": "移動先ルートフォルダが存在しません。\n{0}",

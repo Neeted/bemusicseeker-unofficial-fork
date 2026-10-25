@@ -833,6 +833,7 @@
   "Confirm_DuplicateReinstallSkipped": "The same BMS file is already installed,\nso reinstallation was skipped.\nWould you like to move the file to the recycle bin?\n\nReinstall target: \n{0}\n\nAlready installed: \n{1}\n\n",
   "Warn_DriveRootBmsSkipped": "BMS files at the drive root will be skipped.",
   "Error_RenameFailed": "An error occurred during renaming.\nThe operation will be skipped.\n\nTarget: {0}\n{1}",
+  "Warn_CannotMoveRegisteredBmsRoot": "A folder containing a registered BMS root cannot be moved.\nTarget: {0}",
   "Warn_CannotRenameRootFolder": "Root folders cannot be renamed.\n\nTarget: {0}",
   "Warn_RenameFolderNotExists": "Renaming was canceled because the target folder does not exist.\nTarget: {0}",
   "Error_MoveDestRootNotFound": "The destination root folder does not exist.\n{0}",

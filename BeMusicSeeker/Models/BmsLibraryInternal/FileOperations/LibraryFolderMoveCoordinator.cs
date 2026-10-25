@@ -177,6 +177,11 @@ internal static class LibraryFolderMoveCoordinator
         IReadOnlyList<FolderAutoRenamePlan> movePlans = batch.Moves;
         foreach (FolderAutoRenamePlan plan in batch.Plans.Where(plan => !batch.ContainsPhysicalMove(plan)))
         {
+            if (plan.FailureException != null)
+            {
+                postLeaseNotifications.Add(() => host.ShowFolderMoveFailed(plan.SourceDirectory, plan.DestinationDirectory, plan.FailureException));
+                continue;
+            }
             if (!string.IsNullOrWhiteSpace(plan.DestinationDirectory)
                 && !string.Equals(plan.SourceDirectory, plan.DestinationDirectory, StringComparison.OrdinalIgnoreCase)
                 && host.EntryExists(plan.DestinationDirectory))

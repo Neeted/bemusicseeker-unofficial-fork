@@ -428,13 +428,27 @@ internal sealed partial class LibraryMutationOwner
         return [.. (charts ?? []).Where(chart => chart != null)];
     }
 
+    /// <summary>確定登録と同時公開された管理配置を一回捕捉し、利用者root本体を保護する移動計画を作成します。</summary>
     internal List<FolderAutoRenamePlan> BuildRootFolderMovePlans(
         IEnumerable<ChartFile> charts,
         string destinationDirectory)
     {
+        BmsLibraryOptionsSnapshot options = lr2SynchronizationOwner.CurrentOptionsSnapshot;
+        IReadOnlyList<string> registeredRoots = options.OperationModeLR2DB && options.Lr2Input != null
+            ? options.Lr2Input.RegisteredRoots : lr2SynchronizationOwner.CaptureBmsDirectories().RequestedRoots;
+        if (options.OperationModeLR2DB)
+        {
+            // 設定画面と同じ管理領域の分類を使い、生成出力の登録を利用者rootへ読み替えません。
+            IReadOnlyList<string> managedRoots = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(
+                new[] { options.LR2CustomFolderOutputBaseDir, options.LR2CustomFolderOutputBaseDirRootType }
+                    .Concat(options.LR2CustomFolderAdditionalOutputBaseDirs ?? []));
+            registeredRoots = registeredRoots.Where(root => !managedRoots.Any(managed =>
+                LongPathFileSystem.IsSameOrDescendantDirectoryPath(root, managed))).ToArray();
+        }
         return libraryFileOperationsService.BuildRootFolderMovePlans(
             ToLibraryChartRefs(charts),
-            destinationDirectory);
+            destinationDirectory,
+            registeredRoots);
     }
 
     /// <summary>現在のownerとpackage参照からfolder移動factsを捕捉します。</summary>

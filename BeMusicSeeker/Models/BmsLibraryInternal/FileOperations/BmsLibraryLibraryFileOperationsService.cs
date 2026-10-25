@@ -1099,20 +1099,37 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
     }
 
-    public List<FolderAutoRenamePlan> BuildRootFolderMovePlans(IEnumerable<LibraryChartRef> selectedCharts, string destinationRootDirectory)
+    /// <summary>捕捉済みの利用者登録rootを含むscopeを診断へ分け、残る通常folderだけを祖先集約します。登録本体と独立した子の移動を同じ計画に保持します。</summary>
+    /// <param name="selectedCharts">受理時に固定した選択譜面。</param>
+    /// <param name="destinationRootDirectory">選択された移動先。</param>
+    /// <param name="registeredBmsRoots">管理出力を除いた確定済み利用者登録。存在確認で欠落登録を落としません。</param>
+    public List<FolderAutoRenamePlan> BuildRootFolderMovePlans(IEnumerable<LibraryChartRef> selectedCharts, string destinationRootDirectory,
+        IReadOnlyList<string> registeredBmsRoots)
     {
         List<string> sourceFolders = [.. (from d in (selectedCharts ?? []).Where(chart => chart != null).Select(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path)).Distinct(StringComparer.OrdinalIgnoreCase)
                                       orderby d.Length
                                       select d)];
         List<string> targetFolders = [];
+        List<FolderAutoRenamePlan> rejectedPlans = [];
         foreach (string folder in sourceFolders)
         {
+            if (registeredBmsRoots.Any(root => LongPathFileSystem.IsSameOrDescendantDirectoryPath(root, folder)))
+            {
+                rejectedPlans.Add(new FolderAutoRenamePlan
+                {
+                    SourceDirectory = folder,
+                    DestinationDirectory = Path.Combine(destinationRootDirectory, Path.GetFileName(folder)),
+                    FailureException = new InvalidOperationException(string.Format(
+                        Properties.Resources.Warn_CannotMoveRegisteredBmsRoot, folder))
+                });
+                continue;
+            }
             if (!targetFolders.Any(existingFolder => folder.StartsWith(existingFolder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
             {
                 targetFolders.Add(folder);
             }
         }
-        return [.. targetFolders
+        return [.. rejectedPlans, .. targetFolders
             .Where(folder => !Path.GetPathRoot(folder).Equals(folder, StringComparison.OrdinalIgnoreCase) && LongPathFileSystem.DirectoryExists(folder))
             .Select(folder => new FolderAutoRenamePlan
             {

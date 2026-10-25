@@ -23,6 +23,120 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryFolderRenameRefreshTests
 {
+    /// <summary>登録rootと空の登録子を含む祖先を集約前に除外し、選択順によらず通常子・似た名前の未登録folderを残すことを確認します。</summary>
+    [TestMethod]
+    public void PrepareRootMove_ProtectsRegisteredScopesBeforeAncestorAggregation()
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException("Fixture root is missing.");
+            string registered = Path.Combine(root, "A");
+            string child = Path.Combine(registered, "Child");
+            string middle = Path.Combine(registered, "Middle");
+            string nested = Path.Combine(middle, "RegisteredChild");
+            string free = Path.Combine(middle, "Free");
+            string similar = Path.Combine(root, "A2");
+            string sameName = Path.Combine(root, "Other", "A");
+            string destination = Path.Combine(root, "Destination");
+            foreach (string directory in new[] { registered, child, middle, nested, free, similar, sameName, destination })
+            {
+                Directory.CreateDirectory(directory);
+            }
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
+            { SearchTargets = [registered + Path.DirectorySeparatorChar, nested, destination] };
+            try
+            {
+                Check([registered], [], [registered]);
+                Check([child], [child], []);
+                Check([registered, child], [child], [registered]);
+                Check([child, registered], [child], [registered]);
+                Check([similar, sameName], [similar, sameName], []);
+                Check([middle], [], [middle]);
+                Check([middle, free], [free], [middle]);
+                Check([free, middle], [free], [middle]);
+            }
+            finally { library.RequestShutdown("registered-root-plan-test"); }
+
+            void Check(string[] sources, string[] expectedMoves, string[] expectedRejected)
+            {
+                LibraryChartRef[] charts = sources.Select((source, index) => LibraryChartRef.FromChartFile(
+                    ChartTestValues.Empty(index % 2 == 0 ? ChartFileKind.Bms : ChartFileKind.Bmson) with
+                    { Path = Path.Combine(source, index % 2 == 0 ? "chart.bms" : "chart.bmson") })).ToArray();
+                foreach (LibraryChartRef chart in charts) { File.WriteAllText(chart.Path, "plan chart bytes"); }
+                FolderMoveBatch batch = library.PrepareLibraryRootMoveBatch(charts, destination);
+                CollectionAssert.AreEquivalent(expectedMoves, batch.Moves.Select(plan => plan.SourceDirectory).ToArray());
+                CollectionAssert.AreEquivalent(expectedMoves.Select(source => Path.Combine(destination, Path.GetFileName(source))).ToArray(),
+                    batch.Moves.Select(plan => plan.DestinationDirectory).ToArray());
+                CollectionAssert.AreEquivalent(expectedRejected, batch.Plans.Where(plan => plan.FailureException != null).Select(plan => plan.SourceDirectory).ToArray());
+                Assert.IsTrue(batch.Plans.Where(plan => plan.FailureException != null).All(plan => !string.IsNullOrWhiteSpace(plan.FailureException.Message)));
+            }
+        });
+    }
+
+    /// <summary>standaloneの確定一覧とLR2所有者の保存登録からrootを捕捉し、表示名や走査結果だけで保護を決める誤りを検出します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PrepareRootMove_CapturesConfiguredStandaloneAndLr2Roots(bool lr2)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException("Fixture root is missing.");
+            string source = Path.Combine(root, "Registered");
+            string destination = Path.Combine(root, "Destination");
+            Directory.CreateDirectory(source);
+            Directory.CreateDirectory(destination);
+            File.WriteAllText(Path.Combine(source, "chart.bms"), "registered root chart bytes");
+            Lr2ConfigOwner? configOwner = lr2 ? new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Path.Combine(root, "LR2"), source)) : null;
+            var library = new TestBmsLibrary(songDbPath, configOwner, null, null, new RecordingDialogService(),
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = lr2 })
+            { SearchTargets = lr2 ? [] : [source, destination] };
+            try
+            {
+                FolderMoveBatch batch = library.PrepareLibraryRootMoveBatch(
+                    [LibraryChartRef.FromChartFile(ChartTestValues.Empty() with { Path = Path.Combine(source, "chart.bms") })], destination);
+                Assert.AreEqual(0, batch.Moves.Count);
+                Assert.IsNotNull(batch.Plans.Single().FailureException);
+                CollectionAssert.Contains((configOwner?.Capture().RegisteredRoots ?? library.SearchTargets).ToArray(), source);
+            }
+            finally { library.RequestShutdown("registered-root-capture-test"); }
+        });
+    }
+
+    /// <summary>LR2の通常・追加・ROOT出力に属する登録を利用者rootと混同せず、確定配置だけを使って祖先scopeの通常移動を残します。</summary>
+    [TestMethod]
+    public void PrepareRootMove_ManagedOutputRegistrationsDoNotBecomeProtectedUserRoots()
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException("Fixture root is missing.");
+            string[] sources = [Path.Combine(root, "Normal"), Path.Combine(root, "Additional"), Path.Combine(root, "RootType")];
+            string[] managed = sources.Select(source => Path.Combine(source, "Output")).ToArray();
+            string destination = Path.Combine(root, "Destination");
+            foreach (string directory in managed.Append(destination)) { Directory.CreateDirectory(directory); }
+            foreach (string source in sources) { File.WriteAllText(Path.Combine(source, "chart.bms"), "ordinary chart bytes"); }
+            var configOwner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Path.Combine(root, "LR2"), managed));
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderOutputBaseDir = managed[0],
+                LR2CustomFolderAdditionalOutputBaseDirs = [managed[1]],
+                LR2CustomFolderOutputBaseDirRootType = managed[2]
+            };
+            var library = new TestBmsLibrary(songDbPath, configOwner, null, null, new RecordingDialogService(),
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options);
+            try
+            {
+                options = options with { LR2CustomFolderOutputBaseDir = null, LR2CustomFolderAdditionalOutputBaseDirs = [], LR2CustomFolderOutputBaseDirRootType = null };
+                FolderMoveBatch batch = library.PrepareLibraryRootMoveBatch(sources.Select(source =>
+                    LibraryChartRef.FromChartFile(ChartTestValues.Empty() with { Path = Path.Combine(source, "chart.bms") })), destination);
+                CollectionAssert.AreEquivalent(sources, batch.Moves.Select(plan => plan.SourceDirectory).ToArray());
+                Assert.IsFalse(batch.Plans.Any(plan => plan.FailureException != null));
+            }
+            finally { library.RequestShutdown("managed-root-plan-test"); }
+        });
+    }
+
     /// <summary>
     /// 管理出力と交差する診断計画を混ぜても非交差の二フォルダを移動・保存し、診断を物理対象に戻して正常処理を拒否する誤りを検出します。
     /// </summary>

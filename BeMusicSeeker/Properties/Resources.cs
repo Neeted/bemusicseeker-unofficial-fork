@@ -1877,6 +1877,9 @@ public class Resources
 
     public static string Warn_CannotRenameRootFolder => ResourceManager.GetString("Warn_CannotRenameRootFolder", resourceCulture);
 
+    /// <summary>利用者登録BMSルート本体を含む移動元scopeを移動できない理由です。</summary>
+    public static string Warn_CannotMoveRegisteredBmsRoot => ResourceManager.GetString("Warn_CannotMoveRegisteredBmsRoot", resourceCulture);
+
 
     public static string Warn_RenameFolderNotExists => ResourceManager.GetString("Warn_RenameFolderNotExists", resourceCulture);
 

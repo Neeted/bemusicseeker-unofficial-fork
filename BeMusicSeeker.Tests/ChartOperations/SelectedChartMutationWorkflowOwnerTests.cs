@@ -8,7 +8,7 @@ using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -471,6 +471,119 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         CollectionAssert.AreEqual(
             new[] { "activity-start", "playback-stop", "library-refresh-start", "store-move", "path-refresh", "library-refresh-end", "activity-end" },
             events);
+    }
+
+    /// <summary>登録rootのみなら停止せず理由を通知し、子との混在なら停止完了後に子だけを一回反映します。実storeからFS/SQLite・保存登録・preflightまで照合し、root拒否による子の脱落と停止後の再計画を検出します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task MoveAsync_RegisteredRootIsPreservedAndOnlyOrdinaryChildMoves(bool includeChild)
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            string temporaryRoot = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException("Fixture root is missing.");
+            string source = Path.Combine(temporaryRoot, "Registered");
+            string child = Path.Combine(source, "Child");
+            string destination = Path.Combine(temporaryRoot, "Destination");
+            Directory.CreateDirectory(child);
+            Directory.CreateDirectory(destination);
+            ChartFile rootChart = CreateFile(new string('a', 32), Path.Combine(source, "root.bms"));
+            ChartFile childChart = CreateFile(new string('b', 32), Path.Combine(child, "chart.bms"));
+            File.WriteAllText(rootChart.Path, "root bytes");
+            File.WriteAllText(childChart.Path, "child bytes");
+            string settingsPath = Path.Combine(temporaryRoot, "user.config");
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            settings.OperationModeLR2DB = false;
+            settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([source, destination]);
+            settings.BMSRootPath = source;
+            settings.BMSInstallDir = destination;
+            settings.Save();
+            byte[] savedSettings = File.ReadAllBytes(settingsPath);
+            var modelDialogs = new RegisteredRootMoveDialogs();
+            var library = new TestBmsLibrary(songDbPath, null, null, null, modelDialogs,
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings))
+            { SearchTargets = [source, destination], BmsCharts = [rootChart, childChart], BmsonCharts = [] };
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertSongs([rootChart, childChart]);
+            InstalledChartLookupIndexSnapshot originalLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            int initialVersion = library.NormalLibraryRefreshNotificationVersion;
+            var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseStop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (!includeChild) { releaseStop.TrySetResult(); }
+            var presentation = new RecordingPresentation { BeforeStop = () => { stopped.TrySetResult(); return releaseStop.Task; } };
+            FakeUiDialogService dialogs = AcceptedMessageDialogs();
+            var activity = new ChartMutationActivityOwner();
+            var owner = new SelectedChartMutationWorkflowOwner(() => library, library.OperationAdmission,
+                activity, presentation, dialogs, dialogs, new BmsLibrarySelectedChartMutationStore());
+            owner.WorkflowChanged += presentation.OnWorkflowChanged;
+            var selection = new List<ChartOperationTarget> { Target(rootChart) };
+            if (includeChild) { selection.Add(Target(childChart)); }
+            Task<SelectedChartMutationResult> operation = Task.FromResult(SelectedChartMutationResult.Completed);
+            try
+            {
+                operation = owner.MoveAsync(new SelectedChartMoveRequest(selection, destination));
+                if (includeChild)
+                {
+                    await TestUiDispatcherHost.AwaitNotificationAsync(stopped.Task, operation, "registered-root-move-stop");
+                    Assert.IsFalse(operation.IsCompleted);
+                    Assert.IsTrue(library.OperationAdmission.IsActive);
+                    AssertState(moved: false);
+                    selection.Clear();
+                    releaseStop.TrySetResult();
+                }
+                SelectedChartMutationResult result = await operation;
+                Assert.IsNotNull(result.MutationReceipt);
+                Assert.AreEqual(includeChild ? 1 : 0, result.MutationReceipt.ConfirmedChangeCount);
+                Assert.AreEqual(includeChild ? 1 : 0, presentation.PathRefreshCalls);
+                Assert.AreEqual(includeChild ? 1 : 0, presentation.Events.Count(item => item == "playback-stop"));
+                Assert.AreEqual(includeChild ? 1 : 0, result.MutationReceipt.ApplyCounts.CatalogApplyCount);
+                Assert.AreEqual(includeChild ? 1 : 0, result.MutationReceipt.ApplyCounts.RequiredPublicationCount);
+                Assert.AreEqual(includeChild ? 1 : 0, library.GetNormalLibraryRefreshNotificationsAfter(initialVersion).CatalogCommits.Count);
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.IsFalse(activity.IsActive);
+                Assert.AreEqual(1, modelDialogs.Messages.Count);
+                StringAssert.Contains(modelDialogs.Messages.Single(), string.Format(BeMusicSeeker.Properties.Resources.Warn_CannotMoveRegisteredBmsRoot, source));
+                AssertState(moved: includeChild);
+                CollectionAssert.AreEqual(savedSettings, File.ReadAllBytes(settingsPath), "登録の保存や暗黙書換えを行いません。");
+                Settings saved = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                string[] roots = StandaloneBmsRootPathSettings.Deserialize(saved.StandaloneBmsRootPaths, saved.BMSRootPath).ToArray();
+                CollectionAssert.AreEqual(new[] { source, destination }, roots);
+                CollectionAssert.AreEqual(roots, library.SearchTargets.ToArray());
+                var preflight = new LibraryDirectoryPreflightService();
+                preflight.EnsureAvailable(preflight.CreateRequest(roots, library.SearchTargets, BmsLibraryOptionsSnapshot.CreateCurrent(saved)), probeOutputBases: false);
+            }
+            finally
+            {
+                releaseStop.TrySetResult();
+                try { await operation; }
+                finally
+                {
+                    owner.WorkflowChanged -= presentation.OnWorkflowChanged;
+                    library.RequestShutdown("registered-root-move-workflow-test");
+                }
+            }
+
+            void AssertState(bool moved)
+            {
+                string childPath = moved ? Path.Combine(destination, "Child", "chart.bms") : childChart.Path;
+                Assert.AreEqual("root bytes", File.ReadAllText(rootChart.Path));
+                Assert.AreEqual("child bytes", File.ReadAllText(childPath));
+                Assert.IsFalse(Directory.Exists(Path.Combine(destination, "Registered")));
+                Assert.AreEqual(!moved, Directory.Exists(child));
+                using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
+                Assert.AreEqual(2, read.Table<LR2SongDB.song>().Count());
+                Assert.IsNotNull(read.Find<LR2SongDB.song>(rootChart.Path));
+                Assert.IsNotNull(read.Find<LR2SongDB.song>(childPath));
+                if (moved) { Assert.IsNull(read.Find<LR2SongDB.song>(childChart.Path)); }
+                Assert.AreEqual(rootChart.Path, library.BmsCharts.Single(chart => ReferenceEquals(chart.Token, rootChart.Token)).Path);
+                Assert.AreEqual(childPath, library.BmsCharts.Single(chart => ReferenceEquals(chart.Token, childChart.Token)).Path);
+                CollectionAssert.AreEqual(new[] { Path.GetDirectoryName(childPath) }, InvokeCreateInstalledChartLookupSnapshot(library).GetDistinctDirectoriesByPrimaryHash(childChart.Md5).ToArray());
+                CollectionAssert.AreEqual(new[] { child }, originalLookup.GetDistinctDirectoriesByPrimaryHash(childChart.Md5).ToArray());
+            }
+
+            static ChartOperationTarget Target(ChartFile chart) => new(chart, null, ChartOperationSourceScope.Library,
+                true, false, false, ChartOperationCapabilities.MoveInLibrary);
+        });
     }
 
     /// <summary>本番storeの準備から同じ実対象のP・停止・FS/SQLite/current/事前構築lookup・通知・次要求までを接続します。停止中に空の除外先を消しても対象を復活させません。真の交差Busyと複数対象・失敗は既存上位／下位へ分担し、記録storeの成功順序保証も維持します。</summary>
@@ -1462,6 +1575,19 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     private static ChartFile CreateChart(string path)
     {
         return new ChartFile(ChartFileKind.Bms, path, "hash-" + Path.GetFileNameWithoutExtension(path), null, "Title", "Title", "Artist", "Genre", "Folder", string.Empty, string.Empty, null, null, null);
+    }
+
+    /// <summary>実storeからの移動拒否理由だけを記録し、確認・停止・物理処理は本番経路へ渡します。</summary>
+    private sealed class RegisteredRootMoveDialogs : IBmsLibraryDialogService
+    {
+        internal List<string> Messages { get; } = [];
+
+        public UiDialogDefaultResult Show(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon,
+            UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
+        {
+            Messages.Add(messageBoxText);
+            return UiDialogDefaultResult.OK;
+        }
     }
 
     private sealed class RecordingPresentation : IChartMutationPlaybackPort

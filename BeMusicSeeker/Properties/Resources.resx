@@ -2477,6 +2477,10 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
 対象: {0}
 {1}</value>
   </data>
+  <data name="Warn_CannotMoveRegisteredBmsRoot" xml:space="preserve">
+    <value>登録BMSルート本体を含むフォルダは移動できません。
+対象: {0}</value>
+  </data>
   <data name="Warn_CannotRenameRootFolder" xml:space="preserve">
     <value>ルートフォルダをリネームすることはできません
 

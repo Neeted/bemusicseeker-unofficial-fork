@@ -833,6 +833,7 @@
   "Confirm_DuplicateReinstallSkipped": "동일한 BMS 파일이 이미 설치되어 있어\n재설치가 건너뛰어졌습니다.\n해당 파일을 휴지통으로 이동하시겠습니까?\n\n재설치 대상: \n{0}\n\n설치됨: \n{1}\n\n",
   "Warn_DriveRootBmsSkipped": "드라이브 루트에 있는 BMS 파일은 건너뜁니다.",
   "Error_RenameFailed": "이름 변경 중 오류가 발생했습니다.\n이 작업은 건너뜁니다.\n\n대상: {0}\n{1}",
+  "Warn_CannotMoveRegisteredBmsRoot": "등록된 BMS 루트 자체를 포함하는 폴더는 이동할 수 없습니다.\n대상: {0}",
   "Warn_CannotRenameRootFolder": "루트 폴더는 이름을 변경할 수 없습니다.\n\n대상: {0}",
   "Warn_RenameFolderNotExists": "대상 폴더가 존재하지 않아 이름 변경을 중단했습니다.\n대상: {0}",
   "Error_MoveDestRootNotFound": "이동 대상 루트 폴더가 존재하지 않습니다.\n{0}",
