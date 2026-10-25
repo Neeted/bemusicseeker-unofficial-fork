@@ -1313,7 +1313,36 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
-    /// <summary>実 gzip cache から譜面・course を復元し、旧 cache URL より config の raw URL を優先して再出力とファイル identity に使うことを確認します。</summary>
+    /// <summary>非数値所属のnull levelと同hashの別所属を保ち、数値所属との混在でも一方の消失やlevelの流用を防ぎます。</summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    [DataRow("★", "★???", "★保留", "md5", 32, null)]
+    [DataRow("", "お気に入り", "2", "sha256", 64, 2d)]
+    public void BeatorajaBmtTableImportService_CreateTable_PreservesMembershipsAndNullableLevels(
+        string tag, string firstFolder, string secondFolder, string hashKind, int hashLength, double? secondLevel)
+    {
+        string hash = new('a', hashLength);
+        string[] folders = [firstFolder, secondFolder];
+        var input = new JObject
+        {
+            ["name"] = "Cached memberships",
+            ["tag"] = tag,
+            ["folder"] = new JArray(folders.Select(folder => new JObject
+            {
+                ["name"] = folder,
+                ["songs"] = new JArray(new JObject { ["title"] = "Same song", [hashKind] = hash })
+            }))
+        };
+
+        BMSTable table = BeatorajaBmtTableImportService.CreateTable(input, "https://example.test/table.json");
+
+        (string Hash, string Folder, double? Level)[] expected = [(hash, firstFolder, null), (hash, secondFolder, secondLevel)];
+        CollectionAssert.AreEquivalent(expected, table.entries.Select(entry =>
+            (hashKind == "md5" ? entry.md5 : entry.sha256, entry.folder, entry.level)).ToArray());
+        CollectionAssert.AreEquivalent(folders, table.folder_list.ToArray());
+    }
+
+    /// <summary>実 gzip cache から数値level・譜面・course を復元し、旧 cache URL より config の raw URL を優先して再出力とファイル identity に使うことを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BeatorajaBmtTableImportService_LoadCachedTable_RestoresTableWithConfigRawUrl()
@@ -1372,6 +1401,7 @@ public sealed class BmtTableExportServiceTests
             Assert.AreEqual(1, table.entries.Count);
             BMSTableEntry entry = table.entries[0];
             Assert.AreEqual("st0", entry.folder);
+            Assert.AreEqual(0d, entry.level);
             Assert.AreEqual("Song", entry.title);
             Assert.AreEqual("Artist", entry.artist);
             Assert.AreEqual(Md5A, entry.md5);

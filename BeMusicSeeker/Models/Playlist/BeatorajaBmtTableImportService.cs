@@ -63,6 +63,9 @@ internal static class BeatorajaBmtTableImportService
         return JObject.Parse(reader.ReadToEnd());
     }
 
+    /// <summary>BMTの所属とnullable levelを通常JSON読込みへ渡し、設定の生URLを正本として表を復元します。</summary>
+    /// <param name="tableData">フォルダ・譜面・コースを含むBMTデータ。</param>
+    /// <param name="configTableUrl">キャッシュ内のURLより優先する設定の絶対URL。</param>
     internal static BMSTable CreateTable(JObject tableData, string configTableUrl)
     {
         if (tableData == null)
@@ -155,12 +158,10 @@ internal static class BeatorajaBmtTableImportService
         var row = new JObject
         {
             ["title"] = title ?? string.Empty,
-            ["folder"] = folderName ?? string.Empty
+            ["folder"] = folderName ?? string.Empty,
+            // 欠落は旧形式のlevel解釈へ進むため、非数値所属にも正本形式のnullを明示する。
+            ["org_level"] = level.HasValue ? new JValue(level.Value) : JValue.CreateNull()
         };
-        if (level.HasValue)
-        {
-            row["org_level"] = level.Value;
-        }
         AddIfNotEmpty(row, "artist", song.Value<string>("artist"));
         AddIfNotEmpty(row, "md5", md5);
         AddIfNotEmpty(row, "sha256", sha256);
