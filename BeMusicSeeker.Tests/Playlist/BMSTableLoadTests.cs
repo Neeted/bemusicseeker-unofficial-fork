@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
@@ -16,6 +17,152 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BMSTableLoadTests
 {
+    /// <summary>文化別の4桁年・年先頭・1桁月日・2桁年・装飾を実JSONから読み、年の部分一致による別年化を防ぎ、従来の日時抽出も保ちます。</summary>
+    [DataTestMethod]
+    [DataRow("en-US", "12/31/2024", 12, 31, 0, 0, 0)]
+    [DataRow("fr-FR", "31/12/2024", 12, 31, 0, 0, 0)]
+    [DataRow("ja-JP", "2024/12/31", 12, 31, 0, 0, 0)]
+    [DataRow("en-US", "1/2/2024", 1, 2, 0, 0, 0)]
+    [DataRow("fr-FR", "2/1/2024", 1, 2, 0, 0, 0)]
+    [DataRow("en-US", "12/31/24", 12, 31, 0, 0, 0)]
+    [DataRow("fr-FR", "31/12/24", 12, 31, 0, 0, 0)]
+    [DataRow("en-US", "12/31/24 13:24:35", 12, 31, 13, 24, 35)]
+    [DataRow("fr-FR", "31/12/24 13:24:35", 12, 31, 13, 24, 35)]
+    [DataRow("en-US", "added [12/31/2024]", 12, 31, 0, 0, 0)]
+    [DataRow("fr-FR", "ajouté [31/12/2024]", 12, 31, 0, 0, 0)]
+    // 年末尾4桁では従来時刻を抽出しないため、時刻・offsetが続いても年だけを修正します。
+    [DataRow("en-US", "12/31/2024 13:24:35", 12, 31, 0, 0, 0)]
+    [DataRow("fr-FR", "31/12/2024 13:24:35", 12, 31, 0, 0, 0)]
+    [DataRow("en-US", "12/31/2024 13:24:35+09:00", 12, 31, 0, 0, 0)]
+    [DataRow("fr-FR", "31/12/2024 13:24:35+09:00", 12, 31, 0, 0, 0)]
+    [DataRow("ja-JP", "2024/12/31 13:24:35", 12, 31, 13, 24, 35)]
+    [DataRow("ja-JP", "added [2024/12/31 13:24:35]", 12, 31, 13, 24, 35)]
+    public void LoadDataJson_AddDatePreservesYearAndCompatibleDateTime(
+        string cultureName, string text, int month, int day, int hour, int minute, int second)
+    {
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo(cultureName, useUserOverride: false);
+            var table = new BMSTable();
+            table.LoadHeaderJSON("{\"name\":\"Date\",\"symbol\":\"D\",\"data_url\":\"data.json\"}");
+            table.LoadDataJSON(new JArray(new JObject
+            {
+                ["md5"] = new string('a', 32),
+                ["title"] = "Date song",
+                ["adddate"] = text
+            }).ToString());
+
+            Assert.AreEqual(new DateTime(2024, month, day, hour, minute, second), table.entries.Single().adddate);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
+    }
+
+    /// <summary>年先頭の日に数字が続く従来受理入力は日を2桁まで抽出し、年末尾の4桁年対応で既定日時へ変わる退行を防ぎます。</summary>
+    [DataTestMethod]
+    [DataRow("2024/12/3100")]
+    [DataRow("added [2024/12/3100]")]
+    public void LoadDataJson_YearFirstDateRetainsTwoDigitDayExtraction(string text)
+    {
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("ja-JP", useUserOverride: false);
+            var table = new BMSTable();
+            table.LoadHeaderJSON("{\"name\":\"Date\",\"symbol\":\"D\",\"data_url\":\"data.json\"}");
+            table.LoadDataJSON(new JArray(new JObject
+            {
+                ["md5"] = new string('a', 32),
+                ["title"] = "Date song",
+                ["adddate"] = text
+            }).ToString());
+
+            Assert.AreEqual(new DateTime(2024, 12, 31), table.entries.Single().adddate);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
+    }
+
+    /// <summary>欠落・null・空白・不正な任意追加日と従来解析できないoffset表現は行を捨てず、読込み中の既定日時を保ちます。</summary>
+    [DataTestMethod]
+    [DataRow(false, null)]
+    [DataRow(true, null)]
+    [DataRow(true, "")]
+    [DataRow(true, "   ")]
+    [DataRow(true, "not-a-date")]
+    [DataRow(true, "2024/99/99")]
+    [DataRow(true, "2024-12-31T13:24:35+09:00")]
+    public void LoadDataJson_InvalidOptionalAddDateKeepsEntryAndDefaultDate(bool includeDate, string? text)
+    {
+        var row = new JObject { ["md5"] = new string('a', 32), ["title"] = "Date song" };
+        if (includeDate) { row["adddate"] = text; }
+        var table = new BMSTable();
+        table.LoadHeaderJSON("{\"name\":\"Date\",\"symbol\":\"D\",\"data_url\":\"data.json\"}");
+        DateTime before = DateTime.Now;
+        table.LoadDataJSON(new JArray(row).ToString());
+        DateTime after = DateTime.Now;
+
+        BMSTableEntry entry = table.entries.Single();
+        Assert.AreEqual(new string('a', 32), entry.md5);
+        Assert.AreEqual("Date song", entry.title);
+        Assert.IsTrue(entry.adddate >= before && entry.adddate <= after);
+    }
+
+    /// <summary>従来の抽出対象外の1桁月・時分秒では、原文のoffsetを含む日時解釈を保ち、抽出対象の拡大による日付だけへの変換を防ぎます。</summary>
+    [TestMethod]
+    public void LoadDataJson_OneDigitMonthPreservesOriginalOffsetInterpretation()
+    {
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("ja-JP", useUserOverride: false);
+            var table = new BMSTable();
+            table.LoadHeaderJSON("{\"name\":\"Date\",\"symbol\":\"D\",\"data_url\":\"data.json\"}");
+            table.LoadDataJSON("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Date song\",\"adddate\":\"2024/1/21 1:2:3+09:00\"}]");
+
+            DateTime expected = new DateTimeOffset(2024, 1, 21, 1, 2, 3, TimeSpan.FromHours(9)).LocalDateTime;
+            Assert.AreEqual(expected, table.entries.Single().adddate);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
+    }
+
+    /// <summary>現在文化の実DataToJsonを同文化の実JSON入力へ渡し、年末と1桁月日の元年月日を保持します。wire書式は既存goldenへ分担します。</summary>
+    [DataTestMethod]
+    [DataRow("en-US", 12, 31)]
+    [DataRow("fr-FR", 12, 31)]
+    [DataRow("en-US", 1, 2)]
+    [DataRow("fr-FR", 1, 2)]
+    public void DataToJson_SameCultureRoundTripPreservesAddDate(string cultureName, int month, int day)
+    {
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo(cultureName, useUserOverride: false);
+            DateTime expected = new(2024, month, day);
+            var source = new BMSTable
+            {
+                entries = [new BMSTableEntry { md5 = new string('a', 32), title = "Date song", adddate = expected }]
+            };
+            var restored = new BMSTable();
+            restored.LoadHeaderJSON("{\"name\":\"Date\",\"symbol\":\"D\",\"data_url\":\"data.json\"}");
+            restored.LoadDataJSON(source.DataToJson());
+
+            Assert.AreEqual(expected, restored.entries.Single().adddate.Date);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
+    }
+
     /// <summary>公開集合を標準の可変interfaceへキャストして構成変更しても、確定行の参照・順・所属と派生状態は変化しません。行値の編集は引き続き同じ対象へ反映します。</summary>
     [TestMethod]
     public void Entries_PublicCollectionProtectsCompositionAndPreservesEntryReferences()

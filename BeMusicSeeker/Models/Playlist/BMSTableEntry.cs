@@ -46,7 +46,9 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 
     private static readonly Regex numParseRegex = new("([+-]?\\d+(?:\\.\\d*)?|\\.\\d+)", RegexOptions.Compiled);
 
-    private static readonly Regex dateparseRegex = new("((?:\\d{4}|\\d{2})[^\\d]\\d{2}[^\\d]\\d{2})(?:[^\\d].*(\\d{2}[^\\d]\\d{2}[^\\d]\\d{2,3}))?", RegexOptions.Compiled);
+    // 年末尾4桁は年だけを修正し、従来取り込まなかった後続時刻を抽出しません。
+    // 年先頭・2桁年は従来の年月日・時刻抽出を保ちます。
+    private static readonly Regex dateparseRegex = new("(?<date>\\d{2}[^\\d]\\d{2}[^\\d]\\d{4})|(?<date>(?:\\d{4}|\\d{2})[^\\d]\\d{2}[^\\d]\\d{2})(?:[^\\d].*(?<time>\\d{2}[^\\d]\\d{2}[^\\d]\\d{2,3}))?", RegexOptions.Compiled);
 
     private static bool IsBulkLoadParseSuppressed
     {
@@ -379,7 +381,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         return entry;
     }
 
-    /// <summary>外部表の行を読み込み、形式不正の任意項目は従来どおり省略します。内部故障・資源不足は隠しません。</summary>
+    /// <summary>外部表の行を読み込み、追加日は現在文化で4桁年全体を解析します。形式不正の任意項目は従来どおり省略し、内部故障・資源不足は隠しません。</summary>
     public BMSTableEntry(JObject dataJson, BMSTable parentTable = null)
         : this()
     {
@@ -484,7 +486,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
                 Match match = dateparseRegex.Match(text);
                 if (match.Success)
                 {
-                    text = match.Groups[1].ToString() + (match.Groups.Count == 1 ? "" : " " + match.Groups[2].ToString());
+                    text = match.Groups["date"].Value + " " + match.Groups["time"].Value;
                 }
                 base.adddate = DateTime.Parse(text);
             }
@@ -652,6 +654,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
     }
 
+    /// <summary>保存対象の項目をJSONへ変換し、追加日は現在文化の短い日付で出力します。同じ文化での読戻しは年月日を保持します。</summary>
     public JObject ToJsonObject()
     {
         NormalizeForPlaylistPersistence();

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -1163,6 +1164,111 @@ public sealed class PlaylistWorkspaceExternalSourceTests
 
         settingsPort.SchedulePlaylistUrlCompletionRefresh("detached-test");
         await settingsPort.ExportBeatorajaBmtAsync("detached-test", null, null);
+    }
+
+    /// <summary>en-USの4桁年を通常新規取込みから実一括取得・登録へ通し、成功通知・公開所属・freshなDBの追加日を一致させます。</summary>
+    /// <remarks>条件網羅と実serializer往復はBMSTableLoadTestsへ分担し、ここでは実workspaceと保存の接続を一表で確認します。共有通知の寿命を所有するため単独実行します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task TryStartPlaylistImport_NewExternalTablePreservesFourDigitAddDateInDatabase()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceExternalSourceTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        var auxiliaryWork = new ConcurrentQueue<Task>();
+        var summaries = new List<ExternalPlaylistImportQueueSummary>();
+        EventHandler<ExternalPlaylistImportQueueSummaryReadyEventArgs> summaryHandler = (_, request) => summaries.Add(request.Summary);
+        Exception? primaryFailure = null;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("en-US", useUserOverride: false);
+            string databasePath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(databasePath);
+            string headerPath = Path.Combine(directory, "header.json");
+            const string tableName = "Four digit year import";
+            string hash = new('e', 32);
+            DateTime expected = new(2024, 12, 31);
+            File.WriteAllText(headerPath, "{\"name\":\"Four digit year import\",\"symbol\":\"D\",\"data_url\":\"./data.json\"}");
+            File.WriteAllText(Path.Combine(directory, "data.json"),
+                "[{\"md5\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"title\":\"Date song\",\"adddate\":\"12/31/2024\"}]");
+            var sourceUri = new Uri(headerPath);
+            playlist = new TestBmsPlaylist(databasePath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot())
+            { BMSTables = [] };
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                auxiliaryWork.Enqueue(Task.Run(work));
+                return true;
+            };
+            library = new TestBmsLibrary(databasePath);
+            workspace = CreateDetailWorkspace(out _,
+                playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
+            workspace.ExternalPlaylistImportQueueSummaryReady += summaryHandler;
+            Assert.AreEqual(0, workspace.CapturePlaylistImportExistingTables().Count);
+
+            Assert.AreEqual(PlaylistImportStartStatus.Started, workspace.TryStartPlaylistImport([sourceUri]).Status);
+            await playlist.WaitForPlaylistMutationIdleAsync();
+            ExternalPlaylistImportQueueSummary summary = summaries.Single();
+            Assert.AreEqual(1, summary.ImportedCount,
+                string.Join(Environment.NewLine, summary.FailedOutcomes.Select(outcome => outcome.Exception)));
+            Assert.AreEqual(0, summary.FailedCount);
+            ExternalPlaylistImportOutcome outcome = summary.Outcomes.Single();
+            Assert.AreEqual(sourceUri, outcome.Uri);
+            Assert.AreEqual(tableName, outcome.TableName);
+            BMSTable table = playlist.BMSTables.Single();
+            Assert.AreEqual(tableName, table.name);
+            Assert.AreEqual(sourceUri, table.Header_url);
+            Assert.IsTrue(table.playlist_id > 0);
+            BMSTableEntry entry = table.entries.Single();
+            Assert.AreEqual(table.playlist_id, entry.playlist_id);
+            Assert.AreEqual(hash, entry.md5);
+            Assert.AreEqual(expected, entry.adddate.Date);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databasePath).OpenSongDbReadOnly();
+            BMSTable savedTable = verify.Table<BMSTable>().Single();
+            Assert.AreEqual(table.playlist_id, savedTable.playlist_id);
+            Assert.AreEqual(tableName, savedTable.name);
+            BMSTableEntry saved = verify.Table<BMSTableEntry>().Single();
+            Assert.AreEqual(table.playlist_id, saved.playlist_id);
+            Assert.AreEqual(hash, saved.md5);
+            Assert.AreEqual(expected, saved.adddate.Date);
+        }
+        catch (Exception failure)
+        {
+            primaryFailure = failure;
+            throw;
+        }
+        finally
+        {
+            var cleanupFailures = new List<Exception>();
+            async Task CleanupAsync(Func<Task> action)
+            {
+                try { await action(); }
+                catch (Exception failure) { cleanupFailures.Add(failure); }
+            }
+            if (playlist != null) { await CleanupAsync(playlist.WaitForPlaylistMutationIdleAsync); }
+            if (workspace != null)
+            {
+                workspace.ExternalPlaylistImportQueueSummaryReady -= summaryHandler;
+                await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
+            }
+            while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
+            await CleanupAsync(() => { playlist?.RequestShutdown("adddate-import-test"); return Task.CompletedTask; });
+            await CleanupAsync(() => { library?.RequestShutdown("adddate-import-test"); return Task.CompletedTask; });
+            if (playlist != null) { await CleanupAsync(playlist.WaitForPlaylistMutationIdleAsync); }
+            await CleanupAsync(() => { Directory.Delete(directory, recursive: true); return Task.CompletedTask; });
+            CultureInfo.CurrentCulture = previousCulture;
+            if (cleanupFailures.Count > 0)
+            {
+                var cleanupFailure = new AggregateException("追加日取込みテストの後片付け", cleanupFailures);
+                if (primaryFailure == null) { throw cleanupFailure; }
+                Console.WriteLine(cleanupFailure);
+            }
+        }
     }
 
     /// <summary>一要求の実終端後に次の明示要求を受け、各一表の結果通知・URI順・実表登録を保持します。</summary>
