@@ -600,7 +600,7 @@ public sealed class PlaylistImportDialogTests
                     var treeChrome = (Border)externalTree.Template.FindName("TreeChrome", externalTree);
                     var listChrome = (Border)selected.Template.FindName("ListChrome", selected);
                     AssertBrush(dialog, "App.ControlBackgroundBrush", treeChrome.Background); AssertBrush(dialog, "App.BorderBrush", treeChrome.BorderBrush);
-                    Assert.AreEqual(listChrome.CornerRadius, treeChrome.CornerRadius); Assert.AreEqual(listChrome.BorderThickness, treeChrome.BorderThickness);
+                    Assert.AreEqual(listChrome.BorderThickness, treeChrome.BorderThickness);
                     foreach (TextBlock text in FindVisualDescendants<TextBlock>(externalTree).Where(x => x.Name is "candidateName" or "candidateStatus"))
                     { AssertBrush(dialog, text.Name == "candidateStatus" ? "App.SubtleTextBrush" : "App.TextBrush", text.Foreground); }
                     foreach (System.Windows.Shapes.Path arrow in FindVisualDescendants<System.Windows.Shapes.Path>(externalTree).Where(x => x.Name is "ExpandedGlyph" or "CollapsedGlyph"))

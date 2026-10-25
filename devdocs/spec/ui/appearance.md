@@ -42,17 +42,23 @@ XAMLは原則として `DynamicResource` を使います。コード描画はテ
 
 設定画面は `SettingsControls` から共通辞書へ接続します。設定画面の既存キーは `BasedOn` で対応する共通スタイルを参照し、設定画面内にだけ既定スタイルを置きます。その他の独自ダイアログは共通辞書を直接使います。辞書やテンプレートを画面ごとに複製しません。
 
-ボタン、入力欄、選択欄、チェック、ラジオボタン、ラベル、グループ、タブ、折りたたみ、メニューと区切り、一覧、スクロール等を共通化します。標準のキーボード操作とアクセシビリティを保ち、`PART_ContentHost`、`PART_Popup`、`PART_EditableTextBox`、`PART_Track`、ScrollViewerの部品、Expanderの `HeaderSite` を欠かしません。
+ボタン、入力欄、選択欄、チェック、ラジオボタン、ラベル、グループ、上部ナビゲーション、折りたたみ、メニューと区切り、一覧、スクロール等を共通化します。標準のキーボード操作とアクセシビリティを保ち、`PART_ContentHost`、`PART_Popup`、`PART_EditableTextBox`、`PART_Track`、ScrollViewerの部品、Expanderの `HeaderSite` を欠かしません。
 
 共通Expanderの見出しは、通常背景に `App.ControlBackgroundBrush`、1 DIPの枠に `App.BorderBrush` を使い、表示中のテーマ切替へ追随します。折畳み・展開の矢印は見出しの文字色と揃え、通常は `App.TextBrush`、無効時は `App.DisabledTextBrush` に追随します。開閉の双方向の結び付け、内容の表示、アクセシビリティ、ホバー・フォーカス表示と余白を保ちます。
 
 検証対象は同一ウィンドウ内で実際に適用された役割とテンプレート、未採用の部品への非波及です。別々に読み込んだ辞書のオブジェクト同一性、ソース文字列、子要素の順序、固定座標を契約にしません。
 
+### 部品の形状
+
+アプリが描画する矩形部品は直角に統一します。共通・局所のBorder、Rectangle、Popupの枠、フォーカス枠、スクロールのつまみも同じ規則を使います。角丸の属性・Setter・専用トリガーを持たず、既定の0を使います。形状だけの変更でテーマ色、Binding、入力、操作、状態、寸法を変えません。角丸へ戻す設定は設けません。
+
+共通RadioButtonと設定の環境選択の内側にある円形の選択印、SliderのEllipseつまみは円形を保ちます。MainWindowの既存WindowChromeと題名部、OS所有の選択画面・緊急ダイアログは変更対象に含めません。標準のアプリウィンドウ外枠は[標準ウィンドウの題名部](#標準ウィンドウの題名部)のDWM要求で扱います。
+
 ### 通常版と省スペース版
 
 `CompactButtonStyle`、`CompactComboBoxStyle`、`CompactSliderStyle` はそれぞれの `App.Canonical` 通常スタイルから寸法だけを変更します。描画テンプレート、意味色、ホバー・押下・無効状態、表示中のテーマ変更を共有します。文字サイズを縮めず、最小寸法と余白で省スペースにします。ComboBoxの候補項目は通常の共通項目スタイルを維持します。
 
-再生メニューの文字ボタン、ランプビューアの「最新」、プレイログの表示対象選択は省スペース版を明示して採用します。選択欄自身が枠と背景を所有し、外側の装飾用Borderを重ねません。再生帯のアイコン操作とランプの「割合／曲数」は、それぞれの役割のスタイルを保ちます。別用途が残る旧Button／ComboBoxの暗黙スタイルは維持し、全画面を一括で変更しません。
+再生メニューの文字ボタン、ランプビューアの「最新」、プレイログの表示対象選択は省スペース版を明示して採用します。選択欄自身が枠と背景を所有し、外側の装飾用Borderを重ねません。再生帯のアイコン操作とランプの「割合／曲数」は、それぞれの役割のスタイルを保ちます。ランプの切替はRadioButtonによる相互排他と選択時の強調色、左右間の境界線を保ち、隣接する「最新」と同じ最小高24 DIP・Padding 8,2を使います。別用途が残る旧Button／ComboBoxの暗黙スタイルは維持し、全画面を一括で変更しません。
 
 設定と再生の全Sliderは、通常版・省スペース版とも同じ軌道・つまみを使います。通常のつまみと進行側は `App.AccentBrush`、未進行側は `App.BorderBrush`、ホバーは `App.AccentHoverBrush`、ドラッグは `App.AccentPressedBrush`、無効なつまみは `App.DisabledTextBrush` です。軌道とつまみに輪郭線を付けず、つまみの部品寸法を描画寸法に揃えて周囲に透明な余白を設けません。用途固有の時刻は共通のつまみへの表示差込みで扱い、Trackを複製しません。
 
@@ -74,7 +80,7 @@ WPF 10.0.13では、[DatePickerのLanguage変更](https://github.com/dotnet/wpf/
 
 縦横のスクロールバーは `App.Canonical.VerticalScrollBarTemplate` / `HorizontalScrollBarTemplate` と `ScrollBarStyle` が方向、軌道、つまみ、無効状態を所有します。`SimpleScrollBar` は互換名として共通テンプレートを参照します。端の矢印ボタンは表示せず、`PART_Track` のページ送りボタン、標準Line・Pageコマンドとアクセシビリティを保ちます。ScrollViewerの部品名、内容スクロール、位置・可視範囲・最大値も維持します。
 
-バーは内容領域へ重ね、表示・非表示の切替で内容の測定幅・高さを変えません。透明な入力領域は縦16 DIP幅・横16 DIP高に固定し、通常は外側の端に丸い3 DIPのつまみだけを示します。入力領域全体へのホバーでつまみを8 DIPへ広げ、軌道を控えめに示します。ドラッグ中は領域外でも8 DIPとドラッグ用ブラシを維持します。通常・ホバー・ドラッグの色には既存の `ScrollBar.Thumb*BackgroundBrush` を使い、ホバーよりドラッグを優先します。内部の描画だけを変え、部品寸法や表の再計算へ波及させません。
+バーは内容領域へ重ね、表示・非表示の切替で内容の測定幅・高さを変えません。透明な入力領域は縦16 DIP幅・横16 DIP高に固定し、通常は外側の端に直角の3 DIPのつまみだけを示します。入力領域全体へのホバーでつまみを8 DIPへ広げ、軌道を控えめに示します。ドラッグ中は領域外でも8 DIPとドラッグ用ブラシを維持します。通常・ホバー・ドラッグの色には既存の `ScrollBar.Thumb*BackgroundBrush` を使い、ホバーよりドラッグを優先します。内部の描画だけを変え、部品寸法や表の再計算へ波及させません。
 
 つまみと所属枠の内縁の間には、通常・ホバー・ドラッグを通して2 DIPの空間を設けます。所属枠は、ウィンドウ本文ではクライアント領域または本文ペイン、入力・一覧では自身の可視枠、候補・メニュー・初期言語カードではその枠です。OSの影や不可視のサイズ変更領域は含めません。`ScrollBar.Padding` は共通テンプレートの `ThumbChrome.Margin` へ渡す描画設定とし、縦は右、横は下だけに適用します。外側の位置を固定したまま内側へ太くし、長手方向には余白を足さず、透明なThumb・Track・ページボタンと16 DIPの入力領域は縮めません。
 
@@ -112,7 +118,7 @@ WPF既定の点線のフォーカス飾りは使いません。表は選択と�
 
 ツリーの通常・選択・無効の文字色は、`TextBlock` と `EditableTextBlock` の両方へ明示します。アイコン付きツリー項目の本文は、表示・編集のどちらでも行内の上下中央に揃えます。サイドバーの分割線は操作範囲5、見える線1とし、透明な操作範囲を重ねます。余分な余白でツリーと表、スクロールバーを離しません。
 
-メイン画面右上の通常検索欄とプレイリスト一覧の検索欄は、非フォーカス時の枠にテーマ別の `App.SearchBorderBrush` を使い、入力領域を識別できる控えめな輪郭を示します。全10配色辞書に `SolidColorBrush` として定義し、両検索欄から `DynamicResource` で参照してテーマ切替へ追随します。各検索エディター内にキーボードフォーカスがあるときだけ、枠を既存の `App.InputFocusBorderBrush` へ切り替えます。ヘルプ等の周辺ボタンへのフォーカスはこの判定に含めません。高さ24 DIP、枠線1 DIP、角丸6 DIPとし、横幅、余白、アイコン配置、候補表示、検索操作は保ちます。
+メイン画面右上の通常検索欄とプレイリスト一覧の検索欄は、非フォーカス時の枠にテーマ別の `App.SearchBorderBrush` を使い、入力領域を識別できる控えめな輪郭を示します。全10配色辞書に `SolidColorBrush` として定義し、両検索欄から `DynamicResource` で参照してテーマ切替へ追随します。各検索エディター内にキーボードフォーカスがあるときだけ、枠を既存の `App.InputFocusBorderBrush` へ切り替えます。ヘルプ等の周辺ボタンへのフォーカスはこの判定に含めません。高さ24 DIP、枠線1 DIPの直角の枠とし、横幅、余白、アイコン配置、候補表示、検索操作は保ちます。
 
 両検索欄の背景は、空入力時に `App.ControlBackgroundBrush`、文字があるときに `App.ControlBackgroundActiveBrush` を使い、絞込み中であることを示します。明るいテーマは薄い桃色、暗いテーマは落ち着いた注意色とし、構文警告の `!` とは区別します。候補の操作は検索支援の仕様に従います。
 
@@ -126,7 +132,7 @@ WPF既定の点線のフォーカス飾りは使いません。表は選択と�
 
 設定画面は左のカテゴリ一覧、見出し、本文、下部の操作から成り、上部タブは使いません。カテゴリ、見出し、下部操作を固定し、選択中の本文だけを一つの縦ScrollViewerでスクロールします。横スクロールは使いません。長い翻訳のラベルや選択文は折り返します。
 
-カテゴリは角を丸めた選択背景と左端の強調線で選択を示し、マウス、キーボード、無効状態も識別可能にします。大きな節を入れ子のカードにせず、節間と内部は共通の内容余白と間隔に揃えます。
+カテゴリは直角の選択背景と左端の強調線で選択を示し、マウス、キーボード、無効状態も識別可能にします。大きな節を入れ子のカードにせず、節間と内部は共通の内容余白と間隔に揃えます。
 
 テーマは `AppearanceThemeOptions` の表示名と識別子を、表示領域幅に広がる単一の選択欄で扱い、`AppearanceTheme` の双方向の結び付けで選択します。開くたびに作る画面は、表示ツリーへ接続して現在値を受け取ります。未接続の部品へローカル値を設定して結び付けを壊しません。選択時にテーマだけを保存して即時適用し、閉じても保存済みの選択を保ちます。保存失敗では元の確定値と配色を保ちます。
 
@@ -154,13 +160,13 @@ WPF既定の点線のフォーカス飾りは使いません。表は選択と�
 
 ### 標準ウィンドウの題名部
 
-独自の外枠を所有するメイン画面以外のアプリのウィンドウは、XAML・コード生成とも `ThemedWindow` を使います。標準のWPF題名部を保ち、ハンドルの作成後に現在のテーマと題名・文字・境界の色をDWMへ要求します。表示中の変更へ追随し、終了時に購読を解除します。
+独自の外枠を所有するメイン画面以外のアプリのウィンドウは、XAML・コード生成とも `ThemedWindow` を使います。標準のWPF題名部を保ち、ハンドルの作成後に現在のテーマと題名・文字・境界の色をDWMへ要求します。表示中の変更へ追随し、終了時に購読を解除します。`ThemedMessageBox` を含め、同じ適用経路で `DWMWA_WINDOW_CORNER_PREFERENCE`（33）へ `DWMWCP_DONOTROUND`（1）を要求し、外枠を直角にします。値と意味は[MicrosoftのDWM資料](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/ui/apply-rounded-corners)に従います。メイン画面へこの経路を追加しません。
 
 OSや属性の非対応、API不在、HRESULTの失敗は標準のWindows表示を使います。一方、リソース読込みや接続処理の予期しない例外は隠しません。初回接続中なら購読・接続状態・ハンドルを戻して同じ管理器で再試行できるようにし、接続後のテーマ変更中なら接続を維持して後続の変更と終了を可能にします。購読解除は一回だけです。
 
 ### ダイアログの表示面
 
-標準ウィンドウは本文またはフォームの内容コンテナが余白を所有し、余白だけの外周Borderを置きません。内側へもう一つ塗りつぶし・丸い境界・カードを重ねません。設定画面の本体は標準の表示領域の端まで延ばし、内部の機能ごとの間隔は保ちます。
+標準ウィンドウは本文またはフォームの内容コンテナが余白を所有し、余白だけの外周Borderを置きません。内側へもう一つ塗りつぶし・境界・カードを重ねません。設定画面の本体は標準の表示領域の端まで延ばし、内部の機能ごとの間隔は保ちます。
 
 メイン画面内に重ねる初回言語選択は、`DialogOverlayStyle` と `DialogSurfaceStyle` を明示して使います。カードの見出し・言語選択、説明本文、操作領域が各内容余白を所有し、説明のバーはカード内縁を基準とします。プレイリスト取込みは標準の独立ウィンドウを使います。OSのファイル・フォルダ選択と緊急ダイアログは対象外です。所有元、モーダル結果、取消、終了の抑制、処理と寿命の所有は表示部品の統一で変えません。
 
@@ -189,18 +195,19 @@ OS標準の選択画面、利用者定義テーマ、個別色の編集、OSテ�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 矩形部品の直角化と円形部品の例外、ランプ切替の寸法 | `CanonicalControls.xaml`、`CanonicalDialogStyles.xaml`、`Simple Styles.xaml`、各画面の局所スタイル | 製品XAML全体の角丸属性・Setter・トリガー、円形選択印とSliderつまみ、未使用のタブスタイルと参照の不在、ランプ切替の最小高・Padding・相互排他・選択アクセント・境界線を静的確認する。形状・寸法の現在値を固定する恒久テストは追加せず、既存のSettingsControlPresentation / SettingsWindowPresentation / MainWindowChartPresentationWpf / MainWindowPlayHistoryWpf / MainWindowContextMenuResource / PlaylistLampViewerWindowPresentation / PlaylistImportDialog系列で入力・選択・配色・操作・末尾到達を回帰確認する。 |
 | 本文と局所枠の余白所有、固定領域、最小寸法での到達性 | `CanonicalControls.xaml` の `App.Layout.*` / `WindowBodyScrollViewerStyle`、各Windowと `SettingsControls.xaml` | `SettingsWindowPresentationTests` は本文端と一回のinset、11ページの横方向到達性を、`SettingsControlPresentationTests` は本文スクロール時の固定領域を確認する。`PlaylistSummaryBulkEditTests` と `DialogPresentationTests` はプロパティとカードの末尾到達・固定操作を分担する。各画面の間隔の役割、末尾Margin解除、非表示要素の余白所有は対象XAMLの静的確認で分担する。 |
 | 入力Paddingの一回適用と局所編集枠の保護 | 共通TextBoxテンプレート、`Simple Styles.xaml`、`CustomTableView.CreateCellEditorTemplate`、取込み・譜面プロパティ | `MainWindowChartPresentationWpfTests` は適用後のPadding変更と表示・編集位置を、`PlaylistImportDialogTests` は長い多数行の末尾文字とバーの非重複を確認する。`ChartPropertiesWindowTests` は三欄の同じ表示資源への接続と保護域を担当し、表の編集開始・操作は既存 `CustomTableEditingTests` に残す。 |
 | Popupの枠基準、行内操作の保護、候補の行上限 | `Simple Styles.xaml` の一覧・候補・メニュー、`KeywordSearchEditor` | `MainWindowContextMenuResourceTests` は実部品の枠からのつまみ位置、`MainWindowChartPresentationWpfTests` は保存5/6行・補完10/11行の境界、独立viewport、短い候補の自然高、仮想化を分担する。 |
 | 文書余白のズーム追従とバー位置の独立 | `ReleaseNotesWindow` の文書・内部ScrollViewer | `DialogPresentationTests.ReleaseNotes_PreservesReadOnlySelectionAndScrollViewport` は実内部ホスト、ズーム前後の非空選択・スクロール・バー位置を確認する。標準選択メニューは既存の `ReleaseNotes_UsesFrameworkOwnedSelectionMenuRoles` が担当する。 |
-| 共通オーバーレイ、固定入力幅、細いつまみ、標準操作 | `CanonicalControls.xaml` のScrollBar・ScrollViewer、`Simple Styles.xaml` の互換名 | [`MainWindowContextMenuResourceTests.CanonicalScrollViewer_MaterializesSharedScrollBarsAndPreservesBehavior`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowContextMenuResourceTests.cs) はcompiled部品の16 DIP入力幅・通常3 DIP・丸み・短い軌道内への収まり、交点の非重複、なし/縦/横/両軸で内容領域一定、Lineコマンドの移動・ページボタンのInvoke・Scroll Automation・offset/value・viewport/maximum同期・無効表示を確認する。hover/dragはcompiled条件・8 DIP setterと優先順位を確認し、ブラシ・軌道の状態と固定配置の接続は静的確認する。 |
+| 共通オーバーレイ、固定入力幅、細いつまみ、標準操作 | `CanonicalControls.xaml` のScrollBar・ScrollViewer、`Simple Styles.xaml` の互換名 | [`MainWindowContextMenuResourceTests.CanonicalScrollViewer_MaterializesSharedScrollBarsAndPreservesBehavior`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowContextMenuResourceTests.cs) はcompiled部品の16 DIP入力幅・通常3 DIP・短い軌道内への収まり、交点の非重複、なし/縦/横/両軸で内容領域一定、Lineコマンドの移動・ページボタンのInvoke・Scroll Automation・offset/value・viewport/maximum同期・無効表示を確認する。hover/dragはcompiled条件・8 DIP setterと優先順位を確認し、ブラシ・軌道の状態と固定配置の接続は静的確認する。 |
 | つまみと可視端の間隔、メイン画面の外枠・区切り線補正 | 共通ScrollBarのPaddingと `ThumbChrome.Margin`、`MainWindow.xaml` の局所ScrollBar Style | 上記のcompiled寸法・標準操作と既存MainWindowChartPresentationWpf/CustomTable系列を自動回帰に使う。横断方向だけの描画余白、通常/hover/dragで共通の接続、共通2 DIP・右端3 DIP・下端の進捗条件による3/2 DIP、上側ツリー下端2 DIP、Styleの優先順位と辞書の非循環・MainWindow祖先とPopup祖先による適用条件、16 DIP入力と内容寸法・終端露出計算の不変は静的差分確認で分担する。実ポインター操作や配色・高DPIでの見え方は自動検証済みとは扱わない。 |
 | オーバーレイの論理スクロール再測定、リサイズ時の仮想化維持 | [`OverlayScrollBar`](../../../BeMusicSeeker/Views/OverlayScrollBar.cs)、共通ScrollViewerのPARTバー | [`DialogPresentationTests.PlayHistoryPresetDialog_UsesBoundedResizablePlaylistViewport`](../../../BeMusicSeeker.Tests/Dialogs/DialogPresentationTests.cs) は未実体化の末尾へスクロールして選択した後、Window拡大で論理viewportが増えることを確認する。物理・論理の標準操作とItemsPresenterのconsumerは既存MainWindowContextMenuResource/SettingsControlPresentation/DialogPresentation系列へ分担し、候補の選択順・不適格時の無処理・祖先経路だけの無効化・状態なしと発火条件は静的確認する。 |
 | 表の共通バーとテーマ切替、交点 | `CustomTableView`、共通ScrollBarテンプレート | [`MainWindowChartPresentationWpfTests.CustomTableScrollBarsUseCompiledThemeAndOverlayContract`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) は実テーマ切替の表・実バーへの反映と、全面寸法・交点の非重複を確認する。設定・ダイアログの実採用は既存 `SettingsControlPresentationTests` / `DialogPresentationTests` のconsumer検査へ分担する。OS入力、領域外ドラッグの実操作、配色の見え方と高DPIは実機確認と分担する。 |
 | テーマの切替と共通スタイルの保持 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs) | [`NativeWindowThemeContractTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowThemeContractTests.cs) は各配色への切替で、辞書のキー整合、共通スタイルの解決、変更通知と版更新、題名部の明暗判定を確認する。 |
 | 通常検索・プレイリスト一覧検索の控えめな通常枠、フォーカス枠、入力状態の背景と配置 | [`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml) の `KeywordSearchComposite` / `PlaylistSummaryKeywordSearchComposite`、全10配色辞書の `App.SearchBorderBrush` | `NativeWindowThemeContractTests` は全テーマのキー整合、[`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) は検索操作とアイコン配置を回帰確認する。全10辞書の検索枠ブラシのキー・型・配色、両通常枠の動的参照、エディター専用のフォーカス判定、背景トリガーと寸法・余白の維持は変更時の静的差分確認で分担する。実環境での色の見え方は自動検証の対象に含めない。 |
 | 全ToolTipの表示中テーマ追随 | `CanonicalControls.xaml` の型スタイル | `NativeWindowThemeContractTests.ToolTip_VisibleContentTracksThemeWithoutExplicitStyle` はIsOpenで表示した明示StyleなしToolTipで明→暗→明の実効背景・枠・本文、文字列と折返しTextBlockの文字継承・内容保持を確認する。文字列からの自動生成、CustomTableViewの明示生成、SliderのAutoToolTipが同じ型スタイルを使う接続は静的確認で分担する。 |
-| テーマの切替、標準題名部の接続・解除と失敗 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs)、[`ThemedWindow`](../../../BeMusicSeeker/Views/ThemedWindow.cs) | [`NativeWindowThemeContractTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowTitleBarTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowTitleBarTests.cs) |
+| テーマの切替、標準題名部の接続・解除と失敗、直角の外枠要求 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs)、[`ThemedWindow`](../../../BeMusicSeeker/Views/ThemedWindow.cs)、[`NativeWindowTitleBar`](../../../BeMusicSeeker/Views/NativeWindowTitleBar.cs) | [`NativeWindowThemeContractTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowTitleBarTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowTitleBarTests.cs) が既存のテーマ・接続・終了・失敗処理を担う。DWMの33/1要求、既存のTrySetAttribute経由での失敗処理、ThemedMessageBoxを含む適用先とMainWindowへ追加しないことは静的確認する。実OSでの外枠の見え方は自動検証済みと扱わない。 |
 | 共通Expander見出しの背景・枠・文字・矢印と動的テーマ切替 | [`CanonicalControls.xaml`](../../../BeMusicSeeker/Themes/CanonicalControls.xaml) の `App.Canonical.ExpanderHeaderToggleStyle` / `ExpanderHeaderToggleTemplate`、[`SettingsControls.xaml`](../../../BeMusicSeeker/Views/Settings/SettingsControls.xaml) の `SettingsExpanderStyle` | [`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs) の `SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes` は同じ表示済みExpanderで明→暗→明の背景・1 DIPの枠と、折畳み・展開・無効時の文字・矢印の実効色、双方向開閉、内容表示と `IExpandCollapseProvider` を確認する。ホバー・フォーカスの表示と有効条件、余白は既存トリガーとテンプレートの差分確認で維持を確認する。 |
 | 日付部品の表示言語・テーマと値の保持 | [`DatePickerPresentation`](../../../BeMusicSeeker/Views/DatePickerPresentation.cs)、[`ResourceService`](../../../BeMusicSeeker/ViewModels/ResourceService.cs)、共通DatePicker／Calendarスタイル | `PlaylistLampViewerWindowPresentationTests.Viewer_datePresentationTracksApplicationCultureWithoutChangingTheQuery` は未選択／選択済みの同じ実PART・開いたPopup、サービス生成順、OS側との文化圏不一致、同梱言語と非Gregorianの追加言語・明暗テーマで表示更新、標準の再解析経路を通した日付通知・取得・表示モードの不変を確認する。翻訳のキー集合は `LocalizationResourceParityTests` が担う。 |
 | 通常／省スペースの共通描画、Sliderの縦横・反転・目盛・枠抑止・キー相当入力とテーマ追従 | [`CanonicalControls.xaml`](../../../BeMusicSeeker/Themes/CanonicalControls.xaml) | `SettingsControlPresentationTests.CanonicalControls_CompactVariantsSharePresentationAndPreserveSliderInput` は実部品の共通テンプレート・相対寸法・意味色・一回の命令と標準Sliderコマンドを確認する。`SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes` は通常／省スペースの全表面、編集入力と候補幅を確認する。OSの実Tab・画像上の視認性・異なるDPIは実機推奨へ分担する。 |

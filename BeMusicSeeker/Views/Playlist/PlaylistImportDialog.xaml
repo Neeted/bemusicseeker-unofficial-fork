@@ -89,7 +89,7 @@
         <Setter Property="VirtualizingStackPanel.IsVirtualizing" Value="False" />
         <Setter Property="ItemsPanel"><Setter.Value><ItemsPanelTemplate><StackPanel /></ItemsPanelTemplate></Setter.Value></Setter>
         <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TreeView">
-          <Border x:Name="TreeChrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4">
+          <Border x:Name="TreeChrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
             <ScrollViewer Style="{StaticResource App.Canonical.ScrollViewerStyle}" CanContentScroll="False" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Focusable="False">
               <ItemsPresenter />
             </ScrollViewer>

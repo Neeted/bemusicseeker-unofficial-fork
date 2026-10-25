@@ -46,8 +46,7 @@
       <Border x:Name="ButtonChrome"
               Background="{TemplateBinding Background}"
               BorderBrush="{TemplateBinding BorderBrush}"
-              BorderThickness="{TemplateBinding BorderThickness}"
-              CornerRadius="6">
+              BorderThickness="{TemplateBinding BorderThickness}">
         <ContentPresenter Margin="{TemplateBinding Padding}"
                           HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                           VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
@@ -56,7 +55,6 @@
       <Border x:Name="FocusBorder"
               BorderBrush="{TemplateBinding Tag}"
               BorderThickness="2"
-              CornerRadius="6"
               IsHitTestVisible="False"
               Visibility="Collapsed" />
     </Grid>
@@ -79,15 +77,13 @@
       <Border x:Name="TextBoxChrome"
               Background="{TemplateBinding Background}"
               BorderBrush="{TemplateBinding BorderBrush}"
-              BorderThickness="{TemplateBinding BorderThickness}"
-              CornerRadius="4">
+              BorderThickness="{TemplateBinding BorderThickness}">
         <ScrollViewer x:Name="PART_ContentHost"
                       Style="{DynamicResource App.Canonical.ScrollViewerStyle}" />
       </Border>
       <Border x:Name="FocusBorder"
               BorderBrush="{DynamicResource App.InputFocusBorderBrush}"
               BorderThickness="2"
-              CornerRadius="4"
               IsHitTestVisible="False"
               Visibility="Collapsed" />
     </Grid>
@@ -108,8 +104,7 @@
   <ControlTemplate x:Key="App.Canonical.ComboBoxItemTemplate" TargetType="{x:Type ComboBoxItem}">
     <Border x:Name="ItemChrome"
             Padding="{TemplateBinding Padding}"
-            Background="{TemplateBinding Background}"
-            CornerRadius="4">
+            Background="{TemplateBinding Background}">
       <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                         VerticalAlignment="Center" />
     </Border>
@@ -136,8 +131,7 @@
       <Border x:Name="ComboChrome"
               Background="{TemplateBinding Background}"
               BorderBrush="{TemplateBinding BorderBrush}"
-              BorderThickness="{TemplateBinding BorderThickness}"
-              CornerRadius="4">
+              BorderThickness="{TemplateBinding BorderThickness}">
         <Grid>
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
@@ -181,7 +175,6 @@
       <Border x:Name="FocusBorder"
               BorderBrush="{DynamicResource App.InputFocusBorderBrush}"
               BorderThickness="2"
-              CornerRadius="4"
               IsHitTestVisible="False"
               Visibility="Collapsed" />
       <Popup x:Name="PART_Popup"
@@ -195,8 +188,7 @@
                 MaxHeight="{TemplateBinding MaxDropDownHeight}"
                 Background="{DynamicResource App.PopupBackgroundBrush}"
                 BorderBrush="{DynamicResource App.BorderBrush}"
-                BorderThickness="1"
-                CornerRadius="4">
+                BorderThickness="1">
           <ScrollViewer Style="{DynamicResource App.Canonical.ScrollViewerStyle}"
                         CanContentScroll="True">
             <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
@@ -234,8 +226,7 @@
               VerticalAlignment="Center"
               Background="{DynamicResource App.ControlBackgroundBrush}"
               BorderBrush="{DynamicResource App.BorderBrush}"
-              BorderThickness="1"
-              CornerRadius="3">
+              BorderThickness="1">
         <Grid>
           <Path x:Name="CheckGlyph"
                 Width="10" Height="8" Data="M 0 4 L 3.5 7.5 L 10 0"
@@ -253,7 +244,6 @@
               Grid.ColumnSpan="2"
               BorderBrush="{DynamicResource App.InputFocusBorderBrush}"
               BorderThickness="1"
-              CornerRadius="3"
               IsHitTestVisible="False"
               Visibility="Collapsed" />
     </Grid>
@@ -309,7 +299,6 @@
               Grid.ColumnSpan="2"
               BorderBrush="{DynamicResource App.InputFocusBorderBrush}"
               BorderThickness="1"
-              CornerRadius="3"
               IsHitTestVisible="False"
               Visibility="Collapsed" />
     </Grid>
@@ -513,7 +502,7 @@
                   <Grid Background="Transparent" ClipToBounds="True">
                     <Border x:Name="ThumbChrome" Width="3" HorizontalAlignment="Right"
                             Margin="{Binding Padding, RelativeSource={RelativeSource AncestorType={x:Type ScrollBar}}}"
-                            Background="{DynamicResource ScrollBar.ThumbBackgroundBrush}" CornerRadius="4" />
+                            Background="{DynamicResource ScrollBar.ThumbBackgroundBrush}" />
                   </Grid>
                   <ControlTemplate.Triggers>
                     <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType={x:Type ScrollBar}}}" Value="True">
@@ -572,7 +561,7 @@
                   <Grid Background="Transparent" ClipToBounds="True">
                     <Border x:Name="ThumbChrome" Height="3" VerticalAlignment="Bottom"
                             Margin="{Binding Padding, RelativeSource={RelativeSource AncestorType={x:Type ScrollBar}}}"
-                            Background="{DynamicResource ScrollBar.ThumbBackgroundBrush}" CornerRadius="4" />
+                            Background="{DynamicResource ScrollBar.ThumbBackgroundBrush}" />
                   </Grid>
                   <ControlTemplate.Triggers>
                     <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType={x:Type ScrollBar}}}" Value="True">
@@ -644,8 +633,7 @@
             Padding="{TemplateBinding Padding}"
             Background="{TemplateBinding Background}"
             BorderBrush="{TemplateBinding BorderBrush}"
-            BorderThickness="{TemplateBinding BorderThickness}"
-            CornerRadius="4">
+            BorderThickness="{TemplateBinding BorderThickness}">
       <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                         VerticalAlignment="Center" />
     </Border>
@@ -671,8 +659,7 @@
     <Border x:Name="ListChrome"
             Background="{TemplateBinding Background}"
             BorderBrush="{TemplateBinding BorderBrush}"
-            BorderThickness="{TemplateBinding BorderThickness}"
-            CornerRadius="4">
+            BorderThickness="{TemplateBinding BorderThickness}">
       <ScrollViewer Style="{DynamicResource App.Canonical.ScrollViewerStyle}"
                     Padding="{TemplateBinding Padding}"
                     Focusable="False">
@@ -782,8 +769,7 @@
             Padding="8,6"
             Background="{TemplateBinding Background}"
             BorderBrush="{TemplateBinding BorderBrush}"
-            BorderThickness="{TemplateBinding BorderThickness}"
-            CornerRadius="4">
+            BorderThickness="{TemplateBinding BorderThickness}">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="16" />
@@ -1016,7 +1002,7 @@
               <TextBlock Text="{Binding}" HorizontalAlignment="Center" Margin="2,4" Foreground="{DynamicResource App.SubtleTextBrush}" />
             </DataTemplate>
           </ControlTemplate.Resources>
-          <Border x:Name="PART_Root" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="6" CornerRadius="4">
+          <Border x:Name="PART_Root" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="6">
             <Grid>
               <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
               <Grid>
@@ -1084,7 +1070,7 @@
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type DatePicker}">
           <Grid x:Name="PART_Root">
-            <Border x:Name="DateChrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4">
+            <Border x:Name="DateChrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
               <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="26" /></Grid.ColumnDefinitions>
                 <DatePickerTextBox x:Name="PART_TextBox" Grid.Column="0" IsReadOnly="True" BorderThickness="0" Padding="6,2" Background="Transparent" Foreground="{TemplateBinding Foreground}" VerticalContentAlignment="Center" FocusVisualStyle="{x:Null}">
@@ -1110,7 +1096,7 @@
                 </Button>
               </Grid>
             </Border>
-            <Border x:Name="FocusBorder" BorderBrush="{DynamicResource App.InputFocusBorderBrush}" BorderThickness="2" CornerRadius="4" IsHitTestVisible="False" Visibility="Collapsed" />
+            <Border x:Name="FocusBorder" BorderBrush="{DynamicResource App.InputFocusBorderBrush}" BorderThickness="2" IsHitTestVisible="False" Visibility="Collapsed" />
             <Popup x:Name="PART_Popup" Placement="Bottom" StaysOpen="False" AllowsTransparency="True" Focusable="False" />
           </Grid>
           <ControlTemplate.Triggers>
@@ -1312,7 +1298,6 @@
             BorderBrush="{TemplateBinding BorderBrush}"
             BorderThickness="1"
             Background="{TemplateBinding Background}"
-            CornerRadius="12"
             SnapsToDevicePixels="True">
       <Grid>
         <Grid.RowDefinitions>

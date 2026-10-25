@@ -282,7 +282,7 @@
               <RowDefinition Height="Auto" />
               <RowDefinition Name="ContentRow" Height="*" />
             </Grid.RowDefinitions>
-            <Border Name="Border" Grid.Row="0" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" CornerRadius="2,2,0,0">
+            <Border Name="Border" Grid.Row="0" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}">
               <Grid>
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="20" />
@@ -292,7 +292,7 @@
                 <ContentPresenter Grid.Column="1" Margin="4" RecognizesAccessKey="True" ContentSource="Header" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
               </Grid>
             </Border>
-            <Border Name="ExpandSite" Visibility="Collapsed" Grid.Row="1" Background="{DynamicResource WindowBackgroundBrush}" BorderBrush="{DynamicResource SolidBorderBrush}" BorderThickness="1,0,1,1" CornerRadius="0,0,2,2">
+            <Border Name="ExpandSite" Visibility="Collapsed" Grid.Row="1" Background="{DynamicResource WindowBackgroundBrush}" BorderBrush="{DynamicResource SolidBorderBrush}" BorderThickness="1,0,1,1">
               <ContentPresenter HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" Margin="{TemplateBinding Control.Padding}" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" Focusable="False" />
             </Border>
           </Grid>
@@ -316,8 +316,8 @@
         <ColumnDefinition />
         <ColumnDefinition Width="20" />
       </Grid.ColumnDefinitions>
-      <Rectangle Name="Rectangle" Grid.ColumnSpan="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Width="Auto" Height="Auto" RadiusX="5" RadiusY="5" Fill="{DynamicResource NormalBrush}" Stroke="{DynamicResource NormalBorderBrush}" />
-      <Rectangle Grid.Column="0" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Width="Auto" Height="Auto" RadiusX="5" RadiusY="5" Fill="{DynamicResource WindowBackgroundBrush}" Stroke="{DynamicResource NormalBorderBrush}" />
+      <Rectangle Name="Rectangle" Grid.ColumnSpan="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Width="Auto" Height="Auto" Fill="{DynamicResource NormalBrush}" Stroke="{DynamicResource NormalBorderBrush}" />
+      <Rectangle Grid.Column="0" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Width="Auto" Height="Auto" Fill="{DynamicResource WindowBackgroundBrush}" Stroke="{DynamicResource NormalBorderBrush}" />
       <Path Name="Arrow" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{DynamicResource GlyphBrush}" Data="M0,0 L4,4 L8,0" />
     </Grid>
     <ControlTemplate.Triggers>
@@ -373,7 +373,6 @@
               <Setter Property="ScrollViewer.CanContentScroll" Value="False" />
             </Trigger>
             <Trigger SourceName="Popup" Property="Popup.AllowsTransparency" Value="True">
-              <Setter TargetName="DropDownBorder" Property="Border.CornerRadius" Value="4" />
               <Setter TargetName="DropDownBorder" Property="Margin" Value="0,2,0,0" />
             </Trigger>
             <Trigger Property="ComboBox.IsEditable" Value="True">
@@ -414,8 +413,8 @@
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type ProgressBar}">
           <Grid>
-            <Border Name="PART_Track" Background="{StaticResource ProgressBar.TrackBrush}" BorderBrush="{StaticResource ProgressBar.BorderBrush}" BorderThickness="1" CornerRadius="2" />
-            <Border Name="PART_Indicator" HorizontalAlignment="Left" Background="{StaticResource ProgressBar.IndicatorBrush}" BorderBrush="{StaticResource ProgressBar.IndicatorBrush}" BorderThickness="1" CornerRadius="2" />
+            <Border Name="PART_Track" Background="{StaticResource ProgressBar.TrackBrush}" BorderBrush="{StaticResource ProgressBar.BorderBrush}" BorderThickness="1" />
+            <Border Name="PART_Indicator" HorizontalAlignment="Left" Background="{StaticResource ProgressBar.IndicatorBrush}" BorderBrush="{StaticResource ProgressBar.IndicatorBrush}" BorderThickness="1" />
           </Grid>
         </ControlTemplate>
       </Setter.Value>
@@ -436,7 +435,7 @@
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type TextBox}">
           <Grid>
-            <Border Name="Border" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" CornerRadius="2">
+            <Border Name="Border" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}">
               <ScrollViewer Name="PART_ContentHost" Margin="0" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" Style="{DynamicResource SimpleScrollViewer}" Background="{TemplateBinding Control.Background}" />
             </Border>
           </Grid>
@@ -497,7 +496,7 @@
             <Border Grid.Row="0" Margin="8,0,0,-1" Padding="4,0" Background="{TemplateBinding Background}" HorizontalAlignment="Left">
               <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
             </Border>
-            <Border Grid.Row="1" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Background="{TemplateBinding Background}" CornerRadius="2">
+            <Border Grid.Row="1" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Background="{TemplateBinding Background}">
               <ContentPresenter Margin="{TemplateBinding Padding}" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
             </Border>
           </Grid>
@@ -655,65 +654,13 @@
     </Setter>
   </Style>
   <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="{x:Type Separator}" BasedOn="{StaticResource SimpleSeparator}" />
-  <Style x:Key="SimpleTabControl" TargetType="{x:Type TabControl}">
-    <Setter Property="Template">
-      <Setter.Value>
-        <ControlTemplate TargetType="{x:Type TabControl}">
-          <Grid KeyboardNavigation.TabNavigation="Local">
-            <Grid.RowDefinitions>
-              <RowDefinition Height="Auto" />
-              <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
-            <TabPanel Name="HeaderPanel" Grid.Row="0" Margin="0,0,4,-1" Background="#00FFFFFF" IsItemsHost="True" ZIndex="1" KeyboardNavigation.TabIndex="1" />
-            <Border Name="Border" Grid.Row="1" Background="{DynamicResource WindowBackgroundBrush}" BorderBrush="{DynamicResource SolidBorderBrush}" BorderThickness="1" CornerRadius="2" KeyboardNavigation.DirectionalNavigation="Contained" KeyboardNavigation.TabNavigation="Local" KeyboardNavigation.TabIndex="2">
-              <ContentPresenter Name="PART_SelectedContentHost" Margin="4" ContentSource="SelectedContent" />
-            </Border>
-          </Grid>
-          <ControlTemplate.Triggers>
-            <Trigger Property="IsEnabled" Value="False">
-              <Setter Value="{DynamicResource DisabledForegroundBrush}" Property="Foreground" />
-              <Setter Value="{DynamicResource DisabledBorderBrush}" TargetName="Border" Property="Border.BorderBrush" />
-            </Trigger>
-          </ControlTemplate.Triggers>
-        </ControlTemplate>
-      </Setter.Value>
-    </Setter>
-  </Style>
-  <Style x:Key="SimpleTabItem" TargetType="{x:Type TabItem}">
-    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
-    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-    <Setter Property="Padding" Value="5,1,5,1" />
-    <Setter Property="Template">
-      <Setter.Value>
-        <ControlTemplate TargetType="{x:Type TabItem}">
-          <Grid>
-            <Border Name="Border" Margin="0,0,-4,0" Background="{DynamicResource LightBrush}" BorderBrush="{DynamicResource SolidBorderBrush}" BorderThickness="1,1,1,1" CornerRadius="2,12,0,0">
-              <ContentPresenter Name="ContentSite" HorizontalAlignment="Center" Margin="{TemplateBinding Control.Padding}" VerticalAlignment="Center" RecognizesAccessKey="True" ContentSource="Header" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
-            </Border>
-          </Grid>
-          <ControlTemplate.Triggers>
-            <Trigger Property="TabItem.IsSelected" Value="True">
-              <Setter Property="Panel.ZIndex" Value="100" />
-              <Setter Value="{DynamicResource WindowBackgroundBrush}" TargetName="Border" Property="Border.Background" />
-              <Setter TargetName="Border" Property="Border.BorderThickness" Value="1,1,1,0" />
-            </Trigger>
-            <Trigger Property="IsEnabled" Value="False">
-              <Setter Value="{DynamicResource DisabledBackgroundBrush}" TargetName="Border" Property="Border.Background" />
-              <Setter Value="{DynamicResource DisabledBorderBrush}" TargetName="Border" Property="Border.BorderBrush" />
-              <Setter Value="{DynamicResource DisabledForegroundBrush}" Property="Foreground" />
-            </Trigger>
-          </ControlTemplate.Triggers>
-        </ControlTemplate>
-      </Setter.Value>
-    </Setter>
-  </Style>
   <Style x:Key="SimpleTreeView" TargetType="{x:Type TreeView}">
     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type TreeView}">
           <Grid>
-            <Border Name="Border" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" CornerRadius="1">
+            <Border Name="Border" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}">
               <ScrollViewer Style="{DynamicResource SimpleScrollViewer}" Focusable="False" Background="{TemplateBinding Control.Background}" Padding="{TemplateBinding Control.Padding}" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" CanContentScroll="False">
                 <ItemsPresenter />
               </ScrollViewer>
@@ -815,6 +762,4 @@
   <Style TargetType="{x:Type ContextMenu}" BasedOn="{StaticResource SimpleContextMenu}" />
   <Style TargetType="{x:Type MenuItem}" BasedOn="{StaticResource SimpleMenuItem}" />
   <Style TargetType="{x:Type Separator}" BasedOn="{StaticResource SimpleSeparator}" />
-  <Style TargetType="{x:Type TabControl}" BasedOn="{StaticResource SimpleTabControl}" />
-  <Style TargetType="{x:Type TabItem}" BasedOn="{StaticResource SimpleTabItem}" />
 </ResourceDictionary>

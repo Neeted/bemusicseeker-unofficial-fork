@@ -20,15 +20,15 @@ internal readonly record struct NativeWindowTitleBarAppearance(
     Color BorderColor);
 
 /// <summary>
-/// Applies the application appearance to a native top-level window handle.
+/// ネイティブのトップレベルウィンドウへアプリの題名部配色と直角の外枠を要求します。
 /// </summary>
 internal interface INativeWindowTitleBarGateway
 {
     /// <summary>
-    /// Applies supported native caption attributes without changing the standard Window chrome.
+    /// 標準のウィンドウ枠を保ち、対応する題名部属性と角を丸めない指定を適用します。
     /// </summary>
-    /// <param name="windowHandle">The initialized native window handle.</param>
-    /// <param name="appearance">The appearance derived from the current application theme.</param>
+    /// <param name="windowHandle">初期化済みのネイティブウィンドウハンドル。</param>
+    /// <param name="appearance">現在のアプリテーマから取得した題名部の外観。</param>
     void Apply(IntPtr windowHandle, NativeWindowTitleBarAppearance appearance);
 }
 
@@ -158,17 +158,23 @@ internal sealed class AppNativeWindowTitleBarThemeSource : INativeWindowTitleBar
 }
 
 /// <summary>
-/// Uses supported Desktop Window Manager attributes to theme a standard native title bar.
+/// DWMの対応属性を使い、標準題名部の配色と角を丸めない外枠を要求します。
 /// </summary>
 internal sealed partial class DwmNativeWindowTitleBarGateway : INativeWindowTitleBarGateway
 {
     private const int UseImmersiveDarkMode = 20;
     private const int UseImmersiveDarkModeBefore20H1 = 19;
+    private const int WindowCornerPreference = 33;
+    private const int DoNotRound = 1;
     private const int BorderColor = 34;
     private const int CaptionColor = 35;
     private const int TextColor = 36;
 
-    /// <inheritdoc />
+    /// <summary>
+    /// 題名部の配色と直角の外枠を要求し、属性・APIの非対応やHRESULTの失敗時はOSの表示を保ちます。
+    /// </summary>
+    /// <param name="windowHandle">初期化済みのネイティブウィンドウハンドル。ゼロなら何もしません。</param>
+    /// <param name="appearance">現在のアプリテーマから取得した題名部の外観。</param>
     public void Apply(IntPtr windowHandle, NativeWindowTitleBarAppearance appearance)
     {
         if (windowHandle == IntPtr.Zero)
@@ -185,6 +191,7 @@ internal sealed partial class DwmNativeWindowTitleBarGateway : INativeWindowTitl
         TrySetAttribute(windowHandle, CaptionColor, ToColorRef(appearance.CaptionColor));
         TrySetAttribute(windowHandle, TextColor, ToColorRef(appearance.TextColor));
         TrySetAttribute(windowHandle, BorderColor, ToColorRef(appearance.BorderColor));
+        TrySetAttribute(windowHandle, WindowCornerPreference, DoNotRound);
     }
 
     private static bool TrySetAttribute(IntPtr windowHandle, int attribute, int value)

@@ -60,7 +60,6 @@
               <Border x:Name="FocusCue"
                       BorderBrush="Transparent"
                       BorderThickness="2"
-                      CornerRadius="2"
                       IsHitTestVisible="False" />
             </Grid>
             <ControlTemplate.Triggers>
@@ -236,7 +235,6 @@
            AllowsTransparency="True">
       <Border BorderBrush="{DynamicResource App.BorderBrush}"
               BorderThickness="1"
-              CornerRadius="4"
               Background="{DynamicResource App.PopupBackgroundBrush}"
               Padding="0"
               Width="{Binding ActualWidth, ElementName=editorSurface}"

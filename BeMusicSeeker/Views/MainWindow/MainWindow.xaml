@@ -677,7 +677,7 @@
           <Border x:Name="mainTableToolbar" BorderThickness="0" Grid.Row="1" Grid.ColumnSpan="1" Grid.Column="1" Background="{DynamicResource App.SurfaceBrush}">
             <DockPanel>
               <ComboBox Style="{StaticResource App.Canonical.CompactComboBoxStyle}" DockPanel.Dock="Right" Margin="0,0,4,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Visibility="{Binding PlayHistory.IsViewActive, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" Width="180" FontFamily="Meiryo" FontSize="12" ItemsSource="{Binding PlayHistory.DisplayTargets}" SelectedValue="{Binding PlayHistory.SelectedDisplayTargetIdentity, Mode=TwoWay}" SelectedValuePath="Identity" DisplayMemberPath="DisplayName" />
-              <Border x:Name="KeywordSearchComposite" DockPanel.Dock="Right" CornerRadius="6" Height="24" BorderThickness="1" Width="Auto" Margin="0,0,2,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Visibility="{Binding PlaylistWorkspace.IsPlaylistSummaryMode, Converter={StaticResource notBooleanToVisibilityCollapsedConverter}}">
+              <Border x:Name="KeywordSearchComposite" DockPanel.Dock="Right" Height="24" BorderThickness="1" Width="Auto" Margin="0,0,2,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Visibility="{Binding PlaylistWorkspace.IsPlaylistSummaryMode, Converter={StaticResource notBooleanToVisibilityCollapsedConverter}}">
                 <Border.Style>
                   <Style TargetType="{x:Type Border}">
                     <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
@@ -721,7 +721,7 @@
                     </ToggleButton>
                   </Grid>
                   <Popup x:Name="KeywordSearchHelpPopup" Grid.Column="3" Placement="Bottom" PlacementTarget="{Binding ElementName=KeywordSearchHelpButton}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding ChartFilters.IsKeywordSearchHelpOpen, Source={StaticResource vm}, Mode=TwoWay}">
-                    <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource App.PopupBackgroundBrush}" Padding="8" MaxWidth="380">
+                    <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" Background="{DynamicResource App.PopupBackgroundBrush}" Padding="8" MaxWidth="380">
                       <TextBlock FontFamily="Meiryo" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource App.TextBrush}" Text="{Binding ChartFilters.KeywordSearchHelpText, Source={StaticResource vm}}" />
                     </Border>
                   </Popup>
@@ -730,7 +730,7 @@
                   </Grid>
                 </Grid>
               </Border>
-              <Border x:Name="PlaylistSummaryKeywordSearchComposite" DockPanel.Dock="Right" CornerRadius="6" Height="24" BorderThickness="1" Width="Auto" Margin="0,0,2,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Visibility="{Binding PlaylistWorkspace.IsPlaylistSummaryMode, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
+              <Border x:Name="PlaylistSummaryKeywordSearchComposite" DockPanel.Dock="Right" Height="24" BorderThickness="1" Width="Auto" Margin="0,0,2,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Visibility="{Binding PlaylistWorkspace.IsPlaylistSummaryMode, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
                 <Border.Style>
                   <Style TargetType="{x:Type Border}">
                     <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
@@ -772,7 +772,7 @@
                     </ToggleButton>
                   </Grid>
                   <Popup x:Name="PlaylistSummaryKeywordSearchHelpPopup" Grid.Column="3" Placement="Bottom" PlacementTarget="{Binding ElementName=PlaylistSummaryKeywordSearchHelpButton}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding PlaylistWorkspace.IsPlaylistSummaryKeywordSearchHelpOpen, Mode=TwoWay}">
-                    <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource App.PopupBackgroundBrush}" Padding="8" MaxWidth="380">
+                    <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" Background="{DynamicResource App.PopupBackgroundBrush}" Padding="8" MaxWidth="380">
                       <TextBlock FontFamily="Meiryo" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource App.TextBrush}" Text="{Binding PlaylistWorkspace.PlaylistSummaryKeywordSearchHelpText}" />
                     </Border>
                   </Popup>
@@ -850,7 +850,7 @@
                   <Setter Property="Template">
                     <Setter.Value>
                       <ControlTemplate TargetType="{x:Type Button}">
-                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
                           <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                       </ControlTemplate>
@@ -919,7 +919,7 @@
                           </Style.Triggers>
                         </Style>
                       </Button.Style>
-                      <Border CornerRadius="4" BorderThickness="1" Margin="0,0,4,0">
+                      <Border BorderThickness="1" Margin="0,0,4,0">
                         <Border.Style>
                           <Style TargetType="{x:Type Border}">
                             <Setter Property="MinWidth" Value="82" />

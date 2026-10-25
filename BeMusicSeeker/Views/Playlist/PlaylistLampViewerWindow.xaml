@@ -79,9 +79,9 @@
         </Style.Triggers>
       </Style>
       <Style x:Key="lampDisplayModeToggleStyle" TargetType="{x:Type RadioButton}" BasedOn="{StaticResource App.Canonical.RadioButtonStyle}">
-        <Setter Property="MinHeight" Value="26" />
+        <Setter Property="MinHeight" Value="24" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-        <Setter Property="Padding" Value="12,3" />
+        <Setter Property="Padding" Value="8,2" />
         <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
@@ -93,12 +93,6 @@
                 <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="True" />
               </Border>
               <ControlTemplate.Triggers>
-                <Trigger Property="Tag" Value="Left">
-                  <Setter TargetName="ModeChrome" Property="CornerRadius" Value="4,0,0,4" />
-                </Trigger>
-                <Trigger Property="Tag" Value="Right">
-                  <Setter TargetName="ModeChrome" Property="CornerRadius" Value="0,4,4,0" />
-                </Trigger>
                 <Trigger Property="IsMouseOver" Value="True">
                   <Setter Property="Background" Value="{DynamicResource App.ControlHoverBrush}" />
                 </Trigger>
@@ -130,7 +124,6 @@
       <Style x:Key="lampLegendStyle" TargetType="{x:Type Border}">
         <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="3" />
         <Setter Property="Padding" Value="4,2" />
         <Setter Property="Margin" Value="0,0,4,4" />
         <Setter Property="Background" Value="{DynamicResource App.SurfaceBrush}" />
@@ -293,8 +286,8 @@
                 Margin="8,0,0,0"
                 AutomationProperties.AutomationId="PlaylistLampViewerLatestButton" />
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0" IsEnabled="{Binding IsGraphVisible}">
-          <RadioButton Style="{StaticResource lampDisplayModeToggleStyle}" Tag="Left" GroupName="LampDisplayMode" IsChecked="{Binding IsPercentageMode, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_percentage_mode, Mode=OneWay}" AutomationProperties.AutomationId="PlaylistLampViewerPercentageMode" />
-          <RadioButton Style="{StaticResource lampDisplayModeToggleStyle}" Tag="Right" GroupName="LampDisplayMode" IsChecked="{Binding IsCountMode, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_count_mode, Mode=OneWay}" AutomationProperties.AutomationId="PlaylistLampViewerCountMode" Margin="-1,0,0,0" />
+          <RadioButton Style="{StaticResource lampDisplayModeToggleStyle}" GroupName="LampDisplayMode" IsChecked="{Binding IsPercentageMode, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_percentage_mode, Mode=OneWay}" AutomationProperties.AutomationId="PlaylistLampViewerPercentageMode" />
+          <RadioButton Style="{StaticResource lampDisplayModeToggleStyle}" GroupName="LampDisplayMode" IsChecked="{Binding IsCountMode, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_count_mode, Mode=OneWay}" AutomationProperties.AutomationId="PlaylistLampViewerCountMode" Margin="-1,0,0,0" />
         </StackPanel>
       </StackPanel>
     </Grid>

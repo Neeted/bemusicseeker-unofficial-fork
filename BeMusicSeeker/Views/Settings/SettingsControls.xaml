@@ -181,7 +181,6 @@
                   Background="{TemplateBinding Background}"
                   BorderBrush="{TemplateBinding BorderBrush}"
                   BorderThickness="{TemplateBinding BorderThickness}"
-                  CornerRadius="8"
                   SnapsToDevicePixels="True">
             <Grid>
               <Grid.ColumnDefinitions>
@@ -189,7 +188,7 @@
                 <ColumnDefinition Width="8" />
                 <ColumnDefinition Width="*" />
               </Grid.ColumnDefinitions>
-              <Border x:Name="SelectionIndicator" Width="3" CornerRadius="2" />
+              <Border x:Name="SelectionIndicator" Width="3" />
               <ContentPresenter Grid.Column="2"
                                 HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                 VerticalAlignment="Center"
@@ -387,7 +386,7 @@
         <ControlTemplate TargetType="{x:Type RadioButton}">
           <Border x:Name="Card" Padding="{TemplateBinding Padding}"
                   Background="{DynamicResource App.SurfaceBrush}"
-                  BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" CornerRadius="8">
+                  BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1">
             <Grid>
               <Grid.ColumnDefinitions><ColumnDefinition Width="18" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
               <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
@@ -437,8 +436,7 @@
           <Border Padding="{TemplateBinding Padding}"
                   Background="{DynamicResource App.SurfaceBrush}"
                   BorderBrush="{DynamicResource App.BorderBrush}"
-                  BorderThickness="1"
-                  CornerRadius="8">
+                  BorderThickness="1">
             <StackPanel>
               <TextBlock FontWeight="SemiBold" Text="{TemplateBinding Header}" TextWrapping="Wrap" />
               <TextBlock Margin="0,4,0,0"
@@ -546,8 +544,7 @@
           <Border Padding="{TemplateBinding Padding}"
                   Background="{DynamicResource App.SurfaceBrush}"
                   BorderBrush="{DynamicResource App.BorderBrush}"
-                  BorderThickness="1"
-                  CornerRadius="6">
+                  BorderThickness="1">
             <Grid>
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="24" />
@@ -582,6 +579,5 @@
     <Setter Property="Background" Value="{DynamicResource App.SurfaceBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
     <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="CornerRadius" Value="10" />
   </Style>
 </ResourceDictionary>
