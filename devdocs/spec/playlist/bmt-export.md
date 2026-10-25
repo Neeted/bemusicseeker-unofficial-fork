@@ -10,7 +10,7 @@
 
 ## 仕様
 
-設定変更時の準備・採用・整理の契約は更新済みです。実装・旧保証テストの置換が未完了の範囲は[設定保存・生成と一覧編集の簡素化](../../plan/release-settings-and-cell-edit-simplification.md)で管理します。
+設定変更時の準備・採用・整理の契約は更新済みです。実装・旧保証テストの置換が未完了の範囲は[リリース前の必須修正](../../plan/release-blocking-fixes.md)で管理します。
 
 ### 有効条件と場所
 
@@ -131,8 +131,8 @@ beatorajaの登録URL取込みでは成功・既存一致した表を元URL順�
 | 形式・ハッシュ・空表・未変更判定・台帳破損・削除失敗 | [`BmtTableExportService`](../../../BeMusicSeeker/Models/Playlist/BmtTableExportService.cs) | [`BmtTableExportServiceTests`](../../../BeMusicSeeker.Tests/Playlist/BmtTableExportServiceTests.cs) |
 | 必要出力の直接待機・URL同期・0件・元操作の部分失敗 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) |
 | 部分変更・全量現在集合・無効保持・明示整理、置換不能台帳の順序同期 | [`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs) | [`BmsPlaylistMigrationAndRegistrationTests.BeatorajaBmtOperations_PreserveUnchangedOwnershipAndSeparateUrlSyncFromOutput`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) が実SQLite・台帳・gzip・configで未変更表と管理外データを確認する。 |
-| BMT組の局所確定・同値再生成、正本と管理外データの保全 | 設定の局所確定、`PlaylistBmtOutputOwner` | 現在設定からの再生成へ既存設定テストを置換する。未完了範囲と検証分担は[設定保存・生成と一覧編集の簡素化](../../plan/release-settings-and-cell-edit-simplification.md)に従う。 |
-| 新先準備・設定採用・URL切替・旧先整理の失敗境界 | 設定の局所確定、BMT担当、`BeatorajaConfigService` | 新先準備失敗のA維持、採用後URL失敗のB維持とA整理抑止、整理だけの残存警告を新契約で確認する。[設定保存・生成と一覧編集の簡素化](../../plan/release-settings-and-cell-edit-simplification.md)に従って旧要求固定テストを置換する。 |
+| BMT組の局所確定・同値再生成、正本と管理外データの保全 | 設定の局所確定、`PlaylistBmtOutputOwner` | 現在設定からの再生成へ既存設定テストを置換する。未完了範囲と検証分担は[リリース前の必須修正](../../plan/release-blocking-fixes.md)に従う。 |
+| 新先準備・設定採用・URL切替・旧先整理の失敗境界 | 設定の局所確定、BMT担当、`BeatorajaConfigService` | 新先準備失敗のA維持、採用後URL失敗のB維持とA整理抑止、整理だけの残存警告を新契約で確認する。[リリース前の必須修正](../../plan/release-blocking-fixes.md)に従って旧要求固定テストを置換する。 |
 | 通知故障と実出力結果の分離 | [`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs) | [`BmsPlaylistMigrationAndRegistrationTests.RegisteredBatch_AwaitsActualBmtOutputAndPreservesCommittedDatabaseOnOutputFailure`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)で通知故障時の実BMT・台帳・設定成功と、実台帳失敗時のDB保持を確認する。[`BmtTableExportServiceTests.OrderedProjectionProgressPublisherSerializesCallbacksInCompletionOrder`](../../../BeMusicSeeker.Tests/Playlist/BmtTableExportServiceTests.cs)で先行通知故障後も後続通知を直列に試みる。 |
 | 順序四入口のDB・サマリー・configと同じP寿命、無変更、取込み後配置 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistWorkspacePersistenceCommandTests.BmtOrderCommands_CompleteDatabaseSummaryAndConfigInOneAcceptedTask`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs)、[`PlaylistWorkspaceExternalSourceTests.BeatorajaTableUrlImport_ExistingTablesKeepInputFrontOrderAndRemainingRelativeOrder`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceExternalSourceTests.cs)。画面の選択・Bindingは既存 [`MainWindowPlaylistWorkspaceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) が分担する。 |
 | 順序と一括編集 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistSummaryBulkEditTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs)、[`PlaylistWorkspacePersistenceCommandTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs) |
