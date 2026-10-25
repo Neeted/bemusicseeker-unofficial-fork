@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -24,10 +22,10 @@ public sealed partial class SettingDialogEditCompletionTests
     [TestMethod]
     public void Lr2DriveRootOutput_PreservesConfirmedInstallThroughGenerationInstallationAndTableRemoval()
     {
-        OwnedSettingsDrive? drive = null;
+        OwnedTestDrive? drive = null;
         WithInitializedLr2Owner((root, values) =>
         {
-            OwnedSettingsDrive owned = drive ?? throw new AssertFailedException("専用ドライブが未準備です。");
+            OwnedTestDrive owned = drive ?? throw new AssertFailedException("専用ドライブが未準備です。");
             owned.AssertOwned();
             string existing = Directory.CreateDirectory(Path.Combine(owned.Root, "ExistingSongs")).FullName;
             values.BMSInstallDir = existing;
@@ -40,7 +38,7 @@ public sealed partial class SettingDialogEditCompletionTests
             File.WriteAllText(Path.Combine(root, "outside-volume.txt"), "outside volume");
         }, (root, values, composition, shell, factory, failures, dialogs) =>
         {
-            OwnedSettingsDrive owned = drive ?? throw new AssertFailedException();
+            OwnedTestDrive owned = drive ?? throw new AssertFailedException();
             owned.AssertOwned();
             SettingsDialogViewModel dialog = shell.SettingDialog;
             BMSPlaylist playlist = factory.CreatedPlaylist ?? throw new AssertFailedException();
@@ -166,62 +164,13 @@ public sealed partial class SettingDialogEditCompletionTests
                 using LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
                 Assert.AreEqual(installedChart, db.Table<LR2SongDB.song>().Single().path);
             }
-        }, ownedResource: root => drive = OwnedSettingsDrive.Create(root));
+        }, ownedResource: root => drive = OwnedTestDrive.Create(root));
     }
 
     /// <summary>導入の進捗通知だけを終端判定から切り離し、実導入Taskを待つ代表用の受信先です。</summary>
     private sealed class SettingsInstallProgressWriter : IPackageInstallProgressWriter
     {
         public void TryWrite(PackageInstallProgressUpdate update) { }
-    }
-
-    /// <summary>この設定fixtureの一時実パスだけへ専用ドライブ別名を割り当て、全owner終端後に自分の定義だけを解除します。</summary>
-    private sealed class OwnedSettingsDrive(string device, string target) : IDisposable
-    {
-        internal string Root => device + @"\";
-
-        internal static OwnedSettingsDrive Create(string root)
-        {
-            string directory = Directory.CreateDirectory(Path.Combine(root, "ManagedVolume")).FullName;
-            string target = @"\??\" + directory;
-            foreach (char letter in "ZYXWVUTSRQPONMLKJIHGFED")
-            {
-                string device = letter + ":";
-                if (ReadTargets(device).Length != 0 || Environment.GetLogicalDrives().Contains(device + @"\", StringComparer.OrdinalIgnoreCase)) { continue; }
-                if (!DefineDosDevice(0x1 | 0x8, device, target)) { throw new Win32Exception(Marshal.GetLastWin32Error()); }
-                var owned = new OwnedSettingsDrive(device, target);
-                try { owned.AssertOwned(); return owned; }
-                catch { owned.Dispose(); throw; }
-            }
-            throw new AssertFailedException("専用ドライブ別名を取得できません。");
-        }
-
-        /// <summary>書込みを始める前に唯一の定義がケース所有の実パスであることを確認します。</summary>
-        internal void AssertOwned() => CollectionAssert.AreEqual(new[] { target }, ReadTargets(device));
-
-        public void Dispose()
-        {
-            // EXACT_MATCH_ON_REMOVE により、別の定義が追加されても自分の固有target以外を解除しません。
-            if (!DefineDosDevice(0x1 | 0x2 | 0x4 | 0x8, device, target)) { throw new Win32Exception(Marshal.GetLastWin32Error()); }
-            CollectionAssert.DoesNotContain(ReadTargets(device), target);
-        }
-
-        private static string[] ReadTargets(string device)
-        {
-            char[] buffer = new char[32768];
-            uint length = QueryDosDevice(device, buffer, buffer.Length);
-            if (length != 0) { return new string(buffer, 0, checked((int)length)).Split('\0', StringSplitOptions.RemoveEmptyEntries); }
-            int error = Marshal.GetLastWin32Error();
-            if (error == 2) { return []; }
-            throw new Win32Exception(error);
-        }
-
-        [DllImport("kernel32.dll", EntryPoint = "DefineDosDeviceW", CharSet = CharSet.Unicode, SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool DefineDosDevice(uint flags, string device, string target);
-
-        [DllImport("kernel32.dll", EntryPoint = "QueryDosDeviceW", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern uint QueryDosDevice(string device, [Out] char[] target, int maximumLength);
     }
 
     /// <summary>起動XMLに登録済みの管理AをBへ移す前に未確定のユーザー追加・削除の破棄を確認し、その後のC確定でAをユーザー登録へ復活させません。</summary>

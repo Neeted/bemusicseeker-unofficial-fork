@@ -2122,9 +2122,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
-    /// <summary>保留パッケージの指定先が有効なら解決済みパスと対象エントリを返し、受理した対象の取り違えを検出する。</summary>
+    /// <summary>通常の保留導入先は末尾separatorの有無で同じ宛先と対象を返し、入力表記による拒否・取り違えを検出します。</summary>
     [TestMethod]
-    public void ValidateInstallDestination_ReturnsResolvedDirectoryForPendingPackage()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ValidateInstallDestination_ReturnsResolvedDirectoryForPendingPackage(bool trailingSeparator)
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
@@ -2142,13 +2144,69 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 PackageChartEntry.FromChart((pendingFile)),
                 [pendingPackage],
                 [installDirectoryPath],
-                installDirectoryPath);
+                trailingSeparator ? installDirectoryPath + Path.DirectorySeparatorChar : installDirectoryPath);
 
             Assert.IsTrue(result.Success);
             Assert.AreEqual(installDirectoryPath, result.ValidatedDestinationDirectory);
             Assert.AreEqual(1, result.TargetEntries.Count);
             Assert.AreEqual(pendingFile.Path, result.TargetEntries[0].GetBmsChartForTest().Path);
         });
+    }
+
+    /// <summary>所持rootのdirectoryと直下fileは同じ絶対rootへ解決し、非所持rootは拒否します。drive相対先の別directoryへの化けも区別します。</summary>
+    /// <remarks>実在検査と既知集合を実validatorへ渡し、期待値は確保した文字と「:\」から作ります。process current directoryの変更から復元までをこのケースだけが所有します。</remarks>
+    [TestMethod]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    [DataRow(false, false)]
+    [DoNotParallelize]
+    public void ValidateInstallDestination_PreservesOwnedDriveRootAndRejectsUnknownRoot(bool fileInput, bool knownRoot)
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ManualRoot_" + Guid.NewGuid().ToString("N"));
+        string originalDirectory = Directory.GetCurrentDirectory();
+        OwnedTestDrive? drive = null;
+        Exception? primaryFailure = null;
+        try
+        {
+            drive = OwnedTestDrive.Create(tempRoot);
+            drive.AssertOwned();
+            string expectedRoot = drive.Root[0] + @":\";
+            string notRoot = Directory.CreateDirectory(Path.Combine(expectedRoot, "NotRoot")).FullName;
+            string rootFile = Path.Combine(expectedRoot, "owned.bms");
+            File.WriteAllText(rootFile, "#TITLE Owned");
+            Directory.SetCurrentDirectory(notRoot);
+            Assert.AreEqual(notRoot, Path.GetFullPath(drive.Root[..2]));
+            Assert.AreNotEqual(expectedRoot, Path.GetFullPath(drive.Root[..2]));
+            ChartFile pendingFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "pending", "chart.bms"));
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+            string[] knownDirectories = knownRoot ? [expectedRoot, notRoot] : [notRoot];
+
+            PendingInstallDestinationSelectionResult result = CreateService().ValidateInstallDestination(
+                PackageChartEntry.FromChart(pendingFile), [pendingPackage], knownDirectories,
+                fileInput ? rootFile : expectedRoot);
+
+            Assert.AreEqual(knownRoot, result.Success);
+            if (knownRoot) { Assert.AreEqual(expectedRoot, result.ValidatedDestinationDirectory); }
+            else { Assert.IsTrue(string.IsNullOrEmpty(result.ValidatedDestinationDirectory)); }
+            Assert.AreEqual(1, result.TargetEntries.Count);
+            Assert.AreEqual(pendingFile.Path, result.TargetEntries[0].Chart.Path);
+        }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            var cleanupFailures = new List<Exception>();
+            try { Directory.SetCurrentDirectory(originalDirectory); }
+            catch (Exception failure) { cleanupFailures.Add(failure); }
+            try { drive?.Dispose(); }
+            catch (Exception failure) { cleanupFailures.Add(failure); }
+            try { DeleteDirectoryIfExists(tempRoot); }
+            catch (Exception failure) { cleanupFailures.Add(failure); }
+            if (cleanupFailures.Count != 0)
+            {
+                if (primaryFailure != null) { cleanupFailures.Insert(0, primaryFailure); }
+                throw new AggregateException(cleanupFailures);
+            }
+        }
     }
 
     /// <summary>別インスタンスの同一パスBmsonをパッケージへ照合し、参照同一性だけで有効な適用先を拒否する誤りを検出する。</summary>

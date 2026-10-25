@@ -673,6 +673,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
                 || (chart.Warnings ?? []).Any(warning => warning != null && warning.Category == ChartWarningCategory.InstallEstimation));
     }
 
+    /// <summary>手動導入先を実在・所持の検査へ通し、ファイル入力は親directory、directory入力は絶対ドライブルートを保った宛先として返します。空入力は指定解除です。</summary>
     public PendingInstallDestinationSelectionResult ValidateInstallDestination(PackageChartEntry targetEntry, IEnumerable<ChartPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory, bool allowStandaloneLibraryChart = false)
     {
         var result = new PendingInstallDestinationSelectionResult();
@@ -713,7 +714,10 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         }
         string installDirectory = LongPathFileSystem.FileExists(normalizedInput)
             ? DirectoryExt.GetDirectoryNameSimple(normalizedInput)
-            : normalizedInput.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            // UNCは従来の既知directoryキー（共有rootも末尾separatorなし）を維持します。
+            : normalizedInput.StartsWith(@"\\", StringComparison.Ordinal)
+                ? normalizedInput.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                : LongPathFileSystem.TrimTrailingDirectorySeparators(normalizedInput);
         if (!LongPathFileSystem.DirectoryExists(installDirectory))
         {
             result.WarningMessage = string.Format(Properties.Resources.Warn_InstallDirNotFound, installDirectory);
