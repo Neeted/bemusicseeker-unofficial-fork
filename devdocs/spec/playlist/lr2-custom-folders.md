@@ -10,15 +10,17 @@
 
 ## 仕様
 
+設定からの保存・生成と未登録追加先名の扱いは採用済み契約です。実装・旧保証テストの置換が未完了の範囲は[設定保存・生成と一覧編集の簡素化](../../plan/release-settings-and-cell-edit-simplification.md)で管理します。
+
 ### 出力先と事前検査
 
 出力配置は起動時の保存値から初期化する小不変入力を使います。user.configと必要なLR2 XMLの保存段階が完了するまで新配置を公開せず、未保存draftは通常出力・交差判定・全体同期の署名/currentnessへ反映しません。古いプロパティ画面から保存するときも、局所受付後に現行配置と正本対象へ固定します。保存失敗・部分保存・公開後失敗は[設定仕様](../runtime/settings.md)に従います。
 
-設定画面の通常・ROOTの選択、追加先の追加・削除・改名は一操作だけを確定し、他区分は最新の確定配置を使います。競合するBMS・LR2詳細候補は破棄を確認し、実受付と最終検証に成功した採用点で破棄します。picker取消・同値・検証失敗・受付拒否では元候補を保持します。出力公開後はBMS候補を確定一覧へ同期し、追加・削除差分の引継ぎは行いません。未受理入力の再試行UIを持たず、受理済みの未完了要求だけが既存の明示修復を保持します。確認と処理寿命は[設定](../runtime/settings.md#競合する候補の切替)に従います。
+設定画面の通常・ROOTの選択、追加先の追加・削除・改名は一操作だけを確定し、他区分は最新の確定配置を使います。競合するBMS・LR2詳細候補は破棄を確認し、実受付と最終検証に成功した採用点で破棄します。picker取消・初期同値通知・検証失敗・受付拒否では元候補を保持します。利用者の明示再選択は最新入力の再保存・再生成に使えます。出力公開後はBMS候補を確定一覧へ同期し、追加・削除差分の引継ぎは行いません。明示再操作は最新入力を再保存・再生成し、過去要求・成功段階を保持しません。確認と処理寿命は[設定](../runtime/settings.md#競合する候補の切替)に従います。
 
 既定の通常出力先は `LR2CustomFolderOutputBaseDir`、追加先は `LR2CustomFolderAdditionalOutputBaseDirs`、ルート型は `LR2CustomFolderOutputBaseDirRootType` です。追加先はJSON文字列配列でフルパスを保存し、表示とDBの選択値には末尾のディレクトリ名を使います。
 
-表の `custom_folder_output_base_name` がNULLなら既定先、登録済み名なら追加先を選びます。保存名が設定にない場合の実効先は既定先です。設定画面で追加先を削除した場合は参照をNULLへ、改名した場合は新名へ更新します。ルート型の間も通常先の選択値は保持し、実効出力先だけルート型を優先します。
+表の `custom_folder_output_base_name` がNULLなら既定先、登録済み名なら追加先を選びます。保存名が設定にない場合は、通常先へ読み替えず該当表の出力を止めて知らせます。既存データも対象とし、元の保存名を保持・表示し、表の保存先再選択で解消します。設定画面で追加先を削除した場合は参照をNULLへ、改名した場合は新名へ更新します。ルート型の間も通常先の選択値は保持し、実効出力先だけルート型を優先します。
 
 `output_dir` は入力をtrimしてShift_JIS互換にしたフォルダ名です。空または同じ規則で変換した表名と同じならDBではNULLとし、表名由来の実効値を使います。通常型は選択先の下、ルート型はルート型基点の下へこの名前のディレクトリを作ります。
 
@@ -26,7 +28,7 @@
 
 起動・差分更新・初期化の前には全出力基点を検査し、読取りと自己所有の一時ファイルの作成・書込み・削除を要求します。使えない基点を自動作成して成功扱いにしません。配下の表ディレクトリや出力ファイルがまだないことは失敗ではありません。スタンドアロンではLR2出力先の残存設定で起動を止めません。
 
-設定変更前に有効な導入先を今回の通常・追加・ROOT管理領域へ取り込む変更は、同一・包含親のどちらも保存・XML・実配置変更前に拒否します。導入先以外の既存登録の採用は維持し、先に別の確定BMSルートへ導入先を変更すれば再選択できます。未受理候補は確定値、未完了要求の修復中は受理済み配置・改名対応へ戻します。初回・既存不正状態の段階保存と比較方法の正本は[設定の導入先保護](../runtime/settings.md#カスタムフォルダと検索対象)です。
+設定変更前に有効な導入先を今回の通常・追加・ROOT管理領域へ取り込む変更は、同一・包含親のどちらも保存・XML・実配置変更前に拒否します。導入先以外の既存登録の採用は維持し、先に別の確定BMSルートへ導入先を変更すれば再選択できます。未受理候補は確定値へ戻し、再操作は今回入力と他項目の確定値から処理します。初回・既存不正状態の段階保存と比較方法の正本は[設定の導入先保護](../runtime/settings.md#カスタムフォルダと検索対象)です。
 
 基点同士の同一・親子配置は拒否します。通常・追加先は既存BMS登録と同一か、重ならない場所だけを許可し、ルート型先は既存登録の親も許可します。既存登録を管理領域として採用する場合の保存時確認、旧管理領域の保護、検索対象の区別は[設定](../runtime/settings.md#カスタムフォルダと検索対象)を正本とします。
 
@@ -106,6 +108,10 @@ ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) IS 
 
 ### 修復と一括反映
 
+設定変更後の生成失敗で設定を旧値へ戻しません。現在の設定と保存済み表headerから生成し直し、旧先残存の整理だけを理由に後続設定を制限しません。設定の再操作に過去の移行段階は持ち越しません。追加先の改名・削除は不変なheader更新をDBへ保存してから表メモリへ公開し、DB保存失敗を生成物の残存警告へ格下げしません。
+
+起動時は通常・追加の不足検索登録を補い、表header読取り後にROOTの表別登録を補います。LR2モードの出力対象について、現在配置の署名・物理不足・管理行等の既存判定に従って再生成します。過去の改名意図やDBに保存できなかった削除を再現する機構ではありません。
+
 出力状態がない、入力が変わった、物理ファイルが欠落した、ファイル・出力ディレクトリ・祖先の更新時刻が変わった場合は再確認対象にします。その場合だけ正本から軽量な期待集合を作り、ファイル行・ディレクトリ行の欠落、日時・親の不一致、余分な行を調べます。列挙基盤が使えない場合は再作成対象にし、全ファイルの個別存在確認を通常経路にしません。
 
 状態が現行ならDB行だけの外部編集を常時監査しません。ただしjukeboxへルート型表を補完した直後は、表ディレクトリ自身の行を完全一致パスで確認します。末尾区切り付きパス、`type=1`、`parent=e2977170` に限り、不一致ならその表を再確認対象へ戻します。
@@ -135,8 +141,8 @@ ROOT登録の補完・同期、表削除、プロパティ、一括編集は同�
 | 外部新規登録の配置拒否と受付解放 | `PlaylistAggregatePersistenceOwner.PrepareExternalRegistration` | `BmsPlaylistMigrationAndRegistrationTests.ExternalTableRegistration_RejectsOverlappingCandidateBeforeMutation` は単一と安全候補を先頭に含む一括でDB・正本・ファイル・XMLの未変更と次の安全登録を確認する。 |
 | 通信・必要公開までの受付と次明示要求 | `PlaylistExternalSyncOwner`、`PlaylistWorkspaceViewModel` | [`BmsPlaylistExternalReloadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalReloadTests.cs)、[`PlaylistWorkspaceExternalSourceTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceExternalSourceTests.cs): 実通信前から同側Busy、未受理の削除・登録が自動再実行されないこと、実DB/出力と解放後の新明示要求を確認する。 |
 | 日常の非交差並行と正本・CP932・フォルダ実反映 | `ApplicationComposition` | [`DailyLibraryDiffAndIndependentPlaylistRegistration_CompleteActualChangesConcurrently`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionAdmissionTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
-| 導入先を出力管理領域へ取り込む設定変更 | [設定の出力候補・局所確定](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)、`ValidateOutputBasePreservesInstallDirectory` | `SettingDialogCustomFolderOutputBaseTests.OutputBase_ProtectsConfirmedInstallDirectory` が各基点・正規化比較を、`SettingDialogEditCompletionTests.OutputConfirmation_ProtectsInstallDirectoryUntilAnotherConfirmedRootIsSelected` が拒否の実媒体・配置無変更と導入先変更後の実移行を確認する。修復候補拒否後の宛先・改名対応維持は既存二媒体修復系列へ含め、`OutputConfirmation_RejectedRepairPreservesAcceptedPlacement` でBusy・実登録検証拒否後の要求維持を確認する。 |
-| 二媒体の部分保存後の明示修復 | [設定の局所出力確定](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)、[`PlaylistCustomFolderOutputMaintenanceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistCustomFolderOutputMaintenanceOwner.cs) | [`SettingDialogEditCompletionTests.OutputConfirmation_RepairsPartialMediaAndCleanupWithoutRepeatingSuccessfulProjection`](../../../BeMusicSeeker.Tests/Settings/SettingDialogOutputConfirmationTests.cs) は実二媒体保存の失敗と旧配置・旧表登録の保持、明示修復後の実FS/DB移行と旧先のファイル削除・実DB行DELETEの失敗、新先保持、成功した物理整理と新先DB行の再処理0、同値では未了だけの修復、旧先の再利用、追加先の再改名と再表示後の修復を確認する。同ファイルの `OutputConfirmation_RepairsHeaderCommittedMigrationAfterProjectionFailure` はヘッダー確定後の投影失敗と修正先Cへの修復、旧A・部分生成Bの整理を確認する。無関係な通常保存は未了を再開しない。 |
+| 導入先を出力管理領域へ取り込む設定変更 | [設定の出力候補・局所確定](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)、`ValidateOutputBasePreservesInstallDirectory` | `SettingDialogCustomFolderOutputBaseTests.OutputBase_ProtectsConfirmedInstallDirectory` が各基点・正規化比較を、`SettingDialogEditCompletionTests.OutputConfirmation_ProtectsInstallDirectoryUntilAnotherConfirmedRootIsSelected` が拒否の実媒体・配置無変更と導入先変更後の実移行を確認する。過去の修復要求・改名対応維持を前提にした旧二媒体修復系列は、[簡素化計画](../../plan/release-settings-and-cell-edit-simplification.md)に従い最新入力の再保存・再生成へ置換する。 |
+| 二媒体部分保存後の最新入力再保存と正本DB失敗 | 設定の局所出力確定、playlist header保存 | 過去要求・成功段階保持の検証は置換する。[設定保存・生成と一覧編集の簡素化](../../plan/release-settings-and-cell-edit-simplification.md)で未登録名の出力停止、最新配置生成、起動補完の分担を定める。 |
 | 保存済み配置、古い編集画面、公開後の任意通知の購読処理の故障 | [`ApplicationComposition`](../../../BeMusicSeeker/ViewModels/MainWindow/ApplicationComposition.cs) | [`DefaultComposition_OutputPlacementChangesAfterPersistenceAndPlaylistNotificationDrainsOnClose`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)は空の通知結果の配送成功／購読処理の故障の両行で、未保存中のA出力と保存後の実`user.config`・設定取得窓口・B出力、古い編集画面によるBのDBカテゴリ更新と旧A残余の保持を確認する。任意配送の故障は設定失敗・未完了・次の保存原因にせず、変更なしの明示保存で追加保存・再配送しない。実際の旧先削除失敗後の新先確定と残余保持は次行の移行テストへ分担する。 |
 | 旧先削除失敗と新先状態、次通常処理で旧残余不変 | `BMSPlaylist` | [`ChangeCustomFolderBaseDirectory_UsesInjectedSettingsAndPreservesCommittedDestinationAfterOldCleanupFailure`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
 | 同一編集セッションの未完了移行・config原子的保存とC保存前の完了 | `PlaylistPropertySaveService`、`BMSPlaylist.MigrateCustomFolderOutputDirectoryWithSettings` | [`BmsPlaylistCustomFolderOutputTests.PlaylistPropertyDialog_UnfinishedOutputsCompleteBeforeSavingFurtherEdits`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)。DB=B、旧A/新B、ディスクから再読込みしたconfig、BMT、他表と管理外データを確認する。通常型・ルート型・追加先の正常移行は既存保存・移行テストと分担する。 |

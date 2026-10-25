@@ -5,7 +5,8 @@
 | 計画 | 内容 |
 | --- | --- |
 | [リリース前の必須修正](release-blocking-fixes.md) | 調査指摘の妥当性、採用済みの操作契約、修正順とコミット単位。 |
-| [追加レビューの必須修正](release-additional-review.md) | 追加指摘の妥当性、採用済み契約、元資料9単位と検証で確認した詳細編集の完了境界。 |
+| [設定保存・生成と一覧編集の簡素化](release-settings-and-cell-edit-simplification.md) | 通常入口・保存順・失敗経路、最新入力の再保存・正本からの再生成、一覧編集の完了境界と未決判断。 |
+| [追加レビューの必須修正](release-additional-review.md) | 追加指摘の妥当性、採用済み契約、元資料9単位。 |
 | [リリース前調査から残す改善候補](release-follow-up-candidates.md) | 必須修正と切り離して採否を判断する改善・検討項目。 |
 
 ## 運用
