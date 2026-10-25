@@ -68,6 +68,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             ChartListVirtualView rows = fixture.View;
             LibraryChartRow? affected = filtered ? null : (LibraryChartRow)rows[0];
             var unrelated = (LibraryChartRow)rows[filtered ? 0 : 1];
+            ChartFile unrelatedProjection = unrelated.Chart;
             fixture.Table.SelectedIndex = filtered ? 0 : 1;
             int unrelatedNotifications = 0;
             unrelated.PropertyChanged += (_, _) => unrelatedNotifications++;
@@ -100,6 +101,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             Assert.IsTrue(work.GetValueOrDefault("order_compare") <= 64);
             operation.Complete();
             await delivery;
+            Assert.AreSame(unrelatedProjection, unrelated.Chart, "依存しない行を全体score版で失効させません。");
             TestContext?.WriteLine("score warm count=" + count + " totalMs=" + stopwatch.ElapsedMilliseconds + " work="
                 + string.Join(",", work.OrderBy(pair => pair.Key).Select(pair => pair.Key + ":" + pair.Value)));
             Assert.AreEqual(fixture.Library.ScoreSnapshotVersion, rows.ScorePosition);

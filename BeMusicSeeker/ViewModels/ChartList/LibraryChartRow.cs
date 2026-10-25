@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Linq;
+using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -32,26 +33,29 @@ internal sealed class LibraryChartRow : NotificationObject
     private Func<ChartFile, ChartFileStatus> playbackStatusProvider;
     private Func<ChartFile, ChartScoreSnapshot> scoreProjectionProvider;
     private Func<int> scoreProjectionVersionProvider;
-    private int cachedScoreProjectionVersion;
-
     private ChartFile cachedChart;
-
-    private bool cachedChartValid;
+    private (int Invalidation, int Package, int Score) cachedChartInput;
+    private int chartInvalidationVersion;
 
     internal bool IsBmson => sourceChart.Kind == ChartFileKind.Bmson;
 
     internal bool IsBms => sourceChart.Kind == ChartFileKind.Bms;
 
+    /// <summary>
+    /// UI読取りで生成前の行失効・package・score入力版に対応する投影を再利用します。
+    /// worker通知が生成と重なった一回は旧値を許し、両者の終端後の次回読取りで新入力へ進みます。
+    /// </summary>
     internal ChartFile Chart
     {
         get
         {
-            int version = scoreProjectionVersionProvider?.Invoke() ?? 0;
-            if (!cachedChartValid || cachedScoreProjectionVersion != version)
+            (int, int, int) input = (Volatile.Read(ref chartInvalidationVersion), PackageEntry?.ProjectionVersion ?? 0,
+                scoreProjectionVersionProvider?.Invoke() ?? 0);
+            if (cachedChart == null || cachedChartInput != input)
             {
                 cachedChart = CreateChartFile();
-                cachedScoreProjectionVersion = version;
-                cachedChartValid = true;
+                // 生成中の失効を取り消さないよう、生成後の版へ結果を付け替えません。
+                cachedChartInput = input;
             }
             return cachedChart;
         }
@@ -159,11 +163,9 @@ internal sealed class LibraryChartRow : NotificationObject
 
     internal void SetResourceHealthProjectionProvider(Func<LibraryChartRow, ResourceHealthWarningProjection> provider)
     {
-        if (!ReferenceEquals(resourceHealthProjectionProvider, provider))
-        {
-            InvalidateChartCache();
-        }
+        bool changed = !ReferenceEquals(resourceHealthProjectionProvider, provider);
         resourceHealthProjectionProvider = provider;
+        if (changed) { InvalidateChartCache(); }
     }
 
     internal void SetPlaylistReferenceDisplayProvider(Func<LibraryChartRow, PlaylistReferenceDisplay> provider)
@@ -173,20 +175,16 @@ internal sealed class LibraryChartRow : NotificationObject
 
     internal void SetChartTransientStateProvider(Func<ChartFile, bool, ChartFileTransientState> provider)
     {
-        if (!ReferenceEquals(chartTransientStateProvider, provider))
-        {
-            InvalidateChartCache();
-        }
+        bool changed = !ReferenceEquals(chartTransientStateProvider, provider);
         chartTransientStateProvider = provider;
+        if (changed) { InvalidateChartCache(); }
     }
 
     internal void SetChartInfoProjectionProvider(Func<ChartFile, BeMusicSeeker.Models.ChartDetails> provider)
     {
-        if (!ReferenceEquals(chartInfoProjectionProvider, provider))
-        {
-            InvalidateChartCache();
-        }
+        bool changed = !ReferenceEquals(chartInfoProjectionProvider, provider);
         chartInfoProjectionProvider = provider;
+        if (changed) { InvalidateChartCache(); }
     }
 
     internal void RefreshDisplayForDataDependency(MainViewDataDependency dependency)
@@ -411,8 +409,8 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private void InvalidateChartCache()
     {
-        cachedChart = null;
-        cachedChartValid = false;
+        // 通知はworkerにも届きます。cache本体はUI readerだけが書き、通知は行内の入力版を進めます。
+        Interlocked.Increment(ref chartInvalidationVersion);
     }
 
     private void RaiseWarningPresentationPropertiesChanged()

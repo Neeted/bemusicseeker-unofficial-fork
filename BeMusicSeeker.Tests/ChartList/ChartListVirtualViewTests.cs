@@ -2428,6 +2428,97 @@ public sealed class ChartListVirtualViewTests
         CollectionAssert.Contains(propertyNames, string.Empty);
     }
 
+    /// <summary>UI生成中にworkerが実項目の検索状態と通知を終えた後、同じ行の次の一読取りが新入力へ進むことを検証します。先行読取りの鮮度や後続表示の採用は要求しません。</summary>
+    [TestMethod]
+    public async Task PackageChartRow_NextReadUsesPublishedStateAfterInvalidationDuringProjection()
+    {
+        var entry = PackageChartEntry.FromChart(ChartTestValues.Empty() with
+        {
+            Path = @"package\cache.bms",
+            Title = "Cache",
+            Status = ChartFileStatus.SCORE_UNSENT
+        });
+        entry.SetSearchingStatus(true);
+        ChartListVirtualView? view = null;
+        LibraryChartRow? row = null;
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource<ChartFile>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var notified = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int notifications = 0;
+        PropertyChangedEventHandler handler = (_, _) =>
+        {
+            Interlocked.Increment(ref notifications);
+            notified.TrySetResult();
+        };
+        Task? read = null;
+        Task? update = null;
+        Exception? failure = null;
+        try
+        {
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                List<ChartListSourceRow> sources = ChartListSourceRow.BuildPackageRows([entry]);
+                var projection = new MainChartRowProjectionOwner();
+                view = new ChartListVirtualView(sources, ChartListOrder.CreateTitleAscending(sources),
+                    source => projection.CreateSubsetRow(null, source, includeResourceHealth: false));
+                row = (LibraryChartRow)view[0];
+                row.PropertyChanged += handler;
+                row.SetChartInfoProjectionProvider(chart =>
+                {
+                    if (entered.TrySetResult(chart)) { release.Wait(); }
+                    return chart.ChartInfo;
+                });
+            });
+            LibraryChartRow currentRow = row ?? throw new AssertFailedException("表示行が生成されませんでした。");
+            ChartListVirtualView currentView = view ?? throw new AssertFailedException("仮想一覧が生成されませんでした。");
+            read = Task.Run(() => TestUiDispatcherHost.Invoke(() => { _ = currentRow.Chart; }));
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, read, "cache provider arrival");
+            Assert.AreEqual(ChartFileStatus.SCORE_UNSENT | ChartFileStatus.SEARCHING, (await entered.Task).Status);
+            update = Task.Run(() => entry.SetSearchingStatus(false));
+            await TestUiDispatcherHost.AwaitNotificationAsync(notified.Task, update, "package invalidation");
+            await update;
+            int completedNotifications = Volatile.Read(ref notifications);
+            release.Set();
+            await read;
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                Assert.AreEqual(ChartFileStatus.SCORE_UNSENT, currentRow.Chart.Status,
+                    "更新・通知・先行生成が終端した次の一読取りに旧SEARCHINGを残しません。");
+                Assert.AreSame(currentRow, currentView[0]);
+                Assert.AreEqual(1, currentView.RealizedRowCount);
+            });
+            Assert.AreEqual(completedNotifications, Volatile.Read(ref notifications));
+        }
+        catch (Exception exception) { failure = exception; }
+        finally
+        {
+            release.Set();
+            foreach (Task task in new[] { read, update }.OfType<Task>())
+            {
+                try { await task; }
+                catch (Exception exception)
+                {
+                    if (failure == null) { failure = exception; }
+                    else if (!ReferenceEquals(failure, exception)) { failure.Data["cache task cleanup " + failure.Data.Count] = exception; }
+                }
+            }
+            try
+            {
+                TestUiDispatcherHost.Invoke(() =>
+                {
+                    if (row != null) { row.PropertyChanged -= handler; }
+                    view?.DisposeRealizedRows();
+                });
+            }
+            catch (Exception exception)
+            {
+                if (failure == null) { failure = exception; }
+                else { failure.Data["cache view cleanup"] = exception; }
+            }
+        }
+        if (failure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw(); }
+    }
+
     /// <summary>BMSとbmsonのsnapshotに双方のpathを保持し、bmson adapterを作らず、形式の取り落としと不要変換を検出します。</summary>
     [TestMethod]
     public void PackageChartEntrySnapshot_UsesChartSourcesWithoutMaterializingBmson()
@@ -2537,6 +2628,37 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(@"D:\BMS\Next", row.instl_dst);
         Assert.AreEqual(bmson.Path, captured.Path);
 
+    }
+
+    /// <summary>通知延期中でも公開済みpackage版の変更を外側行が最初に読み、通知だけに依存する旧値残留を検出します。</summary>
+    [TestMethod]
+    public void PackageChartRow_ReadsPublishedStateBeforeDeferredNotification()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            var entry = PackageChartEntry.FromChart(ChartTestValues.Empty() with
+            { Path = @"package\deferred.bms", Status = ChartFileStatus.SCORE_UNSENT });
+            entry.SetSearchingStatus(true);
+            ChartListSourceRow source = ChartListSourceRow.BuildPackageRows([entry]).Single();
+            LibraryChartRow row = new MainChartRowProjectionOwner().CreateSubsetRow(null, source, includeResourceHealth: false);
+            Assert.AreEqual(ChartFileStatus.SCORE_UNSENT | ChartFileStatus.SEARCHING, row.Chart.Status);
+            int notifications = 0;
+            PropertyChangedEventHandler handler = (_, _) => notifications++;
+            row.PropertyChanged += handler;
+            try
+            {
+                int version = entry.ProjectionVersion;
+                using (entry.DeferPropertyChangedNotifications())
+                {
+                    entry.SetSearchingStatus(false);
+                    Assert.AreNotEqual(version, entry.ProjectionVersion);
+                    Assert.AreEqual(0, notifications);
+                    Assert.AreEqual(ChartFileStatus.SCORE_UNSENT, row.Chart.Status);
+                    Assert.AreEqual(ChartFileStatus.SCORE_UNSENT, source.Chart.Status);
+                }
+            }
+            finally { row.PropertyChanged -= handler; }
+        });
     }
 
     /// <summary>導入先設定・有効パスと両代表値空・消去を通知中の現在値と次要求へ反映し、候補・警告保持と旧値復活を検証します。</summary>
@@ -3430,7 +3552,7 @@ public sealed class ChartListVirtualViewTests
         AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Kind == ChartFileKind.Bmson), bmsonRow);
     }
 
-    /// <summary>解析provider更新後の依存表示更新でlevelキーを最新値へ替え、生成済みcacheの旧解析値残留を検出します。</summary>
+    /// <summary>解析の明示更新と同版のsource/provider接続変更で次回値を替え、数値版だけに依存するcacheの流用を検出します。</summary>
     [TestMethod]
     public void LibraryChartRow_DisplayRefreshInvalidatesProviderBackedChartCache()
     {
@@ -3450,6 +3572,66 @@ public sealed class ChartListVirtualViewTests
         row.RefreshDisplayForDataDependency(MainViewDataDependency.ChartInfo);
 
         Assert.AreEqual(9.0, row.ChartLevelSortKey);
+
+        row.SetChartInfoProjectionProvider(_ => CreateChartInfo(file.Sha256, file.Md5, level: 12, difficulty: 1, mainBpm: 120, total: 240));
+        Assert.AreEqual(12.0, row.ChartLevelSortKey);
+        row.SetScoreProjectionProvider(_ => new ChartScoreSnapshot(ClearType.NO_PLAY, score: 100), () => 7);
+        Assert.AreEqual(100, row.score);
+        row.SetScoreProjectionProvider(_ => new ChartScoreSnapshot(ClearType.NO_PLAY, score: 900), () => 7);
+        Assert.AreEqual(900, row.score);
+        row.UpdateSourceProjection(file with { Title = "New direct source" });
+        Assert.AreEqual("New direct source", row.Title);
+
+        ChartListSourceRow source = BuildOwnerBackedSourceRows([file]).Single();
+        var subsetRow = LibraryChartRow.FromSourceRow(source);
+        _ = subsetRow.Chart;
+        subsetRow.UpdateSubsetSourceProjection(BuildOwnerBackedSourceRows([file with { Title = "New subset source" }]).Single());
+        Assert.AreEqual("New subset source", subsetRow.Title);
+        subsetRow.SetChartTransientStateProvider((_, _) => ChartFileTransientState.FromChartFile(file with { InstallDestination = @"D:\First" }));
+        Assert.AreEqual(@"D:\First", subsetRow.instl_dst);
+        subsetRow.SetChartTransientStateProvider((_, _) => ChartFileTransientState.FromChartFile(file with { InstallDestination = @"D:\Second" }));
+        Assert.AreEqual(@"D:\Second", subsetRow.instl_dst);
+
+        int detailResolutions = 0;
+        subsetRow.SetChartInfoProjectionProvider(_ => { detailResolutions++; return currentChartInfo; });
+        _ = subsetRow.Chart;
+        int before = detailResolutions;
+        subsetRow.SetResourceHealthProjectionProvider(_ => ResourceHealthWarningProjection.Empty);
+        _ = subsetRow.Chart;
+        Assert.AreEqual(before + 1, detailResolutions, "通常のChart値が同じでも明示接続変更は失効します。");
+    }
+
+    /// <summary>非package sourceの高頻度列は同じ投影を再利用し、一行miss後にも再解決が列数に比例しないことを確認します。</summary>
+    [TestMethod]
+    public void LibraryChartRow_UnchangedColumnsReuseProjectionAfterOneLocalMiss()
+    {
+        ChartFile file = CreateFile(@"cache\reuse.bms", "Reuse", "cache");
+        ChartDetails detail = CreateChartInfo(file.Sha256, file.Md5, 3, 1, 120, 240);
+        var score = new ChartScoreSnapshot(ClearType.NO_PLAY, score: 100);
+        int sourceTransient = 0, sourceDetail = 0, rowDetail = 0, rowScore = 0;
+        ChartListSourceRow source = BuildOwnerBackedSourceRows([file],
+            chartTransientStateProvider: (_, _) => { sourceTransient++; return ChartFileTransientState.Empty; },
+            chartInfoProjectionProvider: _ => { sourceDetail++; return detail; }).Single();
+        var row = LibraryChartRow.FromSourceRow(source);
+        row.SetChartInfoProjectionProvider(_ => { rowDetail++; return detail; });
+        row.SetScoreProjectionProvider(_ => { rowScore++; return score; }, () => 7);
+        foreach (int level in new[] { 3, 9 })
+        {
+            if (level == 9)
+            {
+                detail = CreateChartInfo(file.Sha256, file.Md5, 9, 1, 120, 240);
+                row.RefreshDisplayForDataDependency(MainViewDataDependency.ChartInfo);
+            }
+            ChartFile captured = row.Chart;
+            (int sourceTransient, int sourceDetail, int rowDetail, int rowScore) counts = (sourceTransient, sourceDetail, rowDetail, rowScore);
+            Assert.AreEqual((double)level, row.ChartLevelSortKey);
+            Assert.AreEqual(100, row.score);
+            _ = row.Title; _ = row.path; _ = row.instl_dst; _ = row.status; _ = row.HasHighlightedWarning;
+            Assert.AreSame(captured, row.Chart);
+            Assert.AreEqual(counts, (sourceTransient, sourceDetail, rowDetail, rowScore));
+            Assert.AreEqual(level == 3 ? 1 : 2, rowDetail);
+            Assert.AreEqual(level == 3 ? 1 : 2, rowScore);
+        }
     }
 
     /// <summary>健全性警告を最新投影へ替えても重複警告を保持し、sourceと実体行のdigestを一致させて経路別警告欠けを検出します。</summary>

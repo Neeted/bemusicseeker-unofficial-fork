@@ -914,6 +914,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     viewModel.RegularChartList.NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected), "pending rows navigation");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(rowsApplied.Task, "pending rows applied");
+                var table = (CustomTableView)window.FindName("customTableView");
                 LibraryChartRow row = viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Single(value => value.path == sourcePath);
                 LibraryChartRow otherRow = viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Single(value => value.path == otherPath);
                 // 起動時の所持判定・表示投影を終えた現在値を、これから行う操作の比較基準にします。
@@ -927,7 +928,11 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 MenuItem search = group.Items.OfType<MenuItem>().Single(item => Equals(item.Header, Resources.Estimate_install_loc));
                 Task searchEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(search));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(searchEvent, "real pending estimation menu");
+                // ハンドラーは実推定Taskを待ちます。モデルの解除と活動終端を、表示行の寿命と分けて確認します。
+                Assert.IsFalse(entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
+                Assert.IsFalse(viewModel.ChartMutationActivity.IsActive);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+                CaptureCurrentRows();
                 AssertEvidence();
                 Assert.AreEqual(string.Empty, row.instl_dst);
                 CollectionAssert.AreEqual(new[] { candidate }, row.Chart.InstallDestinationSuggestions.ToArray());
@@ -938,7 +943,6 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, viewModel.MainChartList.CurrentOperationContext.SourceScope, out ChartOperationTarget target));
                 Assert.AreSame(entry, target.PackageEntry);
                 Assert.IsTrue(PendingInstallDestinationEditRequest.TryCreate(target, out PendingInstallDestinationEditRequest edit));
-                var table = (CustomTableView)window.FindName("customTableView");
                 Assert.AreSame(viewModel.MainChartList.Rows, table.ItemsSource);
                 table.Width = 900d;
                 table.Height = 220d;
@@ -1019,6 +1023,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Task clearEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(clear));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(clearEvent, "real pending destination clear menu");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+                CaptureCurrentRows();
                 Assert.AreEqual(string.Empty, row.instl_dst);
                 Assert.AreEqual(string.Empty, row.InstallDestinationTitle);
                 Assert.AreEqual(string.Empty, row.InstallDestinationArtist);
@@ -1040,6 +1045,14 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     Assert.AreEqual("Target Song", row.InstallDestinationTitle);
                     Assert.AreEqual("Candidate Artist", row.InstallDestinationArtist);
                     AssertOtherUnchanged();
+                }
+
+                void CaptureCurrentRows()
+                {
+                    // 推定・クリアの表示再構築で退役した行へ、後続のキャッシュ更新を要求しません。
+                    Assert.AreSame(viewModel.MainChartList.Rows, table.ItemsSource);
+                    row = table.ItemsSource.Cast<LibraryChartRow>().Single(value => value.path == sourcePath);
+                    otherRow = table.ItemsSource.Cast<LibraryChartRow>().Single(value => value.path == otherPath);
                 }
 
                 void SelectDestinationCell()
