@@ -6,7 +6,7 @@
 
 既存候補に加え、BMTの混在prefixフォルダ名、Updaterの管理fileからdirectoryへの遷移は、利用者が今回は任意へ移すと明示した。推薦表のMEMO引継ぎ、外部変更の通常利用前提、検索提示の言語追従も任意区分を維持する。調査提案の「推奨」を実装承認と扱わない。
 
-追加項目は `dev` の `8c53fc9b` と作業差分を静的に照合した。処理経路・処理量と実再現・性能測定を区別し、本計画の統合で製品テスト・実サービス接続・実アプリ操作を実施したとは扱わない。採否に必要な未決事項は各項目に残す。
+追加項目は `dev` の `8c53fc9b` と作業差分を静的に照合した。処理経路・処理量と実再現・性能測定を区別し、本計画の統合で製品テスト・実サービス接続・実アプリ操作を実施したとは扱わない。採否に必要な未決事項は各項目に残す。追加の手動文字コード保持、空名フォルダへのドロップ、履歴ハッシュコピー、再生位置操作、TSV空行、手動順位cache終了寿命、ドラッグ件数表示、早送り/巻戻し終端の8件も利用者が任意に分類した。`5d499a91` まで必要経路を静的に照合し、既存候補と別原因であることを確認した。分類だけで各修正案・受入例を採用契約へ昇格させず、具体的な未決動作は将来の採用条件として残す。
 
 ## 候補と進める条件
 
@@ -50,6 +50,16 @@
 
 完了条件は、所持・保留双方の保存済み指定、指定なし、未確定判定、BOM、BMSONで表示と実際の解釈が一致し、従来の資源診断を保つこと。`ChartPropertiesViewModelTests`、`ChartResourceDiagnosticsTests`、`ChartPropertiesWindowTests` を実解析と代表Bindingに分担する。採用時に [プロパティ仕様](../spec/ui/chart-properties.md)を更新する。
 
+## 所持再スキャンでの手動文字コード保持
+
+[保守評価](../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/BmsLibraryMaintenanceService.cs)は手動変更を固定指定として保存する一方、選択譜面/全所持の再スキャンでは `forceUpdate` が固定値も再判定へ通す。BOMなしUTF-8を手動指定した後でもEncodingだけが上書きされてタイトルと不整合になり、確定非CP932の判定ではメタデータも再復号され得る。プロパティの再解釈とは異なり、保存値の境界である。
+
+元資料では手動指定保持を方針合意済みとする。具体的な保持対象の識別は採用時に確認する。
+
+採用時は、既存のmaintenance評価で指定の優先と対応メタデータ更新を一緒に整え、資源の再評価を維持する案とする。`EncodingFixed` は自動確定にも使うため、既存データから保持対象をどう識別できるかを確認する。失われた操作履歴を推測せず、新DB列・全件再保存を先行しない。判定器全体・資源名のCP932解釈・必須のUTF-8 BOM修正へ広げない。
+
+判定案は `BmsLibraryMaintenanceServiceTests` と現在値/再スキャン系列へ分担し、選択/全所持再スキャン後のDB読戻しで指定とタイトル、資源評価、非対象列の保持を確認する。手動指定と自動確定・未確定/未指定を区別し、無変更時の余分な書込みを増やさない。
+
 ## プレイリスト一覧の選択維持方式
 
 [CustomTableView](../../BeMusicSeeker/Views/CustomTable/CustomTableView.cs) の選択は添字を使い、並べ替え後の対象へ自動対応付けしない。右クリックは現在の行をヒットテストし、選択外ならその行へ切り替え、複数選択内なら集合を保って現在行を移す。更新完了後から実行までに追加更新がない例では、クリック行と実操作対象が食い違うとはいえない。
@@ -64,6 +74,30 @@
 - 削除・絞込みで消える対象、主行・基点の消失、新しい明示選択の優先を利用者と確定する。所持・保留一覧の消失ルールを、F01への採用なしに流用しない。
 
 完了条件は、並べ替え・ソートキー編集・複数追加削除・view置換後の選択集合と後続操作対象が採用した仕様に一致し、右クリックの選択切替・複数選択内の操作を保つこと。`CustomTableSelectionModelTests`、プレイリスト表示更新テスト、既存MainWindowの実表接続で分担する。[一覧仕様](../spec/ui/table-view.md)と必要なプレイリスト仕様へ契約を反映する。
+
+## 1列TSVコピーの空行
+
+[TSV生成](../../BeMusicSeeker/Views/CustomTable/CustomTableDataTransfer.cs)は出力行数の代わりに `StringBuilder.Length` で改行を決める。TITLE一列だけの実履歴表で空TITLE行→`Song`行を複数コピーすると、先頭空行が消える。空行だけの選択では空文字となり、コピーされない。選択維持や現在セルとは別原因である。
+
+行数・順序を保持する動作は将来の採用時に確定する案とする。採る場合は最初の出力行の管理を直し、0行/0可視列と実在空セルを区別する。選択モデル、列保存、全件実体化、セル値の制御文字正規化・URL取得方式は変更しない。
+
+判定案は `CustomTableColumnFactoryTests` の既存TSV検証と実コピー代表へ分担する。単列の先頭/末尾/複数/全空行、複数列・非表示列・null行除外・制御文字を確認し、例えば空行＋`Song`なら `\r\nSong`、空行2行なら `\r\n` を保つ。採用前にこれらをテスト期待値として固定しない。
+
+## 行ドラッグの件数表示
+
+[共通表のghost生成](../../BeMusicSeeker/Views/CustomTable/CustomTableView.cs)は `1 row` / ` rows` を直接組み立て、日本語等で開始する通常の行ドラッグにも英語を表示する。転送・選択・保存結果の不整合ではない。
+
+採用案は件数文字列だけを既存Resourcesへ接続し、既定資源と6言語の単数/複数・書式引数を揃えるものとする。drag形式、DropEffects、閾値、選択、Adorner寿命・themeは変更せず、ドラッグ中の言語追従用の購読やcacheを追加しない。TSVコピーと同じ共通表でも別原因・別単位として扱う。
+
+判定案は `LocalizationResourceParityTests` と共通表の代表に分担し、1/2/多件、英語単複、言語変更後に開始したghostの実表示を確認する。辞書整合だけで表示の保証を代替しない。
+
+## 未解決履歴行のハッシュコピー
+
+[履歴メニュー状態](../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryContextMenuState.cs)はMD5がない場合に、種類を区別せず `RawHash` を使う。未解決beatoraja行では生値がSHA256なので、通常の「MD5をコピー」が64桁のSHA256をClipboardへ渡す。履歴の内訳・選択問題とは別原因である。
+
+MD5不明時はMD5操作を非表示にしSHA256操作を保つ方針は、将来の採用時に確定する案とする。採る場合は既存値のハッシュ種類解決を履歴メニュー内で揃え、LR2の生MD5を使う条件も明示する。新hash計算、ファイル再読込み、DB列・`RawHash` 仕様、SHA256 Web操作は変更しない。
+
+判定案はメニュー状態/actionと `MainWindowPlayHistoryWpfTests` の実表示・実行代表へ分担する。未解決beatorajaのMD5操作とSHA256正値、未解決LR2のMD5、解決済み両hash、行交換後の値を確認する。既存テスト名だけで種類・Clipboardへの値が保証済みとは扱わない。
 
 ## 資源のみ導入後の保守値の共用
 
@@ -96,6 +130,22 @@
 
 再現時には同ケースの通知本文・見出し・生産stack・発生段階・shutdown/CloseCompletion診断を使い、取消通知と別の終了通知を区別して生産経路を特定する。期待値、終了取消の無通知契約、受付・終了処理を根拠なく変えない。これは再現条件を調べる項目であり、解決済みとは扱わない。
 
+## 一時停止中の再生位置操作
+
+[再生位置sliderのUp/Leave](../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml.cs)は、操作前の状態にかかわらず現在 `IsPaused` なら `StartCommand` のtoggleを追加する。内蔵音声を明示Pauseしてからクリック/ドラッグするとPLAYへ戻る。[音声仕様](../spec/runtime/audio.md)のSeek自体の状態保持だけでは、Viewの再開意図を確定できない。必須の一時停止中Restartとは別操作である。
+
+現行再開を仕様化するか、操作前Pauseを維持するかは未決とし、将来採用時に判断する。Pause保持を採る場合だけ、一回の短命なgestureが自ら開始したPauseの再開を所有する案とする。background commandの完了順と、取消・曲/画面切替後の古いgestureも同じ寿命で扱う。音声engine、外部Restart、永続状態、全再生共通の新状態機械は対象外。
+
+保持案の判定は `PlaybackPanelViewModelTests` の実View slider系列を起点に、明示Pause→クリック/ドラッグ/LeaveのPause保持とPLAY→ドラッグの必要なPause/Resumeを分担する。実Track座標・clamp・Bindingを保ち、旧gestureを次曲へ持ち越さない。採る動作が決まる前に期待結果を確定しない。
+
+## 早送り・巻戻しの終端
+
+[Playback View](../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml.cs)でDown→押したままLeave→戻ってUpを行うと、LeaveとUpがそれぞれEndを送る。`PlaybackPanelViewModel` も方向bit解除済みでadapter Endを呼び、`BMIIDXView2015` のEndはEnterによるPause toggleなので、実playerが再停止しPLAY表示と食い違う。位置sliderの再開意図とは別原因である。
+
+将来の採用案は短命なgestureまたは既存方向状態へ開始/終了の所有を揃え、一押下の終端を一回にする。停止・曲/player交換後の遅いUpが新playerへ作用しないことも同じ境界で扱う。Leaveで終端する既存操作は無断変更せず、BMIIDX Enter無効化・表示だけの補正・全音声queueや巨大共通状態機械は追加しない。位置sliderと同じView/VMを編集する場合は直列とし、原因と判定を分ける。
+
+判定案は `PlaybackPanelViewModelTests` と `ExternalPlayerProcessGatewayTests` へ分担し、両方向のDown→Up、Down→Leave→Enter→Up、出入り反復でStart/End各一回を確認する。実BMIIDX adapterと代替window hostでEnter送信一組を観測し、fake命令列だけで代替しない。内蔵flags/uBMplayキー解放と停止/曲交換後の旧Up無作用を維持する。
+
 ## 言語変更後の音声詳細選択肢の表示
 
 [音声設定の表示名](../../BeMusicSeeker/ViewModels/Settings/AudioDeviceTestWorkflowOwner.Presentation.cs)のサンプルレート変換品質・ミキサースレッド数は、構築時の翻訳済み辞書を保持する。言語変更後も再生成・通知されず、初めてページを開く時点でも旧言語が残り得る。設定値と実行結果は変わらないため、今回の必須修正には含めない。
@@ -117,6 +167,14 @@
 
 代表WPFは実際の対象と追加結果・開閉を確認し、アニメーション値やHandledだけで合格にしない。ファイル取り込みの条件網羅は既存導入テストへ委ねる。
 
+## 空名プレイリストフォルダへのドロップ
+
+[プレイリストの変更要求生成](../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.Mutations.cs)は、nodeなしの表ルートと実在する空名nodeを同じ空文字へ縮約する。同期OFF表の「(フォルダ名なし)」子ノードへ譜面をドロップしてもroot分類へ入り、別の一致所属や新規タイトル所属に保存され得る。必須のLR2空名sortとは別の入力・保存経路である。
+
+明示した空所属への直接追加・移動を尊重する動作は未承認の案とし、将来採用時に確定する。採る場合はnode有無と所属文字列を分け、存在検査・移動元除去・追加先を同じroot判定へ揃える。空名拒否・自動改名、DBスキーマ、物理移動、表ルートの分類規則を変更しない。
+
+判定案は `PlaylistWorkspacePersistenceCommandTests` のroot drop系列とMainWindowの実ヒットnode代表へ分担する。所持/同表/別表→空所属、空所属内の再ドロップをDB所属とMEMO/URL/levelで確認し、本当の表見出しdropの分類・採番、通常名、特殊node/同期ON拒否を維持する。
+
 ## LR2本人IRキャッシュの存廃とプレイヤー復帰
 
 利用者合意により本人IR処理は廃止候補として扱い、A→B→Aの混入は今回の必須修正へ昇格させない。存廃の決定前に修正も撤去も実装しない。
@@ -124,6 +182,16 @@
 正常取得応答が得られる前提では、[IR更新](../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrService.cs)がプレイヤー別metadataのdigest一致を、現在の共通ir_score集合の一致と読み替える。Bの成績へ置換してもAのmetadataは残るため、Aへ戻るとBを返す経路がある。実サービスへの接続成功は確認していない。
 
 存続して修正する場合は、現成績の内容・所有と取得結果を一致させる。新しいプレイヤー別DBや履歴の無条件削除を先行せず、正常空応答、同内容時の無書込み、成績とmetadataの同一トランザクション、失敗時の旧状態保持を維持する。廃止する場合は本人IRの設定・取得・表示・保存資料の責務をまとめて整理し、別の順位キャッシュやLR2ローカルスコアの扱いを便乗変更しない。
+
+## 手動順位キャッシュの存廃と終了寿命
+
+利用者は取得先サービス終了という提供情報を踏まえ任意の廃止候補に分類した。実サービスの疎通は未確認で、現在の成功通信や一時物残留を実証したとは扱わない。本人IRキャッシュの存廃とは別機能であり、一括撤去しない。存続/廃止と既存cacheの保持・削除・利用は将来の採用時に決め、廃止候補への分類を削除承認としない。
+
+LR2スコア元・本人ID、更新対象と既存Irフォルダがあり、取得先の応答が得られる前提では、通常の順位キャッシュ更新から [RankingCacheDownloadWorkflowOwner](../../BeMusicSeeker/ViewModels/Startup/RankingCacheDownloadWorkflowOwner.cs) が起動するTaskはfault観測だけで、取消/待機契約と [Shell終了](../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs)のjoin対象に接続されない。XML取得はDB/IRロック前なのでロック待機でも代替できず、終了先行時には未反映cacheと `%TEMP%/BeMusicSeeker_RankingCache_<GUID>` が残り得る。
+
+存続採用時の案は、既存ownerが実通信Taskの受付・取消・終端とstaging cleanupを所有し、本文取得まで取消を伝えてShell終了へ接続するものとする。終了後の適用/新規通知を防ぎ、時間切れでTaskを捨てる方式、L/P占有だけの代替、恒久queue・再取得台帳は追加しない。temp管理への接続だけで通信寿命を解決したと扱わない。DB破損・既存score消失は本件影響と断定しない。
+
+存続案の判定は `RankingCacheDownloadWorkflowOwnerTests`、`ShellShutdownWorkflowOwnerTests`、`TempDirectoryPublisherTests` へ分担する。制御可能な未完了通信/本文/cleanupを使い、一覧待ち・承認直後・XML途中・適用境界の終了で受理済みTaskの収束とstaging削除、終了開始後の新規受付なし、取消後の適用/通知なしを確認し、成功・部分失敗・確認Cancelを維持する。廃止採用時は当該UI・取得・関連設定/資料と既存cacheの扱いをまとめて整理し、本人IRやLR2ローカルスコアへ便乗変更しない。
 
 ## BMT混在フォルダ名と通常外部表の出力名
 
