@@ -569,40 +569,53 @@ unsigned int FindDateModifiedPropertyId(void* client) {
 	return g_api.FindPropertyW(client, L"System.DateModified");
 }
 
-bool GetResultPath(void* resultList, size_t index, std::vector<wchar_t>& buffer, std::wstring& out, unsigned long long* resizeCount = nullptr) {
-	for (int retry = 0; retry < 4; retry++) {
-		size_t len = g_api.GetResultPathW(resultList, index, buffer.data(), buffer.size());
-		if (len == 0) {
-			return false;
-		}
-		if (len < buffer.size()) {
-			out.assign(buffer.data());
-			return true;
-		}
-		buffer.resize(len + 1);
+/// <summary>
+/// 固定SDKの不変な結果から完全な非空文字列を取得し、query所有のbufferを再利用します。
+/// 取得不能・容量照会との不一致はfalseで返し、未確認の断片を採用しません。
+/// </summary>
+bool GetCompleteResultString(Everything3_GetResultPathWFn getter, void* resultList, size_t index,
+	std::vector<wchar_t>& buffer, size_t& length, unsigned long long* resizeCount) {
+	length = getter(resultList, index, buffer.data(), buffer.size());
+	if (length == 0 || length >= buffer.size() || buffer[length] != L'\0') {
+		return false;
+	}
+	// 非ゼロ容量の返却は必要長ではなく書込み長。サロゲート対が残り1文字に
+	// 入らず止まる場合もあるため、末尾2文字分だけは容量0でNUL込み必要容量を確認する。
+	if (buffer.size() - length > 2) {
+		return true;
+	}
+	size_t required = getter(resultList, index, nullptr, 0);
+	if (required == 0) {
+		return false;
+	}
+	if (required > buffer.size()) {
+		buffer.resize(required);
 		if (resizeCount) {
 			*resizeCount += 1;
 		}
+		length = getter(resultList, index, buffer.data(), buffer.size());
 	}
-	return false;
+	return length > 0 && length == required - 1 && length < buffer.size() && buffer[length] == L'\0';
 }
 
-bool GetResultName(void* resultList, size_t index, std::vector<wchar_t>& buffer, std::wstring& out, unsigned long long* resizeCount = nullptr) {
-	for (int retry = 0; retry < 4; retry++) {
-		size_t len = g_api.GetResultNameW(resultList, index, buffer.data(), buffer.size());
-		if (len == 0) {
-			return false;
-		}
-		if (len < buffer.size()) {
-			out.assign(buffer.data());
-			return !out.empty();
-		}
-		buffer.resize(len + 1);
-		if (resizeCount) {
-			*resizeCount += 1;
-		}
+/// <summary>完全なディレクトリ文字列だけを分離取得の出力へ渡します。</summary>
+bool GetResultPath(void* resultList, size_t index, std::vector<wchar_t>& buffer, std::wstring& out, unsigned long long* resizeCount = nullptr) {
+	size_t length;
+	if (!GetCompleteResultString(g_api.GetResultPathW, resultList, index, buffer, length, resizeCount)) {
+		return false;
 	}
-	return false;
+	out.assign(buffer.data(), length);
+	return true;
+}
+
+/// <summary>完全なファイル名だけを分離取得の出力へ渡します。</summary>
+bool GetResultName(void* resultList, size_t index, std::vector<wchar_t>& buffer, std::wstring& out, unsigned long long* resizeCount = nullptr) {
+	size_t length;
+	if (!GetCompleteResultString(g_api.GetResultNameW, resultList, index, buffer, length, resizeCount)) {
+		return false;
+	}
+	out.assign(buffer.data(), length);
+	return true;
 }
 
 void AssignNormalizedDirectoryPath(const wchar_t* value, size_t length, std::wstring& output) {
@@ -641,21 +654,11 @@ bool SplitFullPathBuffer(const wchar_t* fullPath, size_t length, std::wstring& d
 	return !fileName.empty();
 }
 
+/// <summary>完全取得を確認してからfull pathをディレクトリと名前へ分割します。</summary>
 bool GetResultFullPathAndSplit(void* resultList, size_t index, std::vector<wchar_t>& buffer, std::wstring& directoryPath, std::wstring& fileName, unsigned long long* resizeCount = nullptr) {
-	for (int retry = 0; retry < 4; retry++) {
-		size_t len = g_api.GetResultFullPathNameW(resultList, index, buffer.data(), buffer.size());
-		if (len == 0) {
-			return false;
-		}
-		if (len < buffer.size()) {
-			return SplitFullPathBuffer(buffer.data(), len, directoryPath, fileName);
-		}
-		buffer.resize(len + 1);
-		if (resizeCount) {
-			*resizeCount += 1;
-		}
-	}
-	return false;
+	size_t length;
+	return GetCompleteResultString(g_api.GetResultFullPathNameW, resultList, index, buffer, length, resizeCount)
+		&& SplitFullPathBuffer(buffer.data(), length, directoryPath, fileName);
 }
 
 std::wstring CombinePathAndName(const std::wstring& directoryPath, const std::wstring& fileName) {
@@ -1050,6 +1053,10 @@ void AppendCategoryRawHit(CategoryRawHits& rawHits, std::wstring&& directoryPath
 	inserted.first->second.push_back(std::move(fileName));
 }
 
+/// <summary>
+/// queryを列挙し、文字列の取得不完全をquery全体の失敗として返します。
+/// 先行callbackの結果があっても、呼出元は失敗したqueryを公開結果へ確定しません。
+/// </summary>
 template <typename Callback, typename HitCountCallback>
 bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, QueryExecutionStats* stats, HitCountCallback&& onHitCount, bool useFullPathRead = false, bool includeDateModified = false) {
 	void* state = g_api.CreateSearchState();
@@ -1098,6 +1105,7 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 		std::vector<wchar_t> nameBuffer(512);
 		std::wstring path;
 		std::wstring name;
+		bool resultsComplete = true;
 		for (size_t i = 0; i < hitCount; i++) {
 			const bool timeSdkRead = !sampleSdkReadTiming || (i % SDK_READ_TIMING_SAMPLE_INTERVAL) == 0;
 			std::chrono::steady_clock::time_point sdkReadStartedAt;
@@ -1120,7 +1128,8 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 				}
 			}
 			if (!gotResult) {
-				continue;
+				resultsComplete = false;
+				break;
 			}
 			unsigned long long dateModifiedFileTime = 0ull;
 			if (includeDateModified && g_api.GetResultDateModified) {
@@ -1152,7 +1161,7 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 			stats->sdkReadMs = sdkReadMs;
 			stats->callbackMs = readMs > sdkReadMs ? readMs - sdkReadMs : 0;
 		}
-		ok = true;
+		ok = resultsComplete;
 	} while (false);
 
 	if (result) {

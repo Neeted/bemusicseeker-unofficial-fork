@@ -423,7 +423,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     }
 
     /// <summary>
-    /// 不完全scanはscan完了だけを通知して差分処理を開始せず、部分結果で既存DBを削除・追加しない。
+    /// 不完全scanはscan完了だけを通知して差分処理を開始せず、1024文字超の既存譜面が欠けた非空の部分結果でDBを削除・追加しない。
     /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_IncompleteScanSkipsDiffAndKeepsExistingDb()
@@ -431,13 +431,14 @@ public sealed class BmsLibraryInitializationFileScanTests
 
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
-            string existingDirectoryPath = Path.Combine(lr2RootPath, "Existing");
+            string existingDirectoryPath = CreateSdkBoundaryDirectory(lr2RootPath);
             string existingPath = Path.Combine(existingDirectoryPath, "chart.bms");
             string addedDirectoryPath = Path.Combine(lr2RootPath, "Added");
             string addedPath = Path.Combine(addedDirectoryPath, "added.bms");
-            Directory.CreateDirectory(existingDirectoryPath);
+            Directory.CreateDirectory(LongPathFileSystem.ToExtendedPath(existingDirectoryPath));
             Directory.CreateDirectory(addedDirectoryPath);
-            File.WriteAllText(existingPath, "#PLAYER 1\r\n#TITLE Existing\r\n");
+            File.WriteAllText(LongPathFileSystem.ToExtendedPath(existingPath), "#PLAYER 1\r\n#TITLE Existing\r\n");
+            Assert.IsTrue(existingPath.Length > 1024);
             File.WriteAllText(addedPath, "#PLAYER 1\r\n#TITLE Added\r\n");
 
             ChartFile existingFile = ChartTestValues.Empty() with
@@ -445,7 +446,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 Path = existingPath
             };
             existingFile = existingFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
-            existingFile = existingFile with { Date = ToUnixSeconds(File.GetLastWriteTimeUtc(existingPath)) };
+            existingFile = existingFile with { Date = ToUnixSeconds(LongPathFileSystem.GetLastWriteTimeUtc(existingPath)) };
             ExecuteSongDbFixtureTransaction(songDbPath, songDbConnection =>
             {
                 songDbConnection.CreateTable<LR2SongDB.song>();
@@ -813,7 +814,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     }
 
     /// <summary>
-    /// 260文字を超えるBMSの実読込み・encoding再読込み・保存を成立させ、LR2のpath長制約だけを警告する。
+    /// 1024文字を超えるBMSの実読込み・encoding再読込み・保存と同一完全パスでの保持を確認し、LR2のpath長制約だけを警告する。
     /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_LongPathBmsIsRegisteredAndLr2CompatibilityWarns()
@@ -821,11 +822,11 @@ public sealed class BmsLibraryInitializationFileScanTests
 
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
-            string chartDirectoryPath = CreateLongPathDirectory(lr2RootPath);
-            string bmsPath = Path.Combine(chartDirectoryPath, "kabukin_______________________________________________________________________________________________________________________________________________________________________________________________________________________________.bms");
+            string chartDirectoryPath = CreateSdkBoundaryDirectory(lr2RootPath);
+            string bmsPath = Path.Combine(chartDirectoryPath, "song.bms");
             Directory.CreateDirectory(LongPathFileSystem.ToExtendedPath(chartDirectoryPath));
             File.WriteAllText(LongPathFileSystem.ToExtendedPath(bmsPath), CreateValidBmsText("Long Path"), Encoding.ASCII);
-            Assert.IsTrue(bmsPath.Length > 260);
+            Assert.IsTrue(bmsPath.Length > 1024);
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
@@ -863,13 +864,47 @@ public sealed class BmsLibraryInitializationFileScanTests
             result.AddedFiles[0] = BmsChartFileParser.ApplyMetadataEncoding(ChartFileContentReader.ReadSnapshot(result.AddedFiles[0].Path), result.AddedFiles[0], "shift_jis");
             Assert.AreEqual("Long Path", result.AddedFiles[0].RawTitle);
 
+            ChartFile registered = result.AddedFiles[0] with { Favorite = 3, AddDate = 34567, Tag = "long-path-keep" };
+            ExecuteSongDbFixtureTransaction(songDbPath, db =>
+            {
+                db.Execute("UPDATE song SET favorite = ?, adddate = ?, tag = ? WHERE path = ?;", registered.Favorite, registered.AddDate, registered.Tag, bmsPath);
+                db.Execute("UPDATE maintenance SET encoding = ? WHERE path = ?;", "shift_jis", bmsPath);
+            });
+            SongTableFileCheckResult repeated = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
+                new BmsLibraryOptionsSnapshot(),
+                [registered],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult([bmsPath], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        { chartDirectoryPath, Array.Empty<string>() }
+                    })
+                },
+                0L,
+                () => throw new InvalidOperationException("complete scan should be reused"),
+                dialogService,
+                currentBmsonSongs: []);
+            Assert.IsFalse(repeated.HasDbDiff);
+            Assert.AreEqual(0, repeated.DeletedPaths.Count);
+            Assert.AreEqual(0, repeated.AddedFiles.Count);
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", bmsPath));
+            LR2SongDB.song saved = verify.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual(bmsPath, saved.path);
+            Assert.AreEqual(3, saved.favorite);
+            Assert.AreEqual(34567, saved.adddate);
+            Assert.AreEqual("long-path-keep", saved.tag);
+            LR2SongDBExtended.maintenance maintenance = verify.Table<LR2SongDBExtended.maintenance>().Single();
+            Assert.AreEqual(bmsPath, maintenance.path);
+            Assert.AreEqual(registered.Md5, maintenance.hash);
+            Assert.AreEqual("shift_jis", maintenance.encoding);
         });
     }
 
     /// <summary>
-    /// 260文字を超えるbmsonを実解析・保存してtitleを保ち、通常path上限で登録を拒否しない。
+    /// 1024文字を超えるbmsonを実解析・保存してtitleを保ち、同じ完全パスの再走査で保存行と保守行を削除しない。
     /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_LongPathBmsonIsRegistered()
@@ -877,11 +912,11 @@ public sealed class BmsLibraryInitializationFileScanTests
 
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
-            string chartDirectoryPath = CreateLongPathDirectory(lr2RootPath);
-            string bmsonPath = Path.Combine(chartDirectoryPath, "long_bmson____________________________________________________________________________________________________________________________________________________________________________________________________________________________.bmson");
+            string chartDirectoryPath = CreateSdkBoundaryDirectory(lr2RootPath);
+            string bmsonPath = Path.Combine(chartDirectoryPath, "song.bmson");
             Directory.CreateDirectory(LongPathFileSystem.ToExtendedPath(chartDirectoryPath));
             File.WriteAllText(LongPathFileSystem.ToExtendedPath(bmsonPath), CreateBmsonJson("Long Bmson", "", "", "Artist", "Genre", 5, "beat-7k"), Encoding.UTF8);
-            Assert.IsTrue(bmsonPath.Length > 260);
+            Assert.IsTrue(bmsonPath.Length > 1024);
 
             ExecuteSongDbFixtureTransaction(songDbPath, songDbConnection =>
             {
@@ -917,9 +952,45 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(bmsonPath, result.AddedBmsonSongs[0].Path);
             Assert.AreEqual("Long Bmson", result.AddedBmsonSongs[0].RawTitle);
 
+            SongTableFileCheckResult repeated = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
+                new BmsLibraryOptionsSnapshot(),
+                [],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult([bmsonPath], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        { chartDirectoryPath, Array.Empty<string>() }
+                    })
+                },
+                0L,
+                () => throw new InvalidOperationException("complete scan should be reused"),
+                dialogService,
+                currentBmsonSongs: result.AddedBmsonSongs);
+            Assert.IsFalse(repeated.HasDbDiff);
+            Assert.AreEqual(0, repeated.DeletedBmsonPaths.Count);
+            Assert.AreEqual(0, repeated.AddedBmsonSongs.Count);
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM bmson_song WHERE path = ?;", bmsonPath));
+            LR2SongDBExtended.bmson_song saved = verify.Table<LR2SongDBExtended.bmson_song>().Single();
+            Assert.AreEqual(bmsonPath, saved.path);
+            Assert.AreEqual("Long Bmson", saved.title);
+            LR2SongDBExtended.maintenance maintenance = verify.Table<LR2SongDBExtended.maintenance>().Single();
+            Assert.AreEqual(bmsonPath, maintenance.path);
+            Assert.AreEqual(result.AddedBmsonSongs[0].Md5, maintenance.hash);
         });
+    }
+
+    /// <summary>成分を短く保ち、一時所有rootの下でSDK初期bufferより長い絶対パスを作ります。</summary>
+    private static string CreateSdkBoundaryDirectory(string rootPath)
+    {
+        string path = rootPath;
+        while (path.Length <= 1100)
+        {
+            path = Path.Combine(path, new string('d', 100));
+        }
+        return path;
     }
 
     /// <summary>

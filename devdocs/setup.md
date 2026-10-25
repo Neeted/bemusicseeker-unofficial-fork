@@ -88,10 +88,11 @@ Everything本体と、アプリが読み込むSDK・ブリッジDLLは別のも�
 
 ### ネイティブブリッジを変更する場合
 
-Visual Studio Installerから、Visual StudioまたはBuild ToolsのC++開発環境を追加します。[ブリッジのプロジェクト](../native/EverythingBridge/EverythingBridge.vcxproj)が指定するMSVC v143のx64/x86ビルドツール、Windows SDK、MSBuildが必要です。.NET SDKに含まれる`dotnet build`だけでは、このC++プロジェクトのビルド環境は揃いません。
+Visual Studio Installerから、Visual StudioまたはBuild ToolsのC++開発環境を追加します。[ブリッジのプロジェクト](../native/EverythingBridge/EverythingBridge.vcxproj)が指定するMSVC v145のx64/x86ビルドツール、Windows SDK、MSBuildが必要です。.NET SDKに含まれる`dotnet build`だけでは、このC++プロジェクトのビルド環境は揃いません。
 
 ```powershell
 pwsh -NoProfile -File .\native\EverythingBridge\build-x64.ps1 -Configuration Release
+pwsh -NoProfile -File .\native\EverythingBridge\test-x64.ps1
 ```
 
 この操作はGit管理されている`native/EverythingBridge_x64.dll`を更新します。その後、標準検証でアプリとの組合せを確認します。詳細は[ブリッジの説明](../native/EverythingBridge/README.md)を参照してください。

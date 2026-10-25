@@ -132,15 +132,6 @@ internal static class BmsLibraryInitializationTestSupport
             + "#00111:01\r\n";
     }
 
-    internal static string CreateLongPathDirectory(string rootPath)
-    {
-        return Path.Combine(
-            rootPath,
-            "LongPath",
-            new string('a', 70),
-            new string('b', 70));
-    }
-
     internal static int ToUnixSeconds(DateTime utcTime)
     {
         return (int)new DateTimeOffset(DateTime.SpecifyKind(utcTime, DateTimeKind.Utc)).ToUnixTimeSeconds();

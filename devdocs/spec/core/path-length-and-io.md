@@ -38,6 +38,12 @@ BMS・BMSON・譜面情報のパス指定解析APIも、この窓口で読みま
 
 ### 完全な走査だけを反映する
 
+Everything SDKのfull path・directory・nameは、完全取得を確認してから分割・集約します。
+固定SDK 3.0.0.9では非ゼロ容量の返却が書込み済みUTF-16長、容量0の返却がNUL込み必要容量です。
+サロゲート対の直前で切詰められる場合も区別し、必要容量を照会・再取得した結果が一致しなければqueryを失敗にします。
+失敗項目を飛ばして部分集合を成功にせず、既存のmanaged代替走査と完全性判定へ伝えます。
+通常短パスは各getter一回の取得を保ち、拡張したbufferはquery内で再利用します。新しいパス長上限や保存キーは設けません。
+
 ライブラリへ反映する走査は `Success == true`、`IsComplete == true`、`ScanLimitExceeded == false` のすべてを満たす場合だけ、反映の根拠に使えます。Everythingが利用できず管理側で走査する場合も条件は同じです。ネイティブ連携の契約・版不一致は配置異常として失敗させ、単なる不完全走査の警告にしません。
 
 ルート不在、子ディレクトリ列挙失敗、メタデータ取得不能、上限超過などで走査範囲が不完全なら、その走査から追加・更新・削除・LR2同期・リソース索引置換をしません。既存DB、スコア、保留パッケージの読込みは継続できます。部分列挙でカタログを中途半端に更新しないための保護です。
@@ -84,6 +90,8 @@ Explorerは `ExplorerOpenService` に集約します。通常パスと拡張長�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| SDK文字列の完全取得、短パス一回取得、query内再利用と失敗伝播 | [`EverythingBridge.cpp`](../../../native/EverythingBridge/EverythingBridge.cpp) の `GetCompleteResultString`、`ExecuteQuery` | [`EverythingBridgeQueryTests.cpp`](../../../native/EverythingBridge/tests/EverythingBridgeQueryTests.cpp) は固定SDKの実getterと製品処理で境界・サロゲート・再利用・失敗を確認し、公開APIのpackまでパス・mtime・資源所有を確認する。[native専用入口](../../../native/EverythingBridge/test-x64.ps1)で実行し、実Everything IPCや製品完了時間の測定とは区別する。 |
+| 1024文字超のBMS/BMSONを登録し、同じ完全パスの再走査で保持する | [`BmsLibraryInitializationService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/BmsLibraryInitializationService.cs) | [`BmsLibraryInitializationFileScanTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationFileScanTests.cs) の長パス2系列で実解析・保存・再適用後の保存行と保守行を確認する。BMSの利用者列・LR2警告・encoding再読込みも維持する。不完全scan系列は既存長パスが欠けた非空の部分結果から追加・削除しないことを確認する。 |
 | 完全走査と不完全入力の保護、個別失敗の継続 | [`LibraryFileScanPipelineOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/LibraryFileScanPipelineOwner.cs)、[`BmsLibraryInitializationService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/BmsLibraryInitializationService.cs) | [`RootFileEnumerationTests`](../../../BeMusicSeeker.Tests/Scanning/RootFileEnumerationTests.cs)、[`LibraryFileScanPipelineOwnerTests`](../../../BeMusicSeeker.Tests/Scanning/LibraryFileScanPipelineOwnerTests.cs)、[`BmsLibraryInitializationFileScanTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationFileScanTests.cs) |
 | 上限付き列挙の通常失敗、独立ルート継続と狭い捕捉 | [`BoundedSourceSurfaceEnumerator`](../../../BeMusicSeeker/Models/Utils/Scanning/BoundedSourceSurfaceEnumerator.cs) | [`RootFileEnumerationTests`](../../../BeMusicSeeker.Tests/Scanning/RootFileEnumerationTests.cs) の `BoundedEnumerator_DisappearingRootPreservesIndependentPathsAndReportsIncomplete` は実ファイルの列挙と不完全理由、`OsEnumerator_MissingRootIsIncompleteAndNotSuccessful` は高速・上限付きの初期欠落を確認する。属性・メタデータ・除外判定の捕捉と内部例外の伝播は静的に確認し、推定用の受入・診断は[導入先の推定](../library/install-estimation.md#実装とテストの対応)で分担する。 |
 | 安全な単一ファイル保存、書込み終了後の公開、一次失敗の保持 | [`AtomicFileWriter`](../../../BeMusicSeeker/Models/Utils/FileOperations/AtomicFileWriter.cs) | [`AtomicFileWriterTests`](../../../BeMusicSeeker.Tests/FileOperations/AtomicFileWriterTests.cs)、[`LR2ConfigTests`](../../../BeMusicSeeker.Tests/Lr2/LR2ConfigTests.cs)、[`PlaylistWorkspacePersistenceCommandTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs) |
