@@ -718,6 +718,50 @@ public sealed class SettingsDialogBehaviorTests
         }, nameof(OrdinaryConfirmationDoesNotPublishOtherSectionCandidates));
     }
 
+    /// <summary>外部encoderが利用不能でも保存済みMP3を表示し、別形式の拒否では確定値を保ち、明示WAVEだけを保存して他カテゴリの候補を保持します。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void RecordingEncoderSelection_PreservesUnavailableSavedFormatAndCommitsExplicitWaveOnly()
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new TemporaryDirectory("recording-encoder");
+            Settings values = OpenPersistedSettings(directory.Path);
+            values.Encoder = EncoderType.MP3_LAME;
+            values.Save();
+            string configPath = Path.Combine(directory.Path, "user.config");
+            byte[] savedMp3 = File.ReadAllBytes(configPath);
+            var dialogs = new RecordingDialogService { MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+            using var harness = SettingsDialogHarness.Create(values, dialogs: dialogs, audioDeviceCatalog: new WaveOnlyAudioDeviceCatalog());
+            var gateway = new SettingsAudioGateway(() => values);
+            harness.Dialog.EnableBeatorajaBmtOutput = true;
+
+            Assert.AreEqual((int)EncoderType.MP3_LAME, harness.Dialog.EncoderIndex, "利用不能でも表示は保存済み形式です。");
+            Assert.AreEqual(EncoderType.MP3_LAME, SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(gateway.CaptureEncodingSettings()).Encoder);
+            CollectionAssert.AreEqual(savedMp3, File.ReadAllBytes(configPath), "初期化と読取りは保存しません。");
+
+            harness.Dialog.EncoderIndex = (int)EncoderType.AAC_NERO;
+            Assert.AreEqual(1, dialogs.MessageCount);
+            Assert.AreEqual(string.Format(CultureInfo.CurrentCulture, Resources.Warn_EncoderExecutableNotFoundFormat, EncoderType.AAC_NERO.GetEncoderFileName()), dialogs.LastMessageText);
+            Assert.AreEqual((int)EncoderType.MP3_LAME, harness.Dialog.EncoderIndex);
+            Assert.AreEqual(EncoderType.MP3_LAME, values.Encoder);
+            Assert.AreEqual(EncoderType.MP3_LAME, PortableSettingsPersistenceTests.OpenSettings(configPath).Encoder);
+            Assert.AreEqual(EncoderType.MP3_LAME, SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(gateway.CaptureEncodingSettings()).Encoder);
+            CollectionAssert.AreEqual(savedMp3, File.ReadAllBytes(configPath), "拒否した形式と暗黙のWAVEを保存しません。");
+
+            harness.Dialog.EncoderIndex = (int)EncoderType.WAVE;
+            Settings fresh = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            Assert.AreEqual(EncoderType.WAVE, fresh.Encoder);
+            Assert.AreEqual(EncoderType.WAVE, values.Encoder);
+            Assert.AreEqual((int)EncoderType.WAVE, harness.Dialog.EncoderIndex);
+            Assert.AreEqual(EncoderType.WAVE, SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(gateway.CaptureEncodingSettings()).Encoder);
+            Assert.IsFalse(fresh.EnableBeatorajaBmtOutput, "録音形式の保存へ別カテゴリの候補を便乗させません。");
+            Assert.IsTrue(harness.Dialog.EnableBeatorajaBmtOutput, "別カテゴリの候補は画面で保持します。");
+            Assert.AreEqual(1, dialogs.MessageCount);
+            await Task.CompletedTask;
+        }, nameof(RecordingEncoderSelection_PreservesUnavailableSavedFormatAndCommitsExplicitWaveOnly));
+    }
+
     /// <summary>実ファイル置換失敗で当該項目の確定値と次回表示を旧値に保ち、別の成功項目と次の保存へ失敗候補を混ぜません。</summary>
     [TestMethod]
     [DoNotParallelize]
@@ -1290,7 +1334,7 @@ public sealed class SettingsDialogBehaviorTests
             Action<Exception>? reportApplyFailure = null, Func<Task>? reloadFileDiff = null,
             ApplicationComposition? composition = null, ISettingsDialogPlayerFactoryPort? playerFactory = null,
             ISettingsDialogPlaybackRuntimePort? playbackRuntime = null, RecordingDialogService? dialogs = null,
-            Func<OperationModeRestartRequest, Task<bool>>? restart = null)
+            Func<OperationModeRestartRequest, Task<bool>>? restart = null, IAudioDeviceCatalog? audioDeviceCatalog = null)
         {
             var state = new RecordingSettingsStatePort(activeLibraryProfile) { ReloadFileDiffHandler = reloadFileDiff };
             var workspace = new RecordingWorkspacePort();
@@ -1308,7 +1352,7 @@ public sealed class SettingsDialogBehaviorTests
                     new SettingsEditSession(values), applicationLifetime: TestApplicationContext.CreateLifetime(),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(), schemaDialogs: dialogs ?? new RecordingDialogService(),
                     reportApplyFailure: reportApplyFailure, externalShellGateway: ExternalShellGatewayPolicy.Current,
-                    applicationPathSnapshot: ApplicationPathPolicy.Current, audioDeviceCatalog: new TestAudioDeviceCatalog(),
+                    applicationPathSnapshot: ApplicationPathPolicy.Current, audioDeviceCatalog: audioDeviceCatalog ?? new TestAudioDeviceCatalog(),
                     audioSettingsGateway: new TestAudioSettingsGateway(), requestOperationModeRestart: restart ?? UnexpectedRestart,
                     audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
             return new SettingsDialogHarness(dialog, state, workspace, output);
@@ -1410,7 +1454,8 @@ public sealed class SettingsDialogBehaviorTests
 #pragma warning restore CS0067
     }
 
-    private sealed class RecordingDialogService : IUiDialogService
+    /// <summary>設定の局所判断と実ページの代表フローで、通知の到達と完了を記録します。</summary>
+    internal sealed class RecordingDialogService : IUiDialogService
     {
 
         internal int MessageCount { get; private set; }
@@ -1475,6 +1520,14 @@ public sealed class SettingsDialogBehaviorTests
         {
             return Task.FromResult(new UiProgressResult(UiDialogStatus.Failed, error: new InvalidOperationException("unexpected settings behavior progress")));
         }
+    }
+
+    /// <summary>実encoder探索を行わず、外部encoder欠損とWAVEの利用可能性だけを固定します。</summary>
+    internal sealed class WaveOnlyAudioDeviceCatalog : IAudioDeviceCatalog
+    {
+        public void Refresh() { }
+        public IReadOnlyList<AudioDeviceInfo> GetDevices(AudioDriver driver) => [];
+        public bool IsEncoderAvailable(EncoderType encoder, string encoderDirectory) => encoder == EncoderType.WAVE;
     }
 
     private sealed class RecordingWorkspacePort : ISettingsDialogWorkspacePort

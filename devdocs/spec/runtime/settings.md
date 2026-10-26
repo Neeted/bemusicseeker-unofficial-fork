@@ -22,6 +22,8 @@
 
 確定値だけを `Settings` と実行時readerへ置きます。通常項目は有効な選択時、自由入力のEnter・フォーカス離脱、slider操作完了時に対象項目だけ保存し、成功後に公開します。同値は再保存せず、失敗では当該確定値・現在表示・次回入力を旧値に保ちます。別項目の確定値は戻しません。
 
+録音形式は現在の `Settings.Encoder` を表示し、外部エンコーダーの実行ファイルが見つからないだけではWAVE表示へ置き換えません。明示的なWAVE選択は通常の項目保存へ通し、他セクションの候補を保存・破棄しません。別の利用不能な形式を選んだ場合は既存の警告を表示して保存を拒否し、選択表示を現在の設定値へ戻します。実変換開始後の代替と共有設定への反映は[音声変換](audio-conversion.md#出力形式と命令の生成)に従います。
+
 音量は `PlaybackPanelViewModel` と再生設定ストアが操作中の値を所有し、現在の再生へ即時反映します。ドラッグ・マウス・キー操作の終了、フォーカス離脱、画面閉鎖で最終有効値だけを保存します。操作中の値は `Settings` と実行要求のreaderへ公開せず、別項目保存や終了時の通常保存にも混ぜません。同値の終端は保存せず、保存失敗では当該表示と現在再生を最新の確定音量へ戻します。主画面と設定画面は同じ再生担当を使います。
 
 候補はBMS一覧、beatorajaの選択、BMT、音声出力、外部プレイヤー、外部画像、出力配置、LR2の詳細パスとrecordの各編集範囲に限ります。beatorajaの有効な選択、音声・再生方式・外部画像は、組が成立した入力イベントで当該組だけを自動確定します。未成立の組と保存失敗の入力はその欄に保持し、明示再操作で修復できます。開く・ページ初期接続・同値通知は保存要求も実処理も開始しません。他セクションの候補を読み込まず、確定時に最新の確定値で再検証します。
@@ -325,6 +327,7 @@ BMSディレクトリの追加・削除・複数選択・D&Dは設定画面内�
 
 | 保証 | 実装 | 検証 |
 | --- | --- | --- |
+| 録音形式の表示・明示保存と利用不能形式の拒否 | [`SettingsDialogViewModel.EncoderIndex`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、`RecordingSettingsPage` | [`SettingsDialogBehaviorTests.RecordingEncoderSelection_PreservesUnavailableSavedFormatAndCommitsExplicitWaveOnly`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) は利用不能な保存済みMP3、別形式の警告・保存拒否、明示WAVEの実保存・新provider読戻し・変換前snapshotと別候補保持を確認する。[`SettingsWindowCompiledBehaviorTests.RecordingPage_PreservesUnavailableSavedEncoderAndPersistsExplicitWaveAcrossReopen`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs) は実録音ページのBinding・選択・閉鎖後の再表示と保存要求数を確認する。実encoder探索・実変換後の代替はこの保証に含めない。 |
 | 独立導入先の実L保存区間と候補保持 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | `SettingDialogEditCompletionTests.IndependentInstallSelection_*` が実VM/provider・実Library受付を、`CompiledInstallSelection_*` がBinding・実選択・拒否後表示・次の明示操作を分担する。 |
 | 管理基点の形状・表記に依存しない一般候補と導入先の分離 | `CustomFolderOutputBaseSearchRootSyncService.IsSameOrChildDirectory`、`SettingsDialogViewModel` の候補投影・保存検証 | [`LR2ConfigTests`](../../../BeMusicSeeker.Tests/Lr2/LR2ConfigTests.cs) の `OutputBaseContainsDirectory_RespectsRootAndDirectoryBoundaries` は方向・区切り境界を、[`SettingDialogCustomFolderOutputBaseTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCustomFolderOutputBaseTests.cs) の `Lr2BmsDirectoryChoices_*` と `RootOutputCandidate_AcceptsDriveAndShareRootsWithoutPublishing` は実VMの両候補・管理登録保持・ルート受理を確認します。UNCは共有へ接続しません。 |
 | ドライブルートの出力確定、実在管理先の保存拒否、通常導入後の表削除保全 | 設定の局所確定、実ライブラリ、`PlaylistRemovalWorkflowOwner` | [`SettingDialogLr2OwnerTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) の `Lr2DriveRootOutput_PreservesConfirmedInstallThroughGenerationInstallationAndTableRemoval` は専用一時領域へのドライブ別名で実settings・XML・SQLite・生成物・導入済み楽曲を確認します。通常Close後の候補再構成も含み、実Windowの表示・選択接続は既存compiled系列へ分担します。 |

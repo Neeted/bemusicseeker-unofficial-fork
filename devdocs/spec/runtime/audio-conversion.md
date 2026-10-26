@@ -50,6 +50,8 @@ Float32 WAVは有限の±1超過を保存します。整数入力を必要とす
 
 `BassAudioWriter` は変更不能な `AudioTagInfo`、`AudioEncoderCommandFactory`、`AudioEncoderSession` を通してManagedBass.Encを使います。WAV、LAME、Nero AAC、Opus、FLAC、OGGの六形式を扱い、品質値の制限とタグの指定を各形式へ適用します。AACの設定上の拡張子 `.aac` とNeroが作る `.m4a` は区別します。
 
+実変換時に選択した外部エンコーダーが利用不能なら、既存どおりWAVEへ代替し、`SettingsAudioGateway.ApplyEncoderFallback` で共有設定の `Encoder` も更新します。この反映自体は保存要求を行いませんが、後続の表示・変換設定の捕捉は更新後の値を読み、終了時の通常保存の対象になり得ます。設定ページの表示時に実行ファイルの有無だけで形式を置き換える処理とは区別します。
+
 実行ファイル、出力先、メタデータはWindowsの引数規則で引用し、シェルを介しません。WAVは出力パスを `EncodeStart` へ直接渡し、要求した標本形式の変換フラグを使います。WAVへ新たなRIFFのINFO情報を付加しません。
 
 外部エンコーダーとNeroの実入力形式はネイティブミキサーのチャンネル情報を正本にし、命令・ヘッダー・実バイト列を一致させます。
@@ -110,6 +112,7 @@ flowchart TB
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 表示時の形式保持と実変換時の既存WAVE代替の分離 | `SettingsDialogViewModel.EncoderIndex`、`BassSelectedChartAudioConversionExecutor`、`SettingsAudioGateway.ApplyEncoderFallback` | 表示・保存・変換前snapshotは[設定の検証対応](settings.md#実装とテストの対応)で確認する。実変換の欠損判定から共有設定更新・終了時保存への接続は実装を静的確認し、表示テストで保証したものとは扱わない。 |
 | BMS・BMSON二曲の本番バッチから実WAVEと次変換への接続 | `SelectedChartAudioConversionWorkflowOwner`、`BassSelectedChartAudioConversionExecutor`、`BMSAutoPlayWriter` | [`SelectedChartAudioConversionWorkflowOwnerTests.RunAsync_RealNativeExecutorRetainsLibraryAdmissionThroughEncoderAndSessionCleanup`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) は生成した48kHzステレオFloat32入力から独立に求めたPCM・frame数・形式・増幅設定、二成功・未処理0を実WAVEで確認する。encoder/sessionの実解放中の共通受付保持・Busyを維持し、元Taskと解放終端後の次の明示二曲変換も確認する。NullDevice WAVEの結果を外部encoderや物理deviceの確認として扱わない。 |
 | BMS・bmsonの変換許可、選択順、保留・消失ファイルの除外と実行への受渡し | [`GridRowResolver`](../../../BeMusicSeeker/ViewModels/ChartList/GridRowResolver.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) の変換メニュー、`SelectedChartAudioConversionWorkflowOwner` | [譜面モデルの能力・メニューテスト](../library/chart-model.md#実装とテストの対応)に加え、[`SelectedChartAudioConversionWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) の `Request_FiltersCapabilityAndExistingFilesAcrossChartKindsInSelectionOrder` は実際のresolverから得た対象で形式共通の選択順・ファイル存在確認と両形式の保留拒否を確認し、`RunAsync_AcceptedRoutePreservesCountsSettingsAndTerminalNotificationOrder` はbmsonを先頭にした混在選択を正確な譜面参照のままexecutorへ渡し、設定・件数・再生停止・一回の完了通知の順序を確認する。 |
 | bmsonの共有区間一回・別channelの重なり、EOF尾部・LN・明示up | `PlaybackChart.Load`、`BMSAutoPlayWriter` | [`BMSAutoPlayWriterTests`](../../../BeMusicSeeker.Tests/Playback/BMSAutoPlayWriterTests.cs) の `BmsonWriterContinuationInsertionKeepsContinuousPcmAndPhysicalEof` / `BmsonWriterContinuationRunsPreserveRestartAndSamePathChannelOverlap` / `BmsonWriterLongNoteDoesNotCutAudioAndExplicitOrphanUpSoundsAtItsOwnPulse`。出力frameと同rate生成PCMの条件は[bmson再生仕様](../library/bmson-playback.md#実装とテストの対応)を参照する。 |

@@ -509,6 +509,110 @@ public sealed class SettingsWindowCompiledBehaviorTests
         });
     }
 
+    /// <summary>encoder欠損時も実録音ページに保存済みMP3を表示し、明示WAVEの保存・再表示と、利用不能形式の拒否後の表示を確定値へ揃えます。</summary>
+    /// <remarks>実BAMLのSelectedIndex双方向Binding、provider保存、変換前snapshotを接続して検査します。拒否条件の組合せは非Windowケースが担当し、実encoder検索・起動・変換は対象外です。</remarks>
+    [TestMethod]
+    public void RecordingPage_PreservesUnavailableSavedEncoderAndPersistsExplicitWaveAcrossReopen()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string configPath = Path.Combine(MainWindowViewModelTestFactory.CreateIsolatedSettingsDirectory(), "user.config");
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            settings.OperationModeLR2DB = false;
+            settings.BMSRootPath = Path.GetTempPath();
+            settings.StandaloneBmsRootPaths = Path.GetTempPath();
+            settings.BMSInstallDir = Path.GetTempPath();
+            settings.ScanBmsFilesOnStartup = false;
+            settings.SkipInitPlaylistLoad = true;
+            settings.UseBeatorajaScoreDb = false;
+            settings.EnableBeatorajaBmtOutput = false;
+            settings.UsePlayeruBMplay = false;
+            settings.UsePlayerLR2body = false;
+            settings.UsePlayerBMIIDXView = false;
+            settings.Encoder = EncoderType.MP3_LAME;
+            settings.Save();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
+            owner.SettingDialog.Dispose();
+            var persistedRequests = new CountingSettingsProvider(settings.Properties[nameof(Settings.Encoder)].Provider);
+            foreach (System.Configuration.SettingsProperty property in settings.Properties) { property.Provider = persistedRequests; }
+            var dialogs = new SettingsDialogBehaviorTests.RecordingDialogService
+            {
+                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            var gateway = new SettingsAudioGateway(() => settings);
+            using var dialog = new SettingsDialogViewModel(
+                owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
+                new TestSettingsDialogPlayerFactoryPort(), new TestSettingsDialogPlaybackRuntimePort(),
+                owner.Lr2SongDbSyncWorkflow, new SettingsEditSession(settings),
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(), schemaDialogs: dialogs,
+                audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create(),
+                externalShellGateway: ExternalShellGatewayPolicy.Current,
+                applicationPathSnapshot: ApplicationPathPolicy.Current,
+                audioDeviceCatalog: new SettingsDialogBehaviorTests.WaveOnlyAudioDeviceCatalog(),
+                audioSettingsGateway: gateway);
+            SettingsWindow? window = null;
+            try
+            {
+                window = new SettingsWindow { DataContext = dialog, PlaybackPanel = owner.PlaybackPanel };
+                scope.ShowAndWaitForContentRendered(window);
+                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationRecording");
+                Materialize(window);
+                var page = (RecordingSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var encoder = (ComboBox)page.FindName("comboBoxEncoder");
+                Assert.IsTrue(BindingOperations.IsDataBound(encoder, Selector.SelectedIndexProperty));
+                Assert.AreEqual((int)EncoderType.MP3_LAME, encoder.SelectedIndex, "実行ファイル欠損で保存済みMP3をWAVE表示へ変えません。");
+                Assert.AreEqual(EncoderType.MP3_LAME, SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(gateway.CaptureEncodingSettings()).Encoder);
+                Assert.AreEqual(0, persistedRequests.SetRequests, "初期表示とsnapshot取得は保存しません。");
+                Assert.AreEqual(0, dialogs.MessageCount);
+
+                encoder.SetCurrentValue(Selector.SelectedIndexProperty, (int)EncoderType.WAVE);
+                Materialize(window);
+                Assert.AreEqual(1, persistedRequests.SetRequests, "明示WAVE選択だけを一回保存します。");
+                Assert.AreEqual(EncoderType.WAVE, settings.Encoder);
+                Assert.AreEqual(EncoderType.WAVE, PortableSettingsPersistenceTests.OpenSettings(configPath).Encoder);
+                Assert.AreEqual((int)EncoderType.WAVE, encoder.SelectedIndex);
+                Assert.AreEqual(EncoderType.WAVE, SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(gateway.CaptureEncodingSettings()).Encoder);
+                window.CloseForOwnerShutdown();
+
+                window = new SettingsWindow { DataContext = dialog, PlaybackPanel = owner.PlaybackPanel };
+                scope.ShowAndWaitForContentRendered(window);
+                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationRecording");
+                Materialize(window);
+                page = (RecordingSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                encoder = (ComboBox)page.FindName("comboBoxEncoder");
+                Assert.AreEqual((int)EncoderType.WAVE, encoder.SelectedIndex);
+                Assert.AreEqual(1, persistedRequests.SetRequests, "再表示で保存を追加しません。");
+                byte[] savedWave = File.ReadAllBytes(configPath);
+
+                encoder.SetCurrentValue(Selector.SelectedIndexProperty, (int)EncoderType.AAC_NERO);
+                Materialize(window);
+                Assert.AreEqual(1, dialogs.MessageCount);
+                Assert.AreEqual(string.Format(CultureInfo.CurrentCulture, Resources.Warn_EncoderExecutableNotFoundFormat, EncoderType.AAC_NERO.GetEncoderFileName()), dialogs.LastMessageText);
+                Assert.IsTrue(BindingOperations.IsDataBound(encoder, Selector.SelectedIndexProperty));
+                Assert.AreEqual((int)EncoderType.WAVE, encoder.SelectedIndex, "拒否candidateをcontrolに残しません。");
+                Assert.AreEqual((int)EncoderType.WAVE, dialog.EncoderIndex);
+                Assert.AreEqual(EncoderType.WAVE, settings.Encoder);
+                Assert.AreEqual(EncoderType.WAVE, PortableSettingsPersistenceTests.OpenSettings(configPath).Encoder);
+                Assert.AreEqual(EncoderType.WAVE, SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(gateway.CaptureEncodingSettings()).Encoder);
+                Assert.AreEqual(1, persistedRequests.SetRequests, "利用不能な別形式の拒否は保存しません。");
+                CollectionAssert.AreEqual(savedWave, File.ReadAllBytes(configPath));
+            }
+            finally
+            {
+                try
+                {
+                    if (window?.IsVisible == true) { window.CloseForOwnerShutdown(); }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "recording-page-audio-cleanup");
+                }
+                finally
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "recording-page-owner-cleanup");
+                }
+            }
+        });
+    }
+
     /// <summary>注入した排他機器の能力を実 Window に反映し、format で rate を狭めず、rate 選択時には不適合 format を AUTO へ戻す接続を確認します。</summary>
     [TestMethod]
     public void ExclusiveRateChoicesRemainIndependentFromFormatAndRealBindingResetsFormatToAuto()

@@ -3429,16 +3429,11 @@ public partial class SettingsDialogViewModel : ViewModel
 
     public ReadOnlyObservableCollection<string> EncoderNames => new(["WAVE", "MP3 LAME", "AAC Nero", "Opus", "FLAC", "Ogg Vorbis"]);
 
+    /// <summary>現在設定されている録音形式を表示し、利用可能な形式への明示変更を項目保存します。</summary>
+    /// <remarks>実行ファイルの有無による形式の代替は表示時に行わず、実変換側の判断に委ねます。</remarks>
     public int EncoderIndex
     {
-        get
-        {
-            if (!EncoderChecker(ApplicationSettings.Encoder))
-            {
-                return (int)EncoderType.WAVE;
-            }
-            return (int)ApplicationSettings.Encoder;
-        }
+        get => (int)ApplicationSettings.Encoder;
         set
         {
             if (ApplicationSettings.Encoder != (EncoderType)value)
