@@ -1,6 +1,6 @@
 # エージェントの役割設定
 
-呼出し条件・共通契約・順序は[開発作業の仕様](../../devdocs/spec/development/agent-workflow.md)、各担当のモデル・推論強度・権限は各TOML、同時に開ける子担当スレッドの容量と待機は[全体設定](../config.toml)を正本とします。担当数とワークツリー数を区別し、所有と独立性は[並列作業](../../devdocs/spec/development/agent-workflow.md#並列作業)、重い検証の調整は[検証仕様](../../devdocs/spec/development/testing.md#複数ワークツリーの検証)に従います。
+呼出し条件・共通契約・順序は[開発作業の仕様](../../devdocs/spec/development/agent-workflow.md)、各担当のモデル・推論強度・権限は各TOML、同時に開ける子担当スレッドの容量と待機は[全体設定](../config.toml)を正本とします。担当数と作業ワークツリーの容量上限を区別し、暫定最大5本・メイン作業ツリーの統合専用運用・所有と独立性・追加と回収の判断は[並列作業](../../devdocs/spec/development/agent-workflow.md#並列作業)、重い検証の調整は[検証仕様](../../devdocs/spec/development/testing.md#複数ワークツリーの検証)に従います。
 
 | 設定 | 用途 |
 | --- | --- |

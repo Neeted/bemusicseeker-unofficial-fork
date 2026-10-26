@@ -4,7 +4,7 @@
 
 開発の起点・通常のPR先は `dev`、正式公開済みのコードと配信データは `main` です。`dev` から分岐した通常の作業ブランチは、個々のコミットを残して原則 `git merge --ff-only` で `dev` へ統合します。`dev` と `main` の間は履歴を保つマージを使います。通常作業の統合と例外、`main` への反映、緊急修正、配信データの更新は[ブランチ運用とリリース手順](devdocs/spec/development/release.md)に従います。
 
-単独開発はメインの作業ツリーで行えます。独立した修正を別ワークツリー・別ブランチで並列に進める場合は、[所有と独立性](devdocs/spec/development/agent-workflow.md#並列作業)、[重い検証の調整](devdocs/spec/development/testing.md#複数ワークツリーの検証)、[一件ずつの統合](devdocs/spec/development/release.md#通常の作業ブランチの統合)に従います。
+単独開発はメインの作業ツリーで行えます。並列開発中はメインの作業ツリーを `dev` の統合専用として原則クリーンに保ち、新しい実装・テスト・仕様・計画は各作業ワークツリーの別ブランチで完結させます。作業ワークツリーは他のチャット分も含め、メイン以外に暫定最大5本とします。[所有と独立性・追加と回収の判断](devdocs/spec/development/agent-workflow.md#並列作業)、[重い検証の調整](devdocs/spec/development/testing.md#複数ワークツリーの検証)、[準備が揃った単位からの一件ずつの統合](devdocs/spec/development/release.md#通常の作業ブランチの統合)に従います。
 
 ## 変更の原則
 
