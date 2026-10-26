@@ -24,6 +24,8 @@
 
 `Settings.Commit` は対象項目だけをproviderへ直接渡し、成功後に対象だけを既存readerへ公開します。同値は保存せず、保存失敗では確定値を変更しません。全体 `Reload` は保存処理に使いません。二媒体を扱う局所担当は選択保存と公開を分け、全媒体成功後に整合組を公開します。
 
+動作モードの選択は今回のモードと確認後の最新確定LR2三項目だけを保存し、無関係な確定値・未知キーを保ちます。未設定・不正なパスもそのまま保持し、未確定詳細を採用したりXMLの成立をモード保存の条件にしたりしません。保存成功と利用開始の必須設定成立は別で、初回・修復中の設定継続と通常利用中の終了・後継起動は[設定仕様](settings.md#lr2の場所と設定xml)に従います。
+
 LR2 XMLの検索登録は最新文書のユーザールートと管理出力rootを保ち、関連する登録変更を同じ文書の一回保存へまとめます。日常の表プロパティ変更・集約編集・削除・root同期も書込み時に最新文書を読み、局所確定前から保持した文書で別の登録を戻しません。
 
 同じ媒体の読取りから置換までをproviderの短い保存境界で直列化します。実処理・通知待ちの間は保持しません。起動移行、終了、位置捕捉、右クリックなど画面外の `Save` も変更済み項目だけを渡し、別wrapperが直近に保存した無関係な値と未知キーを保ちます。
@@ -68,6 +70,7 @@ BMTの異物理先変更は、新先の必要ファイルと管理情報を先�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 未設定LR2へのモード選択の限定保存 | [モード選択](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)、[終了受付](../../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs) | `SettingsDialogBehaviorTests.OperationModeWithoutActiveProfile_PreservesRawPathsAndAllowsExplicitSaveAfterFailure` が未設定・不正な生パス保持、実保存失敗と明示再操作、未知キー・別wrapperの無関係確定値を確認する。`MainWindowViewHostTests.MainWindowOperationModeRestart*` が実Close・player回収・後継起動を、既存の `PortableSettingsPersistenceTests` がprovider自体の限定公開を分担する。 |
 | 確定BMS登録の共通保存・限定公開 | [`BmsRootRegistrationStore`](../../../BeMusicSeeker/Models/Settings/BmsRootRegistrationStore.cs) | `BmsRootRegistrationTests` が実config/XMLの片側失敗・最新/同値明示保存・未知XML・roots-only保存を、`SettingsDialogBehaviorTests.Lr2BmsConfirmation_PartialSaveCloseKeepsPublishedInputsUntilExplicitSave` が候補・通常Close/reopen・必要差分終端を分担する。 |
 | 既存内容の保全と実際のI/O失敗 | [`PortableSettingsProvider`](../../../BeMusicSeeker/Properties/PortableSettingsProvider.cs) | [`PortableSettingsPersistenceTests`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) |
 | 自動推定後導入のキー欠損と有効・無効の保存 | [`Settings`](../../../BeMusicSeeker/Properties/Settings.cs)、`PortableSettingsProvider` | `PortableSettingsPersistenceTests.MissingFileAndIndividualKeyUseDefaults` は新規と旧設定の欠損時OFF、`SaveRoundTripsThroughFreshGeneratedSettingsAndPreservesUnknownKeys` はON/OFFを新providerで読み戻すことを確認する。 |

@@ -176,7 +176,7 @@ JSONの欠落・アクセス・読取り失敗、シリアライザーの入力�
 
 ### LR2の場所と設定XML
 
-`LR2RootPath`、`LR2SongDBPath`、`LR2ConfigXmlPath` は既存形式の個別キーで、モードと整合した組を保存します。通常の起動で子パスをルートから再生成しません。保存された設定XMLのパスが欠落・読取不能・不正な場合も、別設定の保存や画面の再表示を理由に生のパスを消しません。パス文字列、解析済み設定、表示用の状態を分けます。
+`LR2RootPath`、`LR2SongDBPath`、`LR2ConfigXmlPath` は既存形式の個別キーで、動作モードとともに関連項目として保存します。通常の起動で子パスをルートから再生成しません。保存された設定XMLのパスが欠落・読取不能・不正な場合も、別設定の保存や画面の再表示を理由に生のパスを消しません。パス文字列、解析済み設定、表示用の状態を分けます。
 
 LR2連携モードで `LR2RootPath` が空の既存設定は非推奨ですが、互換性のためそれだけでは保存を拒否しません。一般ページのLR2ディレクトリ欄へ `Warning` と理由を表示し、値を設定するよう促します。この警告は参照操作で不正な候補を選んだ一時的な選択エラーとは別に扱い、ルートを設定した場合、または単独動作モードでは表示しません。ルートから子パスを推測する新しいフォールバックは追加しません。
 
@@ -184,7 +184,9 @@ LR2連携モードで `LR2RootPath` が空の既存設定は非推奨ですが�
 
 `LR2Config` の直接読込みや検索ルート登録で生じる例外の詳細も、画面へ渡る文言は表示リソースを使います。構造エラーは `Error_InvalidLR2ConfigStructure`、ファイル名の案内は `config.xml` / `config.xmh` の許容条件に従います。ウィンドウ寸法は正値、音量は0以上100以下という入力条件と文言を一致させます。通常の設定検証では既存の設定不備の案内を維持します。辞書の検査は[全件共通検査](../development/test-authoring.md#表示リソースの検査)に集約します。
 
-標準配置はルート配下の `LR2files/Database/song.db` と `LR2files/Config/config.xml` または `config.xmh` です。未採用のルート選択は候補と設定XMLを検証し、そのルートから解決した3パスで反映処理へ進みます。同じ採用済みルートの再選択では、個別指定のXMLもその識別を維持し、DBの標準配置への復帰とは分けます。モード選択は保存済みのLR2パスを使い、詳細欄の未確定パスを混ぜません。有効profileがある場合は保存前に再起動を確認し、承認後に必要な受付と選択保存から通常の終了・後継起動へ進みます。取消は保存済みの値へ戻します。無効な今回の選択やpicker取消で、以前の有効候補を確定しません。
+標準配置はルート配下の `LR2files/Database/song.db` と `LR2files/Config/config.xml` または `config.xmh` です。未採用のルート選択は候補と設定XMLを検証し、そのルートから解決した3パスで反映処理へ進みます。同じ採用済みルートの再選択では、個別指定のXMLもその識別を維持し、DBの標準配置への復帰とは分けます。無効な今回のルート選択やpicker取消で、以前の有効候補を確定しません。
+
+モード選択は、今回選んだモードと確認後の最新確定LR2パスだけを保存し、詳細欄の未確定パスを混ぜません。確定パスが未設定・不正でもモード選択は保存でき、別のroot・DB・XMLで補いません。モード保存にXMLの成立を要求せず、ルート選択・詳細パス確定と利用開始の必須検証は維持します。有効profileがある通常利用中は保存前に再起動を確認し、承認と必要な受付の後、選択保存から通常の終了・join・後継起動へ進みます。同じプロセスの稼働環境は差し替えません。後継起動で未設定なら既存の設定案内へ進みます。有効profileがない初回・修復中はその場で保存して設定を続け、必須値を確定するまで利用開始を止めます。初回かどうかの履歴だけで再起動の要否を決めません。確認取消は保存済みの値へ戻します。
 
 同じ正規化済みLR2ルートを選び直した場合は、構成が採用済みのXML識別と正本を使い、更新日時でXML候補を選び直しません。同値の組なら再保存・再起動しません。`song.db` がまだなくても標準パスを候補にできますが、保存時の必要条件は別途満たす必要があります。無効なルートや設定XMLでは保存済みの組と解析結果を保ちます。保存成功後に詳細候補と依存表示を確定値へ揃えます。モード変更で実保存を試みた後に失敗した場合は、保存済みのモードと非終了状態を維持し、今回のモード選択を画面に残します。保存先の解放だけでは再実行せず、同じ入力の明示再操作で保存を試みます。保存前の取消・検証拒否・受付拒否では、今回のモード選択表示を確定値へ戻します。
 
@@ -253,7 +255,7 @@ BMS一覧の編集中にモード・LR2ルート・LR2詳細パス・通常出�
 | 右クリックaction、履歴プリセット | 一recordを確定し他recordの入力を混ぜない。削除・並替・既定値復帰は明示操作として保存する。右クリックactionの保存順は、未確定行を含む画面順から確定IDだけを投影し、新しい行の確定時にも表示位置を反映する。他行の未確定内容は保存しない。既存JSONを維持する。 |
 | 出力配置と追加先名 | 通常・ROOTはフォルダ選択と既存移行確認、追加先は追加・削除・改名から操作対象だけ確定する。取消は副作用0。未受理入力は確定配置へ戻し、明示再操作では最新入力を再保存・再生成する。必要な保存、登録改名、検索rootのディスク保存、公開と通知まで追跡する。BMS候補を混ぜない。 |
 | beatoraja root・player・派生path | 有効な選択で確定方針のBMTを準備して整合組を保存し、採用後のBMT部分失敗でも必要score・cache・必須表示を同じTaskで回収する。再起動しない。 |
-| mode・LR2基礎path | モード・ルート選択または詳細欄の明示確定から、その組だけを保存し既存の再起動受付・Close・join・後継起動へ進む。 |
+| mode・LR2基礎path | モード選択は未設定・不正を含む最新確定パスと保存し、ルート選択・詳細欄の明示確定はパス組を検証する。稼働中は既存の再起動受付・Close・join・後継起動へ進み、非稼働時はその場で設定を続ける。 |
 
 有効な環境がない初回・修復では同じ局所保存を使い、ライブラリ依存処理は開始時に使います。初回・修復のLR2では通常・ルート出力先を一つずつ保存でき、未設定・欠落した他区分はその保存を妨げません。未変更の要修復先を作り直さず、表に依存するROOT登録は初期化時に揃えます。選択した出力先と設定済みの配置の保護条件は検査し、初期化開始時には両方の必須出力先を検査します。環境保存で再起動せず、「この環境で開始」が確定済み必須値で一回だけ初期化し、必要全表BMT・必須UI/host公開を待って初回完了とCloseへ進みます。設定不足、処理失敗、終了要求を既存型で区別します。
 
@@ -346,6 +348,7 @@ BMSディレクトリの追加・削除・複数選択・D&Dは設定画面内�
 | 出力配置の再保存・最新正本からの生成と初回段階保存 | 設定の局所確定、playlist出力担当 | `SettingDialogCustomFolderOutputBaseTests`の配置・導入先保護と、`CompiledInitialLr2OutputPickers_SaveEachRequiredPlacementBeforeAllowingInitialization`の初回段階保存を維持する。`SettingDialogEditCompletionTests.OutputConfirmation_LatestSelectionResavesBothMediaAfterPartialFailure` が最新入力の二媒体保存を、`OutputConfirmation_HeaderFailureUsesPublishedNamesOrFreshSavedDefinitions` が改名DB失敗後の同一runtimeと新しいownerの読取り・次操作を、`BmsPlaylistMigrationAndRegistrationTests.OutputSettings_HeaderFailureKeepsAllPublishedNames` がheader一括保存を確認する。 |
 | beatorajaの独立root・score・BMT確定と失敗後の次操作 | 設定の局所反映、Generalページ、既存score/BMT担当 | `SettingDialogEditCompletionTests.BmtSettingsAdoption_PreservesAdoptedMediaAndAllowsCurrentNextInput` が実BMT/manifest/user.config/config/削除の故障、採用時の媒体、root別名の物理同先、保持ON/OFF、整理失敗後のCを確認する。`SettingsDialogBehaviorTests.BeatorajaRootConfirmation_PassesSavedBmtPolicyWithoutDraftOptions` と既存root pickerは確定方針・player解決・候補破棄と実Bindingを分担する。score独立の条件は上記score系列が担う。 |
 | モード・LR2の先着保存・通常終了・後継起動 | [`ShellShutdownWorkflowOwner`](../../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs) と[LR2反映](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs) | [`ShellShutdownWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/MainWindow/ShellShutdownWorkflowOwnerTests.cs) の先着受付・保存失敗、[`MainWindowViewHostTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewHostTests.cs) の実Windowのplayer解放と後継起動接続を維持する。 |
+| LR2未設定時のモード選択保存と利用開始の検証 | [モード選択と環境確定](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs) | [`SettingsDialogBehaviorTests.OperationModeWithoutActiveProfile_PreservesRawPathsAndAllowsExplicitSaveAfterFailure`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) は未設定・不正な確定パス、候補非混入・実保存失敗と明示再操作・未知キー保全を確認する。`SettingDialogEditCompletionTests.OperationModeRadio_*` は未設定の前向き実Click・逆方向・表示だけの非保存・取消・実操作中の拒否を、`Lr2AutomaticSelection_OperationAcceptedDuringConfirmationRejectsWithoutDeferredRestart` は、P側の未設定standaloneからLR2への選択とBMS候補、L側の有効LR2からstandaloneへの選択と詳細候補で、先着拒否・候補保持・次の明示保存を確認する。確認後に最新確定組を捕捉する位置は実装の静的確認で分担する。`UnconfiguredLr2ModeSave_ExplicitStartAndFreshStartupRequireSettings` は初回・非初回修復での保存後、実明示開始とfresh readerの通常起動が設定不足で止まることを担当する。既存のroot・詳細パス検査と空rootの有効個別パス互換は維持する。 |
 | 起動中の環境操作拒否・開始入力とowner終了時のjoin | [設定入口](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs)、[`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`SettingDialogEnvironmentConfirmationTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEnvironmentConfirmationTests.cs)、[`SettingDialogOperationShutdownTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogOperationShutdownTests.cs)、[`MainWindowViewModelStartupProgressTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) は事前準備・必須UI待ち、案内中の明示開始、実開始の連続入力・成功公開・失敗修復、参照消去後の操作Task回収を分担する。 |
 | 独立局所確定と受理Taskの寿命、失敗後の次操作 | 設定Window・設定ViewModelの局所確定 | `SettingsDialogBehaviorTests.SectionConfirmation_PreparationReopenAdoptsOnlySavedSection` は準備中の入力捕捉と自己欄だけの同期、`SettingsWindowPresentationTests.BmtButtonWhileOutputIsPending_AllowsIndependentImageConfirmationAndPreservesOwnerJoin` と既存Close/Esc・`SettingDialogOperationShutdownTests` は実P、compiled入口とShellの直接joinを担う。`BmtProcessingFailure_AllowsExplicitCurrentUpdateAndRestoreAfterReopen` は失敗通知・自動再実行0・次の明示更新を確認する。 |
 | record保存・既存JSON | [右クリックrecord編集](../../../BeMusicSeeker/ViewModels/Settings/RightClickActionSettingsEditor.Confirmation.cs)、[履歴preset](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | [`SettingsDialogBehaviorTests.RightClickRecordConfirmationPreservesOtherSavedRecords`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) の他record候補非混入と保存済JSON。[`RightClickRecordOrderProjectsDisplayedPositionsWithoutSavingOtherCandidates`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) はWeb/Programの未確定行を含む移動・新行確定位置・削除と実保存失敗時の維持を確認する。各recordの入力・互換性は既存右クリック・履歴系列が分担する。 |

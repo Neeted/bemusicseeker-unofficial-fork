@@ -55,6 +55,7 @@ public sealed partial class SettingDialogEditCompletionTests
             settingsSession,
             requestOperationModeRestart: request =>
             {
+                request.BeforeSave?.Invoke();
                 settingsSession.SaveEnvironmentForRestart(request.Environment, request.HistoryIdentity);
                 return Task.FromResult(true);
             },
@@ -409,7 +410,10 @@ public sealed partial class SettingDialogEditCompletionTests
             {
                 Settings settings = CreateValidStandaloneSettings(root);
                 settings.OperationModeLR2DB = initialOperationMode;
-                (settings.LR2SongDBPath, settings.LR2ConfigXmlPath) = CreateValidLr2Layout(Path.Combine(root, "lr2"));
+                settings.LR2RootPath = string.Empty;
+                if (initialOperationMode)
+                { (settings.LR2SongDBPath, settings.LR2ConfigXmlPath) = CreateValidLr2Layout(Path.Combine(root, "lr2")); }
+                else { settings.LR2SongDBPath = string.Empty; settings.LR2ConfigXmlPath = string.Empty; }
                 var settingsSession = new CountingSettingsEditSession(settings);
                 var dialogs = new RecordingRootDialogService
                 {
@@ -441,6 +445,8 @@ public sealed partial class SettingDialogEditCompletionTests
                 RadioButton requestedMode = FindOperationModeRadio(finalWindow, useLr2: !initialOperationMode);
                 requestedMode.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
                 Assert.AreEqual(true, requestedMode.IsChecked);
+                Assert.AreEqual(0, dialogs.ConfirmationCount, "プログラムによる選択表示だけでは確認しません。");
+                Assert.AreEqual(0, settingsSession.SaveCount, "実Click前にはモードを保存しません。");
                 requestedMode.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, requestedMode));
                 finalWindow.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
 
@@ -479,7 +485,10 @@ public sealed partial class SettingDialogEditCompletionTests
             {
                 Settings settings = CreateValidStandaloneSettings(root);
                 settings.OperationModeLR2DB = initialOperationMode;
-                (settings.LR2SongDBPath, settings.LR2ConfigXmlPath) = CreateValidLr2Layout(Path.Combine(root, "lr2"));
+                settings.LR2RootPath = string.Empty;
+                if (initialOperationMode)
+                { (settings.LR2SongDBPath, settings.LR2ConfigXmlPath) = CreateValidLr2Layout(Path.Combine(root, "lr2")); }
+                else { settings.LR2SongDBPath = string.Empty; settings.LR2ConfigXmlPath = string.Empty; }
                 var settingsSession = new CountingSettingsEditSession(settings);
                 var dialogs = new RecordingRootDialogService
                 {

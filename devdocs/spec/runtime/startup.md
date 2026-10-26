@@ -130,7 +130,7 @@ standaloneの通常操作は、共通の確定登録readerから要求ごとの�
 
 単独動作のルートは複数登録でき、存在するパスの正規化と大小文字を無視した重複排除を行います。利用者が登録した親子や用途の単位を勝手にまとめません。旧 `BMSRootPath` はルート一覧が空で実在する場合だけ初回移行に使います。新規導入先は登録ルートのいずれかを必須とします。
 
-有効な実行中モードの切替はプロセス再起動です。設定の変更意図に対する確認・先着受付・最小設定の保存と終了は、設定と終了の仕様に従います。同じプロセスの再初期化でDB所有や連携先を差し替えません。まだ有効なモードが一度も成立していない初回・検証失敗時は、編集値を選んで保存した後に同じプロセスで初期化できます。
+有効な実行中モードの切替はプロセス再起動です。設定の変更意図に対する確認・先着受付・最小設定の保存と終了は、設定と終了の仕様に従います。同じプロセスの再初期化でDB所有や連携先を差し替えません。LR2の場所・DB・XMLが未設定でもモード選択は保存でき、後継プロセスの必須検証で設定不足なら既存の設定案内へ進みます。有効profileがない初回・検証失敗時はモードだけをその場で保存して設定を続け、必須値を確定してから同じプロセスで明示開始します。モード保存だけでは初期化を開始せず、未設定を有効な空ライブラリへ置き換えません。
 
 初回の言語選択は `InitialSetupLanguageDialog` で行い、次にメイン画面を所有元とする設定画面を開きます。一般の設定不備は通常の確認画面で案内します。必須設定が揃うまで初回走査を開始しません。LR2bodyのプレイヤー選択はライブラリのモードとは別で、単独動作でも使用できます。
 
@@ -257,6 +257,7 @@ flowchart TB
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 未設定LR2のモード保存後も必須不足で利用開始を停止 | [モード保存と明示開始](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)、[`MainWindowViewModel.InitializeAsync`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | `SettingDialogEditCompletionTests.UnconfiguredLr2ModeSave_ExplicitStartAndFreshStartupRequireSettings` は初回・非初回修復での実保存、実明示開始と同じ保存物を読む新compositionの通常起動を通し、設定案内、profile非公開、モデル工場・DB・出力未開始をWindowなしで確認する。既存の無効パス条件表と空root・有効個別パス互換は `InitializeAsync_InvalidLr2SettingsUseSettingsGuidanceAndPreserveFiles` 等へ分担する。 |
 | 確定readerと不変起動入力 | [`StartupSettingsSnapshot`](../../../BeMusicSeeker/ViewModels/Startup/StartupSettingsSnapshot.cs)、[`ApplicationComposition`](../../../BeMusicSeeker/ViewModels/MainWindow/ApplicationComposition.cs) | `StartupLibraryProfileTests` / `StartupSettingsSnapshotTests` が起動入力と実Library/Playlistの接続を、`SettingDialogEditCompletionTests.BmsConfirmation_CompletesRealFileDiffBeforeClosing` が公開後の実差分走査を確認する。 |
 | 初回設定からのLR2正本引継ぎと再初期化 | [`StartupLibraryConstructionOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupLibraryConstructionOwner.cs)、[`Lr2ConfigOwner`](../../../BeMusicSeeker/Models/LR2/Lr2ConfigOwner.cs) | [`Lr2InitialSettingsSaveIsInheritedByFirstLibraryConstruction`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) が未構築時の保存から初回開始を、[`BmsConfirmation_CompletesRealFileDiffBeforeClosing`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) が実LR2profileの保存・DB・表示と次差分・全再初期化を確認します。 |
 | ソート準備範囲のReload後捕捉と次回起動からの適用 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | [`MainWindowViewModelStartupProgressTests.StartupSortCachePriority_CapturesAfterReloadAndSurvivesFullReinitialization`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) はReload前3/後0を実起動後warmupへ通し、保存3→同ownerの全体再初期化0→新構成3と実際の78件の順序準備を確認する。設定捕捉から`MainWindowViewModel`・実際の対象選定・準備処理への接続を対象とし、保守との本番順序は保証しない。既存の受付窓口で保守要求を実スケジューラーへの登録前に保持し、準備処理の観測後・失敗時の `finally`に一度だけ元スケジューラーへ渡して実処理も回収する。 |

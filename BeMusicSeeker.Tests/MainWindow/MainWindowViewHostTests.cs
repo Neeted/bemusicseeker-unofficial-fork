@@ -1207,7 +1207,7 @@ public sealed class MainWindowViewHostTests
     }
 
 
-    /// <summary>実設定のモード切替はplayer終了をUI停止せず待ち、モードと履歴を保存して新プロセス開始後に旧Windowを終端します。</summary>
+    /// <summary>未設定LR2への実モード切替も旧standaloneを維持し、player終了をUI停止せず待ち、モードと履歴を保存して後継起動後に旧Windowを終端します。</summary>
     [TestMethod]
     public void MainWindowOperationModeRestartDrainsPlayerBeforeStartAndShutdown()
     {
@@ -1248,14 +1248,9 @@ public sealed class MainWindowViewHostTests
         var settings = (Settings)System.Configuration.SettingsBase.Synchronized(
             PortableSettingsPersistenceTests.OpenSettings(settingsPath));
         settings.OperationModeLR2DB = false;
-        string linkedDatabase = Path.Combine(directory.Path, "LR2files", "Database", "song.db");
-        string linkedConfig = Path.Combine(directory.Path, "LR2files", "Config", "config.xml");
-        Directory.CreateDirectory(Path.GetDirectoryName(linkedDatabase)!);
-        Directory.CreateDirectory(Path.GetDirectoryName(linkedConfig)!);
-        File.WriteAllBytes(linkedDatabase, []);
-        File.WriteAllText(linkedConfig, "<config><system /><jukebox /></config>");
-        settings.LR2SongDBPath = linkedDatabase;
-        settings.LR2ConfigXmlPath = linkedConfig;
+        settings.LR2RootPath = string.Empty;
+        settings.LR2SongDBPath = string.Empty;
+        settings.LR2ConfigXmlPath = string.Empty;
         settings.PlayHistorySelectedDisplayTargetIdentity = "history-initial";
         settings.BMSRootPath = directory.Path;
         settings.StandaloneBmsRootPaths = directory.Path;
@@ -1350,9 +1345,8 @@ public sealed class MainWindowViewHostTests
                     playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: settings);
                 mutationPreparation.Library = library;
                 TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings, library: library);
-                viewModel = new MainWindowViewModel(
-                    composition,
-                    new FixedStartupLibraryFactory(library, playlist));
+                var startupFactory = new FixedStartupLibraryFactory(library, playlist);
+                viewModel = new MainWindowViewModel(composition, startupFactory);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
                 ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
@@ -1389,33 +1383,14 @@ public sealed class MainWindowViewHostTests
                         FileShare.ReadWrite);
                 }
 
-                observation = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await TestUiDispatcherHost.AwaitNotificationAsync(playerEntered.Task, observedClose.Task.Unwrap(), "mode-restart.close-player");
-                        DispatcherOperation marker = dispatcher.InvokeAsync(() =>
-                        {
-                            dispatcherMarkerObserved = true;
-                            Assert.AreEqual(0, lifetime.RestartCount);
-                            Assert.AreEqual(0, lifetime.RequestShutdownCount);
-                            Assert.AreEqual(0, settingsSession.SaveCount);
-                        }, DispatcherPriority.Normal);
-                        await marker.Task;
-                    }
-                    finally
-                    {
-                        playerRelease.Set();
-                    }
-                });
-
                 // 後続要求に先立つ受理済みL保守は上の準備で実work終端まで回収済みです。
                 Assert.IsFalse(composition.OperationAdmission.IsActive, "受理済み起動保守の準備終端後にmode保存を要求します。");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.SettingDialog.SelectOperationModeAsync(true), "operation mode automatic confirmation");
+                Task modeOperation = viewModel.SettingDialog.SelectOperationModeAsync(true);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(modeOperation, "operation mode automatic confirmation");
                 if (operationModeSaveFailure)
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                        settingsSaveFailureReported.Task,
+                        TestUiDispatcherHost.AwaitNotificationAsync(settingsSaveFailureReported.Task, modeOperation, "mode-restart-save-failure"),
                         "MainWindowViewHostTests.mode-restart-save-failure");
                 }
                 // 保存前のClose先着拒否は確定表示へ戻し、実保存の失敗では今回入力を保持します。
@@ -1433,6 +1408,9 @@ public sealed class MainWindowViewHostTests
                 Assert.AreEqual(closeDuringConfirmation ? 0 : 1, settingsSession.ModeSaveCount);
                 Assert.AreEqual(0, lifetime.RestartCount);
                 Assert.AreEqual(0, lifetime.RequestShutdownCount);
+                Assert.IsTrue(viewModel.HasActiveLibraryProfile, "モード保存で同一プロセスの稼働環境を差し替えません。");
+                Assert.AreEqual(1, startupFactory.LibraryCallCount);
+                Assert.AreEqual(1, startupFactory.PlaylistCallCount);
                 if (operationModeSaveFailure)
                 {
                     Assert.AreEqual(1, reportedSettingsFailures.Count);
@@ -1461,6 +1439,26 @@ public sealed class MainWindowViewHostTests
                     Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(settingsPath).OperationModeLR2DB);
                     Assert.AreEqual(1, reportedSettingsFailures.Count, "明示再操作の成功は最初の保存失敗を重複報告しません。");
                 }
+                observation = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await TestUiDispatcherHost.AwaitNotificationAsync(playerEntered.Task, observedClose.Task.Unwrap(), "mode-restart.close-player");
+                        DispatcherOperation marker = dispatcher.InvokeAsync(() =>
+                        {
+                            dispatcherMarkerObserved = true;
+                            Assert.AreEqual(0, lifetime.RestartCount);
+                            Assert.AreEqual(0, lifetime.RequestShutdownCount);
+                            Assert.AreEqual(0, settingsSession.SaveCount);
+                        }, DispatcherPriority.Normal);
+                        await marker.Task;
+                    }
+                    finally
+                    {
+                        playerRelease.Set();
+                    }
+                });
+
                 window.Close();
                 observedClose.TrySetResult(window.CloseCompletion);
 
@@ -1483,6 +1481,9 @@ public sealed class MainWindowViewHostTests
                 }
                 Settings persisted = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
                 Assert.AreEqual(restartExpected, persisted.OperationModeLR2DB);
+                Assert.AreEqual(string.Empty, persisted.LR2RootPath);
+                Assert.AreEqual(string.Empty, persisted.LR2SongDBPath);
+                Assert.AreEqual(string.Empty, persisted.LR2ConfigXmlPath);
                 Assert.AreEqual("history-initial", persisted.PlayHistorySelectedDisplayTargetIdentity);
                 Assert.IsTrue(persisted.ShowScoreViewerRegisterConfirmMsg);
 
@@ -1562,9 +1563,13 @@ public sealed class MainWindowViewHostTests
             this.playlist = playlist ?? throw new ArgumentNullException(nameof(playlist));
         }
 
-        public BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile) => library;
+        internal int LibraryCallCount { get; private set; }
 
-        public BMSPlaylist CreateBmsPlaylist(LibraryProfile libraryProfile, BMSLibrary library) => playlist;
+        internal int PlaylistCallCount { get; private set; }
+
+        public BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile) { LibraryCallCount++; return library; }
+
+        public BMSPlaylist CreateBmsPlaylist(LibraryProfile libraryProfile, BMSLibrary library) { PlaylistCallCount++; return playlist; }
     }
 
     private sealed class PersistentSettingsEditSession : ISettingsEditSession

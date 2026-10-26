@@ -717,7 +717,7 @@ public partial class SettingsDialogViewModel
 
     private void SettingsOperationAvailabilityChanged(object sender, EventArgs args) => RaiseEnvironmentAvailabilityChanged();
 
-    /// <summary>モードの実選択は保存済みLR2組で反映します。保存前の取消・拒否は確定値へ戻し、実保存の失敗では今回入力を残して明示再操作を可能にします。</summary>
+    /// <summary>モードの実選択は未設定を含む保存済みLR2パスと保存します。パス確定・利用開始の必須検証とは分け、保存前の拒否は確定表示へ戻し、実保存失敗では今回入力を残します。</summary>
     internal Task SelectOperationModeAsync(bool value)
     {
         if (!IsEnvironmentSelectionEnabled) { RestoreOperationModeSelection(); return Task.CompletedTask; }
@@ -764,15 +764,20 @@ public partial class SettingsDialogViewModel
     internal Task CommitEnvironmentCoreAsync() => CommitEnvironmentChangeAsync(CaptureEnvironmentCandidate());
 
     /// <summary>環境の今回入力を確認・最終検証し、実受付後に保存します。関係候補は採用点で破棄します。</summary>
+    /// <param name="modeOnly">モードだけの選択では、確認後の最新確定パスを未設定・不正でもそのまま保存し、パス組の成立を要求しません。</param>
     /// <param name="onSaveStarted">保存前の拒否と実保存の失敗を区別するため、保存を開始する採用点だけで呼びます。</param>
     private async Task CommitEnvironmentChangeAsync(EnvironmentSettingsChange change, bool replaceDetails = false, bool modeOnly = false, Action onSaveStarted = null)
     {
         if (!IsEnvironmentSelectionCoreEnabled || !operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation) { return; }
-        bool validConfig = lr2ConfigSession.TryResolve(change.LR2ConfigXmlPath, out Lr2ConfigOwner candidateOwner, adoptInitial: false);
-        if (change.OperationModeLR2DB && (!IsLR2SongDBPathValid(change.LR2SongDBPath) || !validConfig))
+        Lr2ConfigOwner candidateOwner = null;
+        if (!modeOnly)
         {
-            ShowSettingValidationError(Resources.Error_InvalidLR2SongDbOrConfigPath);
-            return;
+            bool validConfig = lr2ConfigSession.TryResolve(change.LR2ConfigXmlPath, out candidateOwner, adoptInitial: false);
+            if (change.OperationModeLR2DB && (!IsLR2SongDBPathValid(change.LR2SongDBPath) || !validConfig))
+            {
+                ShowSettingValidationError(Resources.Error_InvalidLR2SongDbOrConfigPath);
+                return;
+            }
         }
         if (change == EnvironmentSettingsChange.Capture(ApplicationSettings)) { return; }
         ConflictingCandidates conflicts = ConflictingCandidates.Bms | (replaceDetails ? ConflictingCandidates.Lr2Details : ConflictingCandidates.None);
@@ -789,7 +794,7 @@ public partial class SettingsDialogViewModel
         change = modeOnly ? EnvironmentSettingsChange.Capture(ApplicationSettings) with { OperationModeLR2DB = change.OperationModeLR2DB }
             : change with { OperationModeLR2DB = ApplicationSettings.OperationModeLR2DB };
         if (change == EnvironmentSettingsChange.Capture(ApplicationSettings)) { SetOperationModeSelection(ApplicationSettings.OperationModeLR2DB); return; }
-        if (change.OperationModeLR2DB && (!IsLR2SongDBPathValid(change.LR2SongDBPath)
+        if (!modeOnly && change.OperationModeLR2DB && (!IsLR2SongDBPathValid(change.LR2SongDBPath)
             || !lr2ConfigSession.TryResolve(change.LR2ConfigXmlPath, out candidateOwner, adoptInitial: false))) { return; }
         if (!statePort.HasActiveLibraryProfile)
         {

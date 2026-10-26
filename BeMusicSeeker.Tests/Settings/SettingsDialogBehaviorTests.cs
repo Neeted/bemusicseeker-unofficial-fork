@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
+using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
@@ -26,6 +27,69 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SettingsDialogBehaviorTests
 {
+    /// <summary>未設定・不正な確定LR2パスでもモードだけを保存し、有効な詳細候補を便乗させません。実保存失敗後も次の明示入力を受け付け、別wrapperの確定値と未知キーを保ちます。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    [DoNotParallelize]
+    public void OperationModeWithoutActiveProfile_PreservesRawPathsAndAllowsExplicitSaveAfterFailure(bool malformedConfig)
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new TemporaryDirectory("mode-without-profile");
+            Settings values = OpenPersistedSettings(directory.Path);
+            string path = Path.Combine(directory.Path, "user.config");
+            values.LR2RootPath = malformedConfig ? Path.Combine(directory.Path, "missing-root") : string.Empty;
+            values.LR2SongDBPath = malformedConfig ? Path.Combine(directory.Path, "missing-song.db") : string.Empty;
+            values.LR2ConfigXmlPath = malformedConfig ? Path.Combine(directory.Path, "malformed.xml") : string.Empty;
+            if (malformedConfig) { File.WriteAllText(values.LR2ConfigXmlPath, "<config>"); }
+            values.Save();
+            var document = XDocument.Load(path);
+            document.Descendants("setting").First().Parent!.Add(new XElement("setting",
+                new XAttribute("name", "FutureModeKey"), new XAttribute("serializeAs", "String"), new XElement("value", "retain")));
+            document.Save(path);
+            var confirmed = EnvironmentSettingsChange.Capture(values);
+            var failures = new List<Exception>();
+            var dialogs = new RecordingDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            using var harness = SettingsDialogHarness.Create(values, reportApplyFailure: failures.Add, dialogs: dialogs);
+            (string SongDbPath, string ConfigPath, string BmsRoot) draft = CreateValidLr2Layout(Path.Combine(directory.Path, "draft"));
+            await harness.Dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2SongDBPath), draft.SongDbPath);
+            await harness.Dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2ConfigXmlPath), draft.ConfigPath);
+            harness.Dialog.EnableBeatorajaBmtOutput = true;
+            Settings other = PortableSettingsPersistenceTests.OpenSettings(path);
+            other.Commit((nameof(Settings.PlayerMixerThreadCount), 3));
+            byte[] before = File.ReadAllBytes(path);
+            using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            { await harness.Dialog.SelectOperationModeAsync(true); }
+            Assert.AreEqual(1, failures.Count);
+            Assert.IsInstanceOfType<PortableSettingsException>(failures[0]);
+            Assert.AreEqual(confirmed, EnvironmentSettingsChange.Capture(values));
+            Assert.IsTrue(harness.Dialog.OperationModeLR2DB, "実保存失敗は今回選択を画面に残します。");
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            Assert.AreEqual(confirmed, EnvironmentSettingsChange.Capture(PortableSettingsPersistenceTests.OpenSettings(path)), "保存先解放だけでは再実行しません。");
+            await harness.Dialog.SelectOperationModeAsync(true);
+            Settings saved = PortableSettingsPersistenceTests.OpenSettings(path);
+            Assert.AreEqual(confirmed with { OperationModeLR2DB = true }, EnvironmentSettingsChange.Capture(saved));
+            Assert.AreEqual(3, saved.PlayerMixerThreadCount);
+            Assert.IsFalse(saved.EnableBeatorajaBmtOutput);
+            Assert.IsTrue(harness.Dialog.EnableBeatorajaBmtOutput, "無関係なBMT候補は保持します。");
+            Assert.AreEqual("retain", XDocument.Load(path).Descendants("setting").Single(element => (string?)element.Attribute("name") == "FutureModeKey").Element("value")!.Value);
+            Assert.AreEqual(1, dialogs.ConfirmationCount, "最初の詳細候補破棄だけを確認し、非稼働時に再起動確認は要求しません。");
+            Assert.AreEqual(0, dialogs.MessageCount);
+            Assert.AreEqual(0, harness.State.InitializeCount);
+            Assert.AreEqual(0, harness.State.FileDiffReloadCount);
+            Assert.AreEqual(0, harness.State.ScoreReloadCount);
+            Assert.IsTrue(harness.Dialog.IsInitialEnvironment);
+            Assert.IsTrue(harness.Dialog.IsEnvironmentSelectionEnabled);
+            Assert.AreEqual(1, failures.Count);
+            if (malformedConfig) { Assert.AreEqual("<config>", File.ReadAllText(confirmed.LR2ConfigXmlPath)); }
+        }, nameof(OperationModeWithoutActiveProfile_PreservesRawPathsAndAllowsExplicitSaveAfterFailure));
+    }
+
     /// <summary>最初の待機前から実処理・後片付け・失敗通知まで単一受付を保ち、競合delegateを開始・予約せず、独立同期保存と失敗後の明示再操作を許可します。Window接続はcompiled系列が分担します。</summary>
     [TestMethod]
     [DoNotParallelize]
