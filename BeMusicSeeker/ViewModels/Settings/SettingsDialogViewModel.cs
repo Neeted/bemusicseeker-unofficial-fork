@@ -4205,7 +4205,7 @@ public partial class SettingsDialogViewModel : ViewModel
     }
 
     /// <summary>
-    /// 別ウィンドウの一record候補だけを保存し、成功後に一覧と実表示へ反映します。
+    /// 別ウィンドウの一record候補の名前を確定時に正規化して保存し、成功後に同じ確定値を一覧と実表示へ反映します。
     /// </summary>
     /// <param name="session">編集セッション。</param>
     /// <param name="errMsg">反映できない場合の理由。</param>
@@ -4216,12 +4216,12 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             return false;
         }
-        PlayHistoryDisplayTargetSet targetSet = session.ToTargetSet();
         PlayHistoryFolderDisplayPresetEditor preset = session.SourcePreset;
         var confirmed = PlayHistoryDisplayTargetSetStore.Deserialize(ApplicationSettings.PlayHistoryDisplayTargetSetsJson).ToList();
         int confirmedIndex = preset == null ? -1 : confirmed.FindIndex(item => string.Equals(item.Name, preset.Name, StringComparison.OrdinalIgnoreCase));
         var existingIds = GetPlayHistoryFolderDisplayPresetTables().Select(item => item.PlaylistId.Value).ToHashSet();
-        PlayHistoryDisplayTargetSet saved = FilterPlayHistoryFolderDisplayPresetTargets(targetSet, existingIds);
+        PlayHistoryDisplayTargetSet saved = FilterPlayHistoryFolderDisplayPresetTargets(session.ToTargetSet(), existingIds);
+        saved.Name = saved.Name.Trim();
         if (confirmedIndex < 0) { confirmed.Add(saved); } else { confirmed[confirmedIndex] = saved; }
         string json = PlayHistoryDisplayTargetSetStore.Serialize(confirmed);
         if (!TryCommitSetting(nameof(PlayHistoryFolderDisplayPresets), (nameof(Settings.PlayHistoryDisplayTargetSetsJson), json)))
@@ -4230,14 +4230,14 @@ public partial class SettingsDialogViewModel : ViewModel
 
         if (preset == null)
         {
-            preset = new PlayHistoryFolderDisplayPresetEditor(targetSet.Name, targetSet.Targets);
+            preset = new PlayHistoryFolderDisplayPresetEditor(saved.Name, saved.Targets);
             PlayHistoryFolderDisplayPresets.Add(preset);
         }
         else
         {
-            preset.Name = targetSet.Name;
+            preset.Name = saved.Name;
             preset.Targets.Clear();
-            foreach (PlayHistoryDisplayTargetReference reference in targetSet.Targets)
+            foreach (PlayHistoryDisplayTargetReference reference in saved.Targets)
             {
                 preset.Targets.Add(reference);
             }

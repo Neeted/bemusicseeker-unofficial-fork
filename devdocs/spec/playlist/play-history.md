@@ -95,6 +95,8 @@ FC内訳と既存FCカードは、FC・PERFECT・beatorajaのMAXへのクリア�
 
 プリセットJSONは名前と `PlaylistId` への参照だけを保存します。存在しないIDは一致せず、次の編集保存で除かれます。表の正本・譜面・更新日時は変更しません。選択は項目オブジェクトではなく表示対象の識別値を保存し、空と `all` はすべてです。まだ候補がなければ画面だけすべてにし、希望する識別値を保って候補出現時に復元します。一時的な未選択通知で保存した識別値を消しません。
 
+名前の入力中は文字列を保持し、確定時に一件の名前だけを `Trim` して対象参照とともに保存します。保存成功後、同じ確定値を設定画面の編集用プリセットへ反映します。前後空白を含む名前で保存しても、再表示せずに行う対象変更・改名・削除は同じ一件に作用します。名前の比較は従来どおり大小文字を無視します。取消、空名・重複名・対象未選択による拒否、保存失敗では確定済みの内容を変えず、他のプリセットや設定の未確定候補を保存・破棄しません。
+
 表の変更通知中に読込みロックを同期取得し直しません。候補再構築はUIへ遅延し、通知が重なれば最新の版まで再構築します。必要な譜面の遅延読込みは使えますが、表全体の再読込み・外部同期・出力を起動しません。
 
 プリセット編集は名前・検索・仮想化された有界の一覧を持ちます。検索は表示名全体への現在文化圏の大小文字無視の部分一致で、空白だけなら全件です。非表示になった選択も保存対象にし、検索文字列は編集セッション外へ持ち越しません。OK/取消はスクロール・サイズ変更によらず到達できます。
@@ -123,7 +125,8 @@ DB読取り、LR2スキーマ検査、期間実績の取得で例外を結果へ
 | 検索構文・日時範囲・表示フィルター | [`PlayHistoryReadCache`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryReadCache.cs) | [`GridKeywordSearchQueryTests`](../../../BeMusicSeeker.Tests/Search/GridKeywordSearchQueryTests.cs)、[`ChartListFilterViewModelTests`](../../../BeMusicSeeker.Tests/ChartList/ChartListFilterViewModelTests.cs) |
 | 実画面の期間・明示メニュー操作・対象変更 | [`PlayHistoryWorkflowOwner`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryWorkflowOwner.cs) | [`MainWindowPlayHistoryWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlayHistoryWpfTests.cs)、[`MainWindowContextMenuResourceTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowContextMenuResourceTests.cs)で実WPFの期間・明示メニュー操作・対象変更を自動検証する。実入力とフォーカスは[ユーザーに推奨する実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分ける。 |
 | 終端適用・データ源退役診断・行所有権 | [`PlayHistoryWorkflowOwner.TerminalShell`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryWorkflowOwner.TerminalShell.cs)、[`PlaylistWorkspaceViewModel.DetailTerminal`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.DetailTerminal.cs) | [`ChartListVirtualViewTests.PlayHistoryWorkflowOwner_ApplySortedRowsKeepsCommittedRowsAfterPublishFailure`](../../../BeMusicSeeker.Tests/ChartList/ChartListVirtualViewTests.cs)で実履歴行、旧行の一回の回収、データ源解除、後続公開とログ故障時の成功を確認する。必須公開の失敗・取消・旧世代の拒否は同テスト群の既存終端ケースで確認する。 |
-| プリセットの検索・選択保持・有界表示 | [`PlayHistoryFolderDisplayPresetEditor`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryFolderDisplayPresetEditor.cs) | [`DialogPresentationTests`](../../../BeMusicSeeker.Tests/Dialogs/DialogPresentationTests.cs)、[`SettingDialogCustomFolderOutputBaseTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCustomFolderOutputBaseTests.cs) |
+| プリセットの確定名・継続編集・削除と候補分離 | [`SettingsDialogViewModel.TryApplyPlayHistoryFolderDisplayPresetEditSession`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、`RemoveSelectedPlayHistoryFolderDisplayPreset` | [`SettingsDialogBehaviorTests.PlayHistoryPreset_ConfirmedNameKeepsSavedRecordAcrossEditsAndRemoval`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) は ` 練習 ` の確定から対象変更・` 集中 ` への改名・削除を再表示せずに行い、新しいproviderの生JSONと同じ編集用プリセットの名前・対象・件数を確認する。別recordの取消候補とBMT候補の非混入・保持も同ケースが確認する。既存の `SettingDialogCustomFolderOutputBaseTests.PlayHistoryFolderDisplayPresetEditor_DraftsSaveValidationAndIdMatching` は空名・重複名・対象未選択の拒否、ID照合と実履歴への両表示モードの配送を分担する。 |
+| プリセットの検索・選択保持・有界表示 | [`PlayHistoryFolderDisplayPresetEditor`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryFolderDisplayPresetEditor.cs) | [`DialogPresentationTests`](../../../BeMusicSeeker.Tests/Dialogs/DialogPresentationTests.cs)、[`SettingDialogCustomFolderOutputBaseTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCustomFolderOutputBaseTests.cs)。同一識別値で対象参照が変わる場合の再要求は `PlayHistoryDisplayTargetSelection_RequeuesWhenSameIdentityTargetSetChanges` が確認する。 |
 
 ## 関連資料
 

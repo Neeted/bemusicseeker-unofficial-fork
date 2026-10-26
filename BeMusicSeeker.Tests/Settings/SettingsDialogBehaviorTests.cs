@@ -18,6 +18,7 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json.Linq;
 using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
@@ -1211,6 +1212,96 @@ public sealed class SettingsDialogBehaviorTests
         }, nameof(RightClickRecordOrderProjectsDisplayedPositionsWithoutSavingOtherCandidates));
     }
 
+    /// <summary>前後空白を含むプリセット名の確定後、再表示せず同じeditorで対象変更・改名・削除しても保存済みの一件へ作用し、取消した別recordとBMT候補を保存・破棄しません。</summary>
+    /// <remarks>実編集sessionとproviderを通し、生JSONを正規化せず照合します。拒否条件・検索・実履歴への配送とWindow接続は既存系列が分担します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void PlayHistoryPreset_ConfirmedNameKeepsSavedRecordAcrossEditsAndRemoval()
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new TemporaryDirectory("history-preset-confirmed-name");
+            Settings values = OpenPersistedSettings(directory.Path);
+            const string retainedJson = """[{"Name":"保持","Targets":[{"PlaylistId":101}]}]""";
+            values.PlayHistoryDisplayTargetSetsJson = retainedJson;
+            values.Save();
+            using var harness = SettingsDialogHarness.Create(values, playlistSnapshots:
+            [
+                PlaylistTablePresentationSnapshot.From(new BMSTable { playlist_id = 101, name = "表A" }),
+                PlaylistTablePresentationSnapshot.From(new BMSTable { playlist_id = 202, name = "表B" })
+            ]);
+            SettingsDialogViewModel dialog = harness.Dialog;
+            PlayHistoryFolderDisplayPresetEditor retained = dialog.PlayHistoryFolderDisplayPresets.Single();
+            PlayHistoryFolderDisplayPresetEditSession canceled = dialog.CreatePlayHistoryFolderDisplayPresetEditSession(retained);
+            canceled.Name = "取消";
+            foreach (PlayHistoryFolderPresetPlaylistOption option in canceled.PlaylistOptions)
+            {
+                option.IsSelected = option.Table.PlaylistId == 202;
+            }
+            Assert.AreEqual("保持", retained.Name);
+            Assert.AreEqual<int?>(101, retained.Targets.Single().PlaylistId);
+            Assert.AreEqual(retainedJson, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).PlayHistoryDisplayTargetSetsJson);
+            dialog.EnableBeatorajaBmtOutput = true;
+
+            void AssertConfirmed(string? name, int? playlistId)
+            {
+                Settings saved = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config"));
+                var records = JArray.Parse(saved.PlayHistoryDisplayTargetSetsJson);
+                Assert.AreEqual(name == null ? 1 : 2, records.Count);
+                JToken savedRetained = records.Single(record => record.Value<string>("Name") == "保持");
+                Assert.IsTrue(JToken.DeepEquals(JArray.Parse(retainedJson).Single(), savedRetained), "取消した別record候補を混入させません。");
+                Assert.AreSame(retained, dialog.PlayHistoryFolderDisplayPresets.Single(preset => preset.Name == "保持"));
+                Assert.AreEqual("保持", retained.Name);
+                Assert.AreEqual<int?>(101, retained.Targets.Single().PlaylistId);
+                string[] expectedNames = name == null ? ["保持"] : ["保持", name];
+                CollectionAssert.AreEquivalent(expectedNames, records.Select(record => record.Value<string>("Name")).ToArray());
+                CollectionAssert.AreEquivalent(expectedNames, dialog.PlayHistoryFolderDisplayPresets.Select(preset => preset.Name).ToArray());
+                if (name != null)
+                {
+                    JToken record = records.Single(item => item.Value<string>("Name") == name);
+                    JArray targets = record.Value<JArray>("Targets") ?? throw new AssertFailedException("保存済み対象がありません。");
+                    Assert.AreEqual(1, targets.Count);
+                    Assert.AreEqual(playlistId, targets.Single().Value<int?>("PlaylistId"));
+                    PlayHistoryFolderDisplayPresetEditor editor = dialog.SelectedPlayHistoryFolderDisplayPreset;
+                    Assert.AreEqual(name, editor.Name);
+                    Assert.AreEqual(playlistId, editor.Targets.Single().PlaylistId);
+                }
+                Assert.IsFalse(saved.EnableBeatorajaBmtOutput, "プリセット保存に別BMT候補を便乗させません。");
+                Assert.IsTrue(dialog.EnableBeatorajaBmtOutput, "別BMT候補を破棄しません。");
+                Assert.AreEqual("取消", canceled.Name);
+                Assert.AreEqual<int?>(202, canceled.PlaylistOptions.Single(option => option.IsSelected).Table.PlaylistId);
+            }
+
+            AssertConfirmed(null, null);
+            PlayHistoryFolderDisplayPresetEditSession added = dialog.CreatePlayHistoryFolderDisplayPresetEditSession(null);
+            added.Name = " 練習 ";
+            added.PlaylistOptions.Single(option => option.Table.PlaylistId == 101).IsSelected = true;
+            Assert.IsTrue(dialog.TryApplyPlayHistoryFolderDisplayPresetEditSession(added, out string addError), addError);
+            PlayHistoryFolderDisplayPresetEditor preset = dialog.SelectedPlayHistoryFolderDisplayPreset;
+            AssertConfirmed("練習", 101);
+
+            PlayHistoryFolderDisplayPresetEditSession changed = dialog.CreatePlayHistoryFolderDisplayPresetEditSession(preset);
+            foreach (PlayHistoryFolderPresetPlaylistOption option in changed.PlaylistOptions)
+            {
+                option.IsSelected = option.Table.PlaylistId == 202;
+            }
+            Assert.IsTrue(dialog.TryApplyPlayHistoryFolderDisplayPresetEditSession(changed, out string changeError), changeError);
+            Assert.AreSame(preset, dialog.SelectedPlayHistoryFolderDisplayPreset);
+            AssertConfirmed("練習", 202);
+
+            PlayHistoryFolderDisplayPresetEditSession renamed = dialog.CreatePlayHistoryFolderDisplayPresetEditSession(preset);
+            renamed.Name = " 集中 ";
+            Assert.IsTrue(dialog.TryApplyPlayHistoryFolderDisplayPresetEditSession(renamed, out string renameError), renameError);
+            Assert.AreSame(preset, dialog.SelectedPlayHistoryFolderDisplayPreset);
+            AssertConfirmed("集中", 202);
+
+            dialog.RemoveSelectedPlayHistoryFolderDisplayPreset();
+            AssertConfirmed(null, null);
+            Assert.AreSame(retained, dialog.SelectedPlayHistoryFolderDisplayPreset);
+            await Task.CompletedTask;
+        }, nameof(PlayHistoryPreset_ConfirmedNameKeepsSavedRecordAcrossEditsAndRemoval));
+    }
+
     /// <summary>閉じる操作は局所候補だけを破棄し、再表示では確定値から作り、既に項目保存した通常設定を保持します。</summary>
     [TestMethod]
     [DoNotParallelize]
@@ -1334,10 +1425,11 @@ public sealed class SettingsDialogBehaviorTests
             Action<Exception>? reportApplyFailure = null, Func<Task>? reloadFileDiff = null,
             ApplicationComposition? composition = null, ISettingsDialogPlayerFactoryPort? playerFactory = null,
             ISettingsDialogPlaybackRuntimePort? playbackRuntime = null, RecordingDialogService? dialogs = null,
-            Func<OperationModeRestartRequest, Task<bool>>? restart = null, IAudioDeviceCatalog? audioDeviceCatalog = null)
+            Func<OperationModeRestartRequest, Task<bool>>? restart = null, IAudioDeviceCatalog? audioDeviceCatalog = null,
+            IReadOnlyList<PlaylistTablePresentationSnapshot>? playlistSnapshots = null)
         {
             var state = new RecordingSettingsStatePort(activeLibraryProfile) { ReloadFileDiffHandler = reloadFileDiff };
-            var workspace = new RecordingWorkspacePort();
+            var workspace = new RecordingWorkspacePort { Snapshots = playlistSnapshots ?? [] };
             var output = new RecordingCustomFolderOutputPort(() => composition?.CustomFolderOutputSettingsProvider()
                 ?? CustomFolderOutputSettingsSnapshot.CreateCurrent(values));
             var history = new RecordingPlayHistoryPort();
@@ -1532,6 +1624,8 @@ public sealed class SettingsDialogBehaviorTests
 
     private sealed class RecordingWorkspacePort : ISettingsDialogWorkspacePort
     {
+        internal IReadOnlyList<PlaylistTablePresentationSnapshot> Snapshots { get; init; } = [];
+
         internal bool ThrowOnBmt { get; set; }
         internal Exception? CompletionFailure { get; set; }
 
@@ -1541,7 +1635,7 @@ public sealed class SettingsDialogBehaviorTests
         {
             get
             {
-                return BeforeOperationAsync != null;
+                return BeforeOperationAsync != null || Snapshots.Count != 0;
             }
         }
 
@@ -1555,7 +1649,7 @@ public sealed class SettingsDialogBehaviorTests
 
         public IReadOnlyList<PlaylistTablePresentationSnapshot> CapturePlaylistPresentationSnapshots()
         {
-            return [];
+            return Snapshots;
         }
 
         public bool HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(string beatorajaRootPath)

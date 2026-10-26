@@ -38,7 +38,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
 
 
-    /// <summary>同名の異なる表を ID で区別し、無効編集と取消では draft を維持し、有効編集だけを保存・実選択肢へ配送することを確認します。</summary>
+    /// <summary>同名の異なる表を ID で区別し、無効編集と取消では確定recordを維持し、有効編集だけを保存・実選択肢へ配送することを確認します。</summary>
     [TestMethod]
     public void PlayHistoryFolderDisplayPresetEditor_DraftsSaveValidationAndIdMatching()
     {
@@ -116,7 +116,6 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             editSession.SearchText = "definitely-no-match";
             Assert.AreEqual(0, editSession.FilteredPlaylistOptions.Count);
             Assert.IsTrue(dialog.TryApplyPlayHistoryFolderDisplayPresetEditSession(editSession, out string applyPresetError), applyPresetError);
-            secondPreset.Targets.Add(new PlayHistoryDisplayTargetReference { PlaylistId = 999 });
 
             PlayHistoryFolderDisplayPresetEditSession canceledEditSession =
                 dialog.CreatePlayHistoryFolderDisplayPresetEditSession(secondPreset);
@@ -126,7 +125,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Assert.AreEqual("Second", secondPreset.Name);
             AssertTargetSetEquals(appliedTargetSetBeforeCancel, secondPreset.ToTargetSet());
 
-            // 選択recordの確定が既に保存を終えており、その後の未確定な直編集999は混ざりません。
+            // 確定後の別sessionへの入力は保存済み値を変えません。別record確定時の取消候補非混入はSettingsDialogBehaviorTestsが分担します。
             Assert.IsFalse(string.IsNullOrWhiteSpace(testSettings.PlayHistoryDisplayTargetSetsJson));
             IReadOnlyList<PlayHistoryDisplayTargetSet> persistedTargetSets =
                 PlayHistoryDisplayTargetSetStore.Deserialize(testSettings.PlayHistoryDisplayTargetSetsJson);
