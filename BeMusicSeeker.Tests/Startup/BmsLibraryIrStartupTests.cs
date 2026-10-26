@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
 
@@ -19,6 +20,67 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryIrStartupTests
 {
+    /// <summary>実起動の既存/新規cache成績をAAA/90で公開し、既存通常ownerのrank検索への加入と同snapshotのDJ集計へ接続します。</summary>
+    /// <remarks>局所の高/低/同点条件表はサービス試験へ分担し、ここでは実DB/XML・worker・通常配送の終端と購読解放を確認します。</remarks>
+    [TestMethod]
+    public async Task InitializeStartup_RankingCacheDerivedValuesReachNormalSearchAndLampAggregation()
+    {
+        await using var fixture = new StartupFixture(waitForCancellation: false, failFirstRequest: false, exerciseDerivedValues: true);
+        await fixture.InitializeAsync();
+        await TestUiDispatcherHost.AwaitNotificationAsync(fixture.Client.Started.Task, fixture.WaitForWorkersAsync(), "本人IR通信開始");
+        using var table = new MainChartListViewModel(action => action());
+        using PlaylistWorkspaceViewModel workspace = RegularChartListOwnerTestSupport.CreateWorkspaceForOwner(table);
+        using RegularChartListOwner owner = RegularChartListOwnerTestSupport.CreateOwner(table, workspace);
+        owner.AttachNormalLibraryRefreshSource(fixture.Library);
+        await owner.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None);
+        Assert.IsTrue(owner.TryApplyVirtualNormalLibrary(new RegularVirtualNormalLibraryApplyRequest
+        {
+            Library = fixture.Library,
+            ModeFilter = ChartModeFilter.All,
+            KeywordFilter = "rank:AAA",
+            SortColumnName = nameof(LibraryChartRow.Title),
+            SortDirection = System.ComponentModel.ListSortDirection.Ascending,
+            ColumnSelection = new MainChartListColumnSelection(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD), false, 0,
+                MainViewUpdateMode.FullScanAllChartsFilterSelected, System.Windows.Visibility.Collapsed, new PlaylistSummaryColumnSettings()),
+            Mode = MainViewUpdateMode.FullScanAllChartsFilterSelected
+        }).WasCommitted);
+        Assert.AreEqual(0, table.Rows.Count, "更新前のAとスコア未取得はAAA検索へ入りません。");
+        try
+        {
+            fixture.Client.Release.TrySetResult();
+            await fixture.WaitForWorkersAsync();
+            await owner.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None);
+
+            Assert.IsFalse(fixture.FailedReport);
+            string[] hashes = [StartupFixture.Hash, StartupFixture.CacheHash];
+            BMSLibrary.ScoreSnapshot snapshot = fixture.Library.CaptureScoreSnapshotForView();
+            foreach (string hash in hashes)
+            {
+                BMSScore adopted = snapshot.ScoresByHash[hash];
+                Assert.AreEqual(1800, adopted.score);
+                Assert.AreEqual(1000, adopted.totalnotes);
+                Assert.AreEqual(RankType.AAA, adopted.rank);
+                Assert.AreEqual(90, adopted.rate);
+                ChartScoreSnapshot projected = fixture.Library.ResolveChartScoreSnapshot(ChartFileKind.Bms, hash + ".bms", hash, null, snapshot);
+                Assert.AreEqual(RankType.AAA, projected.Rank);
+                Assert.AreEqual(90, projected.Rate);
+            }
+            LibraryChartRow[] rows = table.Rows.Cast<LibraryChartRow>().ToArray();
+            CollectionAssert.AreEquivalent(hashes, rows.Select(row => row.hash).ToArray());
+            Assert.IsTrue(rows.All(row => row.rank == RankType.AAA && row.rate == 90));
+
+            var lampScores = PlaylistLampScoreSnapshot.FromBmsLibrarySnapshot(snapshot);
+            PlaylistLampAggregationResult result = new PlaylistLampAggregationService().Aggregate(new PlaylistLampAggregationRequest(
+                "ir-derived-values", ["folder"], hashes.Select(hash => new PlaylistLampEntrySnapshot("folder", hash, true, md5: hash)), lampScores));
+            Assert.AreEqual(2, result.RankSegments.Single(segment => segment.RankCategory == PlaylistLampRankCategory.AAA).Count);
+            Assert.AreEqual(0, result.RankSegments.Where(segment => segment.RankCategory != PlaylistLampRankCategory.AAA).Sum(segment => segment.Count));
+        }
+        finally
+        {
+            fixture.Client.Release.TrySetResult();
+        }
+    }
+
     /// <summary>
     /// 起動時IR先読みの判別不能なHTTP200応答は一度報告して再試行せず、既存score・未送信判定・保存値を保持する。
     /// 独立順位cacheを同周で反映し、次の通常要求では正常な本人IR成績を採用する。
@@ -601,7 +663,7 @@ public sealed class BmsLibraryIrStartupTests
         internal const string IrHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         internal const string CacheHash = "cccccccccccccccccccccccccccccccc";
         private readonly bool exercisePublication;
-        private const string Hash = "abcdefabcdefabcdefabcdefabcdefab";
+        internal const string Hash = "abcdefabcdefabcdefabcdefabcdefab";
         private readonly string root = Path.Combine(Path.GetTempPath(), "BmsIrStartup", Guid.NewGuid().ToString("N"));
         private readonly BmsLibraryDbGateway gateway;
         private readonly DateTime metadataUpdatedAt;
@@ -615,10 +677,10 @@ public sealed class BmsLibraryIrStartupTests
 
         private readonly ConcurrentBag<Task> scheduledWorkers = [];
 
-        internal StartupFixture(bool waitForCancellation, bool failFirstRequest = true, bool exerciseReadFailure = false, bool exerciseSaveFailure = false, bool exercisePublication = false, bool exerciseRankingReadFailure = false, bool exerciseUnrecognizedResponse = false)
+        internal StartupFixture(bool waitForCancellation, bool failFirstRequest = true, bool exerciseReadFailure = false, bool exerciseSaveFailure = false, bool exercisePublication = false, bool exerciseRankingReadFailure = false, bool exerciseUnrecognizedResponse = false, bool exerciseDerivedValues = false)
         {
             this.exercisePublication = exercisePublication;
-            bool exerciseRankingCache = exerciseReadFailure || exerciseSaveFailure || exercisePublication || exerciseRankingReadFailure || exerciseUnrecognizedResponse;
+            bool exerciseRankingCache = exerciseReadFailure || exerciseSaveFailure || exercisePublication || exerciseRankingReadFailure || exerciseUnrecognizedResponse || exerciseDerivedValues;
             Directory.CreateDirectory(root);
             string songPath = Path.Combine(root, "song.db");
             string scorePath = exerciseRankingCache
@@ -638,6 +700,10 @@ public sealed class BmsLibraryIrStartupTests
                     {
                         db.Insert(new LR2SongDB.song { hash = Hash, path = Path.Combine(root, "owned.bms"), title = "Owned chart" });
                     }
+                    if (exerciseDerivedValues)
+                    {
+                        db.Insert(new LR2SongDB.song { hash = CacheHash, path = Path.Combine(root, "new-cache.bms"), title = "New cache chart" });
+                    }
                 });
             }
             using (var db = new LR2ScoreDBExtended(scorePath))
@@ -647,7 +713,15 @@ public sealed class BmsLibraryIrStartupTests
                     db.CreateTable<LR2ScoreDB.player>();
                     db.CreateTable<LR2ScoreDB.score>();
                     db.Insert(new LR2ScoreDB.player { id = "ir-startup", irid = 123 });
-                    db.Insert(new LR2ScoreDB.score { hash = Hash, perfect = 321, great = 45 });
+                    var savedScore = new LR2ScoreDB.score { hash = Hash, perfect = 321, great = 45 };
+                    if (exerciseDerivedValues)
+                    {
+                        savedScore.totalnotes = 500;
+                        savedScore.rate = 68;
+                        savedScore.rank = RankType.A;
+                        savedScore.clear = ClearType.HARD;
+                    }
+                    db.Insert(savedScore);
                     if (exerciseRankingReadFailure)
                     {
                         db.Insert(new LR2ScoreDB.score { hash = CacheHash, perfect = 222, great = 33 });
@@ -672,6 +746,13 @@ public sealed class BmsLibraryIrStartupTests
                 File.Copy(Path.Combine(root, "Ir", Hash + ".xml"), Path.Combine(root, "Ir", CacheHash + ".xml"));
                 string cachePath = Path.Combine(root, "Ir", CacheHash + ".xml");
                 File.WriteAllText(cachePath, File.ReadAllText(cachePath).Replace("<pg>321</pg>", "<pg>500</pg>").Replace("<gr>45</gr>", "<gr>100</gr>"), Encoding.UTF8);
+            }
+            if (exerciseDerivedValues)
+            {
+                string cachePath = Path.Combine(root, "Ir", Hash + ".xml");
+                File.WriteAllText(cachePath, File.ReadAllText(cachePath).Replace("<pg>321</pg>", "<pg>800</pg>")
+                    .Replace("<gr>45</gr>", "<gr>200</gr>").Replace("<clear>0</clear>", "<clear>4</clear>"), Encoding.UTF8);
+                File.Copy(cachePath, Path.Combine(root, "Ir", CacheHash + ".xml"));
             }
             Client = new ControlledIrClient(waitForCancellation, failFirstRequest, emptyFirstRequest: exerciseReadFailure,
                 extraScoreHash: exercisePublication ? IrHash : null, unrecognizedFirstResponse: exerciseUnrecognizedResponse);

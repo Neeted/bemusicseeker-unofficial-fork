@@ -209,8 +209,11 @@ internal sealed class BmsLibraryIrService
                     score.rankingLastupdate = data.lastupdate;
                     score.perfect = data.pg;
                     score.great = data.gr;
+                    score.totalnotes = data.notes;
                     score.maxcombo = data.combo;
                     score.minbp = data.minbp;
+                    score.rate = ScoreValueCalculator.CalculateRatePercent(score.score, score.totalnotes) ?? 0;
+                    score.rank = ScoreValueCalculator.CalculateRank(score.score, score.totalnotes);
                 }
                 else if (score.score == data.score)
                 {

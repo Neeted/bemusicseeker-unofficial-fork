@@ -1,4 +1,5 @@
 using System;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using SQLite;
 
@@ -155,11 +156,13 @@ public class BMSScore : LR2ScoreDB.score
     {
     }
 
+    /// <summary>本人IRの成績を採用し、その得点・ノート数に対応するDJレベルと整数率を持つ成績を作ります。</summary>
     public BMSScore(LR2IRScore _lr2irScore)
     {
         Overwrite(_lr2irScore);
     }
 
+    /// <summary>順位cacheの成績と順位を採用し、その得点・ノート数に対応するDJレベルと整数率を持つ成績を作ります。</summary>
     public BMSScore(LR2IRData _lr2irData)
     {
         Overwrite(_lr2irData);
@@ -189,6 +192,7 @@ public class BMSScore : LR2ScoreDB.score
         }
     }
 
+    /// <summary>本人IRの対象成績と派生値を採用します。順位・偏差値・未送信状態は既存の呼出側の判断に委ねます。</summary>
     public void Overwrite(LR2IRScore _lr2irScore)
     {
         base.hash = _lr2irScore.hash;
@@ -202,8 +206,10 @@ public class BMSScore : LR2ScoreDB.score
         base.poor = _lr2irScore.pr;
         base.minbp = _lr2irScore.minbp;
         base.op_history = _lr2irScore.option;
+        UpdateDerivedScoreValues();
     }
 
+    /// <summary>順位cacheの成績と順位を採用し、採用後の得点・ノート数からDJレベルと整数率を揃えます。</summary>
     public void Overwrite(LR2IRData _lr2irData)
     {
         base.hash = _lr2irData.hash;
@@ -214,10 +220,18 @@ public class BMSScore : LR2ScoreDB.score
         base.great = _lr2irData.gr;
         base.minbp = _lr2irData.minbp;
         base.op_history = ClearTypeStorageConverter.GetLr2IrDataOptionHistory(_lr2irData.clear);
+        UpdateDerivedScoreValues();
         ranking = _lr2irData.rank;
         rankingNum = _lr2irData.players_num;
         rankingLastupdate = _lr2irData.lastupdate;
         SetStdDevVal(_lr2irData.average, _lr2irData.sigma);
         SetScoreDiffic(_lr2irData.average, _lr2irData.sigma);
+    }
+
+    /// <summary>受理済みの得点・ノート数を共通計算へ渡します。無効なノート数は補完せず、既存の非nullable整数率では0で表します。</summary>
+    private void UpdateDerivedScoreValues()
+    {
+        base.rate = ScoreValueCalculator.CalculateRatePercent(score, base.totalnotes) ?? 0;
+        base.rank = ScoreValueCalculator.CalculateRank(score, base.totalnotes);
     }
 }

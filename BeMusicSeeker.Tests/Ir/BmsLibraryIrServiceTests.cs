@@ -21,6 +21,105 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryIrServiceTests
 {
+    /// <summary>順位cacheの高得点/新規は入力notesとAAA・90%を採り、低得点/同点は旧成績を保ちながらclear・順位等の別更新を続けます。</summary>
+    [DataTestMethod]
+    [DataRow("new")]
+    [DataRow("higher-zero-notes")]
+    [DataRow("higher-other-notes")]
+    [DataRow("same")]
+    [DataRow("lower")]
+    public void ApplyIrDataToScores_AdoptsDerivedValuesOnlyWithHigherScore(string scenario)
+    {
+        const string hash = "91919191919191919191919191919191";
+        bool isNew = scenario == "new";
+        bool same = scenario == "same";
+        bool lower = scenario == "lower";
+        BMSScore previous = CreateScore(hash, ClearType.EASY,
+            pg: same ? 800 : lower ? 900 : 500, gr: same ? 200 : lower ? 100 : 0, minbp: 7);
+        previous.totalnotes = scenario == "higher-zero-notes" ? 0 : scenario == "higher-other-notes" ? 2000 : 1200;
+        previous.rank = same ? RankType.A : lower ? RankType.AA : scenario == "higher-zero-notes" ? RankType.INVALID : RankType.E;
+        previous.rate = same ? 75 : lower ? 79 : scenario == "higher-zero-notes" ? 0 : 25;
+        previous.maxcombo = 950;
+        previous.ranking = 80;
+        previous.IsLr2IrScoreUnsent = true;
+        List<BMSScore> scores = isNew ? [] : [previous];
+        var updatedAt = new DateTime(2026, 1, 2, 3, 4, 5);
+        var data = new LR2IRData(hash)
+        {
+            clear = ClearType.HARD,
+            notes = 1000,
+            pg = 800,
+            gr = 200,
+            combo = 900,
+            minbp = 12,
+            rank = 4,
+            players_num = 77,
+            average = 1000,
+            sigma = 100,
+            lastupdate = updatedAt
+        };
+
+        new BmsLibraryIrService().ApplyIrDataToScores(data, null, null, scores, estimateOfflineScoreRanking: false);
+
+        BMSScore adopted = scores.Single();
+        bool retainsScore = same || lower;
+        Assert.AreEqual(lower ? 1900 : 1800, adopted.score);
+        Assert.AreEqual(retainsScore ? 1200 : 1000, adopted.totalnotes);
+        Assert.AreEqual(same ? RankType.A : lower ? RankType.AA : RankType.AAA, adopted.rank);
+        Assert.AreEqual(same ? 75 : lower ? 79 : 90, adopted.rate);
+        Assert.AreEqual(retainsScore ? 950 : 900, adopted.maxcombo);
+        Assert.AreEqual(retainsScore ? 7 : 12, adopted.minbp);
+        Assert.AreEqual(ClearType.HARD, adopted.clear);
+        Assert.AreEqual(0, adopted.op_history);
+        Assert.AreEqual(lower ? 80 : 4, adopted.ranking);
+        Assert.AreEqual(77, adopted.rankingNum);
+        Assert.AreEqual(updatedAt, adopted.rankingLastupdate);
+        Assert.AreEqual(!isNew, adopted.IsLr2IrScoreUnsent);
+    }
+
+    /// <summary>両IR上書きはnotes0を拒否や別notes補完にせず、旧AAA/90をINVALID/整数率0へ更新します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void BmsScoreOverwrite_ZeroNotesClearsStaleDerivedValues(bool rankingCache)
+    {
+        const string hash = "92929292929292929292929292929292";
+        BMSScore score = CreateScore(hash, ClearType.HARD, pg: 800, gr: 200, minbp: 12);
+        score.rank = RankType.AAA;
+        score.rate = 90;
+        if (rankingCache)
+        {
+            score.Overwrite(new LR2IRData(hash) { notes = 0, pg = 10, gr = 5, sigma = 1 });
+        }
+        else
+        {
+            score.Overwrite(new LR2IRScore(hash) { notes = 0, pg = 10, gr = 5 });
+        }
+        Assert.AreEqual(25, score.score);
+        Assert.AreEqual(0, score.totalnotes);
+        Assert.AreEqual(RankType.INVALID, score.rank);
+        Assert.AreEqual(0, score.rate);
+    }
+
+    /// <summary>本人IRの新規成績も採用score/notesからAAA/90を持ち、所持対象の通常未送信判定へ同じ値を渡します。</summary>
+    [TestMethod]
+    public void UpdateBmsScores_NewIrScoreInitializesDerivedValues()
+    {
+        const string hash = "93939393939393939393939393939393";
+        LR2IRScore irScore = CreateIrScore(hash, ClearType.HARD, pg: 800, gr: 200, minbp: 12);
+
+        BMSScore adopted = new BmsLibraryIrService().UpdateBmsScores([irScore], [], _ => true).Single();
+
+        Assert.AreEqual(1800, adopted.score);
+        Assert.AreEqual(1000, adopted.totalnotes);
+        Assert.AreEqual(RankType.AAA, adopted.rank);
+        Assert.AreEqual(90, adopted.rate);
+        Assert.AreEqual(ClearType.HARD, adopted.clear);
+        Assert.AreEqual(12, adopted.minbp);
+        Assert.AreEqual(900, adopted.maxcombo);
+        Assert.IsFalse(adopted.IsLr2IrScoreUnsent);
+    }
+
     /// <summary>実保存成績と取得内容が一致しlastupdateだけ異なる場合、未記録・不一致のmetadataだけを保存し、全score列と返却lastupdateを保持する。</summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -205,13 +304,20 @@ public sealed class BmsLibraryIrServiceTests
         BMSScore score = CreateScore(hash, ClearType.EASY, pg: 300, gr: 0, minbp: 20);
         score.clearValue = 2;
         score.op_history = ClearTypeStorageConverter.OptionHistoryAssist;
+        score.rank = RankType.E;
+        score.rate = 30;
         LR2IRScore irScore = CreateIrScore(hash, ClearType.EASY, pg: 100, gr: 0, minbp: 20);
+        irScore.notes = 2000;
         irScore.option = ClearTypeStorageConverter.OptionHistoryEasy;
 
         service.UpdateBmsScores([irScore], [score], _ => false);
 
         Assert.AreEqual(ClearTypeStorageConverter.OptionHistoryEasy, score.op_history);
         Assert.AreEqual(ClearType.EASY, score.clear);
+        Assert.AreEqual(600, score.score);
+        Assert.AreEqual(1000, score.totalnotes);
+        Assert.AreEqual(RankType.E, score.rank);
+        Assert.AreEqual(30, score.rate);
     }
 
     /// <summary>
@@ -310,12 +416,20 @@ public sealed class BmsLibraryIrServiceTests
         string hash = "14141414141414141414141414141414";
         ChartFile file = CreateFile(hash);
         BMSScore score = CreateScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: 12);
+        score.rank = RankType.E;
+        score.rate = 32;
         score.IsLr2IrScoreUnsent = true;
         file = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(score, file.Path));
 
-        service.UpdateBmsScores([CreateIrScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: 12)], [score], candidate => string.Equals(candidate, hash, StringComparison.OrdinalIgnoreCase));
+        LR2IRScore irScore = CreateIrScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: 12);
+        irScore.notes = 2000;
+        service.UpdateBmsScores([irScore], [score], candidate => string.Equals(candidate, hash, StringComparison.OrdinalIgnoreCase));
 
         Assert.IsFalse(score.IsLr2IrScoreUnsent);
+        Assert.AreEqual(650, score.score);
+        Assert.AreEqual(1000, score.totalnotes);
+        Assert.AreEqual(RankType.E, score.rank);
+        Assert.AreEqual(32, score.rate);
         ChartFile chart = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(score, file.Path));
         Assert.IsFalse(chart.Status.HasFlag(ChartFileStatus.SCORE_UNSENT));
     }
@@ -340,7 +454,7 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     /// <summary>
-    /// IR側のより良い得点/BPを採用した後は未送信を残さず、更新済みsnapshotへ状態を渡す。
+    /// IR側のより良い得点/BPとnotesからAAA/90を採用し、未送信を残さず更新済みsnapshotへ状態を渡す。
     /// </summary>
     [TestMethod]
     public void UpdateBmsScores_DoesNotLeaveUnsentAfterIrScoreOverwrite()
@@ -349,12 +463,16 @@ public sealed class BmsLibraryIrServiceTests
         string hash = "16161616161616161616161616161616";
         ChartFile file = CreateFile(hash);
         BMSScore score = CreateScore(hash, ClearType.EASY, pg: 100, gr: 10, minbp: 50);
-        LR2IRScore irScore = CreateIrScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: 12);
+        score.totalnotes = 0;
+        LR2IRScore irScore = CreateIrScore(hash, ClearType.HARD, pg: 800, gr: 200, minbp: 12);
         file = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(score, file.Path));
 
         service.UpdateBmsScores([irScore], [score], candidate => string.Equals(candidate, hash, StringComparison.OrdinalIgnoreCase));
 
         Assert.AreEqual(irScore.score, score.score);
+        Assert.AreEqual(1000, score.totalnotes);
+        Assert.AreEqual(RankType.AAA, score.rank);
+        Assert.AreEqual(90, score.rate);
         Assert.AreEqual(12, score.minbp);
         Assert.IsFalse(score.IsLr2IrScoreUnsent);
         ChartFile chart = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(score, file.Path));

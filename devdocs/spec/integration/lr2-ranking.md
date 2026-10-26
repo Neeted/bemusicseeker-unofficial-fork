@@ -64,6 +64,12 @@ cacheファイルの昇格、再読込み判定、XML読取りに失敗した場
 
 順位は本人より高いスコアの件数+1です。本人がいなければ未プレイかつ順位-1の行を作ります。XMLの更新時刻が空・不正・NUL終端ならファイル更新時刻を使います。解析自体の失敗はスキップし、旧式の全件解析へ切り替えません。`xmlFallbackLoads` は診断互換の項目であり、切替経路の存在を意味しません。
 
+### 成績の採用と派生値
+
+本人IRと順位cacheから成績を採用するときは、採用後の得点・ノート数から共通の `ScoreValueCalculator` でDJレベルと整数のスコア率を揃えます。新規行と既存行で同じ計算を使い、既存行の高得点採用ではIRのノート数も採用します。1000ノート・1800点はAAA・90%です。ノート数が0以下なら別の値で補完せず、DJレベルはINVALID、既存の非nullable整数率は0で表します。
+
+低得点・同点では旧得点・ノート数・DJレベル・整数率を保ちます。clear・option履歴・BP・comboの既存採用条件、同点での順位採用、低得点時の順位推定、人数・更新日時・未送信判定はそれぞれ従来の判断を続けます。採用元の成績値を通常snapshotへ公開し、通常一覧のDJレベル検索とランプ内訳集計も同じ採用値を使います。全スコアの再走査や追加通信は行いません。
+
 ### オフライン順位推定と保存
 
 推定が有効でローカルスコアがIRの値より高い場合だけ、順位計算用の小さな情報を要求時に読みます。同じ更新中に読み込んだハッシュは再利用します。起動時キャッシュ更新が無効なら、その経路から推定結果を自動更新しません。
@@ -82,6 +88,8 @@ cacheファイルの昇格、再読込み判定、XML読取りに失敗した場
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 本人IR・順位cacheの採用notesとDJレベル/整数率、低得点・同点の保持 | [`BMSScore`](../../../BeMusicSeeker/Models/Chart/BMSScore.cs) の両Overwrite、[`BmsLibraryIrService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrService.cs) の高得点採用 | [`BmsLibraryIrServiceTests`](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs) の `ApplyIrDataToScores_AdoptsDerivedValuesOnlyWithHigherScore` が新規/高得点/旧notes0・別値/同点/低得点、`BmsScoreOverwrite_ZeroNotesClearsStaleDerivedValues` が両入口の無効notes、`UpdateBmsScores_NewIrScoreInitializesDerivedValues` と既存未送信・clear履歴のケースが通常本人IRの接続を分担する。 |
+| 採用成績の通常snapshot・DJレベル検索・内訳集計への接続 | [`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) のscore公開と通常一覧/ランプsnapshot | [`BmsLibraryIrStartupTests.InitializeStartup_RankingCacheDerivedValuesReachNormalSearchAndLampAggregation`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryIrStartupTests.cs) が実起動・score DB/cache XMLの既存/新規成績からAAA/整数率90を直接確認し、通常ownerの配送終端後の検索加入と同snapshotの実集計件数を確認する。 |
 | 刷新履歴の初回準備、既存行保持、純読取りと未準備時の失敗 | [`BmsLibraryDbGateway`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) の起動・Ensure/Repair準備と履歴読取り | [`AppSchemaPreflightServiceTests`](../../../BeMusicSeeker.Tests/Startup/AppSchemaPreflightServiceTests.cs) の `EnsureLibraryStartupSchema_ContainsLibraryOwnedTables` と `EnsureAppOwnedSchema_FreshLr2DatabaseConvergesPreflightWithoutDigestMigration` が初回利用、`PrepareSchema_ExistingIrRefreshMetadataPreservesRowsAndReadDoesNotMutateDatabase` が既存行・再準備・無変更、`LoadIrScoreRefreshMetadata_UnpreparedDatabaseFailsWithoutCreatingTableOrChangingRows` が失敗と無変更を分担する。 |
 | 本人スコア確定前の読取り失敗、旧状態保持と次要求 | [`BmsLibraryIrService.CommitPreparedIrScoreTableWithMetrics`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrService.cs)、[`BMSLibrary.RunDeferredRankingRefresh`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) | [`BmsLibraryIrServiceTests`](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs) の `UpdateIrScoreTableWithMetrics_RecognizedEmptyResponseCommitsEmptyScores`、`CommitPreparedIrScoreTable_MetadataReadFailurePreservesDatabase`、`CommitPreparedIrScoreTable_SavedScoreReadFailurePreservesDatabase` が正常空と履歴・保存スコアの実読取り失敗を分担し、[`BmsLibraryIrStartupTests.InitializeStartup_SavedIrScoreReadFailurePreservesScoresAndAllowsNextRequest`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryIrStartupTests.cs) が実起動から失敗報告・メモリ保持・別仕事と次要求を確認する。 |
 | 本人IRの正常空と判別不能応答、非空の互換性 | [本人IRサービス](../../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrService.cs) | [サービス試験](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs)で正常0件・識別不能・全不正行と既存非空を分担する。[起動試験](../../../BeMusicSeeker.Tests/Startup/BmsLibraryIrStartupTests.cs)で代表応答の非採用、独立cacheと次要求を確認する。保存失敗の条件表は既存の一体保存試験へ分担する。 |
