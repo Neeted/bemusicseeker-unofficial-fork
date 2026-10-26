@@ -116,7 +116,29 @@ pwsh -NoProfile -File native/EverythingBridge/test-x64.ps1
 query内buffer再利用、取得失敗の伝播、packed結果のパス・mtime・資源所有を確認します。
 getterの正常分岐は実SDK、失敗条件だけは関数ポインターで制御し、queryとpackは製品処理を使います。
 SDK結果・search state・clientの回収は全workerのjoin後に確認します。
-実EverythingのIPCやmanaged decodeからDBまでの一連実行、製品完了時間の測定はこの試験の範囲外です。
+
+親名の条件表は公開packの六面・三逆引きを通し、音声・画像の末尾aliasと物理directory名を区別します。
+通常対照群と、別親の正しいキーが増える群についてquery hit件数、実Search回数、実getterのindex/kind/capacity、
+資源directory数、owner/prefix cache hit/miss、assigned、hash・reverseの件数、packed bytesを確認します。
+packed bytesはnative heap全体の割当量を意味しません。prefixはcache miss時だけ構築します。
+
+managedの実decode接続は、同じ試験cppを専用defineでDLLにも生成して明示実行します。
+
+```powershell
+pwsh -NoProfile -File native/EverythingBridge/test-x64.ps1 -BuildPathIdentityFixture
+$env:BMS_EVERYTHING_PATH_IDENTITY_FIXTURE = Join-Path $PWD 'native/EverythingBridge/obj/query-tests/path-identity-fixture'
+pwsh -NoProfile -File scripts/verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~EverythingNativePathIdentityTests'
+```
+
+`ProcessIntegration` の代表一件は、実pointerから六面・三逆引き・取得済み参照の健康度・通常推定を確認します。
+環境変数未指定なら未実施、指定済みでDLL/SDK不足・SDK版/hash不一致・初期化失敗なら失敗です。
+case固有baseへDLLと固定SDKを複製し、`ApplicationPathSnapshot`で指定します。製品のbase/current directoryは変更しません。
+SDKのfixture保持参照と製品Shutdown用参照を分け、同期走査/worker終端・packed解放→Dispose/Shutdown→
+client/state/result回収確認→SDK保持参照解放→制御DLL解放→case directory削除の順に回収します。
+fixture生成も既存compile/testと共通180秒、cleanupは追加10秒の同じ期限を使います。
+通常C#ビルドへC++ compiler要件を加えず、生成物はobj内に置きます。
+
+実EverythingのIPCからDBまでの一連実行、実環境の完了時間や800万キー・全native heap/CPU/memory peakの測定はこの試験の範囲外です。
 管理側の完全性とDB保持は[長パス仕様](../../devdocs/spec/core/path-length-and-io.md#実装とテストの対応)の既存系列で分担します。
 
 ## Runtime requirements

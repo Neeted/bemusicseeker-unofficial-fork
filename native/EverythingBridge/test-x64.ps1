@@ -1,5 +1,8 @@
 #requires -Version 7.0
 # native変更時の追加検証。通常C#ビルドにはC++コンパイラーを要求しない。
+[CmdletBinding()]
+param([switch]$BuildPathIdentityFixture)
+
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 . (Join-Path $repositoryRoot 'scripts/verification-process-lifecycle.ps1')
@@ -36,20 +39,38 @@ $projectText = @'
 </Project>
 '@
 [IO.File]::WriteAllText($project, $projectText.Replace('SOURCE_PATH', $source).Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
+$steps = [Collections.Generic.List[object]]::new()
+$steps.Add(@{ Name = 'compile'; File = $msbuild; Arguments = @($project, '/t:Rebuild', '/p:Configuration=Release', '/p:Platform=x64', '/nologo', '/verbosity:minimal') })
+$steps.Add(@{ Name = 'test'; File = (Join-Path $output 'EverythingBridgeQueryTests.exe'); Arguments = @($sdkPath) })
+if ($BuildPathIdentityFixture) {
+    $fixtureBase = Join-Path $output 'path-identity-fixture'
+    $fixtureNative = Join-Path $fixtureBase 'native'
+    [void](New-Item -ItemType Directory -Path $fixtureNative -Force)
+    $fixtureProject = Join-Path $output 'PathIdentityFixture.vcxproj'
+    $fixtureText = $projectText.Replace('SOURCE_PATH', $source).
+        Replace('<ConfigurationType>Application</ConfigurationType>', '<ConfigurationType>DynamicLibrary</ConfigurationType>').
+        Replace('<OutDir>$(ProjectDir)</OutDir>', '<OutDir>$(ProjectDir)path-identity-fixture\native\</OutDir>').
+        Replace('<IntDir>$(ProjectDir)intermediate\</IntDir>', '<IntDir>$(ProjectDir)fixture-intermediate\</IntDir>').
+        Replace('<TargetName>EverythingBridgeQueryTests</TargetName>', '<TargetName>EverythingBridge_x64</TargetName>').
+        Replace('NDEBUG;UNICODE;', 'BMS_PATH_IDENTITY_FIXTURE;NDEBUG;UNICODE;')
+    [IO.File]::WriteAllText($fixtureProject, $fixtureText.Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
+    Copy-Item -LiteralPath $sdkPath -Destination (Join-Path $fixtureNative 'Everything3_x64.dll')
+    $steps.Add(@{ Name = 'fixture-compile'; File = $msbuild; Arguments = @($fixtureProject, '/t:Rebuild', '/p:Configuration=Release', '/p:Platform=x64', '/nologo', '/verbosity:minimal') })
+}
 $deadline = Resolve-VerificationDeadlinePair -TimeoutSeconds 180
 $owned = [Collections.Generic.List[object]]::new()
 $primaryFailure = $null
 try {
-    foreach ($step in @(
-        @{ Name = 'compile'; File = $msbuild; Arguments = @($project, '/t:Rebuild', '/p:Configuration=Release', '/p:Platform=x64', '/nologo', '/verbosity:minimal') },
-        @{ Name = 'test'; File = (Join-Path $output 'EverythingBridgeQueryTests.exe'); Arguments = @($sdkPath) }
-    )) {
+    foreach ($step in $steps) {
         $diagnostics = Join-Path $output $step.Name
         $started = Start-VerificationRedirectedProcess -FileName $step.File -Arguments $step.Arguments -WorkingDirectory $repositoryRoot -DeadlinePolicy $deadline -DiagnosticsDirectory $diagnostics -OwnedProcessRecords $owned
         $result = Complete-VerificationRedirectedProcess -Started $started -DiagnosticsDirectory $diagnostics -DeadlinePolicy $deadline -LifecycleName "native-query-$($step.Name)"
         Write-Host $result.StandardOutput
         if ($result.StandardError) { Write-Host $result.StandardError }
         [void](Assert-VerificationProcessResult -Result $result -Label $step.Name -RequireSuccess -TimeoutSeconds 180)
+    }
+    if ($BuildPathIdentityFixture) {
+        Write-Host "BMS_EVERYTHING_PATH_IDENTITY_FIXTURE=$fixtureBase"
     }
 }
 catch {

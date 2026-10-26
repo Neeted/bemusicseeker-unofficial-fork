@@ -22,6 +22,28 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryMaintenanceServiceTests
 {
+
+    /// <summary>
+    /// 取得済み参照は末尾aliasで存在し、字面の異なる親は不存在となり、元記述を保持して両方を索引だけで判定する。
+    /// </summary>
+    [TestMethod]
+    public void BuildResourceHealthSnapshot_DistinguishesAliasLikeDirectoriesWithoutFileFallback()
+    {
+        const string root = @"C:\identity";
+        ChartScanResult scan = ChartDirectoryScanBuilder.BuildFromAbsolutePaths(
+            [root + @"\root.bms"], [root + @"\audio.ogg\tone.ogg"], [], []);
+        var context = new ResourceHealthLookupContext(LibraryResourceIndex.CreateFromScanResult(scan).DirectoryLookupCache);
+        foreach (string raw in new[] { @"audio.ogg\tone.wav", @"audio.wav\tone.wav" })
+        {
+            ChartFile chart = ChartTestValues.Empty() with { Path = root + @"\root.bms", Resources = TestChartResources.Create([raw], []) };
+            ResourceHealthMaintenanceSnapshot health = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart, context);
+            Assert.AreEqual(1, health.WavFilesDefined);
+            Assert.AreEqual(raw == @"audio.ogg\tone.wav" ? 1 : 0, health.WavFilesExisting);
+            Assert.AreEqual(raw, chart.Resources.Single().RawPath);
+        }
+        Assert.AreEqual(0, context.FileExistsFallbackCount);
+    }
+
     /// <summary>保守件数から単純充足率を計算し、不足を100へ丸めません。補助3役割と両値あり・0/null・null/nullの件数を検査済みとし、片側欠落・補助未取得・encoding-onlyを区別します。</summary>
     [TestMethod]
     public void ResourceHealthCounts_DistinguishZeroUncheckedAndIncompleteRatios()

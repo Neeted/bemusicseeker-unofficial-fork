@@ -786,7 +786,8 @@ bool IsDotOrDotDot(const std::wstring& segment) {
 	return segment == L"." || segment == L"..";
 }
 
-std::wstring NormalizeReferencePathForLookup(const std::wstring& path) {
+// directoryとfileが共有する構造処理だけを行い、物理directory名の拡張子を変えない。
+std::wstring NormalizeReferencePathStructure(const std::wstring& path) {
 	if (path.empty()) {
 		return std::wstring();
 	}
@@ -823,7 +824,12 @@ std::wstring NormalizeReferencePathForLookup(const std::wstring& path) {
 		}
 		joined += segments[i];
 	}
-	return NormalizeExtensionAlias(joined);
+	return joined;
+}
+
+// 資源拡張子の同一視は末尾fileの参照にだけ適用する。
+std::wstring NormalizeReferencePathForLookup(const std::wstring& path) {
+	return NormalizeExtensionAlias(NormalizeReferencePathStructure(path));
 }
 
 std::wstring NormalizeResourceKeyForLookup(const std::wstring& path) {
@@ -907,7 +913,7 @@ std::wstring NormalizeRelativeDirectoryPrefixForLookup(const std::wstring& chart
 	if (relative.empty()) {
 		return std::wstring();
 	}
-	std::wstring normalized = NormalizeReferencePathForLookup(relative);
+	std::wstring normalized = NormalizeReferencePathStructure(relative);
 	if (normalized.empty()) {
 		return std::wstring();
 	}

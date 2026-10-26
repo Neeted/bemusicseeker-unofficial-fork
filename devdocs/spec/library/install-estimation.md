@@ -28,6 +28,8 @@ BMS/PMSの未定義WAV/BMP IDとBMSONの参照先ヘッダーのないBGA/LAYER/
 
 キーは拡張子を除いた譜面相対のパスです。`foo.wav` と `./foo.wav` は `foo`、`sound/./foo.wav` は `sound/foo`、`sound/foo.v2.wav` は `sound/foo.v2` になります。`foo` と `sound/foo` は別であり、ファイル名だけに戻して一致させません。既に正規化した参照をパッケージ集約時に再正規化しません。
 
+資源の親名は[リソース索引](../core/data-and-indexes.md#リソース索引と所有関係)と同じ物理配置の識別を使います。`audio.ogg/tone.wav` の参照は同じ親の `tone.ogg` と一致しますが、別親 `audio.wav/tone.wav` だけを持つ候補とは一致しません。親名への拡張子別名化で候補を混入・脱落させず、元参照と既存の推定閾値を維持します。
+
 パス解析で独立した `..` セグメントが見つかった場合だけ、親参照の非対応理由を登録し、索引のキーへ入れません。`sound/../foo.wav` も対象ですが、名前中の `foo..bar.wav` は親参照ではありません。実際の親参照が対象に一件でも含まれる場合は推定せず、`UnsupportedResourcePath` を表示します。
 
 `.wav`、`.ogg`、`.png` など拡張子除去後のキーが空になる参照は索引へ追加せず、親参照の理由にも使いません。種類不明だけでもその理由を生成せず、未知拡張子の既存の解析採用範囲、空文字・不正パス・ドライブ絶対パス・先頭区切りの既存の正規化を維持します。既に解析された非対応理由は単体・パッケージ集約へ引き継ぎ、CP932のデコード非対応を親参照へ置き換えません。
@@ -336,6 +338,7 @@ ownerから完了・失敗receiverまで、成功として公開できる初段�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 資源拡張子に似た親名の通常候補 | `BmsLibraryInstallEstimationService`、`DirectoryResourceLookupCache` | `BmsLibraryInstallEstimationServiceTests.EstimateInstallationDirectory_DistinguishesAliasLikeParentNamesFromRealReverseIndex` が実走査索引から別親の候補を区別する。`EverythingNativePathIdentityTests.ExecuteScan_PreservesDirectoryIdentityThroughDecodeHealthAndEstimation` はnative公開packの実decodeと三逆引きから通常推定への接続を担う。条件表はnativeへ集約し、既存の閾値・祖先抑制系列を維持する。 |
 | パッケージ内の子譜面の最終配置における音源充足・保留表示と自動導入 | `PackageInstallEstimationSnapshotBuilder`、`PackageInstallDestinationMap`、`ChartResourcePlacement`、`BmsLibraryInstallEstimationService`、`BmsLibraryPackageInstallService.RefreshPendingResourceHealth` | [`BmsLibraryInstallEstimationServiceTests.Estimate_NestedPackageChartRequiresAudioAtFinalRelativePlacement`](../../../BeMusicSeeker.Tests/Install/BmsLibraryInstallEstimationServiceTests.cs) は候補・同梱それぞれの親だけの音源を拒み、子音源を認める4条件を、実パッケージの推定入力から同じ項目への適用・健康度再評価まで確認する。自動許可と件数・健康度・不足警告の一致、最終子配置、候補と元健康度の保持を確認し、同梱子音源の代表条件ではクリア後の配置文脈も確認する。[`PackageInstallWorkflowOwnerTests.AutomaticContinuation_NestedChartUsesFinalAudioPlacement`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerAutomaticContinuationTests.cs) は実取り込みから、親だけの場合の元FS・保留・install保持、正確な子項目の件数1/0・健康度0・不足警告・候補保持と、子にある場合の階層を保つ導入・song・所持反映を確認する。閾値境界と兄弟譜面の不足条件は既存の推定サービス系列が分担する。 |
 | 取り込み後の正常な自動推定だけからの導入、設定OFF・対象限定・再グループ化 | `BMSLibrary`、`BMSLibrary.PackageInstall`、`BmsLibraryPackageInstallService` | [`PackageInstallWorkflowOwnerAutomaticContinuationTests`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerAutomaticContinuationTests.cs) の `AutomaticContinuation_UsesCapturedSettingsAndRegroupedSource` は設定ON/OFF・元削除ON/OFF・推定中の反転と次操作、再グループ化後の同梱物・実ファイル・SQLite・所持集合・保留／導入済みを確認する。`AutomaticContinuation_DoesNotExpandIntoUntrackedRegroupedSibling` は既存の未所持兄弟混在時の全体保留を確認する。混在分類は `PackageInstallWorkflowOwnerEstimationTests`、自動設定の条件表は `BmsLibraryInstallEstimationServiceTests`、再グループ化の条件表は `BmsLibraryPendingPackageRegroupTests` へ分担する。 |
 | 手動推定・復元・候補編集からの非起動 | `PendingPackageWorkflowOwner`、`BMSLibrary` | `PackageInstallWorkflowOwnerTests.AutomaticContinuation_DoesNotRunAfterManualEstimation` は新設定有効の実モデルの手動推定後も物理導入・保留除去しないことを確認する。手動owner、候補編集・修正・復元は既存の `PendingPackageWorkflowOwnerTests`、`BmsLibraryPendingPackageRegroupTests`、`BmsLibraryPackageLifecycleTests`、`BmsLibraryInitializationInstallTests` が分担する。 |

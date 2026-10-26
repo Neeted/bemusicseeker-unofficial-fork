@@ -14,6 +14,27 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryInstallEstimationServiceTests
 {
+
+    /// <summary>実走査索引の逆引きから親名を区別し、同じstemを別親に持つ候補を通常推定へ混入させない。</summary>
+    [TestMethod]
+    public void EstimateInstallationDirectory_DistinguishesAliasLikeParentNamesFromRealReverseIndex()
+    {
+        const string correct = @"C:\Installed\Correct";
+        const string other = @"C:\Installed\Other";
+        ChartScanResult scan = ChartDirectoryScanBuilder.BuildFromAbsolutePaths(
+            [correct + @"\base.bms", other + @"\base.bms"],
+            [correct + @"\audio.ogg\tone.ogg", other + @"\audio.wav\tone.wav"], [], []);
+        DirectoryResourceLookupCache cache = LibraryResourceIndex.CreateFromScanResult(scan).DirectoryLookupCache;
+        ChartFile chart = CreateFile("target", @"C:\Pending\chart.bms", @"audio.ogg\tone.wav") with
+        { RawTitle = "Song", RawArtist = "Artist", Artist = "Artist" };
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(CreateService(), [chart], [], cache, false,
+            ChartInstallationEstimateMode.Normal, _ => InstallEstimationMetadataNormalizer.BuildProfile([("Song", "Artist", "base.bms")]));
+        CollectionAssert.AreEquivalent(new[] { correct }, cache.GetDirectoriesByAudioRelativeHash(ChartResourceKeyHash.GetLookupHash(@"audio.ogg\tone")).ToArray());
+        Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
+        Assert.AreEqual(correct, result.SelectedCandidate?.DirectoryPath);
+        Assert.AreEqual(@"audio.ogg\tone.wav", chart.Resources.Single().RawPath);
+    }
+
     /// <summary>パッケージの子譜面は最終子配置の音源だけで充足させ、候補・同梱の親だけの音源を自動許可と同じ項目の健康度・不足警告で拒みます。候補と元健康度を保ち、同梱子音源の代表条件ではクリア後も相対配置を失いません。</summary>
     [TestMethod]
     [DataRow(false, false)]

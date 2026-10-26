@@ -12,6 +12,37 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartDirectoryScanBuilderTests
 {
+
+    /// <summary>
+    /// 拡張子に似た別親を保持し同一親の末尾aliasだけをまとめ、親子譜面では三種別の集約と自己所有を区別する。
+    /// </summary>
+    [TestMethod]
+    public void BuildFromAbsolutePaths_PreservesDirectoryNamesAndLeafAliasesWithNearestOwnership()
+    {
+        const string root = @"C:\identity";
+        const string child = @"C:\identity\pack.ogg";
+        ChartScanResult scan = ChartDirectoryScanBuilder.BuildFromAbsolutePaths(
+            [root + @"\root.bms", child + @"\child.bms"],
+            [root + @"\audio.ogg\tone.wav", root + @"\audio.ogg\tone.ogg", root + @"\audio.wav\tone.ogg", child + @"\sound.jpg\tone.wav"],
+            [root + @"\image.bmp\cover.jpg", root + @"\image.bmp\cover.png", root + @"\image.png\cover.png", child + @"\sound.jpg\cover.jpg"],
+            [child + @"\sound.jpg\video.mpg"]);
+        AssertHashes(scan.AudioRelativePathHashesByChartDirectory[root], @"audio.ogg\tone", @"audio.wav\tone", @"pack.ogg\sound.jpg\tone");
+        AssertHashes(scan.SelfOwnedAudioRelativePathHashesByChartDirectory[root], @"audio.ogg\tone", @"audio.wav\tone");
+        AssertHashes(scan.AudioRelativePathHashesByChartDirectory[child], @"sound.jpg\tone");
+        AssertHashes(scan.SelfOwnedAudioRelativePathHashesByChartDirectory[child], @"sound.jpg\tone");
+        AssertHashes(scan.ImageRelativePathHashesByChartDirectory[root], @"image.bmp\cover", @"image.png\cover", @"pack.ogg\sound.jpg\cover");
+        AssertHashes(scan.SelfOwnedImageRelativePathHashesByChartDirectory[root], @"image.bmp\cover", @"image.png\cover");
+        AssertHashes(scan.ImageRelativePathHashesByChartDirectory[child], @"sound.jpg\cover");
+        AssertHashes(scan.SelfOwnedImageRelativePathHashesByChartDirectory[child], @"sound.jpg\cover");
+        AssertHashes(scan.MovieRelativePathHashesByChartDirectory[root], @"pack.ogg\sound.jpg\video");
+        AssertHashes(scan.SelfOwnedMovieRelativePathHashesByChartDirectory[root]);
+        AssertHashes(scan.MovieRelativePathHashesByChartDirectory[child], @"sound.jpg\video");
+        AssertHashes(scan.SelfOwnedMovieRelativePathHashesByChartDirectory[child], @"sound.jpg\video");
+
+        static void AssertHashes(uint[] actual, params string[] literalKeys) =>
+            CollectionAssert.AreEquivalent(literalKeys.Select(ChartResourceKeyHash.GetLookupHash).ToArray(), actual);
+    }
+
     /// <summary>
     /// 譜面直下から入れ子の音声・画像を走査し、所有フォルダへ各一件だけ集約して誤分類や重複を検出する。
     /// </summary>
