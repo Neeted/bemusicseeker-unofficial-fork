@@ -618,10 +618,22 @@ bool GetResultName(void* resultList, size_t index, std::vector<wchar_t>& buffer,
 	return true;
 }
 
-void AssignNormalizedDirectoryPath(const wchar_t* value, size_t length, std::wstring& output) {
-	while (length > 0 && (value[length - 1] == L'\\' || value[length - 1] == L'/')) {
+// 絶対drive rootのseparatorだけはdirectoryの一部。C:という相対表現からrootを推測しない。
+size_t DriveRootPrefixLength(const wchar_t* value, size_t length) {
+	return length >= 3 && ((value[0] >= L'A' && value[0] <= L'Z') || (value[0] >= L'a' && value[0] <= L'z'))
+		&& value[1] == L':' && (value[2] == L'\\' || value[2] == L'/') ? 3 : 0;
+}
+
+size_t DirectoryPathLengthWithoutTrailingSeparators(const wchar_t* value, size_t length) {
+	const size_t rootLength = DriveRootPrefixLength(value, length);
+	while (length > rootLength && (value[length - 1] == L'\\' || value[length - 1] == L'/')) {
 		length--;
 	}
+	return length;
+}
+
+void AssignNormalizedDirectoryPath(const wchar_t* value, size_t length, std::wstring& output) {
+	length = DirectoryPathLengthWithoutTrailingSeparators(value, length);
 	output.resize(length);
 	for (size_t i = 0; i < length; i++) {
 		wchar_t ch = value[i];
@@ -649,7 +661,7 @@ bool SplitFullPathBuffer(const wchar_t* fullPath, size_t length, std::wstring& d
 	if (pos >= length) {
 		return false;
 	}
-	AssignNormalizedDirectoryPath(fullPath, pos - 1, directoryPath);
+	AssignNormalizedDirectoryPath(fullPath, pos, directoryPath);
 	fileName.assign(fullPath + pos, length - pos);
 	return !fileName.empty();
 }
@@ -846,6 +858,9 @@ bool StartsWithDirectoryPrefix(const std::wstring& filePath, const std::wstring&
 	if (filePath.size() == directoryPath.size()) {
 		return true;
 	}
+	if (!directoryPath.empty() && (directoryPath.back() == L'\\' || directoryPath.back() == L'/')) {
+		return true;
+	}
 	wchar_t next = filePath[directoryPath.size()];
 	return next == L'\\' || next == L'/';
 }
@@ -854,11 +869,7 @@ std::wstring TrimTrailingSeparators(const std::wstring& path) {
 	if (path.empty()) {
 		return path;
 	}
-	size_t end = path.size();
-	while (end > 0 && (path[end - 1] == L'\\' || path[end - 1] == L'/')) {
-		end--;
-	}
-	return path.substr(0, end);
+	return path.substr(0, DirectoryPathLengthWithoutTrailingSeparators(path.data(), path.size()));
 }
 
 void NormalizeDirectoryPathInPlace(std::wstring& path) {
@@ -867,18 +878,20 @@ void NormalizeDirectoryPathInPlace(std::wstring& path) {
 			ch = L'\\';
 		}
 	}
-	while (!path.empty() && (path.back() == L'\\' || path.back() == L'/')) {
-		path.pop_back();
-	}
+	path.resize(DirectoryPathLengthWithoutTrailingSeparators(path.data(), path.size()));
 }
 
 std::wstring GetParentDirectory(const std::wstring& path) {
 	std::wstring trimmed = TrimTrailingSeparators(path);
+	const size_t rootLength = DriveRootPrefixLength(trimmed.data(), trimmed.size());
+	if (rootLength != 0 && trimmed.size() == rootLength) {
+		return std::wstring();
+	}
 	size_t pos = trimmed.find_last_of(L"\\/");
 	if (pos == std::wstring::npos) {
 		return std::wstring();
 	}
-	return trimmed.substr(0, pos);
+	return trimmed.substr(0, (std::max)(rootLength, pos));
 }
 
 std::wstring NormalizeRelativePathForLookup(const std::wstring& chartDirectory, const std::wstring& filePath) {

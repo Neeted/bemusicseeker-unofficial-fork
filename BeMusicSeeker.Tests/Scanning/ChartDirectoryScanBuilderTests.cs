@@ -13,6 +13,37 @@ namespace BeMusicSeeker.Tests;
 public sealed class ChartDirectoryScanBuilderTests
 {
 
+    /// <summary>絶対drive rootと通常の子・prefixだけ似た兄弟を分け、root集約と最近傍の自己所有を三種別で保持する。</summary>
+    [TestMethod]
+    public void BuildFromAbsolutePaths_PreservesDriveRootAndDescendantOwnership()
+    {
+        const string root = @"C:\";
+        const string child = @"C:\Songs";
+        const string sibling = @"C:\Songs2";
+        ChartScanResult scan = ChartDirectoryScanBuilder.BuildFromAbsolutePaths(
+            [@"C:\root.bms", @"C:\Songs\child.bmson", @"C:\Songs2\sibling.bms"],
+            [@"C:\tone.wav", @"C:\Songs\childonly.ogg", @"C:\Songs2\sibling.wav"],
+            [@"C:\cover.png", @"C:\Songs\cover.jpg"],
+            [@"C:\video.mpg", @"C:\Songs\video.mpg"]);
+        CollectionAssert.AreEquivalent(new[] { root, child, sibling }, scan.ChartDirectories.ToArray());
+        Check(scan.AudioRelativePathHashesByChartDirectory[root], "tone", @"Songs\childonly", @"Songs2\sibling");
+        Check(scan.SelfOwnedAudioRelativePathHashesByChartDirectory[root], "tone");
+        Check(scan.AudioRelativePathHashesByChartDirectory[child], "childonly");
+        Check(scan.SelfOwnedAudioRelativePathHashesByChartDirectory[child], "childonly");
+        Check(scan.AudioRelativePathHashesByChartDirectory[sibling], "sibling");
+        Check(scan.ImageRelativePathHashesByChartDirectory[root], "cover", @"Songs\cover");
+        Check(scan.SelfOwnedImageRelativePathHashesByChartDirectory[root], "cover");
+        Check(scan.ImageRelativePathHashesByChartDirectory[child], "cover");
+        Check(scan.SelfOwnedImageRelativePathHashesByChartDirectory[child], "cover");
+        Check(scan.MovieRelativePathHashesByChartDirectory[root], "video", @"Songs\video");
+        Check(scan.SelfOwnedMovieRelativePathHashesByChartDirectory[root], "video");
+        Check(scan.MovieRelativePathHashesByChartDirectory[child], "video");
+        Check(scan.SelfOwnedMovieRelativePathHashesByChartDirectory[child], "video");
+
+        static void Check(uint[] actual, params string[] keys) =>
+            CollectionAssert.AreEquivalent(keys.Select(ChartResourceKeyHash.GetLookupHash).ToArray(), actual);
+    }
+
     /// <summary>
     /// 拡張子に似た別親を保持し同一親の末尾aliasだけをまとめ、親子譜面では三種別の集約と自己所有を区別する。
     /// </summary>

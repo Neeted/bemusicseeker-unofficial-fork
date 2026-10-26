@@ -46,7 +46,7 @@ public sealed class EverythingNativeRuntimeTests
             "BE25B01C73BBF359B50DDF30255133225F93B4BC40A8D208173319373BCDAA5C");
         AssertX64AndHash(
             Path.Combine(repositoryRoot, "native", "EverythingBridge_x64.dll"),
-            "B429CCAED440E1A6F2E68E9168893F7D37A3E2217FEDEC835A74AE0945A9B82C");
+            "886298F310E3FE3F73E635431E380277E21A740844D5D3E093AB5AFC867F2E3B");
     }
 
     private static void AssertX64AndHash(string path, string expectedHash)

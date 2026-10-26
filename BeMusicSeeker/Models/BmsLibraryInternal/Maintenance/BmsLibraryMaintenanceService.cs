@@ -393,7 +393,11 @@ internal sealed class BmsLibraryMaintenanceService
 
     private static string NormalizeLookupDirectory(string chartDirectory)
     {
-        return (chartDirectory ?? string.Empty).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        // 正規化済みnative索引のdrive rootをC:へ落とさず、既存UNCの末尾なしキーも維持する。
+        string directory = chartDirectory ?? string.Empty;
+        return directory.StartsWith(@"\\", StringComparison.Ordinal)
+            ? directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            : LongPathFileSystem.TrimTrailingDirectorySeparators(directory);
     }
 
     private static bool TryResolveResourceReferenceFromCache(

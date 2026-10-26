@@ -1067,14 +1067,19 @@ internal sealed class EverythingNative
         {
             return string.Empty;
         }
+        string normalized;
         try
         {
-            return Path.GetFullPath(rootDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            normalized = Path.GetFullPath(rootDirectory);
         }
         catch
         {
-            return rootDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            normalized = rootDirectory;
         }
+        // nativeの既知キーに合わせ、UNC共有rootは末尾なし、絶対drive rootはseparatorを保持する。
+        return normalized.StartsWith(@"\\", StringComparison.Ordinal)
+            ? normalized.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            : PathWithoutTrailingSeparator(normalized);
     }
 
     private static ChartScanExecutionResult CreateExecutionResult(

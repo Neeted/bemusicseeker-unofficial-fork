@@ -23,6 +23,27 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryMaintenanceServiceTests
 {
 
+    /// <summary>drive root・通常directory・UNCの取得済み索引を正負とも照会し、末尾除去によるcache missと実FS fallbackを検出する。</summary>
+    [DataTestMethod]
+    [DataRow(@"C:\")]
+    [DataRow(@"C:\root-identity")]
+    [DataRow(@"\\server\share")]
+    public void BuildResourceHealthSnapshot_PreservesRootIdentityWithoutFileFallback(string root)
+    {
+        string path = Path.Combine(root, "root.bms");
+        ChartScanResult scan = ChartDirectoryScanBuilder.BuildFromAbsolutePaths([path], [Path.Combine(root, "tone.ogg")], [], []);
+        var context = new ResourceHealthLookupContext(LibraryResourceIndex.CreateFromScanResult(scan).DirectoryLookupCache);
+        foreach (string raw in new[] { "tone.wav", "missing.wav" })
+        {
+            ChartFile chart = ChartTestValues.Empty() with { Path = path, Resources = TestChartResources.Create([raw], []) };
+            ResourceHealthMaintenanceSnapshot health = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart, context);
+            Assert.AreEqual(1, health.WavFilesDefined);
+            Assert.AreEqual(raw == "tone.wav" ? 1 : 0, health.WavFilesExisting);
+            Assert.AreEqual(raw, chart.Resources.Single().RawPath);
+        }
+        Assert.AreEqual(0, context.FileExistsFallbackCount);
+    }
+
     /// <summary>
     /// 取得済み参照は末尾aliasで存在し、字面の異なる親は不存在となり、元記述を保持して両方を索引だけで判定する。
     /// </summary>

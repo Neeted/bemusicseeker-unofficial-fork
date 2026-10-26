@@ -122,6 +122,11 @@ SDK結果・search state・clientの回収は全workerのjoin後に確認しま�
 資源directory数、owner/prefix cache hit/miss、assigned、hash・reverseの件数、packed bytesを確認します。
 packed bytesはnative heap全体の割当量を意味しません。prefixはcache miss時だけ構築します。
 
+固定走査の譜面親とsource-rootは、絶対drive rootの `C:\` を `C:` へ縮約しません。
+通常directoryとUNC share rootは従来の末尾separatorなしを保ち、rootから子への包含と子からrootへの祖先所有を接続します。
+root/通常/UNCの公開結果、三種別の集約・自己所有・逆引き、text/mtime、source-root/groupedの代表を同じ追加試験で確認します。
+SDKのroot行は分離列 `C:` から実getterが一重separatorの `C:\root.bms` を返すことも検査します。
+
 managedの実decode接続は、同じ試験cppを専用defineでDLLにも生成して明示実行します。
 
 ```powershell
@@ -130,7 +135,9 @@ $env:BMS_EVERYTHING_PATH_IDENTITY_FIXTURE = Join-Path $PWD 'native/EverythingBri
 pwsh -NoProfile -File scripts/verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~EverythingNativePathIdentityTests'
 ```
 
-`ProcessIntegration` の代表一件は、実pointerから六面・三逆引き・取得済み参照の健康度・通常推定を確認します。
+`ProcessIntegration` の通常親子とdrive rootの代表二件は、実pointerから六面・三逆引き・取得済み参照の健康度・通常推定を確認します。
+root代表はCドライブの非root WorkingDirectoryを持つ専用testhostで実行し、共有current directoryを変えず、実rootにファイルを作りません。
+非rootの明示基準位置でも絶対rootへ解決されることを確認し、`C:` を現在位置で救済しません。
 環境変数未指定なら未実施、指定済みでDLL/SDK不足・SDK版/hash不一致・初期化失敗なら失敗です。
 case固有baseへDLLと固定SDKを複製し、`ApplicationPathSnapshot`で指定します。製品のbase/current directoryは変更しません。
 SDKのfixture保持参照と製品Shutdown用参照を分け、同期走査/worker終端・packed解放→Dispose/Shutdown→

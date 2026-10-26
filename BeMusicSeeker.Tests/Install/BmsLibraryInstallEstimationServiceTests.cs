@@ -15,6 +15,45 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryInstallEstimationServiceTests
 {
 
+    /// <summary>実走査索引の逆引きからroot固有資源の一意候補を選び、非root基準位置でも絶対rootを保持する。</summary>
+    [TestMethod]
+    public void EstimateInstallationDirectory_PreservesAbsoluteDriveRootFromRealReverseIndex()
+    {
+        ChartScanResult scan = ChartDirectoryScanBuilder.BuildFromAbsolutePaths(
+            [@"C:\root.bms", @"C:\Songs\child.bmson"], [@"C:\rootonly.ogg", @"C:\Songs\childonly.wav"], [], []);
+        DirectoryResourceLookupCache cache = LibraryResourceIndex.CreateFromScanResult(scan).DirectoryLookupCache;
+        ChartFile chart = CreateFile("target", @"C:\Pending\chart.bms", "rootonly.wav") with
+        { RawTitle = "Song", RawArtist = "Artist", Artist = "Artist" };
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(CreateService(), [chart], [], cache, false,
+            ChartInstallationEstimateMode.Normal, _ => InstallEstimationMetadataNormalizer.BuildProfile([("Song", "Artist", "base.bms")]));
+        Assert.IsNotNull(result.SelectedCandidate);
+        Assert.AreEqual(@"C:\", result.SelectedCandidate.DirectoryPath);
+        Assert.IsTrue(Path.IsPathFullyQualified(result.SelectedCandidate.DirectoryPath));
+        Assert.AreEqual(@"C:\", Path.GetFullPath(result.SelectedCandidate.DirectoryPath, @"C:\nonroot-identity-base"));
+        Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
+        Assert.IsTrue(result.ShouldAutoApplyDestination);
+    }
+
+    /// <summary>既存の祖先抑制条件をrootと子へ適用し、子の関連性が同等のときだけroot候補を抑制する。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Estimate_AbsoluteDriveRootParticipatesInAncestorSuppression(bool strongChild)
+    {
+        ChartFile chart = CreateFile("target", @"C:\Pending\chart.bms", @"Songs\tone.wav") with
+        { RawTitle = "Song", RawArtist = "Artist", Artist = "Artist" };
+        PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries([PackageChartEntry.FromChart(chart)]);
+        // rootからのSongs\\toneと、子からのSongs\\toneがそれぞれ実配置で成立する集合を使う。
+        ChartScanResult scan = ChartDirectoryScanBuilder.BuildFromAbsolutePaths(
+            [@"C:\root.bms", @"C:\Songs\child.bms"], [@"C:\Songs\tone.wav", @"C:\Songs\Songs\tone.wav"], [], []);
+        DirectoryResourceLookupCache cache = LibraryResourceIndex.CreateFromScanResult(scan).DirectoryLookupCache;
+        InstallEstimationResult result = CreateService().EstimateInstallationDirectory(snapshot, cache, false, ChartInstallationEstimateMode.Normal,
+            path => InstallEstimationMetadataNormalizer.BuildProfile([(path == @"C:\Songs" && !strongChild ? "Other" : "Song", "Artist", path)]));
+        Assert.IsNotNull(result.SelectedCandidate);
+        Assert.AreEqual(strongChild ? @"C:\Songs" : @"C:\", result.SelectedCandidate.DirectoryPath);
+        Assert.AreEqual(strongChild ? 1 : 0, result.AncestorShadowSuppressedCount);
+    }
+
     /// <summary>実走査索引の逆引きから親名を区別し、同じstemを別親に持つ候補を通常推定へ混入させない。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_DistinguishesAliasLikeParentNamesFromRealReverseIndex()

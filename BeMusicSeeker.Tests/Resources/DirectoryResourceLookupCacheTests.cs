@@ -13,6 +13,36 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class DirectoryResourceLookupCacheTests
 {
+    /// <summary>producerが渡す絶対rootと通常directoryを六面・三逆引きでそのまま所有し、drive相対キーへ縮約しない。</summary>
+    [TestMethod]
+    public void CreateFromNativeCanonicalArrays_PreservesAbsoluteDriveRootInEverySurface()
+    {
+        const string root = @"C:\";
+        const string child = @"C:\Songs";
+        var cache = DirectoryResourceLookupCache.CreateFromNativeCanonicalArrays(
+            [root, child], [[11u, 12u], [13u]], [[21u, 22u], [23u]], [[31u, 32u], [33u]],
+            [[11u], [13u]], [[21u], [23u]], [[31u], [33u]],
+            new Dictionary<uint, string[]> { [11u] = [root], [12u] = [root], [13u] = [child] },
+            new Dictionary<uint, string[]> { [21u] = [root], [22u] = [root], [23u] = [child] },
+            new Dictionary<uint, string[]> { [31u] = [root], [32u] = [root], [33u] = [child] });
+        Assert.AreEqual(2, cache.Count);
+        Assert.IsNull(cache.GetEntryOrNull(@"C:"));
+        DirectoryResourceLookupCache.Entry entry = cache.GetEntryOrNull(root);
+        Assert.IsNotNull(entry);
+        CollectionAssert.AreEqual(new[] { 11u, 12u }, entry.AudioRelativePathHashArray);
+        CollectionAssert.AreEqual(new[] { 21u, 22u }, entry.ImageRelativePathHashArray);
+        CollectionAssert.AreEqual(new[] { 31u, 32u }, entry.MovieRelativePathHashArray);
+        CollectionAssert.AreEqual(new[] { 11u }, entry.SelfOwnedAudioRelativePathHashArray);
+        CollectionAssert.AreEqual(new[] { 21u }, entry.SelfOwnedImageRelativePathHashArray);
+        CollectionAssert.AreEqual(new[] { 31u }, entry.SelfOwnedMovieRelativePathHashArray);
+        CollectionAssert.AreEqual(new[] { root }, cache.GetDirectoriesByAudioRelativeHash(11u).ToArray());
+        CollectionAssert.AreEqual(new[] { root }, cache.GetDirectoriesByImageRelativeHash(21u).ToArray());
+        CollectionAssert.AreEqual(new[] { root }, cache.GetDirectoriesByMovieRelativeHash(31u).ToArray());
+        CollectionAssert.AreEqual(new[] { child }, cache.GetDirectoriesByAudioRelativeHash(13u).ToArray());
+        CollectionAssert.AreEqual(new[] { child }, cache.GetDirectoriesByImageRelativeHash(23u).ToArray());
+        CollectionAssert.AreEqual(new[] { child }, cache.GetDirectoriesByMovieRelativeHash(33u).ToArray());
+    }
+
     /// <summary>
     /// 保証：未正規化の走査ハッシュは整列・重複除去し、正規化済み入力も三分類の値を欠落なく索引へ渡す。
     /// </summary>

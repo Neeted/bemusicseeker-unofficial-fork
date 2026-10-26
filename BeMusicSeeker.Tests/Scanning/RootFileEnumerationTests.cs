@@ -10,6 +10,24 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class RootFileEnumerationTests
 {
+    /// <summary>要求・復号と共通のsource-root正規化で照会し、絶対drive rootと通常/UNCの従来canonicalを保持する。</summary>
+    [DataTestMethod]
+    [DataRow(@"C:\", @"C:\")]
+    [DataRow("C:/", @"C:\")]
+    [DataRow(@"C:\Songs", @"C:\Songs")]
+    [DataRow(@"C:\Songs\", @"C:\Songs")]
+    [DataRow(@"\\server\share", @"\\server\share")]
+    [DataRow(@"\\server\share\", @"\\server\share")]
+    public void SourceRootLookup_PreservesDriveRootAndExistingCanonicalKeys(string request, string canonical)
+    {
+        var expected = new EverythingNative.BridgeSourceRootEntryResult { RootPath = canonical };
+        var result = new EverythingNative.BridgeSourceRootScanResult();
+        result.Entries.Add(canonical, expected);
+        Assert.IsTrue(result.TryGetEntry(request, out EverythingNative.BridgeSourceRootEntryResult actual));
+        Assert.AreSame(expected, actual);
+        Assert.AreEqual(canonical, actual.RootPath);
+    }
+
     /// <summary>
     /// 実ファイルのパス・更新日時・サイズを同じ列挙で返し、パス互換入口とメタデータ入口の不一致を検出する。
     /// </summary>

@@ -439,6 +439,134 @@ void DirectoryIdentity(Fixture& f) {
  CheckIdentityPack(f, table, "parent-table");
 }
 
+// rootのSDK分離列はC:でも、実full-pathと公開directoryはC:\でなければならない。
+// 通常/UNCの末尾なしcanonical、親子所有、三種とsource/groupedの同一性も同じ公開境界で検査する。
+void RootIdentity(Fixture& f, const std::wstring& sdkParent, const std::wstring& expectedParent, const char* label) {
+	const std::wstring prefix = expectedParent + (expectedParent.back() == L'\\' ? L"" : L"\\");
+	const std::wstring child = prefix + L"Songs";
+	f.queries = {{L"chart", {{{sdkParent, L"root.bms"}, {child, L"child.bmson"}}}},
+		{L"audio", {{{sdkParent, L"tone.wav"}, {child, L"tone.ogg"}}}},
+		{L"image", {{{sdkParent, L"cover.png"}, {child, L"cover.jpg"}}}},
+		{L"movie", {{{sdkParent, L"video.mpg"}, {child, L"video.mpg"}}}},
+		{L"text", {{{sdkParent, L"folderinfo.txt"}}}}};
+	OwnedResult probe(f.queries.at(L"chart"), L"root-probe");
+	wchar_t fullPath[1024]{};
+	Require(f.getters[2](static_cast<ResultList*>(&probe), 0, fullPath, 1024) > 0 && fullPath == prefix + L"root.bms", "root fixture full-path precondition failed");
+	const int beforeSearches = f.searches;
+	EBridgeResult* raw = nullptr;
+	int status = EBridge_ScanChartAndResources(L"chart", L"audio", L"image", L"movie", L"text", &raw);
+	std::unique_ptr<EBridgeResult, decltype(&EBridge_FreeResult)> result(raw, EBridge_FreeResult);
+	f.CheckReleased();
+	Require(status == BRIDGE_OK && result && result->chart_count == 2 && result->dir_count == 2, "root fixed scan failed");
+	const std::array<uint32_t, 3> own{0x324026b0u, 0x81b5b12fu, 0x7641638cu};
+	const std::array<uint32_t, 3> inherited{0x739bd3f0u, 0x4b10593bu, 0x460d6a50u}; // SONGS\\{TONE,COVER,VIDEO}、独立UTF16LE xxHash32。
+	for (size_t i = 0; i < result->dir_count; ++i) {
+		const auto directory = PackedString(result->dir_blob, result->dir_offsets[i]);
+		std::wcout << L"ROOT " << label << L" directory=" << directory << L'\n';
+		Require(directory == expectedParent || directory == child, "absolute root directory identity lost");
+		const bool parent = directory == expectedParent;
+		auto check = [&](const unsigned char* blob, const unsigned int* offsets, const unsigned int* lengths,
+			const unsigned char* selfBlob, const unsigned int* selfOffsets, const unsigned int* selfLengths, size_t c) {
+			std::vector<uint32_t> expected = parent ? std::vector<uint32_t>{own[c], inherited[c]} : std::vector<uint32_t>{own[c]};
+			std::sort(expected.begin(), expected.end());
+			Require(Hashes(blob, offsets[i], lengths[i]) == expected, "root ancestor aggregate lost");
+			Require(Hashes(selfBlob, selfOffsets[i], selfLengths[i]) == std::vector<uint32_t>{own[c]}, "root nearest self owner lost");
+		};
+		check(result->audio_resource_key_hashes_blob,result->audio_resource_key_hash_offsets,result->audio_resource_key_hash_lengths,result->self_audio_resource_key_hashes_blob,result->self_audio_resource_key_hash_offsets,result->self_audio_resource_key_hash_lengths,0);
+		check(result->image_resource_key_hashes_blob,result->image_resource_key_hash_offsets,result->image_resource_key_hash_lengths,result->self_image_resource_key_hashes_blob,result->self_image_resource_key_hash_offsets,result->self_image_resource_key_hash_lengths,1);
+		check(result->movie_resource_key_hashes_blob,result->movie_resource_key_hash_offsets,result->movie_resource_key_hash_lengths,result->self_movie_resource_key_hashes_blob,result->self_movie_resource_key_hash_offsets,result->self_movie_resource_key_hash_lengths,2);
+	}
+	std::vector<std::wstring> charts;
+	for (size_t i=0;i<result->chart_count;++i) {
+		charts.push_back(PackedString(result->chart_blob,result->chart_offsets[i]));
+		Require(result->chart_last_write_filetimes[i] == 132000000000000000ull, "root chart time lost");
+	}
+	std::sort(charts.begin(),charts.end());
+	std::vector<std::wstring> expectedCharts{prefix+L"root.bms", child+L"\\child.bmson"};
+	std::sort(expectedCharts.begin(),expectedCharts.end());
+	Require(charts == expectedCharts, "root full chart paths lost");
+	Require(result->text_count == 1 && PackedString(result->text_blob,result->text_offsets[0]) == prefix+L"folderinfo.txt"
+		&& result->text_last_write_filetimes[0] == 132000000000000000ull, "root text path/time lost");
+	Require(result->audio_relative_reverse_key_count == 2 && result->image_relative_reverse_key_count == 2 && result->movie_relative_reverse_key_count == 2, "root reverse key count lost");
+	for (const auto lengths : {result->audio_relative_reverse_lengths,result->image_relative_reverse_lengths,result->movie_relative_reverse_lengths})
+		Require(lengths[0]+lengths[1] == 3, "root reverse pairs lost");
+	auto checkReverse = [&](const unsigned int* keys, const unsigned int* offsets, const unsigned int* lengths, const unsigned char* indices, size_t c) {
+		for (size_t i=0;i<2;++i) {
+			Require(keys[i] == own[c] || keys[i] == inherited[c], "root reverse hash lost");
+			std::vector<std::wstring> owners;
+			for (size_t j=0;j<lengths[i];++j) {
+				uint32_t index = 0;
+				std::memcpy(&index,indices+offsets[i]+j*result->reverse_index_bytes,result->reverse_index_bytes);
+				Require(index < result->dir_count, "root reverse owner index invalid");
+				owners.push_back(PackedString(result->dir_blob,result->dir_offsets[index]));
+			}
+			std::sort(owners.begin(),owners.end());
+			std::vector<std::wstring> expected = keys[i] == own[c] ? std::vector<std::wstring>{expectedParent,child} : std::vector<std::wstring>{expectedParent};
+			std::sort(expected.begin(),expected.end());
+			Require(owners == expected, "root reverse owner identity lost");
+		}
+	};
+	checkReverse(result->audio_relative_reverse_keys,result->audio_relative_reverse_offsets,result->audio_relative_reverse_lengths,result->audio_relative_reverse_indices_blob,0);
+	checkReverse(result->image_relative_reverse_keys,result->image_relative_reverse_offsets,result->image_relative_reverse_lengths,result->image_relative_reverse_indices_blob,1);
+	checkReverse(result->movie_relative_reverse_keys,result->movie_relative_reverse_offsets,result->movie_relative_reverse_lengths,result->movie_relative_reverse_indices_blob,2);
+	size_t getterCount = 0;
+	for (const auto key : {L"chart",L"audio",L"image",L"movie",L"text"}) {
+		const auto& calls = f.completedCalls.at(key);
+		getterCount += calls.size();
+		Require(calls.size() == f.queries.at(key).rows.size(), "root full getter work changed");
+		for (size_t i=0;i<calls.size();++i) Require(calls[i].getter == Getter::FullPath && calls[i].index == i && calls[i].capacity == 1024, "root getter contract changed");
+	}
+	Require(f.searches-beforeSearches == 5 && getterCount == 9, "root query/getter work changed");
+	Require(result->chart_query_hits == 2 && result->audio_query_hits == 2 && result->image_query_hits == 2 && result->movie_query_hits == 2, "root query hit work changed");
+	Require(result->audio_resource_dir_count == 2 && result->image_resource_dir_count == 2 && result->movie_resource_dir_count == 2, "root directory work changed");
+	Require(result->owner_cache_hit_count == 4 && result->owner_cache_miss_count == 2 && result->relative_prefix_cache_hit_count == 4 && result->relative_prefix_cache_miss_count == 2, "root cache work changed");
+	Require(result->audio_assigned_count == 2 && result->image_assigned_count == 2 && result->movie_assigned_count == 2, "root assignment work changed");
+	std::cout << "ROOTWORK " << label << " hits=" << result->chart_query_hits << '/' << result->audio_query_hits << '/' << result->image_query_hits << '/' << result->movie_query_hits
+		<< " dirs=" << result->audio_resource_dir_count << ',' << result->image_resource_dir_count << ',' << result->movie_resource_dir_count
+		<< " cache=4/2,4/2 assigned=2/2/2 getters=" << getterCount << " searches=5 six_faces=15 reverse_keys/pairs=6/9 bytes=" << result->raw_buffer_size << '\n';
+	// source要求の末尾表記はcanonicalへ揃え、より具体的な通常directoryとのsegment境界を保つ。
+	const std::wstring requestedRoot = prefix;
+	EBridgeSourceRootRequest request{91,requestedRoot.c_str()};
+	EBridgeSourceRootsResult* sourceRaw = nullptr;
+	status = EBridge_ScanSourceRoots(&request,1,L"chart",L"audio",L"image",L"movie",&sourceRaw);
+	std::unique_ptr<EBridgeSourceRootsResult,decltype(&EBridge_FreeSourceRootsResult)> source(sourceRaw,EBridge_FreeSourceRootsResult);
+	Require(status == BRIDGE_OK && source && source->root_count == 1 && source->roots[0].root_id == 91
+		&& PackedString(source->root_blob,source->root_offsets[0]) == expectedParent && source->roots[0].chart_count == 2
+		&& source->roots[0].categorized_resource_file_count == 6, "source absolute root identity/count lost");
+	const auto& entry = source->roots[0];
+	std::vector<uint32_t> expectedAudio{own[0],inherited[0]}; std::sort(expectedAudio.begin(),expectedAudio.end());
+	Require(Hashes(source->audio_resource_key_hashes_blob,entry.audio_resource_key_hash_offset,entry.audio_resource_key_hash_length) == expectedAudio, "source root relative keys lost");
+	auto sourceGetterCount = [&]() {
+		size_t count = 0;
+		for (const auto key : {L"chart",L"audio",L"image",L"movie"}) count += f.completedCalls.at(key).size();
+		return count;
+	};
+	const size_t rootSourceGetters = sourceGetterCount();
+	Require(rootSourceGetters == 16, "source root getter work changed");
+	// Songs2を追加してもSongsだけを要求した結果へ混ぜず、通常directoryのsegment境界を維持する。
+	f.queries[L"chart"].rows.push_back({prefix+L"Songs2",L"sibling.bms"});
+	f.queries[L"audio"].rows.push_back({prefix+L"Songs2",L"outside.wav"});
+	EBridgeSourceRootRequest childRequest{93,child.c_str()}; EBridgeSourceRootsResult* childRaw = nullptr;
+	status = EBridge_ScanSourceRoots(&childRequest,1,L"chart",L"audio",L"image",L"movie",&childRaw);
+	std::unique_ptr<EBridgeSourceRootsResult,decltype(&EBridge_FreeSourceRootsResult)> childResult(childRaw,EBridge_FreeSourceRootsResult);
+	Require(status == BRIDGE_OK && childResult && childResult->root_count == 1 && childResult->roots[0].chart_count == 1
+		&& childResult->roots[0].categorized_resource_file_count == 3
+		&& PackedString(childResult->chart_blob,childResult->roots[0].chart_offsets[0]) == child+L"\\child.bmson", "source sibling prefix mixed");
+	const size_t childSourceGetters = sourceGetterCount();
+	Require(childSourceGetters == 20, "source child getter work changed");
+	EBridgeGroupedQuery query{92,L"text"}; EBridgeGroupedFilesResult* groupedRaw = nullptr;
+	status = EBridge_EnumerateGroupedFiles(&query,1,&groupedRaw);
+	std::unique_ptr<EBridgeGroupedFilesResult,decltype(&EBridge_FreeGroupedFilesResult)> grouped(groupedRaw,EBridge_FreeGroupedFilesResult);
+	Require(status == BRIDGE_OK && grouped && grouped->group_count == 1 && grouped->groups[0].path_count == 1
+		&& PackedString(grouped->path_blob,grouped->groups[0].path_offsets[0]) == prefix+L"folderinfo.txt"
+		&& grouped->groups[0].last_write_filetimes[0] == 132000000000000000ull, "grouped root full path/time lost");
+	const size_t groupedGetters = f.completedCalls.at(L"text").size();
+	Require(groupedGetters == 2 && f.searches-beforeSearches == 14, "root complete API query/getter work changed");
+	std::cout << "ROOTAPIS " << label << " searches=" << f.searches-beforeSearches << " fixed_fullpath=" << getterCount
+		<< " source_path_name=" << rootSourceGetters << '+' << childSourceGetters << " grouped_path_name=" << groupedGetters << " preparation_fullpath_probe=1\n";
+	f.CheckReleased();
+}
+
 } // namespace
 
 #ifndef BMS_PATH_IDENTITY_FIXTURE
@@ -451,6 +579,9 @@ int wmain(int argc, wchar_t** argv) {
 		PublicResults(fixture);
 		DirectoryIdentity(fixture);
 		IdentityOwnership(fixture);
+		RootIdentity(fixture, L"C:\\root-identity", L"C:\\root-identity", "normal-control");
+		RootIdentity(fixture, L"\\\\server\\share", L"\\\\server\\share", "unc-control");
+		RootIdentity(fixture, L"C:", L"C:\\", "drive-root");
 		fixture.CheckReleased();
 		std::cout << "PASS: SDK getter boundaries, query reuse/failure, packed API results, resource cleanup\n";
 		return 0;

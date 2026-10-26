@@ -1092,7 +1092,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         {
             return null;
         }
-        string normalizedPath = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string normalizedPath = LongPathFileSystem.TrimTrailingDirectorySeparators(path);
         if (normalizedPath.Length == 0)
         {
             return null;
@@ -1102,7 +1102,10 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         {
             return null;
         }
-        return parentDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        // root候補と子候補の親子関係を保つ。UNCはnativeの従来canonicalキーを使う。
+        return parentDirectory.StartsWith(@"\\", StringComparison.Ordinal)
+            ? parentDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            : LongPathFileSystem.TrimTrailingDirectorySeparators(parentDirectory);
     }
 
     private static int CompareDescending(int left, int right)

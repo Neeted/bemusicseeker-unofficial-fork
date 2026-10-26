@@ -19,11 +19,13 @@ public sealed class EverythingNativePathIdentityTests
 
     /// <summary>
     /// 実SDK getterから公開pack、managed decode、六面・三逆引き、健康度と通常推定へ渡し、親名と所有先の接続ずれを検出する。
-    /// 条件表はnative側へ集約し、ここでは一つの親子代表だけを通す。
+    /// 条件表はnative側へ集約し、通常親子と絶対drive rootの接続代表だけを通す。
     /// </summary>
-    [TestMethod]
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
     [TestCategory("ProcessIntegration")]
-    public void ExecuteScan_PreservesDirectoryIdentityThroughDecodeHealthAndEstimation()
+    public void ExecuteScan_PreservesDirectoryIdentityThroughDecodeHealthAndEstimation(bool driveRoot)
     {
         string? fixtureBase = Environment.GetEnvironmentVariable("BMS_EVERYTHING_PATH_IDENTITY_FIXTURE");
         if (string.IsNullOrWhiteSpace(fixtureBase))
@@ -54,9 +56,17 @@ public sealed class EverythingNativePathIdentityTests
             control = NativeLibrary.Load(caseBridge);
             FixtureBegin begin = Marshal.GetDelegateForFunctionPointer<FixtureBegin>(NativeLibrary.GetExport(control, "PathIdentityFixtureBegin"));
             end = Marshal.GetDelegateForFunctionPointer<FixtureEnd>(NativeLibrary.GetExport(control, "PathIdentityFixtureEnd"));
-            string root = Path.Combine(caseRoot, "library");
+            string root = driveRoot ? @"C:\" : Path.Combine(caseRoot, "library");
             string child = Path.Combine(root, "pack.ogg");
-            Assert.AreEqual(0, begin(caseSdk, root), "native fixtureの初期化に失敗しました。");
+            if (driveRoot)
+            {
+                // 専用testhostの既存WorkingDirectoryを観測し、共有current directoryを変更しない。
+                string workingDirectory = Environment.CurrentDirectory;
+                Assert.AreEqual(@"C:\", Path.GetPathRoot(workingDirectory), "専用processはCドライブの非root作業場所から実行します。");
+                Assert.AreNotEqual(root, workingDirectory);
+            }
+            // SDKの分離列C: + '\\' + nameが一重separatorのC:\root.bmsを生成する。
+            Assert.AreEqual(0, begin(caseSdk, driveRoot ? @"C:" : root), "native fixtureの初期化に失敗しました。");
             started = true;
             native = new EverythingNative(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(caseRoot, "BeMusicSeeker.exe")));
             ChartScanExecutionResult execution = native.ExecuteScan("chart", "audio", "image", "movie", "text");
@@ -72,6 +82,13 @@ public sealed class EverythingNativePathIdentityTests
             DirectoryResourceLookupCache.Entry childEntry = cache.GetEntryOrNull(child);
             Assert.IsNotNull(rootEntry);
             Assert.IsNotNull(childEntry);
+            if (driveRoot)
+            {
+                Assert.IsNull(cache.GetEntryOrNull(@"C:"));
+                Assert.IsTrue(Path.IsPathFullyQualified(root));
+                Assert.AreEqual(root, Path.GetFullPath(root, @"C:\nonroot-identity-base"));
+                CollectionAssert.Contains(execution.Result.ChartDirectories.ToArray(), root);
+            }
             AssertHashes(rootEntry.AudioRelativePathHashes, @"audio.ogg\tone", @"pack.ogg\sound.jpg\tone");
             AssertHashes(rootEntry.ImageRelativePathHashes, @"audio.ogg\cover", @"pack.ogg\sound.jpg\cover");
             AssertHashes(rootEntry.MovieRelativePathHashes, @"audio.ogg\video", @"pack.ogg\sound.jpg\video");
@@ -113,7 +130,9 @@ public sealed class EverythingNativePathIdentityTests
             var service = new BmsLibraryInstallEstimationService(new BmsLibraryOptionsSnapshot());
             InstallEstimationResult estimate = service.EstimateInstallationDirectory(snapshot, cache, false, ChartInstallationEstimateMode.Normal,
                 _ => InstallEstimationMetadataNormalizer.BuildProfile([("Song", "Artist", "base.bms")]));
-            Assert.AreEqual(root, estimate.SelectedCandidate?.DirectoryPath);
+            Assert.IsNotNull(estimate.SelectedCandidate);
+            Assert.AreEqual(root, estimate.SelectedCandidate.DirectoryPath);
+            Assert.IsTrue(Path.IsPathFullyQualified(estimate.SelectedCandidate.DirectoryPath));
             Assert.AreEqual(1, estimate.CandidateDirectoryCountAfterBroadFilter);
             TestContext?.WriteLine($"native decode: directories={cache.Count}, six-face hashes=15, reverse keys/pairs=9/9, raw bytes={execution.BridgeRawBufferBytes}, FS fallback={context.FileExistsFallbackCount}");
         }
