@@ -233,10 +233,21 @@ internal sealed partial class LibraryMutationOwner
         return false;
     }
 
+    /// <summary>従来の走査root同値保護を判断します。有効な現在導入先も確定登録に含まれます。</summary>
     internal bool IsLibraryRootFolder(string folderPath)
     {
         return GetLibraryDirectories().Contains(folderPath, StringComparer.OrdinalIgnoreCase);
     }
+
+    /// <summary>公開済みの確定登録から、空の登録子を含めた移動元の保護を判断します。登録配下にあるだけの通常作品は除きません。</summary>
+    internal bool ContainsRegisteredBmsRoot(string sourceDirectory)
+        => BmsLibraryLibraryFileOperationsService.ContainsRegisteredBmsRoot(sourceDirectory,
+            BmsRootRegistrationStore.CaptureUserRoots(lr2SynchronizationOwner.CurrentOptionsSnapshot));
+
+    /// <summary>登録範囲を消費する要求の拒否理由を、既存の操作通知経路へ渡します。</summary>
+    internal void ShowCannotMoveRegisteredBmsRoot(string sourceDirectory)
+        => ShowOperationDialog(string.Format(Resources.Warn_CannotMoveRegisteredBmsRoot, sourceDirectory),
+            Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
 
     internal string NormalizeAutoRenameFolderName(string folderName)
     {
@@ -785,26 +796,32 @@ internal sealed partial class LibraryMutationOwner
             MessageBoxResult.OK);
     }
 
+    /// <summary>確定登録を一回捕捉し、選択自動改名の集約前保護へ渡します。</summary>
     internal List<FolderAutoRenamePlan> BuildAutoRenamePlans(
         IEnumerable<ChartFile> selectedCharts,
         IEnumerable<string> rootFolders,
         bool renameRootFolder)
     {
+        BmsLibraryOptionsSnapshot options = lr2SynchronizationOwner.CurrentOptionsSnapshot;
         return libraryFileOperationsService.BuildAutoRenamePlans(
             selectedCharts,
             rootFolders,
+            BmsRootRegistrationStore.CaptureUserRoots(options),
             renameRootFolder,
             CreateDirectLibraryChartSnapshotsInFolders,
             createChartFolderPathFromCharts,
             NormalizeAutoRenameFolderName);
     }
 
+    /// <summary>全件自動改名にも選択改名と同じ確定登録の保護を適用します。</summary>
     internal List<FolderAutoRenamePlan> BuildAutoRenamePlansForSourceFolders(
         string parentDirectory)
     {
+        BmsLibraryOptionsSnapshot options = lr2SynchronizationOwner.CurrentOptionsSnapshot;
         return libraryFileOperationsService.BuildAutoRenamePlansForSourceFolders(
             CreateOwnedRealPathChartDirectoriesUnsafe(parentDirectory),
             GetLibraryDirectories(),
+            BmsRootRegistrationStore.CaptureUserRoots(options),
             renameRootFolder: false,
             CreateDirectLibraryChartSnapshotsInFolders,
             createChartFolderPathFromCharts,

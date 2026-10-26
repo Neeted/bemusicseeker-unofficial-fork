@@ -864,9 +864,12 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 : LibraryStorageRowPathNotificationPolicy.Suppressed);
     }
 
+    /// <summary>確定した利用者登録を含む移動元を集約前に除外し、通常の独立選択だけを自動改名へ渡します。</summary>
+    /// <param name="registeredBmsRoots">管理出力を除いた確定登録。登録0件も明示的な空一覧を渡します。</param>
     public List<FolderAutoRenamePlan> BuildAutoRenamePlans(
         IEnumerable<ChartFile> selectedCharts,
         IEnumerable<string> rootFolders,
+        IReadOnlyList<string> registeredBmsRoots,
         bool renameRootFolder,
         Func<IReadOnlyCollection<string>, IReadOnlyList<ChartFile>> createDirectChildSnapshot,
         Func<IEnumerable<ChartFile>, string, string> createFolderPath,
@@ -878,28 +881,43 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         return BuildAutoRenamePlansForSourceFolders(
             sourceFolders,
             rootFolders,
+            registeredBmsRoots,
             renameRootFolder,
             createDirectChildSnapshot,
             createFolderPath,
             normalizeFolderName);
     }
 
+    /// <summary>空の登録子を含む祖先も保護し、保護対象を除いた後に通常フォルダの包含を縮約します。導入先の従来の同値保護を維持します。</summary>
+    /// <param name="registeredBmsRoots">管理出力を除いた確定登録。欠落snapshotを未登録として扱いません。</param>
     public List<FolderAutoRenamePlan> BuildAutoRenamePlansForSourceFolders(
         IEnumerable<string> sourceFolders,
         IEnumerable<string> rootFolders,
+        IReadOnlyList<string> registeredBmsRoots,
         bool renameRootFolder,
         Func<IReadOnlyCollection<string>, IReadOnlyList<ChartFile>> createDirectChildSnapshot,
         Func<IEnumerable<ChartFile>, string, string> createFolderPath,
         Func<string, string> normalizeFolderName = null)
     {
+        ArgumentNullException.ThrowIfNull(registeredBmsRoots);
         List<string> normalizedSourceFolders = [.. (from d in (sourceFolders ?? [])
                                                 where !string.IsNullOrWhiteSpace(d)
                                                 select d).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(d => d.Length)];
         List<string> effectiveRootFolders = [.. (rootFolders ?? []).Where(folder => !string.IsNullOrWhiteSpace(folder))];
         List<string> targetFolders = [];
+        List<FolderAutoRenamePlan> rejectedPlans = [];
         var targetFolderSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string folder in normalizedSourceFolders.Where(folder => renameRootFolder || !effectiveRootFolders.Contains(folder, StringComparer.OrdinalIgnoreCase)))
         {
+            if (ContainsRegisteredBmsRoot(folder, registeredBmsRoots))
+            {
+                rejectedPlans.Add(new FolderAutoRenamePlan
+                {
+                    SourceDirectory = folder,
+                    FailureException = new InvalidOperationException(string.Format(Properties.Resources.Warn_CannotMoveRegisteredBmsRoot, folder))
+                });
+                continue;
+            }
             if (!HasTargetAncestor(folder, targetFolderSet))
             {
                 targetFolders.Add(folder);
@@ -911,7 +929,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             : createDirectChildSnapshot?.Invoke(targetFolders) ?? [];
         Dictionary<string, List<ChartFile>> directChildrenByDirectory = CreateDirectChildrenByDirectory(directChildSnapshot);
         var reservedDestinationFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        List<FolderAutoRenamePlan> plans = [];
+        List<FolderAutoRenamePlan> plans = [.. rejectedPlans];
         foreach (string folder in targetFolders)
         {
             var plan = new FolderAutoRenamePlan
@@ -1086,6 +1104,14 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
     }
 
+    /// <summary>移動元が確定利用者登録の本体または祖先かを、物理パス境界で判断します。登録子の存在や譜面索引へ依存しません。</summary>
+    /// <param name="registeredBmsRoots">必須の確定登録snapshot。登録0件は空一覧で表します。</param>
+    internal static bool ContainsRegisteredBmsRoot(string sourceDirectory, IReadOnlyList<string> registeredBmsRoots)
+    {
+        ArgumentNullException.ThrowIfNull(registeredBmsRoots);
+        return registeredBmsRoots.Any(root => LongPathFileSystem.IsSameOrDescendantDirectoryPath(root, sourceDirectory));
+    }
+
     /// <summary>捕捉済みの利用者登録rootを含むscopeを診断へ分け、残る通常folderだけを祖先集約します。登録本体と独立した子の移動を同じ計画に保持します。</summary>
     /// <param name="selectedCharts">受理時に固定した選択譜面。</param>
     /// <param name="destinationRootDirectory">選択された移動先。</param>
@@ -1093,6 +1119,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     public List<FolderAutoRenamePlan> BuildRootFolderMovePlans(IEnumerable<LibraryChartRef> selectedCharts, string destinationRootDirectory,
         IReadOnlyList<string> registeredBmsRoots)
     {
+        ArgumentNullException.ThrowIfNull(registeredBmsRoots);
         List<string> sourceFolders = [.. (from d in (selectedCharts ?? []).Where(chart => chart != null).Select(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path)).Distinct(StringComparer.OrdinalIgnoreCase)
                                       orderby d.Length
                                       select d)];
@@ -1100,7 +1127,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         List<FolderAutoRenamePlan> rejectedPlans = [];
         foreach (string folder in sourceFolders)
         {
-            if (registeredBmsRoots.Any(root => LongPathFileSystem.IsSameOrDescendantDirectoryPath(root, folder)))
+            if (ContainsRegisteredBmsRoot(folder, registeredBmsRoots))
             {
                 rejectedPlans.Add(new FolderAutoRenamePlan
                 {

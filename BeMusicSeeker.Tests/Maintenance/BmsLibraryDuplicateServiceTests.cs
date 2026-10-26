@@ -22,6 +22,131 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryDuplicateServiceTests
 {
+    /// <summary>登録本体と空の登録子を含む統合元を物理変更前に拒否し、元先の譜面・音源・DB・所持を保全します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MergeChartDirectory_RejectsRegisteredSourceScope(bool emptyChild)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
+            string source = Path.Combine(root, "Source");
+            string destination = Path.Combine(root, "Destination");
+            ChartFile[] charts = [LibraryResourceIndexTestSupport.CreateChart(source, "same.bms") with { Favorite = 7, Tag = "source-tag" }, LibraryResourceIndexTestSupport.CreateChart(destination, "same.bms") with { Favorite = 3, Tag = "destination-tag" }];
+            string bmsonPath = Path.Combine(source, "unique.bmson");
+            File.WriteAllText(bmsonPath, "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Unique\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[]}");
+            ChartFile bmson = ChartTestValues.ReadBmson(bmsonPath) with { Token = new OwnedChartToken(), Favorite = 5, Tag = "bmson-tag" };
+            string registration = emptyChild ? Path.Combine(source, "EmptyRegistered") : source;
+            Directory.CreateDirectory(registration);
+            File.WriteAllText(Path.Combine(source, "source.wav"), "source audio");
+            File.WriteAllText(Path.Combine(destination, "destination.wav"), "destination audio");
+            string configPath = Path.Combine(root, "user.config");
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            settings.OperationModeLR2DB = emptyChild;
+            settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([root, registration]);
+            settings.BMSRootPath = root;
+            settings.BMSInstallDir = root;
+            settings.ScanBmsFilesOnStartup = false;
+            if (emptyChild)
+            {
+                settings.LR2RootPath = Path.Combine(root, "LR2");
+                settings.LR2ConfigXmlPath = BmsPlaylistTestSupport.CreateLr2Config(settings.LR2RootPath, root, registration).ConfigFilePath;
+            }
+            settings.Save();
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(), settings: settings) { BmsCharts = charts, BmsonCharts = [bmson] };
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertSongs(charts);
+            gateway.UpsertBmsonSongs([bmson]);
+            var originalBytes = charts.Append(bmson).ToDictionary(chart => chart.Path, chart => File.ReadAllBytes(chart.Path));
+            string[] registrations = new BmsRootRegistrationStore(settings, () => library.FixtureLr2Owner).CaptureUserRoots().ToArray();
+            try
+            {
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, 1, reportAtTerminal: true);
+                Assert.IsFalse(receipt.MergeApplied);
+                Assert.AreEqual(0, receipt.SessionReceipt.ApplyCounts.CatalogApplyCount);
+                Assert.AreEqual(0, receipt.SessionReceipt.ConfirmedChangeCount);
+                foreach (KeyValuePair<string, byte[]> item in originalBytes) { CollectionAssert.AreEqual(item.Value, File.ReadAllBytes(item.Key)); }
+                Assert.IsFalse(File.Exists(Path.Combine(destination, "unique.bmson")));
+                Assert.AreEqual("source audio", File.ReadAllText(Path.Combine(source, "source.wav")));
+                Assert.AreEqual("destination audio", File.ReadAllText(Path.Combine(destination, "destination.wav")));
+                Assert.IsTrue(Directory.Exists(registration));
+                CollectionAssert.AreEquivalent(charts.Select(chart => chart.Path).ToArray(), library.BmsCharts.Select(chart => chart.Path).ToArray());
+                using LR2SongDBExtended db = gateway.OpenSongDbReadOnly();
+                CollectionAssert.AreEquivalent(charts.Select(chart => chart.Path).ToArray(), db.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+                foreach (ChartFile chart in charts) { Assert.AreEqual(chart.Favorite, db.Find<LR2SongDB.song>(chart.Path).favorite); Assert.AreEqual(chart.Tag, db.Find<LR2SongDB.song>(chart.Path).tag); }
+                Assert.AreEqual(bmson.Path, db.Table<LR2SongDBExtended.bmson_song>().Single().path);
+            }
+            finally { library.RequestShutdown("registered-merge-rejection"); }
+            Settings loaded = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            var reloaded = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(), settings: loaded)
+            { StartupBackgroundTaskScheduler = (_, _, _, _) => false };
+            try
+            {
+                CollectionAssert.AreEqual(registrations, new BmsRootRegistrationStore(loaded, () => reloaded.FixtureLr2Owner).CaptureUserRoots().ToArray());
+                Assert.AreEqual(root, loaded.BMSInstallDir);
+                reloaded.InitializeStartup(null);
+                CollectionAssert.AreEquivalent(charts.Select(chart => chart.Path).ToArray(), reloaded.BmsCharts.Select(chart => chart.Path).ToArray());
+                Assert.AreEqual(bmson.Path, reloaded.BmsonCharts.Single().Path);
+                foreach (ChartFile chart in charts) { ChartFile current = reloaded.BmsCharts.Single(item => item.Path == chart.Path); Assert.AreEqual(chart.Md5, current.Md5); Assert.AreEqual(chart.Favorite, current.Favorite); Assert.AreEqual(chart.Tag, current.Tag); }
+                Assert.AreEqual(bmson.Md5, reloaded.BmsonCharts.Single().Md5);
+            }
+            finally { reloaded.RequestShutdown("registered-merge-reload"); }
+        });
+    }
+
+    /// <summary>登録配下の通常作品と同prefix兄弟は統合でき、元を消費して実保存・次回読込みまで統合先へ揃います。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MergeChartDirectory_AllowsOrdinaryChildAndSimilarSibling(bool similarSibling)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
+            string registered = Path.Combine(root, "A");
+            string source = similarSibling ? Path.Combine(root, "A2") : Path.Combine(registered, "Source");
+            string destination = Path.Combine(registered, "Destination");
+            ChartFile[] charts = [LibraryResourceIndexTestSupport.CreateChart(source, "same.bms"), LibraryResourceIndexTestSupport.CreateChart(source, "unique.bms"), LibraryResourceIndexTestSupport.CreateChart(destination, "same.bms")];
+            File.WriteAllText(Path.Combine(source, "source.wav"), "source audio");
+            File.WriteAllText(Path.Combine(destination, "kept.wav"), "destination audio");
+            string configPath = Path.Combine(root, "user.config");
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            settings.OperationModeLR2DB = false;
+            settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([registered]);
+            settings.BMSRootPath = registered;
+            settings.BMSInstallDir = registered;
+            settings.ScanBmsFilesOnStartup = false;
+            settings.Save();
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(), settings: settings) { BmsCharts = charts };
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs(charts);
+            string[] expected = [Path.Combine(destination, "same.bms"), Path.Combine(destination, "unique.bms")];
+            try
+            {
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, 1, reportAtTerminal: true);
+                Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());
+                Assert.AreEqual(1, receipt.SessionReceipt.ApplyCounts.CatalogApplyCount);
+                Assert.IsFalse(Directory.Exists(source));
+                Assert.AreEqual("source audio", File.ReadAllText(Path.Combine(destination, "source.wav")));
+                Assert.AreEqual("destination audio", File.ReadAllText(Path.Combine(destination, "kept.wav")));
+                CollectionAssert.AreEquivalent(expected, library.BmsCharts.Select(chart => chart.Path).ToArray());
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                CollectionAssert.AreEquivalent(expected, db.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+            }
+            finally { library.RequestShutdown("ordinary-registered-child-merge"); }
+            Settings loaded = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            var reloaded = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(), settings: loaded)
+            { StartupBackgroundTaskScheduler = (_, _, _, _) => false };
+            try
+            {
+                CollectionAssert.AreEqual(new[] { registered }, BmsRootRegistrationStore.CaptureStandaloneRoots(loaded).ToArray());
+                reloaded.InitializeStartup(null);
+                CollectionAssert.AreEquivalent(expected, reloaded.BmsCharts.Select(chart => chart.Path).ToArray());
+            }
+            finally { reloaded.RequestShutdown("ordinary-registered-child-reload"); }
+        });
+    }
+
     /// <summary>実統合とsource後片付けの終端で旧新祖先の六分類・reverseを揃え、cleanup失敗時の実残存資源も親へ反映します。</summary>
     /// <remarks>本番session・小実DB・実FSを使い、cleanupだけを既存物理portで制御します。既存の確定/保守失敗行列は別caseに維持します。</remarks>
     [DataTestMethod]

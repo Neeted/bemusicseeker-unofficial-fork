@@ -18,7 +18,7 @@ internal static class LibraryFolderMoveCoordinator
         RenameChartFolderWithReceipt(host, srcDir, newName, unregister, renameRootFolder);
     }
 
-    /// <summary>正規化済みの手動改名対象を停止前に確定します。診断対象は保持し、禁止されたルート改名を実移動へ渡しません。</summary>
+    /// <summary>正規化済みの手動改名対象を停止前に確定します。確定登録本体と空の登録子を含む祖先、従来の導入先保護を実移動へ渡しません。</summary>
     internal static FolderMoveBatch PrepareChartFolderRename(LibraryMutationOwner host, string srcDir, string newName, bool renameRootFolder)
     {
         ArgumentNullException.ThrowIfNull(srcDir);
@@ -27,7 +27,7 @@ internal static class LibraryFolderMoveCoordinator
         string parent = Path.GetDirectoryName(srcDir);
         string destination = string.IsNullOrWhiteSpace(normalizedName) || parent == null
             ? null : Path.Combine(parent, normalizedName);
-        return new FolderMoveBatch(!renameRootFolder && host.IsLibraryRootFolder(srcDir)
+        return new FolderMoveBatch(host.ContainsRegisteredBmsRoot(srcDir) || (!renameRootFolder && host.IsLibraryRootFolder(srcDir))
             ? [] : [new FolderAutoRenamePlan { SourceDirectory = srcDir, DestinationDirectory = destination }]);
     }
 
@@ -47,6 +47,11 @@ internal static class LibraryFolderMoveCoordinator
         if (newName == null)
         {
             throw new ArgumentNullException(nameof(newName));
+        }
+        if (host.ContainsRegisteredBmsRoot(srcDir))
+        {
+            host.ShowCannotMoveRegisteredBmsRoot(srcDir);
+            return null;
         }
         if (!renameRootFolder && host.IsLibraryRootFolder(srcDir))
         {

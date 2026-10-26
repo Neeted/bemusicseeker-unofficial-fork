@@ -22,6 +22,62 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class DuplicateMaintenanceWorkflowOwnerTests
 {
+    /// <summary>空の登録子を含む統合元の拒否を本番storeへ通し、停止後も実体とDBを保ち、終端後の通常統合を新規に受け付けます。</summary>
+    /// <remarks>判断・物理処理・SQLiteは実装を使い、再生・確認・表示だけを既存portで記録します。</remarks>
+    [TestMethod]
+    public async Task RunFolderMergeAsync_RegisteredScopeRefusalReleasesAdmissionForNextMerge()
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
+            string source = Path.Combine(root, "Source");
+            string empty = Path.Combine(source, "EmptyRegistered");
+            string destination = Path.Combine(root, "Destination");
+            string normal = Path.Combine(root, "Normal");
+            ChartFile[] charts = [LibraryResourceIndexTestSupport.CreateChart(source, "same.bms"), LibraryResourceIndexTestSupport.CreateChart(destination, "same.bms"), LibraryResourceIndexTestSupport.CreateChart(normal, "same.bms"), LibraryResourceIndexTestSupport.CreateChart(normal, "unique.bms")];
+            Directory.CreateDirectory(empty);
+            File.WriteAllText(Path.Combine(source, "kept.wav"), "protected audio");
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new FileDbReportRecordingDialogs(),
+                settings: TestBmsFactory.CreateRootSettings([root, empty]))
+            { BmsCharts = charts };
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertSongs(charts);
+            var events = new List<string>();
+            var presentation = new RecordingPresentation(events);
+            var activity = new ChartMutationActivityOwner();
+            var owner = new DuplicateMaintenanceWorkflowOwner(() => library, library.OperationAdmission, activity, presentation,
+                AcceptedDialogs(), () => true, Directory.Exists, _ => new ExplorerOpenResult(), _ => "next", new BmsLibraryDuplicateMaintenanceStore());
+            owner.WorkflowChanged += presentation.OnWorkflowChanged;
+            activity.ActivityChanged += presentation.OnActivityChanged;
+            try
+            {
+                DuplicateMaintenanceMutationResult refused = await owner.RunFolderMergeAsync(source, destination, new DuplicateGroup(charts.ToList(), [source, destination]));
+                Assert.IsFalse(refused.Succeeded);
+                Assert.IsNotNull(refused.MutationReceipt);
+                Assert.IsFalse(refused.MutationReceipt.MergeApplied);
+                Assert.IsTrue(events.Contains("playback-stop"));
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.IsFalse(activity.IsActive);
+                Assert.IsTrue(Directory.Exists(empty));
+                Assert.AreEqual("protected audio", File.ReadAllText(Path.Combine(source, "kept.wav")));
+                foreach (ChartFile chart in charts) { Assert.IsTrue(File.Exists(chart.Path)); }
+                using (LR2SongDBExtended db = gateway.OpenSongDbReadOnly()) { Assert.AreEqual(charts.Length, db.Table<LR2SongDB.song>().Count()); }
+                DuplicateMaintenanceMutationResult accepted = await owner.RunFolderMergeAsync(normal, destination, new DuplicateGroup(charts.ToList(), [normal, destination]));
+                Assert.IsTrue(accepted.Succeeded, accepted.Failure?.ToString());
+                Assert.IsFalse(Directory.Exists(normal));
+                Assert.IsTrue(File.Exists(Path.Combine(destination, "unique.bms")));
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.IsFalse(activity.IsActive);
+            }
+            finally
+            {
+                owner.WorkflowChanged -= presentation.OnWorkflowChanged;
+                activity.ActivityChanged -= presentation.OnActivityChanged;
+                library.RequestShutdown("registered-merge-workflow");
+            }
+        });
+    }
+
     /// <summary>
     /// フォルダ統合は再生停止後に表示抑制・保存処理の順に進み、解放後に活動を終えて次の選択見出しを返し、処理順の逆転を検出する。
     /// </summary>
@@ -988,7 +1044,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             using (var initialize = new LR2SongDBExtended(songDbPath)) { }
             var files = new UnrestoredDestinationFileMutationService(Path.Combine(destination, "note.wav"));
             var playlist = new ChartFileOperationSynchronizer();
-            library = new TestBmsLibrary(songDbPath, null, null, files,
+            var configOwner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Path.Combine(root, "LR2"), root));
+            library = new TestBmsLibrary(songDbPath, configOwner, null, files,
                 new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null),
                 () => new BmsLibraryOptionsSnapshot
                 {

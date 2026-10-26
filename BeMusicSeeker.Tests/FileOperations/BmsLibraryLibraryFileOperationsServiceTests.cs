@@ -584,6 +584,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
                 [chart, nestedChart],
                 [],
+                [],
                 renameRootFolder: true,
                 folders =>
                 {
@@ -623,6 +624,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
                 [firstChart, secondChart],
+                [],
                 [],
                 renameRootFolder: true,
                 folders =>
@@ -669,6 +671,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
                 [bmsonChart],
                 [],
+                [],
                 renameRootFolder: true,
                 folders =>
                 {
@@ -700,6 +703,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlansForSourceFolders(
                 [sourcePath],
+                [],
                 [],
                 renameRootFolder: true,
                 folders =>
@@ -744,6 +748,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             List<string> directChildTitles = [];
             List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
                 [bmsChart],
+                [],
                 [],
                 renameRootFolder: true,
                 folders =>

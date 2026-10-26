@@ -11,6 +11,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -23,6 +24,131 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryFolderRenameRefreshTests
 {
+    /// <summary>空の登録子を持つ祖先を改名から除外してから集約し、順序によらず独立選択した通常子と同prefix兄弟を残します。</summary>
+    [TestMethod]
+    public void PrepareRename_ProtectsRegisteredAncestorsBeforeAggregation()
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
+            string registered = Path.Combine(root, "A");
+            string middle = Path.Combine(registered, "Middle");
+            string nested = Path.Combine(middle, "EmptyRegistered");
+            string free = Path.Combine(middle, "Free");
+            string similar = Path.Combine(root, "A2");
+            string sameName = Path.Combine(root, "Other", "A");
+            string install = Path.Combine(root, "Install");
+            foreach (string path in new[] { nested, free, similar, sameName, install }) { Directory.CreateDirectory(path); }
+            Settings settings = TestBmsFactory.CreateRootSettings([registered + Path.DirectorySeparatorChar, nested, install]);
+            settings.BMSInstallDir = install;
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: settings);
+            ChartFile[] charts = new[] { registered, middle, free, similar, sameName, install }.Select(path =>
+                ChartTestValues.Empty() with { Path = Path.Combine(path, "chart.bms"), Title = "Renamed", RawTitle = "Renamed" }).ToArray();
+            foreach (ChartFile chart in charts) { File.WriteAllText(chart.Path, "#TITLE Renamed\n#BPM 120\n"); }
+            library.BmsCharts = charts;
+            try
+            {
+                foreach (string path in new[] { registered, middle, install }) { Assert.AreEqual(0, library.PrepareChartFolderRename(path, "Renamed").Moves.Count, path); }
+                foreach (string path in new[] { free, similar, sameName }) { Assert.AreEqual(1, library.PrepareChartFolderRename(path, "Renamed").Moves.Count, path); }
+                foreach (ChartFile[] selection in new[] { charts, charts.Reverse().ToArray() })
+                {
+                    FolderMoveBatch batch = library.PrepareAutoRenameBatch(selection, root, false);
+                    CollectionAssert.AreEquivalent(new[] { free, similar, sameName }, batch.Moves.Select(plan => plan.SourceDirectory).ToArray());
+                }
+            }
+            finally { library.RequestShutdown("registered-rename-prepare"); }
+        });
+    }
+
+    /// <summary>手動拒否と選択・全件自動改名で登録祖先を保全し、自動改名の安全二対象だけを一回保存します。保存設定と次回の通常起動読込みも一致させます。</summary>
+    /// <remarks>手動はstandalone、選択・全件自動は実LR2 XMLを使い、登録捕捉から実FS・SQLite・新libraryの読込みまで接続します。</remarks>
+    [TestMethod]
+    [DataRow(0)] // 手動拒否。
+    [DataRow(1)] // 選択自動改名。
+    [DataRow(2)] // 全件自動改名。
+    public void RenameRegisteredAncestor_PreservesRegistrationAndReloadsSafeResults(int mode)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
+            string libraryRoot = Path.Combine(root, "Library");
+            string source = Path.Combine(libraryRoot, "Parent");
+            string empty = Path.Combine(source, "EmptyRegistered");
+            string child = Path.Combine(source, "Child");
+            string sibling = Path.Combine(libraryRoot, "Parent2");
+            Directory.CreateDirectory(empty);
+            ChartFile[] charts = new[] { source, child, sibling }.Select((path, index) =>
+                LibraryResourceIndexTestSupport.CreateChart(path, "chart.bms", "#ARTIST Artist\n") with
+                { Title = "Title" + index, RawTitle = "Title" + index, Favorite = 7, Tag = "retained-tag" }).ToArray();
+            File.WriteAllText(Path.Combine(source, "kept.wav"), "protected audio");
+            File.WriteAllText(Path.Combine(child, "child.wav"), "child audio");
+            Dictionary<string, byte[]> originalBytes = charts.ToDictionary(chart => chart.Path, chart => File.ReadAllBytes(chart.Path));
+            string configPath = Path.Combine(root, "user.config");
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            settings.OperationModeLR2DB = mode != 0;
+            settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([libraryRoot, empty]);
+            settings.BMSRootPath = libraryRoot;
+            settings.BMSInstallDir = libraryRoot;
+            if (mode != 0)
+            {
+                settings.LR2RootPath = Path.Combine(root, "LR2");
+                settings.LR2ConfigXmlPath = BmsPlaylistTestSupport.CreateLr2Config(settings.LR2RootPath, libraryRoot, empty).ConfigFilePath;
+            }
+            settings.ScanBmsFilesOnStartup = false;
+            settings.Save();
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(), settings: settings) { BmsCharts = charts };
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertSongs(charts);
+            string[] registrations = new BmsRootRegistrationStore(settings, () => library.FixtureLr2Owner).CaptureUserRoots().ToArray();
+            string[] finalPaths = charts.Select(chart => chart.Path).ToArray();
+            try
+            {
+                if (mode == 0)
+                {
+                    Assert.IsNull(library.RenameChartFolderWithReceipt(source, "Renamed", unregister: false));
+                    Assert.IsFalse(Directory.Exists(Path.Combine(libraryRoot, "Renamed")));
+                }
+                else
+                {
+                    FolderMoveBatch batch = library.PrepareAutoRenameBatch(charts, libraryRoot, mode == 2);
+                    CollectionAssert.AreEquivalent(new[] { child, sibling }, batch.Moves.Select(plan => plan.SourceDirectory).ToArray());
+                    AutoRenameBatchResult result = mode == 2
+                        ? library.AutoRenameAllChartFoldersWithProgress(libraryRoot, new RecordingFolderAutoRenameProgressWriter(), preparedBatch: batch)
+                        : library.AutoRenameChartFoldersWithProgress(charts, false, new RecordingFolderAutoRenameProgressWriter(), preparedBatch: batch);
+                    Assert.AreEqual(1, result.SessionReceipt.ApplyCounts.CatalogApplyCount);
+                    Assert.AreEqual(1, result.SessionReceipt.ApplyCounts.ReverseLookupApplyCount);
+                    Assert.AreEqual(1, result.SessionReceipt.ApplyCounts.RequiredPublicationCount);
+                    finalPaths[1] = Path.Combine(source, "[Artist] Title1", "chart.bms");
+                    finalPaths[2] = Path.Combine(libraryRoot, "[Artist] Title2", "chart.bms");
+                    Assert.IsFalse(Directory.Exists(child));
+                    Assert.IsFalse(Directory.Exists(sibling));
+                    Assert.AreEqual("child audio", File.ReadAllText(Path.Combine(Path.GetDirectoryName(finalPaths[1]) ?? throw new InvalidOperationException(), "child.wav")));
+                }
+                Assert.IsTrue(Directory.Exists(empty));
+                Assert.AreEqual("protected audio", File.ReadAllText(Path.Combine(source, "kept.wav")));
+                for (int i = 0; i < charts.Length; i++) { CollectionAssert.AreEqual(originalBytes[charts[i].Path], File.ReadAllBytes(finalPaths[i])); }
+                CollectionAssert.AreEquivalent(finalPaths, library.BmsCharts.Select(chart => chart.Path).ToArray());
+                using LR2SongDBExtended db = gateway.OpenSongDbReadOnly();
+                CollectionAssert.AreEquivalent(finalPaths, db.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+                foreach (string path in finalPaths) { Assert.AreEqual(7, db.Find<LR2SongDB.song>(path).favorite); Assert.AreEqual("retained-tag", db.Find<LR2SongDB.song>(path).tag); }
+            }
+            finally { library.RequestShutdown("registered-rename-apply"); }
+            Settings loaded = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            var reloaded = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(), settings: loaded)
+            { StartupBackgroundTaskScheduler = (_, _, _, _) => false };
+            try
+            {
+                CollectionAssert.AreEqual(registrations, new BmsRootRegistrationStore(loaded, () => reloaded.FixtureLr2Owner).CaptureUserRoots().ToArray());
+                Assert.AreEqual(libraryRoot, loaded.BMSInstallDir);
+                reloaded.InitializeStartup(null);
+                CollectionAssert.AreEquivalent(finalPaths, reloaded.BmsCharts.Select(chart => chart.Path).ToArray());
+                CollectionAssert.AreEquivalent(charts.Select(chart => chart.Md5).ToArray(), reloaded.BmsCharts.Select(chart => chart.Md5).ToArray());
+                Assert.IsTrue(reloaded.BmsCharts.All(chart => chart.Favorite == 7 && chart.Tag == "retained-tag"));
+            }
+            finally { reloaded.RequestShutdown("registered-rename-reload"); }
+        });
+    }
+
     /// <summary>
     /// 実改名/別親移動で旧新親と共通祖先の六分類を最終FSへ揃え、兄弟・移動hash・旧snapshotを保持します。
     /// 背景Entryと同一親の譜面を別々に増やしても、必要祖先の取得・置換を譜面数倍にしません。

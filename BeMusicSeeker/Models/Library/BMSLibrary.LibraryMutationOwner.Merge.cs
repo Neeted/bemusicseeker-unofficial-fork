@@ -15,6 +15,7 @@ internal sealed partial class LibraryMutationOwner
 {
     /// <summary>
     /// merge の確定事実を返し、必要に応じて receipt に基づく失敗表示を操作終端へ委ねます。
+    /// 確定利用者登録本体や空の登録子を含む祖先を元にする要求は、物理準備・変更セッションの開始前に拒否します。
     /// </summary>
     internal DuplicateMergeMaintenanceReceipt MergeChartDirectory(string sourceDirectory, string destinationDirectory,
         long operationId, bool reportAtTerminal = false, LibraryFileMutationCapability capability = null)
@@ -29,6 +30,11 @@ internal sealed partial class LibraryMutationOwner
         }
         if (TryBlockCatalogMutation(nameof(BMSLibrary.MergeChartDirectory), showMessage: true, capability: capability))
         {
+            return DuplicateMergeMaintenanceReceipt.NotApplied;
+        }
+        if (ContainsRegisteredBmsRoot(sourceDirectory))
+        {
+            ShowCannotMoveRegisteredBmsRoot(sourceDirectory);
             return DuplicateMergeMaintenanceReceipt.NotApplied;
         }
 

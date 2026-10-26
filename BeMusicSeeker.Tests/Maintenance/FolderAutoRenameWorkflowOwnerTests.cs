@@ -61,7 +61,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             ChartFile[] selected = scenario == "diagnostics" ? [charts[2], charts[3]] : charts.Take(4).ToArray();
             var planningFailure = new IOException("failed rename plan");
             var service = new BmsLibraryLibraryFileOperationsService();
-            var batch = new FolderMoveBatch(service.BuildAutoRenamePlans(selected, [], true, _ => selected,
+            var batch = new FolderMoveBatch(service.BuildAutoRenamePlans(selected, [], [], true, _ => selected,
                 (children, parent) => children.Single().Title == "Failure" ? throw planningFailure : Path.Combine(parent, children.Single().Title)));
             var playback = new NoOpChartMutationPlaybackPort();
             int terminalCount = 0;
