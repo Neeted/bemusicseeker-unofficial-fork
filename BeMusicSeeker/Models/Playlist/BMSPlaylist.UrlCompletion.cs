@@ -220,7 +220,7 @@ public partial class BMSPlaylist
         }
         lock (playlistUrlCompletionSnapshotLock)
         {
-            if (playlistUrlCompletionTsvSnapshotFetched && UriEquals(playlistUrlCompletionTsvSnapshotSourceUri, sourceUri))
+            if (playlistUrlCompletionTsvSnapshotFetched && PlaylistUrlCompletionSupport.UriEquals(playlistUrlCompletionTsvSnapshotSourceUri, sourceUri))
             {
                 return PlaylistUrlCompletionRefreshSourceResult.FromCache(new PlaylistUrlCompletionSourceSnapshot(playlistUrlCompletionTsvSnapshot, 0, 0));
             }
@@ -517,19 +517,6 @@ public partial class BMSPlaylist
                 Snapshot = snapshot ?? PlaylistUrlCompletionSourceSnapshot.Empty
             };
         }
-    }
-
-    private static bool UriEquals(Uri left, Uri right)
-    {
-        if (ReferenceEquals(left, right))
-        {
-            return true;
-        }
-        if (left == null || right == null)
-        {
-            return false;
-        }
-        return Uri.Compare(left, right, UriComponents.AbsoluteUri, UriFormat.SafeUnescaped, StringComparison.OrdinalIgnoreCase) == 0;
     }
 
     private struct PlaylistUrlCompletionApplyStats

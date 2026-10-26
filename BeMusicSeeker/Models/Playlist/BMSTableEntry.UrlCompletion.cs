@@ -118,7 +118,7 @@ public partial class BMSTableEntry
         {
             nextValue = normalizedCompletedValue;
         }
-        if (UriEquals(runtimeField, nextValue))
+        if (PlaylistUrlCompletionSupport.UriEquals(runtimeField, nextValue))
         {
             return false;
         }
@@ -159,18 +159,5 @@ public partial class BMSTableEntry
             }
         }
         return false;
-    }
-
-    private static bool UriEquals(Uri left, Uri right)
-    {
-        if (ReferenceEquals(left, right))
-        {
-            return true;
-        }
-        if (left == null || right == null)
-        {
-            return false;
-        }
-        return Uri.Compare(left, right, UriComponents.AbsoluteUri, UriFormat.SafeUnescaped, StringComparison.OrdinalIgnoreCase) == 0;
     }
 }

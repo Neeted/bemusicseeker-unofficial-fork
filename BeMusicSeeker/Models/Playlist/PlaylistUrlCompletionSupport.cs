@@ -8,7 +8,7 @@ using Newtonsoft.Json.Linq;
 namespace BeMusicSeeker.Models;
 
 /// <summary>
-/// プレイリスト URL 補完で使う入力解析と URI 正規化をまとめます。
+/// プレイリスト URL 補完で使う入力解析と URI の解決・同一性比較をまとめます。
 /// <see cref="BMSPlaylist"/> 本体から分離し、単体テストしやすい純粋ロジックとして保持します。
 /// </summary>
 internal static class PlaylistUrlCompletionSupport
@@ -23,6 +23,46 @@ internal static class PlaylistUrlCompletionSupport
     /// Stella Uploader の URL1/URL2 付き送信一覧 JSON 取得先です。
     /// </summary>
     internal const string StellaScoreUploadFullJsonUri = "https://stellabms.xyz/score_upload_full.json";
+
+    /// <summary>
+    /// 補完元キャッシュと補完候補の同一性を同じ条件で判定します。
+    /// 従来の絶対 URI 全体の比較に加え、HTTP(S) の path/query は通常文字の大小文字を区別します。
+    /// 実際の %hh の16進数字だけは大小文字を同一とし、非HTTPの従来条件は維持します。
+    /// </summary>
+    /// <param name="left">比較する絶対 URI。値なしは null。</param>
+    /// <param name="right">比較する絶対 URI。値なしは null。</param>
+    /// <returns>同じ補完値として保持できる場合は true。</returns>
+    internal static bool UriEquals(Uri left, Uri right)
+    {
+        if (ReferenceEquals(left, right)) { return true; }
+        if (left == null || right == null) { return false; }
+        if (Uri.Compare(left, right, UriComponents.AbsoluteUri, UriFormat.SafeUnescaped, StringComparison.OrdinalIgnoreCase) != 0)
+        {
+            return false;
+        }
+        if (left.Scheme != Uri.UriSchemeHttp && left.Scheme != Uri.UriSchemeHttps) { return true; }
+        return PathAndQueryEquals(
+            left.GetComponents(UriComponents.PathAndQuery, UriFormat.SafeUnescaped),
+            right.GetComponents(UriComponents.PathAndQuery, UriFormat.SafeUnescaped));
+    }
+
+    private static bool PathAndQueryEquals(string left, string right)
+    {
+        if (left.Length != right.Length) { return false; }
+        for (int index = 0; index < left.Length; index++)
+        {
+            // SafeUnescaped が保持する実際の %hh だけを比較し、%25 の後続文字は通常文字として扱います。
+            if (left[index] == '%' && right[index] == '%' && index + 2 < left.Length
+                && Uri.IsHexDigit(left[index + 1]) && Uri.IsHexDigit(left[index + 2])
+                && Uri.IsHexDigit(right[index + 1]) && Uri.IsHexDigit(right[index + 2]))
+            {
+                if (string.Compare(left, index, right, index, 3, StringComparison.OrdinalIgnoreCase) != 0) { return false; }
+                index += 2;
+            }
+            else if (left[index] != right[index]) { return false; }
+        }
+        return true;
+    }
 
     /// <summary>
     /// 補完元 URI またはローカルファイルパスを解決します。

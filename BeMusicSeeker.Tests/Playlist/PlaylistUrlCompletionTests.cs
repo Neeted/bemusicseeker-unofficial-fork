@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -261,26 +262,81 @@ public sealed class PlaylistUrlCompletionTests
         Assert.IsNull(entry.EffectiveUrlDiff);
     }
 
-    /// <summary>同じ設定で再要求してもTSVとStellaを各一回取得し、競合はTSV優先、TSVのURI変更時だけ再取得して適用します。</summary>
+    /// <summary>URL1/2それぞれでHTTPのpath・queryの大小文字を反映し、percent表記と非HTTPを含む従来の同値では元候補を保持します。</summary>
+    [DataTestMethod]
+    // HTTP の通常文字は path、query キー、query 値でそれぞれ有意です。
+    [DataRow("https://example.com/Song.zip", "https://example.com/song.zip", true)]
+    [DataRow("https://example.com/song?Key=value", "https://example.com/song?key=value", true)]
+    [DataRow("https://example.com/song?key=Value", "https://example.com/song?key=value", true)]
+    // 実 %hh の hex case だけを無視し、通常文字・二重escape・reserved の意味を保ちます。
+    [DataRow("https://example.com/Song%2fPart.zip", "https://example.com/Song%2FPart.zip", false)]
+    [DataRow("https://example.com/Pack%2fSong.zip", "https://example.com/pack%2FSong.zip", true)]
+    [DataRow("https://example.com/%252f", "https://example.com/%252F", true)]
+    [DataRow("https://example.com/Song%2FPart.zip", "https://example.com/Song/Part.zip", true)]
+    [DataRow("https://example.com/song?q=A%26B", "https://example.com/song?q=A&B", true)]
+    [DataRow("https://example.com/%53ong.zip", "https://example.com/Song.zip", false)]
+    // scheme/host、fragment/userinfo の case と Windows file・非HTTP は従来の比較を維持します。
+    [DataRow("HTTPS://EXAMPLE.COM/Song.zip", "https://example.com/Song.zip", false)]
+    [DataRow("http://example.com/Song.zip", "http://example.com/song.zip", true)]
+    [DataRow("https://example.com/song#Part", "https://example.com/song#part", false)]
+    [DataRow("https://example.com/song#first", "https://example.com/song#second", true)]
+    [DataRow("https://User:Pass@example.com/song", "https://user:pass@example.com/song", false)]
+    [DataRow("file:///C:/Music/Song.zip", "file:///c:/music/song.zip", false)]
+    [DataRow("ftp://example.com/Song.zip", "ftp://example.com/song.zip", false)]
+    [DataRow(null, null, false)]
+    [DataRow(null, "https://example.com/song", true)]
+    [DataRow("https://example.com/song", null, true)]
+    [TestCategory("Playlist")]
+    public void BMSTableEntry_RuntimeUrlCompletionPreservesSignificantUriCase(string? initialText, string? nextText, bool expectedChanged)
+    {
+        foreach (bool diff in new[] { false, true })
+        {
+            BMSTableEntry entry = CreateEntry(new string('a', 32), "UriComparison");
+            Uri? initial = initialText == null ? null : new Uri(initialText);
+            Uri? next = nextText == null ? null : new Uri(nextText);
+            entry.ApplyRuntimeUrlCompletion(diff ? null : initial, diff ? initial : null, overwriteExisting: false);
+
+            bool changed = entry.ApplyRuntimeUrlCompletion(diff ? null : next, diff ? next : null, overwriteExisting: false);
+
+            Assert.AreEqual(expectedChanged, changed, diff ? "URL2" : "URL1");
+            Uri? expected = expectedChanged ? next : initial;
+            Assert.AreEqual(expected?.AbsoluteUri, (diff ? entry.RuntimeUrlDiffCompletion : entry.RuntimeUrlCompletion)?.AbsoluteUri);
+            Assert.AreEqual(expected?.AbsoluteUri, (diff ? entry.EffectiveUrlDiff : entry.EffectiveUrl)?.AbsoluteUri);
+            Assert.IsNull(diff ? entry.RuntimeUrlCompletion : entry.RuntimeUrlDiffCompletion);
+            Assert.IsNull(entry.Url);
+            Assert.IsNull(entry.Url_diff);
+            Assert.IsFalse(entry.ApplyRuntimeUrlCompletion(diff ? null : expected, diff ? expected : null, overwriteExisting: false),
+                "同じ参照を再適用しても変更しません。");
+        }
+    }
+
+    /// <summary>保存済みsourceのpath caseだけの変更を実HTTPの別targetへ渡し、新本文を採用します。同一元cacheとTSV優先も保持します。</summary>
+    /// <remarks>候補はcase以外も変え、候補比較の不具合と独立して取得前cacheを検出します。設定は専用providerの別readerで再読込みします。</remarks>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task BMSPlaylist_UrlCompletionFetchesSourcesOnceAndRefetchesTsvWhenUriChanges()
     {
         string tempDbPath = CreateEmptySongDbPath();
+        TestBmsPlaylist? playlist = null;
         try
         {
-            int tsvFetchCount = 0;
+            await using var server = SingleRequestHttpServer.StartFiniteResponses(
+            [
+                new("/Map.tsv", Encoding.UTF8.GetBytes("md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\thttps://example.com/diff-first\thttps://example.com/main-first")),
+                new("/map.tsv", Encoding.UTF8.GetBytes("md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\thttps://example.com/diff-second\thttps://example.com/main-second"))
+            ]);
             int stellaFetchCount = 0;
-            testSettings.EnablePlaylistUrlCompletion = true;
-            testSettings.OverwritePlaylistUrlsWithCompletion = false;
-            testSettings.EnableStellaFullPlaylistUrlCompletion = true;
-            testSettings.PlaylistMd5UrlMappingTsvUri = "https://example.com/map-a.tsv";
-            Func<Uri, CancellationToken, Task<string>> tsvFetcher = (uri, cancellationToken) =>
-            {
-                tsvFetchCount++;
-                string mainUrl = uri.AbsoluteUri.IndexOf("map-b.tsv", StringComparison.OrdinalIgnoreCase) >= 0 ? "https://example.com/main-tsv-b" : "https://example.com/main-tsv-a";
-                return Task.FromResult("md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\thttps://example.com/diff-tsv\t" + mainUrl);
-            };
+            string firstSource = new Uri(server.Address, "Map.tsv").AbsoluteUri;
+            string secondSource = new Uri(server.Address, "map.tsv").AbsoluteUri;
+            testSettings.Commit(
+                (nameof(testSettings.OperationModeLR2DB), false),
+                (nameof(testSettings.EnablePlaylistUrlCompletion), true),
+                (nameof(testSettings.OverwritePlaylistUrlsWithCompletion), false),
+                (nameof(testSettings.EnableStellaFullPlaylistUrlCompletion), true),
+                (nameof(testSettings.PlaylistMd5UrlMappingTsvUri), firstSource));
+            string settingsPath = Path.Combine(isolatedSettingsDirectory, "user.config");
+            testSettings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            Assert.AreEqual(firstSource, testSettings.PlaylistMd5UrlMappingTsvUri);
             Func<Uri, CancellationToken, Task<string>> stellaFetcher = (uri, cancellationToken) =>
             {
                 stellaFetchCount++;
@@ -289,7 +345,7 @@ public sealed class PlaylistUrlCompletionTests
                     "{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"url\":\"https://example.com/main-stella-b\",\"url_diff\":\"https://example.com/diff-stella-b\"}" +
                     "]");
             };
-            var playlist = new TestBmsPlaylist(
+            playlist = new TestBmsPlaylist(
                 tempDbPath,
                 null,
                 null,
@@ -298,7 +354,7 @@ public sealed class PlaylistUrlCompletionTests
                 () => BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings),
                 () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings),
                 null,
-                tsvFetcher,
+                null,
                 stellaFetcher);
             BMSTable table = CreateTable(5001, "CompletionTable");
             BMSTableEntry tsvEntry = CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "TsvSong");
@@ -309,22 +365,29 @@ public sealed class PlaylistUrlCompletionTests
             await ScheduleUrlCompletionRefreshAsync(playlist, "first");
             await ScheduleUrlCompletionRefreshAsync(playlist, "reload");
 
-            Assert.AreEqual(1, tsvFetchCount);
+            CollectionAssert.AreEqual(new[] { "/Map.tsv" }, server.RequestTargets);
             Assert.AreEqual(1, stellaFetchCount);
-            Assert.AreEqual(new Uri("https://example.com/main-tsv-a"), tsvEntry.RuntimeUrlCompletion);
-            Assert.AreEqual(new Uri("https://example.com/diff-tsv"), tsvEntry.RuntimeUrlDiffCompletion);
+            Assert.AreEqual("https://example.com/main-first", tsvEntry.EffectiveUrl.AbsoluteUri);
+            Assert.AreEqual("https://example.com/diff-first", tsvEntry.EffectiveUrlDiff.AbsoluteUri);
             Assert.AreEqual(new Uri("https://example.com/main-stella-b"), stellaEntry.RuntimeUrlCompletion);
             Assert.AreEqual(new Uri("https://example.com/diff-stella-b"), stellaEntry.RuntimeUrlDiffCompletion);
 
-            testSettings.PlaylistMd5UrlMappingTsvUri = "https://example.com/map-b.tsv";
+            testSettings.Commit((nameof(testSettings.PlaylistMd5UrlMappingTsvUri), secondSource));
+            testSettings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            Assert.AreEqual(secondSource, testSettings.PlaylistMd5UrlMappingTsvUri);
             await ScheduleUrlCompletionRefreshAsync(playlist, "settings_changed");
 
-            Assert.AreEqual(2, tsvFetchCount);
+            CollectionAssert.AreEqual(new[] { "/Map.tsv", "/map.tsv" }, server.RequestTargets);
             Assert.AreEqual(1, stellaFetchCount);
-            Assert.AreEqual(new Uri("https://example.com/main-tsv-b"), tsvEntry.RuntimeUrlCompletion);
+            Assert.AreEqual("https://example.com/main-second", tsvEntry.RuntimeUrlCompletion.AbsoluteUri);
+            Assert.AreEqual("https://example.com/diff-second", tsvEntry.RuntimeUrlDiffCompletion.AbsoluteUri);
+            Assert.AreEqual("https://example.com/main-second", tsvEntry.EffectiveUrl.AbsoluteUri);
+            Assert.AreEqual("https://example.com/diff-second", tsvEntry.EffectiveUrlDiff.AbsoluteUri);
+            await server.Completion;
         }
         finally
         {
+            playlist?.RequestShutdown("source-case-fixture");
             DeleteTempSongDbDirectory(tempDbPath);
         }
     }
@@ -577,20 +640,140 @@ public sealed class PlaylistUrlCompletionTests
         }
     }
 
-    /// <summary>保存URLが未設定でも表示sourceは主URL・差分URLの補完を映し、保存値だけを参照して補完表示を落としません。</summary>
+    /// <summary>別名sourceから取得した候補のpath/query case差をURL1/2の正規receiptへ捕捉し、通常配送で同じ実表示行へ反映します。</summary>
+    /// <remarks>workspace接続前だけreceiptを直接取得し、接続後は単一consumerへ任せます。空の保存URLでも両effective URLを表示する旧保証を含みます。</remarks>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void PlaylistDetailSourceRow_UsesEffectiveUrlForDisplay()
+    public async Task PlaylistDetailVirtualView_CandidateCaseChangesFlowThroughReceiptAndUpdateSameRow()
     {
-        ChartFile file = ChartTestValues.Empty();
-        file = file with { Md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", Path = "SongE" + ".bms", Title = "SongE", RawTitle = "SongE", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
-        var entry = new BMSTableEntry(file);
-        entry.ApplyRuntimeUrlCompletion(new Uri("https://example.com/runtime"), new Uri("https://example.com/runtime-diff"), overwriteExisting: false);
+        string songDbPath = CreateEmptySongDbPath();
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        try
+        {
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            testSettings.OperationModeLR2DB = false;
+            testSettings.EnablePlaylistUrlCompletion = true;
+            testSettings.EnableStellaFullPlaylistUrlCompletion = false;
+            testSettings.OverwritePlaylistUrlsWithCompletion = false;
+            testSettings.PlaylistMd5UrlMappingTsvUri = "https://example.com/initial.tsv";
+            const string upperMain = "https://example.com/Song.zip";
+            const string lowerMain = "https://example.com/song.zip";
+            const string upperDiff = "https://example.com/diff?token=Value";
+            const string lowerDiff = "https://example.com/diff?token=value";
+            var fetchedSources = new List<string>();
+            Func<Uri, CancellationToken, Task<string>> fetcher = (uri, _) =>
+            {
+                fetchedSources.Add(uri.AbsolutePath);
+                (string main, string diff) = uri.AbsolutePath switch
+                {
+                    "/initial.tsv" or "/display.tsv" => (upperMain, upperDiff),
+                    "/candidate.tsv" => (lowerMain, lowerDiff),
+                    "/equivalent.tsv" => ("HTTPS://EXAMPLE.COM/song.zip", "HTTPS://EXAMPLE.COM/diff?token=value"),
+                    _ => throw new InvalidOperationException("Unknown completion fixture source: " + uri)
+                };
+                return Task.FromResult($"md5\turl_diff\turl\r\neeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\t{diff}\t{main}");
+            };
+            library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, testSettings);
+            playlist = new TestBmsPlaylist(songDbPath, null, null, null,
+                () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings),
+                () => BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings),
+                () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings), null,
+                fetcher, (_, _) => Task.FromResult("[]"));
+            BMSTable table = CreateTable(5004, "CandidateCase");
+            BMSTableEntry entry = CreateEntry(new string('e', 32), "CandidateSong");
+            table.entries = [entry];
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            playlist.CommitBMSTableWithEntriesToDB(table);
+            int initialRevision = table.PlaylistEntriesRevision;
 
-        var sourceRow = new PlaylistDetailSourceRow(entry, (file));
+            await ScheduleUrlCompletionRefreshAsync(playlist, "initial_candidate");
+            PlaylistEntryCommitReceipt initial = playlist.DrainPlaylistEntryCommits().Single();
+            Assert.AreEqual(initialRevision, initial.BaseRevision);
+            Assert.AreEqual(initialRevision + 1, initial.Revision);
+            PlaylistEntryChange initialChange = initial.Changes.Single();
+            Assert.AreSame(entry, initialChange.Entry);
+            Assert.IsNull(initialChange.Before.EffectiveUrl);
+            Assert.IsNull(initialChange.Before.EffectiveUrlDiff);
+            Assert.AreEqual(upperMain, initialChange.After.EffectiveUrl.AbsoluteUri);
+            Assert.AreEqual(upperDiff, initialChange.After.EffectiveUrlDiff.AbsoluteUri);
 
-        Assert.AreEqual(new Uri("https://example.com/runtime"), sourceRow.Url);
-        Assert.AreEqual(new Uri("https://example.com/runtime-diff"), sourceRow.Url_diff);
+            // source は case 以外も変え、取得前キャッシュの誤りを候補比較の判定へ混ぜません。
+            testSettings.PlaylistMd5UrlMappingTsvUri = "https://example.com/candidate.tsv";
+            await ScheduleUrlCompletionRefreshAsync(playlist, "candidate_case");
+            PlaylistEntryCommitReceipt changed = playlist.DrainPlaylistEntryCommits().Single();
+            Assert.AreEqual(initial.Revision, changed.BaseRevision);
+            Assert.AreEqual(initial.Revision + 1, changed.Revision);
+            PlaylistEntryChange change = changed.Changes.Single();
+            Assert.AreSame(entry, change.Entry);
+            Assert.AreEqual(upperMain, change.Before.EffectiveUrl.AbsoluteUri);
+            Assert.AreEqual(upperDiff, change.Before.EffectiveUrlDiff.AbsoluteUri);
+            Assert.AreEqual(lowerMain, change.After.EffectiveUrl.AbsoluteUri);
+            Assert.AreEqual(lowerDiff, change.After.EffectiveUrlDiff.AbsoluteUri);
+            Assert.AreEqual(lowerMain, entry.RuntimeUrlCompletion.AbsoluteUri);
+            Assert.AreEqual(lowerDiff, entry.RuntimeUrlDiffCompletion.AbsoluteUri);
+            Assert.AreEqual(lowerMain, entry.EffectiveUrl.AbsoluteUri);
+            Assert.AreEqual(lowerDiff, entry.EffectiveUrlDiff.AbsoluteUri);
+
+            testSettings.PlaylistMd5UrlMappingTsvUri = "https://example.com/equivalent.tsv";
+            await ScheduleUrlCompletionRefreshAsync(playlist, "equivalent_candidate");
+            Assert.IsTrue(playlist.DrainPlaylistEntryCommits().IsEmpty);
+            Assert.AreEqual(changed.Revision, table.PlaylistEntriesRevision);
+            Assert.AreEqual(lowerMain, entry.RuntimeUrlCompletion.AbsoluteUri);
+            Assert.AreEqual(lowerDiff, entry.RuntimeUrlDiffCompletion.AbsoluteUri);
+
+            TestBmsPlaylist store = playlist;
+            TestBmsLibrary catalog = library;
+            workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _, playlistStoreProvider: () => store,
+                playlistLibraryProvider: () => catalog);
+            workspace.SetDetailDataSource(new PlaylistDetailDataSource(catalog, store, new MainChartRowProjectionOwner()));
+            workspace.RequestDetailSelection(table);
+            await workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
+                MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, false, default);
+            var rows = (PlaylistDetailVirtualView)workspace.DetailViewState.View.Rows;
+            var row = (PlaylistDetailRow)rows[0];
+            Assert.AreSame(entry, row.Entry);
+            Assert.AreEqual(lowerMain, row.Url.AbsoluteUri);
+            Assert.AreEqual(lowerDiff, row.Url_diff.AbsoluteUri);
+
+            testSettings.PlaylistMd5UrlMappingTsvUri = "https://example.com/display.tsv";
+            await ScheduleUrlCompletionRefreshAsync(playlist, "display_candidate_case");
+            await workspace.WaitForDetailBuildIdleAsync();
+
+            Assert.AreSame(rows, workspace.DetailViewState.View.Rows);
+            Assert.AreSame(row, rows[0]);
+            Assert.AreEqual(upperMain, row.Url.AbsoluteUri);
+            Assert.AreEqual(upperDiff, row.Url_diff.AbsoluteUri);
+            Assert.AreEqual(upperMain, entry.RuntimeUrlCompletion.AbsoluteUri);
+            Assert.AreEqual(upperDiff, entry.RuntimeUrlDiffCompletion.AbsoluteUri);
+            Assert.AreEqual(changed.Revision + 1, table.PlaylistEntriesRevision);
+            Assert.AreEqual(table.PlaylistEntriesRevision, workspace.DetailViewState.Source.LastBuiltPlaylistRevision);
+            Assert.IsNull(entry.Url);
+            Assert.IsNull(entry.Url_diff);
+            Assert.AreEqual(upperMain, initialChange.After.EffectiveUrl.AbsoluteUri, "過去receiptは後続の適用でも不変です。");
+            Assert.AreEqual(lowerMain, change.After.EffectiveUrl.AbsoluteUri);
+            Assert.AreEqual(lowerDiff, change.After.EffectiveUrlDiff.AbsoluteUri);
+            CollectionAssert.AreEqual(new[] { "/initial.tsv", "/candidate.tsv", "/equivalent.tsv", "/display.tsv" }, fetchedSources);
+        }
+        finally
+        {
+            try
+            {
+                if (workspace != null)
+                {
+                    workspace.CancelDetailBuilds();
+                    await workspace.WaitForDetailBuildIdleAsync();
+                }
+            }
+            finally
+            {
+                workspace?.Dispose();
+                playlist?.RequestShutdown("candidate-case-fixture");
+                library?.RequestShutdown("candidate-case-fixture");
+                DeleteTempSongDbDirectory(songDbPath);
+            }
+        }
     }
 
     /// <summary>ローカル表のmemo編集保存で主URL・差分URLの補完も確定し、新DB読取と表の更新時刻へ反映します。</summary>

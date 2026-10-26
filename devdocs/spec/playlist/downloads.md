@@ -109,6 +109,12 @@ Driveフォルダ、JavaScript操作、CAPTCHA、ログイン、同意フォー�
 
 ### 任意のURL補完
 
+補完元の取得前キャッシュと取得済み候補の代入前には、同じURI比較を使います。従来の絶対URI全体を `SafeUnescaped`・大小文字無視で比較する条件を維持した上で、HTTP(S)のpath/queryは通常文字を大小文字まで区別します。queryのキーと値も対象とし、有意な差がある取得元は実取得し、候補の差はURL1/2のランタイム値・実効値・正規の確定差分と表示へ反映します。同じ取得元は既存キャッシュを使い、比較のための通信や常時再取得は追加しません。
+
+path/query内の実際の `%hh` は16進数字の大小文字だけを同一とし、`%2f` と `%2F` は同値、`%252f` と `%252F` の末尾の通常文字は別値です。従来の `SafeUnescaped` と同じく、非予約文字の `%53ong` と `Song` は同値、予約文字の `%2F` と `/`、query内の `%26` と `&` は別値として扱います。scheme/host、fragment/userinfoの大小文字だけの差、およびWindows file URIやその他の非HTTP URIの従来の同値条件は保ち、fragmentの実内容差は消しません。既存文字列の追加の復号・再エスケープや入力拒否は行いません。
+
+通常補完では永続化済みURLを直接書き換えず、既存URL優先・上書き設定と明示保存時の材料化を維持します。TSVに同じMD5があればStellaより優先し、候補が同値なら不要な確定差分を作りません。空の取得元設定ではその取得元の候補を解除します。
+
 補完元の通常の通信・ファイル読取り・JSON形式の失敗では、利用可能な既存補完を保持します。内部故障や資源不足を取得元不在へ読み替えず、予約された作業を失敗として終えます。モデルが所有する停止要求は取消しとして返し、退役した表へ結果を適用しません。
 
 TSVとStellaの開始済み取得はともに終端まで待ちます。複数の取得元が失敗した場合の元例外はその合流で診断し、UI用に保持しません。診断故障は予約、キャッシュ適用、必須参照更新の成否を変えません。既存の同一取得元キャッシュと明示要求による再取得を維持し、自動再試行は追加しません。
@@ -146,6 +152,8 @@ TSVとStellaの開始済み取得はともに終端まで待ちます。複数�
 | 無受信期限・単発取消・全取得Taskの終了回収 | `PlaylistUrlAcquisitionWorkflow`、`PlaylistWorkspaceViewModel.PlaylistUrlAcquisition` | `PlaylistUrlAcquisitionOwnershipTests.BodyDeadline_ResetsOnDataAndJoinsCancelledRead`、`BodyDeadline_DoesNotLimitLocalWrite`、`SingleBodyCancellation_JoinsIoBeforeRemovingProgressAndNeverFallsBack`、`WindowClose_JoinsEarlierCleanupAndLaterBodyIndependently`、`SingleBodyCancellation_DisconnectsRealPeerBeforeFixtureDisposal`、`BrowserFallback_DeferredPresentationObservesShutdown` |
 | HTMLの再取得なし・相対URI基準 | [`PlaylistExternalSyncOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistExternalSyncOwner.cs) | [`BmsPlaylistExternalLoadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalLoadTests.cs) |
 | 補完元の通常失敗・内部故障と退役 | `BMSPlaylist.UrlCompletion` | `PlaylistUrlCompletionTests.BMSPlaylist_UrlCompletionDistinguishesUnavailableSourceFromInternalFailure` は旧補完と次の明示要求、`BMSPlaylist_UrlCompletionUsesInjectedOptionsAndRetiredResultDoesNotApply` は停止token、取消終端と旧行への適用拒否を確認する。 |
+| 補完元と候補のHTTP有意case・percent・既存同値条件 | [`PlaylistUrlCompletionSupport.UriEquals`](../../../BeMusicSeeker/Models/Playlist/PlaylistUrlCompletionSupport.cs)、`BMSPlaylist.UrlCompletion`、`BMSTableEntry.UrlCompletion` | [`PlaylistUrlCompletionTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlCompletionTests.cs) の `BMSTableEntry_RuntimeUrlCompletionPreservesSignificantUriCase` はURL1/2個別にpath/queryキー・値、実percent-triplet・二重escape・予約/非予約文字、scheme/host・fragment/userinfo・file/非HTTP・nullを確認する。`BMSPlaylist_UrlCompletionFetchesSourcesOnceAndRefetchesTsvWhenUriChanges` は専用設定への保存・別readerの再読込みから実HTTPのcase別targetと新本文の両実効URLまで、同一元cacheとTSV優先を確認する。 |
+| 候補case差の確定差分と同じ表示行への通常配送、保存の分担 | `BMSPlaylist.UrlCompletion`、`BMSTableEntry.UrlCompletion`、`PlaylistWorkspaceViewModel.DetailChanges` | `PlaylistUrlCompletionTests.PlaylistDetailVirtualView_CandidateCaseChangesFlowThroughReceiptAndUpdateSameRow` はcase以外も異なる別名sourceのTSV取得からURL1/2のruntime/effective・版と旧新値のreceipt・実VirtualView同一行を確認し、同値候補では差分を作らない。空の保存URLでも両実効値を表示する保証を含む。永続URL優先/上書き・解除は同クラスのentryテスト群、通常補完のDB非材料化・日時保持は `BMSPlaylist_StellaFullSettingDisablesFetchAndClearsStellaRuntimeCompletion`、明示保存と外部非材料化は `DetailEdit_LocalPlaylistMaterializesEffectiveUrlsIntoDatabase` / `DetailEdit_ExternalSyncPlaylistDoesNotMaterializeEffectiveUrls`、編集中の通常配送は `DetailDraft_NormalUrlCompletionThenMemoCommitUsesLatestInput` に分担する。 |
 | 外部同期のURL補完とローカルURIの区別 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`PlaylistUrlCompletionTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlCompletionTests.cs) |
 
 ## 関連資料
