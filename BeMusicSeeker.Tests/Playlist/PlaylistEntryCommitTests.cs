@@ -446,6 +446,64 @@ public sealed class PlaylistEntryCommitTests
         Assert.AreEqual(1, after.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE playlist_id = 9201 AND is_removed = 1;"));
     }
 
+    /// <summary>明示追加は同じ所属キーの削除履歴を入力値へ置換し、別hash・別folderの履歴を保持します。DB前失敗では元所属と全履歴を保持します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CommitLocalChanges_AddToRemovedDestinationReplacesHistoryAtomically(bool failInsert)
+    {
+        using var fixture = new Fixture();
+        BMSTable table = fixture.Tables[0];
+        BMSTableEntry source = table.entries[0];
+        source.folder = "source";
+        source.title = "current title";
+        source.sha256 = new string('a', 64);
+        source.memo = "current memo";
+        BMSTableEntry retained = table.entries[1];
+        retained.folder = "source";
+        BMSTableEntry history = new() { md5 = source.md5, sha256 = new string('b', 64), title = "old title", folder = "destination", memo = "old memo", is_removed = true };
+        BMSTableEntry otherHash = new() { md5 = new string('c', 32), folder = "destination", memo = "other hash", is_removed = true };
+        BMSTableEntry otherFolder = new() { md5 = source.md5, folder = "other", memo = "other folder", is_removed = true };
+        table.entries = [source, history, otherHash, otherFolder, retained];
+        fixture.Owner.ReplaceTablesWithEntries([table]);
+        PlaylistEntryValue[] before = [.. table.entries.Select(entry => entry.CaptureValue())];
+        DateTime updated = table.last_update;
+        int revision = table.PlaylistEntriesRevision;
+        int lookupRevision = table.EntryLookupRevision;
+        BMSTableEntry input = source.CreatePlaylistReloadSnapshot();
+        if (failInsert)
+        {
+            fixture.Execute("CREATE TRIGGER reject_destination BEFORE INSERT ON playlist_entry WHEN NEW.folder = 'destination' AND NEW.is_removed = 0 BEGIN SELECT RAISE(ABORT, 'reject destination'); END;");
+        }
+        void Commit() => fixture.Owner.CommitEntryMutations(
+            new Dictionary<BMSTable, Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>>
+            { [table] = observer => table.PrepareEntryMutation([source], [(input, "destination")], observer) }, fixture.Receipts.Add);
+        if (failInsert)
+        {
+            Assert.ThrowsException<SQLite.SQLiteException>(Commit);
+            CollectionAssert.AreEqual(before, table.entries.Select(entry => entry.CaptureValue()).ToArray());
+            CollectionAssert.AreEquivalent(before, fixture.FreshStartupEntries().Where(entry => entry.playlist_id == table.playlist_id).Select(entry => entry.CaptureValue()).ToArray());
+            Assert.AreEqual(updated, table.last_update);
+            Assert.AreEqual(revision, table.PlaylistEntriesRevision);
+            Assert.AreEqual(lookupRevision, table.EntryLookupRevision);
+            Assert.AreEqual(0, fixture.Receipts.Count);
+            Assert.AreSame(source, table.entries[0]);
+            Assert.AreSame(history, table.entries[1]);
+            return;
+        }
+        Commit();
+        BMSTableEntry active = table.entries.Single(entry => entry.folder == "destination" && entry.md5 == source.md5);
+        Assert.IsFalse(active.is_removed);
+        Assert.AreEqual("current memo", active.memo);
+        Assert.AreEqual("current title", active.title);
+        Assert.AreEqual(new string('a', 64), active.sha256);
+        Assert.IsFalse(table.entries.Contains(source));
+        Assert.IsFalse(table.entries.Contains(history));
+        CollectionAssert.AreEquivalent(new[] { otherHash, otherFolder, retained, input }, table.entries.ToArray());
+        CollectionAssert.AreEquivalent(table.entries.Select(entry => entry.CaptureValue()).ToArray(),
+            fixture.FreshStartupEntries().Where(entry => entry.playlist_id == table.playlist_id).Select(entry => entry.CaptureValue()).ToArray());
+        Assert.AreEqual(1, fixture.Receipts.Count);
+    }
     /// <summary>所属済みの同じ参照を別フォルダへ追加しても二重所属を作らず、元の明示順序と対象外参照を保持します。</summary>
     [TestMethod]
     public void CommitLocalChanges_ExistingEntryMoveKeepsReferenceAndOrder()

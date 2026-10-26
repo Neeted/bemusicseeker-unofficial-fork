@@ -2291,6 +2291,191 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>実再同期でH@Bを履歴化してから明示再追加・移動・コピーし、新DB・参照表示・実LR2 COMMAND・gzip BMTまでBの生存所属一件と入力元の値を確認します。</summary>
+    /// <remarks>履歴置換の分岐とDB前失敗はEntryCommitの局所テスト、DB後失敗・P寿命は既存Admission系列が分担します。Windowを作らず、受理Taskとbuild終端後にownerと固有tempを回収します。</remarks>
+    [DataTestMethod]
+    [DataRow("library")]
+    [DataRow("move")]
+    [DataRow("copy")]
+    public async Task PlaylistDrop_RemovedDestinationUsesCurrentInputAndCompletesRequiredOutputs(string inputKind)
+    {
+        const string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const string keptHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "playlist-drop-history-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        BMSPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        try
+        {
+            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string outputBase = Path.Combine(tempDirectory, "lr2");
+            string bmtRoot = Path.Combine(tempDirectory, "beatoraja");
+            CustomFolderOutputSettingsSnapshot outputSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderOutputBaseDir = outputBase,
+                LR2CustomFolderOutputBaseDirRootType = outputBase,
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            ChartFile chart = CreatePlaylistDropBmsFile(hash, "Catalog H", Path.Combine(tempDirectory, "charts", "h.bms"));
+            library = new TestBmsLibrary(songDbPath) { BmsCharts = [chart] };
+            playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath,
+                () => outputSettings,
+                playlistUrlCompletionOptionsProvider: () => new PlaylistUrlCompletionOptionsSnapshot(),
+                beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot
+                {
+                    EnableBeatorajaBmtOutput = true,
+                    BeatorajaBmtTablePath = Path.Combine(bmtRoot, "table.json")
+                },
+                lr2PlaylistFolderSynchronization: BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+                    songDbPath, CustomFolderOutputPhysicalSurface.Empty));
+            string headerPath = Path.Combine(tempDirectory, "header.json");
+            string scorePath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllText(headerPath, "{\"name\":\"History destination\",\"symbol\":\"HISTORY\",\"entry_type\":\"folder\",\"compat_prefix\":\"\",\"folder_order\":[\"B\"],\"data_url\":\"./score.json\"}");
+            string keptJson = "{\"md5\":\"" + keptHash + "\",\"title\":\"Kept K\",\"level\":\"B\"}";
+            File.WriteAllText(scorePath, "[{\"md5\":\"" + hash + "\",\"title\":\"Old H\",\"level\":\"B\"}," + keptJson + "]");
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerPath));
+            table.playlist_id = 7826;
+            table.Output_dir = "HistoryDestination";
+            table.is_root_folder = false;
+            table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder;
+            BMSTableEntry old = table.entries.Single(entry => entry.md5 == hash);
+            old.memo = "old history memo";
+            old.adddate = new DateTime(2020, 1, 2, 3, 4, 5);
+            table.EnableExternalSync();
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            playlist.CommitBMSTableWithEntriesToDB(table);
+            File.WriteAllText(scorePath, "[" + keptJson + "]");
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult reload = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
+                [table], reason: "test_explicit_add_to_removed_destination");
+            Assert.IsTrue(reload.Single().Succeeded);
+            table = playlist.BMSTables.Single();
+            Assert.AreEqual(1, table.entries.Count(entry => entry.md5 == hash && entry.folder == "B" && entry.is_removed));
+            Assert.AreEqual(1, table.entries.Count(entry => entry.md5 == keptHash && entry.folder == "B" && !entry.is_removed));
+            table.DisableExternalSync();
+            BMSTableEntry source = new()
+            {
+                md5 = hash,
+                title = "Current H",
+                folder = "A",
+                memo = "current memo",
+                comment = "current comment",
+                Url = new Uri("https://example.com/current/main"),
+                Url_diff = new Uri("https://example.com/current/diff"),
+                name_diff = "current name diff",
+                level = 17.25,
+                adddate = new DateTime(2024, 5, 6, 7, 8, 9)
+            };
+            BMSTable? sourceTable = null;
+            if (inputKind == "move")
+            {
+                table.entries = [.. table.entries, source];
+                playlist.CommitBMSTableWithEntriesToDB(table);
+            }
+            else if (inputKind == "copy")
+            {
+                sourceTable = new BMSTable { playlist_id = 7827, name = "Current source", Output_dir = "CurrentSource", entries = [source] };
+                playlist.BMSTables.Add(sourceTable);
+                playlist.CommitBMSTableWithEntriesToDB(sourceTable);
+            }
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.Execute("INSERT INTO song (hash, title, path, folder) VALUES (?, 'Catalog H', 'h.bms', 'package-h');", hash);
+                db.Execute("INSERT INTO song (hash, title, path, folder) VALUES (?, 'Kept K', 'k.bms', 'package-k');", keptHash);
+            }
+            workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(playlist, library, () => outputSettings);
+            source.ApplyRuntimeUrlCompletion(new Uri("https://example.com/runtime/main"), new Uri("https://example.com/runtime/diff"), overwriteExisting: true);
+            object row = inputKind == "library" ? LibraryChartRow.FromChartFile(chart) : new PlaylistDetailSourceRow(source, chart).CreateViewRow();
+            DateTime started = DateTime.Now;
+            await workspace.AddRowsToFolderAsync([row], table, PlaylistFolderNode.CreateFolder("B"));
+            DateTime completed = DateTime.Now;
+            await workspace.WaitForDetailBuildIdleAsync();
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            BMSTableEntry active = table.entries.Single(entry => entry.md5 == hash && entry.folder == "B");
+            Assert.IsFalse(active.is_removed);
+            Assert.IsFalse(table.entries.Any(entry => entry.md5 == hash && entry.folder == "A"));
+            Assert.AreEqual(inputKind == "library" ? null : "current memo", active.memo);
+            if (inputKind == "library")
+            {
+                Assert.IsTrue(active.adddate >= started && active.adddate <= completed);
+                Assert.AreNotEqual(old.adddate, active.adddate);
+            }
+            else
+            {
+                Assert.AreEqual(source.adddate, active.adddate);
+                CollectionAssert.AreEqual(new[] { "current comment", "current name diff", "https://example.com/current/main", "https://example.com/current/diff" },
+                    new[] { active.comment, active.name_diff, active.Url.AbsoluteUri, active.Url_diff.AbsoluteUri });
+                Assert.AreEqual(17.25, active.level);
+            }
+            Assert.IsTrue(library.GetPlaylistReferenceDisplay(chart).Names.Contains("History destination", StringComparison.Ordinal));
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            {
+                LR2SongDBExtended.playlist_entry persisted = db.Table<LR2SongDBExtended.playlist_entry>()
+                    .Single(entry => entry.playlist_id == table.playlist_id && entry.md5 == hash);
+                Assert.IsFalse(persisted.is_removed);
+                Assert.AreEqual("B", persisted.folder);
+                Assert.AreEqual(active.memo, persisted.memo);
+                Assert.AreEqual(active.comment, persisted.comment);
+                Assert.AreEqual(active.name_diff, persisted.name_diff);
+                Assert.AreEqual(active.url, persisted.url);
+                Assert.AreEqual(active.url_diff, persisted.url_diff);
+                Assert.AreEqual(active.level, persisted.level);
+                // 既存のSQLite ticks保存精度で追加時刻を保持します。
+                Assert.AreEqual(active.adddate, persisted.adddate);
+                if (sourceTable != null)
+                {
+                    LR2SongDBExtended.playlist_entry copiedFrom = db.Table<LR2SongDBExtended.playlist_entry>().Single(entry => entry.playlist_id == sourceTable.playlist_id);
+                    Assert.AreEqual("current memo", copiedFrom.memo);
+                    Assert.AreEqual("A", copiedFrom.folder);
+                    Assert.AreEqual(source.adddate, copiedFrom.adddate);
+                    Assert.AreSame(source, sourceTable.entries.Single());
+                }
+                var commands = Directory.GetFiles(Path.Combine(outputBase, table.output_dir), "*.lr2folder", SearchOption.AllDirectories)
+                    .Select(path => File.ReadAllText(path, Encoding.GetEncoding("shift_jis")))
+                    .ToDictionary(text => text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Single(line => line.StartsWith("#TITLE ", StringComparison.Ordinal))[7..],
+                        text => text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Single(line => line.StartsWith("#COMMAND ", StringComparison.Ordinal))[9..]);
+                foreach (string title in new[] { "B", "History destination ALL" })
+                {
+                    CollectionAssert.AreEquivalent(new[] { hash, keptHash }, db.Query<LR2SongDB.song>("SELECT song.* FROM song WHERE " + commands[title]).Select(song => song.hash).ToArray());
+                }
+            }
+            string bmt = Directory.GetFiles(bmtRoot, "*.bmt", SearchOption.AllDirectories).Single();
+            using (var compressed = new GZipStream(File.OpenRead(bmt), CompressionMode.Decompress))
+            using (var reader = new StreamReader(compressed))
+            {
+                var document = Newtonsoft.Json.Linq.JObject.Parse(reader.ReadToEnd());
+                Newtonsoft.Json.Linq.JToken folder = document["folder"]?.Single(value => value.Value<string>("name") == "B")
+                    ?? throw new AssertFailedException("BMT folder B missing");
+                Assert.AreEqual(1, folder["songs"]?.Count(song => song.Value<string>("md5") == hash));
+            }
+            DateTime sameFolderDate = active.adddate;
+            string? sameFolderMemo = active.memo;
+            int sameFolderRevision = table.PlaylistEntriesRevision;
+            await workspace.AddRowsToFolderAsync([new PlaylistDetailSourceRow(active, chart).CreateViewRow()], table, PlaylistFolderNode.CreateFolder("B"));
+            Assert.AreSame(active, table.entries.Single(entry => entry.md5 == hash && entry.folder == "B"));
+            Assert.AreEqual(sameFolderDate, active.adddate);
+            Assert.AreEqual(sameFolderMemo, active.memo);
+            Assert.AreEqual(sameFolderRevision, table.PlaylistEntriesRevision);
+        }
+        finally
+        {
+            if (workspace != null)
+            {
+                workspace.CancelDetailBuilds();
+                await workspace.WaitForDetailBuildIdleAsync();
+                await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                workspace.Dispose();
+            }
+            playlist?.RequestShutdown("playlist_drop_history_test");
+            library?.RequestShutdown("playlist_drop_history_test");
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
     /// <summary>Busyのdropを未開始として拒否し、実DB・LR2・BMT・参照更新を終端まで所有して、出力・準備失敗後も確定行を保持しDB失敗は別errorで通知します。</summary>
     [TestMethod]
     public async Task PlaylistDropAdmission_AwaitsRequiredOutputsAndPreservesCommittedFactsAcrossFailures()

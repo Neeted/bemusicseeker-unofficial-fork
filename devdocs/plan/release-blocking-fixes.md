@@ -2,13 +2,13 @@
 
 ## 目的と採用範囲
 
-通常の入力・操作で到達する保存、導入、一覧、再生、出力の不整合を解消する。本書は採用済みの修正対象と、既存の採用契約・未完了の実装・検証を扱う。対象は41件、実装の単位は下表の38単位とする。URL補完の取得元比較と候補比較、前曲の方向と非終端、登録範囲の改名保護と統合保護は、それぞれ一単位にまとめ、各不具合の判定は独立して残す。数値・日時統一は外部JSON LEVELの既存課題を包含する一つの横断単位とする。[任意改善](release-follow-up-candidates.md)は今回実装せず、リリース完了条件に含めない。
+通常の入力・操作で到達する保存、導入、一覧、再生、出力の不整合を解消する。本書は採用済みの修正対象と、既存の採用契約・未完了の実装・検証を扱う。対象は40件、実装の単位は下表の37単位とする。URL補完の取得元比較と候補比較、前曲の方向と非終端、登録範囲の改名保護と統合保護は、それぞれ一単位にまとめ、各不具合の判定は独立して残す。数値・日時統一は外部JSON LEVELの既存課題を包含する一つの横断単位とする。[任意改善](release-follow-up-candidates.md)は今回実装せず、リリース完了条件に含めない。
 
 追加指摘は `dev` の `8c53fc9b` とLR2出力簡素化の作業差分を照合した静的調査を根拠とする。既存対象も含め、通常経路の確認を実再現・テスト成功と読み替えない。着手時に最新のコードと既存差分を確認し、解消済みの課題を再実装しない。LR2出力設定の保存・生成の契約は[設定の保存](../spec/runtime/settings-persistence.md)と[LR2カスタムフォルダ](../spec/playlist/lr2-custom-folders.md)を参照する。
 
 単体分割後の子作品発見、Everythingのドライブルート保持の2件は、利用者が必須修正に分類し、今回の実装対象へ追加した。元資料の基準 `6348b291` から `5d499a91` まで必要経路を静的に照合し、原因が残ることと既存計画との非重複を確認した。以下の2件の修正境界・代表判定は着手時に具体化する案であり、分類合意を詳細設計・テスト設計の承認と扱わない。
 
-今回追加した登録範囲保護、保留回収・候補追従、導入採番、保存済み所属、BMT親MD5、数値・日時、前曲終端、フォーカス、ツリー編集、更新の課題は、`6e443a87` の必要経路を静的照合した。実再現・製品テストは未実施であり、原因が残る範囲を着手時に確認する。追加資料の識別子は既存計画の識別子と共通でないため、以下では機能名を主に扱う。フォルダ削除確認は[現行の三択契約](../spec/library/mutations.md#確認と共通受付)を維持し、未完了課題へ再登録しない。
+今回追加した登録範囲保護、保留回収・候補追従、導入採番、BMT親MD5、数値・日時、前曲終端、フォーカス、ツリー編集、更新の課題は、`6e443a87` の必要経路を静的照合した。実再現・製品テストは未実施であり、原因が残る範囲を着手時に確認する。追加資料の識別子は既存計画の識別子と共通でないため、以下では機能名を主に扱う。フォルダ削除確認は[現行の三択契約](../spec/library/mutations.md#確認と共通受付)を維持し、未完了課題へ再登録しない。
 
 以下の代表判定は独立テスト設計の代替ではなく、実装・テストが完了した保証でもない。
 
@@ -30,7 +30,7 @@
 
 ## 着手順と実装単位
 
-既存着手済みの単体分割後の子作品発見は成果を保って継続し、先行統合された設定テスト・仕様の成果を前提にする。次の新規着手は保存済み所属・編集値の喪失と前曲探索の非終端を最優先にする。数値・日時統一の横断契約を先に関係担当へ共有し、実装も早期に進める。任意のUI共通整理を必須修正の前提にしない。
+既存着手済みの単体分割後の子作品発見は成果を保って継続し、先行統合された設定テスト・仕様の成果を前提にする。次の新規着手は前曲探索の非終端を最優先にする。数値・日時統一の横断契約を先に関係担当へ共有し、実装も早期に進める。任意のUI共通整理を必須修正の前提にしない。
 
 表の番号は実装単位の識別であり、全件の直列順ではない。上記優先と次の依存境界で着手を決める。devへの統合は、依存関係・検証・独立レビューが揃った単位から一件ずつ進め、着手順やLR2関連作業を理由に独立した完成単位を保留しない。新しい実装・テスト・仕様・計画は各作業WTの別ブランチで完結させ、並列開発中のメイン作業ツリーはdevの統合専用として原則クリーンに保つ。独立した単位の調査・設計・編集は並行できる。全体ルートは利用者への質問、全体優先、単位間の依存と共有契約、WT割当、Functionalと性能測定の開始調整、dev統合と全体報告を担う。各単位責任者は範囲内の調査・テスト必要性と独立設計承認・引継ぎ点検・実装・Quick・仕様計画・レビュー・差戻し・branch内commitを完結させ、工程別の全体ルート再承認を求めない。小単位では責任者が実装を兼ねられる。未確定の利用者挙動・保証、範囲拡張、他単位や共有契約への影響は全体ルートへ戻す。各単位は必要な翻訳も含み、表中のクラス名は探索起点でありAPIや配置を固定しない。
 
@@ -92,11 +92,10 @@ Functionalは全WT同時一件とし、別WTのQuickと必要ビルドは並行�
 | 31 | 保留導入先の候補・配置文脈の旧path残存。確定DSTだけの参照抽出と旧候補を保持するMutationFactsでは祖先索引更新だけで直らない。 | 成功した改名/純移動の旧新pathを候補だけのentryとResourcePlacementへ反映し、候補順・未確定・警告・対象外と健康度を維持。削除・統合では影響する未確定候補・配置文脈を失効して明示再推定へ戻し、確定DSTは統合時に従来どおり統合先へ追従し、フォルダ全体削除時は物理削除成功範囲内だけ従来どおり解除する。自動確定/再推定や通常DST編集APIの横断副作用は追加しない。 | 実推定の保留を改名/別root移動→新候補選択し新pathへ確定。`BmsLibraryFolderRenameRefreshTests`、`BmsLibraryLibraryFileOperationsServiceTests`、`MainWindowPackageMaintenanceWpfTests.PendingEstimationAndCandidateEditingReachRealizedRowsWithRelatedEvidence`でDST空/確定、配下/共通prefix、順序/警告、統合先への確定DST追従、影響分だけの失効と明示再推定を確認。 |
 | 32 | 保護ファイルの計画内採番衝突。採番helperは実FSだけを見て後続通常宛先を奪い、後段の重複拒否で正常な導入が止まる。 | 短命な一物理計画で全通常宛先・譜面宛先・生成済み採番先を考慮する。既存suffix、同一内容省略と通常上書きを維持。処理済み名だけの予約や永続台帳は作らない。 | `BmsLibraryPackageInstallServiceTests` の実FS/DBで異内容readme.txt/readme(1).txtと既存readme.txt、両列挙順、複数suffix/採番名を確認。txt/bmx/pmx、同一内容省略、導入・重複統合の保持、所持追加・保留解除まで判定。現状の準備失敗を破損と扱わない。 |
 | 33 | 再起動後のBMT親MD5欠落。hydrateが生値を遅延保持する一方、Org_md5 getterとBMT projectionが未解決リストを直読する。 | 親MD5の公開読取りを一つの遅延解決へ揃え、backing fieldで再入を避ける。clone/JSONも同値にし、起動時全件展開・出力ごとのDB再読込みは追加しない。旧誤出力は既存exporterVersion/skip境界で一度再生成する。 | `BmtTableExportServiceTests` と実SQLite hydrateで保存→再読込み→事前getterなし→実gzipの親MD5を判定。SHA256のみ/MD5あり、単複数親/親なし、詳細表示有無、元DB保持、旧manifestから再生成→次回省略を確認。コース制約往復と版更新を直列調整。 |
-| 34 | 削除履歴への明示追加・移動で生存所属が消える。EntryCommitのidentity索引が削除履歴を生存重複と扱い、Workspaceは元所属削除だけをDBへ確定し得る。 | 局所計画で生存重複と削除履歴を区別し、復帰/置換と移動元削除を同トランザクションへ含める。同identityの履歴・生存行を無条件併存させない。所持一覧から同所属へ明示再追加は新規MEMO・新規追加日時を作る。詳細からの移動/コピーは現在の元行のMEMO・コメント・永続URL・level等を使い、生存重複先の既存優先は維持。 | `PlaylistWorkspacePersistenceCommandTests` で実再同期によりH@B削除履歴/K@B生存→同期OFF→所持からBへ再追加、H@A→B移動/別表詳細コピー→新DB接続と必要出力でBの生存H一件と編集値を確認。直接再追加は旧MEMO/旧日時を復帰しない。元だけ削除されないこと、同folder再drop・生存重複優先・無関係履歴保持を判定。空名drop/一般再読込みMEMO引継ぎとは別原因。 |
-| 35 | 再生開始後の反復フォーカス。MainWindowの100ms×10復帰が後発の検索/編集を奪い、BlurやLostKeyboardFocus確定を起こす。 | 開始時の意図した復帰を保ち、成功後・後発明示入力・外部window移動・終了で古い短命要求を終える。無条件反復の削除を優先し、入力禁止・待機延長・永続状態や外部player固有復帰機能の拡充はしない。 | `MainWindowPlaybackWpfTests` と実検索/セル編集で開始→初回復帰→明示入力→後続callbackを制御し、focus・候補文字列・未確定状態の保持を確認。入力なし初回復帰、終了/再接続後無作用も確認。Contentを別hostへ移すfixtureだけで製品HWND/前面判定を代替しない。 |
-| 36 | フォルダ編集取消で表示Binding消失。EditableTextBlockのText SetValue/Escape/内部TextBox書戻しがOneWay DisplayNameを外し、recycling後に旧名を残す。 | 表示Bindingと短命な編集候補を分け、確定時だけ現在対象・候補を既存改名入口へ一度渡す。取消/対象交換は候補を捨てる。EditModeChangedとMainWindowの確定値取得、DPの開始/終端を同じ契約へ揃える。Escape一行だけの補正、DisplayName TwoWay化、仮想化無効化はしない。 | `MainWindowPlaylistWorkspaceWpfTests` の実ツリー/compiled部品で無変更Escape・変更Escape・正常確定。Aの選択/focusを外して実scrollで同一部品がCへ再利用されたこと、Binding・新DataContext・表示名・操作対象を一組で確認。取消は保存なし、確定は一回。 |
-| 37 | ready書込み中の公開。最終名へ直接書くwriterと存在直後のReadAllTextが共有違反になり正常な更新開始を失敗させる。 | 同currentの一時名へmarkerをflush/closeし、完成後に最終ready名へ公開する。既存decisionの公開契約へ揃え、内容・期限・proceed/cancel・失敗時アプリ存続を維持。 | `UpdaterProcessGatewayTests`、`UpdaterPackageSyncTests` で公開準備中は最終名なし、出現時はclose済みを実writer/readerの順序制御で確認。receipt後だけ終了準備し、未公開期限切れ・取消・本来の起動失敗時回収を維持。writer終了後から読むfixtureだけにしない。 |
-| 38 | 更新cleanupが所有中の同期lockを削除。journalなし・新版起動直後にUpdater/watchdogの排他保持と重なり誤Failed通知になる。 | update-transaction.lockを一時物回収から除外し、OpenOrCreateで再利用する既存寿命を維持。例外全体抑制・待機再試行は追加しない。 | `UpdateDownloadServiceTests.CleanupPreviousWorkDirectoryPreservesActiveUpdaterPayload` でjournalなし/実lock保持中もlock/current/receiptを保ち、古いdownloadを回収。ready受理→新版起動後cleanupの系列を接続し、破損とは断定しない。 |
+| 34 | 再生開始後の反復フォーカス。MainWindowの100ms×10復帰が後発の検索/編集を奪い、BlurやLostKeyboardFocus確定を起こす。 | 開始時の意図した復帰を保ち、成功後・後発明示入力・外部window移動・終了で古い短命要求を終える。無条件反復の削除を優先し、入力禁止・待機延長・永続状態や外部player固有復帰機能の拡充はしない。 | `MainWindowPlaybackWpfTests` と実検索/セル編集で開始→初回復帰→明示入力→後続callbackを制御し、focus・候補文字列・未確定状態の保持を確認。入力なし初回復帰、終了/再接続後無作用も確認。Contentを別hostへ移すfixtureだけで製品HWND/前面判定を代替しない。 |
+| 35 | フォルダ編集取消で表示Binding消失。EditableTextBlockのText SetValue/Escape/内部TextBox書戻しがOneWay DisplayNameを外し、recycling後に旧名を残す。 | 表示Bindingと短命な編集候補を分け、確定時だけ現在対象・候補を既存改名入口へ一度渡す。取消/対象交換は候補を捨てる。EditModeChangedとMainWindowの確定値取得、DPの開始/終端を同じ契約へ揃える。Escape一行だけの補正、DisplayName TwoWay化、仮想化無効化はしない。 | `MainWindowPlaylistWorkspaceWpfTests` の実ツリー/compiled部品で無変更Escape・変更Escape・正常確定。Aの選択/focusを外して実scrollで同一部品がCへ再利用されたこと、Binding・新DataContext・表示名・操作対象を一組で確認。取消は保存なし、確定は一回。 |
+| 36 | ready書込み中の公開。最終名へ直接書くwriterと存在直後のReadAllTextが共有違反になり正常な更新開始を失敗させる。 | 同currentの一時名へmarkerをflush/closeし、完成後に最終ready名へ公開する。既存decisionの公開契約へ揃え、内容・期限・proceed/cancel・失敗時アプリ存続を維持。 | `UpdaterProcessGatewayTests`、`UpdaterPackageSyncTests` で公開準備中は最終名なし、出現時はclose済みを実writer/readerの順序制御で確認。receipt後だけ終了準備し、未公開期限切れ・取消・本来の起動失敗時回収を維持。writer終了後から読むfixtureだけにしない。 |
+| 37 | 更新cleanupが所有中の同期lockを削除。journalなし・新版起動直後にUpdater/watchdogの排他保持と重なり誤Failed通知になる。 | update-transaction.lockを一時物回収から除外し、OpenOrCreateで再利用する既存寿命を維持。例外全体抑制・待機再試行は追加しない。 | `UpdateDownloadServiceTests.CleanupPreviousWorkDirectoryPreservesActiveUpdaterPayload` でjournalなし/実lock保持中もlock/current/receiptを保ち、古いdownloadを回収。ready受理→新版起動後cleanupの系列を接続し、破損とは断定しない。 |
 
 ## 数値・日時の地域非依存契約
 

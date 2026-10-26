@@ -432,7 +432,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 {
                     entriesToAdd.AddRange(sourceRows
                         .Where(ShouldPreserveEntryForRootFolderDrop)
-                        .Select(row => GridRowResolver.GetPlaylistEntry(row)?.Duplicate())
+                        .Select(row => CreateDropEntry(row, null, library))
                         .Where(entry => entry != null));
                     folderMutations.AddRange(BuildRootFolderDropMutations(sourceRows, activeTable, library));
                 }
@@ -625,13 +625,17 @@ public sealed partial class PlaylistWorkspaceViewModel
             : null;
     }
 
-    /// <summary>詳細行は永続編集値を複製し、譜面・履歴行は所持譜面から新しい追加候補を作ります。</summary>
+    /// <summary>詳細行は追加日時を含む現在の永続編集値を複製し、譜面・履歴行は所持譜面から新しい追加候補を作ります。表示補完URLは永続化しません。</summary>
     private static BMSTableEntry CreateDropEntry(object row, ChartFile chart, BMSLibrary library, IEnumerable<string> orgMd5s = null)
     {
         BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(row);
-        return entry != null
-            ? entry.Duplicate()
-            : chart != null ? BMSTableEntry.CreateForPlaylistDrop(chart, orgMd5s ?? library.GetPlaylistOrgMd5sForChart(chart)) : null;
+        if (entry != null)
+        {
+            BMSTableEntry duplicate = entry.Duplicate();
+            duplicate.adddate = entry.adddate;
+            return duplicate;
+        }
+        return chart != null ? BMSTableEntry.CreateForPlaylistDrop(chart, orgMd5s ?? library.GetPlaylistOrgMd5sForChart(chart)) : null;
     }
 
     /// <summary>分類用譜面と入力行の対応を保持し、元の編集値を持つ候補をフォルダ単位で計画します。</summary>

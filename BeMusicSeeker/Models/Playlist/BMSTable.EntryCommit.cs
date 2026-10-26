@@ -235,10 +235,12 @@ public partial class BMSTable
         throw new InvalidOperationException("Playlist entry membership and order differ.");
     }
 
-    /// <summary>削除とフォルダ別追加の候補を writer 内で準備します。live 値・所属・日時・版は変更しません。</summary>
+    /// <summary>削除とフォルダ別追加の候補を writer 内で準備します。明示追加は同じ所属キーの削除履歴を今回入力へ置換し、生存重複の既存値を優先します。live 値・所属・日時・版は変更しません。</summary>
+    /// <param name="replaceRemovedDestinations">明示追加ではtrue。フォルダ改名・統合だけfalseとし、既存の順序による衝突規則を維持します。</param>
     internal EntryMutation PrepareEntryMutation(IReadOnlyCollection<BMSTableEntry> removals,
         IReadOnlyList<(BMSTableEntry Entry, string Folder)> additions,
-        IPlaylistEntryMutationWorkObserver observer = null, bool preserveEmptyFoldersAfterRemoval = true)
+        IPlaylistEntryMutationWorkObserver observer = null, bool preserveEmptyFoldersAfterRemoval = true,
+        bool replaceRemovedDestinations = true)
     {
         HashSet<BMSTableEntry> removed = [];
         HashSet<string> preserveEmptyFolders = new(StringComparer.Ordinal);
@@ -264,7 +266,17 @@ public partial class BMSTable
             folder ??= string.Empty;
             (string folder, string) identity = (folder, getEntryIdentityKey(entry));
             bool movesExisting = ContainsEntry(entry) && !removed.Contains(entry) && entry.folder != folder;
-            if (movesExisting && entriesByIdentity.TryGetValue(identity, out HashSet<BMSTableEntry> destination))
+            if (replaceRemovedDestinations && entriesByIdentity.TryGetValue(identity, out HashSet<BMSTableEntry> histories))
+            {
+                // SQLの正確削除には入力候補でなく、履歴自身の保存列を渡します。
+                foreach (BMSTableEntry history in histories.Where(item => item.is_removed)) { Remove(history, preserveEmptyFolder: false); }
+                if (movesExisting && histories.Any(item => !item.is_removed && !removed.Contains(item)))
+                {
+                    Remove(entry, preserveEmptyFolder: false);
+                    return;
+                }
+            }
+            if (!replaceRemovedDestinations && movesExisting && entriesByIdentity.TryGetValue(identity, out HashSet<BMSTableEntry> destination))
             {
                 foreach (BMSTableEntry existing in destination.Where(item => !removed.Contains(item)))
                 {
@@ -293,6 +305,7 @@ public partial class BMSTable
             observer?.OnCandidateCaptured();
             candidate.parent = this;
             candidate.folder = folder;
+            if (replaceRemovedDestinations) { candidate.is_removed = false; }
             candidate.NormalizeForPlaylistPersistence();
             if (movesExisting) { folderCounts[new(entry.folder)] = Count(entry.folder) - 1; }
             added.Add((entry, candidate));
@@ -362,7 +375,8 @@ public partial class BMSTable
             if (removesDummies && entry.md5 == BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER) { removals.Add(entry); }
             else { additions.Add((entry, destination)); }
         }
-        EntryMutation mutation = PrepareEntryMutation(removals, additions, observer, preserveEmptyFoldersAfterRemoval: false);
+        EntryMutation mutation = PrepareEntryMutation(removals, additions, observer,
+            preserveEmptyFoldersAfterRemoval: false, replaceRemovedDestinations: false);
         List<string> order = [.. _Folder_order ?? []];
         if (string.IsNullOrWhiteSpace(after))
         {
@@ -413,6 +427,7 @@ public partial class BMSTable
             if (ContainsEntry(entry)) { ApplyEntryCandidate(entry, candidate); continue; }
             entry.parent = this;
             entry.folder = candidate.folder;
+            entry.is_removed = candidate.is_removed;
             entry.ApplyCommittedEdit(candidate);
             IndexEntry(entry);
         }
