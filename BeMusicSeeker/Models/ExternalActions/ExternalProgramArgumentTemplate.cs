@@ -19,8 +19,9 @@ internal enum ExternalProgramArgumentTemplateErrorKind
 }
 
 /// <summary>
-/// Windows command-line 相当の argument template を parse 済み token として保持します。
+/// 外部プログラムの引数テンプレートをWindowsの引用規則で分解し、置換前の引数列として保持します。
 /// </summary>
+/// <remarks>引用中の二重引用符対は一文字として扱い、未閉鎖の引用は拒否します。実行ファイル名の特別な構文は扱いません。</remarks>
 internal sealed class ExternalProgramArgumentTemplate
 {
     /// <summary>
@@ -208,17 +209,24 @@ internal sealed class ExternalProgramArgumentTemplate
                 if ((slashCount & 1) != 0)
                 {
                     token.Append('"');
+                    continue;
+                }
+
+                // 偶数本の直後の引用符も、通常の引用符と同じ引用状態・引用符対の規則で扱います。
+                current = source[index];
+            }
+
+            if (current == '"')
+            {
+                if (insideQuotes && index + 1 < source.Length && source[index + 1] == '"')
+                {
+                    token.Append('"');
+                    index++;
                 }
                 else
                 {
                     insideQuotes = !insideQuotes;
                 }
-                continue;
-            }
-
-            if (current == '"')
-            {
-                insideQuotes = !insideQuotes;
                 tokenStarted = true;
                 continue;
             }

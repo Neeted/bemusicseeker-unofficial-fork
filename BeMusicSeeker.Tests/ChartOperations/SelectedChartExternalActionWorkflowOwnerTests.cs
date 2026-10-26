@@ -155,7 +155,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.IsInstanceOfType(result.Exception, typeof(InvalidOperationException));
     }
 
-    /// <summary>所有BMS・保留BMS/BMSONの空白を含むパスを引数へ渡し、設定から削除後の再起動やtoken展開誤りを検出します。</summary>
+    /// <summary>所有BMS・保留BMS/BMSONの空白を含むパスと引用符を含むラベルを起動要求まで保持し、設定から削除後の再起動やtoken欠落を検出します。</summary>
     [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
@@ -171,7 +171,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
                     "player",
                     "Player",
                     @"C:\Tools\player.exe",
-                    "--chart \"{filePath}\"",
+                    "--label \"A\"\"B\" --chart \"{filePath}\"",
                     enabled: true)]));
         TestExternalProgramLaunchGateway programGateway = new();
         string chartPath = @"C:\Songs\folder name\alpha." + (kind == ChartFileKind.Bmson ? "bmson" : "bms");
@@ -192,7 +192,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         RightClickActionResolution resolution = owner.ResolveConfiguredActions(input);
         Assert.AreEqual(1, resolution.ProgramActions.Count);
         CollectionAssert.AreEqual(
-            new[] { "--chart", chartPath },
+            new[] { "--label", "A\"B", "--chart", chartPath },
             resolution.ProgramActions[0].Arguments.ToArray());
 
         ExternalConfiguredActionResult result = owner.ExecuteConfiguredAction(
@@ -205,7 +205,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.AreEqual(@"C:\Tools\player.exe", programGateway.Request.ExecutablePath);
         Assert.AreEqual(chartPath, programGateway.Request.ChartFilePath);
         CollectionAssert.AreEqual(
-            new[] { "--chart", chartPath },
+            new[] { "--label", "A\"B", "--chart", chartPath },
             programGateway.Request.Arguments.ToArray());
 
         settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(

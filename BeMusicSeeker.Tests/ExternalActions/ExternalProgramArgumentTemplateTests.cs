@@ -30,6 +30,56 @@ public sealed class ExternalProgramArgumentTemplateTests
             @"'C:\Songs\alpha.bms'");
     }
 
+    /// <summary>引用内の二重引用符対を一文字として保持し、ラベルから引用符が欠落する誤りを検出します。</summary>
+    [TestMethod]
+    public void ParsePreservesDoubledQuoteInsideQuotedArgument()
+    {
+        AssertParsedAndExpanded(
+            "--label \"A\"\"B\" \"{filePath}\"",
+            ["--label", "A\"B", "{filePath}"],
+            ["--label", "A\"B", @"C:\譜面 dir\alpha.bms"]);
+    }
+
+    /// <summary>引用内で連続する二組の引用符対と後続空白を保持し、途中で引用状態を抜ける誤りを検出します。</summary>
+    [TestMethod]
+    public void ParsePreservesConsecutiveDoubledQuotesAndFollowingSpace()
+    {
+        AssertParsedAndExpanded(
+            "\"A\"\"\"\" B\" \"{filePath}\"",
+            ["A\"\" B", "{filePath}"],
+            ["A\"\" B", @"C:\譜面 dir\alpha.bms"]);
+    }
+
+    /// <summary>引用外の空の引用区間は文字を増やさず前後を連結し、全ての引用符対を文字へ変換する誤りを検出します。</summary>
+    [TestMethod]
+    public void ParseKeepsUnquotedEmptyQuoteSegmentWithoutLiteralQuote()
+    {
+        AssertParsedAndExpanded(
+            "A\"\"B \"{filePath}\"",
+            ["AB", "{filePath}"],
+            ["AB", @"C:\譜面 dir\alpha.bms"]);
+    }
+
+    /// <summary>引用符四文字の一文字引数と二文字の空引数を区別し、文字や空引数の欠落を検出します。</summary>
+    [TestMethod]
+    public void ParseDistinguishesQuotedLiteralQuoteFromEmptyArgument()
+    {
+        AssertParsedAndExpanded(
+            "\"\"\"\" \"\" \"{filePath}\"",
+            ["\"", string.Empty, "{filePath}"],
+            ["\"", string.Empty, @"C:\譜面 dir\alpha.bms"]);
+    }
+
+    /// <summary>引用内の偶数backslashを半数へ畳んだ後も引用符対を保持し、別分岐での文字欠落や引用未閉鎖の誤判定を検出します。</summary>
+    [TestMethod]
+    public void ParsePreservesDoubledQuoteAfterEvenBackslashes()
+    {
+        AssertParsedAndExpanded(
+            "\"A\\\\\"\"B\" \"{filePath}\"",
+            ["A\\\"B", "{filePath}"],
+            ["A\\\"B", @"C:\譜面 dir\alpha.bms"]);
+    }
+
     /// <summary>引用符直前のbackslashを偶奇で解釈し、Windows起動で渡す文字と引数境界を保持します。</summary>
     [TestMethod]
     public void ParseHandlesBackslashBeforeQuoteUsingWindowsParityRules()
@@ -106,5 +156,14 @@ public sealed class ExternalProgramArgumentTemplateTests
             error);
         string[] actual = template.Expand(filePath).ToArray();
         CollectionAssert.AreEqual(expected, actual, "Actual tokens: " + string.Join(" | ", actual));
+    }
+
+    private static void AssertParsedAndExpanded(string source, string[] expectedTokens, string[] expectedExpanded)
+    {
+        Assert.IsTrue(
+            ExternalProgramArgumentTemplate.TryParse(source, out ExternalProgramArgumentTemplate template, out string error),
+            error);
+        CollectionAssert.AreEqual(expectedTokens, template.Tokens.ToArray(), source);
+        CollectionAssert.AreEqual(expectedExpanded, template.Expand(@"C:\譜面 dir\alpha.bms").ToArray(), source);
     }
 }
