@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -22,6 +23,94 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class MainWindowPlaybackWpfTests
 {
+    /// <summary>停止中のCtrl+AからShift下で主行の題名・字幕・作者と表示譜面を更新し、実開始後の同じ選択操作では現在曲の表示を保つことを確認し、標準terminalへの主行通知漏れを検出します。</summary>
+    /// <remarks>集合・主行・基点の条件差はSelectionModel、通知回数と入力内の現在セルはWindowなしNavigationへ分担し、このケースはcompiled Bindingと標準再生接続を確認します。</remarks>
+    [TestMethod]
+    public void RangeSelection_UpdatesStoppedHeaderAndKeepsPlayingChartThroughStandardTerminal()
+    {
+        string directory = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "main-range-selection-" + Guid.NewGuid().ToString("N"))).FullName;
+        string firstPath = Path.Combine(directory, "first.bms");
+        string lastPath = Path.Combine(directory, "last.bms");
+        File.WriteAllBytes(firstPath, []);
+        File.WriteAllBytes(lastPath, []);
+        try
+        {
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                (scope, viewModel, window) =>
+                {
+                    var player = new PlaybackPanelViewModelTests.FakeBmsPlayer();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.ReplacePlayerAsync(player), "range-replace-player");
+                    ChartFile first = ChartTestValues.Empty() with { Path = firstPath, RawTitle = "先頭の題名", Subtitle = "先頭の字幕", RawArtist = "先頭の作者" };
+                    ChartFile last = ChartTestValues.Empty() with { Path = lastPath, RawTitle = "末尾の題名", Subtitle = "末尾の字幕", RawArtist = "末尾の作者" };
+                    viewModel.MainChartList.Rows = new List<object> { first, last };
+                    viewModel.MainChartList.SelectedIndex = -1;
+                    MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    var panel = (PlaybackPanelView)window.FindName("playbackPanelView");
+                    var title = (TextBlock)panel.FindName("gridBMSPlayerControlsTitle");
+                    var subtitle = (TextBlock)panel.FindName("gridBMSPlayerControlsSubtitle");
+                    var artist = (TextBlock)panel.FindName("gridBMSPlayerControlsArtist");
+                    void AssertDisplayed(ChartFile chart)
+                    {
+                        Assert.AreSame(chart, viewModel.PlaybackPanel.DisplayedChart);
+                        Assert.AreEqual(chart.RawTitle, viewModel.PlaybackPanel.PlayerHeaderTitle);
+                        Assert.AreEqual(chart.Subtitle, viewModel.PlaybackPanel.PlayerHeaderSubtitle);
+                        Assert.AreEqual(chart.Artist, viewModel.PlaybackPanel.PlayerHeaderArtist);
+                        // 実開始Taskの終端と、背景通知からのBinding反映は別に観測します。
+                        var displayed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        var text = DependencyPropertyDescriptor.FromProperty(TextBlock.TextProperty, typeof(TextBlock));
+                        void Observe(object? sender, EventArgs args)
+                        {
+                            if (title.Text == chart.RawTitle && subtitle.Text == chart.Subtitle && artist.Text == chart.Artist)
+                            {
+                                displayed.TrySetResult();
+                            }
+                        }
+                        foreach (TextBlock block in new[] { title, subtitle, artist }) { text.AddValueChanged(block, Observe); }
+                        try
+                        {
+                            Observe(null, EventArgs.Empty);
+                            TestUiDispatcherHost.AwaitPresentationOnDispatcher(displayed.Task, "range-header-binding");
+                            Assert.AreEqual(chart.RawTitle, title.Text);
+                            Assert.AreEqual(chart.Subtitle, subtitle.Text);
+                            Assert.AreEqual(chart.Artist, artist.Text);
+                        }
+                        finally
+                        {
+                            foreach (TextBlock block in new[] { title, subtitle, artist }) { text.RemoveValueChanged(block, Observe); }
+                        }
+                    }
+                    try
+                    {
+                        table.SelectRowsByPredicate(row => ReferenceEquals(row, first));
+                        AssertDisplayed(first);
+                        Assert.IsTrue(table.HandleKeyDown(Key.A, ModifierKeys.Control));
+                        Assert.IsTrue(table.HandleKeyDown(Key.Down, ModifierKeys.Shift));
+                        Assert.AreEqual(1, table.SelectedIndex);
+                        CollectionAssert.AreEqual(new object[] { first, last }, table.GetSelectedRowsSnapshot().ToArray());
+                        Assert.IsNull(viewModel.PlaybackPanel.NowPlayingChart);
+                        AssertDisplayed(last);
+
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(window.RequestPlaybackFromTable(0, first), "range-start-first-terminal");
+                        Assert.AreSame(first, viewModel.PlaybackPanel.NowPlayingChart);
+                        AssertDisplayed(first);
+                        Assert.IsTrue(table.HandleKeyDown(Key.A, ModifierKeys.Control));
+                        Assert.IsTrue(table.HandleKeyDown(Key.Down, ModifierKeys.Shift));
+                        Assert.AreEqual(1, table.SelectedIndex);
+                        Assert.AreSame(first, viewModel.PlaybackPanel.NowPlayingChart);
+                        AssertDisplayed(first);
+                        Assert.AreEqual(1, player.Commands.Count(command => command == "PlayStart:" + firstPath));
+                    }
+                    finally
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.StopPlayback(), "range-stop-cleanup");
+                    }
+                });
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     /// <summary>実再生パネルの操作可否Bindingと表の選択・Enterが構成済み再生入口へ行とindexを一回渡すことを確認し、画面の状態参照や再生操作接続の欠落を検出します。</summary>
     /// <remarks>再生状態の判断はPlaybackPanelの下位ケース、Loadedの表とcompiled Binding・編集維持への配送は実WPFで分担します。</remarks>
     [TestMethod]

@@ -14,6 +14,65 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTableNavigationTests
 {
+    /// <summary>Ctrl+A後のShift下と末尾クリックは同じ集合の主行変更を一回通知し、通知内の現在セルも同期することを確認します。反復と列だけの移動は無通知で、次のShift上は先頭基点から縮みます。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RangeSelection_AfterSelectAllNotifiesCurrentRowOnceAndPreservesAnchor(bool mouseInput)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            CustomTableView table = CreateTable(CreateColumns(60, 60));
+            object[] rows = [new(), new()];
+            table.ItemsSource = rows;
+            int notifications = 0;
+            int expectedCurrent = 1;
+            string expectedColumn = "C0";
+            object[] expectedSelection = rows;
+            EventHandler<CustomTableSelectionChangedEventArgs> onSelection = (_, args) =>
+            {
+                notifications++;
+                Assert.AreEqual(expectedCurrent, args.SelectedIndex);
+                Assert.AreEqual(expectedCurrent, table.SelectedIndex);
+                Assert.AreSame(rows[expectedCurrent], args.SelectedRow);
+                CollectionAssert.AreEqual(expectedSelection, args.SelectedRows.ToArray());
+                AssertCurrentCell(table, expectedCurrent, expectedColumn);
+            };
+            try
+            {
+                Assert.IsTrue(PressCell(table, 0, 0, MouseButton.Left));
+                Assert.IsTrue(table.HandleKeyDown(Key.A, ModifierKeys.Control));
+                table.SelectionChanged += onSelection;
+                bool ExtendToLast() => mouseInput
+                    ? PressCell(table, 1, 0, MouseButton.Left, ModifierKeys.Shift)
+                    : table.HandleKeyDown(Key.Down, ModifierKeys.Shift);
+
+                Assert.IsTrue(ExtendToLast());
+                Assert.AreEqual(1, notifications);
+                CollectionAssert.AreEqual(rows, table.GetSelectedRowsSnapshot().ToArray());
+                AssertCurrentCell(table, 1, "C0");
+                Assert.IsTrue(ExtendToLast());
+                Assert.AreEqual(1, notifications);
+                Assert.IsTrue(PressCell(table, 1, 1, MouseButton.Right));
+                AssertCurrentCell(table, 1, "C1");
+                Assert.AreEqual(1, notifications);
+
+                expectedCurrent = 0;
+                expectedColumn = "C1";
+                expectedSelection = [rows[0]];
+                Assert.IsTrue(table.HandleKeyDown(Key.Up, ModifierKeys.Shift));
+                Assert.AreEqual(2, notifications);
+                CollectionAssert.AreEqual(expectedSelection, table.GetSelectedRowsSnapshot().ToArray());
+                AssertCurrentCell(table, 0, "C1");
+            }
+            finally
+            {
+                table.SelectionChanged -= onSelection;
+                table.ItemsSource = null;
+            }
+        });
+    }
+
     /// <summary>表示順と非表示を反映して現在セルだけを移し、複数選択・現在行・選択通知・範囲基点を保つことを確認し、左右を行選択へ接続する誤りを検出します。</summary>
     [TestMethod]
     public void HorizontalKeys_FollowVisibleOrderAndPreserveSelectionAndRangeAnchor()

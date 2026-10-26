@@ -8,6 +8,65 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTableSelectionModelTests
 {
+    /// <summary>全選択後は集合が同じでも主行が移れば変更を返し、同じ末尾への反復では返さないことを確認し、主行だけの通知漏れを検出します。</summary>
+    [TestMethod]
+    public void SelectRange_ReportsCurrentChangeWithinSameSelectionAndIgnoresRepeatedInput()
+    {
+        CustomTableSelectionModel model = CreateModel(4);
+        Assert.IsTrue(model.SelectAll());
+
+        Assert.IsTrue(model.SelectRange(3));
+        CollectionAssert.AreEqual(new[] { 0, 1, 2, 3 }, model.SelectedIndices.ToArray());
+        Assert.AreEqual(3, model.CurrentIndex);
+        Assert.AreEqual(0, model.AnchorIndex);
+        Assert.IsFalse(model.SelectRange(3));
+
+        // 集合と主行が共に変わる縮小、主行を保つ集合だけの変更も通知対象です。
+        Assert.IsTrue(model.SelectRange(2));
+        Assert.IsTrue(model.RestoreIndices([0, 2], 2, 0));
+        Assert.IsFalse(model.RestoreIndices([0, 2], 2, 0));
+    }
+
+    /// <summary>単一選択の集合と主行が同じなら基点だけを戻しても変更を返さず、その基点が次のShift範囲へ反映されることを確認します。</summary>
+    [TestMethod]
+    public void SelectSingle_UpdatesOnlyAnchorWithoutReportingSelectionChange()
+    {
+        CustomTableSelectionModel model = CreateModel(3);
+        Assert.IsTrue(model.SelectSingle(1));
+        Assert.IsTrue(model.Toggle(0));
+        Assert.IsTrue(model.Toggle(0));
+        Assert.AreEqual(0, model.AnchorIndex);
+
+        Assert.IsFalse(model.SelectSingle(1));
+        Assert.AreEqual(1, model.AnchorIndex);
+        Assert.IsFalse(model.SyncCurrentIndex(1));
+        Assert.IsFalse(model.MoveCurrent(0));
+        Assert.IsTrue(model.ExtendRangeBy(1));
+        CollectionAssert.AreEqual(new[] { 1, 2 }, model.SelectedIndices.ToArray());
+    }
+
+    /// <summary>復元と全選択でも基点だけの変更は通知せず内部に採用し、後続範囲と空状態の反復を同じ判定へ揃えることを確認します。</summary>
+    [TestMethod]
+    public void RestoreAndSelectAll_UpdateAnchorWithoutReportingSelectionChange()
+    {
+        CustomTableSelectionModel model = CreateModel(3);
+        Assert.IsTrue(model.RestoreIndices([0, 1, 2], 0, 2));
+        Assert.IsFalse(model.SelectAll());
+        Assert.AreEqual(0, model.AnchorIndex);
+        Assert.IsFalse(model.SelectAll());
+        Assert.IsFalse(model.RestoreIndices([0, 1, 2], 0, 2));
+        Assert.AreEqual(2, model.AnchorIndex);
+        Assert.IsTrue(model.SelectRange(1));
+        CollectionAssert.AreEqual(new[] { 1, 2 }, model.SelectedIndices.ToArray());
+        Assert.IsFalse(model.SelectForRightClick(1));
+        Assert.IsFalse(model.SelectForLeftMouseDownDragCandidate(1));
+        Assert.IsFalse(model.Toggle(-1));
+        Assert.IsFalse(model.CoerceToItemCount());
+        Assert.IsTrue(model.Clear());
+        Assert.IsFalse(model.Clear());
+        Assert.IsFalse(model.CoerceToItemCount());
+    }
+
     /// <summary>識別復元では主行と基点を独立に戻し、主行消失・基点消失・全消失を既定の別行選択へ置き換えないことを確認します。</summary>
     [TestMethod]
     public void RestoreIndices_PreservesIndependentAnchorAndClearsMissingSelection()
