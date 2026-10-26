@@ -1365,49 +1365,72 @@ public sealed class CustomTableView : Grid
             e.Handled = true;
             return;
         }
-        if (hit.Kind == CustomTableHitKind.Cell)
+        e.Handled = HandleCellMouseDown(hit, MouseButton.Left, Keyboard.Modifiers, e.ClickCount, e.GetPosition(this));
+    }
+
+    /// <summary>実ヒットと押下情報から行選択とセル操作を処理し、選択通知・メニュー要求より前に現在行と操作列を揃えます。</summary>
+    /// <remarks>見出し・スクロールバー・編集中の入力の判定は呼出元で済ませます。空白は選択と現在セルを保ちます。画面外の残行にも現在セルの行・列を保持し、編集の可視判定は編集受付で行います。</remarks>
+    internal bool HandleCellMouseDown(CustomTableHitTestResult hit, MouseButton button, ModifierKeys modifiers, int clickCount, Point dragStartPoint)
+    {
+        if (hit.Kind != CustomTableHitKind.Cell)
         {
-            bool plainSingleClick = e.ClickCount == 1
-                && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
-            bool delaySingleSelectionUntilMouseUp = plainSingleClick
-                && selectionModel.SelectedIndices.Count > 1
-                && selectionModel.IsSelected(hit.RowIndex);
-            bool shouldBeginEditOnRepeatClick = e.ClickCount == 1
-                && IsSameEditableCell(currentCellHit, hit)
-                && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
+            if (button == MouseButton.Left) { ClearDragState(); }
+            return false;
+        }
+        if (button == MouseButton.Right)
+        {
+            Focus();
+            bool changed = selectionModel.SelectForRightClick(hit.RowIndex);
             currentCellHit = hit;
-            bool changed = ApplyMouseSelection(hit.RowIndex);
+            UpdateSelectedIndexFromSelectionModel();
             if (changed)
             {
                 RaiseSelectionChanged();
             }
-            rowDragStartPoint = e.ClickCount == 1 ? e.GetPosition(this) : null;
-            rowDragStartHit = e.ClickCount == 1 ? hit : null;
+            RequestRedraw("selection");
+            RowContextMenuRequested?.Invoke(this, new CustomTableRowRequestedEventArgs(hit, openAtMousePosition: true));
+            return true;
+        }
+        if (button == MouseButton.Left)
+        {
+            bool plainSingleClick = clickCount == 1
+                && (modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
+            bool delaySingleSelectionUntilMouseUp = plainSingleClick
+                && selectionModel.SelectedIndices.Count > 1
+                && selectionModel.IsSelected(hit.RowIndex);
+            bool shouldBeginEditOnRepeatClick = clickCount == 1
+                && IsSameEditableCell(currentCellHit, hit)
+                && (modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
+            currentCellHit = hit;
+            bool changed = ApplyMouseSelection(hit.RowIndex, modifiers);
+            if (changed)
+            {
+                RaiseSelectionChanged();
+            }
+            rowDragStartPoint = clickCount == 1 ? dragStartPoint : null;
+            rowDragStartHit = clickCount == 1 ? hit : null;
             pendingSingleSelectionOnMouseUpRowIndex = delaySingleSelectionUntilMouseUp ? hit.RowIndex : -1;
-            if (e.ClickCount == 1
+            if (clickCount == 1
                 && IsActionCell(hit)
-                && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None)
+                && (modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None)
             {
                 ClearDragState();
                 CellActionRequested?.Invoke(this, new CustomTableCellActionRequestedEventArgs(hit));
-                e.Handled = true;
-                return;
+                return true;
             }
             if (shouldBeginEditOnRepeatClick && BeginCellEdit(hit, null))
             {
                 ClearDragState();
-                e.Handled = true;
-                return;
+                return true;
             }
-            if (e.ClickCount >= 2)
+            if (clickCount >= 2)
             {
                 ClearDragState();
                 RowActivated?.Invoke(this, new CustomTableRowRequestedEventArgs(hit, openAtMousePosition: true));
             }
-            e.Handled = true;
-            return;
+            return true;
         }
-        ClearDragState();
+        return false;
     }
 
     private static bool IsActionCell(CustomTableHitTestResult hit)
@@ -1452,18 +1475,7 @@ public sealed class CustomTableView : Grid
             e.Handled = true;
             return;
         }
-        if (hit.Kind == CustomTableHitKind.Cell)
-        {
-            Focus();
-            if (selectionModel.SelectForRightClick(hit.RowIndex))
-            {
-                UpdateSelectedIndexFromSelectionModel();
-                RaiseSelectionChanged();
-                RequestRedraw("selection");
-            }
-            RowContextMenuRequested?.Invoke(this, new CustomTableRowRequestedEventArgs(hit, openAtMousePosition: true));
-            e.Handled = true;
-        }
+        e.Handled = HandleCellMouseDown(hit, MouseButton.Right, Keyboard.Modifiers, e.ClickCount, default);
     }
 
     private void CustomTableViewPreviewMouseMove(object sender, MouseEventArgs e)
@@ -1691,16 +1703,22 @@ public sealed class CustomTableView : Grid
         }
     }
 
-    private bool ApplyMouseSelection(int rowIndex)
+    private bool ApplyMouseSelection(int rowIndex, ModifierKeys modifiers)
     {
         selectionModel.SetItemCount(RowCount);
-        ModifierKeys modifiers = Keyboard.Modifiers;
         bool changed = (modifiers & ModifierKeys.Shift) == ModifierKeys.Shift
             ? selectionModel.SelectRange(rowIndex)
             : (modifiers & ModifierKeys.Control) == ModifierKeys.Control
                 ? selectionModel.Toggle(rowIndex)
                 : selectionModel.SelectForLeftMouseDownDragCandidate(rowIndex);
         UpdateSelectedIndexFromSelectionModel();
+        int currentRowIndex = selectionModel.CurrentIndex;
+        if (currentRowIndex != rowIndex)
+        {
+            // Ctrl解除の残行は画面外でも論理的な現在セルにします。編集受付では従来どおり可視ヒットを作り直します。
+            currentCellHit = currentRowIndex < 0 ? null : new CustomTableHitTestResult(
+                CustomTableHitKind.Cell, currentRowIndex, ItemsSource[currentRowIndex], currentCellHit.Column, currentCellHit.ColumnIndex, Rect.Empty);
+        }
         RequestRedraw("selection");
         return changed;
     }

@@ -213,6 +213,92 @@ public sealed class CustomTableEditingTests
         });
     }
 
+    /// <summary>左A→右Bの通常セル入力後にF2または文字入力でBの操作列を編集し、開始/確定イベントと実TextBoxが同じ対象を使うことを確認し、編集時だけの行補正や旧列編集を検出します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RightClick_EditStartsAtClickedRowAndColumn(bool typeToEdit)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            object[] rows = [new(), new()];
+            var first = new CustomTableColumn("first", "first", new CustomTableColumnSettings.ColumnLayout { Width = 100 }, 0,
+                string.Empty, TextAlignment.Left, _ => "A-first", editPropertyName: "first");
+            var target = new CustomTableColumn("target", "target", new CustomTableColumnSettings.ColumnLayout { Width = 100 }, 1,
+                string.Empty, TextAlignment.Left, row => ReferenceEquals(row, rows[1]) ? "B-target" : "A-target", editPropertyName: "target");
+            var table = new CustomTableView
+            {
+                Width = 220d,
+                Height = 110d,
+                HeaderHeight = 20d,
+                RowHeight = 30d,
+                Columns = [first, target],
+                ItemsSource = rows
+            };
+            // 候補Popupの所有登録に限って既存の参照取得を使い、入力到達や現在セルを反射で作りません。
+            var popup = (Popup)(typeof(CustomTableView).GetField("editSuggestionPopup", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(table)
+                ?? throw new InvalidOperationException("候補Popupが見つかりません。"));
+            scope.TrackPopup(popup);
+            var beginning = new List<CustomTableCellEditBeginningEventArgs>();
+            var completed = new List<CustomTableCellEditEndedEventArgs>();
+            EventHandler<CustomTableCellEditBeginningEventArgs> onBeginning = (_, args) => beginning.Add(args);
+            EventHandler<CustomTableCellEditEndedEventArgs> onEnded = (_, args) => completed.Add(args);
+            table.CellEditBeginning += onBeginning;
+            table.CellEditEnded += onEnded;
+            try
+            {
+                scope.ShowAndWaitForContentRendered(new Window { Width = 260d, Height = 160d, Content = table });
+                var leftPoint = new Point(50d, 35d);
+                var rightPoint = new Point(150d, 65d);
+                CustomTableHitTestResult left = table.HitTestTable(leftPoint);
+                CustomTableHitTestResult right = table.HitTestTable(rightPoint);
+                Assert.AreSame(rows[0], left.Row);
+                Assert.AreSame(first, left.Column);
+                Assert.AreSame(rows[1], right.Row);
+                Assert.AreSame(target, right.Column);
+                Assert.IsTrue(table.HandleCellMouseDown(left, MouseButton.Left, ModifierKeys.None, 1, leftPoint));
+                Assert.IsTrue(table.HandleCellMouseDown(right, MouseButton.Right, ModifierKeys.None, 1, rightPoint));
+                if (typeToEdit)
+                {
+                    var composition = new TextComposition(InputManager.Current, table, "入力");
+                    var args = new TextCompositionEventArgs(Keyboard.PrimaryDevice, composition)
+                    {
+                        RoutedEvent = TextCompositionManager.PreviewTextInputEvent,
+                        Source = table
+                    };
+                    table.RaiseEvent(args);
+                    Assert.IsTrue(args.Handled);
+                }
+                else { Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None)); }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                TextBox editor = table.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).Single();
+                string expectedText = typeToEdit ? "入力" : "B-target";
+                Assert.AreEqual(expectedText, editor.Text);
+                Assert.AreEqual(1, beginning.Count);
+                Assert.AreSame(rows[1], beginning[0].Row);
+                Assert.AreEqual(1, beginning[0].RowIndex);
+                Assert.AreSame(target, beginning[0].Column);
+                Assert.AreEqual("target", beginning[0].EditPropertyName);
+                Assert.AreEqual(0, completed.Count);
+                Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+                Assert.AreEqual(1, completed.Count);
+                Assert.IsTrue(completed[0].Commit);
+                Assert.AreSame(rows[1], completed[0].Row);
+                Assert.AreEqual(1, completed[0].RowIndex);
+                Assert.AreSame(target, completed[0].Column);
+                Assert.AreEqual("target", completed[0].EditPropertyName);
+                Assert.AreEqual(expectedText, completed[0].Text);
+            }
+            finally
+            {
+                table.HandleKeyDown(Key.Escape, ModifierKeys.None);
+                table.CellEditBeginning -= onBeginning;
+                table.CellEditEnded -= onEnded;
+                table.ItemsSource = null;
+            }
+        });
+    }
+
     private const string CandidateA = @"C:\BMS\A";
     private const string CandidateB = @"C:\BMS\B";
 

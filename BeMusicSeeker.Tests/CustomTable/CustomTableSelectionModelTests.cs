@@ -75,7 +75,7 @@ public sealed class CustomTableSelectionModelTests
         Assert.AreEqual(2, model.AnchorIndex);
     }
 
-    /// <summary>選択済み行への右クリックは複数選択を維持して現在行だけ変えることを確認し、メニュー操作の対象を一行へ狭める誤りを検出します。</summary>
+    /// <summary>選択済み行への右クリックは複数選択と範囲基点を維持して現在行だけ変えることを確認し、メニュー操作の対象を一行へ狭める誤りを検出します。</summary>
     [TestMethod]
     public void SelectForRightClick_PreservesExistingMultiSelection()
     {
@@ -87,6 +87,7 @@ public sealed class CustomTableSelectionModelTests
 
         CollectionAssert.AreEqual(new[] { 2, 4 }, model.SelectedIndices.ToArray());
         Assert.AreEqual(2, model.CurrentIndex);
+        Assert.AreEqual(4, model.AnchorIndex);
     }
 
     /// <summary>未選択行への右クリックは旧複数選択を置換して現在行と起点をその行へ移すことを確認し、別行のメニューで旧選択を操作する誤りを検出します。</summary>

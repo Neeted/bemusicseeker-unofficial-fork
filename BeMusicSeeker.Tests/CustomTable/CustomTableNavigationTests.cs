@@ -226,7 +226,7 @@ public sealed class CustomTableNavigationTests
         });
     }
 
-    /// <summary>スクロールバーを入力元にした左右は表のPreview経路で受理されず、現在セルと選択・横位置を保つことを確認し、表が子のキーを奪う誤りを検出します。</summary>
+    /// <summary>スクロールバーを入力元にした左右キーと左右ボタン押下は表のPreview経路で受理されず、現在セルと選択・横位置を保つことを確認し、表が子のキーを奪う誤りを検出します。</summary>
     [TestMethod]
     public void PreviewHorizontalKey_FromScrollBarDoesNotNavigateTable()
     {
@@ -238,6 +238,19 @@ public sealed class CustomTableNavigationTests
             var source = new NavigationInputSource(table);
             foreach (ScrollBar scroll in table.Children.OfType<ScrollBar>())
             {
+                foreach (MouseButton button in new[] { MouseButton.Left, MouseButton.Right })
+                {
+                    var mouseArgs = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, button)
+                    {
+                        RoutedEvent = button == MouseButton.Left ? UIElement.PreviewMouseLeftButtonDownEvent : UIElement.PreviewMouseRightButtonDownEvent,
+                        Source = scroll
+                    };
+                    scroll.RaiseEvent(mouseArgs);
+                    Assert.IsFalse(mouseArgs.Handled);
+                    AssertCurrentCell(table, 0, "C0");
+                    Assert.AreEqual(0, table.SelectedIndex);
+                    Assert.AreEqual(0d, table.HorizontalOffset);
+                }
                 foreach (Key key in new[] { Key.Left, Key.Right })
                 {
                     var args = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key) { RoutedEvent = Keyboard.PreviewKeyDownEvent, Source = scroll };
@@ -289,6 +302,131 @@ public sealed class CustomTableNavigationTests
             }
             finally { table.ItemsSource = null; }
         });
+    }
+
+    /// <summary>左Aから右Bへ移った直後とメニュー要求内で行・操作列を揃え、選択済みBの再入力では集合と基点を保つことを確認し、旧セル残存と同じ行の列変更漏れを検出します。</summary>
+    [TestMethod]
+    public void MouseSelection_RightClickSynchronizesCellBeforeMenuAndPreservesRangeAnchor()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            CustomTableView table = CreateTable(CreateColumns(60, 60, 60));
+            object[] rows = (object[])table.ItemsSource;
+            int menuRequests = 0;
+            int notifications = 0;
+            EventHandler<CustomTableRowRequestedEventArgs> onMenu = (_, args) =>
+            {
+                menuRequests++;
+                Assert.AreEqual(2, table.SelectedIndex);
+                Assert.AreSame(rows[2], args.Hit.Row);
+                AssertCurrentCell(table, 2, args.Hit.Column.Id);
+            };
+            table.RowContextMenuRequested += onMenu;
+            EventHandler<CustomTableSelectionChangedEventArgs> onSelection = (_, _) => notifications++;
+            table.SelectionChanged += onSelection;
+            try
+            {
+                Assert.IsTrue(PressCell(table, 0, 0, MouseButton.Left));
+                Assert.IsTrue(PressCell(table, 2, 1, MouseButton.Right));
+                AssertCurrentCell(table, 2, "C1");
+                CollectionAssert.AreEqual(new[] { rows[2] }, table.GetSelectedRowsSnapshot().ToArray());
+                Assert.IsTrue(PressCell(table, 0, 0, MouseButton.Left, ModifierKeys.Control));
+                Assert.IsTrue(PressCell(table, 2, 1, MouseButton.Right));
+                CollectionAssert.AreEqual(new[] { rows[0], rows[2] }, table.GetSelectedRowsSnapshot().ToArray());
+                int beforeColumnChange = notifications;
+                Assert.IsTrue(PressCell(table, 2, 2, MouseButton.Right));
+                AssertCurrentCell(table, 2, "C2");
+                Assert.AreEqual(beforeColumnChange, notifications);
+                // 右クリックだけを挟んだShift上で、Ctrl追加時の基点0を直接確認します。
+                Assert.IsTrue(table.HandleKeyDown(Key.Up, ModifierKeys.Shift));
+                CollectionAssert.AreEqual(new[] { rows[0], rows[1] }, table.GetSelectedRowsSnapshot().ToArray());
+                AssertCurrentCell(table, 1, "C2");
+                int beforeLeftColumnChange = notifications;
+                Assert.IsTrue(PressCell(table, 1, 1, MouseButton.Left));
+                AssertCurrentCell(table, 1, "C1");
+                CollectionAssert.AreEqual(new[] { rows[0], rows[1] }, table.GetSelectedRowsSnapshot().ToArray());
+                Assert.AreEqual(beforeLeftColumnChange, notifications);
+                Assert.AreEqual(3, menuRequests);
+            }
+            finally
+            {
+                table.RowContextMenuRequested -= onMenu;
+                table.SelectionChanged -= onSelection;
+                table.ItemsSource = null;
+            }
+        });
+    }
+
+    /// <summary>Ctrl解除後は画面内外の残行へ操作列を揃え、全解除はセルも解除し、空白入力と同期時の縦横位置を保つことを確認し、解除行のセル残存や先頭列への退行を検出します。</summary>
+    [TestMethod]
+    public void MouseSelection_ControlRemovalFollowsCurrentRowAndClearsCellWhenEmpty()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            CustomTableView table = CreateTable(CreateColumns(60, 60, 60));
+            object[] rows = (object[])table.ItemsSource;
+            try
+            {
+                Assert.IsTrue(PressCell(table, 2, 1, MouseButton.Left));
+                CustomTableHitTestResult blank = table.HitTestTable(new Point(190d, table.HeaderHeight + table.RowHeight / 2d));
+                Assert.AreEqual(CustomTableHitKind.Empty, blank.Kind);
+                foreach (MouseButton button in new[] { MouseButton.Left, MouseButton.Right })
+                {
+                    Assert.IsFalse(table.HandleCellMouseDown(blank, button, ModifierKeys.None, 1, default));
+                    AssertCurrentCell(table, 2, "C1");
+                    Assert.AreEqual(2, table.SelectedIndex);
+                }
+                Assert.IsTrue(PressCell(table, 0, 2, MouseButton.Left, ModifierKeys.Control));
+                Assert.IsTrue(PressCell(table, 0, 1, MouseButton.Left, ModifierKeys.Control));
+                Assert.AreEqual(2, table.SelectedIndex);
+                CollectionAssert.AreEqual(new[] { rows[2] }, table.GetSelectedRowsSnapshot().ToArray());
+                AssertCurrentCell(table, 2, "C1");
+                Assert.IsTrue(PressCell(table, 2, 2, MouseButton.Left, ModifierKeys.Control));
+                Assert.AreEqual(-1, table.SelectedIndex);
+                Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count);
+                AssertCurrentCell(table, -1, string.Empty);
+
+                // 残る行0を画面外へ送り、可視の行2をCtrl追加・解除しても行0の操作列を保持します。
+                table.Columns = CreateColumns(60, 60, 60, 60);
+                table.Height = 70d;
+                table.Measure(new Size(200d, 70d));
+                table.Arrange(new Rect(0d, 0d, 200d, 70d));
+                table.UpdateLayout();
+                ScrollBar horizontal = HorizontalScrollBar(table);
+                ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == System.Windows.Controls.Orientation.Vertical);
+                horizontal.Value = 20d;
+                Assert.IsTrue(PressCell(table, 0, 1, MouseButton.Left));
+                vertical.Value = 2d;
+                Assert.AreEqual(2, table.FirstVisibleRowIndex);
+                Assert.IsTrue(PressCell(table, 2, 2, MouseButton.Left, ModifierKeys.Control));
+                Assert.IsTrue(PressCell(table, 2, 1, MouseButton.Left, ModifierKeys.Control));
+                Assert.AreEqual(0, table.SelectedIndex);
+                CollectionAssert.AreEqual(new[] { rows[0] }, table.GetSelectedRowsSnapshot().ToArray());
+                AssertCurrentCell(table, 0, "C1");
+                Assert.AreEqual(2d, vertical.Value);
+                Assert.AreEqual(20d, table.HorizontalOffset);
+                vertical.Value = 0d;
+                Assert.IsTrue(PressCell(table, 0, 2, MouseButton.Left, ModifierKeys.Control));
+                Assert.AreEqual(-1, table.SelectedIndex);
+                Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count);
+                AssertCurrentCell(table, -1, string.Empty);
+                Assert.AreEqual(0d, vertical.Value);
+                Assert.AreEqual(20d, table.HorizontalOffset);
+            }
+            finally { table.ItemsSource = null; }
+        });
+    }
+
+    // 表の実座標からヒットを作り、物理入力状態に依存せず本番のセル押下処理へ渡します。
+    private static bool PressCell(CustomTableView table, int rowIndex, int columnIndex, MouseButton button, ModifierKeys modifiers = ModifierKeys.None)
+    {
+        double x = columnIndex * 60d + 30d - table.HorizontalOffset;
+        var point = new Point(x, table.HeaderHeight + (rowIndex - table.FirstVisibleRowIndex + 0.5d) * table.RowHeight);
+        CustomTableHitTestResult hit = table.HitTestTable(point);
+        Assert.AreEqual(CustomTableHitKind.Cell, hit.Kind);
+        Assert.AreEqual(rowIndex, hit.RowIndex);
+        Assert.AreSame(table.VisibleColumns[columnIndex], hit.Column);
+        return table.HandleCellMouseDown(hit, button, modifiers, 1, point);
     }
 
     // KeyEventArgsは非nullの入力元を要求します。描画先やHWNDは使わず、入力元以外の実表とルーティングを動かします。
