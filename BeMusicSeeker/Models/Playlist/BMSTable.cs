@@ -562,7 +562,7 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         return null;
     }
 
-    /// <summary>正本を変更せず、ヘッダーJSONを生成します。日時はInvariantの固定日/7桁小数秒で出力し、Data_urlが空の場合だけ出力用の相対URLを使います。</summary>
+    /// <summary>正本を変更せず、ヘッダーJSONを生成します。日時はInvariantの固定日/7桁小数秒で出力し、Data_urlが空の場合だけ出力用のURI参照を使います。</summary>
     /// <param name="outputDataUrl">ファイル出力用のURL。正本の値があれば正本を優先し、省略時は従来の値をそのまま出力します。</param>
     public string HeaderToJson(string outputDataUrl = null)
     {

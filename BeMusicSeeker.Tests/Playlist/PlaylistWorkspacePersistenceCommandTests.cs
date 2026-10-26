@@ -1277,67 +1277,107 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
-    /// <summary>専用画面の二保存先から実JSONを出力し、主要項目と既存URLを保ち、シリアライズ中も正本URLを変更しません。</summary>
-    [TestMethod]
-    public async Task PlaylistWorkspaceExportPlaylistTableAsync_WritesJsonAndPreservesDataUrl()
+    /// <summary>空Data_urlでは実headerから選択dataへ到達し、主要項目・空receiptとシリアライズ中の正本URLを保ちます。同名の別ディレクトリと両保存先の予約文字も区別します。</summary>
+    [DataTestMethod]
+    [DataRow("header.json", "data.json")]
+    [DataRow("header.json", "other/header.json")]
+    [DataRow("見出し # %23/header # %23.json", "データ # %23/data # %23.json")]
+    public async Task PlaylistWorkspaceExportPlaylistTableAsync_WritesJsonAndPreservesDataUrl(string headerRelativePath, string dataRelativePath)
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            var table = new SerializationObservedTable
+            SerializationObservedTable table = CreateJsonExportTable();
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
+            List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
+            string headerPath = Path.Combine(tempDirectory, headerRelativePath);
+            string dataPath = Path.Combine(tempDirectory, dataRelativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(headerPath) ?? throw new InvalidOperationException());
+            Directory.CreateDirectory(Path.GetDirectoryName(dataPath) ?? throw new InvalidOperationException());
+            table.DataUrlReadObserver = () => AssertJsonExportSourceUrls(table, null);
+
+            dialogs.JsonExportResults.Enqueue(new(UiDialogStatus.Accepted, new(headerPath, dataPath)));
+            await workspace.ExportPlaylistTableAsync(table);
+
+            AssertExportedJsonDataReference(headerPath, dataPath, absoluteFileReference: false);
+            AssertJsonExportSourceUrls(table, null);
+            Assert.IsTrue(notifications.Single().Receipt.IsEmpty);
+        }
+        finally { Directory.Delete(tempDirectory, recursive: true); }
+    }
+
+    /// <summary>異なるドライブへ実出力した参照は、rawドライブパスでなく明示file:絶対URIでdata内容へ到達します。ケース所有別名はTask・通知終端後に解除し、物理領域を最後に回収します。</summary>
+    [TestMethod]
+    public async Task PlaylistWorkspaceExportPlaylistTableAsync_DifferentDriveWritesAbsoluteFileReference()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            // Zは予約・照会・定義の前に除外し、別名の実領域はこのケース配下だけに置きます。
+            using var drive = OwnedTestDrive.Create(tempDirectory, 'Z');
+            try
             {
-                name = "Export",
-                symbol = "EX",
-                Folder_order = [],
-                entries = [new BMSTableEntry { md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", title = "Export chart", folder = "12", level = 12 }]
-            };
+                drive.AssertOwned();
+                SerializationObservedTable table = CreateJsonExportTable();
+                var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+                PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
+                List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
+                workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
+                string headerPath = Path.Combine(tempDirectory, "header.json");
+                string dataPath = Path.Combine(drive.Root, "data.json");
+                table.DataUrlReadObserver = () => AssertJsonExportSourceUrls(table, null);
+
+                dialogs.JsonExportResults.Enqueue(new(UiDialogStatus.Accepted, new(headerPath, dataPath)));
+                await workspace.ExportPlaylistTableAsync(table);
+
+                drive.AssertOwned();
+                AssertExportedJsonDataReference(headerPath, dataPath, absoluteFileReference: true);
+                AssertJsonExportSourceUrls(table, null);
+                Assert.IsTrue(notifications.Single().Receipt.IsEmpty);
+            }
+            finally { drive.AssertOwned(); }
+        }
+        finally { Directory.Delete(tempDirectory, recursive: true); }
+    }
+
+    /// <summary>既存の絶対リモート参照と相対参照は選択したローカルdataへ置換せず、既存先の出力置換・主要項目・正本URL・空receiptを保ちます。</summary>
+    [DataTestMethod]
+    [DataRow("https://example.test/export-data.json")]
+    [DataRow("../published/data%23.json")]
+    public async Task PlaylistWorkspaceExportPlaylistTableAsync_PreservesExistingDataReference(string existingDataReference)
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            SerializationObservedTable table = CreateJsonExportTable();
+            var persistedDataUrl = new Uri(existingDataReference, UriKind.RelativeOrAbsolute);
+            table.Data_url = persistedDataUrl;
+            table.DataUrlReadObserver = () => AssertJsonExportSourceUrls(table, persistedDataUrl);
             var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
             List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
             workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
             string headerPath = Path.Combine(tempDirectory, "header.json");
-            string dataPath = Path.Combine(tempDirectory, "data.json");
-            table.DataUrlReadObserver = () => Assert.IsNull(table.Data_url,
-                "serializerが正本Data_urlを読む時点でも一時値へ書換えません。");
+            string otherDirectory = Path.Combine(tempDirectory, "other");
+            Directory.CreateDirectory(otherDirectory);
+            string dataPath = Path.Combine(otherDirectory, "header.json");
+            File.WriteAllText(headerPath, "old header");
+            File.WriteAllText(dataPath, "old data");
 
             dialogs.JsonExportResults.Enqueue(new(UiDialogStatus.Accepted, new(headerPath, dataPath)));
             await workspace.ExportPlaylistTableAsync(table);
 
             var header = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(headerPath));
             var data = Newtonsoft.Json.Linq.JArray.Parse(File.ReadAllText(dataPath));
-            Assert.AreEqual("Export", (string?)header["name"]);
-            Assert.AreEqual("EX", (string?)header["symbol"]);
-            Assert.AreEqual("data.json", (string?)header["data_url"]);
-            Assert.AreEqual(1, data.Count);
-            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", (string?)data[0]["md5"]);
+            Assert.AreEqual(existingDataReference, (string?)header["data_url"]);
             Assert.AreEqual("Export chart", (string?)data[0]["title"]);
-            Assert.AreEqual("12", (string?)data[0]["level"]);
-            Assert.IsNull(table.Data_url);
+            AssertJsonExportSourceUrls(table, persistedDataUrl);
             Assert.IsTrue(notifications.Single().Receipt.IsEmpty);
-
-            table.DataUrlReadObserver = null;
-            var persistedHeaderUrl = new Uri("https://example.test/export-header.json");
-            var persistedDataUrl = new Uri("https://example.test/export-data.json");
-            table.Header_url = persistedHeaderUrl;
-            table.Data_url = persistedDataUrl;
-            table.DataUrlReadObserver = () => Assert.AreEqual(persistedDataUrl, table.Data_url);
-            // 同じファイル名でもディレクトリが異なる二つの既存先へ正常置換できます。
-            string otherDirectory = Path.Combine(tempDirectory, "other");
-            Directory.CreateDirectory(otherDirectory);
-            string sameNameDataPath = Path.Combine(otherDirectory, "header.json");
-            File.WriteAllText(sameNameDataPath, "old data");
-            dialogs.JsonExportResults.Enqueue(new(UiDialogStatus.Accepted, new(headerPath, sameNameDataPath)));
-            await workspace.ExportPlaylistTableAsync(table);
-
-            header = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(headerPath));
-            data = Newtonsoft.Json.Linq.JArray.Parse(File.ReadAllText(sameNameDataPath));
-            Assert.AreEqual("https://example.test/export-data.json", (string?)header["data_url"]);
-            Assert.AreEqual("Export chart", (string?)data[0]["title"]);
-            Assert.AreEqual(persistedDataUrl, table.Data_url);
-            Assert.AreEqual(persistedHeaderUrl, table.Header_url);
-            Assert.AreEqual(2, notifications.Count);
-            Assert.IsTrue(notifications[1].Receipt.IsEmpty);
         }
         finally { Directory.Delete(tempDirectory, recursive: true); }
     }
@@ -3220,6 +3260,53 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             .Select(entry => entry.md5 + "|" + entry.folder)
             .OrderBy(value => value, StringComparer.Ordinal)];
         CollectionAssert.AreEqual(expectedEntries.ToArray(), persistedEntries);
+    }
+
+    private static void AssertJsonExportSourceUrls(SerializationObservedTable table, Uri? dataUrl)
+    {
+        Assert.AreEqual(dataUrl, table.Data_url, "シリアライズ中も終端後も正本Data_urlを保持します。");
+        Assert.AreEqual(new Uri("https://example.test/export-header.json"), table.Header_url);
+        Assert.AreEqual(new Uri("https://example.test/export-page/"), table.Page_url);
+    }
+
+    private static SerializationObservedTable CreateJsonExportTable() => new()
+    {
+        name = "Export",
+        symbol = "EX",
+        Header_url = new Uri("https://example.test/export-header.json"),
+        Page_url = new Uri("https://example.test/export-page/"),
+        Folder_order = [],
+        entries = [new BMSTableEntry { md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", title = "Export chart", folder = "12", level = 12 }]
+    };
+
+    private static void AssertExportedJsonDataReference(string headerPath, string dataPath, bool absoluteFileReference)
+    {
+        var header = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(headerPath));
+        string dataReference = (string?)header["data_url"] ?? throw new AssertFailedException("data_urlを出力します。");
+        Assert.IsFalse(string.IsNullOrEmpty(dataReference));
+        var referenceUri = new Uri(dataReference, UriKind.RelativeOrAbsolute);
+        Assert.AreEqual(absoluteFileReference, referenceUri.IsAbsoluteUri);
+        if (absoluteFileReference)
+        {
+            Assert.IsTrue(dataReference.StartsWith("file:", StringComparison.OrdinalIgnoreCase),
+                "rawドライブパスをfile URIの代わりに出力しません。");
+            Assert.IsTrue(referenceUri.IsFile);
+        }
+
+        // 文書のcanonical file URIを基準にし、implicit-file baseの%二重escapeをoracleへ持ち込みません。
+        var headerDocumentUri = new Uri(new Uri(Path.GetFullPath(headerPath)).AbsoluteUri);
+        var resolvedDataUri = new Uri(headerDocumentUri, referenceUri);
+        Assert.IsTrue(resolvedDataUri.IsAbsoluteUri);
+        Assert.IsTrue(resolvedDataUri.IsFile);
+        Assert.IsTrue(StringComparer.OrdinalIgnoreCase.Equals(Path.GetFullPath(dataPath), resolvedDataUri.LocalPath),
+            "出力参照は選択したdata完全パスへ解決します。");
+        var data = Newtonsoft.Json.Linq.JArray.Parse(File.ReadAllText(resolvedDataUri.LocalPath));
+        Assert.AreEqual("Export", (string?)header["name"]);
+        Assert.AreEqual("EX", (string?)header["symbol"]);
+        Assert.AreEqual(1, data.Count);
+        Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", (string?)data[0]["md5"]);
+        Assert.AreEqual("Export chart", (string?)data[0]["title"]);
+        Assert.AreEqual("12", (string?)data[0]["level"]);
     }
 
     private sealed class SerializationObservedTable : BMSTable

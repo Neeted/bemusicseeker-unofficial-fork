@@ -60,7 +60,14 @@ public sealed partial class PlaylistWorkspaceViewModel
             string dataContents;
             using (bmsTable.ReaderWriterLock.GetReaderGuard())
             {
-                contents = bmsTable.HeaderToJson(Path.GetFileName(fileNameData));
+                // 明示的なfile URIに揃えて、予約文字のescapeを保ったまま相対化します。
+                var headerUri = new Uri(new Uri(fileNameHeader).AbsoluteUri);
+                var dataUri = new Uri(new Uri(fileNameData).AbsoluteUri);
+                // 異なるドライブ・共有ルートではMakeRelativeUriのドライブ付き相対値を使わず、file:を明示します。
+                string outputDataReference = string.Equals(Path.GetPathRoot(fileNameHeader), Path.GetPathRoot(fileNameData), StringComparison.OrdinalIgnoreCase)
+                    ? headerUri.MakeRelativeUri(dataUri).OriginalString
+                    : dataUri.AbsoluteUri;
+                contents = bmsTable.HeaderToJson(outputDataReference);
                 dataContents = bmsTable.DataToJson();
             }
             string writeStage = "header";
