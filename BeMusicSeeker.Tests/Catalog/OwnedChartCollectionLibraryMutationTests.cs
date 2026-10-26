@@ -422,6 +422,28 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             pending.SetInstallDestinationPathOnly(folders[0]);
             BmsLibraryPackageInstallService.RefreshPendingResourceHealth([pending], package, before.DirectoryLookupCache);
             Assert.AreEqual(100, pending.Chart.WAVHealth);
+            PackageChartEntry CreatePending(string name)
+            {
+                string path = Path.Combine(pendingDirectory, name + ".bms");
+                File.WriteAllText(path, File.ReadAllText(pendingPath));
+                return PackageChartEntry.FromPath(path);
+            }
+            PackageChartEntry candidateOnly = CreatePending("candidate-only");
+            PackageChartEntry outsideDestination = CreatePending("outside-destination");
+            PackageChartEntry failedCandidate = CreatePending("failed-candidate");
+            PackageChartEntry prefixCandidate = CreatePending("prefix-candidate");
+            foreach (PackageChartEntry entry in new[] { candidateOnly, outsideDestination, failedCandidate, prefixCandidate })
+            {
+                BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
+                string candidatePath = ReferenceEquals(entry, failedCandidate) ? folders[1]
+                    : ReferenceEquals(entry, prefixCandidate) ? folders[0] + "Sibling" : folders[0];
+                entry.RestoreInstallDestinationState(new PackageChartInstallDestinationState(
+                    ReferenceEquals(entry, outsideDestination) ? folders[1] : null, "evidence", "artist", [candidatePath, siblingDirectory]));
+                entry.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "original candidates");
+            }
+            package.ReplaceChartEntries([pending, candidateOnly, outsideDestination, failedCandidate, prefixCandidate]);
+            BmsLibraryPackageInstallService.RefreshPendingResourceHealth([candidateOnly, outsideDestination, failedCandidate, prefixCandidate], package, before.DirectoryLookupCache);
+            Assert.AreEqual(100, candidateOnly.Chart.WAVHealth);
             File.WriteAllText(Path.Combine(pendingDirectory, "shared.wav"), "added after registration");
             var entryMutations = new List<string>();
             before.DirectoryLookupCache.EntryStoreMutationObserver = path => entryMutations.Add(path);
@@ -442,6 +464,16 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.AreEqual(0, pending.Chart.WAVHealth);
             Assert.IsTrue(pending.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
             Assert.AreEqual(ChartResourcePlacementBasis.Current, pending.ResourcePlacement.Basis);
+            Assert.AreEqual(0, candidateOnly.Chart.InstallDestinationSuggestions.Count);
+            Assert.AreEqual(0, candidateOnly.Chart.WAVHealth);
+            Assert.AreEqual(ChartResourcePlacementBasis.Current, candidateOnly.ResourcePlacement.Basis);
+            Assert.IsFalse(candidateOnly.Chart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
+            Assert.AreEqual(folders[1], outsideDestination.Chart.InstallDestination);
+            Assert.AreEqual(100, outsideDestination.Chart.WAVHealth);
+            Assert.AreEqual(0, outsideDestination.Chart.InstallDestinationSuggestions.Count);
+            Assert.AreEqual(folders[1], outsideDestination.ResourcePlacement.Directory);
+            CollectionAssert.AreEqual(new[] { folders[1], siblingDirectory }, failedCandidate.Chart.InstallDestinationSuggestions.ToArray());
+            CollectionAssert.AreEqual(new[] { folders[0] + "Sibling", siblingDirectory }, prefixCandidate.Chart.InstallDestinationSuggestions.ToArray());
             Assert.IsTrue(filesystem.DirectoryRecycleOptions.All(option => option ==
                 (recycle ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently)));
             LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();

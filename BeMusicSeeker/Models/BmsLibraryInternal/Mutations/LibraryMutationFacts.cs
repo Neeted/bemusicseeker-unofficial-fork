@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
@@ -379,9 +380,50 @@ internal sealed class BmsLibraryStateApplyResult
     public long PackageApplyMs { get; set; }
 }
 
-/// <summary>譜面またはパッケージ項目の導入先更新事実。</summary>
+/// <summary>所持譜面の確定DST更新、または保留項目の候補・配置へ適用する物理成功scopeです。</summary>
 internal sealed class LibraryInstallDestinationChange
 {
+    /// <summary>保留項目へ順に適用する物理成功範囲です。空の場合は従来の確定DST更新です。</summary>
+    public string SourceFolderPath { get; init; }
+
+    /// <summary>改名・移動・統合の存続先です。削除の場合は空です。</summary>
+    public string DestinationFolderPath { get; init; }
+
+    /// <summary>削除・統合により、成功範囲に触れる項目の全候補を失効させます。</summary>
+    public bool InvalidateCandidates { get; init; }
+
+    /// <summary>物理フォルダの同一性と区切り境界で、当該範囲への包含を判定します。</summary>
+    internal static bool IsUnderFolder(string path, string folder)
+    {
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(folder)) { return false; }
+        string pathKey = NormalizeDirectory(path);
+        string folderKey = NormalizeDirectory(folder);
+        return string.Equals(pathKey, folderKey, StringComparison.OrdinalIgnoreCase)
+            || pathKey.StartsWith(folderKey + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>成功範囲にあるpathだけを同じ相対位置で移します。候補の順位や存在は再評価しません。</summary>
+    internal static string RelocatePath(string path, string source, string destination)
+    {
+        if (!IsUnderFolder(path, source)) { return path; }
+        string sourceKey = NormalizeDirectory(source);
+        string pathKey = NormalizeDirectory(path);
+        string destinationBase = destination.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string destinationRoot = Path.GetPathRoot(destination);
+        if (string.Equals(destinationBase, destinationRoot?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+        {
+            destinationBase = destinationRoot;
+        }
+        return Path.Combine(destinationBase, pathKey.Length == sourceKey.Length ? string.Empty : pathKey[(sourceKey.Length + 1)..]);
+    }
+
+    private static string NormalizeDirectory(string path)
+    {
+        try { path = Path.GetFullPath(path.Trim()); }
+        catch { path = path.Trim(); }
+        return path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
     /// <summary>ライブラリ側の対象譜面。</summary>
     public ChartFile Chart { get; init; }
 
@@ -407,6 +449,13 @@ internal sealed class LibraryInstallDestinationChange
     /// <returns>反映後の譜面スナップショット。対象がない場合はnull。</returns>
     internal ChartFile CreateAppliedChartSnapshot(IEnumerable<LibraryChartPathChange> pathChanges = null)
     {
+        if (Entry != null && !string.IsNullOrWhiteSpace(SourceFolderPath))
+        {
+            // 保留の確認用snapshotも同じscope適用を使い、別主体の譜面パス変更は重ねません。
+            PackageChartEntry snapshot = Entry.ToChartEntrySnapshot();
+            snapshot.ApplyLibraryFolderChange(this);
+            return snapshot.Chart;
+        }
         ChartFile source = Entry?.Chart ?? Chart;
         if (source == null)
         {

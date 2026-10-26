@@ -1173,7 +1173,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         result.ExistingHashes = createHashSnapshotExcluding?.Invoke(result.SourceCharts.Select(chart => chart.ToChartFileIdentity()))
             ?? EmptyPrimaryHashLookup.Instance;
         var installDestinationChanges = new List<LibraryInstallDestinationChange>(
-            EnumerateInstallDestinationChangesUnderFolder(pendingPackages, installDestinationOverlayCharts, srcDir, dstDir));
+            EnumerateInstallDestinationChangesUnderFolder(pendingPackages, installDestinationOverlayCharts, srcDir, dstDir, invalidateCandidates: true));
         var installedPackagePathChanges = new List<LibraryInstalledPackagePathChange>();
         foreach (ChartPackage installedPackage in installedPackages ?? [])
         {
@@ -1198,7 +1198,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<ChartPackage> pendingPackages,
         InstallDestinationOverlayChartRefSnapshot libraryCharts,
         string sourceFolderPath,
-        string destinationFolderPath)
+        string destinationFolderPath,
+        bool invalidateCandidates = false)
     {
         foreach (LibraryInstallDestinationChange target in EnumerateInstallDestinationTargetsUnderFolder(pendingPackages, libraryCharts, sourceFolderPath))
         {
@@ -1207,6 +1208,9 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             {
                 Entry = target.Entry,
                 Chart = target.Chart,
+                SourceFolderPath = target.Entry == null ? null : sourceFolderPath,
+                DestinationFolderPath = target.Entry == null ? null : destinationFolderPath,
+                InvalidateCandidates = invalidateCandidates,
                 NewInstallDestination = RewriteInstallDestinationUnderFolder(currentInstallDestination, sourceFolderPath, destinationFolderPath)
             };
         }
@@ -1220,7 +1224,10 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         foreach (PackageChartEntry entry in (pendingPackages ?? [])
             .Where(package => package != null)
             .SelectMany(package => package.ChartEntries)
-            .Where(entry => IsInstallDestinationUnderFolder(entry?.Chart?.InstallDestination, folderPath)))
+            .Where(entry => IsInstallDestinationUnderFolder(entry?.Chart?.InstallDestination, folderPath)
+                || entry?.Chart?.InstallDestinationSuggestions.Any(path => IsInstallDestinationUnderFolder(path, folderPath)) == true
+                || (entry?.ResourcePlacement?.Basis != ChartResourcePlacementBasis.Current
+                    && IsInstallDestinationUnderFolder(entry?.ResourcePlacement?.Directory, folderPath))))
         {
             yield return new LibraryInstallDestinationChange
             {
@@ -1249,94 +1256,13 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         return LibraryChartRef.FromImmutableSnapshot(chart);
     }
 
+    /// <summary>候補と確定DSTで同じ物理scopeの比較規則を使います。</summary>
     private static bool IsInstallDestinationUnderFolder(string installDestination, string folderPath)
-    {
-        string installDestinationKey = CreateDirectoryComparisonKey(installDestination);
-        string folderKey = CreateDirectoryComparisonKey(folderPath);
-        return !string.IsNullOrWhiteSpace(installDestinationKey)
-            && !string.IsNullOrWhiteSpace(folderKey)
-            && (string.Equals(installDestinationKey, folderKey, StringComparison.OrdinalIgnoreCase)
-                || installDestinationKey.StartsWith(AppendDirectorySeparator(folderKey), StringComparison.OrdinalIgnoreCase));
-    }
+        => LibraryInstallDestinationChange.IsUnderFolder(installDestination, folderPath);
 
+    /// <summary>成功した移動の相対位置を、保留と所持のDSTで共通して維持します。</summary>
     private static string RewriteInstallDestinationUnderFolder(string installDestination, string sourceFolderPath, string destinationFolderPath)
-    {
-        string installDestinationKey = CreateDirectoryComparisonKey(installDestination);
-        string sourceFolderKey = CreateDirectoryComparisonKey(sourceFolderPath);
-        if (string.IsNullOrWhiteSpace(installDestinationKey) || string.IsNullOrWhiteSpace(sourceFolderKey))
-        {
-            return installDestination?.ReplaceFromStart(sourceFolderPath, destinationFolderPath, isIgnoreCase: true);
-        }
-
-        string destinationBase = TrimDirectoryPathEnd(destinationFolderPath);
-        if (string.Equals(installDestinationKey, sourceFolderKey, StringComparison.OrdinalIgnoreCase))
-        {
-            return destinationBase;
-        }
-
-        string sourcePrefix = AppendDirectorySeparator(sourceFolderKey);
-        if (!installDestinationKey.StartsWith(sourcePrefix, StringComparison.OrdinalIgnoreCase))
-        {
-            return installDestination;
-        }
-
-        string relativePath = installDestinationKey.Substring(sourcePrefix.Length);
-        return string.IsNullOrWhiteSpace(relativePath)
-            ? destinationBase
-            : Path.Combine(destinationBase, relativePath);
-    }
-
-    private static string AppendDirectorySeparator(string path)
-    {
-        return string.IsNullOrWhiteSpace(path) || path.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
-            ? path
-            : path + Path.DirectorySeparatorChar;
-    }
-
-    private static string TrimDirectoryPathEnd(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return path;
-        }
-
-        try
-        {
-            string root = Path.GetPathRoot(path);
-            string trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            if (string.IsNullOrWhiteSpace(trimmed))
-            {
-                return path;
-            }
-
-            string rootTrimmed = root?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            return !string.IsNullOrWhiteSpace(rootTrimmed) && string.Equals(trimmed, rootTrimmed, StringComparison.OrdinalIgnoreCase)
-                ? root
-                : trimmed;
-        }
-        catch
-        {
-            return path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        }
-    }
-
-    private static string CreateDirectoryComparisonKey(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return null;
-        }
-
-        try
-        {
-            string fullPath = Path.GetFullPath(path.Trim());
-            return TrimDirectoryPathEnd(fullPath);
-        }
-        catch
-        {
-            return path.Trim();
-        }
-    }
+        => LibraryInstallDestinationChange.RelocatePath(installDestination, sourceFolderPath, destinationFolderPath);
 
     private static bool IsChartUnderFolder(LibraryChartRef chart, string folderPath)
     {

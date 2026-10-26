@@ -26,6 +26,8 @@
 
 ### 保証の前提
 
+保留候補・配置の追従と失効も、要求集合や事後のFS存在から成功を推測せず、物理成功が確定した改名・移動・削除・統合のscopeだけをカタログ確定後に適用します。複数成功は一変更セッションにまとめ、失敗・未処理scopeの保留状態を保持します。状態遷移と確定DSTの優先は[変更操作](mutations.md#操作ごとの反映範囲)を正本とします。
+
 ファイルシステムと複数のDBを、一つの原子的なトランザクションとして扱いません。各保存先の既存のトランザクション境界を維持し、一回の操作で確定した変更をまとめて渡します。アプリ内では同じ対象の書込みを排他しますが、外部アプリによる同時変更まで防止しません。
 
 失敗は、原因、確認済みの成功、失敗対象、未処理対象を結果へ残し、利用者へ必要な案内を行います。診断を残すだけで通常成功にしません。ファイルが実内容の正本であっても、お気に入り、プレイリスト、導入情報など全てのDB情報を再生成できるとは限りません。
@@ -131,6 +133,7 @@ flowchart TB
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 保留候補・配置へ成功scopeだけを一sessionで反映、失敗・未処理・prefix兄弟を保持 | `LibraryMutationSession`、`LibraryInstallDestinationChange`、`PackageStateMutationApplier.ApplyPackageReferenceFacts` | [`BmsLibraryFolderRenameRefreshTests.ApplyAutoRenamePlans_UnexpectedMoveFailureCommitsConfirmedPrefixAndStopsSuffix`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) が実FS/SQLiteの成功prefixだけの候補追従、`OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_PublishesOneResourceGenerationForConfirmedFoldersOnly` が実削除APIの成功scopeだけの候補失効・確定DST解除を確認する。状態遷移の条件表は[変更操作の対応表](mutations.md#実装とテストの対応)へ分担する。 |
 | 物理成功と登録保存・catalogの独立回収 | [`LibraryChartRemovalOutcome`](../../../BeMusicSeeker/Models/BmsLibraryInternal/FileOperations/LibraryChartRemovalOutcome.cs) | `OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_RegistrationAndCatalogFinalizeIndependently` が4終端を実FS/SQLite/configで、`LibraryChartRemovalReportTests` と選択workflowの報告接続が両原因と物理件数の保持を確認する。 |
 | 原子的な単一ファイルの公開と失敗時の保全 | [`AtomicFileWriter`](../../../BeMusicSeeker/Models/Utils/FileOperations/AtomicFileWriter.cs) | [`AtomicFileWriterTests`](../../../BeMusicSeeker.Tests/FileOperations/AtomicFileWriterTests.cs) |
 | SQLiteの確定と巻戻し、元の例外の保持 | [`SQLiteConnectionEx`](../../../BeMusicSeeker/Models/LR2/SQLiteConnectionEx.cs)、[`BmsLibraryDbGateway`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) | [`SQLiteProviderRuntimeTests`](../../../BeMusicSeeker.Tests/Runtime/SQLiteProviderRuntimeTests.cs)、[`CatalogMutationOwnerTests`](../../../BeMusicSeeker.Tests/Catalog/CatalogMutationOwnerTests.cs)。`SQLiteConnectionEx_CommitBusyRemainsFailureAndRollsBackUncommittedChanges` は`DELETE` ジャーナルの読取りトランザクションで確定時に `Busy` を発生させ、失敗・未確定行不在・先行行保持・次の明示トランザクションを確認する。`ApplyLr2NormalFolderSync_RaiseRollbackKeepsPrimaryFailureAndAllowsNextExplicitSave` は通常フォルダ（`type=1`）の保存中に実際の `ROLLBACK` トリガーで元SQLite原因・未変更DBと現在値・接続解放後の次の明示保存を確認する。生値読取りの`step`／`finalize`と元原因は既存SQLiteケースが分担する。 |

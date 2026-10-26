@@ -35,7 +35,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     private ResourceHealthMaintenanceSnapshot originalResourceHealth;
 
-    /// <summary>最後の評価完了時の不変配置です。画面を開く時点で捕捉し、後の導入先変更へ追従させません。</summary>
+    /// <summary>最後の評価で捕捉した不変配置です。通常の導入先編集では再評価し、成功した改名・移動では捕捉済み資源を保ってpathだけを追従させます。</summary>
     internal ChartResourcePlacement ResourcePlacement { get; private set; }
 
     private int projectionVersion;
@@ -253,6 +253,51 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     {
         PackageChartInstallDestinationState state = CaptureInstallDestinationState();
         ReplaceInstallDestinationState(destinationDirectory, state.Title, state.Artist, state.Suggestions);
+    }
+
+    /// <summary>成功scopeを現在の保留状態へ順に適用します。改名・純移動では診断Messageを保ち、削除・統合の確定DST存続時は候補評価だけを失効して非候補診断を保持します。</summary>
+    internal void ApplyLibraryFolderChange(LibraryInstallDestinationChange change)
+    {
+        using IDisposable deferred = DeferPropertyChangedNotifications();
+        lock (mutationGate)
+        {
+            PackageChartInstallDestinationState state = CaptureInstallDestinationState();
+            bool destinationAffected = LibraryInstallDestinationChange.IsUnderFolder(state.Destination, change.SourceFolderPath);
+            bool candidatesAffected = state.Suggestions.Any(path => LibraryInstallDestinationChange.IsUnderFolder(path, change.SourceFolderPath));
+            bool placementAffected = ResourcePlacement?.Basis != ChartResourcePlacementBasis.Current
+                && LibraryInstallDestinationChange.IsUnderFolder(ResourcePlacement?.Directory, change.SourceFolderPath);
+            if (!destinationAffected && !candidatesAffected && !placementAffected) { return; }
+
+            if (change.InvalidateCandidates)
+            {
+                if (string.IsNullOrWhiteSpace(state.Destination)
+                    || (destinationAffected && string.IsNullOrWhiteSpace(change.DestinationFolderPath)))
+                {
+                    BmsLibraryPackageInstallService.ClearPendingInstallDestination(this);
+                    return;
+                }
+                ReplaceInstallDestinationState(
+                    destinationAffected ? LibraryInstallDestinationChange.RelocatePath(state.Destination, change.SourceFolderPath, change.DestinationFolderPath) : state.Destination,
+                    state.Title, state.Artist, []);
+                // 手動確定でも残す入力元・所持先解決の診断は、候補評価の失効に巻き込みません。
+                ReplaceWarningsByCategory(ChartWarningCategory.InstallEstimation,
+                    Chart.Warnings.Where(warning => warning.Kind is ChartWarningKind.UnsupportedResourcePath
+                        or ChartWarningKind.InstalledDestinationResolveFailed or ChartWarningKind.SourceSurfaceScanLimitExceeded));
+                if (destinationAffected)
+                {
+                    ResourcePlacement = ResourcePlacement?.Relocate(change.SourceFolderPath, change.DestinationFolderPath);
+                }
+            }
+            else
+            {
+                ReplaceInstallDestinationState(
+                    LibraryInstallDestinationChange.RelocatePath(state.Destination, change.SourceFolderPath, change.DestinationFolderPath),
+                    state.Title, state.Artist,
+                    state.Suggestions.Select(path => LibraryInstallDestinationChange.RelocatePath(path, change.SourceFolderPath, change.DestinationFolderPath)).ToArray());
+                ResourcePlacement = ResourcePlacement?.Relocate(change.SourceFolderPath, change.DestinationFolderPath);
+            }
+        }
+        RaiseChartChanged();
     }
 
     /// <summary>共通譜面値から項目の状態所有を開始します。保存行の有無は要求しません。</summary>

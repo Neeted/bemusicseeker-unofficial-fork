@@ -778,7 +778,9 @@ internal sealed partial class LibraryMutationOwner
         result.InstallDestinationRuntimeStateMutation.PathChanges.AddRange(storageMutation.PathChanges);
         result.InstallDestinationRuntimeStateMutation.AppliedCharts.AddRange(
             installDestinationStateOwner.CreateChangedChartSnapshots(
-                packageReferenceFacts?.InstallDestinationChanges,
+                // 保留scopeはentry自身の投影へ適用する。捕捉時のDSTを所持overlayへ重ねない。
+                packageReferenceFacts?.InstallDestinationChanges
+                    .Where(change => change.Entry == null || string.IsNullOrWhiteSpace(change.SourceFolderPath)).ToArray(),
                 storageMutation.PathChanges));
         return result;
     }

@@ -860,8 +860,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         }
     }
 
-    /// <summary>実推定のRelated根拠ペア・候補・警告を生成済み保留行へ届け、選択・空編集・再選択・明示クリアでも多数派代表値へ戻さず別パッケージを変更しません。</summary>
-    /// <remarks>分類と編集条件表は下位へ分担し、専用drive rootの実所持譜面、compiled推定メニューとINSTL DSTのF2→入力→Enter、実受信TaskとL終端を接続します。</remarks>
+    /// <summary>実推定のRelated候補が改名・別root移動後も生成済み行から選べ、根拠・警告・健康度を保ち、明示クリアでは登録時の結果へ戻ることを確認します。</summary>
+    /// <remarks>分類条件表は下位へ分担し、compiled推定・移動したchild候補と絶対drive rootのセル入力・再編集初期値を、各回の実受信Task・Presentation・L終端へ接続します。</remarks>
     [TestMethod]
     public void PendingEstimationAndCandidateEditingReachRealizedRowsWithRelatedEvidence()
     {
@@ -874,17 +874,23 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         {
             drive = OwnedTestDrive.Create(root);
             drive.AssertOwned();
-            string candidate = drive.Root[0] + @":\";
+            string absoluteRoot = drive.Root[0] + @":\";
+            string registeredRoot = Path.Combine(absoluteRoot, "LibraryRoot");
+            string candidate = Path.Combine(registeredRoot, "Candidate");
+            string destinationRoot = Path.Combine(drive.Root[0] + @":\", "OtherRoot");
             string source = Path.Combine(root, "Pending");
             string otherSource = Path.Combine(root, "OtherPending");
             Directory.CreateDirectory(candidate);
             Directory.CreateDirectory(source);
             Directory.CreateDirectory(otherSource);
+            Directory.CreateDirectory(destinationRoot);
             string[] ownedPaths = [Path.Combine(candidate, "majority-a.bms"), Path.Combine(candidate, "majority-b.bms"), Path.Combine(candidate, "related.bms")];
             const string audio = "\r\n#WAV01 sound.wav\r\n#00111:01\r\n";
             File.WriteAllText(ownedPaths[0], "#TITLE Collection Main\r\n#ARTIST Collection Author" + audio);
             File.WriteAllText(ownedPaths[1], "#TITLE Collection Main\r\n#ARTIST Collection Author\r\n#GENRE second" + audio);
             File.WriteAllText(ownedPaths[2], "#TITLE Target Song\r\n#ARTIST Candidate Artist" + audio);
+            string rootOwnedPath = Path.Combine(absoluteRoot, "root-owned.bms");
+            File.WriteAllText(rootOwnedPath, "#TITLE Target Song\r\n#ARTIST Candidate Artist\r\n#GENRE root-only\r\n");
             File.WriteAllText(Path.Combine(candidate, "sound.wav"), "audio");
             string sourcePath = Path.Combine(source, "pending.bms");
             string otherPath = Path.Combine(otherSource, "other.bms");
@@ -902,10 +908,22 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             File.WriteAllBytes(songDbPath, []);
             Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.StartupSelectInstallPending = false);
             var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, ScanBmsFilesOnStartup = true };
-            var scanner = CapturedChartFileScanner.FromFixture(ownedPaths,
-                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [candidate] = ["sound.wav"] }, [candidate]);
+            var scanner = CapturedChartFileScanner.FromFixture(ownedPaths.Append(rootOwnedPath),
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [absoluteRoot] = [Path.GetRelativePath(absoluteRoot, Path.Combine(candidate, "sound.wav"))],
+                    [registeredRoot] = [Path.GetRelativePath(registeredRoot, Path.Combine(candidate, "sound.wav"))],
+                    [candidate] = ["sound.wav"],
+                    [destinationRoot] = []
+                }, [absoluteRoot, destinationRoot]);
+            // root/containerの資源は子からの集約であり、直下の所有音源には数えません。
+            ChartScanResult scan = scanner.Scan([absoluteRoot, destinationRoot], [".bms"]).Result;
+            scan.SelfOwnedAudioRelativePathHashesByChartDirectory[absoluteRoot] = [];
+            scan.SelfOwnedAudioRelativePathHashesByChartDirectory[registeredRoot] = [];
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(settings, (scope, viewModel, window) =>
             {
+                TestBmsLibrary currentLibrary = library ?? throw new AssertFailedException("準備済みライブラリが必要です。");
+                ChartFile rootOwnedBefore = currentLibrary.BmsCharts.Single(chart => chart.Path == rootOwnedPath);
                 MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
                 var rowsApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 viewModel.MainChartList.PropertyChanged += (_, args) =>
@@ -940,6 +958,17 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
                 Assert.IsFalse(row.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
 
+                (ChartWarningKind Kind, string Message)[] estimationWarnings = row.Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray();
+                (ChartWarningKind Kind, string Message)[] estimationReasons = row.Chart.Warnings
+                    .Where(warning => warning.Category == ChartWarningCategory.InstallEstimation)
+                    .Select(warning => (warning.Kind, warning.Message)).ToArray();
+                string renamedCandidate = Path.Combine(registeredRoot, "Renamed");
+                ChangeCandidate(() => currentLibrary.RenameChartFolder(candidate, "Renamed"), renamedCandidate);
+                Assert.AreEqual(string.Empty, row.instl_dst);
+                CollectionAssert.AreEqual(new[] { candidate }, row.Chart.InstallDestinationSuggestions.ToArray());
+                CollectionAssert.AreEqual(estimationWarnings, row.Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray());
+                AssertEvidence();
+
                 Assert.AreEqual(ChartOperationSourceScope.PendingPackage, viewModel.MainChartList.CurrentOperationContext.SourceScope);
                 Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, viewModel.MainChartList.CurrentOperationContext.SourceScope, out ChartOperationTarget target));
                 Assert.AreSame(entry, target.PackageEntry);
@@ -953,53 +982,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 viewModel.MainChartList.ColumnsSettings.InstallDst.Visibility = Visibility.Visible;
                 CustomTableColumn destinationColumn = table.Columns.Single(column => column.EditPropertyName == "instl_dst");
                 table.Columns = [destinationColumn];
-                SelectDestinationCell();
-                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
-                TextBox editor = FindCurrentEditors(table).Single();
-                editor.Text = candidate;
-                ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
-                var mutation = new TaskCompletionSource<PendingPackageMutationAppliedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
-                void OnMutation(object? sender, PendingPackageWorkflowChangedEventArgs args)
-                {
-                    if (args is PendingPackageMutationAppliedEventArgs applied) { mutation.TrySetResult(applied); }
-                }
-                Task? admissionTerminal = null;
-                Exception? editFailure = null;
-                viewModel.PendingPackages.WorkflowChanged += OnMutation;
-                try
-                {
-                    Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
-                    admissionTerminal = composition.OperationAdmission.WaitForIdleAsync();
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                        TestUiDispatcherHost.AwaitNotificationAsync(mutation.Task, admissionTerminal, "manual root mutation"), "manual root mutation");
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(mutation.Task.GetAwaiter().GetResult().Presentation, "manual root presentation");
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(admissionTerminal, "manual root admission terminal");
-                    Assert.IsFalse(composition.OperationAdmission.IsActive);
-                }
-                catch (Exception failure) { editFailure = failure; throw; }
-                finally
-                {
-                    var cleanupFailures = new List<Exception>();
-                    try
-                    {
-                        // 到達後に表明が失敗しても、実受信とL終端を別々に回収してからWindowを閉じます。
-                        if (mutation.Task.IsCompletedSuccessfully)
-                        { TestUiDispatcherHost.AwaitTaskOnDispatcher(mutation.Task.Result.Presentation, "manual root presentation cleanup"); }
-                    }
-                    catch (Exception failure) { cleanupFailures.Add(failure); }
-                    try
-                    {
-                        if (admissionTerminal != null)
-                        { TestUiDispatcherHost.AwaitTaskOnDispatcher(admissionTerminal, "manual root admission cleanup"); }
-                    }
-                    catch (Exception failure) { cleanupFailures.Add(failure); }
-                    finally { viewModel.PendingPackages.WorkflowChanged -= OnMutation; }
-                    if (cleanupFailures.Count != 0)
-                    {
-                        if (editFailure != null) { cleanupFailures.Insert(0, editFailure); }
-                        throw new AggregateException(cleanupFailures);
-                    }
-                }
+                CommitCompiledDestination(candidate);
                 Assert.AreEqual(candidate, entry.Chart.InstallDestination);
                 SelectDestinationCell();
                 Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None),
@@ -1016,10 +999,46 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual(string.Empty, row.InstallDestinationArtist);
                 CollectionAssert.AreEqual(new[] { candidate }, row.Chart.InstallDestinationSuggestions.ToArray());
                 Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
+                string movedCandidate = Path.Combine(destinationRoot, "Renamed");
+                LibraryChartRef[] movingCharts = [.. currentLibrary.BmsCharts
+                    .Where(chart => string.Equals(Path.GetDirectoryName(chart.Path), candidate, StringComparison.OrdinalIgnoreCase))
+                    .Select(chart => LibraryChartRef.FromChartFile(chart))];
+                Assert.AreEqual(3, movingCharts.Length);
+                ChangeCandidate(() => currentLibrary.MoveLibraryRootFolder(movingCharts, destinationRoot), movedCandidate);
+                Assert.AreEqual(string.Empty, row.instl_dst);
+                CollectionAssert.AreEqual(new[] { candidate }, row.Chart.InstallDestinationSuggestions.ToArray());
+                Assert.AreEqual(100, row.Chart.WAVHealth);
+                CommitCompiledDestination(absoluteRoot);
+                Assert.AreEqual(absoluteRoot, entry.Chart.InstallDestination);
+                Assert.AreEqual(absoluteRoot, row.instl_dst);
+                SelectDestinationCell();
+                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                Assert.AreEqual(absoluteRoot, FindCurrentEditors(table).Single().Text);
+                Assert.IsTrue(table.HandleKeyDown(Key.Escape, ModifierKeys.None));
+                table.HandleKeyDown(Key.Escape, ModifierKeys.None);
+                Assert.AreEqual(0, FindCurrentEditors(table).Count());
+                Assert.AreEqual(absoluteRoot, entry.Chart.InstallDestination);
+                Assert.AreEqual(absoluteRoot, row.instl_dst);
+                AssertOtherUnchanged();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PendingPackages.SetPendingAsync(edit, candidate), "Related candidate reselection");
+                CaptureCurrentRows();
+                Assert.AreEqual(candidate, entry.Chart.InstallDestination);
+                Assert.AreEqual(candidate, row.instl_dst);
+                CollectionAssert.AreEqual(new[] { candidate }, entry.Chart.InstallDestinationSuggestions.ToArray());
+                CollectionAssert.AreEqual(new[] { candidate }, row.Chart.InstallDestinationSuggestions.ToArray());
+                // 推定理由のMessageは旧pathを含む診断として保ち、root編集時の現在健康度とは分けて比較します。
+                CollectionAssert.AreEqual(estimationReasons, entry.Chart.Warnings
+                    .Where(warning => warning.Category == ChartWarningCategory.InstallEstimation)
+                    .Select(warning => (warning.Kind, warning.Message)).ToArray());
+                CollectionAssert.AreEqual(estimationReasons, row.Chart.Warnings
+                    .Where(warning => warning.Category == ChartWarningCategory.InstallEstimation)
+                    .Select(warning => (warning.Kind, warning.Message)).ToArray());
+                Assert.AreEqual(100, entry.Chart.WAVHealth);
+                Assert.AreEqual(100, row.Chart.WAVHealth);
+                Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+                Assert.IsFalse(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
                 AssertEvidence();
                 MenuItem clear = group.Items.OfType<MenuItem>().Single(item => Equals(item.Header, Resources.Clear_estimation));
-                Assert.AreEqual(100, row.Chart.WAVHealth);
                 File.WriteAllText(Path.Combine(source, "sound.wav"), "added after registration");
                 Task clearEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(clear));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(clearEvent, "real pending destination clear menu");
@@ -1041,11 +1060,86 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual(string.Empty, otherRow.InstallDestinationTitle);
                 Assert.AreEqual(0, otherRow.Chart.InstallDestinationSuggestions.Count);
 
+                void CommitCompiledDestination(string destinationText)
+                {
+                    SelectDestinationCell();
+                    Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                    TextBox editor = FindCurrentEditors(table).Single();
+                    editor.Text = destinationText;
+                    ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
+                    var mutation = new TaskCompletionSource<PendingPackageMutationAppliedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    void OnMutation(object? sender, PendingPackageWorkflowChangedEventArgs args)
+                    {
+                        if (args is PendingPackageMutationAppliedEventArgs applied) { mutation.TrySetResult(applied); }
+                    }
+                    Task? admissionTerminal = null;
+                    Exception? editFailure = null;
+                    viewModel.PendingPackages.WorkflowChanged += OnMutation;
+                    try
+                    {
+                        Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+                        admissionTerminal = composition.OperationAdmission.WaitForIdleAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            TestUiDispatcherHost.AwaitNotificationAsync(mutation.Task, admissionTerminal, "compiled destination mutation"), "compiled destination mutation");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(mutation.Task.GetAwaiter().GetResult().Presentation, "compiled destination presentation");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(admissionTerminal, "compiled destination admission terminal");
+                        Assert.IsFalse(composition.OperationAdmission.IsActive);
+                    }
+                    catch (Exception failure) { editFailure = failure; throw; }
+                    finally
+                    {
+                        var cleanupFailures = new List<Exception>();
+                        try
+                        {
+                            // 到達後に表明が失敗しても、実受信とL終端を別々に回収してからWindowを閉じます。
+                            if (mutation.Task.IsCompletedSuccessfully)
+                            { TestUiDispatcherHost.AwaitTaskOnDispatcher(mutation.Task.Result.Presentation, "compiled destination presentation cleanup"); }
+                        }
+                        catch (Exception failure) { cleanupFailures.Add(failure); }
+                        try
+                        {
+                            if (admissionTerminal != null)
+                            { TestUiDispatcherHost.AwaitTaskOnDispatcher(admissionTerminal, "compiled destination admission cleanup"); }
+                        }
+                        catch (Exception failure) { cleanupFailures.Add(failure); }
+                        finally { viewModel.PendingPackages.WorkflowChanged -= OnMutation; }
+                        if (cleanupFailures.Count != 0)
+                        {
+                            if (editFailure != null) { cleanupFailures.Insert(0, editFailure); }
+                            throw new AggregateException(cleanupFailures);
+                        }
+                    }
+                    CaptureCurrentRows();
+                }
+
                 void AssertEvidence()
                 {
                     Assert.AreEqual("Target Song", row.InstallDestinationTitle);
                     Assert.AreEqual("Candidate Artist", row.InstallDestinationArtist);
                     AssertOtherUnchanged();
+                }
+
+                void ChangeCandidate(Action operation, string nextCandidate)
+                {
+                    var refreshed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    void OnRefresh(object? sender, NormalLibraryRefreshAppliedEventArgs args) => refreshed.TrySetResult();
+                    viewModel.RegularChartList.NormalLibraryRefreshApplied += OnRefresh;
+                    try
+                    {
+                        operation();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(refreshed.Task, "candidate relocation presentation");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(MainWindowViewModelTestFactory.GetComposition(viewModel).OperationAdmission.WaitForIdleAsync(), "candidate relocation admission terminal");
+                        candidate = nextCandidate;
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        CaptureCurrentRows();
+                        Assert.IsTrue(File.Exists(rootOwnedPath));
+                        ChartFile rootOwnedCurrent = currentLibrary.BmsCharts.Single(chart => chart.Path == rootOwnedPath);
+                        Assert.AreEqual(rootOwnedPath, rootOwnedCurrent.Path);
+                        Assert.AreSame(rootOwnedBefore.Token, rootOwnedCurrent.Token);
+                        using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                        Assert.AreEqual(rootOwnedPath, readback.Table<LR2SongDB.song>().Single(chart => chart.path == rootOwnedPath).path);
+                    }
+                    finally { viewModel.RegularChartList.NormalLibraryRefreshApplied -= OnRefresh; }
                 }
 
                 void CaptureCurrentRows()
@@ -1087,7 +1181,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
                 library = new TestBmsLibrary(songDbPath, getLR2Config: null, _lr2ScoreDB: null, startupRequiredFileScanReason: null,
                     optionsSnapshotProvider: () => options, applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
-                    chartFileScanner: scanner, operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: TestBmsFactory.CreateRootSettings([candidate]))
+                    chartFileScanner: scanner, operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: TestBmsFactory.CreateRootSettings([absoluteRoot, destinationRoot]))
                 {
 
                     StartupBackgroundTaskScheduler = (_, _, _, _) => false

@@ -757,6 +757,43 @@ public sealed class BmsLibraryDuplicateServiceTests
                 BmsCharts = bmsFile == null ? [] : [bmsFile],
                 BmsonCharts = bmsonSong == null ? [] : [bmsonSong]
             };
+            string pendingRoot = Path.Combine(root, "Pending");
+            Directory.CreateDirectory(pendingRoot);
+            PackageChartEntry CreatePending(string name, string? confirmedDestination, string[] candidates)
+            {
+                string path = Path.Combine(pendingRoot, name + ".bms");
+                File.WriteAllText(path, "#TITLE Pending\n#WAV01 sound.wav\n#00111:01\n");
+                var entry = PackageChartEntry.FromPath(path);
+                BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
+                entry.RestoreInstallDestinationState(new PackageChartInstallDestinationState(confirmedDestination, "evidence", "artist", candidates));
+                entry.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "original diagnostic");
+                return entry;
+            }
+            PackageChartEntry candidateOnly = CreatePending("candidate", null, [sourceDirectory, destinationDirectory]);
+            PackageChartEntry outsideDestination = CreatePending("outside", destinationDirectory, [sourceDirectory]);
+            PackageChartEntry sourceDestination = CreatePending("inside", sourceDirectory, [sourceDirectory, destinationDirectory]);
+            PackageChartEntry unrelated = CreatePending("unrelated", null, [sourceDirectory + "Sibling"]);
+            ChartPackage CreatePendingPackage(PackageChartEntry entry)
+            {
+                var package = ChartPackage.FromChartEntries([entry]);
+                package.path = entry.Chart.Path;
+                package.delete_parent = true;
+                return package;
+            }
+            // 通常のパッケージ推定は確定DSTを含む群を再推定しないため、明示再推定する項目を独立した実入力にします。
+            ChartPackage[] pendingPackages = [.. new[] { candidateOnly, outsideDestination, sourceDestination, unrelated }.Select(CreatePendingPackage)];
+            ChartPackage pendingPackage = pendingPackages[0];
+            library.ChartPackagesPending = pendingPackages;
+            var resourceIndex = new LibraryResourceIndex();
+            resourceIndex.DirectoryLookupCache.AddDir(sourceDirectory, []);
+            resourceIndex.DirectoryLookupCache.AddDir(destinationDirectory, ["sound.wav"]);
+            LibraryResourceIndexTestSupport.GetOwner(library).Replace(resourceIndex);
+            foreach (ChartPackage package in pendingPackages)
+            {
+                BmsLibraryPackageInstallService.RefreshPendingResourceHealth(package.ChartEntries, package, resourceIndex.DirectoryLookupCache);
+            }
+            int sourceHealth = sourceDestination.Chart.WAVHealth ?? -1;
+            Assert.AreEqual(100, outsideDestination.Chart.WAVHealth);
             ResourceHealthIndexSnapshot beforeSnapshot = library.GetResourceHealthIndexSnapshotForView("merge_health_before");
             Assert.AreEqual(1, beforeSnapshot.TargetCount);
             bool notifiedWithCurrentHealth = false;
@@ -810,6 +847,16 @@ public sealed class BmsLibraryDuplicateServiceTests
             Assert.IsTrue((bmson ? library.BmsonCharts : library.BmsCharts).Any(chart => chart.Path == destinationPath));
             Assert.IsFalse(Directory.Exists(sourceDirectory));
             Assert.IsTrue(File.Exists(destinationPath));
+            Assert.AreEqual(0, candidateOnly.Chart.InstallDestinationSuggestions.Count);
+            Assert.AreEqual(ChartResourcePlacementBasis.Current, candidateOnly.ResourcePlacement.Basis);
+            Assert.AreEqual(destinationDirectory, outsideDestination.Chart.InstallDestination);
+            Assert.AreEqual(100, outsideDestination.Chart.WAVHealth);
+            Assert.AreEqual(destinationDirectory, outsideDestination.ResourcePlacement.Directory);
+            Assert.AreEqual(destinationDirectory, sourceDestination.Chart.InstallDestination);
+            Assert.AreEqual(sourceHealth, sourceDestination.Chart.WAVHealth);
+            Assert.AreEqual(destinationDirectory, sourceDestination.ResourcePlacement.Directory);
+            Assert.AreEqual(0, sourceDestination.Chart.InstallDestinationSuggestions.Count);
+            CollectionAssert.AreEqual(new[] { sourceDirectory + "Sibling" }, unrelated.Chart.InstallDestinationSuggestions.ToArray());
             Assert.AreEqual("destination resource", File.ReadAllText(resourcePath));
             using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDBExtended.maintenance persisted = readback.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == destinationPath);
@@ -830,6 +877,12 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsFalse(receipt.MaintenanceResult.Canceled);
                 return;
             }
+            // 自動推定では候補を戻さず、利用者の明示要求後に現存する統合先から再生成します。
+            Assert.IsTrue(library.ChartPackagesPending.Contains(pendingPackage), "明示再推定は現在も保留に所属する同じパッケージを要求します。");
+            Assert.AreEqual(4, library.ChartPackagesPending.Count, "統合で保留項目の所属と数を変えません。");
+            library.SearchEstimatedInstallationDirectory(pendingPackage, InstallEstimationCandidatePolicy.KeepUnrelated);
+            Assert.IsTrue(candidateOnly.Chart.InstallDestination == destinationDirectory
+                || candidateOnly.Chart.InstallDestinationSuggestions.Contains(destinationDirectory));
             Assert.IsFalse(receipt.SessionReceipt.HasRequiredFailure);
             Assert.IsTrue(receipt.MaintenanceHadUpdates);
             Assert.IsTrue(receipt.MaintenanceResult.CheckedFileCount > 0);

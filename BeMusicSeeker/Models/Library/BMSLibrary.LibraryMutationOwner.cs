@@ -618,7 +618,8 @@ internal sealed partial class LibraryMutationOwner
                 continue;
             }
             string targetKey = (target.IsPendingPackageEntry ? "pending:" : "library:")
-                + target.Kind + ":" + target.Path;
+                + target.Kind + ":" + target.Path
+                + (target.IsPendingPackageEntry ? ":" + target.FolderPath : string.Empty);
             if (!clearedInstallTargets.Add(targetKey))
             {
                 continue;
@@ -629,6 +630,8 @@ internal sealed partial class LibraryMutationOwner
                 {
                     Entry = binding.Entry,
                     Chart = binding.Entry.Chart,
+                    SourceFolderPath = target.FolderPath,
+                    InvalidateCandidates = true,
                     ClearInstallDestinationState = true
                 });
             }

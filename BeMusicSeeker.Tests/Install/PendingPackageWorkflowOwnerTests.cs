@@ -19,6 +19,170 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed partial class PendingPackageWorkflowOwnerTests
 {
+    /// <summary>同一推定対象群に確定DSTが残る間は既存skipを保ち、全DSTの明示クリア終端後の次の明示推定だけが両項目へ新宛先を適用します。</summary>
+    /// <remarks>成功facts後の混在状態を入力し、実owner/storeのTask・表示公開・L終端と保留記録保持を確認します。失効factsの生成と元健康度12値の条件表は既存系列へ分担します。</remarks>
+    [TestMethod]
+    public async Task SearchPackagesAsync_PartiallyConfiguredPackageRequiresExplicitClearBeforeReestimation()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        TestBmsLibrary? library = null;
+        PendingPackageWorkflowOwner? owner = null;
+        RecordingPresentation? presentation = null;
+        EventHandler<PendingPackageWorkflowChangedEventArgs>? capturePublication = null;
+        Task? operation = null;
+        Exception? primaryFailure = null;
+        try
+        {
+            string source = Path.Combine(root, "Pending");
+            string libraryRoot = Path.Combine(root, "Library");
+            string manual = Path.Combine(libraryRoot, "Manual");
+            string strong = Path.Combine(libraryRoot, "Strong");
+            foreach (string directory in new[] { source, manual, strong }) { Directory.CreateDirectory(directory); }
+            const string resources = "\n#WAV01 sound.wav\n#00111:01\n";
+            string[] inputPaths = [Path.Combine(source, "first.bms"), Path.Combine(source, "second.bms")];
+            File.WriteAllText(inputPaths[0], "#TITLE Target Song\n#ARTIST Target Artist\n#GENRE first" + resources);
+            File.WriteAllText(inputPaths[1], "#TITLE Target Song\n#ARTIST Target Artist\n#GENRE second" + resources);
+            string manualChartPath = Path.Combine(manual, "owned.bms");
+            string strongChartPath = Path.Combine(strong, "owned.bms");
+            File.WriteAllText(manualChartPath, "#TITLE Unrelated Work\n#ARTIST Different Composer" + resources);
+            File.WriteAllText(strongChartPath, "#TITLE Target Song\n#ARTIST Target Artist\n#GENRE owned" + resources);
+            File.WriteAllText(Path.Combine(manual, "sound.wav"), "manual audio");
+            File.WriteAllText(Path.Combine(strong, "sound.wav"), "strong audio");
+            PackageChartEntry[] entries = [.. inputPaths.Select(PackageChartEntry.FromPath)];
+            foreach (PackageChartEntry entry in entries) { BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry); }
+            var package = ChartPackage.FromChartEntries(entries);
+            package.path = source;
+            package.delete_parent = false;
+            string songDbPath = Path.Combine(root, "song.db");
+            File.WriteAllBytes(songDbPath, []);
+            ChartFile[] owned = [.. new[] { manualChartPath, strongChartPath }
+                .Select(path => BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)))];
+            var currentLibrary = new TestBmsLibrary(songDbPath, null, null, new ResilientFileMutationService(), new RecordingLibraryDialogService(),
+                new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot
+                { OperationModeLR2DB = false, InstallDestinationAutoApplyMinAudioHealth = 100 },
+                settings: TestBmsFactory.CreateRootSettings([libraryRoot]))
+            { BmsCharts = owned, BmsonCharts = [], ChartPackagesPending = [package], ChartPackagesInstalled = [] };
+            library = currentLibrary;
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+            {
+                db.CreateTable<LR2SongDBExtended.install>();
+                db.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
+                foreach (ChartFile chart in owned) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); }
+            });
+            var index = new LibraryResourceIndex();
+            index.DirectoryLookupCache.AddDir(manual, ["sound.wav"]);
+            index.DirectoryLookupCache.AddDir(strong, ["sound.wav"]);
+            LibraryResourceIndexTestSupport.GetOwner(currentLibrary).Replace(index);
+            // 失効済み項目は元配置0%、scope外の確定DSTは旧Manual配置100%を保持する入力です。
+            entries[0].RestoreInstallDestinationState(new PackageChartInstallDestinationState(manual, "Unrelated Work", "Different Composer", []));
+            BmsLibraryPackageInstallService.RefreshPendingResourceHealth([entries[0]], package, index.DirectoryLookupCache);
+            BmsLibraryPackageInstallService.ClearPendingInstallDestination(entries[1]);
+            Assert.AreEqual(100, entries[0].Chart.WAVHealth);
+            Assert.AreEqual(0, entries[1].Chart.WAVHealth);
+            (ChartWarningKind Kind, string Message)[][] beforeWarnings = entries.Select(entry => entry.Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray()).ToArray();
+            var events = new List<string>();
+            presentation = new RecordingPresentation(events);
+            PendingPackageWorkflowOwner currentOwner = CreateOwner(() => currentLibrary, events, new BmsLibraryPendingPackageStore(), AcceptedDialogs(),
+                presentation: presentation, chartFileOperations: currentLibrary.OperationAdmission, playback: new NoOpChartMutationPlaybackPort());
+            owner = currentOwner;
+            PendingPackageMutationAppliedEventArgs? publication = null;
+            capturePublication = (_, args) => { if (args is PendingPackageMutationAppliedEventArgs applied) { publication = applied; } };
+            currentOwner.WorkflowChanged += capturePublication;
+            AssertPackageAndRecord();
+
+            await RunAndAwait(() => currentOwner.SearchPackagesAsync([package]));
+            Assert.AreEqual(manual, entries[0].Chart.InstallDestination);
+            Assert.AreEqual("Unrelated Work", entries[0].Chart.InstallDestinationTitle);
+            Assert.AreEqual("Different Composer", entries[0].Chart.InstallDestinationArtist);
+            Assert.AreEqual(ChartResourcePlacementBasis.Destination, entries[0].ResourcePlacement.Basis);
+            Assert.AreEqual(manual, entries[0].ResourcePlacement.Directory);
+            Assert.AreEqual(100, entries[0].Chart.WAVHealth);
+            Assert.AreEqual(string.Empty, entries[1].Chart.InstallDestination);
+            Assert.AreEqual(string.Empty, entries[1].Chart.InstallDestinationTitle);
+            Assert.AreEqual(string.Empty, entries[1].Chart.InstallDestinationArtist);
+            Assert.AreEqual(ChartResourcePlacementBasis.Current, entries[1].ResourcePlacement.Basis);
+            Assert.AreEqual(source, entries[1].ResourcePlacement.Directory);
+            Assert.AreEqual(0, entries[1].Chart.WAVHealth);
+            for (int i = 0; i < entries.Length; i++)
+            {
+                Assert.AreEqual(0, entries[i].Chart.InstallDestinationSuggestions.Count);
+                CollectionAssert.AreEqual(beforeWarnings[i], entries[i].Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray());
+            }
+
+            await RunAndAwait(() => currentOwner.ClearPackagesAsync([package]));
+            foreach (PackageChartEntry entry in entries)
+            {
+                Assert.AreEqual(string.Empty, entry.Chart.InstallDestination);
+                Assert.AreEqual(string.Empty, entry.Chart.InstallDestinationTitle);
+                Assert.AreEqual(string.Empty, entry.Chart.InstallDestinationArtist);
+                Assert.AreEqual(0, entry.Chart.InstallDestinationSuggestions.Count);
+                Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
+                Assert.AreEqual(ChartResourcePlacementBasis.Current, entry.ResourcePlacement.Basis);
+                Assert.AreEqual(source, entry.ResourcePlacement.Directory);
+                Assert.AreEqual(0, entry.Chart.WAVHealth);
+            }
+
+            await RunAndAwait(() => currentOwner.SearchPackagesAsync([package]));
+            foreach (PackageChartEntry entry in entries)
+            {
+                Assert.AreEqual(strong, entry.Chart.InstallDestination);
+                Assert.AreEqual("Target Song", entry.Chart.InstallDestinationTitle);
+                Assert.AreEqual("Target Artist", entry.Chart.InstallDestinationArtist);
+                Assert.AreEqual(ChartResourcePlacementBasis.Destination, entry.ResourcePlacement.Basis);
+                Assert.AreEqual(strong, entry.ResourcePlacement.Directory);
+                Assert.AreEqual(100, entry.Chart.WAVHealth);
+                Assert.AreEqual(0, entry.Chart.InstallDestinationSuggestions.Count);
+                Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
+                Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            }
+
+            async Task RunAndAwait(Func<Task> start)
+            {
+                publication = null;
+                operation = start();
+                await operation;
+                PendingPackageMutationAppliedEventArgs applied = publication ?? throw new AssertFailedException("今回の操作結果を公開します。");
+                await applied.Presentation;
+                await currentLibrary.OperationAdmission.WaitForIdleAsync();
+                Assert.IsFalse(currentLibrary.OperationAdmission.IsActive);
+                Assert.IsFalse(entries.Any(entry => entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING)));
+                AssertPackageAndRecord();
+            }
+
+            void AssertPackageAndRecord()
+            {
+                Assert.AreSame(package, currentLibrary.ChartPackagesPending.Single());
+                CollectionAssert.AreEqual(entries, package.ChartEntries.ToArray());
+                CollectionAssert.AreEqual(inputPaths, entries.Select(entry => entry.Chart.Path).ToArray());
+                Assert.IsTrue(inputPaths.All(File.Exists));
+                Assert.AreEqual(0, currentLibrary.ChartPackagesInstalled.Count);
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                Assert.AreEqual(source, readback.Table<LR2SongDBExtended.install>().Single().path);
+            }
+        }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            var cleanupFailures = new List<Exception>();
+            try { if (operation is { IsCompleted: false }) { await operation; } }
+            catch (Exception failure) { cleanupFailures.Add(failure); }
+            if (owner != null)
+            {
+                if (capturePublication != null) { owner.WorkflowChanged -= capturePublication; }
+                if (presentation != null) { owner.WorkflowChanged -= presentation.OnWorkflowChanged; }
+            }
+            try { library?.RequestShutdown("partially-configured-pending-estimation-test"); }
+            catch (Exception failure) { cleanupFailures.Add(failure); }
+            try { if (Directory.Exists(root)) { Directory.Delete(root, recursive: true); } }
+            catch (Exception failure) { cleanupFailures.Add(failure); }
+            if (cleanupFailures.Count > 0)
+            {
+                if (primaryFailure != null) { cleanupFailures.Insert(0, primaryFailure); }
+                throw new AggregateException(cleanupFailures);
+            }
+        }
+    }
+
     /// <summary>修復sessionの反映失敗を受付とactivity解放後に一度報告し、無関係な後続例外は元例外で伝えて再報告しない。</summary>
     [TestMethod]
     public async Task FixInstalledLocationsAsync_ReportsSingleRepairSessionAfterRelease()

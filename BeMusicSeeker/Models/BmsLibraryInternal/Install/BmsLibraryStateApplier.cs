@@ -117,7 +117,11 @@ internal sealed partial class PackageLifecycleOwner
             {
                 if (installDestinationChange?.Entry != null)
                 {
-                    if (installDestinationChange.ClearInstallDestinationState)
+                    if (!string.IsNullOrWhiteSpace(installDestinationChange.SourceFolderPath))
+                    {
+                        installDestinationChange.Entry.ApplyLibraryFolderChange(installDestinationChange);
+                    }
+                    else if (installDestinationChange.ClearInstallDestinationState)
                     {
                         BmsLibraryPackageInstallService.ClearPendingInstallDestination(installDestinationChange.Entry);
                     }

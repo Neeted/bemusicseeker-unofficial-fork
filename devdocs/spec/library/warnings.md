@@ -32,6 +32,8 @@
 
 ### リソース状態の評価
 
+推定済み保留の改名・純移動では、警告kindとMessageを推定時の診断としてそのまま保持します。詳細には推定時点の旧pathが残り得ますが、現在の候補・配置pathは成功先へ追従します。自由文のpath置換や追加の書式引数履歴は保持しません。削除・統合での候補失効と確定DSTの優先は[変更操作](mutations.md#操作ごとの反映範囲)に従い、DST空の元健康度復元は既存の登録時snapshotを使います。
+
 所持BMSの再調査で文字コードが確定して再復号する場合、[songの限定保存](../integration/lr2-song-db.md#songの生成)を使い、生メタデータ5列と捕捉mtimeの `date` だけを保守値と同じトランザクションへ渡します。詳細情報の有無や復号文字列の同値によって、BPM・ノート数等の対象外列を再生成しません。
 
 一覧への所属判定は警告集合を変更せず、メンテナンス情報に基づく副作用のない索引で行います。BMSONは現在のMD5と一致する計算済みのメンテナンス情報を使い、未計算・旧ハッシュなら参照と現在のファイル状態から一時的に評価します。索引を優先し、必要な場合だけ実ファイルを確認します。
@@ -39,6 +41,8 @@
 保留の健康度とリソース警告は、設定済みの `INSTL DST`、未設定なら先頭候補、どちらもなければ入力元配置を基準とする一時状態です。設定先・候補では実際に持ち込む同梱資源を加算し、各譜面固有の使用集合を照合します。単一BMS・BMSONの親全体は同梱としません。推定・編集・候補選択・空編集・再グループ化の完了時には従来どおり評価し、明示クリアは後述の計算済み結果を復元します。導入成功時に分類単位で解除し、通常・新規一覧では導入後のメンテナンス情報から表示します。保留の警告を所持カタログやDB行へ書き戻しません。
 
 保留登録時には、既存の初期評価で計算した元配置の `ResourceHealthMaintenanceSnapshot` を項目に一件保持します。自動導入候補から設定・失敗・取消等により後で保留へ回る項目も同じ初期評価で確定します。起動時の保留復元ではDBからこの結果を読み戻さず、既存の起動時評価で確定します。候補切り替え・再推定・通常の健康度更新は、この元配置結果を上書きしません。
+
+確定DSTが存続する削除・統合の候補失効では、候補metadata・曖昧性・候補音源の評価に依存する推定警告を解除します。同じInstallEstimation分類でも、入力元の推定不能 `UnsupportedResourcePath`、入力面探索上限 `SourceSurfaceScanLimitExceeded`、所持先解決失敗 `InstalledDestinationResolveFailed` は候補評価の失効とは独立した診断なので、通常の手動DST確定後も、確定DSTが統合先へ追従した後もkind/Messageを保持します。scope外の確定DSTと診断にも作用させません。DST空への元配置復元、成功全体削除scope内のDST解除、利用者の明示全クリアでは、この三診断を含む従来の分類全体の解除を維持します。
 
 保留の「インストール先をクリア」は、導入先・代表情報・候補・`InstallEstimation` 警告を消し、保存済みの音声・画像・動画の定義数/存在数と補助画像3役割の定義/存在値を復元します。`ResourceHealth` 警告は復元した値から再生成し、現在の警告無視設定を維持します。文字コード・修正状態・LR2互換性情報と、他分類の警告は現在値を維持します。配置は元の譜面ディレクトリの `Current` へ戻し、捕捉済み同梱索引と完全性を保持します。
 
@@ -118,6 +122,8 @@ LR2用パスを表現できないことを理由にBMS行を削除しません�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 確定DSTの存続時は候補評価だけ失効し、非候補診断三種のkind/Messageを保持 | `PackageChartEntry.ApplyLibraryFolderChange`、既存の診断生成・手動DST設定、`PackageStateMutationApplier` | [`BmsLibraryStateApplierTests.ApplyPackageReferenceFacts_ConfirmedDestinationPreservesSourceDiagnostics`](../../../BeMusicSeeker.Tests/Install/BmsLibraryStateApplierTests.cs) が三診断の実producer→実手動確定→merge参照facts→実applierを通し、統合先DST/配置・健康度・診断保持、scope外不変、次の全体削除scopeでは従来全clearを確認する。候補MetadataMismatchの解除は既存 `ApplyPackageReferenceFacts_InvalidationPrioritizesConfirmedDestination`、実上限・入力元不備・所持先解決失敗の生産判断は既存推定系列、明示全clearは `ClearInstallDestinations_ClearsResolveFailedWarning` と元健康度系列が分担する。候補metadata・曖昧・音源等の既存kindと選択規則の対応は静的照合を併用する。 |
+| 成功した改名・純移動の現在配置path追従と推定時診断保持、候補失効時の元健康度復元 | `PackageChartEntry.ApplyLibraryFolderChange`、`ChartResourcePlacement.Relocate`、`BmsLibraryPackageInstallService.ClearPendingInstallDestination` | [`BmsLibraryStateApplierTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryStateApplierTests.cs) の `ApplyPackageReferenceFacts_FolderMovePreservesCandidatePlacementAndDiagnostics` がkind/Message不変と新配置を、`ApplyPackageReferenceFacts_InvalidationPrioritizesConfirmedDestination` が確定DST優先・登録時復元・他分類保持を確認する。復元12値の条件表は既存の明示クリア系列、物理成功scopeの接続は[変更操作の対応表](mutations.md#実装とテストの対応)へ分担する。 |
 | 再復号のメタデータ限定保存と詳細未付与の起動状態 | `CatalogMaintenanceOwner`、`CatalogMutationOwner`、`SongMetadataUpdate` | [LR2楽曲DBの対応表](../integration/lr2-song-db.md#実装とテストの対応)の `ApplyEncoding_RealStoreAfterDbLoadPreservesUnchangedSongColumns` と `RescanAsync_RealStoreAfterDbLoadPreservesUnchangedSongColumns` が、本番操作・実DB読込み・詳細hydrate後の更新5列/dateと対象外全列の保持を確認する。 |
 | 保留の明示クリアで登録時健康度を復元、外部変更非反映、非健康度の現在値保持 | `PackageChartEntry`、`BmsLibraryPackageInstallService`、`PendingPackageWorkflowOwner`、`BMSLibrary` | `BmsLibraryPackageInstallServiceTests` が全資源/未判定/0件/不足・候補切り替え・登録後の外部変更・文字コード/LR2/警告分類を確認する。初期確定は同クラスと `BmsLibraryInitializationInstallTests`、detached/再編成/部分削除は既存Install系列へ分担し、実メニューから生成済み行への更新は `MainWindowPackageMaintenanceWpfTests` で確認する。クリアから解析・資源列挙・存在確認へ非到達、成功時の参照破棄は静的確認を併用する。 |
 | 種類、優先順位、要約の重複抑止、詳細、強調 | [`ChartWarning`](../../../BeMusicSeeker/Models/Chart/ChartWarning.cs)、[`ChartWarningCollection`](../../../BeMusicSeeker/Models/Chart/ChartWarning.cs)、[`ChartWarningProjectionFormatter`](../../../BeMusicSeeker/ViewModels/ChartList/ChartWarningProjectionFormatter.cs) | [`ChartWarningCollectionTests`](../../../BeMusicSeeker.Tests/Chart/ChartWarningCollectionTests.cs) |

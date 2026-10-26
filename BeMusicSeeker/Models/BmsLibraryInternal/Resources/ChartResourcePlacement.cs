@@ -50,6 +50,12 @@ internal sealed class ChartResourcePlacement(
     /// <summary>捕捉した同梱列挙の完全性です。</summary>
     internal bool BundledResourcesComplete => bundledComplete;
 
+    /// <summary>捕捉済み索引・完全性・譜面相対位置を保ち、配置の基準pathだけを成功先へ追従させます。</summary>
+    internal ChartResourcePlacement Relocate(string source, string destination)
+        => Basis != ChartResourcePlacementBasis.Current && LibraryInstallDestinationChange.IsUnderFolder(Directory, source)
+            ? new(Basis, LibraryInstallDestinationChange.RelocatePath(Directory, source, destination), bundled, candidate, bundledComplete, RelativeDirectory)
+            : this;
+
     /// <summary>現在配置は物理確認し、導入後配置は種別別の候補と同梱の和集合で確認します。</summary>
     internal bool? Exists(string key, ChartResourceKind kind)
     {

@@ -1326,7 +1326,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     /// <summary>
-    /// 二フォルダの自動改名を一回で反映・通知し、資源索引と後続BMS・BMSONの導入先推定が新パスを使うことを確認します。
+    /// 二フォルダの成功を一回で反映し、同一保留の複数候補が両方追従することと、後続BMS・BMSON推定が新索引を使うことを確認します。
     /// </summary>
     [TestMethod]
     public void AutoRenameChartFolders_BatchesMultipleFolderMutationsIntoOneRefresh()
@@ -1370,9 +1370,23 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 library.BmsCharts = [firstFile, secondFile];
                 var replacementIndex = new LibraryResourceIndex();
                 replacementIndex.DirectoryLookupCache.AddDir(firstDirectoryPath, new[] { "first.wav" });
-                replacementIndex.DirectoryLookupCache.AddDir(secondDirectoryPath, new[] { "second.wav" });
+                replacementIndex.DirectoryLookupCache.AddDir(secondDirectoryPath, new[] { "first.wav", "second.wav" });
+                File.WriteAllText(Path.Combine(secondDirectoryPath, "first.wav"), "audio");
                 LibraryResourceIndexOwner resourceIndexOwner = GetLibraryResourceIndexOwner(library);
                 resourceIndexOwner.Replace(replacementIndex);
+                string priorPendingDirectory = Path.Combine(tempRootPath, "PendingBeforeRename");
+                Directory.CreateDirectory(priorPendingDirectory);
+                string priorPendingPath = Path.Combine(priorPendingDirectory, "prior.bms");
+                File.WriteAllText(priorPendingPath, "#TITLE Unrelated Pending\n#ARTIST Other Author\n#WAV01 first.wav\n#00111:01\n");
+                var priorEntry = PackageChartEntry.FromPath(priorPendingPath);
+                BmsLibraryPackageInstallService.InitializePendingResourceHealth(priorEntry);
+                var priorPackage = ChartPackage.FromChartEntries([priorEntry]);
+                priorPackage.path = priorPendingDirectory;
+                library.ChartPackagesPending = CreatePackageCollection([priorPackage]);
+                library.SearchEstimatedInstallationDirectory(priorPackage, InstallEstimationCandidatePolicy.KeepUnrelated);
+                ChartFile priorState = priorEntry.Chart;
+                Assert.AreEqual(string.Empty, priorState.InstallDestination);
+                CollectionAssert.AreEquivalent(new[] { firstDirectoryPath, secondDirectoryPath }, priorState.InstallDestinationSuggestions.ToArray());
                 List<(int Total, int Processed, string Path)> progress = [];
                 int refreshCount = 0;
                 library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
@@ -1415,6 +1429,12 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsNotNull(resourceSnapshot.DirectoryLookupCache.GetEntryOrNull(Path.Combine(libraryRootPath, "[Second Artist] Second Title")));
                 Assert.IsFalse(Directory.Exists(firstDirectoryPath));
                 Assert.IsFalse(Directory.Exists(secondDirectoryPath));
+                CollectionAssert.AreEqual(priorState.InstallDestinationSuggestions.Select(path =>
+                    path == firstDirectoryPath ? Path.Combine(libraryRootPath, "[First Artist] First Title") : Path.Combine(libraryRootPath, "[Second Artist] Second Title")).ToArray(), priorEntry.Chart.InstallDestinationSuggestions.ToArray());
+                Assert.AreEqual(string.Empty, priorEntry.Chart.InstallDestination);
+                Assert.AreEqual(priorState.WAVHealth, priorEntry.Chart.WAVHealth);
+                CollectionAssert.AreEqual(priorState.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray(),
+                    priorEntry.Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray());
 
                 string pendingDirectoryPath = Path.Combine(tempRootPath, "PendingAfterRename");
                 string pendingChartPath = Path.Combine(pendingDirectoryPath, "pending.bms");
@@ -1768,6 +1788,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 };
                 int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
 
+                var pending = PackageChartEntry.FromChart(ChartTestValues.Empty() with { Path = Path.Combine(tempRootPath, "pending.bms") });
+                pending.RestoreInstallDestinationState(new PackageChartInstallDestinationState(null, "evidence", "artist",
+                    [firstDirectoryPath, secondDirectoryPath, thirdDirectoryPath]));
+                var prefixSibling = PackageChartEntry.FromChart(ChartTestValues.Empty() with { Path = Path.Combine(tempRootPath, "prefix.bms") });
+                prefixSibling.RestoreInstallDestinationState(new PackageChartInstallDestinationState(null, "prefix", "artist", [firstDirectoryPath + "Sibling"]));
+                library.ChartPackagesPending = CreatePackageCollection([ChartPackage.FromChartEntries([pending, prefixSibling])]);
+
                 AutoRenameBatchResult result = library.AutoRenameChartFoldersWithProgress([
                     (firstFile),
                     (secondFile),
@@ -1785,6 +1812,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.AreEqual(1, result.SessionReceipt.UnprocessedTargets.Count);
                 Assert.AreEqual(thirdDirectoryPath, result.SessionReceipt.UnprocessedTargets[0].SourcePath);
                 Assert.AreEqual(thirdDestinationPath, result.SessionReceipt.UnprocessedTargets[0].DestinationPath);
+                CollectionAssert.AreEqual(new[] { firstDestinationPath, secondDirectoryPath, thirdDirectoryPath }, pending.Chart.InstallDestinationSuggestions.ToArray());
+                Assert.AreEqual(string.Empty, pending.Chart.InstallDestination);
+                CollectionAssert.AreEqual(new[] { firstDirectoryPath + "Sibling" }, prefixSibling.Chart.InstallDestinationSuggestions.ToArray());
                 NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
                 Assert.AreEqual(1, Volatile.Read(ref refreshCount));
