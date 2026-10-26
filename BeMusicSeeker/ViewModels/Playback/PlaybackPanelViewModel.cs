@@ -1093,11 +1093,14 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             currentIndex = NowPlayingRowIndex;
             generation = playbackGeneration;
             if (shutdownStarted || currentFile == null || (!IsPlaying && !IsPaused)) { return; }
-            modes = new PlaybackModeSnapshot(playbackSettings.RepeatPlay, playbackSettings.FolderSkipPlay);
+            modes = CapturePlaybackModes();
         }
         if (player is not INextSongPreloadPlayer preloadPlayer) { return; }
-        int index = FindNextPlaybackIndex(currentIndex, currentFile, modes);
-        (int Index, ChartFile File, ChartFile Chart) candidate = FindPlayableChart(index, modes.RepeatPlay, player.SupportsBmson);
+        int count = playbackQueue.Count;
+        int remaining = count;
+        int index = FindAdjacentPlaybackIndex(currentIndex, currentFile, modes, count, direction: 1);
+        (int Index, ChartFile File, ChartFile Chart) candidate = FindPlayableChart(index, modes.RepeatPlay, player.SupportsBmson,
+            direction: 1, count, ref remaining);
         if (candidate.File == null) { return; }
         ChartFile chart = candidate.Chart ?? candidate.File;
         if (NeedsTemporaryInstall(chart)) { return; }
@@ -1384,93 +1387,53 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
         });
 
-    /// <summary>次の有効な譜面へ進む。終了受付後の入力と自動送りは操作しない。</summary>
+    /// <summary>次の有効な譜面へ進み、除外・開始時入力不良でも前方向を保つ。終了受付後の入力と自動送りは操作しない。</summary>
     internal Task Next(object sender = null, EventArgs e = null) => NextCore(sender, e);
 
     private Task NextCore(object sender, EventArgs e,
         (long Generation, IBMSPlayer Player, ChartFile File)? naturalExit = null) =>
-        RunPlaybackSelectionAsync(async generation =>
-        {
-            int index = NowPlayingRowIndex;
-            if (index < 0 || index >= playbackQueue.Count)
-            {
-                await StopPlayback(closeProcess: true).ConfigureAwait(false);
-                return;
-            }
-            if (sender != null && playbackSettings.SinglePlay)
-            {
-                if (!playbackSettings.RepeatPlay)
-                {
-                    await StopPlayback(closeProcess: true).ConfigureAwait(false);
-                    return;
-                }
-            }
-            else { index = FindNextPlaybackIndex(); }
-            if (index < playbackQueue.Count)
-            {
-                await StartAtIndex(index, null, false, generation).ConfigureAwait(false);
-            }
-            else if (sender != null)
-            {
-                await StopPlayback(closeProcess: true).ConfigureAwait(false);
-            }
-        }, stopIfBusy: sender != null, naturalExit: naturalExit);
+        NavigatePlayback(sender, direction: 1, naturalExit);
 
-    /// <summary>前の有効な譜面へ戻る。終了受付後は操作しない。</summary>
-    internal Task Previous(object sender = null, EventArgs e = null) =>
+    /// <summary>前の有効な譜面へ戻り、除外・開始時入力不良でも後方向を保つ。終了受付後は操作しない。</summary>
+    internal Task Previous(object sender = null, EventArgs e = null) => NavigatePlayback(sender, direction: -1);
+
+    private Task NavigatePlayback(object sender, int direction,
+        (long Generation, IBMSPlayer Player, ChartFile File)? naturalExit = null) =>
         RunPlaybackSelectionAsync(async generation =>
         {
-            int index = NowPlayingRowIndex;
-            if (index < 0 || index >= playbackQueue.Count)
+            int index;
+            ChartFile currentFile;
+            PlaybackModeSnapshot modes;
+            lock (sessionGate)
+            {
+                index = NowPlayingRowIndex;
+                currentFile = NowPlayingChart;
+                modes = CapturePlaybackModes();
+            }
+            int count = playbackQueue.Count;
+            if (index < 0 || index >= count)
             {
                 await StopPlayback(closeProcess: true).ConfigureAwait(false);
                 return;
             }
-            if (sender != null && playbackSettings.SinglePlay)
+            if (sender != null && modes.SinglePlay)
             {
-                if (!playbackSettings.RepeatPlay)
+                if (!modes.RepeatPlay)
                 {
                     await StopPlayback(closeProcess: true).ConfigureAwait(false);
                     return;
                 }
             }
-            else
+            else { index = FindAdjacentPlaybackIndex(index, currentFile, modes, count, direction); }
+            if (index >= 0 && index < count)
             {
-                string currentFolder = GetPlaybackFolderIdentity(NowPlayingChart, index);
-                index--;
-                if (playbackSettings.RepeatPlay && index == -1)
-                {
-                    index = playbackQueue.Count - 1;
-                }
-                while (playbackSettings.FolderSkipPlay && index != -1)
-                {
-                    ChartFile candidate = playbackQueue.GetPlaybackChart(index);
-                    if (index == NowPlayingRowIndex)
-                    {
-                        break;
-                    }
-                    string candidateFolder = GetPlaybackFolderIdentity(candidate, index);
-                    if (!string.IsNullOrWhiteSpace(candidateFolder) && currentFolder != candidateFolder)
-                    {
-                        break;
-                    }
-                    currentFolder = candidateFolder;
-                    index--;
-                    if (playbackSettings.RepeatPlay && index == -1)
-                    {
-                        index = playbackQueue.Count - 1;
-                    }
-                }
-            }
-            if (index >= 0)
-            {
-                await StartAtIndex(index, null, false, generation).ConfigureAwait(false);
+                await StartAtIndex(index, null, false, generation, direction: direction, capturedModes: modes, capturedCount: count).ConfigureAwait(false);
             }
             else if (sender != null)
             {
                 await StopPlayback(closeProcess: true).ConfigureAwait(false);
             }
-        });
+        }, stopIfBusy: direction > 0 && sender != null, naturalExit: naturalExit);
 
     private static string GetPlaybackFolderIdentity(ChartFile file, int fallbackIndex)
     {
@@ -1479,36 +1442,19 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             : fallbackIndex.ToString();
     }
 
-    private int FindNextPlaybackIndex()
-    {
-        int index;
-        ChartFile file;
-        PlaybackModeSnapshot modes;
-        lock (sessionGate)
-        {
-            index = NowPlayingRowIndex;
-            file = NowPlayingChart;
-            modes = new PlaybackModeSnapshot(playbackSettings.RepeatPlay, playbackSettings.FolderSkipPlay);
-        }
-        return FindNextPlaybackIndex(index, file, modes);
-    }
+    private PlaybackModeSnapshot CapturePlaybackModes() =>
+        new(playbackSettings.RepeatPlay, playbackSettings.FolderSkipPlay, playbackSettings.SinglePlay);
 
-    private readonly record struct PlaybackModeSnapshot(bool RepeatPlay, bool FolderSkipPlay);
+    private readonly record struct PlaybackModeSnapshot(bool RepeatPlay, bool FolderSkipPlay, bool SinglePlay);
 
-    private int FindNextPlaybackIndex(int currentIndex, ChartFile currentFile, PlaybackModeSnapshot modes)
+    private int FindAdjacentPlaybackIndex(int currentIndex, ChartFile currentFile, PlaybackModeSnapshot modes, int count, int direction)
     {
         // 行交換は候補探索と並行します。折返しの件数を途中で変えると、
         // 縮小後の一覧を巡回しても開始時のcurrentIndexへ戻れなくなります。
-        int count = playbackQueue.Count;
-        if (currentIndex < 0 || currentIndex >= count) { return count; }
-        int index = currentIndex;
-        string currentFolder = GetPlaybackFolderIdentity(currentFile, index);
-        index++;
-        if (modes.RepeatPlay && index == count)
-        {
-            index = 0;
-        }
-        while (modes.FolderSkipPlay && index >= 0 && index < count)
+        if (currentIndex < 0 || currentIndex >= count) { return direction > 0 ? count : -1; }
+        string currentFolder = GetPlaybackFolderIdentity(currentFile, currentIndex);
+        int index = MovePlaybackIndex(currentIndex, direction, count, modes.RepeatPlay);
+        for (int remaining = count; modes.FolderSkipPlay && remaining > 0 && index >= 0 && index < count; remaining--)
         {
             ChartFile candidate = playbackQueue.GetPlaybackChart(index);
             if (index == currentIndex)
@@ -1521,21 +1467,26 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 break;
             }
             currentFolder = candidateFolder;
-            index++;
-            if (modes.RepeatPlay && index == count)
-            {
-                index = 0;
-            }
+            index = MovePlaybackIndex(index, direction, count, modes.RepeatPlay);
         }
         return index;
     }
 
-    private (int Index, ChartFile File, ChartFile Chart) FindPlayableChart(
-        int index, bool repeat, bool supportsBmson, object initialRow = null, bool useInitialRow = false)
+    private static int MovePlaybackIndex(int index, int direction, int count, bool repeat)
     {
-        int count = playbackQueue.Count;
-        for (int remaining = count; remaining > 0 && index >= 0 && index < count; remaining--)
+        index += direction;
+        if (repeat && index == count) { return 0; }
+        if (repeat && index == -1) { return count - 1; }
+        return index;
+    }
+
+    private (int Index, ChartFile File, ChartFile Chart) FindPlayableChart(
+        int index, bool repeat, bool supportsBmson, int direction, int count, ref int remaining,
+        object initialRow = null, bool useInitialRow = false)
+    {
+        while (remaining > 0 && index >= 0 && index < count)
         {
+            remaining--;
             ChartFile file;
             ChartFile chart;
             if (useInitialRow)
@@ -1550,8 +1501,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             {
                 return (index, file, chart);
             }
-            index++;
-            if (repeat && index == count) { index = 0; }
+            index = MovePlaybackIndex(index, direction, count, repeat);
         }
         return (count, null, null);
     }
@@ -1560,9 +1510,12 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     internal Task StartAtIndex(int index) =>
         RunPlaybackSelectionAsync(generation => StartAtIndex(index, initialRow: null, useInitialRow: false, generation));
 
-    private async Task StartAtIndex(int index, object initialRow, bool useInitialRow, long generation, Action acceptedSurfaceRequest = null)
+    private async Task StartAtIndex(int index, object initialRow, bool useInitialRow, long generation, Action acceptedSurfaceRequest = null,
+        int direction = 1, PlaybackModeSnapshot? capturedModes = null, int? capturedCount = null)
     {
-        int remainingCandidates = playbackQueue.Count;
+        int count = capturedCount ?? playbackQueue.Count;
+        int remainingCandidates = count;
+        PlaybackModeSnapshot modes = capturedModes ?? CapturePlaybackModes();
         NextPlaybackPlayerRequest request;
         bool supportsBmson;
         lock (sessionGate)
@@ -1574,7 +1527,8 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             && explicitTarget.Kind == ChartFileKind.Bmson && !supportsBmson) { return; }
     ResolveCandidate:
         lock (sessionGate) { if (!IsCurrentPlaybackGeneration(generation)) { return; } }
-        (int Index, ChartFile File, ChartFile Chart) candidate = FindPlayableChart(index, playbackSettings.RepeatPlay, supportsBmson, initialRow, useInitialRow);
+        (int Index, ChartFile File, ChartFile Chart) candidate = FindPlayableChart(index, modes.RepeatPlay, supportsBmson,
+            direction, count, ref remainingCandidates, initialRow, useInitialRow);
         useInitialRow = false;
         if (candidate.File == null)
         {
@@ -1634,19 +1588,27 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 return;
             }
             warnInvalidChart(value);
-            if (playbackSettings.RepeatPlay && (playbackSettings.SinglePlay || index == 0))
+            if (modes.RepeatPlay && (modes.SinglePlay || index == (direction > 0 ? 0 : count - 1)))
             {
                 TryClearPlaybackForStartObservation(observation);
                 return;
             }
-            remainingCandidates--;
             if (remainingCandidates <= 0)
             {
                 TryClearPlaybackForStartObservation(observation);
                 return;
             }
-            int nextIndex = FindNextPlaybackIndex();
-            if (nextIndex < 0 || nextIndex >= playbackQueue.Count)
+            int nextIndex = FindAdjacentPlaybackIndex(index, bmsFile, modes, count, direction);
+            if (nextIndex < 0 || nextIndex >= count)
+            {
+                TryClearPlaybackForStartObservation(observation);
+                return;
+            }
+            // フォルダ送りで飛ばした行も一巡の予算へ含め、入力不良後に同じ候補を再訪しません。
+            int skippedCandidates = (nextIndex - index) * direction - 1;
+            if (skippedCandidates < 0) { skippedCandidates += count; }
+            remainingCandidates -= skippedCandidates;
+            if (remainingCandidates <= 0)
             {
                 TryClearPlaybackForStartObservation(observation);
                 return;
