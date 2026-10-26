@@ -20,7 +20,7 @@ using Ribbit.Net;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>URLの取得判断と実workspaceから導入・表示への配送、受理されなかった入力の回収を確認します。</summary>
-/// <remarks>取得は応答portで固定し、path caseの代表では実HTTPも使います。実stagingを使い、Windowとcompiled購読の接続はMainWindowの代表へ分担します。所有移転の代表では実ownerを、保留の代表では実推定・SQLite・FSまで通します。</remarks>
+/// <remarks>取得は応答portで固定し、転送とpath caseの代表では実HTTPも使います。実stagingを使い、Windowとcompiled購読の接続はMainWindowの代表へ分担します。所有移転の代表では実ownerを、保留の代表では実推定・SQLite・FSまで通します。</remarks>
 [TestClass]
 public sealed partial class PlaylistUrlAcquisitionOwnershipTests
 {
@@ -119,9 +119,19 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
-    /// <summary>拡張子のないquery URIでは応答のContent-Dispositionを使ってbmson名とbytesを保存します。URIだけで名前を決めて対応ファイルを失う誤りを検出します。</summary>
-    [TestMethod]
-    public async Task DownloadCandidate_UsesContentDispositionForExtensionlessQueryUri()
+    /// <summary>Content-Disposition、対応する最終URI名、Location名、元名の優先とfallbackを実保存で確認します。queryへの依存、無効名の即採用、復号の退行をbasename・拡張子・完全bytesと一回の取得・書込みで検出します。</summary>
+    [DataTestMethod]
+    [DataRow("/download?id=42", "/song.zip", "chart.bmson", "/other.7z", "chart.bmson")]
+    [DataRow("/download/123", "/song.zip", null, null, "song.zip")]
+    [DataRow("/download/123?id=42", "/song.zip", null, null, "song.zip")]
+    [DataRow("/original.zip", "/song%20release.7z", null, null, "song release.7z")]
+    [DataRow("/original.zip", "/landing", null, null, "original.zip")]
+    [DataRow("/original.zip?id=42", "/landing", null, null, "original.zip")]
+    [DataRow("/original.zip", "/song.zip", null, "/other.7z", "song.zip")]
+    [DataRow("/original.zip", "/landing", null, "/other.7z", "other.7z")]
+    [DataRow("/original.zip", "/landing", null, "/other.txt", "original.zip")]
+    public async Task DownloadCandidate_ChoosesResponseFileNameAndPreservesExactBytes(
+        string requestedPath, string responsePath, string? contentDispositionName, string? locationPath, string expectedFileName)
     {
         string temporaryDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -129,23 +139,29 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
         byte[] expectedBytes = [0x51, 0x52, 0x53];
-        Uri uri = new("https://example.invalid/download?id=42");
+        Uri uri = new("https://example.invalid" + requestedPath);
         try
         {
-            var gateway = new RecordingPlaylistUrlDownloadGateway(temporaryDirectory);
-            gateway.AddResponse(uri, () => CreateHttpResponse(
+            using AppHttpResponse response = CreateHttpResponse(
                 uri,
                 expectedBytes,
                 "application/octet-stream",
-                "attachment; filename=chart.bmson"));
+                contentDispositionName == null ? null : "attachment; filename=" + contentDispositionName,
+                responseUri: new Uri("https://example.invalid" + responsePath),
+                location: locationPath == null ? null : new Uri("https://example.invalid" + locationPath));
+            var gateway = new RecordingPlaylistUrlDownloadGateway(temporaryDirectory);
+            gateway.AddResponse(uri, () => response);
             var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
 
             PlaylistUrlDownloadResult result = await workflow.DownloadCandidateAsync(uri);
 
             Assert.AreEqual(PlaylistUrlDownloadResultKind.Downloaded, result.Kind);
-            Assert.AreEqual("chart.bmson", Path.GetFileName(result.FilePath));
-            Assert.AreEqual(".bmson", Path.GetExtension(result.FilePath));
+            Assert.AreEqual(expectedFileName, Path.GetFileName(result.FilePath));
+            Assert.AreEqual(Path.GetExtension(expectedFileName), Path.GetExtension(result.FilePath));
             CollectionAssert.AreEqual(expectedBytes, File.ReadAllBytes(result.FilePath));
+            CollectionAssert.AreEqual(new[] { uri }, gateway.RequestedUris);
+            Assert.AreEqual(1, gateway.OpenWriteCount);
+            Assert.IsFalse(response.ResponseStream.CanRead, "成功を返す前に応答本文を解放します。");
         }
         finally
         {
@@ -1295,25 +1311,37 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
-    /// <summary>単独の実取得物を変更不能なpathsでsinkへ渡してからtree展開し、受理後のstagingを保持します。進捗・診断故障を重ねても引渡しを保ち、展開順序の逆転と入力回収漏れを検出します。</summary>
+    /// <summary>queryなしURLから実HTTP転送した最終名とbytesを一回だけ変更不能なpathsでsinkへ渡し、その後tree展開します。進捗・診断故障の有無によらず進捗終端と受理後の入力保持を確認し、名前・本文の喪失と順序の逆転を検出します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public async Task SingleDownloadedPackage_UsesInstallSinkBeforeTreeExpansionPresentation(bool failNotifications)
+    public async Task SingleRedirectedPackage_UsesFinalNameAndInstallSinkBeforeTreeExpansionPresentation(bool failNotifications)
     {
         string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
+        byte[] expectedBytes = [1, 2, 3];
+        SingleRequestHttpServer? finalServer = null;
+        SingleRequestHttpServer? redirectServer = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        Exception? operationFailure = null;
         try
         {
-            var gateway = new FakePlaylistUrlDownloadGateway(temporaryDirectory, new byte[] { 1, 2, 3 });
+            finalServer = new SingleRequestHttpServer(expectedBytes);
+            redirectServer = new SingleRequestHttpServer(
+                [],
+                responseStatusCode: System.Net.HttpStatusCode.Found,
+                additionalResponseHeaders: "Location: " + new Uri(finalServer.Address, "song.zip").AbsoluteUri + "\r\n");
+            var gateway = new BodyGateway(temporaryDirectory, Stream.Null) { RealHttp = true };
             var acquisitionWorkflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ =>
             {
                 if (failNotifications) { throw new IOException("download diagnostic unavailable"); }
             });
             var events = new List<string>();
             IReadOnlyList<string>? capturedPaths = null;
+            byte[]? capturedBytes = null;
             bool inputsReadyAtHandoff = false;
-            PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+            int browserCount = 0;
+            workspace = CreateWorkspace(
                 action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
                 acquisitionWorkflow,
@@ -1322,8 +1350,10 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
                     events.Add("sink");
                     capturedPaths = paths;
                     inputsReadyAtHandoff = paths.All(File.Exists);
+                    capturedBytes = paths.Count == 1 ? File.ReadAllBytes(paths[0]) : null;
                     return true;
                 },
+                browserSink: _ => browserCount++,
                 treeExpansionSink: () => events.Add("expanded"));
 
             var statuses = new List<PlaylistUrlDownloadStatusSnapshot>();
@@ -1333,7 +1363,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             };
             workspace.PlaylistUrlDownloadStatusChanged += (_, status) => statuses.Add(status);
 
-            await workspace.RunSinglePlaylistUrlAsync(new Uri("https://example.invalid/single.zip"));
+            await workspace.RunSinglePlaylistUrlAsync(new Uri(redirectServer.Address, "download/123"));
 
             CollectionAssert.AreEqual(new[] { "sink", "expanded" }, events);
             Assert.IsFalse(workspace.IsPlaylistUrlDownloadRunning);
@@ -1341,15 +1371,35 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             Assert.IsFalse(statuses[^1].IsActive);
             Assert.IsTrue(inputsReadyAtHandoff);
             Assert.IsNotNull(capturedPaths);
-            Assert.AreEqual(1, capturedPaths!.Count);
+            Assert.AreEqual(1, capturedPaths.Count);
+            Assert.AreEqual("song.zip", Path.GetFileName(capturedPaths[0]));
+            Assert.IsNotNull(capturedBytes);
+            CollectionAssert.AreEqual(expectedBytes, capturedBytes);
+            CollectionAssert.AreEqual(new[] { "/download/123" }, redirectServer.RequestTargets);
+            CollectionAssert.AreEqual(new[] { "/song.zip" }, finalServer.RequestTargets);
+            await redirectServer.Completion;
+            await finalServer.Completion;
+            Assert.AreEqual(0, browserCount);
             Assert.IsTrue(((IList<string>)capturedPaths).IsReadOnly);
             Assert.IsTrue(File.Exists(capturedPaths[0]), "受理後の入力は導入側の寿命へ移します。");
+            CollectionAssert.AreEqual(expectedBytes, File.ReadAllBytes(capturedPaths[0]));
         }
+        catch (Exception failure) { operationFailure = failure; throw; }
         finally
         {
-            if (Directory.Exists(temporaryDirectory))
+            var cleanupFailures = new List<Exception>();
+            try { workspace?.RequestPlaylistUrlShutdown(); if (workspace != null) { await workspace.WaitForPlaylistUrlIdleAsync(); } }
+            catch (Exception failure) { cleanupFailures.Add(failure); }
+            try { if (redirectServer != null) { await redirectServer.DisposeAsync(); } }
+            catch (Exception failure) { cleanupFailures.Add(failure); }
+            try { if (finalServer != null) { await finalServer.DisposeAsync(); } }
+            catch (Exception failure) { cleanupFailures.Add(failure); }
+            try { Directory.Delete(temporaryDirectory, recursive: true); }
+            catch (Exception failure) { cleanupFailures.Add(failure); }
+            if (cleanupFailures.Count > 0)
             {
-                Directory.Delete(temporaryDirectory, recursive: true);
+                if (operationFailure != null) { cleanupFailures.Insert(0, operationFailure); }
+                throw new AggregateException(cleanupFailures);
             }
         }
     }
@@ -2261,13 +2311,16 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         Uri requestUri,
         byte[] content,
         string contentType,
-        string? contentDisposition = null)
+        string? contentDisposition = null,
+        Uri? responseUri = null,
+        Uri? location = null)
     {
         var responseMessage = new HttpResponseMessage
         {
-            RequestMessage = new HttpRequestMessage(HttpMethod.Get, requestUri),
+            RequestMessage = new HttpRequestMessage(HttpMethod.Get, responseUri ?? requestUri),
             Content = new ByteArrayContent(content)
         };
+        responseMessage.Headers.Location = location;
         responseMessage.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
         if (!string.IsNullOrWhiteSpace(contentDisposition))
         {

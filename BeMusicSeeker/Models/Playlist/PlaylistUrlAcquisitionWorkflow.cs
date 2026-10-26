@@ -1364,6 +1364,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         }
     }
 
+    /// <summary>Content-Dispositionを優先し、対応名の最終応答URI、Location、要求URIの順に保存名を求めます。</summary>
     private static string ResolveDownloadedArchiveFileName(Uri requestedUri, AppHttpResponse response)
     {
         if (TryResolveRawContentDispositionFileName(response?.ContentHeaders, out string rawFileName))
@@ -1376,13 +1377,18 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         {
             return NormalizeDownloadedFileName(fileName);
         }
-        if (response?.Headers?.Location != null)
+        fileName = GetFileNameFromUri(response.ResponseUri);
+        if (IsDownloadAndInstallCandidateFileName(fileName))
         {
-            return GetFileNameFromUri(response.Headers.Location);
+            return fileName;
         }
-        if (Path.GetFileName(requestedUri.ToString()).Contains('?') || Path.GetFileName(requestedUri.ToString()).Contains('='))
+        if (response.Headers?.Location != null)
         {
-            return GetFileNameFromUri(response.ResponseUri);
+            fileName = GetFileNameFromUri(response.Headers.Location);
+            if (IsDownloadAndInstallCandidateFileName(fileName))
+            {
+                return fileName;
+            }
         }
         return GetFileNameFromUri(requestedUri);
     }
