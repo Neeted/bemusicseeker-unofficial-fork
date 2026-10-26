@@ -1887,9 +1887,10 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("1", cards.Single(card => card.Label == "EASY").Value);
         Assert.AreEqual("type:clear newclear:EC", cards.Single(card => card.Label == "EASY").FilterText);
         Assert.IsFalse(cards.Any(card => card.Label == "EXH"));
-        Assert.AreEqual("FC", cards.Single(card => card.Label == "FC").Label);
-        Assert.AreEqual("1", cards.Single(card => card.Label == "FC").Value);
-        Assert.AreEqual("type:clear newclear:FC|PF", cards.Single(card => card.Label == "FC").FilterText);
+        PlayHistorySummaryCard fcCard = cards.Single(card => card.FilterKey == "fc");
+        Assert.AreEqual("1", fcCard.Value);
+        CollectionAssert.AreEqual(new long[] { 2 }, projected.Rows
+            .Where(GridKeywordSearchQuery.Parse(fcCard.FilterText).MatchesPlayHistoryRow).Select(row => row.HistoryId).ToArray());
         Assert.IsFalse(cards.Single(card => card.Label == Resources.Play_history_summary_judge_count).IsFilterable);
         Assert.IsTrue(cards.Single(card => card.Label == Resources.Play_history_summary_score_update).IsFilterable);
     }
@@ -1918,7 +1919,7 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsTrue(cards.Single(card => card.FilterKey == "score").IsSelected);
         Assert.IsTrue(cards.Single(card => card.FilterKey == "fc").IsSelected);
         Assert.IsFalse(cards.Single(card => card.FilterKey == "bp").IsSelected);
-        CollectionAssert.AreEquivalent(new[] { "type:score", "type:clear newclear:FC|PF" }, filterTexts.ToArray());
+        CollectionAssert.AreEquivalent(cards.Where(card => card.IsSelected).Select(card => card.FilterText).ToArray(), filterTexts.ToArray());
         StringAssert.StartsWith(diagnostic, "Error error: detail");
         Assert.AreEqual(string.Empty, PlayHistoryPresentationState.FormatDiagnosticSummary([null]));
     }
@@ -2795,6 +2796,76 @@ public sealed class PlayHistoryReadModelTests
                 null);
             Assert.IsTrue(targetIndex.TryApply(row, out PlayHistoryRow displayRow));
             Assert.AreEqual("FolderA", displayRow.FolderLabels);
+        });
+    }
+
+    /// <summary>
+    /// MAXへのクリア更新を既存FC内訳とカードへ含め、MAXのSCORE単独更新やEXHと区別する。PF/MAXの個別検索と元のランプ値も保つ。
+    /// </summary>
+    /// <remarks>実scorelogの6履歴から投影・集計・カード条件の実検索まで接続し、件数だけ合って対象行が違う実装も検出する。</remarks>
+    [TestMethod]
+    public void BeatorajaSummaryIncludesMaxClearUpdatesInFullComboCard()
+    {
+        WithBeatorajaPlayerDb((scoreDbPath, scoreLogDbPath) =>
+        {
+            CreateBeatorajaScoreLogDb(scoreLogDbPath);
+            CreateBeatorajaPlayerDb(scoreDbPath);
+            (long Date, int OldClear, int NewClear, int Score)[] inputs =
+            [
+                (1000, 6, 7, 100), // EXH更新はCLEARへ含め、FC内訳から除外する。
+                (2000, 7, 8, 100), // 既存FC更新を残す。
+                (3000, 8, 9, 100), // 既存PF更新とPF個別検索を残す。
+                (4000, 9, 10, 100), // PFからMAXもFC内訳へ含める。
+                (5000, 10, 10, 101), // MAXのままSCOREだけ更新した行をFCへ加えない。
+                (6000, 8, 10, 100) // FCからMAXも同じ内訳へ含める。
+            ];
+            using (var db = new SQLiteConnection(scoreLogDbPath))
+            {
+                foreach ((long Date, int OldClear, int NewClear, int Score) input in inputs)
+                {
+                    InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: input.Date,
+                        oldClear: input.OldClear, clear: input.NewClear, oldScore: 100, score: input.Score,
+                        oldCombo: 100, combo: 100, oldMinBp: 0, minBp: 0);
+                }
+            }
+
+            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            {
+                ScoreDbPath = scoreDbPath,
+                ScoresBySha256 = CreateBeatorajaScoreSnapshot((ShaA, 100))
+            });
+            PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectBeatorajaRows(read, CreateProjectionIndex());
+            var summary = PlayHistoryPeriodSummary.FromRows("beatoraja", projected.Rows);
+            PlayHistorySummaryCard fcCard = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Beatoraja)
+                .Single(card => card.FilterKey == "fc");
+            string selectedFcFilter = PlayHistoryPresentationState.GetSummaryFilterTexts(new HashSet<string> { "fc" }).Single();
+
+            Assert.IsFalse(read.HasErrors);
+            Assert.AreEqual(6, projected.Rows.Count);
+            Assert.AreEqual(6, summary.SummaryEligibleCount);
+            foreach ((long Date, int OldClear, int NewClear, int Score) input in inputs)
+            {
+                BeatorajaPlayHistoryRecord record = read.Rows.Single(row => row.played_at == input.Date);
+                PlayHistoryRow row = projected.Rows.Single(row => row.PlayedAtUnix == input.Date);
+                Assert.AreEqual(input.OldClear, record.old_clear);
+                Assert.AreEqual(input.NewClear, record.new_clear);
+                Assert.AreEqual((ClearType)input.OldClear, row.OldBestClear);
+                Assert.AreEqual((ClearType)input.NewClear, row.NewBestClear);
+            }
+            Assert.AreEqual(5, summary.ClearUpdateCount);
+            Assert.AreEqual(4, summary.FullComboClearUpdateCount);
+            Assert.AreEqual(1, summary.ScoreUpdateCount);
+            Assert.AreEqual("4", fcCard.Value);
+            Assert.AreEqual(fcCard.FilterText, selectedFcFilter);
+            CollectionAssert.AreEquivalent(new long[] { 2000, 3000, 4000, 6000 }, projected.Rows
+                .Where(GridKeywordSearchQuery.Parse(selectedFcFilter).MatchesPlayHistoryRow).Select(row => row.PlayedAtUnix).ToArray());
+            CollectionAssert.AreEquivalent(new long[] { 3000 }, projected.Rows
+                .Where(GridKeywordSearchQuery.Parse("newclear:PF").MatchesPlayHistoryRow).Select(row => row.PlayedAtUnix).ToArray());
+            CollectionAssert.AreEquivalent(new long[] { 4000, 5000, 6000 }, projected.Rows
+                .Where(GridKeywordSearchQuery.Parse("newclear:MAX").MatchesPlayHistoryRow).Select(row => row.PlayedAtUnix).ToArray());
+            PlayHistoryRow scoreOnly = projected.Rows.Single(row => row.PlayedAtUnix == 5000);
+            Assert.IsTrue(scoreOnly.BestScoreUpdated);
+            Assert.IsFalse(scoreOnly.BestClearUpdated);
         });
     }
 

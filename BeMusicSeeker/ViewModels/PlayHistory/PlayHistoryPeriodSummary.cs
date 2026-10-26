@@ -46,6 +46,7 @@ internal sealed class PlayHistoryPeriodSummary
 
     public int ExHardClearUpdateCount { get; private set; }
 
+    /// <summary>FC・PERFECTとbeatorajaのMAXへのクリア更新数を取得します。</summary>
     public int FullComboClearUpdateCount { get; private set; }
 
     public int NewClearCount { get; private set; }
@@ -54,6 +55,7 @@ internal sealed class PlayHistoryPeriodSummary
 
     public int NewPerfectCount { get; private set; }
 
+    /// <summary>確定した集計対象行から更新数とクリア内訳を作成し、取得元の期間実績があれば適用します。</summary>
     internal static PlayHistoryPeriodSummary FromRows(
         string label,
         IEnumerable<PlayHistoryRow> rows,
@@ -149,6 +151,7 @@ internal sealed class PlayHistoryPeriodSummary
                 break;
             case Models.LR2.ClearType.FC:
             case Models.LR2.ClearType.PA:
+            case Models.LR2.ClearType.MAX:
                 FullComboClearUpdateCount++;
                 break;
         }

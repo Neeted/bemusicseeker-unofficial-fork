@@ -237,6 +237,7 @@ internal sealed class PlayHistoryPresentationState
             : baseText + " / " + diagnosticSummary;
     }
 
+    /// <summary>期間集計を既存カードへ渡し、FCカードにはFC・PERFECT・MAXへのクリア更新を対応付けます。</summary>
     internal static IReadOnlyList<PlayHistorySummaryCard> CreateSummaryCards(
         PlayHistoryPeriodSummary summary,
         PlayHistoryProvider provider,
@@ -266,6 +267,7 @@ internal sealed class PlayHistoryPresentationState
         return cards;
     }
 
+    /// <summary>選択キーに対応する、集計カードと共通の検索条件を取得します。</summary>
     internal static IReadOnlyList<string> GetSummaryFilterTexts(HashSet<string> selectedKeys)
     {
         if (selectedKeys == null || selectedKeys.Count == 0)
@@ -336,7 +338,7 @@ internal sealed class PlayHistoryPresentationState
             new PlayHistorySummaryFilterDefinition("normal", "type:clear newclear:NC"),
             new PlayHistorySummaryFilterDefinition("hard", "type:clear newclear:HC"),
             new PlayHistorySummaryFilterDefinition("exhard", "type:clear newclear:EXH"),
-            new PlayHistorySummaryFilterDefinition("fc", "type:clear newclear:FC|PF")
+            new PlayHistorySummaryFilterDefinition("fc", "type:clear newclear:FC|PF|MAX")
         ];
     }
 
