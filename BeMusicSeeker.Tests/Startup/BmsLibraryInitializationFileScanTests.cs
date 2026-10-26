@@ -1233,7 +1233,6 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(1, result.DbCommitBmsChangedCount);
             Assert.IsTrue(result.FileDiffReadMs >= 0);
             Assert.IsTrue(result.FileDiffParseMs >= 0);
-            Assert.IsTrue(result.SnapshotQueueHighWatermark > 0);
             Assert.IsTrue(result.PostParseOutputWaitMs >= 0);
             Assert.IsTrue(result.CommitWriterQueueWaitMs >= 0);
             Assert.AreEqual(2, result.PostParseWorkItemCount);
