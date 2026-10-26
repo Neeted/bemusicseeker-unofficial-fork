@@ -11,12 +11,19 @@ internal static class BmsEncodingDetector
     private static readonly Encoding koreanEnc = Encoding.GetEncoding("ks_c_5601-1987", new EncoderExceptionFallback(), new DecoderExceptionFallback());
     private static readonly Encoding utf8Enc = Encoding.GetEncoding("utf-8", new EncoderExceptionFallback(), new DecoderExceptionFallback());
 
-    /// <summary>捕捉済みのバイト列から既存の判定規則で文字コードと必要な復号結果を返します。</summary>
+    /// <summary>捕捉済みのバイト列からUTF-8 BOMを優先し、BOMなしでは既存の判定規則で文字コードと必要な復号結果を返します。</summary>
     internal static BmsEncodingDetectionResult Detect(byte[] bytes)
     {
         if (bytes == null)
         {
             throw new ArgumentNullException(nameof(bytes));
+        }
+        // StreamReaderがBOMで実際に選ぶ復号方式と判定名を揃え、先頭指示行もBOMを除いて読みます。
+        if (bytes.AsSpan().StartsWith(Encoding.UTF8.Preamble))
+        {
+            // 従来のBOM自動認識と同じ置換復号を使い、CP932資源byteの混在を新たに拒否しません。
+            return CreateEncodingDetectionResult("utf-8", BmsEncodingDetectionOutcome.Utf8,
+                fastAscii: false, decodedText: DecodeBytes(bytes, Encoding.UTF8));
         }
         if (IsAsciiOnly(bytes))
         {

@@ -28,6 +28,25 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed partial class BmsLibraryPackageInstallServiceTests
 {
+    /// <summary>実pathからのパッケージ読取りでUTF-8 BOM直後のTITLE・作者・判定名を共通値へ渡し、入口でCP932値を残す誤りを検出する。</summary>
+    /// <remarks>条件網羅と資源・hashの保証はsnapshot系列へ分担し、この代表はWindowや導入DBを準備せず読取り接続だけを確認する。</remarks>
+    [TestMethod]
+    public void PackageChartEntry_FromPathReadsUtf8BomMetadata()
+    {
+        WithTemporaryDirectory(root =>
+        {
+            string path = Path.Combine(root, "utf8-bom.bms");
+            File.WriteAllText(path, "#TITLE 導入する曲\r\n#ARTIST 導入作者\r\n", new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+
+            var entry = PackageChartEntry.FromPath(path);
+
+            Assert.IsNotNull(entry);
+            Assert.AreEqual("導入する曲", entry.Chart.RawTitle);
+            Assert.AreEqual("導入作者", entry.Chart.RawArtist);
+            Assert.AreEqual("utf-8", entry.Chart.EncodingName);
+        });
+    }
+
     /// <summary>親フォルダと音源付き配下譜面を両入力順で渡し、直下譜面は一回だけ導入します。子階層譜面を含む親は既存規則で一件保留し、子だけの導入による実体欠落を防ぎます。</summary>
     /// <remarks>実取り込み入口から発見・物理配置・SQLite確定まで接続し、単独BMSONと隣接資源の受理条件は既存の発見テストに分担します。</remarks>
     [TestMethod]

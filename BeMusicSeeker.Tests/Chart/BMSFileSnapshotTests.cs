@@ -166,35 +166,96 @@ public sealed class BMSFileSnapshotTests
     }
 
     /// <summary>
-    /// UTF-8 BOM付き入力の表示メタデータをUTF-8で読んでも音声参照はCP932のままとし、BOM自動解釈による参照変更を検出する。
+    /// BMS/PMSの先頭・後続TITLEを実自動判定から原文どおり復元し、判定名との不一致、CP932資源や原byteのhashの変更を検出する。
     /// </summary>
     [TestMethod]
-    public void CreateBMSFileFromSnapshot_WithDetectedUtf8BomKeepsResourceReferencesShiftJis()
+    [DataRow("bms", true)]
+    [DataRow("bms", false)]
+    [DataRow("pms", true)]
+    [DataRow("pms", false)]
+    public void CreateBMSFileFromSnapshot_WithDetectedUtf8BomKeepsResourceReferencesShiftJis(string extension, bool titleFirst)
     {
         WithTempDirectory(delegate (string tempDirectory)
         {
-            string filePath = Path.Combine(tempDirectory, "utf8-bom-resource.bms");
-            const string title = "\u3042 UTF-8";
-            const string resourceName = "\u3042.wav";
+            string filePath = Path.Combine(tempDirectory, "utf8-bom-resource." + extension);
+            const string title = "日本語 UTF-8";
+            const string subtitle = "副題";
+            const string artist = "作者";
+            const string subartist = "共同作者";
+            const string genre = "音楽";
+            string text = (titleFirst ? string.Empty : "#PLAYER 1\r\n")
+                + "#TITLE " + title + "\r\n#SUBTITLE " + subtitle
+                + "\r\n#ARTIST " + artist + "\r\n#SUBARTIST " + subartist
+                + "\r\n#GENRE " + genre + "\r\n#WAV01 é.wav\r\n#STAGEFILE é.png\r\n#00111:01\r\n";
             File.WriteAllText(
                 filePath,
-                "#PLAYER 1\r\n#TITLE " + title + "\r\n#WAV01 " + resourceName + "\r\n",
+                text,
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            byte[] bytes = File.ReadAllBytes(filePath);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            ChartFile shiftJisParsed = BmsChartFileParser.ParseSnapshot(snapshot);
-            var detectionResult = new BmsEncodingDetectionResult(
-                "utf-8",
-                BmsEncodingDetectionOutcome.Utf8,
-                fastAscii: false,
-                decodedText: File.ReadAllText(filePath, Encoding.UTF8));
+            BmsEncodingDetectionResult detectionResult = BmsEncodingDetector.Detect(snapshot.Bytes);
 
-            ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot, detectionResult);
+            ChartFile actual = BmsChartFileParser.ParseSnapshotWithEncodingDetection(snapshot);
 
+            Assert.AreEqual("utf-8", detectionResult.EncodingName);
+            Assert.AreEqual(text, detectionResult.DecodedText);
+            Assert.AreEqual("utf-8", actual.EncodingName);
             Assert.AreEqual(title, actual.RawTitle);
-            Assert.AreEqual(
-                shiftJisParsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath,
-                actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
-            Assert.AreNotEqual(resourceName, actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
+            Assert.AreEqual(subtitle, actual.RawSubtitle);
+            Assert.AreEqual(artist, actual.RawArtist);
+            Assert.AreEqual(subartist, actual.Subartist);
+            Assert.AreEqual(genre, actual.Genre);
+            // éのUTF-8 bytes C3 A9はCP932で半角の「ﾃｩ」となる。
+            Assert.AreEqual("ﾃｩ.wav", actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
+            Assert.AreEqual("ﾃｩ.png", actual.Stagefile);
+            Assert.AreEqual(Convert.ToHexStringLower(MD5.HashData(bytes)), actual.Md5);
+            Assert.AreEqual(Convert.ToHexStringLower(SHA256.HashData(bytes)), actual.Sha256);
+        });
+    }
+
+    /// <summary>
+    /// UTF-8 BOM本文に生CP932資源名が混在しても実判定・解析で受理し、有効UTF-8の原文5項目・CP932資源・原byte hashを失う誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public void CreateBMSFileFromSnapshot_Utf8BomWithCp932ResourceBytesPreservesMetadataAndHashes()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "utf8-bom-cp932-resource.bms");
+            const string title = "混在する曲";
+            const string subtitle = "副題";
+            const string artist = "作者";
+            const string subartist = "共同作者";
+            const string genre = "音楽";
+            byte[] bytes =
+            [
+                0xEF, 0xBB, 0xBF,
+                .. Encoding.UTF8.GetBytes("#TITLE " + title + "\r\n#SUBTITLE " + subtitle
+                    + "\r\n#ARTIST " + artist + "\r\n#SUBARTIST " + subartist
+                    + "\r\n#GENRE " + genre + "\r\n#WAV01 "),
+                // CP932の「あ」。UTF-8本文としては不正でも、資源名はこの元byteで解釈する。
+                0x82, 0xA0,
+                .. Encoding.ASCII.GetBytes(".wav\r\n#00111:01\r\n")
+            ];
+            File.WriteAllBytes(filePath, bytes);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+
+            BmsEncodingDetectionResult detection = BmsEncodingDetector.Detect(snapshot.Bytes);
+            ChartFile actual = BmsChartFileParser.ParseSnapshotWithEncodingDetection(snapshot);
+
+            Assert.AreEqual("utf-8", detection.EncodingName);
+            Assert.AreEqual("utf-8", actual.EncodingName);
+            Assert.AreEqual(title, actual.RawTitle);
+            Assert.AreEqual(subtitle, actual.RawSubtitle);
+            Assert.AreEqual(artist, actual.RawArtist);
+            Assert.AreEqual(subartist, actual.Subartist);
+            Assert.AreEqual(genre, actual.Genre);
+            ChartResourceReference resource = actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal);
+            Assert.AreEqual("あ.wav", resource.RawPath);
+            Assert.AreEqual("あ.wav", resource.NormalizedPath);
+            Assert.AreEqual(ChartResourcePathNormalizationStatus.Valid, resource.Status);
+            Assert.AreEqual(Convert.ToHexStringLower(MD5.HashData(bytes)), actual.Md5);
+            Assert.AreEqual(Convert.ToHexStringLower(SHA256.HashData(bytes)), actual.Sha256);
         });
     }
 

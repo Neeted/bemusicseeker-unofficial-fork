@@ -1637,7 +1637,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     /// <summary>
-    /// 実BMSの文字コード不足を保守しても返す現在値のMD5・SHA256を保持し、保守を内容hash更新へ混同する誤りを検出する。
+    /// 文字化けしたBOM付きBMSを明示保守の自動判定で保存し直し、現在値・DB原文の欠落やdigest・利用者列・CP932資源の変更を検出する。
     /// </summary>
     /// <remarks>実入力の読取りと実SQLite書込みを保ち、保存receiptを通った現在値を観測する。</remarks>
     [TestMethod]
@@ -1651,11 +1651,15 @@ public sealed class BmsLibraryMaintenanceServiceTests
         string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
         File.WriteAllText(
             bmsFilePath,
-            "#PLAYER 1\r\n#TITLE Bms\r\n#WAV01 sub\\missing.wav\r\n#00111:01\r\n",
-            Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
+            "#TITLE 保守する曲\r\n#SUBTITLE 副題\r\n#ARTIST 保守作者\r\n#SUBARTIST 共同作者\r\n#GENRE 音楽\r\n#WAV01 sub\\é.wav\r\n#00111:01\r\n",
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
         try
         {
             ChartFile bmsFile = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsFilePath));
+            Assert.AreNotEqual("保守する曲", bmsFile.RawTitle);
+            bmsFile = bmsFile with { Favorite = 3, AddDate = 12345, Tag = "keep-user-tag" };
+            Directory.CreateDirectory(Path.Combine(tempDirectoryPath, "sub"));
+            File.WriteAllBytes(Path.Combine(tempDirectoryPath, "sub", "ﾃｩ.wav"), [1]);
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, new ResourceHealthMaintenanceSnapshot { Path = bmsFile.Path, Hash = bmsFile.Md5, Origin = MaintenanceInfoOrigin.Placeholder });
             string originalMd5 = bmsFile.Md5;
             string originalSha256 = bmsFile.Sha256;
@@ -1670,11 +1674,12 @@ public sealed class BmsLibraryMaintenanceServiceTests
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(bmsFile), typeof(LR2SongDB.song));
             });
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(bmsFile)],
-                forceUpdate: false,
+                forceUpdate: true,
                 CreateDurableWriter(songDbPath),
                 null,
                 new ResourceHealthLookupContext(null));
@@ -1683,6 +1688,27 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(1, result.MissingEncodingTargetCount);
             Assert.AreEqual(originalMd5, bmsFile.Md5);
             Assert.AreEqual(originalSha256, bmsFile.Sha256);
+            Assert.AreEqual("保守する曲", bmsFile.RawTitle);
+            Assert.AreEqual("保守する曲 副題", bmsFile.Title);
+            Assert.AreEqual("保守作者 共同作者", bmsFile.Artist);
+            Assert.AreEqual("utf-8", bmsFile.EncodingName);
+            Assert.AreEqual(1, bmsFile.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
+            Assert.AreEqual(1, bmsFile.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
+            Assert.AreEqual(3, bmsFile.Favorite);
+            Assert.AreEqual(12345, bmsFile.AddDate);
+            Assert.AreEqual("keep-user-tag", bmsFile.Tag);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual("保守する曲", row.title);
+            Assert.AreEqual("副題", row.subtitle);
+            Assert.AreEqual("保守作者", row.artist);
+            Assert.AreEqual("共同作者", row.subartist);
+            Assert.AreEqual("音楽", row.genre);
+            Assert.AreEqual(originalMd5, row.hash);
+            Assert.AreEqual(3, row.favorite);
+            Assert.AreEqual(12345, row.adddate);
+            Assert.AreEqual("keep-user-tag", row.tag);
+            Assert.AreEqual("utf-8", verify.Table<LR2SongDBExtended.maintenance>().Single().encoding);
         }
         finally
         {

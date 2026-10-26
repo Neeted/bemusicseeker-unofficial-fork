@@ -1692,7 +1692,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     }
 
     /// <summary>
-    /// 新規BMSをscanで追加するとLR2 folder・parent hashを現在投影とDBへ反映し、互換pathへ誤警告を出さない。
+    /// UTF-8 BOM付き新規BMSの原文・判定名をscanからDBと同じ現在値へ渡し、LR2 folder・parent・原byte hashと非編集列を保つ。
     /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_AddsBmsWithLr2FolderAndParentHashes()
@@ -1703,7 +1703,11 @@ public sealed class BmsLibraryInitializationFileScanTests
             string chartDirectoryPath = Path.Combine(lr2RootPath, "Lr2Crc");
             Directory.CreateDirectory(chartDirectoryPath);
             string bmsPath = Path.Combine(chartDirectoryPath, "added.bms");
-            File.WriteAllText(bmsPath, CreateValidBmsText("CRC Added"), Encoding.ASCII);
+            File.WriteAllText(bmsPath,
+                CreateValidBmsText("登録する曲").Replace("#ARTIST Artist", "#ARTIST 登録作者")
+                + "#SUBTITLE 副題\r\n#SUBARTIST 共同作者\r\n#GENRE 音楽\r\n#PLAYLEVEL 12\r\n",
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            byte[] bytes = File.ReadAllBytes(bmsPath);
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
@@ -1734,6 +1738,13 @@ public sealed class BmsLibraryInitializationFileScanTests
 
             Assert.AreEqual(1, result.AddedFiles.Count);
             ChartFile added = result.AddedFiles[0];
+            Assert.AreEqual("登録する曲", added.RawTitle);
+            Assert.AreEqual("登録する曲 副題", added.Title);
+            Assert.AreEqual("登録作者 共同作者", added.Artist);
+            Assert.AreEqual("utf-8", added.EncodingName);
+            Assert.AreEqual(added, result.NextFiles.Single());
+            Assert.AreEqual(Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(bytes)), added.Md5);
+            Assert.AreEqual(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes)), added.Sha256);
             Assert.IsFalse(string.IsNullOrWhiteSpace(added.Folder));
             Assert.IsFalse(string.IsNullOrWhiteSpace(ChartSongStorageMapping.ToBmsRow(added).parent));
             Assert.IsTrue(ChartSongStorageMapping.ToBmsRow(added).parent.Length <= 8);
@@ -1741,6 +1752,15 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(0, result.NextFiles.Count(file => string.IsNullOrWhiteSpace(ChartSongStorageMapping.ToBmsRow(file).parent)));
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual("登録する曲", row.title);
+            Assert.AreEqual("副題", row.subtitle);
+            Assert.AreEqual("登録作者", row.artist);
+            Assert.AreEqual("共同作者", row.subartist);
+            Assert.AreEqual("音楽", row.genre);
+            Assert.AreEqual(12, row.level);
+            Assert.AreEqual(added.Md5, row.hash);
+            Assert.AreEqual("utf-8", verify.Table<LR2SongDBExtended.maintenance>().Single().encoding);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(bmsPath)), verify.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", bmsPath));
             Assert.AreEqual(ChartSongStorageMapping.ToBmsRow(added).parent, verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", bmsPath));
         });

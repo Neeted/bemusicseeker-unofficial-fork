@@ -792,17 +792,19 @@ public sealed class Lr2SongDbSyncServiceTests
     }
 
     /// <summary>
-    /// BOMなしUTF-8譜面を検出した文字コードで解析して日本語タイトル・作者を保存し、CP932固定による文字化けを検出する。
+    /// BOMなし・ありのUTF-8譜面を実判定で解析し、先頭タイトルと作者のSQLite保存・確定通知へ文字化けを渡す誤りを検出する。
     /// </summary>
     /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
-    public void SyncService_ParsesSongRowsWithDetectedUtf8Encoding()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void SyncService_ParsesSongRowsWithDetectedUtf8Encoding(bool withBom)
     {
         using var scope = TestDatabaseScope.Create();
         string songDirectory = Path.Combine(scope.DirectoryPath, "Utf8");
         Directory.CreateDirectory(songDirectory);
         string chartPath = Path.Combine(songDirectory, "utf8.bms");
-        File.WriteAllText(chartPath, "#TITLE 解析タイトル\r\n#ARTIST 解析アーティスト\r\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        File.WriteAllText(chartPath, "#TITLE 解析タイトル\r\n#ARTIST 解析アーティスト\r\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: withBom));
         ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
         ChartFile file = ChartTestValues.Empty() with
         {
@@ -814,6 +816,7 @@ public sealed class Lr2SongDbSyncServiceTests
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+        var notifiedTitles = new List<string>();
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
@@ -821,6 +824,7 @@ public sealed class Lr2SongDbSyncServiceTests
             RunId = "utf8-song",
             SongRows = [file],
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
+            Lr2CompatibilityFactsCommitted = _ => notifiedTitles.Add(songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath)),
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
@@ -828,6 +832,7 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(0, result.SongRowParseFailureCount);
         Assert.AreEqual("解析タイトル", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
         Assert.AreEqual("解析アーティスト", songDb.ExecuteScalar<string>("SELECT artist FROM song WHERE path = ?;", chartPath));
+        CollectionAssert.AreEqual(new[] { "解析タイトル" }, notifiedTitles);
     }
 
     /// <summary>
