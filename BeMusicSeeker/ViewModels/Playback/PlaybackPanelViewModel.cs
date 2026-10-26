@@ -1680,14 +1680,11 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 PlaybackStartObservation playbackStartObservation = null;
                 try
                 {
-                    while (LongPathFileSystem.EntryExists(Path.Combine(installDestination, Path.GetRelativePath(sourceRoot, workingPath))))
+                    string temporaryPath = FindTemporaryPlaybackSourcePath(originalPath, sourceRoot, installDestination);
+                    if (!string.Equals(originalPath, temporaryPath, StringComparison.OrdinalIgnoreCase))
                     {
-                        string temporaryName = Path.GetFileNameWithoutExtension(workingPath) + "_" + Path.GetExtension(workingPath);
-                        LongPathFileSystem.MoveFile(
-                            workingPath,
-                            Path.Combine(Path.GetDirectoryName(workingPath), temporaryName),
-                            overwrite: false);
-                        workingPath = Path.Combine(Path.GetDirectoryName(workingPath), temporaryName);
+                        LongPathFileSystem.MoveFile(originalPath, temporaryPath, overwrite: false);
+                        workingPath = temporaryPath;
                     }
 
                     List<string> sourceFiles = [];
@@ -1788,6 +1785,20 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 }
             }
         }
+    }
+
+    /// <summary>入力元の兄弟と同相対の配置先のファイル・ディレクトリを避け、既存の末尾「_」規則で最終名を決めます。探索中は入力元を移動せず、配置先が空なら元名を維持します。</summary>
+    private static string FindTemporaryPlaybackSourcePath(string originalPath, string sourceRoot, string installDestination)
+    {
+        string candidate = originalPath;
+        while (LongPathFileSystem.EntryExists(Path.Combine(installDestination, Path.GetRelativePath(sourceRoot, candidate)))
+            || (!string.Equals(candidate, originalPath, StringComparison.OrdinalIgnoreCase)
+                && LongPathFileSystem.EntryExists(candidate)))
+        {
+            string name = Path.GetFileNameWithoutExtension(candidate) + "_" + Path.GetExtension(candidate);
+            candidate = Path.Combine(Path.GetDirectoryName(originalPath), name);
+        }
+        return candidate;
     }
 
     /// <summary>元の試聴失敗を保持したまま、復元・停止の二次失敗を対象path付きで局所診断します。</summary>

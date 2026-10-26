@@ -2045,80 +2045,175 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
-    /// <summary>実コピーした相対音源・画像を内蔵Readyまで保持しCompletion前に所有物だけ回収します。既存素材・同名別フォルダ・元入力の保全と再試聴を確認します。</summary>
-    /// <remarks>一時配置の物理コピー・回収または確認から開始への接続を通すため実ライブラリを接続し、playerの実行は局所probeで制御します。</remarks>
-    [TestMethod]
-    public async Task TemporaryCopy_IsRetainedUntilReadyAndRemovedBeforeCompletion()
+    /// <summary>通常発見した入れ子パッケージで衝突なし・入力元兄弟・両側複数・ディレクトリ占有から開始名を決め、元入力と第三者のバイト内容・相対配置を保全します。</summary>
+    /// <remarks>実コピーを内蔵BeginStartのReadyまで保持し、要求TaskとLの未終端、Completion前の所有物回収を観測します。ディレクトリ占有の代表だけReady故障を重ね、元原因の一通知と明示再試聴を確認します。</remarks>
+    [DataTestMethod]
+    [DataRow(0, "chart.bms", false)]
+    [DataRow(1, "chart__.bms", false)]
+    [DataRow(2, "chart_____.bms", false)]
+    [DataRow(3, "chart___.bms", false)]
+    [DataRow(3, "chart___.bms", true)]
+    public async Task TemporaryCopy_IsRetainedUntilReadyAndRemovedBeforeCompletion(int collision, string expectedName, bool failReady)
     {
-        string directory = Path.Combine(Path.GetTempPath(), "bms-temporary-ready-" + Guid.NewGuid().ToString("N"));
-        string source = Path.Combine(directory, "source");
-        string destination = Path.Combine(directory, "destination");
-        Directory.CreateDirectory(source);
-        Directory.CreateDirectory(destination);
-        string chartPath = Path.Combine(source, "chart.bms");
-        File.WriteAllText(chartPath, "#WAV01 extra/kick.wav");
-        string[] resources = ["extra/kick.wav", "other/kick.wav", "extra/banner.png", "top.wav"];
-        foreach (string resource in resources)
-        {
-            string path = Path.Combine(source, resource);
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, resource);
-        }
-        Directory.CreateDirectory(Path.Combine(destination, "extra"));
-        File.WriteAllText(Path.Combine(destination, "extra/banner.png"), "existing image");
-        File.WriteAllText(Path.Combine(directory, "outside.wav"), "outside package");
-        File.WriteAllBytes(Path.Combine(directory, "song.db"), []);
+        string root = Path.Combine(Path.GetTempPath(), "bms-temporary-ready-" + Guid.NewGuid().ToString("N"));
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var player = new PreloadBmsPlayer { Ready = ready.Task, Completion = completion.Task };
-        var operations = new ChartFileOperationSynchronizer();
-        PlaybackPanelViewModel panel = CreateTemporaryInstallPanel(chartPath, destination,
-            Path.Combine(directory, "song.db"), player, new FakePlaybackDialogService(), out _, operations, packageRoot: source);
-        Task start = panel.StartAtIndex(0);
+        PlaybackPanelViewModel? panel = null;
+        Task start = Task.CompletedTask;
+        Task retry = Task.CompletedTask;
         try
         {
+            string source = Path.Combine(root, "source");
+            string destination = Path.Combine(root, "destination");
+            Directory.CreateDirectory(Path.Combine(source, "charts"));
+            Directory.CreateDirectory(Path.Combine(destination, "charts/extra"));
+            string chartPath = Path.Combine(source, "charts", "chart.bms");
+            const string chartText = "#PLAYER 1\n#TITLE Nested\n#WAV01 extra/kick.wav\n#STAGEFILE extra/banner.png\n#00111:01\n";
+            File.WriteAllText(chartPath, chartText);
+            File.WriteAllText(Path.Combine(source, "root.bms"), "#PLAYER 1\n#TITLE Root\n");
+            string[] resources = ["charts/extra/kick.wav", "charts/other/kick.wav", "charts/extra/banner.png", "top.wav"];
+            foreach (string resource in resources)
+            {
+                string path = Path.Combine(source, resource);
+                string? parent = Path.GetDirectoryName(path);
+                Assert.IsNotNull(parent);
+                Directory.CreateDirectory(parent);
+                File.WriteAllText(path, resource);
+            }
+            string[] sourceCollisions = collision switch
+            {
+                1 => ["chart_.bms"],
+                2 => ["chart_.bms", "chart___.bms"],
+                _ => []
+            };
+            string[] destinationCollisions = collision switch
+            {
+                1 or 3 => ["chart.bms"],
+                2 => ["chart.bms", "chart__.bms", "chart____.bms"],
+                _ => []
+            };
+            foreach (string name in sourceCollisions)
+            {
+                File.WriteAllText(Path.Combine(source, "charts", name), "#PLAYER 1\n#TITLE Source sibling " + name + "\n");
+            }
+            foreach (string name in destinationCollisions)
+            {
+                File.WriteAllText(Path.Combine(destination, "charts", name), "existing destination " + name);
+            }
+            if (collision == 3)
+            {
+                Directory.CreateDirectory(Path.Combine(source, "charts/chart_.bms"));
+                File.WriteAllBytes(Path.Combine(source, "charts/chart_.bms/keep.bin"), [0, 127, 255]);
+                Directory.CreateDirectory(Path.Combine(destination, "charts/chart__.bms"));
+                File.WriteAllBytes(Path.Combine(destination, "charts/chart__.bms/keep.bin"), [255, 0, 127]);
+            }
+            File.WriteAllText(Path.Combine(destination, "charts/extra/banner.png"), "existing image");
+            string outside = Path.Combine(root, "outside.wav");
+            File.WriteAllText(outside, "outside package");
+            string songDb = Path.Combine(root, "song.db");
+            File.WriteAllBytes(songDb, []);
+            (Dictionary<string, byte[]> Files, string[] Directories) sourceBefore = ReadTree(source);
+            (Dictionary<string, byte[]> Files, string[] Directories) destinationBefore = ReadTree(destination);
+            byte[] chartBytes = File.ReadAllBytes(chartPath);
+            byte[] outsideBytes = File.ReadAllBytes(outside);
+            ChartPackage package = new BmsLibraryPackageInstallService()
+                .SearchChartPackagesRecursivelyWithMetadata(source, 0.6).Packages.Single();
+            Assert.AreEqual(source, package.path);
+            Assert.IsTrue(package.ChartEntries.Count >= 2);
+            Assert.IsTrue(package.ChartEntries.Any(entry => entry.Chart.Path == Path.Combine(source, "root.bms")));
+            var failure = new InvalidOperationException("内蔵Readyの元原因");
+            var dialogs = new FakePlaybackDialogService();
+            var player = new PreloadBmsPlayer { Ready = ready.Task, Completion = completion.Task };
+            var operations = new ChartFileOperationSynchronizer();
+            panel = CreateTemporaryInstallPanel(chartPath, destination, songDb,
+                player, dialogs, out _, operations, discoveredPackage: package);
+            string expectedPath = Path.Combine(destination, "charts", expectedName);
+            start = panel.StartAtIndex(0);
             await TestUiDispatcherHost.AwaitNotificationAsync(player.StartObserved.Task, start, "temporary-ready-start");
             string copiedPath = await player.StartObserved.Task;
+            Assert.AreEqual(expectedPath, copiedPath);
             Assert.IsFalse(player.LastAllowPreload);
             Assert.IsTrue(operations.IsActive, "Ready前から一時配置の権限を保持します。");
-            Assert.IsTrue(File.Exists(copiedPath));
-            Assert.AreEqual("#WAV01 extra/kick.wav", File.ReadAllText(copiedPath));
+            Assert.IsFalse(start.IsCompleted, "実開始要求はReadyを待ちます。");
+            CollectionAssert.AreEqual(chartBytes, File.ReadAllBytes(copiedPath));
+            CollectionAssert.AreEqual(chartBytes, File.ReadAllBytes(Path.Combine(source, "charts", expectedName)));
+            Assert.AreEqual(collision == 0, File.Exists(chartPath), "衝突なしなら元名を保ち、改名時は最終名へ移動します。");
+            foreach (KeyValuePair<string, byte[]> file in sourceBefore.Files.Where(pair => pair.Key != Path.Combine("charts", "chart.bms")))
+            {
+                CollectionAssert.AreEqual(file.Value, File.ReadAllBytes(Path.Combine(source, file.Key)), file.Key);
+            }
+            foreach (KeyValuePair<string, byte[]> file in destinationBefore.Files)
+            {
+                CollectionAssert.AreEqual(file.Value, File.ReadAllBytes(Path.Combine(destination, file.Key)), file.Key);
+            }
             foreach (string resource in resources.Where(path => !path.EndsWith("banner.png", StringComparison.Ordinal)))
             {
                 Assert.AreEqual(resource, File.ReadAllText(Path.Combine(destination, resource)));
             }
-            Assert.AreEqual("existing image", File.ReadAllText(Path.Combine(destination, "extra/banner.png")));
+            Assert.AreEqual("existing image", File.ReadAllText(Path.Combine(destination, "charts/extra/banner.png")));
             Assert.IsFalse(File.Exists(Path.Combine(destination, "outside.wav")));
-            Assert.IsFalse(start.IsCompleted);
-            ready.SetResult();
+            if (failReady) { ready.SetException(failure); }
+            else { ready.SetResult(); }
             await start;
-            Assert.IsFalse(operations.IsActive, "回収終端後に権限を解放します。");
-            Assert.IsFalse(File.Exists(copiedPath));
-            Assert.IsFalse(File.Exists(Path.Combine(destination, "extra/kick.wav")));
-            Assert.IsFalse(Directory.Exists(Path.Combine(destination, "other")));
-            Assert.AreEqual("existing image", File.ReadAllText(Path.Combine(destination, "extra/banner.png")));
-            Assert.IsTrue(File.Exists(chartPath));
-            Assert.IsFalse(completion.Task.IsCompleted);
-            Assert.IsNotNull(panel.NowPlayingChart);
-            Assert.AreEqual(chartPath, panel.NowPlayingChart.Path);
-            await panel.StopPlayback(closeProcess: true);
-            player.BeforePlayStart = () => Assert.AreEqual("extra/kick.wav", File.ReadAllText(Path.Combine(destination, "extra/kick.wav")));
-            await panel.StartAtIndex(0);
-            Assert.AreEqual(2, player.Starts.Count);
-            Assert.IsFalse(File.Exists(Path.Combine(destination, "extra/kick.wav")));
-            Assert.AreEqual("existing image", File.ReadAllText(Path.Combine(destination, "extra/banner.png")));
-            foreach (string resource in resources) { Assert.AreEqual(resource, File.ReadAllText(Path.Combine(source, resource))); }
+            Assert.IsFalse(operations.IsActive, "回収と元名復元の終端後にLを解放します。");
+            AssertTree(source, sourceBefore);
+            AssertTree(destination, destinationBefore);
+            CollectionAssert.AreEqual(outsideBytes, File.ReadAllBytes(outside));
+            Assert.IsFalse(completion.Task.IsCompleted, "演奏Taskの終端まで一時配置や受付を保持しません。");
+            Assert.AreEqual(failReady ? 1 : 0, dialogs.PlaybackFailureNotificationCount);
+            if (failReady)
+            {
+                Assert.AreSame(failure, dialogs.LastPlaybackFailure);
+                Assert.IsNull(panel.NowPlayingChart);
+            }
+            else
+            {
+                Assert.IsNotNull(panel.NowPlayingChart);
+                Assert.AreEqual(chartPath, panel.NowPlayingChart.Path);
+            }
+            if (collision == 0 || failReady)
+            {
+                await panel.StopPlayback(closeProcess: true);
+                player.Ready = Task.CompletedTask;
+                player.BeforePlayStart = () =>
+                {
+                    CollectionAssert.AreEqual(chartBytes, File.ReadAllBytes(expectedPath));
+                    Assert.AreEqual("charts/extra/kick.wav", File.ReadAllText(Path.Combine(destination, "charts/extra/kick.wav")));
+                };
+                retry = panel.StartAtIndex(0);
+                await retry;
+                CollectionAssert.AreEqual(new[] { expectedPath, expectedPath }, player.Starts.ToArray());
+                Assert.AreEqual(failReady ? 1 : 0, dialogs.PlaybackFailureNotificationCount);
+                Assert.IsTrue(panel.IsPlaying);
+                Assert.IsFalse(operations.IsActive);
+                AssertTree(source, sourceBefore);
+                AssertTree(destination, destinationBefore);
+            }
         }
         finally
         {
             ready.TrySetResult();
             completion.TrySetResult();
-            try { await start; }
+            try { await Task.WhenAll(start, retry, completion.Task); }
             finally
             {
-                try { await panel.StopPlayback(closeProcess: true); }
-                finally { Directory.Delete(directory, recursive: true); }
+                try { if (panel != null) { await panel.CloseForShutdown(); } }
+                finally { if (Directory.Exists(root)) { Directory.Delete(root, recursive: true); } }
             }
+        }
+
+        static (Dictionary<string, byte[]> Files, string[] Directories) ReadTree(string path) =>
+            (Directory.GetFiles(path, "*", SearchOption.AllDirectories)
+                .ToDictionary(file => Path.GetRelativePath(path, file), File.ReadAllBytes, StringComparer.OrdinalIgnoreCase),
+            Directory.GetDirectories(path, "*", SearchOption.AllDirectories)
+                .Select(directory => Path.GetRelativePath(path, directory)).ToArray());
+
+        static void AssertTree(string path, (Dictionary<string, byte[]> Files, string[] Directories) expected)
+        {
+            (Dictionary<string, byte[]> Files, string[] Directories) actual = ReadTree(path);
+            CollectionAssert.AreEquivalent(expected.Files.Keys.ToArray(), actual.Files.Keys.ToArray());
+            CollectionAssert.AreEquivalent(expected.Directories, actual.Directories);
+            foreach (KeyValuePair<string, byte[]> file in expected.Files) { CollectionAssert.AreEqual(file.Value, actual.Files[file.Key], file.Key); }
         }
     }
 
@@ -5714,6 +5809,7 @@ public sealed class PlaybackPanelViewModelTests
             out _);
     }
 
+    /// <summary>専用設定・DB・受付を接続します。発見済みパッケージを渡した場合は実エントリーに導入先を設定し、その行投影を開始入力へ渡します。</summary>
     private PlaybackPanelViewModel CreateTemporaryInstallPanel(
         string chartPath,
         string installDirectory,
@@ -5722,13 +5818,15 @@ public sealed class PlaybackPanelViewModelTests
         IPlaybackDialogService dialogs,
         out LibraryChartRow activationRow,
         ChartFileOperationSynchronizer? operations = null,
-        string? packageRoot = null)
+        string? packageRoot = null,
+        ChartPackage? discoveredPackage = null)
     {
-        ChartFile bmsFile = (ChartTestValues.Empty() with { Path = chartPath });
-        ChartFile chart = ChartPackageTestExtensions
-            .CreateEntryWithInstallDestination(bmsFile, installDirectory)
-            .Chart;
-        activationRow = LibraryChartRow.FromChartFile(chart);
+        PackageChartEntry entry = discoveredPackage?.ChartEntries.Single(item => item.Chart.Path == chartPath)
+            ?? ChartPackageTestExtensions.CreateEntry(ChartTestValues.Empty() with { Path = chartPath });
+        entry.SetInstallDestinationPathOnly(installDirectory);
+        activationRow = discoveredPackage != null
+            ? LibraryChartRow.FromPackageChartEntry(entry)
+            : LibraryChartRow.FromChartFile(entry.Chart);
         var chartList = new MainChartListViewModel
         {
             Rows = new List<object> { activationRow },
@@ -5743,9 +5841,13 @@ public sealed class PlaybackPanelViewModelTests
             _ => { },
             operations ?? new ChartFileOperationSynchronizer());
         var library = new TestBmsLibrary(songDbPath, settings: testSettings);
-        if (packageRoot != null)
+        if (discoveredPackage != null)
         {
-            ChartPackage package = ChartPackageTestExtensions.CreatePackage([chart]);
+            library.ChartPackagesPending = [discoveredPackage];
+        }
+        else if (packageRoot != null)
+        {
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([entry]);
             package.path = packageRoot;
             library.ChartPackagesPending = [package];
         }
