@@ -2,11 +2,11 @@
 
 ## 目的と採用範囲
 
-通常の入力・操作で到達する保存、導入、一覧、再生、出力の不整合を解消する。本書は採用済みの修正対象と、既存の採用契約・未完了の実装・検証を扱う。対象は20件、実装の単位は下表の19単位とする。URL補完の取得元比較と候補比較は一単位にまとめ、二つの不具合の判定は独立して残す。[任意改善](release-follow-up-candidates.md)は今回実装せず、リリース完了条件に含めない。
+通常の入力・操作で到達する保存、導入、一覧、再生、出力の不整合を解消する。本書は採用済みの修正対象と、既存の採用契約・未完了の実装・検証を扱う。対象は19件、実装の単位は下表の18単位とする。URL補完の取得元比較と候補比較は一単位にまとめ、二つの不具合の判定は独立して残す。[任意改善](release-follow-up-candidates.md)は今回実装せず、リリース完了条件に含めない。
 
 追加指摘は `dev` の `8c53fc9b` とLR2出力簡素化の作業差分を照合した静的調査を根拠とする。既存対象も含め、通常経路の確認を実再現・テスト成功と読み替えない。着手時に最新のコードと既存差分を確認し、解消済みの課題を再実装しない。LR2出力設定の保存・生成の契約は[設定の保存](../spec/runtime/settings-persistence.md)と[LR2カスタムフォルダ](../spec/playlist/lr2-custom-folders.md)を参照する。
 
-今回追加した保留導入採番、BMT親MD5、数値・日時、ツリー編集、更新の課題は、`6e443a87` の必要経路を静的照合した。実再現・製品テストは未実施であり、原因が残る範囲を着手時に確認する。追加資料の識別子は既存計画の識別子と共通でないため、以下では機能名を主に扱う。フォルダ削除確認は[現行の三択契約](../spec/library/mutations.md#確認と共通受付)を維持し、未完了課題へ再登録しない。
+今回追加した保留導入採番、数値・日時、ツリー編集、更新の課題は、`6e443a87` の必要経路を静的照合した。実再現・製品テストは未実施であり、原因が残る範囲を着手時に確認する。追加資料の識別子は既存計画の識別子と共通でないため、以下では機能名を主に扱う。フォルダ削除確認は[現行の三択契約](../spec/library/mutations.md#確認と共通受付)を維持し、未完了課題へ再登録しない。
 
 以下の代表判定は独立テスト設計の代替ではなく、実装・テストが完了した保証でもない。
 
@@ -39,7 +39,7 @@
 | --- | --- | --- |
 | 導入先推定 | 保護ファイル採番では、共有する物理計画helperの書込みを直列にし、実導入の相対配置契約を維持する。 | 登録readerの先行単位は取り込む。後から統合する側は新版で実導入・保留・cleanup・索引反映を確認する。 |
 | 重複一覧・選択 | 重複の所属識別→初回解析後の古い画面切替は同じ通知・選択契約で順次扱う。範囲選択主行は現行のマウス入力・現在セル契約を保って扱う。 | 重複保守の共有境界を取り込んだ後、独立した表取得等と並行できる。 |
-| URL・表の値と出力 | 取得の大小文字→補完元/候補の大小文字→転送アーカイブ保存名は同じ取得経路へ順次適用する。転送後相対参照、JSON出力、推薦prefix、名前なしsort、プロパティURL解除は、共通の表/URI正本やhelperの変更有無を確認して分ける。保存済み所属の追加・移動を先行し、親MD5の遅延解決とBMTコース往復は同じentry/exporterを直列調整する。生成意味を変える単位では既存exporterVersionを必要に応じ更新し、最終版で旧生成物を一度再生成した後は未変更skipを維持する。 | 別の責務へ閉じるものは並行できる。同じ表の正本・保存APIまで広げる場合は同じ作業群へ戻す。 |
+| URL・表の値と出力 | 取得の大小文字→補完元/候補の大小文字→転送アーカイブ保存名は同じ取得経路へ順次適用する。転送後相対参照、JSON出力、推薦prefix、名前なしsort、プロパティURL解除は、共通の表/URI正本やhelperの変更有無を確認して分ける。保存済み所属の追加・移動を先行し、同じentry/exporterを変更する単位は直列調整する。生成意味を変える単位では既存exporterVersionを必要に応じ更新し、最終版で旧生成物を一度再生成した後は未変更skipを維持する。 | 別の責務へ閉じるものは並行できる。同じ表の正本・保存APIまで広げる場合は同じ作業群へ戻す。 |
 | 再生・成績・設定 | PlaybackPanelViewModelの共有gate・停止・世代契約と書込みを直列にする。管理入力回収で使う停止・joinは[ライブラリ変更](../spec/library/mutations.md#保留目録の解除と管理入力の回収)の現行契約を維持する。設定の録音形式・履歴プリセット・追加先改名は同じSettings責務で順次扱う。 | IR派生値は共通score表現・起動/終了基盤等を変更しない範囲で独立候補。外部固有の再開処理は[任意候補](release-follow-up-candidates.md#外部プレイヤー固有の試聴再生)として別に採否を判断し、同じownerへ書き込む場合だけ直列にする。 |
 | ツリー編集 | EditableTextBlockの候補/終端とMainWindowの確定値取得を一単位にする。 | 他の表・検索部品と同名の概念だけでは結合しない。任意の更新通知翻訳を採る場合もMainWindowの一writerへ合流する。 |
 | 更新 | ドライブルート正規化→完成後ready公開→同期lock保持。Program/gateway、既存のmarker公開helper、テスト補助、配布生成物・更新仕様を直列確認する。 | 更新以外の共有境界を変更しない単位とは並行可能。実プロセス/drive検証は負荷と所有を別途調整する。管理file→directory遷移は任意の別原因。 |
@@ -68,10 +68,9 @@ Functionalは全WT同時一件とし、別WTのQuickと必要ビルドは並行�
 | 13 | 履歴プリセット確定名。ストアはTrimするがeditorへ未正規化名を戻し、次の編集・削除の照合が外れる。 | 確定する一件を正規化し、保存とeditorで同じ内容を使う。新ID・保存形式は不要。 | ` 練習 ` 保存後に再表示なしで対象変更・改名・削除、JSONと表示が同じ一件。取消・空名・重複名を維持。 |
 | 14 | 追加出力先の改名入力。setterの毎回TrimがPropertyChanged Bindingへ戻り、途中の空白を消す。 | 入力文字列は保持し、正規化は確定時だけ。保存経路整理とは独立したBinding修正。 | 実Bindingで `My`→`My `→`My Charts`、前後空白の確定時除去、空白名拒否、改名後の出力先・保存値・表参照一致。 |
 | 15 | 保護ファイルの計画内採番衝突。採番helperは実FSだけを見て後続通常宛先を奪い、後段の重複拒否で正常な導入が止まる。 | 短命な一物理計画で全通常宛先・譜面宛先・生成済み採番先を考慮する。既存suffix、同一内容省略と通常上書きを維持。処理済み名だけの予約や永続台帳は作らない。 | `BmsLibraryPackageInstallServiceTests` の実FS/DBで異内容readme.txt/readme(1).txtと既存readme.txt、両列挙順、複数suffix/採番名を確認。txt/bmx/pmx、同一内容省略、導入・重複統合の保持、所持追加・保留解除まで判定。現状の準備失敗を破損と扱わない。 |
-| 16 | 再起動後のBMT親MD5欠落。hydrateが生値を遅延保持する一方、Org_md5 getterとBMT projectionが未解決リストを直読する。 | 親MD5の公開読取りを一つの遅延解決へ揃え、backing fieldで再入を避ける。clone/JSONも同値にし、起動時全件展開・出力ごとのDB再読込みは追加しない。旧誤出力は既存exporterVersion/skip境界で一度再生成する。 | `BmtTableExportServiceTests` と実SQLite hydrateで保存→再読込み→事前getterなし→実gzipの親MD5を判定。SHA256のみ/MD5あり、単複数親/親なし、詳細表示有無、元DB保持、旧manifestから再生成→次回省略を確認。コース制約往復と版更新を直列調整。 |
-| 17 | フォルダ編集取消で表示Binding消失。EditableTextBlockのText SetValue/Escape/内部TextBox書戻しがOneWay DisplayNameを外し、recycling後に旧名を残す。 | 表示Bindingと短命な編集候補を分け、確定時だけ現在対象・候補を既存改名入口へ一度渡す。取消/対象交換は候補を捨てる。EditModeChangedとMainWindowの確定値取得、DPの開始/終端を同じ契約へ揃える。Escape一行だけの補正、DisplayName TwoWay化、仮想化無効化はしない。 | `MainWindowPlaylistWorkspaceWpfTests` の実ツリー/compiled部品で無変更Escape・変更Escape・正常確定。Aの選択/focusを外して実scrollで同一部品がCへ再利用されたこと、Binding・新DataContext・表示名・操作対象を一組で確認。取消は保存なし、確定は一回。 |
-| 18 | ready書込み中の公開。最終名へ直接書くwriterと存在直後のReadAllTextが共有違反になり正常な更新開始を失敗させる。 | 同currentの一時名へmarkerをflush/closeし、完成後に最終ready名へ公開する。既存decisionの公開契約へ揃え、内容・期限・proceed/cancel・失敗時アプリ存続を維持。 | `UpdaterProcessGatewayTests`、`UpdaterPackageSyncTests` で公開準備中は最終名なし、出現時はclose済みを実writer/readerの順序制御で確認。receipt後だけ終了準備し、未公開期限切れ・取消・本来の起動失敗時回収を維持。writer終了後から読むfixtureだけにしない。 |
-| 19 | 更新cleanupが所有中の同期lockを削除。journalなし・新版起動直後にUpdater/watchdogの排他保持と重なり誤Failed通知になる。 | update-transaction.lockを一時物回収から除外し、OpenOrCreateで再利用する既存寿命を維持。例外全体抑制・待機再試行は追加しない。 | `UpdateDownloadServiceTests.CleanupPreviousWorkDirectoryPreservesActiveUpdaterPayload` でjournalなし/実lock保持中もlock/current/receiptを保ち、古いdownloadを回収。ready受理→新版起動後cleanupの系列を接続し、破損とは断定しない。 |
+| 16 | フォルダ編集取消で表示Binding消失。EditableTextBlockのText SetValue/Escape/内部TextBox書戻しがOneWay DisplayNameを外し、recycling後に旧名を残す。 | 表示Bindingと短命な編集候補を分け、確定時だけ現在対象・候補を既存改名入口へ一度渡す。取消/対象交換は候補を捨てる。EditModeChangedとMainWindowの確定値取得、DPの開始/終端を同じ契約へ揃える。Escape一行だけの補正、DisplayName TwoWay化、仮想化無効化はしない。 | `MainWindowPlaylistWorkspaceWpfTests` の実ツリー/compiled部品で無変更Escape・変更Escape・正常確定。Aの選択/focusを外して実scrollで同一部品がCへ再利用されたこと、Binding・新DataContext・表示名・操作対象を一組で確認。取消は保存なし、確定は一回。 |
+| 17 | ready書込み中の公開。最終名へ直接書くwriterと存在直後のReadAllTextが共有違反になり正常な更新開始を失敗させる。 | 同currentの一時名へmarkerをflush/closeし、完成後に最終ready名へ公開する。既存decisionの公開契約へ揃え、内容・期限・proceed/cancel・失敗時アプリ存続を維持。 | `UpdaterProcessGatewayTests`、`UpdaterPackageSyncTests` で公開準備中は最終名なし、出現時はclose済みを実writer/readerの順序制御で確認。receipt後だけ終了準備し、未公開期限切れ・取消・本来の起動失敗時回収を維持。writer終了後から読むfixtureだけにしない。 |
+| 18 | 更新cleanupが所有中の同期lockを削除。journalなし・新版起動直後にUpdater/watchdogの排他保持と重なり誤Failed通知になる。 | update-transaction.lockを一時物回収から除外し、OpenOrCreateで再利用する既存寿命を維持。例外全体抑制・待機再試行は追加しない。 | `UpdateDownloadServiceTests.CleanupPreviousWorkDirectoryPreservesActiveUpdaterPayload` でjournalなし/実lock保持中もlock/current/receiptを保ち、古いdownloadを回収。ready受理→新版起動後cleanupの系列を接続し、破損とは断定しない。 |
 
 ## 責務別の参照と依存
 

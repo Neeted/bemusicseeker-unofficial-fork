@@ -37,7 +37,7 @@ internal static class BmtTableExportService
 
     private const int ManifestSchemaVersion = 2;
 
-    private const int BmtExporterVersion = 3;
+    private const int BmtExporterVersion = 4;
 
     internal static BeatorajaBmtHashOutputMode NormalizeHashOutputMode(string value)
     {

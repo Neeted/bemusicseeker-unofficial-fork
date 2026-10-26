@@ -270,6 +270,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
     }
 
+    /// <summary>保存生値を必要時に解決し、親MD5を既存のJSON配列文字列で返します。親なしは空文字です。</summary>
     public override string org_md5
     {
         get
@@ -294,10 +295,12 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
     }
 
+    /// <summary>保存生値を最初の読取りで解決した親MD5列です。既存の正規化と入力順を保持します。</summary>
     public List<string> Org_md5
     {
         get
         {
+            ensureDeferredOrgMd5Parsed();
             return _orgMd5 ??= [];
         }
         set
@@ -796,16 +799,17 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
     }
 
+    /// <summary>既存の親列を優先して保存生値を遅延解決します。公開getterへ再入せず同じ正規化を適用します。</summary>
     private void ensureDeferredOrgMd5Parsed()
     {
         if (string.IsNullOrWhiteSpace(deferredOrgMd5Raw))
         {
             return;
         }
-        Org_md5 = Org_md5;
-        if (Org_md5.Count == 0)
+        _orgMd5 = normalizeOrgMd5Collection(_orgMd5);
+        if (_orgMd5.Count == 0)
         {
-            Org_md5 = parseOrgMd5(deferredOrgMd5Raw);
+            _orgMd5 = normalizeOrgMd5Collection(parseOrgMd5(deferredOrgMd5Raw));
         }
         deferredOrgMd5Raw = null;
     }

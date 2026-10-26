@@ -281,6 +281,96 @@ public sealed class BmtTableExportServiceTests
     private const string Md5A = "11111111111111111111111111111111";
     private const string Md5B = "22222222222222222222222222222222";
 
+    /// <summary>通常保存したMD5あり／SHA256のみの親0・1・複数を、新接続の未解決entryから各公開入口で初めて読み、固定親列と元DBの不変を確認します。</summary>
+    /// <remarks>各入口は別の起動hydrateを使います。先行getterによる救済を避け、BMTの実gzip接続は別ケースへ分担します。</remarks>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void HydratedParentMd5_FirstPublicReadCloneAndJsonPreserveSavedParents()
+    {
+        WithTemporaryDirectory(tempDirectory =>
+        {
+            ParentMd5FixtureRow[] fixtures = CreateParentMd5Fixtures();
+            string songDbPath = CreateParentMd5Database(tempDirectory, fixtures);
+            string[] savedRows = ReadRawParentMd5Rows(songDbPath);
+            foreach (string firstRead in new[] { "list", "string", "duplicate", "reload", "json" })
+            {
+                BMSTable table = LoadStartupParentMd5Table(songDbPath);
+                Assert.AreEqual(fixtures.Length, table.entries.Count);
+                foreach (ParentMd5FixtureRow fixture in fixtures)
+                {
+                    BMSTableEntry entry = table.entries.Single(candidate => candidate.title == fixture.Title);
+                    switch (firstRead)
+                    {
+                        case "list":
+                            CollectionAssert.AreEqual(fixture.Parents, entry.Org_md5.ToArray(), fixture.Title);
+                            break;
+                        case "string":
+                            string expected = fixture.Parents.Length == 0 ? string.Empty : new JArray(fixture.Parents).ToString(Formatting.Indented);
+                            Assert.AreEqual(expected, entry.org_md5, fixture.Title);
+                            break;
+                        case "duplicate":
+                            CollectionAssert.AreEqual(fixture.Parents, entry.Duplicate().Org_md5.ToArray(), fixture.Title);
+                            break;
+                        case "reload":
+                            CollectionAssert.AreEqual(fixture.Parents, entry.CreatePlaylistReloadSnapshot().Org_md5.ToArray(), fixture.Title);
+                            break;
+                        case "json":
+                            JObject json = entry.ToJsonObject();
+                            JArray parents = json["org_md5s"] as JArray ?? throw new AssertFailedException("親MD5配列がありません。");
+                            CollectionAssert.AreEqual(fixture.Parents, parents.Values<string>().ToArray(), fixture.Title);
+                            Assert.AreEqual(fixture.Parents.FirstOrDefault() ?? string.Empty, json.Value<string>("org_md5"), fixture.Title);
+                            break;
+                    }
+                }
+                CollectionAssert.AreEqual(savedRows, ReadRawParentMd5Rows(songDbPath), firstRead + "で保存行を変更しません。");
+            }
+        });
+    }
+
+    /// <summary>通常保存から新接続の起動hydrate・通常attach・実gzip出力へ進み、詳細snapshotの先読み有無に依存せず親列・自己hash・元DBを保持します。</summary>
+    /// <param name="readDetails">実際の詳細用snapshotを出力前に捕捉する場合はtrue。falseでは親の先読みを行いません。</param>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    [DataRow(false)] // 起動後に詳細を開かず出力する経路。
+    [DataRow(true)] // 詳細の値捕捉で親を先読みした経路。
+    public void ExportTable_AfterStartupHydrationPreservesParentsWithOrWithoutDetails(bool readDetails)
+    {
+        WithTemporaryDirectory(tempDirectory =>
+        {
+            ParentMd5FixtureRow[] allFixtures = CreateParentMd5Fixtures();
+            ParentMd5FixtureRow[] fixtures = [allFixtures[1], allFixtures[5], allFixtures[0]];
+            string songDbPath = CreateParentMd5Database(tempDirectory, fixtures);
+            string[] savedRows = ReadRawParentMd5Rows(songDbPath);
+            BMSTable table = LoadStartupParentMd5Table(songDbPath);
+            if (readDetails)
+            {
+                _ = table.CaptureEntriesReadSnapshot();
+            }
+
+            string exportPath = Path.Combine(tempDirectory, "exported");
+            string fileName = BmtTableExportService.ExportTable(exportPath, table);
+            JObject exported = ReadBmtJson(Path.Combine(exportPath, fileName));
+            JToken[] songs = exported["folder"]?[0]?["songs"]?.ToArray() ?? throw new AssertFailedException("譜面配列がありません。");
+            Assert.AreEqual(fixtures.Length, songs.Length);
+            foreach (ParentMd5FixtureRow fixture in fixtures)
+            {
+                JToken song = songs.Single(candidate => candidate.Value<string>("title") == fixture.Title);
+                Assert.AreEqual(fixture.Md5, song.Value<string>("md5"), fixture.Title);
+                Assert.AreEqual(fixture.Sha256, song.Value<string>("sha256"), fixture.Title);
+                if (fixture.Parents.Length == 0)
+                {
+                    Assert.IsNull(song["org_md5"], "親なしに値を捏造しません。");
+                }
+                else
+                {
+                    JArray parents = song["org_md5"] as JArray ?? throw new AssertFailedException("親MD5配列がありません。");
+                    CollectionAssert.AreEqual(fixture.Parents, parents.Values<string>().ToArray(), fixture.Title);
+                }
+            }
+            CollectionAssert.AreEqual(savedRows, ReadRawParentMd5Rows(songDbPath), "読取りと出力で対象・無関係の保存行を変更しません。");
+        });
+    }
+
     /// <summary>BMT sort順と一致するbeta・alphaと末尾の旧台帳URLを入力し、現表と旧台帳の三つの管理URLをこの順で結果に保持することを確認します。</summary>
     [TestMethod]
     public void BuildBeatorajaManagedTableUrlsForConfigSync_OrdersByPlaylistBmtSort()
@@ -876,17 +966,19 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
-    /// <summary>入力・実gzipの時刻とサイズが一致していても、旧生成版だけを理由に日時名または欠落制約を一度修復し、以後は生成前に省略して内容・時刻・URLを保ちます。</summary>
-    /// <param name="oldExporterVersion">日時名を変換した旧1、または正規gauge制約が欠落した旧2。</param>
+    /// <summary>入力・実gzipの時刻とサイズが一致していても、旧生成版だけを理由に日時名・欠落制約・欠落親MD5を一度修復し、以後は生成前に省略して内容・時刻・URLを保ちます。</summary>
+    /// <param name="oldExporterVersion">日時名を変換した旧1、正規gauge制約が欠落した旧2、または親MD5が欠落した旧3。</param>
     [TestMethod]
     [TestCategory("Playlist")]
     [DataRow(1)] // 旧1の日時風文字列の変換を修復する。
     [DataRow(2)] // 旧2の正規gauge制約の欠落を修復する。
+    [DataRow(3)] // 旧3の起動hydrate後の親MD5欠落を修復する。
     public void ExportTableDataSet_SkipsUnchangedManagedPlaylistWrites(int oldExporterVersion)
     {
         WithTemporaryDirectory(delegate (string tempDirectory)
         {
             JObject tableData = CreateLocalTableData("bemusicseeker://playlist/1", "First");
+            tableData["folder"]![0]!["songs"]![0]!["org_md5"] = new JArray(Md5B, Md5A);
             tableData["course"] = new JArray(new JObject
             {
                 ["name"] = "2024-01-02T03:04:05.1234567+09:00",
@@ -905,15 +997,19 @@ public sealed class BmtTableExportServiceTests
             // 有効な旧gzipに実時刻・サイズを合わせ、現行版なら省略される対照を先に確認する。
             string manifestPath = Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName);
             var oldManifest = JObject.Parse(File.ReadAllText(manifestPath, Encoding.UTF8));
-            Assert.IsTrue(oldManifest.Value<int>("exporterVersion") > 2);
+            Assert.IsTrue(oldManifest.Value<int>("exporterVersion") > 3);
             var oldTableData = (JObject)tableData.DeepClone();
             if (oldExporterVersion == 1)
             {
                 oldTableData["course"]![0]!["name"] = "2024-01-01T18:04:05.1234567+00:00";
             }
-            else
+            else if (oldExporterVersion == 2)
             {
                 ((JObject)oldTableData["course"]![0]!).Remove("constraint");
+            }
+            else
+            {
+                ((JObject)oldTableData["folder"]![0]!["songs"]![0]!).Remove("org_md5");
             }
             File.Delete(filePath);
             WriteBmtJson(filePath, oldTableData);
@@ -935,6 +1031,7 @@ public sealed class BmtTableExportServiceTests
             Assert.AreEqual("2024-01-02T03:04:05.1234567+09:00", repairedData["course"]![0]!.Value<string>("name"));
             Assert.AreEqual(JTokenType.String, repairedData["course"]![0]!["name"]!.Type);
             CollectionAssert.AreEqual(new[] { "GAUGE_9KEYS", "GAUGE_5KEYS", "GAUGE_24KEYS", "GAUGE_7KEYS" }, repairedData["course"]![0]!["constraint"]!.Values<string>().ToArray());
+            CollectionAssert.AreEqual(new[] { Md5B, Md5A }, repairedData["folder"]![0]!["songs"]![0]!["org_md5"]!.Values<string>().ToArray());
             DateTime firstWriteTime = File.GetLastWriteTimeUtc(filePath);
             byte[] repairedBytes = File.ReadAllBytes(filePath);
 
@@ -1531,6 +1628,7 @@ public sealed class BmtTableExportServiceTests
             Assert.AreEqual(JTokenType.String, exported["name"]!.Type);
             Assert.AreEqual("2024-02-03T04:05:06Z", exported["folder"]![0]!["songs"]![0]!.Value<string>("title"));
             Assert.AreEqual(JTokenType.String, exported["folder"]![0]!["songs"]![0]!["title"]!.Type);
+            CollectionAssert.AreEqual(new[] { Md5B }, exported["folder"]![0]!["songs"]![0]!["org_md5"]!.Values<string>().ToArray());
             var exportedCourses = (JArray)exported["course"]!;
             Assert.AreEqual(3, exportedCourses.Count);
             Assert.AreEqual("2024-03-04T05:06:07.1234567+09:00", exported["course"]![0]!.Value<string>("name"));
@@ -1612,6 +1710,78 @@ public sealed class BmtTableExportServiceTests
 
         Assert.IsTrue((bool)method.Invoke(null, [table, rawPageUrl])!);
         Assert.IsFalse((bool)method.Invoke(null, [table, "https://example.com/table/~full.html"])!);
+    }
+
+    private sealed record ParentMd5FixtureRow(string Title, string? Md5, string? Sha256, string[] Parents);
+
+    private static ParentMd5FixtureRow[] CreateParentMd5Fixtures() =>
+    [
+        new("MD5 none", Md5A, null, []),
+        new("MD5 single", Md5B, null, [Md5A]),
+        new("MD5 multiple", "33333333333333333333333333333333", null, [Md5B, Md5A]),
+        new("SHA256 none", null, Sha256A, []),
+        new("SHA256 single", null, Sha256B, [Md5A]),
+        new("SHA256 multiple", null, "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", [Md5B, Md5A])
+    ];
+
+    /// <summary>対象行と別表の無関係行を通常schema・writerで保存し、起動読取り前に全DB接続を解放します。</summary>
+    private static string CreateParentMd5Database(string tempDirectory, ParentMd5FixtureRow[] fixtures)
+    {
+        string songDbPath = Path.Combine(tempDirectory, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+        var table = new BMSTable
+        {
+            playlist_id = 9101,
+            name = "Parents",
+            Folder_order = ["Parents"],
+            entries = [.. fixtures.Select(fixture => new BMSTableEntry
+            {
+                title = fixture.Title,
+                md5 = fixture.Md5,
+                sha256 = fixture.Sha256,
+                folder = "Parents",
+                Org_md5 = [.. fixture.Parents],
+                adddate = new DateTime(2026, 1, 2, 3, 4, 5).AddTicks(1)
+            })]
+        };
+        var unrelated = new BMSTable
+        {
+            playlist_id = 9102,
+            name = "Unrelated",
+            entries = [new BMSTableEntry
+            {
+                title = "Unrelated song", md5 = Md5A, sha256 = Sha256A,
+                folder = "Unrelated", Org_md5 = [Md5B], memo = "keep",
+                adddate = new DateTime(2026, 1, 1)
+            }]
+        };
+        new PlaylistPersistenceRepository(songDbPath).ReplaceTablesWithEntries([table, unrelated]);
+        return songDbPath;
+    }
+
+    /// <summary>新しいreadonly接続でヘッダーと起動用raw行を読み、親getter・clone・JSON・保存正規化を呼ばず通常attachします。</summary>
+    private static BMSTable LoadStartupParentMd5Table(string songDbPath)
+    {
+        var repository = new PlaylistPersistenceRepository(songDbPath);
+        BMSTable table = repository.LoadPlaylistHeaders().Single(candidate => candidate.playlist_id == 9101);
+        PlaylistEntriesHydrationLoadResult hydrated = repository.LoadStartupPlaylistEntries();
+        Assert.IsTrue(hydrated.ReadOnly);
+        table.entries = [.. hydrated.Entries.Where(entry => entry.playlist_id == table.playlist_id)];
+        return table;
+    }
+
+    private sealed class RawParentMd5Row
+    {
+        public string Value { get; set; } = string.Empty;
+    }
+
+    /// <summary>製品getterを通さず、別readonly接続のSQLで対象・無関係行の保存値を比較可能な列へ捕捉します。</summary>
+    private static string[] ReadRawParentMd5Rows(string songDbPath)
+    {
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+        return [.. db.Query<RawParentMd5Row>("SELECT quote(playlist_id) || '|' || quote(md5) || '|' || quote(sha256) || '|' || quote(level) || '|' || quote(title) || '|' || quote(artist) || '|' || quote(folder) || '|' || quote(lr2_bmsid) || '|' || quote(url) || '|' || quote(url_diff) || '|' || quote(name_diff) || '|' || quote(org_md5) || '|' || quote(adddate) || '|' || quote(comment) || '|' || quote(memo) || '|' || quote(is_removed) AS Value FROM playlist_entry ORDER BY rowid;")
+            .Select(row => row.Value)];
     }
 
     private static JObject ReadBmtJson(string path)
