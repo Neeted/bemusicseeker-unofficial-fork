@@ -1876,11 +1876,10 @@ internal static partial class Program
     private static void EnsurePathUnderDirectory(string rootDirectory, string candidatePath, string description)
     {
         string normalizedCandidatePath = UpdaterFileSystem.NormalizePath(candidatePath);
-        string normalizedRootDirectory = UpdaterFileSystem.NormalizePath(rootDirectory)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string normalizedRootDirectory = NormalizeDirectoryPath(rootDirectory);
         if (string.Equals(normalizedCandidatePath, normalizedRootDirectory, StringComparison.OrdinalIgnoreCase)
             || !normalizedCandidatePath.StartsWith(
-                normalizedRootDirectory + Path.DirectorySeparatorChar,
+                WithEndingDirectorySeparator(normalizedRootDirectory),
                 StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("The " + description + " must be under " + normalizedRootDirectory + ".");
@@ -2260,12 +2259,13 @@ internal static partial class Program
             return;
         }
 
-        string normalizedRoot = UpdaterFileSystem.NormalizePath(appDirectory);
-        string current = UpdaterFileSystem.NormalizePath(directory);
+        string normalizedRoot = NormalizeDirectoryPath(appDirectory);
+        string rootPrefix = WithEndingDirectorySeparator(normalizedRoot);
+        string current = NormalizeDirectoryPath(directory);
         var missingDirectories = new List<string>();
         while (!string.Equals(current, normalizedRoot, StringComparison.OrdinalIgnoreCase))
         {
-            if (!current.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            if (!current.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException("Destination directory escaped the application directory: " + destination);
             }
@@ -2281,8 +2281,8 @@ internal static partial class Program
             }
 
             missingDirectories.Add(current);
-            current = Path.GetDirectoryName(current)
-                ?? throw new InvalidOperationException("Destination directory has no application ancestor: " + destination);
+            current = NormalizeDirectoryPath(Path.GetDirectoryName(current)
+                ?? throw new InvalidOperationException("Destination directory has no application ancestor: " + destination));
         }
 
         foreach (string missingDirectory in missingDirectories.AsEnumerable().Reverse())
@@ -2593,7 +2593,16 @@ internal static partial class Program
         {
             throw new ArgumentException("Directory path is required.");
         }
-        return UpdaterFileSystem.NormalizePath(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        // 絶対化前に末尾を落とすと、ドライブルートがドライブ相対パスへ変わる。
+        return Path.TrimEndingDirectorySeparator(UpdaterFileSystem.NormalizePath(path));
+    }
+
+    /// <summary>正規化済みディレクトリを包含判定とURIの基点に使うため、必要な場合だけ末尾区切りを補います。</summary>
+    private static string WithEndingDirectorySeparator(string normalizedDirectoryPath)
+    {
+        return Path.EndsInDirectorySeparator(normalizedDirectoryPath)
+            ? normalizedDirectoryPath
+            : normalizedDirectoryPath + Path.DirectorySeparatorChar;
     }
 
     private static string NormalizeFilePath(string path)
@@ -2607,7 +2616,7 @@ internal static partial class Program
 
     private static string GetRelativePath(string rootDirectory, string path)
     {
-        Uri rootUri = new(NormalizeDirectoryPath(rootDirectory) + Path.DirectorySeparatorChar);
+        Uri rootUri = new(WithEndingDirectorySeparator(NormalizeDirectoryPath(rootDirectory)));
         Uri pathUri = new(UpdaterFileSystem.NormalizePath(path));
         string relative = Uri.UnescapeDataString(rootUri.MakeRelativeUri(pathUri).ToString()).Replace('/', Path.DirectorySeparatorChar);
         return NormalizeRelativePackagePath(relative);

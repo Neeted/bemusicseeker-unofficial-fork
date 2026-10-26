@@ -92,6 +92,8 @@ sequenceDiagram
 | `--pid` | 最大60秒の終了待ちをする親プロセス。 |
 | `--restart-exe` | 必須。アプリ内の既存ファイルで、更新ZIPにも同じ相対パスがあり、適用後も存在すること。 |
 
+書込み可能な既存のドライブルート配置も受理します。ディレクトリは拡張パス接頭辞を除去して絶対化した後に、ルートを保って末尾区切りを整えます。同じドライブの子ディレクトリを作業場所にしても、`D:\` をドライブ相対の `D:` として解決しません。包含判定・相対パスのURI基点・宛先ディレクトリの親比較も同じ正規化へ揃えます。通常ディレクトリ・長パス・UNCの既存表現、専用領域と再起動先の境界、reparse pointの拒否条件は維持し、保存するパスに拡張パス接頭辞を付加しません。
+
 ### 保持するファイル
 
 最上位の `config/`、`data/`、`log/`、`logs/`、`update_backup/`、`update_work/` は保持します。`imported_metadata/` と最上位の `chart-info-metadata.db`、`chart-info-metadata.7z` はアプリ管理対象です。更新時に旧メタデータを整理し、同梱版だけ新しい7zを最上位へ置きます。次回起動の取込み後は `imported_metadata/` へ移します。
@@ -160,6 +162,7 @@ v2.1.6.0からの更新受入には、[固定成果物の定義](../../acceptanc
 | 更新情報・資産選択・取得検証 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs)、[`UpdateDownloadService`](../../../BeMusicSeeker/Models/Update/UpdateDownloadService.cs) | [`UpdateCheckServiceTests`](../../../BeMusicSeeker.Tests/Update/UpdateCheckServiceTests.cs)、[`UpdateDownloadServiceTests`](../../../BeMusicSeeker.Tests/Update/UpdateDownloadServiceTests.cs)、[`UpdateAvailableDialogViewModelTests`](../../../BeMusicSeeker.Tests/Update/UpdateAvailableDialogViewModelTests.cs) |
 | 受付確認・終了準備・起動失敗 | [`StartupUpdateWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupUpdateWorkflowOwner.cs) | [`StartupUpdateWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Startup/StartupUpdateWorkflowOwnerTests.cs)、[`UpdaterProcessGatewayTests`](../../../BeMusicSeeker.Tests/Update/UpdaterProcessGatewayTests.cs) |
 | 配布境界・管理ファイル・巻き戻し | [更新ツール](../../../BeMusicSeeker.Updater) | [`UpdaterDeploymentBoundaryTests`](../../../BeMusicSeeker.Tests/Update/UpdaterDeploymentBoundaryTests.cs)、[`UpdaterPackageSyncTests`](../../../BeMusicSeeker.Tests/Update/UpdaterPackageSyncTests.cs) |
+| ドライブルート配置・同ドライブの子作業場所・長パス・受付と取消・巻き戻しと回復 | [`Program`](../../../BeMusicSeeker.Updater/Program.cs) の `NormalizeDirectoryPath` / `EnsurePathUnderDirectory` / `GetRelativePath` / `CreateDestinationDirectory`、[`WindowsUpdaterProcessGateway`](../../../BeMusicSeeker/Models/Update/UpdaterProcessGateway.cs) | [`UpdaterPackageSyncTests`](../../../BeMusicSeeker.Tests/Update/UpdaterPackageSyncTests.cs) の `UpdaterAppliesDriveRootPackageOnlyAfterProceedFromSameDriveChildDirectory` は非Zの所有ドライブで実CLIのready・proceed前保持・適用・長い管理ファイル・旧管理ファイル削除・保持領域・実再起動を確認し、`WindowsGatewayAcceptsDriveRootReadyReceiptAndCancelsWithoutApplying` は本番の完成済み引用引数から実CLIのready receipt・cancelと全所有プロセスの回収へ接続する。`ApplyUpdate_RollbackRestoresAppManagedMetadataArtifactsAfterFailure` は同rootで本番準備・適用と呼出し単位の起動失敗代替から元例外・旧本体・メタデータ・利用者データ・失敗記録を確認し、`RecoverCommandDoesNotTrustReusedApplicationPidAfterRestart` は同rootの実`--recover`でPID再利用の誤認拒否・旧版復元・実再起動・journal退役を確認する。実CLI成功とmanaged境界の通常巻き戻しを分担し、専用領域外・再起動先・reparse pointの拒否は既存ケースを維持する。UNCは正規化・包含・URI基点の静的確認とし、実共有の更新成功は未確認とする。 |
 | 一時物回収・任意診断の分離 | [`Program`](../../../BeMusicSeeker.Updater/Program.cs) の `ApplyUpdate` / `TryCleanupTemporaryUpdateArtifacts` / `WriteDiagnosticBestEffort` | [`UpdaterPackageSyncTests.ApplyUpdate_TemporaryCleanupAndDiagnosticFailurePreserveRestartFailure`](../../../BeMusicSeeker.Tests/Update/UpdaterPackageSyncTests.cs) が再起動前の回収順と元起動失敗・旧版復元を、`ApplyUpdate_PostRestartDiagnosticFailureKeepsCommittedApplication` が実再起動と新版・残留ジャーナルの保持、削除可能なZIPを監視処理が保持して後続の明示回復だけが退役することを確認します。既存の配布プロセス検証と巻戻し二次故障の回復材料保持は継続します。 |
 
 ## 関連資料

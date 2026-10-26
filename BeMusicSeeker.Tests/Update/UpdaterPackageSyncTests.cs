@@ -13,6 +13,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models.Update;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.Win32;
 
@@ -23,6 +24,118 @@ namespace BeMusicSeeker.Tests;
 public sealed class UpdaterPackageSyncTests
 {
     private CaseProcessScope? activeProcessScope;
+
+    /// <summary>
+    /// 同じドライブの非root作業場所からroot配置を受付け、proceed前の旧構成保持と適用後の管理対象・長パス・実再起動を確認する。
+    /// </summary>
+    /// <remarks>ケース専用の非ZドライブとJobを所有し、プロセス・回復登録・別名・実領域の順に回収する。UNC実共有の検証とは分担する。</remarks>
+    [TestMethod]
+    public void UpdaterAppliesDriveRootPackageOnlyAfterProceedFromSameDriveChildDirectory()
+    {
+        WithTemporaryDirectory((tempDirectoryPath, appDirectoryPath) =>
+        {
+            string sourceDirectory = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+            string backupDirectory = Path.Combine(appDirectoryPath, "update_backup");
+            string readyPath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-ready.txt");
+            string decisionPath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt");
+            string workingDirectory = Directory.CreateDirectory(Path.Combine(appDirectoryPath, "update_work", "current")).FullName;
+            string longRelativePath = string.Join('/', Enumerable.Repeat(new string('a', 40), 7)) + "/managed.txt";
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            CopyRestartExecutable(appDirectoryPath, "restart-marker.txt", "old-version");
+            WriteTextFile(appDirectoryPath, "obsolete.dll", "old-managed");
+            WriteTextFile(appDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.exe\nrestart.json\nobsolete.dll");
+            WriteTextFile(appDirectoryPath, "config/user.config", "preserved-config");
+            WriteTextFile(appDirectoryPath, "data/settings.db", "preserved-data");
+            WriteTextFile(appDirectoryPath, "logs/user.log", "preserved-log");
+            WriteTextFile(appDirectoryPath, "unmanaged.txt", "user-content");
+            string canonicalBefore = ComputeCanonicalTreeHash(appDirectoryPath);
+            string preservedBefore = ComputePreservedTreeHash(appDirectoryPath);
+            WriteTextFile(sourceDirectory, "BeMusicSeeker.exe", "new-app");
+            CopyRestartExecutable(sourceDirectory, "restart-marker.txt", "new-version");
+            WriteTextFile(sourceDirectory, longRelativePath, "long-managed");
+            WriteTextFile(sourceDirectory, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.exe\nrestart.json\n" + longRelativePath);
+            ZipFile.CreateFromDirectory(sourceDirectory, packagePath);
+
+            ProcessStartInfo startInfo = CreateUpdaterStartInfo(appDirectoryPath, packagePath, backupDirectory);
+            startInfo.WorkingDirectory = workingDirectory;
+            OwnedProcess process = StartOwnedProcess(startInfo, useExecutionGate: true);
+            Assert.IsTrue(WaitForReadyOrProcessExit(process, readyPath), "Root request failed before ready: " + process.Description);
+            Assert.AreEqual("1", File.ReadAllText(readyPath).Trim());
+            Assert.IsFalse(process.WaitForExit(250), "The exited parent must not bypass the proceed decision.");
+            Assert.AreEqual(canonicalBefore, ComputeCanonicalTreeHash(appDirectoryPath));
+            Assert.AreEqual(preservedBefore, ComputePreservedTreeHash(appDirectoryPath));
+            Assert.IsTrue(File.Exists(packagePath));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "restart-marker.txt")));
+            using (var journal = JsonDocument.Parse(File.ReadAllText(Path.Combine(appDirectoryPath, "update_work", "update-transaction.json"))))
+            {
+                Assert.AreEqual(appDirectoryPath, journal.RootElement.GetProperty("AppDirectory").GetString());
+                Assert.AreEqual("prepared", journal.RootElement.GetProperty("Phase").GetString());
+            }
+
+            PublishUpdaterDecision(decisionPath, "proceed");
+            process.WaitForExitAndChildren();
+            Assert.AreEqual(0, process.ExitCode, process.GetStandardOutput() + Environment.NewLine + process.GetStandardError());
+            Assert.AreEqual("new-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            Assert.AreEqual("long-managed", File.ReadAllText(Path.Combine(appDirectoryPath, longRelativePath)));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "obsolete.dll")));
+            Assert.AreEqual("new-version", File.ReadAllText(Path.Combine(appDirectoryPath, "restart-marker.txt")));
+            Assert.AreEqual(preservedBefore, ComputePreservedTreeHash(appDirectoryPath));
+            Assert.AreEqual("preserved-log", File.ReadAllText(Path.Combine(appDirectoryPath, "logs", "user.log")));
+            Assert.AreEqual("user-content", File.ReadAllText(Path.Combine(appDirectoryPath, "unmanaged.txt")));
+            Assert.IsFalse(File.Exists(packagePath));
+            Assert.IsFalse(Directory.Exists(backupDirectory));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "update_work", "update-transaction.json")));
+            Assert.AreEqual(0, GetRecoveryRunOnceValues(appDirectoryPath).Count);
+            Assert.AreEqual(0, GetRecoverySupervisorValues(appDirectoryPath).Count);
+        }, useDriveRoot: true);
+    }
+
+    /// <summary>
+    /// gatewayの完成済み引用引数を実Updaterへ渡し、root末尾backslashと非root作業場所を保ってready receiptを受け取り、取消後の旧構成と所有プロセス終端を確認する。
+    /// </summary>
+    /// <remarks>gatewayの親PIDを変更せず、成功適用は別の実CLI代表に分担する。既存Jobが全子・両pipeと登録を回収してから非Z別名を解除する。</remarks>
+    [TestMethod]
+    public void WindowsGatewayAcceptsDriveRootReadyReceiptAndCancelsWithoutApplying()
+    {
+        WithTemporaryDirectory((_, appDirectoryPath) =>
+        {
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+            string readyPath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-ready.txt");
+            string decisionPath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt");
+            string workingDirectory = Directory.CreateDirectory(Path.Combine(appDirectoryPath, "update_work", "current")).FullName;
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            CopyRestartExecutable(appDirectoryPath, "restart-marker.txt", "unexpected-restart");
+            WriteTextFile(appDirectoryPath, "update_work/downloads/package.zip", "not-yet-applied");
+            string canonicalBefore = ComputeCanonicalTreeHash(appDirectoryPath);
+            OwnedProcess? process = null;
+            var gateway = new WindowsUpdaterProcessGateway(startInfo =>
+            {
+                Assert.IsTrue(startInfo.CreateNoWindow);
+                Assert.AreEqual(workingDirectory, startInfo.WorkingDirectory);
+                startInfo.RedirectStandardOutput = true;
+                startInfo.RedirectStandardError = true;
+                process = StartOwnedProcess(startInfo, useExecutionGate: true);
+                return process.BorrowedProcess;
+            });
+            var request = UpdaterProcessLaunchRequest.Create(
+                FindUpdaterExecutable(), workingDirectory, appDirectoryPath, packagePath,
+                Path.Combine(appDirectoryPath, "update_backup"), readyPath, decisionPath,
+                Path.Combine(appDirectoryPath, "restart.exe"));
+            UpdaterLaunchReceipt receipt = gateway.Prepare(request).Start();
+            Assert.IsNotNull(process);
+            Assert.AreEqual("1", File.ReadAllText(readyPath).Trim());
+            Assert.IsFalse(process.HasExited);
+            Assert.AreEqual(canonicalBefore, ComputeCanonicalTreeHash(appDirectoryPath));
+            receipt.Abort();
+            process.WaitForExitAndChildren();
+            // 決定ファイルはUpdaterが読み取った直後に消費する。取消後の保証は全所有プロセスの終端と旧構成で観測する。
+            Assert.IsTrue(process.HasExited);
+            Assert.AreEqual(canonicalBefore, ComputeCanonicalTreeHash(appDirectoryPath));
+            Assert.IsTrue(File.Exists(packagePath));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "restart-marker.txt")));
+        }, useDriveRoot: true);
+    }
 
     /// <summary>
     /// 受付確認後もproceed前は更新を適用せず、prepared保存情報と独立復旧登録を保ち、取消で旧ファイルを維持して登録を片付ける順序誤りを検出する。
@@ -274,15 +387,14 @@ public sealed class UpdaterPackageSyncTests
     }
 
     /// <summary>
-    /// 記録されたアプリPIDが再利用されても別プロセスの存在だけで復旧を止めず、旧版復元と実再起動が欠落する誤りを検出する。
+    /// 同じドライブの子作業場所からドライブルートを回復し、記録されたアプリPIDが再利用されても旧版復元と実再起動を止める誤りを検出する。
     /// </summary>
     /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void RecoverCommandDoesNotTrustReusedApplicationPidAfterRestart()
     {
-        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        WithTemporaryDirectory((_, appDirectoryPath) =>
         {
-            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
             string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
             string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
             string previousDirectoryPath = Path.Combine(backupDirectoryPath, "previous");
@@ -310,12 +422,13 @@ public sealed class UpdaterPackageSyncTests
                     NewPackagePaths = new[] { "BeMusicSeeker.exe" }
                 }));
 
-            RunUpdaterRecovery(appDirectoryPath);
+            string workingDirectory = Directory.CreateDirectory(Path.Combine(appDirectoryPath, "update_work", "current")).FullName;
+            RunUpdaterRecovery(appDirectoryPath, workingDirectory);
 
             Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
             AssertRestartFileExists(Path.Combine(appDirectoryPath, "restart-marker.txt"));
             Assert.IsFalse(File.Exists(journalPath));
-        });
+        }, useDriveRoot: true);
     }
 
     /// <summary>
@@ -931,17 +1044,16 @@ public sealed class UpdaterPackageSyncTests
     }
 
     /// <summary>
-    /// 適用後の実再起動callbackが失敗すると旧metadataと本体・利用者ツリーを復元し、元失敗を残して新版を誤確定する誤りを検出する。
+    /// ドライブルート配置で適用後の実再起動callbackが失敗すると旧metadataと本体・利用者ツリーを復元し、元失敗を残して新版を誤確定する誤りを検出する。
     /// </summary>
     /// <remarks>実ファイルの確定・復元と元の再起動失敗を観測するため、managed buildの既存callback境界を使用する。ほかのツール起動ケースが実配布プロセスを分担する。</remarks>
     [TestMethod]
     public void ApplyUpdate_RollbackRestoresAppManagedMetadataArtifactsAfterFailure()
     {
-        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        WithTemporaryDirectory((tempDirectoryPath, appDirectoryPath) =>
         {
-            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
             string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
-            string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
             string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
 
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
@@ -980,7 +1092,7 @@ public sealed class UpdaterPackageSyncTests
                 File.Exists(Path.Combine(appDirectoryPath, "update_work", "update-transaction.json")),
                 "A successful rollback must retire the transaction journal without committing the update.");
             Assert.IsTrue(File.Exists(Path.Combine(appDirectoryPath, "update_work", "update-failure.txt")));
-        });
+        }, useDriveRoot: true);
     }
 
     /// <summary>
@@ -1694,9 +1806,8 @@ public sealed class UpdaterPackageSyncTests
     /// <summary>managed更新境界へ実要求と本番準備済みjournalを渡します。</summary>
     private (Type Program, object Request) PrepareManagedUpdate(string appDirectoryPath, string packagePath, string backupDirectoryPath)
     {
-        // The published updater is NativeAOT. Use its managed build for this
-        // in-process failure boundary; the remaining process tests use the
-        // selected published executable. No CLI flag or global hook is added.
+        // この呼出し単位の再起動失敗境界はmanaged buildを使う。
+        // 他のプロセス検証は明示した配布exe、または未指定時の通常buildのexeを使う。
         var assembly = Assembly.LoadFrom(FindBuiltUpdaterFile("BeMusicSeeker.Updater.dll"));
         Type program = assembly.GetType("BeMusicSeeker.Updater.Program", throwOnError: true)!;
         Type requestType = program.GetNestedType("UpdateRequest", BindingFlags.NonPublic)!;
@@ -1712,8 +1823,7 @@ public sealed class UpdaterPackageSyncTests
             "--decision-file", Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt")
         ];
         object request = requestType.GetMethod("Parse")!.Invoke(null, [arguments])!;
-        // Reuse the actual preparation code rather than reproducing journal
-        // serialization. Each invocation owns a fresh application directory.
+        // ケース所有のアプリ領域へ本番の準備処理を通し、journal生成を複製しない。
         program.GetMethod("WritePreparedTransactionJournal", BindingFlags.NonPublic | BindingFlags.Static)!
             .Invoke(null, [request]);
         program.GetMethod("PrepareFullTransactionJournal", BindingFlags.NonPublic | BindingFlags.Static)!
@@ -1754,9 +1864,9 @@ public sealed class UpdaterPackageSyncTests
         }
     }
 
-    private void RunUpdaterRecovery(string appDirectoryPath)
+    private void RunUpdaterRecovery(string appDirectoryPath, string? workingDirectory = null)
     {
-        OwnedProcess process = StartUpdaterRecoveryProcess(appDirectoryPath);
+        OwnedProcess process = StartUpdaterRecoveryProcess(appDirectoryPath, workingDirectory);
         process.WaitForExitAndChildren();
 
         if (process.ExitCode != 0)
@@ -1771,7 +1881,7 @@ public sealed class UpdaterPackageSyncTests
         }
     }
 
-    private OwnedProcess StartUpdaterRecoveryProcess(string appDirectoryPath)
+    private OwnedProcess StartUpdaterRecoveryProcess(string appDirectoryPath, string? workingDirectory = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -1780,7 +1890,7 @@ public sealed class UpdaterPackageSyncTests
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
-            WorkingDirectory = Path.GetDirectoryName(FindUpdaterExecutable()) ?? Environment.CurrentDirectory
+            WorkingDirectory = workingDirectory ?? Path.GetDirectoryName(FindUpdaterExecutable()) ?? Environment.CurrentDirectory
         };
         startInfo.ArgumentList.Add("--recover");
         startInfo.ArgumentList.Add("--app-dir");
@@ -2178,8 +2288,8 @@ public sealed class UpdaterPackageSyncTests
 
         private static ProcessStartInfo CreateExecutionGateStartInfo(ProcessStartInfo target)
         {
-            // updaterがwatchdogを作る前にJobへ所属させる。引数は環境変数から
-            // 引用付きで一度だけ展開し、バッチファイルと独自エスケープを不要にする。
+            // updaterがwatchdogを作る前にJobへ所属させる。gatewayの完成済みArgumentsは
+            // 再解析・再引用せず、ArgumentListだけWindows argvの末尾backslashも含めて引用する。
             var gate = new ProcessStartInfo
             {
                 FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
@@ -2191,14 +2301,15 @@ public sealed class UpdaterPackageSyncTests
                 WorkingDirectory = target.WorkingDirectory
             };
             gate.Environment["BMS_TEST_EXECUTABLE"] = target.FileName;
-            var command = new StringBuilder("set /p _bmsStart= >nul && \"%BMS_TEST_EXECUTABLE%\"");
-            for (int index = 0; index < target.ArgumentList.Count; index++)
-            {
-                string name = "BMS_TEST_ARGUMENT_" + index;
-                gate.Environment[name] = target.ArgumentList[index];
-                command.Append(" \"%").Append(name).Append("%\"");
-            }
-            gate.Arguments = "/d /q /v:off /s /c \"" + command + "\"";
+            gate.Environment["BMS_TEST_ARGUMENTS"] = target.ArgumentList.Count == 0
+                ? target.Arguments
+                : string.Join(" ", target.ArgumentList.Select(argument => "\""
+                    + System.Text.RegularExpressions.Regex.Replace(argument, @"(\\*)(""|$)", match =>
+                        match.Groups[1].Value + match.Groups[1].Value
+                        + (match.Groups[2].Value.Length == 0 ? string.Empty : "\\\""))
+                    + "\""));
+            // cmdの環境展開は一度に限定し、展開後の%を再解釈するCALL等を使わない。
+            gate.Arguments = "/d /q /v:off /s /c \"set /p _bmsStart= >nul && \"%BMS_TEST_EXECUTABLE%\" %BMS_TEST_ARGUMENTS%\"";
             return gate;
         }
 
@@ -2544,15 +2655,34 @@ public sealed class UpdaterPackageSyncTests
 
     private void WithTemporaryDirectory(Action<string> action)
     {
+        WithTemporaryDirectory((tempDirectoryPath, _) => action(tempDirectoryPath), useDriveRoot: false);
+    }
+
+    /// <summary>実領域と実際のアプリルートを渡し、全プロセス終端後に所有した登録・別名・実領域を順に回収します。</summary>
+    private void WithTemporaryDirectory(Action<string, string> action, bool useDriveRoot)
+    {
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerUpdaterTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
-        Directory.CreateDirectory(Path.Combine(tempDirectoryPath, "app", "update_work", "downloads"));
         var processScope = new CaseProcessScope();
         activeProcessScope = processScope;
+        OwnedTestDrive? drive = null;
+        string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+        bool ownsRecoveryRegistrations = false;
         Exception? primaryFailure = null;
         try
         {
-            action(tempDirectoryPath);
+            if (useDriveRoot)
+            {
+                // Zは保全中の別名であり、選択・予約・照会より前に必ず除外する。
+                drive = OwnedTestDrive.Create(tempDirectoryPath, 'Z');
+                drive.AssertOwned();
+                appDirectoryPath = drive.Root;
+            }
+            Assert.AreEqual(0, GetRecoveryRunOnceValues(appDirectoryPath).Count, "Existing recovery registration makes this fixture unavailable: " + appDirectoryPath);
+            Assert.AreEqual(0, GetRecoverySupervisorValues(appDirectoryPath).Count, "Existing recovery supervisor makes this fixture unavailable: " + appDirectoryPath);
+            ownsRecoveryRegistrations = true;
+            Directory.CreateDirectory(Path.Combine(appDirectoryPath, "update_work", "downloads"));
+            action(tempDirectoryPath, appDirectoryPath);
         }
         catch (Exception exception)
         {
@@ -2563,29 +2693,55 @@ public sealed class UpdaterPackageSyncTests
         {
             activeProcessScope = null;
             var cleanupDiagnostics = new List<string>(processScope.DisposeAll());
-            try
+            if (cleanupDiagnostics.Count == 0)
             {
-                DeleteRecoveryRunOnceValues(Path.Combine(tempDirectoryPath, "app"));
-            }
-            catch (Exception exception)
-            {
-                cleanupDiagnostics.Add("recovery registration cleanup failed: " + exception.Message);
-            }
-
-            try
-            {
-                if (Directory.Exists(tempDirectoryPath))
+                try
                 {
-                    Directory.Delete(tempDirectoryPath, recursive: true);
+                    drive?.AssertOwned();
+                    // root文字の再利用によるforeign登録は削除しない。開始後に所有した登録だけを回収する。
+                    if (ownsRecoveryRegistrations)
+                    {
+                        DeleteRecoveryRunOnceValues(appDirectoryPath);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    cleanupDiagnostics.Add("recovery registration cleanup failed: " + exception.Message);
                 }
             }
-            catch (Exception exception)
+
+            if (cleanupDiagnostics.Count == 0)
             {
-                cleanupDiagnostics.Add("temporary updater test directory cleanup failed: " + exception.Message);
+                try
+                {
+                    // 全Jobと両pipeの終端後、解除の直前にも同じ実領域への唯一の定義を照合する。
+                    drive?.AssertOwned();
+                    drive?.Dispose();
+                    drive = null;
+                }
+                catch (Exception exception)
+                {
+                    cleanupDiagnostics.Add("owned updater drive cleanup failed: " + exception.Message);
+                }
+            }
+            if (cleanupDiagnostics.Count == 0)
+            {
+                try
+                {
+                    if (Directory.Exists(tempDirectoryPath))
+                    {
+                        Directory.Delete(tempDirectoryPath, recursive: true);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    cleanupDiagnostics.Add("temporary updater test directory cleanup failed: " + exception.Message);
+                }
             }
 
             if (cleanupDiagnostics.Count > 0)
             {
+                cleanupDiagnostics.Add("Preserved updater fixture: app=" + appDirectoryPath + ", physical=" + tempDirectoryPath);
                 string message = string.Join(
                     Environment.NewLine,
                     cleanupDiagnostics.Distinct(StringComparer.Ordinal));
@@ -2595,6 +2751,7 @@ public sealed class UpdaterPackageSyncTests
                 }
 
                 // 主処理の失敗を清掃診断で置き換えず、二次診断として残す。
+                primaryFailure.Data["UpdaterCleanupSecondaryDiagnostics"] = message;
                 Console.Error.WriteLine("Updater test cleanup diagnostics:" + Environment.NewLine + message);
             }
         }

@@ -15,12 +15,15 @@ internal sealed class OwnedTestDrive(string device, string target, Semaphore res
     internal string Root => device + @"\";
 
     /// <summary>別ホストの同じ補助ともドライブ文字を分離して、一時実領域への別名を確保します。</summary>
-    internal static OwnedTestDrive Create(string root)
+    /// <param name="root">ケースが所有する一時実領域です。</param>
+    /// <param name="excludedDriveLetters">予約・占有照会・定義を行わないドライブ文字です。省略時は従来の全候補を使います。</param>
+    internal static OwnedTestDrive Create(string root, params char[] excludedDriveLetters)
     {
         string directory = Directory.CreateDirectory(Path.Combine(root, "ManagedVolume")).FullName;
         string target = @"\??\" + directory;
         foreach (char letter in "ZYXWVUTSRQPONMLKJIHGFED")
         {
+            if (excludedDriveLetters.Any(excluded => char.ToUpperInvariant(excluded) == letter)) { continue; }
             // Semaphore は取得スレッド以外でも解放でき、別ホストの確認→定義の隙間も予約します。
             var reservation = new Semaphore(1, 1, @"Local\BeMusicSeeker.Tests.OwnedTestDrive." + letter);
             if (!reservation.WaitOne(0)) { reservation.Dispose(); continue; }
