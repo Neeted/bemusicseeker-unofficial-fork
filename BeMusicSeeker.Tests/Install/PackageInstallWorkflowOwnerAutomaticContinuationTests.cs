@@ -19,6 +19,43 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class PackageInstallWorkflowOwnerTests
 {
+    /// <summary>通常発見したrootと子の全hash未所持packageを共有事前集約から逆引き推定し、root同梱と子候補の和集合で階層を保って導入・DB確定します。</summary>
+    [TestMethod]
+    public async Task AutomaticContinuation_NestedUnownedPackageUsesPlacedResourceRequests()
+    {
+        await using var fixture = new AutomaticContinuationFixture(true, false, destinationSounds: [Path.Combine("sub", "kick.wav")]);
+        string source = fixture.WriteInput("Input", "root.bms", "unowned-root");
+        string childDirectory = fixture.WriteInput(Path.Combine("Input", "sub"), "child.bms", "unowned-child");
+        string[] sourceCharts = [Path.Combine(source, "root.bms"), Path.Combine(childDirectory, "child.bms")];
+        foreach (string path in sourceCharts) { File.WriteAllText(path, File.ReadAllText(path).Replace("sound.wav", "kick.wav"), Encoding.ASCII); }
+        File.WriteAllBytes(Path.Combine(source, "kick.wav"), [2]);
+        byte[][] sourceBytes = sourceCharts.Select(File.ReadAllBytes).ToArray();
+        await fixture.InitializeAsync();
+        string ownedHash = fixture.Library.BmsCharts.Single().Md5;
+        Assert.IsTrue(sourceCharts.All(path => PackageChartEntry.FromPath(path).Chart.Md5 != ownedHash));
+
+        Assert.IsTrue(fixture.Owner.Enqueue([source]));
+        await fixture.Owner.WaitForIdleAsync();
+
+        Assert.IsNull(fixture.Failure, fixture.Failure?.Exception.ToString());
+        Assert.AreEqual(0, fixture.Library.ChartPackagesPending.Count);
+        Assert.AreEqual(1, fixture.Library.ChartPackagesInstalled.Count);
+        string[] destinations = [Path.Combine(fixture.Destination, "root.bms"), Path.Combine(fixture.Destination, "sub", "child.bms")];
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly();
+        for (int index = 0; index < destinations.Length; index++)
+        {
+            CollectionAssert.AreEqual(sourceBytes[index], File.ReadAllBytes(destinations[index]));
+            Assert.IsNotNull(db.Find<LR2SongDB.song>(destinations[index]));
+            Assert.IsTrue(fixture.Library.BmsCharts.Any(chart => chart.Path == destinations[index]));
+        }
+        Assert.IsTrue(File.Exists(Path.Combine(fixture.Destination, "kick.wav")));
+        Assert.IsTrue(File.Exists(Path.Combine(fixture.Destination, "sub", "kick.wav")));
+        Assert.IsFalse(File.Exists(Path.Combine(fixture.Destination, "child.bms")));
+        Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
+        Assert.IsNotNull(fixture.Result);
+        Assert.IsTrue(fixture.Result.EstimatedInstallReceipt?.DurableCommit == true);
+    }
+
     /// <summary>既所持の親譜面から解決した候補でも、子譜面の実配置で音源閾値を満たさなければ元FS・保留・installと候補を保ち、子項目の健康度0・不足警告へ揃えます。子配置に音源がある場合だけ階層を保って導入し、song・所持集合へ反映します。</summary>
     [TestMethod]
     [DataRow(false)]
@@ -542,12 +579,13 @@ public sealed partial class PackageInstallWorkflowOwnerTests
 
         /// <summary>実FSと捕捉する走査結果を同じ内容で準備し、必要な場合だけ最終子配置にも音源を置きます。</summary>
         internal AutomaticContinuationFixture(bool enabled, bool deleteSource, bool holdPlayback = false,
-            ChartFileOperationSynchronizer? operationAdmission = null, ChartFileOperationSynchronizer? playlistOperationAdmission = null, IUiScheduler? uiScheduler = null, bool nestedAudio = false)
+            ChartFileOperationSynchronizer? operationAdmission = null, ChartFileOperationSynchronizer? playlistOperationAdmission = null, IUiScheduler? uiScheduler = null, bool nestedAudio = false,
+            IEnumerable<string>? destinationSounds = null)
         {
             Directory.CreateDirectory(Destination);
             string installed = Path.Combine(Destination, "owned.bms");
             File.WriteAllText(installed, CreateValidBmsText("Song"), Encoding.ASCII);
-            List<string> sounds = ["sound.wav", "a.wav", "b.wav", "previous.wav"];
+            List<string> sounds = [.. destinationSounds ?? ["sound.wav", "a.wav", "b.wav", "previous.wav"]];
             if (nestedAudio)
             {
                 Directory.CreateDirectory(Path.Combine(Destination, "sub"));
@@ -556,6 +594,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             foreach (string sound in sounds)
             {
                 string path = Path.Combine(Destination, sound);
+                if (Path.GetDirectoryName(path) is string directory) { Directory.CreateDirectory(directory); }
                 File.WriteAllBytes(path, [1]);
             }
             File.WriteAllBytes(Database, []);

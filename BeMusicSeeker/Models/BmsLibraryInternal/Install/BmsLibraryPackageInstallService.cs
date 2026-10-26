@@ -709,8 +709,18 @@ internal sealed class BmsLibraryPackageInstallService
         entry.ApplyCalculatedResourceHealth(ChartFileProjection.WithMaintenance(entry.Chart, restored), placement);
     }
 
-    /// <summary>一操作の同梱・候補索引を共有し、実導入と同じ譜面相対配置で健康度を更新します。パッケージを伴わない同じ項目の再評価では捕捉済みの配置文脈を引き継ぎます。</summary>
-    internal static void RefreshPendingResourceHealth(IEnumerable<PackageChartEntry> entries, ChartPackage package, DirectoryResourceLookupCache cache, DirectoryResourceLookupCache.Entry capturedBundled = null, bool capturedBundledComplete = true)
+    /// <summary>同一操作の対象entryに対応する相対位置だけを捕捉し、編集時の源側評価と後続健康度で共有します。参照や同梱は取得せず、packageなしでは既存の配置文脈を保持します。</summary>
+    internal static IReadOnlyDictionary<PackageChartEntry, string> CapturePendingRelativeDirectories(IEnumerable<PackageChartEntry> entries, ChartPackage package)
+    {
+        List<PackageChartEntry> targets = [.. (entries ?? []).Where(entry => entry?.Chart != null)];
+        bool isDirectoryPackage = targets.Count > 0 && package != null && !string.IsNullOrWhiteSpace(package.path) && LongPathFileSystem.DirectoryExists(package.path);
+        return targets.Distinct().ToDictionary(entry => entry, entry => package == null ? entry.ResourcePlacement?.RelativeDirectory ?? string.Empty
+            : Path.GetDirectoryName(PackageInstallDestinationMap.GetRelativeChartPath(package.path, entry.Chart.Path, isDirectoryPackage)) ?? string.Empty);
+    }
+
+    /// <summary>一操作の同梱・候補索引を共有し、実導入と同じ譜面相対配置で健康度を更新します。捕捉済み位置は同一対象entryに対応させ、既知空mapを再取得しません。packageなしでは捕捉済みの配置文脈を引き継ぎます。</summary>
+    internal static void RefreshPendingResourceHealth(IEnumerable<PackageChartEntry> entries, ChartPackage package, DirectoryResourceLookupCache cache, DirectoryResourceLookupCache.Entry capturedBundled = null, bool capturedBundledComplete = true,
+        IReadOnlyDictionary<PackageChartEntry, string> relativeDirectories = null)
     {
         List<PackageChartEntry> targets = [.. (entries ?? []).Where(entry => entry?.Chart != null)];
         bool hasDestination = targets.Any(entry => !string.IsNullOrWhiteSpace(entry.Chart.InstallDestination) || entry.Chart.InstallDestinationSuggestions.Count > 0);
@@ -720,10 +730,10 @@ internal sealed class BmsLibraryPackageInstallService
         // 通常失敗の観測済み資源は利用し、未観測の参照だけを未確認として扱います。
         bool bundledComplete = capturedBundled != null ? capturedBundledComplete : package == null || surface?.IsComplete == true;
         DirectoryResourceLookupCache.Entry bundled = capturedBundled ?? surface?.BundledResources;
+        IReadOnlyDictionary<PackageChartEntry, string> capturedRelativeDirectories = relativeDirectories ?? CapturePendingRelativeDirectories(targets, package);
         foreach (PackageChartEntry entry in targets)
         {
-            string relativeDirectory = package == null ? entry.ResourcePlacement?.RelativeDirectory ?? string.Empty
-                : Path.GetDirectoryName(PackageInstallDestinationMap.GetRelativeChartPath(package.path, entry.Chart.Path)) ?? string.Empty;
+            string relativeDirectory = capturedRelativeDirectories[entry];
             var placement = ChartResourcePlacement.Select(entry.Chart, bundled ?? entry.ResourcePlacement?.BundledResources, cache,
                 bundled != null ? bundledComplete : entry.ResourcePlacement?.BundledResourcesComplete ?? bundledComplete, relativeDirectory);
             ApplyPendingResourceHealthProjection(entry, out _, placement);

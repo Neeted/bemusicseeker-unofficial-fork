@@ -14,6 +14,79 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryInstallEstimationServiceTests
 {
+    /// <summary>rootと子の同名要求を二件とし、正しい子候補だけを80%足切りへ通します。兄弟や親の同名を子の同梱・候補充足へ混ぜません。</summary>
+    [TestMethod]
+    public void Estimate_NestedPackageUsesRootCoordinatesBeforeCandidateGate()
+    {
+        WithWorkspace((root, service) =>
+        {
+            string source = Path.Combine(root, "Source");
+            Directory.CreateDirectory(Path.Combine(source, "sub"));
+            Directory.CreateDirectory(Path.Combine(source, "sibling"));
+            File.WriteAllText(Path.Combine(source, "kick.ogg"), "root audio");
+            File.WriteAllText(Path.Combine(source, "sibling", "kick.ogg"), "wrong sibling");
+            ChartFile parent = CreateFile("parent", Path.Combine(source, "root.bms"), "kick.wav") with { RawTitle = "Song", RawArtist = "Artist", Artist = "Artist" };
+            ChartFile child = parent with { Path = Path.Combine(source, "sub", "chart.bms"), Md5 = "child" };
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([parent, child]);
+            package.path = source;
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [parent, child]);
+            string correct = Path.Combine(root, "Correct");
+            string parentOnly = Path.Combine(root, "ParentOnly");
+            string siblingOnly = Path.Combine(root, "SiblingOnly");
+            var cache = new DirectoryResourceLookupCache();
+            cache.AddDir(correct, [Path.Combine("sub", "kick.ogg")]);
+            cache.AddDir(parentOnly, ["kick.ogg"]);
+            cache.AddDir(siblingOnly, [Path.Combine("sibling", "kick.ogg")]);
+
+            InstallEstimationResult result = service.EstimateInstallationDirectory(snapshot, cache, false, ChartInstallationEstimateMode.Normal,
+                _ => snapshot.TargetMetadataProfile);
+
+            Assert.AreEqual(2, result.AudioReferenceCount);
+            Assert.AreEqual(1, result.SourceAudio.ObservedMatched);
+            Assert.AreEqual(2, result.SourceAudio.Required);
+            CollectionAssert.AreEqual(new[] { correct }, result.Candidates.Select(candidate => candidate.DirectoryPath).ToArray());
+            Assert.IsNotNull(result.SelectedCandidate);
+            Assert.AreEqual(2, result.SelectedCandidate.AudioMatched);
+            Assert.AreEqual(1, result.SelectedCandidate.AudioExactMatched);
+            Assert.AreEqual(100, result.SelectedCandidate.AudioHealth);
+            Assert.AreEqual(InstallAudioCompleteness.Complete, result.AudioCompleteness);
+            Assert.IsTrue(result.ShouldAutoApplyDestination);
+        });
+    }
+
+    /// <summary>子の五要求と正しい同梱四件をroot座標で照合し、不足を補うH100/M1を重複だけのH80/M2より上へ並べます。</summary>
+    [TestMethod]
+    public void Estimate_NestedPackageRanksUnionHealthBeforeDuplicateMatches()
+    {
+        WithWorkspace((root, service) =>
+        {
+            string source = Path.Combine(root, "Source");
+            string childDirectory = Path.Combine(source, "sub");
+            Directory.CreateDirectory(childDirectory);
+            foreach (int index in Enumerable.Range(1, 4)) { File.WriteAllText(Path.Combine(childDirectory, $"tone{index}.ogg"), "audio"); }
+            ChartFile child = CreateFile("child", Path.Combine(childDirectory, "chart.bms"), Enumerable.Range(1, 5).Select(index => $"tone{index}.wav").ToArray())
+                with
+            { RawTitle = "Song", RawArtist = "Artist", Artist = "Artist" };
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([child]);
+            package.path = source;
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [child]);
+            string correct = Path.Combine(root, "Correct");
+            string duplicate = Path.Combine(root, "Duplicate");
+            var cache = new DirectoryResourceLookupCache();
+            cache.AddDir(correct, [Path.Combine("sub", "tone5.ogg")]);
+            cache.AddDir(duplicate, [Path.Combine("sub", "tone1.ogg"), Path.Combine("sub", "tone2.ogg")]);
+
+            InstallEstimationResult result = service.EstimateInstallationDirectory(snapshot, cache, false, ChartInstallationEstimateMode.Normal,
+                _ => snapshot.TargetMetadataProfile);
+
+            Assert.AreEqual(5, result.AudioReferenceCount);
+            Assert.AreEqual(4, result.SourceAudio.ObservedMatched);
+            CollectionAssert.AreEqual(new[] { correct, duplicate }, result.Candidates.Select(candidate => candidate.DirectoryPath).ToArray());
+            CollectionAssert.AreEqual(new[] { 100, 80 }, result.Candidates.Select(candidate => candidate.AudioHealth).ToArray());
+            CollectionAssert.AreEqual(new[] { 1, 2 }, result.Candidates.Select(candidate => candidate.AudioExactMatched).ToArray());
+            CollectionAssert.AreEqual(new[] { 5, 4 }, result.Candidates.Select(candidate => candidate.AudioMatched).ToArray());
+        });
+    }
 
     /// <summary>実走査索引の逆引きからroot固有資源の一意候補を選び、非root基準位置でも絶対rootを保持する。</summary>
     [TestMethod]
@@ -1238,18 +1311,20 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             string soundDir = Path.Combine(sourceDir, "sound");
             string imageDir = Path.Combine(sourceDir, "image");
             string movieDir = Path.Combine(sourceDir, "movie");
+            string childDir = Path.Combine(sourceDir, "sub");
             Directory.CreateDirectory(soundDir);
             Directory.CreateDirectory(imageDir);
             Directory.CreateDirectory(movieDir);
+            Directory.CreateDirectory(childDir);
             File.WriteAllText(Path.Combine(sourceDir, "chart1.bms"), "#PLAYER 1");
-            File.WriteAllText(Path.Combine(sourceDir, "chart2.bms"), "#PLAYER 1");
+            File.WriteAllText(Path.Combine(childDir, "chart2.bms"), "#PLAYER 1");
             File.WriteAllText(Path.Combine(soundDir, "00.wav"), "audio");
             File.WriteAllText(Path.Combine(imageDir, "bg.png"), "image");
             File.WriteAllText(Path.Combine(movieDir, "pv.mp4"), "movie");
 
             ChartFile primary = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart1.bms"), Path.Combine("sound", "00.wav"));
             primary = primary with { Resources = TestChartResources.ReplaceVisual(primary.Resources, new HashSet<string>([Path.Combine("image", "bg.png")], StringComparer.OrdinalIgnoreCase)) };
-            ChartFile secondary = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(sourceDir, "chart2.bms"), Path.Combine("sound", "00.wav"));
+            ChartFile secondary = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(childDir, "chart2.bms"), Path.Combine("sound", "00.wav"));
             primary = ChartFileProjection.WithMaintenance(primary, MaintenanceStorageMapping.ToCommon(CreateMaintenanceInfo(primary, wavDefined: 1, wavExisting: 0)));
             secondary = ChartFileProjection.WithMaintenance(secondary, MaintenanceStorageMapping.ToCommon(CreateMaintenanceInfo(secondary, wavDefined: 1, wavExisting: 0)));
 
@@ -1268,10 +1343,10 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.AreEqual(primary.Path, snapshot.RepresentativeChart.Path);
 
             Assert.AreEqual(2, snapshot.ChartCount);
-            var expectedDefinedResources = ChartResourceSnapshot.CreateAggregate(package.ChartEntries.Select(entry => entry.Chart));
-            CollectionAssert.AreEquivalent(expectedDefinedResources.AudioRelativePathHashes.ToArray(), snapshot.DefinedResources.AudioRelativePathHashes.ToArray());
-            CollectionAssert.AreEquivalent(expectedDefinedResources.VisualRelativePathHashes.ToArray(), snapshot.DefinedResources.VisualRelativePathHashes.ToArray());
-            CollectionAssert.AreEquivalent(expectedDefinedResources.MovieRelativePathHashes.ToArray(), snapshot.DefinedResources.MovieRelativePathHashes.ToArray());
+            CollectionAssert.AreEquivalent(new[] { Path.Combine("sound", "00"), Path.Combine("sub", "sound", "00") }, snapshot.DefinedResources.AudioRelativePaths.ToArray());
+            CollectionAssert.AreEquivalent(new[] { Path.Combine("image", "bg") }, snapshot.DefinedResources.VisualRelativePaths.ToArray());
+            Assert.AreEqual(0, snapshot.DefinedResources.MovieReferenceCount);
+            CollectionAssert.AreEqual(new[] { "", "sub" }, snapshot.TargetChartResources.Select(item => item.RelativeDirectory).ToArray());
             Assert.AreEqual(1, snapshot.BundledAudioCount);
             Assert.AreEqual(1, snapshot.BundledImageCount);
             Assert.AreEqual(1, snapshot.BundledMovieCount);

@@ -186,18 +186,20 @@ internal static class PackageInstallEstimationSnapshotBuilder
 {
     internal const int DefaultSourceSurfaceMaxVisitedFileSystemEntries = 50000;
 
-    /// <summary>捕捉済みの使用集合と同梱索引に、実導入と同じパッケージ内の譜面相対配置を付けて推定入力を作ります。</summary>
-    internal static PackageInstallEstimationSnapshot Build(ChartPackage package, IEnumerable<PackageChartEntry> targetEntries, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false, ChartResourceSnapshot definedResources = null)
+    /// <summary>取得済み個別参照と相対配置を一度捕捉し、同じ列からルート要求集合と譜面別評価を作ります。事前捕捉入力は同一package・対象entry列に対応させ、nullだけを未捕捉として扱います。</summary>
+    internal static PackageInstallEstimationSnapshot Build(ChartPackage package, IEnumerable<PackageChartEntry> targetEntries, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false, ChartResourceSnapshot definedResources = null,
+        IReadOnlyList<(ChartResourceSnapshot Resources, string RelativeDirectory)> targetChartResources = null)
     {
         List<PackageChartEntry> normalizedTargetEntries = NormalizeEntries(targetEntries);
         PackageChartEntry representativeEntry = SelectRepresentativeEntry(normalizedTargetEntries);
+        IReadOnlyList<(ChartResourceSnapshot Resources, string RelativeDirectory)> capturedResources = targetChartResources
+            ?? CaptureTargetChartResources(package?.path, normalizedTargetEntries);
         return new PackageInstallEstimationSnapshot
         {
             RepresentativeChart = representativeEntry?.Chart,
-            DefinedResources = definedResources ?? ChartResourceSnapshot.CreateAggregate(normalizedTargetEntries.Select(entry => entry.Chart)),
+            DefinedResources = definedResources ?? ChartResourceSnapshot.CreatePlacedAggregate(capturedResources.Select(item => (item.Resources.ResourceReferences, item.RelativeDirectory))),
             TargetMetadataProfile = BuildTargetMetadataProfile(normalizedTargetEntries),
-            TargetChartResources = normalizedTargetEntries.Select(entry => (ChartResourceSnapshot.Create(entry.Chart),
-                Path.GetDirectoryName(PackageInstallDestinationMap.GetRelativeChartPath(package?.path, entry.Chart.Path)) ?? string.Empty)).ToArray(),
+            TargetChartResources = capturedResources,
             BundledResources = installSurfaceSnapshot?.BundledResources?.Clone(),
             SourceCandidateResources = installSurfaceSnapshot?.SourceCandidateResources?.Clone() ?? new DirectoryResourceLookupCache.Entry(),
             SourceDirectory = installSurfaceSnapshot?.SourceDirectory ?? ResolveSourceDirectory(package?.path),
@@ -215,6 +217,17 @@ internal static class PackageInstallEstimationSnapshotBuilder
             SourceSurfaceVisitedFileSystemEntryCount = installSurfaceSnapshot?.VisitedFileSystemEntryCount ?? 0,
             SourceSurfaceMaxVisitedFileSystemEntryCount = installSurfaceSnapshot?.MaxVisitedFileSystemEntryCount ?? 0
         };
+    }
+
+    /// <summary>同一packageの対象entry列から個別参照と実導入の相対位置を捕捉します。既存の入力型判定を共有でき、既知空列では存在確認を行いません。取得済み原参照を変更・再取得しません。</summary>
+    internal static IReadOnlyList<(ChartResourceSnapshot Resources, string RelativeDirectory)> CaptureTargetChartResources(string sourceRootPath,
+        IReadOnlyList<PackageChartEntry> entries, bool? isDirectoryPackage = null)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        if (entries.Count == 0) { return []; }
+        bool directoryPackage = isDirectoryPackage ?? (!string.IsNullOrWhiteSpace(sourceRootPath) && LongPathFileSystem.DirectoryExists(sourceRootPath));
+        return entries.Select(entry => (ChartResourceSnapshot.Create(entry.Chart),
+            Path.GetDirectoryName(PackageInstallDestinationMap.GetRelativeChartPath(sourceRootPath, entry.Chart.Path, directoryPackage)) ?? string.Empty)).ToArray();
     }
 
     /// <summary>

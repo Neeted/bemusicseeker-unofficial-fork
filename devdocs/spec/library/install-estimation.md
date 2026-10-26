@@ -32,6 +32,8 @@ BMS/PMSの未定義WAV/BMP IDとBMSONの参照先ヘッダーのないBGA/LAYER/
 
 キーは拡張子を除いた譜面相対のパスです。`foo.wav` と `./foo.wav` は `foo`、`sound/./foo.wav` は `sound/foo`、`sound/foo.v2.wav` は `sound/foo.v2` になります。`foo` と `sound/foo` は別であり、ファイル名だけに戻して一致させません。既に正規化した参照をパッケージ集約時に再正規化しません。
 
+ディレクトリ型のパッケージでは、候補抽出・同梱充足・足切り・順位の要求集合も実導入のルート座標を使います。直下譜面の `kick` と `sub/chart.bms` の `kick` は、ルート要求では `kick` と `sub/kick` の二件です。候補や同梱の親直下・別の兄弟にある同名で子の要求を満たしません。取得済みの個別参照と譜面相対配置を一度捕捉し、検索キーと種類別hashだけを配置付きで集約します。原参照・用途・解析状態と譜面別評価の入力は変更しません。自動取り込みの早期完全音源判定、共有入力からの推定、候補編集の源側90%判定でも同じ座標を使います。編集では後続の健康度更新と相対位置の捕捉を共有し、追加の入力元取得を行いません。
+
 資源の親名は[リソース索引](../core/data-and-indexes.md#リソース索引と所有関係)と同じ物理配置の識別を使います。`audio.ogg/tone.wav` の参照は同じ親の `tone.ogg` と一致しますが、別親 `audio.wav/tone.wav` だけを持つ候補とは一致しません。親名への拡張子別名化で候補を混入・脱落させず、元参照と既存の推定閾値を維持します。
 
 drive rootの逆引き候補も絶対 `C:\` を保持し、非root現在位置へ依存する `C:` に変換しません。rootと通常子候補の祖先関係を同じ自己所有・関連性の抑制規則へ渡し、通常directoryとUNCの従来の同一性を維持します。
@@ -344,6 +346,8 @@ ownerから完了・失敗receiverまで、成功として公開できる初段�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 子譜面packageのルート要求、同梱と候補の足切り・順位 | `ChartResourceSnapshot.CreatePlacedAggregate`、`PackageInstallEstimationSnapshotBuilder`、`BMSLibrary` | `ChartResourceSnapshotTests.CreatePlacedAggregate_ProjectsIndexKeysAndPreservesOriginalReferences` が全種類の配置付きkeyと原参照・状態を確認する。`BmsLibraryInstallEstimationServiceTests.Estimate_NestedPackageUsesRootCoordinatesBeforeCandidateGate` は実builderと逆引きからroot/子の二要求、誤った親・兄弟の除外を、`Estimate_NestedPackageRanksUnionHealthBeforeDuplicateMatches` は正しい子同梱とH/U/Mによる順位を確認する。`BmsLibraryPendingPackageRegroupTests.SelectDestination_UsesCapturedSourceRuleAcrossEditingAndExplicitReestimation` は子配置の8/10・9/10、編集時の捕捉保持、混在AnyDSTの全体skipと全DST明示clear後の再推定を分担する。 |
+| 全hash未所持のroot＋子packageの通常発見から共有事前集約・実導入 | `BMSLibrary.BuildAutomaticPendingEstimateSourceBatchSnapshotUnsafe`、`PackageInstallWorkflowOwner` | `PackageInstallWorkflowOwnerTests.AutomaticContinuation_NestedUnownedPackageUsesPlacedResourceRequests` が親だけの通常入力から両譜面を発見し、hash短絡を使わずroot同梱＋子候補で推定する。最終階層・元bytes、song/所持集合・保留/install除去・DurableCommitを確認する。既存のhash候補・子音源不足の系列と停止/取消/全Task joinを維持する。 |
 | 同一推定対象群の確定DST混在時は既存skipを維持、全DST明示クリア終端後に再推定 | `PendingPackageWorkflowOwner.SearchPackagesAsync` / `ClearPackagesAsync`、`BmsLibraryPendingPackageStore`、`BMSLibrary.PackageInstall` | [`PendingPackageWorkflowOwnerTests.SearchPackagesAsync_PartiallyConfiguredPackageRequiresExplicitClearBeforeReestimation`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerTests.cs) が実owner/storeで、旧Manual DST保持と空項目不変、全クリア後の両項目の元配置0%、次の明示推定で一意Strongの新宛先と100%への到達を区別する。各実Task・Presentation・L終端、同じ二項目・元ファイルとfresh read-only接続による元pathのinstall記録保持も確認する。失効factsと独立パッケージの実統合は[変更操作の対応表](mutations.md#実装とテストの対応)へ分担する。 |
 | 推定済み保留候補・配置の成功変更追従と、削除・統合後の明示再推定 | `LibraryInstallDestinationChange`、`PackageChartEntry.ApplyLibraryFolderChange` | 条件表と実成功factsは[変更操作の対応表](mutations.md#実装とテストの対応)へ分担する。`BmsLibraryDuplicateServiceTests.MergeChartDirectory_RechecksResourcesWithinAcceptedOperation` は統合直後の失効と、DST空の独立した単独パッケージ一件を明示推定して現存先から候補を取得する接続を確認する。同一対象群の確定DST混在は前行へ分担する。 |
 | 資源拡張子に似た親名の通常候補 | `BmsLibraryInstallEstimationService`、`DirectoryResourceLookupCache` | `BmsLibraryInstallEstimationServiceTests.EstimateInstallationDirectory_DistinguishesAliasLikeParentNamesFromRealReverseIndex` が実走査索引から別親の候補を区別する。`EverythingNativePathIdentityTests.ExecuteScan_PreservesDirectoryIdentityThroughDecodeHealthAndEstimation` はnative公開packの実decodeと三逆引きから通常推定への接続を担う。条件表はnativeへ集約し、既存の閾値・祖先抑制系列を維持する。 |

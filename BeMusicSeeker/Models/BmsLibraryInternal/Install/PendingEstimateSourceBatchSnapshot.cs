@@ -45,6 +45,10 @@ internal sealed class PendingEstimateSourceBatchPackageState
     /// <summary>自動推定で評価する未所持群です。全既所持パッケージの準備状態は作りません。</summary>
     public List<PackageChartEntry> TargetEntries { get; set; } = [];
 
+    /// <summary>TargetEntriesと同じ順序で一度捕捉した譜面相対参照とpackage内配置です。空列は既知0件であり再取得しません。</summary>
+    public IReadOnlyList<(ChartResourceSnapshot Resources, string RelativeDirectory)> TargetChartResources { get; set; } = [];
+
+    /// <summary>同じTargetChartResourcesから作ったpackage-root要求集合です。早期判定と推定本体で共用します。</summary>
     public ChartResourceSnapshot ChartResources { get; set; } = new ChartResourceSnapshot();
 
     public ChartInstallationEstimateMode EstimateMode { get; set; }

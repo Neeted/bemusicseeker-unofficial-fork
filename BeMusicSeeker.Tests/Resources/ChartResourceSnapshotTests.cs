@@ -13,6 +13,38 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartResourceSnapshotTests
 {
+    /// <summary>同名のroot/子参照を最終配置で区別し、全種類の索引だけに一度prefixを付けます。原文・用途・不正状態・未使用は保持し、空keyや親参照を有効化しません。</summary>
+    [TestMethod]
+    public void CreatePlacedAggregate_ProjectsIndexKeysAndPreservesOriginalReferences()
+    {
+        ChartResourceReference[] common = [
+            ChartResourceReference.Parse("kick.wav", ChartResourceKind.Audio),
+            ChartResourceReference.Parse("cover.png", ChartResourceKind.Image),
+            ChartResourceReference.Parse("movie.mp4", ChartResourceKind.Movie),
+            ChartResourceReference.Parse("stage.v2.png", ChartResourceKind.Image, ChartResourceUsage.Stagefile)];
+        ChartResourceReference[] childReferences = [.. common,
+            ChartResourceReference.Parse(".wav", ChartResourceKind.Audio),
+            ChartResourceReference.Parse(@"..\parent.wav", ChartResourceKind.Audio),
+            ChartResourceReference.Parse("unused.wav", ChartResourceKind.Audio).WithUsage(false),
+            ChartResourceReference.Parse("", ChartResourceKind.Unknown, ChartResourceUsage.InputDiagnostic)];
+        var root = ChartResourceSnapshot.Create(common);
+        var child = ChartResourceSnapshot.Create(childReferences);
+
+        var aggregate = ChartResourceSnapshot.CreatePlacedAggregate([(root.ResourceReferences, ""), (child.ResourceReferences, "sub")]);
+
+        CollectionAssert.AreEquivalent(new[] { "kick", Path.Combine("sub", "kick") }, aggregate.AudioRelativePaths.ToArray());
+        CollectionAssert.AreEquivalent(new[] { "cover", Path.Combine("sub", "cover") }, aggregate.VisualRelativePaths.ToArray());
+        CollectionAssert.AreEquivalent(new[] { "movie", Path.Combine("sub", "movie") }, aggregate.MovieRelativePaths.ToArray());
+        CollectionAssert.AreEquivalent(new[] { "stage.v2", Path.Combine("sub", "stage.v2") }, aggregate.OptionalImageRelativePaths.ToArray());
+        CollectionAssert.AreEquivalent(new[] { ChartResourceKeyHash.GetLookupHash("kick"), ChartResourceKeyHash.GetLookupHash(Path.Combine("sub", "kick")) }, aggregate.AudioRelativePathHashes.ToArray());
+        Assert.AreEqual(4, aggregate.PathSegmentReferenceCount);
+        Assert.IsTrue(aggregate.HasUnresolvedAudio);
+        Assert.IsTrue(aggregate.HasUnsupportedParentTraversalReference);
+        CollectionAssert.AreEqual(common.Concat(childReferences).ToArray(), aggregate.ResourceReferences.ToArray());
+        CollectionAssert.AreEqual(new[] { "kick" }, child.AudioRelativePaths.ToArray());
+        CollectionAssert.AreEqual(childReferences, child.ResourceReferences.ToArray());
+    }
+
     /// <summary>未解決音声は使用中の通常音声だけで決まり、全定義取得でも未使用や別用途を混ぜません。</summary>
     [TestMethod]
     [DataRow(".wav", (int)ChartResourceKind.Audio, (int)ChartResourceUsage.Normal, true, true)]

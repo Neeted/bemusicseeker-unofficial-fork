@@ -171,13 +171,17 @@ public class ChartPackage : LR2SongDBExtended.install
         return new ChartPackage(entries, hasExplicitChartEntries: true);
     }
 
-    internal PackageInstallEstimationSnapshot GetOrBuildInstallEstimationSnapshotFromEntries(IEnumerable<PackageChartEntry> targetEntries, ChartResourceSnapshot definedResources = null)
+    /// <summary>同一対象列の事前捕捉入力を受け渡し、未捕捉時だけ共通builderで参照と配置を作ります。既知空列を再取得しません。</summary>
+    internal PackageInstallEstimationSnapshot GetOrBuildInstallEstimationSnapshotFromEntries(IEnumerable<PackageChartEntry> targetEntries, ChartResourceSnapshot definedResources = null,
+        IReadOnlyList<(ChartResourceSnapshot Resources, string RelativeDirectory)> targetChartResources = null)
     {
         PackageInstallSurfaceSnapshot installSurfaceSnapshot = GetOrBuildInstallEstimationSurfaceSnapshot(out bool sourceSurfaceCacheHit);
-        return PackageInstallEstimationSnapshotBuilder.Build(this, targetEntries, installSurfaceSnapshot, sourceSurfaceCacheHit, definedResources: definedResources);
+        return PackageInstallEstimationSnapshotBuilder.Build(this, targetEntries, installSurfaceSnapshot, sourceSurfaceCacheHit, definedResources: definedResources, targetChartResources: targetChartResources);
     }
 
-    internal PackageInstallEstimationSnapshot BuildInstallEstimationSnapshotFromEntries(IEnumerable<PackageChartEntry> targetEntries, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false, ChartResourceSnapshot definedResources = null)
+    /// <summary>同じpackage・対象entry列の同梱入力と配置付き要求を共有builderへ渡します。原参照と既知空の捕捉列を保持します。</summary>
+    internal PackageInstallEstimationSnapshot BuildInstallEstimationSnapshotFromEntries(IEnumerable<PackageChartEntry> targetEntries, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false, ChartResourceSnapshot definedResources = null,
+        IReadOnlyList<(ChartResourceSnapshot Resources, string RelativeDirectory)> targetChartResources = null)
     {
         return PackageInstallEstimationSnapshotBuilder.Build(
             this,
@@ -185,7 +189,8 @@ public class ChartPackage : LR2SongDBExtended.install
             installSurfaceSnapshot,
             sourceSurfaceCacheHit,
             sourceSurfaceBatchHit,
-            definedResources);
+            definedResources,
+            targetChartResources);
     }
 
     internal void InvalidateInstallEstimationSnapshot()

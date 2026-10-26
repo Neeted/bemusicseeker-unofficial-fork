@@ -74,7 +74,15 @@ internal sealed class PackageInstallDestinationMap
     internal static string GetRelativeChartPath(string sourceRootPath, string chartPath)
     {
         if (string.IsNullOrWhiteSpace(chartPath)) { return string.Empty; }
-        if (!string.IsNullOrWhiteSpace(sourceRootPath) && LongPathFileSystem.DirectoryExists(sourceRootPath))
+        return GetRelativeChartPath(sourceRootPath, chartPath,
+            !string.IsNullOrWhiteSpace(sourceRootPath) && LongPathFileSystem.DirectoryExists(sourceRootPath));
+    }
+
+    /// <summary>同じ操作で捕捉した入力型を使い、存在確認を重ねず実導入と同じ相対パスを返します。単独ファイルとルート外ではファイル名を使います。</summary>
+    internal static string GetRelativeChartPath(string sourceRootPath, string chartPath, bool isDirectoryPackage)
+    {
+        if (string.IsNullOrWhiteSpace(chartPath)) { return string.Empty; }
+        if (!string.IsNullOrWhiteSpace(sourceRootPath) && isDirectoryPackage)
         {
             string normalizedRoot = sourceRootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
             if (chartPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))

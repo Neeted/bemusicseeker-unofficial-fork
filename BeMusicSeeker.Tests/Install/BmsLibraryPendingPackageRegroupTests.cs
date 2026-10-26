@@ -140,51 +140,76 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
-    /// <summary>源側80/90%の表示根拠を推定・選択・空編集・再選択で維持し、配置先込み100%や入力元の後続変更から逆算しません。</summary>
+    /// <summary>源側80/90%をroot/子の正しい同梱配置で数え、親・兄弟の同名や配置先込み100%を混ぜません。推定・選択・空編集・再選択では捕捉結果を使い、全DST明示クリア後だけ後続の入力元変更を再推定します。</summary>
     [DataTestMethod]
-    [DataRow(8, "abc")]
-    [DataRow(9, "abd")]
-    public void SelectDestination_UsesCapturedSourceRuleAcrossEditingAndExplicitReestimation(int supplied, string expectedTitle)
+    [DataRow(8, "abc", false)]
+    [DataRow(9, "abd", false)]
+    [DataRow(8, "abc", true)]
+    [DataRow(9, "abd", true)]
+    public void SelectDestination_UsesCapturedSourceRuleAcrossEditingAndExplicitReestimation(int supplied, string expectedTitle, bool nested)
     {
         WithTemporaryLibrary((root, db, library) =>
         {
             string source = Path.Combine(root, "Pending");
             string destination = Path.Combine(root, "Installed");
+            string chartDirectory = nested ? Path.Combine(source, "sub") : source;
+            string destinationResources = nested ? Path.Combine(destination, "sub") : destination;
+            Directory.CreateDirectory(destinationResources);
             string requirements = string.Join("", Enumerable.Range(1, 10).Select(i => $"#WAV{i:D2} tone{i}.wav\n"))
                 + "#00111:01020304050607080910\n";
-            var entry = PackageChartEntry.FromPath(CreateBmsFileWithContents(source, "target.bms", "#TITLE abc\n#ARTIST abc\n" + requirements));
-            var package = ChartPackage.FromChartEntries([entry]);
+            var entry = PackageChartEntry.FromPath(CreateBmsFileWithContents(chartDirectory, "target.bms", "#TITLE abc\n#ARTIST abc\n" + requirements));
+            PackageChartEntry[] targets = nested
+                ? [PackageChartEntry.FromPath(CreateBmsFileWithContents(source, "root.bms", "#TITLE abc\n#ARTIST abc\n")), entry] : [entry];
+            var package = ChartPackage.FromChartEntries(targets);
             package.path = source;
             library.BmsCharts = [
                 ReadChart(CreateBmsFileWithContents(destination, "a.bms", "#TITLE abc\n#ARTIST xyz\n")),
                 ReadChart(CreateBmsFileWithContents(destination, "b.bms", "#TITLE abd\n#ARTIST abe\n"))];
             foreach (int i in Enumerable.Range(1, 10))
             {
-                File.WriteAllText(Path.Combine(destination, $"tone{i}.ogg"), "audio");
-                if (i <= supplied) { File.WriteAllText(Path.Combine(source, $"tone{i}.ogg"), "audio"); }
+                File.WriteAllText(Path.Combine(destinationResources, $"tone{i}.ogg"), "audio");
+                if (i <= supplied) { File.WriteAllText(Path.Combine(chartDirectory, $"tone{i}.ogg"), "audio"); }
+                else if (nested)
+                {
+                    string sibling = Path.Combine(source, "sibling");
+                    Directory.CreateDirectory(sibling);
+                    File.WriteAllText(Path.Combine(source, $"tone{i}.ogg"), "wrong parent");
+                    File.WriteAllText(Path.Combine(sibling, $"tone{i}.ogg"), "wrong sibling");
+                }
             }
-            SetLibraryResourceIndex(library, BuildDirectoryLookupCache(destination));
+            var lookup = new DirectoryResourceLookupCache();
+            lookup.AddDir(destination, Directory.GetFiles(destination, "*", SearchOption.AllDirectories).Select(path => Path.GetRelativePath(destination, path)));
+            SetLibraryResourceIndex(library, lookup);
             SeedPendingPackages(library, db, package);
+            if (nested)
+            {
+                // 混在の確定先を保持し、未設定の子だけを新しく推定しません。全件明示クリアした後に全群を推定します。
+                targets[0].ApplyInstallDestinationMetadata(destination, string.Empty, string.Empty);
+                library.SearchEstimatedInstallationDirectory(package);
+                Assert.AreEqual(destination, targets[0].Chart.InstallDestination);
+                Assert.IsTrue(string.IsNullOrWhiteSpace(entry.Chart.InstallDestination));
+                library.RemoveInstallDestination(targets, package);
+            }
             library.SearchEstimatedInstallationDirectory(package);
             Assert.AreEqual(expectedTitle, entry.Chart.InstallDestinationTitle);
             Assert.AreEqual(100, entry.Chart.WAVHealth);
             // 捕捉後にFSを変えても、手動表示のために入力元を再列挙しません。
-            foreach (int i in Enumerable.Range(1, 10)) { File.WriteAllText(Path.Combine(source, $"tone{i}.ogg"), "later"); }
+            foreach (int i in Enumerable.Range(1, 10)) { File.WriteAllText(Path.Combine(chartDirectory, $"tone{i}.ogg"), "later"); }
             Assert.IsTrue(library.SetPendingInstallDestination(entry, destination));
             Assert.AreEqual(expectedTitle, entry.Chart.InstallDestinationTitle);
             Assert.IsTrue(library.SetPendingInstallDestination(entry, string.Empty));
             Assert.IsTrue(library.SetPendingInstallDestination(entry, destination));
             Assert.AreEqual(expectedTitle, entry.Chart.InstallDestinationTitle);
             // 明示クリアでCurrentへ戻った後、detached要求境界でも同じ源側評価を再現できます。
-            library.RemoveInstallDestination([entry], package);
+            library.RemoveInstallDestination(targets, package);
             Assert.AreEqual(ChartResourcePlacementBasis.Current, entry.ResourcePlacement.Basis);
             PackageChartEntry detached = entry.ToChartEntrySnapshot();
-            var sourceAudio = InstallEstimationSourceAudio.Evaluate(detached.ResourceSnapshot,
+            var sourceAudio = InstallEstimationSourceAudio.Evaluate(ChartResourceSnapshot.CreatePlacedAggregate([(detached.ResourceSnapshot.ResourceReferences, detached.ResourcePlacement.RelativeDirectory)]),
                 detached.ResourcePlacement.BundledResources, detached.ResourcePlacement.BundledResourcesComplete);
             Assert.AreEqual(supplied == 9 ? InstallEstimationRelatedRule.BothFields : InstallEstimationRelatedRule.AnyField, sourceAudio.RelatedRule);
             Assert.IsTrue(library.SetPendingInstallDestination(detached, destination));
             Assert.AreEqual(expectedTitle, entry.Chart.InstallDestinationTitle);
-            library.RemoveInstallDestination([entry], package);
+            library.RemoveInstallDestination(targets, package);
             package.InvalidateInstallEstimationSnapshot();
             library.SearchEstimatedInstallationDirectory(package);
             Assert.AreEqual("abd", entry.Chart.InstallDestinationTitle);

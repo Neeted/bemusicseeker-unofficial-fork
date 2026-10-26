@@ -168,7 +168,28 @@ internal sealed class ChartResourceSnapshot
         return aggregate;
     }
 
-    private void AddReference(ChartResourceReference reference, bool includeUnused = false)
+    /// <summary>
+    /// 譜面別の取得済み参照を実導入のパッケージルート座標へ集約します。
+    /// 個別の原参照・用途・解析状態は保持し、索引キーだけに譜面の相対ディレクトリを一度付けます。
+    /// 未捕捉の参照を空集合へ置き換えず、I/Oや拡張子の再解析は行いません。
+    /// </summary>
+    internal static ChartResourceSnapshot CreatePlacedAggregate(IEnumerable<(IReadOnlyList<ChartResourceReference> Resources, string RelativeDirectory)> charts)
+    {
+        ArgumentNullException.ThrowIfNull(charts);
+        var aggregate = new ChartResourceSnapshot();
+        foreach ((IReadOnlyList<ChartResourceReference> resources, string relativeDirectory) in charts)
+        {
+            if (resources == null) { throw new InvalidOperationException("Resource references have not been acquired."); }
+            foreach (ChartResourceReference reference in resources)
+            {
+                aggregate.AddReference(reference, relativeDirectory: relativeDirectory);
+            }
+        }
+        aggregate.PathSegmentReferenceCount = aggregate.EnumerateAllRelativePaths().Count(IsNormalizedPathAware);
+        return aggregate;
+    }
+
+    private void AddReference(ChartResourceReference reference, bool includeUnused = false, string relativeDirectory = null)
     {
         resourceReferences.Add(reference);
         hasUnresolvedAudio |= IsUnresolved(reference) && reference.Kind == ChartResourceKind.Audio;
@@ -178,8 +199,9 @@ internal sealed class ChartResourceSnapshot
             return;
         }
 
-        var key = new ResourceReference(reference.LookupKey,
-            ChartResourceKeyHash.GetLookupHash(reference.LookupKey), IsNormalizedPathAware(reference.LookupKey));
+        string lookupKey = string.IsNullOrEmpty(relativeDirectory) ? reference.LookupKey : Path.Combine(relativeDirectory, reference.LookupKey);
+        var key = new ResourceReference(lookupKey,
+            ChartResourceKeyHash.GetLookupHash(lookupKey), IsNormalizedPathAware(lookupKey));
         if (reference.Usage != ChartResourceUsage.Normal)
         {
             if (reference.Usage != ChartResourceUsage.InputDiagnostic)
