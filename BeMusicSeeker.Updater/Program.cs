@@ -9,6 +9,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using BeMusicSeeker.Models.Update;
 using Microsoft.Win32;
 
 namespace BeMusicSeeker.Updater;
@@ -333,6 +334,7 @@ internal static partial class Program
         }
     }
 
+    /// <summary>専用領域を検査し、Invariant整数の受付マーカーをUTF-8・改行なしで完成後に公開します。</summary>
     private static void PublishReadyHandshake(UpdateRequest request)
     {
         string appDirectory = NormalizeExistingDirectory(request.AppDirectory);
@@ -345,9 +347,10 @@ internal static partial class Program
         EnsureNoReparsePointAncestors(appDirectory, "update_work/current/updater-ready.txt");
         EnsureNoReparsePointIfPresent(readyFilePath);
         byte[] marker = Encoding.UTF8.GetBytes(ProtocolVersion.ToString(CultureInfo.InvariantCulture));
-        using FileStream stream = UpdaterFileSystem.Open(readyFilePath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
-        stream.Write(marker, 0, marker.Length);
-        stream.Flush(flushToDisk: true);
+        UpdateMarkerPublisher.Publish(
+            UpdaterFileSystem.ToExtendedPath(readyFilePath),
+            overwrite: false,
+            stream => stream.Write(marker, 0, marker.Length));
     }
 
     private static bool WaitForLaunchDecision(UpdateRequest request)

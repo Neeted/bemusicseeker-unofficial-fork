@@ -11,4 +11,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <OptimizationPreference>Size</OptimizationPreference>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\BeMusicSeeker\Models\Update\UpdateMarkerPublisher.cs" Link="UpdateMarkerPublisher.cs" />
+  </ItemGroup>
 </Project>

@@ -2,7 +2,7 @@
 
 ## 目的と採用範囲
 
-通常の入力・操作で到達する保存、導入、一覧、再生、出力の不整合を解消する。本書は採用済みの修正対象と、既存の採用契約・未完了の実装・検証を扱う。対象は11件、実装の単位は下表の11単位とする。[任意改善](release-follow-up-candidates.md)は今回実装せず、リリース完了条件に含めない。
+通常の入力・操作で到達する保存、導入、一覧、再生、出力の不整合を解消する。本書は採用済みの修正対象と、既存の採用契約・未完了の実装・検証を扱う。対象は10件、実装の単位は下表の10単位とする。[任意改善](release-follow-up-candidates.md)は今回実装せず、リリース完了条件に含めない。
 
 追加指摘は `dev` の `8c53fc9b` とLR2出力簡素化の作業差分を照合した静的調査を根拠とする。既存対象も含め、通常経路の確認を実再現・テスト成功と読み替えない。着手時に最新のコードと既存差分を確認し、解消済みの課題を再実装しない。LR2出力設定の保存・生成の契約は[設定の保存](../spec/runtime/settings-persistence.md)と[LR2カスタムフォルダ](../spec/playlist/lr2-custom-folders.md)を参照する。
 
@@ -41,7 +41,7 @@
 | URL・表の値と出力 | 転送後相対参照、JSON出力、推薦prefix、名前なしsort、プロパティURL解除は、共通の表/URI正本やhelperの変更有無を確認して分ける。保存済み所属の追加・移動を先行し、同じentry/exporterを変更する単位は直列調整する。生成意味を変える単位では既存exporterVersionを必要に応じ更新し、最終版で旧生成物を一度再生成した後は未変更skipを維持する。 | 取得の実体比較・保存名判定と補完比較は別責務であり、共有境界を変更しない範囲で並行できる。同じ表の正本・保存APIまで広げる場合は同じ作業群へ戻す。 |
 | 再生・成績・設定 | PlaybackPanelViewModelの共有gate・停止・世代契約と書込みを直列にする。管理入力回収で使う停止・joinは[ライブラリ変更](../spec/library/mutations.md#保留目録の解除と管理入力の回収)の現行契約を維持する。追加出力先の改名入力はSettings責務に閉じて扱う。 | 外部固有の再開処理は[任意候補](release-follow-up-candidates.md#外部プレイヤー固有の試聴再生)として別に採否を判断し、同じownerへ書き込む場合だけ直列にする。 |
 | ツリー編集 | EditableTextBlockの候補/終端とMainWindowの確定値取得を一単位にする。 | 他の表・検索部品と同名の概念だけでは結合しない。任意の更新通知翻訳を採る場合もMainWindowの一writerへ合流する。 |
-| 更新 | 完成後ready公開→同期lock保持。Program/gateway、既存のmarker公開helper、テスト補助、配布生成物・更新仕様を直列確認する。 | 更新以外の共有境界を変更しない単位とは並行可能。実プロセス/drive検証は負荷と所有を別途調整する。管理file→directory遷移は任意の別原因。 |
+| 更新 | 同期lock保持。既存の受付・決定マーカー公開契約を保ち、Program/gateway、テスト補助、配布生成物・更新仕様への影響を確認する。 | 更新以外の共有境界を変更しない単位とは並行可能。実プロセス/drive検証は負荷と所有を別途調整する。管理file→directory遷移は任意の別原因。 |
 
 作業WTの暫定最大5本・他チャット分を含む所有、原則一writer、子担当への委譲と責任者への返却、仕事の配分とイベント待機、安全な切れ目での移管と成功版の引継ぎは[並列作業](../spec/development/agent-workflow.md#並列作業)に従う。検証・レビュー待ちだけを増やさず、完了・統合・再利用や回収を進める。ignoredの資料・bin・検証結果が新WTへ自動到達したとは扱わない。
 
@@ -60,8 +60,7 @@ Functionalは全WT同時一件とし、別WTのQuickと必要ビルドは並行�
 | 7 | プロパティPage URL空欄。WPFの空文字→nullがsetterで失敗し、表示だけ空・旧値残存となる。 | nullによる明示解除と非null検証を区別し、無効入力を空へ読み替えない。一般・フォルダ・出力設定の全面作り直しはしない。 | 実ダイアログ→保存→再開で解除と不正入力、header/dataを含む保存経路を確認。限定Binding probeを通常編集session・DB保存の保証にしない。 |
 | 8 | 追加出力先の改名入力。setterの毎回TrimがPropertyChanged Bindingへ戻り、途中の空白を消す。 | 入力文字列は保持し、正規化は確定時だけ。保存経路整理とは独立したBinding修正。 | 実Bindingで `My`→`My `→`My Charts`、前後空白の確定時除去、空白名拒否、改名後の出力先・保存値・表参照一致。 |
 | 9 | フォルダ編集取消で表示Binding消失。EditableTextBlockのText SetValue/Escape/内部TextBox書戻しがOneWay DisplayNameを外し、recycling後に旧名を残す。 | 表示Bindingと短命な編集候補を分け、確定時だけ現在対象・候補を既存改名入口へ一度渡す。取消/対象交換は候補を捨てる。EditModeChangedとMainWindowの確定値取得、DPの開始/終端を同じ契約へ揃える。Escape一行だけの補正、DisplayName TwoWay化、仮想化無効化はしない。 | `MainWindowPlaylistWorkspaceWpfTests` の実ツリー/compiled部品で無変更Escape・変更Escape・正常確定。Aの選択/focusを外して実scrollで同一部品がCへ再利用されたこと、Binding・新DataContext・表示名・操作対象を一組で確認。取消は保存なし、確定は一回。 |
-| 10 | ready書込み中の公開。最終名へ直接書くwriterと存在直後のReadAllTextが共有違反になり正常な更新開始を失敗させる。 | 同currentの一時名へmarkerをflush/closeし、完成後に最終ready名へ公開する。既存decisionの公開契約へ揃え、内容・期限・proceed/cancel・失敗時アプリ存続を維持。 | `UpdaterProcessGatewayTests`、`UpdaterPackageSyncTests` で公開準備中は最終名なし、出現時はclose済みを実writer/readerの順序制御で確認。receipt後だけ終了準備し、未公開期限切れ・取消・本来の起動失敗時回収を維持。writer終了後から読むfixtureだけにしない。 |
-| 11 | 更新cleanupが所有中の同期lockを削除。journalなし・新版起動直後にUpdater/watchdogの排他保持と重なり誤Failed通知になる。 | update-transaction.lockを一時物回収から除外し、OpenOrCreateで再利用する既存寿命を維持。例外全体抑制・待機再試行は追加しない。 | `UpdateDownloadServiceTests.CleanupPreviousWorkDirectoryPreservesActiveUpdaterPayload` でjournalなし/実lock保持中もlock/current/receiptを保ち、古いdownloadを回収。ready受理→新版起動後cleanupの系列を接続し、破損とは断定しない。 |
+| 10 | 更新cleanupが所有中の同期lockを削除。journalなし・新版起動直後にUpdater/watchdogの排他保持と重なり誤Failed通知になる。 | update-transaction.lockを一時物回収から除外し、OpenOrCreateで再利用する既存寿命を維持。例外全体抑制・待機再試行は追加しない。 | `UpdateDownloadServiceTests.CleanupPreviousWorkDirectoryPreservesActiveUpdaterPayload` でjournalなし/実lock保持中もlock/current/receiptを保ち、古いdownloadを回収。ready受理→新版起動後cleanupの系列を接続し、破損とは断定しない。 |
 
 ## 責務別の参照と依存
 
@@ -71,7 +70,7 @@ Functionalは全WT同時一件とし、別WTのQuickと必要ビルドは並行�
 | 物理変更・資源・推定 | [ライブラリ変更](../spec/library/mutations.md)、[整合性](../spec/library/file-db-consistency.md)、[重複](../spec/library/duplicate-files.md)、[導入](../spec/library/drop-install.md)、[推定](../spec/library/install-estimation.md)、[性能](../spec/core/performance-and-scale.md)。発見済み子の推定は導入経路で扱う。 |
 | 表・URL・履歴 | [取得](../spec/playlist/downloads.md)、[Table URL取込み](../spec/playlist/table-url-import.md)、[BMT](../spec/playlist/bmt-export.md)、[LR2出力](../spec/playlist/lr2-custom-folders.md)、[履歴](../spec/playlist/play-history.md)。URL比較の共有とcache・取得所有者の結合は別判断。BMT混在名、推薦MEMO、本人IR存廃は任意。 |
 | 再生・画面・外部起動 | [再生パネル](../spec/ui/playback-panel.md)、[一覧](../spec/ui/table-view.md)、[外部起動](../spec/ui/external-launch.md)。共通の一時配置・回収、範囲選択と汎用起動を扱う。外部固有のPause・再開始は任意側に分け、共通修正の前提にしない。右クリックと範囲選択の原因を区別。 |
-| 更新 | [ポータブル更新](../spec/integration/portable-update.md)。ready完成後公開と同期lock保持を別原因の必須単位とし、管理file→directory遷移の実装は混ぜない。 |
+| 更新 | [ポータブル更新](../spec/integration/portable-update.md)。同期lock保持を必須単位とし、既存の受付・決定マーカー公開契約を保つ。管理file→directory遷移の実装は混ぜない。 |
 
 Linux上の抽出索引コードの計測は、Windowsの製品bridge・DB/UIの完了時間の非退行を保証しない。通常入力と正規キーが増える入力の仕事量・完了時間を分け、未測定の条件は制約として明記する。恣意的な許容率や無関係な全体ベンチマークを追加しない。
 

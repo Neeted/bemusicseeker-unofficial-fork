@@ -419,16 +419,11 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
         }
     }
 
+    /// <summary>UTF-8・改行なしの決定を完成後に公開し、既存の決定は置換します。</summary>
     private static void TryPublishDecision(string decisionFilePath, string decision)
     {
-        string temporaryPath = decisionFilePath + ".tmp";
         byte[] bytes = Encoding.UTF8.GetBytes(decision);
-        using (FileStream stream = new(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.Read))
-        {
-            stream.Write(bytes, 0, bytes.Length);
-            stream.Flush(flushToDisk: true);
-        }
-        File.Move(temporaryPath, decisionFilePath, overwrite: true);
+        UpdateMarkerPublisher.Publish(decisionFilePath, overwrite: true, stream => stream.Write(bytes, 0, bytes.Length));
     }
 
     private static string JoinArguments(params string[] values)

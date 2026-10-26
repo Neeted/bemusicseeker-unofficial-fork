@@ -2007,14 +2007,8 @@ public sealed class UpdaterPackageSyncTests
 
     private static void PublishUpdaterDecision(string decisionFilePath, string decision)
     {
-        string temporaryPath = decisionFilePath + ".tmp";
         byte[] bytes = System.Text.Encoding.UTF8.GetBytes(decision);
-        using (FileStream stream = new(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.Read))
-        {
-            stream.Write(bytes, 0, bytes.Length);
-            stream.Flush(flushToDisk: true);
-        }
-        File.Move(temporaryPath, decisionFilePath, overwrite: true);
+        UpdateMarkerPublisher.Publish(decisionFilePath, overwrite: true, stream => stream.Write(bytes, 0, bytes.Length));
     }
 
     private ProcessStartInfo CreateUpdaterStartInfo(
