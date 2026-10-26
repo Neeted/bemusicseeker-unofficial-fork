@@ -23,6 +23,142 @@ public sealed class AudioContractsTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>実panelの変更停止portは、現曲の実readと先読みdecoder解放の実終端まで入力回収を待ち、同じL内では新試聴を予約しません。</summary>
+    /// <remarks>NULL_DEVICEと実入力・decoder所有を使います。目録の対象確定・実削除・失敗保全はPackageCatalogWorkflowOwnerTests、停止の失敗集約は既存InternalClose系列が担当します。</remarks>
+    [DataTestMethod]
+    [DataRow(false)] // 現曲LoadResourcesの実入力readを保持。
+    [DataRow(true)] // 先読み準備の実decoder解放を保持。
+    public async Task MutationPlaybackStop_JoinsCurrentReadAndPreloadDecoderBeforeInputCleanup(bool preload)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "bms-mutation-input-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string first = WritePlaybackChart(directory, "current.bms", 120, 50);
+        string next = WritePlaybackChart(directory, "next.bms", 120, 50);
+        string wave = Path.Combine(directory, "sound.wav");
+        File.WriteAllBytes(wave, BmsRealtimeAudioSchedulerTests.BuildFloatWave(44100, new float[44100 * 2]));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var producerEnded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var events = new List<string>();
+        AudioInputFile? heldInput = null;
+        int heldHandle = 0;
+        SampleRate oldFrequency = BassAudioPlayer.Frequency;
+        var runtime = new RecordingAudioPlaybackRuntime(events)
+        {
+            InitializeResult = CreatePlaybackInitializationResult(),
+            InitializeAction = snapshot =>
+            {
+                BassAudioPlayer.Frequency = SampleRate.SAMPLE_RATE_44100Hz;
+                BassAudioPlayer.InitializeOwned(BassAudioPlayer.DeviceDriver.NULL_DEVICE, default, 0f, out _);
+            },
+            FreeFailureForCall = _ =>
+            {
+                Assert.IsTrue(producerEnded.Task.IsCompletedSuccessfully, "実read/decode終端前にはruntimeを解放しません。");
+                BassAudioPlayer.Free();
+                return null;
+            }
+        };
+        void ReadAndDecode()
+        {
+            try
+            {
+                using var input = AudioInputFile.Read(wave, path => preload
+                    ? File.OpenRead(path)
+                    : new CompletionInputReadStream(File.ReadAllBytes(path), entered, release));
+                heldInput = input;
+                BassAudioSession session = BassAudioPlayer.ActiveSession ?? throw new AssertFailedException("実sessionが必要です。");
+                _ = AudioSourceLoader.Decode(input, session, handle =>
+                {
+                    if (preload) { heldHandle = handle; entered.TrySetResult(); release.Wait(); }
+                    Bass.CurrentDevice = session.CoreDeviceIndex;
+                    return Bass.StreamFree(handle);
+                });
+            }
+            finally { producerEnded.TrySetResult(); }
+        }
+        var player = new ObservedInternalBmsPlayer(new SettingsPlayerSettingsGateway(() => testSettings), runtime,
+            path => new MutationInputBmsAutoPlayer(new Ribbit.BMS.BMSFile(path), preload ? () => { } : ReadAndDecode),
+            (request, token) =>
+            {
+                using CancellationTokenRegistration registration = token.Register(() => cancelled.TrySetResult());
+                ReadAndDecode();
+                token.ThrowIfCancellationRequested();
+                return PreparedBmsSong.Prepare(PlaybackChart.Load(request.Path), 1f, token);
+            });
+        testSettings.SinglePlayMode = false;
+        testSettings.FolderSkipPlayMode = false;
+        var rows = new MainChartListViewModel { Rows = new List<object> { ChartTestValues.Empty() with { Path = first }, ChartTestValues.Empty() with { Path = next } } };
+        var operations = new ChartFileOperationSynchronizer();
+        var dialogs = new ObservedPlaybackDialogs(events);
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackDispatcher(), new MainChartListPlaybackQueue(rows),
+            new SettingsPlaybackSettingsStore(() => testSettings), dialogs, failure => Assert.Fail(failure.ToString()), operations);
+        Task start = panel.StartAtIndex(0);
+        Task? mutation = null;
+        IDisposable? admission = null;
+        var failures = new List<Exception>();
+        try
+        {
+            if (preload) { await start; }
+            Task producer = preload
+                ? player.Operation?.Completion ?? throw new AssertFailedException("実再生operationが必要です。")
+                : start;
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, producer, "mutation-real-input");
+            Assert.IsTrue(operations.TryEnter(out admission));
+            mutation = StopAndCleanupAsync();
+            if (preload) { await TestUiDispatcherHost.AwaitNotificationAsync(cancelled.Task, mutation, "mutation-preload-cancelled"); }
+            Assert.IsFalse(mutation.IsCompleted);
+            Assert.IsFalse(producerEnded.Task.IsCompleted);
+            Assert.IsTrue(File.Exists(wave));
+            Assert.IsFalse(events.Contains("free"));
+            if (preload)
+            {
+                Assert.IsNotNull(heldInput);
+                BassAudioSession session = BassAudioPlayer.ActiveSession ?? throw new AssertFailedException("実sessionが必要です。");
+                Assert.IsTrue(session.GetPlayerStreams().Single(item => item.Handle == heldHandle).TryGetOwner(out AudioInputFile input));
+                using Stream view = input.OpenReadView();
+                Assert.AreEqual((int)'R', view.ReadByte());
+            }
+            await panel.StartAtIndex(1);
+            Assert.IsFalse(mutation.IsCompleted, "Busyの新試聴が停止待ちを解放しません。");
+            release.Set();
+            await mutation;
+            await start;
+            Assert.IsFalse(File.Exists(wave));
+            Assert.IsTrue(producerEnded.Task.IsCompletedSuccessfully);
+            Assert.IsNull(panel.NowPlayingChart);
+            Assert.AreEqual(0, dialogs.Notifications);
+        }
+        catch (Exception failure) { failures.Add(failure); }
+        finally
+        {
+            release.Set();
+            if (mutation != null) { await CaptureTaskCompletionAsync(mutation, failures); }
+            await CaptureTaskCompletionAsync(start, failures);
+            admission?.Dispose();
+            panel.BeginShutdown();
+            await CaptureTaskCompletionAsync(panel.CloseForShutdown(), failures);
+            if (player.Operation != null) { await CaptureTaskCompletionAsync(player.Operation.Completion, failures, failure => failure is OperationCanceledException); }
+            runtime.FreeFailureForCall = null;
+            CaptureCleanup(failures, BassAudioPlayer.Free);
+            CaptureCleanup(failures, BassAudioRuntime.Shutdown);
+            BassAudioPlayer.Frequency = oldFrequency;
+            CaptureCleanup(failures, () => Directory.Delete(directory, recursive: true));
+        }
+        ThrowFailures(failures);
+
+        async Task StopAndCleanupAsync()
+        {
+            await ((IChartMutationPlaybackPort)panel).StopPlaybackForMutationAsync();
+            File.Delete(wave);
+        }
+    }
+
+    private sealed class MutationInputBmsAutoPlayer(Ribbit.BMS.BMSFile bms, Action load) : LifecycleBMSAutoPlayer(bms)
+    {
+        public override void LoadResources() { load(); base.LoadResources(); }
+    }
+
     /// <summary>現曲のcallback故障時に入力readまたはdecoder解放を保留し、取消だけでFreeせず実終端へ合流して主原因を維持する。</summary>
     /// <remarks>実NULL_DEVICEと入力・decoder・callbackを接続し、入力所有の解放とruntime Freeの実順序を検査する。</remarks>
     [DataTestMethod]

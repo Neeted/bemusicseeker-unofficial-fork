@@ -1,9 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -334,11 +339,12 @@ public sealed class PackageCatalogWorkflowOwnerTests
             synchronizer,
             activity,
             dialogs,
+            new NoOpChartMutationPlaybackPort(),
             mutation => Task.Factory.StartNew(
                 mutation,
                 CancellationToken.None,
                 TaskCreationOptions.LongRunning,
-                TaskScheduler.Default),
+                TaskScheduler.Default).Unwrap(),
             store);
         owner.MutationPhasePublished += phaseObserver.OnPhasePublished;
         activity.ActivityChanged += phaseObserver.OnActivityChanged;
@@ -362,6 +368,151 @@ public sealed class PackageCatalogWorkflowOwnerTests
         Assert.AreEqual(1, store.RemoveAllCount);
     }
 
+    /// <summary>管理入力の単独・選択・全解除は停止の実終端を待ち、同じLで競合要求を拒否します。停止失敗・終了取消では入力bytesと主失敗を保ち、次の明示要求だけを受け付けます。</summary>
+    /// <remarks>実owner→本番store→実SQLite/FSを動かし、停止portだけを制御します。管理外・導入済み・無関係な管理入力への削除拡大も検出します。</remarks>
+    [DataTestMethod]
+    // 同一test processの独立compositionが共通session markerを初期公開するfixture都合で非並列とします。本番の同一Lによる直列化と、下記のL競合判定は維持します。
+    [DoNotParallelize]
+    [DataRow("package", "success")]
+    [DataRow("selection", "success")]
+    [DataRow("all", "success")]
+    [DataRow("package", "failure")]
+    [DataRow("all", "cancel")]
+    public async Task PendingRemoval_WaitsForStopAndRetainsInputOnFailure(string route, string outcome)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "bms-catalog-removal-" + Guid.NewGuid().ToString("N"));
+        string managed = TempDirectoryPublisher.Get("catalog-removal");
+        string unrelated = TempDirectoryPublisher.Get("catalog-unrelated");
+        Directory.CreateDirectory(root);
+        string chartPath = Path.Combine(managed, "chart.bms");
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes("#TITLE pending\n");
+        File.WriteAllBytes(chartPath, bytes);
+        string borrowed = Path.Combine(root, "borrowed.bms");
+        string installed = Path.Combine(root, "installed.bms");
+        File.WriteAllBytes(borrowed, bytes);
+        File.WriteAllBytes(installed, bytes);
+        File.WriteAllBytes(Path.Combine(unrelated, "keep.bms"), bytes);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var playback = new ControlledPlayback(() => { entered.TrySetResult(); return stop.Task; });
+        Task<PackageCatalogMutationResult>? removal = null;
+        TestBmsLibrary? library = null;
+        try
+        {
+            string db = Path.Combine(root, "song.db");
+            var gateway = new BmsLibraryDbGateway(db);
+            gateway.EnsureAppOwnedSchema();
+            gateway.EnsureLibraryStartupSchema();
+            library = new TestBmsLibrary(db, null, null, new ResilientFileMutationService(),
+                new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null));
+            var pending = ChartPackage.FromChartEntries([PackageChartEntry.FromPath(chartPath)]);
+            pending.path = managed;
+            var borrowedPackage = new ChartPackage { path = borrowed };
+            library.ChartPackagesPending = new ObservableCollection<ChartPackage>([pending, borrowedPackage]);
+            library.ChartPackagesInstalled = new ObservableCollection<ChartPackage>([new ChartPackage { path = installed }]);
+            gateway.ApplyInstallTableMutation([], [pending, borrowedPackage]);
+            var activity = new ChartMutationActivityOwner();
+            var owner = new PackageCatalogWorkflowOwner(() => library, library.OperationAdmission, activity,
+                AcceptedDialogs(), playback, mutation => Task.Run(mutation));
+            bool suppressed = false;
+            owner.MutationPhasePublished += (_, e) => suppressed = e.Phase == PackageCatalogMutationPhase.RefreshSuppressionStarted;
+            var target = new ChartOperationTarget(pending.ChartEntries[0].Chart, null,
+                ChartOperationSourceScope.PendingPackage, false, true, false, ChartOperationCapabilities.UpdateInstallDestination,
+                packageEntry: pending.ChartEntries[0]);
+            removal = route switch
+            {
+                "package" => owner.RemovePackageAsync(PackageCatalogSection.Pending, pending),
+                "selection" => owner.RemoveSelectionAsync(PackageCatalogRemovalRequest.CreatePending([target])),
+                _ => owner.ClearAllAsync(PackageCatalogSection.Pending)
+            };
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, removal, "catalog-managed-stop");
+            Assert.IsFalse(removal.IsCompleted);
+            Assert.IsTrue(library.OperationAdmission.IsActive);
+            Assert.IsTrue(activity.IsActive);
+            Assert.IsTrue(suppressed);
+            CollectionAssert.AreEqual(bytes, File.ReadAllBytes(chartPath));
+            Assert.IsFalse((await owner.ClearAllAsync(PackageCatalogSection.Pending)).Succeeded, "競合要求を予約しません。");
+            Exception? expected = outcome switch
+            {
+                "failure" => new IOException("stop failed"),
+                "cancel" => new OperationCanceledException("shutdown"),
+                _ => null
+            };
+            if (expected == null) { stop.SetResult(); }
+            else { stop.SetException(expected); }
+            PackageCatalogMutationResult result = await removal;
+            Assert.AreEqual(expected == null, result.Succeeded);
+            Assert.AreSame(expected, result.Failure);
+            if (expected != null) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(chartPath)); }
+            else
+            {
+                Assert.IsFalse(Directory.Exists(managed));
+                Assert.AreEqual(route == "all" ? 0 : 1, library.ChartPackagesPending.Count);
+                using LR2SongDBExtended verify = gateway.OpenSongDbReadOnly();
+                Assert.AreEqual(route == "all" ? 0 : 1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM install;"));
+            }
+            Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
+            CollectionAssert.AreEqual(bytes, File.ReadAllBytes(borrowed));
+            CollectionAssert.AreEqual(bytes, File.ReadAllBytes(installed));
+            CollectionAssert.AreEqual(bytes, File.ReadAllBytes(Path.Combine(unrelated, "keep.bms")));
+            Assert.IsFalse(library.OperationAdmission.IsActive);
+            Assert.IsFalse(activity.IsActive);
+            Assert.IsFalse(suppressed);
+            playback.Stop = () => Task.CompletedTask;
+            Assert.IsTrue((await owner.ClearAllAsync(PackageCatalogSection.Pending)).Succeeded);
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
+            Assert.IsFalse(Directory.Exists(managed));
+        }
+        finally
+        {
+            stop.TrySetResult();
+            if (removal != null) { await removal; }
+            library?.RequestShutdown("catalog-removal-test");
+            TempDirectoryPublisher.TryDeleteManagedPath(managed);
+            TempDirectoryPublisher.TryDeleteManagedPath(unrelated);
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>借用保留だけの全解除と導入済み記録の解除は、再生停止へ入らず実体を保持します。</summary>
+    [DataTestMethod]
+    [DataRow((int)PackageCatalogSection.Pending)]
+    [DataRow((int)PackageCatalogSection.Installed)]
+    public async Task RecordOnlyRemoval_DoesNotStopPlayback(int sectionValue)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "bms-catalog-record-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        TestBmsLibrary? library = null;
+        try
+        {
+            string db = Path.Combine(root, "song.db");
+            var gateway = new BmsLibraryDbGateway(db);
+            gateway.EnsureAppOwnedSchema();
+            gateway.EnsureLibraryStartupSchema();
+            library = new TestBmsLibrary(db, null, null, new ResilientFileMutationService(),
+                new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null));
+            string source = Path.Combine(root, "source.bms");
+            File.WriteAllText(source, "#TITLE borrowed");
+            var package = new ChartPackage { path = source };
+            var section = (PackageCatalogSection)sectionValue;
+            library.ChartPackagesPending = new ObservableCollection<ChartPackage>(section == PackageCatalogSection.Pending ? [package] : []);
+            library.ChartPackagesInstalled = new ObservableCollection<ChartPackage>(section == PackageCatalogSection.Installed ? [package] : []);
+            var playback = new ControlledPlayback(() => throw new AssertFailedException("記録解除は再生を止めません。"));
+            var owner = new PackageCatalogWorkflowOwner(() => library, library.OperationAdmission, new ChartMutationActivityOwner(),
+                AcceptedDialogs(), playback, mutation => Task.Run(mutation));
+            Assert.IsTrue((await owner.ClearAllAsync(section)).Succeeded);
+            Assert.IsTrue(File.Exists(source));
+            Assert.IsFalse(library.OperationAdmission.IsActive);
+        }
+        finally { library?.RequestShutdown("catalog-record-test"); Directory.Delete(root, recursive: true); }
+    }
+
+    private sealed class ControlledPlayback(Func<Task> stop) : IChartMutationPlaybackPort
+    {
+        internal Func<Task> Stop { get; set; } = stop;
+        public Task StopPlaybackForMutationAsync() => Stop();
+    }
+
     private static PackageCatalogWorkflowOwner CreateOwner(
         Func<BMSLibrary> libraryProvider,
         List<string> events,
@@ -376,6 +527,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
             new ChartFileOperationSynchronizer(),
             activity,
             dialogs,
+            new NoOpChartMutationPlaybackPort(),
             mutation => Task.Run(mutation),
             store);
         owner.MutationPhasePublished += phaseObserver.OnPhasePublished;
@@ -468,15 +620,16 @@ public sealed class PackageCatalogWorkflowOwnerTests
 
         internal Exception? Failure { get; set; }
 
-        public void RemoveAll(BMSLibrary library, PackageCatalogSection section)
+        public Task RemoveAllAsync(BMSLibrary library, PackageCatalogSection section)
         {
             events.Add("store-remove-all");
             RemoveAllCount++;
             LastSection = section;
             ThrowIfConfigured();
+            return Task.CompletedTask;
         }
 
-        public void RemovePackages(
+        public Task RemovePackagesAsync(
             BMSLibrary library,
             PackageCatalogSection section,
             IReadOnlyList<ChartPackage> packages)
@@ -486,6 +639,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
             LastSection = section;
             LastPackages = packages;
             ThrowIfConfigured();
+            return Task.CompletedTask;
         }
 
         public IReadOnlyList<ChartPackage> ResolvePackages(

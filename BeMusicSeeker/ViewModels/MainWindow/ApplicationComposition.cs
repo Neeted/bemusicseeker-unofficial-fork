@@ -883,6 +883,7 @@ internal sealed class MainWindowChildComposition
             chartFileOperations,
             ChartMutationActivity,
             installDestinationDialogService,
+            PlaybackPanel,
             mutation => Task.Run(mutation));
         DuplicateMaintenanceWorkflow = new DuplicateMaintenanceWorkflowOwner(
             duplicateMaintenanceLibraryProvider ?? throw new ArgumentNullException(nameof(duplicateMaintenanceLibraryProvider)),

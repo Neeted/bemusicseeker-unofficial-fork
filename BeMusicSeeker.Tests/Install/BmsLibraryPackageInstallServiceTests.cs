@@ -770,10 +770,12 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
-    public void RemovePendingPackages_DeletesManagedTemporaryPackageSource()
+    // 独立compositionを同一processで作るfixtureは共通session markerの初期公開を競合させるため、作成・回収を非並列で所有します。本番は同一Lで直列となります。
+    [DoNotParallelize]
+    public async Task RemovePendingPackages_DeletesManagedTemporaryPackageSource()
     {
 
-        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        await WithTemporarySongDbAsync(async (songDbPath, tempRootPath) =>
         {
             string packageDirectoryPath = TempDirectoryPublisher.Get("pending-remove-test");
             File.WriteAllText(Path.Combine(packageDirectoryPath, "chart.bms"), "#TITLE test");
@@ -793,24 +795,35 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             };
             library.ResetCatalogPathConvergence(CatalogPathConvergenceBlockReason.StartupFileScanDisabled);
 
-            library.RemovePendingPackages([pendingPackage]);
-
-            Assert.AreEqual(0, library.ChartPackagesPending.Count);
-            Assert.IsFalse(Directory.Exists(packageDirectoryPath));
-            Assert.AreEqual(0, dialogService.Messages.Count);
+            try
+            {
+                await library.RemovePendingPackagesAsync([pendingPackage], () => Task.CompletedTask);
+                Assert.AreEqual(0, library.ChartPackagesPending.Count);
+                Assert.IsFalse(Directory.Exists(packageDirectoryPath));
+                Assert.AreEqual(0, dialogService.Messages.Count);
+            }
+            finally { library.RequestShutdown("pending-remove-test"); TempDirectoryPublisher.TryDeleteManagedPath(packageDirectoryPath); }
         });
     }
 
     /// <summary>
-    /// カタログ未収束でも保留全解除を受け付け、一覧を空にして警告を出さず、解除を収束待ちで拒否する誤りを検出する。
+    /// カタログ未収束でも保留全解除を受け付け、管理入力だけを回収して借用・導入済み実体を保ち、警告と所有範囲の誤りを検出する。
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
-    public void RemovePendingPackagesAll_UnconvergedCatalogStillClearsPendingWithoutWarning()
+    // 同一processの独立compositionが共通session markerを初期公開するfixture都合で、固有root回収まで非並列とします。本番の同一Lの受付は変更しません。
+    [DoNotParallelize]
+    public async Task RemovePendingPackagesAll_UnconvergedCatalogStillClearsPendingWithoutWarning()
     {
 
-        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        await WithTemporarySongDbAsync(async (songDbPath, tempRootPath) =>
         {
+            string managed = TempDirectoryPublisher.Get("pending-clear-mixed");
+            string borrowed = Path.Combine(tempRootPath, "borrowed.bms");
+            string installed = Path.Combine(tempRootPath, "installed.bms");
+            File.WriteAllText(Path.Combine(managed, "managed.bms"), "#TITLE managed");
+            File.WriteAllText(borrowed, "#TITLE borrowed");
+            File.WriteAllText(installed, "#TITLE installed");
             var dialogService = new RecordingDialogService();
             var library = new TestBmsLibrary(
                 songDbPath,
@@ -820,15 +833,21 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 dialogService)
             {
                 ChartPackagesPending = CreatePackageCollection([
-                    new ChartPackage { path = Path.Combine(tempRootPath, "pending-clear-first") },
-                    new ChartPackage { path = Path.Combine(tempRootPath, "pending-clear-second") }])
+                    new ChartPackage { path = managed },
+                    new ChartPackage { path = borrowed }]),
+                ChartPackagesInstalled = CreatePackageCollection([new ChartPackage { path = installed }])
             };
             library.ResetCatalogPathConvergence(CatalogPathConvergenceBlockReason.StartupFileScanDisabled);
-
-            library.RemovePendingPackagesAll();
-
-            Assert.AreEqual(0, library.ChartPackagesPending.Count);
-            Assert.AreEqual(0, dialogService.Messages.Count);
+            try
+            {
+                await library.RemovePendingPackagesAllAsync(() => Task.CompletedTask);
+                Assert.AreEqual(0, library.ChartPackagesPending.Count);
+                Assert.IsFalse(Directory.Exists(managed));
+                Assert.AreEqual("#TITLE borrowed", File.ReadAllText(borrowed));
+                Assert.AreEqual("#TITLE installed", File.ReadAllText(installed));
+                Assert.AreEqual(0, dialogService.Messages.Count);
+            }
+            finally { library.RequestShutdown("pending-clear-test"); TempDirectoryPublisher.TryDeleteManagedPath(managed); }
         });
     }
 
@@ -837,10 +856,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
-    public void RemovePendingPackages_DoesNotDeleteUserOwnedPackageSource()
+    public async Task RemovePendingPackages_DoesNotDeleteUserOwnedPackageSource()
     {
 
-        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        await WithTemporarySongDbAsync(async (songDbPath, tempRootPath) =>
         {
             string packageDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker", "session-manual-user-package-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(packageDirectoryPath);
@@ -856,7 +875,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     ChartPackagesPending = CreatePackageCollection([pendingPackage])
                 };
 
-                library.RemovePendingPackages([pendingPackage]);
+                await library.RemovePendingPackagesAsync([pendingPackage], () => Task.CompletedTask);
 
                 Assert.AreEqual(0, library.ChartPackagesPending.Count);
                 Assert.IsTrue(Directory.Exists(packageDirectoryPath));
@@ -8359,6 +8378,25 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Directory.Delete(tempRootPath, recursive: true);
             }
         }
+    }
+
+    private static async Task WithTemporarySongDbAsync(Func<string, string, Task> action)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PendingRemoval_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        try
+        {
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+            });
+            await action(songDbPath, root);
+        }
+        finally { Directory.Delete(root, recursive: true); }
     }
 
     private sealed class SafeDeleteMoveSetup

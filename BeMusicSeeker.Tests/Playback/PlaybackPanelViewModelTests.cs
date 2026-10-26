@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
@@ -1480,6 +1481,89 @@ public sealed class PlaybackPanelViewModelTests
             foreach (string path in paths) { File.Delete(path); }
         }
         Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
+    }
+
+    /// <summary>Pause中・演奏完了後にも管理入力の解除は停止へ収束し、停止待ち中の試聴を予約せず、次の明示要求だけを開始します。</summary>
+    /// <remarks>実panelと共通受付・目録store・SQLite/FSを接続します。playerのclose待機は状態・受付の保証で、実decode終端はAudioContractsTestsが担当します。</remarks>
+    [DataTestMethod]
+    // 独立Lを持つfixtureが同一processの共通session markerを初期公開するため、準備から開始Task終端・固有root回収まで非並列で所有します。本番の同一Lによる直列化と、case内のBusy・非予約・次明示要求の判定は維持します。
+    [DoNotParallelize]
+    [DataRow(false)] // Pauseした現在曲と、異なる管理入力の先読み候補。
+    [DataRow(true)] // 完了して現在曲が外れた後でも管理入力を回収。
+    public async Task PendingRemoval_ConvergesPausedOrCompletedPlaybackAndRejectsNewStart(bool completed)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "bms-pending-panel-" + Guid.NewGuid().ToString("N"));
+        string managed = TempDirectoryPublisher.Get("pending-panel");
+        Directory.CreateDirectory(root);
+        string current = Path.Combine(root, "current.bms");
+        string pendingPath = Path.Combine(managed, "pending.bms");
+        File.WriteAllText(current, "#TITLE current");
+        File.WriteAllText(pendingPath, "#TITLE pending");
+        string db = Path.Combine(root, "song.db");
+        new BmsLibraryDbGateway(db).EnsureAppOwnedSchema();
+        new BmsLibraryDbGateway(db).EnsureLibraryStartupSchema();
+        var library = new TestBmsLibrary(db, null, null, new ResilientFileMutationService(),
+            new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null));
+        library.ChartPackagesPending = new ObservableCollection<ChartPackage>([new ChartPackage { path = managed }]);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var player = new PreloadBmsPlayer { Completion = completion.Task };
+        var rows = new MainChartListViewModel { Rows = new List<object> { ChartTestValues.Empty() with { Path = current }, ChartTestValues.Empty() with { Path = pendingPath } } };
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+            new InMemoryPlaybackSettingsStore { SinglePlay = true }, new FakePlaybackDialogService(), failure => Assert.Fail(failure.ToString()), library.OperationAdmission);
+        var owner = new PackageCatalogWorkflowOwner(() => library, library.OperationAdmission, new ChartMutationActivityOwner(),
+            new FileDbReportRecordingDialogs(), panel, mutation => Task.Run(mutation));
+        Task<PackageCatalogMutationResult>? removal = null;
+        try
+        {
+            await panel.StartAtIndex(0);
+            if (completed)
+            {
+                completion.SetResult();
+                await panel.Next(player);
+                Assert.IsNull(panel.NowPlayingChart);
+            }
+            else
+            {
+                panel.TogglePause();
+                Assert.IsTrue(panel.IsPaused);
+            }
+            player.CloseCompletion = () => { entered.TrySetResult(); return cleanup.Task; };
+            int preparations = player.Preloads.Count;
+            removal = owner.ClearAllAsync(PackageCatalogSection.Pending);
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, removal, "pending-panel-stop");
+            Assert.IsTrue(File.Exists(pendingPath));
+            Assert.IsTrue(library.OperationAdmission.IsActive);
+            await panel.StartAtIndex(0);
+            Assert.AreEqual(1, player.Starts.Count);
+            cleanup.SetResult();
+            Assert.IsTrue((await removal).Succeeded);
+            Assert.IsFalse(Directory.Exists(managed));
+            Assert.IsNull(panel.NowPlayingChart);
+            Assert.IsFalse(panel.IsPlaying);
+            Assert.IsFalse(panel.IsPaused);
+            Assert.IsTrue(panel.IsStoppedOrPaused);
+            Assert.AreEqual(0, panel.PlaybackStatusValue & (int)ChartFileStatus.PLAYALL);
+            Assert.AreEqual(preparations, player.Preloads.Count, "停止後に先読みを再登録しません。");
+            Assert.AreEqual(1, player.Starts.Count, "停止後に自動再開しません。");
+            Assert.IsFalse(library.OperationAdmission.IsActive);
+            player.CloseCompletion = null;
+            await panel.StartAtIndex(0);
+            Assert.AreEqual(2, player.Starts.Count);
+        }
+        finally
+        {
+            cleanup.TrySetResult();
+            if (removal != null) { await removal; }
+            player.CloseCompletion = null;
+            completion.TrySetResult();
+            await panel.CloseForShutdown();
+            await completion.Task;
+            library.RequestShutdown("pending-panel-test");
+            TempDirectoryPublisher.TryDeleteManagedPath(managed);
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     /// <summary>内蔵playerのReady受信で開始を確定し、演奏CompletionやUI投稿の受信を待たずに次候補を一件準備することを確認します。</summary>

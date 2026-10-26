@@ -2782,42 +2782,45 @@ public partial class BMSLibrary
         packageLifecycleOwner.ApplyPendingPackageMutationDelta(delta);
     }
 
-    /// <summary>
-    /// 指定された pending package 群を pending リストから削除します。
-    /// </summary>
-    public void RemovePendingPackages(IEnumerable<ChartPackage> packages)
-    { RemovePendingPackages(packages, capability: null); }
+    /// <summary>指定した保留を解除し、管理入力の回収があれば再生停止と開始済み読込みの終端後に回収します。</summary>
+    /// <param name="packages">解除する保留です。現在の保留に一致する対象だけを扱います。</param>
+    /// <param name="stopPlaybackForCleanup">管理入力を回収する直前に、再生と先読みの停止完了を返す処理です。</param>
+    public Task RemovePendingPackagesAsync(IEnumerable<ChartPackage> packages, Func<Task> stopPlaybackForCleanup)
+        => RemovePendingPackagesAsync(packages, stopPlaybackForCleanup, capability: null);
 
-    /// <summary>受理済み共通権限を借用し、確定・後片付けまで同じ操作で実行します。</summary>
-    internal void RemovePendingPackages(IEnumerable<ChartPackage> packages, LibraryFileMutationCapability capability = null)
+    /// <summary>受理済み権限を借用し、管理入力の停止・解除・回収の実終端まで同じ操作を保持します。</summary>
+    internal Task RemovePendingPackagesAsync(IEnumerable<ChartPackage> packages, Func<Task> stopPlaybackForCleanup, LibraryFileMutationCapability capability)
+        => RemovePendingPackagesCoreAsync(packages, clearAll: false, stopPlaybackForCleanup, capability);
+
+    /// <summary>解除差分と回収パスをguard内で固定し、guardを解放して停止を待ってから同じ差分を適用します。</summary>
+    private async Task RemovePendingPackagesCoreAsync(IEnumerable<ChartPackage> packages, bool clearAll, Func<Task> stopPlaybackForCleanup, LibraryFileMutationCapability capability)
     {
-        Action pendingEffect = null;
-        List<ChartPackage> managedPackagesToCleanup = [];
-        using (LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
-            nameof(RemovePendingPackages),
-            showMessage: true, capability: capability))
+        ArgumentNullException.ThrowIfNull(stopPlaybackForCleanup);
+        using LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
+            nameof(RemovePendingPackagesAsync), showMessage: true, capability: capability);
+        if (mutationReservation == null) { return; }
+        PendingPackageMutationDelta delta;
+        string[] cleanupPaths;
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        using (rwlockPendingInstallCharts.GetWriterGuard())
+        using (rwlockSongDBInstall.GetWriterGuard())
         {
-            if (mutationReservation == null)
-            {
-                return;
-            }
-            {
-                using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-                {
-                    using (rwlockPendingInstallCharts.GetWriterGuard())
-                    {
-                        using (rwlockSongDBInstall.GetWriterGuard())
-                        {
-                            managedPackagesToCleanup = ResolveManagedPendingPackagesForCleanup(packages);
-                            pendingEffect = RemovePendingPackagesFromPendingListAndInstallRows(
-                                packages);
-                        }
-                    }
-                }
-            }
+            delta = BuildPendingPackageMutationDelta(packagesToRemove: packages, clearAll: clearAll);
+            cleanupPaths = [.. delta.InstallPathsToDelete.Where(TempDirectoryPublisher.IsManagedPath)];
+        }
+        if (cleanupPaths.Length > 0)
+        {
+            await stopPlaybackForCleanup().ConfigureAwait(false);
+        }
+        Action pendingEffect;
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        using (rwlockPendingInstallCharts.GetWriterGuard())
+        using (rwlockSongDBInstall.GetWriterGuard())
+        {
+            pendingEffect = ApplyPendingPackageRemoval(delta);
         }
         InvokePostLeaseNotificationsBestEffort([pendingEffect]);
-        CleanupManagedPendingPackageSources(managedPackagesToCleanup, "pending_remove_selected");
+        CleanupManagedInstallSources(cleanupPaths, clearAll ? "pending_remove_all" : "pending_remove_selected");
     }
 
     /// <summary>
@@ -2840,28 +2843,14 @@ public partial class BMSLibrary
         }
     }
 
-    /// <summary>
-    /// 全ての Pending パッケージをリストからクリアします。
-    /// </summary>
-    public void RemovePendingPackagesAll()
-    {
-        List<ChartPackage> managedPackagesToCleanup = [];
-        using (packageLifecycleOwner.BeginCollectionMutationScope())
-        {
-            using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-            {
-                using (rwlockPendingInstallCharts.GetWriterGuard())
-                {
-                    using (rwlockSongDBInstall.GetWriterGuard())
-                    {
-                        managedPackagesToCleanup = ResolveManagedPendingPackagesForCleanup(ChartPackagesPending);
-                        packageLifecycleOwner.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(clearAll: true));
-                    }
-                }
-            }
-        }
-        CleanupManagedPendingPackageSources(managedPackagesToCleanup, "pending_remove_all");
-    }
+    /// <summary>全保留を解除し、管理入力の回収前に再生と開始済み読込みの停止を待ちます。</summary>
+    /// <param name="stopPlaybackForCleanup">再生と先読みの停止完了を返す処理です。借用入力だけの場合は呼びません。</param>
+    public Task RemovePendingPackagesAllAsync(Func<Task> stopPlaybackForCleanup)
+        => RemovePendingPackagesAllAsync(stopPlaybackForCleanup, capability: null);
+
+    /// <summary>全解除でも受理済み権限を借用し、管理入力の回収まで受付を保持します。</summary>
+    internal Task RemovePendingPackagesAllAsync(Func<Task> stopPlaybackForCleanup, LibraryFileMutationCapability capability)
+        => RemovePendingPackagesCoreAsync(null, clearAll: true, stopPlaybackForCleanup, capability);
 
     public List<ChartPackage> GetPendingPackagesContainingOnlyInstalledCharts()
     {
@@ -2874,34 +2863,6 @@ public partial class BMSLibrary
                 return list;
             }
         }
-    }
-
-    private List<ChartPackage> ResolveManagedPendingPackagesForCleanup(IEnumerable<ChartPackage> packages)
-    {
-        List<ChartPackage> requestedPackages = packageInstallService.DeduplicatePackagesByPathOrReference(packages);
-        List<ChartPackage> pendingPackages = [.. ChartPackagesPending.Where(pkg => pkg != null)];
-        var cleanupPackages = new List<ChartPackage>();
-        foreach (ChartPackage requestedPackage in requestedPackages)
-        {
-            ChartPackage pendingPackage = pendingPackages.FirstOrDefault(pkg =>
-                ReferenceEquals(pkg, requestedPackage)
-                || (!string.IsNullOrWhiteSpace(pkg.path)
-                    && !string.IsNullOrWhiteSpace(requestedPackage?.path)
-                    && string.Equals(pkg.path, requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
-            if (!string.IsNullOrWhiteSpace(pendingPackage?.path) && TempDirectoryPublisher.IsManagedPath(pendingPackage.path))
-            {
-                cleanupPackages.Add(pendingPackage);
-            }
-        }
-        return cleanupPackages;
-    }
-
-    private void CleanupManagedPendingPackageSources(IEnumerable<ChartPackage> packages, string reason)
-    {
-        IEnumerable<string> paths = (packages ?? [])
-            .Where(pkg => !string.IsNullOrWhiteSpace(pkg?.path))
-            .Select(pkg => pkg.path);
-        CleanupManagedInstallSources(paths, reason);
     }
 
     private void TryRegroupPendingPackagesForSourceDirectoriesUnsafe(IEnumerable<string> sourceDirectoryPaths, AutomaticInstallEstimateTargets automaticTargets = null)
@@ -3557,6 +3518,12 @@ public partial class BMSLibrary
         PendingPackageMutationDelta delta = packageInstallService.BuildPendingPackageMutationDelta(
             currentPendingPackages ?? ChartPackagesPending,
             packagesToRemove: packages);
+        return ApplyPendingPackageRemoval(delta);
+    }
+
+    /// <summary>確定済みの保留解除差分を適用し、guard解放後に公開する処理を返します。</summary>
+    private Action ApplyPendingPackageRemoval(PendingPackageMutationDelta delta)
+    {
         IDisposable collectionPublicationScope = packageLifecycleOwner.BeginCollectionMutationScope();
         try
         {

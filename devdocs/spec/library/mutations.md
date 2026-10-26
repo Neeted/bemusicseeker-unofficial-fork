@@ -19,7 +19,7 @@
 
 ### 責務と操作の入口
 
-画面操作の入口は `SelectedChartMutationWorkflowOwner`、`DuplicateMaintenanceWorkflowOwner`、`PendingPackageWorkflowOwner`、`PackageInstallWorkflowOwner` です。フォルダ名の直接編集は `RegularChartListOwner`、自動変更は `FolderAutoRenameWorkflowOwner` が管理します。`MainWindowViewModel` は画面の構成と各処理の接続を担当します。
+画面操作の入口は `SelectedChartMutationWorkflowOwner`、`DuplicateMaintenanceWorkflowOwner`、`PendingPackageWorkflowOwner`、`PackageInstallWorkflowOwner`、`PackageCatalogWorkflowOwner` です。フォルダ名の直接編集は `RegularChartListOwner`、自動変更は `FolderAutoRenameWorkflowOwner` が管理します。`MainWindowViewModel` は画面の構成と各処理の接続を担当します。
 
 選択譜面の文字コード変更は、共通受付を取得してから同期保存をUIスレッド外で実行します。選択対象、指定文字コード、保留項目への反映を保ち、保存と必須反映通知が終わるまで同じ受付を保持します。保存失敗では成功更新を通知せず、成功・失敗の終端で受付を解放します。専用キューや自動再試行は設けず、競合要求は既存の受付条件で拒否します。
 
@@ -28,6 +28,16 @@
 活動期間の数と `IsActive` は `ChartMutationActivityOwner` のロック内の正本とし、最外開始と最終解放の表示通知はロック外で行います。本番の購読先は `MainWindowViewModel` の表示更新で、コマンドの許可判定は `IsActive` を読み直します。各購読者の失敗は元原因と購読先を局所的に診断して残る購読者へ進み、受理した活動期間を巻き戻しません。最終解放の通知・診断が失敗しても非活動状態は成立し、`using` 本体の失敗を置き換えません。同じ活動期間の解放は一回だけ行い、活動数の上限超過と不均衡な解放は本来の失敗として残します。モデルの受付条件は変更しません。
 
 `LibraryMutationOwner` が変更内容の集約、索引への反映、必須の後処理、公開順序を管理します。`CatalogMutationOwner` はカタログの保存と正本更新、`CatalogOwnedCollectionOwner` は所持集合と関連索引を管理します。`BMSLibrary` は公開窓口、専門キャッシュ、画面通知を接続します。共通反映の内部処理をルートへコールバックとして渡して代行させません。
+
+### 保留目録の解除と管理入力の回収
+
+保留の単独・選択解除と全解除は、同じ共通受付の内側で現在の保留から解除差分を確定します。その差分が削除する入力元パスのうち、管理一時入力に属するパスを物理回収の対象とします。モデルの集合・DBのguardをすべて解放し、回収対象がある場合だけ既存の再生変更停止窓口を非同期で待ちます。現在曲のパス一致は停止条件にしません。現在再生と先読みを停止し、開始済みの読込み・復号・後片付けの終端へ合流してから、同じ解除差分を適用し、管理入力を回収します。
+
+停止の失敗や終了による取消では物理回収せず、入力元の内容と元の停止失敗を保持します。借用入力だけの保留記録解除と導入済み記録の解除では、再生を停止せず実体を保持します。無関係な管理入力も回収しません。停止待ちから解除・通知・回収の実終端まで同じ受付・変更活動・一覧更新抑制を保持し、新しい試聴・変更要求はBusyで拒否します。受付解放を契機とする予約実行は行わず、終端後の新しい明示要求だけを受け付けます。
+
+演奏完了後やPause中でも管理入力を回収する場合は、表示と操作状態を停止へ揃えます。解除後の自動再開と先読み再登録は行いません。停止処理自体と失敗集約は[再生パネル](../ui/playback-panel.md)・[音声](../runtime/audio.md)の既存契約を使います。内蔵playerの読込み完了後のRestartを、この回収と同じ失敗条件には含めません。
+
+操作通知のThreadStatic scopeは同期呼出しの開始から最初の非同期待機を返すまでに限定し、呼出スレッド内で解除してからTaskを待ちます。捕捉した通知の配送は受付・活動などの回収後に行い、scopeをawait越しに保持しません。
 
 ### 管理出力との交差
 
@@ -259,6 +269,9 @@ sequenceDiagram
 | 通常・追加・root基点とsrc/dst/親再帰の実交差、表0基点 | `Lr2SynchronizationOwner` | [`FolderMutation_UsesPlaylistAdmissionOnlyForActualManagedIntersection`](../../../BeMusicSeeker.Tests/Library/BmsLibraryMutationBoundaryTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
 | 操作の排他、確認、通知解放 | [`SelectedChartMutationWorkflowOwner`](../../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartMutationWorkflowOwner.cs)、[`LibraryFileOperationSynchronization`](../../../BeMusicSeeker/Models/BmsLibraryInternal/FileOperations/LibraryFileOperationSynchronization.cs) | [`SelectedChartMutationWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartMutationWorkflowOwnerTests.cs)、[`BmsLibraryMutationBoundaryTests`](../../../BeMusicSeeker.Tests/Library/BmsLibraryMutationBoundaryTests.cs)、[`ChartMutationActivityOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/ChartMutationActivityOwnerTests.cs) |
 | 文字コード保存中のUI応答と受付終端 | `SelectedChartMutationWorkflowOwner.ApplyEncodingAsync`、`MainWindow.fixEncodingSelectedBMS` | `SelectedChartMutationWorkflowOwnerTests.ApplyEncodingAsync_KeepsDispatcherResponsiveAndAdmissionThroughNotification` は実Dispatcherから開始し、背景store保留中のUI応答・再入拒否・保存前の非公開・通知中の受付保持・成功失敗後の次要求を確認する。実storeの所持・保留保存は同クラスの既存ケース、compiledメニューの非同期接続は `MainWindowSelectedChartContextMenuWpfTests.CompiledChartContextMenuRoutesMutationAndResourceTerminalsWithExactTargets` が分担する。 |
+| 保留解除の停止・join・入力回収、失敗保全と受付寿命 | [`PackageCatalogWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PackageCatalogWorkflowOwner.cs)、`BMSLibrary.RemovePendingPackagesAsync` / `RemovePendingPackagesAllAsync` | [`PackageCatalogWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PackageCatalogWorkflowOwnerTests.cs) の `PendingRemoval_WaitsForStopAndRetainsInputOnFailure` は本番store・実DB/FSで単独・選択・全解除、停止待ち中の入力/L・活動/抑制、成功後の実削除、停止失敗・終了取消のbytesと主失敗、次の明示要求を確認する。`RecordOnlyRemoval_DoesNotStopPlayback` と既存 `BmsLibraryPackageInstallServiceTests.RemovePendingPackages*` が借用入力・導入済み実体・未収束時の解除を分担する。 |
+| 再生状態の収束と標準構成の目録停止接続 | [`ApplicationComposition`](../../../BeMusicSeeker/ViewModels/MainWindow/ApplicationComposition.cs)、`PlaybackPanelViewModel.StopPlaybackForMutationAsync` | [`PlaybackPanelViewModelTests.PendingRemoval_ConvergesPausedOrCompletedPlaybackAndRejectsNewStart`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs) がPause/完了後の状態、Busy中の試聴拒否、自動再開・先読み再登録なしと次の明示開始を確認する。[`ApplicationCompositionTests.ChildComposition_PendingRemovalWaitsForComposedPlaybackStop`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionTests.cs) は本番child factoryから実目録・panelの接続と停止待ち→実回収を確認する。 |
+| 再生変更停止と実入力・decoderの終端 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs)、`InternalBMSAutoPlayerSoundOnly` | [`AudioContractsTests.MutationPlaybackStop_JoinsCurrentReadAndPreloadDecoderBeforeInputCleanup`](../../../BeMusicSeeker.Tests/Playback/AudioContractsTests.cs) が実panel→変更停止port→実内蔵playerで現曲read/先読みdecoder解放待ちを確認する。既存 `InternalClose_WaitsForCancelledPreparationCleanupBeforeFree` / `CompletionFailure_JoinsRealInputAndDecoderCleanupBeforeRuntimeFree` と [`BMSAutoPlayerInputTests.AudioFallbackCancellationDuringDecodeJoinsAndReleasesInputAndDecoder`](../../../BeMusicSeeker.Tests/Playback/BMSAutoPlayerInputTests.cs) が取消・故障時の実入力回収と主失敗保持を分担する。 |
 | 活動表示の失敗隔離、入れ子・並列の活動数、冪等な解放、本体失敗と次の開始 | [`ChartMutationActivityOwner`](../../../BeMusicSeeker/ViewModels/ChartOperations/ChartMutationActivityOwner.cs) | [`ChartMutationActivityOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/ChartMutationActivityOwnerTests.cs) は実管理主体で返された活動期間の状態、失敗購読者の後の通知、最後の解放、並列`Enter`・`Dispose`の終端、`using` 本体の元失敗と次の`Enter`を確認する。[`PackageCatalogWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PackageCatalogWorkflowOwnerTests.cs) の `RemovePackageAsync_PreservesMutationDespiteActivityNotificationFailure` は元の変更失敗・空区画を保持し、活動表示の失敗を変更結果へ追加しないことを確認する。 |
 | 保留導入の確認前受付と、成功・失敗・取消後の解放 | [`PendingPackageWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PendingPackageWorkflowOwner.cs) の `TryEnterPendingOperation` / `InstallPackagesAsync` | [`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerTests.cs) の `PendingInstall_RejectsDropDuringConfirmationAndReleasesAdmission`。手動・強制の成功／実行失敗と、手動の確認取消で、確認中のドロップ拒否、拒否した要求の無副作用・再実行なし、終端後の新規受付を確認する。 |
 | 自動導入の受付から一要求の全処理の終了まで、競合する保留導入を拒否 | [`PackageInstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PackageInstallWorkflowOwner.cs) の `TryEnqueue`、[`PendingPackageWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PendingPackageWorkflowOwner.cs) の `InstallPendingAsync` / `InstallPackagesAsync` | [`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerTests.cs) の `DropInstall_RejectsPendingInstallUntilAcceptedMultipleInputsFinish`（手動／強制 × 選択行要求／パッケージ要求）。実行開始前と処理中の拒否、追加要求の拒否、一要求内の複数入力、全処理後の通知時の受付解放を確認する。 |

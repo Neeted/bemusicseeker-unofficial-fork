@@ -12,6 +12,7 @@ using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
@@ -23,6 +24,95 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class ApplicationCompositionTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+
+    /// <summary>本番child factoryの目録解除が同じ再生panelの停止へ接続され、停止終端前に管理入力を回収しないことを検証します。</summary>
+    /// <remarks>Windowを作らず実composition・panel・目録・SQLite/FSを動かし、dialogとplayerの外部処理だけを代替します。標準compositionの共有購読の寿命は非並列で所有します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void ChildComposition_PendingRemovalWaitsForComposedPlaybackStop()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "bms-composed-pending-" + Guid.NewGuid().ToString("N"));
+        string managed = TempDirectoryPublisher.Get("composed-pending");
+        Directory.CreateDirectory(root);
+        string current = Path.Combine(root, "current.bms");
+        File.WriteAllText(current, "#TITLE current");
+        File.WriteAllText(Path.Combine(managed, "pending.bms"), "#TITLE pending");
+        try
+        {
+            string songDb = Path.Combine(root, "song.db");
+            new BmsLibraryDbGateway(songDb).EnsureAppOwnedSchema();
+            new BmsLibraryDbGateway(songDb).EnsureLibraryStartupSchema();
+            PlaylistPersistenceRepository.EnsureSchema(songDb);
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var scheduler = new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher);
+                var composition = new ApplicationComposition(() => new BmsLibraryOptionsSnapshot(),
+                    settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: scheduler,
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                var library = new TestBmsLibrary(songDb, null, null, new ResilientFileMutationService(), null, scheduler,
+                    () => new BmsLibraryOptionsSnapshot(), operationAdmission: composition.OperationAdmission, settings: testSettings);
+                library.ChartPackagesPending = new ObservableCollection<ChartPackage>([new ChartPackage { path = managed }]);
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDb, testSettings, library: library);
+                MainChartListViewModel rows = composition.CreateMainChartListViewModel(action => action(), _ => { });
+                rows.Rows = new List<object> { ChartTestValues.Empty() with { Path = current } };
+                PlaylistWorkspaceViewModel workspace = composition.CreatePlaylistWorkspaceViewModel(
+                    action => action(), rows, () => playlist, () => playlist.BMSTables,
+                    _ => { }, _ => { }, PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink, PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
+                    (_, _) => { }, _ => { }, (_, _) => { }, _ => { }, () => null!, () => null!, _ => { },
+                    new ObservableCollection<BMSTable>(), (_, _) => false, () => true, () => MainViewUpdateMode.FolderFilterSelected,
+                    () => Task.CompletedTask, () => false, () => { }, _ => { }, (_, _) => { }, (_, _) => false, (_, _) => false,
+                    PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck,
+                    playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
+                var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var player = new PlaybackPanelViewModelTests.PreloadBmsPlayer { Completion = completion.Task };
+                var dialogs = new FileDbReportRecordingDialogs();
+                MainWindowChildComposition children = composition.CreateMainWindowChildComposition(
+                    rows, workspace, () => player, composition.OperationAdmission, _ => { }, action => action(), _ => { },
+                    action => { action(); return true; }, () => library, dialogs,
+                    startupProgressWorkflowOwner: TestStartupProgressOwnerFactory.Create(), packageCatalogLibraryProvider: () => library,
+                    duplicateMaintenanceDialogService: dialogs, showDuplicateFileCheckConfirmProvider: () => false,
+                    duplicateMaintenanceLibraryProvider: () => library, selectedChartMutationDialogService: dialogs,
+                    selectedChartMutationLibraryProvider: () => library, selectedChartResourceHealthDialogService: dialogs,
+                    selectedChartResourceHealthLibraryProvider: () => library, folderAutoRenameDialogService: dialogs,
+                    maintenanceRescanDialogService: dialogs, chartInfoParseFailureRemovalDialogService: dialogs,
+                    chartInfoParseFailureRemovalLibraryProvider: () => library, lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
+                    rankingCacheDownloadWorkflow: CreateDisabledRankingCacheDownloadWorkflowOwner());
+                Task<PackageCatalogMutationResult>? removal = null;
+                try
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(children.PlaybackPanel.StartAtIndex(0), "composed-pending-start");
+                    player.CloseCompletion = () => { entered.TrySetResult(); return release.Task; };
+                    removal = children.PackageCatalogWorkflow.ClearAllAsync(PackageCatalogSection.Pending);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, removal, "composed-pending-stop"), "composed-pending-stop");
+                    Assert.IsFalse(removal.IsCompleted);
+                    Assert.IsTrue(composition.OperationAdmission.IsActive);
+                    Assert.IsTrue(Directory.Exists(managed));
+                    release.SetResult();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(removal, "composed-pending-removal");
+                    Assert.IsTrue(removal.GetAwaiter().GetResult().Succeeded);
+                    Assert.IsFalse(Directory.Exists(managed));
+                    Assert.IsNull(children.PlaybackPanel.NowPlayingChart);
+                    Assert.IsFalse(composition.OperationAdmission.IsActive);
+                }
+                finally
+                {
+                    release.TrySetResult();
+                    if (removal != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(removal, "composed-pending-removal-cleanup"); }
+                    player.CloseCompletion = null;
+                    completion.TrySetResult();
+                    children.PlaybackPanel.BeginShutdown();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(children.PlaybackPanel.CloseForShutdown(), "composed-pending-player-cleanup");
+                    children.RegularChartListOwner.Dispose();
+                    library.RequestShutdown("composed-pending-test");
+                }
+            });
+        }
+        finally { TempDirectoryPublisher.TryDeleteManagedPath(managed); Directory.Delete(root, recursive: true); }
+    }
+
     /// <summary>再構成したL/Pにも同じ受付権限を接続し、外側Pの借用中は新規要求を拒否・同能力だけを許可し、別compositionの能力と欠損依存を拒否します。</summary>
     [TestMethod]
     public void CompositionCreatesPlaylistWithTypedLibraryBindings()

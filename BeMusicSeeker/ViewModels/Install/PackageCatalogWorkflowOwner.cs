@@ -33,9 +33,11 @@ internal interface IPackageCatalogStore
     /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を返します。呼出元が実処理・後片付けまで元leaseを保持します。</summary>
     IPackageCatalogStore ForAcceptedOperation(LibraryFileMutationCapability capability) => this;
 
-    void RemoveAll(BMSLibrary library, PackageCatalogSection section);
+    /// <summary>区画全体の解除と必要な入力回収の実終端を返します。</summary>
+    Task RemoveAllAsync(BMSLibrary library, PackageCatalogSection section);
 
-    void RemovePackages(
+    /// <summary>確定した対象の解除と必要な入力回収の実終端を返します。</summary>
+    Task RemovePackagesAsync(
         BMSLibrary library,
         PackageCatalogSection section,
         IReadOnlyList<ChartPackage> packages);
@@ -106,23 +108,19 @@ internal sealed class PackageCatalogWorkflowOwner
     private readonly ChartFileOperationSynchronizer chartFileOperations;
     private readonly ChartMutationActivityOwner chartMutationActivity;
     private readonly IUiDialogService dialogs;
-    private readonly Func<Func<PackageCatalogMutationResult>, Task<PackageCatalogMutationResult>> backgroundMutationRunner;
+    private readonly Func<Func<Task<PackageCatalogMutationResult>>, Task<PackageCatalogMutationResult>> backgroundMutationRunner;
     private readonly IPackageCatalogStore store;
 
     internal event EventHandler<PackageCatalogMutationPhaseEventArgs> MutationPhasePublished;
 
-    /// <summary>
-    /// Creates a package catalog workflow owner with an explicit background mutation runner.
-    /// </summary>
-    /// <param name="backgroundMutationRunner">
-    /// Schedules a mutation and returns its result task while preserving mutation exceptions.
-    /// </param>
+    /// <summary>管理入力の回収前停止と、実終端まで待つ背景実行を明示して目録操作を構成します。</summary>
     internal PackageCatalogWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
         ChartMutationActivityOwner chartMutationActivity,
         IUiDialogService dialogs,
-        Func<Func<PackageCatalogMutationResult>, Task<PackageCatalogMutationResult>> backgroundMutationRunner,
+        IChartMutationPlaybackPort playback,
+        Func<Func<Task<PackageCatalogMutationResult>>, Task<PackageCatalogMutationResult>> backgroundMutationRunner,
         IPackageCatalogStore store = null)
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
@@ -131,7 +129,8 @@ internal sealed class PackageCatalogWorkflowOwner
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.backgroundMutationRunner = backgroundMutationRunner
             ?? throw new ArgumentNullException(nameof(backgroundMutationRunner));
-        this.store = store ?? new BmsLibraryPackageCatalogStore();
+        ArgumentNullException.ThrowIfNull(playback);
+        this.store = store ?? new BmsLibraryPackageCatalogStore(playback.StopPlaybackForMutationAsync);
     }
 
     internal Task<PackageCatalogMutationResult> ClearAllAsync(PackageCatalogSection section)
@@ -153,7 +152,7 @@ internal sealed class PackageCatalogWorkflowOwner
         }
         return ScheduleWithAcquiredGate(
             operationGate,
-            () => Execute(section, (library, operationStore) => operationStore.RemoveAll(library, section), operationGate));
+            () => ExecuteAsync(section, (library, operationStore) => operationStore.RemoveAllAsync(library, section), operationGate));
     }
 
     internal Task<PackageCatalogMutationResult> RemovePackageAsync(
@@ -185,7 +184,7 @@ internal sealed class PackageCatalogWorkflowOwner
         }
         return ScheduleWithAcquiredGate(
             operationGate,
-            () => Execute(section, (library, operationStore) => operationStore.RemovePackages(library, section, [package]), operationGate));
+            () => ExecuteAsync(section, (library, operationStore) => operationStore.RemovePackagesAsync(library, section, [package]), operationGate));
     }
 
     internal Task<PackageCatalogMutationResult> RemoveSelectionAsync(PackageCatalogRemovalRequest request)
@@ -211,19 +210,19 @@ internal sealed class PackageCatalogWorkflowOwner
         }
         return ScheduleWithAcquiredGate(
             operationGate,
-            () => Execute(request.Section, (library, operationStore) =>
+            () => ExecuteAsync(request.Section, (library, operationStore) =>
             {
                 IReadOnlyList<ChartPackage> packages = store.ResolvePackages(
                     library,
                     request.Section,
                     request.Targets);
-                operationStore.RemovePackages(library, request.Section, packages);
+                return operationStore.RemovePackagesAsync(library, request.Section, packages);
             }, operationGate));
     }
 
-    private PackageCatalogMutationResult Execute(
+    private async Task<PackageCatalogMutationResult> ExecuteAsync(
         PackageCatalogSection section,
-        Action<BMSLibrary, IPackageCatalogStore> mutation,
+        Func<BMSLibrary, IPackageCatalogStore, Task> mutation,
         IDisposable acquiredOperationGate = null)
     {
         IDisposable operationGate = acquiredOperationGate;
@@ -258,18 +257,21 @@ internal sealed class PackageCatalogWorkflowOwner
         try
         {
             dialogScope = library.BeginOperationDialogScope();
-            activityLease = chartMutationActivity.Enter();
-            suppressionStarted = true;
-            PublishMutationPhase(PackageCatalogMutationPhase.RefreshSuppressionStarted);
-            mutationAttempted = true;
+            Task mutationTask;
             try
             {
-                mutation(library, operationStore);
+                activityLease = chartMutationActivity.Enter();
+                suppressionStarted = true;
+                PublishMutationPhase(PackageCatalogMutationPhase.RefreshSuppressionStarted);
+                mutationAttempted = true;
+                mutationTask = mutation(library, operationStore);
             }
-            catch (Exception ex)
+            finally
             {
-                failures.Add(ExceptionDispatchInfo.Capture(ex));
+                // ThreadStatic の通知scopeは呼出スレッド内で外し、非同期停止の継続へ持ち越しません。
+                CaptureCleanupFailure(dialogScope.Dispose, failures);
             }
+            await mutationTask.ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -305,7 +307,6 @@ internal sealed class PackageCatalogWorkflowOwner
             }
             if (dialogScope != null)
             {
-                CaptureCleanupFailure(dialogScope.Dispose, failures);
                 CaptureCleanupFailure(dialogScope.Flush, failures);
             }
         }
@@ -321,7 +322,7 @@ internal sealed class PackageCatalogWorkflowOwner
 
     private Task<PackageCatalogMutationResult> ScheduleWithAcquiredGate(
         IDisposable operationGate,
-        Func<PackageCatalogMutationResult> mutation)
+        Func<Task<PackageCatalogMutationResult>> mutation)
     {
         try
         {
@@ -414,37 +415,44 @@ internal sealed class PackageCatalogWorkflowOwner
 internal sealed class BmsLibraryPackageCatalogStore : IPackageCatalogStore
 {
     private readonly LibraryFileMutationCapability capability;
+    private readonly Func<Task> stopPlaybackForCleanup;
 
-    /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を作ります。元leaseの所有と実終端は呼出元が担当します。</summary>
-    internal BmsLibraryPackageCatalogStore(LibraryFileMutationCapability capability = null) { this.capability = capability; }
+    /// <summary>管理入力の回収前に待つ再生停止と、借用する受理済み権限を目録窓口へ接続します。元leaseは呼出元が実終端まで所有します。</summary>
+    internal BmsLibraryPackageCatalogStore(Func<Task> stopPlaybackForCleanup, LibraryFileMutationCapability capability = null)
+    {
+        this.stopPlaybackForCleanup = stopPlaybackForCleanup ?? throw new ArgumentNullException(nameof(stopPlaybackForCleanup));
+        this.capability = capability;
+    }
 
     /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を返します。呼出元が実処理・後片付けまで元leaseを保持します。</summary>
-    public IPackageCatalogStore ForAcceptedOperation(LibraryFileMutationCapability capability) => new BmsLibraryPackageCatalogStore(capability);
+    public IPackageCatalogStore ForAcceptedOperation(LibraryFileMutationCapability capability) => new BmsLibraryPackageCatalogStore(stopPlaybackForCleanup, capability);
 
-    public void RemoveAll(BMSLibrary library, PackageCatalogSection section)
+    public Task RemoveAllAsync(BMSLibrary library, PackageCatalogSection section)
     {
         if (section == PackageCatalogSection.Pending)
         {
-            library.RemovePendingPackagesAll();
+            return library.RemovePendingPackagesAllAsync(stopPlaybackForCleanup, capability);
         }
         else
         {
             library.RemoveInstalledPackageRecordsAll();
+            return Task.CompletedTask;
         }
     }
 
-    public void RemovePackages(
+    public Task RemovePackagesAsync(
         BMSLibrary library,
         PackageCatalogSection section,
         IReadOnlyList<ChartPackage> packages)
     {
         if (section == PackageCatalogSection.Pending)
         {
-            library.RemovePendingPackages(packages, capability);
+            return library.RemovePendingPackagesAsync(packages, stopPlaybackForCleanup, capability);
         }
         else
         {
             library.RemoveInstalledPackageRecords(packages);
+            return Task.CompletedTask;
         }
     }
 
