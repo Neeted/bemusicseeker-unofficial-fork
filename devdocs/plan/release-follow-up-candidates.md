@@ -8,6 +8,8 @@
 
 追加項目は `dev` の `8c53fc9b` と作業差分を静的に照合した。処理経路・処理量と実再現・性能測定を区別し、本計画の統合で製品テスト・実サービス接続・実アプリ操作を実施したとは扱わない。採否に必要な未決事項は各項目に残す。追加の手動文字コード保持、空名フォルダへのドロップ、履歴ハッシュコピー、再生位置操作、TSV空行、手動順位cache終了寿命、ドラッグ件数表示、早送り/巻戻し終端の8件も利用者が任意に分類した。`5d499a91` まで必要経路を静的に照合し、既存候補と別原因であることを確認した。分類だけで各修正案・受入例を採用契約へ昇格させず、具体的な未決動作は将来の採用条件として残す。
 
+今回の追加資料からは18項目（UI共通整理を含む）を任意候補へ統合する。既存候補は維持し、名称を主に区別する。追加の必要経路は`6e443a87`で静的照合したもので、今回の資料整理による実再現・テスト成功を意味しない。数値・日時の地域非依存化は[必須計画](release-blocking-fixes.md#数値日時の地域非依存契約)の独立した採用契約であり、UI共通整理の採用を待たない。
+
 ## 候補と進める条件
 
 | 候補 | 現状の評価 | 次に判断すること | 採用した場合の単位 |
@@ -17,7 +19,29 @@
 | 一覧更新時の選択維持（F01） | 現在は選択位置が残り、別の表・entryへ選択が移り得る。ただし、元資料の例は表示選択と実操作対象の不一致を証明していない。 | サマリー・詳細で識別への追従を採用するか。採用時に主行・基点・消失・明示選択の扱いも確定する。 | 一貫した選択仕様と共通表・更新側の接続を一コミット。 |
 | 資源のみ導入後の保守値共用 | 資源配置・索引反映は成功する一方、表示用再評価と保存済み保守値が分かれ、画面間の不足表示が違う経路は存在する。即時更新は必須修正にしない。 | 既存の表示用評価対象に限定した共用で、完了時間の退行を残さず実現できるか。 | 評価・保存・現在値・表示用計算の統合と性能比較を一単位。大きな拡張が必要なら見送る。 |
 
-必須修正の後、必要なら案内、文字コード表示、選択仕様の順に採否を判断する。資源保守値の共用は性能評価を伴う別作業として扱う。改善を採用するかどうかと、その実装方法の検討を混同しない。
+必須修正の後、UI共通整理を採る場合は筆頭として判断する。既存候補では必要なら案内、文字コード表示、選択仕様の順に採否を判断する。資源保守値の共用は性能評価を伴う別作業として扱う。改善を採用するかどうかと、その実装方法の検討を混同しない。
+
+## UIの状態・入力・寿命を揃える共通整理
+
+任意改善の筆頭とする。個別不具合の追加計上ではなく、既存部品の表示・候補・選択・フォーカス・終端の責務を揃える作業である。共通表の候補編集、設定部品のBinding所有、古い選択通知の失効、非モーダル画面の開始済み処理の終端を生かす。必須の再生フォーカス/ツリー編集は各単位で先に直し、この整理を前提にしない。フォルダ削除は[現行の三択と取消](../spec/library/mutations.md)を維持する。
+
+| 境界 | 採用時に揃える契約 |
+| --- | --- |
+| 表示・編集・確定 | 表示Bindingは正本、編集候補は一回の編集が所有する。開始時に対象/初期値を捕捉、入力/IMEは候補だけを更新し、確定時は同じ対象/候補を既存入口へ一度渡す。Escapeは候補を破棄し、旧文字列を表示へ再代入しない。対象交換/再利用は旧候補・callbackを捨て、言語/テーマ/純再描画は候補・選択・scrollを保つ。 |
+| 部品の確定境界 | 正当なフォーカス離脱確定、一般セルの確定順序、設定の通常closeを保持する。PropertyChanged/LostFocus/Explicitへ一律化しない。Binding維持が必要な内部同期は既存SetCurrentValueの使い方へ揃え、通常DPやローカル値所有設定を一括置換しない。表示へ戻せない候補をAPI置換だけで解決せず、DPラッパーにXAMLから必ず呼ばれる副作用を要求しない。 |
+| 選択・識別 | 論理選択を各ListBoxのSelectedItem/SelectedIndexへ投影し、未実体化の候補も生成時に強調/Enter対象を一致させる。入力・caret・文脈・候補版・置換範囲は適用可否、区画/候補種別/保存式または挿入値は候補行、文法比較は保存式の識別と分ける。候補消失は解除し、新永続ID/スキーマや全件実体化を増やさない。 |
+| 複合UIの内外 | TextBox、その検索欄所有のPopupと行内ボタンを一操作範囲とする。内側移動は候補・選択を保ち、同Windowの表/別検索欄へ出た時だけ履歴確定・Blurを一度行う。Popupの別ツリーと論理/キーボードfocusを区別し、同じ型/hover/TextBoxだけで所有を判定しない。Esc/非活性は既存終端へ接続する。 |
+| 入力と遅延focus | 現在のModifiersを判定元とし、部品内だけでKeyUpを回収するフラグを正本にしない。IME Enter/Escを維持する。遅延復帰は短命要求が有効な間だけ、初回成功・後発明示入力・切離し/所有交換で終える。新しい全画面入力管理器、固定待機の再試行・永続台帳を増やさない。 |
+| 表示再適用 | 同じ内容の再通知で候補・行内ボタン・選択・scroll/focusを失わず、owner/入力版/適用可能候補の更新は取りこぼさない。既存表示等価性と列再構築/cache失効を使い、汎用画面差分処理を追加しない。URL幅切替は表示とaction/編集可否を同じ列定義から決める。 |
+| 確認結果 | 既定ボタン/Enter先と閉鎖応答を分け、明示Yes/OK（当該ボタンのEnterを含む）のみ承認、Noはその拒否、Cancelのある確認のcloseは取消、表示失敗は未承認とする。情報通知のclose後の通常継続を保つ。選択削除/重複整理はYes=全体、No=譜面のみ、Cancel/X/Esc=先行Yesの有無によらず全操作取消。同期/非同期で意味を揃え、旧close→No続行へ戻さない。 |
+| 表示資源 | ResourceService.Resourcesの通知を既存表示ownerで受け、事実/配置/集計/キーから文言・ToolTip・Automationを再生成する。表は既存cache、プロパティは取得済み診断、ランプは同じ区間へ接続する。言語/テーマで解析・検索・集計・保存を再実行せず、新翻訳cache/行ごと購読を追加しない。数値文字列は必須の固定規則、型付きDatePickerは既存DisplayCultureとSelectedDateを保つ。 |
+| 表示と処理の寿命 | Loadedは現在表示同期と一回購読、Unloadedは表示購読/予約だけ解除、対象交換は旧候補/callbackを破棄、Closed/Disposeは新規表示/購読を終える。開始済み実処理は既存機能ownerが終端・回収し、Unloadedを最終終了にしない。再接続で入力を二重処理せず旧callbackを新対象へ反映しない。 |
+
+採る場合は同じ検索部品のShift・仮想化選択・部品外離脱・候補行識別を一writerへまとめ、候補引用/保存式比較、表示言語、URL幅、確認翻訳を各責務で合流する。共有API・テスト補助・生成物・仕様に書き込む箇所だけ直列にし、個別の原因/判定は残す。新しい基底クラスを全画面へ配る作業、巨大な共通管理主体、少数変更の全件反映は含めない。
+
+新規/変更UIの機能仕様には表示正本・候補・選択・保存のowner、クリック/キー/IME/確定/取消、Popup/メニュー/子窓を含む内外、対象交換/再利用/同表示/言語変更の保持と破棄、遅延表示と実処理の終端を短く記載する。反映先は[検索](../spec/ui/keyword-search.md)、[一覧](../spec/ui/table-view.md)、[表示](../spec/ui/appearance.md)、[ダイアログ](../spec/ui/dialogs.md)と各機能仕様とし、コード形式だけを検査する新規則・全機能共通テストの複製は設けない。
+
+受入は既存MainWindowChartPresentationWpfTests/MainWindowPlaylistWorkspaceWpfTests/MainWindowPlaybackWpfTests、ThemedMessageBoxTests/DialogPresentationTests、ChartPropertiesWindowTests/PlaylistLampViewerWindowPresentationTestsへ分担する。実Bindingで無変更/変更Escape→同部品再利用→一回確定、未実体化候補のキー選択/Enter、候補B→行内ボタン→入力欄→外部移動、Shift外部解放/IME、後発入力後callback、同表示再通知、三択の明示Yes/No/Cancel/X/Esc、表示変更、URL40→広幅→40、切離し/再接続/処理中閉鎖を通す。静止表示や内部関数だけで保証を代替しない。
 
 ## 外部変更の前提と操作案内
 
@@ -56,7 +80,7 @@
 
 元資料では手動指定保持を方針合意済みとする。具体的な保持対象の識別は採用時に確認する。
 
-採用時は、既存のmaintenance評価で指定の優先と対応メタデータ更新を一緒に整え、資源の再評価を維持する案とする。`EncodingFixed` は自動確定にも使うため、既存データから保持対象をどう識別できるかを確認する。失われた操作履歴を推測せず、新DB列・全件再保存を先行しない。判定器全体・資源名のCP932解釈・必須のUTF-8 BOM修正へ広げない。
+採用時は、既存のmaintenance評価で指定の優先と対応メタデータ更新を一緒に整え、資源の再評価を維持する案とする。`EncodingFixed` は自動確定にも使うため、既存データから保持対象をどう識別できるかを確認する。失われた操作履歴を推測せず、新DB列・全件再保存を先行しない。判定器全体・資源名のCP932解釈・実装済みの軽量/詳細ライブラリ側BOM処理や、下記の再生/音声側BOM候補へ広げない。
 
 判定案は `BmsLibraryMaintenanceServiceTests` と現在値/再スキャン系列へ分担し、選択/全所持再スキャン後のDB読戻しで指定とタイトル、資源評価、非対象列の保持を確認する。手動指定と自動確定・未確定/未指定を区別し、無変更時の余分な書込みを増やさない。
 
@@ -236,6 +260,104 @@ BMT cache復元では、全folderが同じtagで始まらない場合に空prefi
 警告が出る検索式を表示したまま言語を変えると、`ChartListFilterViewModel` の保存済み警告とヘルプBindingが旧言語のまま残る。資源側は変更通知を出すが、検索ownerは入力・文脈変更時にしか提示を更新しない。検索結果や保存値の破損ではないため、今回の必須修正には含めない。
 
 採用時は既存の提示再生成・再通知を言語変更へ接続し、購読と解除の所有を明確にする。検索の再実行、式の書換え、履歴・選択の変更、翻訳cache追加は不要。音声詳細選択肢と似た症状でも所有者が異なるため一括で作り直さない。`ChartListFilterViewModelTests` と代表WPFで入力・文脈固定のまま警告とヘルプが新言語になり、検索実行イベントが増えないことを確認する。
+
+## BMS条件分岐の未選択枝の混入
+
+RibbitのParseMainは再帰/読み飛ばし後にも古いローカルtextで終端を判定し、固定乱数1のIF 1/ELSEやIF 2/ELSEIF 3/ELSEで未選択イベントも処理する。内蔵再生・先読み・音声変換は共通PlaybackChart.Loadから同結果を受ける。
+
+採用時は再帰後の実命令を基準に継続/読み飛ばしを決め、古いtextとの二重管理を整理する。全parserを作り直さず、必須の数値規則と同parserの書込みを直列にする。RibbitBmsFileTimingTestsで真偽IF/ELSEIF、ELSE、入れ子を固定乱数で判定し、選択枝のイベント一回・未選択の資源定義非混入を確認する。共通再生データへの投影を代表一例で接続する。
+
+## 旧BMSONのライブラリ情報解析
+
+再生側が受ける0.21系initBPM/soundChannelをライブラリBmsonJsonParserは拾わず、BPM0・音源0件として健康度/導入へ渡し得る。[再生の対応範囲](../spec/library/bmson-playback.md)を情報解析へ広げる任意対応であり、現行仕様違反と一括断定しない。
+
+採用時はJSON境界で旧キーを正規化し、旧新キー共存時の優先を明示する。再生timingの無条件流用はせず、詳細結果の変更は既存parserVersionによる通常再解析へ接続する。同リリースの解析変更と版更新をまとめ、新移行台帳/別強制再解析は追加しない。現行/旧同義入力のBPM・資源・詳細、通常folderの音源あり導入/なし保留、旧chart_info保存済み→通常更新→新DB接続を判定し、LegacyAndVersionlessAdaptersShareModernTimingAndModernKeysWinの再生保証は維持する。
+
+## 古い外部プレイヤー終了通知の所有者照合
+
+BMIIDX/LR2でAの捕捉済み終了通知がB開始後に届くと、Bのprocess/handle/pathやLR2 preview scopeまで消す経路がある。Panelの世代照合とadapter内部の解放は別で、購読解除だけでは捕捉済みdelegateを止められない。Pause/Restartとは別原因の任意候補である。
+
+採用時は通知対象processを捕捉し、現在の本人と一致する状態だけ解放する。null senderを使う明示Closeも実processを渡す同じ小さい終端へ揃え、LR2の終了後preview復元の明示再試行を保つ。必須再生群と同adapterの書込みを直列にする。ExternalPlayerProcessGatewayTestsの実adapter/CaptureExitedNotificationでA通知捕捉→A終了→B開始→A通知配送→B Stopを制御し、BへのClose、LR2 scope保持、自然終了/明示停止/復元再試行を確認する。時間待ちだけに依存しない。
+
+## 再生・音声変換のUTF-8 BOM
+
+軽量/詳細ライブラリ側のBOM対応だけでは、Ribbit共有decoderの先頭U+FEFFが残り、先頭BPM/TITLE/WAV命令を読み落とす。先頭BPM120のBOMなしで001小節BGMが2秒、BOMありで既定130の約1.8461538秒となる原因は独立して残る。
+
+採用時は共有decodeで先頭UTF-8 BOMを除き、本番load/準備済み入力へ同じ本文を渡す。BOMなし判別順、CP932の資源名bytes、元bytesのhashを保ち、UTF16/32やparserVersion拡張へ広げない。必須数値/分岐と同parserを直列にする。RibbitBmsFileTimingTestsで先頭BPM/TITLE/WAVのBOM有無一致と2秒、各元bytesのhashを別判定し、BMSAutoPlayWriterTestsで音声変換への代表接続を確認する。
+
+## 音声出力ベース名の解釈
+
+変換ownerは拡張子なしfile pathを渡すがWriterは既存directoryなら意味を変え、Out/SongフォルダがあるとOut/Song.wavの代わりにその配下へ出力する。BMS/BMSON・各形式に共通する任意候補である。
+
+採用時は一つの本番呼出元SelectedChartAudioConversionWorkflowOwnerのfile path契約へWriterを統合し、未使用directory modeのための引数を増やさない。録音形式/必須数値の共有箇所へ合流する。BMSAutoPlayWriterTestsとowner代表で実WAVEがOut直下、子folder/入力元保全、既存完成fileがある場合もencoderの連番でOut直下になることを確認する。
+
+## 検索候補の予約構文の引用
+
+候補のQuoteValueIfNeededはre:始まりを引用せず、表re:mixがregex mix、re:[が不正regexになる。採用時は大小文字を問わず予約構文始まりも引用し、通常名の意味を保つ。KeywordSearchPresentationTests/GridKeywordSearchQueryTestsで候補を実parserへ通し、re:mix/RE:mix/re:[、引用途中、escape、後続句、caretを判定する。保存式比較とは別原因として、同文法helper/検索仕様の書込みを調整する。
+
+## 保存検索式の正規表現の同一性
+
+履歴/お気に入りは全体の大小文字を無視し、title:re:\dとtitle:re:\D等の別パターンを潰す。採用時は通常部分をOrdinalIgnoreCase、regex本体をOrdinalとする小さい文法比較へ統合する。保存文字列は既存の空白/改行整形だけを維持し、大小変換・意味的regex同値・式順/別名の新正規化を追加しない。
+
+tokenizer/引用/否定/項目/OR/Windows drive等の区別を共用し、re:部分文字列だけで判定しない。Regex生成・条件整列を行うGridKeywordSearchQuery.Parse全体は比較へ呼ばず、不正regexも本体原文で比較する。履歴/お気に入りの追加・削除・重複表示・保存復元へ一契約を使う。KeywordSearchSavedQueryStoreTestsと履歴系列でsongtitle/SONGTITLE・title:songtitle/TITLE:SONGTITLEは一件、\d/\D・\w/\Wは別件とし、混在句・引用re:・旧保存値の復元/片方削除と既存上限/形式を確認する。候補行識別とは分ける。
+
+## 言語変更後の表・プロパティ・ランプ表示
+
+一項目内の三つの表示ownerを区別する。既存の音声詳細選択肢と検索提示の言語候補と合わせて五つの所有者であり、同じ症状だけで一括再生成しない。数値・日時は必須の固定規則へ合流する。
+
+| 表示owner | 採用時の変更境界と代表判定 |
+| --- | --- |
+| 共通表cache | 保留候補案内の整形/描画cacheがアプリ言語通知を受けず旧言語を残す。表寿命の既存資源通知から既存cacheを失効する。CustomTablePhase6CacheTestsと実表で行・選択・scroll・編集候補・生pathを保ち、再検索/全行実体化/ItemsSource交換なしで同じ行の文言が更新する。 |
+| 開いたプロパティ | ChartPropertiesViewModelの確認基準・診断・なし/BMS/BMSON説明を取得済み診断と捕捉配置から再整形し、close時に購読解除する。ChartPropertiesViewModelTests/ChartPropertiesWindowTestsで同じ窓の言語追従、読取り一回、path/基準/事実保持を確認し、譜面再解析はしない。 |
+| ランプ既存区間 | 言語handlerから同じ区間VMのToolTip/Automation Name/ItemStatusへ通知する。PlaylistLampViewerWindowPresentationTestsで捕捉済み同じButtonと区間参照、選択/表示mode/取得回数を保って文言だけ更新し、再集計/再取得/区間再生成はしない。 |
+
+## URL列幅による表示と操作
+
+任意の機能追加として、既定40 DIPの取得ボタンは通常クリック/再クリックとも現在の取得を維持し、F2/文字入力による既存編集と元URLコピーを保つ。40 DIPより広い場合は元URLを表示し、通常セルの選択・再クリック/F2/文字入力編集へ揃え、取得actionを出さない。編集不可文脈へ幅だけで権限を与えず、空URLも同じ役割にする。単クリック即編集や行double clickの変更は加えない。
+
+採用時は既存ColumnLayout.Widthから表示種別/値/配置/action/再クリック編集可否を一緒に導き、40へ戻せば元へ戻す。最小/既定幅、既存の編集終端・列再構築・cache失効と幅保存を利用し、DPI物理pixel・新mode保存フラグは不要。現行資料の再クリック編集記述は現在の取得ボタン動作に合わせる。CustomTableColumnFactoryTests/EditingTests/ColumnSettingsTestsと実URL列で40→広幅→40、URL1/2・空値・編集可否・幅変更時候補・保存幅復元・ToolTip/コピーを判定し、広幅で取得なし/既定幅の繰返し取得を別確認する。共通表cache/必須フォーカス編集の共有書込みへ合流する。
+
+## 検索欄外で解放したShiftの残留
+
+部品内KeyUpだけで消すshiftKeyDownが、Shiftを保持して一覧へ移動→一覧で解放→検索へ戻ると残り、通常TabがShift+Tabになる。採用時は現在のKeyboardDevice.Modifiers等を判定元にし補助フラグ依存を整理する。MainWindowChartPresentationWpfTestsの実focusで通常Tab適用・実Shift+Tab・行内ボタン巡回・IME確定抑止を確認する。保存式比較とは別の判定とし、下記の検索選択/離脱群と同部品一writerで統合する。
+
+## 確認ボタンの翻訳
+
+ThemedMessageBox.GetButtonsは本文が選択言語でもYes/No/Cancelラベルを固定英語で作る。採用時は既存資源と必要な肯定/否定ラベルを既定資源・6言語へ揃える。生成時取得で足り、modal中の言語購読は増やさない。ThemedMessageBoxTests/DialogPresentationTestsで実Contentと明示結果・Enter既定・Escを確認し、現行三択の取消契約を保つ。確認の応答意味を再変更しない。
+
+## 画面外の検索候補の選択強調
+
+キー移動は論理indexを変えて既存containerだけIsSelectedを設定してからscrollするため、後から実体化した末尾はEnter対象でも強調されない。採用時は区画をまたぐ論理選択をListBox.SelectedItem/SelectedIndexへ投影し、生成後も同じ選択へ揃える。仮想化無効化・全候補実体化・無条件遅延描画は加えない。
+
+MainWindowChartPresentationWpfTestsのLargeFavoritesVirtualizeOffViewportRows等で未実体化を確認→キーで末尾/画面外→生成→強調/Enter一致を判定する。hover色と選択色、先頭末尾折返し、区画間、container再利用、全件実体化しない性質を確認する。同検索部品のShift/離脱/行識別と直列統合し、独立に合否を出す。
+
+## 検索候補の行内ボタンから部品外への離脱
+
+TextBoxからPopup行内ボタンへ進むとBlurを抑止する一方、そのボタンから同Window一覧へ移る終端がなく、StaysOpen=Trueの候補が残る。恒久的操作不能とは扱わない。採用時はTextBox/所有Popup/行内ボタンを含む範囲で、内部移動は保持、外部移動は履歴確定/Blur一回へ揃える。Popupの別ツリー、保留中focusと終了後論理focusも同じ寿命で扱う。
+
+実MainWindow検索/PopupでTextBox→ボタン・ボタン間・ボタン→一覧/別検索を通し、元候補だけの閉鎖と二重実行/履歴保存なしを確認する。TextBox通常外側クリック・Esc・非活性の終端を保つ。Shift/選択/行識別と同検索部品一writerにする。
+
+## 検索候補の行本人と入力状態の識別
+
+候補B→Shift+Tabで行内ボタン→実行せずTabで戻ると先頭Aへ移る。再表示が使うIdentityは入力/caret/版/置換範囲で保存候補全行が共通のため、候補行を区別できない。採用時は適用可否の入力照合と、区画/種別/保存式または挿入内容の行識別を分け、行消失時は別行を本人扱いしない。保存式文法比較とも分け、新保存ID/スキーマを導入しない。
+
+MainWindowChartPresentationWpfTestsで二件以上からBを選び実行なしのボタン往復→同候補の選択/強調/Enterを確認する。通常/playlist両検索、履歴/お気に入り混在、同入力再適用、選択候補削除を分担する。同表示の再構築/重複反映は既存等価性で整理するがowner/版更新は保ち、Shift/画面外選択/部品外離脱とは独立判定する。
+
+## 実フォルダ名NO SONGのランプ集計
+
+通常所属`[NO SONG]`を文字列だけで特殊扱いし、ランプの行/合計/全通常folder対象/遷移から落とす。採用時は特殊nodeの型境界と実folder名を分け、供給・PlaylistLampModelsの順序・集計・行・Workspace遷移/DetailSourceを一単位へ揃える。受理済み名の禁止/自動改名はしない。
+
+PlaylistLampAggregationTests/PlaylistWorkspaceActionWorkflowTestsで同名実folderと本物の特殊nodeを別fixtureにし、実folderの件数・ランプ・行・遷移と特殊node除外を判定する。通常folderを特殊node代わりに使う既存testも意味を分ける。言語追従の同viewer書込みへ合流する。
+
+## 履歴所属の大小文字
+
+PlayHistoryDisplayTargetはfolder正本が区別するA/aを所属Identity全体のOrdinalIgnoreCaseで潰し、表単体/プリセット/FOLDER専用プリセットの表示で片方を落とす。保存所属自体は両方残る。採用時は正規化済みIdentityの完全一致またはhash/folder別比較でfolderをOrdinalにする。
+
+PlayHistoryReadModelTestsで同表同hashのA/aラベルが各一回、RawHash/Md5から同一所属を引いても二重表示なし、元データ不変を確認する。MAX内訳/履歴preset名/URL等の比較方針まで拡張せず、共有する履歴投影・helperだけ直列調整する。
+
+## 更新失敗通知の翻訳
+
+更新の確認/取得/開始失敗でMainWindowの本文・見出しが固定英語になる。採用時は既存通知を資源へ接続し、処理失敗を表す文言へ揃える。元例外は開発診断として保持し、新しい失敗分類を設けない。StartupUpdateWorkflowOwnerTestsの通知/アプリ継続、実表示と資源整合を代表確認する。MainWindowの必須focus/ツリー編集と一writerへ合流し、ready/lockの必須修正とは原因・判定を分ける。
 
 ## 採用時と完了時の運用
 
