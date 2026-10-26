@@ -5094,11 +5094,14 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// 異なる音声を参照する実譜面を単一ファイルの二パッケージへ分け、無関係な譜面を一つに合流する誤りを検出する。
+    /// 直下の独立二譜面を単体化しても子・孫を各一回発見し、子なしの分割と再グループ化対象も維持します。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
-    [TestMethod]
-    public void SearchChartPackagesRecursivelyWithMetadata_PackagesSplitsIndependentChartsIntoSingleFilePackages()
+    [DataTestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    public void SearchChartPackagesRecursivelyWithMetadata_PackagesSplitsIndependentChartsIntoSingleFilePackages(int descendants)
     {
 
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -5108,34 +5111,48 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             File.WriteAllText(Path.Combine(packageDirectoryPath, "chart_a.bms"), "#PLAYER 1\r\n#TITLE A\r\n#WAVAA sound_a.wav\r\n#00111:AA\r\n");
             File.WriteAllText(Path.Combine(packageDirectoryPath, "chart_b.bms"), "#PLAYER 1\r\n#TITLE B\r\n#WAVAA sound_b.wav\r\n#00111:AA\r\n");
 
-            var service = new BmsLibraryPackageInstallService();
-            List<ChartPackage> result = service.SearchChartPackagesRecursivelyWithMetadata(packageDirectoryPath, 0.6).Packages;
-
-            Assert.AreEqual(2, result.Count);
-            Assert.IsTrue(result.All(package => File.Exists(package.path)));
-        });
-    }
-
-    /// <summary>
-    /// 独立譜面を分割して発見した元フォルダを再グループ化可能として返し、発見結果から再検索対象が抜ける誤りを検出する。
-    /// </summary>
-    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
-    [TestMethod]
-    public void SearchChartPackagesRecursivelyWithMetadata_MarksSplitDirectoryAsRegroupEligible()
-    {
-
-        WithTemporaryDirectory(delegate (string tempDirectoryPath)
-        {
-            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "Pkg");
-            Directory.CreateDirectory(packageDirectoryPath);
-            File.WriteAllText(Path.Combine(packageDirectoryPath, "chart_a.bms"), "#PLAYER 1\r\n#TITLE A\r\n#WAVAA sound_a.wav\r\n#00111:AA\r\n");
-            File.WriteAllText(Path.Combine(packageDirectoryPath, "chart_b.bms"), "#PLAYER 1\r\n#TITLE B\r\n#WAVAA sound_b.wav\r\n#00111:AA\r\n");
+            var expectedPackages = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                [Path.Combine(packageDirectoryPath, "chart_a.bms")] = [Path.Combine(packageDirectoryPath, "chart_a.bms")],
+                [Path.Combine(packageDirectoryPath, "chart_b.bms")] = [Path.Combine(packageDirectoryPath, "chart_b.bms")]
+            };
+            var expectedRegroupDirectories = new List<string> { packageDirectoryPath };
+            if (descendants > 0)
+            {
+                string child = Path.Combine(packageDirectoryPath, "ChildA");
+                string chart = CreateBmsFile(child, "child.bms", BmsLibraryInitializationTestSupport.CreateValidBmsText("Child A"));
+                File.WriteAllBytes(Path.Combine(child, "sound.wav"), [1, 2, 3]);
+                expectedPackages.Add(child, [chart]);
+            }
+            if (descendants > 1)
+            {
+                string child = Path.Combine(packageDirectoryPath, "ChildB");
+                string first = CreateBmsFile(child, "first.bms", "#PLAYER 1\r\n#TITLE B first\r\n#WAVAA missing_first.wav\r\n#00111:AA\r\n");
+                string second = CreateBmsFile(child, "second.bms", "#PLAYER 1\r\n#TITLE B second\r\n#WAVAA missing_second.wav\r\n#00111:AA\r\n");
+                string grandchild = Path.Combine(child, "Grandchild");
+                Directory.CreateDirectory(grandchild);
+                string bmson = Path.Combine(grandchild, "grandchild.bmson");
+                File.WriteAllText(bmson, CreateBmsonJsonWithSound("grandchild.wav"));
+                File.WriteAllBytes(Path.Combine(grandchild, "grandchild.wav"), [4, 5, 6]);
+                expectedPackages.Add(first, [first]);
+                expectedPackages.Add(second, [second]);
+                expectedPackages.Add(grandchild, [bmson]);
+                expectedRegroupDirectories.Add(child);
+            }
 
             var service = new BmsLibraryPackageInstallService();
             ChartPackageDiscoveryResult result = service.SearchChartPackagesRecursivelyWithMetadata(packageDirectoryPath, 0.6);
 
-            Assert.AreEqual(2, result.Packages.Count);
-            CollectionAssert.AreEqual(new[] { packageDirectoryPath }, result.RegroupEligibleSourceDirectories);
+            CollectionAssert.AreEquivalent(expectedPackages.Keys.ToArray(), result.Packages.Select(package => package.path).ToArray());
+            CollectionAssert.AreEquivalent(expectedPackages.Values.SelectMany(paths => paths).ToArray(),
+                result.Packages.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart.Path).ToArray());
+            foreach (ChartPackage package in result.Packages)
+            {
+                CollectionAssert.AreEquivalent(expectedPackages[package.path], package.ChartEntries.Select(entry => entry.Chart.Path).ToArray());
+                Assert.AreEqual(File.Exists(package.path) && Path.GetDirectoryName(package.path) != packageDirectoryPath,
+                    package.delete_parent, "直下と再帰中の単体で親cleanup権限を維持します。");
+            }
+            CollectionAssert.AreEquivalent(expectedRegroupDirectories, result.RegroupEligibleSourceDirectories);
         });
     }
 
@@ -5189,11 +5206,14 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// 直下と子の譜面を一つのフォルダパッケージとして発見し、子譜面の欠落や誤分割を検出する。
+    /// 直下一譜面・同梱資源あり・参照共通率成立の各条件で子を含む一まとまりを保ち、子の二重発見と再グループ化誤登録を防ぎます。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
-    [TestMethod]
-    public void SearchChartPackagesRecursivelyWithMetadata_DetectsRootAndNestedChartsAsOneDirectoryPackage()
+    [DataTestMethod]
+    [DataRow("single")]
+    [DataRow("resources")]
+    [DataRow("shared")]
+    public void SearchChartPackagesRecursivelyWithMetadata_DetectsRootAndNestedChartsAsOneDirectoryPackage(string condition)
     {
 
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -5203,15 +5223,27 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(nestedDirectoryPath);
             File.WriteAllText(Path.Combine(packageDirectoryPath, "root.bms"), "#PLAYER 1\r\n#TITLE Root\r\n");
             File.WriteAllText(Path.Combine(nestedDirectoryPath, "another.bms"), "#PLAYER 1\r\n#TITLE Nested\r\n");
+            var expectedCharts = new List<string>
+            {
+                Path.Combine(packageDirectoryPath, "root.bms"),
+                Path.Combine(nestedDirectoryPath, "another.bms")
+            };
+            if (condition != "single")
+            {
+                File.WriteAllText(expectedCharts[0], "#PLAYER 1\r\n#TITLE Root\r\n#WAV01 shared.wav\r\n#00111:01\r\n");
+                string second = CreateBmsFile(packageDirectoryPath, "second.bms", "#PLAYER 1\r\n#TITLE Second\r\n#WAV01 shared.wav\r\n#00111:01\r\n");
+                expectedCharts.Add(second);
+                if (condition == "resources") { File.WriteAllBytes(Path.Combine(packageDirectoryPath, "shared.wav"), [1, 2, 3]); }
+            }
 
             var service = new BmsLibraryPackageInstallService();
             ChartPackageDiscoveryResult result = service.SearchChartPackagesRecursivelyWithMetadata(packageDirectoryPath, 0.6);
 
             Assert.AreEqual(1, result.Packages.Count);
             Assert.AreEqual(packageDirectoryPath, result.Packages[0].path);
-            CollectionAssert.AreEquivalent(
-                new[] { "root.bms", "another.bms" },
-                result.Packages[0].GetBmsChartsForTest().Select(file => Path.GetFileName(file.Path)).ToArray());
+            CollectionAssert.AreEquivalent(expectedCharts, result.Packages[0].ChartEntries.Select(entry => entry.Chart.Path).ToArray());
+            Assert.IsFalse(result.Packages[0].delete_parent);
+            Assert.AreEqual(0, result.RegroupEligibleSourceDirectories.Count);
         });
     }
 

@@ -72,6 +72,12 @@ flowchart TB
 
 導入への引渡し後に、待ち行列の `finally` から入力を無条件削除しません。実行中処理と未引渡し入力の回収の両方が終わるまで、取消後の新規受付を再開しません。回収失敗で主結果を置き換えない規則も維持します。
 
+### 単体分割と子作品の発見
+
+ディレクトリ直下の複数譜面を、同梱資源がなく参照資源の共通率も閾値未満のため単体へ分割する場合も、子ディレクトリの再帰探索を続けます。子で単体化する譜面や孫の作品も同じ規則で発見します。直下が一譜面、直下のいずれかの譜面に同梱資源がある、参照資源の共通率が閾値を満たす場合は、子を含むディレクトリ全体を一パッケージとし、包含済みの子を別パッケージとして重複生成しません。
+
+単体・子作品・後続入力の成功対象を一つの変更セッションへ集め、不足資源の譜面は保留へ残します。[重複・重なる入力の除外](mutations.md#導入と導入先修正)と再グループ化の規則を使い、成功した子の消費や親の後片付けで、親に残る保留譜面や後続入力を削除しません。管理元書庫を消費した後も保留が参照する展開先を保持し、借用書庫の元データを保持します。
+
 ### 導入後の入力の寿命
 
 未準備入力は `InstallChartPackagesAutoWithProgressAsync` で一回だけ準備します。元入力の存在は展開前に確認し、適用直前には展開済み入力と必要なパッケージの存在を確認します。正常消費された管理元アーカイブの残存は、自動導入・保留登録・直接推定の条件にしません。設定、解析結果、所持索引は同じ受理操作内で再利用します。
@@ -114,6 +120,7 @@ WPFの対応形式は `DataFormats.FileDrop` です。ドラッグ中は `GetDat
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 単体分割後の子・孫発見と全体パッケージの非重複 | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs) の `SearchChartPackagesRecursivelyWithMetadata`、`BMSLibrary.PackageInstall` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `SearchChartPackagesRecursivelyWithMetadata_PackagesSplitsIndependentChartsIntoSingleFilePackages` は子なし・子一つ・複数子と孫の三条件で、全パス・譜面集合の一回性、単体とディレクトリのまとまり、再グループ化対象を確認する。`SearchChartPackagesRecursivelyWithMetadata_DetectsRootAndNestedChartsAsOneDirectoryPackage` は直下一譜面・同梱資源あり・共通率成立の三条件で子を含む一まとまりを確認する。元の直下単体化時の再グループ化保証は前者へ集約し、子だけの単体化は既存 `SearchChartPackagesRecursivelyWithMetadata_MarksNestedSplitDirectoryAsRegroupEligible` が分担する。[`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryManagedArchiveInstallTests.cs) の `AutoInstall_SplitRootKeepsChildrenAndPendingInputsAcrossSources` は通常フォルダ・管理ZIP・借用ZIPで、子と後続の二作品の実FS・song DB・所持への一回反映、直下二譜面の保留・install DB・元内容保持、重複入力と成功元の消費を確認する。親cleanup、取消・失敗・入力寿命は既存系列と分担する。 |
 | 書庫名ディレクトリの受理と実書庫だけの進捗・通常導入 | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs) の `ExpandInstallSourcesWithProgress`、`BMSLibrary.PackageInstall` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `ExpandInstallSources_PreservesArchiveNamedDirectory` は四拡張子と各大文字形で、同じ入力・内容の保持、展開通知・作成通知・警告なしを確認する。`ExpandInstallSources_ReportsArchiveOrdinalAmongArchivesOnly` は通常フォルダ・`work.ZIP` と実ZIP・7zの混在四入力で、実展開と書庫だけの番号・総数を確認する。[`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryManagedArchiveInstallTests.cs) の `AutoInstall_ManagedArchiveAndIndependentFolderShareOneCommitAndApply` は管理ZIPと `Independent.ZIP` 通常フォルダの二作品を実FS・DB・所持へ一回反映し、保留なしと元の消費を確認する。実書庫の全形式・必須日時・失敗時の保証は既存展開系列が分担する。 |
 | 単体BMS・BMSONの新規導入と明示宛先への差分 | `BmsLibraryPackageInstallService.PrepareInstallDestination` / `MovePackageFilesCore`、`BMSLibrary.PackageInstall` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `ForceInstallPendingPackages_SingleChartsAndDirectoryUseReservedNewFolders` が実取り込み・保留保存後の単体とフォルダ混在、同名予約・既存ファイル／フォルダ衝突、宛先設定済み行の強制新規を、実配置・song DB・所持・新規／保留・install表で確認する。`MovePackageFilesWithReceipt_SingleFilePackageFinalizesFileSource` が両形式の宛先未指定と明示宛先差分の衝突回避・兄弟保持を分担する。単体発見と隣接資源によるフォルダ昇格は既存の `PrepareAutoInstallWorkflow_DetectsSingleBmsonFileSelection` / `PrepareAutoInstallWorkflow_ExplicitBmsonFileWithAdjacentResourcesUsesDirectoryPackage` / `PrepareAutoInstallWorkflow_ClassifiesDetectedDirectoriesAsInstallable` 系列を維持する。 |
 | URL取得入力の所有付き要求と保留の寿命 | `PlaylistWorkspaceViewModel.PlaylistUrlAcquisition`、`DroppedInstallBatchRequest`、`PackageInstallWorkflowOwner` | [URL取得の所有テスト](../playlist/downloads.md#実装とテストの対応)が開始前取消・世代退役の回収と実idle、実推定後の保留バイト列、後の明示手動導入を確認する。通常の借用入力と導入前回収は下記の既存系列が分担する。 |

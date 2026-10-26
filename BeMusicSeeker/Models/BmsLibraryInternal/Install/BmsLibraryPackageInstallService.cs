@@ -521,6 +521,7 @@ internal sealed class BmsLibraryPackageInstallService
 
     /// <summary>
     /// ディレクトリ探索で見つかった譜面パッケージと、再統合候補ディレクトリをまとめて返します。
+    /// 直下譜面を単体化した場合も子を探索し、ディレクトリ全体を一パッケージとした場合は包含済みの子を重複発見しません。
     /// </summary>
     internal ChartPackageDiscoveryResult SearchChartPackagesRecursivelyWithMetadata(string dirfullpath, double dupRateThreshInOnePkg, bool recursive = false)
     {
@@ -551,6 +552,7 @@ internal sealed class BmsLibraryPackageInstallService
             if (chartFiles.Count == 1 || anyChartHasExistingResources)
             {
                 result.Packages.Add(CreatePackageWithKnownCharts(dirfullpath, deleteParent: false, hasCompleteChartList ? parsedChartEntries : null));
+                return result;
             }
             else
             {
@@ -565,6 +567,7 @@ internal sealed class BmsLibraryPackageInstallService
                     && (double)resourcesByChart.Aggregate(Enumerable.Intersect).Count() / (double)resourcesByChart.Select(resourceList => resourceList.Count()).Min() >= dupRateThreshInOnePkg)
                 {
                     result.Packages.Add(CreatePackageWithKnownCharts(dirfullpath, deleteParent: false, hasCompleteChartList ? parsedChartEntries : null));
+                    return result;
                 }
                 else
                 {
@@ -576,7 +579,7 @@ internal sealed class BmsLibraryPackageInstallService
                 }
             }
         }
-        else if (directories.Count > 0)
+        if (directories.Count > 0)
         {
             foreach (string dir in directories)
             {
