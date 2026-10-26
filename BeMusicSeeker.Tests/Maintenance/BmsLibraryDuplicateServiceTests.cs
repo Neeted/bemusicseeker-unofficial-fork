@@ -22,6 +22,99 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryDuplicateServiceTests
 {
+    /// <summary>実統合とsource後片付けの終端で旧新祖先の六分類・reverseを揃え、cleanup失敗時の実残存資源も親へ反映します。</summary>
+    /// <remarks>本番session・小実DB・実FSを使い、cleanupだけを既存物理portで制御します。既存の確定/保守失敗行列は別caseに維持します。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MergeChartDirectory_RefreshesAncestorResourcesAfterSourceCleanup(bool cleanupFails)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string common = Path.Combine(Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException(), "Library");
+            string oldParent = Path.Combine(common, "Old");
+            string newParent = Path.Combine(common, "New");
+            string source = Path.Combine(oldParent, "Child");
+            string destination = Path.Combine(newParent, "Pack");
+            string sibling = Path.Combine(common, "Sibling");
+            ChartFile[] charts =
+            [
+                LibraryResourceIndexTestSupport.CreateChart(common, "common.bms"),
+                LibraryResourceIndexTestSupport.CreateChart(oldParent, "old.bms"),
+                LibraryResourceIndexTestSupport.CreateChart(newParent, "new.bms"),
+                LibraryResourceIndexTestSupport.CreateChart(sibling, "sibling.bms"),
+                LibraryResourceIndexTestSupport.CreateChart(source, "target.bms", "#WAV01 sound.wav\n#00111:01\n")
+            ];
+            Directory.CreateDirectory(destination);
+            File.WriteAllText(Path.Combine(destination, "kept.wav"), "destination resource");
+            File.WriteAllText(Path.Combine(sibling, "keep.wav"), "sibling resource");
+            foreach (string resource in new[] { "sound.wav", "image.png", "movie.mpg" }) { File.WriteAllText(Path.Combine(source, resource), resource); }
+            var cleanupFailure = new IOException("ancestor-cleanup-failure");
+            bool cleanupReached = false;
+            var filesystem = new TestFileMutationService
+            {
+                BeforeDeleteDirectory = path =>
+                {
+                    if (!path.Equals(source, StringComparison.OrdinalIgnoreCase)) { return; }
+                    cleanupReached = true;
+                    if (cleanupFails)
+                    {
+                        File.WriteAllText(Path.Combine(source, "orphan.wav"), "resource left by failed cleanup");
+                        throw cleanupFailure;
+                    }
+                }
+            };
+            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, new RecordingDialogService(),
+                settings: TestBmsFactory.CreateRootSettings([common]))
+            { BmsCharts = charts };
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs(charts);
+            LibraryResourceIndexOwner owner = LibraryResourceIndexTestSupport.GetOwner(library);
+            owner.Replace(LibraryResourceIndex.CreateFromScanResult(ChartDirectoryScanBuilder.BuildFromRoots([common])));
+            LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
+            try
+            {
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, operationId: 1, reportAtTerminal: true);
+                LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();
+                Assert.IsTrue(cleanupReached);
+                Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());
+                Assert.IsNull(receipt.SessionReceipt.FinalizationFailure);
+                Assert.AreEqual(cleanupFails, receipt.SessionReceipt.CleanupFailure != null);
+                if (cleanupFails)
+                {
+                    Assert.IsNotNull(receipt.SessionReceipt.CleanupFailure);
+                    StringAssert.Contains(receipt.SessionReceipt.CleanupFailure.ToString(), "ancestor-cleanup-failure");
+                }
+                Assert.AreEqual(1, receipt.SessionReceipt.ApplyCounts.ReverseLookupApplyCount);
+                Assert.AreEqual(before.Generation + 1, after.Generation);
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.IsNull(after.DirectoryLookupCache.GetEntryOrNull(source));
+                Assert.AreSame(before.DirectoryLookupCache.GetEntryOrNull(sibling), after.DirectoryLookupCache.GetEntryOrNull(sibling));
+                string[] oldAudio = cleanupFails ? ["Child/orphan.wav"] : [];
+                LibraryResourceIndexTestSupport.AssertEntry(after.DirectoryLookupCache, oldParent, oldAudio, [], [], oldAudio, [], []);
+                LibraryResourceIndexTestSupport.AssertEntry(after.DirectoryLookupCache, newParent,
+                    ["Pack/sound.wav", "Pack/kept.wav"], ["Pack/image.png"], ["Pack/movie.mpg"], [], [], []);
+                LibraryResourceIndexTestSupport.AssertEntry(after.DirectoryLookupCache, destination,
+                    ["sound.wav", "kept.wav"], ["image.png"], ["movie.mpg"], ["sound.wav", "kept.wav"], ["image.png"], ["movie.mpg"]);
+                LibraryResourceIndexTestSupport.AssertEntry(after.DirectoryLookupCache, common,
+                    cleanupFails ? ["Old/Child/orphan.wav", "New/Pack/sound.wav", "New/Pack/kept.wav", "Sibling/keep.wav"]
+                        : ["New/Pack/sound.wav", "New/Pack/kept.wav", "Sibling/keep.wav"],
+                    ["New/Pack/image.png"], ["New/Pack/movie.mpg"], [], [], []);
+                LibraryResourceIndexTestSupport.AssertEntry(before.DirectoryLookupCache, oldParent,
+                    ["Child/sound.wav"], ["Child/image.png"], ["Child/movie.mpg"], [], [], []);
+                Assert.AreEqual(0, after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(LibraryResourceIndexTestSupport.ResourceHash("Child/sound.wav")).Count);
+                CollectionAssert.AreEqual(new[] { newParent }, after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(LibraryResourceIndexTestSupport.ResourceHash("Pack/sound.wav")).ToArray());
+                CollectionAssert.AreEqual(new[] { newParent }, after.DirectoryLookupCache.GetDirectoriesByImageRelativeHash(LibraryResourceIndexTestSupport.ResourceHash("Pack/image.png")).ToArray());
+                CollectionAssert.AreEqual(new[] { newParent }, after.DirectoryLookupCache.GetDirectoriesByMovieRelativeHash(LibraryResourceIndexTestSupport.ResourceHash("Pack/movie.mpg")).ToArray());
+                Assert.AreEqual(cleanupFails, Directory.Exists(source));
+                Assert.IsTrue(File.Exists(Path.Combine(destination, "target.bms")));
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                Assert.IsNull(db.Find<LR2SongDB.song>(charts[4].Path));
+                Assert.IsNotNull(db.Find<LR2SongDB.song>(Path.Combine(destination, "target.bms")));
+            }
+            finally { library.RequestShutdown("merge-ancestor-test"); }
+        });
+    }
+
     /// <summary>
     /// 二種類の重複MD5で三フォルダが連結する入力から一群と四譜面を抽出し、間接的な連結の分断と重複警告の欠落を検出します。
     /// </summary>
@@ -2241,6 +2334,8 @@ public sealed class BmsLibraryDuplicateServiceTests
 
         public Action<string>? AfterDeleteDirectory { get; set; }
 
+        public Action<string>? BeforeDeleteDirectory { get; set; }
+
         public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
         {
             if (!string.IsNullOrWhiteSpace(directoryPath))
@@ -2331,6 +2426,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         {
             if (Directory.Exists(directoryPath))
             {
+                BeforeDeleteDirectory?.Invoke(directoryPath);
                 Directory.Delete(directoryPath, recursive);
                 AfterDeleteDirectory?.Invoke(directoryPath);
             }

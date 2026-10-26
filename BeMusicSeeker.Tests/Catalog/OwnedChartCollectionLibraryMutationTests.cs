@@ -338,7 +338,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     }
 
     /// <summary>
-    /// 永久削除・ごみ箱指定の両条件で、確認済みフォルダだけを物理削除・保存確定し、一回のリソース世代公開から失敗対象を除く。
+    /// 永久削除・ごみ箱指定の両条件で、成功subtreeと外側親Entryを一世代へ反映し、失敗対象・兄弟・旧snapshotを保持する。
     /// </summary>
     /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [DataTestMethod]
@@ -360,6 +360,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 File.WriteAllText(Path.Combine(folders[i], "shared.wav"), "scan-only resource");
                 files.Add(CreateFile(new string((char)('a' + i), 32), path));
             }
+            ChartFile parentChart = LibraryResourceIndexTestSupport.CreateChart(root, "parent.bms", "#WAV01 A/shared.wav\n#00111:01\n");
+            string siblingDirectory = Path.Combine(root, "Sibling");
+            ChartFile siblingChart = LibraryResourceIndexTestSupport.CreateChart(siblingDirectory, "sibling.bms");
+            File.WriteAllText(Path.Combine(siblingDirectory, "keep.wav"), "untouched sibling");
             var deletionFailure = new IOException("B deletion failed before changing files");
             var filesystem = new TestFileMutationService
             {
@@ -375,25 +379,36 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
             {
-                BmsCharts = files,
+                BmsCharts = [.. files, parentChart, siblingChart],
                 BmsonCharts = []
             };
             using (var db = new LR2SongDBExtended(songDbPath))
             {
-                foreach (ChartFile file in files)
+                foreach (ChartFile file in files.Concat([parentChart, siblingChart]))
                 {
                     db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
                 }
             }
             uint shared = ChartResourceKeyHash.GetLookupHash("shared");
+            uint siblingHash = LibraryResourceIndexTestSupport.ResourceHash("keep.wav");
+            uint[] parentHashes = [.. new[] { "A/shared.wav", "B/shared.wav", "C/shared.wav", "Sibling/keep.wav" }.Select(LibraryResourceIndexTestSupport.ResourceHash)];
+            Array.Sort(parentHashes);
             LibraryResourceIndexOwner owner = LibraryResourceIndexTestSupport.GetOwner(library);
             owner.Replace(LibraryResourceIndex.CreateFromNativeCanonicalArrays(
-                folders,
-                folders.Select(_ => new[] { shared }).ToArray(),
-                [[], [], []], [[], [], []],
-                folders.Select(_ => new[] { shared }).ToArray(),
-                [[], [], []], [[], [], []],
-                new Dictionary<uint, string[]> { [shared] = folders.ToArray() }, new Dictionary<uint, string[]>(), new Dictionary<uint, string[]>()));
+                [.. folders, root, siblingDirectory],
+                [[shared], [shared], [shared], parentHashes, [siblingHash]],
+                [[], [], [], [], []], [[], [], [], [], []],
+                [[shared], [shared], [shared], [], [siblingHash]],
+                [[], [], [], [], []], [[], [], [], [], []],
+                new Dictionary<uint, string[]>
+                {
+                    [shared] = folders.ToArray(),
+                    [siblingHash] = [siblingDirectory],
+                    [parentHashes[0]] = [root],
+                    [parentHashes[1]] = [root],
+                    [parentHashes[2]] = [root],
+                    [parentHashes[3]] = [root]
+                }, new Dictionary<uint, string[]>(), new Dictionary<uint, string[]>()));
             LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
             string pendingDirectory = Path.Combine(root, "pending");
             Directory.CreateDirectory(pendingDirectory);
@@ -431,11 +446,17 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 (recycle ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently)));
             LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();
             Assert.AreEqual(before.Generation + 1, after.Generation);
-            CollectionAssert.AreEqual(new[] { folders[0], folders[2] }, entryMutations);
+            CollectionAssert.AreEqual(new[] { folders[0], folders[2], root }, entryMutations);
             CollectionAssert.AreEqual(new[] { folders[1] }, after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
             CollectionAssert.AreEqual(folders, before.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
+            LibraryResourceIndexTestSupport.AssertEntry(after.DirectoryLookupCache, root, ["B/shared.wav", "Sibling/keep.wav", "pending/shared.wav"], [], [], [], [], []);
+            LibraryResourceIndexTestSupport.AssertEntry(before.DirectoryLookupCache, root, ["A/shared.wav", "B/shared.wav", "C/shared.wav", "Sibling/keep.wav"], [], [], [], [], []);
+            Assert.AreSame(before.DirectoryLookupCache.GetEntryOrNull(siblingDirectory), after.DirectoryLookupCache.GetEntryOrNull(siblingDirectory));
+            CollectionAssert.AreEqual(new[] { root }, after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(LibraryResourceIndexTestSupport.ResourceHash("B/shared.wav")).ToArray());
+            Assert.AreEqual(0, after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(LibraryResourceIndexTestSupport.ResourceHash("A/shared.wav")).Count);
+            Assert.AreEqual(0, after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(LibraryResourceIndexTestSupport.ResourceHash("C/shared.wav")).Count);
             using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-            CollectionAssert.AreEqual(new[] { files[1].Path }, readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+            CollectionAssert.AreEquivalent(new[] { files[1].Path, parentChart.Path, siblingChart.Path }, readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
         });
     }
 

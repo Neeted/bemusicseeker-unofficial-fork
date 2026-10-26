@@ -112,10 +112,25 @@ internal sealed class LibraryResourceIndexOwner
     }
 
     /// <summary>
-    /// Rewrites multiple directory subtrees in one current-index mutation.
+    /// 複数の移動subtreeを、一括変更と同じ未公開反映経路で書き換えます。
     /// </summary>
     internal LibraryResourceIndexMovedFoldersResult UpdateMovedFolderReferences(
         IEnumerable<LibraryFolderPathChange> movedFolders)
+    {
+        return ApplyFolderChanges(movedFolders, [], []);
+    }
+
+    /// <summary>
+    /// 成功したsubtreeの移動・除去と、最終FSから選択済みのEntry置換を一つの未公開索引へ適用し、一世代だけ公開します。
+    /// </summary>
+    /// <param name="movedFolders">既存hashを移転する成功済みの旧新scope。</param>
+    /// <param name="removedSourceDirectories">成功済み削除・統合元のsubtree。</param>
+    /// <param name="directoryReplacements">置換するEntryと取得済みscan。nullのscanはそのEntryだけの除去を表します。</param>
+    /// <remarks>FS取得は呼出し元で完了させます。列挙失敗では旧snapshotを維持し、同値の除去・再追加では公開しません。</remarks>
+    internal LibraryResourceIndexMovedFoldersResult ApplyFolderChanges(
+        IEnumerable<LibraryFolderPathChange> movedFolders,
+        IEnumerable<string> removedSourceDirectories,
+        IEnumerable<KeyValuePair<string, ChartScanResult>> directoryReplacements)
     {
         var stopwatch = Stopwatch.StartNew();
         List<LibraryFolderPathChange> moves = [.. (movedFolders ?? [])
@@ -127,7 +142,8 @@ internal sealed class LibraryResourceIndexOwner
 
         lock (gate)
         {
-            List<string> lookupKeys = [.. currentSnapshot.DirectoryLookupCache.Keys ?? []];
+            // 移動時の既存全key照合だけを維持し、削除・祖先置換のためには全keyを複製しません。
+            List<string> lookupKeys = moves.Count == 0 ? [] : [.. currentSnapshot.DirectoryLookupCache.Keys];
             var movesByOldPath = moves.ToDictionary(
                 move => NormalizeDirectoryPath(move.OldFolderPath),
                 move => move,
@@ -147,8 +163,30 @@ internal sealed class LibraryResourceIndexOwner
                     newFolderPath + lookupKey.Substring(oldFolderPath.Length)));
             }
 
-            LibraryResourceIndexMutationReceipt receipt = MutateCurrentUnsafe(
-                cache => cache.ReplaceDirsWithResult(replacements));
+            DirectoryResourceLookupCache previousCache = currentSnapshot.DirectoryLookupCache;
+            LibraryResourceIndexMutationReceipt receipt = MutateCurrentUnsafe(cache =>
+            {
+                HashSet<string> affectedDirectories = new(StringComparer.OrdinalIgnoreCase);
+                foreach (KeyValuePair<string, string> replacement in replacements)
+                {
+                    affectedDirectories.Add(replacement.Key);
+                    affectedDirectories.Add(replacement.Value);
+                }
+                DirectoryResourceLookupCache.ReverseLookupMutationResult result = cache.ReplaceDirsWithResult(replacements);
+                var removedDirectories = new List<string>();
+                result = result.Combine(cache.RemoveUnderSourceDirectories(removedSourceDirectories, removedDirectories));
+                affectedDirectories.UnionWith(removedDirectories);
+                foreach (KeyValuePair<string, ChartScanResult> replacement in directoryReplacements ?? [])
+                {
+                    affectedDirectories.Add(replacement.Key);
+                    result = result.Combine(replacement.Value == null
+                        ? cache.RemoveDirWithResult(replacement.Key)
+                        : cache.AddDir(replacement.Key, replacement.Value));
+                }
+                return previousCache.HasSameDirectoryEntries(cache, affectedDirectories)
+                    ? DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty
+                    : result;
+            });
             stopwatch.Stop();
             return new LibraryResourceIndexMovedFoldersResult
             {
@@ -215,7 +253,7 @@ internal sealed class LibraryResourceIndexOwner
     }
 
     /// <summary>
-    /// Atomically removes a source subtree and adds the selected replacement directories.
+    /// 元subtreeの除去と選択Entryの置換を、共通の一括変更経路へ渡します。
     /// </summary>
     /// <remarks>
     /// The explicit directory sequence is the command input and is enumerated only against the
@@ -226,28 +264,10 @@ internal sealed class LibraryResourceIndexOwner
         IEnumerable<string> replacementDirectories,
         ChartScanResult replacementScan)
     {
-        lock (gate)
-        {
-            List<string> replacements = [.. (replacementDirectories ?? [])
-                .Where(path => !string.IsNullOrWhiteSpace(path))
-                .Distinct(StringComparer.OrdinalIgnoreCase)];
-            DirectoryResourceLookupCache previousCache =
-                currentSnapshot.DirectoryLookupCache;
-            return MutateCurrentUnsafe(cache =>
-            {
-                List<string> removedDirectories = [];
-                DirectoryResourceLookupCache.ReverseLookupMutationResult result =
-                    cache.RemoveUnderSourceDirectories([sourceDirectory], removedDirectories);
-                foreach (string directoryPath in replacements)
-                {
-                    result = result.Combine(cache.AddDir(directoryPath, replacementScan));
-                }
-                HashSet<string> affectedDirectories = [.. replacements, .. removedDirectories];
-                return previousCache.HasSameDirectoryEntries(cache, affectedDirectories)
-                    ? DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty
-                    : result;
-            });
-        }
+        return ApplyFolderChanges([], [sourceDirectory], (replacementDirectories ?? [])
+            .Where(path => replacementScan != null && !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(path => new KeyValuePair<string, ChartScanResult>(path, replacementScan))).Receipt;
     }
 
     /// <summary>

@@ -1260,7 +1260,8 @@ internal sealed class DirectoryResourceLookupCache
         return updatedHashCount;
     }
 
-    private static HashSet<string> NormalizeSourceRoots(IEnumerable<string> sourceDirectories)
+    /// <summary>走査・subtree変更のrootを正規化し、別rootに含まれる下位rootだけを除きます。置換Entryの集合には使いません。</summary>
+    internal static HashSet<string> NormalizeSourceRoots(IEnumerable<string> sourceDirectories)
     {
         List<string> candidates = [];
         HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models;
 
@@ -383,7 +384,8 @@ internal sealed partial class LibraryMutationOwner
         /// 導入するBMSのTxtは、全成功パッケージの物理配置後に保存時点の親フォルダ直下から確定します。
         /// DB確定後の失敗は証票に保持し、物理処理の巻戻しや再実行は行いません。公開通知は排他解放後へ延期します。
         /// 導入先の走査・逆引き反映の例外も必須反映失敗として保持し、依存する後処理と完全成功の公開を止めます。
-        /// 不完全な走査の既存スキップ方針は維持し、その性能診断の失敗は確定結果へ加えません。
+        /// 成功した物理変更に必要な既存祖先は後片付け後に取得し、不完全取得でも索引全体を未公開のまま必須反映失敗にします。
+        /// 必須祖先を要しない従来の任意走査はスキップ方針を維持し、その性能診断の失敗は確定結果へ加えません。
         /// </summary>
         /// <returns>この変更セッションの変更不能な終端事実。</returns>
         internal LibraryMutationSessionReceipt Commit()
@@ -536,7 +538,7 @@ internal sealed partial class LibraryMutationOwner
                             out string scanFailureReason))
                         {
                             applyCounts = applyCounts with { ReverseLookupApplyCount = applyCounts.ReverseLookupApplyCount + 1 };
-                            reverseLookupMutation = owner.AddReverseLookupDirectories(scan);
+                            reverseLookupMutation = owner.resourceIndexOwner.AddScanDirectories(scan).MutationResult;
                         }
                         else
                         {
@@ -563,45 +565,7 @@ internal sealed partial class LibraryMutationOwner
             {
                 try
                 {
-                    if (movedFolders.Count > 0)
-                    {
-                        applyCounts = applyCounts with { ReverseLookupApplyCount = applyCounts.ReverseLookupApplyCount + 1 };
-                        reverseLookupMutation = owner.UpdateMovedFolderReferences(movedFolders).MutationResult;
-                    }
-                    foreach (LibraryFolderPathChange mergedFolder in mergedFolders)
-                    {
-                        if (ChartDirectoryScanBuilder.TryBuildFromRoots(
-                            [mergedFolder.NewFolderPath],
-                            out ChartScanResult scan,
-                            out string scanFailureReason))
-                        {
-                            applyCounts = applyCounts with { ReverseLookupApplyCount = applyCounts.ReverseLookupApplyCount + 1 };
-                            reverseLookupMutation = reverseLookupMutation.Combine(
-                                owner.resourceIndexOwner.ReplaceSourceDirectoryWithScan(
-                                    mergedFolder.OldFolderPath, scan).MutationResult);
-                        }
-                        else
-                        {
-                            try
-                            {
-                                owner.LogInstallPerformanceWarning(
-                                    reason + " resource_cache_update skipped reason=incomplete_scan detail="
-                                    + (scanFailureReason ?? "unknown"));
-                            }
-                            catch (Exception)
-                            {
-                                // 診断先の失敗は、後続の独立した索引反映を中断する理由にしません。
-                            }
-                        }
-                    }
-                    if (resourceDirectoryRemovals.Count > 0)
-                    {
-                        applyCounts = applyCounts with { ReverseLookupApplyCount = applyCounts.ReverseLookupApplyCount + 1 };
-                        reverseLookupMutation = reverseLookupMutation.Combine(
-                            owner.resourceIndexOwner
-                                .RemoveUnderSourceDirectories(resourceDirectoryRemovals)
-                                .MutationResult);
-                    }
+                    reverseLookupMutation = ApplyFolderResourceChanges();
                 }
                 catch (Exception exception)
                 {
@@ -654,6 +618,105 @@ internal sealed partial class LibraryMutationOwner
                 finalizationFailure: ReferenceEquals(finalizationFailure, applyResult.Failure)
                     ? null
                     : finalizationFailure);
+        }
+
+        /// <summary>成功scope外の既存祖先だけを最終FSへ揃え、成功subtreeと同時に一度だけ公開します。</summary>
+        private DirectoryResourceLookupCache.ReverseLookupMutationResult ApplyFolderResourceChanges()
+        {
+            HashSet<string> changedScopes = new(StringComparer.OrdinalIgnoreCase);
+            foreach (LibraryFolderPathChange change in movedFolders.Concat(mergedFolders))
+            {
+                changedScopes.Add(Lr2FolderPath.NormalizeDirectoryPath(change.OldFolderPath));
+                changedScopes.Add(Lr2FolderPath.NormalizeDirectoryPath(change.NewFolderPath));
+            }
+            foreach (string removed in resourceDirectoryRemovals)
+            {
+                changedScopes.Add(Lr2FolderPath.NormalizeDirectoryPath(removed));
+            }
+            changedScopes.Remove(null);
+            if (changedScopes.Count == 0)
+            {
+                return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+            }
+
+            DirectoryResourceLookupCache previousCache = owner.resourceIndexOwner.CaptureSnapshot().DirectoryLookupCache;
+            var requiredAncestors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var visitedAncestors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string scope in changedScopes)
+            {
+                for (string ancestor = Lr2FolderPath.SafeGetParentNormalizedDirectory(scope);
+                    !string.IsNullOrWhiteSpace(ancestor) && visitedAncestors.Add(ancestor);
+                    ancestor = Lr2FolderPath.SafeGetParentNormalizedDirectory(ancestor))
+                {
+                    // 全Entry・全譜面は読まず、成功scopeの厳密な祖先を既存snapshotへpoint lookupします。
+                    if (!IsWithinScopes(ancestor, changedScopes) && previousCache.GetEntryOrNull(ancestor) != null)
+                    {
+                        requiredAncestors.Add(ancestor);
+                    }
+                }
+            }
+
+            HashSet<string> scanRoots = DirectoryResourceLookupCache.NormalizeSourceRoots(requiredAncestors);
+            ChartScanResult ancestorScan = null;
+            if (scanRoots.Count > 0 && !ChartDirectoryScanBuilder.TryBuildFromRoots(
+                scanRoots, out ancestorScan, out string failureReason, owner.rootFileEnumerator))
+            {
+                var failure = new InvalidOperationException(Resources.FileDbMutationReport_TerminalFailure);
+                failure.Data["ResourceScanFailureReason"] = failureReason;
+                throw failure;
+            }
+
+            var replacements = new Dictionary<string, ChartScanResult>(StringComparer.OrdinalIgnoreCase);
+            // 走査rootを包含縮約しても、置換が必要な下位祖先Entryは捨てません。
+            foreach (string ancestor in requiredAncestors)
+            {
+                replacements.Add(ancestor, ancestorScan.ChartDirectories.Contains(ancestor) ? ancestorScan : null);
+            }
+            var removedScopes = new List<string>(resourceDirectoryRemovals);
+            foreach (LibraryFolderPathChange merge in mergedFolders)
+            {
+                ChartScanResult scan;
+                if (IsWithinScopes(Lr2FolderPath.NormalizeDirectoryPath(merge.NewFolderPath), scanRoots))
+                {
+                    scan = ancestorScan;
+                }
+                else if (!ChartDirectoryScanBuilder.TryBuildFromRoots([merge.NewFolderPath], out scan, out string optionalScanFailureReason))
+                {
+                    try
+                    {
+                        owner.LogInstallPerformanceWarning(reason + " resource_cache_update skipped reason=incomplete_scan detail=" + optionalScanFailureReason);
+                    }
+                    catch (Exception)
+                    {
+                        // 必須祖先に含まれない従来の任意scanは、診断失敗でも必須失敗へ昇格させません。
+                    }
+                    continue;
+                }
+                removedScopes.Add(merge.OldFolderPath);
+                foreach (string directory in scan.ChartDirectories)
+                {
+                    if (Lr2FolderPath.IsSameOrDescendant(directory, merge.NewFolderPath))
+                    {
+                        replacements[directory] = scan;
+                    }
+                }
+            }
+            if (movedFolders.Count == 0 && removedScopes.Count == 0 && replacements.Count == 0)
+            {
+                return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+            }
+            applyCounts = applyCounts with { ReverseLookupApplyCount = applyCounts.ReverseLookupApplyCount + 1 };
+            return owner.resourceIndexOwner.ApplyFolderChanges(movedFolders, removedScopes, replacements).Receipt.MutationResult;
+        }
+
+        /// <summary>正規化済みpathを親方向へ辿り、小さい成功scope集合への包含を確認します。</summary>
+        private static bool IsWithinScopes(string path, IReadOnlySet<string> scopes)
+        {
+            for (string current = path; !string.IsNullOrWhiteSpace(current); current = Lr2FolderPath.SafeGetParentNormalizedDirectory(current))
+            {
+                if (scopes.Contains(current)) { return true; }
+            }
+            return false;
         }
 
         private Exception RunRequiredDurableFinalizers()

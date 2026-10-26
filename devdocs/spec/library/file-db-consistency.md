@@ -101,6 +101,8 @@ flowchart TB
 
 必須反映と後片付けの両方が失敗したときは、必須反映失敗に後片付けの失敗も保持します。永続確定後の失敗から補償へ戻る矢印はありません。確定前の失敗でも、既に成功した別の保存先まで戻ったとは保証しません。
 
+必要祖先の最終FS取得は、[物理フォルダ変更の索引更新](mutations.md#操作ごとの反映範囲)を成立させる必須反映です。falseや不完全結果も既存の `FinalizationFailure` とし、例外では元原因を保持します。同じセッションのsubtree変更や祖先Entryの部分結果を先行公開せず、旧snapshot・六分類・reverse・generationを保ちます。成功済みFSと確定DB・成功集合は保持し、巻戻し、永続修復状態、予約や再試行を追加しません。新しい必須祖先を要しない従来の導入・任意scanにあるスキップ方針は維持します。
+
 ### 型衝突の拒否
 
 上書き許可は、ファイルとディレクトリの種類を変更する許可ではありません。最初の変更前に計画全体を検査し、個々のバックアップ直前にも種類を再検証します。削除だけの操作はこの上書き検査とは区別します。
@@ -124,6 +126,8 @@ flowchart TB
 走査結果が0件だったことを根拠に既存DBを一括削除する保護解除は行いません。最後のファイルを削除した場合も、再起動だけで全てのDB情報が回復するとは保証しません。画面に存在しない回復操作や、自動的な全体修復を案内しません。
 
 ## 実装とテストの対応
+
+必要祖先のfalse・不完全・取得例外では、[`BmsLibraryFolderRenameRefreshTests.FolderMutation_RequiredAncestorFailureKeepsDurableFilesystemAndPriorIndex`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) が実FS・DB・成功集合と旧snapshot世代の同時保持を確認します。既存祖先なしの非構築は同ファイルの `FolderMutation_WithoutExistingAncestorDoesNotRequireNewScan`、後続置換列挙の非公開は [`LibraryResourceIndexOwnerTests.ApplyFolderChanges_LateReplacementEnumerationFailureKeepsPriorSnapshot`](../../../BeMusicSeeker.Tests/Resources/LibraryResourceIndexOwnerTests.cs) が分担します。
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |

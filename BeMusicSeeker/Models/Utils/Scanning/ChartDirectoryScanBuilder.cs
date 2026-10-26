@@ -43,9 +43,12 @@ internal static class ChartDirectoryScanBuilder
             : new ChartScanResult();
     }
 
-    internal static bool TryBuildFromRoots(IEnumerable<string> roots, out ChartScanResult result, out string failureReason)
+    /// <summary>指定rootの実列挙が完全な場合だけ、譜面所有境界を含む六分類の走査結果を返します。</summary>
+    /// <param name="rootFileEnumerator">呼出し元と共有する任意の列挙境界。未指定なら通常のFS列挙を使います。</param>
+    internal static bool TryBuildFromRoots(IEnumerable<string> roots, out ChartScanResult result, out string failureReason,
+        IRootFileEnumerator rootFileEnumerator = null)
     {
-        RootFileEnumerationResult enumerationResult = new FastRootFileEnumerator().EnumerateFiles(roots, CreateDefaultEnumerationGroups(), verboseLog: false);
+        RootFileEnumerationResult enumerationResult = (rootFileEnumerator ?? new FastRootFileEnumerator()).EnumerateFiles(roots, CreateDefaultEnumerationGroups(), verboseLog: false);
         if (!RootFileEnumerationService.IsAuthoritativeComplete(enumerationResult))
         {
             result = null;

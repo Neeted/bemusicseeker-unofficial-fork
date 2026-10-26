@@ -554,6 +554,87 @@ public sealed class LibraryResourceIndexOwnerTests
         CollectionAssert.AreEqual(new[] { second }, two.DirectoryLookupCache.GetDirectoriesByImageRelativeHash(24u).ToArray());
     }
 
+    /// <summary>移動hashの共有と祖先六分類の置換・削除を一世代へ集め、遅延/全構築reverseと旧snapshotを保持します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ApplyFolderChanges_PublishesSubtreeAndAncestorSixCategoriesTogether(bool full)
+    {
+        const uint initialHash = 73u;
+        const string common = @"C:\Library";
+        const string oldParent = common + @"\Old";
+        const string newParent = common + @"\New";
+        const string source = oldParent + @"\Child";
+        const string destination = newParent + @"\Child";
+        const string removed = common + @"\Removed";
+        const string sibling = common + @"\OldBackup";
+        string[] directories = [common, oldParent, newParent, source, removed, sibling];
+        var owner = new LibraryResourceIndexOwner(CreateOrderedResourceIndex(full, initialHash, directories));
+        LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
+        AssertAllCategoryCandidates(before.DirectoryLookupCache, initialHash, directories);
+        ChartScanResult parentScan = CreateOrderedScan(101u, oldParent, newParent);
+        ChartScanResult commonScan = CreateOrderedScan(202u, common);
+
+        LibraryResourceIndexMutationReceipt receipt = owner.ApplyFolderChanges(
+            [new LibraryFolderPathChange { OldFolderPath = source, NewFolderPath = destination }], [removed],
+            [new(oldParent, parentScan), new(newParent, parentScan), new(common, commonScan)]).Receipt;
+
+        Assert.AreEqual(before.Generation + 1, receipt.Snapshot.Generation);
+        Assert.AreSame(receipt.Snapshot.Index, owner.CaptureSnapshot().Index);
+        Assert.IsNull(receipt.Snapshot.DirectoryLookupCache.GetEntryOrNull(source));
+        Assert.IsNull(receipt.Snapshot.DirectoryLookupCache.GetEntryOrNull(removed));
+        Assert.AreSame(before.DirectoryLookupCache.GetEntryOrNull(source), receipt.Snapshot.DirectoryLookupCache.GetEntryOrNull(destination));
+        Assert.AreSame(before.DirectoryLookupCache.GetEntryOrNull(sibling), receipt.Snapshot.DirectoryLookupCache.GetEntryOrNull(sibling));
+        for (int category = 0; category < 6; category++)
+        {
+            CollectionAssert.AreEqual(new uint[] { 101u }, GetCategory(receipt.Snapshot.DirectoryLookupCache.GetEntryOrNull(oldParent), category));
+            CollectionAssert.AreEqual(new uint[] { 101u }, GetCategory(receipt.Snapshot.DirectoryLookupCache.GetEntryOrNull(newParent), category));
+            CollectionAssert.AreEqual(new uint[] { 202u }, GetCategory(receipt.Snapshot.DirectoryLookupCache.GetEntryOrNull(common), category));
+            CollectionAssert.AreEqual(new uint[] { initialHash }, GetCategory(before.DirectoryLookupCache.GetEntryOrNull(common), category));
+        }
+        foreach (Func<uint, IReadOnlyCollection<string>> lookup in new Func<uint, IReadOnlyCollection<string>>[]
+        {
+            receipt.Snapshot.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash,
+            receipt.Snapshot.DirectoryLookupCache.GetDirectoriesByImageRelativeHash,
+            receipt.Snapshot.DirectoryLookupCache.GetDirectoriesByMovieRelativeHash
+        })
+        {
+            CollectionAssert.AreEquivalent(new[] { destination, sibling }, lookup(initialHash).ToArray());
+            CollectionAssert.AreEquivalent(new[] { oldParent, newParent }, lookup(101u).ToArray());
+            CollectionAssert.AreEqual(new[] { common }, lookup(202u).ToArray());
+        }
+        AssertAllCategoryCandidates(before.DirectoryLookupCache, initialHash, directories);
+    }
+
+    /// <summary>有効な移動・削除・祖先置換の後続入力が例外となっても、部分結果を公開せず旧snapshot・世代・全reverseを維持します。</summary>
+    [TestMethod]
+    public void ApplyFolderChanges_LateReplacementEnumerationFailureKeepsPriorSnapshot()
+    {
+        const string parent = @"C:\Library";
+        const string source = parent + @"\Source";
+        const string removed = parent + @"\Removed";
+        var owner = new LibraryResourceIndexOwner(CreateFullResourceIndex(parent, source, removed));
+        LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
+        var failure = new InvalidOperationException("ancestor replacement enumeration failed");
+        IEnumerable<KeyValuePair<string, ChartScanResult>> FailingReplacements()
+        {
+            yield return new(parent, CreateOrderedScan(101u, parent));
+            throw failure;
+        }
+
+        Assert.AreSame(failure, Assert.ThrowsException<InvalidOperationException>(() => owner.ApplyFolderChanges(
+            [new LibraryFolderPathChange { OldFolderPath = source, NewFolderPath = parent + @"\Destination" }],
+            [removed], FailingReplacements())));
+
+        LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();
+        Assert.AreSame(before.Index, after.Index);
+        Assert.AreSame(before.DirectoryLookupCache, after.DirectoryLookupCache);
+        Assert.AreEqual(before.Generation, after.Generation);
+        CollectionAssert.AreEqual(new[] { parent, source, removed }, after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(17u).ToArray());
+        CollectionAssert.AreEqual(new[] { parent, source, removed }, after.DirectoryLookupCache.GetDirectoriesByImageRelativeHash(23u).ToArray());
+        CollectionAssert.AreEqual(new[] { parent, source, removed }, after.DirectoryLookupCache.GetDirectoriesByMovieRelativeHash(31u).ToArray());
+    }
+
     private static LibraryResourceIndex CreateFullResourceIndex(params string[] directories)
     {
         return LibraryResourceIndex.CreateFromNativeCanonicalArrays(

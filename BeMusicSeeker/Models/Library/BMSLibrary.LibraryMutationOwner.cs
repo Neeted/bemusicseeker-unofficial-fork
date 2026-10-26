@@ -31,6 +31,8 @@ internal sealed partial class LibraryMutationOwner
 
     private readonly LibraryResourceIndexOwner resourceIndexOwner;
 
+    private readonly IRootFileEnumerator rootFileEnumerator;
+
     private readonly IFileMutationService fileMutationService;
 
     private readonly InstallDestinationStateOwner installDestinationStateOwner;
@@ -139,6 +141,7 @@ internal sealed partial class LibraryMutationOwner
     /// </remarks>
     /// <param name="bmsRootRegistrations">物理成功と承認からLibraryが求めた最終利用者一覧を保存・公開する主体。</param>
     /// <param name="applyMergeFolderMaintenance">統合と同じ生存権限で必須保守を行い、公開通知を既存の延期先へ渡す処理。</param>
+    /// <param name="rootFileEnumerator">必須祖先の最終FSを取得する既存列挙境界。任意scanのスキップ契約は変えません。</param>
     internal LibraryMutationOwner(
         LibraryFileOperationSynchronization synchronization,
         BmsLibraryLibraryFileOperationsService libraryFileOperationsService,
@@ -176,7 +179,8 @@ internal sealed partial class LibraryMutationOwner
         Action<Exception, string> logFileWarning,
         FileMutationOptions targetOnlyFileMutationOptions,
         FileMutationOptions recursiveDirectoryTreeFileMutationOptions,
-        BmsRootRegistrationStore bmsRootRegistrations)
+        BmsRootRegistrationStore bmsRootRegistrations,
+        IRootFileEnumerator rootFileEnumerator)
     {
         this.bmsRootRegistrations = bmsRootRegistrations ?? throw new ArgumentNullException(nameof(bmsRootRegistrations));
         this.synchronization = synchronization ?? throw new ArgumentNullException(nameof(synchronization));
@@ -184,6 +188,7 @@ internal sealed partial class LibraryMutationOwner
         this.packageInstallService = packageInstallService ?? throw new ArgumentNullException(nameof(packageInstallService));
         this.packageLifecycleOwner = packageLifecycleOwner ?? throw new ArgumentNullException(nameof(packageLifecycleOwner));
         this.resourceIndexOwner = resourceIndexOwner ?? throw new ArgumentNullException(nameof(resourceIndexOwner));
+        this.rootFileEnumerator = rootFileEnumerator;
         this.fileMutationService = fileMutationService ?? throw new ArgumentNullException(nameof(fileMutationService));
         this.installDestinationStateOwner = installDestinationStateOwner ?? throw new ArgumentNullException(nameof(installDestinationStateOwner));
         this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
@@ -1370,11 +1375,6 @@ internal sealed partial class LibraryMutationOwner
     }
 
 
-    private DirectoryResourceLookupCache.ReverseLookupMutationResult AddReverseLookupDirectories(ChartScanResult scan)
-    {
-        return resourceIndexOwner.AddScanDirectories(scan).MutationResult;
-    }
-
     private void LogInstallPerformanceWarning(string message)
     {
         logInstallPerformanceWarning(message);
@@ -1633,21 +1633,6 @@ internal sealed partial class LibraryMutationOwner
             && string.Equals(chart.Path, target.Path, StringComparison.Ordinal)
             && string.Equals(chart.Md5 ?? string.Empty, target.Md5 ?? string.Empty, StringComparison.OrdinalIgnoreCase)
             && string.Equals(chart.Sha256 ?? string.Empty, target.Sha256 ?? string.Empty, StringComparison.OrdinalIgnoreCase);
-    }
-
-    internal MovedFolderReferenceUpdateResult UpdateMovedFolderReferences(
-        List<LibraryFolderPathChange> movedFolders)
-    {
-        LibraryResourceIndexMovedFoldersResult result =
-            resourceIndexOwner.UpdateMovedFolderReferences(movedFolders);
-        return new MovedFolderReferenceUpdateResult
-        {
-            MutationResult = result.Receipt.MutationResult,
-            MoveCount = result.MoveCount,
-            LookupKeyCount = result.LookupKeyCount,
-            MatchedKeyCount = result.MatchedKeyCount,
-            ElapsedMs = result.ElapsedMs
-        };
     }
 
     /// <summary>全batchの結び付き照合後、現在hashを持つ固定共通値だけで通常拡張子変更を処理します。</summary>

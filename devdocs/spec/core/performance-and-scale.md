@@ -59,6 +59,8 @@
 
 全件処理が本当に必要なら、規模、頻度、既存索引で代替できない理由、比較区間と結果を示します。「変更不能だから」「安全側だから」だけで全件複製を選ばず、計算量と定数項・候補数・実測を併せて評価します。
 
+物理フォルダ変更の祖先資源更新は、成功scopeの親辿りと既存Entryへの点検索で選びます。必要祖先は同じ操作内で一度だけ取得・置換し、走査rootの包含縮約で下位の必要Entryを捨てません。少数対象のために新しい全カタログ走査・全Entry複製を追加せず、既存移動処理の全key照合とは区別します。対象・祖先・資源を固定して、無関係な背景Entryと同一親の譜面数を別々に増やし、Entry訪問・祖先判定・変更・reverse書込みと実列挙の範囲・件数を確認します。実終端時間は修正前後のReleaseを同条件で交互に原則各5回以上測り、初回とwarm、祖先取得部分を分けて全値・中央値・範囲を比較します。旧版の祖先不整合を結果同等の性能成功とせず、合成小入力から代表規模の成功を主張しません。
+
 ### 再利用と保存
 
 スナップショットは、既存世代、構造共有、差分、影響範囲だけの変更不能な値を利用します。公開済みの可変配列を無保護で共有しません。変更なしの判定前に巨大な辞書を複製して捨てず、対象キー・カテゴリ・候補集合で判定します。逆引きが不変でも、フォルダ対応は変わり得ます。
@@ -141,6 +143,7 @@ DBは問い合わせ数だけでなく、読み出す行数・列・索引を確
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 祖先取得の仕事量と背景・親譜面数の分離 | [`LibraryMutationSession`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.Session.cs)、[`ChartDirectoryScanBuilder`](../../../BeMusicSeeker/Models/Utils/Scanning/ChartDirectoryScanBuilder.cs) | [`BmsLibraryFolderRenameRefreshTests.FolderMutation_RefreshesExistingAncestorsOnceFromFinalFilesystem`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) が実列挙root・返却ファイル数、Entry訪問と祖先Entryの書込み回数を確認する。旧新版の実終端時間と祖先取得時間は作業用の同条件比較へ分担し、恒久runner・時間閾値を追加しない。 |
 | SQLiteのnative busy待機と外側再試行の除去 | `SQLiteConnectionEx`、`LR2SongDBExtended`、`LR2ScoreDBExtended` | `SQLiteProviderRuntimeTests` の `SQLiteConnectionEx_WriteContentionExecutesOnceAndPreservesData` は実Delete・InsertOrReplaceを別接続ロックで失敗させ、既存traceでSQL一回と保存値不変を確認する。`Lr2Connections_KeepNativeBusyTimeoutForReadAndWrite` は実接続の60秒設定、`SQLiteConnectionEx_CommitBusyRemainsFailureAndRollsBackUncommittedChanges` はCommit失敗とrollback・次の明示transactionを担当する。外側ループと未使用helperの不在は差分でも確認する。 |
 | 複数フォルダ・拡張子の反映集約とDB失敗 | `LibraryMutationSession`、`CommitCatalogSessionChanges` | [BmsLibraryFolderRenameRefreshTests](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) の `AutoRenameChartFolders_BatchesMultipleFolderMutationsIntoOneRefresh`、`MoveLibraryRootFolder_MixedFoldersPublishesOneOperationNotification`、`MoveLibraryRootFolder_DatabaseApplyFailureKeepsConfirmedPhysicalMoves`、`RenameBMSFilesExtensionsWithReceipt_MultipleExtensionFamiliesUseSingleSession`: 反映数をファイル・SQLite・通知・索引と対照する。 |
 | 複数パッケージと失敗時の非公開 | `CommitInstalledSessionChanges` | [BmsLibraryPackageInstallServiceTests](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `PendingResourcePackages_InstallThroughLibraryAndPreserveEarlierResourceSnapshot`、`InstallPendingPackagesToEstimatedDestinations_CanonicalApplyFailureKeepsPreparedTargetsWithoutPartialPublication`: 旧世代と成功後の対象集合も確認する。 |

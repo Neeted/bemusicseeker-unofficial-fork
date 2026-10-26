@@ -23,6 +23,234 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryFolderRenameRefreshTests
 {
+    /// <summary>
+    /// 実改名/別親移動で旧新親と共通祖先の六分類を最終FSへ揃え、兄弟・移動hash・旧snapshotを保持します。
+    /// 背景Entryと同一親の譜面を別々に増やしても、必要祖先の取得・置換を譜面数倍にしません。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false, 0, 1)]
+    [DataRow(true, 0, 1)]
+    [DataRow(true, 4096, 1)]
+    [DataRow(true, 0, 256)]
+    public void FolderMutation_RefreshesExistingAncestorsOnceFromFinalFilesystem(bool move, int backgroundEntries, int parentCharts)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string common = Path.Combine(Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException(), "Library");
+            string oldParent = Path.Combine(common, "Old");
+            string newParent = Path.Combine(common, "New");
+            string source = Path.Combine(oldParent, "Child");
+            string sibling = Path.Combine(common, "OldBackup");
+            string destination = Path.Combine(move ? newParent : oldParent, move ? "Child" : "Renamed");
+            string references = "#WAV01 Child/sound.wav\n#BMP01 Child/image.png\n#BMP02 Child/movie.mpg\n#00111:01\n#00104:01\n#00204:02\n";
+            var charts = new List<ChartFile>
+            {
+                LibraryResourceIndexTestSupport.CreateChart(common, "common.bms"),
+                LibraryResourceIndexTestSupport.CreateChart(newParent, "new.bms"),
+                LibraryResourceIndexTestSupport.CreateChart(sibling, "sibling.bms")
+            };
+            for (int i = 0; i < parentCharts; i++) { charts.Add(LibraryResourceIndexTestSupport.CreateChart(oldParent, "parent-" + i + ".bms", references)); }
+            ChartFile parentChart = charts[3];
+            ChartFile target = LibraryResourceIndexTestSupport.CreateChart(source, "target.bms");
+            charts.Add(target);
+            foreach (string resource in new[] { "sound.wav", "image.png", "movie.mpg" }) { File.WriteAllText(Path.Combine(source, resource), resource); }
+            File.WriteAllText(Path.Combine(oldParent, "own.wav"), "parent owned");
+            File.WriteAllText(Path.Combine(sibling, "keep.wav"), "sibling resource");
+            var port = new AncestorEnumerationPort(common);
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(),
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
+                settings: TestBmsFactory.CreateRootSettings([common]), rootFileEnumerator: port)
+            { BmsCharts = charts };
+            LibraryResourceIndexOwner owner = LibraryResourceIndexTestSupport.GetOwner(library);
+            var index = LibraryResourceIndex.CreateFromScanResult(ChartDirectoryScanBuilder.BuildFromRoots([common]));
+            for (int i = 0; i < backgroundEntries; i++) { index.DirectoryLookupCache.AddDir(Path.Combine(Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException(), "Background", i.ToString()), new[] { "background.wav" }); }
+            owner.Replace(index);
+            LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
+            var mutations = new List<string>();
+            int visits = 0;
+            before.DirectoryLookupCache.EntryStoreMutationObserver = mutations.Add;
+            before.DirectoryLookupCache.EntryStoreEntryVisitedObserver = _ => visits++;
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs(charts);
+            try
+            {
+                LibraryMutationSessionReceipt receipt = move
+                    ? library.MoveLibraryRootFolderWithReceipt([LibraryChartRef.FromChartFile(target)], newParent, reportAtTerminal: true)
+                    : library.RenameChartFolderWithReceipt(source, "Renamed", reportAtTerminal: true);
+
+                LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();
+                before.DirectoryLookupCache.EntryStoreMutationObserver = null;
+                before.DirectoryLookupCache.EntryStoreEntryVisitedObserver = null;
+                after.DirectoryLookupCache.EntryStoreMutationObserver = null;
+                after.DirectoryLookupCache.EntryStoreEntryVisitedObserver = null;
+                Assert.IsTrue(receipt.DurableCommit);
+                Assert.IsNull(receipt.FinalizationFailure);
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.AreEqual(before.Generation + 1, after.Generation);
+                Assert.AreEqual(1, receipt.ApplyCounts.ReverseLookupApplyCount);
+                Assert.AreEqual(1, port.Calls);
+                CollectionAssert.AreEqual(new[] { common }, port.LastRoots);
+                Assert.AreEqual(parentCharts + 9, port.TotalFiles);
+                Assert.AreEqual(before.DirectoryLookupCache.Count, visits, "既存の移動key照合以外に全Entry訪問を追加しない");
+                Assert.AreEqual(1, mutations.Count(path => path == common));
+                Assert.AreEqual(1, mutations.Count(path => path == oldParent));
+                Assert.AreEqual(move ? 1 : 0, mutations.Count(path => path == newParent));
+                Assert.IsFalse(mutations.Contains(sibling));
+                Assert.AreSame(before.DirectoryLookupCache.GetEntryOrNull(source), after.DirectoryLookupCache.GetEntryOrNull(destination));
+                Assert.AreSame(before.DirectoryLookupCache.GetEntryOrNull(sibling), after.DirectoryLookupCache.GetEntryOrNull(sibling));
+                Assert.IsNull(after.DirectoryLookupCache.GetEntryOrNull(source));
+                string newRelative = move ? "New/Child" : "Old/Renamed";
+                LibraryResourceIndexTestSupport.AssertEntry(after.DirectoryLookupCache, common,
+                    ["Old/own.wav", newRelative + "/sound.wav", "OldBackup/keep.wav"], [newRelative + "/image.png"], [newRelative + "/movie.mpg"], [], [], []);
+                LibraryResourceIndexTestSupport.AssertEntry(after.DirectoryLookupCache, oldParent,
+                    move ? ["own.wav"] : ["own.wav", "Renamed/sound.wav"], move ? [] : ["Renamed/image.png"], move ? [] : ["Renamed/movie.mpg"], ["own.wav"], [], []);
+                LibraryResourceIndexTestSupport.AssertEntry(after.DirectoryLookupCache, newParent,
+                    move ? ["Child/sound.wav"] : [], move ? ["Child/image.png"] : [], move ? ["Child/movie.mpg"] : [], [], [], []);
+                LibraryResourceIndexTestSupport.AssertEntry(after.DirectoryLookupCache, destination,
+                    ["sound.wav"], ["image.png"], ["movie.mpg"], ["sound.wav"], ["image.png"], ["movie.mpg"]);
+                LibraryResourceIndexTestSupport.AssertEntry(before.DirectoryLookupCache, oldParent,
+                    ["own.wav", "Child/sound.wav"], ["Child/image.png"], ["Child/movie.mpg"], ["own.wav"], [], []);
+                string expectedParent = move ? newParent : oldParent;
+                string relativeChild = move ? "Child/" : "Renamed/";
+                CollectionAssert.AreEquivalent(new[] { expectedParent }, after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(LibraryResourceIndexTestSupport.ResourceHash(relativeChild + "sound.wav")).ToArray());
+                CollectionAssert.AreEquivalent(new[] { expectedParent }, after.DirectoryLookupCache.GetDirectoriesByImageRelativeHash(LibraryResourceIndexTestSupport.ResourceHash(relativeChild + "image.png")).ToArray());
+                CollectionAssert.AreEquivalent(new[] { expectedParent }, after.DirectoryLookupCache.GetDirectoriesByMovieRelativeHash(LibraryResourceIndexTestSupport.ResourceHash(relativeChild + "movie.mpg")).ToArray());
+                Assert.IsFalse(Directory.Exists(source));
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                {
+                    Assert.IsNull(db.Find<LR2SongDB.song>(target.Path));
+                    Assert.IsNotNull(db.Find<LR2SongDB.song>(Path.Combine(destination, "target.bms")));
+                }
+                // 親の参照文字列を変えず、実libraryの明示保守でも旧Entryで存在扱いへ戻らないことを代表確認します。
+                if (backgroundEntries == 0 && parentCharts == 1 && !move)
+                {
+                    library.RescanResourceHealthCharts([parentChart]);
+                    ChartFile currentParent = CurrentOwnedChart(library, parentChart);
+                    Assert.AreEqual(1, currentParent.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
+                    Assert.AreEqual(0, currentParent.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
+                    StringAssert.Contains(File.ReadAllText(parentChart.Path), "#WAV01 Child/sound.wav");
+                }
+            }
+            finally
+            {
+                before.DirectoryLookupCache.EntryStoreMutationObserver = null;
+                before.DirectoryLookupCache.EntryStoreEntryVisitedObserver = null;
+                owner.CaptureSnapshot().DirectoryLookupCache.EntryStoreMutationObserver = null;
+                owner.CaptureSnapshot().DirectoryLookupCache.EntryStoreEntryVisitedObserver = null;
+                library.RequestShutdown("ancestor-refresh-test");
+            }
+        });
+    }
+
+    /// <summary>必要祖先のfalse/incomplete/取得例外は必須反映失敗とし、成功FS・確定DB・成功集合と旧索引世代を同時に保持します。</summary>
+    [DataTestMethod]
+    [DataRow(0)] // Success=false、例外なし
+    [DataRow(1)] // Success=trueでもIsComplete=false
+    [DataRow(2)] // 列挙の元例外
+    public void FolderMutation_RequiredAncestorFailureKeepsDurableFilesystemAndPriorIndex(int failureKind)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string parent = Path.Combine(Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException(), "Parent");
+            string source = Path.Combine(parent, "Child");
+            string sibling = Path.Combine(parent, "Sibling");
+            string destination = Path.Combine(parent, "Renamed");
+            ChartFile parentChart = LibraryResourceIndexTestSupport.CreateChart(parent, "parent.bms");
+            ChartFile target = LibraryResourceIndexTestSupport.CreateChart(source, "target.bms");
+            ChartFile keep = LibraryResourceIndexTestSupport.CreateChart(sibling, "keep.bms");
+            File.WriteAllText(Path.Combine(source, "sound.wav"), "resource");
+            var port = new AncestorEnumerationPort(parent, failureKind);
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(),
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
+                settings: TestBmsFactory.CreateRootSettings([parent]), rootFileEnumerator: port)
+            { BmsCharts = [parentChart, target, keep] };
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs([parentChart, target, keep]);
+            LibraryResourceIndexOwner owner = LibraryResourceIndexTestSupport.GetOwner(library);
+            owner.Replace(LibraryResourceIndex.CreateFromScanResult(ChartDirectoryScanBuilder.BuildFromRoots([parent])));
+            LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
+            uint oldHash = LibraryResourceIndexTestSupport.ResourceHash("Child/sound.wav");
+            CollectionAssert.AreEqual(new[] { parent }, before.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(oldHash).ToArray());
+            try
+            {
+                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(source, "Renamed", reportAtTerminal: true);
+                LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();
+                Assert.IsTrue(receipt.DurableCommit);
+                Assert.IsTrue(receipt.HasDurableFinalizationFailure);
+                Assert.IsNotNull(receipt.FinalizationFailure);
+                Assert.AreEqual(1, receipt.ConfirmedChangeCount);
+                Assert.AreEqual(source, receipt.ConfirmedTargets.Single().SourcePath);
+                Assert.AreEqual(destination, receipt.ConfirmedTargets.Single().DestinationPath);
+                if (failureKind == 2) { Assert.AreSame(port.Failure, receipt.FinalizationFailure); }
+                Assert.AreSame(before.Index, after.Index);
+                Assert.AreSame(before.DirectoryLookupCache, after.DirectoryLookupCache);
+                Assert.AreEqual(before.Generation, after.Generation);
+                CollectionAssert.AreEqual(new[] { parent }, after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(oldHash).ToArray());
+                Assert.IsNotNull(after.DirectoryLookupCache.GetEntryOrNull(source));
+                Assert.AreSame(before.DirectoryLookupCache.GetEntryOrNull(sibling), after.DirectoryLookupCache.GetEntryOrNull(sibling));
+                Assert.IsNull(after.DirectoryLookupCache.GetEntryOrNull(destination));
+                Assert.IsFalse(Directory.Exists(source));
+                Assert.IsTrue(File.Exists(Path.Combine(destination, "sound.wav")));
+                Assert.AreEqual(Path.Combine(destination, "target.bms"), CurrentOwnedChart(library, target).Path);
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                Assert.IsNull(db.Find<LR2SongDB.song>(target.Path));
+                Assert.IsNotNull(db.Find<LR2SongDB.song>(Path.Combine(destination, "target.bms")));
+                Assert.AreEqual(1, port.Calls);
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+            }
+            finally { library.RequestShutdown("ancestor-failure-test"); }
+        });
+    }
+
+    /// <summary>既存祖先Entryがなければ新しい必須取得を作らず、任意索引を構築しない従来の改名を維持します。</summary>
+    [TestMethod]
+    public void FolderMutation_WithoutExistingAncestorDoesNotRequireNewScan()
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string parent = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
+            string source = Path.Combine(parent, "Child");
+            ChartFile target = LibraryResourceIndexTestSupport.CreateChart(source, "target.bms");
+            var port = new AncestorEnumerationPort(parent, 2);
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(),
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
+                rootFileEnumerator: port)
+            { BmsCharts = [target] };
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs([target]);
+            try
+            {
+                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(source, "Renamed", reportAtTerminal: true);
+                Assert.IsTrue(receipt.DurableCommit);
+                Assert.IsNull(receipt.FinalizationFailure);
+                Assert.AreEqual(0, port.Calls);
+                Assert.AreEqual(0, LibraryResourceIndexTestSupport.GetOwner(library).CaptureSnapshot().DirectoryLookupCache.Count);
+            }
+            finally { library.RequestShutdown("ancestor-not-built-test"); }
+        });
+    }
+
+    /// <summary>必要な祖先要求だけで故障を返し、それ以外では実FS列挙を使います。Sessionや完成索引は代替しません。</summary>
+    private sealed class AncestorEnumerationPort(string ancestor, int failureKind = -1) : IRootFileEnumerator
+    {
+        internal int Calls { get; private set; }
+        internal int TotalFiles { get; private set; }
+        internal string[] LastRoots { get; private set; } = [];
+        internal IOException Failure { get; } = new("required ancestor enumeration failed");
+
+        public RootFileEnumerationResult EnumerateFiles(IEnumerable<string> rootDirectories, IEnumerable<RootFileEnumerationGroup> groups, bool verboseLog = false)
+        {
+            string[] roots = rootDirectories.ToArray();
+            if (roots.Contains(ancestor, StringComparer.OrdinalIgnoreCase))
+            {
+                Calls++;
+                LastRoots = roots;
+                if (failureKind == 2) { throw Failure; }
+                if (failureKind >= 0) { return new RootFileEnumerationResult { Success = failureKind == 1, IsComplete = failureKind != 1, ErrorReason = failureKind == 0 ? "ancestor-input-fault" : string.Empty, IncompleteReason = failureKind == 1 ? "ancestor-incomplete" : string.Empty }; }
+            }
+            RootFileEnumerationResult result = new FastRootFileEnumerator().EnumerateFiles(roots, groups, verboseLog);
+            TotalFiles += result.TotalFileCount;
+            return result;
+        }
+    }
+
     /// <summary>登録rootと空の登録子を含む祖先を集約前に除外し、選択順によらず通常子・似た名前の未登録folderを残すことを確認します。</summary>
     [TestMethod]
     public void PrepareRootMove_ProtectsRegisteredScopesBeforeAncestorAggregation()

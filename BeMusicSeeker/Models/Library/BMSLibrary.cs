@@ -2833,7 +2833,8 @@ public partial class BMSLibrary : ObservableObject
             (exception, message) => NLogWrapper.FileLogger?.Warn(exception, message),
             targetOnlyFileMutationOptions,
             recursiveDirectoryTreeFileMutationOptions,
-            bmsRootRegistrations);
+            bmsRootRegistrations,
+            rootFileEnumerator);
         libraryFileScanPipelineOwner = new LibraryFileScanPipelineOwner(
             dbGateway,
             catalogOwnedCollectionOwner,

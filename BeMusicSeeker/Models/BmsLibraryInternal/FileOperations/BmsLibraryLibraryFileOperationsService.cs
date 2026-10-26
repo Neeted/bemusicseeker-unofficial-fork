@@ -47,19 +47,6 @@ internal sealed class FileCollisionResolutionResult
     public bool AnyHashDifferent { get; set; }
 }
 
-internal sealed class MovedFolderReferenceUpdateResult
-{
-    public DirectoryResourceLookupCache.ReverseLookupMutationResult MutationResult { get; set; } = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-
-    public int MoveCount { get; set; }
-
-    public int LookupKeyCount { get; set; }
-
-    public int MatchedKeyCount { get; set; }
-
-    public long ElapsedMs { get; set; }
-}
-
 /// <summary>
 /// 保留項目や導入先修正に必要な識別・配置・存在・安全属性を既存の処理境界で捕捉します。
 /// 通常削除と拡張子変更のprepared要求はこのFS捕捉値を持たず、不変ChartFileを使います。
