@@ -34,6 +34,15 @@ BMTはgzip圧縮したUTF-8 JSONです。URLのSHA-256に `.bmt` を付けたフ
 
 譜面にはタイトルとMD5/SHA-256の少なくとも一方が必要です。対応範囲で `artist`、`url`、`appendurl`、`ipfs`、`appendipfs`、`org_md5` を出します。コースのハッシュは元ヘッダーの値だけを使います。
 
+コース制約は前後の空白と大文字小文字を正規化し、次の正規名と既存短縮名を同じ出力へ対応させます。自身が出力した正規名も、BMTキャッシュの復元、DB保存、再出力を経て保持します。他の既存制約との元の順序を保ち、変換後の重複は最初の一件だけを残し、未知の制約は省略します。変換は出力上だけで行い、保存済み `course_json`、元コースの名前・ハッシュ、トロフィーの採否と公開規則は変更しません。
+
+| 正規名・出力値 | 既存短縮名 |
+| --- | --- |
+| `GAUGE_5KEYS` | `gauge_5k` |
+| `GAUGE_7KEYS` | `gauge_7k` |
+| `GAUGE_9KEYS` | `gauge_9k` |
+| `GAUGE_24KEYS` | `gauge_24k` |
+
 | `BeatorajaBmtHashOutputMode` | 譜面のハッシュ出力 |
 | --- | --- |
 | `Original`（既定） | DBに保存された値だけ。 |
@@ -45,6 +54,8 @@ MD5とSHA-256が別譜面を指す場合はMD5を正本とし、危険な対の�
 ### 順序と出力契機
 
 生成内容の意味を変更した場合は既存の `exporterVersion` を更新します。旧生成版の管理BMTは同じ入力指紋でも通常出力で一度再生成し、現行生成版で入力と実ファイルが未変更なら以後の生成・書込みを省略します。別の移行台帳や全件強制出力の状態は持ちません。
+
+生成意味版1の日時風文字列の変換と、生成意味版2の正規gauge制約の欠落も、この通常出力で修復します。入力指紋・実ファイルの更新時刻・サイズが一致する有効なgzipでも、旧生成版なら再生成の対象です。管理台帳のスキーマ版2は変更しません。
 
 表の順序は `bmt_sort` 昇順です。未正規化の同値・欠損は名前とIDで解消します。順序だけの変更はURL同期だけを行い、BMT本体を書き直しません。個別出力可否の変更はその表だけを出力・削除します。
 
@@ -136,7 +147,9 @@ beatorajaの登録URL取込みでは成功・既存一致した表を元URL順�
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 形式・ハッシュ・空表・未変更判定・台帳破損・削除失敗 | [`BmtTableExportService`](../../../BeMusicSeeker/Models/Playlist/BmtTableExportService.cs) | [`BmtTableExportServiceTests`](../../../BeMusicSeeker.Tests/Playlist/BmtTableExportServiceTests.cs) |
-| 日時風の任意名と生成意味の更新 | `BmtTableExportService`、[`BeatorajaBmtTableImportService`](../../../BeMusicSeeker/Models/Playlist/BeatorajaBmtTableImportService.cs)、[`BeatorajaConfigService`](../../../BeMusicSeeker/Models/Settings/BeatorajaConfigService.cs) | `BmtTableExportServiceTests.ExportTable_ExternalTableWritesBeatorajaBmtShape` はコース再解析から実gzipまで、`BeatorajaBmtTableImportService_LoadCachedTable_RestoresTableWithConfigRawUrl` は実cacheから表・所属・コースまで文字列原文と型を確認する。`BeatorajaConfigService_SyncTableUrlsPreservesUnmanagedAndReplacesManaged` は実config更新後の任意文字列と管理外URL順、`ExportTableDataSet_SkipsUnchangedManagedPlaylistWrites` は旧生成版の一度の再生成と以後の省略を確認する。 |
+| 日時風の任意名 | `BmtTableExportService`、[`BeatorajaBmtTableImportService`](../../../BeMusicSeeker/Models/Playlist/BeatorajaBmtTableImportService.cs)、[`BeatorajaConfigService`](../../../BeMusicSeeker/Models/Settings/BeatorajaConfigService.cs) | `BmtTableExportServiceTests.ExportTable_ExternalTableWritesBeatorajaBmtShape` はコース再解析から実gzipまで、`BeatorajaBmtTableImportService_LoadCachedTable_RestoresTableWithConfigRawUrl` は実cacheからDB保存・新接続の読戻し・実gzip再出力まで文字列原文と型、所属・hash・raw URLを確認する。`BeatorajaConfigService_SyncTableUrlsPreservesUnmanagedAndReplacesManaged` は実config更新後の任意文字列と管理外URL順を確認する。 |
+| コース制約の正規名・短縮名・混在列の往復 | `BmtTableExportService.ConvertConstraint`、`BuildCourseConstraints`、`BeatorajaBmtTableImportService`、`PlaylistPersistenceRepository` | `BmtTableExportServiceTests.BeatorajaBmtTableImportService_LoadCachedTable_RestoresTableWithConfigRawUrl` が正規名だけ、短縮名だけ、他制約・両順の別名重複・未知値の混在を別コースに置き、実gzip→DB保存→新接続読戻し→実gzipで独立した期待列、元name・hash、有効trophy・release、保存 `course_json` の不変を確認する。不正trophy除外は `ExportTable_ExternalTableWritesBeatorajaBmtShape` が分担する。 |
+| 旧生成意味版からの一度の修復と以後の省略 | `BmtTableExportService` の生成意味版と未変更判定 | `BmtTableExportServiceTests.ExportTableDataSet_SkipsUnchangedManagedPlaylistWrites` が旧1の日時名と旧2の制約欠落を別条件で確認する。入力・実gzipの時刻・サイズを揃えた現行版の省略を対照とし、版だけを旧版へ戻した通常再生成と、次回の投影不要・書込み0件・省略1件・gzip内容と時刻の不変を確認する。 |
 | 必要出力の直接待機・URL同期・0件・元操作の部分失敗 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) |
 | 部分変更・全量現在集合・無効保持・明示整理、置換不能台帳の順序同期 | [`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs) | [`BmsPlaylistMigrationAndRegistrationTests.BeatorajaBmtOperations_PreserveUnchangedOwnershipAndSeparateUrlSyncFromOutput`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) が実SQLite・台帳・gzip・configで未変更表と管理外データを確認する。 |
 | 台帳確定後の物理削除失敗とURL所有解除、報告中のP保持・終了回収、台帳未確定時のURL非公開 | [`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs) | [`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) の `BeatorajaBmtOwnershipRelease_PublishesCommittedUrlsDespiteDeleteFailure` が通常削除と無効全整理の実台帳・config・残存媒体を確認し、`BeatorajaBmtFailure_ReportsTargetAndCauseWithinAcceptedOperation` が台帳読取・保存失敗時のconfig不変と元原因を確認する。下位のfiles/playlists分離は `BmtTableExportServiceTests.ManagedCleanupFailure_RetainsPhysicalOwnership` が引き続き担当する。 |

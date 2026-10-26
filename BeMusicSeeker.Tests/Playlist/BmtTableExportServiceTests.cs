@@ -876,10 +876,13 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
-    /// <summary>旧生成版の管理BMTは同じmetadataでも一度再生成し、以後は生成前に省略して実ファイル時刻とURLを保ちます。</summary>
+    /// <summary>入力・実gzipの時刻とサイズが一致していても、旧生成版だけを理由に日時名または欠落制約を一度修復し、以後は生成前に省略して内容・時刻・URLを保ちます。</summary>
+    /// <param name="oldExporterVersion">日時名を変換した旧1、または正規gauge制約が欠落した旧2。</param>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void ExportTableDataSet_SkipsUnchangedManagedPlaylistWrites()
+    [DataRow(1)] // 旧1の日時風文字列の変換を修復する。
+    [DataRow(2)] // 旧2の正規gauge制約の欠落を修復する。
+    public void ExportTableDataSet_SkipsUnchangedManagedPlaylistWrites(int oldExporterVersion)
     {
         WithTemporaryDirectory(delegate (string tempDirectory)
         {
@@ -887,7 +890,8 @@ public sealed class BmtTableExportServiceTests
             tableData["course"] = new JArray(new JObject
             {
                 ["name"] = "2024-01-02T03:04:05.1234567+09:00",
-                ["hash"] = new JArray(new JObject { ["title"] = "Course song", ["md5"] = Md5A })
+                ["hash"] = new JArray(new JObject { ["title"] = "Course song", ["md5"] = Md5A }),
+                ["constraint"] = new JArray("GAUGE_9KEYS", "GAUGE_5KEYS", "GAUGE_24KEYS", "GAUGE_7KEYS")
             });
             BmtTableExportService.PlaylistExportMetadata metadata = CreateExportMetadata("1", tableData, "header-a", "data-a", 100L);
             BmtTableExportService.ExportPlan firstPlan = BmtTableExportService.CreateExportPlan(tempDirectory, [metadata], cleanupStaleManagedFiles: true);
@@ -898,16 +902,29 @@ public sealed class BmtTableExportServiceTests
             string fileName = BMSTable.ComputeSha256Hex(tableData.Value<string>("url")) + ".bmt";
             string filePath = Path.Combine(tempDirectory, fileName);
 
-            // 日時風の任意文字列を変換した旧生成版の台帳と実gzipを永続入力として置く。
+            // 有効な旧gzipに実時刻・サイズを合わせ、現行版なら省略される対照を先に確認する。
             string manifestPath = Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName);
             var oldManifest = JObject.Parse(File.ReadAllText(manifestPath, Encoding.UTF8));
+            Assert.IsTrue(oldManifest.Value<int>("exporterVersion") > 2);
             var oldTableData = (JObject)tableData.DeepClone();
-            oldTableData["course"]![0]!["name"] = "2024-01-01T18:04:05.1234567+00:00";
+            if (oldExporterVersion == 1)
+            {
+                oldTableData["course"]![0]!["name"] = "2024-01-01T18:04:05.1234567+00:00";
+            }
+            else
+            {
+                ((JObject)oldTableData["course"]![0]!).Remove("constraint");
+            }
             File.Delete(filePath);
             WriteBmtJson(filePath, oldTableData);
             oldManifest["playlists"]!["1"]!["bmtLastWriteTimeUtcTicks"] = File.GetLastWriteTimeUtc(filePath).Ticks;
             oldManifest["playlists"]!["1"]!["bmtLength"] = new FileInfo(filePath).Length;
-            oldManifest["exporterVersion"] = 1;
+            File.WriteAllText(manifestPath, oldManifest.ToString(), Encoding.UTF8);
+            BmtTableExportService.ExportPlan controlPlan = BmtTableExportService.CreateExportPlan(tempDirectory, [metadata], cleanupStaleManagedFiles: true);
+            Assert.IsFalse(controlPlan.RequiresProjection(metadata), "版以外の入力・実ファイル条件は未変更判定を満たします。");
+
+            // 対照から生成意味版だけを戻し、forceや破損による再生成と区別する。
+            oldManifest["exporterVersion"] = oldExporterVersion;
             File.WriteAllText(manifestPath, oldManifest.ToString(), Encoding.UTF8);
             BmtTableExportService.ExportPlan repairPlan = BmtTableExportService.CreateExportPlan(tempDirectory, [metadata], cleanupStaleManagedFiles: true);
             Assert.IsTrue(repairPlan.RequiresProjection(metadata));
@@ -917,7 +934,9 @@ public sealed class BmtTableExportServiceTests
             JObject repairedData = ReadBmtJson(filePath);
             Assert.AreEqual("2024-01-02T03:04:05.1234567+09:00", repairedData["course"]![0]!.Value<string>("name"));
             Assert.AreEqual(JTokenType.String, repairedData["course"]![0]!["name"]!.Type);
+            CollectionAssert.AreEqual(new[] { "GAUGE_9KEYS", "GAUGE_5KEYS", "GAUGE_24KEYS", "GAUGE_7KEYS" }, repairedData["course"]![0]!["constraint"]!.Values<string>().ToArray());
             DateTime firstWriteTime = File.GetLastWriteTimeUtc(filePath);
+            byte[] repairedBytes = File.ReadAllBytes(filePath);
 
             BmtTableExportService.ExportPlan secondPlan = BmtTableExportService.CreateExportPlan(tempDirectory, [metadata], cleanupStaleManagedFiles: true);
             BmtTableExportService.ExportResult secondResult = BmtTableExportService.ExportTableDataSet(tempDirectory, Array.Empty<Tuple<string, JObject>>(), secondPlan, null);
@@ -932,6 +951,7 @@ public sealed class BmtTableExportServiceTests
             Assert.AreEqual(1, secondResult.SkippedWriteCount);
             Assert.AreEqual(0, secondResult.RemovedCount);
             Assert.AreEqual(firstWriteTime, File.GetLastWriteTimeUtc(filePath));
+            CollectionAssert.AreEqual(repairedBytes, File.ReadAllBytes(filePath));
         });
     }
 
@@ -1378,7 +1398,8 @@ public sealed class BmtTableExportServiceTests
         CollectionAssert.AreEquivalent(folders, table.folder_list.ToArray());
     }
 
-    /// <summary>実gzip cacheの日時風の表・folder・譜面・course名を文字列で復元し、既存のlevel抽出・所属・hashとconfigのraw URL優先を保ちます。</summary>
+    /// <summary>実gzipからDB保存・新接続の読戻し・実gzip出力まで、正規名だけ／短縮名だけ／混在するcourse制約と日時名・元hashを保ち、保存courseを出力のために変更しません。</summary>
+    /// <remarks>既存のlevel抽出・所属・互換接頭辞とconfigのraw URL優先も維持し、trophyの不正値除外は外部表の出力ケースが分担します。</remarks>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BeatorajaBmtTableImportService_LoadCachedTable_RestoresTableWithConfigRawUrl()
@@ -1415,7 +1436,24 @@ public sealed class BmtTableExportServiceTests
                     {
                         ["title"] = "Course Song",
                         ["md5"] = Md5A
-                    })
+                    }),
+                    // 短縮名がなくても4つの正規名だけで往復する。
+                    ["constraint"] = new JArray("GAUGE_9KEYS", "GAUGE_5KEYS", "GAUGE_24KEYS", "GAUGE_7KEYS"),
+                    ["trophy"] = new JArray(new JObject { ["name"] = "gold", ["missrate"] = 1.5, ["scorerate"] = 99.9 }),
+                    ["release"] = false
+                }, new JObject
+                {
+                    ["name"] = "Legacy gauge course",
+                    ["hash"] = new JArray(new JObject { ["title"] = "Legacy Song", ["sha256"] = Sha256B }),
+                    // 正規名の受理が短縮名の不受理を隠さないよう別courseに置く。
+                    ["constraint"] = new JArray("gauge_24k", "gauge_7k", "gauge_5k", "gauge_9k"),
+                    ["release"] = true
+                }, new JObject
+                {
+                    ["name"] = "Mixed gauge course",
+                    ["hash"] = new JArray(new JObject { ["title"] = "Mixed Song", ["md5"] = Md5B }),
+                    // 5/24は短縮先行、7/9は正規先行で、正規化後の重複除去と元順を観測する。
+                    ["constraint"] = new JArray(" mirror ", "gauge_5k", " gAuGe_5KeYs ", "GAUGE_7KEYS", " gAuGe_7K ", "ln", "GAUGE_9KEYS", "gauge_9k", "gauge_24k", "GAUGE_24KEYS", "unknown", " MIRROR ", "NO_SPEED", "gauge_lr2")
                 })
             };
             string cachePath = BeatorajaBmtTableImportService.GetCachedTablePath(tablePath, configTableUrl);
@@ -1461,15 +1499,63 @@ public sealed class BmtTableExportServiceTests
             Assert.AreEqual("https://example.com/song.zip", entry.url);
             Assert.AreEqual("https://example.com/song-diff.zip", entry.url_diff);
             CollectionAssert.AreEqual(new[] { Md5B }, entry.Org_md5.ToArray());
-            Assert.AreEqual(1, table.Courses.Count);
+            Assert.AreEqual(3, table.Courses.Count);
             StringAssert.Contains(table.Courses[0].course_json, "\"2024-03-04T05:06:07.1234567+09:00\"");
 
             table.playlist_id = 99;
-            JObject exported = BmtTableExportService.BuildTableData(table);
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            File.WriteAllBytes(songDbPath, []);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            new PlaylistPersistenceRepository(songDbPath).ReplaceTablesWithEntries([table]);
+            string[] savedCourses;
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                savedCourses = db.Table<LR2SongDBExtended.playlist_course>().OrderBy(course => course.course_order).Select(course => course.course_json).ToArray();
+            }
+            CollectionAssert.AreEqual(table.Courses.Select(course => course.course_json).ToArray(), savedCourses);
+
+            var repository = new PlaylistPersistenceRepository(songDbPath);
+            BMSTable persisted = repository.LoadPlaylistHeaders().Single();
+            persisted.entries = repository.LoadPersistedPlaylistEntries(persisted.playlist_id, activeOnly: false);
+            Assert.AreEqual(configTableUrl, persisted.page_url);
+            Assert.AreEqual(configTableUrl, persisted.header_url);
+            CollectionAssert.AreEqual(savedCourses, persisted.Courses.Select(course => course.course_json).ToArray());
+            (string Hash, string Folder, double? Level)[] expectedMemberships = [(Md5A, "st0", 0d), (Md5B, "2024-04-05T06:07:08Z", 2024d)];
+            CollectionAssert.AreEquivalent(expectedMemberships, persisted.entries.Select(savedEntry => (savedEntry.md5, savedEntry.folder, savedEntry.level)).ToArray());
+
+            string exportPath = Path.Combine(tempDirectory, "exported");
+            string fileName = BmtTableExportService.ExportTable(exportPath, persisted);
+            JObject exported = ReadBmtJson(Path.Combine(exportPath, fileName));
             Assert.AreEqual(configTableUrl, exported.Value<string>("url"));
+            Assert.AreEqual("2024-01-02T03:04:05.1234567+09:00", exported.Value<string>("name"));
+            Assert.AreEqual(JTokenType.String, exported["name"]!.Type);
+            Assert.AreEqual("2024-02-03T04:05:06Z", exported["folder"]![0]!["songs"]![0]!.Value<string>("title"));
+            Assert.AreEqual(JTokenType.String, exported["folder"]![0]!["songs"]![0]!["title"]!.Type);
+            var exportedCourses = (JArray)exported["course"]!;
+            Assert.AreEqual(3, exportedCourses.Count);
             Assert.AreEqual("2024-03-04T05:06:07.1234567+09:00", exported["course"]![0]!.Value<string>("name"));
             Assert.AreEqual(JTokenType.String, exported["course"]![0]!["name"]!.Type);
-            Assert.AreEqual(BMSTable.ComputeSha256Hex(configTableUrl) + ".bmt", BmtTableExportService.CreatePlaylistExportMetadata(table).FileName);
+            Assert.AreEqual("Legacy gauge course", exportedCourses[1]!.Value<string>("name"));
+            Assert.AreEqual("Mixed gauge course", exportedCourses[2]!.Value<string>("name"));
+            CollectionAssert.AreEqual(new[] { "GAUGE_9KEYS", "GAUGE_5KEYS", "GAUGE_24KEYS", "GAUGE_7KEYS" }, exportedCourses[0]!["constraint"]!.Values<string>().ToArray());
+            CollectionAssert.AreEqual(new[] { "GAUGE_24KEYS", "GAUGE_7KEYS", "GAUGE_5KEYS", "GAUGE_9KEYS" }, exportedCourses[1]!["constraint"]!.Values<string>().ToArray());
+            CollectionAssert.AreEqual(new[] { "MIRROR", "GAUGE_5KEYS", "GAUGE_7KEYS", "LN", "GAUGE_9KEYS", "GAUGE_24KEYS", "NO_SPEED", "GAUGE_LR2" }, exportedCourses[2]!["constraint"]!.Values<string>().ToArray());
+            Assert.AreEqual(Md5A, exportedCourses[0]!["hash"]![0]!.Value<string>("md5"));
+            Assert.AreEqual(Sha256B, exportedCourses[1]!["hash"]![0]!.Value<string>("sha256"));
+            Assert.AreEqual(Md5B, exportedCourses[2]!["hash"]![0]!.Value<string>("md5"));
+            Assert.AreEqual(1, exportedCourses[0]!["trophy"]!.Count());
+            Assert.AreEqual("gold", exportedCourses[0]!["trophy"]![0]!.Value<string>("name"));
+            Assert.AreEqual(1.5, exportedCourses[0]!["trophy"]![0]!.Value<double>("missrate"));
+            Assert.AreEqual(99.9, exportedCourses[0]!["trophy"]![0]!.Value<double>("scorerate"));
+            Assert.AreEqual(JTokenType.Boolean, exportedCourses[0]!["release"]!.Type);
+            Assert.IsFalse(exportedCourses[0]!.Value<bool>("release"));
+            Assert.IsTrue(exportedCourses[1]!.Value<bool>("release"));
+            Assert.IsNull(exportedCourses[2]!["release"]);
+            Assert.AreEqual(BMSTable.ComputeSha256Hex(configTableUrl) + ".bmt", fileName);
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                CollectionAssert.AreEqual(savedCourses, db.Table<LR2SongDBExtended.playlist_course>().OrderBy(course => course.course_order).Select(course => course.course_json).ToArray(), "出力用の制約変換を保存済みcourseへ書き戻しません。");
+            }
         });
     }
 

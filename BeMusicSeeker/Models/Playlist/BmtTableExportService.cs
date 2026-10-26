@@ -37,7 +37,7 @@ internal static class BmtTableExportService
 
     private const int ManifestSchemaVersion = 2;
 
-    private const int BmtExporterVersion = 2;
+    private const int BmtExporterVersion = 3;
 
     internal static BeatorajaBmtHashOutputMode NormalizeHashOutputMode(string value)
     {
@@ -1236,10 +1236,10 @@ internal static class BmtTableExportService
             "no_good" => "NO_GOOD",
             "no_great" => "NO_GREAT",
             "gauge_lr2" => "GAUGE_LR2",
-            "gauge_5k" => "GAUGE_5KEYS",
-            "gauge_7k" => "GAUGE_7KEYS",
-            "gauge_9k" => "GAUGE_9KEYS",
-            "gauge_24k" => "GAUGE_24KEYS",
+            "gauge_5k" or "gauge_5keys" => "GAUGE_5KEYS",
+            "gauge_7k" or "gauge_7keys" => "GAUGE_7KEYS",
+            "gauge_9k" or "gauge_9keys" => "GAUGE_9KEYS",
+            "gauge_24k" or "gauge_24keys" => "GAUGE_24KEYS",
             "ln" => "LN",
             "cn" => "CN",
             "hcn" => "HCN",
