@@ -14,6 +14,8 @@
 
 ### 入力の分類
 
+通常導入の準備では実在ディレクトリを優先し、名前が `.zip`、`.7z`、`.rar`、`.lzh` またはその大小文字違いで終わっても、内容を展開せず同じディレクトリを後段へ渡します。ディレクトリ以外の対応書庫は従来の展開経路を使い、書庫の進捗番号・総数には同じ分類結果の書庫だけを数えます。対応拡張子、内容推測、未知・欠落入力の既存の扱いは変えません。
+
 `TempDirectoryPublisher.IsManagedPath` は現在の起動中の削除権限を判定するものであり、導入入力の許可一覧ではありません。読み取れる通常のファイル・フォルダを、一時領域にあるという理由だけで拒否しません。ライブラリへ取り込む際は別途、[登録ルートの除外](mutations.md#保留入力と登録ルート)を適用します。
 
 | 入力 | 待ち行列へ渡すもの | 入力確保処理が削除できるもの |
@@ -82,7 +84,7 @@ flowchart TB
 
 展開失敗と必須の更新日時復元失敗は対象を除外する非致命的警告として保持し、正常な独立入力は処理します。準備診断は適用前の例外・取消・対象なしでも操作結果の `OperationMessages` へ一度保持します。元例外と診断を終端へ渡し、結果案内は受付と回収の終端後に配送します。
 
-破損・短いRARも対象を除外します。未採用の管理展開先で起きるI/Oや原因不明の故障は、その入力の準備不成立として扱い、失敗した展開内容を採用しません。全入力が不成立なら警告だけを終端へ渡し、導入成功の完了案内を出しません。部分成功なら成功した対象だけを一つの変更セッションへ集めます。利用者の借用元を保持し、失敗した私有コピー・展開先は既存の所有規則で回収します。通常の準備診断の失敗で、正常な展開対象を除外しません。
+破損・短いRARも対象を除外します。未採用の管理展開先で起きるI/Oや原因不明の故障は、その入力の準備不成立として扱い、失敗した展開内容を採用しません。全入力が不成立なら警告だけを終端へ渡し、導入成功の完了案内を出しません。部分成功なら成功した対象だけを一つの変更セッションへ集めます。書庫名の通常ディレクトリも、成功時の移動消費や保留元保持は通常フォルダと同じ規則に従います。利用者の借用元を保持し、失敗した私有コピー・展開先は既存の所有規則で回収します。通常の準備診断の失敗で、正常な展開対象を除外しません。
 
 アーカイブの展開後サイズには、アプリ独自の明示的な上限を設けません。展開先外へ越境するentryの拒否と、再解析ポイントを含む入力の拒否は維持します。
 
@@ -112,6 +114,7 @@ WPFの対応形式は `DataFormats.FileDrop` です。ドラッグ中は `GetDat
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 書庫名ディレクトリの受理と実書庫だけの進捗・通常導入 | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs) の `ExpandInstallSourcesWithProgress`、`BMSLibrary.PackageInstall` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `ExpandInstallSources_PreservesArchiveNamedDirectory` は四拡張子と各大文字形で、同じ入力・内容の保持、展開通知・作成通知・警告なしを確認する。`ExpandInstallSources_ReportsArchiveOrdinalAmongArchivesOnly` は通常フォルダ・`work.ZIP` と実ZIP・7zの混在四入力で、実展開と書庫だけの番号・総数を確認する。[`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryManagedArchiveInstallTests.cs) の `AutoInstall_ManagedArchiveAndIndependentFolderShareOneCommitAndApply` は管理ZIPと `Independent.ZIP` 通常フォルダの二作品を実FS・DB・所持へ一回反映し、保留なしと元の消費を確認する。実書庫の全形式・必須日時・失敗時の保証は既存展開系列が分担する。 |
 | 単体BMS・BMSONの新規導入と明示宛先への差分 | `BmsLibraryPackageInstallService.PrepareInstallDestination` / `MovePackageFilesCore`、`BMSLibrary.PackageInstall` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `ForceInstallPendingPackages_SingleChartsAndDirectoryUseReservedNewFolders` が実取り込み・保留保存後の単体とフォルダ混在、同名予約・既存ファイル／フォルダ衝突、宛先設定済み行の強制新規を、実配置・song DB・所持・新規／保留・install表で確認する。`MovePackageFilesWithReceipt_SingleFilePackageFinalizesFileSource` が両形式の宛先未指定と明示宛先差分の衝突回避・兄弟保持を分担する。単体発見と隣接資源によるフォルダ昇格は既存の `PrepareAutoInstallWorkflow_DetectsSingleBmsonFileSelection` / `PrepareAutoInstallWorkflow_ExplicitBmsonFileWithAdjacentResourcesUsesDirectoryPackage` / `PrepareAutoInstallWorkflow_ClassifiesDetectedDirectoriesAsInstallable` 系列を維持する。 |
 | URL取得入力の所有付き要求と保留の寿命 | `PlaylistWorkspaceViewModel.PlaylistUrlAcquisition`、`DroppedInstallBatchRequest`、`PackageInstallWorkflowOwner` | [URL取得の所有テスト](../playlist/downloads.md#実装とテストの対応)が開始前取消・世代退役の回収と実idle、実推定後の保留バイト列、後の明示手動導入を確認する。通常の借用入力と導入前回収は下記の既存系列が分担する。 |
 | 自動推定後導入・必要同期・入力回収までの受付と集約結果 | `PackageInstallWorkflowOwner`、`BMSLibrary.PackageInstall`、`MainWindowViewModel` | [`PackageInstallWorkflowOwnerAutomaticContinuationTests`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerAutomaticContinuationTests.cs) と既存の管理／借用archive系列が停止・取消・未実行保留・入力保持／回収を分担する。[`MainWindowPackageMaintenanceWpfTests.DropInstallAutomaticContinuation_ReportsBothStagesThroughActualReceiver`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) は実ownerから実receiverへの受付解放後の一回報告を確認する。詳細は[推定仕様の対応表](install-estimation.md#実装とテストの対応)を参照する。 同系列の正常行は同一署名Completed後の次の実取り込みを正常結果・非エラー案内へ接続し、実P競合行は必須失敗・同期未完了案内と解放後の自動再実行0を確認する。 |

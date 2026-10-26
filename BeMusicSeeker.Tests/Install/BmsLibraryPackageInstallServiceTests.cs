@@ -7647,6 +7647,57 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>対応する四書庫拡張子と各大文字形の通常ディレクトリを展開せず返し、展開通知・準備警告なしで譜面と音源の内容を保持します。</summary>
+    [DataTestMethod]
+    [DataRow(".zip")]
+    [DataRow(".7z")]
+    [DataRow(".rar")]
+    [DataRow(".lzh")]
+    [DataRow(".ZIP")]
+    [DataRow(".7Z")]
+    [DataRow(".RAR")]
+    [DataRow(".LZH")]
+    public void ExpandInstallSources_PreservesArchiveNamedDirectory(string extension)
+    {
+        WithTemporaryDirectory(root =>
+        {
+            string directory = Path.Combine(root, "work" + extension);
+            string chart = CreateBmsFile(directory, "chart.bms", BmsLibraryInitializationTestSupport.CreateValidBmsText("Directory input"));
+            byte[] chartBytes = File.ReadAllBytes(chart);
+            byte[] audioBytes = [1, 2, 3];
+            string audio = Path.Combine(directory, "sound.wav");
+            File.WriteAllBytes(audio, audioBytes);
+            var progress = new RecordingPackageInstallProgressWriter();
+            var dialogs = new RecordingDialogService();
+            List<string> createdInputs = [];
+            List<string> logs = [];
+            try
+            {
+                List<string> expanded = new BmsLibraryPackageInstallService().ExpandInstallSourcesWithProgress(
+                    [directory], new RealFileMutationService(),
+                    new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly), logs.Add, dialogs,
+                    progress, CancellationToken.None, action => action(), createdInputs.Add);
+
+                CollectionAssert.AreEqual(new[] { directory }, expanded);
+                Assert.AreEqual(0, progress.ArchiveStarts.Count());
+                Assert.AreEqual(1, progress.SourceProcessedCount);
+                Assert.AreEqual(0, createdInputs.Count);
+                Assert.AreEqual(0, dialogs.Messages.Count);
+                Assert.IsFalse(logs.Any(message => message.Contains("extract_failed", StringComparison.OrdinalIgnoreCase)));
+                CollectionAssert.AreEqual(chartBytes, File.ReadAllBytes(chart));
+                CollectionAssert.AreEqual(audioBytes, File.ReadAllBytes(audio));
+            }
+            finally
+            {
+                foreach (string path in createdInputs)
+                {
+                    TempDirectoryPublisher.TryDeleteManagedPath(path,
+                        logWarning: (failedPath, exception) => Trace.WriteLine("展開先の回収失敗: " + failedPath + " " + exception));
+                }
+            }
+        });
+    }
+
     /// <summary>
     /// ZIP・7z・RAR・LZHの実入力を展開して保存日時と進捗を復元し、形式別の展開・必須日時復元の欠落を検出する。
     /// </summary>
@@ -7753,47 +7804,72 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// フォルダと書庫を混在させても書庫だけの順番と総数を進捗へ渡し、全入力件数による書庫番号の誤表示を検出する。
+    /// 通常フォルダ・書庫名フォルダ・大文字拡張子の二実書庫を混在させ、両フォルダの保持と実展開、書庫だけの番号・総数を確認します。
     /// </summary>
-    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。 展開先の共通一時領域を回収するため並列実行を避ける。</remarks>
+    /// <remarks>捕捉した当該展開先だけを回収します。既存のnative系列は共通一時領域も回収するため、非並列を維持します。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void ExpandInstallSources_ReportsArchiveOrdinalAmongArchivesOnly()
     {
-
-        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        WithTemporaryDirectory(tempDirectoryPath =>
         {
             string directoryPath = Path.Combine(tempDirectoryPath, "source-folder");
             Directory.CreateDirectory(directoryPath);
-            string firstArchivePath = Path.Combine(tempDirectoryPath, "first.zip");
-            string secondArchivePath = Path.Combine(tempDirectoryPath, "second.7z");
-            File.Copy(GetArchiveFixturePath("fixture.zip"), firstArchivePath);
-            File.Copy(GetArchiveFixturePath("fixture.7z"), secondArchivePath);
+            string archiveNamedDirectory = Path.Combine(tempDirectoryPath, "work.ZIP");
+            Directory.CreateDirectory(archiveNamedDirectory);
+            string firstArchivePath = Path.Combine(tempDirectoryPath, "first.ZIP");
+            string secondArchivePath = Path.Combine(tempDirectoryPath, "second.7Z");
+            byte[] firstArchiveBytes = File.ReadAllBytes(GetArchiveFixturePath("fixture.zip"));
+            byte[] secondArchiveBytes = File.ReadAllBytes(GetArchiveFixturePath("fixture.7z"));
+            File.WriteAllBytes(firstArchivePath, firstArchiveBytes);
+            File.WriteAllBytes(secondArchivePath, secondArchiveBytes);
             var service = new BmsLibraryPackageInstallService();
             var progressWriter = new RecordingPackageInstallProgressWriter();
-
+            var dialogs = new RecordingDialogService();
+            List<string> createdInputs = [];
             try
             {
                 List<string> expandedPaths = service.ExpandInstallSourcesWithProgress(
-                    [directoryPath, firstArchivePath, secondArchivePath],
+                    [directoryPath, firstArchivePath, archiveNamedDirectory, secondArchivePath],
                     new RealFileMutationService(),
                     new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                     null,
-                    null,
+                    dialogs,
                     progressWriter,
                     CancellationToken.None,
-                    action => action());
+                    action => action(), createdInputs.Add);
 
-                Assert.AreEqual(3, expandedPaths.Count);
-                Assert.AreEqual(3, progressWriter.SourceProcessedCount);
+                Assert.AreEqual(4, expandedPaths.Count);
+                Assert.AreEqual(4, progressWriter.SourceProcessedCount);
+                CollectionAssert.AreEquivalent(new[] { directoryPath, archiveNamedDirectory },
+                    expandedPaths.Except(createdInputs).ToArray());
+                Assert.AreEqual(2, createdInputs.Count);
+                Assert.AreEqual(0, dialogs.Messages.Count);
+                using (ZipArchive reference = ZipFile.OpenRead(GetArchiveFixturePath("fixture.zip")))
+                using (Stream content = (reference.GetEntry("maybe_H.bms") ?? throw new AssertFailedException("比較元の譜面がありません。")).Open())
+                using (var bytes = new MemoryStream())
+                {
+                    content.CopyTo(bytes);
+                    foreach (string extractedRoot in createdInputs)
+                    {
+                        CollectionAssert.AreEqual(bytes.ToArray(), File.ReadAllBytes(Path.Combine(extractedRoot, "maybe_H.bms")));
+                    }
+                }
+                CollectionAssert.AreEqual(firstArchiveBytes, File.ReadAllBytes(firstArchivePath));
+                CollectionAssert.AreEqual(secondArchiveBytes, File.ReadAllBytes(secondArchivePath));
                 CollectionAssert.AreEqual(
-                    new[] { "1/2:first.zip", "2/2:second.7z" },
+                    new[] { "1/2:first.ZIP", "2/2:second.7Z" },
                     progressWriter.ArchiveStarts.ToArray());
             }
             finally
             {
-                global::BeMusicSeeker.TempDirectoryPublisher.RemoveAll();
+                foreach (string path in createdInputs)
+                {
+                    TempDirectoryPublisher.TryDeleteManagedPath(path,
+                        logWarning: (failedPath, exception) => Trace.WriteLine("展開先の回収失敗: " + failedPath + " " + exception));
+                }
             }
+            Assert.IsTrue(createdInputs.All(path => !Directory.Exists(path)), "当該テストの展開先を回収します。");
         });
     }
 

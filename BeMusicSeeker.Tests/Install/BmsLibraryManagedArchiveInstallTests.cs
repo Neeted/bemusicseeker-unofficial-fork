@@ -190,32 +190,60 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
     }
 
-    /// <summary>管理実ZIPと独立フォルダを一要求で正常導入し、複数物理成功を一回の確定・所持反映へ集めます。</summary>
-    /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
+    /// <summary>管理実ZIPと書庫名の通常フォルダを一要求で導入し、二作品の譜面・音源・DB・所持を一回の確定・反映へ集めます。</summary>
+    /// <remarks>実native展開から通常の非同期導入とSQLite確定まで接続し、管理ZIPと成功した通常フォルダの消費も確認します。形式条件の網羅は展開境界に分担します。</remarks>
     [TestMethod]
     public async Task AutoInstall_ManagedArchiveAndIndependentFolderShareOneCommitAndApply()
     {
         using var fixture = new ManagedArchiveInstallFixture();
         string archive = fixture.CreateInput("managed", "Archived");
-        string folder = fixture.CreateInput("folder", "Independent");
+        string folderSource = fixture.CreateInput("folder", "Independent");
+        string folder = Path.Combine(fixture.Root, "Independent.ZIP");
+        Directory.Move(folderSource, folder);
+        var expected = new Dictionary<string, (byte[] Chart, byte[] Audio)>
+        {
+            ["Independent"] = (File.ReadAllBytes(Path.Combine(folder, "chart.bms")),
+                File.ReadAllBytes(Path.Combine(folder, "sound.wav")))
+        };
+        using (ZipArchive reference = ZipFile.OpenRead(archive))
+        {
+            byte[] ReadEntry(string name)
+            {
+                using Stream content = (reference.GetEntry(name) ?? throw new AssertFailedException("比較元のファイルがありません: " + name)).Open();
+                using var bytes = new MemoryStream();
+                content.CopyTo(bytes);
+                return bytes.ToArray();
+            }
+            expected["Archived"] = (ReadEntry("chart.bms"), ReadEntry("sound.wav"));
+        }
         PackageInstallCommandResult result = await fixture.Library.InstallChartPackagesAutoWithProgressAsync(
             [archive, folder], CancellationToken.None, new RecordingPackageInstallProgressWriter());
         Assert.IsTrue(result.HasDurableCommit);
         Assert.IsFalse(result.HasRequiredFailure, result.EstimationFailure?.ToString());
+        Assert.AreEqual(0, result.OperationMessages.Count);
         Assert.AreEqual(2, result.RegisteredPackages.Count);
         Assert.AreEqual(2, fixture.Library.BmsCharts.Count);
+        Assert.AreEqual(2, fixture.Library.ChartPackagesInstalled.Count);
         Assert.AreEqual(1, result.SessionReceipt.ApplyCounts.InstalledTargetApplyCount);
         Assert.AreEqual(0, fixture.Library.ChartPackagesPending.Count);
         Assert.IsFalse(File.Exists(archive));
         Assert.IsFalse(Directory.Exists(folder));
         using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
-        Assert.AreEqual(2, db.Table<LR2SongDB.song>().Count());
-        foreach (ChartPackage package in result.RegisteredPackages)
+        ChartFile[] installedCharts = result.RegisteredPackages.Select(package => package.ChartEntries.Single().Chart).ToArray();
+        string[] destinations = installedCharts.Select(chart => chart.Path).ToArray();
+        CollectionAssert.AreEquivalent(expected.Keys.ToArray(), installedCharts.Select(chart => chart.Title).ToArray());
+        CollectionAssert.AreEquivalent(destinations, db.Table<LR2SongDB.song>().ToArray().Select(row => row.path).ToArray());
+        CollectionAssert.AreEquivalent(destinations, fixture.Library.BmsCharts.Select(chart => chart.Path).ToArray());
+        CollectionAssert.AreEquivalent(destinations, fixture.Library.ChartPackagesInstalled.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart.Path).ToArray());
+        Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
+        foreach (ChartFile chart in installedCharts)
         {
-            string destination = package.ChartEntries.Single().Chart.Path;
-            Assert.IsTrue(File.Exists(destination));
-            Assert.IsNotNull(db.Find<LR2SongDB.song>(destination));
+            (byte[] chartBytes, byte[] audioBytes) = expected[chart.Title];
+            CollectionAssert.AreEqual(chartBytes, File.ReadAllBytes(chart.Path));
+            string destinationDirectory = Path.GetDirectoryName(chart.Path) ?? throw new AssertFailedException("導入先フォルダがありません。");
+            CollectionAssert.AreEqual(audioBytes, File.ReadAllBytes(Path.Combine(destinationDirectory, "sound.wav")));
         }
+        Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
     }
 
     /// <summary>必須日時復元の未知故障による全失敗と壊れZIP・正常ZIP混在で、対象と原因を終端診断へ残し、非致命的警告のまま正常独立対象だけを確定します。</summary>

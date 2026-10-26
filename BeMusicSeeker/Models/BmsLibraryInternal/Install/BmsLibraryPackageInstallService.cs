@@ -875,7 +875,8 @@ internal sealed class BmsLibraryPackageInstallService
     }
 
     /// <summary>
-    /// 入力アーカイブを管理一時領域へ展開し、正常な管理元アーカイブだけを消費します。
+    /// 実在ディレクトリは名前によらず通常入力とし、対応拡張子の書庫を管理一時領域へ展開します。
+    /// 書庫だけの進捗番号・総数を通知し、正常な管理元アーカイブだけを消費します。
     /// 展開失敗と必須日時復元失敗は対象を除外して診断し、独立した入力の処理を続けます。
     /// 診断先の通常故障は採否を変えず、捕捉したOOMは即時終了します。
     /// </summary>
@@ -904,18 +905,21 @@ internal sealed class BmsLibraryPackageInstallService
             catch (Exception) { }
         };
         string[] archiveExtensions = [".zip", ".7z", ".rar", ".lzh"];
-        string[] normalizedInstallPaths = [.. (installPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
-        int archiveSourceTotal = normalizedInstallPaths.Count(path => archiveExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
+        // 書庫名の通常ディレクトリを除き、進捗の総数と各入力の処理に同じ分類を使います。
+        (string Path, bool IsArchive)[] installSources = [.. (installPaths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => (path, archiveExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
+                && !LongPathFileSystem.DirectoryExists(path)))];
+        int archiveSourceTotal = installSources.Count(source => source.IsArchive);
         int archiveSourceIndex = 0;
         List<string> expandedPaths = [];
-        for (int i = 0; i < normalizedInstallPaths.Length; i++)
+        for (int i = 0; i < installSources.Length; i++)
         {
-            string installPath = normalizedInstallPaths[i];
+            (string installPath, bool isArchivePath) = installSources[i];
             if (token.IsCancellationRequested)
             {
                 break;
             }
-            bool isArchivePath = archiveExtensions.Any(ext => installPath.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
             string extractedTempDirectoryPath = null;
             var sourceStopwatch = Stopwatch.StartNew();
             try
