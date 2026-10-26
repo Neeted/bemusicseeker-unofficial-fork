@@ -2,7 +2,7 @@
 
 ## 目的と採用範囲
 
-通常の入力・操作で到達する保存、導入、一覧、再生、出力の不整合を解消する。本書は採用済みの修正対象と、既存の採用契約・未完了の実装・検証を扱う。対象は31件、実装の単位は下表の30単位とする。URL補完の取得元比較と候補比較は一単位にまとめ、二つの不具合の判定は独立して残す。数値・日時統一は外部JSON LEVELの既存課題を包含する一つの横断単位とする。[任意改善](release-follow-up-candidates.md)は今回実装せず、リリース完了条件に含めない。
+通常の入力・操作で到達する保存、導入、一覧、再生、出力の不整合を解消する。本書は採用済みの修正対象と、既存の採用契約・未完了の実装・検証を扱う。対象は29件、実装の単位は下表の28単位とする。URL補完の取得元比較と候補比較は一単位にまとめ、二つの不具合の判定は独立して残す。数値・日時統一は外部JSON LEVELの既存課題を包含する一つの横断単位とする。[任意改善](release-follow-up-candidates.md)は今回実装せず、リリース完了条件に含めない。
 
 追加指摘は `dev` の `8c53fc9b` とLR2出力簡素化の作業差分を照合した静的調査を根拠とする。既存対象も含め、通常経路の確認を実再現・テスト成功と読み替えない。着手時に最新のコードと既存差分を確認し、解消済みの課題を再実装しない。LR2出力設定の保存・生成の契約は[設定の保存](../spec/runtime/settings-persistence.md)と[LR2カスタムフォルダ](../spec/playlist/lr2-custom-folders.md)を参照する。
 
@@ -12,6 +12,7 @@
 
 ## 共通の変更境界
 
+- LR2/uBMplay/BMIIDXView2015の試聴・再生固有の未完了事項は、既存の必須項目と今後の新規発見を含め[任意改善の分類方針](release-follow-up-candidates.md#目的と扱い)へ分離する。表出力・成績連携、内蔵・共通処理は既存分類を保ち、共有修正の効果が外部playerへ及ぶだけで対象外にしない。
 - 現行の入力受理、取消、受付、成功対象の一変更セッション、管理外ファイル・URLの保全を維持する。入力拒否の追加や意味の変わる代替は、合意した範囲を超えて導入しない。
 - 設定は自身の候補と他項目の最新確定値を使う。受理済み入力の固定、候補排他、設定実操作の同時一件、必要なL/P受付、終了時の開始済みTask回収を維持する。通常閉鎖は候補だけを捨て、再表示は公開済み確定値から作る。
 - 過去の失敗要求・成功段階を保持して後続操作を制限する方式を、最新入力の保存と保存済み正本からの再生成へ置換する。予約、自動再試行、自動巻戻し、永続修復台帳、専用修復管理、差分ごとの常駐完了辞書は追加しない。
@@ -28,7 +29,7 @@
 
 ## 着手順と実装単位
 
-先行統合された設定テスト・仕様の成果を前提にする。数値・日時統一の横断契約を先に関係担当へ共有し、実装も早期に進める。任意のUI共通整理を必須修正の前提にしない。
+先行統合された設定テスト・仕様の成果を前提にする。数値・日時統一の横断契約を先に関係担当へ共有し、実装も早期に進める。次の実装割当は残る必須項目から選び、内蔵・共通処理の既存作業は継続できる。任意の外部player固有修正とUI共通整理の採用・完了を必須修正の前提にしない。
 
 表の番号は実装単位の識別であり、全件の直列順ではない。上記優先と次の依存境界で着手を決める。devへの統合は、依存関係・検証・独立レビューが揃った単位から一件ずつ進め、着手順やLR2関連作業を理由に独立した完成単位を保留しない。新しい実装・テスト・仕様・計画は各作業WTの別ブランチで完結させ、並列開発中のメイン作業ツリーはdevの統合専用として原則クリーンに保つ。独立した単位の調査・設計・編集は並行できる。全体ルートは利用者への質問、全体優先、単位間の依存と共有契約、WT割当、Functionalと性能測定の開始調整、dev統合と全体報告を担う。各単位責任者は範囲内の調査・テスト必要性と独立設計承認・引継ぎ点検・実装・Quick・仕様計画・レビュー・差戻し・branch内commitを完結させ、工程別の全体ルート再承認を求めない。小単位では責任者が実装を兼ねられる。未確定の利用者挙動・保証、範囲拡張、他単位や共有契約への影響は全体ルートへ戻す。各単位は必要な翻訳も含み、表中のクラス名は探索起点でありAPIや配置を固定しない。
 
@@ -40,7 +41,7 @@
 | 保留参照と配置 | 保留候補・配置文脈の成功facts適用。同じFileOperations・MutationFactsとパス判定の変更は直列にし、確定DSTだけを変更する通常編集APIへ横断副作用を付けない。 | 共有する資源索引を読むだけの調査は並行できる。共有書込みを含む実装は一writerで合流する。 |
 | 重複一覧・選択 | 重複の所属識別→初回解析後の古い画面切替は同じ通知・選択契約で順次扱う。範囲選択主行は現行のマウス入力・現在セル契約を保って扱う。 | 重複保守の共有境界を取り込んだ後、独立した表取得等と並行できる。 |
 | URL・表の値と出力 | 取得の大小文字→補完元/候補の大小文字→転送アーカイブ保存名は同じ取得経路へ順次適用する。転送後相対参照、JSON出力、推薦prefix、名前なしsort、プロパティURL解除は、共通の表/URI正本やhelperの変更有無を確認して分ける。保存済み所属の追加・移動を先行し、親MD5の遅延解決とBMTコース往復は同じentry/exporterを直列調整する。同リリースのexporterVersion更新を一回へ集約する。 | 別の責務へ閉じるものは並行できる。同じ表の正本・保存APIまで広げる場合は同じ作業群へ戻す。 |
-| 再生・成績・設定 | PlaybackPanelViewModelの共有gate・停止・世代契約と書込みを直列にする。管理入力回収で使う停止・joinは[ライブラリ変更](../spec/library/mutations.md#保留目録の解除と管理入力の回収)の現行契約を維持する。一時停止の先頭戻し→一時試聴名→再開/再起動の相互依存を保つ。設定の録音形式・履歴プリセット・追加先改名は同じSettings責務で順次扱う。 | IR派生値、外部引数は共通score表現・起動/終了基盤等を変更しない範囲で独立候補。真のAPI依存を着手時に確認し、同じownerの同時編集はしない。 |
+| 再生・成績・設定 | PlaybackPanelViewModelの共有gate・停止・世代契約と書込みを直列にする。管理入力回収で使う停止・joinは[ライブラリ変更](../spec/library/mutations.md#保留目録の解除と管理入力の回収)の現行契約を維持する。共通の一時試聴名衝突と数値・日時の修正は、任意の先頭戻し・再開/再起動の完了を待たない。設定の録音形式・履歴プリセット・追加先改名は同じSettings責務で順次扱う。 | IR派生値、汎用プログラム引数は共通score表現・起動/終了基盤等を変更しない範囲で独立候補。外部固有の再開処理は[任意候補](release-follow-up-candidates.md#外部プレイヤー固有の試聴再生)として別に採否を判断し、同じownerへ書き込む場合だけ直列にする。 |
 | 数値・日時の横断境界 | 一責任者が形式と共有APIを揃える。BMS parser、BMSTableEntry/JSON、DB・設定の文字列境界、一覧formatter・日付部品、機械出力の契約を先に共有する。所属保存・親MD5・BMT版更新・設定の進行中成果へ合流し、共有helper・生成物・仕様の書込みを直列化する。 | 型付きDBを読むだけの単位は並行できる。意味のある内部分割とコミットは独立設計時に具体化し、UI共通整理を待たない。 |
 | ツリー編集・再生フォーカス | EditableTextBlockの候補/終端とMainWindowの確定値取得を一単位にする。再生フォーカスもMainWindowを変更するため、その共有書込みと代表WPF fixtureを直列化する。 | 他の表・検索部品と同名の概念だけでは結合しない。任意の更新通知翻訳を採る場合もMainWindowの一writerへ合流する。 |
 | 更新 | ドライブルート正規化→完成後ready公開→同期lock保持。Program/gateway、既存のmarker公開helper、テスト補助、配布生成物・更新仕様を直列確認する。 | 更新以外の共有境界を変更しない単位とは並行可能。実プロセス/drive検証は負荷と所有を別途調整する。管理file→directory遷移は任意の別原因。 |
@@ -67,27 +68,27 @@ Functionalは全WT同時一件とし、別WTのQuickと必要ビルドは並行�
 | 11 | 内蔵推薦表の保存済みprefix。生成内容が変わるリロードで属性だけを戻し、実folder・明示順は無修飾のまま保存する。 | 未修飾の生成hashを保ち、保存済みprefixを完成folder・順序へ一度投影。共通変換を使い、setter全域副作用・fingerprint拡張・推薦専用MEMO引継ぎは作らない。 | `PlaylistRecommendedTableOwnerTests` で異なる既存A/Bスコア→設定切替→生成hash差のあるリロード→実所属・順序・DB・必要出力。同一入力時の不要保存抑制。 |
 | 12 | LR2名前なし所属のsort範囲。抽出は空文字を所属指定とし、sortは空白判定でALLへ広げる。 | ALL=null、名前なし=空文字をsortでも揃える。受理済み空白名を改名・拒否しない。ALLの代表値・スキーマ・索引・ランダム規則は変えない。 | `BmsPlaylistCustomFolderOutputTests` で同hashの名前なし/別所属へ異なるlevel/adddate。実出力#COMMANDをSQLiteへ適用しLEVEL/ADDDATE両方向と別所属除外。設定保存とは独立したSQL出力の修正。 |
 | 13 | 順位cache採用後の成績派生値。`BmsLibraryIrService` の高得点更新と `BMSScore.Overwrite` がrank/rateを更新せず、DJ LEVEL表示・検索・内訳が古い。 | 採用境界で得点/notesから既存 `ScoreValueCalculator` に揃え、新規・既存行を統一。低得点・同点、clear/BP/combo、順位・未送信判定を保つ。RATE列の不具合とは扱わず、全score走査・追加通信・本人IR存廃へ広げない。 | `BmsLibraryIrServiceTests` と起動系列で高得点既存/新規/低得点/同点、1000notes・1800点→AAA/90%を独立値で判定。snapshotから検索・集計へ代表接続。 |
-| 14 | 一時停止中の先頭戻し。LR2 Restartはprocessを開始する一方、owner表示はPAUSEで次の操作も逆転する。 | 利用者合意どおりPAUSEを維持し、次の再生で先頭開始。LR2 paused Restartはprocessを開始しない。再生中Restart、現在曲・実player・callbackを保ち、大きな状態機械を追加しない。 | 実LR2 adapter＋process代替でStart→Pause→Restart→Resume→Pauseの表示と開始/終了を対で判定。BMIIDXはPauseがキー送信なので同契約への整合を別確認。次回方式予約・停止中も保持。 |
-| 15 | 一時試聴の入力元名衝突。入力元の既存兄弟 `chart_.bms` を見ずに改名し、初回試聴が失敗する。非上書きなので原データ破壊とは分類しない。 | 入力元と同相対先の双方で候補を確認して一回だけ非上書き移動。候補ごとの改名を削除。既存 `_` 命名・相対配置・元名復元・素材借用と主/cleanup失敗を保つ。 | `PlaybackPanelViewModelTests` で通常発見した複数譜面directory package、入力元だけ/両側複数/ディレクトリ占有。元・既存先bytes保全、開始後回収と再試聴。 |
-| 16 | 一時試聴の再開・再起動。初回回収後のLR2 Resume/Restart・BMIIDX Restartが回収済みパスを直接使う。 | 一時停止と一時名衝突の修正後、初回と再読込みを同じ一時配置所有処理へ統合。現在曲・実playerの必要文脈だけを保持し、選択や次回factoryから再解決しない。副作用前に必要Lを非待機取得、Busyは状態/process不変。開始・cleanup Taskを既存寿命へ接続。曲全体で一時物・Lを保持しない。 | 実保留→導入先編集→adapter＋fake processで各起動時のファイル存在/内容と再回収。別選択、次回方式予約、Busy、停止/終了も確認。命令列だけのfake playerで代用しない。 |
-| 17 | 範囲選択の主行通知漏れ。全選択後のShift操作で集合不変だと主行変更を通知せず、停止時ヘッダーが古い。 | 共通選択モデルの集合または主行の変化へ統一。player側補正や追加通知を作らず、同集合・同主行は無通知、基点・再生曲優先を維持。 | `CustomTableSelectionModelTests` と実接続でCtrl+A→Shift末尾/Down、主行変化一回通知、停止中表示更新、再生中現曲維持。現在セルの入力同期とは別に判定。 |
-| 18 | プロパティPage URL空欄。WPFの空文字→nullがsetterで失敗し、表示だけ空・旧値残存となる。 | nullによる明示解除と非null検証を区別し、無効入力を空へ読み替えない。一般・フォルダ・出力設定の全面作り直しはしない。 | 実ダイアログ→保存→再開で解除と不正入力、header/dataを含む保存経路を確認。限定Binding probeを通常編集session・DB保存の保証にしない。 |
-| 19 | 外部プログラム引数の二重引用符。`ExternalProgramArgumentTemplate` が引用符内のペアを反転だけで処理し、A"BをABにする。 | 現行Windows引用規則へtokenizerを揃える。空引数・placeholder後置換・単一引用符・backslash偶奇・不均衡拒否を維持。shell/生Argumentsへ切り替えない。 | `ExternalProgramArgumentTemplateTests` で `--label "A""B" "{filePath}"`、連続ペア、空、偶奇を独立token列で判定し、既存workflowの起動要求へ一例接続。 |
-| 20 | Updaterドライブルート正規化。`Program.cs` が絶対化前に末尾slashを落としてD:とし、作業場所基準で解決してready前に失敗する。 | 絶対化後にrootを保つ末尾整形、包含判定・URI基点を整合。書込み可能な既存root配置を拒否せず、ready/proceed・管理領域・長パス・UNC・reparse拒否・rollbackを維持。種類変更修正は任意。 | `UpdaterPackageSyncTests`、`UpdaterProcessGatewayTests` の実プロセス境界で隔離した仮想ドライブ等のroot配置→ready→適用/rollback。通常実ドライブ直下へ試験物を置かず、正規化単体だけで完了にしない。 |
-| 21 | 録音形式の偽表示。`EncoderIndex` getterが実行ファイル欠損時に保存値を変えずWAVEを返す。 | 常に保存済み形式を表示し、明示WAVE選択は通常保存。利用不能な別形式の警告・保存拒否、実変換時の既存代替規則は維持。 | 保存済みMP3・encoder欠損でもMP3表示。明示WAVEの保存/再表示/変換snapshot一致、別の利用不能形式拒否後も保存・表示一致。実設定ページの接続を確認。 |
-| 22 | 履歴プリセット確定名。ストアはTrimするがeditorへ未正規化名を戻し、次の編集・削除の照合が外れる。 | 確定する一件を正規化し、保存とeditorで同じ内容を使う。新ID・保存形式は不要。 | ` 練習 ` 保存後に再表示なしで対象変更・改名・削除、JSONと表示が同じ一件。取消・空名・重複名を維持。 |
-| 23 | 追加出力先の改名入力。setterの毎回TrimがPropertyChanged Bindingへ戻り、途中の空白を消す。 | 入力文字列は保持し、正規化は確定時だけ。保存経路整理とは独立したBinding修正。 | 実Bindingで `My`→`My `→`My Charts`、前後空白の確定時除去、空白名拒否、改名後の出力先・保存値・表参照一致。 |
-| 24 | 保留導入先の候補・配置文脈の旧path残存。確定DSTだけの参照抽出と旧候補を保持するMutationFactsでは祖先索引更新だけで直らない。 | 成功した改名/純移動の旧新pathを候補だけのentryとResourcePlacementへ反映し、候補順・未確定・警告・対象外と健康度を維持。削除・統合では影響する未確定候補・配置文脈を失効して明示再推定へ戻し、確定DSTは統合時に従来どおり統合先へ追従し、フォルダ全体削除時は物理削除成功範囲内だけ従来どおり解除する。自動確定/再推定や通常DST編集APIの横断副作用は追加しない。 | 実推定の保留を改名/別root移動→新候補選択し新pathへ確定。`BmsLibraryFolderRenameRefreshTests`、`BmsLibraryLibraryFileOperationsServiceTests`、`MainWindowPackageMaintenanceWpfTests.PendingEstimationAndCandidateEditingReachRealizedRowsWithRelatedEvidence`でDST空/確定、配下/共通prefix、順序/警告、統合先への確定DST追従、影響分だけの失効と明示再推定を確認。 |
-| 25 | 保護ファイルの計画内採番衝突。採番helperは実FSだけを見て後続通常宛先を奪い、後段の重複拒否で正常な導入が止まる。 | 短命な一物理計画で全通常宛先・譜面宛先・生成済み採番先を考慮する。既存suffix、同一内容省略と通常上書きを維持。処理済み名だけの予約や永続台帳は作らない。 | `BmsLibraryPackageInstallServiceTests` の実FS/DBで異内容readme.txt/readme(1).txtと既存readme.txt、両列挙順、複数suffix/採番名を確認。txt/bmx/pmx、同一内容省略、導入・重複統合の保持、所持追加・保留解除まで判定。現状の準備失敗を破損と扱わない。 |
-| 26 | 再起動後のBMT親MD5欠落。hydrateが生値を遅延保持する一方、Org_md5 getterとBMT projectionが未解決リストを直読する。 | 親MD5の公開読取りを一つの遅延解決へ揃え、backing fieldで再入を避ける。clone/JSONも同値にし、起動時全件展開・出力ごとのDB再読込みは追加しない。旧誤出力は既存exporterVersion/skip境界で一度再生成する。 | `BmtTableExportServiceTests` と実SQLite hydrateで保存→再読込み→事前getterなし→実gzipの親MD5を判定。SHA256のみ/MD5あり、単複数親/親なし、詳細表示有無、元DB保持、旧manifestから再生成→次回省略を確認。コース制約往復と版更新を直列調整。 |
-| 27 | 再生開始後の反復フォーカス。MainWindowの100ms×10復帰が後発の検索/編集を奪い、BlurやLostKeyboardFocus確定を起こす。 | 開始時の意図した復帰を保ち、成功後・後発明示入力・外部window移動・終了で古い短命要求を終える。無条件反復の削除を優先し、入力禁止・待機延長・永続状態や外部player固有復帰機能の拡充はしない。 | `MainWindowPlaybackWpfTests` と実検索/セル編集で開始→初回復帰→明示入力→後続callbackを制御し、focus・候補文字列・未確定状態の保持を確認。入力なし初回復帰、終了/再接続後無作用も確認。Contentを別hostへ移すfixtureだけで製品HWND/前面判定を代替しない。 |
-| 28 | フォルダ編集取消で表示Binding消失。EditableTextBlockのText SetValue/Escape/内部TextBox書戻しがOneWay DisplayNameを外し、recycling後に旧名を残す。 | 表示Bindingと短命な編集候補を分け、確定時だけ現在対象・候補を既存改名入口へ一度渡す。取消/対象交換は候補を捨てる。EditModeChangedとMainWindowの確定値取得、DPの開始/終端を同じ契約へ揃える。Escape一行だけの補正、DisplayName TwoWay化、仮想化無効化はしない。 | `MainWindowPlaylistWorkspaceWpfTests` の実ツリー/compiled部品で無変更Escape・変更Escape・正常確定。Aの選択/focusを外して実scrollで同一部品がCへ再利用されたこと、Binding・新DataContext・表示名・操作対象を一組で確認。取消は保存なし、確定は一回。 |
-| 29 | ready書込み中の公開。最終名へ直接書くwriterと存在直後のReadAllTextが共有違反になり正常な更新開始を失敗させる。 | 同currentの一時名へmarkerをflush/closeし、完成後に最終ready名へ公開する。既存decisionの公開契約へ揃え、内容・期限・proceed/cancel・失敗時アプリ存続を維持。 | `UpdaterProcessGatewayTests`、`UpdaterPackageSyncTests` で公開準備中は最終名なし、出現時はclose済みを実writer/readerの順序制御で確認。receipt後だけ終了準備し、未公開期限切れ・取消・本来の起動失敗時回収を維持。writer終了後から読むfixtureだけにしない。 |
-| 30 | 更新cleanupが所有中の同期lockを削除。journalなし・新版起動直後にUpdater/watchdogの排他保持と重なり誤Failed通知になる。 | update-transaction.lockを一時物回収から除外し、OpenOrCreateで再利用する既存寿命を維持。例外全体抑制・待機再試行は追加しない。 | `UpdateDownloadServiceTests.CleanupPreviousWorkDirectoryPreservesActiveUpdaterPayload` でjournalなし/実lock保持中もlock/current/receiptを保ち、古いdownloadを回収。ready受理→新版起動後cleanupの系列を接続し、破損とは断定しない。 |
+| 14 | 一時試聴の入力元名衝突。入力元の既存兄弟 `chart_.bms` を見ずに改名し、初回試聴が失敗する。通常開始の共通一時配置であり、内蔵再生も改名へ到達する。非上書きなので原データ破壊とは分類しない。 | 入力元と同相対先の双方で候補を確認して一回だけ非上書き移動。候補ごとの改名を削除。既存 `_` 命名・相対配置・元名復元・素材借用と主/cleanup失敗を保つ。外部固有の再開修正を前提にしない。 | `PlaybackPanelViewModelTests` で通常発見した複数譜面directory package、入力元だけ/両側複数/ディレクトリ占有。内蔵の通常開始を含め元・既存先bytes保全、開始後回収と再試聴。 |
+| 15 | 範囲選択の主行通知漏れ。全選択後のShift操作で集合不変だと主行変更を通知せず、停止時ヘッダーが古い。 | 共通選択モデルの集合または主行の変化へ統一。player側補正や追加通知を作らず、同集合・同主行は無通知、基点・再生曲優先を維持。 | `CustomTableSelectionModelTests` と実接続でCtrl+A→Shift末尾/Down、主行変化一回通知、停止中表示更新、再生中現曲維持。現在セルの入力同期とは別に判定。 |
+| 16 | プロパティPage URL空欄。WPFの空文字→nullがsetterで失敗し、表示だけ空・旧値残存となる。 | nullによる明示解除と非null検証を区別し、無効入力を空へ読み替えない。一般・フォルダ・出力設定の全面作り直しはしない。 | 実ダイアログ→保存→再開で解除と不正入力、header/dataを含む保存経路を確認。限定Binding probeを通常編集session・DB保存の保証にしない。 |
+| 17 | 外部プログラム引数の二重引用符。`ExternalProgramArgumentTemplate` が引用符内のペアを反転だけで処理し、A"BをABにする。 | 汎用の「プログラムから開く」の契約であり、外部3playerの再生専用起動とは区別して必須を維持する。現行Windows引用規則へtokenizerを揃える。空引数・placeholder後置換・単一引用符・backslash偶奇・不均衡拒否を維持。shell/生Argumentsへ切り替えない。 | `ExternalProgramArgumentTemplateTests` で `--label "A""B" "{filePath}"`、連続ペア、空、偶奇を独立token列で判定し、既存workflowの起動要求へ一例接続。 |
+| 18 | Updaterドライブルート正規化。`Program.cs` が絶対化前に末尾slashを落としてD:とし、作業場所基準で解決してready前に失敗する。 | 絶対化後にrootを保つ末尾整形、包含判定・URI基点を整合。書込み可能な既存root配置を拒否せず、ready/proceed・管理領域・長パス・UNC・reparse拒否・rollbackを維持。種類変更修正は任意。 | `UpdaterPackageSyncTests`、`UpdaterProcessGatewayTests` の実プロセス境界で隔離した仮想ドライブ等のroot配置→ready→適用/rollback。通常実ドライブ直下へ試験物を置かず、正規化単体だけで完了にしない。 |
+| 19 | 録音形式の偽表示。`EncoderIndex` getterが実行ファイル欠損時に保存値を変えずWAVEを返す。 | 常に保存済み形式を表示し、明示WAVE選択は通常保存。利用不能な別形式の警告・保存拒否、実変換時の既存代替規則は維持。 | 保存済みMP3・encoder欠損でもMP3表示。明示WAVEの保存/再表示/変換snapshot一致、別の利用不能形式拒否後も保存・表示一致。実設定ページの接続を確認。 |
+| 20 | 履歴プリセット確定名。ストアはTrimするがeditorへ未正規化名を戻し、次の編集・削除の照合が外れる。 | 確定する一件を正規化し、保存とeditorで同じ内容を使う。新ID・保存形式は不要。 | ` 練習 ` 保存後に再表示なしで対象変更・改名・削除、JSONと表示が同じ一件。取消・空名・重複名を維持。 |
+| 21 | 追加出力先の改名入力。setterの毎回TrimがPropertyChanged Bindingへ戻り、途中の空白を消す。 | 入力文字列は保持し、正規化は確定時だけ。保存経路整理とは独立したBinding修正。 | 実Bindingで `My`→`My `→`My Charts`、前後空白の確定時除去、空白名拒否、改名後の出力先・保存値・表参照一致。 |
+| 22 | 保留導入先の候補・配置文脈の旧path残存。確定DSTだけの参照抽出と旧候補を保持するMutationFactsでは祖先索引更新だけで直らない。 | 成功した改名/純移動の旧新pathを候補だけのentryとResourcePlacementへ反映し、候補順・未確定・警告・対象外と健康度を維持。削除・統合では影響する未確定候補・配置文脈を失効して明示再推定へ戻し、確定DSTは統合時に従来どおり統合先へ追従し、フォルダ全体削除時は物理削除成功範囲内だけ従来どおり解除する。自動確定/再推定や通常DST編集APIの横断副作用は追加しない。 | 実推定の保留を改名/別root移動→新候補選択し新pathへ確定。`BmsLibraryFolderRenameRefreshTests`、`BmsLibraryLibraryFileOperationsServiceTests`、`MainWindowPackageMaintenanceWpfTests.PendingEstimationAndCandidateEditingReachRealizedRowsWithRelatedEvidence`でDST空/確定、配下/共通prefix、順序/警告、統合先への確定DST追従、影響分だけの失効と明示再推定を確認。 |
+| 23 | 保護ファイルの計画内採番衝突。採番helperは実FSだけを見て後続通常宛先を奪い、後段の重複拒否で正常な導入が止まる。 | 短命な一物理計画で全通常宛先・譜面宛先・生成済み採番先を考慮する。既存suffix、同一内容省略と通常上書きを維持。処理済み名だけの予約や永続台帳は作らない。 | `BmsLibraryPackageInstallServiceTests` の実FS/DBで異内容readme.txt/readme(1).txtと既存readme.txt、両列挙順、複数suffix/採番名を確認。txt/bmx/pmx、同一内容省略、導入・重複統合の保持、所持追加・保留解除まで判定。現状の準備失敗を破損と扱わない。 |
+| 24 | 再起動後のBMT親MD5欠落。hydrateが生値を遅延保持する一方、Org_md5 getterとBMT projectionが未解決リストを直読する。 | 親MD5の公開読取りを一つの遅延解決へ揃え、backing fieldで再入を避ける。clone/JSONも同値にし、起動時全件展開・出力ごとのDB再読込みは追加しない。旧誤出力は既存exporterVersion/skip境界で一度再生成する。 | `BmtTableExportServiceTests` と実SQLite hydrateで保存→再読込み→事前getterなし→実gzipの親MD5を判定。SHA256のみ/MD5あり、単複数親/親なし、詳細表示有無、元DB保持、旧manifestから再生成→次回省略を確認。コース制約往復と版更新を直列調整。 |
+| 25 | 再生開始後の反復フォーカス。MainWindowの100ms×10復帰が後発の検索/編集を奪い、BlurやLostKeyboardFocus確定を起こす。内蔵のReady通知からも同じ画面・前面条件で到達する。 | 開始時の意図した復帰を保ち、成功後・後発明示入力・外部window移動・終了で古い短命要求を終える。無条件反復の削除を優先し、入力禁止・待機延長・永続状態や外部player固有復帰機能の拡充はしない。 | `MainWindowPlaybackWpfTests` と実検索/セル編集で内蔵開始→初回復帰→明示入力→後続callbackを制御し、focus・候補文字列・未確定状態の保持を確認。入力なし初回復帰、終了/再接続後無作用も確認。Contentを別hostへ移すfixtureだけで製品HWND/前面判定を代替しない。 |
+| 26 | フォルダ編集取消で表示Binding消失。EditableTextBlockのText SetValue/Escape/内部TextBox書戻しがOneWay DisplayNameを外し、recycling後に旧名を残す。 | 表示Bindingと短命な編集候補を分け、確定時だけ現在対象・候補を既存改名入口へ一度渡す。取消/対象交換は候補を捨てる。EditModeChangedとMainWindowの確定値取得、DPの開始/終端を同じ契約へ揃える。Escape一行だけの補正、DisplayName TwoWay化、仮想化無効化はしない。 | `MainWindowPlaylistWorkspaceWpfTests` の実ツリー/compiled部品で無変更Escape・変更Escape・正常確定。Aの選択/focusを外して実scrollで同一部品がCへ再利用されたこと、Binding・新DataContext・表示名・操作対象を一組で確認。取消は保存なし、確定は一回。 |
+| 27 | ready書込み中の公開。最終名へ直接書くwriterと存在直後のReadAllTextが共有違反になり正常な更新開始を失敗させる。 | 同currentの一時名へmarkerをflush/closeし、完成後に最終ready名へ公開する。既存decisionの公開契約へ揃え、内容・期限・proceed/cancel・失敗時アプリ存続を維持。 | `UpdaterProcessGatewayTests`、`UpdaterPackageSyncTests` で公開準備中は最終名なし、出現時はclose済みを実writer/readerの順序制御で確認。receipt後だけ終了準備し、未公開期限切れ・取消・本来の起動失敗時回収を維持。writer終了後から読むfixtureだけにしない。 |
+| 28 | 更新cleanupが所有中の同期lockを削除。journalなし・新版起動直後にUpdater/watchdogの排他保持と重なり誤Failed通知になる。 | update-transaction.lockを一時物回収から除外し、OpenOrCreateで再利用する既存寿命を維持。例外全体抑制・待機再試行は追加しない。 | `UpdateDownloadServiceTests.CleanupPreviousWorkDirectoryPreservesActiveUpdaterPayload` でjournalなし/実lock保持中もlock/current/receiptを保ち、古いdownloadを回収。ready受理→新版起動後cleanupの系列を接続し、破損とは断定しない。 |
 
 ## 数値・日時の地域非依存契約
 
 数値・日時統一はBMS、JSON・DB・設定、数値セル、一覧の文字列表示、検索・整列、機械出力を対象とする。同じ文字列入力・保存値の意味をOS地域と翻訳言語に依存させない。現行の装飾抽出・地域セル入力・不正日時でも行を保持する保証は、以下の明示変更を維持する条件としない。実装時は[一覧](../spec/ui/table-view.md)、[保存と出力](../spec/playlist/storage-and-export.md)、[設定の保存](../spec/runtime/settings-persistence.md)、[音声](../spec/runtime/audio.md)など該当正本・既存期待値を一緒に更新する。本計画の統合時点で製品へ適用済みとは扱わない。
+
+外部3playerの試聴専用INI/XMLの数値入口・往復は[任意の地域非依存化](release-follow-up-candidates.md#試聴専用設定の数値文字列)へ分離する。LR2Configの共通整数読取りから表・環境設定へ渡す値、通常音声変換のBMSAutoPlayWriterのBPMとEncoderQuality・録音設定、汎用Web/プログラム名の日時風文字列、BMT/BeatorajaConfig/IRは本単位に残す。共通処理の修正を外部playerにも使うことだけを理由に戻したり分離したりしない。
 
 ### 共通の形式と型
 
@@ -98,7 +99,7 @@ Functionalは全WT同時一件とし、別WTのQuickと必要ビルドは並行�
 | JSON数値・任意文字列 | 数値はnumber/nullのまま扱う。任意の名前・タイトル・式を日時へ自動推測しない。DOM/文字列設定readerはDateParseHandling.Noneを基本に日時欄だけ明示解析し、型付きDateTime DTOの正常読戻しまで一律無効化しない。 |
 | DB・設定 | 数値のINTEGER/REAL/NULL、日時のticks等と型付きパラメーターを維持。地域推測の文字列fallbackを除き、必要な固定旧形式を明示する。型付き設定シリアライズとSQLite quote()のバックアップを保ち、数値風TEXTの型を変えない。 |
 | 時刻の意味 | 日付、ローカル壁時計、絶対時刻を区別して既存意味を保つ。UTC一括変換や壁時計へのZ付与はしない。明示offsetを受ける境界は既存時刻帯契約への変換を明示する。 |
-| 文化圏と機械出力 | CurrentCulture/DefaultThreadCurrentCultureを全体固定しない。既存parser/formatter/converterの変換境界へInvariantと形式を集約し、型付き経路に文字列を挟まない。翻訳・初回言語判定を維持し、OS文化の退避状態・独自Culture設定を増やさない。保存/検索式/ハッシュ入力/外部引数/管理名/Updaterプロトコルも呼出しスレッドに依存させない。 |
+| 文化圏と機械出力 | CurrentCulture/DefaultThreadCurrentCultureを全体固定しない。既存parser/formatter/converterの変換境界へInvariantと形式を集約し、型付き経路に文字列を挟まない。翻訳・初回言語判定を維持し、OS文化の退避状態・独自Culture設定を増やさない。保存/検索式/ハッシュ入力/汎用プログラム引数/管理名/Updaterプロトコルも呼出しスレッドに依存させない。試聴専用INI/XMLの受入確認は任意側で扱う。 |
 
 日付separatorを目的なく変更して既存の固定検索式へ波及させず、共通表示をコピーした値も同じ意味で検索できるようにする。名称・パス・識別子の比較は別契約として維持する。詳細解析のJava互換数値、厳密な有理数、BMSONの生の数値字句、既存の精度・特殊値・互換文法を保持する。BMSの桁区切りを含む従来en-US相当の受理範囲はCulture固定と別判断であり、一律拒否へ変えない。
 
@@ -136,7 +137,7 @@ DatePickerは標準Calendar、読取り専用Text、既存ResourceService.Displa
 | BMS | 同一bytesでBPM/TOTAL/PLAYLEVEL/STOP/小節長/イベント時刻が一致。RibbitBmsFileTimingTestsの地域別入力期待を同一入力へ更新し、文法・精度・特殊値は保つ。 |
 | 数値セル・外部level | PlaylistEntryCommitTests、MainWindowPlaylistWorkspaceWpfTests、PlaylistUrlCompletionTestsとBMSTableLoadTestsで、1.5表示→F2→無変更Enter、2.5/-1.5/1e3、Escape/空欄/装飾/カンマを実セルから新DB接続・再表示・JSON往復まで確認。外部ラベルとorg_levelの型/優先を別に判定する。 |
 | JSON日時・任意文字列 | BMSTableLoadTestsで異文化読込→保存→再読込→出力の数値/nullと日時7桁を保持。不適合非空日時で操作全体の保存前停止・旧状態保持、訂正後成功、空/null/省略許容を確認。右クリック設定実保存とBmtTableExportServiceTestsの実gzip往復で日時風の名前を保持する。 |
-| DB・設定・機械出力 | 実repository/provider/バックアップで値/NULL/ticksと数値風TEXTの型を保持し、設定の小数・ChartString/charthash・外部引数・管理名・更新protocolが一致。不要なスキーマ変更と全体Culture固定がない。 |
+| DB・設定・機械出力 | 実repository/provider/バックアップで値/NULL/ticksと数値風TEXTの型を保持し、設定の小数・ChartString/charthash・汎用プログラム引数・管理名・更新protocolが一致。LR2表・環境側の共通整数読取りと通常音声変換のBPM/品質は残し、試聴専用INI/XMLの条件を必須完了に含めない。不要なスキーマ変更と全体Culture固定がない。 |
 | 表示・検索・整列 | 編集初期値の無変更確定で値が変わらず、表示した数値/日時を同じ意味で検索し、1.5と2等の自然順が一定。既存固定日付検索式と壁時計意味を保つ。 |
 | 型付きピッカー | PlaylistLampViewerWindowPresentationTestsの実部品で地域表示差を許し、同じ日が同じ型付き値/集計条件へ届く。言語変更・LostFocus・Popup開閉・再有効化/再テンプレートで選択日・表示月・表示モード・取得要求が変わらず読取り専用も保つ。既存地域表示期待を一律Invariantへ変えない。 |
 
@@ -147,7 +148,7 @@ DatePickerは標準Calendar、読取り専用Text、既存ResourceService.Displa
 | 設定・保存・セル | [設定](../spec/runtime/settings.md)、[設定の保存](../spec/runtime/settings-persistence.md)、[一覧](../spec/ui/table-view.md)、[保存と出力](../spec/playlist/storage-and-export.md)。設定ViewModel/Windowへの書込みは直列。数値・日時の将来契約は上記横断単位へ揃え、外部ラベル抽出と数値セル全体解析を分ける。score・BMTの失敗契約はそれぞれ独立。 |
 | 物理変更・資源・推定 | [ライブラリ変更](../spec/library/mutations.md)、[整合性](../spec/library/file-db-consistency.md)、[重複](../spec/library/duplicate-files.md)、[導入](../spec/library/drop-install.md)、[推定](../spec/library/install-estimation.md)、[性能](../spec/core/performance-and-scale.md)。保留参照の成功factsが使う共有パスの変更は直列化する。発見済み子の推定は導入経路で扱う。 |
 | 表・URL・履歴 | [取得](../spec/playlist/downloads.md)、[Table URL取込み](../spec/playlist/table-url-import.md)、[BMT](../spec/playlist/bmt-export.md)、[LR2出力](../spec/playlist/lr2-custom-folders.md)、[履歴](../spec/playlist/play-history.md)。URL比較の共有とcache・取得所有者の結合は別判断。BMT混在名、推薦MEMO、本人IR存廃は任意。 |
-| 再生・画面・外部起動 | [再生パネル](../spec/ui/playback-panel.md)、[一覧](../spec/ui/table-view.md)、[外部起動](../spec/ui/external-launch.md)。PAUSE中の起動要否・候補名決定・再開始は実共有依存だけを直列にして共通ownerへ接続。右クリックと範囲選択の原因を区別。 |
+| 再生・画面・外部起動 | [再生パネル](../spec/ui/playback-panel.md)、[一覧](../spec/ui/table-view.md)、[外部起動](../spec/ui/external-launch.md)。共通の一時配置・回収、内蔵にも届くフォーカス、範囲選択と汎用起動を扱う。外部固有のPause・再開始は任意側に分け、共通修正の前提にしない。右クリックと範囲選択の原因を区別。 |
 | 更新 | [ポータブル更新](../spec/integration/portable-update.md)。root正規化、ready完成後公開、同期lock保持を別原因の必須単位とし、管理file→directory遷移の実装は混ぜない。 |
 
 Linux上の抽出索引コードの計測は、Windowsの製品bridge・DB/UIの完了時間の非退行を保証しない。通常入力と正規キーが増える入力の仕事量・完了時間を分け、未測定の条件は制約として明記する。恣意的な許容率や無関係な全体ベンチマークを追加しない。

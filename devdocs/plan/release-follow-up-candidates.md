@@ -4,6 +4,8 @@
 
 [リリース前の必須修正](release-blocking-fixes.md)と独立して、必要になった時点で採否を判断する未完了事項をまとめる。以下はいずれも今回は実装せず、未実装をリリース阻害要因にしない。着手時に通常入口と既存テストを再確認し、解消済みの課題を再実装しない。
 
+LR2/uBMplay/BMIIDXView2015の試聴・再生固有の問題は、既存の必須項目と今後の新規発見を含め任意改善とする。表出力・BMT・成績連携と内蔵・共通処理は既存分類を維持し、共有修正の効果が外部playerにも及ぶことだけを理由に任意へ移さない。分類は未完了計画の採否を扱い、統合済みコードを戻すものではない。
+
 既存候補に加え、BMTの混在prefixフォルダ名、Updaterの管理fileからdirectoryへの遷移は、利用者が今回は任意へ移すと明示した。推薦表のMEMO引継ぎ、外部変更の通常利用前提、検索提示の言語追従も任意区分を維持する。調査提案の「推奨」を実装承認と扱わない。
 
 追加項目は `dev` の `8c53fc9b` と作業差分を静的に照合した。処理経路・処理量と実再現・性能測定を区別し、本計画の統合で製品テスト・実サービス接続・実アプリ操作を実施したとは扱わない。採否に必要な未決事項は各項目に残す。追加の手動文字コード保持、空名フォルダへのドロップ、履歴ハッシュコピー、再生位置操作、TSV空行、手動順位cache終了寿命、ドラッグ件数表示、早送り/巻戻し終端の8件も利用者が任意に分類した。`5d499a91` まで必要経路を静的に照合し、既存候補と別原因であることを確認した。分類だけで各修正案・受入例を採用契約へ昇格させず、具体的な未決動作は将来の採用条件として残す。
@@ -154,9 +156,54 @@ MD5不明時はMD5操作を非表示にしSHA256操作を保つ方針は、将�
 
 再現時には同ケースの通知本文・見出し・生産stack・発生段階・shutdown/CloseCompletion診断を使い、取消通知と別の終了通知を区別して生産経路を特定する。期待値、終了取消の無通知契約、受付・終了処理を根拠なく変えない。これは再現条件を調べる項目であり、解決済みとは扱わない。
 
+## 外部プレイヤー固有の試聴・再生
+
+先頭戻し・再開/再起動と試聴専用の数値境界を必須修正から分離し、停止完了後Restartの候補も本節にまとめる。通常入口の静的到達、将来採用時の方針と検証案を保持するもので、製品実装・自動テスト成功・実機再現を意味しない。共通の入力元名衝突と内蔵にも届く反復フォーカスは[必須計画](release-blocking-fixes.md)に残す。必須側の着手に本節の完了を要求しない。
+
+### 一時停止中の先頭戻し
+
+[LR2body.RestartPlayingBMSfile](../../BeMusicSeeker/Models/LR2/LR2body.cs)はprocessを開始する一方、[PlaybackPanelViewModel](../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs)の表示はPAUSEのままで、次の操作と実再生が逆転する。BMIIDXはPauseをENTERキーで送るため、同じ利用者動作への整合を別に確認する。内蔵のPause/Restartは既存engineの停止状態と再生位置を操作し、このpath再起動とは区別する。
+
+将来採用する場合は、利用者が回答した次の方針を使う。Pause中の先頭戻しはPauseを維持し、次の明示再生で現在曲の先頭から開始する。LR2のpaused Restartではprocessを開始しない。再生中Restart、現在曲・実player・既存callback/終了順と次回方式予約の非消費を保ち、別の選択行から再解決しない。
+
+| BMIIDXの先頭再開で失敗する段階 | 将来採用時の結果と次操作 |
+| --- | --- |
+| INI準備失敗 | 旧processの一時停止、現在曲、PAUSEと先頭再開位置を保ち、旧processの再開・終了や新process開始をせず、元原因を既存経路で一回通知する。原因解消だけでは自動再試行せず、次の明示Resumeで同曲先頭の起動を試みる。 |
+| 旧process終了後の起動失敗 | 既存startup契約で今回の開始途中processを回収し、NONE・現在曲解除・停止へ収束する。元原因を一回通知し、自動再開・次曲送りを行わない。次の明示Playは通常の停止状態から現在の選択対象を使う。 |
+
+実装候補は、現在曲のPauseと先頭再開位置を既存adapterへ統合し、限定した先頭Resumeの成功後にpanel表示を採用する。準備前にその位置を捨てず、旧processを失ったかは同一呼出しの実採用点で扱う。一般Pause、共有Stop・世代・Task寿命の保証へ広げず、大きな状態機械・全曲履歴・修復要求・独自予約・自動巻戻しを追加しない。BMIIDXの早送り/巻戻しEndで使う既存ENTER送信と、明示Pauseの状態更新は区別し、送信列を保つ。
+
+判定案は実LR2/BMIIDX adapter＋process/window代替とpanelを接続した `Start→Pause→Restart→Resume→Pause` とする。表示・現在曲と実Start/終了を対で確認し、playing Restart、別選択と次回方式非消費も代表フローへ分担する。BMIIDXは実INI公開失敗→PAUSE保持→次の明示Resume成功、および旧process終了→起動失敗→停止→別行の通常Play成功で、元原因の一通知と自動次曲なしを確認する。`PlaybackPanelViewModelTests` を上位接続、`ExternalPlayerProcessGatewayTests` をINI保全・startup cleanupへ分担し、fake playerの命令列だけで代用しない。FF/BW End後にplaying Restart→Pauseを行う代表で、Pause情報の誤反転も識別する。
+
+### 一時試聴の再開・再起動
+
+初回一時配置の回収後、LR2のResume/RestartとBMIIDXのRestartが保持した回収済みpathを直接再投入する。[LR2body](../../BeMusicSeeker/Models/LR2/LR2body.cs)と[BMIIDXView2015](../../BeMusicSeeker/Models/Playback/BMIIDXView2015.cs)の再読込み経路の問題であり、内蔵Pauseは既存engineのPause、Restartは既存CurrentTimeの先頭移動でpathを読み直さない。uBMplayのHOME/KEY0に同じ原因があることは未確認であり、一括断定しない。
+
+将来採用する場合は、上記の一時停止と共通の入力元名衝突の確定版へ合流し、初回と再読込みを同じ一時配置所有処理へ統合する。現在曲・実playerの必要文脈だけを保持し、選択や次回factoryから再解決しない。副作用前に必要Lを非待機取得し、Busyでは状態/processを保つ。開始・cleanup Taskを既存寿命へ接続し、曲全体で一時物・Lを保持しない。
+
+判定案は実保留→導入先編集→実adapter＋process代替とし、各起動時のファイル存在/内容と再回収を確認する。別選択、次回方式予約、Busy、停止/終了も同じ `PlaybackPanelViewModelTests` 系列へ分担し、命令列だけのfake playerで代用しない。
+
+### 試聴専用設定の数値文字列
+
+[必須の数値・日時統一](release-blocking-fixes.md#数値日時の地域非依存契約)から、外部3playerの試聴専用INI/XMLの数値入口・往復だけを分離する。改善・調査候補であり、未実装・実症状未検証の箇所を一律に不具合と断定しない。
+
+| 専用境界 | 将来採用時の確認起点 |
+| --- | --- |
+| uBMplayの一時INI Volume | `uBMplay`の試聴用音量書出しと`UbmplaySettingsTests`。既存の値域、無関係値・bytes保全、補完/復元の契約を維持して実INIを観測する。 |
+| BMIIDXView2015の一時INI BMSVOLUME | `BMIIDXView2015`の試聴用音量書出しと`ExternalPlayerProcessGatewayTests`の実INI。準備失敗時の旧process/bytes保全も既存保証へ分担する。 |
+| LR2 preview XMLの専用数値 | `LR2Config`のwindow size/screenmode/master volume/volumeflagのpreview数値入口とwindow/master往復。`LR2ConfigTests`と`Lr2PreviewOwnerTests`等の既存境界を起点に、試聴五項目と通常値・復元を区別する。 |
+
+LR2Configの共通整数読取りはcustomfolder/titleflash/autoreloadから表・環境設定へ届くため必須側に残す。BMSAutoPlayWriterの通常音声変換BPM、EncoderQualityの精度と録音設定、汎用Web/プログラム名の日時風文字列、BMT/BeatorajaConfig/IRも必須分類を維持する。共有成果を戻さず、専用部分の採否と既存受入の追加範囲だけを別に判断する。
+
+### 停止完了後のLR2先頭戻し
+
+通常の `Start→Pause→Stop(closeProcess:true)` 完了後、[前曲ボタンの単クリック](../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml.cs)は遅延して `RestartCommand` を呼ぶ。保持された旧pathをLR2が再起動する一方、panel表示はNONEのままになる経路を静的に確認した。実機再現は未実施であり、利用者は今回は変更せず別課題として残すと回答した。
+
+将来採用時に停止完了後の先頭戻しを無作用にするか判断する。現在曲のない停止完了と、開始済み読込み・Busy・終了受付を区別し、全操作の新しい禁止や修復状態へ広げない。実LR2 adapterとprocess代替による上記操作順で実開始と停止表示を対にして判定する。
+
 ## 一時停止中の再生位置操作
 
-[再生位置sliderのUp/Leave](../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml.cs)は、操作前の状態にかかわらず現在 `IsPaused` なら `StartCommand` のtoggleを追加する。内蔵音声を明示Pauseしてからクリック/ドラッグするとPLAYへ戻る。[音声仕様](../spec/runtime/audio.md)のSeek自体の状態保持だけでは、Viewの再開意図を確定できない。必須の一時停止中Restartとは別操作である。
+[再生位置sliderのUp/Leave](../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml.cs)は、操作前の状態にかかわらず現在 `IsPaused` なら `StartCommand` のtoggleを追加する。内蔵音声を明示Pauseしてからクリック/ドラッグするとPLAYへ戻る。[音声仕様](../spec/runtime/audio.md)のSeek自体の状態保持だけでは、Viewの再開意図を確定できない。[外部playerの一時停止中Restart](#一時停止中の先頭戻し)とは別操作である。
 
 現行再開を仕様化するか、操作前Pauseを維持するかは未決とし、将来採用時に判断する。Pause保持を採る場合だけ、一回の短命なgestureが自ら開始したPauseの再開を所有する案とする。background commandの完了順と、取消・曲/画面切替後の古いgestureも同じ寿命で扱う。音声engine、外部Restart、永続状態、全再生共通の新状態機械は対象外。
 
