@@ -72,7 +72,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 .Collection.CreateDuplicateChartRowSnapshot();
             RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.DuplicateFilterSelected, keyword);
             request.Library = fixture.Library;
-            request.TreeParameter = DuplicateViewContext.ForGroup(header);
+            request.TreeParameter = DuplicateViewContext.CaptureGroup(group);
             Assert.IsTrue(fixture.Owner.ApplyRegularView(request).WasCommitted);
             ChartListVirtualView view = fixture.View;
             LibraryChartRow? displayedTarget = keyword == "日本語" ? null : (LibraryChartRow)view[view.Count - 1];
@@ -140,7 +140,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             Assert.AreEqual("Alpha 日本語 title", ((LibraryChartRow)fixture.View[0]).Title, "同じ検索結果の再選択で旧値を戻しません。");
             if (keyword.Length > 0) { return; }
 
-            Assert.IsTrue(RegularChartListOwner.TryResolveDuplicateSource([group], DuplicateViewContext.ForGroup(header), out RegularChartListSubsetSource source));
+            Assert.IsTrue(RegularChartListOwner.TryResolveDuplicateSource([group], DuplicateViewContext.CaptureGroup(group), out RegularChartListSubsetSource source));
             Assert.IsTrue(fixture.Owner.TryApplyVirtualChartSubset(new()
             {
                 Library = fixture.Library,

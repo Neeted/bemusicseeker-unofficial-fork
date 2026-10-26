@@ -2,7 +2,7 @@
 
 ## 目的と採用範囲
 
-通常の入力・操作で到達する保存、導入、一覧、再生、出力の不整合を解消する。本書は採用済みの修正対象と、既存の採用契約・未完了の実装・検証を扱う。対象は9件、実装の単位は下表の9単位とする。[任意改善](release-follow-up-candidates.md)は今回実装せず、リリース完了条件に含めない。
+通常の入力・操作で到達する保存、導入、一覧、再生、出力の不整合を解消する。本書は採用済みの修正対象と、既存の採用契約・未完了の実装・検証を扱う。対象は8件、実装の単位は下表の8単位とする。[任意改善](release-follow-up-candidates.md)は今回実装せず、リリース完了条件に含めない。
 
 追加指摘は `dev` の `8c53fc9b` とLR2出力簡素化の作業差分を照合した静的調査を根拠とする。既存対象も含め、通常経路の確認を実再現・テスト成功と読み替えない。着手時に最新のコードと既存差分を確認し、解消済みの課題を再実装しない。LR2出力設定の保存・生成の契約は[設定の保存](../spec/runtime/settings-persistence.md)と[LR2カスタムフォルダ](../spec/playlist/lr2-custom-folders.md)を参照する。
 
@@ -21,9 +21,7 @@
 
 ## ライブラリ操作で採用する契約
 
-### 重複グループの選択と移動要求
-
-手動選択と整理後の自動選択は、現在の検索結果内で一意な所属フォルダによる短命な識別へ揃える。二フォルダ統合・同一フォルダ整理は操作前に捕捉した次のグループ、三フォルダ以上の統合は存続グループを選ぶ。同名・空名でも取り違えず、対象消失は空結果とする。明示した重複ルートだけが全件を表示し、フォルダ単位選択との区別を保つ。見出しの最初の一致という旧経路、永続ID・選択永続化・追加の全件再検索は残さない。
+### 初回重複解析後の移動要求
 
 初回重複解析中も許可される後発の画面移動を優先する。入力受付から表示採用まで同じ短命な要求識別を使い、古い画面切替と解析途中のsummary解除等の表示副作用を採用しない。必要なcache構築・catalog通知は完了させる。既存の一覧要求識別・取消を利用できる境界を確認し、画面移動をBusyで新規禁止する案は採らない。
 
@@ -37,7 +35,7 @@
 
 | 作業群 | 直列に保つ順序・合流 | 並行できる範囲 |
 | --- | --- | --- |
-| 重複一覧・選択 | 重複の所属識別→初回解析後の古い画面切替は同じ通知・選択契約で順次扱う。範囲選択主行は現行のマウス入力・現在セル契約を保って扱う。 | 重複保守の共有境界を取り込んだ後、独立した表取得等と並行できる。 |
+| 重複一覧・選択 | 初回解析後の古い画面切替は現行の所属識別を維持し、同じ通知・選択契約で扱う。範囲選択主行は現行のマウス入力・現在セル契約を保って扱う。 | 重複保守の共有境界を取り込んだ後、独立した表取得等と並行できる。 |
 | URL・表の値と出力 | 転送後相対参照、JSON出力、推薦prefix、名前なしsort、プロパティURL解除は、共通の表/URI正本やhelperの変更有無を確認して分ける。保存済み所属の追加・移動を先行し、同じentry/exporterを変更する単位は直列調整する。生成意味を変える単位では既存exporterVersionを必要に応じ更新し、最終版で旧生成物を一度再生成した後は未変更skipを維持する。 | 取得の実体比較・保存名判定と補完比較は別責務であり、共有境界を変更しない範囲で並行できる。同じ表の正本・保存APIまで広げる場合は同じ作業群へ戻す。 |
 | 再生・成績・設定 | PlaybackPanelViewModelの共有gate・停止・世代契約と書込みを直列にする。管理入力回収で使う停止・joinは[ライブラリ変更](../spec/library/mutations.md#保留目録の解除と管理入力の回収)の現行契約を維持する。追加出力先の改名入力はSettings責務に閉じて扱う。 | 外部固有の再開処理は[任意候補](release-follow-up-candidates.md#外部プレイヤー固有の試聴再生)として別に採否を判断し、同じownerへ書き込む場合だけ直列にする。 |
 | ツリー編集 | EditableTextBlockの候補/終端とMainWindowの確定値取得を一単位にする。 | 他の表・検索部品と同名の概念だけでは結合しない。任意の更新通知翻訳を採る場合もMainWindowの一writerへ合流する。 |
@@ -51,15 +49,14 @@ Functionalは全WT同時一件とし、別WTのQuickと必要ビルドは並行�
 
 | 単位 | 修正対象・根拠 | 採用する境界・対象外 | 完了を判定する代表ケース・既存検証の起点 |
 | --- | --- | --- | --- |
-| 1 | 重複グループの選択識別。見出しは一意でなく、`NormalizeDuplicateViewParameter` と `TryResolveDuplicateSource` が最初の一致・全件へ広げる。 | 上記の手動・自動選択契約へ統一。物理削除先まで誤ることは未確認。 | 同名・空名、未解決、明示root、二フォルダ/同一フォルダ整理後の次対象、三以上の存続対象を通常重複操作で判定。 |
-| 2 | 初回重複解析後の古い画面切替。`RegularChartListOwner` のTask完了が後発移動後も元modeを通知する。 | 上記の最終受付優先。重複グループの識別と同じ通知経路を直列で扱い、F01の選択維持へ広げない。 | `RegularChartNavigationTests` 等で受付→別移動→解析完了を順序制御。通常/保守/導入/履歴/playlistの最終mode・parameter・行・左選択を保ち、cacheと必須通知は完了。時間待ちだけで再現しない。 |
-| 3 | 外部表の転送後相対参照。`PlaylistExternalSyncOwner.GetExternalContentAsync` が最終応答URIを捨てる。 | 取得した各文書の実URIへ相対header/data/entryを解決し、返却表・保存後・公開data基準を揃える。利用者の同期元は一時転送先へ置換しない。回数・制限・取消・解放・失敗時既存表保持を維持。 | slash補完転送・header転送から実dataとentry URLへ到達し、DB再読込み後も同じ意味。リダイレクト後の取得名とHTTP基盤を共有しても別単位。 |
-| 4 | 内蔵推薦表の保存済みprefix。生成内容が変わるリロードで属性だけを戻し、実folder・明示順は無修飾のまま保存する。 | 未修飾の生成hashを保ち、保存済みprefixを完成folder・順序へ一度投影。共通変換を使い、setter全域副作用・fingerprint拡張・推薦専用MEMO引継ぎは作らない。 | `PlaylistRecommendedTableOwnerTests` で異なる既存A/Bスコア→設定切替→生成hash差のあるリロード→実所属・順序・DB・必要出力。同一入力時の不要保存抑制。 |
-| 5 | LR2名前なし所属のsort範囲。抽出は空文字を所属指定とし、sortは空白判定でALLへ広げる。 | ALL=null、名前なし=空文字をsortでも揃える。受理済み空白名を改名・拒否しない。ALLの代表値・スキーマ・索引・ランダム規則は変えない。 | `BmsPlaylistCustomFolderOutputTests` で同hashの名前なし/別所属へ異なるlevel/adddate。実出力#COMMANDをSQLiteへ適用しLEVEL/ADDDATE両方向と別所属除外。設定保存とは独立したSQL出力の修正。 |
-| 6 | プロパティPage URL空欄。WPFの空文字→nullがsetterで失敗し、表示だけ空・旧値残存となる。 | nullによる明示解除と非null検証を区別し、無効入力を空へ読み替えない。一般・フォルダ・出力設定の全面作り直しはしない。 | 実ダイアログ→保存→再開で解除と不正入力、header/dataを含む保存経路を確認。限定Binding probeを通常編集session・DB保存の保証にしない。 |
-| 7 | 追加出力先の改名入力。setterの毎回TrimがPropertyChanged Bindingへ戻り、途中の空白を消す。 | 入力文字列は保持し、正規化は確定時だけ。保存経路整理とは独立したBinding修正。 | 実Bindingで `My`→`My `→`My Charts`、前後空白の確定時除去、空白名拒否、改名後の出力先・保存値・表参照一致。 |
-| 8 | フォルダ編集取消で表示Binding消失。EditableTextBlockのText SetValue/Escape/内部TextBox書戻しがOneWay DisplayNameを外し、recycling後に旧名を残す。 | 表示Bindingと短命な編集候補を分け、確定時だけ現在対象・候補を既存改名入口へ一度渡す。取消/対象交換は候補を捨てる。EditModeChangedとMainWindowの確定値取得、DPの開始/終端を同じ契約へ揃える。Escape一行だけの補正、DisplayName TwoWay化、仮想化無効化はしない。 | `MainWindowPlaylistWorkspaceWpfTests` の実ツリー/compiled部品で無変更Escape・変更Escape・正常確定。Aの選択/focusを外して実scrollで同一部品がCへ再利用されたこと、Binding・新DataContext・表示名・操作対象を一組で確認。取消は保存なし、確定は一回。 |
-| 9 | 更新cleanupが所有中の同期lockを削除。journalなし・新版起動直後にUpdater/watchdogの排他保持と重なり誤Failed通知になる。 | update-transaction.lockを一時物回収から除外し、OpenOrCreateで再利用する既存寿命を維持。例外全体抑制・待機再試行は追加しない。 | `UpdateDownloadServiceTests.CleanupPreviousWorkDirectoryPreservesActiveUpdaterPayload` でjournalなし/実lock保持中もlock/current/receiptを保ち、古いdownloadを回収。ready受理→新版起動後cleanupの系列を接続し、破損とは断定しない。 |
+| 1 | 初回重複解析後の古い画面切替。`RegularChartListOwner` のTask完了が後発移動後も元modeを通知する。 | 上記の最終受付優先。現行の所属識別と同じ通知経路で扱い、F01の選択維持へ広げない。 | `RegularChartNavigationTests` 等で受付→別移動→解析完了を順序制御。通常/保守/導入/履歴/playlistの最終mode・parameter・行・左選択を保ち、cacheと必須通知は完了。時間待ちだけで再現しない。 |
+| 2 | 外部表の転送後相対参照。`PlaylistExternalSyncOwner.GetExternalContentAsync` が最終応答URIを捨てる。 | 取得した各文書の実URIへ相対header/data/entryを解決し、返却表・保存後・公開data基準を揃える。利用者の同期元は一時転送先へ置換しない。回数・制限・取消・解放・失敗時既存表保持を維持。 | slash補完転送・header転送から実dataとentry URLへ到達し、DB再読込み後も同じ意味。リダイレクト後の取得名とHTTP基盤を共有しても別単位。 |
+| 3 | 内蔵推薦表の保存済みprefix。生成内容が変わるリロードで属性だけを戻し、実folder・明示順は無修飾のまま保存する。 | 未修飾の生成hashを保ち、保存済みprefixを完成folder・順序へ一度投影。共通変換を使い、setter全域副作用・fingerprint拡張・推薦専用MEMO引継ぎは作らない。 | `PlaylistRecommendedTableOwnerTests` で異なる既存A/Bスコア→設定切替→生成hash差のあるリロード→実所属・順序・DB・必要出力。同一入力時の不要保存抑制。 |
+| 4 | LR2名前なし所属のsort範囲。抽出は空文字を所属指定とし、sortは空白判定でALLへ広げる。 | ALL=null、名前なし=空文字をsortでも揃える。受理済み空白名を改名・拒否しない。ALLの代表値・スキーマ・索引・ランダム規則は変えない。 | `BmsPlaylistCustomFolderOutputTests` で同hashの名前なし/別所属へ異なるlevel/adddate。実出力#COMMANDをSQLiteへ適用しLEVEL/ADDDATE両方向と別所属除外。設定保存とは独立したSQL出力の修正。 |
+| 5 | プロパティPage URL空欄。WPFの空文字→nullがsetterで失敗し、表示だけ空・旧値残存となる。 | nullによる明示解除と非null検証を区別し、無効入力を空へ読み替えない。一般・フォルダ・出力設定の全面作り直しはしない。 | 実ダイアログ→保存→再開で解除と不正入力、header/dataを含む保存経路を確認。限定Binding probeを通常編集session・DB保存の保証にしない。 |
+| 6 | 追加出力先の改名入力。setterの毎回TrimがPropertyChanged Bindingへ戻り、途中の空白を消す。 | 入力文字列は保持し、正規化は確定時だけ。保存経路整理とは独立したBinding修正。 | 実Bindingで `My`→`My `→`My Charts`、前後空白の確定時除去、空白名拒否、改名後の出力先・保存値・表参照一致。 |
+| 7 | フォルダ編集取消で表示Binding消失。EditableTextBlockのText SetValue/Escape/内部TextBox書戻しがOneWay DisplayNameを外し、recycling後に旧名を残す。 | 表示Bindingと短命な編集候補を分け、確定時だけ現在対象・候補を既存改名入口へ一度渡す。取消/対象交換は候補を捨てる。EditModeChangedとMainWindowの確定値取得、DPの開始/終端を同じ契約へ揃える。Escape一行だけの補正、DisplayName TwoWay化、仮想化無効化はしない。 | `MainWindowPlaylistWorkspaceWpfTests` の実ツリー/compiled部品で無変更Escape・変更Escape・正常確定。Aの選択/focusを外して実scrollで同一部品がCへ再利用されたこと、Binding・新DataContext・表示名・操作対象を一組で確認。取消は保存なし、確定は一回。 |
+| 8 | 更新cleanupが所有中の同期lockを削除。journalなし・新版起動直後にUpdater/watchdogの排他保持と重なり誤Failed通知になる。 | update-transaction.lockを一時物回収から除外し、OpenOrCreateで再利用する既存寿命を維持。例外全体抑制・待機再試行は追加しない。 | `UpdateDownloadServiceTests.CleanupPreviousWorkDirectoryPreservesActiveUpdaterPayload` でjournalなし/実lock保持中もlock/current/receiptを保ち、古いdownloadを回収。ready受理→新版起動後cleanupの系列を接続し、破損とは断定しない。 |
 
 ## 責務別の参照と依存
 

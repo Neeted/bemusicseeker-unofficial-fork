@@ -3243,7 +3243,7 @@ public sealed class ChartListVirtualViewTests
 
         Assert.IsTrue(RegularChartListOwner.TryResolveDuplicateSource(
             [duplicateGroup],
-            DuplicateViewContext.ForGroup(duplicateGroup.Header),
+            DuplicateViewContext.CaptureGroup(duplicateGroup),
             out RegularChartListSubsetSource source));
         List<ChartListSourceRow> rows = ChartListSourceRow.BuildStandardLibraryRows(
             source.SourceCharts,
@@ -3328,6 +3328,10 @@ public sealed class ChartListVirtualViewTests
             library.DuplicateChartGroups = [new([.. library.BmsCharts], [tempRootPath])];
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             typeof(MainWindowViewModel).GetField("treeViewFilterTypeSelected", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, MainViewUpdateMode.DuplicateFilterSelected);
+            // 通常のルート遷移後と同じ明示入力を持たせ、modeだけの不完全なfixtureで全件を要求しません。
+            FieldInfo? duplicateParameter = typeof(MainWindowViewModel).GetField("treeViewFilterParameterSelected", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(duplicateParameter);
+            duplicateParameter.SetValue(viewModel, DuplicateViewContext.ForRoot());
             viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
             var sortRefresh = new TaskCompletionSource<MainChartListSortRequestedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
             var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

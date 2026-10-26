@@ -1265,51 +1265,78 @@ public sealed class RegularChartViewBuildAndOrderingTests
         });
     }
 
-    /// <summary>libraryの重複groupを通常入口から部分仮想経路へ配送し、二行を保持して別sourceの選択や行欠けを検出します。</summary>
-    [TestMethod]
-    public void RegularEntry_SelectsDuplicateSubsetFromLibraryOwner()
+    /// <summary>同名・空名でも所属が異なる群を実owner入口から区別し、明示rootだけ全件、消失/不明は空一覧にします。行選択scopeも同じ所属から作られます。</summary>
+    [DataTestMethod]
+    [DataRow("same")]
+    [DataRow("")]
+    public void RegularEntry_SelectsDuplicateSubsetFromLibraryOwner(string header)
     {
-        WithTemporarySongDb(delegate (string songDbPath)
+        WithTemporarySongDb(songDbPath =>
         {
             var table = new MainChartListViewModel();
             using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
-            ChartFile bravo = CreateSourceRow("Folder B", "Bravo").Chart;
-            ChartFile alpha = CreateSourceRow("Folder A", "Alpha").Chart;
-            var library = new TestBmsLibrary(songDbPath)
-            {
-                BmsCharts = [bravo, alpha]
-            };
-            library.DuplicateChartGroups = [new([.. library.BmsCharts], [bravo.Folder, alpha.Folder])];
+            ChartFile first = CreateSourceRow("First", "first.bms").Chart;
+            ChartFile second = CreateSourceRow("Second", "second.bms").Chart;
+            ChartFile sibling = CreateSourceRow("Second", "unique.bms").Chart;
+            ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = @"C:\Charts\Second\duplicate.bmson", Md5 = "bmson", Title = "bmson" };
+            var library = new TestBmsLibrary(songDbPath) { BmsCharts = [first, second, sibling], BmsonCharts = [bmson] };
+            // 検索結果の所属は所持tokenを持つ値です。登録前の入力値をcurrent投影の対象にしません。
+            first = library.BmsCharts.Single(chart => chart.Path == first.Path);
+            second = library.BmsCharts.Single(chart => chart.Path == second.Path);
+            sibling = library.BmsCharts.Single(chart => chart.Path == sibling.Path);
+            bmson = library.BmsonCharts.Single();
+            var firstGroup = new DuplicateGroup([first], [@"C:\Charts\First"]) { Header = header };
+            var secondGroup = new DuplicateGroup([second, sibling, bmson], [@"C:\Charts\Second"]) { Header = header };
+            library.DuplicateChartGroups = [firstGroup, secondGroup];
             RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.DuplicateFilterSelected);
             request.Library = library;
-
-            RegularChartListEntryResult result = owner.ApplyRegularView(request);
-
-            Assert.IsTrue(result.WasCommitted);
-            Assert.AreEqual(RegularChartListEntryRoute.SubsetVirtual, result.Route);
-            Assert.IsFalse(result.SortWasReset);
-            Assert.AreEqual(2, table.Rows.Count);
+            request.IncludeBmsonRows = true;
+            ChartListVirtualView Apply(DuplicateViewContext context, params string[] paths)
+            {
+                request.TreeParameter = context;
+                request.Stopwatch = Stopwatch.StartNew();
+                RegularChartListEntryResult result = owner.ApplyRegularView(request);
+                Assert.IsTrue(result.WasCommitted);
+                Assert.AreEqual(RegularChartListEntryRoute.SubsetVirtual, result.Route);
+                Assert.IsFalse(result.SortWasReset);
+                CollectionAssert.AreEquivalent(paths, table.Rows.Cast<LibraryChartRow>().Select(row => row.Chart.Path).ToArray());
+                return (ChartListVirtualView)table.Rows;
+            }
+            ChartListVirtualView selected = Apply(DuplicateViewContext.CaptureGroup(secondGroup), second.Path, sibling.Path, bmson.Path);
+            ChartListVirtualView repeat = Apply(DuplicateViewContext.ForGroup(@"c:\charts\second"), second.Path, sibling.Path, bmson.Path);
+            Assert.IsTrue(selected.SharesSelectionIdentityScope(repeat));
+            ChartListVirtualView other = Apply(DuplicateViewContext.CaptureGroup(firstGroup), first.Path);
+            Assert.IsFalse(selected.SharesSelectionIdentityScope(other));
+            ChartListVirtualView root = Apply(DuplicateViewContext.ForRoot(), first.Path, second.Path, sibling.Path, bmson.Path);
+            Assert.IsFalse(selected.SharesSelectionIdentityScope(root));
+            ChartListVirtualView folder = Apply(DuplicateViewContext.ForFolder(@"C:\Charts\Second"), second.Path, sibling.Path, bmson.Path);
+            Assert.IsFalse(selected.SharesSelectionIdentityScope(folder));
+            var captured = DuplicateViewContext.CaptureGroup(secondGroup);
+            library.DuplicateChartGroups = [firstGroup];
+            Apply(captured);
+            Apply(DuplicateViewContext.ForGroup(string.Empty));
+            Apply(DuplicateViewContext.ForGroup(@"C:\Charts\missing"));
         });
     }
 
-    /// <summary>重複groupの特定folderだけを捕捉し、元groupを後で空にしても一致譜面を保持して、別folder混入とcaller可変入力への依存を検出します。</summary>
+    /// <summary>folderは他群を含む子孫を保持し、group所属とは異なる集合になります。同prefix兄弟を除き、元list変更後も返却sourceを固定します。</summary>
     [TestMethod]
     public void RegularEntry_DuplicateFolderContextSelectsOnlyMatchingCharts()
     {
         ChartFile matching = CreateSourceRow("Folder A", "Alpha").Chart;
+        ChartFile child = CreateSourceRow(@"Folder A\Child", "Child").Chart;
         ChartFile other = CreateSourceRow("Folder B", "Bravo").Chart;
-        DuplicateGroup[] groups = new[]
-        {
-            new DuplicateGroup([matching, other], [matching.Folder, other.Folder]) { Header = "Group" }
-        };
-
-        Assert.IsTrue(RegularChartListOwner.TryResolveDuplicateSource(
-            groups,
-            DuplicateViewContext.ForFolder(System.IO.Path.Combine(@"C:\Charts", "Folder A")),
-            out RegularChartListSubsetSource source));
+        ChartFile prefixSibling = CreateSourceRow("Folder AB", "Sentinel").Chart;
+        DuplicateGroup[] groups = [new([matching, other], [@"C:\Charts\Folder A", @"C:\Charts\Folder B"]),
+            new([child, prefixSibling], [@"C:\Charts\Folder A\Child", @"C:\Charts\Folder AB"])];
+        Assert.IsTrue(RegularChartListOwner.TryResolveDuplicateSource(groups,
+            DuplicateViewContext.ForFolder(@"C:\Charts\Folder A"), out RegularChartListSubsetSource source));
+        Assert.IsTrue(RegularChartListOwner.TryResolveDuplicateSource(groups,
+            DuplicateViewContext.ForGroup(@"C:\Charts\Folder A"), out RegularChartListSubsetSource groupSource));
         groups[0].ChartFiles.Clear();
-
-        CollectionAssert.AreEqual(new[] { matching }, source.SourceCharts.ToArray());
+        groups[1].ChartFiles.Clear();
+        CollectionAssert.AreEqual(new[] { matching, child }, source.SourceCharts.ToArray());
+        CollectionAssert.AreEqual(new[] { matching, other }, groupSource.SourceCharts.ToArray());
     }
 
     /// <summary>score依存の通常と部分orderを公開後、score失効で両方とも退役させ、一方の旧orderだけが残る誤りを検出します。</summary>

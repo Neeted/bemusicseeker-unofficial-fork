@@ -6120,17 +6120,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 Path.GetFileName(destinationPath)));
         }
         catch { /* 任意診断は必須selection反映を止めません。 */ }
-        await ApplyDuplicateMaintenanceSelectionAsync(result.SelectionHeader, viewModel);
+        await ApplyDuplicateMaintenanceSelectionAsync(result.SelectionContext, viewModel);
     }
 
-    private async Task ApplyDuplicateMaintenanceSelectionAsync(string header, MainWindowViewModel viewModel)
+    private async Task ApplyDuplicateMaintenanceSelectionAsync(DuplicateViewContext selection, MainWindowViewModel viewModel)
     {
         if (viewModel == null || IsShellClosingOrClosed())
         {
             return;
         }
         int requestVersion = Interlocked.Increment(ref _duplicateMaintenanceSelectionVersion);
-        if (string.IsNullOrWhiteSpace(header))
+        if (selection == null)
         {
             return;
         }
@@ -6154,13 +6154,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     return;
                 }
                 (bool succeeded, string failReason) = await TryApplyDuplicateMaintenanceSelectionAsync(
-                    header,
+                    selection,
                     viewModel,
                     requestVersion);
                 lastReason = failReason;
                 if (succeeded)
                 {
-                    NLogWrapper.FileLogger?.Info("duplicate_group_autoselect success header=" + header + " attempt=" + attempt);
+                    NLogWrapper.FileLogger?.Info("duplicate_group_autoselect success attempt=" + attempt);
                     return;
                 }
                 if (!ShouldRetryDuplicateGroupAutoSelect(lastReason) || IsShellClosingOrClosed() || attempt == 1)
@@ -6175,9 +6175,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 }
                 duplicateGroupsChanged = CreateDuplicateGroupsChangedSignal();
             }
-            if (!IsShellClosingOrClosed())
+            if (!IsShellClosingOrClosed() && requestVersion == Volatile.Read(ref _duplicateMaintenanceSelectionVersion))
             {
-                NLogWrapper.FileLogger?.Warn("duplicate_group_autoselect pending header=" + header + " reason=" + lastReason);
+                if (lastReason == "group_not_found" || lastReason == "duplicated_list_null")
+                {
+                    if (IsSameOrDescendantOf(_lastSelectedTreeViewItem, treeViewItemSearchDuplicated))
+                    {
+                        _lastSelectedTreeViewItem.IsSelected = false;
+                    }
+                    await viewModel.ApplyUnresolvedDuplicateSelectionAsync(selection);
+                }
+                NLogWrapper.FileLogger?.Warn("duplicate_group_autoselect pending reason=" + lastReason);
             }
         }
         finally
@@ -6192,7 +6200,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     }
 
     private async Task<(bool Succeeded, string FailReason)> TryApplyDuplicateMaintenanceSelectionAsync(
-        string header,
+        DuplicateViewContext selection,
         MainWindowViewModel viewModel,
         int requestVersion)
     {
@@ -6206,7 +6214,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 failReason = "window_closed";
                 return (false, failReason);
             }
-            if (TrySelectDuplicateGroupByHeader(header, viewModel, out failReason))
+            if (TrySelectDuplicateGroupByMembership(selection, viewModel, out failReason))
             {
                 return (true, string.Empty);
             }
@@ -6228,7 +6236,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             failReason == "bring_index_out_of_range";
     }
 
-    private bool TrySelectDuplicateGroupByHeader(string header, MainWindowViewModel viewModel, out string failReason)
+    private bool TrySelectDuplicateGroupByMembership(DuplicateViewContext selection, MainWindowViewModel viewModel, out string failReason)
     {
         failReason = string.Empty;
         // XAML上で Name="treeViewItemSearchDuplicated" を持つTreeViewItem
@@ -6246,15 +6254,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return false;
         }
 
-        DuplicateGroup targetGroup = null;
-        for (int i = 0; i < duplicatedList.Count; i++)
-        {
-            if (duplicatedList[i].Header == header)
-            {
-                targetGroup = duplicatedList[i];
-                break;
-            }
-        }
+        DuplicateGroup targetGroup = selection.ResolveGroup(duplicatedList);
         if (targetGroup == null)
         {
             failReason = "group_not_found";
@@ -6489,7 +6489,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 Path.GetFileName(folderPath)));
         }
         catch { /* 任意診断は必須selection反映を止めません。 */ }
-        await ApplyDuplicateMaintenanceSelectionAsync(result.SelectionHeader, viewModel);
+        await ApplyDuplicateMaintenanceSelectionAsync(result.SelectionContext, viewModel);
     }
 
     /// <summary>

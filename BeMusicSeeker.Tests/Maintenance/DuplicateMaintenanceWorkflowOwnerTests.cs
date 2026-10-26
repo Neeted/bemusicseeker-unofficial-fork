@@ -46,7 +46,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             var presentation = new RecordingPresentation(events);
             var activity = new ChartMutationActivityOwner();
             var owner = new DuplicateMaintenanceWorkflowOwner(() => library, library.OperationAdmission, activity, presentation,
-                AcceptedDialogs(), () => true, Directory.Exists, _ => new ExplorerOpenResult(), _ => "next", new BmsLibraryDuplicateMaintenanceStore());
+                AcceptedDialogs(), () => true, Directory.Exists, _ => new ExplorerOpenResult(), _ => DuplicateViewContext.ForGroup(@"C:\Songs\next"), new BmsLibraryDuplicateMaintenanceStore());
             owner.WorkflowChanged += presentation.OnWorkflowChanged;
             activity.ActivityChanged += presentation.OnActivityChanged;
             try
@@ -79,7 +79,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     /// <summary>
-    /// フォルダ統合は再生停止後に表示抑制・保存処理の順に進み、解放後に活動を終えて次の選択見出しを返し、処理順の逆転を検出する。
+    /// フォルダ統合は再生停止後に表示抑制・保存処理の順に進み、解放後に活動を終えて操作前に捕捉した次の所属を返し、処理順の逆転を検出する。
     /// </summary>
     [TestMethod]
     public async Task RunFolderMergeAsync_PreservesMutationBoundaryAndReceipt()
@@ -87,35 +87,44 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         var events = new List<string>();
         var store = new RecordingStore(events);
         var presentation = new RecordingPresentation(events);
-        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(
-            events,
-            presentation,
-            AcceptedDialogs(),
-            store,
-            duplicateGroupNextHeaderProvider: _ => "Next group");
         string source = @"C:\Songs\Source";
         string destination = @"C:\Songs\Destination";
-
-        DuplicateMaintenanceMutationResult result = await owner.RunFolderMergeAsync(
-            source,
-            destination,
-            new DuplicateGroup([], [source, destination]));
-
-        Assert.IsTrue(result.Succeeded);
-        Assert.AreEqual("Next group", result.SelectionHeader);
-        Assert.AreEqual(source, store.SourceDirectory);
-        Assert.AreEqual(destination, store.DestinationDirectory);
-        CollectionAssert.AreEqual(
-            new[]
-            {
-                "activity-start",
-                "playback-stop",
-                "suppression-start",
-                "store-merge",
-                "suppression-end",
-                "activity-end"
-            },
-            events);
+        var group = new DuplicateGroup([], [source, destination]);
+        ChartFile expected = CreateChart(@"C:\Songs\Next\chart.bms", "next");
+        ChartFile other = CreateChart(@"C:\Songs\Other\chart.bms", "other");
+        var next = new DuplicateGroup([expected], [@"C:\Songs\Next"]) { Header = string.Empty };
+        var sameName = new DuplicateGroup([other], [@"C:\Songs\Other"]) { Header = string.Empty };
+        var state = new SelectionPresentationState { DuplicateChartGroups = [group, next, sameName] };
+        using var tree = new MaintenanceTreeViewModel();
+        tree.AttachPresentationState(state);
+        var confirmation = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reached = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dialogs = new FakeUiDialogService { PendingConfirmation = confirmation, ConfirmationReached = reached };
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, presentation, dialogs, store,
+            duplicateGroupNextSelectionProvider: tree.CaptureNextDuplicateGroupSelection);
+        Task<DuplicateMaintenanceMutationResult> operation = owner.RunFolderMergeAsync(source, destination, group);
+        try
+        {
+            Assert.AreSame(reached.Task, await Task.WhenAny(reached.Task, operation));
+            await reached.Task;
+            // 要求作成後の次対象を変えても、操作前に捕捉した群を現在結果から解決します。
+            state.DuplicateChartGroups = [group, sameName, new([expected], [@"C:\Songs\Next"]) { Header = "renamed" }];
+            confirmation.SetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+            DuplicateMaintenanceMutationResult result = await operation;
+            Assert.IsTrue(result.Succeeded);
+            Assert.IsNotNull(result.SelectionContext);
+            DuplicateGroup selected = result.SelectionContext.ResolveGroup(state.DuplicateChartGroups);
+            Assert.IsNotNull(selected);
+            CollectionAssert.AreEqual(new[] { expected.Path }, selected.ChartFiles.Select(chart => chart.Path).ToArray());
+            Assert.AreEqual(source, store.SourceDirectory);
+            Assert.AreEqual(destination, store.DestinationDirectory);
+            CollectionAssert.AreEqual(new[] { "activity-start", "playback-stop", "suppression-start", "store-merge", "suppression-end", "activity-end" }, events);
+        }
+        finally
+        {
+            confirmation.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
+            await operation;
+        }
     }
 
     /// <summary>
@@ -328,22 +337,48 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 releasedAtReport = gate.TryEnter(out IDisposable lease) && !activity.IsActive;
                 lease?.Dispose();
             };
+            var cleanupGroup = new DuplicateGroup([keeper, duplicate, missing], [root]);
+            ChartFile expected = CreateChart(@"C:\Songs\Next\chart.bms", "next");
+            ChartFile other = CreateChart(@"C:\Songs\Other\chart.bms", "other");
+            var next = new DuplicateGroup([expected], [@"C:\Songs\Next"]) { Header = string.Empty };
+            var sameName = new DuplicateGroup([other], [@"C:\Songs\Other"]) { Header = string.Empty };
+            var state = new SelectionPresentationState { DuplicateChartGroups = [cleanupGroup, next, sameName] };
+            using var tree = new MaintenanceTreeViewModel();
+            tree.AttachPresentationState(state);
+            var confirmation = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var reached = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            dialogs.PendingConfirmation = confirmation;
+            dialogs.ConfirmationReached = reached;
             DuplicateMaintenanceWorkflowOwner owner = CreateOwner(
                 [],
                 new RecordingPresentation([]),
                 dialogs,
                 store,
-                duplicateGroupNextHeaderProvider: _ => "Next group", gate: gate, activity: activity);
+                duplicateGroupNextSelectionProvider: tree.CaptureNextDuplicateGroupSelection, gate: gate, activity: activity);
 
-            DuplicateMaintenanceMutationResult result = await owner.RunHashCleanupAsync(
-                new DuplicateGroup([keeper, duplicate, missing], [root]),
-                root);
-
+            Task<DuplicateMaintenanceMutationResult> operation = owner.RunHashCleanupAsync(cleanupGroup, root);
+            DuplicateMaintenanceMutationResult result;
+            try
+            {
+                Assert.AreSame(reached.Task, await Task.WhenAny(reached.Task, operation));
+                await reached.Task;
+                state.DuplicateChartGroups = [sameName, new([expected], [@"C:\Songs\Next"]) { Header = "changed" }];
+                confirmation.SetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                result = await operation;
+            }
+            finally
+            {
+                confirmation.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
+                await operation;
+            }
             Assert.AreEqual(!catalogFailure, result.Succeeded);
             Assert.AreSame(outcome.CatalogFailure, result.Failure);
             Assert.AreEqual(catalogFailure, result.HasDurableFinalizationFailure);
             Assert.AreEqual(1, result.RemovedChartCount);
-            Assert.AreEqual("Next group", result.SelectionHeader);
+            Assert.IsNotNull(result.SelectionContext);
+            DuplicateGroup selected = result.SelectionContext.ResolveGroup(state.DuplicateChartGroups);
+            Assert.IsNotNull(selected);
+            CollectionAssert.AreEqual(new[] { expected.Path }, selected.ChartFiles.Select(chart => chart.Path).ToArray());
             CollectionAssert.AreEqual(new[] { duplicate, missing }, (System.Collections.ICollection)store.Charts);
             Assert.IsNotNull(dialogs.ConfirmationRequest);
             StringAssert.Contains(dialogs.ConfirmationRequest!.MessageBoxText, "2");
@@ -474,7 +509,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             presentation,
             dialogs,
             store,
-            duplicateGroupNextHeaderProvider: _ => "Next group");
+            duplicateGroupNextSelectionProvider: _ => DuplicateViewContext.ForGroup(@"C:\Songs\Next"));
         string source = @"C:\Songs\Source";
         string destination = @"C:\Songs\Destination";
 
@@ -603,7 +638,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             var events = new List<string>();
             var presentation = new RecordingPresentation(events);
             var owner = new DuplicateMaintenanceWorkflowOwner(() => library, gate, activity, presentation, dialogs,
-                () => true, Directory.Exists, _ => new ExplorerOpenResult(), _ => "next", new BmsLibraryDuplicateMaintenanceStore());
+                () => true, Directory.Exists, _ => new ExplorerOpenResult(), _ => DuplicateViewContext.ForGroup(@"C:\Songs\next"), new BmsLibraryDuplicateMaintenanceStore());
             owner.WorkflowChanged += presentation.OnWorkflowChanged;
             activity.ActivityChanged += presentation.OnActivityChanged;
             var cleanupReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -764,7 +799,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 }
             };
             var owner = new DuplicateMaintenanceWorkflowOwner(() => library, gate, activity, presentation, dialogs,
-                () => decision != 0, Directory.Exists, _ => new ExplorerOpenResult(), _ => "next", store);
+                () => decision != 0, Directory.Exists, _ => new ExplorerOpenResult(), _ => DuplicateViewContext.ForGroup(@"C:\Songs\next"), store);
             owner.WorkflowChanged += presentation.OnWorkflowChanged;
             activity.ActivityChanged += presentation.OnActivityChanged;
             Task<DuplicateMaintenanceMutationResult>? operation = null;
@@ -1067,7 +1102,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             FakeUiDialogService dialogs = AcceptedDialogs();
             var owner = new DuplicateMaintenanceWorkflowOwner(() => library, gate, activity,
                 new NoOpChartMutationPlaybackPort(), dialogs, () => false, Directory.Exists,
-                _ => new ExplorerOpenResult(), _ => "next", new BmsLibraryDuplicateMaintenanceStore(), failure =>
+                _ => new ExplorerOpenResult(), _ => DuplicateViewContext.ForGroup(@"C:\Songs\next"), new BmsLibraryDuplicateMaintenanceStore(), failure =>
                 {
                     exits++;
                     exitFailure = failure;
@@ -1106,6 +1141,37 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         }
     }
 
+    /// <summary>三以上の統合では消失する元folderでなく宛先の所属を捕捉し、同見出しの別群や次群を選ばないことを確認します。</summary>
+    [TestMethod]
+    public async Task RunFolderMergeAsync_ThreeFoldersSelectsSurvivingDestinationGroup()
+    {
+        string source = @"C:\Songs\Source";
+        string destination = @"C:\Songs\Destination";
+        string remaining = @"C:\Songs\Remaining";
+        var original = new DuplicateGroup([], [source, destination, remaining]);
+        ChartFile expected = CreateChart(Path.Combine(destination, "chart.bms"), "survivor");
+        ChartFile other = CreateChart(@"C:\Songs\Other\chart.bms", "other");
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner([], new RecordingPresentation([]), AcceptedDialogs(), new RecordingStore([]));
+        DuplicateMaintenanceMutationResult result = await owner.RunFolderMergeAsync(source, destination, original);
+        Assert.IsTrue(result.Succeeded);
+        Assert.IsNotNull(result.SelectionContext);
+        DuplicateGroup[] current = [new([other], [@"C:\Songs\Other"]), new([expected], [destination, remaining])];
+        DuplicateGroup selected = result.SelectionContext.ResolveGroup(current);
+        Assert.IsNotNull(selected);
+        CollectionAssert.AreEqual(new[] { expected.Path }, selected.ChartFiles.Select(chart => chart.Path).ToArray());
+    }
+
+    private sealed class SelectionPresentationState : IMaintenanceTreePresentationState
+    {
+        public List<DuplicateGroup> DuplicateChartGroups { get; set; } = [];
+        public int DuplicateChartGroupsInvalidationVersion => 0;
+        public bool IsWriteLockHeldInitializdBMSFilesHealthStatus => false;
+        public bool IsWriteLockHeldInitializeBMSFilesEncodingInfo => false;
+        public bool IsWriteLockHeldInitializeBMSFilesZeroNote => false;
+        public bool IsWriteLockHeldDuplicateChartGroups => false;
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged { add { } remove { } }
+    }
+
     private static DuplicateMaintenanceWorkflowOwner CreateOwner(
         List<string> events,
         RecordingPresentation presentation,
@@ -1113,7 +1179,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         RecordingStore store,
         Func<string, bool>? directoryExists = null,
         Func<string, ExplorerOpenResult>? explorerOpen = null,
-        Func<DuplicateGroup, string>? duplicateGroupNextHeaderProvider = null,
+        Func<DuplicateGroup, DuplicateViewContext?>? duplicateGroupNextSelectionProvider = null,
         bool showConfirmation = true,
         ChartFileOperationSynchronizer? gate = null,
         ChartMutationActivityOwner? activity = null)
@@ -1128,7 +1194,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             () => showConfirmation,
             directoryExists ?? (_ => true),
             explorerOpen ?? (_ => new ExplorerOpenResult()),
-            duplicateGroupNextHeaderProvider ?? (_ => (string)null!),
+            duplicateGroupNextSelectionProvider ?? (_ => null),
             store);
         owner.WorkflowChanged += presentation.OnWorkflowChanged;
         activity.ActivityChanged += presentation.OnActivityChanged;

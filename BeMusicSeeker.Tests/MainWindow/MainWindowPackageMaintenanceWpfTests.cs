@@ -1589,6 +1589,220 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             pendingBulkMaintenanceTerminal: bulkTerminal);
     }
 
+    /// <summary>同名の実検索結果を実Treeで手動選択し、本番composition/storeの二folder統合後に操作前の次群だけを表示・選択します。旧行選択を別群へ持ち越しません。</summary>
+    [TestMethod]
+    public void DuplicateSelections_ActualMergeSelectsCapturedNextGroupThroughCompiledTree()
+    {
+        RunDuplicateSelectionFixture((scope, viewModel, window, library, charts) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            var root = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
+            DuplicateGroup first = library.DuplicateChartGroups[0];
+            DuplicateGroup next = library.DuplicateChartGroups[1];
+            Assert.AreEqual(first.Header, next.Header);
+            // 同見出し時の並び自体は固定せず、現在先頭/次に対応する独立fixtureの二組を選びます。
+            ChartFile[] firstCharts = first.Folders.Contains(charts[0].Directory) ? charts[..2] : charts[2..];
+            ChartFile[] nextCharts = first.Folders.Contains(charts[0].Directory) ? charts[2..] : charts[..2];
+            SelectDuplicateTreeAndAwaitRows(viewModel, () => root.IsSelected = true, charts.Select(chart => chart.Path).ToArray());
+            TreeViewItem nextItem = RealizeDuplicateGroupItem(root, next);
+            SelectDuplicateTreeAndAwaitRows(viewModel, () => nextItem.IsSelected = true, nextCharts[0].Path, nextCharts[1].Path);
+            TreeViewItem nextFolder = RealizeDuplicateFolderItem(root, next, nextCharts[0].Directory);
+            SelectDuplicateTreeAndAwaitRows(viewModel, () => nextFolder.IsSelected = true, nextCharts[0].Path);
+            TreeViewItem sourceFolder = RealizeDuplicateFolderItem(root, first, firstCharts[0].Directory);
+            SelectDuplicateTreeAndAwaitRows(viewModel, () => sourceFolder.IsSelected = true, firstCharts[0].Path);
+            var table = (CustomTableView)window.FindName("customTableView");
+            table.SelectedIndex = 0;
+            Assert.AreEqual(1, table.GetSelectedRowsSnapshot().Count);
+            MenuItem merge = CreateCompiledDuplicateMerge(window, sourceFolder, firstCharts[1].Directory);
+            SelectDuplicateTreeAndAwaitRows(viewModel, () => RaiseMenuClick(merge), nextCharts[0].Path, nextCharts[1].Path);
+            var left = (TreeView)window.FindName("treeView");
+            Assert.IsInstanceOfType(left.SelectedItem, typeof(DuplicateGroup));
+            var selected = (DuplicateGroup)left.SelectedItem;
+            CollectionAssert.AreEquivalent(new[] { nextCharts[0].Directory, nextCharts[1].Directory }, selected.Folders);
+            Assert.IsFalse(Directory.Exists(firstCharts[0].Directory));
+            Assert.IsTrue(File.Exists(firstCharts[1].Path));
+            Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count);
+            Assert.IsFalse(library.OperationAdmission.IsActive);
+        });
+    }
+
+    /// <summary>成功時の捕捉対象が消えて同見出しの別群だけが残った場合、rootや別群へ切替せず左選択・旧行選択・一覧を解除します。</summary>
+    [TestMethod]
+    public void DuplicateSelections_DisappearedTargetClearsTreeAndRowsWithoutHeaderFallback()
+    {
+        var completion = new TaskCompletionSource<DuplicateMaintenanceMutationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int requests = 0;
+        var terminal = new MainWindowDuplicateMaintenanceTerminal((_, _, _) =>
+            {
+                requests++;
+                return completion.Task;
+            }, (_, _) => Task.FromResult(DuplicateMaintenanceMutationResult.Rejected(null)), () => true);
+        RunDuplicateSelectionFixture((scope, viewModel, window, library, charts) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            var root = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
+            DuplicateGroup remaining = library.DuplicateChartGroups[0];
+            ChartFile[] sourceCharts = remaining.Folders.Contains(charts[0].Directory) ? charts[..2] : charts[2..];
+            var captured = DuplicateViewContext.CaptureGroup(library.DuplicateChartGroups[1]);
+            TreeViewItem source = RealizeDuplicateFolderItem(root, remaining, sourceCharts[0].Directory);
+            SelectDuplicateTreeAndAwaitRows(viewModel, () => source.IsSelected = true, sourceCharts[0].Path);
+            var table = (CustomTableView)window.FindName("customTableView");
+            table.SelectedIndex = 0;
+            MenuItem merge = CreateCompiledDuplicateMerge(window, source, sourceCharts[1].Directory);
+            Task? handler = null;
+            try
+            {
+                handler = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(merge));
+                Assert.AreEqual(1, requests);
+                Assert.IsFalse(completion.Task.IsCompleted);
+                library.DuplicateChartGroups = [remaining];
+                completion.SetResult(DuplicateMaintenanceMutationResult.Completed(captured));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(handler, "duplicate disappeared selection handler");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsNull(((TreeView)window.FindName("treeView")).SelectedItem);
+                Assert.IsFalse(root.IsSelected);
+                Assert.AreEqual(0, viewModel.MainChartList.Rows.Count);
+                Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count);
+            }
+            finally
+            {
+                completion.TrySetResult(DuplicateMaintenanceMutationResult.Rejected(null));
+                if (handler != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(handler, "duplicate disappeared handler cleanup"); }
+            }
+        }, terminal);
+    }
+
+    private static void RunDuplicateSelectionFixture(
+        Action<TestWindowPresentationScope, MainWindowViewModel, MainWindow, TestBmsLibrary, ChartFile[]> test,
+        MainWindowDuplicateMaintenanceTerminal? terminal = null)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_DuplicateSelection_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsLibrary? library = null;
+        ChartFile[] charts = [];
+        Settings settings = TestBmsFactory.CreateRootSettings([directory]);
+        settings.StartupSelectInstallPending = false;
+        settings.ShowDuplicateFileCheckConfirmMsg = false;
+        try
+        {
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(settings,
+                (scope, viewModel, window) =>
+                {
+                    Assert.IsNotNull(library);
+                    window.Width = 900d;
+                    window.Height = 700d;
+                    test(scope, viewModel, window, library, charts);
+                }, duplicateMaintenanceTerminal: terminal,
+                prepareViewModel: viewModel =>
+                {
+                    var paths = new List<string>();
+                    for (int group = 0; group < 2; group++)
+                    {
+                        for (int member = 0; member < 2; member++)
+                        {
+                            string folder = Path.Combine(directory, "group" + group + "-" + member);
+                            Directory.CreateDirectory(folder);
+                            string path = Path.Combine(folder, "chart.bms");
+                            File.WriteAllText(path, "#PLAYER 1\n#TITLE same\n#ARTIST group" + group + "\n#BPM 120\n");
+                            paths.Add(path);
+                        }
+                    }
+                    charts = paths.Select(path => BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path))).ToArray();
+                    string songDb = Path.Combine(directory, "song.db");
+                    BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDb, db =>
+                    {
+                        db.CreateTable<LR2SongDB.song>();
+                        db.CreateTable<LR2SongDB.folder>();
+                        db.CreateTable<LR2SongDBExtended.maintenance>();
+                    });
+                    var gateway = new BmsLibraryDbGateway(songDb);
+                    gateway.UpsertSongs(charts);
+                    ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
+                    // 実store/FS/SQLiteを通し、ごみ箱等のOS操作だけ既存のfixture用境界へ閉じます。
+                    library = new TestBmsLibrary(songDb, null, null,
+                        new OwnedChartCollectionTestSupport.TestFileMutationService(), dialogService: null,
+                        uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                        optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
+                        operationAdmission: composition.OperationAdmission,
+                        playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: settings)
+                    { BmsCharts = charts };
+                    library.SearchDuplicateChartGroups();
+                    Assert.AreEqual(2, library.DuplicateChartGroups.Count);
+                    ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
+                    viewModel.MaintenanceTree.AttachLibrary(library);
+                });
+        }
+        finally
+        {
+            library?.RequestShutdown("duplicate_selection_fixture");
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void SelectDuplicateTreeAndAwaitRows(MainWindowViewModel viewModel, Action action, params string[] expectedPaths)
+    {
+        var rowsApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PropertyChangedEventHandler changed = (_, args) =>
+        {
+            if (args.PropertyName == nameof(MainChartListViewModel.Rows)) { rowsApplied.TrySetResult(); }
+        };
+        viewModel.MainChartList.PropertyChanged += changed;
+        Task? handler = null;
+        try
+        {
+            handler = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(action);
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(handler, "duplicate compiled handler");
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(rowsApplied.Task, "duplicate rows applied");
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            CollectionAssert.AreEquivalent(expectedPaths,
+                viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Select(row => row.Chart.Path).ToArray());
+        }
+        finally
+        {
+            viewModel.MainChartList.PropertyChanged -= changed;
+            if (handler != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(handler, "duplicate compiled handler cleanup"); }
+        }
+    }
+
+    private static TreeViewItem RealizeDuplicateGroupItem(TreeViewItem root, DuplicateGroup group)
+    {
+        root.IsExpanded = true;
+        root.ApplyTemplate();
+        root.Measure(new Size(900d, 700d));
+        root.Arrange(new Rect(0d, 0d, 900d, 700d));
+        root.UpdateLayout();
+        int index = root.Items.IndexOf(group);
+        Assert.IsTrue(index >= 0);
+        var item = root.ItemContainerGenerator.ContainerFromIndex(index) as TreeViewItem;
+        Assert.IsNotNull(item);
+        item.IsExpanded = true;
+        item.UpdateLayout();
+        return item;
+    }
+
+    private static TreeViewItem RealizeDuplicateFolderItem(TreeViewItem root, DuplicateGroup group, string folder)
+    {
+        TreeViewItem parent = RealizeDuplicateGroupItem(root, group);
+        var item = parent.ItemContainerGenerator.ContainerFromIndex(parent.Items.IndexOf(folder)) as TreeViewItem;
+        Assert.IsNotNull(item);
+        return item;
+    }
+
+    private static MenuItem CreateCompiledDuplicateMerge(MainWindow window, TreeViewItem source, string destination)
+    {
+        var menu = (ContextMenu)window.FindResource("treeViewDuplicateFolderContextMenu");
+        menu.PlacementTarget = source;
+        source.ContextMenu = menu;
+        menu.RaiseEvent(new RoutedEventArgs(ContextMenu.OpenedEvent, menu));
+        MenuItem parent = menu.Items.OfType<MenuItem>().Single(item => item.Name == "treeViewDuplicateFolderContextMenuItemMergeInto");
+        Assert.IsNotNull(parent.ItemContainerStyle);
+        parent.ItemsSource = null;
+        parent.Items.Clear();
+        var command = new MenuItem { DataContext = destination, Tag = source, Style = parent.ItemContainerStyle };
+        parent.Items.Add(command);
+        return command;
+    }
+
     /// <summary>重複フォルダのcompiledメニューとGキーが元group・移動元先を渡し、単一フォルダでは後片付けへ分岐して完了前にイベントを処理済みにします。</summary>
     [TestMethod]
     public void CompiledDuplicateContextAndShortcutRoutesUseOneTypedTerminal()

@@ -894,7 +894,7 @@ internal sealed class MainWindowChildComposition
             showDuplicateFileCheckConfirmProvider ?? throw new ArgumentNullException(nameof(showDuplicateFileCheckConfirmProvider)),
             LongPathFileSystem.DirectoryExists,
             externalShellGateway.OpenDirectory,
-            MaintenanceTree.CaptureNextDuplicateGroupHeader,
+            MaintenanceTree.CaptureNextDuplicateGroupSelection,
             exitForUnrestoredDestination: ExitForUnrestoredDestinationAsync);
         SelectedChartMutations = new SelectedChartMutationWorkflowOwner(
             selectedChartMutationLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartMutationLibraryProvider)),

@@ -2632,8 +2632,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
                     TreeMode = request.CurrentTreeMode,
                     SubsetName = subset.Name,
                     SelectionContext = (request.TreeParameter ?? request.Parameter) is DuplicateViewContext duplicateSelection
-                        ? (duplicateSelection.Kind, duplicateSelection.Kind == DuplicateViewContextKind.FolderPath
-                            ? duplicateSelection.Value?.ToUpperInvariant() : duplicateSelection.Value) : null,
+                        ? (duplicateSelection.Kind, duplicateSelection.Kind == DuplicateViewContextKind.Root
+                            ? string.Empty : duplicateSelection.Value?.ToUpperInvariant()) : null,
                     KeywordFilter = keywordFilter,
                     ModeFilter = modeFilter,
                     SortColumnName = virtualSortColumn,
@@ -2870,7 +2870,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         return flattened;
     }
 
-    /// <summary>検索済みの所属を固定し、一覧構築時に共通現在値を捕捉する重複専用入力を返します。</summary>
+    /// <summary>明示root、現在結果内で一意なグループ所属、folder配下を分けて捕捉します。未解決を全件へ広げず、一覧構築時に共通現在値を投影します。</summary>
     internal static bool TryResolveDuplicateSource(
         IEnumerable<DuplicateGroup> duplicateGroups,
         object parameter,
@@ -2882,29 +2882,29 @@ internal sealed partial class RegularChartListOwner : IDisposable
             return true;
         }
         List<DuplicateGroup> groups = [.. (duplicateGroups ?? []).Where(group => group != null)];
-        if (parameter == null)
-        {
-            source = RegularChartListSubsetSource.ForCharts(
-                [.. groups.SelectMany(group => group.ChartFiles)],
-                "duplicate_all", ChartListSourceProjectionMode.DuplicateCurrent, applyResourceHealthProjection: true);
-            return true;
-        }
         if (parameter is DuplicateViewContext context)
         {
-            if (context.Kind == DuplicateViewContextKind.GroupHeader)
+            if (context.Kind == DuplicateViewContextKind.Root)
             {
-                DuplicateGroup group = groups.FirstOrDefault(item => string.Equals(item.Header, context.Value, StringComparison.Ordinal));
-                IEnumerable<ChartFile> charts = group != null
-                    ? group.ChartFiles
-                    : [.. groups.SelectMany(item => item.ChartFiles)];
-                source = RegularChartListSubsetSource.ForCharts(charts, "duplicate_group", ChartListSourceProjectionMode.DuplicateCurrent,
+                source = RegularChartListSubsetSource.ForCharts(
+                    [.. groups.SelectMany(group => group.ChartFiles)],
+                    "duplicate_all", ChartListSourceProjectionMode.DuplicateCurrent, applyResourceHealthProjection: true);
+                return true;
+            }
+            if (context.Kind == DuplicateViewContextKind.GroupFolder)
+            {
+                DuplicateGroup group = context.ResolveGroup(groups);
+                source = RegularChartListSubsetSource.ForCharts(
+                    [.. (group?.ChartFiles ?? [])], "duplicate_group", ChartListSourceProjectionMode.DuplicateCurrent,
                     applyResourceHealthProjection: true);
                 return true;
             }
-            string prefix = context.Value + Path.DirectorySeparatorChar;
+            string prefix = string.IsNullOrWhiteSpace(context.Value) ? null
+                : context.Value.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
             source = RegularChartListSubsetSource.ForCharts(
                 [.. groups.SelectMany(group => group.ChartFiles)
-                    .Where(chart => !string.IsNullOrWhiteSpace(chart.Path) && chart.Path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))],
+                    .Where(chart => prefix != null && !string.IsNullOrWhiteSpace(chart.Path)
+                        && chart.Path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))],
                 "duplicate_folder", ChartListSourceProjectionMode.DuplicateCurrent, applyResourceHealthProjection: true);
             return true;
         }

@@ -4218,20 +4218,23 @@ public partial class MainWindowViewModel : ViewModel,
 
     private static object NormalizeDuplicateViewParameter(object parameter)
     {
-        if (parameter == null || parameter is DuplicateViewContext)
-        {
-            return parameter;
-        }
+        if (parameter == null) { return DuplicateViewContext.ForRoot(); }
+        if (parameter is DuplicateViewContext) { return parameter; }
         if (parameter is DuplicateGroup duplicateGroup)
         {
-            return DuplicateViewContext.ForGroup(duplicateGroup.Header);
+            return DuplicateViewContext.CaptureGroup(duplicateGroup);
         }
         if (parameter is string folderPath)
         {
             return DuplicateViewContext.ForFolder(folderPath);
         }
-        return null;
+        return DuplicateViewContext.ForGroup(null);
     }
+
+    /// <summary>消失した所属の表示を既存の一覧更新へ渡します。準備済み結果だけを使い、選択解除のための重複再検索は行いません。</summary>
+    internal Task ApplyUnresolvedDuplicateSelectionAsync(DuplicateViewContext selection)
+        => RefreshChartRowsView(MainViewUpdateMode.DuplicateFilterSelected,
+            selection?.Kind == DuplicateViewContextKind.GroupFolder ? selection : DuplicateViewContext.ForGroup(null));
 
     private static string ResolveBmsonSourceGenerationReason(BmsonLibraryRowCacheSyncResult result, string reasonPrefix)
     {

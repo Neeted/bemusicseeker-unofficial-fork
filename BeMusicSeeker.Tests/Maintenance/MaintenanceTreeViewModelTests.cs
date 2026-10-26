@@ -158,6 +158,30 @@ public sealed class MaintenanceTreeViewModelTests
         CollectionAssert.AreEqual(new[] { "bms_files_duplicated_changed" }, reasons);
     }
 
+    /// <summary>同名・空名の次群を操作前の所属値で固定し、後の可変Foldersや順序・見出しの変化に置き換えません。末尾と退役した群は対象なしです。</summary>
+    [DataTestMethod]
+    [DataRow("same")]
+    [DataRow("")]
+    public void NextDuplicateSelection_CapturesMembershipBeforeResultsChange(string header)
+    {
+        var current = new DuplicateGroup([], [@"C:\Songs\Current"]) { Header = header };
+        var next = new DuplicateGroup([], [@"C:\Songs\Next"]) { Header = header };
+        var other = new DuplicateGroup([], [@"C:\Songs\Other"]) { Header = header };
+        var state = new MaintenanceTreePresentationStateFake([current, next, other]);
+        using var tree = new MaintenanceTreeViewModel();
+        tree.AttachPresentationState(state);
+        DuplicateViewContext captured = tree.CaptureNextDuplicateGroupSelection(current);
+        Assert.IsNotNull(captured);
+        Assert.IsNull(tree.CaptureNextDuplicateGroupSelection(other));
+        Assert.IsNull(tree.CaptureNextDuplicateGroupSelection(new([], [@"C:\Songs\Old"])));
+        next.Folders.Clear();
+        var replacement = new DuplicateGroup([], [@"c:\songs\next"]) { Header = "changed" };
+        state.ReplaceDuplicateChartGroups([other, replacement]);
+        Assert.AreSame(replacement, captured.ResolveGroup(tree.DuplicateChartGroups));
+        state.ReplaceDuplicateChartGroups([other]);
+        Assert.IsNull(captured.ResolveGroup(tree.DuplicateChartGroups));
+    }
+
     private sealed class MaintenanceTreePresentationStateFake : IMaintenanceTreePresentationState
     {
         private List<DuplicateGroup> duplicateChartGroups = null!;

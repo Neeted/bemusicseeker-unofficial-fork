@@ -34,6 +34,8 @@ BMSの警告は同じ所持tokenの共通現在値へ反映し、BMSONは重複�
 | グループ | そのグループの譜面 |
 | フォルダ | そのパス配下の譜面 |
 
+グループは現在の検索結果内で一意な所属フォルダを値として捕捉し、手動選択と整理後の自動選択で共用します。見出しは表示用であり、同名・空名の別グループを同一視しません。捕捉した所属が現在の結果にない場合は空一覧とし、別グループや全件へ広げません。全件表示は明示的な重複ルート選択だけです。フォルダ配下の選択はグループ全体の選択と区別します。
+
 一覧は `DuplicateFilterSelected` による仮想的な部分集合で、列設定は `DuplicateCustomTableColumnSettings` を使います。フォルダをExplorerで開く操作は、存在しない場合は何もしません。
 
 検索結果の `ChartFile` は操作用の捕捉値として保持します。一覧の構築・再選択では、そのtoken集合の共通現在値を同じカタログ版で一回捕捉し、検索結果が持つ重複固有警告だけを重ねます。退役tokenを別項目へ読み替えません。表示中も、確定したカタログ差分の実対象だけを交換し、表示済み・未表示の入力、検索適否、並び順、健康度を揃えます。BMS・BMSONの重複警告と、固有の兄弟譜面の非警告を維持します。
@@ -64,9 +66,9 @@ BMSの警告は同じ所持tokenの共通現在値へ反映し、BMSONは重複�
 
 ### 自動選択
 
-二フォルダの統合と同一フォルダ内の削除では次のグループ、三フォルダ以上の統合では同じグループの見出しを保存して選択します。次のグループがなければ選びません。
+二フォルダの統合と同一フォルダ内の削除では、操作前に現在の順序から次のグループの所属フォルダを捕捉します。三フォルダ以上の統合では移動先フォルダを捕捉し、元フォルダの消失後も存続グループを解決します。次のグループがなければ自動選択しません。見出しや処理後の隣接位置へ読み替えません。
 
-`WaitForDuplicateListUpdateAndSelect` は結果の変更通知、既に完成した状態、待機上限の経路を使い、仮想化された項目を必要に応じて生成して選択します。キーは `DuplicateGroup.Header` であり、同じ見出しが複数あれば最初の一致を選ぶ補助的な動作です。衝突しない恒久IDを持つとは保証しません。
+`ApplyDuplicateMaintenanceSelectionAsync` は結果の変更通知、既に完成した状態、既存の待機上限を使い、捕捉した所属から現在のグループを解決して仮想化された項目を必要に応じて生成・選択します。対象が現在結果から消失した場合は左の重複選択と旧行選択を解除して空一覧にし、同名の別グループやルートへ切り替えません。この表示解決のために重複全解析を追加しません。識別は当該検索結果・保守操作内だけで使い、恒久IDや選択永続化を持ちません。
 
 ### 起動と性能
 
@@ -87,6 +89,8 @@ BMSの警告は同じ所持tokenの共通現在値へ反映し、BMSONは重複�
 | 登録本体・空の登録子を含む元の準備拒否と通常作品の統合 | [`LibraryMutationOwner.MergeChartDirectory`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.Merge.cs)、`BmsLibraryDuplicateMaintenanceStore` | [`BmsLibraryDuplicateServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) の `MergeChartDirectory_RejectsRegisteredSourceScope` と `MergeChartDirectory_AllowsOrdinaryChildAndSimilarSibling` が元先のFS・DB・登録・新library読込みを確認する。[`DuplicateMaintenanceWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) の `RunFolderMergeAsync_RegisteredScopeRefusalReleasesAdmissionForNextMerge` は本番storeを通る停止後拒否と次要求の受付を確認する。改名の保護条件と保証の分担は[変更仕様](mutations.md#実装とテストの対応)を参照する。 |
 | MD5識別、接続グループ、兄弟譜面、警告 | [`BmsLibraryDuplicateService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/BmsLibraryDuplicateService.cs)、[`OwnedDuplicateChartRowSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/OwnedChartCollectionState.cs) | [`BmsLibraryDuplicateServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) |
 | 同版の共通現在値捕捉、確定差分、固有警告・未表示行・検索・順序・健康度・再選択 | [`DuplicateGroup.ProjectCurrentChart`](../../../BeMusicSeeker/Models/Library/DuplicateGroup.cs)、[`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs)、[`ChartSubsetReferenceRows`](../../../BeMusicSeeker/ViewModels/ChartList/ChartSubsetReferenceRows.cs)、[`ChartListOrder.IsSortedFor`](../../../BeMusicSeeker/ViewModels/ChartList/ChartListOrder.cs) | [`RegularChartNormalLibraryRefreshTests.Duplicates`](../../../BeMusicSeeker.Tests/ChartList/RegularChartNormalLibraryRefreshTests.Duplicates.cs) の `DuplicateCurrentValues_RealEncodingAndRescanPatchOnlyAffectedRows` は、実重複検索から一件の文字コード変更・BMS/BMSONの再調査・通知配送・再選択を通し、配送前の再選択を含め検索加入/離脱・Title/健康度順・旧snapshot不変と対象だけの仕事量を確認する。`ChartListVirtualViewTests.CapturedOrder_CurrentValuesRespectDirectionTitleAndStableTies` は昇降順の副キー・元順序・空入力と整列済み値変更を確認する。解析条件とwarm索引は `BmsLibraryDuplicateServiceTests` が分担する。 |
+| 同名・空名、明示root、folder配下、未解決、行選択の識別 | [`DuplicateViewContext`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateViewContext.cs)、[`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs) | [`RegularChartViewBuildAndOrderingTests`](../../../BeMusicSeeker.Tests/ChartList/RegularChartViewBuildAndOrderingTests.cs) の `RegularEntry_SelectsDuplicateSubsetFromLibraryOwner` と `RegularEntry_DuplicateFolderContextSelectsOnlyMatchingCharts` が実ownerからのpath集合、選択scope、子孫と同prefix兄弟、捕捉後の元list変更を確認する。 |
+| 操作前の次対象・三以上の存続宛先、実左Treeまでの接続と消失時解除 | [`MaintenanceTreeViewModel`](../../../BeMusicSeeker/ViewModels/Maintenance/MaintenanceTreeViewModel.cs)、`DuplicateMaintenanceWorkflowOwner`、`MainWindow.ApplyDuplicateMaintenanceSelectionAsync` | [`MaintenanceTreeViewModelTests`](../../../BeMusicSeeker.Tests/Maintenance/MaintenanceTreeViewModelTests.cs) と [`DuplicateMaintenanceWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) が捕捉値と現在結果の所属を確認する。[`MainWindowPackageMaintenanceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) の `DuplicateSelections_ActualMergeSelectsCapturedNextGroupThroughCompiledTree` は実検索・標準composition・本番store・SQLite/FSからauto左選択までを通し、`DuplicateSelections_DisappearedTargetClearsTreeAndRowsWithoutHeaderFallback` は対象消失時の左無選択・空一覧・旧行選択解除を分担する。 |
 | 統合、後続保守、受付解放、失敗と通知 | [`DuplicateMaintenanceWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs) | [`DuplicateMaintenanceWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs)、[`BmsLibraryDuplicateServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) |
 | 削除の確認件数とカタログ反映 | [`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.cs) | [`OwnedChartCollectionLibraryMutationTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionLibraryMutationTests.cs)、[`BmsLibraryFolderRenameRefreshTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) |
 | 終端の分類と多言語表示 | [`FileDbMutationReport`](../../../BeMusicSeeker/ViewModels/ChartOperations/FileDbMutationReport.cs) | [`FileDbMutationReportTests`](../../../BeMusicSeeker.Tests/ChartOperations/FileDbMutationReportTests.cs)、[`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs) |

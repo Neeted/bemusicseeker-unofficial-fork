@@ -136,7 +136,8 @@ public sealed class MaintenanceTreeViewModel : ViewModel
         RaisePropertyChanged(nameof(DuplicateChartGroups));
     }
 
-    internal string CaptureNextDuplicateGroupHeader(DuplicateGroup duplicateGroup)
+    /// <summary>操作前の現在順序から次グループの所属を値で捕捉します。末尾や退役した入力には対象を返しません。</summary>
+    internal DuplicateViewContext CaptureNextDuplicateGroupSelection(DuplicateGroup duplicateGroup)
     {
         if (duplicateGroup == null || DuplicateChartGroups == null)
         {
@@ -144,7 +145,7 @@ public sealed class MaintenanceTreeViewModel : ViewModel
         }
         int currentIndex = DuplicateChartGroups.IndexOf(duplicateGroup);
         return currentIndex >= 0 && currentIndex + 1 < DuplicateChartGroups.Count
-            ? DuplicateChartGroups[currentIndex + 1].Header
+            ? DuplicateViewContext.CaptureGroup(DuplicateChartGroups[currentIndex + 1])
             : null;
     }
 

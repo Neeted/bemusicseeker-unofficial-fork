@@ -79,7 +79,7 @@ internal sealed class DuplicateMaintenanceMutationResult
 {
     private DuplicateMaintenanceMutationResult(
         bool succeeded,
-        string selectionHeader,
+        DuplicateViewContext selectionContext,
         int removedChartCount,
         Exception failure,
         DuplicateMergeMaintenanceReceipt mutationReceipt = null,
@@ -87,7 +87,7 @@ internal sealed class DuplicateMaintenanceMutationResult
     {
         RemovalOutcome = removalOutcome;
         Succeeded = succeeded;
-        SelectionHeader = selectionHeader;
+        SelectionContext = selectionContext;
         RemovedChartCount = removedChartCount;
         Failure = failure;
         MutationReceipt = mutationReceipt;
@@ -96,19 +96,20 @@ internal sealed class DuplicateMaintenanceMutationResult
     /// <summary>Confirmed deletion and independent catalog failure facts.</summary>
     internal LibraryChartRemovalOutcome RemovalOutcome { get; }
 
-    /// <summary>Uses confirmed filesystem targets, never the cleanup plan size.</summary>
-    internal static DuplicateMaintenanceMutationResult FromRemoval(string header,
+    /// <summary>捕捉済みの選択入力を保ち、計画件数でなく確認済み削除件数と必須失敗を返します。</summary>
+    internal static DuplicateMaintenanceMutationResult FromRemoval(DuplicateViewContext selectionContext,
         LibraryChartRemovalOutcome outcome, Exception failure)
     {
         Exception primary = outcome?.RequiredFailure;
         Exception combined = primary == null ? failure : failure == null ? primary : new AggregateException(primary, failure);
-        return new DuplicateMaintenanceMutationResult(combined == null, header,
+        return new DuplicateMaintenanceMutationResult(combined == null, selectionContext,
             outcome?.ConfirmedChartCount ?? 0, combined, removalOutcome: outcome);
     }
 
     internal bool Succeeded { get; }
 
-    internal string SelectionHeader { get; }
+    /// <summary>操作前に捕捉した短命な所属入力です。次の対象がなければnullです。</summary>
+    internal DuplicateViewContext SelectionContext { get; }
 
     internal int RemovedChartCount { get; }
 
@@ -134,57 +135,61 @@ internal sealed class DuplicateMaintenanceMutationResult
 
     internal IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
 
+    /// <summary>成功した保守の事実と、操作前に捕捉した次または存続グループの所属を返します。</summary>
     internal static DuplicateMaintenanceMutationResult Completed(
-        string selectionHeader,
+        DuplicateViewContext selectionContext,
         int removedChartCount = 0,
         DuplicateMergeMaintenanceReceipt mutationReceipt = null)
     {
-        return new DuplicateMaintenanceMutationResult(true, selectionHeader, removedChartCount, null, mutationReceipt);
+        return new DuplicateMaintenanceMutationResult(true, selectionContext, removedChartCount, null, mutationReceipt);
     }
 
-    internal static DuplicateMaintenanceMutationResult Rejected(string selectionHeader)
+    /// <summary>受付・確認の拒否を返します。捕捉入力があっても成功時の選択へ進みません。</summary>
+    internal static DuplicateMaintenanceMutationResult Rejected(DuplicateViewContext selectionContext)
     {
-        return new DuplicateMaintenanceMutationResult(false, selectionHeader, 0, null);
+        return new DuplicateMaintenanceMutationResult(false, selectionContext, 0, null);
     }
 
-    internal static DuplicateMaintenanceMutationResult NoWork(string selectionHeader)
+    /// <summary>物理対象なしを返し、成功時の選択を行いません。</summary>
+    internal static DuplicateMaintenanceMutationResult NoWork(DuplicateViewContext selectionContext)
     {
-        return new DuplicateMaintenanceMutationResult(false, selectionHeader, 0, null);
+        return new DuplicateMaintenanceMutationResult(false, selectionContext, 0, null);
     }
 
+    /// <summary>失敗の事実を保持し、捕捉した選択入力を通常成功へ読み替えません。</summary>
     internal static DuplicateMaintenanceMutationResult Failed(
-        string selectionHeader,
+        DuplicateViewContext selectionContext,
         Exception failure,
         int removedChartCount = 0,
         DuplicateMergeMaintenanceReceipt mutationReceipt = null)
     {
         return new DuplicateMaintenanceMutationResult(
             false,
-            selectionHeader,
+            selectionContext,
             removedChartCount,
             failure ?? throw new ArgumentNullException(nameof(failure)),
             mutationReceipt);
     }
 
-    /// <summary>Keeps unsuccessful and durable partial merge facts available to the terminal.</summary>
+    /// <summary>統合の必須失敗・部分確定と捕捉入力を終端へ渡し、非成功の選択適用を防ぎます。</summary>
     internal static DuplicateMaintenanceMutationResult FromMergeReceipt(
-        string selectionHeader,
+        DuplicateViewContext selectionContext,
         DuplicateMergeMaintenanceReceipt mutationReceipt)
     {
         if (mutationReceipt?.SessionReceipt.HasRequiredFailure == true)
         {
             return new DuplicateMaintenanceMutationResult(
                 false,
-                selectionHeader,
+                selectionContext,
                 0,
                 mutationReceipt?.SessionReceipt.PrimaryFailure,
                 mutationReceipt);
         }
         if (mutationReceipt?.MergeApplied != true)
         {
-            return new DuplicateMaintenanceMutationResult(false, selectionHeader, 0, null, mutationReceipt);
+            return new DuplicateMaintenanceMutationResult(false, selectionContext, 0, null, mutationReceipt);
         }
-        return Completed(selectionHeader, mutationReceipt: mutationReceipt);
+        return Completed(selectionContext, mutationReceipt: mutationReceipt);
     }
 }
 
@@ -201,12 +206,13 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
 
     private readonly Func<string, ExplorerOpenResult> duplicateFolderExplorerOpen;
 
-    private readonly Func<DuplicateGroup, string> duplicateGroupNextHeaderProvider;
+    private readonly Func<DuplicateGroup, DuplicateViewContext> duplicateGroupNextSelectionProvider;
 
     private readonly IDuplicateMaintenanceStore store;
     private readonly Func<Exception, Task> exitForUnrestoredDestination;
 
     /// <summary>重複保守の操作を所有し、既存宛先の復元不能を実終端後のアプリ終了へ接続します。</summary>
+    /// <param name="duplicateGroupNextSelectionProvider">現在結果の次グループを所属値で操作前に捕捉する境界です。末尾ではnullを返します。</param>
     internal DuplicateMaintenanceWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
@@ -216,7 +222,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         Func<bool> showConfirmationProvider,
         Func<string, bool> duplicateFolderDirectoryExists,
         Func<string, ExplorerOpenResult> duplicateFolderExplorerOpen,
-        Func<DuplicateGroup, string> duplicateGroupNextHeaderProvider,
+        Func<DuplicateGroup, DuplicateViewContext> duplicateGroupNextSelectionProvider,
         IDuplicateMaintenanceStore store = null,
         Func<Exception, Task> exitForUnrestoredDestination = null)
     {
@@ -232,8 +238,8 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             ?? throw new ArgumentNullException(nameof(duplicateFolderDirectoryExists));
         this.duplicateFolderExplorerOpen = duplicateFolderExplorerOpen
             ?? throw new ArgumentNullException(nameof(duplicateFolderExplorerOpen));
-        this.duplicateGroupNextHeaderProvider = duplicateGroupNextHeaderProvider
-            ?? throw new ArgumentNullException(nameof(duplicateGroupNextHeaderProvider));
+        this.duplicateGroupNextSelectionProvider = duplicateGroupNextSelectionProvider
+            ?? throw new ArgumentNullException(nameof(duplicateGroupNextSelectionProvider));
         this.store = store ?? new BmsLibraryDuplicateMaintenanceStore();
     }
 
@@ -245,12 +251,12 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             string sourceDirectory,
             string destinationDirectory,
             IEnumerable<string> folders,
-            string selectionHeader)
+            DuplicateViewContext selectionContext)
         {
             SourceDirectory = sourceDirectory;
             DestinationDirectory = destinationDirectory;
             Folders = (folders ?? []).Where(folder => !string.IsNullOrWhiteSpace(folder)).ToArray();
-            SelectionHeader = selectionHeader;
+            SelectionContext = selectionContext;
         }
 
         internal string SourceDirectory { get; }
@@ -259,7 +265,8 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
 
         internal IReadOnlyList<string> Folders { get; }
 
-        internal string SelectionHeader { get; }
+        /// <summary>操作前に捕捉した短命な所属入力です。次の対象がなければnullです。</summary>
+        internal DuplicateViewContext SelectionContext { get; }
     }
 
     private sealed class HashCleanupRequest
@@ -267,18 +274,19 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         internal HashCleanupRequest(
             string folderPath,
             IEnumerable<ChartFile> charts,
-            string selectionHeader)
+            DuplicateViewContext selectionContext)
         {
             FolderPath = folderPath;
             Charts = (charts ?? []).Where(chart => chart != null).ToArray();
-            SelectionHeader = selectionHeader;
+            SelectionContext = selectionContext;
         }
 
         internal string FolderPath { get; }
 
         internal IReadOnlyList<ChartFile> Charts { get; }
 
-        internal string SelectionHeader { get; }
+        /// <summary>操作前に捕捉した短命な所属入力です。次の対象がなければnullです。</summary>
+        internal DuplicateViewContext SelectionContext { get; }
     }
 
     private sealed class HashCleanupPlan
@@ -286,18 +294,19 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         internal HashCleanupPlan(
             string folderPath,
             IEnumerable<ChartFile> chartsToRemove,
-            string selectionHeader)
+            DuplicateViewContext selectionContext)
         {
             FolderPath = folderPath;
             ChartsToRemove = (chartsToRemove ?? []).Where(chart => chart != null).ToArray();
-            SelectionHeader = selectionHeader;
+            SelectionContext = selectionContext;
         }
 
         internal string FolderPath { get; }
 
         internal IReadOnlyList<ChartFile> ChartsToRemove { get; }
 
-        internal string SelectionHeader { get; }
+        /// <summary>操作前に捕捉した短命な所属入力です。次の対象がなければnullです。</summary>
+        internal DuplicateViewContext SelectionContext { get; }
     }
 
     private sealed class ConfirmationDecision
@@ -391,14 +400,14 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             throw new ArgumentNullException(nameof(duplicateGroup));
         }
         int folderCount = duplicateGroup.Folders?.Count ?? 0;
-        string selectionHeader = folderCount >= 3
-            ? duplicateGroup.Header
-            : duplicateGroupNextHeaderProvider(duplicateGroup);
+        DuplicateViewContext selectionContext = folderCount >= 3
+            ? DuplicateViewContext.ForGroup(destinationDirectory)
+            : duplicateGroupNextSelectionProvider(duplicateGroup);
         return new FolderMergeRequest(
             sourceDirectory,
             destinationDirectory,
             duplicateGroup.Folders,
-            selectionHeader);
+            selectionContext);
     }
 
     private HashCleanupRequest CreateHashCleanupRequest(
@@ -412,7 +421,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         return new HashCleanupRequest(
             folderPath,
             duplicateGroup.ChartFiles,
-            duplicateGroupNextHeaderProvider(duplicateGroup));
+            duplicateGroupNextSelectionProvider(duplicateGroup));
     }
 
     internal Task<DuplicateMaintenanceMutationResult> RunFolderMergeAsync(
@@ -444,15 +453,15 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         catch (Exception exception)
         {
             return Task.FromResult(
-                DuplicateMaintenanceMutationResult.Failed(request.SelectionHeader, exception));
+                DuplicateMaintenanceMutationResult.Failed(request.SelectionContext, exception));
         }
         if (deletionList.Count == 0)
         {
             return Task.FromResult(
-                DuplicateMaintenanceMutationResult.NoWork(request.SelectionHeader));
+                DuplicateMaintenanceMutationResult.NoWork(request.SelectionContext));
         }
         return RunHashCleanupCoreAsync(
-            new HashCleanupPlan(request.FolderPath, deletionList, request.SelectionHeader));
+            new HashCleanupPlan(request.FolderPath, deletionList, request.SelectionContext));
     }
 
     private async Task<DuplicateMaintenanceMutationResult> RunFolderMergeCoreAsync(
@@ -460,7 +469,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     {
         if (!chartFileOperations.TryEnter(out IDisposable operationGate))
         {
-            return DuplicateMaintenanceMutationResult.Rejected(request.SelectionHeader);
+            return DuplicateMaintenanceMutationResult.Rejected(request.SelectionContext);
         }
         bool operationGateTransferred = false;
         string message = BeMusicSeeker.Properties.Resources.Msg_merge_bms_folder
@@ -481,16 +490,16 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             if (confirmation.Failure != null)
             {
                 return DuplicateMaintenanceMutationResult.Failed(
-                    request.SelectionHeader,
+                    request.SelectionContext,
                     confirmation.Failure);
             }
             if (!confirmation.Accepted)
             {
-                return DuplicateMaintenanceMutationResult.Rejected(request.SelectionHeader);
+                return DuplicateMaintenanceMutationResult.Rejected(request.SelectionContext);
             }
 
             Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
-                request.SelectionHeader,
+                request.SelectionContext,
                 mutation: null,
                 mutationWithReceipt: (library, operationStore) => operationStore.MergeFolderWithReceipt(
                     library,
@@ -527,7 +536,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     {
         if (!chartFileOperations.TryEnter(out IDisposable operationGate))
         {
-            return DuplicateMaintenanceMutationResult.Rejected(plan.SelectionHeader);
+            return DuplicateMaintenanceMutationResult.Rejected(plan.SelectionContext);
         }
         bool operationGateTransferred = false;
         try
@@ -541,7 +550,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             }
             catch (Exception exception)
             {
-                return DuplicateMaintenanceMutationResult.Failed(plan.SelectionHeader, exception, 0);
+                return DuplicateMaintenanceMutationResult.Failed(plan.SelectionContext, exception, 0);
             }
             ConfirmationDecision confirmation = await ConfirmIfNeededAsync(
                 string.Format(BeMusicSeeker.Properties.Resources.Msg_cleanup_duplicate_hash, plan.ChartsToRemove.Count),
@@ -549,13 +558,13 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             if (confirmation.Failure != null)
             {
                 return DuplicateMaintenanceMutationResult.Failed(
-                    plan.SelectionHeader,
+                    plan.SelectionContext,
                     confirmation.Failure,
                     0);
             }
             if (!confirmation.Accepted)
             {
-                return DuplicateMaintenanceMutationResult.Rejected(plan.SelectionHeader);
+                return DuplicateMaintenanceMutationResult.Rejected(plan.SelectionContext);
             }
 
             var approvedFolders = new List<string>();
@@ -568,9 +577,9 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                     "Duplicate whole-folder deletion confirmation", wholeFolder: true);
                 if (folderConfirmation.Failure != null)
                 {
-                    return DuplicateMaintenanceMutationResult.Failed(plan.SelectionHeader, folderConfirmation.Failure, 0);
+                    return DuplicateMaintenanceMutationResult.Failed(plan.SelectionContext, folderConfirmation.Failure, 0);
                 }
-                if (folderConfirmation.Cancelled) { return DuplicateMaintenanceMutationResult.Rejected(plan.SelectionHeader); }
+                if (folderConfirmation.Cancelled) { return DuplicateMaintenanceMutationResult.Rejected(plan.SelectionContext); }
                 if (folderConfirmation.Accepted) { approvedFolders.Add(folder); }
             }
             IReadOnlyList<string> approvedPaths = prepared.GetExecutableWholeFolderPaths(approvedFolders);
@@ -578,7 +587,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
 
             LibraryChartRemovalOutcome removalOutcome = null;
             Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
-                plan.SelectionHeader,
+                plan.SelectionContext,
                 (library, operationStore) => removalOutcome = operationStore.RemoveCharts(library, prepared, approvedPaths),
                 removedChartCount: 0,
                 acquiredOperationGate: operationGate,
@@ -586,7 +595,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                 stopPlayback: prepared.Targets.Count > 0));
             operationGateTransferred = true;
             DuplicateMaintenanceMutationResult result = await mutationTask;
-            result = DuplicateMaintenanceMutationResult.FromRemoval(plan.SelectionHeader, removalOutcome, result.Failure);
+            result = DuplicateMaintenanceMutationResult.FromRemoval(plan.SelectionContext, removalOutcome, result.Failure);
             await LibraryChartRemovalReport.ShowAsync(dialogs, removalOutcome, result.Failure);
             return result;
         }
@@ -642,7 +651,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     }
 
     private async Task<DuplicateMaintenanceMutationResult> ExecuteMutation(
-        string selectionHeader,
+        DuplicateViewContext selectionContext,
         Action<BMSLibrary, IDuplicateMaintenanceStore> mutation,
         int removedChartCount = 0,
         Func<BMSLibrary, IDuplicateMaintenanceStore, DuplicateMergeMaintenanceReceipt> mutationWithReceipt = null,
@@ -665,13 +674,13 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             operationGate = acquiredOperationGate;
             if (operationGate == null && !chartFileOperations.TryEnter(out operationGate))
             {
-                return DuplicateMaintenanceMutationResult.Rejected(selectionHeader);
+                return DuplicateMaintenanceMutationResult.Rejected(selectionContext);
             }
             library = libraryProvider();
             if (library == null)
             {
                 return DuplicateMaintenanceMutationResult.Failed(
-                    selectionHeader,
+                    selectionContext,
                     new InvalidOperationException("Duplicate maintenance library is not available."));
             }
             using LibraryFileMutationCapability capability = chartFileOperations.CreateMutationCapability(operationGate);
@@ -679,7 +688,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             if (physicalPaths != null)
             {
                 if (!operationStore.TryBeginPhysicalMutation(library, physicalPaths, true, out playlistLease))
-                { return DuplicateMaintenanceMutationResult.Rejected(selectionHeader); }
+                { return DuplicateMaintenanceMutationResult.Rejected(selectionContext); }
                 playlistCapability = playlistLease?.CreateMutationCapability();
                 combinedCapability = capability.WithPlaylistCapability(playlistCapability);
                 operationStore = store.ForAcceptedOperation(combinedCapability);
@@ -733,15 +742,15 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         if (failures.Count == 0)
         {
             return mutationReceipt == null
-                ? DuplicateMaintenanceMutationResult.Completed(selectionHeader, removedChartCount)
-                : DuplicateMaintenanceMutationResult.FromMergeReceipt(selectionHeader, mutationReceipt);
+                ? DuplicateMaintenanceMutationResult.Completed(selectionContext, removedChartCount)
+                : DuplicateMaintenanceMutationResult.FromMergeReceipt(selectionContext, mutationReceipt);
         }
         Exception additionalFailure = failures.Count == 1
             ? failures[0].SourceException
             : new AggregateException(failures.Select(failure => failure.SourceException));
         Exception primary = mutationReceipt?.SessionReceipt.PrimaryFailure;
         return DuplicateMaintenanceMutationResult.Failed(
-            selectionHeader,
+            selectionContext,
             primary == null ? additionalFailure : new AggregateException(primary, additionalFailure),
             removedChartCount,
             mutationReceipt);
