@@ -188,6 +188,8 @@ scoreの未反映範囲を必要とする要求は、その時点で必要な確
 
 上下キーで行を移り、Enterで現在行の操作、F2または文字入力で編集、Ctrl+Aで全選択、Ctrl+Cで現在セル、Ctrl+Shift+Cで選択行のTSVをコピーします。メニューキーでも行メニューを開けます。コピーは `GetEditText` を使い、URLやリンクのアイコン・表示用文字列ではなくURL自体を取得します。
 
+再生開始通知による表への復帰は[再生パネル](playback-panel.md#曲の準備開始と次候補)に従い、通知受信内の一回のフォーカス要求で終わります。その後に始めた検索・セル編集へ追加要求を出さず、候補文字列・選択・未確定編集を維持します。再生開始の遅延反復によって検索のBlurやセルのLostKeyboardFocus確定を起こしません。
+
 未編集中の修飾なし左右キーは、現在行の表示列順で直前・直後のセルへ移ります。非表示列を飛ばし、現在行に対応する現存列の現在セルがなければ、右は先頭列、左は末尾列から始めます。古い行のセルは基点にせず、列・データの差替えを越えた現在列の復元状態は持ちません。端から外向きの左右は受理しますが、折り返しやスクロールを行いません。端セルが手動スクロールで画面外でも再表示しません。未選択・0行・0表示列は不受理で、現在セルとスクロールを変更しません。
 
 左右では行の選択集合・現在行・`SelectedIndex`・範囲基点を保ち、`SelectionChanged` を送りません。上下・Shift上下は既存の行選択を行い、移動前の列が現存すればその列を引き継ぎ、なければ先頭の表示列へ戻ります。0表示列では現在セルを設定しません。手動スクロールでは現在セルの識別を保ち、次の左右の基点にします。実際に別の列へ移る場合は現在行も可視範囲へ戻します。描画・単一セルコピー・F2/文字入力編集は同じ現在セルを参照します。編集中の左右はTextBoxへ渡し、表の移動・スクロール・編集確定を行いません。スクロールバー由来の左右を奪わず、Ctrl/Shift/Alt付き左右には表の新操作を割り当てません。
@@ -267,6 +269,8 @@ DPIは変更コールバックと描画開始時の環境確認で追従しま�
 一覧ヘッダーの上端には `Table.HeaderGridLineBrush` による1 DIPの線を表示幅全体へ描画します。線の中心は上端から0.5 DIPに置き、端で半分が欠けることを避けます。通常一覧・プレイリスト概要とも、保留・プレイログの追加ツールバーや表示列・データ行の有無によらず上枠を表示し、追加ツールバー側には下枠を重ねません。データ行の罫線・行高・スクロール計算は維持します。
 
 ## 実装とテストの対応
+
+再生開始後の入力保持は `MainWindowPlaybackWpfTests.InternalReady_RestoresTableOnceAndPreservesLaterSearchOrMemoInput` が実MainWindow・検索control・本番受付のMEMOセルで確認します。表への初回要求と後発入力後の追加要求なしを観測し、物理OSフォーカス移動は[推奨実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分担します。再生状態通知による行・選択・未確定編集の保持は既存の `PlaybackStateChangesRefreshLoadedTableWithoutReplacingRowsOrCommittingEditor` が分担します。
 
 [`MainWindowPlaylistWorkspaceWpfTests.PlaylistFolderStructure_ActualTreeKeepsWorkspaceSelectionAndNewExplicitSelection`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) は実TreeViewの構造置換・親Selected・改名・接頭辞保存・別フォルダ更新と、復元配送前の明示選択を通し、ツリー・workspace・詳細hashの一致を確認します。選択の判断と削除先の条件差は [`PlaylistWorkspaceActionWorkflowTests.PlaylistFolderMutation_PreservesOrRemapsSelectionAndDetail`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)、新構成の同キー明示選択と旧prefix対応の衝突は同クラスの `PlaylistPropertySave_NewExplicitSelectionDoesNotApplyOldPrefixMap` が担います。表置換と古い要求の拒否は既存の詳細更新・外部表置換系列へ維持します。
 

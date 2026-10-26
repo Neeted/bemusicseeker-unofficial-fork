@@ -157,6 +157,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
 #nullable enable
     private readonly Action<SettingsWindow>? settingsWindowCreated;
+    private readonly Func<IntPtr> readPlaybackForegroundWindow;
+    private readonly Action<IInputElement> requestPlaybackKeyboardFocus;
 #nullable restore
 
     private readonly MainWindowLibraryReloadMenuTerminal libraryReloadMenuTerminal;
@@ -395,13 +397,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// playlist lamp navigation 成功後の shell restore/activation/focus terminal。未指定時は WPF shell に接続します。
     /// </param>
     /// <param name="chartPropertiesManagerFactory">独立プロパティ窓の生成・表示前準備を接続する任意の構成処理。</param>
+    /// <param name="readPlaybackForegroundWindow">再生開始時の前面HWND取得。未指定時は実OSから取得します。自Windowとの照合はシェルが行います。</param>
+    /// <param name="requestPlaybackKeyboardFocus">再生開始時のキーボードフォーカス要求。未指定時はWPFへ要求します。復帰先の選択はシェルが行います。</param>
 #nullable enable
     internal MainWindow(
         MainWindowViewModel viewModel,
         Action<SettingsWindow>? settingsWindowCreated,
         IUiDialogService? playlistWorkspaceDialogService = null,
         MainWindowForegroundTerminal? mainWindowForegroundTerminal = null,
-        Func<Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null)
+        Func<Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null,
+        Func<IntPtr>? readPlaybackForegroundWindow = null,
+        Action<IInputElement>? requestPlaybackKeyboardFocus = null)
         : this(
             viewModel,
             settingsWindowCreated,
@@ -427,7 +433,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             null,
             playlistWorkspaceDialogService,
             mainWindowForegroundTerminal,
-            chartPropertiesManagerFactory)
+            chartPropertiesManagerFactory,
+            readPlaybackForegroundWindow,
+            requestPlaybackKeyboardFocus)
     {
     }
 
@@ -504,6 +512,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="playlistWorkspaceDialogService">playlist Property/Bulk modal route の coordinator。未指定時は既定 coordinator を使用します。</param>
     /// <param name="mainWindowForegroundTerminal">successful playlist lamp navigation 後の shell focus terminal。</param>
     /// <param name="chartPropertiesManagerFactory">独立プロパティ窓の生成・表示前準備を接続する任意の構成処理。</param>
+    /// <param name="readPlaybackForegroundWindow">再生開始時の前面HWND取得。未指定時は実OSから取得します。自Windowとの照合はシェルが行います。</param>
+    /// <param name="requestPlaybackKeyboardFocus">再生開始時のキーボードフォーカス要求。未指定時はWPFへ要求します。復帰先の選択はシェルが行います。</param>
     internal MainWindow(
         MainWindowViewModel viewModel,
         Action<SettingsWindow>? settingsWindowCreated,
@@ -529,13 +539,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MainWindowPendingPackageMutationViewTerminal? pendingPackageMutationViewTerminal = null,
         IUiDialogService? playlistWorkspaceDialogService = null,
         MainWindowForegroundTerminal? mainWindowForegroundTerminal = null,
-        Func<Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null)
+        Func<Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null,
+        Func<IntPtr>? readPlaybackForegroundWindow = null,
+        Action<IInputElement>? requestPlaybackKeyboardFocus = null)
     {
         if (viewModel == null)
         {
             throw new ArgumentNullException(nameof(viewModel));
         }
         this.settingsWindowCreated = settingsWindowCreated;
+        this.readPlaybackForegroundWindow = readPlaybackForegroundWindow ?? Win32API.GetForegroundWindow;
+        this.requestPlaybackKeyboardFocus = requestPlaybackKeyboardFocus ?? (element => Keyboard.Focus(element));
         this.libraryReloadMenuTerminal = libraryReloadMenuTerminal ?? MainWindowLibraryReloadMenuTerminal.Create(viewModel);
         this.regularLibraryTreeTerminal = regularLibraryTreeTerminal ?? MainWindowRegularLibraryTreeTerminal.Create(viewModel);
         this.maintenanceTreeTerminal = maintenanceTreeTerminal ?? MainWindowMaintenanceTreeTerminal.Create(viewModel);
@@ -8576,51 +8590,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             playbackPanelView.RestoreSelectedSurface();
             IntPtr handle = new WindowInteropHelper(this).Handle;
-            if (handle != Win32API.GetForegroundWindow())
+            if (handle != readPlaybackForegroundWindow())
             {
                 return;
             }
 
-            Dispatcher.BeginInvoke(DispatcherPriority.Input, (Action)async delegate
-            {
-                try
-                {
-                    if (IsShellClosingOrClosed())
-                    {
-                        return;
-                    }
-                    for (int i = 1; i <= 10; i++)
-                    {
-                        if (IsShellClosingOrClosed())
-                        {
-                            break;
-                        }
-                        TryTracePlaybackFocus();
-                        IntPtr currentHandle = new WindowInteropHelper(this).Handle;
-                        if (currentHandle != Win32API.GetForegroundWindow())
-                        {
-                            break;
-                        }
-                        Keyboard.Focus(customTableView);
-                        await Task.Delay(100);
-                    }
-                }
-                catch (Exception exception)
-                {
-                    TryLogMainWindowFailure(exception, "playback focus callback");
-                }
-            });
+            // 開始通知内で一度だけ復帰し、後発の検索・セル編集へ古い要求を持ち越しません。
+            requestPlaybackKeyboardFocus(customTableView);
         }
         catch (Exception exception)
         {
-            TryLogMainWindowFailure(exception, "playback surface restoration and focus enqueue");
+            TryLogMainWindowFailure(exception, "playback surface restoration and focus");
         }
-    }
-
-    private static void TryTracePlaybackFocus()
-    {
-        try { NLogWrapper.DebuggerLogger?.Trace("try to set focus on custom table"); }
-        catch { /* 任意のfocus診断だけの失敗で再試行を中断しません。 */ }
     }
 
     private void dialogIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)

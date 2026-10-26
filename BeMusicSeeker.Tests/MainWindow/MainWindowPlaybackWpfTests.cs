@@ -8,7 +8,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
@@ -391,6 +393,256 @@ public sealed class MainWindowPlaybackWpfTests
                         viewModel.MainChartList.CellEditBeginningRequested -= allowEdit;
                     }
                 });
+        }
+        finally
+        {
+            ready.TrySetResult();
+            completion.TrySetResult();
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>内蔵Readyから実Viewとシェルへ届いた開始通知で表への初回復帰を保ち、後発の検索入力・MEMO編集へ古いフォーカス要求を適用する誤りを検出します。</summary>
+    /// <remarks>0は入力なし、1は検索、2は本番受付を通るMEMO編集です。実MainWindowのContent・非ゼロHWND・前面照合を維持し、OS前面値と要求先だけを観測します。物理OSフォーカス取得と実LostKeyboardFocusは保証しません。状態通知と行保持は既存ケース、古いowner/View通知は各寿命ケースへ分担します。</remarks>
+    [DataTestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    public void InternalReady_RestoresTableOnceAndPreservesLaterSearchOrMemoInput(int inputKind)
+    {
+        var attempts = new List<(IInputElement Target, bool AfterInput)>();
+        bool inputApplied = false;
+        RunPlaybackFocusScenario(
+            handle => handle,
+            target => attempts.Add((target, inputApplied)),
+            (viewModel, window, table, panel, start) =>
+            {
+                int attemptsAtDelivery = -1;
+                int editEnded = 0;
+                int acceptedMemoEdits = 0;
+                TextBox? editor = null;
+                var search = (KeywordSearchEditor)window.FindName("KeywordSearchEditor");
+                int selectionStart = -1;
+                int selectionLength = -1;
+                string[] candidateTexts = [];
+                var delivered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                DispatcherOperation? applyInput = null;
+                DispatcherOperation? inputBoundary = null;
+                EventHandler<CustomTableCellEditEndedEventArgs> editEndedHandler = (_, _) => editEnded++;
+                EventHandler<MainChartListCellEditBeginningEventArgs> editBeginning = (_, request) =>
+                {
+                    if (request.Accepted && request.Context.PropertyName == nameof(PlaylistDetailRow.memo)) { acceptedMemoEdits++; }
+                };
+                RoutedEventHandler started = (_, _) =>
+                {
+                    // XAMLのMainWindow受信が戻った地点を観測し、その後に許可された明示入力を配送します。
+                    attemptsAtDelivery = attempts.Count;
+                    applyInput = window.Dispatcher.InvokeAsync(() =>
+                    {
+                        if (inputKind == 1)
+                        {
+                            TextBox input = search.InputTextBoxControl;
+                            input.RaiseEvent(new KeyboardFocusChangedEventArgs(Keyboard.PrimaryDevice, 0, table, input)
+                            {
+                                RoutedEvent = Keyboard.GotKeyboardFocusEvent
+                            });
+                            input.Text = "tit";
+                            input.Select(1, 1);
+                            Assert.IsTrue(search.HandleInputKey(Key.Space, ModifierKeys.Control));
+                            candidateTexts = search.Presentation.VisibleItems.Select(item => item.DisplayText).ToArray();
+                            Assert.IsTrue(candidateTexts.Length > 0, "検索支援候補を表示した状態を使います。");
+                            selectionStart = input.SelectionStart;
+                            selectionLength = input.SelectionLength;
+                            inputApplied = true;
+                        }
+                        else if (inputKind == 2)
+                        {
+                            Assert.IsTrue(table.IsRowSelected(0), $"MEMO対象行が選択されています。SelectedIndex={table.SelectedIndex}, Rows={table.ItemsSource.Count}。");
+                            Assert.IsTrue(table.SurfaceWidth > 2d, $"MEMO編集領域を配置します。Width={table.SurfaceWidth}, Height={table.SurfaceHeight}。");
+                            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None), "後発入力で表示中のMEMOセルへ移動します。");
+                            CustomTableColumn column = table.GetCurrentCellColumn(0);
+                            Assert.IsNotNull(column);
+                            Assert.AreEqual(nameof(PlaylistDetailRow.memo), column.EditPropertyName);
+                            Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None), "本番の編集受付を通るMEMO行を使います。");
+                            Assert.AreEqual(1, acceptedMemoEdits, "本番のCanBeginDetailEditとGridRowResolverを通って受理されます。");
+                            editor = FindVisualChildren<TextBox>(table).Single();
+                            editor.Text = "uncommitted";
+                            editor.Select(2, 3);
+                            selectionStart = editor.SelectionStart;
+                            selectionLength = editor.SelectionLength;
+                            inputApplied = true;
+                        }
+                    }, DispatcherPriority.DataBind);
+                    // 受信後の明示入力と、それ以前に投稿されたInput処理を通す境界です。
+                    inputBoundary = window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background);
+                    delivered.TrySetResult();
+                };
+                table.CellEditEnded += editEndedHandler;
+                viewModel.MainChartList.CellEditBeginningRequested += editBeginning;
+                panel.PlaybackStarted += started;
+                try
+                {
+                    start();
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(delivered.Task, "internal-ready-view-delivery");
+                    Assert.IsNotNull(applyInput);
+                    Assert.IsNotNull(inputBoundary);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(applyInput.Task, "explicit-input-after-ready");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(inputBoundary.Task, "ready-input-dispatch-boundary");
+                    Assert.AreEqual(0, attempts.Count(attempt => attempt.AfterInput),
+                        $"後発入力後の古い要求を残しません。通知受信終端の試行={attemptsAtDelivery}、Input配送通過後の試行={attempts.Count}。");
+                    Assert.AreEqual(1, attemptsAtDelivery, "開始時の初回復帰を通知受信内で完了します。");
+                    Assert.AreEqual(1, attempts.Count, "初回復帰後に短命要求を残しません。");
+                    Assert.AreSame(table, attempts[0].Target);
+                    Assert.IsFalse(attempts[0].AfterInput, "後発入力へ古い復帰を適用しません。");
+                    Assert.AreEqual(0, editEnded);
+                    Assert.IsTrue(table.ItemsSource[0] is PlaylistDetailRow { memo: "original" });
+                    Assert.AreEqual(0, table.SelectedIndex);
+                    if (inputKind == 1)
+                    {
+                        Assert.AreEqual("tit", search.InputTextBoxControl.Text);
+                        Assert.AreEqual(selectionStart, search.InputTextBoxControl.SelectionStart);
+                        Assert.AreEqual(selectionLength, search.InputTextBoxControl.SelectionLength);
+                        CollectionAssert.AreEqual(candidateTexts, search.Presentation.VisibleItems.Select(item => item.DisplayText).ToArray());
+                    }
+                    else if (inputKind == 2)
+                    {
+                        Assert.IsNotNull(editor);
+                        Assert.AreSame(editor, FindVisualChildren<TextBox>(table).Single());
+                        Assert.AreEqual("uncommitted", editor.Text);
+                        Assert.AreEqual(selectionStart, editor.SelectionStart);
+                        Assert.AreEqual(selectionLength, editor.SelectionLength);
+                    }
+                }
+                finally
+                {
+                    panel.PlaybackStarted -= started;
+                    table.CellEditEnded -= editEndedHandler;
+                    viewModel.MainChartList.CellEditBeginningRequested -= editBeginning;
+                }
+            });
+    }
+
+    /// <summary>内蔵Ready通知の面復帰は維持し、実シェルHWNDと前面値が異なると表へのフォーカス要求を出さないことを確認します。</summary>
+    /// <remarks>OS前面値だけを代替し、実Ready・View接続・XAML受信と製品のHWND比較を通します。物理的な前面移動は通常WPF検証の対象にしません。</remarks>
+    [TestMethod]
+    public void InternalReady_ForegroundMismatchRestoresSurfaceWithoutRequestingTableFocus()
+    {
+        var attempts = new List<IInputElement>();
+        RunPlaybackFocusScenario(_ => new IntPtr(-1), attempts.Add,
+            (viewModel, window, _, panel, start) =>
+            {
+                var delivered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                RoutedEventHandler started = (_, _) => delivered.TrySetResult();
+                panel.PlaybackStarted += started;
+                try
+                {
+                    start();
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(delivered.Task, "foreground-mismatch-ready-view-delivery");
+                    DispatcherOperation inputBoundary = window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(inputBoundary.Task, "foreground-mismatch-input-boundary");
+                    Assert.AreEqual(0, attempts.Count);
+                    Assert.AreEqual(PlayerPanelState.TITLE_LARGE, panel.EffectivePlayerPanelState);
+                    Assert.AreEqual(PlayerPanelState.TITLE_LARGE, viewModel.PlaybackPanel.PlayerPanelState);
+                    var host = (ExternalPlayerHwndHost)panel.FindName("externalPlayerHost");
+                    Assert.AreEqual(Visibility.Collapsed, host.Visibility);
+                    Assert.IsNotNull(BindingOperations.GetMultiBindingExpression(host, UIElement.VisibilityProperty));
+                    Assert.AreEqual(Visibility.Visible, ((Grid)panel.FindName("gridPlayerTitle")).Visibility);
+                    Assert.AreEqual("Ready対象", ((TextBlock)panel.FindName("gridBMSPlayerControlsTitle")).Text);
+                }
+                finally { panel.PlaybackStarted -= started; }
+            });
+    }
+
+    /// <summary>実MainWindowを非アクティブ表示し、通常表入口から内蔵Readyまでの処理と全所有資源を同じ寿命で回収します。</summary>
+    private static void RunPlaybackFocusScenario(
+        Func<IntPtr, IntPtr> readForeground,
+        Action<IInputElement> requestFocus,
+        Action<MainWindowViewModel, MainWindow, CustomTableView, PlaybackPanelView, Action> test)
+    {
+        string path = Path.GetTempFileName();
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var player = new PlaybackPanelViewModelTests.PreloadBmsPlayer
+        {
+            SupportsBmson = true,
+            Ready = ready.Task,
+            Completion = completion.Task
+        };
+        try
+        {
+            TestUiDispatcherHost.RunWindowTest(scope =>
+            {
+                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                {
+                    values.PlayerPanelState = PlayerPanelState.TITLE_LARGE;
+                    values.UsePlayerBMIIDXView = false;
+                    values.UsePlayeruBMplay = false;
+                    values.UsePlayerLR2body = false;
+                    // Ready後の入力保持を、ContextIdleでの無関係な起動時ナビゲーションから分離します。
+                    values.StartupSelectInstallPending = false;
+                });
+                var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
+                MainWindowViewModel viewModel = new ApplicationComposition(
+                    settingsEditSession: new NoOpSettingsEditSession(settings),
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: lifetime,
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog()).CreateMainWindowViewModelForTest();
+                var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
+                ownership.Run(() =>
+                {
+                    MainWindowPresentationTestHarness.PrepareConstructorOnlyShell(viewModel);
+                    viewModel.StartupUpdateWorkflow.NotifyClosing();
+                    viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
+                    IntPtr shellHandle = IntPtr.Zero;
+                    MainWindow window = ownership.CreateWindow(() => new MainWindow(viewModel, settingsWindowCreated: null,
+                        readPlaybackForegroundWindow: () => readForeground(shellHandle),
+                        requestPlaybackKeyboardFocus: requestFocus));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.ReplacePlayerAsync(player), "focus-replace-internal-player");
+                    ChartFile chart = ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = path, RawTitle = "Ready対象" };
+                    var entry = new BMSTableEntry { parent = new BMSTable(), memo = "original" };
+                    PlaylistDetailRow row = viewModel.MainChartList.RowProjection.CreatePlaylistDetailSourceRow(
+                        null, entry, chart, null, null, null).CreateViewRow();
+                    viewModel.MainChartList.Rows = new List<object> { row };
+                    viewModel.MainChartList.SelectedIndex = -1;
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    MainWindowViewHostTests.ShowMainWindow(scope, window);
+                    // Loaded時の列設定適用後に代表の編集列と、その実表示領域を準備します。
+                    var layout = new CustomTableColumnSettings.ColumnLayout { Width = 180, Visibility = Visibility.Visible };
+                    table.Columns = [new CustomTableColumn("Memo", "MEMO", layout, 0, null, TextAlignment.Left,
+                        candidate => ((PlaylistDetailRow)candidate).memo, editPropertyName: nameof(PlaylistDetailRow.memo))];
+                    table.Width = 600;
+                    table.Height = 200;
+                    table.UpdateLayout();
+                    shellHandle = new WindowInteropHelper(window).Handle;
+                    Assert.AreNotEqual(IntPtr.Zero, shellHandle);
+                    Assert.AreSame(window, Window.GetWindow(table));
+                    Assert.IsTrue(table.IsLoaded);
+                    Assert.IsTrue(table.HandleKeyDown(Key.Down, ModifierKeys.None));
+                    var panel = (PlaybackPanelView)window.FindName("playbackPanelView");
+                    Assert.IsTrue(panel.IsLoaded);
+                    Assert.AreEqual(PlayerPanelState.TITLE_LARGE, panel.EffectivePlayerPanelState);
+                    Task? request = null;
+                    try
+                    {
+                        test(viewModel, window, table, panel, () =>
+                        {
+                            request = window.RequestPlaybackFromTable(0, row);
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(
+                                player.StartObserved.Task, request, "focus-internal-start-observed"), "focus-internal-start-observed");
+                            ready.TrySetResult();
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(request, "focus-internal-ready-request");
+                        });
+                    }
+                    finally
+                    {
+                        ready.TrySetResult();
+                        completion.TrySetResult();
+                        if (request != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(request, "focus-request-cleanup"); }
+                        table.HandleKeyDown(Key.Escape, ModifierKeys.None);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.StopPlayback(), "focus-playback-cleanup");
+                    }
+                });
+            });
         }
         finally
         {
