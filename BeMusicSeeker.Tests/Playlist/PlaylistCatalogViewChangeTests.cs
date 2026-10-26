@@ -48,16 +48,16 @@ public sealed class PlaylistCatalogViewChangeTests
         var row = (PlaylistDetailRow)rows[0];
         var context = new MainChartListCellEditContext(row, nameof(PlaylistDetailRow.Level), ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
         fixture.Workspace.BeginDetailEdit(context);
-        row.Level = "★12.5";
+        row.Level = "12.5";
         gate = true;
-        Task edit = fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "★12.5", true));
+        Task edit = fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "12.5", true));
         try
         {
             await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, edit, "entry-required-delivery");
             Assert.IsFalse(edit.IsCompleted);
             Assert.IsTrue(fixture.Workspace.DetailViewState.Source.IsPlaylistCellEditing);
             Assert.AreEqual(12.5, row.Entry.level);
-            Assert.AreEqual("★12.5", row.Level, "必要配送の実終端まではdraftを閉じません。");
+            Assert.AreEqual("12.5", row.Level, "必要配送の実終端まではdraftを閉じません。");
             Assert.IsFalse(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable rejected));
             rejected?.Dispose();
         }

@@ -1,21 +1,23 @@
+using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
 public sealed class RightClickActionSettingsStoreTests
 {
-    /// <summary>注入設定から空定義を読込み有効定義を保存し、不正保存は元JSONを保持して失敗を返します。</summary>
+    /// <summary>注入した実providerから空定義を読み、日時風の名前を実保存して新readerへ文字列で復元し、不正保存は元JSONと媒体を保持します。</summary>
     [TestMethod]
     public void StoreLoadsAndSavesThroughTheProvidedSettingsOwnerWithoutFallback()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
-            {
-                values.RightClickActionsJson = "{\"webActions\":[],\"programActions\":[]}";
-            });
+        using var files = new PortableSettingsPersistenceTests.SettingsFiles();
+        Settings settings = PortableSettingsPersistenceTests.OpenSettings(files.Path);
+        settings.RightClickActionsJson = "{\"webActions\":[],\"programActions\":[]}";
         var store = new RightClickActionSettingsStore(() => settings);
 
         RightClickActionSettingsParseResult loaded = store.Load();
@@ -23,11 +25,20 @@ public sealed class RightClickActionSettingsStoreTests
         Assert.AreEqual(0, loaded.Settings.WebActions.Count);
         Assert.AreEqual(0, loaded.Settings.ProgramActions.Count);
 
-        RightClickActionSettings replacement = RightClickActionSettingsDefaults.Create();
-        Assert.IsTrue(store.TrySave(replacement, out RightClickActionSettingsParseError saveError), saveError?.ToString());
+        Assert.IsTrue(store.TrySave(RightClickActionSettingsDefaults.Create(), out RightClickActionSettingsParseError defaultsError), defaultsError?.ToString());
         Assert.AreEqual(RightClickActionSettingsDefaults.SerializedJson, settings.RightClickActionsJson);
+        RightClickActionSettings replacement = new(
+            [new RightClickWebActionDefinition("date", "2024-01-02T03:04:05.1234567+09:00", "https://example.test/{md5}", true, ExternalChartKind.All)], []);
+        Assert.IsTrue(store.TrySaveAndPersist(replacement, out RightClickActionSettingsParseError saveError), saveError?.ToString());
+        var freshStore = new RightClickActionSettingsStore(() => PortableSettingsPersistenceTests.OpenSettings(files.Path));
+        RightClickActionSettingsParseResult persisted = freshStore.Load();
+        Assert.IsTrue(persisted.Succeeded, persisted.Error?.ToString());
+        Assert.AreEqual("2024-01-02T03:04:05.1234567+09:00", persisted.Settings.WebActions.Single().Name);
+        using var reader = new JsonTextReader(new StringReader(settings.RightClickActionsJson)) { DateParseHandling = DateParseHandling.None };
+        Assert.AreEqual(JTokenType.String, JObject.Load(reader)["webActions"]![0]!["name"]!.Type);
 
         string beforeInvalidSave = settings.RightClickActionsJson;
+        byte[] beforeInvalidBytes = File.ReadAllBytes(files.Path);
         RightClickActionSettings invalid = new(
             [new RightClickWebActionDefinition(
                 "invalid",
@@ -37,9 +48,10 @@ public sealed class RightClickActionSettingsStoreTests
                 ExternalChartKind.All)],
             []);
 
-        Assert.IsFalse(store.TrySave(invalid, out RightClickActionSettingsParseError invalidError));
+        Assert.IsFalse(store.TrySaveAndPersist(invalid, out RightClickActionSettingsParseError invalidError));
         Assert.IsNotNull(invalidError);
         Assert.AreEqual(beforeInvalidSave, settings.RightClickActionsJson);
+        CollectionAssert.AreEqual(beforeInvalidBytes, File.ReadAllBytes(files.Path));
     }
 
     /// <summary>未指定・空・空白JSONはInvalidValueを返し、既定定義を勝手に作りません。</summary>
@@ -60,7 +72,7 @@ public sealed class RightClickActionSettingsStoreTests
     public void SerializeRoundTripPreservesOrderAndDefinitions()
     {
         string payload = """
-        {"webActions":[{"id":"custom","name":"Custom","urlTemplate":"https://example.test/{md5}/{sha256}","enabled":false,"chartKind":"BmsonOnly"}],"programActions":[{"id":"viewer","name":"Viewer","executablePath":"C:\\Tools\\viewer.exe","argumentTemplate":"--chart=\"{filePath}\"","enabled":true},{"id":"player","name":"Player","executablePath":"C:\\Tools\\player.exe","argumentTemplate":"{filePath} --mode=preview","enabled":false}]}
+        {"webActions":[{"id":"custom","name":"2024-01-02T03:04:05.1234567+09:00","urlTemplate":"https://example.test/{md5}/{sha256}","enabled":false,"chartKind":"BmsonOnly"}],"programActions":[{"id":"viewer","name":"2024-01-02T03:04:05Z","executablePath":"C:\\Tools\\viewer.exe","argumentTemplate":"--chart=\"{filePath}\"","enabled":true},{"id":"player","name":"Player","executablePath":"C:\\Tools\\player.exe","argumentTemplate":"{filePath} --mode=preview","enabled":false}]}
         """;
 
         RightClickActionSettingsParseResult parsed = RightClickActionSettingsSerializer.Parse(payload);
@@ -71,10 +83,15 @@ public sealed class RightClickActionSettingsStoreTests
 
         Assert.IsTrue(roundTrip.Succeeded, roundTrip.Error?.ToString());
         Assert.AreEqual("custom", roundTrip.Settings.WebActions[0].Id);
-        Assert.AreEqual("Custom", roundTrip.Settings.WebActions[0].Name);
+        Assert.AreEqual("2024-01-02T03:04:05.1234567+09:00", roundTrip.Settings.WebActions[0].Name);
         Assert.AreEqual(ExternalChartKind.BmsonOnly, roundTrip.Settings.WebActions[0].ChartKind);
         Assert.IsFalse(roundTrip.Settings.WebActions[0].Enabled);
         Assert.AreEqual("viewer", roundTrip.Settings.ProgramActions[0].Id);
+        Assert.AreEqual("2024-01-02T03:04:05Z", roundTrip.Settings.ProgramActions[0].Name);
+        using var reader = new JsonTextReader(new StringReader(serialized)) { DateParseHandling = DateParseHandling.None };
+        var json = JObject.Load(reader);
+        Assert.AreEqual(JTokenType.String, json["webActions"]![0]!["name"]!.Type);
+        Assert.AreEqual(JTokenType.String, json["programActions"]![0]!["name"]!.Type);
         Assert.AreEqual(@"C:\Tools\viewer.exe", roundTrip.Settings.ProgramActions[0].ExecutablePath);
         Assert.AreEqual("--chart=\"{filePath}\"", roundTrip.Settings.ProgramActions[0].ArgumentTemplate);
         Assert.AreEqual("player", roundTrip.Settings.ProgramActions[1].Id);

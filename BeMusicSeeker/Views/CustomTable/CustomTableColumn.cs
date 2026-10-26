@@ -846,10 +846,10 @@ internal static class CustomTableColumnFactory
         return value switch
         {
             null => string.Empty,
-            double d => d.ToString(CultureInfo.CurrentCulture),
-            float f => f.ToString(CultureInfo.CurrentCulture),
-            decimal m => m.ToString(CultureInfo.CurrentCulture),
-            IFormattable formattable => formattable.ToString(null, CultureInfo.CurrentCulture),
+            double d => d.ToString(CultureInfo.InvariantCulture),
+            float f => f.ToString(CultureInfo.InvariantCulture),
+            decimal m => m.ToString(CultureInfo.InvariantCulture),
+            IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
             _ => value.ToString()
         };
     }
@@ -863,24 +863,24 @@ internal static class CustomTableColumnFactory
     {
         if (value is DateTime dateTime)
         {
-            return dateTime.ToShortDateString();
+            return dateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         }
         return string.Empty;
     }
 
     private static string FormatFixedTwo(object value)
     {
-        return value is IFormattable formattable ? formattable.ToString("F2", CultureInfo.CurrentCulture) : string.Empty;
+        return value is IFormattable formattable ? formattable.ToString("F2", CultureInfo.InvariantCulture) : string.Empty;
     }
 
     private static string FormatDateTime(object value)
     {
-        return value is DateTime dateTime ? dateTime.ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.CurrentCulture) : string.Empty;
+        return value is DateTime dateTime ? dateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) : string.Empty;
     }
 
     private static string FormatPercentOne(object value)
     {
-        return value is IFormattable formattable ? formattable.ToString("F1", CultureInfo.CurrentCulture) + "%" : string.Empty;
+        return value is IFormattable formattable ? formattable.ToString("F1", CultureInfo.InvariantCulture) + "%" : string.Empty;
     }
 
     private static string FormatPercentTwo(object value)
@@ -891,8 +891,8 @@ internal static class CustomTableColumnFactory
         }
         if (value is IConvertible convertible)
         {
-            double ratio = convertible.ToDouble(CultureInfo.CurrentCulture);
-            return (ratio * 100.0).ToString("F2", CultureInfo.CurrentCulture) + "%";
+            double ratio = convertible.ToDouble(CultureInfo.InvariantCulture);
+            return (ratio * 100.0).ToString("F2", CultureInfo.InvariantCulture) + "%";
         }
         return string.Empty;
     }

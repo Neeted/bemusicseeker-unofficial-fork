@@ -1,4 +1,6 @@
 {
+  "Error_PlaylistEntryLevelFormat": "ENTRY LEVEL必須輸入以點為小數分隔符的完整有限數值（例如 -1.5、1e2）。留空可清除數值。",
+  "Error_PlaylistJsonDateFormat": "{0}的日期時間無效。請使用 yyyy-MM-dd、yyyy-MM-ddTHH:mm:ss（可選1～7位小數秒及Z/±HH:mm），或 yyyy/M/d（可選H:m:s及±HH:mm）格式修正來源資料後重試。",
   "Confirm_DeleteRegisteredBmsRoots": "是否刪除整個資料夾並取消註冊以下 BMS 根目錄？\n資料夾：{0}\n將取消註冊的 BMS 根目錄：\n{1}",
   "Warn_CannotDeleteProtectedBmsRoot": "此資料夾包含最後一個 BMS 根目錄或目前安裝位置，無法刪除整個資料夾。請先在設定中確認其他根目錄或安裝位置。\n目標：{0}",
   "LibraryChartRemovalReport_RegistrationFailed": "檔案已刪除，但 BMS 根目錄註冊的儲存或套用失敗。",
@@ -1100,7 +1102,7 @@
   "PlaylistLampViewer_statistic_detail_format": "{0}：{1}",
   "PlaylistLampViewer_segment_detail_format": "{0}：{1}（{2}）",
   "PlaylistLampViewer_segment_unavailable_detail_format": "{0}：{1}（{2}）",
-  "PlaylistLampViewer_percentage_format": "{0:N2}%",
+  "PlaylistLampViewer_percentage_format": "{0:F2}%",
   "PlaylistLampViewer_source_lr2": "LR2",
   "PlaylistLampViewer_source_beatoraja": "beatoraja",
   "PlaylistLampViewer_source_none": "無",

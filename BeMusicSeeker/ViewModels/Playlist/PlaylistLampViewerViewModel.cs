@@ -566,21 +566,21 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
     private static string FormatCount(int? value)
     {
         return value.HasValue
-            ? value.Value.ToString("N0", CultureInfo.CurrentCulture)
+            ? value.Value.ToString("0", CultureInfo.InvariantCulture)
             : Unavailable;
     }
 
     private static string FormatPercentage(double? value)
     {
         return value.HasValue
-            ? PlaylistLampViewerPercentageFormatter.Format(value.Value, CultureInfo.CurrentCulture)
+            ? PlaylistLampViewerPercentageFormatter.Format(value.Value)
             : Unavailable;
     }
 
     private static string FormatTimestamp(DateTime? value)
     {
         return value.HasValue
-            ? value.Value.ToString("g", CultureInfo.CurrentCulture)
+            ? value.Value.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)
             : Unavailable;
     }
 
@@ -676,21 +676,21 @@ internal sealed class PlaylistLampViewerSegmentViewModel : ViewModel
     /// <summary>Whether this segment should be materialized as a positive bar control.</summary>
     public Visibility BarVisibility => HasPositiveWidth ? Visibility.Visible : Visibility.Collapsed;
 
-    /// <summary>Localized adaptive percentage text for this segment.</summary>
+    /// <summary>小さい正値を保ち、小数点を固定した翻訳済みの割合表示です。</summary>
     public string PercentageText => Percentage.HasValue
-        ? PlaylistLampViewerPercentageFormatter.Format(Percentage.Value, CultureInfo.CurrentCulture)
+        ? PlaylistLampViewerPercentageFormatter.Format(Percentage.Value)
         : Resources.PlaylistLampViewer_unavailable;
 
-    /// <summary>Localized count and percentage tooltip/accessibility text.</summary>
+    /// <summary>件数と割合を固定書式で埋め込む翻訳済みのツールチップ・読み上げ文です。</summary>
     public string DetailText => Percentage.HasValue
         ? string.Format(
-            CultureInfo.CurrentCulture,
+            CultureInfo.InvariantCulture,
             Resources.PlaylistLampViewer_segment_detail_adaptive_format,
             Label,
             Count,
             PercentageText)
         : string.Format(
-            CultureInfo.CurrentCulture,
+            CultureInfo.InvariantCulture,
             Resources.PlaylistLampViewer_segment_unavailable_detail_format,
             Label,
             Count,
@@ -745,21 +745,18 @@ internal sealed class PlaylistLampViewerSegmentViewModel : ViewModel
 }
 
 /// <summary>
-/// Formats viewer percentages without turning a small positive value into a displayed
-/// zero. The regular percentage format remains the source for ordinary values, while
-/// values below its two-decimal positive threshold use a localized lower-bound phrase.
+/// 小数点と小数2桁の精度を固定し、小さい正の割合は翻訳済みの下限表現で表示します。
+/// 元の割合を丸めて保存せず、通常値と同じ数値書式を使います。
 /// </summary>
 internal static class PlaylistLampViewerPercentageFormatter
 {
     private const double MinimumTwoDecimalPositivePercentage = 0.005d;
 
-    /// <summary>Formats a percentage for a viewer label, preserving positive semantics.</summary>
-    /// <param name="percentage">Percentage value in percentage points.</param>
-    /// <param name="culture">Culture used for numeric formatting.</param>
-    /// <returns>A localized percentage that cannot misrepresent a small positive value as zero.</returns>
-    internal static string Format(double percentage, CultureInfo culture)
+    /// <summary>小数点と精度を固定し、小さい正値をゼロに見せずに翻訳済みの割合を整形します。</summary>
+    /// <param name="percentage">百分率の数値。</param>
+    /// <returns>固定小数点の割合、最小表示値未満の文言、または利用不可表示。</returns>
+    internal static string Format(double percentage)
     {
-        ArgumentNullException.ThrowIfNull(culture);
         if (!double.IsFinite(percentage) || percentage < 0d)
         {
             return Resources.PlaylistLampViewer_unavailable;
@@ -768,17 +765,17 @@ internal static class PlaylistLampViewerPercentageFormatter
         if (percentage > 0d && percentage < MinimumTwoDecimalPositivePercentage)
         {
             string minimumPositive = string.Format(
-                culture,
+                CultureInfo.InvariantCulture,
                 Resources.PlaylistLampViewer_percentage_format,
                 MinimumTwoDecimalPositivePercentage * 2d);
             return string.Format(
-                culture,
+                CultureInfo.InvariantCulture,
                 Resources.PlaylistLampViewer_percentage_less_than_format,
                 minimumPositive);
         }
 
         return string.Format(
-            culture,
+            CultureInfo.InvariantCulture,
             Resources.PlaylistLampViewer_percentage_format,
             percentage);
     }
@@ -840,8 +837,8 @@ internal sealed class PlaylistLampViewerFolderRowViewModel : ViewModel
     public IEnumerable<PlaylistLampViewerSegmentViewModel> PositiveRankSegments
         => RankSegments.Where(segment => segment.HasPositiveWidth);
 
-    /// <summary>Localized numeric folder chart count using the current culture's N0 format.</summary>
-    public string CountText => Count.ToString("N0", CultureInfo.CurrentCulture);
+    /// <summary>地域に依存せず桁区切りなしで表示するフォルダの譜面件数です。</summary>
+    public string CountText => Count.ToString("0", CultureInfo.InvariantCulture);
 }
 
 /// <summary>統計と補助行で共用する、翻訳済みのラベルと書式済みの値です。</summary>
@@ -849,7 +846,7 @@ internal sealed class PlaylistLampViewerStatistic
 {
     /// <summary>内容幅で表示する一つの項目を生成します。</summary>
     /// <param name="label">翻訳済みラベル。</param>
-    /// <param name="value">既存の文化圏規則で書式化した値。</param>
+    /// <param name="value">数値・日時の固定書式で整形した値。</param>
     internal PlaylistLampViewerStatistic(string label, string value)
     {
         Label = label ?? string.Empty;

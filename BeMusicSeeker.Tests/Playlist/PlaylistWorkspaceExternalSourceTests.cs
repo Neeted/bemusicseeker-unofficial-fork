@@ -437,8 +437,9 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     }
 
     /// <summary>
-    /// 保証：混合4対象のURI・Kindを元入力順で照合し、登録済みの参照表示をモデルから確認する。
+    /// 保証：混合6対象のURI・Kindを元入力順で照合し、登録済みの参照表示をモデルから確認する。
     /// 登録確定・IDとentry所属、既存表の非取得・内容、残る二表・管理台帳・config他キー・管理外BMTを保つ。
+    /// last_update/adddate不適合の二表は有効な実gzip BMTがあっても復元せず、先行正常行も保存しません。summaryに訂正可能な日時通知を渡します。
     /// 通信中Busyと要求元付き進捗を観測し、実受付Taskとconsumerを合流してからHTTP・tempを解放する。
     /// </summary>
     [TestMethod]
@@ -452,6 +453,8 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         SingleRequestHttpServer? secondServer = null;
         SingleRequestHttpServer? unmanagedServer = null;
         SingleRequestHttpServer? existingServer = null;
+        SingleRequestHttpServer? headerDateServer = null;
+        SingleRequestHttpServer? dataDateServer = null;
         PlaylistWorkspaceViewModel? workspace = null;
         TestBmsPlaylist? acceptedPlaylist = null;
         TestBmsLibrary? acceptedLibrary = null;
@@ -472,6 +475,23 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 "{\"name\":\"New A\",\"symbol\":\"A\",\"compat_prefix\":\"\",\"output_dir\":\"NewA\",\"data_url\":\"" + new Uri(Path.Combine(root, "second-data.json")).AbsoluteUri + "\"}"));
             unmanagedServer = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes("not a difficulty table"));
             existingServer = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes("existing table must not be fetched"));
+            File.WriteAllText(Path.Combine(root, "invalid-date-data.json"), new JArray(
+                new JObject { ["title"] = "Invalid D first valid row", ["md5"] = new string('f', 32), ["adddate"] = "2024-01-02" },
+                new JObject { ["title"] = "Invalid D rejected row", ["md5"] = new string('9', 32), ["adddate"] = "decorated [2024/1/2]" }).ToString());
+            headerDateServer = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes(new JObject
+            {
+                ["name"] = "Invalid H",
+                ["last_update"] = "2024/12/3100",
+                ["data_url"] = new Uri(Path.Combine(root, "data.json")).AbsoluteUri
+            }.ToString()));
+            dataDateServer = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes(new JObject
+            {
+                ["name"] = "Invalid D",
+                ["last_update"] = "2024-01-02",
+                ["data_url"] = new Uri(Path.Combine(root, "invalid-date-data.json")).AbsoluteUri
+            }.ToString()));
+            string headerDateUri = headerDateServer.Address.AbsoluteUri;
+            string dataDateUri = dataDateServer.Address.AbsoluteUri;
             string inputUri = server.Address.AbsoluteUri;
             string secondUri = secondServer.Address.AbsoluteUri;
             string unmanagedUri = unmanagedServer.Address.AbsoluteUri;
@@ -514,8 +534,18 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             acceptedPlaylist = playlist;
             playlist.CommitBMSTablesWithEntriesToDB(existing);
             await playlist.BmtOutput.ExportAllAsync("new-table-import-fixture");
+            foreach ((string url, string name, char digit) in new[] { (headerDateUri, "Cached H", '7'), (dataDateUri, "Cached D", '8') })
+            {
+                WriteBmtJson(BeatorajaBmtTableImportService.GetCachedTablePath(output, url), new JObject
+                {
+                    ["url"] = url,
+                    ["name"] = name,
+                    ["tag"] = "C",
+                    ["folder"] = new JArray(new JObject { ["name"] = "1", ["songs"] = new JArray(new JObject { ["title"] = name + " song", ["md5"] = new string(digit, 32) }) })
+                });
+            }
             var configDocument = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config));
-            configDocument["tableURL"] = new Newtonsoft.Json.Linq.JArray(inputUri, existingUri, unmanagedUri, secondUri);
+            configDocument["tableURL"] = new Newtonsoft.Json.Linq.JArray(inputUri, existingUri, unmanagedUri, headerDateUri, dataDateUri, secondUri);
             File.WriteAllText(config, configDocument.ToString());
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
             {
@@ -556,15 +586,28 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 $"取込み結果: {outcome.Kind}, URI={outcome.Uri}, 表名={outcome.TableName}, 例外={outcome.Exception}"));
             Assert.AreEqual(2, summary.ImportedCount, diagnostics);
             Assert.AreEqual(1, summary.ExistingCount, diagnostics);
-            Assert.AreEqual(1, summary.FailedCount, diagnostics);
+            Assert.AreEqual(3, summary.FailedCount, diagnostics);
             Assert.AreEqual(0, summary.RestoredFromBmtCount, diagnostics);
             Assert.AreEqual(0, summary.WarningCount, diagnostics);
-            Assert.AreEqual(4, summary.Outcomes.Count, diagnostics);
-            CollectionAssert.AreEqual(new[] { inputUri, existingUri, unmanagedUri, secondUri },
+            Assert.AreEqual(6, summary.Outcomes.Count, diagnostics);
+            CollectionAssert.AreEqual(new[] { inputUri, existingUri, unmanagedUri, headerDateUri, dataDateUri, secondUri },
                 summary.Outcomes.Select(outcome => outcome.Uri.AbsoluteUri).ToArray());
             CollectionAssert.AreEqual(new[] { BeatorajaTableUrlImportOutcomeKind.Imported, BeatorajaTableUrlImportOutcomeKind.Existing,
+                BeatorajaTableUrlImportOutcomeKind.Failed, BeatorajaTableUrlImportOutcomeKind.Failed,
                 BeatorajaTableUrlImportOutcomeKind.Failed, BeatorajaTableUrlImportOutcomeKind.Imported },
                 summary.Outcomes.Select(outcome => outcome.Kind).ToArray(), diagnostics);
+            foreach ((string url, string field) in new[] { (headerDateUri, "last_update"), (dataDateUri, "adddate") })
+            {
+                Exception? failure = summary.Outcomes.Single(outcome => outcome.Uri.AbsoluteUri == url).Exception;
+                Assert.IsNotNull(failure);
+                if (field == "last_update") { Assert.IsInstanceOfType<PlaylistHeaderParseException>(failure); }
+                else { Assert.IsInstanceOfType<PlaylistDataParseException>(failure); }
+                Assert.IsInstanceOfType<PlaylistJsonDateException>(failure.InnerException);
+                // MainWindowのsummary sinkが表示するトップレベルMessageへ訂正案内が届くことを確認します。
+                StringAssert.Contains(failure.Message, string.Format(BeMusicSeeker.Properties.Resources.Error_PlaylistJsonDateFormat, field));
+            }
+            Assert.IsFalse(playlist.BMSTables.Any(table => table.name is "Invalid H" or "Invalid D" or "Cached H" or "Cached D"));
+            Assert.IsFalse(playlist.BMSTables.SelectMany(table => table.entries).Any(entry => entry.md5 == new string('f', 32) || entry.md5 == new string('9', 32) || entry.md5 == new string('7', 32) || entry.md5 == new string('8', 32)));
             Assert.IsFalse(existingServer.HeadersSent.Task.IsCompleted, "既存一致のURLを再取得しません。");
             BeatorajaTableUrlImportOutcome imported = summary.Outcomes.First();
             Assert.AreEqual(BeatorajaTableUrlImportOutcomeKind.Imported, imported.Kind, diagnostics);
@@ -610,10 +653,12 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 List<BmtTableExportService.ManagedTableUrlEntry> managed = BmtTableExportService.ReadManagedTableUrls(output);
                 CollectionAssert.AreEquivalent(headers.Select(table => table.playlist_id.ToString()).ToArray(),
                     managed.Select(item => item.PlaylistIdentity).ToArray());
-                Assert.IsFalse(managed.Any(item => item.Url == unmanagedUri));
+                Assert.IsFalse(managed.Any(item => item.Url == unmanagedUri || item.Url == headerDateUri || item.Url == dataDateUri));
+                Assert.IsFalse(headers.Any(table => table.name is "Invalid H" or "Invalid D" or "Cached H" or "Cached D"));
+                Assert.IsFalse(verify.Table<BMSTableEntry>().Any(entry => entry.md5 == new string('f', 32) || entry.md5 == new string('9', 32) || entry.md5 == new string('7', 32) || entry.md5 == new string('8', 32)));
             }
             CollectionAssert.AreEqual(expectedOrder, workspace.PlaylistSummaryView.Select(row => row.TableRef.name).ToArray());
-            CollectionAssert.AreEqual(new[] { unmanagedUri, inputUri, existingUri, secondUri, "https://example.com/remaining1", "https://example.com/remaining2" }, BeatorajaConfigService.ReadTableUrls(beatorajaRoot).ToArray());
+            CollectionAssert.AreEqual(new[] { unmanagedUri, headerDateUri, dataDateUri, inputUri, existingUri, secondUri, "https://example.com/remaining1", "https://example.com/remaining2" }, BeatorajaConfigService.ReadTableUrls(beatorajaRoot).ToArray());
             Assert.AreEqual(37, (int?)Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config))["other"]?["volume"]);
             CollectionAssert.AreEqual(unmanagedBytes, File.ReadAllBytes(unmanagedBmt));
             PlaylistSyncProgressSnapshot[] notifications = progress.ToArray();
@@ -634,6 +679,8 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             secondServer?.ReleaseBody.TrySetResult();
             unmanagedServer?.ReleaseBody.TrySetResult();
             existingServer?.ReleaseBody.TrySetResult();
+            headerDateServer?.ReleaseBody.TrySetResult();
+            dataDateServer?.ReleaseBody.TrySetResult();
             var cleanupFailures = new List<Exception>();
             async Task CleanupAsync(Func<Task> action)
             {
@@ -660,6 +707,8 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             if (secondServer != null) { await CleanupAsync(async () => await secondServer.DisposeAsync()); }
             if (unmanagedServer != null) { await CleanupAsync(async () => await unmanagedServer.DisposeAsync()); }
             if (existingServer != null) { await CleanupAsync(async () => await existingServer.DisposeAsync()); }
+            if (headerDateServer != null) { await CleanupAsync(async () => await headerDateServer.DisposeAsync()); }
+            if (dataDateServer != null) { await CleanupAsync(async () => await dataDateServer.DisposeAsync()); }
             await CleanupAsync(() => { Directory.Delete(root, recursive: true); return Task.CompletedTask; });
             if (cleanupFailures.Count > 0)
             {
@@ -1175,7 +1224,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         await settingsPort.CompleteBeatorajaBmtSettingsAsync(preparation, null);
     }
 
-    /// <summary>en-USの4桁年を通常新規取込みから実一括取得・登録へ通し、成功通知・公開所属・freshなDBの追加日を一致させます。</summary>
+    /// <summary>en-USで固定旧日付を通常新規取込みへ通し、不正な実採用追加日は一表保存前に止め、訂正後の成功通知・所属・fresh DBを照合します。</summary>
     /// <remarks>条件網羅と実serializer往復はBMSTableLoadTestsへ分担し、ここでは実workspaceと保存の接続を一表で確認します。共有通知の寿命を所有するため単独実行します。</remarks>
     [TestMethod]
     [DoNotParallelize]
@@ -1199,10 +1248,10 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             string headerPath = Path.Combine(directory, "header.json");
             const string tableName = "Four digit year import";
             string hash = new('e', 32);
-            DateTime expected = new(2024, 12, 31);
+            DateTime expected = new DateTime(2024, 12, 31, 13, 24, 35).AddTicks(1);
             File.WriteAllText(headerPath, "{\"name\":\"Four digit year import\",\"symbol\":\"D\",\"data_url\":\"./data.json\"}");
             File.WriteAllText(Path.Combine(directory, "data.json"),
-                "[{\"md5\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"title\":\"Date song\",\"adddate\":\"12/31/2024\"}]");
+                "[{\"md5\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"title\":\"Date song\",\"adddate\":\"invalid initial date\"}]");
             var sourceUri = new Uri(headerPath);
             playlist = new TestBmsPlaylist(databasePath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
@@ -1222,6 +1271,21 @@ public sealed class PlaylistWorkspaceExternalSourceTests
 
             Assert.AreEqual(PlaylistImportStartStatus.Started, workspace.TryStartPlaylistImport([sourceUri]).Status);
             await playlist.WaitForPlaylistMutationIdleAsync();
+            ExternalPlaylistImportQueueSummary failed = summaries.Single();
+            Assert.AreEqual(0, failed.ImportedCount);
+            Assert.AreEqual(1, failed.FailedCount);
+            Exception? failure = failed.Outcomes.Single().Exception;
+            Assert.IsInstanceOfType<PlaylistDataParseException>(failure);
+            Assert.IsNotNull(failure);
+            Assert.IsInstanceOfType<PlaylistJsonDateException>(failure.InnerException);
+            StringAssert.Contains(failure.Message, string.Format(BeMusicSeeker.Properties.Resources.Error_PlaylistJsonDateFormat, "adddate"));
+            Assert.AreEqual(0, playlist.BMSTables.Count);
+            using (LR2SongDBExtended rejected = new BmsLibraryDbGateway(databasePath).OpenSongDbReadOnly())
+            { Assert.AreEqual(0, rejected.Table<BMSTable>().Count()); Assert.AreEqual(0, rejected.Table<BMSTableEntry>().Count()); }
+            File.WriteAllText(Path.Combine(directory, "data.json"), "[{\"md5\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"title\":\"Date song\",\"adddate\":\"2024-12-31T13:24:35.0000001\"}]");
+            summaries.Clear();
+            Assert.AreEqual(PlaylistImportStartStatus.Started, workspace.TryStartPlaylistImport([sourceUri]).Status);
+            await playlist.WaitForPlaylistMutationIdleAsync();
             ExternalPlaylistImportQueueSummary summary = summaries.Single();
             Assert.AreEqual(1, summary.ImportedCount,
                 string.Join(Environment.NewLine, summary.FailedOutcomes.Select(outcome => outcome.Exception)));
@@ -1236,7 +1300,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             BMSTableEntry entry = table.entries.Single();
             Assert.AreEqual(table.playlist_id, entry.playlist_id);
             Assert.AreEqual(hash, entry.md5);
-            Assert.AreEqual(expected, entry.adddate.Date);
+            Assert.AreEqual(expected, entry.adddate);
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(databasePath).OpenSongDbReadOnly();
             BMSTable savedTable = verify.Table<BMSTable>().Single();
             Assert.AreEqual(table.playlist_id, savedTable.playlist_id);
@@ -1244,7 +1308,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             BMSTableEntry saved = verify.Table<BMSTableEntry>().Single();
             Assert.AreEqual(table.playlist_id, saved.playlist_id);
             Assert.AreEqual(hash, saved.md5);
-            Assert.AreEqual(expected, saved.adddate.Date);
+            Assert.AreEqual(expected, saved.adddate);
         }
         catch (Exception failure)
         {

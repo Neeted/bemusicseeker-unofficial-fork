@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -109,7 +110,7 @@ public class BMSAutoPlayWriter : BMSAutoPlayer
             title,
             genre: base.Chart.Genre.Trim() ?? string.Empty,
             durationSeconds: (double)totalFrames / renderer.SampleRate,
-            bpm: (base.Bms?.Bpm?.ToDouble() ?? base.Chart.Bpm.ToDouble()).ToString(),
+            bpm: (base.Bms?.Bpm?.ToDouble() ?? base.Chart.Bpm.ToDouble()).ToString(CultureInfo.InvariantCulture),
             fileName: base.Chart.Path,
             comment: base.Chart.Hash + ((base.Bms?.RandomPattern.Count > 0)
                 ? (" \n" + string.Join(", ", [.. base.Bms.RandomPattern.Select(i => i.ToString())]))

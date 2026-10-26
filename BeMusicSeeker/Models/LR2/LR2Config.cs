@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -104,28 +105,32 @@ internal sealed class LR2Config : XDocument
         return plan;
     }
 
+    /// <summary>表出力の設定整数をInvariantで読み、不正・欠落時は0を返します。</summary>
     public int GetCustomFolderMask()
     {
         return GetSystemIntValue("customfolder", 0);
     }
 
+    /// <summary>表の新着表示時間をInvariantの整数で読み、不正・欠落時は24を返します。</summary>
     public int GetTitleFlashHours()
     {
         return GetSystemIntValue("titleflash", 24);
     }
 
+    /// <summary>DB再読込みモードをInvariantの整数で読み、不正・欠落時は手動専用を返します。</summary>
     public int GetDatabaseAutoReloadMode()
     {
         return GetSystemIntValue("autoreload", DatabaseAutoReloadManualOnly);
     }
 
+    /// <summary>DB自動再読込みを地域に依存しない整数0で手動専用へ揃えます。</summary>
     public bool EnsureDatabaseAutoReloadManualOnly()
     {
         using (new WriterGuard(rwlock))
         {
             XElement system = GetOrCreateSystemElement();
             XElement autoreload = system.Element("autoreload");
-            string manualOnlyValue = DatabaseAutoReloadManualOnly.ToString();
+            string manualOnlyValue = DatabaseAutoReloadManualOnly.ToString(CultureInfo.InvariantCulture);
             if (autoreload == null)
             {
                 system.Add(new XElement("autoreload", manualOnlyValue));
@@ -145,7 +150,7 @@ internal sealed class LR2Config : XDocument
         using (new ReaderGuard(rwlock))
         {
             string value = Element("config")?.Element("system")?.Element(name)?.Value;
-            return int.TryParse(value, out int parsed)
+            return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
                 ? parsed
                 : defaultValue;
         }

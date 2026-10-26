@@ -960,34 +960,51 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(string.Empty, alphaRow.memo);
     }
 
-    /// <summary>playlistのlevel 2.5・3・12を数値昇順へ並べ、文字列順や譜面側levelで小数の順序を誤りません。</summary>
+    /// <summary>異文化でもplaylistのlevel 1.5・2・12を数値昇順へ並べ、文字列順や譜面側levelで小数の順序を誤りません。</summary>
     [TestMethod]
-    public void PlaylistDetailPresentationService_LevelSortUsesPlaylistEntryDoubleValueNumerically()
+    [DoNotParallelize]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("fr-FR")]
+    [DataRow("th-TH")]
+    public void PlaylistDetailPresentationService_LevelSortUsesPlaylistEntryDoubleValueNumerically(string cultureName)
     {
-        PlaylistDetailSourceRow entryLevelTwelve = CreateSourceRow("88888888888888888888888888888888", "Twelve", 7, entryLevel: 12);
-        PlaylistDetailSourceRow entryLevelTwoPointFive = CreateSourceRow("99999999999999999999999999999999", "TwoPointFive", 7, entryLevel: 2.5);
-        PlaylistDetailSourceRow entryLevelThree = CreateSourceRow("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Three", 7, entryLevel: 3);
-        var sortParameters = new ChartListSortParameters
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        CultureInfo previousUiCulture = CultureInfo.CurrentUICulture;
+        try
         {
-            ColumnsName = nameof(PlaylistDetailRow.Level),
-            Direction = ListSortDirection.Ascending
-        };
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(cultureName);
+            PlaylistDetailSourceRow entryLevelTwelve = CreateSourceRow("88888888888888888888888888888888", "Twelve", 7, entryLevel: 12);
+            PlaylistDetailSourceRow entryLevelOnePointFive = CreateSourceRow("99999999999999999999999999999999", "OnePointFive", 7, entryLevel: 1.5);
+            PlaylistDetailSourceRow entryLevelTwo = CreateSourceRow("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Two", 7, entryLevel: 2);
+            var sortParameters = new ChartListSortParameters
+            {
+                ColumnsName = nameof(PlaylistDetailRow.Level),
+                Direction = ListSortDirection.Ascending
+            };
 
-        List<PlaylistDetailRow> result = PlaylistDetailPresentationService.ApplyViewFromSource(
-            [entryLevelTwelve, entryLevelTwoPointFive, entryLevelThree],
-            keywordFilter: null,
-            modeFilter: ChartModeFilter.All,
-            sortParameters: sortParameters,
-            out string sortProfile,
-            out int _,
-            out int _,
-            out long _,
-            out long _,
-            out long _,
-            out long _);
+            List<PlaylistDetailRow> result = PlaylistDetailPresentationService.ApplyViewFromSource(
+                [entryLevelTwelve, entryLevelOnePointFive, entryLevelTwo],
+                keywordFilter: null,
+                modeFilter: ChartModeFilter.All,
+                sortParameters: sortParameters,
+                out string sortProfile,
+                out int _,
+                out int _,
+                out long _,
+                out long _,
+                out long _,
+                out long _);
 
-        CollectionAssert.AreEqual(new[] { "2.5", "3", "12" }, result.Select(row => row.Level).ToArray());
-        CollectionAssert.AreEqual(new[] { "TwoPointFive", "Three", "Twelve" }, result.Select(row => row.Title).ToArray());
+            CollectionAssert.AreEqual(new[] { "1.5", "2", "12" }, result.Select(row => row.Level).ToArray());
+            CollectionAssert.AreEqual(new[] { "OnePointFive", "Two", "Twelve" }, result.Select(row => row.Title).ToArray());
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUiCulture;
+        }
     }
 
     /// <summary>要求作成でfolderと検索式の前後空白を除いて同じ要求へ合流し、通常語の大小文字無視は検索側で維持します。</summary>

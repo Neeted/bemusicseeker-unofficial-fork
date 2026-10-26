@@ -14,6 +14,8 @@ BMS・bmsonに共通の音声初期化、機器選択、再生、デバイステ
 
 操作の受付分類・競合結果・必要継続の寿命は[競合ポリシー](../core/operation-concurrency-policy.md)を正本とします。以下は入力・処理・資源所有と結果の固有契約です。
 
+録音・音声変換で `BMSAutoPlayWriter` が作るBPMタグはInvariantの小数表現を使い、OS地域によって小数点を変えません。BMS・bmsonの既存BPM値とタグ・エンコーダーへの受渡しを維持します。タグ生成のproviderは静的確認、PCM出力と品質・引用・タグ引数の対応は既存の `BMSAutoPlayWriterTests` と `AudioEncoderCommandFactoryTests` に分担します。
+
 ### 所有と初期化
 
 `PlaybackPanelViewModel` が保持するライブラリ参照は、一時導入試聴の保留入力解決に使います。ライブラリ参照の接続と交換には、構成が所有する生存中の論理受付権限を明示的に渡します。一時導入試聴も同じ受付の下で参照を使い、交換と入力解決が重ならないようにします。

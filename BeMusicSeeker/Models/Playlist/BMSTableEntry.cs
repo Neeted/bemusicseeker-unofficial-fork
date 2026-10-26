@@ -46,10 +46,6 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 
     private static readonly Regex numParseRegex = new("([+-]?\\d+(?:\\.\\d*)?|\\.\\d+)", RegexOptions.Compiled);
 
-    // 年末尾4桁は年だけを修正し、従来取り込まなかった後続時刻を抽出しません。
-    // 年先頭・2桁年は従来の年月日・時刻抽出を保ちます。
-    private static readonly Regex dateparseRegex = new("(?<date>\\d{2}[^\\d]\\d{2}[^\\d]\\d{4})|(?<date>(?:\\d{4}|\\d{2})[^\\d]\\d{2}[^\\d]\\d{2})(?:[^\\d].*(?<time>\\d{2}[^\\d]\\d{2}[^\\d]\\d{2,3}))?", RegexOptions.Compiled);
-
     private static bool IsBulkLoadParseSuppressed
     {
         get
@@ -381,7 +377,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         return entry;
     }
 
-    /// <summary>外部表の行を読み込み、追加日は現在文化で4桁年全体を解析します。形式不正の任意項目は従来どおり省略し、内部故障・資源不足は隠しません。</summary>
+    /// <summary>外部表の行を読み込みます。採用する行の追加日は固定文法で全体解析し、不適合なら表全体の保存前に拒否します。</summary>
     public BMSTableEntry(JObject dataJson, BMSTable parentTable = null)
         : this()
     {
@@ -432,7 +428,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             }
             else if (TryGetNonNullProperty(dataJson, "level", out JToken compatibleLevelToken))
             {
-                string compatibleLevel = compatibleLevelToken.ToString();
+                string compatibleLevel = compatibleLevelToken.Type is JTokenType.Integer or JTokenType.Float ? Convert.ToString(((JValue)compatibleLevelToken).Value, CultureInfo.InvariantCulture) : compatibleLevelToken.ToString();
                 base.folder = parent != null
                     ? parent.ConvertCompatibleLevelNameToFolderName(compatibleLevel)
                     : compatibleLevel;
@@ -440,11 +436,13 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
         else if (TryGetNonNullProperty(dataJson, "level", out JToken levelToken))
         {
-            string levelText = levelToken.ToString();
+            string levelText = levelToken.Type is JTokenType.Integer or JTokenType.Float ? Convert.ToString(((JValue)levelToken).Value, CultureInfo.InvariantCulture) : levelToken.ToString();
             MatchCollection matchCollection = numParseRegex.Matches(levelText);
-            if (matchCollection.Count == 1)
+            if (levelToken.Type is JTokenType.Integer or JTokenType.Float || matchCollection.Count == 1)
             {
-                base.level = double.TryParse(matchCollection[0].ToString(), out double result) ? result : null;
+                base.level = levelToken.Type is JTokenType.Integer or JTokenType.Float
+                    ? levelToken.Value<double>()
+                    : double.TryParse(matchCollection[0].ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out double result) ? result : null;
             }
             base.folder = parent != null
                 ? parent.ConvertCompatibleLevelNameToFolderName(levelText)
@@ -477,22 +475,6 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         if (TryGetNonNullProperty(dataJson, "name_diff", out JToken nameDiffToken) && !string.IsNullOrWhiteSpace(nameDiffToken.ToString()))
         {
             base.name_diff = nameDiffToken.ToString();
-        }
-        if (TryGetNonNullProperty(dataJson, "adddate", out JToken addDateToken) && !string.IsNullOrWhiteSpace(addDateToken.ToString()))
-        {
-            try
-            {
-                string text = addDateToken.ToString();
-                Match match = dateparseRegex.Match(text);
-                if (match.Success)
-                {
-                    text = match.Groups["date"].Value + " " + match.Groups["time"].Value;
-                }
-                base.adddate = DateTime.Parse(text);
-            }
-            catch (FormatException)
-            {
-            }
         }
         try
         {
@@ -536,6 +518,12 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         {
             base.lr2_bmsid = null;
         }
+        if (TryGetNonNullProperty(dataJson, "adddate", out JToken addDateToken)
+            && !string.IsNullOrWhiteSpace(addDateToken.ToString())
+            && PlaylistAggregatePersistenceOwner.CreateComparablePlaylistEntryRow(this) != null)
+        {
+            base.adddate = PlaylistJsonDate.Parse(addDateToken.ToString(), "adddate");
+        }
     }
 
     public BMSTableEntry Duplicate()
@@ -572,33 +560,33 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         return string.IsNullOrWhiteSpace(text) || Uri.TryCreate(text, UriKind.Absolute, out uri);
     }
 
-    /// <summary>writer 内の現在値から作った候補へ、一つの draft 属性だけを適用します。Level は地域小数の数値全体入力と従来のピリオド・装飾入力を受理し、空白だけなら null、非数値なら旧値を保ちます。URL の空白だけの入力は未設定にし、当該補完も解除します。</summary>
-    /// <exception cref="UriFormatException">空白だけではない URL 入力が絶対 URI として無効です。</exception>
+    /// <summary>ENTRY編集の数値全体を地域非依存で検査します。外部表の装飾level抽出とは文法を分けます。</summary>
+    /// <param name="text">確定するセル全文。空白だけなら未設定にします。</param>
+    /// <param name="value">受理した有限値または未設定のnull。</param>
+    /// <returns>Invariant Float全体または空白として受理できる場合はtrue。</returns>
+    internal static bool TryParseEditedLevel(string text, out double? value)
+    {
+        value = null;
+        if (string.IsNullOrWhiteSpace(text)) { return true; }
+        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double number) || !double.IsFinite(number)) { return false; }
+        value = number;
+        return true;
+    }
+
+    /// <summary>空白のLevelはnull、非空のLevelは固定dotの有限数値全体として保存候補へ適用します。URLの空白は解除します。</summary>
+    /// <exception cref="FormatException">LevelがInvariant Float全体または有限値に適合しません。</exception>
+    /// <exception cref="UriFormatException">非空URLが絶対URIとして無効です。</exception>
     internal void ApplyEditDraft(string propertyName, string text)
     {
         switch (propertyName)
         {
             case "Level":
             case nameof(level):
-                if (string.IsNullOrWhiteSpace(text)) { level = null; }
-                else
+                if (!TryParseEditedLevel(text, out double? number))
                 {
-                    string trimmed = text.Trim();
-                    CultureInfo culture = CultureInfo.CurrentCulture;
-                    string separator = culture.NumberFormat.NumberDecimalSeparator;
-                    // 地域表示の小数だけを先に扱います。桁区切り・指数は許さず、従来の部分抽出の意味を保ちます。
-                    if (separator != "." && trimmed.Contains(separator, StringComparison.Ordinal)
-                        && double.TryParse(trimmed, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, culture, out double regionalNumber))
-                    {
-                        level = regionalNumber;
-                    }
-                    else
-                    {
-                        Match match = numParseRegex.Match(trimmed);
-                        if (match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Float,
-                                CultureInfo.InvariantCulture, out double number)) { level = number; }
-                    }
+                    throw new FormatException(BeMusicSeeker.Properties.Resources.Error_PlaylistEntryLevelFormat);
                 }
+                level = number;
                 break;
             case nameof(Url):
             case nameof(Url_diff):
@@ -666,7 +654,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
     }
 
-    /// <summary>保存対象の項目をJSONへ変換し、追加日は現在文化の短い日付で出力します。同じ文化での読戻しは年月日を保持します。</summary>
+    /// <summary>保存対象の項目をJSONへ変換し、追加日は地域・offsetを付けず7桁小数秒で壁時計のtickを保持します。</summary>
     public JObject ToJsonObject()
     {
         NormalizeForPlaylistPersistence();
@@ -687,7 +675,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             ["org_md5s"] = new JArray(Org_md5),
             ["org_md5"] = Org_md5.Count == 0 ? string.Empty : Org_md5[0],
             ["comment"] = base.comment ?? string.Empty,
-            ["adddate"] = base.adddate.ToShortDateString()
+            ["adddate"] = PlaylistJsonDate.Format(base.adddate)
         };
         return val;
     }

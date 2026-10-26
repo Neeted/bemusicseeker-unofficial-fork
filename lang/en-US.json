@@ -1,4 +1,6 @@
 {
+  "Error_PlaylistEntryLevelFormat": "ENTRY LEVEL must be a whole finite number with a dot decimal separator (for example, -1.5 or 1e2). Clear the value with an empty field.",
+  "Error_PlaylistJsonDateFormat": "{0} has an invalid date. Use yyyy-MM-dd or yyyy-MM-ddTHH:mm:ss (optional 1–7 fractional digits and Z/±HH:mm), or yyyy/M/d with optional H:m:s and ±HH:mm. Correct the source data and retry.",
   "Confirm_DeleteRegisteredBmsRoots": "Delete the entire folder and unregister the BMS roots below?\nFolder: {0}\nBMS roots to unregister:\n{1}",
   "Warn_CannotDeleteProtectedBmsRoot": "The entire folder cannot be deleted because it contains the last BMS root or the current install destination. Confirm another root or install destination in Settings first.\nTarget: {0}",
   "LibraryChartRemovalReport_RegistrationFailed": "The files were deleted, but saving or publishing the BMS root registrations failed.",
@@ -1100,7 +1102,7 @@
   "PlaylistLampViewer_statistic_detail_format": "{0}: {1}",
   "PlaylistLampViewer_segment_detail_format": "{0}: {1} ({2})",
   "PlaylistLampViewer_segment_unavailable_detail_format": "{0}: {1} ({2})",
-  "PlaylistLampViewer_percentage_format": "{0:N2}%",
+  "PlaylistLampViewer_percentage_format": "{0:F2}%",
   "PlaylistLampViewer_source_lr2": "LR2",
   "PlaylistLampViewer_source_beatoraja": "beatoraja",
   "PlaylistLampViewer_source_none": "None",

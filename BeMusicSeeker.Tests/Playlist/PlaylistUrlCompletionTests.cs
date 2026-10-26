@@ -957,8 +957,8 @@ public sealed class PlaylistUrlCompletionTests
     /// Aの未編集属性と識別子、B全属性を保持する。実効URLの確定と必要LR2出力は既存ケースへ分担する。
     /// </summary>
     [DataTestMethod]
-    [DataRow(nameof(PlaylistDetailRow.Level), "★12.5", 12.5)]
-    [DataRow(nameof(PlaylistDetailRow.Level), "A", 2d)]
+    [DataRow(nameof(PlaylistDetailRow.Level), "12.5", 12.5)]
+    [DataRow(nameof(PlaylistDetailRow.Level), "2", 2d)]
     [DataRow(nameof(PlaylistDetailRow.Level), "", null)]
     [DataRow(nameof(PlaylistDetailRow.Url), "https://example.com/edited-main", 2d)]
     [DataRow(nameof(PlaylistDetailRow.Url_diff), "https://example.com/edited-diff", 2d)]

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -1285,71 +1286,88 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>
-    /// 所持譜面/表を解決したLR2履歴はベスト前後と確定プレイの判定差分を分け、ランク・割合・オプション増分を表示する。
+    /// 所持譜面/表を解決したLR2履歴はベスト前後と確定プレイの判定差分を分け、異文化でも固定小数点の割合とランク・オプション増分を表示する。
     /// </summary>
     [TestMethod]
-    public void ProjectLr2Rows_ResolvesChartAndSeparatesBestDeltaFromActualResult()
+    [DoNotParallelize]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("fr-FR")]
+    [DataRow("th-TH")]
+    public void ProjectLr2Rows_ResolvesChartAndSeparatesBestDeltaFromActualResult(string cultureName)
     {
-        var readResult = new Lr2PlayHistoryReadResult(
-            PlayHistorySourceProfile.Lr2("score.db"),
-            [
-                CreateRawRecord(
-                    historyId: 10,
-                    hash: HashA,
-                    playedAt: 1000,
-                    finalized: true,
-                    oldExscore: 200,
-                    newExscore: 250,
-                    newTotalNotes: 150,
-                    oldClear: 0,
-                    newClear: 3,
-                    oldMinBp: null,
-                    newMinBp: 20,
-                    oldMaxCombo: 80,
-                    newMaxCombo: 120,
-                    perfectDelta: 100,
-                    greatDelta: 40,
-                    goodDelta: 10,
-                    badDelta: 5,
-                    poorDelta: 2,
-                    playtimeDelta: 90,
-                    judgeDelta: 157,
-                    newOpBest: 23,
-                    oldOpHistory: 1,
-                    newOpHistory: 17)
-            ],
-            [],
-            Lr2PlayHistorySchemaStatus.Installed);
-        PlayHistoryProjectionIndex projectionIndex = CreateProjectionIndex();
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        CultureInfo previousUiCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(cultureName);
+            var readResult = new Lr2PlayHistoryReadResult(
+                PlayHistorySourceProfile.Lr2("score.db"),
+                [
+                    CreateRawRecord(
+                        historyId: 10,
+                        hash: HashA,
+                        playedAt: 1000,
+                        finalized: true,
+                        oldExscore: 200,
+                        newExscore: 250,
+                        newTotalNotes: 150,
+                        oldClear: 0,
+                        newClear: 3,
+                        oldMinBp: null,
+                        newMinBp: 20,
+                        oldMaxCombo: 80,
+                        newMaxCombo: 120,
+                        perfectDelta: 100,
+                        greatDelta: 40,
+                        goodDelta: 10,
+                        badDelta: 5,
+                        poorDelta: 2,
+                        playtimeDelta: 90,
+                        judgeDelta: 157,
+                        newOpBest: 23,
+                        oldOpHistory: 1,
+                        newOpHistory: 17)
+                ],
+                [],
+                Lr2PlayHistorySchemaStatus.Installed);
+            PlayHistoryProjectionIndex projectionIndex = CreateProjectionIndex();
 
-        PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(readResult, projectionIndex);
+            PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(readResult, projectionIndex);
 
-        Assert.AreEqual(1, projected.Rows.Count);
-        PlayHistoryRow row = projected.Rows[0];
-        Assert.AreEqual(PlayHistoryProvider.Lr2, row.Provider);
-        Assert.AreEqual(PlayHistoryHashKind.Chart, row.HashKind);
-        Assert.AreEqual("Resolved Title", row.Title);
-        Assert.AreEqual("Resolved Artist", row.Artist);
-        Assert.AreEqual(ShaA, row.Sha256);
-        Assert.AreEqual("SAT", row.FolderLabels);
-        Assert.AreEqual("NP -> NORMAL", row.BestClear);
-        Assert.AreEqual("200 -> 250", row.BestExscore);
-        Assert.AreEqual("20", row.BestBp);
-        Assert.AreEqual("80 -> 120", row.BestCombo);
-        Assert.AreEqual(RankType.AA, row.BestDjLevel);
-        Assert.AreEqual("A -> AA", row.BestDjLevelText);
-        Assert.IsTrue(row.BestRate.HasValue);
-        Assert.AreEqual(250 / 300.0, row.BestRate.Value, 0.0001);
-        Assert.AreEqual("66.67 -> 83.33", row.BestRateText);
-        Assert.AreEqual(240, row.PlayExscore);
-        Assert.AreEqual(250, row.NewBestExscore);
-        Assert.AreEqual(90, row.PlaytimeSeconds);
-        Assert.AreEqual(157, row.JudgeTotal);
-        Assert.AreEqual("PG 100 / GR 40 / GD 10 / BD 5 / PR 2", row.Judges);
-        Assert.AreEqual("EASY RANDOM", row.Option);
-        Assert.AreEqual(16, row.OpHistoryNewBits);
-        Assert.AreEqual("P.A", row.OpHistory);
-        Assert.AreEqual("score bp clear combo", row.Kind);
+            Assert.AreEqual(1, projected.Rows.Count);
+            PlayHistoryRow row = projected.Rows[0];
+            Assert.AreEqual(PlayHistoryProvider.Lr2, row.Provider);
+            Assert.AreEqual(PlayHistoryHashKind.Chart, row.HashKind);
+            Assert.AreEqual("Resolved Title", row.Title);
+            Assert.AreEqual("Resolved Artist", row.Artist);
+            Assert.AreEqual(ShaA, row.Sha256);
+            Assert.AreEqual("SAT", row.FolderLabels);
+            Assert.AreEqual("NP -> NORMAL", row.BestClear);
+            Assert.AreEqual("200 -> 250", row.BestExscore);
+            Assert.AreEqual("20", row.BestBp);
+            Assert.AreEqual("80 -> 120", row.BestCombo);
+            Assert.AreEqual(RankType.AA, row.BestDjLevel);
+            Assert.AreEqual("A -> AA", row.BestDjLevelText);
+            Assert.IsTrue(row.BestRate.HasValue);
+            Assert.AreEqual(250 / 300.0, row.BestRate.Value, 0.0001);
+            Assert.AreEqual("66.67 -> 83.33", row.BestRateText);
+            Assert.AreEqual(240, row.PlayExscore);
+            Assert.AreEqual(250, row.NewBestExscore);
+            Assert.AreEqual(90, row.PlaytimeSeconds);
+            Assert.AreEqual(157, row.JudgeTotal);
+            Assert.AreEqual("PG 100 / GR 40 / GD 10 / BD 5 / PR 2", row.Judges);
+            Assert.AreEqual("EASY RANDOM", row.Option);
+            Assert.AreEqual(16, row.OpHistoryNewBits);
+            Assert.AreEqual("P.A", row.OpHistory);
+            Assert.AreEqual("score bp clear combo", row.Kind);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUiCulture;
+        }
     }
 
     /// <summary>
@@ -1845,54 +1863,71 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>
-    /// 履歴の判定数・プレイ数・時間・各更新内訳をカードへ渡し、更新カードの検索条件を対応付ける。LR2へEXHを混ぜない。
+    /// 異文化でも履歴の4桁判定数を桁区切りなしでカードへ渡し、プレイ数・時間・各更新内訳と検索条件を保つ。LR2へEXHを混ぜない。
     /// </summary>
     [TestMethod]
-    public void SummaryCardsExposeDedicatedPlayHistoryMetrics()
+    [DoNotParallelize]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("fr-FR")]
+    [DataRow("th-TH")]
+    public void SummaryCardsExposeDedicatedPlayHistoryMetrics(string cultureName)
     {
-        PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
-            new Lr2PlayHistoryReadResult(
-                PlayHistorySourceProfile.Lr2("score.db"),
-                [
-                    CreateRawRecord(1, HashA, 1000, finalized: true, oldExscore: 100, newExscore: 120, newTotalNotes: 100, oldClear: 0, newClear: 2, newOpHistory: ClearTypeStorageConverter.OptionHistoryEasy, oldMinBp: null, newMinBp: 10, oldMaxCombo: 50, newMaxCombo: 80, playtimeDelta: 70, judgeDelta: 100),
-                    CreateRawRecord(2, HashA, 2000, finalized: true, oldExscore: 100, newExscore: 100, newTotalNotes: 100, oldClear: 3, newClear: 5, playtimeDelta: 50, judgeDelta: 60)
-                ],
-                [],
-                Lr2PlayHistorySchemaStatus.Installed),
-            CreateProjectionIndex());
-        var summary = PlayHistoryPeriodSummary.FromRows("today", projected.Rows);
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        CultureInfo previousUiCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(cultureName);
+            PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
+                new Lr2PlayHistoryReadResult(
+                    PlayHistorySourceProfile.Lr2("score.db"),
+                    [
+                        CreateRawRecord(1, HashA, 1000, finalized: true, oldExscore: 100, newExscore: 120, newTotalNotes: 100, oldClear: 0, newClear: 2, newOpHistory: ClearTypeStorageConverter.OptionHistoryEasy, oldMinBp: null, newMinBp: 10, oldMaxCombo: 50, newMaxCombo: 80, playtimeDelta: 70, judgeDelta: 1000),
+                        CreateRawRecord(2, HashA, 2000, finalized: true, oldExscore: 100, newExscore: 100, newTotalNotes: 100, oldClear: 3, newClear: 5, playtimeDelta: 50, judgeDelta: 60)
+                    ],
+                    [],
+                    Lr2PlayHistorySchemaStatus.Installed),
+                CreateProjectionIndex());
+            var summary = PlayHistoryPeriodSummary.FromRows("today", projected.Rows);
 
-        IReadOnlyList<PlayHistorySummaryCard> cards = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Lr2);
+            IReadOnlyList<PlayHistorySummaryCard> cards = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Lr2);
 
-        Assert.AreEqual(Resources.Play_history_summary_judge_count, cards.Single(card => card.Label == Resources.Play_history_summary_judge_count).Label);
-        Assert.AreEqual("160", cards.Single(card => card.Label == Resources.Play_history_summary_judge_count).Value);
-        Assert.AreEqual(Resources.Play_history_summary_play_count, cards.Single(card => card.Label == Resources.Play_history_summary_play_count).Label);
-        Assert.AreEqual("2", cards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
-        Assert.AreEqual(Resources.Play_history_summary_playtime, cards.Single(card => card.Label == Resources.Play_history_summary_playtime).Label);
-        Assert.AreEqual("2:00", cards.Single(card => card.Label == Resources.Play_history_summary_playtime).Value);
-        Assert.AreEqual(Resources.Play_history_summary_score_update, cards.Single(card => card.Label == Resources.Play_history_summary_score_update).Label);
-        Assert.AreEqual("1", cards.Single(card => card.Label == Resources.Play_history_summary_score_update).Value);
-        Assert.AreEqual("score", cards.Single(card => card.Label == Resources.Play_history_summary_score_update).FilterKey);
-        Assert.AreEqual("type:score", cards.Single(card => card.Label == Resources.Play_history_summary_score_update).FilterText);
-        Assert.AreEqual(Resources.Play_history_summary_bp_update, cards.Single(card => card.Label == Resources.Play_history_summary_bp_update).Label);
-        Assert.AreEqual("1", cards.Single(card => card.Label == Resources.Play_history_summary_bp_update).Value);
-        Assert.AreEqual("type:bp", cards.Single(card => card.Label == Resources.Play_history_summary_bp_update).FilterText);
-        Assert.AreEqual(Resources.Play_history_summary_combo_update, cards.Single(card => card.Label == Resources.Play_history_summary_combo_update).Label);
-        Assert.AreEqual("1", cards.Single(card => card.Label == Resources.Play_history_summary_combo_update).Value);
-        Assert.AreEqual("type:combo", cards.Single(card => card.Label == Resources.Play_history_summary_combo_update).FilterText);
-        Assert.AreEqual(Resources.Play_history_summary_clear_update, cards.Single(card => card.Label == Resources.Play_history_summary_clear_update).Label);
-        Assert.AreEqual("2", cards.Single(card => card.Label == Resources.Play_history_summary_clear_update).Value);
-        Assert.AreEqual("type:clear", cards.Single(card => card.Label == Resources.Play_history_summary_clear_update).FilterText);
-        Assert.AreEqual("EASY", cards.Single(card => card.Label == "EASY").Label);
-        Assert.AreEqual("1", cards.Single(card => card.Label == "EASY").Value);
-        Assert.AreEqual("type:clear newclear:EC", cards.Single(card => card.Label == "EASY").FilterText);
-        Assert.IsFalse(cards.Any(card => card.Label == "EXH"));
-        PlayHistorySummaryCard fcCard = cards.Single(card => card.FilterKey == "fc");
-        Assert.AreEqual("1", fcCard.Value);
-        CollectionAssert.AreEqual(new long[] { 2 }, projected.Rows
-            .Where(GridKeywordSearchQuery.Parse(fcCard.FilterText).MatchesPlayHistoryRow).Select(row => row.HistoryId).ToArray());
-        Assert.IsFalse(cards.Single(card => card.Label == Resources.Play_history_summary_judge_count).IsFilterable);
-        Assert.IsTrue(cards.Single(card => card.Label == Resources.Play_history_summary_score_update).IsFilterable);
+            Assert.AreEqual(Resources.Play_history_summary_judge_count, cards.Single(card => card.Label == Resources.Play_history_summary_judge_count).Label);
+            Assert.AreEqual("1060", cards.Single(card => card.Label == Resources.Play_history_summary_judge_count).Value);
+            Assert.AreEqual(Resources.Play_history_summary_play_count, cards.Single(card => card.Label == Resources.Play_history_summary_play_count).Label);
+            Assert.AreEqual("2", cards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
+            Assert.AreEqual(Resources.Play_history_summary_playtime, cards.Single(card => card.Label == Resources.Play_history_summary_playtime).Label);
+            Assert.AreEqual("2:00", cards.Single(card => card.Label == Resources.Play_history_summary_playtime).Value);
+            Assert.AreEqual(Resources.Play_history_summary_score_update, cards.Single(card => card.Label == Resources.Play_history_summary_score_update).Label);
+            Assert.AreEqual("1", cards.Single(card => card.Label == Resources.Play_history_summary_score_update).Value);
+            Assert.AreEqual("score", cards.Single(card => card.Label == Resources.Play_history_summary_score_update).FilterKey);
+            Assert.AreEqual("type:score", cards.Single(card => card.Label == Resources.Play_history_summary_score_update).FilterText);
+            Assert.AreEqual(Resources.Play_history_summary_bp_update, cards.Single(card => card.Label == Resources.Play_history_summary_bp_update).Label);
+            Assert.AreEqual("1", cards.Single(card => card.Label == Resources.Play_history_summary_bp_update).Value);
+            Assert.AreEqual("type:bp", cards.Single(card => card.Label == Resources.Play_history_summary_bp_update).FilterText);
+            Assert.AreEqual(Resources.Play_history_summary_combo_update, cards.Single(card => card.Label == Resources.Play_history_summary_combo_update).Label);
+            Assert.AreEqual("1", cards.Single(card => card.Label == Resources.Play_history_summary_combo_update).Value);
+            Assert.AreEqual("type:combo", cards.Single(card => card.Label == Resources.Play_history_summary_combo_update).FilterText);
+            Assert.AreEqual(Resources.Play_history_summary_clear_update, cards.Single(card => card.Label == Resources.Play_history_summary_clear_update).Label);
+            Assert.AreEqual("2", cards.Single(card => card.Label == Resources.Play_history_summary_clear_update).Value);
+            Assert.AreEqual("type:clear", cards.Single(card => card.Label == Resources.Play_history_summary_clear_update).FilterText);
+            Assert.AreEqual("EASY", cards.Single(card => card.Label == "EASY").Label);
+            Assert.AreEqual("1", cards.Single(card => card.Label == "EASY").Value);
+            Assert.AreEqual("type:clear newclear:EC", cards.Single(card => card.Label == "EASY").FilterText);
+            Assert.IsFalse(cards.Any(card => card.Label == "EXH"));
+            PlayHistorySummaryCard fcCard = cards.Single(card => card.FilterKey == "fc");
+            Assert.AreEqual("1", fcCard.Value);
+            CollectionAssert.AreEqual(new long[] { 2 }, projected.Rows
+                .Where(GridKeywordSearchQuery.Parse(fcCard.FilterText).MatchesPlayHistoryRow).Select(row => row.HistoryId).ToArray());
+            Assert.IsFalse(cards.Single(card => card.Label == Resources.Play_history_summary_judge_count).IsFilterable);
+            Assert.IsTrue(cards.Single(card => card.Label == Resources.Play_history_summary_score_update).IsFilterable);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUiCulture;
+        }
     }
 
     /// <summary>

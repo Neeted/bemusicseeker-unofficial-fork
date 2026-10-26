@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
@@ -23,7 +24,7 @@ public sealed class SQLiteProviderRuntimeTests
         Assert.AreEqual(1L, connection.ExecuteScalar<long>("SELECT 1;"));
     }
 
-    /// <summary>実SQLiteから日本語とNULLを生値で読取り、空文字化や文字化けで保存値を変えません。</summary>
+    /// <summary>実SQLiteの型付き読取りでdoubleのbit・ticks・NULL・原文を保ち、従来string APIの日本語とNULLも維持します。</summary>
     [TestMethod]
     public void SQLiteCommandExtended_PreservesRawTextAndNullValues()
     {
@@ -36,8 +37,10 @@ public sealed class SQLiteProviderRuntimeTests
         try
         {
             using var connection = new LR2SongDBExtended(databasePath);
-            connection.Execute("CREATE TABLE raw_probe (text_value TEXT, null_value TEXT);");
-            connection.Execute("INSERT INTO raw_probe (text_value, null_value) VALUES ('日本語', NULL);");
+            connection.Execute("CREATE TABLE raw_probe (text_value TEXT, null_value TEXT, integer_value INTEGER, real_value REAL, numeric_text TEXT);");
+            double precise = Math.BitIncrement(1.5);
+            const long ticks = 639029198450000001;
+            connection.Execute("INSERT INTO raw_probe VALUES ('日本語', NULL, ?, ?, '001');", ticks, precise);
 
             var command = (LR2SongDBExtended.SQLiteCommandExtended)connection.CreateCommand(
                 "SELECT text_value, null_value FROM raw_probe;");
@@ -45,6 +48,20 @@ public sealed class SQLiteProviderRuntimeTests
 
             Assert.AreEqual("日本語", row[0]);
             Assert.IsNull(row[1]);
+            var typed = (LR2SongDBExtended.SQLiteCommandExtended)connection.CreateCommand("SELECT * FROM raw_probe;");
+            Assert.AreEqual(1, typed.ForEachRawRow(value =>
+            {
+                Assert.AreEqual(5, value.Count);
+                Assert.AreEqual("日本語", value.GetString(0));
+                Assert.IsNull(value.GetString(1));
+                Assert.IsNull(value.GetInt64(1));
+                Assert.IsNull(value.GetDouble(1));
+                Assert.IsFalse(value.GetBoolean(1));
+                Assert.AreEqual(ticks, value.GetInt64(2));
+                Assert.AreEqual(ticks, value.GetDateTime(2)?.Ticks);
+                Assert.AreEqual(BitConverter.DoubleToInt64Bits(precise), BitConverter.DoubleToInt64Bits(value.GetDouble(3) ?? double.NaN));
+                Assert.AreEqual("001", value.GetString(4));
+            }));
         }
         finally
         {
@@ -54,6 +71,85 @@ public sealed class SQLiteProviderRuntimeTests
                 Directory.Delete(directoryPath, recursive: true);
             }
         }
+    }
+
+    /// <summary>型を保持した実SQLite値で整数範囲・REAL拒否・固定TEXT文法・bool・ticksを判定し、native coercionや現在文化への依存を検出します。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("th-TH")]
+    public void SQLiteCommandExtended_TypedGettersKeepStorageTypeAndFixedTextGrammar(string cultureName)
+    {
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        string path = CreateTemporaryDatabasePath("TypedValues");
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            using var connection = new LR2SongDBExtended(path);
+            var cases = new (string Sql, string Type, long? Integer, double? Double, bool Boolean, long? Ticks)[]
+            {
+                ("NULL", "null", null, null, false, null),
+                ("0", "integer", 0L, 0d, false, 0L),
+                ("'  +12  '", "text", 12L, 12d, true, 12L),
+                ("''", "text", null, null, false, null),
+                ("'1.0'", "text", null, 1d, false, null),
+                ("3155378975999999999", "integer", 3155378975999999999L, 3155378975999999999d, true, 3155378975999999999L),
+                ("3155378976000000000", "integer", 3155378976000000000L, 3155378976000000000d, true, null),
+                ("2147483648", "integer", 2147483648L, 2147483648d, true, 2147483648L),
+                ("-2147483649", "integer", -2147483649L, -2147483649d, true, null),
+                ("9223372036854775807", "integer", long.MaxValue, (double)long.MaxValue, true, null),
+                ("-9223372036854775808", "integer", long.MinValue, (double)long.MinValue, true, null),
+                ("1.0", "real", null, 1d, false, null),
+                ("'-2'", "text", -2L, -2d, true, null),
+                ("'0'", "text", 0L, 0d, false, 0L),
+                ("'2147483647'", "text", int.MaxValue, int.MaxValue, true, int.MaxValue),
+                ("'-2147483648'", "text", int.MinValue, int.MinValue, true, null),
+                ("'9223372036854775808'", "text", null, 9223372036854775808d, false, null),
+                ("'1,234.5'", "text", null, 1234.5d, false, null),
+                ("'1e3'", "text", null, 1000d, false, null),
+                ("'True'", "text", null, null, true, null),
+                ("'False'", "text", null, null, false, null),
+                ("'1,5x'", "text", null, null, false, null),
+                ("'2026/1/2'", "text", null, null, false, null),
+                ("'639029198450000001'", "text", 639029198450000001L, 639029198450000001d, true, 639029198450000001L),
+                ("X'3132'", "blob", null, null, false, null)
+            };
+            foreach ((string Sql, string Type, long? Integer, double? Double, bool Boolean, long? Ticks) item in cases)
+            {
+                var command = (LR2SongDBExtended.SQLiteCommandExtended)connection.CreateCommand($"SELECT {item.Sql}, typeof({item.Sql});");
+                Assert.AreEqual(1, command.ForEachRawRow(row =>
+                {
+                    Assert.AreEqual(item.Type, row.GetString(1), item.Sql);
+                    Assert.AreEqual(item.Integer, row.GetInt64(0), item.Sql);
+                    int? integer32 = item.Integer is long integer && integer >= int.MinValue && integer <= int.MaxValue ? (int)integer : null;
+                    Assert.AreEqual(integer32, row.GetInt32(0), item.Sql);
+                    Assert.AreEqual(item.Double, row.GetDouble(0), item.Sql);
+                    Assert.AreEqual(item.Boolean, row.GetBoolean(0), item.Sql);
+                    Assert.AreEqual(item.Ticks, row.GetDateTime(0)?.Ticks, item.Sql);
+                }));
+            }
+        }
+        finally { CultureInfo.CurrentCulture = previous; DeleteTemporaryDatabase(path); }
+    }
+
+    /// <summary>借用callbackの同一例外を返し、statement解放後の明示SQLが成功することを実接続で確認します。</summary>
+    [TestMethod]
+    public void SQLiteCommandExtended_TypedCallbackPreservesExceptionAndReleasesStatement()
+    {
+        string path = CreateTemporaryDatabasePath("TypedCallback");
+        try
+        {
+            using var connection = new LR2SongDBExtended(path);
+            var failure = new InvalidOperationException("callback failure");
+            var command = (LR2SongDBExtended.SQLiteCommandExtended)connection.CreateCommand("SELECT 1;");
+            Exception actual = Assert.ThrowsException<InvalidOperationException>(() => command.ForEachRawRow(_ => throw failure));
+            Assert.AreSame(failure, actual);
+            connection.Execute("CREATE TABLE after_callback (value INTEGER);");
+            connection.Execute("INSERT INTO after_callback VALUES (2);");
+            Assert.AreEqual(2, connection.ExecuteScalar<int>("SELECT value FROM after_callback;"));
+        }
+        finally { DeleteTemporaryDatabase(path); }
     }
 
     /// <summary>実triggerによるstep失敗を一括生値読取りから返し、finalizeの後処理で元の診断を上書きしません。</summary>
@@ -96,7 +192,9 @@ public sealed class SQLiteProviderRuntimeTests
 
     /// <summary>実triggerによるstep失敗を逐次生値読取りから返し、空の正常終了に置き換えません。</summary>
     [TestMethod]
-    public void SQLiteCommandExtended_ForEachRawValue_ThrowsWhenStepReturnsError()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void SQLiteCommandExtended_ForEachRawValue_ThrowsWhenStepReturnsError(bool typed)
     {
         string databasePath = CreateTemporaryDatabasePath("RawStep");
         try
@@ -111,7 +209,8 @@ public sealed class SQLiteProviderRuntimeTests
             Exception? failure = null;
             try
             {
-                command.ForEachRawValueAsString(_ => { });
+                if (typed) { command.ForEachRawRow(_ => { }); }
+                else { command.ForEachRawValueAsString(_ => { }); }
             }
             catch (Exception exception)
             {

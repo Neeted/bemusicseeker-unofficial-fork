@@ -37,7 +37,7 @@ internal static class BmtTableExportService
 
     private const int ManifestSchemaVersion = 2;
 
-    private const int BmtExporterVersion = 1;
+    private const int BmtExporterVersion = 2;
 
     internal static BeatorajaBmtHashOutputMode NormalizeHashOutputMode(string value)
     {
@@ -1078,7 +1078,10 @@ internal static class BmtTableExportService
         JObject source;
         try
         {
-            source = JObject.Parse(courseJson);
+            using var reader = new JsonTextReader(new StringReader(courseJson)) { DateParseHandling = DateParseHandling.None };
+            source = JObject.Load(reader);
+            // JObject.Parseと同じく末尾まで読み、後続の別JSONを許容しない。
+            while (reader.Read()) { }
         }
         catch
         {

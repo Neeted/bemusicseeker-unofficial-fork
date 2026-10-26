@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using BeMusicSeeker.Models.Update;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
@@ -20,49 +21,66 @@ public sealed class UpdateCheckServiceTests
     }
 
     /// <summary>
-    /// 通常版とメタデータ同梱版の公開manifestを受理して版と資産種別を保持し、既存配布形式を拒否・混同する誤りを検出する。
+    /// 異文化でも空白・符号付きprotocolを含む公開manifestを受理し、通常版と同梱版の版・資産種別を保持する。
     /// </summary>
-    [TestMethod]
-    public void ParseManifest_AcceptsAppAndMetadataAssets()
+    [DataTestMethod]
+    [DoNotParallelize]
+    [DataRow("ja-JP")]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("fr-FR")]
+    [DataRow("th-TH")]
+    [DataRow("ar-SA")]
+    public void ParseManifest_AcceptsAppAndMetadataAssets(string cultureName)
     {
-        string json = """
-            {
-              "schemaVersion": 1,
-              "version": "2.1.0.0",
-              "releaseTag": "v2.1.0.0",
-              "releasePageUrl": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/tag/v2.1.0.0",
-              "packageFormatVersion": 1,
-              "publishedAt": "2026-06-22T00:00:00Z",
-              "minimumUpdaterVersion": "1",
-              "assets": [
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            string json = """
                 {
-                  "kind": "app",
-                  "label": "本体のみ",
-                  "fileName": "bemusicseeker-unofficial-fork-v2.1.0.0.zip",
-                  "url": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/download/v2.1.0.0/bemusicseeker-unofficial-fork-v2.1.0.0.zip",
-                  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                  "sizeBytes": 123,
-                  "includesChartInfoMetadata": false
-                },
-                {
-                  "kind": "app-with-metadata",
-                  "label": "譜面解析済みメタデータ同梱版",
-                  "fileName": "bemusicseeker-unofficial-fork-v2.1.0.0-with-metadata.zip",
-                  "url": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/download/v2.1.0.0/bemusicseeker-unofficial-fork-v2.1.0.0-with-metadata.zip",
-                  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                  "sizeBytes": 456,
-                  "includesChartInfoMetadata": true
+                  "schemaVersion": 1,
+                  "version": "2.1.0.0",
+                  "releaseTag": "v2.1.0.0",
+                  "releasePageUrl": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/tag/v2.1.0.0",
+                  "packageFormatVersion": 1,
+                  "publishedAt": "2026-06-22T00:00:00Z",
+                  "minimumUpdaterVersion": " +1 ",
+                  "assets": [
+                    {
+                      "kind": "app",
+                      "label": "本体のみ",
+                      "fileName": "bemusicseeker-unofficial-fork-v2.1.0.0.zip",
+                      "url": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/download/v2.1.0.0/bemusicseeker-unofficial-fork-v2.1.0.0.zip",
+                      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                      "sizeBytes": 123,
+                      "includesChartInfoMetadata": false
+                    },
+                    {
+                      "kind": "app-with-metadata",
+                      "label": "譜面解析済みメタデータ同梱版",
+                      "fileName": "bemusicseeker-unofficial-fork-v2.1.0.0-with-metadata.zip",
+                      "url": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/download/v2.1.0.0/bemusicseeker-unofficial-fork-v2.1.0.0-with-metadata.zip",
+                      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                      "sizeBytes": 456,
+                      "includesChartInfoMetadata": true
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
-        UpdateManifest manifest = UpdateCheckService.ParseManifest(json);
+            UpdateManifest manifest = UpdateCheckService.ParseManifest(json);
 
-        Assert.AreEqual("2.1.0.0", manifest.VersionText);
-        Assert.AreEqual(2, manifest.Assets.Count);
-        Assert.AreEqual("app", manifest.Assets[0].Kind);
-        Assert.AreEqual("app-with-metadata", manifest.Assets[1].Kind);
+            Assert.AreEqual("2.1.0.0", manifest.VersionText);
+            Assert.AreEqual(" +1 ", manifest.MinimumUpdaterVersion);
+            Assert.AreEqual(2, manifest.Assets.Count);
+            Assert.AreEqual("app", manifest.Assets[0].Kind);
+            Assert.AreEqual("app-with-metadata", manifest.Assets[1].Kind);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
     }
 
     /// <summary>

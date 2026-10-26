@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -105,7 +106,7 @@ public static class TempDirectoryPublisher
 
     private static string CreateSessionDirectoryName()
     {
-        return SessionDirectoryPrefix + DateTime.UtcNow.ToString("yyyyMMddHHmmssfff") + "-" + Process.GetCurrentProcess().Id + "-" + Guid.NewGuid().ToString("N");
+        return SessionDirectoryPrefix + DateTime.UtcNow.ToString("yyyyMMddHHmmssfff", CultureInfo.InvariantCulture) + "-" + Process.GetCurrentProcess().Id.ToString(CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N");
     }
 
     private static void EnsureSessionDirectory()

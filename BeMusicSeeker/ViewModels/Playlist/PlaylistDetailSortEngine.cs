@@ -211,10 +211,6 @@ internal static class PlaylistDetailSortEngine
         {
             return row.EntryLevelSortKey.Value;
         }
-        if (double.TryParse(row.Level, NumberStyles.Float, CultureInfo.CurrentCulture, out double currentCultureValue))
-        {
-            return currentCultureValue;
-        }
         if (double.TryParse(row.Level, NumberStyles.Float, CultureInfo.InvariantCulture, out double invariantCultureValue))
         {
             return invariantCultureValue;

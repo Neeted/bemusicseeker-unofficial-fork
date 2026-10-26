@@ -1909,12 +1909,17 @@ public sealed class ChartInfoInlineHydrationTests
     /// <remarks>実SQLiteの表示用軽量読取りと完全行読取りを照合する。共通の環境変数を一時変更するため非並列とし、元値を必ず復元する。</remarks>
     [TestMethod]
     [DoNotParallelize]
-    public void LoadChartInfoHydrationData_UsesRawProjectionAndPreservesCurrentness()
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("th-TH")]
+    public void LoadChartInfoHydrationData_UsesRawProjectionAndPreservesCurrentness(string cultureName)
     {
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
         string? previousMode = Environment.GetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE");
         Environment.SetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE", null);
         try
         {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
             WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
             {
                 var gateway = new BmsLibraryDbGateway(songDbPath);
@@ -1930,12 +1935,12 @@ public sealed class ChartInfoInlineHydrationTests
                 currentRow = currentRow with { level = null };
                 currentRow = currentRow with { difficulty = 3 };
                 currentRow = currentRow with { difficulty_defined = false };
-                currentRow = currentRow with { mainbpm = 123.5 };
+                currentRow = currentRow with { mainbpm = Math.BitIncrement(1.5) };
                 currentRow = currentRow with { total = null };
                 currentRow = currentRow with { total_defined = true };
                 currentRow = currentRow with { density = 12.25 };
                 currentRow = currentRow with { speedchange_count = 2 };
-                currentRow = currentRow with { updated_at = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc) };
+                currentRow = currentRow with { updated_at = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1) };
                 BeMusicSeeker.Models.ChartDetails staleRow = CreateChartInfoRow(staleSha, staleMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1);
                 staleRow = staleRow with { charthash = new string('e', 64) };
                 staleRow = staleRow with { distribution = "1,2,3" };
@@ -1947,6 +1952,7 @@ public sealed class ChartInfoInlineHydrationTests
                     BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
                     songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(currentRow), typeof(LR2SongDBExtended.chart_info));
                     songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(staleRow), typeof(LR2SongDBExtended.chart_info));
+                    Assert.AreEqual("real|integer|null", songDb.ExecuteScalar<string>("SELECT typeof(mainbpm) || '|' || typeof(updated_at) || '|' || typeof(level) FROM chart_info WHERE sha256 = ?;", currentSha));
                     songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(
                         CreateChartInfoParseFailureRow(currentFailureMd5, currentFailureSha, Path.Combine(tempRootPath, "current-failure.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad", null)), typeof(LR2SongDBExtended.chart_info_parse_failure));
                     songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(
@@ -1955,7 +1961,7 @@ public sealed class ChartInfoInlineHydrationTests
 
                 ChartInfoHydrationLoadResult result = gateway.LoadChartInfoHydrationData(TimeSpan.FromMilliseconds(1000));
 
-                Assert.AreEqual("raw_string_display", result.MaterializeMode);
+                Assert.AreEqual("raw_typed_display", result.MaterializeMode);
                 Assert.AreEqual(2, result.ChartInfoRows);
                 Assert.AreEqual(2, result.ParseFailureRows);
                 Assert.AreEqual(4, result.RawRows);
@@ -1966,6 +1972,8 @@ public sealed class ChartInfoInlineHydrationTests
                 Assert.IsFalse(result.CurrentParseFailureMd5s.Contains(staleFailureMd5));
                 AssertChartInfoDisplayProjectionEquivalent(currentRow, result.ChartInfoBySha256[currentSha]);
                 AssertChartInfoDisplayProjectionEquivalent(staleRow, result.ChartInfoBySha256[staleSha]);
+                Assert.AreEqual(BitConverter.DoubleToInt64Bits(Math.BitIncrement(1.5)), BitConverter.DoubleToInt64Bits(result.ChartInfoBySha256[currentSha].mainbpm ?? double.NaN));
+                Assert.AreEqual(639029198450000001L, result.ChartInfoBySha256[currentSha].updated_at.Ticks);
                 Assert.AreEqual(currentRow.updated_at, result.ChartInfoBySha256[currentSha].updated_at);
                 Assert.AreEqual(staleRow.updated_at, result.ChartInfoBySha256[staleSha].updated_at);
 
@@ -1977,8 +1985,69 @@ public sealed class ChartInfoInlineHydrationTests
         }
         finally
         {
+            CultureInfo.CurrentCulture = previousCulture;
             Environment.SetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE", previousMode);
         }
+    }
+
+    /// <summary>旧TEXT列の固定数値互換と型不適合時のnull・0・既定日時を最終辞書で確認し、native coercionや地域日時推測を検出します。</summary>
+    /// <remarks>変換条件の全表はruntimeへ分担します。実SQLiteのaffinityをtypeofで確認し、読取りによる保存値の書換えも検出します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void LoadChartInfoHydrationData_PreservesFixedTextCompatibilityAndInvalidDefaults()
+    {
+        string? previousMode = Environment.GetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE");
+        Environment.SetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE", null);
+        try
+        {
+            WithTemporarySongDb((_, path) =>
+            {
+                string firstSha = new('5', 64), secondSha = new('6', 64);
+                using (var db = new LR2SongDBExtended(path))
+                {
+                    BmsLibraryDbGateway.EnsureChartInfoSchema(db);
+                    // schema準備後に入力だけの表を作り、補修による通常型への置換を避けて旧TEXT互換へ到達します。
+                    string projection = string.Join(", ", db.GetMapping(typeof(LR2SongDBExtended.chart_info)).Columns.Select(column => column.Name switch
+                    {
+                        "level" or "difficulty_defined" or "notes" or "updated_at" => $"CAST({column.Name} AS TEXT) AS {column.Name}",
+                        "difficulty" => "+difficulty AS difficulty",
+                        _ => column.Name
+                    }));
+                    db.Execute($"CREATE TABLE chart_info_fixture AS SELECT {projection} FROM chart_info WHERE 0;");
+                    db.Execute("DROP TABLE chart_info;");
+                    db.Execute("ALTER TABLE chart_info_fixture RENAME TO chart_info;");
+                    db.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(firstSha, new string('e', 32), BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
+                    db.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(secondSha, new string('f', 32), BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
+                    db.Execute("UPDATE chart_info SET level = '12', difficulty = 3.5, difficulty_defined = 'True', mainbpm = '1,234.5', feature = 2147483648, notes = '34', updated_at = '2026/1/2' WHERE sha256 = ?;", firstSha);
+                    db.Execute("UPDATE chart_info SET level = '2147483648', difficulty = NULL, difficulty_defined = 'false', mainbpm = 'invalid', notes = 'invalid', updated_at = '639029198450000001' WHERE sha256 = ?;", secondSha);
+                    Assert.AreEqual("text|real|text|integer|text|text", db.ExecuteScalar<string>("SELECT typeof(level) || '|' || typeof(difficulty) || '|' || typeof(mainbpm) || '|' || typeof(feature) || '|' || typeof(notes) || '|' || typeof(updated_at) FROM chart_info WHERE sha256 = ?;", firstSha));
+                }
+
+                ChartInfoHydrationLoadResult result = new BmsLibraryDbGateway(path).LoadChartInfoHydrationData(TimeSpan.FromSeconds(1));
+                Assert.AreEqual(2, result.ChartInfoBySha256.Count);
+                Assert.AreEqual(2, result.CurrentChartInfoSha256s.Count);
+                ChartDetails first = result.ChartInfoBySha256[firstSha];
+                Assert.AreEqual(12, first.level);
+                Assert.IsNull(first.difficulty);
+                Assert.IsTrue(first.difficulty_defined);
+                Assert.AreEqual(1234.5, first.mainbpm);
+                Assert.AreEqual(0, first.feature);
+                Assert.AreEqual(34, first.notes);
+                Assert.AreEqual(default(DateTime), first.updated_at);
+                ChartDetails second = result.ChartInfoBySha256[secondSha];
+                Assert.IsNull(second.level);
+                Assert.IsNull(second.difficulty);
+                Assert.IsFalse(second.difficulty_defined);
+                Assert.IsNull(second.mainbpm);
+                Assert.AreEqual(0, second.notes);
+                Assert.AreEqual(639029198450000001L, second.updated_at.Ticks);
+                Assert.IsTrue(result.ReadOnly);
+                using var verify = new LR2SongDBExtended(path, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+                Assert.AreEqual("2026/1/2|34|2147483648", verify.ExecuteScalar<string>("SELECT updated_at || '|' || notes || '|' || feature FROM chart_info WHERE sha256 = ?;", firstSha));
+                Assert.AreEqual("invalid", verify.ExecuteScalar<string>("SELECT notes FROM chart_info WHERE sha256 = ?;", secondSha));
+            });
+        }
+        finally { Environment.SetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE", previousMode); }
     }
 
     /// <summary>

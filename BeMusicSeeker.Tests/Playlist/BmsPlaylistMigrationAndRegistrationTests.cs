@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -14,7 +15,6 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
-
 using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 
 namespace BeMusicSeeker.Tests;
@@ -1599,38 +1599,78 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
-    /// <summary>実旧形式DBからplaylist_idのある行を読取り専用でhydrateし、削除履歴を含めて孤立行を除きます。削除済み行の脱落と未所属行の混入を検出します。</summary>
+    /// <summary>旧TEXT追加日schemaへ通常writerで保存し、新接続の最終entryでdoubleのbit・1tick・原文と削除履歴を保ち、不適合IDを除外します。</summary>
+    /// <remarks>現在文化だけを非並列で退避・復元します。型変換条件の全表はruntimeへ分担し、ここでは実保存と起動readerの接続を判定します。</remarks>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void LoadStartupPlaylistEntries_UsesPlaylistIdProjectionAndKeepsRemovedRows()
+    [DoNotParallelize]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("th-TH")]
+    public void LoadStartupPlaylistEntries_UsesPlaylistIdProjectionAndKeepsRemovedRows(string cultureName)
     {
+        CultureInfo previous = CultureInfo.CurrentCulture;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
             string songDbPath = Path.Combine(tempDirectory, "song.db");
+            var repository = new PlaylistPersistenceRepository(songDbPath);
+            var saved = new BMSTableEntry
+            {
+                playlist_id = 10,
+                md5 = new string('a', 32),
+                level = Math.BitIncrement(1.5),
+                title = "001",
+                artist = "1e3",
+                folder = "2026/1/2",
+                comment = "日本語",
+                memo = null,
+                adddate = new DateTime(2026, 1, 2, 3, 4, 5).AddTicks(1)
+            };
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.Execute("CREATE TABLE playlist_entry (playlist_id INTEGER NULL, md5 TEXT NULL, sha256 TEXT NULL, level REAL NULL, title TEXT, artist TEXT, folder TEXT, lr2_bmsid TEXT, url TEXT, url_diff TEXT, name_diff TEXT, org_md5 TEXT, adddate TEXT, comment TEXT, memo TEXT, is_removed INTEGER NOT NULL DEFAULT 0);");
-                songDb.Execute("INSERT INTO playlist_entry (playlist_id, md5, title, is_removed) VALUES (?, ?, ?, ?);", 10, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "active", 0);
-                songDb.Execute("INSERT INTO playlist_entry (playlist_id, md5, title, is_removed) VALUES (?, ?, ?, ?);", 10, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "removed", 1);
-                songDb.Execute("INSERT INTO playlist_entry (playlist_id, md5, title, is_removed) VALUES (?, ?, ?, ?);", null, "cccccccccccccccccccccccccccccccc", "orphan", 0);
+            }
+            repository.ReplaceEntry(saved, null, saved);
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual("text", songDb.ExecuteScalar<string>("SELECT typeof(adddate) FROM playlist_entry;"));
+                Assert.AreEqual("real", songDb.ExecuteScalar<string>("SELECT typeof(level) FROM playlist_entry;"));
+                Assert.AreEqual("639029198450000001", songDb.ExecuteScalar<string>("SELECT adddate FROM playlist_entry;"));
+                songDb.Execute("INSERT INTO playlist_entry (playlist_id, md5, title, level, adddate, is_removed) VALUES (10, ?, 'removed', 'invalid', 'invalid', 'True');", new string('b', 32));
+                songDb.Execute("INSERT INTO playlist_entry (playlist_id, title, is_removed) VALUES (NULL, 'orphan', 0), (2147483648, 'overflow', 0), (-2147483649, 'underflow', 0), (10.5, 'real-id', 0), ('invalid', 'invalid-id', 0);");
+                Assert.AreEqual("real", songDb.ExecuteScalar<string>("SELECT typeof(playlist_id) FROM playlist_entry WHERE title = 'real-id';"));
+                Assert.AreEqual("text", songDb.ExecuteScalar<string>("SELECT typeof(is_removed) FROM playlist_entry WHERE title = 'removed';"));
             }
 
-            PlaylistEntriesHydrationLoadResult result = new PlaylistPersistenceRepository(songDbPath).LoadStartupPlaylistEntries();
+            DateTime before = DateTime.Now;
+            PlaylistEntriesHydrationLoadResult result = repository.LoadStartupPlaylistEntries();
+            DateTime after = DateTime.Now;
 
             Assert.AreEqual(2, result.RowCount);
-            Assert.IsTrue(result.Entries.Any(entry => entry.title == "active" && !entry.is_removed));
-            Assert.IsTrue(result.Entries.Any(entry => entry.title == "removed" && entry.is_removed));
-            Assert.IsFalse(result.Entries.Any(entry => entry.title == "orphan"));
+            BMSTableEntry active = result.Entries.Single(entry => entry.title == "001");
+            Assert.IsFalse(active.is_removed);
+            Assert.AreEqual(BitConverter.DoubleToInt64Bits(Math.BitIncrement(1.5)), BitConverter.DoubleToInt64Bits(active.level ?? double.NaN));
+            Assert.AreEqual(639029198450000001L, active.adddate.Ticks);
+            Assert.AreEqual("1e3", active.artist);
+            Assert.AreEqual("2026/1/2", active.folder);
+            Assert.AreEqual("日本語", active.comment);
+            Assert.IsNull(active.memo);
+            BMSTableEntry removed = result.Entries.Single(entry => entry.title == "removed");
+            Assert.IsTrue(removed.is_removed);
+            Assert.IsNull(removed.level);
+            Assert.IsTrue(removed.adddate >= before && removed.adddate <= after, "無効ticksでは従来のconstructor日時を保持します。");
             Assert.IsTrue(result.ReadOnly);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            Assert.AreEqual(7, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM playlist_entry;"));
+            Assert.AreEqual("text|invalid|True", verify.ExecuteScalar<string>("SELECT typeof(adddate) || '|' || adddate || '|' || is_removed FROM playlist_entry WHERE title = 'removed';"));
         }
         finally
         {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
+            CultureInfo.CurrentCulture = previous;
+            if (Directory.Exists(tempDirectory)) { Directory.Delete(tempDirectory, recursive: true); }
         }
     }
 

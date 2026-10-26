@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -122,6 +123,7 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
         }
     }
 
+    /// <summary>型付き要求とInvariantのPIDを既存の引用規則で非表示の更新プロセスへ渡す準備をします。</summary>
     public IPreparedUpdaterLaunch Prepare(UpdaterProcessLaunchRequest request)
     {
         if (request == null)
@@ -140,7 +142,7 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
                 "--backup-dir", request.BackupDirectory,
                 "--ready-file", request.ReadyFilePath,
                 "--decision-file", request.DecisionFilePath,
-                "--pid", Process.GetCurrentProcess().Id.ToString(),
+                "--pid", Process.GetCurrentProcess().Id.ToString(CultureInfo.InvariantCulture),
                 "--restart-exe", request.RestartExecutablePath)
         };
         return new PreparedUpdaterLaunch(() =>

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -129,7 +130,7 @@ internal static partial class Program
     {
         if (args.Length == 1 && string.Equals(args[0], "--version", StringComparison.OrdinalIgnoreCase))
         {
-            Console.WriteLine(ProtocolVersion);
+            Console.WriteLine(ProtocolVersion.ToString(CultureInfo.InvariantCulture));
             return 0;
         }
 
@@ -287,7 +288,7 @@ internal static partial class Program
         try
         {
             leaseStream.SetLength(0);
-            byte[] marker = Encoding.UTF8.GetBytes(Environment.ProcessId.ToString());
+            byte[] marker = Encoding.UTF8.GetBytes(Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
             leaseStream.Write(marker, 0, marker.Length);
             leaseStream.Flush(flushToDisk: true);
             return new TransactionLease(leaseStream);
@@ -343,7 +344,7 @@ internal static partial class Program
         }
         EnsureNoReparsePointAncestors(appDirectory, "update_work/current/updater-ready.txt");
         EnsureNoReparsePointIfPresent(readyFilePath);
-        byte[] marker = Encoding.UTF8.GetBytes(ProtocolVersion.ToString());
+        byte[] marker = Encoding.UTF8.GetBytes(ProtocolVersion.ToString(CultureInfo.InvariantCulture));
         using FileStream stream = UpdaterFileSystem.Open(readyFilePath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
         stream.Write(marker, 0, marker.Length);
         stream.Flush(flushToDisk: true);
@@ -606,7 +607,7 @@ internal static partial class Program
         startInfo.ArgumentList.Add("--app-dir");
         startInfo.ArgumentList.Add(NormalizeExistingDirectory(appDirectory));
         startInfo.ArgumentList.Add("--pid");
-        startInfo.ArgumentList.Add(Environment.ProcessId.ToString());
+        startInfo.ArgumentList.Add(Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
 
         var watchdog = Process.Start(startInfo);
         if (watchdog == null)
@@ -2802,7 +2803,7 @@ internal static partial class Program
                 || !string.Equals(args[1], "--app-dir", StringComparison.OrdinalIgnoreCase)
                 || string.IsNullOrWhiteSpace(args[2])
                 || !string.Equals(args[3], "--pid", StringComparison.OrdinalIgnoreCase)
-                || !int.TryParse(args[4], out int processId)
+                || !int.TryParse(args[4], NumberStyles.Integer, CultureInfo.InvariantCulture, out int processId)
                 || processId <= 0)
             {
                 throw new ArgumentException("Watchdog requires exactly --watch --app-dir <path> --pid <id>.");
@@ -2846,7 +2847,7 @@ internal static partial class Program
             }
 
             string processIdText = ReadRequired(values, "--pid");
-            if (!int.TryParse(processIdText, out int processId) || processId <= 0)
+            if (!int.TryParse(processIdText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int processId) || processId <= 0)
             {
                 throw new ArgumentException("The --pid argument must be a positive process id.");
             }

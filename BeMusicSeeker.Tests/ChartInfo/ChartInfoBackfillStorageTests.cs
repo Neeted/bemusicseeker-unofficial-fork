@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,7 +20,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartInfoBackfillStorageTests
 {
-    /// <summary>未登録・現在版・旧版の実DB行を順に補完し、現在の成功行を失敗履歴より優先して再読込みを省き、旧版の再解析漏れを検出する。</summary>
+    /// <summary>未登録・現在版・旧21の実DB行を順に補完し、成功優先・進捗を保って符号依存hashを独立ASCII期待へ再解析保存し、未所持の旧行は保持する。</summary>
     /// <remarks>実SQLiteの確定・rollbackと本番補完経路を観測し、保存前の計算結果だけで成功としない。</remarks>
     [TestMethod]
     public void BackfillChartInfos_ParsesMissingRowsSkipsCurrentRowsAndReparsesStaleRows()
@@ -27,7 +28,13 @@ public sealed class ChartInfoBackfillStorageTests
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "backfill.bms");
-            File.WriteAllText(chartPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+            const string input = "#BPM 120\r\n#BPM01 180\r\n#BPM02 90\r\n#00102:-4\r\n#00108:00000102\r\n#00111:01\r\n";
+            // 製品formatterを使わず、固定入力に対応するASCII期待と旧Culture相当の負号を個別に定義します。
+            const string expectedChart = "JUDGERANK:75\nTOTAL:260.0\n-3333:B(90.0)[0,0,0,0,0,0]\n-2000:B(180.0)[0,0,0,0,0,0]\n0:B(120.0)L[0,0,0,0,0,0]\n2000:L[1,0,0,0,0,0]\n";
+            const string oldCultureChart = "JUDGERANK:75\nTOTAL:260.0\nminus3333:B(90.0)[0,0,0,0,0,0]\nminus2000:B(180.0)[0,0,0,0,0,0]\n0:B(120.0)L[0,0,0,0,0,0]\n2000:L[1,0,0,0,0,0]\n";
+            string expectedHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(expectedChart)));
+            string oldCultureHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(oldCultureChart)));
+            File.WriteAllText(chartPath, input, Encoding.ASCII);
             ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
             var gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.EnsureChartInfoSchema();
@@ -74,28 +81,54 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual(0, second.FileReadCount);
             Assert.AreEqual(0L, second.FileReadBytes);
 
-            gateway.UpsertChartInfos([CreateChartInfoRow(file.Sha256, file.Md5, parserVersion: 0)]);
+            const int oldParserVersion = 21;
+            string unownedSha256 = new string('d', 64);
+            gateway.UpsertChartInfos(
+            [
+                CreateChartInfoRow(file.Sha256, file.Md5, oldParserVersion) with { charthash = oldCultureHash },
+                CreateChartInfoRow(unownedSha256, new string('e', 32), oldParserVersion) with { charthash = oldCultureHash }
+            ]);
+            Dictionary<string, ChartDetails>? currentRows = gateway.TryLoadCurrentChartInfoMapReadOnly();
+            Assert.IsNotNull(currentRows);
+            Assert.IsFalse(currentRows.ContainsKey(file.Sha256));
+            using (var before = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            {
+                Assert.AreEqual(oldParserVersion, before.ExecuteScalar<int>("SELECT parser_version FROM chart_info WHERE sha256 = ?;", file.Sha256));
+                Assert.AreEqual(oldCultureHash, before.ExecuteScalar<string>("SELECT charthash FROM chart_info WHERE sha256 = ?;", file.Sha256));
+            }
             gateway.UpsertChartInfoParseFailures(
             [
                 CreateChartInfoParseFailureRow(
                     file.Md5,
                     file.Sha256,
                     chartPath,
-                    parserVersion: 0,
+                    parserVersion: oldParserVersion,
                     "parse_failed",
                     "InvalidDataException",
                     "stale failure permits reparse",
                     null)
             ]);
+            progress.Clear();
             ChartInfoBackfillResult third = BackfillChartInfos(service,
                 gateway,
                 [file],
-                []);
+                [],
+                (total, processed, currentPath) => progress.Add(Tuple.Create(total, processed, currentPath)));
 
             Assert.AreEqual(1, third.TargetCount);
+            Assert.AreEqual(1, third.ProcessedCount);
             Assert.AreEqual(1, third.BackfilledCount);
+            Assert.AreEqual(0, third.FailedCount);
+            Assert.AreEqual(0, third.CurrentRowSkippedCount);
+            Assert.AreEqual(1, third.FileReadCount);
+            Assert.AreEqual(new FileInfo(chartPath).Length, third.FileReadBytes);
+            Assert.AreEqual(1, progress.Last().Item1);
+            Assert.AreEqual(1, progress.Last().Item2);
             using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
-            Assert.AreEqual(BmsLibraryDbGateway.CurrentChartInfoParserVersion, verify.ExecuteScalar<int>("SELECT parser_version FROM chart_info WHERE sha256 = '" + file.Sha256 + "';"));
+            Assert.AreEqual(BmsLibraryDbGateway.CurrentChartInfoParserVersion, verify.ExecuteScalar<int>("SELECT parser_version FROM chart_info WHERE sha256 = ?;", file.Sha256));
+            Assert.AreEqual(expectedHash, verify.ExecuteScalar<string>("SELECT charthash FROM chart_info WHERE sha256 = ?;", file.Sha256));
+            Assert.AreEqual(oldParserVersion, verify.ExecuteScalar<int>("SELECT parser_version FROM chart_info WHERE sha256 = ?;", unownedSha256));
+            Assert.AreEqual(oldCultureHash, verify.ExecuteScalar<string>("SELECT charthash FROM chart_info WHERE sha256 = ?;", unownedSha256));
         });
     }
 

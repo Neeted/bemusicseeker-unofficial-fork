@@ -64,24 +64,41 @@ public sealed class LibraryChartRowSortEngineTests
 
     }
 
-    /// <summary>playlistのfolder10とfolder2は従来の自然順へ並べ、通常一覧用の文字列順へ変えません。</summary>
+    /// <summary>異文化でもplaylistのfolder1.5とfolder2は固定小数点の自然順へ並べ、通常一覧用の文字列順へ変えません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
-    public void Sort_FolderColumn_PreservesNaturalOrderInPlaylistDetailView()
+    [DoNotParallelize]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("fr-FR")]
+    [DataRow("th-TH")]
+    public void Sort_FolderColumn_PreservesNaturalOrderInPlaylistDetailView(string cultureName)
     {
-        LibraryChartRow folder10 = CreateLibraryChartRow("z.bms", "Z", level: 1, folder: "folder10");
-        LibraryChartRow folder2 = CreateLibraryChartRow("a.bms", "A", level: 1, folder: "folder2");
-
-        var sortParameters = new ChartListSortParameters
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        CultureInfo previousUiCulture = CultureInfo.CurrentUICulture;
+        try
         {
-            ColumnsName = nameof(LibraryChartRow.Folder),
-            Direction = ListSortDirection.Ascending
-        };
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(cultureName);
+            LibraryChartRow higherFolder = CreateLibraryChartRow("z.bms", "Z", level: 1, folder: "folder2");
+            LibraryChartRow lowerFolder = CreateLibraryChartRow("a.bms", "A", level: 1, folder: "folder1.5");
 
-        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([folder10, folder2], ToSortSpecification(sortParameters), isPlaylistDetailView: true, out _);
+            var sortParameters = new ChartListSortParameters
+            {
+                ColumnsName = nameof(LibraryChartRow.Folder),
+                Direction = ListSortDirection.Ascending
+            };
 
-        CollectionAssert.AreEqual(new[] { "a.bms", "z.bms" }, sorted.Select(row => row.path).ToArray());
+            List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([higherFolder, lowerFolder], ToSortSpecification(sortParameters), isPlaylistDetailView: true, out _);
 
+            CollectionAssert.AreEqual(new[] { "a.bms", "z.bms" }, sorted.Select(row => row.path).ToArray());
+
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUiCulture;
+        }
     }
 
     /// <summary>異なる題名をAAA、bbbの順へ並べ、入力順やパス順に依存しません。</summary>

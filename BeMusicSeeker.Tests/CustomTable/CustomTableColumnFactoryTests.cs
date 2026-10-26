@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -427,7 +428,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual(true, columns["IsExternalSync"].GetChecked(row));
         Assert.AreEqual(false, columns["IsRootFolder"].GetChecked(row));
         Assert.AreEqual("detail", columns["Status"].GetTooltip(row));
-        Assert.AreEqual("2026/04/30 12:34:56", columns["LastUpdate"].GetText(row));
+        Assert.AreEqual("2026-04-30 12:34:56", columns["LastUpdate"].GetText(row));
         Assert.AreEqual("99.8%", columns["OwnedRatio"].GetText(row));
         Assert.IsTrue(CustomTableColumnFactory.HasHighlightedWarning(row));
     }
@@ -743,32 +744,51 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("table A", columns["PlaylistSymbols"].GetTooltip(row));
     }
 
-    /// <summary>再生中の複合状態・キー数・率・健全率・統計値を利用者向け単位と丸めで表示することを確認し、状態分類や数値の尺度を変える誤りを検出します。</summary>
+    /// <summary>異文化と非Gregorian暦でも再生中の複合状態・キー数・率・健全率・統計値・日付を固定書式と既存丸めで表示することを確認し、状態分類や数値の尺度を変える誤りを検出します。</summary>
     [TestMethod]
-    public void CreateMainColumns_FormatsStatusAndSuffixColumns()
+    [DoNotParallelize]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("fr-FR")]
+    [DataRow("th-TH")]
+    public void CreateMainColumns_FormatsStatusAndSuffixColumns(string cultureName)
     {
-        var settings = new CustomTableColumnSettings();
-        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        CultureInfo previousUiCulture = CultureInfo.CurrentUICulture;
+        try
         {
-            layout.Visibility = Visibility.Visible;
-        }
-        var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
-        var row = new
-        {
-            status = BeMusicSeeker.Models.ChartFileStatus.PLAY | BeMusicSeeker.Models.ChartFileStatus.SCORE_UNSENT,
-            mode = 7,
-            rateDouble = 0.912345,
-            WAVHealth = 100,
-            stddevVal = 12.345,
-            scoreDifficulty = 6.789
-        };
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(cultureName);
+            var settings = new CustomTableColumnSettings();
+            foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+            {
+                layout.Visibility = Visibility.Visible;
+            }
+            var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
+            var row = new
+            {
+                status = BeMusicSeeker.Models.ChartFileStatus.PLAY | BeMusicSeeker.Models.ChartFileStatus.SCORE_UNSENT,
+                mode = 7,
+                rateDouble = 0.912345,
+                WAVHealth = 100,
+                stddevVal = 12.345,
+                scoreDifficulty = 6.789,
+                rankingLastupdate = new DateTime(2026, 4, 5, 13, 14, 15)
+            };
 
-        Assert.AreEqual("Play", columns["Status"].GetText(row));
-        Assert.AreEqual("7KEYS", columns["Mode"].GetText(row));
-        Assert.AreEqual("91.23%", columns["Rate"].GetText(row));
-        Assert.AreEqual("100%", columns["WavHealth"].GetText(row));
-        Assert.AreEqual("12.35", columns["TScore"].GetText(row));
-        Assert.AreEqual("6.79", columns["ScoreDifficulty"].GetText(row));
+            Assert.AreEqual("Play", columns["Status"].GetText(row));
+            Assert.AreEqual("7KEYS", columns["Mode"].GetText(row));
+            Assert.AreEqual("91.23%", columns["Rate"].GetText(row));
+            Assert.AreEqual("100%", columns["WavHealth"].GetText(row));
+            Assert.AreEqual("12.35", columns["TScore"].GetText(row));
+            Assert.AreEqual("6.79", columns["ScoreDifficulty"].GetText(row));
+            Assert.AreEqual("2026-04-05", columns["RankingLastupdate"].GetText(row));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUiCulture;
+        }
     }
 
     /// <summary>指定幅の三列で水平移動後の列判定・可視セル領域と端の罫線を計算することを確認し、移動量やクリップを無視して別のセルへ操作を届ける誤りを検出します。</summary>

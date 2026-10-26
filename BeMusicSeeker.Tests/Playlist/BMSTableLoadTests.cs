@@ -17,150 +17,165 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BMSTableLoadTests
 {
-    /// <summary>文化別の4桁年・年先頭・1桁月日・2桁年・装飾を実JSONから読み、年の部分一致による別年化を防ぎ、従来の日時抽出も保ちます。</summary>
+    /// <summary>同じ旧形式・ISO入力を異文化で全体解析し、Gregorian日・壁時計tickとUnspecifiedを保持します。offset変換は別ケースへ分担します。</summary>
     [DataTestMethod]
-    [DataRow("en-US", "12/31/2024", 12, 31, 0, 0, 0)]
-    [DataRow("fr-FR", "31/12/2024", 12, 31, 0, 0, 0)]
-    [DataRow("ja-JP", "2024/12/31", 12, 31, 0, 0, 0)]
-    [DataRow("en-US", "1/2/2024", 1, 2, 0, 0, 0)]
-    [DataRow("fr-FR", "2/1/2024", 1, 2, 0, 0, 0)]
-    [DataRow("en-US", "12/31/24", 12, 31, 0, 0, 0)]
-    [DataRow("fr-FR", "31/12/24", 12, 31, 0, 0, 0)]
-    [DataRow("en-US", "12/31/24 13:24:35", 12, 31, 13, 24, 35)]
-    [DataRow("fr-FR", "31/12/24 13:24:35", 12, 31, 13, 24, 35)]
-    [DataRow("en-US", "added [12/31/2024]", 12, 31, 0, 0, 0)]
-    [DataRow("fr-FR", "ajouté [31/12/2024]", 12, 31, 0, 0, 0)]
-    // 年末尾4桁では従来時刻を抽出しないため、時刻・offsetが続いても年だけを修正します。
-    [DataRow("en-US", "12/31/2024 13:24:35", 12, 31, 0, 0, 0)]
-    [DataRow("fr-FR", "31/12/2024 13:24:35", 12, 31, 0, 0, 0)]
-    [DataRow("en-US", "12/31/2024 13:24:35+09:00", 12, 31, 0, 0, 0)]
-    [DataRow("fr-FR", "31/12/2024 13:24:35+09:00", 12, 31, 0, 0, 0)]
-    [DataRow("ja-JP", "2024/12/31 13:24:35", 12, 31, 13, 24, 35)]
-    [DataRow("ja-JP", "added [2024/12/31 13:24:35]", 12, 31, 13, 24, 35)]
-    public void LoadDataJson_AddDatePreservesYearAndCompatibleDateTime(
-        string cultureName, string text, int month, int day, int hour, int minute, int second)
+    [DataRow("ja-JP")]
+    [DataRow("en-US")]
+    [DataRow("fr-FR")]
+    [DataRow("de-DE")]
+    [DataRow("th-TH")]
+    public void LoadDataJson_AddDatePreservesYearAndCompatibleDateTime(string cultureName)
     {
-        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        CultureInfo previous = CultureInfo.CurrentCulture;
         try
         {
-            CultureInfo.CurrentCulture = new CultureInfo(cultureName, useUserOverride: false);
-            var table = new BMSTable();
-            table.LoadHeaderJSON("{\"name\":\"Date\",\"symbol\":\"D\",\"data_url\":\"data.json\"}");
-            table.LoadDataJSON(new JArray(new JObject
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            (string Text, DateTime Expected)[] cases =
+            [
+                ("2024/1/2", new DateTime(2024, 1, 2)),
+                ("2024/12/31 13:24:35", new DateTime(2024, 12, 31, 13, 24, 35)),
+                ("2024/01/02 1:2:3", new DateTime(2024, 1, 2, 1, 2, 3)),
+                ("2024-01-02", new DateTime(2024, 1, 2)),
+                ("2024-12-31T13:24:35", new DateTime(2024, 12, 31, 13, 24, 35)),
+                ("2024-12-31T13:24:35.1", new DateTime(2024, 12, 31, 13, 24, 35).AddTicks(1000000)),
+                ("2024-12-31T13:24:35.1234567", new DateTime(2024, 12, 31, 13, 24, 35).AddTicks(1234567))
+            ];
+            foreach ((string text, DateTime expected) in cases)
             {
-                ["md5"] = new string('a', 32),
-                ["title"] = "Date song",
-                ["adddate"] = text
-            }).ToString());
-
-            Assert.AreEqual(new DateTime(2024, month, day, hour, minute, second), table.entries.Single().adddate);
+                var table = new BMSTable();
+                table.LoadHeaderJSON(new JObject { ["name"] = "Date", ["last_update"] = text }.ToString());
+                table.LoadDataJSON(new JArray(new JObject { ["title"] = "Date song", ["adddate"] = text }).ToString());
+                Assert.AreEqual(expected.Ticks, table.last_update.Ticks, text);
+                Assert.AreEqual(expected, table.entries.Single().adddate, text);
+                Assert.AreEqual(DateTimeKind.Unspecified, table.last_update.Kind, text);
+                Assert.AreEqual(DateTimeKind.Unspecified, table.entries.Single().adddate.Kind, text);
+            }
         }
-        finally
-        {
-            CultureInfo.CurrentCulture = previousCulture;
-        }
+        finally { CultureInfo.CurrentCulture = previous; }
     }
 
-    /// <summary>年先頭の日に数字が続く従来受理入力は日を2桁まで抽出し、年末尾の4桁年対応で既定日時へ変わる退行を防ぎます。</summary>
+    /// <summary>採用する非空日時の装飾・部分一致・年末尾・桁超過をheader/data分類で拒否し、先行する正常行も一表へ採用しません。</summary>
     [DataTestMethod]
     [DataRow("2024/12/3100")]
-    [DataRow("added [2024/12/3100]")]
-    public void LoadDataJson_YearFirstDateRetainsTwoDigitDayExtraction(string text)
+    [DataRow("added [2024/12/31]")]
+    [DataRow("12/31/2024")]
+    [DataRow("31/12/2024")]
+    [DataRow("24/12/31")]
+    [DataRow("2024/99/99")]
+    [DataRow("2024/1/2 1:2")]
+    [DataRow("2024-01-02T01:02")]
+    [DataRow("2024-01-02T01:02:03.12345678")]
+    [DataRow("not-a-date")]
+    public void LoadJson_InvalidAdoptedDateRejectsWholeTable(string text)
     {
-        CultureInfo previousCulture = CultureInfo.CurrentCulture;
-        try
-        {
-            CultureInfo.CurrentCulture = new CultureInfo("ja-JP", useUserOverride: false);
-            var table = new BMSTable();
-            table.LoadHeaderJSON("{\"name\":\"Date\",\"symbol\":\"D\",\"data_url\":\"data.json\"}");
-            table.LoadDataJSON(new JArray(new JObject
-            {
-                ["md5"] = new string('a', 32),
-                ["title"] = "Date song",
-                ["adddate"] = text
-            }).ToString());
-
-            Assert.AreEqual(new DateTime(2024, 12, 31), table.entries.Single().adddate);
-        }
-        finally
-        {
-            CultureInfo.CurrentCulture = previousCulture;
-        }
+        var table = new BMSTable { entries = [new BMSTableEntry { title = "Keep" }] };
+        IReadOnlyList<BMSTableEntry> old = table.entries;
+        PlaylistHeaderParseException headerFailure = Assert.ThrowsException<PlaylistHeaderParseException>(() =>
+            table.LoadHeaderJSON(new JObject { ["last_update"] = text }.ToString()));
+        Assert.IsInstanceOfType<PlaylistJsonDateException>(headerFailure.InnerException);
+        StringAssert.Contains(headerFailure.Message, "last_update");
+        PlaylistDataParseException dataFailure = Assert.ThrowsException<PlaylistDataParseException>(() =>
+            table.LoadDataJSON(new JArray(new JObject { ["title"] = "Valid first", ["adddate"] = "2024-01-02" },
+                new JObject { ["title"] = "Invalid next", ["adddate"] = text }).ToString()));
+        Assert.IsInstanceOfType<PlaylistJsonDateException>(dataFailure.InnerException);
+        StringAssert.Contains(dataFailure.Message, "adddate");
+        Assert.AreSame(old, table.entries);
     }
 
-    /// <summary>欠落・null・空白・不正な任意追加日と従来解析できないoffset表現は行を捨てず、読込み中の既定日時を保ちます。</summary>
+    /// <summary>省略・null・空白は既定日時を維持し、output_dateと実採用条件を満たさない行の日時は検査しません。</summary>
     [DataTestMethod]
     [DataRow(false, null)]
     [DataRow(true, null)]
     [DataRow(true, "")]
     [DataRow(true, "   ")]
-    [DataRow(true, "not-a-date")]
-    [DataRow(true, "2024/99/99")]
-    [DataRow(true, "2024-12-31T13:24:35+09:00")]
-    public void LoadDataJson_InvalidOptionalAddDateKeepsEntryAndDefaultDate(bool includeDate, string? text)
+    public void LoadDataJson_EmptyOptionalDateKeepsEntryAndDefaultDate(bool includeDate, string? text)
     {
         var row = new JObject { ["md5"] = new string('a', 32), ["title"] = "Date song" };
-        if (includeDate) { row["adddate"] = text; }
-        var table = new BMSTable();
-        table.LoadHeaderJSON("{\"name\":\"Date\",\"symbol\":\"D\",\"data_url\":\"data.json\"}");
+        var header = new JObject { ["name"] = "Date", ["output_date"] = "invalid ignored date" };
+        if (includeDate) { row["adddate"] = text; header["last_update"] = text; }
         DateTime before = DateTime.Now;
-        table.LoadDataJSON(new JArray(row).ToString());
+        DateTime preservedUpdate = new DateTime(2020, 1, 2, 3, 4, 5).AddTicks(1);
+        var table = new BMSTable { last_update = preservedUpdate };
+        table.LoadHeaderJSON(header.ToString());
+        table.LoadDataJSON(new JArray(row,
+            new JObject { ["md5"] = "invalid hash", ["title"] = "  ", ["adddate"] = "invalid ignored date" },
+            new JObject { ["artist"] = "ignored without identity fields", ["adddate"] = "invalid ignored date" }).ToString());
         DateTime after = DateTime.Now;
-
         BMSTableEntry entry = table.entries.Single();
         Assert.AreEqual(new string('a', 32), entry.md5);
         Assert.AreEqual("Date song", entry.title);
         Assert.IsTrue(entry.adddate >= before && entry.adddate <= after);
+        Assert.AreEqual(preservedUpdate, table.last_update);
     }
 
-    /// <summary>従来の抽出対象外の1桁月・時分秒では、原文のoffsetを含む日時解釈を保ち、抽出対象の拡大による日付だけへの変換を防ぎます。</summary>
-    [TestMethod]
-    public void LoadDataJson_OneDigitMonthPreservesOriginalOffsetInterpretation()
-    {
-        CultureInfo previousCulture = CultureInfo.CurrentCulture;
-        try
-        {
-            CultureInfo.CurrentCulture = new CultureInfo("ja-JP", useUserOverride: false);
-            var table = new BMSTable();
-            table.LoadHeaderJSON("{\"name\":\"Date\",\"symbol\":\"D\",\"data_url\":\"data.json\"}");
-            table.LoadDataJSON("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Date song\",\"adddate\":\"2024/1/21 1:2:3+09:00\"}]");
-
-            DateTime expected = new DateTimeOffset(2024, 1, 21, 1, 2, 3, TimeSpan.FromHours(9)).LocalDateTime;
-            Assert.AreEqual(expected, table.entries.Single().adddate);
-        }
-        finally
-        {
-            CultureInfo.CurrentCulture = previousCulture;
-        }
-    }
-
-    /// <summary>現在文化の実DataToJsonを同文化の実JSON入力へ渡し、年末と1桁月日の元年月日を保持します。wire書式は既存goldenへ分担します。</summary>
+    /// <summary>旧形式の月日桁数とISOのZ/offsetによらず、明示offsetだけをLocalDateTimeへ変換します。</summary>
     [DataTestMethod]
-    [DataRow("en-US", 12, 31)]
-    [DataRow("fr-FR", 12, 31)]
-    [DataRow("en-US", 1, 2)]
-    [DataRow("fr-FR", 1, 2)]
-    public void DataToJson_SameCultureRoundTripPreservesAddDate(string cultureName, int month, int day)
+    [DataRow("2024/1/21 1:2:3+09:00", 9)]
+    [DataRow("2024/01/21 01:02:03+00:00", 0)]
+    [DataRow("2024-01-21T01:02:03Z", 0)]
+    [DataRow("2024-01-21T01:02:03.0000001-04:00", -4)]
+    public void LoadDataJson_ExplicitOffsetPreservesOriginalOffsetInterpretation(string text, int offsetHours)
     {
-        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        var table = new BMSTable();
+        table.LoadHeaderJSON(new JObject { ["last_update"] = text }.ToString());
+        table.LoadDataJSON(new JArray(new JObject { ["title"] = "Date song", ["adddate"] = text }).ToString());
+        DateTime expected = new DateTimeOffset(2024, 1, 21, 1, 2, 3, TimeSpan.FromHours(offsetHours)).AddTicks(text.Contains(".0000001", StringComparison.Ordinal) ? 1 : 0).LocalDateTime;
+        Assert.AreEqual(expected, table.entries.Single().adddate);
+        Assert.AreEqual(expected, table.last_update);
+        Assert.AreEqual(DateTimeKind.Local, table.entries.Single().adddate.Kind);
+    }
+
+    /// <summary>異文化へ実出力JSONを渡し、時刻と1tickを含む日時を丸めず保持します。完全wireは独立goldenへ分担します。</summary>
+    [DataTestMethod]
+    [DataRow("en-US", "fr-FR")]
+    [DataRow("fr-FR", "th-TH")]
+    [DataRow("th-TH", "ja-JP")]
+    public void DataToJson_CrossCultureRoundTripPreservesAddDate(string outputCulture, string inputCulture)
+    {
+        CultureInfo previous = CultureInfo.CurrentCulture;
         try
         {
-            CultureInfo.CurrentCulture = new CultureInfo(cultureName, useUserOverride: false);
-            DateTime expected = new(2024, month, day);
-            var source = new BMSTable
-            {
-                entries = [new BMSTableEntry { md5 = new string('a', 32), title = "Date song", adddate = expected }]
-            };
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(outputCulture);
+            DateTime expected = new DateTime(2024, 1, 2, 13, 24, 35).AddTicks(1);
+            var table = new BMSTable { last_update = expected, entries = [new BMSTableEntry { title = "Date song", adddate = expected }] };
+            string header = table.HeaderToJson();
+            string data = table.DataToJson();
+            StringAssert.Contains(header, "2024-01-02T13:24:35.0000001");
+            StringAssert.Contains(data, "2024-01-02T13:24:35.0000001");
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(inputCulture);
             var restored = new BMSTable();
-            restored.LoadHeaderJSON("{\"name\":\"Date\",\"symbol\":\"D\",\"data_url\":\"data.json\"}");
-            restored.LoadDataJSON(source.DataToJson());
+            restored.LoadHeaderJSON(header);
+            restored.LoadDataJSON(data);
+            Assert.AreEqual(expected, restored.entries.Single().adddate);
+            Assert.AreEqual(expected, restored.last_update);
+        }
+        finally { CultureInfo.CurrentCulture = previous; }
+    }
 
-            Assert.AreEqual(expected, restored.entries.Single().adddate.Date);
-        }
-        finally
+    /// <summary>外部levelはorg_level優先/nullと原文folderを保ち、JSON numberの直接値と既存の一数値抽出だけを固定Cultureへ揃えます。</summary>
+    [DataTestMethod]
+    [DataRow("ja-JP")]
+    [DataRow("fr-FR")]
+    [DataRow("de-DE")]
+    public void LoadDataJson_ExternalLevelKeepsItsOwnGrammarAndOriginalFolder(string culture)
+    {
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        try
         {
-            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+            var table = new BMSTable { compat_prefix = "P" };
+            table.LoadDataJSON("[{\"title\":\"number\",\"level\":1.5},{\"title\":\"exponent\",\"level\":1e2},{\"title\":\"decorated\",\"level\":\"★-1.5\"},{\"title\":\"multiple\",\"level\":\"1 and 2\"},{\"title\":\"none\",\"level\":\"???\"},{\"title\":\"priority\",\"org_level\":2.5,\"level\":\"★99\",\"folder\":\"Original\"},{\"title\":\"null priority\",\"org_level\":null,\"level\":\"★99\"}]");
+            (string, double?, string)[] expected = new[] { ("number", (double?)1.5, "P1.5"), ("exponent", (double?)100, "P100"),
+                ("decorated", (double?)-1.5, "P★-1.5"), ("multiple", (double?)null, "P1 and 2"),
+                ("none", (double?)null, "P???"), ("priority", (double?)2.5, "Original"), ("null priority", (double?)null, "P★99") };
+            foreach ((string title, double? level, string folder) in expected)
+            {
+                BMSTableEntry entry = table.entries.Single(row => row.title == title);
+                Assert.AreEqual(level, entry.level, title);
+                Assert.AreEqual(folder, entry.folder, title);
+            }
         }
+        finally { CultureInfo.CurrentCulture = previous; }
     }
 
     /// <summary>公開集合を標準の可変interfaceへキャストして構成変更しても、確定行の参照・順・所属と派生状態は変化しません。行値の編集は引き続き同じ対象へ反映します。</summary>
@@ -395,14 +410,14 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual(timestamp, entry.comment);
     }
 
-    /// <summary>引用符・両 hash・親 hash・小数 level を含む entry の公開 JSON を独立した保存形式期待と照合し、日付以外の項目・型・escape・整形の互換変更を検出します。</summary>
+    /// <summary>引用符・両 hash・親 hash・小数 level を含む entry の公開 JSON を独立した保存形式期待と照合し、固定日時と全項目・型・escape・整形の変更を検出します。</summary>
     [TestMethod]
     public void PlaylistJson_WireFormatMatchesIndependentIndentedGolden()
     {
         var entry = new BMSTableEntry(JObject.Parse("{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"org_level\":1.5,\"title\":\"Title \\\"quoted\\\"\",\"artist\":\"Artist\",\"folder\":\"st1\",\"level\":\"1\",\"lr2_bmsid\":\"123\",\"url\":\"https://example.com/u\",\"url_diff\":\"https://example.com/d\",\"name_diff\":\"Diff\",\"org_md5s\":[\"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\"],\"comment\":\"Comment\"}"));
         entry.adddate = new DateTime(2024, 1, 2);
 
-        string actual = entry.ToJson().Replace(entry.adddate.ToShortDateString(), "<DATE>", StringComparison.Ordinal);
+        string actual = entry.ToJson();
         string expected = "{" + Environment.NewLine
             + "  \"md5\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"," + Environment.NewLine
             + "  \"sha256\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"," + Environment.NewLine
@@ -420,7 +435,7 @@ public sealed class BMSTableLoadTests
             + "  ]," + Environment.NewLine
             + "  \"org_md5\": \"cccccccccccccccccccccccccccccccc\"," + Environment.NewLine
             + "  \"comment\": \"Comment\"," + Environment.NewLine
-            + "  \"adddate\": \"<DATE>\"" + Environment.NewLine
+            + "  \"adddate\": \"2024-01-02T00:00:00.0000000\"" + Environment.NewLine
             + "}";
 
         Assert.AreEqual(expected, actual);
@@ -460,8 +475,11 @@ public sealed class BMSTableLoadTests
         table.LoadHeaderJSON("{\"name\":\"Table\",\"symbol\":\"st\",\"tag\":\"tag\",\"compat_prefix\":\"st\",\"folder_sort_key\":\"\",\"folder_sort_ascending\":true,\"data_url\":\"data.json\",\"folder_order\":[\"st1\"],\"level_order\":[1],\"course\":[{\"name\":\"Course\",\"constraint\":[\"grade_mirror\"],\"md5\":[\"11111111111111111111111111111111\"]}]}");
         table.last_update = new DateTime(2024, 1, 2);
 
-        var normalized = JObject.Parse(table.HeaderToJson());
-        normalized["last_update"] = "<LAST_UPDATE>";
+        using var jsonReader = new JsonTextReader(new StringReader(table.HeaderToJson())) { DateParseHandling = DateParseHandling.None };
+        var normalized = JObject.Load(jsonReader);
+        string? outputDate = normalized["output_date"]?.Value<string>();
+        Assert.IsNotNull(outputDate);
+        Assert.IsTrue(System.Text.RegularExpressions.Regex.IsMatch(outputDate, @"\A[0-9]{4}-[0-9]{2}-[0-9]{2}\z"));
         normalized["editor_version"] = "<EDITOR_VERSION>";
         normalized["output_date"] = "<OUTPUT_DATE>";
 
@@ -489,7 +507,7 @@ public sealed class BMSTableLoadTests
             + "    }" + Environment.NewLine
             + "  ]," + Environment.NewLine
             + "  \"compat_prefix\": \"st\"," + Environment.NewLine
-            + "  \"last_update\": \"<LAST_UPDATE>\"," + Environment.NewLine
+            + "  \"last_update\": \"2024-01-02T00:00:00.0000000\"," + Environment.NewLine
             + "  \"editor_name\": \"BeMusicSeeker\"," + Environment.NewLine
             + "  \"editor_version\": \"<EDITOR_VERSION>\"," + Environment.NewLine
             + "  \"output_date\": \"<OUTPUT_DATE>\"" + Environment.NewLine
@@ -498,9 +516,9 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual(expected, normalized.ToString(Formatting.Indented));
     }
 
-    /// <summary>明示 null level を持つ entry の data 配列を日付だけ正規化した独立 golden と照合し、null と空文字を含む出力形式の互換変更を検出します。</summary>
+    /// <summary>明示null levelと固定tick日時を持つentryのdata配列を独立goldenと照合し、null・空文字・全項目の形式変更を検出します。</summary>
     [TestMethod]
-    public void PlaylistDataJson_MatchesIndependentFullGoldenAfterDateNormalization()
+    public void PlaylistDataJson_MatchesIndependentFullGolden()
     {
         var entry = new BMSTableEntry(JObject.Parse("{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"folder\":\"st1\",\"org_level\":null}"));
         entry.adddate = new DateTime(2024, 1, 2);
@@ -510,7 +528,7 @@ public sealed class BMSTableLoadTests
             entries = [entry]
         };
 
-        string actual = table.DataToJson().Replace(entry.adddate.ToShortDateString(), "<DATE>", StringComparison.Ordinal);
+        string actual = table.DataToJson();
         string expected = "[" + Environment.NewLine
             + "  {" + Environment.NewLine
             + "    \"md5\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"," + Environment.NewLine
@@ -527,7 +545,7 @@ public sealed class BMSTableLoadTests
             + "    \"org_md5s\": []," + Environment.NewLine
             + "    \"org_md5\": \"\"," + Environment.NewLine
             + "    \"comment\": \"\"," + Environment.NewLine
-            + "    \"adddate\": \"<DATE>\"" + Environment.NewLine
+            + "    \"adddate\": \"2024-01-02T00:00:00.0000000\"" + Environment.NewLine
             + "  }" + Environment.NewLine
             + "]";
 

@@ -2468,7 +2468,7 @@ public class Resources
     /// <summary>Localized segment detail format for unavailable percentages.</summary>
     public static string PlaylistLampViewer_segment_unavailable_detail_format => ResourceManager.GetString("PlaylistLampViewer_segment_unavailable_detail_format", resourceCulture);
 
-    /// <summary>Localized percentage format.</summary>
+    /// <summary>小数点を固定して使う、小数2桁・桁区切りなしの翻訳済み割合書式です。</summary>
     public static string PlaylistLampViewer_percentage_format => ResourceManager.GetString("PlaylistLampViewer_percentage_format", resourceCulture);
 
     /// <summary>Localized lower-bound format for a positive percentage below display precision.</summary>
@@ -2801,6 +2801,12 @@ public class Resources
 
     /// <summary>ルートディレクトリの名前は変更できません。</summary>
     public static string Error_CannotRenameRootDirectory => ResourceManager.GetString("Error_CannotRenameRootDirectory", resourceCulture);
+
+    /// <summary>ENTRY LEVELの固定数値入力形式を案内します。</summary>
+    public static string Error_PlaylistEntryLevelFormat => ResourceManager.GetString("Error_PlaylistEntryLevelFormat", resourceCulture);
+
+    /// <summary>採用日時の欄名、固定形式と元データ訂正後の再実行を案内します。</summary>
+    public static string Error_PlaylistJsonDateFormat => ResourceManager.GetString("Error_PlaylistJsonDateFormat", resourceCulture);
 
     /// <summary>ヘッダーの解析に失敗しました。</summary>
     public static string Error_PlaylistHeaderParseFailed => ResourceManager.GetString("Error_PlaylistHeaderParseFailed", resourceCulture);

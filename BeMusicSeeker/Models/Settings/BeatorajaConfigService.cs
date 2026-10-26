@@ -170,7 +170,7 @@ internal static class BeatorajaConfigService
         }
         try
         {
-            config = JObject.Parse(ReadAllText(configPath, Encoding.UTF8));
+            config = ReadConfig(configPath);
             return true;
         }
         catch
@@ -187,8 +187,18 @@ internal static class BeatorajaConfigService
     private static JObject ReadConfigForBmt(string rootPath)
     {
         string configPath = GetConfigPath(rootPath);
-        try { return JObject.Parse(ReadAllText(configPath, Encoding.UTF8)); }
+        try { return ReadConfig(configPath); }
         catch (Exception exception) { throw new ConfigOperationException(configPath, exception); }
+    }
+
+    // 外部設定の任意文字列は日時へ変換せず、URL同期後も元の型と値を保つ。
+    private static JObject ReadConfig(string configPath)
+    {
+        using var reader = new JsonTextReader(new StringReader(ReadAllText(configPath, Encoding.UTF8))) { DateParseHandling = DateParseHandling.None };
+        var config = JObject.Load(reader);
+        // JObject.Parseと同じく末尾まで読み、後続の別JSONを許容しない。
+        while (reader.Read()) { }
+        return config;
     }
 
     /// <summary>必要BMT操作の構成ファイル失敗について、通知対象パスと元例外を保持します。</summary>

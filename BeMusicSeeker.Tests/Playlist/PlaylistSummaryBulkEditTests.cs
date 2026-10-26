@@ -897,7 +897,7 @@ public sealed class PlaylistSummaryBulkEditTests
 
                 string[] renderedText = FindDescendants<TextBlock>(view).Select(textBlock => textBlock.Text).ToArray();
                 Assert.IsTrue(
-                    renderedText.Contains("Update: 2024/01/02", StringComparer.Ordinal),
+                    renderedText.Contains("Update: 2024-01-02", StringComparer.Ordinal),
                     $"Rendered text did not contain the historical date: {string.Join(" | ", renderedText)}");
             }
             finally

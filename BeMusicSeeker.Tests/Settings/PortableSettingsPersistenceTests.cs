@@ -1,5 +1,6 @@
 using System;
 using System.Configuration;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Xml;
@@ -75,38 +76,54 @@ public sealed class PortableSettingsPersistenceTests
         Assert.AreEqual(3, OpenSettings(files.Path).PlayerMixerThreadCount);
     }
 
-    /// <summary>利用者の言語・音声品質・確認設定と全有効 thread 数を保存し新 wrapper で読み戻し、未知キー保持と一時ファイル回収を確認します。</summary>
-    [TestMethod]
-    public void SaveRoundTripsThroughFreshGeneratedSettingsAndPreservesUnknownKeys()
+    /// <summary>異文化でdouble/floatの精度と利用者の言語・品質・確認設定・全有効thread数を実保存し、新providerでの復元、未知キーと一時ファイル回収を確認します。</summary>
+    [DataTestMethod]
+    [DataRow("ja-JP", "de-DE")]
+    [DataRow("de-DE", "fr-FR")]
+    [DataRow("th-TH", "en-US")]
+    public void SaveRoundTripsThroughFreshGeneratedSettingsAndPreservesUnknownKeys(string saveCulture, string readCulture)
     {
-        using var files = new SettingsFiles();
-        File.WriteAllText(files.Path, Config("Lang", "en-US").Replace("</BeMusicSeeker", "<setting name=\"FutureKey\" serializeAs=\"String\"><value>retain</value></setting></BeMusicSeeker"));
-        Settings settings = OpenSettings(files.Path);
-        settings.Lang = "fr-FR";
-        settings.PlayerResamplingQuality = 4;
-        settings.ShowNewPackageInstallConfirmMsg = false;
-        settings.RequireCompleteUsedResourcesForAutoInstall = true;
-        settings.AutoInstallAfterAutomaticEstimation = true;
-        // 有効な 1〜4 thread の利用者値をすべて保持し、同じ値への正規化で隠さないことを確認します。
-        foreach (int threadCount in Enumerable.Range(1, 4))
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        try
         {
-            settings.PlayerMixerThreadCount = threadCount;
+            using var files = new SettingsFiles();
+            File.WriteAllText(files.Path, Config("Lang", "en-US").Replace("</BeMusicSeeker", "<setting name=\"FutureKey\" serializeAs=\"String\"><value>retain</value></setting></BeMusicSeeker"));
+            Settings settings = OpenSettings(files.Path);
+            settings.Lang = "fr-FR";
+            settings.PlayerResamplingQuality = 4;
+            settings.ShowNewPackageInstallConfirmMsg = false;
+            settings.RequireCompleteUsedResourcesForAutoInstall = true;
+            settings.AutoInstallAfterAutomaticEstimation = true;
+            double width = double.BitIncrement(250.5d);
+            float quality = float.BitIncrement(0.8f);
+            settings.TreeViewWidth = width;
+            settings.EncoderQuality = quality;
+            // 有効な 1〜4 thread の利用者値をすべて保持し、同じ値への正規化で隠さないことを確認します。
+            foreach (int threadCount in Enumerable.Range(1, 4))
+            {
+                settings.PlayerMixerThreadCount = threadCount;
+                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(saveCulture);
+                settings.Save();
+                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(readCulture);
+                Settings loaded = OpenSettings(files.Path);
+                Assert.AreEqual(BitConverter.DoubleToInt64Bits(width), BitConverter.DoubleToInt64Bits(loaded.TreeViewWidth));
+                Assert.AreEqual(BitConverter.SingleToInt32Bits(quality), BitConverter.SingleToInt32Bits(loaded.EncoderQuality));
+                Assert.AreEqual("fr-FR", loaded.Lang);
+                Assert.IsFalse(loaded.ShowNewPackageInstallConfirmMsg);
+                Assert.IsTrue(loaded.RequireCompleteUsedResourcesForAutoInstall);
+                Assert.IsTrue(loaded.AutoInstallAfterAutomaticEstimation);
+                Assert.AreEqual(4, loaded.PlayerResamplingQuality, "既存の有効な品質4は新しい既定値2へ移行せず保持します。");
+                Assert.AreEqual(threadCount, loaded.PlayerMixerThreadCount);
+            }
+            settings.ShowNewPackageInstallConfirmMsg = true;
+            settings.AutoInstallAfterAutomaticEstimation = false;
             settings.Save();
-            Settings loaded = OpenSettings(files.Path);
-            Assert.AreEqual("fr-FR", loaded.Lang);
-            Assert.IsFalse(loaded.ShowNewPackageInstallConfirmMsg);
-            Assert.IsTrue(loaded.RequireCompleteUsedResourcesForAutoInstall);
-            Assert.IsTrue(loaded.AutoInstallAfterAutomaticEstimation);
-            Assert.AreEqual(4, loaded.PlayerResamplingQuality, "既存の有効な品質4は新しい既定値2へ移行せず保持します。");
-            Assert.AreEqual(threadCount, loaded.PlayerMixerThreadCount);
+            Assert.IsTrue(OpenSettings(files.Path).ShowNewPackageInstallConfirmMsg);
+            Assert.IsFalse(OpenSettings(files.Path).AutoInstallAfterAutomaticEstimation);
+            Assert.AreEqual("retain", XDocument.Load(files.Path).Descendants("setting").Single(e => (string?)e.Attribute("name") == "FutureKey").Element("value")!.Value);
+            Assert.AreEqual(0, Directory.GetFiles(files.Directory, "*.tmp").Length);
         }
-        settings.ShowNewPackageInstallConfirmMsg = true;
-        settings.AutoInstallAfterAutomaticEstimation = false;
-        settings.Save();
-        Assert.IsTrue(OpenSettings(files.Path).ShowNewPackageInstallConfirmMsg);
-        Assert.IsFalse(OpenSettings(files.Path).AutoInstallAfterAutomaticEstimation);
-        Assert.AreEqual("retain", XDocument.Load(files.Path).Descendants("setting").Single(e => (string?)e.Attribute("name") == "FutureKey").Element("value")!.Value);
-        Assert.AreEqual(0, Directory.GetFiles(files.Directory, "*.tmp").Length);
+        finally { CultureInfo.CurrentCulture = previous; }
     }
 
     /// <summary>ファイルなしと旧ファイルの個別キー欠損で互換既定を利用し、確認設定や音声設定が未初期化になる誤りを検出します。</summary>
@@ -251,36 +268,52 @@ public sealed class PortableSettingsPersistenceTests
         }
     }
 
-    /// <summary>破損 XML の二回の起動で別々に原文を退避して新規作成前に警告し、旧設定再輸入や以前の退避上書きを防ぐことを確認します。</summary>
-    [TestMethod]
-    public void StartupCorruptionWarnsWithPreservedBackupBeforeCreatingDefaultsAndNeverImportsLegacy()
+    /// <summary>異なる暦の文化でもGregorianのUTC名で破損XMLを二回保全し、新規作成前の警告・原文保持・旧設定非移入を確認します。</summary>
+    [DataTestMethod]
+    [DoNotParallelize]
+    [DataRow("th-TH")]
+    [DataRow("ar-SA")]
+    public void StartupCorruptionWarnsWithPreservedBackupBeforeCreatingDefaultsAndNeverImportsLegacy(string cultureName)
     {
-        using var files = new SettingsFiles();
-        byte[] corrupt = System.Text.Encoding.UTF8.GetBytes("<configuration><setting>lost?");
-        string? earlierBackup = null;
-        for (int attempt = 0; attempt < 2; attempt++)
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        try
         {
-            File.WriteAllBytes(files.Path, corrupt);
-            string? backup = null;
-            new PortableSettingsStartupFile(files.Path).Prepare(
-                () => Assert.Fail("Corrupt portable input must not import legacy settings."),
-                preserved =>
-                {
-                    backup = preserved;
-                    Assert.IsFalse(File.Exists(files.Path), "Warning must precede fresh creation and first getter.");
-                    CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(preserved));
-                    if (earlierBackup != null)
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            using var files = new SettingsFiles();
+            byte[] corrupt = System.Text.Encoding.UTF8.GetBytes("<configuration><setting>lost?");
+            string? earlierBackup = null;
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                File.WriteAllBytes(files.Path, corrupt);
+                string? backup = null;
+                new PortableSettingsStartupFile(files.Path).Prepare(
+                    () => Assert.Fail("Corrupt portable input must not import legacy settings."),
+                    preserved =>
                     {
-                        CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(earlierBackup));
-                    }
-                });
-            Assert.IsNotNull(backup);
-            Assert.AreNotEqual(earlierBackup, backup);
-            Assert.IsNull(OpenSettings(files.Path).AssemblyVersion);
-            Assert.AreEqual(0, XDocument.Load(files.Path).Descendants("setting").Count());
-            earlierBackup = backup;
+                        backup = preserved;
+                        string backupName = System.IO.Path.GetFileName(preserved);
+                        StringAssert.Matches(backupName, new System.Text.RegularExpressions.Regex(@"^user\.config\.broken-[0-9]{8}T[0-9]{13}Z-[a-f0-9]{32}$"));
+                        var backupTime = DateTime.ParseExact(backupName.Substring("user.config.broken-".Length, 23), "yyyyMMddTHHmmssfffffffZ", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+                        Assert.IsTrue(backupTime <= DateTime.UtcNow, "保全名はGregorianのUTC日時を使います。");
+                        Assert.IsFalse(File.Exists(files.Path), "Warning must precede fresh creation and first getter.");
+                        CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(preserved));
+                        if (earlierBackup != null)
+                        {
+                            CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(earlierBackup));
+                        }
+                    });
+                Assert.IsNotNull(backup);
+                Assert.AreNotEqual(earlierBackup, backup);
+                Assert.IsNull(OpenSettings(files.Path).AssemblyVersion);
+                Assert.AreEqual(0, XDocument.Load(files.Path).Descendants("setting").Count());
+                earlierBackup = backup;
+            }
+            Assert.AreEqual(2, Directory.GetFiles(files.Directory, "user.config.broken-*").Length);
         }
-        Assert.AreEqual(2, Directory.GetFiles(files.Directory, "user.config.broken-*").Length);
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
     }
 
     /// <summary>XML として正常だが必須構造がない入力は Read 失敗とし、破損回復や旧設定輸入で元入力を置き換えないことを確認します。</summary>

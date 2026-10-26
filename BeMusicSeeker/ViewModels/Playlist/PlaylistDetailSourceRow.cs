@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using BeMusicSeeker.Models;
@@ -288,7 +289,7 @@ internal sealed class PlaylistDetailSourceRow
         scoreDifficulty = effectiveScoreSnapshot.ScoreDifficulty;
         lr2_bmsid = EntryValue.Lr2BmsId ?? string.Empty;
         EntryLevelSortKey = EntryValue.Level;
-        Level = EntryValue.Level?.ToString() ?? Chart?.LevelText ?? string.Empty;
+        Level = EntryValue.Level?.ToString("R", CultureInfo.InvariantCulture) ?? Chart?.LevelText ?? string.Empty;
         SearchText = BuildSearchText();
     }
 
@@ -340,7 +341,7 @@ internal sealed class PlaylistDetailSourceRow
         };
         if (resolvedChartSnapshot == null) { copy.Chart = ChartFileProjection.WithScore(copy.CreateChartFile(), effectiveScoreSnapshot); }
         copy.EntryLevelSortKey = value.Level;
-        copy.Level = value.Level?.ToString() ?? copy.Chart?.LevelText ?? string.Empty;
+        copy.Level = value.Level?.ToString("R", CultureInfo.InvariantCulture) ?? copy.Chart?.LevelText ?? string.Empty;
         copy.Url = value.EffectiveUrl;
         copy.Url_diff = value.EffectiveUrlDiff;
         copy.comment = value.Comment ?? string.Empty;

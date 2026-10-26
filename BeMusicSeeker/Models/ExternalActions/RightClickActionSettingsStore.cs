@@ -126,7 +126,7 @@ internal static class RightClickActionSettingsSerializer
     private static readonly Regex HexRegex = new("^[0-9a-fA-F]+$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     /// <summary>
-    /// settings JSON を strict に parse し、failure を typed result として返します。
+    /// 任意の名前を文字列のまま保持して settings JSON を strict に parse し、failure を typed result として返します。
     /// </summary>
     internal static RightClickActionSettingsParseResult Parse(string json)
     {
@@ -140,7 +140,7 @@ internal static class RightClickActionSettingsSerializer
         JObject root;
         try
         {
-            using var reader = new JsonTextReader(new StringReader(json));
+            using var reader = new JsonTextReader(new StringReader(json)) { DateParseHandling = DateParseHandling.None };
             root = JObject.Load(reader, new JsonLoadSettings
             {
                 DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error

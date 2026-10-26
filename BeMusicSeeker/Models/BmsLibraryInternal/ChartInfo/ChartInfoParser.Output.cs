@@ -215,7 +215,7 @@ internal static partial class ChartInfoParser
         }
     }
 
-    // 整数は従来のStringBuilder.Appendと同じカルチャ、doubleはJava書式の結果を使います。
+    // 整数は固定ASCII書式、doubleはJava書式の結果を使います。
     // 完成した連続領域を一括hashに渡し、検証要求時だけ同じ領域を文字列にします。
     private sealed class ChartUtf8Buffer
     {
@@ -237,16 +237,17 @@ internal static partial class ChartInfoParser
             buffer[Count++] = (byte)ascii;
         }
 
+        /// <summary>譜面文字列とhashが地域設定で変わらないよう、整数をInvariant書式で書き込みます。</summary>
         public void AppendInteger(long value)
         {
             Span<char> text = stackalloc char[32];
-            if (value.TryFormat(text, out int written, provider: CultureInfo.CurrentCulture))
+            if (value.TryFormat(text, out int written, provider: CultureInfo.InvariantCulture))
             {
                 Append(text[..written]);
             }
             else
             {
-                Append(value.ToString(CultureInfo.CurrentCulture));
+                Append(value.ToString(CultureInfo.InvariantCulture));
             }
         }
 

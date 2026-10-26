@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using Ribbit.Logging;
@@ -1261,38 +1262,100 @@ public sealed class LR2SongDBExtended : LR2SongDB
             catch (Exception) { }
         }
 
-        public List<string[]> GetRawValuesAsString()
+        /// <summary>SQLiteの現在行をcallback内だけで借用します。statementや行を保持せず、必要列だけを読み取るための値です。</summary>
+        /// <remarks>型付きgetterはINTEGER/REALを直接読み、TEXTだけを固定文法で解釈します。NULLと型不適合はnull（真偽値はfalse）です。</remarks>
+        internal readonly ref struct RawRow
         {
-            List<string[]> list = [];
-            sqlite3_stmt stmt = PrepareRawStatement();
-            Exception primaryException = null;
-            try
+            private readonly sqlite3_stmt statement;
+
+            internal RawRow(sqlite3_stmt statement, int count)
             {
-                int count = raw.sqlite3_column_count(stmt);
-                while (StepRawStatement(stmt) == raw.SQLITE_ROW)
-                {
-                    list.Add([.. (from i in Enumerable.Range(0, count)
-                              select raw.sqlite3_column_text(stmt, i).utf8_to_string())]);
-                }
-                return list;
+                this.statement = statement;
+                Count = count;
             }
-            catch (Exception exception)
+
+            /// <summary>準備したstatementの列数です。</summary>
+            internal int Count { get; }
+
+            /// <summary>従来の文字列APIと同じSQLiteの文字列値を取得し、NULLを保持します。</summary>
+            internal string GetString(int index) => raw.sqlite3_column_text(statement, index).utf8_to_string();
+
+            /// <summary>INTEGER又はInvariant IntegerのTEXTを読み、REALの丸めや切捨てを行いません。</summary>
+            internal long? GetInt64(int index)
             {
-                primaryException = exception;
-                throw;
+                int type = raw.sqlite3_column_type(statement, index);
+                if (type == raw.SQLITE_INTEGER) { return raw.sqlite3_column_int64(statement, index); }
+                return type == raw.SQLITE_TEXT
+                    && long.TryParse(GetString(index), NumberStyles.Integer, CultureInfo.InvariantCulture, out long value)
+                    ? value : null;
             }
-            finally
+
+            /// <summary>Int32範囲内の整数だけを取得し、範囲外はnullにします。</summary>
+            internal int? GetInt32(int index)
             {
-                FinalizeRawStatement(stmt, primaryException);
+                long? value = GetInt64(index);
+                return value is long integer && integer >= int.MinValue && integer <= int.MaxValue ? (int)integer : null;
+            }
+
+            /// <summary>REALを直接、INTEGERをdoubleとして取得し、TEXTだけをInvariantのFloatと桁区切りで解釈します。</summary>
+            internal double? GetDouble(int index)
+            {
+                int type = raw.sqlite3_column_type(statement, index);
+                if (type == raw.SQLITE_FLOAT) { return raw.sqlite3_column_double(statement, index); }
+                if (type == raw.SQLITE_INTEGER) { return (double)raw.sqlite3_column_int64(statement, index); }
+                return type == raw.SQLITE_TEXT
+                    && double.TryParse(GetString(index), NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double value)
+                    ? value : null;
+            }
+
+            /// <summary>INTEGERの非0、又はTEXTのbool字句・Invariant整数の非0だけをtrueとして読みます。</summary>
+            internal bool GetBoolean(int index)
+            {
+                int type = raw.sqlite3_column_type(statement, index);
+                if (type == raw.SQLITE_INTEGER) { return raw.sqlite3_column_int64(statement, index) != 0; }
+                if (type != raw.SQLITE_TEXT) { return false; }
+                string text = GetString(index);
+                return bool.TryParse(text, out bool boolean) ? boolean
+                    : long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long integer) && integer != 0;
+            }
+
+            /// <summary>INTEGER又は旧TEXT列のticksを範囲内の壁時計日時として取得し、日付文字列の地域推測は行いません。</summary>
+            internal DateTime? GetDateTime(int index)
+            {
+                long? ticks = GetInt64(index);
+                return ticks is long value && value >= DateTime.MinValue.Ticks && value <= DateTime.MaxValue.Ticks
+                    ? new DateTime(value) : null;
             }
         }
 
+        /// <summary>次のstepまでの現在行だけを借用する同期callbackです。DB・UI・他主体へ再入せず、行を外へ保持しません。</summary>
+        internal delegate void RawRowAction(RawRow row);
+
+        /// <summary>全行の文字列値を取得します。NULLと元の実行例外を保持し、statementを必ず解放します。</summary>
+        public List<string[]> GetRawValuesAsString()
+        {
+            List<string[]> rows = [];
+            ForEachRawValueAsString(rows.Add);
+            return rows;
+        }
+
+        /// <summary>従来の文字列配列へ各行を複製して同期callbackへ渡します。例外と解放は型付き読取りと共用します。</summary>
         public int ForEachRawValueAsString(Action<string[]> rowAction)
         {
-            if (rowAction == null)
+            ArgumentNullException.ThrowIfNull(rowAction);
+            return ForEachRawRow(row =>
             {
-                throw new ArgumentNullException(nameof(rowAction));
-            }
+                string[] values = new string[row.Count];
+                for (int i = 0; i < values.Length; i++) { values[i] = row.GetString(i); }
+                rowAction(values);
+            });
+        }
+
+        /// <summary>毎行の配列を作らず現在行を同期callbackへ貸し、終了・失敗時ともstatementを解放します。</summary>
+        /// <remarks>行の寿命はcallback内だけです。step又はcallbackの元例外をfinalizeの戻り値で置換しません。解放自体の例外は元例外と集約します。</remarks>
+        internal int ForEachRawRow(RawRowAction rowAction)
+        {
+            ArgumentNullException.ThrowIfNull(rowAction);
             sqlite3_stmt stmt = PrepareRawStatement();
             Exception primaryException = null;
             int rowCount = 0;
@@ -1301,12 +1364,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
                 int count = raw.sqlite3_column_count(stmt);
                 while (StepRawStatement(stmt) == raw.SQLITE_ROW)
                 {
-                    string[] values = new string[count];
-                    for (int i = 0; i < count; i++)
-                    {
-                        values[i] = raw.sqlite3_column_text(stmt, i).utf8_to_string();
-                    }
-                    rowAction(values);
+                    rowAction(new RawRow(stmt, count));
                     rowCount++;
                 }
             }

@@ -299,6 +299,7 @@ public class SerializableVersion : ICloneable, IComparable
         return v1.CompareTo(v2) <= 0;
     }
 
+    /// <summary>地域に依存しないドット区切りの版文字列を返します。</summary>
     public override string ToString()
     {
         if (build == -1)
@@ -312,6 +313,7 @@ public class SerializableVersion : ICloneable, IComparable
         return ToString(4);
     }
 
+    /// <summary>指定した成分数で、地域に依存しないドット区切りの版文字列を返します。</summary>
     public string ToString(int fieldCount)
     {
         switch (fieldCount)
@@ -319,9 +321,9 @@ public class SerializableVersion : ICloneable, IComparable
             case 0:
                 return string.Empty;
             case 1:
-                return major.ToString();
+                return major.ToString(CultureInfo.InvariantCulture);
             case 2:
-                return major + "." + minor;
+                return string.Create(CultureInfo.InvariantCulture, $"{major}.{minor}");
             default:
                 if (build == -1)
                 {
@@ -329,7 +331,7 @@ public class SerializableVersion : ICloneable, IComparable
                 }
                 if (fieldCount == 3)
                 {
-                    return major + "." + minor + "." + build;
+                    return string.Create(CultureInfo.InvariantCulture, $"{major}.{minor}.{build}");
                 }
                 if (revision == -1)
                 {
@@ -337,7 +339,7 @@ public class SerializableVersion : ICloneable, IComparable
                 }
                 if (fieldCount == 4)
                 {
-                    return major + "." + minor + "." + build + "." + revision;
+                    return string.Create(CultureInfo.InvariantCulture, $"{major}.{minor}.{build}.{revision}");
                 }
                 throw new ArgumentException(string.Format("ArgumentOutOfRange_Bounds_Lower_Upper {0},{1}", "0", "4"), "fieldCount");
         }

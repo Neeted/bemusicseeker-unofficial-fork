@@ -562,7 +562,7 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         return null;
     }
 
-    /// <summary>正本を変更せず、ヘッダーJSONを生成します。Data_urlが空の場合だけ出力用の相対URLを使用します。</summary>
+    /// <summary>正本を変更せず、ヘッダーJSONを生成します。日時はInvariantの固定日/7桁小数秒で出力し、Data_urlが空の場合だけ出力用の相対URLを使います。</summary>
     /// <param name="outputDataUrl">ファイル出力用のURL。正本の値があれば正本を優先し、省略時は従来の値をそのまま出力します。</param>
     public string HeaderToJson(string outputDataUrl = null)
     {
@@ -591,10 +591,10 @@ public partial class BMSTable : LR2SongDBExtended.playlist
                 .Select(course => ParseJson(course.course_json)));
         }
         val["compat_prefix"] = base.compat_prefix;
-        val["last_update"] = base.last_update.ToShortDateString();
+        val["last_update"] = PlaylistJsonDate.Format(base.last_update);
         val["editor_name"] = "BeMusicSeeker";
         val["editor_version"] = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? string.Empty;
-        val["output_date"] = DateTime.Now.ToShortDateString();
+        val["output_date"] = DateTime.Now.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         return val;
     }
 
@@ -622,7 +622,7 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         return val.ToString(Formatting.Indented);
     }
 
-    /// <summary>表ヘッダーを読み込み、入力形式の失敗だけをヘッダー解析失敗へ変換します。任意の日付・順序の不正値は従来どおり省略します。</summary>
+    /// <summary>表ヘッダーを読み込み、入力形式の失敗だけをヘッダー解析失敗へ変換します。採用するlast_updateは固定日時文法を要求し、任意の順序の不正値は従来どおり省略します。</summary>
     public void LoadHeaderJSON(string _header_json, Uri _page_url_absolute = null, Uri __header_url = null, string _data_json = null, bool preserveLoadedCompatPrefix = false)
     {
         if (_header_json == null)
@@ -688,10 +688,11 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         {
             try
             {
-                base.last_update = DateTime.Parse(lastUpdateToken.ToString());
+                base.last_update = PlaylistJsonDate.Parse(lastUpdateToken.ToString(), "last_update");
             }
-            catch (FormatException)
+            catch (PlaylistJsonDateException ex)
             {
+                throw new PlaylistHeaderParseException(ex.Message, ex);
             }
         }
         if (TryGetNonNullProperty(val, "folder_order", out JToken folderOrderToken))
@@ -776,7 +777,7 @@ public partial class BMSTable : LR2SongDBExtended.playlist
             : Lr2CompatibleFolderFallbackPrefix;
     }
 
-    /// <summary>表データを読み込み、入力形式の失敗だけをデータ解析失敗へ変換します。内部故障・資源不足は呼出元へ伝播します。</summary>
+    /// <summary>表データを全行解析後に採用します。採用行の非空追加日が固定文法に不適合なら一表の保存前に拒否し、内部故障・資源不足は呼出元へ伝播します。</summary>
     public void LoadDataJSON(string _data_json)
     {
         if (_data_json == null)
@@ -795,7 +796,7 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         }
         catch (Exception ex) when (ex is JsonException or FormatException or InvalidCastException or OverflowException)
         {
-            throw new PlaylistDataParseException(BeMusicSeeker.Properties.Resources.Error_PlaylistDataParseFailed, ex);
+            throw new PlaylistDataParseException(ex is PlaylistJsonDateException ? ex.Message : BeMusicSeeker.Properties.Resources.Error_PlaylistDataParseFailed, ex);
         }
         entries = parsedEntries;
         ResolveDefaultCompatPrefixFolderOrderAfterDataLoad();

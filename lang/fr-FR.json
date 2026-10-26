@@ -1,4 +1,6 @@
 {
+  "Error_PlaylistEntryLevelFormat": "Saisissez ENTRY LEVEL comme un nombre fini complet avec un point décimal (par exemple -1.5 ou 1e2). Un champ vide efface la valeur.",
+  "Error_PlaylistJsonDateFormat": "La date de {0} est invalide. Utilisez yyyy-MM-dd ou yyyy-MM-ddTHH:mm:ss (1 à 7 décimales et Z/±HH:mm facultatifs), ou yyyy/M/d avec H:m:s et ±HH:mm facultatifs. Corrigez les données source et réessayez.",
   "Confirm_DeleteRegisteredBmsRoots": "Supprimer le dossier entier et retirer les racines BMS suivantes ?\nDossier : {0}\nRacines BMS à retirer :\n{1}",
   "Warn_CannotDeleteProtectedBmsRoot": "Le dossier entier ne peut pas être supprimé car il contient la dernière racine BMS ou la destination d’installation actuelle. Confirmez d’abord une autre racine ou destination dans les paramètres.\nCible : {0}",
   "LibraryChartRemovalReport_RegistrationFailed": "Les fichiers ont été supprimés, mais l’enregistrement ou l’application des racines BMS a échoué.",
@@ -1100,7 +1102,7 @@
   "PlaylistLampViewer_statistic_detail_format": "{0} : {1}",
   "PlaylistLampViewer_segment_detail_format": "{0} : {1} ({2})",
   "PlaylistLampViewer_segment_unavailable_detail_format": "{0} : {1} ({2})",
-  "PlaylistLampViewer_percentage_format": "{0:N2} %",
+  "PlaylistLampViewer_percentage_format": "{0:F2} %",
   "PlaylistLampViewer_source_lr2": "LR2",
   "PlaylistLampViewer_source_beatoraja": "beatoraja",
   "PlaylistLampViewer_source_none": "Aucune",

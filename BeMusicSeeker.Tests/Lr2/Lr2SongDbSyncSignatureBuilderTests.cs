@@ -1,3 +1,4 @@
+using System.Globalization;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -22,7 +23,7 @@ public sealed class Lr2SongDbSyncSignatureBuilderTests
 
         StringAssert.Contains(signature, "|appSchema=");
         StringAssert.Contains(signature, "|chartInfoSchema=");
-        StringAssert.Contains(signature, "|chartInfoParser=");
+        StringAssert.Contains(signature, "|chartInfoParser=" + BmsLibraryDbGateway.CurrentChartInfoParserVersion.ToString(CultureInfo.InvariantCulture) + "|");
         StringAssert.Contains(signature, "|songFolderGenerator=");
         StringAssert.Contains(signature, "|lr2FolderFileParser=");
         StringAssert.Contains(signature, "|lr2CompatibilityFacts=1");

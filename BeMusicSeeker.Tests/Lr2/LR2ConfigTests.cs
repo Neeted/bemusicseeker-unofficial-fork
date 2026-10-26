@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -120,21 +121,45 @@ public sealed class LR2ConfigTests
     }
 
     /// <summary>
-    /// 既存の自動再読込み設定2を手動専用の保存値0へ変更して実ファイルへ保存し、LR2の自動変更との競合を防ぐ。
+    /// 異文化でも共通整数の空白・符号を固定解釈し、自動再読込み2を手動専用0へ実保存して新しい文書から読み戻す。
     /// </summary>
     /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
-    [TestMethod]
-    public void EnsureDatabaseAutoReloadManualOnly_ChangesExistingAutoReloadMode()
+    [DataTestMethod]
+    [DoNotParallelize]
+    [DataRow("ja-JP")]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("fr-FR")]
+    [DataRow("th-TH")]
+    [DataRow("ar-SA")]
+    public void EnsureDatabaseAutoReloadManualOnly_ChangesExistingAutoReloadMode(string cultureName)
     {
-        WithConfig("<config><system><autoreload>2</autoreload></system><jukebox /></config>", delegate (string configPath, LR2Config config)
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        try
         {
-            bool changed = config.EnsureDatabaseAutoReloadManualOnly();
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            WithConfig("<config><system><customfolder> +12 </customfolder><titleflash> +24 </titleflash><autoreload> +2 </autoreload></system><jukebox /></config>", delegate (string configPath, LR2Config config)
+            {
+                Assert.AreEqual(12, config.GetCustomFolderMask());
+                Assert.AreEqual(24, config.GetTitleFlashHours());
+                Assert.AreEqual(2, config.GetDatabaseAutoReloadMode());
+                bool changed = config.EnsureDatabaseAutoReloadManualOnly();
 
-            Assert.IsTrue(changed);
-            Assert.AreEqual(LR2Config.DatabaseAutoReloadManualOnly, config.GetDatabaseAutoReloadMode());
-            config.Save(config.ConfigFilePath);
-            Assert.AreEqual("0", XDocument.Load(configPath).Element("config")?.Element("system")?.Element("autoreload")?.Value);
-        });
+                Assert.IsTrue(changed);
+                Assert.AreEqual(LR2Config.DatabaseAutoReloadManualOnly, config.GetDatabaseAutoReloadMode());
+                config.Save(config.ConfigFilePath);
+                Assert.AreEqual("0", XDocument.Load(configPath).Element("config")?.Element("system")?.Element("autoreload")?.Value);
+                var reloaded = new LR2Config(configPath);
+                Assert.AreEqual(12, reloaded.GetCustomFolderMask());
+                Assert.AreEqual(24, reloaded.GetTitleFlashHours());
+                Assert.AreEqual(0, reloaded.GetDatabaseAutoReloadMode());
+                Assert.IsFalse(reloaded.EnsureDatabaseAutoReloadManualOnly());
+            });
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
     }
 
     /// <summary>

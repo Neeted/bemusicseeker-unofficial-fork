@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
@@ -110,7 +109,7 @@ internal sealed class BmsLibraryDbGateway(
 
     internal const int CurrentChartInfoSchemaVersion = 5;
 
-    internal const int CurrentChartInfoParserVersion = 21;
+    internal const int CurrentChartInfoParserVersion = 22;
 
     internal const int ChartInfoMetadataBundleFormatVersion = 1;
 
@@ -528,81 +527,6 @@ internal sealed class BmsLibraryDbGateway(
     {
         using LR2SongDBExtended songDb = OpenSongDb();
         return [.. songDb.Table<ChartPackage>()];
-    }
-
-    private static int? ParseNullableInt(string value)
-    {
-        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int result)
-            ? result
-            : null;
-    }
-
-    private static int ParseInt(string value)
-    {
-        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int result)
-            ? result
-            : 0;
-    }
-
-    private static double? ParseNullableDouble(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-        if (double.TryParse(value, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double invariantValue))
-        {
-            return invariantValue;
-        }
-        if (double.TryParse(value, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out double currentValue))
-        {
-            return currentValue;
-        }
-        return null;
-    }
-
-    private static DateTime? ParseNullableDateTime(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long ticks))
-        {
-            try
-            {
-                return new DateTime(ticks);
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-            }
-        }
-        if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTime invariantValue))
-        {
-            return invariantValue;
-        }
-        if (DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out DateTime currentValue))
-        {
-            return currentValue;
-        }
-        return null;
-    }
-
-    private static bool ParseBoolean(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return false;
-        }
-        if (bool.TryParse(value, out bool boolValue))
-        {
-            return boolValue;
-        }
-        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long integerValue))
-        {
-            return integerValue != 0;
-        }
-        return false;
     }
 
     /// <summary>
@@ -1101,6 +1025,7 @@ internal sealed class BmsLibraryDbGateway(
         }
     }
 
+    /// <summary>起動時の詳細情報と現行失敗集合を読取り専用で構築します。型付きraw射影は数値の精度とticksを保持し、表示に不要な列を読みません。</summary>
     public ChartInfoHydrationLoadResult LoadChartInfoHydrationData(TimeSpan parseTimeout)
     {
         var result = new ChartInfoHydrationLoadResult();
@@ -1152,12 +1077,12 @@ internal sealed class BmsLibraryDbGateway(
         TimeSpan parseTimeout,
         ChartInfoHydrationLoadResult result)
     {
-        result.MaterializeMode = "raw_string_display";
+        result.MaterializeMode = "raw_typed_display";
         long objectTicks = 0L;
         long stopwatchFrequency = Stopwatch.Frequency;
         var stopwatch = Stopwatch.StartNew();
         var chartInfoCommand = (LR2SongDBExtended.SQLiteCommandExtended)songDb.CreateCommand(ChartInfoHydrationRawSelectSql);
-        int rawRows = chartInfoCommand.ForEachRawValueAsString(delegate (string[] values)
+        int rawRows = chartInfoCommand.ForEachRawRow(delegate (LR2SongDBExtended.SQLiteCommandExtended.RawRow values)
         {
             long objectStart = Stopwatch.GetTimestamp();
             BeMusicSeeker.Models.ChartDetails item = CreateChartInfoHydrationDisplayRow(values);
@@ -1173,14 +1098,14 @@ internal sealed class BmsLibraryDbGateway(
             objectTicks += Stopwatch.GetTimestamp() - objectStart;
         });
         var parseFailureCommand = (LR2SongDBExtended.SQLiteCommandExtended)songDb.CreateCommand(ChartInfoParseFailureHydrationRawSelectSql);
-        rawRows += parseFailureCommand.ForEachRawValueAsString(delegate (string[] values)
+        rawRows += parseFailureCommand.ForEachRawRow(delegate (LR2SongDBExtended.SQLiteCommandExtended.RawRow values)
         {
             long objectStart = Stopwatch.GetTimestamp();
             result.ParseFailureRows++;
-            string md5 = GetRawValue(values, 0);
-            int parserVersion = ParseInt(GetRawValue(values, 1));
-            string failureKind = GetRawValue(values, 2);
-            int? parseTimeoutMs = ParseNullableInt(GetRawValue(values, 3));
+            string md5 = values.GetString(0);
+            int parserVersion = (values.GetInt32(1) ?? 0);
+            string failureKind = values.GetString(2);
+            int? parseTimeoutMs = values.GetInt32(3);
             if (!string.IsNullOrWhiteSpace(md5)
                 && IsCurrentChartInfoParseFailure(parserVersion, failureKind, parseTimeoutMs, parseTimeout))
             {
@@ -1197,43 +1122,38 @@ internal sealed class BmsLibraryDbGateway(
         result.MaterializeMs = totalMs;
     }
 
-    private static BeMusicSeeker.Models.ChartDetails CreateChartInfoHydrationDisplayRow(string[] values)
+    private static BeMusicSeeker.Models.ChartDetails CreateChartInfoHydrationDisplayRow(LR2SongDBExtended.SQLiteCommandExtended.RawRow values)
     {
         return new BeMusicSeeker.Models.ChartDetails
         {
-            sha256 = GetRawValue(values, 0),
-            md5 = GetRawValue(values, 1),
-            level = ParseNullableInt(GetRawValue(values, 2)),
-            difficulty = ParseNullableInt(GetRawValue(values, 3)),
-            difficulty_defined = ParseBoolean(GetRawValue(values, 4)),
-            mainbpm = ParseNullableDouble(GetRawValue(values, 5)),
-            maxbpm = ParseNullableDouble(GetRawValue(values, 6)),
-            minbpm = ParseNullableDouble(GetRawValue(values, 7)),
-            length = ParseNullableInt(GetRawValue(values, 8)),
-            mode = ParseNullableInt(GetRawValue(values, 9)),
-            judge = ParseNullableInt(GetRawValue(values, 10)),
-            bga = ParseNullableInt(GetRawValue(values, 11)),
-            exlevel = ParseNullableInt(GetRawValue(values, 12)),
-            feature = ParseInt(GetRawValue(values, 13)),
-            notes = ParseInt(GetRawValue(values, 14)),
-            n = ParseInt(GetRawValue(values, 15)),
-            ln = ParseInt(GetRawValue(values, 16)),
-            s = ParseInt(GetRawValue(values, 17)),
-            ls = ParseInt(GetRawValue(values, 18)),
-            total = ParseNullableDouble(GetRawValue(values, 19)),
-            total_defined = ParseBoolean(GetRawValue(values, 20)),
-            density = ParseNullableDouble(GetRawValue(values, 21)),
-            peakdensity = ParseNullableDouble(GetRawValue(values, 22)),
-            enddensity = ParseNullableDouble(GetRawValue(values, 23)),
-            speedchange_count = ParseInt(GetRawValue(values, 24)),
-            parser_version = ParseInt(GetRawValue(values, 25)),
-            updated_at = ParseNullableDateTime(GetRawValue(values, 26)) ?? default
+            sha256 = values.GetString(0),
+            md5 = values.GetString(1),
+            level = values.GetInt32(2),
+            difficulty = values.GetInt32(3),
+            difficulty_defined = values.GetBoolean(4),
+            mainbpm = values.GetDouble(5),
+            maxbpm = values.GetDouble(6),
+            minbpm = values.GetDouble(7),
+            length = values.GetInt32(8),
+            mode = values.GetInt32(9),
+            judge = values.GetInt32(10),
+            bga = values.GetInt32(11),
+            exlevel = values.GetInt32(12),
+            feature = (values.GetInt32(13) ?? 0),
+            notes = (values.GetInt32(14) ?? 0),
+            n = (values.GetInt32(15) ?? 0),
+            ln = (values.GetInt32(16) ?? 0),
+            s = (values.GetInt32(17) ?? 0),
+            ls = (values.GetInt32(18) ?? 0),
+            total = values.GetDouble(19),
+            total_defined = values.GetBoolean(20),
+            density = values.GetDouble(21),
+            peakdensity = values.GetDouble(22),
+            enddensity = values.GetDouble(23),
+            speedchange_count = (values.GetInt32(24) ?? 0),
+            parser_version = (values.GetInt32(25) ?? 0),
+            updated_at = values.GetDateTime(26) ?? default
         };
-    }
-
-    private static string GetRawValue(string[] values, int index)
-    {
-        return values != null && index >= 0 && index < values.Length ? values[index] : null;
     }
 
     /// <summary>

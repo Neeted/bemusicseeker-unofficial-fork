@@ -6,6 +6,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -418,19 +419,36 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreEqual(0, query.GetDiagnostics(GridKeywordSearchContext.ChartList).Count);
     }
 
-    /// <summary>整数と小数・ミリ秒時間・丸め・難度・判定・複合特徴を利用者向け表記へ変換することを確認し、検索にも使う表示値の単位や分類の変換誤りを検出します。</summary>
+    /// <summary>異文化でも整数と小数・ミリ秒時間・丸め・難度・判定・複合特徴を固定数値表記へ変換することを確認し、検索にも使う表示値の単位や分類の変換誤りを検出します。</summary>
     [TestMethod]
-    public void ChartInfoDisplayFormatter_FormatsDisplayValues()
+    [DoNotParallelize]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("fr-FR")]
+    [DataRow("th-TH")]
+    public void ChartInfoDisplayFormatter_FormatsDisplayValues(string cultureName)
     {
-        BeMusicSeeker.Models.ChartDetails chartInfo = CreateChartInfo();
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        CultureInfo previousUiCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(cultureName);
+            BeMusicSeeker.Models.ChartDetails chartInfo = CreateChartInfo();
 
-        Assert.AreEqual("180", ChartInfoDisplayFormatter.FormatOptionalDouble(180.0));
-        Assert.AreEqual("180.25", ChartInfoDisplayFormatter.FormatOptionalDouble(180.25));
-        Assert.AreEqual("123.13 s", ChartInfoDisplayFormatter.FormatDuration(123130));
-        Assert.AreEqual("2.47", ChartInfoDisplayFormatter.FormatFixedTwo(2.468));
-        Assert.AreEqual("ANOTHER", ChartInfoDisplayFormatter.FormatDifficulty(4));
-        Assert.AreEqual("EASY", ChartInfoDisplayFormatter.FormatJudge(100));
-        Assert.AreEqual("LN RANDOM STOP", ChartInfoDisplayFormatter.FormatFeature(chartInfo.feature));
+            Assert.AreEqual("180", ChartInfoDisplayFormatter.FormatOptionalDouble(180.0));
+            Assert.AreEqual("180.25", ChartInfoDisplayFormatter.FormatOptionalDouble(180.25));
+            Assert.AreEqual("123.13 s", ChartInfoDisplayFormatter.FormatDuration(123130));
+            Assert.AreEqual("2.47", ChartInfoDisplayFormatter.FormatFixedTwo(2.468));
+            Assert.AreEqual("ANOTHER", ChartInfoDisplayFormatter.FormatDifficulty(4));
+            Assert.AreEqual("EASY", ChartInfoDisplayFormatter.FormatJudge(100));
+            Assert.AreEqual("LN RANDOM STOP", ChartInfoDisplayFormatter.FormatFeature(chartInfo.feature));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUiCulture;
+        }
     }
 
     /// <summary>詳細の閉区間・比較・開区間と難度・特徴・scratchの条件で一致と不一致を区別することを確認し、範囲演算や詳細別名の誤解釈を検出します。</summary>
@@ -623,21 +641,45 @@ public sealed class GridKeywordSearchQueryTests
 
     /// <summary>ハイフン・スラッシュ・連結の日付と秒単位時刻、および最大日を受理することを確認し、日付互換形式の拒否や最終日の上限溢れを検出します。</summary>
     [TestMethod]
-    public void MatchesPlayHistoryRow_DateSupportsExactDayAndLocalTimestampForms()
+    [DoNotParallelize]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("fr-FR")]
+    [DataRow("th-TH")]
+    public void MatchesPlayHistoryRow_DateSupportsExactDayAndLocalTimestampForms(string cultureName)
     {
-        PlayHistoryRow row = CreatePlayHistoryRow(
-            finalized: true,
-            playedAt: new DateTimeOffset(2026, 6, 19, 12, 34, 56, TimeSpan.Zero));
-        DateTime localPlayedAt = row.PlayedAt;
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        CultureInfo previousUiCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(cultureName);
+            PlayHistoryRow row = CreatePlayHistoryRow(
+                finalized: true,
+                playedAt: new DateTimeOffset(new DateTime(2026, 6, 19, 12, 34, 56, DateTimeKind.Local)));
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse($"date:{localPlayedAt:yyyy-MM-dd}").MatchesPlayHistoryRow(row));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse($"date:{localPlayedAt:yyyy/M/d}").MatchesPlayHistoryRow(row));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse($"date:{localPlayedAt:yyyy/MM/dd}").MatchesPlayHistoryRow(row));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse($"date:{localPlayedAt:yyyyMMdd}").MatchesPlayHistoryRow(row));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse($"date:\"{localPlayedAt:yyyy/MM/dd HH:mm:ss}\"").MatchesPlayHistoryRow(row));
+            Assert.IsTrue(GridKeywordSearchQuery.Parse("date:2026-06-19").MatchesPlayHistoryRow(row));
+            Assert.IsTrue(GridKeywordSearchQuery.Parse("date:2026/6/19").MatchesPlayHistoryRow(row));
+            Assert.IsTrue(GridKeywordSearchQuery.Parse("date:2026/06/19").MatchesPlayHistoryRow(row));
+            Assert.IsTrue(GridKeywordSearchQuery.Parse("date:20260619").MatchesPlayHistoryRow(row));
+            Assert.IsTrue(GridKeywordSearchQuery.Parse("date:\"2026/06/19 12:34:56\"").MatchesPlayHistoryRow(row));
 
-        Assert.IsTrue(PlayHistoryDateSearchTerm.TryParse("9999-12-31", out PlayHistoryDateSearchTerm maximumDay));
-        Assert.IsTrue(maximumDay.Matches(PlayHistoryWallClockSecond.FromDateTime(DateTime.MaxValue)));
+            var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+            settings.PlayHistoryPlayedAt.Visibility = System.Windows.Visibility.Visible;
+            CustomTableColumn dateColumn = CustomTableColumnFactory.CreateMainColumns(settings).Single(column => column.Id == "PlayedAt");
+            string copiedDate = dateColumn.GetText(row);
+            Assert.AreEqual("2026-06-19 12:34:56", copiedDate);
+            Assert.IsTrue(GridKeywordSearchQuery.Parse("date:\"" + copiedDate + "\"").MatchesPlayHistoryRow(row));
+            Assert.IsTrue(GridKeywordSearchQuery.Parse("date:\"" + copiedDate + ".." + copiedDate + "\"").MatchesPlayHistoryRow(row));
+
+            Assert.IsTrue(PlayHistoryDateSearchTerm.TryParse("9999-12-31", out PlayHistoryDateSearchTerm maximumDay));
+            Assert.IsTrue(maximumDay.Matches(PlayHistoryWallClockSecond.FromDateTime(DateTime.MaxValue)));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUiCulture;
+        }
     }
 
     /// <summary>項目を指定しない日時文字列は履歴の日付検索へ昇格しないことを確認し、通常語に暗黙のdate条件を追加する誤りを検出します。</summary>

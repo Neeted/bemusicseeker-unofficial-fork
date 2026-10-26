@@ -50,6 +50,7 @@ internal static class BeatorajaBmtTableImportService
         return Path.Combine(tablePath ?? string.Empty, BMSTable.ComputeSha256Hex(configTableUrl) + ".bmt");
     }
 
+    /// <summary>実gzipキャッシュを読み、表・譜面・コースの任意文字列を日時へ変換せず保持します。</summary>
     internal static JObject ReadCachedTableData(string cachePath)
     {
         if (string.IsNullOrWhiteSpace(cachePath))
@@ -60,7 +61,11 @@ internal static class BeatorajaBmtTableImportService
         using FileStream fileStream = LongPathFileSystem.OpenRead(cachePath);
         using var gzipStream = new GZipStream(fileStream, CompressionMode.Decompress);
         using var reader = new StreamReader(gzipStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-        return JObject.Parse(reader.ReadToEnd());
+        using var jsonReader = new JsonTextReader(reader) { DateParseHandling = DateParseHandling.None };
+        var table = JObject.Load(jsonReader);
+        // JObject.Parseと同じく末尾まで読み、後続の別JSONを許容しない。
+        while (jsonReader.Read()) { }
+        return table;
     }
 
     /// <summary>BMTの所属とnullable levelを通常JSON読込みへ渡し、設定の生URLを正本として表を復元します。</summary>

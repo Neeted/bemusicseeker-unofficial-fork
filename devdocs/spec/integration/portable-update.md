@@ -16,6 +16,8 @@ ZIP配布のポータブル運用を維持したまま、更新確認・検証�
 
 JSON解析と整数トークンの範囲外変換だけを `UpdateManifestValidationException` へ変換し、元のJSON例外・`OverflowException` を取得・検証所有者の診断用に保持します。内部故障・資源不足をマニフェスト不正へ包装しません。ハッシュ、資産形式、HTTP URL、版と更新ツールプロトコルの検証は維持します。
 
+`minimumUpdaterVersion` と更新要求・監視要求のPIDは、既存の整数文法をInvariantで解析します。protocolの標準出力・ready内容、PIDの引数・marker、更新情報URLの時刻整数も地域に依存しない整数表現を使います。protocol値、PIDの正数条件、引用と引数分割、要求の失敗条件は変えません。
+
 ```text
 https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/update.json
 ```

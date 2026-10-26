@@ -18,6 +18,14 @@
 
 並べ替え状態は通常一覧の `SortParameters`、履歴の `PlayHistorySortParameters` を `MainTableSortParameters` へ切り替えて公開します。プレイリスト一覧は独立した `PlaylistSummarySortParameters` を使います。
 
+### 数値・日時の表示と整列
+
+一覧の数値は固定文化圏で小数点を `.`、桁区切りなしとして表示します。各列の丸め・割合の精度・未取得表示は維持します。日付はGregorianの `yyyy-MM-dd`、秒粒度の日時は `yyyy-MM-dd HH:mm:ss` です。描画・コピーと表示値を使う検索は同じ値を参照し、表示更新だけで元値を再解釈・保存しません。
+
+LEVELの整列は型付き数値キーを優先し、必要な文字列fallbackだけ固定文化圏で読みます。自然順の数値トークンも `.` の固定文法で比較し、名称やパスの既存の比較方法を維持します。ENTRYの編集初期値・受理文法は[保存仕様](../playlist/storage-and-export.md)に従います。
+
+列の固定数値・日付表示は `CustomTableColumnFactoryTests.CreateMainColumns_FormatsStatusAndSuffixColumns`、表示と検索の整合は `GridKeywordSearchQueryTests`、型付きキーと自然順は `LibraryChartRowSortEngineTests` と `PlaylistViewPipelineTests` が異文化条件で分担します。
+
 ### プレイリストツリーの選択
 
 プレイリストツリーのフォルダ構成更新では、workspaceの選択を正本にします。ItemsSourceの置換中にWPFが選択する親を新しい利用者選択として採用せず、コンテナ生成後に同じ選択revisionの表示だけを同期します。改名・接頭辞変更は確定した対応へ追従し、別フォルダ更新と特殊NO SONGノードの選択を保ちます。同期配送前の新しい明示選択を古い復元で上書きしません。通常の初回選択、再クリックとキーボード選択は従来の要求経路を使います。選択フォルダの削除先は[保存仕様](../playlist/storage-and-export.md#手動編集と失敗)に従います。
@@ -220,7 +228,7 @@ F2と文字入力による編集は、入力時点で同期した現在セルの
 
 主な編集項目は `EntryLevel`、`Folder`、`Url1`、`Url2`、`Comment`、`Memo`、`InstallDst` です。URLの通常クリックは取得操作、再クリック・F2・文字入力はURL文字列の編集です。導入先候補は `ChartFile.InstallDestinationSuggestions` から取得し、保留中のBMSも `PackageChartEntry.Chart` を使います。古い保存用モデルの一時値へ代替しません。確定時は `CellEditEnded` から対象のモデル・DBの更新へ接続します。
 
-ローカル表の`ENTRY LEVEL`は、数値の地域設定に沿った表示文字列をF2の編集初期値にも使います。fr-FR/de-DEで保存値1.5を`1,5`と表示し、無変更Enterでも1.5を保ちます。別の小数を入力した後のEscapeは保存せず元の表示へ戻します。地域小数と従来ピリオド・装飾入力、空欄・非数値の確定規則は[保存仕様](../playlist/storage-and-export.md#手動編集と失敗)に従います。
+ローカル表の `ENTRY LEVEL` は地域・翻訳言語によらず固定dotの往復精度表現を表示・F2初期値・コピーに使います。fr-FR/de-DEでも保存値1.5は `1.5`、無変更Enterでも同じdoubleを保持します。Escapeは保存せず元の表示へ戻します。不正入力は保存前に既存receiptから通知し、draftを解除して次の明示編集を受け付けます。全体Float・有限値・空欄と拒否条件は[保存仕様](../playlist/storage-and-export.md#手動編集と失敗)に従います。
 
 ローカルプレイリストのURL1/URL2は空文字・空白だけで確定すると、当該欄の保存値と補完値を解除します。非空の無効URIは確定せず、Escapeは入力を保存しません。保存と別属性編集後の補完保持・再適用は[保存仕様](../playlist/storage-and-export.md)に従います。
 
@@ -295,7 +303,7 @@ DPIは変更コールバックと描画開始時の環境確認で追従しま�
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | セル編集の確定表示、編集解除と受付終端 | `PlaylistWorkspaceViewModel.DetailEditing` / `PropertyEditing`、`RegularChartListOwner`、`PendingPackageWorkflowOwner` | `PlaylistCatalogViewChangeTests.DetailEdit_WaitsForRequiredDeliveryAndCleansUpOnFailure`、`PlaylistWorkspaceActionWorkflowTests.SummaryCellEdit_WaitsForSavedValuePresentationAndPreservesFailure`、`RegularChartFolderRenameTests.FolderRenames_WaitForCurrentRowsBeforeReleasingAdmission`、`PendingPackageWorkflowOwnerTests.SetPendingAsync_HoldsAdmissionThroughRequiredPresentation` は実保存・配送TaskとP/Lを観測する。実入力・Bindingは `MainWindowPlaylistWorkspaceWpfTests.CellEdits_DefaultTerminalsDisplaySavedValuesBeforeAdmissionEnds`、保留の実受信は `MainWindowPackageMaintenanceWpfTests.PendingEstimationAndCandidateEditingReachRealizedRowsWithRelatedEvidence` が分担する。 |
-| ENTRY LEVELの地域表示からの無変更確定と取消 | [`PlaylistDetailSourceRow`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistDetailSourceRow.cs)、`PlaylistDetailRow`、`CustomTableView`、`PlaylistWorkspaceViewModel.DetailEditing` | [`MainWindowPlaylistWorkspaceWpfTests.EntryLevel_CurrentCultureRoundTripAndCancelKeepSavedNumber`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) はfr-FR・翻訳en-USの実MainWindow・ローカル表・実EntryLevel列でF2→無変更Enterと別小数→Escapeを通し、受付終端後の正本・新しい読取り専用DB・実セルの次の編集表示とdraft解除を確認する。文化別の正負・ピリオド・装飾・空/null・非数値は[保存主体の条件表](../playlist/storage-and-export.md#実装とテストの対応)へ分担する。 |
+| ENTRY LEVELの固定dot表示・確定・取消・拒否通知 | [`PlaylistDetailSourceRow`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistDetailSourceRow.cs)、`PlaylistDetailRow`、`CustomTableView`、`PlaylistWorkspaceViewModel.DetailEditing` | [`MainWindowPlaylistWorkspaceWpfTests.EntryLevel_CurrentCultureRoundTripAndCancelKeepSavedNumber`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) はfr-FR・翻訳en-USの実MainWindow・実EntryLevel列でF2→無変更Enter、別入力→Escape、不正カンマ→実dialog sink、次の正常入力を通す。受付終端後の正本・新readonly DB・表示・draft解除と所有Windowを確認する。Float・精度・拒否条件の網羅は[保存主体の条件表](../playlist/storage-and-export.md#実装とテストの対応)へ分担する。 |
 | 遅い参照投影・表示交換・独立sortと局所仕事量 | `PlaylistWorkspaceViewModel.DetailChanges` / `DetailReferences`、`PlaylistWorkspaceViewModel.PropertyEditing`、`PlaylistSummarySortEngine`、`RegularChartListOwner.PackageViews` | `PlaylistCatalogViewChangeTests.DetailEdit_DelayedReferenceProjectionKeepsCommittedEntryValues` は参照捕捉と配送を分けて新memoを保持する。`DetailEdit_ReplacedDisplayKeepsNewTableRows` と `DetailEdit_IndependentSortDoesNotDelayCellCompletion` は新表示の保持と独立候補を待たない編集終端を確認する。`EntryEdits_UpdateLevelOrderAndMemoFilterLocally` と `RegularChartNavigationTests.InstallDestinationProjection_UpdatesOnlyDependentRows` は詳細・通常・保留の16/128行で仕事量・行実体化を確認する。`PlaylistWorkspaceActionWorkflowTests` の `SummaryCellEdit_LocallyMaintainsOrderFilterAndDerivedValues`、`SummaryCellEdit_JoinsCurrentFilterAfterSavePreparation`、`SummaryCellEdit_PreservesIndependentSortAndCurrentConditions` はsummaryの現在順序・filter加入離脱・派生値・16/128表の局所仕事量と、独立sortを待たない編集終端を確認する。`SummaryPrefixCell_DelayedEntryDeliveryPreservesIndependentRequest` は実tree購読と保存scope後のentry配送を通し、summary予約・世代/cache失効の不発、独立sort/buildの採用と一般folder変更・削除の必要更新を確認する。`SummaryPrefixCell_DeliveryUpdatesDetailSelectedDuringSave` は保存準備中に選択した詳細へのprefix差分適用とsource版・旧入力保持を確認する。共通comparerの比較規則は `LibraryChartRowSortEngineTests.PlaylistSummarySortEngine_*` が担当する。 |
 | summaryのraw公開順、UI適用Taskと構築終端、代表規模の時間 | `PlaylistWorkspaceViewModel.PlaylistSummaryBuild`、`PlaylistWorkspaceViewModel` のsummary cache・view採用 | `PlaylistWorkspaceActionWorkflowTests.SummaryCellEdit_ReplacedRowAndCurrentCacheReceiveSavedProperties` は実rawの先行/後発公開とcache不可経路で現在row・rawへの確定属性反映を確認する。`PlaylistWorkspacePersistenceCommandTests.SummaryBuild_OwnsDispatcherApplicationThroughSchedulerCompletion` は実workerからDispatcher Task、idle/停止への接続を確認する。代表規模のUI区間/全体終端の明示測定は [`PlaylistSummaryPerformanceTests`](../../../BeMusicSeeker.Tests/Performance/PlaylistSummaryPerformanceTests.cs) へ分け、通常の機能検証の成功を性能保証の代用にしない。 |
 | 保持範囲・値と警告の寿命・位置別描画・表示抑止 | `CustomTableRowCache`、`CustomTableRowChangeTracker`、`CustomTableSurface` | [`CustomTablePhase6CacheTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTablePhase6CacheTests.cs) は範囲の重なり・最後の参照の離脱・再進入、通知対応/非対応/重複参照、Reset・ソース/同一ID列交換・非表示復帰、行通知の局所更新、選択/現在セルの区間色と背景、部分行の通常行化と候補マーカーの実字形、null行の空セルと前後行の位置を確認する。保持範囲は実Windowの可視表、色・境界は画面外の実描画で確認する。購読・通知集約は既存RowChangeTracker/Scheduler/Queue系列、編集確定はEditing系列、文字条件とFIFOはTextLayoutCache系列へ分担する。セルループを通らない再利用、描画環境の無効化接続、旧状態の撤去、差替え抑止・初回通知は静的レビューで確認する。 |

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace Ribbit.Util;
@@ -99,18 +100,18 @@ public class NaturalComparer : Comparer<string>, IDisposable
     }
 
     /// <summary>
-    /// トークン同士を従来互換ルールで比較します。
+    /// 数値トークンを固定文化圏で比較し、名称トークンの従来の比較規則を維持します。
     /// </summary>
     /// <param name="left">左辺トークン文字列。</param>
     /// <param name="right">右辺トークン文字列。</param>
     /// <returns>比較結果。</returns>
     protected static int PartCompare(string left, string right)
     {
-        if (!double.TryParse(left, out double result))
+        if (!double.TryParse(left, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double result))
         {
             return left.CompareTo(right);
         }
-        if (!double.TryParse(right, out double result2))
+        if (!double.TryParse(right, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double result2))
         {
             return left.CompareTo(right);
         }

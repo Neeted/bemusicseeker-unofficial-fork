@@ -14,6 +14,8 @@ LR2IRの本人スコア、ローカル順位キャッシュ、未送信判定と
 
 本人スコアXMLと `ir_score` / `ir_score_refresh_metadata` は未送信判定とUNSENT SONGS出力に使います。順位キャッシュXMLと `ir_data` は順位表示とオフラインスコアの順位推定に使います。有効設定も別々です。
 
+本人スコア取得URLのプレイヤーIDと同一性判定用digestの整数はInvariantで表します。digestはhash順の小文字hash、rawクリア値、既存の成績整数をタブ区切り・LF終端で連結し、OSの地域によってハッシュ入力を変えません。成績の値・並び順・`lastupdate`を除く既存の対象列は維持します。
+
 刷新履歴の構造は、明示的な起動・モデル構築のDB準備で初回取得前に揃えます。新規DBでは未記録の履歴を正常に読め、既存DBと再準備では刷新履歴・本人スコア・楽曲行を保持します。Gatewayの通常履歴読取りは構造・保存行を変更せず、未記録の`null`と表未準備等の読取り失敗を区別します。
 
 本人スコアの確定前に刷新履歴または保存済み本人スコアを読み取れなければ、その更新を失敗で終え、DBの置換・履歴保存・メモリ採用を進めません。正常な未記録・空一覧・digest一致へ変換せず、現在のスコアと未送信判定を保持し、既存の結果と背景仕事の報告で失敗を伝えます。独立した順位キャッシュ更新と次の通常要求は続けられ、その場の再試行や永続的な無効化は行いません。
@@ -45,6 +47,8 @@ LR2IRの本人スコア、ローカル順位キャッシュ、未送信判定と
 ### ランキング情報JSONの部分応答
 
 `BmsLibraryIrClient.ParseRankingInfoResponse` は有効な行のMD5・サイズ・時刻を保持します。JSONオブジェクト以外の値、必須項目欠落、不正MD5、数値・日付形式や範囲の不正は行単位で省略します。内部故障・資源不足は不正行として隠しません。省略時は応答ごとの件数と最大5件の行番号・理由を一度だけ診断し、診断先の例外は返す一覧を変更しません。
+
+サイズの数値tokenは型付きで読み、文字列の整数解析は既存の前後空白・符号の文法をInvariantで保ちます。JSONの更新日時と順位XMLの固定日時 `yyyy-MM-dd HH:mm:ss` はGregorianで解釈し、OSの暦へ読み替えません。
 
 空・全不正・一部不正の応答はいずれも部分一覧です。返らないMD5を既存キャッシュの削除根拠にせず、有効行だけから取得・更新の候補を選びます。文書全体の不正JSONや後続JSONは応答解析失敗とします。
 
@@ -86,6 +90,7 @@ cacheファイルの昇格、再読込み判定、XML読取りに失敗した場
 | 情報JSONの型維持、不正行の上限付き診断、部分応答とキャッシュ保持 | [`BmsLibraryIrClient.ParseRankingInfoResponse`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrClient.cs)、[`BmsLibraryIrService.GetIRDataNeedUpdatesFromRankingInfo`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrService.cs) | [`BmsLibraryIrServiceTests.ParseRankingInfoResponse_PreservesTypedFieldsAndSkipsInvalidRows`](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs)、`ParseRankingInfoResponse_BoundsSkippedRowDiagnostics`、`ParseRankingInfoResponse_PartialListAndDiagnosticFailurePreserveCache` |
 | 起動時順位DBの読取り失敗と正常空、ファイル失敗の局所診断 | [順位サービス](../../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrService.cs)、[背景仕事](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) | [サービス試験](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs)で正常空からの採用を、[起動試験](../../../BeMusicSeeker.Tests/Startup/BmsLibraryIrStartupTests.cs)で実DB読取り失敗の非成功・旧状態保持・次要求を分担する。ファイル診断の対象・段階・元原因の接続は静的に確認し、対象不良と健全cacheの混在は既存解析回帰で確認する。 |
 | XML集計、順位と未送信、保存 | [`LR2IRCache`](../../../BeMusicSeeker/Models/Ir/LR2IRCache.cs) | [`BmsLibraryIrServiceTests`](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs) |
+| 機械整数と固定Gregorian日時の地域非依存 | `BmsLibraryIrService.ComputeScoreDigest`、`Lr2IrRankingCacheParser`、`IRDataCacheInfo.ParseSize` | `BmsLibraryIrServiceTests.ComputeScoreDigestKeepsRawLr2Clear2DistinctFromFailed` は固定tab・LF入力の独立SHA-256とrawクリアの区別、`RankingCacheSummaryParser_TargetPlayerUsesUnifiedExpectedValues` は同一XMLの日時・集計、`ParseRankingInfoResponse_PreservesTypedFieldsAndSkipsInvalidRows` は数値tokenと整数文字列を異文化で確認する。実DBのmetadata・同値skipは `UpdateIrScoreTableWithMetrics_SameScoreDigestSkipsReplaceForSameXml` に分担する。 |
 | 手動順位cacheの保存失敗と共有スコアの非採用 | [`BmsLibraryIrService.ApplyPreparedDownloadedRankingCache`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrService.cs)、[`BMSLibrary.DownloadIRData`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) | `DownloadIRData_DatabaseSaveFailurePreservesSharedScoresAndSnapshotAndAllowsNextRequest` は実SQLiteの保存失敗で旧DB・借用したスコア・現在lookupを保持し、既存ハッシュだけを次に正常更新しても失敗した新ハッシュが混入しないことを確認する。一般の確定Busy・巻戻しはSQLiteの既存境界試験に分担する。 |
 | 一括反映の実lookup・購読と通知非干渉 | [`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) のsnapshot・本人IR・順位cache公開、[`ScoreOwnership`](../../../BeMusicSeeker/Models/Library/BMSLibrary.ScoreOwnership.cs) の通常setter通知 | [`BmsLibraryIrStartupTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryIrStartupTests.cs) の `InitializeStartup_NotificationFailurePreservesCommittedSnapshotAndIndependentCache` が実起動・新hash・通知故障・別仕事と次要求、`ScoreSubscriptions_ReloadAndShutdownDetachPreviousScore` が通常setter・購読解除、`GetBMSScores_UnconfiguredSourcePublishesOneEmptySnapshotDespiteNotificationFailure` が取得元未設定のon-demandを分担する。[`BmsLibraryIrServiceTests.DownloadIRData_NotificationFailurePreservesSuccessfulSnapshotAndReturnsOnlyMalformedTarget`](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs) は実Downloadの失敗対象、[`RegularChartNormalLibraryRefreshTests.AttachedScoreSnapshotSource_RefreshesOnlyMatchingRowFromRealScoreSetter`](../../../BeMusicSeeker.Tests/ChartList/RegularChartNormalLibraryRefreshTests.cs) は生産された変更キーから一覧行への接続を確認する。 |
 | キャッシュの取得要求、確認、取消、成功・失敗件数の通知 | [`RankingCacheDownloadWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/RankingCacheDownloadWorkflowOwner.cs) | [`RankingCacheDownloadWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Startup/RankingCacheDownloadWorkflowOwnerTests.cs) |

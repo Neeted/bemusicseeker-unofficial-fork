@@ -11,12 +11,16 @@ namespace Ribbit.BMS;
 
 public partial class BMSFile
 {
+    // 従来のen-US入力で受理する符号・桁区切り・特殊値を、OSの地域設定から独立させます。
+    private static readonly CultureInfo NumericCulture = CultureInfo.GetCultureInfo("en-US");
+
     private void RecordRandomChoice(RandomNumber choice)
     {
         randomPattern.Add(choice);
         parseOptions?.RandomChoice?.Invoke(choice);
     }
 
+    /// <summary>固定en-USの既存字句規則で正値を検査し、丸める前の十進文字列を厳密値へ分解します。</summary>
     private bool TryParseNumber(string text, bool decimalSyntax, out BmsNumber value)
     {
         value = default;
@@ -24,14 +28,14 @@ public partial class BMSFile
         // 旧TryParseの数値は演算へ戻さず、特殊STOPの受理に必要な正∞分類だけを保持します。
         if (decimalSyntax)
         {
-            if (!decimal.TryParse(text, out decimal parsed) || parsed <= 0)
+            if (!decimal.TryParse(text, NumberStyles.Number, NumericCulture, out decimal parsed) || parsed <= 0)
             {
                 return false;
             }
         }
         else
         {
-            if (!double.TryParse(text, out double parsed) || !(parsed > 0))
+            if (!double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, NumericCulture, out double parsed) || !(parsed > 0))
             {
                 return false;
             }
@@ -39,7 +43,7 @@ public partial class BMSFile
             wasParsedAsPositiveInfinity = double.IsPositiveInfinity(parsed);
         }
 
-        NumberFormatInfo format = NumberFormatInfo.CurrentInfo;
+        NumberFormatInfo format = NumericCulture.NumberFormat;
         string input = text.Trim().TrimEnd('\0').TrimEnd();
         if (!decimalSyntax && (input.Equals(format.PositiveInfinitySymbol, StringComparison.OrdinalIgnoreCase)
             || input.Equals(format.PositiveSign + format.PositiveInfinitySymbol, StringComparison.OrdinalIgnoreCase)))
@@ -68,12 +72,6 @@ public partial class BMSFile
         {
             input = input.Replace(format.NumberGroupSeparator, string.Empty);
         }
-        // .NETの空白区切りカルチャはASCII空白も区切りとして受理します。
-        if (format.NumberGroupSeparator is "\u00a0" or "\u202f")
-        {
-            input = input.Replace(" ", string.Empty);
-        }
-
         int point = input.IndexOf(format.NumberDecimalSeparator, StringComparison.Ordinal);
         if (point >= 0)
         {

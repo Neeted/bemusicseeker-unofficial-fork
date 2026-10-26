@@ -7,24 +7,31 @@ using System.Windows.Markup;
 
 namespace BeMusicSeeker.Views;
 
-/// <summary>標準DatePickerの日付を変更せず、表示言語・短い日付書式・Calendarの表示だけを更新します。</summary>
+/// <summary>標準DatePickerと再生成されるPARTの表示接続を更新し、日付・表示月・表示モードを維持します。</summary>
 public static class DatePickerPresentation
 {
     /// <summary>言語サービスから受け取る表示文化圏です。別の言語状態を保存しません。</summary>
     public static readonly DependencyProperty CultureProperty = DependencyProperty.RegisterAttached(
         "Culture", typeof(CultureInfo), typeof(DatePickerPresentation), new PropertyMetadata(null, CultureChanged));
 
-    /// <summary>日付部品へ適用する表示文化圏を取得します。</summary>
+    /// <summary>DatePickerまたはPARTへ適用する表示文化圏を取得します。</summary>
     /// <param name="element">共通表示を採用する日付部品。</param>
     public static CultureInfo GetCulture(DependencyObject element) => (CultureInfo)element.GetValue(CultureProperty);
 
-    /// <summary>日付部品へ表示文化圏を接続します。選択日・表示月・表示モードは変更しません。</summary>
+    /// <summary>DatePickerとPARTへ表示文化圏を接続します。選択日・表示月・表示モードは変更しません。</summary>
     /// <param name="element">共通表示を採用する日付部品。</param>
     /// <param name="value">言語サービスから導出した文化圏。</param>
     public static void SetCulture(DependencyObject element, CultureInfo value) => element.SetValue(CultureProperty, value);
 
     private static void CultureChanged(DependencyObject element, DependencyPropertyChangedEventArgs args)
     {
+        if (element is DatePickerTextBox editor)
+        {
+            // Loaded中の再テンプレートでも、新しいPART自身の生成完了から接続を更新する。
+            editor.Loaded -= EditorLoaded;
+            if (args.NewValue != null) { editor.Loaded += EditorLoaded; }
+            return;
+        }
         if (element is not DatePicker picker) { return; }
         if (args.OldValue == null) { picker.Loaded += PickerLoaded; }
         if (args.NewValue == null) { picker.Loaded -= PickerLoaded; return; }
@@ -32,6 +39,11 @@ public static class DatePickerPresentation
     }
 
     private static void PickerLoaded(object sender, RoutedEventArgs args) => Refresh((DatePicker)sender);
+
+    private static void EditorLoaded(object sender, RoutedEventArgs args)
+    {
+        if (((DatePickerTextBox)sender).TemplatedParent is DatePicker picker) { Refresh(picker); }
+    }
 
     private static void Refresh(DatePicker picker)
     {

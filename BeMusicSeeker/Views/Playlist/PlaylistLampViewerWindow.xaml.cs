@@ -46,7 +46,7 @@ public partial class PlaylistLampViewerWindow : ThemedWindow
 
     /// <summary>
     /// 左右のフォルダ件数列で共有する幅です。
-    /// 現在の書体とDPIで件数を測り、ローカライズしたN0形式の9999の幅を上限にします。
+    /// 現在の書体とDPIで件数を測り、桁区切りのない固定形式の9999の幅を上限にします。
     /// </summary>
     public static readonly DependencyProperty FolderCountColumnWidthProperty =
         DependencyProperty.Register(
@@ -254,7 +254,7 @@ public partial class PlaylistLampViewerWindow : ThemedWindow
             pixelsPerDip);
         double countCapWidth = MeasureFolderText(
             countFormatSource,
-            9999.ToString("N0", CultureInfo.CurrentCulture),
+            9999.ToString("0", CultureInfo.InvariantCulture),
             fallbackFontWeight: FontWeights.Normal,
             pixelsPerDip);
 
@@ -413,7 +413,7 @@ public sealed class PlaylistLampSegmentLabelConverter : IMultiValueConverter
 
         CultureInfo displayCulture = culture ?? CultureInfo.CurrentCulture;
         string label = values[3] is true
-            ? segment.Count.ToString("N0", CultureInfo.CurrentCulture)
+            ? segment.Count.ToString("0", CultureInfo.InvariantCulture)
             : segment.PercentageText;
         double textWidth = new FormattedText(
             label,

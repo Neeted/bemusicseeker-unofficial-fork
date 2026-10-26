@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
@@ -293,6 +292,7 @@ internal sealed class PlaylistPersistenceRepository
         }
     }
 
+    /// <summary>起動時の所属行を読取り専用で生成し、SQLiteの数値型と旧TEXT ticksを保持します。不適合IDは除外し、その他の不適合値は既定値へ渡します。</summary>
     internal PlaylistEntriesHydrationLoadResult LoadStartupPlaylistEntries()
     {
         var result = new PlaylistEntriesHydrationLoadResult();
@@ -326,29 +326,29 @@ internal sealed class PlaylistPersistenceRepository
             + " WHERE " + playlistIdColumn + " IS NOT NULL;";
         var stopwatch = Stopwatch.StartNew();
         var command = (LR2SongDBExtended.SQLiteCommandExtended)db.CreateCommand(sql);
-        command.ForEachRawValueAsString(values =>
+        command.ForEachRawRow(values =>
         {
-            if (values == null || values.Length < 16 || !TryParseNullableInt(values[0], out int playlistId))
+            if (values.Count < 16 || values.GetInt32(0) is not int playlistId)
             {
                 return;
             }
             result.Entries.Add(BMSTableEntry.CreateHydratedPlaylistEntry(
                 playlistId,
-                values[1],
-                values[2],
-                ParseNullableDouble(values[3]),
-                values[4],
-                values[5],
-                values[6],
-                values[7],
-                values[8],
-                values[9],
-                values[10],
-                values[11],
-                ParseNullableDateTime(values[12]),
-                values[13],
-                values[14],
-                ParseBoolean(values[15])));
+                values.GetString(1),
+                values.GetString(2),
+                values.GetDouble(3),
+                values.GetString(4),
+                values.GetString(5),
+                values.GetString(6),
+                values.GetString(7),
+                values.GetString(8),
+                values.GetString(9),
+                values.GetString(10),
+                values.GetString(11),
+                values.GetDateTime(12),
+                values.GetString(13),
+                values.GetString(14),
+                values.GetBoolean(15)));
         });
         stopwatch.Stop();
         result.DbReadMs = stopwatch.ElapsedMilliseconds;
@@ -581,72 +581,6 @@ internal sealed class PlaylistPersistenceRepository
             }
             throw;
         }
-    }
-
-    private static bool TryParseNullableInt(string value, out int result)
-    {
-        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result);
-    }
-
-    private static double? ParseNullableDouble(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-        if (double.TryParse(value, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double invariantValue))
-        {
-            return invariantValue;
-        }
-        if (double.TryParse(value, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out double currentValue))
-        {
-            return currentValue;
-        }
-        return null;
-    }
-
-    private static DateTime? ParseNullableDateTime(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long ticks))
-        {
-            try
-            {
-                return new DateTime(ticks);
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-            }
-        }
-        if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTime invariantValue))
-        {
-            return invariantValue;
-        }
-        if (DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out DateTime currentValue))
-        {
-            return currentValue;
-        }
-        return null;
-    }
-
-    private static bool ParseBoolean(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return false;
-        }
-        if (bool.TryParse(value, out bool boolValue))
-        {
-            return boolValue;
-        }
-        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long integerValue))
-        {
-            return integerValue != 0;
-        }
-        return false;
     }
 
     private static void AttachPersistedCourses(LR2SongDBExtended db, IEnumerable<BMSTable> tables)

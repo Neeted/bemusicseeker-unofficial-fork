@@ -25,6 +25,8 @@
 
 null、空文字、不正JSON、未知・重複項目、重複ID、不正な列挙値や設定値は型付きの解析失敗として返します。起動時に例外で停止させず、既定値へ黙って戻しません。明示的に修正・初期化するまで操作を公開せず、設定エラーを案内します。
 
+Web・プログラムの名前は日時に見える場合もJSONの文字列として原文を保存・復元します。直列化時の自己検査でも日時へ自動変換しません。
+
 ### 編集と検証
 
 設定画面は独立した編集用の値を持ちます。入力、並べ替え、実行ファイル選択は永続設定を変えません。保存で全体を一回検証・直列化し、既存の設定保存処理へ渡します。取消と通常の閉じる操作は編集値を破棄します。
@@ -96,6 +98,7 @@ LR2の通常window styleは、従来どおり `GWL_STYLE` が試聴用の値へ�
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 既定値、厳密な解析、順序・種類・ハッシュの解決 | [`RightClickActionSettingsStore`](../../../BeMusicSeeker/Models/ExternalActions/RightClickActionSettingsStore.cs) | [`RightClickActionSettingsStoreTests`](../../../BeMusicSeeker.Tests/ExternalActions/RightClickActionSettingsStoreTests.cs)、[`ApplicationSettingsMetadataTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationSettingsMetadataTests.cs) |
+| 日時風の操作名の文字列保持 | `RightClickActionSettingsStore` | `RightClickActionSettingsStoreTests.SerializeRoundTripPreservesOrderAndDefinitions` は原文・JSON型と既存の順序・定義、`StoreLoadsAndSavesThroughTheProvidedSettingsOwnerWithoutFallback` は実保存と新providerの読戻し、不正保存後の元JSON・媒体保持を確認する。 |
 | Windowsの引数分解と正確な引数列 | [`ExternalProgramArgumentTemplate`](../../../BeMusicSeeker/Models/ExternalActions/ExternalProgramArgumentTemplate.cs) | [`ExternalProgramArgumentTemplateTests`](../../../BeMusicSeeker.Tests/ExternalActions/ExternalProgramArgumentTemplateTests.cs) |
 | 追加直後・編集時の欄別検証、保存拒否と不正行の選択、言語切替、既定への復帰、取消、保存と閉じる操作 | [`RightClickActionSettingsEditor`](../../../BeMusicSeeker/ViewModels/Settings/RightClickActionSettingsEditor.cs) | [`RightClickActionSettingsEditorTests`](../../../BeMusicSeeker.Tests/ExternalActions/RightClickActionSettingsEditorTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs)、[`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs)、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs) |
 | 所持状態に依存しないファイル条件、クリック時の設定再解決とプロセス起動条件 | [`SelectedChartExternalActionWorkflowOwner`](../../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartExternalActionWorkflowOwner.cs)、[`ExternalProgramLaunchGateway`](../../../BeMusicSeeker/Models/Utils/Processes/ExternalProgramLaunchGateway.cs) | [`SelectedChartExternalActionWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartExternalActionWorkflowOwnerTests.cs) の `Execute_ConfiguredProgramRechecksActionAndPassesResolvedTokens` は通常所持BMSと保留BMS/bmsonの正確なパス・引数、設定削除後の起動拒否を確認する。`ResolveConfiguredProgram_RejectsUnavailableFileTargetsWithoutLaunching` は未所持プレイリスト・ハッシュのみ・保留ファイル欠落・開く権限なしを確認する。実プロセス起動条件は [`ExternalProgramLaunchGatewayTests`](../../../BeMusicSeeker.Tests/Processes/ExternalProgramLaunchGatewayTests.cs) が担う。 |

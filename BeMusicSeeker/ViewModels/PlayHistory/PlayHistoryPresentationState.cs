@@ -224,6 +224,7 @@ internal sealed class PlayHistoryPresentationState
         summary ??= PlayHistoryPeriodSummary.FromRows(request?.Label ?? string.Empty, []);
         int diagnosticsCount = diagnostics?.Count ?? 0;
         string baseText = string.Format(
+            CultureInfo.InvariantCulture,
             BeMusicSeeker.Properties.Resources.Play_history_summary_format,
             request?.Label ?? string.Empty,
             summary.RowCount,
@@ -250,20 +251,20 @@ internal sealed class PlayHistoryPresentationState
             CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_judge_count, FormatCount(summary.JudgeCount, summary.JudgeCountAvailable), selectedFilterKeys),
             CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_play_count, FormatCount(summary.FinalizedCount, summary.PlayCountAvailable), selectedFilterKeys),
             CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_playtime, FormatDuration(summary), selectedFilterKeys),
-            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_score_update, summary.ScoreUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "score"),
-            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_bp_update, summary.BpUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "bp"),
-            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_combo_update, summary.ComboUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "combo"),
-            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_clear_update, summary.ClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "clear"),
-            CreateSummaryCard("ASSIST", summary.AssistClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "assist"),
-            CreateSummaryCard("EASY", summary.EasyClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "easy"),
-            CreateSummaryCard("NORMAL", summary.NormalClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "normal"),
-            CreateSummaryCard("HARD", summary.HardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "hard")
+            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_score_update, summary.ScoreUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, filterKey: "score"),
+            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_bp_update, summary.BpUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, filterKey: "bp"),
+            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_combo_update, summary.ComboUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, filterKey: "combo"),
+            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_clear_update, summary.ClearUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, filterKey: "clear"),
+            CreateSummaryCard("ASSIST", summary.AssistClearUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, compact: true, filterKey: "assist"),
+            CreateSummaryCard("EASY", summary.EasyClearUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, compact: true, filterKey: "easy"),
+            CreateSummaryCard("NORMAL", summary.NormalClearUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, compact: true, filterKey: "normal"),
+            CreateSummaryCard("HARD", summary.HardClearUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, compact: true, filterKey: "hard")
         ];
         if (provider == PlayHistoryProvider.Beatoraja)
         {
-            cards.Add(CreateSummaryCard("EXH", summary.ExHardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "exhard"));
+            cards.Add(CreateSummaryCard("EXH", summary.ExHardClearUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, compact: true, filterKey: "exhard"));
         }
-        cards.Add(CreateSummaryCard("FC", summary.FullComboClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "fc"));
+        cards.Add(CreateSummaryCard("FC", summary.FullComboClearUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, compact: true, filterKey: "fc"));
         return cards;
     }
 
@@ -366,7 +367,7 @@ internal sealed class PlayHistoryPresentationState
     private static string FormatCount(long count, bool available)
     {
         return available
-            ? count.ToString("N0", CultureInfo.CurrentCulture)
+            ? count.ToString("0", CultureInfo.InvariantCulture)
             : "-";
     }
 

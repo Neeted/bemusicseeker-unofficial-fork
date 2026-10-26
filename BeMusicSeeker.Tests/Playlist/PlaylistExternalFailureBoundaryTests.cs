@@ -35,6 +35,8 @@ public sealed class PlaylistExternalFailureBoundaryTests
     [DataRow(404, "http", true, (int)PlaylistSyncStatusKind.Http404, false)]
     [DataRow(403, "http", true, (int)PlaylistSyncStatusKind.Http403, false)]
     [DataRow(400, "http", true, (int)PlaylistSyncStatusKind.HttpError, false)]
+    [DataRow(200, "header-date", true, (int)PlaylistSyncStatusKind.HeaderParseError, false)]
+    [DataRow(200, "data-date", true, (int)PlaylistSyncStatusKind.DataParseError, false)]
     [DataRow(200, "header", true, (int)PlaylistSyncStatusKind.HeaderParseError, false)]
     [DataRow(200, "data", true, (int)PlaylistSyncStatusKind.DataParseError, false)]
     [DataRow(200, "entry", true, (int)PlaylistSyncStatusKind.DataParseError, false)]
@@ -108,6 +110,8 @@ public sealed class PlaylistExternalFailureBoundaryTests
                 case "array-header": File.WriteAllText(badHeader, "[]"); break;
                 case "oversized-html": File.WriteAllText(badHeader, "<html>" + new string(' ', ExternalPlaylistContentReader.HtmlLimitBytes) + "<meta name=\"bmstable\" content=\"good-header.json\">"); break;
                 case "json-with-html-meta": File.WriteAllText(badHeader, "{ invalid json }<html><meta name=\"bmstable\" content=\"good-header.json\"></html>"); break;
+                case "header-date": File.WriteAllText(badHeader, "{\"name\":\"Bad\",\"data_url\":\"bad-data.json\",\"last_update\":\"2024/12/3100\"}"); break;
+                case "data-date": File.WriteAllText(badData, "[{\"title\":\"Valid first\",\"adddate\":\"2024-01-02\"},{\"title\":\"Invalid next\",\"adddate\":\"not-a-date\"}]"); break;
                 case "header": File.WriteAllText(badHeader, "{ invalid json }"); break;
                 case "data": File.WriteAllText(badData, "{ invalid json }"); break;
                 case "missing-file": File.Delete(badData); break;
@@ -134,6 +138,11 @@ public sealed class PlaylistExternalFailureBoundaryTests
                 workspace.RefreshPlaylistTreeTables(playlist, library);
             }
             else { workspace = CreatePlaylistWorkspace(playlist, library); }
+            var notifications = new ConcurrentQueue<string>();
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
+            {
+                foreach (PlaylistOperationNotificationOwner.OperationNotification? notification in request.Receipt.Notifications) { notifications.Enqueue(notification.Message); }
+            };
             var progress = new List<PlaylistSyncProgressSnapshot>();
             var execution = new List<bool>();
             int queuedCount = 0;
@@ -210,6 +219,22 @@ public sealed class PlaylistExternalFailureBoundaryTests
                     Assert.AreEqual(2, playlist.BMSTables.Single(table => table.playlist_id == 7901).entries.Count);
                     Assert.IsFalse(workspace.CapturePlaylistSyncStatusSnapshot()["id:7901"].HasFailureStatus);
                 }
+            }
+
+            if (malformedPart is "header-date" or "data-date")
+            {
+                string field = malformedPart == "header-date" ? "last_update" : "adddate";
+                string expectedMessage = string.Format(Resources.Error_PlaylistJsonDateFormat, field);
+                Assert.IsTrue(notifications.Any(message => message.Contains(expectedMessage, StringComparison.Ordinal)));
+                Assert.IsFalse(status.Detail.Contains(expectedMessage, StringComparison.Ordinal), "STATUSへ元例外の訂正文を保持せず、実通知へ配送します。");
+                int beforeManual = notifications.Count;
+                // 手動reloadも同じ型付き失敗を実receiptへ配送し、一表の既存DBを保ちます。
+                await workspace.ResyncPlaylistsAsync([bad]);
+                Assert.AreEqual(beforeManual + 1, notifications.Count);
+                StringAssert.Contains(notifications.Last(), expectedMessage);
+                using LR2SongDBExtended unchanged = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly();
+                Assert.AreEqual("Before", unchanged.Table<BMSTableEntry>().Single(entry => entry.playlist_id == 7902).title);
+                Assert.AreEqual(oldHash, unchanged.Find<BMSTable>(7902).data_sha256);
             }
 
             if (malformedPart is "unknown-path" or "unknown-startup")

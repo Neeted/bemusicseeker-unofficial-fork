@@ -218,6 +218,10 @@ public sealed partial class PlaylistWorkspaceViewModel
                 ? PlaylistSyncAttemptResult.CreateSuccess(target.SourceTable, target.ResultTable, target.Uri, target.Updated)
                 : PlaylistSyncAttemptResult.CreateFailure(target.SourceTable, target.ResultTable, target.Uri, target.Exception);
         Capture(() => RecordPlaylistSyncResult(sync));
+        if (PlaylistJsonDate.IsDateFailure(target.Exception))
+        {
+            Capture(() => GetPlaylistStore().OperationNotificationOwner.QueueWarning(target.Exception.Message));
+        }
         // 取得失敗の詳細は取得境界で記録済み。STATUSには分類だけを渡します。
         if (!target.IsHandledExternalLoadFailure)
         {

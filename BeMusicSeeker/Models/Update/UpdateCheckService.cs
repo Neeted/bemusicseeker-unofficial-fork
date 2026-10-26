@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -38,7 +39,7 @@ internal sealed class UpdateCheckService
             : UpdateCheckResult.NoUpdate(currentVersionText);
     }
 
-    /// <summary>配信マニフェストの入力形式と更新資産を検証し、JSON・整数範囲失敗の元原因を診断用に保持します。</summary>
+    /// <summary>protocol整数をInvariantで読み、配信形式と更新資産を検証してJSON・整数範囲失敗の元原因を保持します。</summary>
     internal static UpdateManifest ParseManifest(string manifestJson)
     {
         if (string.IsNullOrWhiteSpace(manifestJson))
@@ -82,7 +83,7 @@ internal sealed class UpdateCheckService
         }
 
         string minimumUpdaterVersion = ReadRequiredString(root, "minimumUpdaterVersion");
-        if (!int.TryParse(minimumUpdaterVersion, out int minimumUpdaterProtocolVersion) || minimumUpdaterProtocolVersion > CurrentUpdaterProtocolVersion)
+        if (!int.TryParse(minimumUpdaterVersion, NumberStyles.Integer, CultureInfo.InvariantCulture, out int minimumUpdaterProtocolVersion) || minimumUpdaterProtocolVersion > CurrentUpdaterProtocolVersion)
         {
             throw new UpdateManifestValidationException("Unsupported minimumUpdaterVersion: " + minimumUpdaterVersion);
         }
@@ -165,7 +166,7 @@ internal sealed class UpdateCheckService
         }
 
         string separator = string.IsNullOrEmpty(uri.Query) ? "?" : "&";
-        return new Uri(uri.AbsoluteUri + separator + "t=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        return new Uri(uri.AbsoluteUri + separator + "t=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture));
     }
 
     private static string ReadRequiredAbsoluteHttpUrl(JObject obj, string propertyName)

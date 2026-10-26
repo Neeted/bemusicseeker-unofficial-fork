@@ -18,6 +18,10 @@
 
 ファイルがない場合は既定値から開始できます。既存ファイルが読めない場合、不正なXMLや必要な構造の欠落は空設定ではありません。個々の設定キーがない場合の既定値適用とは区別します。
 
+型付きのdouble・floatはOSの地域設定に依存せず保存し、異なる地域設定の新しいproviderからも同じ精度で復元します。数値を地域依存の中間文字列へ変換せず、既存providerの型付き保存を使います。未知の設定キーも保持します。
+
+`SerializableVersion` の版文字列はInvariantの整数をドットで区切ります。LR2の表・環境設定で共通に読む `customfolder`・`titleflash`・`autoreload` は、前後空白と符号を含む既存整数文法をInvariantで解釈し、不正・欠落時の既定値を維持します。DB自動再読込みの手動専用値は整数 `0` として保存します。
+
 `AutoInstallAfterAutomaticEstimation` はキー欠損時にfalseを使い、既存利用者の自動導入を更新だけで有効にしません。保存したtrue・falseは、新しいproviderでも同じ値へ復元します。操作と編集の契約は[設定仕様](settings.md#取り込み後の自動推定に続く導入)を参照します。
 
 ### 項目保存と公開
@@ -35,6 +39,8 @@ LR2 XMLの検索登録は最新文書のユーザールートと管理出力root
 ### 起動時の回復
 
 最初の設定値取得より前に、設定ファイルを検証します。XMLの構文が壊れている場合に限り、元ファイルを衝突しない `user.config.broken-*` へ移動して保全し、設定を初期化する旨と保全先を警告した後に最小構造を作ります。既存の保全ファイルを上書きしません。壊れたXMLから一部の設定や表示言語だけを救出せず、同じ起動中に古い設定を自動移入しません。
+
+保全名のUTC日時はGregorianの `yyyyMMddTHHmmssfffffffZ` とし、既存のGUID接尾辞を保ちます。共通作業ディレクトリのsession名もUTCの `yyyyMMddHHmmssfff` とPIDをInvariantで表し、既存のprefix・接尾辞・所有判定と回収条件を維持します。
 
 保全後に新規作成が失敗した場合は起動失敗です。次回起動で正本がなく保全ファイルだけがある場合も、自動移入で回復を取り消さず、最小構造を作ります。有効な正本があれば常にそれを優先し、別の回復履歴ファイルを追加しません。
 
@@ -73,6 +79,8 @@ BMTの異物理先変更は、新先の必要ファイルと管理情報を先�
 | 未設定LR2へのモード選択の限定保存 | [モード選択](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)、[終了受付](../../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs) | `SettingsDialogBehaviorTests.OperationModeWithoutActiveProfile_PreservesRawPathsAndAllowsExplicitSaveAfterFailure` が未設定・不正な生パス保持、実保存失敗と明示再操作、未知キー・別wrapperの無関係確定値を確認する。`MainWindowViewHostTests.MainWindowOperationModeRestart*` が実Close・player回収・後継起動を、既存の `PortableSettingsPersistenceTests` がprovider自体の限定公開を分担する。 |
 | 確定BMS登録の共通保存・限定公開 | [`BmsRootRegistrationStore`](../../../BeMusicSeeker/Models/Settings/BmsRootRegistrationStore.cs) | `BmsRootRegistrationTests` が実config/XMLの片側失敗・最新/同値明示保存・未知XML・roots-only保存を、`SettingsDialogBehaviorTests.Lr2BmsConfirmation_PartialSaveCloseKeepsPublishedInputsUntilExplicitSave` が候補・通常Close/reopen・必要差分終端を分担する。 |
 | 既存内容の保全と実際のI/O失敗 | [`PortableSettingsProvider`](../../../BeMusicSeeker/Properties/PortableSettingsProvider.cs) | [`PortableSettingsPersistenceTests`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) |
+| 型付きdouble・floatの地域非依存な保存精度 | `PortableSettingsProvider`、[`Settings`](../../../BeMusicSeeker/Properties/Settings.cs) | `PortableSettingsPersistenceTests.SaveRoundTripsThroughFreshGeneratedSettingsAndPreservesUnknownKeys` は異文化で実保存後、新しいproviderからdouble・floatのbit一致、既存の有効値・未知キーと一時ファイル回収を確認する。 |
+| 共通整数と管理名の地域非依存 | `LR2Config`、`PortableSettingsStartupFile`、`TempDirectoryPublisher` | `LR2ConfigTests.EnsureDatabaseAutoReloadManualOnly_ChangesExistingAutoReloadMode` は異文化の実XML整数・手動専用保存・新しい文書の読戻し、`PortableSettingsPersistenceTests.StartupCorruptionWarnsWithPreservedBackupBeforeCreatingDefaultsAndNeverImportsLegacy` はGregorian保全名と原文・警告順、`TempDirectoryPublisherTests.GetCreatesManagedDirectory` はsession名と実ディレクトリの所有・回収を確認する。 |
 | 自動推定後導入のキー欠損と有効・無効の保存 | [`Settings`](../../../BeMusicSeeker/Properties/Settings.cs)、`PortableSettingsProvider` | `PortableSettingsPersistenceTests.MissingFileAndIndividualKeyUseDefaults` は新規と旧設定の欠損時OFF、`SaveRoundTripsThroughFreshGeneratedSettingsAndPreservesUnknownKeys` はON/OFFを新providerで読み戻すことを確認する。 |
 | 起動時の致命的失敗・警告・回復 | [`ApplicationSettingsLifecycle`](../../../BeMusicSeeker/Models/Settings/ApplicationSettingsLifecycle.cs) | [`ApplicationSettingsLifecycleTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationSettingsLifecycleTests.cs) |
 | 旧設定の移入と正規化 | [`LegacyUserConfigMigrator`](../../../BeMusicSeeker/Properties/LegacyUserConfigMigrator.cs) | [`PortableSettingsMigrationTests`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsMigrationTests.cs)、[`PlayerPanelStateSettingsCompatibilityTests`](../../../BeMusicSeeker.Tests/Playback/PlayerPanelStateSettingsCompatibilityTests.cs) |

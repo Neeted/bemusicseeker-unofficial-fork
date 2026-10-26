@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
@@ -15,64 +16,80 @@ namespace BeMusicSeeker.Tests;
 public sealed class UpdaterProcessGatewayTests
 {
     /// <summary>
-    /// 空白付きの要求パスと現在PIDを引用してツール起動へ渡し、作業ディレクトリと非表示起動を保って外部引数の分割・欠落を検出する。
+    /// 異文化でも空白付きパスと固定整数のPIDを引用して渡し、作業ディレクトリ・非表示起動と引数の分割を保つ。
     /// </summary>
-    [TestMethod]
-    public void WindowsGatewayMapsTypedRequestToUpdaterProcessStartInfo()
+    [DataTestMethod]
+    [DoNotParallelize]
+    [DataRow("ja-JP")]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("fr-FR")]
+    [DataRow("th-TH")]
+    [DataRow("ar-SA")]
+    public void WindowsGatewayMapsTypedRequestToUpdaterProcessStartInfo(string cultureName)
     {
-        ProcessStartInfo? captured = null;
-        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdaterProcessGatewayTests", Guid.NewGuid().ToString("N"));
-        string readyFilePath = Path.Combine(root, "updater-ready.txt");
-        string decisionFilePath = Path.Combine(root, "updater-decision.txt");
-        Directory.CreateDirectory(root);
-        using Process fakeProcess = new();
-        var gateway = new WindowsUpdaterProcessGateway(startInfo =>
-        {
-            captured = startInfo;
-            File.WriteAllText(readyFilePath, "1");
-            return fakeProcess;
-        });
-        string applicationDirectory = @"C:\Be Music Seeker";
-        string packagePath = @"C:\downloads\app package.zip";
-        string backupDirectory = @"C:\Be Music Seeker\update_backup";
-        string restartExecutablePath = @"C:\Be Music Seeker\BeMusicSeeker.exe";
-        var request = UpdaterProcessLaunchRequest.Create(
-            @"C:\Be Music Seeker\update_work\BeMusicSeeker.Updater.exe",
-            @"C:\Be Music Seeker\update_work",
-            applicationDirectory,
-            packagePath,
-            backupDirectory,
-            readyFilePath,
-            decisionFilePath,
-            restartExecutablePath);
-
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
         try
         {
-            UpdaterLaunchReceipt receipt = gateway.Prepare(request).Start();
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            ProcessStartInfo? captured = null;
+            string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdaterProcessGatewayTests", Guid.NewGuid().ToString("N"));
+            string readyFilePath = Path.Combine(root, "updater-ready.txt");
+            string decisionFilePath = Path.Combine(root, "updater-decision.txt");
+            Directory.CreateDirectory(root);
+            using Process fakeProcess = new();
+            var gateway = new WindowsUpdaterProcessGateway(startInfo =>
+            {
+                captured = startInfo;
+                File.WriteAllText(readyFilePath, "1");
+                return fakeProcess;
+            });
+            string applicationDirectory = @"C:\Be Music Seeker";
+            string packagePath = @"C:\downloads\app package.zip";
+            string backupDirectory = @"C:\Be Music Seeker\update_backup";
+            string restartExecutablePath = @"C:\Be Music Seeker\BeMusicSeeker.exe";
+            var request = UpdaterProcessLaunchRequest.Create(
+                @"C:\Be Music Seeker\update_work\BeMusicSeeker.Updater.exe",
+                @"C:\Be Music Seeker\update_work",
+                applicationDirectory,
+                packagePath,
+                backupDirectory,
+                readyFilePath,
+                decisionFilePath,
+                restartExecutablePath);
 
-            Assert.IsNotNull(receipt);
-            ProcessStartInfo capturedStartInfo = captured!;
-            Assert.AreEqual(request.ExecutablePath, capturedStartInfo.FileName);
-            Assert.AreEqual(request.WorkingDirectory, capturedStartInfo.WorkingDirectory);
-            Assert.IsFalse(capturedStartInfo.UseShellExecute);
-            Assert.IsTrue(capturedStartInfo.CreateNoWindow);
-            int processId = Process.GetCurrentProcess().Id;
-            Assert.AreEqual(
-                "\"--app-dir\" \"" + applicationDirectory + "\" "
-                    + "\"--package\" \"" + packagePath + "\" "
-                    + "\"--backup-dir\" \"" + backupDirectory + "\" "
-                    + "\"--ready-file\" \"" + readyFilePath + "\" "
-                    + "\"--decision-file\" \"" + decisionFilePath + "\" "
-                    + "\"--pid\" \"" + processId + "\" "
-                    + "\"--restart-exe\" \"" + restartExecutablePath + "\"",
-                capturedStartInfo.Arguments);
+            try
+            {
+                UpdaterLaunchReceipt receipt = gateway.Prepare(request).Start();
+
+                Assert.IsNotNull(receipt);
+                ProcessStartInfo capturedStartInfo = captured!;
+                Assert.AreEqual(request.ExecutablePath, capturedStartInfo.FileName);
+                Assert.AreEqual(request.WorkingDirectory, capturedStartInfo.WorkingDirectory);
+                Assert.IsFalse(capturedStartInfo.UseShellExecute);
+                Assert.IsTrue(capturedStartInfo.CreateNoWindow);
+                int processId = Process.GetCurrentProcess().Id;
+                Assert.AreEqual(
+                    "\"--app-dir\" \"" + applicationDirectory + "\" "
+                        + "\"--package\" \"" + packagePath + "\" "
+                        + "\"--backup-dir\" \"" + backupDirectory + "\" "
+                        + "\"--ready-file\" \"" + readyFilePath + "\" "
+                        + "\"--decision-file\" \"" + decisionFilePath + "\" "
+                        + "\"--pid\" \"" + processId.ToString(CultureInfo.InvariantCulture) + "\" "
+                        + "\"--restart-exe\" \"" + restartExecutablePath + "\"",
+                    capturedStartInfo.Arguments);
+            }
+            finally
+            {
+                if (Directory.Exists(root))
+                {
+                    Directory.Delete(root, recursive: true);
+                }
+            }
         }
         finally
         {
-            if (Directory.Exists(root))
-            {
-                Directory.Delete(root, recursive: true);
-            }
+            CultureInfo.CurrentCulture = previousCulture;
         }
     }
 

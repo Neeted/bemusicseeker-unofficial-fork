@@ -507,6 +507,7 @@ internal sealed class BmsLibraryIrService
         return scores;
     }
 
+    /// <summary>hash順のraw成績を固定整数・タブ・LFで表し、地域に依存しない同一性判定用digestを返します。</summary>
     internal static string ComputeScoreDigest(IEnumerable<LR2IRScore> scoreTable)
     {
         var builder = new StringBuilder();
@@ -515,16 +516,7 @@ internal sealed class BmsLibraryIrService
             .OrderBy(score => score.hash, StringComparer.OrdinalIgnoreCase))
         {
             builder.Append(score.hash.ToLowerInvariant()).Append('\t')
-                .Append(score.clearValue).Append('\t')
-                .Append(score.notes).Append('\t')
-                .Append(score.combo).Append('\t')
-                .Append(score.pg).Append('\t')
-                .Append(score.gr).Append('\t')
-                .Append(score.gd).Append('\t')
-                .Append(score.bd).Append('\t')
-                .Append(score.pr).Append('\t')
-                .Append(score.minbp).Append('\t')
-                .Append(score.option).Append('\n');
+                .Append(CultureInfo.InvariantCulture, $"{score.clearValue}\t{score.notes}\t{score.combo}\t{score.pg}\t{score.gr}\t{score.gd}\t{score.bd}\t{score.pr}\t{score.minbp}\t{score.option}\n");
         }
         return ComputeSha256Hex(builder.ToString());
     }

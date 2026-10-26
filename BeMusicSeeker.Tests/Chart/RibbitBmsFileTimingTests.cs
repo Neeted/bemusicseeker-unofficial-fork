@@ -13,6 +13,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <summary>Ribbit解析の正確な小節内tickと既存の入力・制御解釈を検証します。</summary>
 [TestClass]
+[DoNotParallelize]
 public sealed class RibbitBmsFileTimingTests
 {
     /// <summary>
@@ -82,27 +83,41 @@ public sealed class RibbitBmsFileTimingTests
     [DataRow("120-", 120L, 120L)]
     public void NumericChannelsKeepTheirExistingLexicalRules(string input, long direct, long extended)
     {
-        WithChart("#BPM 120\n#BPM " + input + "\n#BPM01 120\n#BPM01 " + input + "\n#00008:01\n#00011:01\n", bms =>
+        foreach (string culture in new[] { "ja-JP", "en-US", "de-DE", "fr-FR", "th-TH", "different-signs" })
         {
-            Assert.AreEqual(new Fraction(direct), RequireFinite(bms.Bpm));
-            Assert.AreEqual(new Fraction(extended), RequireFinite((BmsNumber)bms.Measures[0].ExBpm.Single().Value));
-        });
+            WithChart("#BPM 120\n#BPM " + input + "\n#BPM01 120\n#BPM01 " + input + "\n#00008:01\n#00011:01\n", bms =>
+            {
+                Assert.AreEqual(new Fraction(direct), RequireFinite(bms.Bpm));
+                Assert.AreEqual(new Fraction(extended), RequireFinite((BmsNumber)bms.Measures[0].ExBpm.Single().Value));
+            }, culture);
+        }
     }
 
     /// <summary>
-    /// 英語・ドイツ語・フランス語の小数点と桁区切りを指定文化圏に合わせて受理し、BPMと終端が地域設定でずれる誤りを検出する。
+    /// 同じen-US数値文字列を異なる地域設定で読み、桁区切り、小数、符号、整数分岐と発音・STOP・終端tickを一定に保つ。
     /// </summary>
     [DataTestMethod]
-    [DataRow("en-US", "1,200.5")]
-    [DataRow("de-DE", "1.200,5")]
-    [DataRow("fr-FR", "1 200,5")]
-    public void DecimalAndGroupSeparatorsFollowTheCurrentCulture(string culture, string input)
+    [DataRow("ja-JP")]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("fr-FR")]
+    [DataRow("th-TH")]
+    [DataRow("ar-SA")]
+    [DataRow("different-signs")]
+    public void NumericInputAndEventTicksAreIndependentOfCurrentCulture(string culture)
     {
-        WithChart("#BPM " + input + "\n#BPM01 " + input + "\n#00008:01\n#00011:01\n", bms =>
+        const string source = "#BPM +1,200.5\n#BPM01 +1,200.5\n#STOP01 +48.5\n#RANDOM +1\n#IF +1\n#RANK +3\n#DIFFICULTY +4\n#TOTAL +1,200.5\n#PLAYLEVEL +12.5\n#00008:01\n#00009:0001\n#00011:0001\n#ENDIF\n";
+        WithChart(source, bms =>
         {
             Assert.AreEqual(new Fraction(2401, 2), RequireFinite(bms.Bpm));
             Assert.AreEqual(new Fraction(2401, 2), RequireFinite((BmsNumber)bms.Measures[0].ExBpm.Single().Value));
-            Assert.AreEqual(1999167L, bms.Duration.Ticks);
+            Assert.AreEqual(3, bms.Rank);
+            Assert.AreEqual(4, bms.Difficulty);
+            Assert.AreEqual(1200.5, bms.Total);
+            Assert.AreEqual(12.5, bms.Playlevel);
+            Assert.AreEqual(999583L, bms.Measures[0].Note1PVis01.Single().AbsoluteTime.Ticks);
+            Assert.AreEqual(TimeSpan.FromTicks(504997), bms.Measures[0].Stop.Single().Value);
+            Assert.AreEqual(2504164L, bms.Duration.Ticks);
         }, culture);
     }
 
@@ -217,8 +232,13 @@ public sealed class RibbitBmsFileTimingTests
     /// <summary>
     /// 明示無限BPMの時間係数をゼロとして未使用・使用STOPも受理し、巨大な有限値との分類混同を検出する。
     /// </summary>
-    [TestMethod]
-    public void ExplicitInfiniteBpmHasZeroCoefficientAndUnusedInfiniteStopIsAccepted()
+    [DataTestMethod]
+    [DataRow("ja-JP")]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("fr-FR")]
+    [DataRow("th-TH")]
+    public void ExplicitInfiniteBpmHasZeroCoefficientAndUnusedInfiniteStopIsAccepted(string culture)
     {
         string infinity = CultureInfo.GetCultureInfo("en-US").NumberFormat.PositiveInfinitySymbol;
         WithChart($"#BPM {infinity}\n#STOP01 {infinity}\n#00011:0001\n", bms =>
@@ -226,13 +246,13 @@ public sealed class RibbitBmsFileTimingTests
             Assert.IsTrue(bms.Bpm is { IsPositiveInfinity: true });
             Assert.AreEqual(0L, bms.Duration.Ticks);
             Assert.AreEqual(0L, bms.Measures[0].Note1PVis01.Single().AbsoluteTime.Ticks);
-        });
+        }, culture);
         WithChart($"#BPM {infinity}\n#STOP01 {infinity}\n#00009:01\n#00011:01\n", bms =>
         {
             Assert.AreEqual(0L, bms.Duration.Ticks);
             Assert.AreEqual(TimeSpan.Zero, bms.Measures[0].Stop.Single().Value);
             Assert.AreEqual(0L, bms.Measures[0].Note1PVis01.Single().AbsoluteTime.Ticks);
-        });
+        }, culture);
     }
 
     /// <summary>
@@ -355,7 +375,17 @@ public sealed class RibbitBmsFileTimingTests
         Directory.CreateDirectory(directory);
         try
         {
-            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+            if (culture == "different-signs")
+            {
+                var changedSigns = (CultureInfo)CultureInfo.GetCultureInfo("en-US").Clone();
+                changedSigns.NumberFormat.PositiveSign = "plus";
+                changedSigns.NumberFormat.NegativeSign = "minus";
+                CultureInfo.CurrentCulture = changedSigns;
+            }
+            else
+            {
+                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+            }
             string path = Path.Combine(directory, "test.bms");
             File.WriteAllText(path, source, new UTF8Encoding(false));
             inspect(options == null ? new BMSFile(path) : BMSFile.ParseForAudit(path, options, choices));

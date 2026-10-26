@@ -1073,7 +1073,7 @@
             <Border x:Name="DateChrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
               <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="26" /></Grid.ColumnDefinitions>
-                <DatePickerTextBox x:Name="PART_TextBox" Grid.Column="0" IsReadOnly="True" BorderThickness="0" Padding="6,2" Background="Transparent" Foreground="{TemplateBinding Foreground}" VerticalContentAlignment="Center" FocusVisualStyle="{x:Null}">
+                <DatePickerTextBox x:Name="PART_TextBox" Grid.Column="0" v:DatePickerPresentation.Culture="{Binding Path=(v:DatePickerPresentation.Culture), RelativeSource={RelativeSource TemplatedParent}}" IsReadOnly="True" BorderThickness="0" Padding="6,2" Background="Transparent" Foreground="{TemplateBinding Foreground}" VerticalContentAlignment="Center" FocusVisualStyle="{x:Null}">
                   <DatePickerTextBox.Template>
                     <ControlTemplate TargetType="{x:Type DatePickerTextBox}">
                       <Grid>

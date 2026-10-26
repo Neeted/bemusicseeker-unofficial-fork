@@ -1814,7 +1814,7 @@ public partial class BMSFile
                                 }
                             case "#RANK":
                                 {
-                                    if (int.TryParse(parameter, out int result9) && result9 >= 0)
+                                    if (int.TryParse(parameter, NumberStyles.Integer, NumericCulture, out int result9) && result9 >= 0)
                                     {
                                         Rank = result9;
                                     }
@@ -1826,7 +1826,7 @@ public partial class BMSFile
                                 }
                             case "#TOTAL":
                                 {
-                                    if (double.TryParse(parameter, out double result7) && result7 > 0.0)
+                                    if (double.TryParse(parameter, NumberStyles.Float | NumberStyles.AllowThousands, NumericCulture, out double result7) && result7 > 0.0)
                                     {
                                         Total = result7;
                                     }
@@ -1847,7 +1847,7 @@ public partial class BMSFile
                                 break;
                             case "#PLAYLEVEL":
                                 {
-                                    if (double.TryParse(parameter, out double result8) && result8 >= 0.0)
+                                    if (double.TryParse(parameter, NumberStyles.Float | NumberStyles.AllowThousands, NumericCulture, out double result8) && result8 >= 0.0)
                                     {
                                         Playlevel = result8;
                                     }
@@ -1859,7 +1859,7 @@ public partial class BMSFile
                                 }
                             case "#DIFFICULTY":
                                 {
-                                    if (int.TryParse(parameter, out int result5) && result5 > 0)
+                                    if (int.TryParse(parameter, NumberStyles.Integer, NumericCulture, out int result5) && result5 > 0)
                                     {
                                         Difficulty = result5;
                                     }
@@ -1950,7 +1950,7 @@ public partial class BMSFile
                                                                     Pos = pos
                                                                 }))
                                                                 {
-                                                                    if (!(item4.Idx == "00") && int.TryParse(item4.Idx, NumberStyles.HexNumber, null, out int result3))
+                                                                    if (!(item4.Idx == "00") && int.TryParse(item4.Idx, NumberStyles.HexNumber, NumericCulture, out int result3))
                                                                     {
                                                                         var item2 = new Chart.Note(Measures[num2], type)
                                                                         {

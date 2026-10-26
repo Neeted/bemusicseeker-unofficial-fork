@@ -238,6 +238,42 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                             Assert.IsTrue(editor.IsReadOnly);
                         }
                         calendar.DisplayMode = CalendarMode.Year;
+                        picker.IsDropDownOpen = false;
+                        DatePickerTextBox previousEditor = editor;
+                        ControlTemplate originalTemplate = picker.Template;
+                        Assert.IsTrue(picker.IsLoaded);
+                        picker.Template = null;
+                        picker.ApplyTemplate();
+                        picker.Template = originalTemplate;
+                        picker.ApplyTemplate();
+                        window.UpdateLayout();
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.IsTrue(picker.IsLoaded, "親を再LoadedせずにPARTを再生成する条件を保つ。");
+                        editor = (DatePickerTextBox)picker.Template.FindName("PART_TextBox", picker);
+                        Assert.AreNotSame(previousEditor, editor);
+                        Assert.IsTrue(editor.IsLoaded);
+                        hint = (TextBlock)editor.Template.FindName("DateHint", editor);
+                        button = (Button)picker.Template.FindName("PART_Button", picker);
+                        popup = (Popup)picker.Template.FindName("PART_Popup", picker);
+                        scope.TrackPopup(popup);
+                        Assert.AreSame(calendar, popup.Child);
+                        picker.IsEnabled = false;
+                        picker.IsEnabled = true;
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        var recreatedStandard = new DatePicker { Language = picker.Language, SelectedDateFormat = DatePickerFormat.Short, SelectedDate = date };
+                        Assert.AreEqual(recreatedStandard.Text, editor.Text);
+                        Assert.AreEqual(editor.Text, picker.Text);
+                        Assert.IsTrue(editor.IsReadOnly);
+                        Assert.AreEqual(selected, picker.DisplayDate);
+                        Assert.AreEqual(CalendarMode.Year, calendar.DisplayMode);
+                        Assert.AreEqual(date, picker.SelectedDate);
+                        Assert.AreEqual(date, viewModel.SelectedAsOfDate);
+                        Assert.AreEqual(date, session.Query.SelectedLocalDate);
+                        if (date.HasValue) { Assert.IsTrue(session.Query.SelectedLocalDate is { Kind: DateTimeKind.Unspecified }); }
+                        Assert.IsTrue(viewModel.IsCountMode);
+                        Assert.AreEqual(0, dateChanges);
+                        Assert.AreEqual(captures, source.CaptureCount);
+                        editor.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent, editor));
                         ResourceService.Current.ChangeCulture("en-US");
                         TestUiDispatcherHost.ProcessQueuedPresentation();
                         Assert.AreEqual(CalendarMode.Year, calendar.DisplayMode);
@@ -389,34 +425,51 @@ public sealed class PlaylistLampViewerWindowPresentationTests
 
     /// <summary>丸めでゼロになるほど小さい正割合を入力し、ゼロ表示や最小値への切上げで実割合を失う誤りを検出します。</summary>
     [TestMethod]
-    public void PercentageFormatter_preservesTinyPositiveBoundarySemantics()
+    [DoNotParallelize]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("fr-FR")]
+    [DataRow("th-TH")]
+    public void PercentageFormatter_preservesTinyPositiveBoundarySemantics(string cultureName)
     {
-        const int positiveCount = 1;
-        const int denominator = 25001;
-        double percentage = positiveCount * 100d / denominator;
-        CultureInfo culture = CultureInfo.InvariantCulture;
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        CultureInfo previousUiCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(cultureName);
+            const int positiveCount = 1;
+            const int denominator = 25001;
+            double percentage = positiveCount * 100d / denominator;
+            string formatted = PlaylistLampViewerPercentageFormatter.Format(percentage);
+            string formattedZero = PlaylistLampViewerPercentageFormatter.Format(0d);
+            string formattedMinimum = PlaylistLampViewerPercentageFormatter.Format(0.01d);
+            Assert.AreEqual("0.00%", formattedZero);
+            Assert.AreEqual("0.01%", formattedMinimum);
 
-        string formatted = PlaylistLampViewerPercentageFormatter.Format(percentage, culture);
-        string formattedZero = PlaylistLampViewerPercentageFormatter.Format(0d, culture);
-        string formattedMinimum = PlaylistLampViewerPercentageFormatter.Format(0.01d, culture);
-
-        Assert.IsTrue(percentage > 0d && percentage < 0.005d);
-        Assert.IsFalse(string.IsNullOrWhiteSpace(formatted));
-        Assert.IsTrue(formatted.Contains("%", StringComparison.Ordinal));
-        Assert.IsTrue(
-            formatted.Any(character => char.IsDigit(character) && character != '0'),
-            "a tiny positive percentage must retain a semantically nonzero numeric indication");
-        Assert.AreNotEqual(
-            formattedZero,
-            formatted,
-            "a positive percentage must not be rendered as the zero percentage");
-        Assert.AreNotEqual(
-            formattedMinimum,
-            formatted,
-            "a tiny positive percentage must not be clamped to the minimum displayed value");
+            Assert.IsTrue(percentage > 0d && percentage < 0.005d);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(formatted));
+            Assert.IsTrue(formatted.Contains("%", StringComparison.Ordinal));
+            Assert.IsTrue(
+                formatted.Any(character => char.IsDigit(character) && character != '0'),
+                "a tiny positive percentage must retain a semantically nonzero numeric indication");
+            Assert.AreNotEqual(
+                formattedZero,
+                formatted,
+                "a positive percentage must not be rendered as the zero percentage");
+            Assert.AreNotEqual(
+                formattedMinimum,
+                formatted,
+                "a tiny positive percentage must not be clamped to the minimum displayed value");
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUiCulture;
+        }
     }
 
-    /// <summary>旧形式の現地時刻を異なる文化で表示し、UTC 変換や固定書式により日時を変える誤りを検出します。</summary>
+    /// <summary>壁時計の最終更新を異文化でも固定Gregorianの分粒度で表示し、暦変更や時刻変換を検出します。</summary>
     [TestMethod]
     public void Viewer_playlistLastUpdateDisplaysLegacyLocalWallClockWithoutTimezoneConversion()
     {
@@ -430,7 +483,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 CultureInfo[] testCultures =
                 [
                     CultureInfo.GetCultureInfo("en-US"),
-                    CultureInfo.GetCultureInfo("de-DE")
+                    CultureInfo.GetCultureInfo("de-DE"),
+                    CultureInfo.GetCultureInfo("th-TH")
                 ];
                 Assert.AreNotEqual(
                     playlistLastUpdated.ToString("g", testCultures[0]),
@@ -441,7 +495,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 {
                     CultureInfo.CurrentCulture = testCulture;
                     CultureInfo.CurrentUICulture = testCulture;
-                    AssertPlaylistLastUpdatePresentation(playlistLastUpdated, testCulture);
+                    AssertPlaylistLastUpdatePresentation(playlistLastUpdated);
                 }
             }
             finally
@@ -1152,7 +1206,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 foreach (PlaylistLampViewerFolderRowViewModel row in viewModel.FolderRows)
                 {
                     Assert.AreEqual(
-                        row.Count.ToString("N0", CultureInfo.CurrentCulture),
+                        row.Count.ToString("0", CultureInfo.InvariantCulture),
                         row.CountText,
                         "folder counts use the localized numeric format without a unit");
                 }
@@ -1191,11 +1245,12 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         });
     }
 
-    /// <summary>件数を桁の増える値へ更新し、文化に従う N0 表示と全行・両側の実配置列の共通幅更新、ラベル・棒との重なりを確認します。</summary>
+    /// <summary>件数を桁の増える値へ更新し、桁区切りなしの固定件数表示と全行・両側の実配置列の共通幅更新、ラベル・棒との重なりを確認します。</summary>
     [TestMethod]
-    public void Viewer_folderCountUsesLocalizedN0AndRefreshesSharedCountColumn()
+    public void Viewer_folderCountUsesUngroupedDigitsAndRefreshesSharedCountColumn()
     {
-        const int initialCount = 1234;
+        // 桁区切りなしの4桁は既に9999の幅と同じになるため、上限未満の3桁から更新する。
+        const int initialCount = 123;
         const int cappedCount = 12345;
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -1228,7 +1283,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 PlaylistLampViewerFolderRowViewModel initialRow = viewModel.FolderRows
                     .Single(row => row.FolderName == "initial");
                 Assert.AreEqual(
-                    initialCount.ToString("N0", CultureInfo.CurrentCulture),
+                    "123",
                     initialRow.CountText);
                 TextBlock initialCountBlock = FindFolderCountBlock(window, initialRow);
                 double expectedInitialWidth = MeasureRenderedText(initialCountBlock, initialRow.CountText);
@@ -1254,7 +1309,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 PlaylistLampViewerFolderRowViewModel cappedRow = viewModel.FolderRows
                     .Single(row => row.FolderName == "capped");
                 Assert.AreEqual(
-                    cappedCount.ToString("N0", CultureInfo.CurrentCulture),
+                    "12345",
                     cappedRow.CountText);
                 Assert.IsTrue(int.TryParse(
                     cappedRow.CountText,
@@ -1265,6 +1320,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 // 列の上限を超える件数でも、文字の描画幅ではなく全行が共有する配置列を比較します。
                 double refreshedWidth = FindFolderCountColumnWidths(window, viewModel).First();
                 Assert.IsTrue(refreshedWidth > expectedInitialWidth);
+                Assert.AreEqual(MeasureRenderedText(initialCountBlock, "9999"), refreshedWidth, 1d);
                 Assert.IsTrue(FindFolderCountColumnWidths(window, viewModel)
                     .All(width => Math.Abs(width - refreshedWidth) <= 1d),
                     "更新後も両側と全フォルダの件数列を同じ幅に揃えます。");
@@ -1610,7 +1666,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     AssertFolderOccupancy(small, count ? 0.5d : 1d);
                     AssertSegmentWidth(small, "HARD", 20d / (count ? 100d : 50d));
                     AssertSegmentWidth(small, "A", 10d / (count ? 100d : 50d));
-                    string expectedPercentage = string.Format(CultureInfo.CurrentCulture,
+                    string expectedPercentage = string.Format(CultureInfo.InvariantCulture,
                         Resources.PlaylistLampViewer_percentage_format, 40d);
                     Button hard = FindDescendants<Button>(small).Single(button =>
                         button.DataContext is PlaylistLampViewerSegmentViewModel segment && segment.CategoryKey == "HARD");
@@ -1618,7 +1674,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     AutomationPeer peer = UIElementAutomationPeer.CreatePeerForElement(hard)
                         ?? throw new AssertFailedException("A segment automation peer is missing.");
                     Assert.IsTrue(peer.GetName().Contains(expectedPercentage, StringComparison.Ordinal));
-                    Assert.AreEqual(count ? 20.ToString("N0", CultureInfo.CurrentCulture) : expectedPercentage, hard.Content);
+                    Assert.AreEqual(count ? 20.ToString("0", CultureInfo.InvariantCulture) : expectedPercentage, hard.Content);
                     AssertOverallLabel(window, count, 100);
                     Assert.AreSame(current, viewModel.CurrentResult);
                     Assert.AreSame(collections[0], viewModel.FolderRows);
@@ -1659,7 +1715,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     Assert.AreEqual(unchangedWidth, dpiButton.ActualWidth, 0.01d);
                     Assert.AreEqual(density, window.PixelsPerDip);
                     var dpiSegment = (PlaylistLampViewerSegmentViewModel)dpiButton.DataContext;
-                    Assert.AreEqual(dpiSegment.Count.ToString("N0", CultureInfo.CurrentCulture), dpiButton.Content);
+                    Assert.AreEqual(dpiSegment.Count.ToString("0", CultureInfo.InvariantCulture), dpiButton.Content);
                     Assert.AreSame(current, viewModel.CurrentResult);
                     CollectionAssert.AreEqual(rows, viewModel.FolderRows.ToArray());
                     CollectionAssert.AreEqual(segments, viewModel.FolderRows.SelectMany(row => row.ClearSegments.Concat(row.RankSegments))
@@ -1684,8 +1740,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     SelectDisplayMode(window, count);
                     AssertFolderOccupancy(maximum, 1d);
                     Assert.AreEqual(maximumWidth, maximumButton.ActualWidth, 1d);
-                    Assert.AreEqual(count ? 100.ToString("N0", CultureInfo.CurrentCulture)
-                        : string.Format(CultureInfo.CurrentCulture, Resources.PlaylistLampViewer_percentage_format, 100d), maximumButton.Content);
+                    Assert.AreEqual(count ? 100.ToString("0", CultureInfo.InvariantCulture)
+                        : string.Format(CultureInfo.InvariantCulture, Resources.PlaylistLampViewer_percentage_format, 100d), maximumButton.Content);
                     AssertOverallLabel(window, count, 100);
                 }
                 source.Replace(CreateScaleRequest(200));
@@ -1882,8 +1938,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             AssertBoundedHost(host);
             Button np = FindDescendants<Button>(host).Single(button =>
                 button.DataContext is PlaylistLampViewerSegmentViewModel segment && segment.CategoryKey == "NP");
-            Assert.AreEqual(count ? npCount.ToString("N0", CultureInfo.CurrentCulture)
-                : string.Format(CultureInfo.CurrentCulture, Resources.PlaylistLampViewer_percentage_format, npCount * 100d / 150d), np.Content);
+            Assert.AreEqual(count ? npCount.ToString("0", CultureInfo.InvariantCulture)
+                : string.Format(CultureInfo.InvariantCulture, Resources.PlaylistLampViewer_percentage_format, npCount * 100d / 150d), np.Content);
         }
     }
 
@@ -2120,8 +2176,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(wideContent),
             "a segment with enough width must expose an in-bar percentage");
         Assert.AreEqual(
-            countMode ? 203.ToString("N0", CultureInfo.CurrentCulture)
-                : string.Format(CultureInfo.CurrentCulture, Resources.PlaylistLampViewer_percentage_format, 203d * 100d / 204d),
+            countMode ? 203.ToString("0", CultureInfo.InvariantCulture)
+                : string.Format(CultureInfo.InvariantCulture, Resources.PlaylistLampViewer_percentage_format, 203d * 100d / 204d),
             wideContent);
         Assert.IsTrue(wideContent != ((PlaylistLampViewerSegmentViewModel)wideButton.DataContext).DetailText,
             "the in-bar label must not expand to the full tooltip detail");
@@ -2303,8 +2359,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
     }
 
     private static void AssertPlaylistLastUpdatePresentation(
-        DateTime playlistLastUpdated,
-        CultureInfo testCulture)
+        DateTime playlistLastUpdated)
     {
         var source = new FixedLampSource(CreateRequest(
             ActiveScoreSource.Beatoraja,
@@ -2325,7 +2380,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             PlaylistLampViewerStatistic card = viewModel.SupplementaryStatistics.Single(
                 candidate => candidate.Label == Resources.PlaylistLampViewer_playlist_last_update);
             Assert.AreEqual(
-                playlistLastUpdated.ToString("g", testCulture),
+                "2026-08-29 10:49",
                 card.Value,
                 "playlist.last_update is a legacy local wall-clock value and must not be timezone converted");
         }

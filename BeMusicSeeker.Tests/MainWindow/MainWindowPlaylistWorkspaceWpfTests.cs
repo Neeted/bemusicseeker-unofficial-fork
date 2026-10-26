@@ -44,7 +44,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 {
     private const string NativeModalFixturePlaylistName = "Native modal fixture";
 
-    /// <summary>fr-FRの実ENTRY LEVELセルで表示1,5を無変更Enterし、別小数入力のEscapeでも正本・DB・次の編集表示が1.5を保つことを確認します。</summary>
+    /// <summary>fr-FRの実ENTRY LEVELセルで固定dot表示を無変更Enterし、Escape・不正入力の実通知・次の正常保存まで正本とDBを確認します。</summary>
     /// <remarks>実列・Binding・F2/Enter/Escapeからdefault端末への接続を担当します。文化別の数値条件は保存主体へ分担し、数値文化と翻訳文化を分けます。</remarks>
     [TestMethod]
     public void EntryLevel_CurrentCultureRoundTripAndCancelKeepSavedNumber()
@@ -60,7 +60,12 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             {
                 CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
                 CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en-US");
-                fixture = CreateActualMainWindowFixture(scope);
+                var messages = new List<UiMessageRequest>();
+                fixture = CreateActualMainWindowFixture(scope, messagePresenter: (_, request) =>
+                {
+                    messages.Add(request);
+                    return new ThemedMessageBoxResponse(MessageBoxResult.OK, false);
+                });
                 PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
                 fixture.Table.is_external_sync = false;
                 var entry = new BMSTableEntry { md5 = new string('a', 32), title = "Culture target", level = 1.5 };
@@ -92,7 +97,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 table.SelectRowsByPredicate(row => row is PlaylistDetailRow detail && ReferenceEquals(detail.Entry, entry));
                 table.UpdateLayout();
                 Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
-                Assert.AreEqual("1,5", Editor()?.Text);
+                Assert.AreEqual("1.5", Editor()?.Text);
                 Assert.IsTrue(workspace.DetailViewState.Source.IsPlaylistCellEditing);
                 // Pの終端は保存・必要表示・draft cleanupの後です。同値でDB差分がなくても実終端を待ちます。
                 Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
@@ -102,13 +107,36 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
                 Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
                 TextBox editor = Editor() ?? throw new AssertFailedException("実ENTRY LEVELセルのeditorがありません。");
-                Assert.AreEqual("1,5", editor.Text);
+                Assert.AreEqual("1.5", editor.Text);
                 editor.Text = "2,5";
                 Assert.IsTrue(table.HandleKeyDown(Key.Escape, ModifierKeys.None));
                 // 取消は保存せず同期的にdraft/sessionを終了します。受付終端も回収してから次の実セルを確認します。
                 terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "culture-level-cancel-terminal");
                 AssertSavedNumberAndDisplay();
+
+                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                TextBox invalidEditor = Editor() ?? throw new AssertFailedException("不正入力用editorがありません。");
+                invalidEditor.Text = "2,5";
+                Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+                terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "culture-level-invalid-terminal");
+                AssertSavedNumberAndDisplay();
+                Assert.AreEqual(1, messages.Count);
+                Assert.AreEqual(Resources.Error_PlaylistEntryLevelFormat, messages.Single().MessageBoxText);
+                Assert.AreSame(fixture.Window, messages.Single().Owner);
+                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                TextBox nextEditor = Editor() ?? throw new AssertFailedException("次編集用editorがありません。");
+                nextEditor.Text = "2.5e1";
+                Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+                terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "culture-level-next-terminal");
+                Assert.AreEqual(25d, entry.level);
+                Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+                Assert.AreEqual("25", fixture.ViewModel.MainChartList.Rows.OfType<PlaylistDetailRow>().Single(row => ReferenceEquals(row.Entry, entry)).Level);
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly())
+                { Assert.AreEqual(25d, db.ExecuteScalar<double?>("SELECT level FROM playlist_entry WHERE title = 'Culture target';")); }
+                Assert.AreEqual(1, messages.Count);
 
                 TextBox? Editor() => table.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).SingleOrDefault();
                 void AssertSavedNumberAndDisplay()
@@ -118,12 +146,12 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     Assert.AreEqual(1.5, entry.level);
                     Assert.AreEqual(7.5, other.level);
                     PlaylistDetailRow current = fixture.ViewModel.MainChartList.Rows.OfType<PlaylistDetailRow>().Single(row => ReferenceEquals(row.Entry, entry));
-                    Assert.AreEqual("1,5", current.Level);
+                    Assert.AreEqual("1.5", current.Level);
                     using LR2SongDBExtended db = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly();
                     Assert.AreEqual(1.5, db.ExecuteScalar<double?>("SELECT level FROM playlist_entry WHERE title = 'Culture target';"));
                     Assert.AreEqual(7.5, db.ExecuteScalar<double?>("SELECT level FROM playlist_entry WHERE title = 'Other row';"));
                     Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
-                    Assert.AreEqual("1,5", Editor()?.Text);
+                    Assert.AreEqual("1.5", Editor()?.Text);
                     Assert.IsTrue(table.HandleKeyDown(Key.Escape, ModifierKeys.None));
                     Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
                 }
@@ -202,7 +230,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     + workspace.DescribeDetailBuildState(value => value.ToString()));
                 Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
                 TextBox editor = Editor(table) ?? throw new AssertFailedException("実詳細セルのeditorがありません。");
-                editor.Text = "★12.5";
+                editor.Text = "12.5";
                 holdOutput = true;
                 Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
                 terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
@@ -2203,7 +2231,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 CustomTableColumnLayoutSnapshot columns = summary.GetColumnLayoutSnapshot();
                 CustomTableColumn lastUpdate = columns.VisibleEntries.Single(entry => entry.Column.Id == "LastUpdate").Column;
                 CustomTableColumn statusColumn = columns.VisibleEntries.Single(entry => entry.Column.Id == "Status").Column;
-                Assert.AreEqual(updated.ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.CurrentCulture), summary.GetCellValue(row, lastUpdate, out _).Text);
+                Assert.AreEqual(updated.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), summary.GetCellValue(row, lastUpdate, out _).Text);
                 Assert.AreEqual(status, summary.GetCellValue(row, statusColumn, out _).Text);
             }
         });

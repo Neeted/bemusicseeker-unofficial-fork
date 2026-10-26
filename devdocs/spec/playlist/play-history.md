@@ -52,6 +52,8 @@ LR2のクリア2はEASYビットありをEASY、なしをASSISTとし、ASSIST�
 
 固定期間はすべて、今日、昨日、今日を含む最近7日・30日、未確定／診断です。通常期間はローカル午前0時から次の境界までの半開区間です。年→月→日の過去日付ツリーもローカル時刻で範囲を求め、降順に並べます。非同期の古い要求は新しい期間選択を上書きしません。
 
+一覧の日時はGregorianの `yyyy-MM-dd HH:mm:ss`、率は従来の小数2桁で小数点を `.` として表示します。集計カードの件数は桁区切りなしの整数です。期間・演奏時間・未取得表示、元の成績値とカード検索集合は変更しません。`PlayHistoryReadModelTests` は異文化の件数・率と既存カード条件を、`GridKeywordSearchQueryTests` はコピーした表示日時の検索を分担します。
+
 一覧とは別の集計帯に判定数、プレイ数、演奏時間、スコア/BP/COMBO/CLEAR更新数とクリア更新内訳を表示します。beatorajaだけEXH内訳を加えます。更新カードの複数選択はOR、キーワードとはANDで絞ります。カード選択を検索文字列や履歴へ書き込みません。
 
 FC内訳と既存FCカードは、FC・PERFECT・beatorajaのMAXへのクリア更新を同じ対象集合で数え、絞り込みます。MAXのままSCOREだけを更新した行はSCORE更新へ含め、CLEAR更新やFC内訳へ加えません。MAX専用カードは追加せず、`newclear:PF` と `newclear:MAX` の個別検索、元のランプ値と取得元別の変換を維持します。
@@ -73,7 +75,7 @@ FC内訳と既存FCカードは、FC・PERFECT・beatorajaのMAXへのクリア�
 | `md5:` | 解決した譜面のMD5。 |
 | `hash:` | 取得元の生ハッシュ。LR2ではMD5、beatorajaではSHA-256。 |
 | `sha256:` | 解決した譜面のSHA-256。未解決行では空。 |
-| `date:` | ローカル日付。`yyyy-MM-dd`、`yyyy/M/d`、`yyyy/MM/dd`、`yyyyMMdd` は表示上の一日全体、`yyyy/MM/dd HH:mm:ss` はローカル時刻の一秒、`date:"yyyy/MM/dd HH:mm:ss..yyyy/MM/dd HH:mm:ss"` は両端を含む範囲に一致する。 |
+| `date:` | ローカル日付。`yyyy-MM-dd`、`yyyy/M/d`、`yyyy/MM/dd`、`yyyyMMdd` は表示上の一日全体、`yyyy-MM-dd HH:mm:ss` と既存の `yyyy/MM/dd HH:mm:ss` はローカル時刻の一秒、`date:"yyyy/MM/dd HH:mm:ss..yyyy/MM/dd HH:mm:ss"` は両端を含む範囲に一致する。範囲の両端でも新しいハイフン日時を受け付け、選択から生成するClauseは従来のslash表記を保つ。 |
 | `year:` | ローカル時刻の年との完全一致。 |
 | `month:` | ローカル時刻の月との完全一致。`M`、`MM`、`yyyy-M`、`yyyy-MM`、`yyyy/M`、`yyyy/MM` を受け付ける。 |
 | `type:` / `kind:` | `Kind` とLR2の `score_write_type`。主名は `type:`、互換別名は `kind:`。 |

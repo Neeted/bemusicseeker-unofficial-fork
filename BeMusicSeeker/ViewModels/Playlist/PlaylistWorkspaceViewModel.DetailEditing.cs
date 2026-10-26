@@ -34,6 +34,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// 確定値の必要表示と編集解除を終えてからPを解放し、先行失敗を保ちます。
     /// 再同期前の古い項目は保存せず通知し、最新行からの明示編集を受け付けます。
     /// URL の空白だけの入力は未設定への解除として保存し、非空の無効な絶対 URI は保存しません。
+    /// Levelはモデルと同じ固定Float全体・有限値判定を使い、不正入力を保存せず既存receiptから通知します。
     /// </summary>
     /// <param name="request">一覧から受け取った編集結果。</param>
     /// <returns>
@@ -143,13 +144,20 @@ public sealed partial class PlaylistWorkspaceViewModel
             using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlistStore.OperationNotificationOwner.BeginSession();
             try
             {
-                PlaylistEntryCommitReceipt receipt = playlistStore.CommitBMSTableEntry(
-                    playlistRow.Entry, propertyName, text, capability, playlistRow.Chart);
-                BMSTable changed = receipt.Table;
-                committed = true;
-                if (changed != null)
+                if (propertyName == nameof(PlaylistDetailRow.Level) && !BMSTableEntry.TryParseEditedLevel(text, out _))
                 {
-                    await playlistStore.BmtOutput.ExportTablesAsync([changed], "playlist_detail_cell_edit", capability).ConfigureAwait(false);
+                    playlistStore.OperationNotificationOwner.QueueWarning(BeMusicSeeker.Properties.Resources.Error_PlaylistEntryLevelFormat);
+                }
+                else
+                {
+                    PlaylistEntryCommitReceipt receipt = playlistStore.CommitBMSTableEntry(
+                        playlistRow.Entry, propertyName, text, capability, playlistRow.Chart);
+                    BMSTable changed = receipt.Table;
+                    committed = true;
+                    if (changed != null)
+                    {
+                        await playlistStore.BmtOutput.ExportTablesAsync([changed], "playlist_detail_cell_edit", capability).ConfigureAwait(false);
+                    }
                 }
             }
             catch (Exception exception)

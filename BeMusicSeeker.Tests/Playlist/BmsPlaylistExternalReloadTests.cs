@@ -1356,6 +1356,54 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
+    /// <summary>同一source hashの旧地域誤読levelも明示reloadで実JSONから訂正し、新しいDB接続と所属・ローカル属性を保ちます。</summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ReloadPlaylistTargetsAsync_SameSourceHashRepairsOldRegionalLevel()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistExternalReloadTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+            string header = Path.Combine(directory, "header.json");
+            File.WriteAllText(header, "{\"name\":\"Regional repair\",\"compat_prefix\":\"\",\"data_url\":\"data.json\"}");
+            File.WriteAllText(Path.Combine(directory, "data.json"), "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Repair level\",\"level\":\"★1.5\"}]");
+            string dbPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(dbPath);
+            var playlist = new TestBmsPlaylist(dbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(dbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
+            BMSTable old = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(header));
+            old.playlist_id = 9017;
+            old.is_bmt_output = false;
+            old.entries.Single().level = 15; // 同一原文を旧地域解釈で保存した値を明示して投入します。
+            old.entries.Single().memo = "local memo";
+            DateTime date = old.entries.Single().adddate;
+            string hash = old.data_sha256;
+            playlist.BMSTables = new ObservableCollection<BMSTable>([old]);
+            playlist.CommitBMSTableWithEntriesToDB(old);
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult result = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([old]);
+            result.ThrowIfFailed();
+            Assert.IsTrue(result.Single().Succeeded);
+            Assert.IsTrue(result.Single().StatePersisted);
+            BMSTable repaired = playlist.BMSTables.Single();
+            Assert.AreEqual(hash, repaired.data_sha256);
+            Assert.AreEqual(old.playlist_id, repaired.playlist_id);
+            BMSTableEntry entry = repaired.entries.Single();
+            Assert.AreEqual(1.5, entry.level);
+            Assert.AreEqual("★1.5", entry.folder);
+            Assert.AreSame(repaired, entry.parent);
+            Assert.AreEqual("local memo", entry.memo);
+            Assert.AreEqual(date, entry.adddate);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+            BMSTableEntry saved = verify.Table<BMSTableEntry>().Single();
+            Assert.AreEqual(1.5, saved.level);
+            Assert.AreEqual(repaired.playlist_id, saved.playlist_id);
+            Assert.AreEqual("local memo", saved.memo);
+        }
+        finally { CultureInfo.CurrentCulture = previous; Directory.Delete(directory, recursive: true); }
+    }
+
     /// <summary>実外部再取得でfolder投影を保存・LR2出力へ更新し、新旧表の行所属と採番IDを保持します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]

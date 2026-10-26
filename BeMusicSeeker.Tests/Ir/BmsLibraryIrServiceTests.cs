@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -242,21 +244,41 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     /// <summary>
-    /// 同じ得点でもFAILEDとraw clear2/ASSISTのdigestを区別し、更新要否判定で別のclear状態を同一視しない。
+    /// 固定タブ・LF文字列の独立SHA-256を異文化でも保ち、同じ得点のFAILEDとraw clear2/ASSISTを区別する。
     /// </summary>
-    [TestMethod]
-    public void ComputeScoreDigestKeepsRawLr2Clear2DistinctFromFailed()
+    [DataTestMethod]
+    [DoNotParallelize]
+    [DataRow("ja-JP")]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("fr-FR")]
+    [DataRow("th-TH")]
+    [DataRow("ar-SA")]
+    public void ComputeScoreDigestKeepsRawLr2Clear2DistinctFromFailed(string cultureName)
     {
-        string hash = "18181818181818181818181818181818";
-        LR2IRScore failedScore = CreateIrScore(hash, ClearType.FAILED, pg: 100, gr: 20, minbp: 12);
-        LR2IRScore assistScore = CreateIrScore(hash, ClearType.EASY, pg: 100, gr: 20, minbp: 12);
-        assistScore.clearValue = 2;
-        assistScore.option = 0;
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            string hash = "18181818181818181818181818181818";
+            LR2IRScore failedScore = CreateIrScore(hash, ClearType.FAILED, pg: 100, gr: 20, minbp: 12);
+            LR2IRScore assistScore = CreateIrScore(hash, ClearType.EASY, pg: 100, gr: 20, minbp: 12);
+            assistScore.clearValue = 2;
+            assistScore.option = 0;
 
-        string failedDigest = BmsLibraryIrService.ComputeScoreDigest([failedScore]);
-        string assistDigest = BmsLibraryIrService.ComputeScoreDigest([assistScore]);
+            string failedDigest = BmsLibraryIrService.ComputeScoreDigest([failedScore]);
+            string assistDigest = BmsLibraryIrService.ComputeScoreDigest([assistScore]);
 
-        Assert.AreNotEqual(failedDigest, assistDigest);
+            const string failedInput = "18181818181818181818181818181818\t1\t1000\t900\t100\t20\t0\t0\t0\t12\t0\n";
+            const string assistInput = "18181818181818181818181818181818\t2\t1000\t900\t100\t20\t0\t0\t0\t12\t0\n";
+            Assert.AreEqual(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(failedInput))), failedDigest);
+            Assert.AreEqual(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(assistInput))), assistDigest);
+            Assert.AreNotEqual(failedDigest, assistDigest);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
     }
 
     /// <summary>
@@ -690,37 +712,53 @@ public sealed class BmsLibraryIrServiceTests
     /// <summary>
     /// 複数プレイヤーXMLから対象の成績/順位と全体の平均/標準偏差を算出し、更新/捕捉時刻を区別して保持する。
     /// </summary>
-    [TestMethod]
-    public void RankingCacheSummaryParser_TargetPlayerUsesUnifiedExpectedValues()
+    [DataTestMethod]
+    [DoNotParallelize]
+    [DataRow("ja-JP")]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("fr-FR")]
+    [DataRow("th-TH")]
+    [DataRow("ar-SA")]
+    public void RankingCacheSummaryParser_TargetPlayerUsesUnifiedExpectedValues(string cultureName)
     {
-        string hash = "21212121212121212121212121212121";
-        var cacheUpdate = new DateTime(2026, 4, 1, 12, 0, 0);
-        var lastUpdate = new DateTime(2026, 4, 2, 13, 14, 15);
-        string xml = BuildRankingCacheXml(lastUpdate,
-        [
-            new RankingScoreRow { Lr2Id = 100, Notes = 1000, Combo = 850, Pg = 400, Gr = 40, MinBp = 20, Clear = 3 },
-            new RankingScoreRow { Lr2Id = 123, Notes = 1000, Combo = 950, Pg = 500, Gr = 20, MinBp = 5, Clear = 4 },
-            new RankingScoreRow { Lr2Id = 200, Notes = 1000, Combo = 900, Pg = 450, Gr = 50, MinBp = 10, Clear = 2 }
-        ]);
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            string hash = "21212121212121212121212121212121";
+            var cacheUpdate = new DateTime(2026, 4, 1, 12, 0, 0);
+            var lastUpdate = new DateTime(2026, 4, 2, 13, 14, 15);
+            string xml = BuildRankingCacheXml(lastUpdate,
+            [
+                new RankingScoreRow { Lr2Id = 100, Notes = 1000, Combo = 850, Pg = 400, Gr = 40, MinBp = 20, Clear = 3 },
+                new RankingScoreRow { Lr2Id = 123, Notes = 1000, Combo = 950, Pg = 500, Gr = 20, MinBp = 5, Clear = 4 },
+                new RankingScoreRow { Lr2Id = 200, Notes = 1000, Combo = 900, Pg = 450, Gr = 50, MinBp = 10, Clear = 2 }
+            ]);
 
-        bool parsed = BmsLibraryIrService.TryParseRankingCacheSummary(xml, hash, 123, cacheUpdate, out LR2IRData actual, out int scoresParsed);
+            bool parsed = BmsLibraryIrService.TryParseRankingCacheSummary(xml, hash, 123, cacheUpdate, out LR2IRData actual, out int scoresParsed);
 
-        Assert.IsTrue(parsed);
-        Assert.AreEqual(3, scoresParsed);
-        Assert.AreEqual(hash, actual.hash);
-        Assert.AreEqual(123, actual.lr2id);
-        Assert.AreEqual(1, actual.rank);
-        Assert.AreEqual(3, actual.players_num);
-        Assert.AreEqual(936.6666666666666, actual.average, 0.0000001);
-        Assert.AreEqual(90.73771725877467, actual.sigma, 0.0000001);
-        Assert.AreEqual(ClearType.HARD, actual.clear);
-        Assert.AreEqual(1000, actual.notes);
-        Assert.AreEqual(950, actual.combo);
-        Assert.AreEqual(500, actual.pg);
-        Assert.AreEqual(20, actual.gr);
-        Assert.AreEqual(5, actual.minbp);
-        Assert.AreEqual(lastUpdate, actual.lastupdate);
-        Assert.AreEqual(cacheUpdate, actual.lastcacheupdate);
+            Assert.IsTrue(parsed);
+            Assert.AreEqual(3, scoresParsed);
+            Assert.AreEqual(hash, actual.hash);
+            Assert.AreEqual(123, actual.lr2id);
+            Assert.AreEqual(1, actual.rank);
+            Assert.AreEqual(3, actual.players_num);
+            Assert.AreEqual(936.6666666666666, actual.average, 0.0000001);
+            Assert.AreEqual(90.73771725877467, actual.sigma, 0.0000001);
+            Assert.AreEqual(ClearType.HARD, actual.clear);
+            Assert.AreEqual(1000, actual.notes);
+            Assert.AreEqual(950, actual.combo);
+            Assert.AreEqual(500, actual.pg);
+            Assert.AreEqual(20, actual.gr);
+            Assert.AreEqual(5, actual.minbp);
+            Assert.AreEqual(lastUpdate, actual.lastupdate);
+            Assert.AreEqual(cacheUpdate, actual.lastcacheupdate);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
     }
 
     /// <summary>
@@ -1482,24 +1520,44 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     /// <summary>
-    /// 正しい小文字md5・size・時刻を読み、不正hash/異なるfield名/null行を混入させない。
+    /// 異文化でも小文字md5・数値tokenと固定整数文字列のsize・Gregorian時刻を読み、不正hash/異なるfield名/null行を混入させない。
     /// </summary>
-    [TestMethod]
-    public void ParseRankingInfoResponse_PreservesTypedFieldsAndSkipsInvalidRows()
+    [DataTestMethod]
+    [DoNotParallelize]
+    [DataRow("ja-JP")]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("fr-FR")]
+    [DataRow("th-TH")]
+    [DataRow("ar-SA")]
+    public void ParseRankingInfoResponse_PreservesTypedFieldsAndSkipsInvalidRows(string cultureName)
     {
-        string json = "["
-            + "{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"size\":1.0,\"lastupdate\":\"2026-04-08 12:00:00\"},"
-            + "{\"md5\":\"not-a-hash\",\"size\":2,\"lastupdate\":\"2026-04-08 12:00:00\"},"
-            + "{\"MD5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"size\":3,\"lastupdate\":\"2026-04-08 12:00:00\"},"
-            + "null"
-            + "]";
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            string json = "["
+                + "{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"size\":1.0,\"lastupdate\":\"2026-04-08 12:00:00\"},"
+                + "{\"md5\":\"cccccccccccccccccccccccccccccccc\",\"size\":\" +2 \",\"lastupdate\":\"2026-04-08 12:00:00\"},"
+                + "{\"md5\":\"not-a-hash\",\"size\":2,\"lastupdate\":\"2026-04-08 12:00:00\"},"
+                + "{\"MD5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"size\":3,\"lastupdate\":\"2026-04-08 12:00:00\"},"
+                + "null"
+                + "]";
 
-        List<BMSLibrary.IRDataCacheInfo> result = BmsLibraryIrClient.ParseRankingInfoResponse(json);
+            List<BMSLibrary.IRDataCacheInfo> result = BmsLibraryIrClient.ParseRankingInfoResponse(json);
 
-        Assert.AreEqual(1, result.Count);
-        Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", result[0].md5);
-        Assert.AreEqual(1, result[0].size);
-        Assert.AreEqual(new DateTime(2026, 4, 8, 12, 0, 0), result[0].lastupdate);
+            Assert.AreEqual(2, result.Count);
+            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", result[0].md5);
+            Assert.AreEqual(1, result[0].size);
+            Assert.AreEqual(new DateTime(2026, 4, 8, 12, 0, 0), result[0].lastupdate);
+            Assert.AreEqual("cccccccccccccccccccccccccccccccc", result[1].md5);
+            Assert.AreEqual(2, result[1].size);
+            Assert.AreEqual(new DateTime(2026, 4, 8, 12, 0, 0), result[1].lastupdate);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
     }
 
     /// <summary>混在応答の有効行と型を保ち、大量の不正行は一回・最大5理由の診断へ集約する。</summary>
@@ -1568,50 +1626,66 @@ public sealed class BmsLibraryIrServiceTests
     /// <summary>
     /// 初回の正常変更は全score列と対象metadataを保存し、同じ取得XMLの再処理では書込み接続を開かず保存値・時刻を保持して返す。
     /// </summary>
-    [TestMethod]
-    public void UpdateIrScoreTableWithMetrics_SameScoreDigestSkipsReplaceForSameXml()
+    [DataTestMethod]
+    [DoNotParallelize]
+    [DataRow("ja-JP")]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("fr-FR")]
+    [DataRow("th-TH")]
+    [DataRow("ar-SA")]
+    public void UpdateIrScoreTableWithMetrics_SameScoreDigestSkipsReplaceForSameXml(string cultureName)
     {
-        using var env = TempIrEnvironment.Create();
-        var service = new BmsLibraryIrService();
-        int writeConnections = 0;
-        var gateway = new BmsLibraryDbGateway(env.SongDbPath, env.ScoreDbPath, path =>
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        try
         {
-            writeConnections++;
-            return new LR2SongDBExtended(path);
-        });
-        string hash = "44444444444444444444444444444444";
-        var client = new FakeIrClient(BuildPlayerScoreXml(hash, pg: 700, gr: 50));
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            using var env = TempIrEnvironment.Create();
+            var service = new BmsLibraryIrService();
+            int writeConnections = 0;
+            var gateway = new BmsLibraryDbGateway(env.SongDbPath, env.ScoreDbPath, path =>
+            {
+                writeConnections++;
+                return new LR2SongDBExtended(path);
+            });
+            string hash = "44444444444444444444444444444444";
+            var client = new FakeIrClient(BuildPlayerScoreXml(hash, pg: 700, gr: 50));
 
-        IrScoreTableUpdateResult first = service.UpdateIrScoreTableWithMetrics(123, gateway, client, PlayerScoreRegex);
-        Assert.IsTrue(first.Succeeded);
-        Assert.AreEqual(1, first.ScoreTable.Count);
-        Assert.IsTrue(first.MetadataUpdated);
-        List<LR2IRScore> saved = gateway.LoadIrScoreRows();
-        Assert.AreEqual(1, saved.Count);
-        foreach (LR2IRScore score in first.ScoreTable.Concat(saved))
-        {
-            Assert.AreEqual(hash, score.hash);
-            CollectionAssert.AreEqual(new[] { 4, 1000, 900, 700, 50, 10, 2, 1, 12, 0, 20260505 },
-                new[] { score.clearValue, score.notes, score.combo, score.pg, score.gr, score.gd, score.bd,
-                    score.pr, score.minbp, score.option, score.lastupdate });
+            IrScoreTableUpdateResult first = service.UpdateIrScoreTableWithMetrics(123, gateway, client, PlayerScoreRegex);
+            Assert.IsTrue(first.Succeeded);
+            Assert.AreEqual(1, first.ScoreTable.Count);
+            Assert.IsTrue(first.MetadataUpdated);
+            List<LR2IRScore> saved = gateway.LoadIrScoreRows();
+            Assert.AreEqual(1, saved.Count);
+            foreach (LR2IRScore score in first.ScoreTable.Concat(saved))
+            {
+                Assert.AreEqual(hash, score.hash);
+                CollectionAssert.AreEqual(new[] { 4, 1000, 900, 700, 50, 10, 2, 1, 12, 0, 20260505 },
+                    new[] { score.clearValue, score.notes, score.combo, score.pg, score.gr, score.gd, score.bd,
+                        score.pr, score.minbp, score.option, score.lastupdate });
+            }
+            LR2SongDBExtended.ir_score_refresh_metadata metadata = gateway.LoadIrScoreRefreshMetadata(123);
+            Assert.AreEqual(BmsLibraryIrService.ComputeScoreDigest(first.ScoreTable), metadata.score_digest_sha256);
+            Assert.IsTrue(metadata.updated_at > DateTime.MinValue);
+            string before = CaptureRawIrDatabase(env.SongDbPath);
+            writeConnections = 0;
+            IrScoreTableUpdateResult second = service.UpdateIrScoreTableWithMetrics(123, gateway, client, PlayerScoreRegex);
+
+            Assert.AreEqual("changed", first.SkipReason);
+            Assert.IsFalse(first.Skipped);
+            Assert.AreEqual("score_digest_same", second.SkipReason);
+            Assert.IsTrue(second.Skipped);
+            Assert.AreEqual(1, second.ParsedRows);
+            Assert.AreEqual(1, second.LoadedRows);
+            Assert.AreEqual(hash, second.ScoreTable[0].hash);
+            Assert.IsFalse(second.MetadataUpdated);
+            Assert.AreEqual(0, writeConnections);
+            Assert.AreEqual(before, CaptureRawIrDatabase(env.SongDbPath));
         }
-        LR2SongDBExtended.ir_score_refresh_metadata metadata = gateway.LoadIrScoreRefreshMetadata(123);
-        Assert.AreEqual(BmsLibraryIrService.ComputeScoreDigest(first.ScoreTable), metadata.score_digest_sha256);
-        Assert.IsTrue(metadata.updated_at > DateTime.MinValue);
-        string before = CaptureRawIrDatabase(env.SongDbPath);
-        writeConnections = 0;
-        IrScoreTableUpdateResult second = service.UpdateIrScoreTableWithMetrics(123, gateway, client, PlayerScoreRegex);
-
-        Assert.AreEqual("changed", first.SkipReason);
-        Assert.IsFalse(first.Skipped);
-        Assert.AreEqual("score_digest_same", second.SkipReason);
-        Assert.IsTrue(second.Skipped);
-        Assert.AreEqual(1, second.ParsedRows);
-        Assert.AreEqual(1, second.LoadedRows);
-        Assert.AreEqual(hash, second.ScoreTable[0].hash);
-        Assert.IsFalse(second.MetadataUpdated);
-        Assert.AreEqual(0, writeConnections);
-        Assert.AreEqual(before, CaptureRawIrDatabase(env.SongDbPath));
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
     }
 
     /// <summary>
@@ -2012,7 +2086,7 @@ public sealed class BmsLibraryIrServiceTests
         builder.Append("<lastupdate>");
         if (lastUpdate.HasValue)
         {
-            builder.Append(lastUpdate.Value.ToString("yyyy-MM-dd HH:mm:ss"));
+            builder.Append(lastUpdate.Value.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
         }
         builder.Append("</lastupdate>\n");
         if (appendNul)

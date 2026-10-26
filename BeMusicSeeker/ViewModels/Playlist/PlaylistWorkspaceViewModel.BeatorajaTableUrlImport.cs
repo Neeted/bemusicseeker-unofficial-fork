@@ -245,6 +245,13 @@ public sealed partial class PlaylistWorkspaceViewModel
                         }
                         item.ExternalImportException = loadResult.Exception;
                         WriteBeatorajaTableUrlImportWarning(loadResult.Exception, "beatoraja_table_url_external_import_failed uri=" + item.Target.Uri.AbsoluteUri);
+                        if (PlaylistJsonDate.IsDateFailure(loadResult.Exception))
+                        {
+                            item.Failure = loadResult.Exception;
+                            RecordOutcome(item.Target, BeatorajaTableUrlImportOutcome.Failed(item.Target.Uri, item.Failure));
+                            RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateReportedExternalFailure(null, item.Target.Uri, item.Failure));
+                            continue;
+                        }
                         try
                         {
                             item.LoadedTable = BeatorajaBmtTableImportService.LoadCachedTable(tablePath, item.Target.RawUrl);

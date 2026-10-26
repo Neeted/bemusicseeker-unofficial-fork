@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -7,22 +8,37 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class TempDirectoryPublisherTests
 {
-    /// <summary>取得した作業ディレクトリがアプリtemp配下で実在して管理対象と認識されることを確認し、作成と所有判定の不一致を検出する。</summary>
+    /// <summary>非Gregorian文化でも固定UTC形式のsession名で管理ディレクトリを作り、実在・所有判定と回収を確認する。</summary>
     /// <remarks>実ファイルと所有markerの削除境界を確認し、管理外の利用者データ保持を分担する。</remarks>
-    [TestMethod]
-    public void GetCreatesManagedDirectory()
+    [DataTestMethod]
+    [DoNotParallelize]
+    [DataRow("th-TH")]
+    public void GetCreatesManagedDirectory(string cultureName)
     {
-        string directoryPath = TempDirectoryPublisher.Get("unit-test");
-
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
         try
         {
-            Assert.IsTrue(Directory.Exists(directoryPath));
-            Assert.IsTrue(TempDirectoryPublisher.IsManagedPath(directoryPath));
-            StringAssert.Contains(directoryPath, Path.Combine(Path.GetTempPath(), "BeMusicSeeker"));
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            string directoryPath = TempDirectoryPublisher.Get("unit-test");
+
+            try
+            {
+                Assert.IsTrue(Directory.Exists(directoryPath));
+                Assert.IsTrue(TempDirectoryPublisher.IsManagedPath(directoryPath));
+                string sessionName = Path.GetFileName(Path.GetDirectoryName(directoryPath)) ?? throw new AssertFailedException();
+                StringAssert.Matches(sessionName, new System.Text.RegularExpressions.Regex(@"^session-[0-9]{17}-[0-9]+-[a-f0-9]{32}$"));
+                var sessionTime = DateTime.ParseExact(sessionName.Substring(8, 17), "yyyyMMddHHmmssfff", CultureInfo.InvariantCulture);
+                Assert.IsTrue(sessionTime <= DateTime.UtcNow, "管理名はGregorianのUTC日時を使います。");
+                StringAssert.Contains(directoryPath, Path.Combine(Path.GetTempPath(), "BeMusicSeeker"));
+            }
+            finally
+            {
+                TempDirectoryPublisher.TryDeleteManagedPath(directoryPath);
+            }
         }
         finally
         {
-            TempDirectoryPublisher.TryDeleteManagedPath(directoryPath);
+            CultureInfo.CurrentCulture = previousCulture;
         }
     }
 

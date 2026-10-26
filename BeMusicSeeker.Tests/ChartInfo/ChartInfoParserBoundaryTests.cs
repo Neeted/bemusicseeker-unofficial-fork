@@ -13,10 +13,11 @@ namespace BeMusicSeeker.Tests;
 
 /// <summary>基準版で受理された境界の外部結果と、文字列保持要求の同値性を固定します。</summary>
 [TestClass]
+[DoNotParallelize]
 public sealed class ChartInfoParserBoundaryTests
 {
     /// <summary>
-    /// 負・零・無限座標、LN上書き、RANDOM除外などの受理境界で基準版の保存行・ChartString・診断順を保ち、解析器整理による互換結果の変化を検出する。
+    /// 負・零・無限座標、LN上書き、RANDOM除外の保存行・診断順を保ち、異文化でも独立したChartString期待値とUTF-8 hashを維持する。
     /// </summary>
     [TestMethod]
     [DataRow("future_predecessor")]
@@ -45,31 +46,46 @@ public sealed class ChartInfoParserBoundaryTests
         CultureInfo previous = CultureInfo.CurrentCulture;
         try
         {
-            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("ja-JP");
-            if (fixture.Failure != null)
+            foreach (string culture in new[] { "ja-JP", "en-US", "de-DE", "fr-FR", "th-TH", "ar-SA", "different-signs" })
             {
-                InvalidDataException exception = Assert.ThrowsException<InvalidDataException>(() => ChartInfoParser.ParseBytesDetailed(bytes, fixture.Extension));
-                Assert.AreEqual(fixture.Failure, exception.Message);
-                Assert.IsNotNull(exception.InnerException);
-                Assert.AreEqual(fixture.Failure, exception.InnerException.Message);
-                Assert.IsNull(exception.InnerException.InnerException);
-                return;
+                if (culture == "different-signs")
+                {
+                    // 負時刻のASCII負号を変更する誤実装を、OSの文化データに依存せず識別します。
+                    var changedSigns = (CultureInfo)CultureInfo.GetCultureInfo("en-US").Clone();
+                    changedSigns.NumberFormat.NegativeSign = "minus";
+                    CultureInfo.CurrentCulture = changedSigns;
+                }
+                else
+                {
+                    CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+                }
+                if (fixture.Failure != null)
+                {
+                    InvalidDataException exception = Assert.ThrowsException<InvalidDataException>(() => ChartInfoParser.ParseBytesDetailed(bytes, fixture.Extension));
+                    Assert.AreEqual(fixture.Failure, exception.Message);
+                    Assert.IsNotNull(exception.InnerException);
+                    Assert.AreEqual(fixture.Failure, exception.InnerException.Message);
+                    Assert.IsNull(exception.InnerException.InnerException);
+                    continue;
+                }
+                ChartInfoParser.ChartInfoParseResult result = ChartInfoParser.ParseBytesDetailed(bytes, fixture.Extension);
+                Assert.AreEqual(fixture.ChartString, result.ChartString, name);
+                string expectedChart = fixture.ChartString ?? throw new AssertFailedException("成功入力には独立したChartString期待値が必要です。");
+                Assert.AreEqual(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(expectedChart))), result.Row.charthash, name);
+                CollectionAssert.AreEqual(fixture.Diagnostics, ObserveDiagnostics(result), name);
+                Assert.AreEqual(fixture.Distribution, result.Row.distribution, name);
+                Assert.AreEqual(fixture.SpeedChange, result.Row.speedchange, name);
+                Assert.AreEqual(fixture.Notes, result.Row.notes, name);
+                Assert.AreEqual(fixture.NormalKeys, result.Row.n, name);
+                Assert.AreEqual(fixture.LongKeys, result.Row.ln, name);
+                Assert.AreEqual(fixture.NormalScratch, result.Row.s, name);
+                Assert.AreEqual(fixture.LongScratch, result.Row.ls, name);
+                Assert.AreEqual(fixture.Length, result.Row.length, name);
+                Assert.AreEqual(fixture.Feature, result.Row.feature, name);
+                Assert.AreEqual(fixture.MainBpmBits, DoubleBits(result.Row.mainbpm), name);
+                Assert.AreEqual(fixture.MinBpmBits, DoubleBits(result.Row.minbpm), name);
+                Assert.AreEqual(fixture.MaxBpmBits, DoubleBits(result.Row.maxbpm), name);
             }
-            ChartInfoParser.ChartInfoParseResult result = ChartInfoParser.ParseBytesDetailed(bytes, fixture.Extension);
-            Assert.AreEqual(fixture.ChartString, result.ChartString, name);
-            CollectionAssert.AreEqual(fixture.Diagnostics, ObserveDiagnostics(result), name);
-            Assert.AreEqual(fixture.Distribution, result.Row.distribution, name);
-            Assert.AreEqual(fixture.SpeedChange, result.Row.speedchange, name);
-            Assert.AreEqual(fixture.Notes, result.Row.notes, name);
-            Assert.AreEqual(fixture.NormalKeys, result.Row.n, name);
-            Assert.AreEqual(fixture.LongKeys, result.Row.ln, name);
-            Assert.AreEqual(fixture.NormalScratch, result.Row.s, name);
-            Assert.AreEqual(fixture.LongScratch, result.Row.ls, name);
-            Assert.AreEqual(fixture.Length, result.Row.length, name);
-            Assert.AreEqual(fixture.Feature, result.Row.feature, name);
-            Assert.AreEqual(fixture.MainBpmBits, DoubleBits(result.Row.mainbpm), name);
-            Assert.AreEqual(fixture.MinBpmBits, DoubleBits(result.Row.minbpm), name);
-            Assert.AreEqual(fixture.MaxBpmBits, DoubleBits(result.Row.maxbpm), name);
         }
         finally
         {

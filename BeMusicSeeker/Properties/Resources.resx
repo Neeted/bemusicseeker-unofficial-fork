@@ -3129,7 +3129,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="PlaylistLampViewer_segment_detail_format" xml:space="preserve"><value>{0}: {1} ({2})</value></data>
   <data name="PlaylistLampViewer_segment_detail_adaptive_format" xml:space="preserve"><value>{0}: {1} ({2})</value></data>
   <data name="PlaylistLampViewer_segment_unavailable_detail_format" xml:space="preserve"><value>{0}: {1}（{2}）</value></data>
-  <data name="PlaylistLampViewer_percentage_format" xml:space="preserve"><value>{0:N2}%</value></data>
+  <data name="PlaylistLampViewer_percentage_format" xml:space="preserve"><value>{0:F2}%</value></data>
   <data name="PlaylistLampViewer_percentage_less_than_format" xml:space="preserve"><value>{0}未満</value></data>
   <data name="PlaylistLampViewer_source_lr2" xml:space="preserve"><value>LR2</value></data>
   <data name="PlaylistLampViewer_source_beatoraja" xml:space="preserve"><value>beatoraja</value></data>
@@ -4042,5 +4042,11 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   </data>
   <data name="LibraryChartRemovalReport_RegistrationFailed" xml:space="preserve">
     <value>ファイルは削除されましたが、BMSルート登録の保存または反映に失敗しました。</value>
+  </data>
+  <data name="Error_PlaylistEntryLevelFormat" xml:space="preserve">
+    <value>ENTRY LEVELは小数点をピリオドにした有限数値全体で入力してください（例: -1.5、1e2）。空欄で値を解除できます。</value>
+  </data>
+  <data name="Error_PlaylistJsonDateFormat" xml:space="preserve">
+    <value>{0}の日時が不正です。yyyy-MM-dd、yyyy-MM-ddTHH:mm:ss（小数秒1～7桁、Z/±HH:mmは省略可）、またはyyyy/M/d（H:m:sと±HH:mmは省略可）で元データを訂正し、再実行してください。</value>
   </data>
 </root>

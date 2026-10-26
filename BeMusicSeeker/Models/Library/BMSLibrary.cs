@@ -660,7 +660,7 @@ public partial class BMSLibrary : ObservableObject
                     return (int)value;
                 }
             }
-            return int.Parse(token.ToString());
+            return int.Parse(token.ToString(), CultureInfo.InvariantCulture);
         }
     }
 

@@ -214,44 +214,30 @@ public sealed class PlaylistEntryCommitTests
         Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='playlist_entry_idx_uniq';"));
     }
 
-    /// <summary>地域表示の往復と明示小数、従来のピリオド・装飾入力、非数値維持・空 null を正本・不変差分・DBで確認し、切捨て・桁区切り解釈と非編集値の巻戻しを検出します。</summary>
+    /// <summary>固定dot表示の往復・Float全体・空nullを実owner/DBで確認し、装飾・カンマ・部分数値・非有限値は保存前に拒否します。非編集値・日時・版・配送を保持します。</summary>
     [DataTestMethod]
-    // text=null は実 source/row の地域表示をそのまま確定し、独立した表示文字列とも照合します。
-    [DataRow("fr-FR", 1.5, null, 1.5, "1,5")]
-    [DataRow("fr-FR", -1.5, null, -1.5, "-1,5")]
-    [DataRow("de-DE", 1.5, null, 1.5, "1,5")]
-    [DataRow("de-DE", -1.5, null, -1.5, "-1,5")]
-    [DataRow("en-US", 1.5, null, 1.5, "1.5")]
-    [DataRow("en-US", -1.5, null, -1.5, "-1.5")]
-    // 明示変更は同値入力だけを特別扱いして保存を捨てる実装を識別します。
-    [DataRow("fr-FR", 1.5, "2,5", 2.5, null)]
-    [DataRow("fr-FR", 1.5, "-2,5", -2.5, null)]
-    [DataRow("de-DE", 1.5, "2,5", 2.5, null)]
-    [DataRow("de-DE", 1.5, "-2,5", -2.5, null)]
-    // de-DE のピリオドは桁区切りでも、従来入力を15/-15へ変えません。
-    [DataRow("fr-FR", 2d, "1.5", 1.5, null)]
-    [DataRow("fr-FR", 2d, "-1.5", -1.5, null)]
-    [DataRow("fr-FR", 2d, "★1.5", 1.5, null)]
-    [DataRow("fr-FR", 2d, "★-1.5", -1.5, null)]
-    [DataRow("de-DE", 2d, "1.5", 1.5, null)]
-    [DataRow("de-DE", 2d, "-1.5", -1.5, null)]
-    [DataRow("de-DE", 2d, "★1.5", 1.5, null)]
-    [DataRow("de-DE", 2d, "★-1.5", -1.5, null)]
-    [DataRow("en-US", 2d, "1.5", 1.5, null)]
-    [DataRow("en-US", 2d, "-1.5", -1.5, null)]
-    [DataRow("en-US", 2d, "★1.5", 1.5, null)]
-    [DataRow("en-US", 2d, "★-1.5", -1.5, null)]
-    // 整数・空表示と旧3条件を保持し、null前後・空白だけの解除も同じ保存境界で扱います。
-    [DataRow("fr-FR", 12d, null, 12d, "12")]
-    [DataRow("fr-FR", null, null, null, "")]
-    [DataRow("en-US", 2d, "★12.5", 12.5, null)]
-    [DataRow("en-US", 2d, "A", 2d, null)]
-    [DataRow("en-US", 2d, "", null, null)]
-    [DataRow("fr-FR", 1.5, "", null, null)]
-    [DataRow("fr-FR", 1.5, "  ", null, null)]
-    [DataRow("fr-FR", 1.5, "A", 1.5, null)]
-    [DataRow("fr-FR", null, "A", null, null)]
-    public void CommitDraft_LevelUsesSavedNumberAndKeepsOtherValues(string culture, double? initialLevel, string? text, double? expected, string? displayed)
+    [DataRow("fr-FR", 1.5, null, 1.5, "1.5", false)]
+    [DataRow("de-DE", -1.5, null, -1.5, "-1.5", false)]
+    [DataRow("th-TH", 1.5000000000000002, null, 1.5000000000000002, "1.5000000000000002", false)]
+    [DataRow("en-US", 12d, null, 12d, "12", false)]
+    [DataRow("fr-FR", null, null, null, "", false)]
+    [DataRow("fr-FR", 1.5, "  -2.5e1  ", -25d, null, false)]
+    [DataRow("de-DE", 2d, ".5", .5, null, false)]
+    [DataRow("en-US", 2d, "+12.5", 12.5, null, false)]
+    [DataRow("fr-FR", 1.5, "", null, null, false)]
+    [DataRow("fr-FR", 1.5, "  ", null, null, false)]
+    [DataRow("fr-FR", 1.5, "2,5", 1.5, null, true)]
+    [DataRow("en-US", 1.5, "1,000", 1.5, null, true)]
+    [DataRow("en-US", 1.5, "★12.5", 1.5, null, true)]
+    [DataRow("fr-FR", 1.5, "12.5x", 1.5, null, true)]
+    [DataRow("en-US", 1.5, "1 2", 1.5, null, true)]
+    [DataRow("de-DE", 1.5, "A", 1.5, null, true)]
+    [DataRow("fr-FR", null, "A", null, null, true)]
+    [DataRow("en-US", 1.5, "NaN", 1.5, null, true)]
+    [DataRow("fr-FR", 1.5, "Infinity", 1.5, null, true)]
+    [DataRow("en-US", 1.5, "-Infinity", 1.5, null, true)]
+    [DataRow("en-US", 1.5, "1e9999", 1.5, null, true)]
+    public void CommitDraft_LevelUsesSavedNumberAndKeepsOtherValues(string culture, double? initialLevel, string? text, double? expected, string? displayed, bool rejected)
     {
         CultureInfo previousCulture = CultureInfo.CurrentCulture;
         CultureInfo previousUiCulture = CultureInfo.CurrentUICulture;
@@ -269,7 +255,27 @@ public sealed class PlaylistEntryCommitTests
             }
             PlaylistEntryReadSnapshot old = table.CaptureEntryReadSnapshot(entry);
             int lookupVersion = table.EntryLookupRevision;
+            DateTime oldDate = table.last_update;
+            DateTime entryDate = entry.adddate;
+            int receiptsBefore = fixture.Receipts.Count;
+            if (rejected)
+            {
+                Assert.ThrowsException<FormatException>(() => fixture.Commit(entry, "Level", text));
+                Assert.AreEqual(initialLevel, entry.level);
+                Assert.AreEqual(old.Revision, table.PlaylistEntriesRevision);
+                Assert.AreEqual(lookupVersion, table.EntryLookupRevision);
+                Assert.AreEqual(oldDate, table.last_update);
+                Assert.AreEqual(entryDate, entry.adddate);
+                Assert.AreEqual(receiptsBefore, fixture.Receipts.Count);
+                Assert.AreEqual("memo before", entry.memo);
+                Assert.AreEqual("comment before", entry.comment);
+                Assert.AreEqual(new Uri("https://example.test/original"), entry.Url);
+                using LR2SongDBExtended unchangedDb = fixture.OpenRead();
+                Assert.AreEqual(initialLevel, unchangedDb.ExecuteScalar<double?>("SELECT level FROM playlist_entry WHERE playlist_id = 9201 AND title = 'row-0';"));
+                return;
+            }
             PlaylistEntryCommitReceipt receipt = fixture.Commit(entry, "Level", text);
+            Assert.AreEqual(entryDate, entry.adddate);
             Assert.AreEqual(expected, entry.level);
             Assert.AreEqual("memo before", entry.memo);
             Assert.AreEqual("comment before", entry.comment);

@@ -69,6 +69,10 @@
 
 DBは問い合わせ数だけでなく、読み出す行数・列・索引を確認します。少数パスの処理を全テーブル取得後の絞込みに戻さず、既存窓口でパラメーター化、集合取得・更新、分割処理を使います。パスの識別、同じハッシュの複数所持、動作モード、部分キャッシュの意味を変えません。
 
+起動時の `chart_info` と `playlist_entry` のraw射影は、SQLiteのINTEGER・REALを型のまま読み、必要な文字列列だけを取得します。毎行の文字列配列やboxing、全行ORM化を中間段階に増やしません。現在行は同期callback内だけで借用し、callback先は未公開モデルを生成するだけとし、DB・UI・他主体のロックへ再入しません。従来の文字列APIも同じPrepare・Step・Finalizeを共用し、元例外とstatement解放を維持します。
+
+整数getterはINTEGER又はInvariant IntegerのTEXTを使い、Int32範囲外とREALは不適合です。doubleはREALを直接、INTEGERを明示変換し、TEXTだけをInvariant Float・桁区切りで解釈します。boolはINTEGERの非0、又はTEXTのbool字句・Invariant整数の非0を使い、REALはfalseです。NULL・不適合はnullable null又はfalseとし、文字列欄の数値風TEXTを再解釈しません。日時は範囲内のINTEGER ticks又は旧TEXT ticksから作り、地域依存の日付推測を行いません。消費側の既定値と行の採否は各機能仕様に従います。
+
 同じパッケージの列挙・バイト列・ハッシュ・解析結果は、有効期間の範囲で再利用します。同じ内容でも新しい保存先のリソース存在確認は別です。外部変更、削除結果、解析器・スキーマの版など、再確認が必要な条件は明示します。必要な警告や確認を落とした短縮は認めません。物理処理は件数に加え、容量、同一・別ボリューム、展開済みか、削除方式、失敗・再試行数も記録します。
 
 ### SQLiteの競合待機
@@ -144,6 +148,7 @@ DBは問い合わせ数だけでなく、読み出す行数・列・索引を確
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 祖先取得の仕事量と背景・親譜面数の分離 | [`LibraryMutationSession`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.Session.cs)、[`ChartDirectoryScanBuilder`](../../../BeMusicSeeker/Models/Utils/Scanning/ChartDirectoryScanBuilder.cs) | [`BmsLibraryFolderRenameRefreshTests.FolderMutation_RefreshesExistingAncestorsOnceFromFinalFilesystem`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) が実列挙root・返却ファイル数、Entry訪問と祖先Entryの書込み回数を確認する。旧新版の実終端時間と祖先取得時間は作業用の同条件比較へ分担し、恒久runner・時間閾値を追加しない。 |
+| 起動raw射影の型保持・固定TEXT互換とstatement寿命 | [`LR2SongDBExtended.SQLiteCommandExtended`](../../../BeMusicSeeker/Models/LR2/LR2SongDBExtended.cs) | [`SQLiteProviderRuntimeTests`](../../../BeMusicSeeker.Tests/Runtime/SQLiteProviderRuntimeTests.cs) の `SQLiteCommandExtended_PreservesRawTextAndNullValues` は実SQLiteのdouble bit・ticks・原文・NULLと従来string APIを確認する。`SQLiteCommandExtended_TypedGettersKeepStorageTypeAndFixedTextGrammar` はen-US/de-DE/th-THの型・範囲・TEXT互換・不適合を集約する。既存の一括・逐次step失敗と `SQLiteCommandExtended_TypedCallbackPreservesExceptionAndReleasesStatement` は元例外と解放後の明示SQLを確認する。readonly借用寿命、共用loopとmodel factoryの非再入は静的に確認する。最終集合の精度は各hydrationテストへ分担し、大規模性能の成功と区別する。 |
 | SQLiteのnative busy待機と外側再試行の除去 | `SQLiteConnectionEx`、`LR2SongDBExtended`、`LR2ScoreDBExtended` | `SQLiteProviderRuntimeTests` の `SQLiteConnectionEx_WriteContentionExecutesOnceAndPreservesData` は実Delete・InsertOrReplaceを別接続ロックで失敗させ、既存traceでSQL一回と保存値不変を確認する。`Lr2Connections_KeepNativeBusyTimeoutForReadAndWrite` は実接続の60秒設定、`SQLiteConnectionEx_CommitBusyRemainsFailureAndRollsBackUncommittedChanges` はCommit失敗とrollback・次の明示transactionを担当する。外側ループと未使用helperの不在は差分でも確認する。 |
 | 複数フォルダ・拡張子の反映集約とDB失敗 | `LibraryMutationSession`、`CommitCatalogSessionChanges` | [BmsLibraryFolderRenameRefreshTests](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) の `AutoRenameChartFolders_BatchesMultipleFolderMutationsIntoOneRefresh`、`MoveLibraryRootFolder_MixedFoldersPublishesOneOperationNotification`、`MoveLibraryRootFolder_DatabaseApplyFailureKeepsConfirmedPhysicalMoves`、`RenameBMSFilesExtensionsWithReceipt_MultipleExtensionFamiliesUseSingleSession`: 反映数をファイル・SQLite・通知・索引と対照する。 |
 | 複数パッケージと失敗時の非公開 | `CommitInstalledSessionChanges` | [BmsLibraryPackageInstallServiceTests](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `PendingResourcePackages_InstallThroughLibraryAndPreserveEarlierResourceSnapshot`、`InstallPendingPackagesToEstimatedDestinations_CanonicalApplyFailureKeepsPreparedTargetsWithoutPartialPublication`: 旧世代と成功後の対象集合も確認する。 |
