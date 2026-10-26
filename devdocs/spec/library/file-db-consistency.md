@@ -111,6 +111,8 @@ flowchart TB
 
 導入では既存の採番・重複判定・対象除外を先に行い、決定した実際の導入先全体を読み取り専用で検査します。事前の拒否では入力元、導入先、DB、保留状態を保持し、成功件数に含めません。独立した後続パッケージは処理できます。リソース名を新たに変更して衝突を回避する機能は追加しません。
 
+既存の保護資源採番を使う計画では、通常候補と譜面の実宛先を捕捉して型検査と変更計画へ共用します。後続通常先と必要directoryも最初から考慮し、空いている予定先を先行採番で奪いません。採番の空き名制約と実最終先の重複検査を分け、同内容省略後もその内容が終端に残ることを既存保護規則で保ちます。予定だけの占有を実FS衝突・hash比較結果へ変換せず、確定前のsource削除や新しい巻戻しは加えません。
+
 フォルダ統合は一つの対象として全体を検査し、一部分だけを統合してから通常の拒否にしません。実行中の再検査で失敗した場合は物理処理・補償の結果として扱い、内部例外の型だけを見て無害な事前拒否へ置き換えません。
 
 ### 入力元の後片付け
@@ -133,6 +135,7 @@ flowchart TB
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 後続通常先を保つ保護採番と確定後の消費 | `BmsLibraryPackageInstallService`、`FileDbMutationExecutor` | `BmsLibraryPackageInstallServiceTests.InstallPendingPackages_ProtectedNamesPreserveWholeBatchAndStoredPendingRemoval` は独立先行成功と衝突packageを一sessionへ通し、実bytes・song/install表・所持/保留・受付終端を確認する。`MovePackageFilesWithReceipt_SmartSameComponentDeletesSourceDuringFinalize` は通常同等と実在suffix同内容をdurable後だけ消費する。正逆/3拡張子/親directoryの条件は[導入の対応表](drop-install.md#実装とテストの対応)へ分担し、型衝突・確定失敗・回収の既存系列を維持する。 |
 | 保留候補・配置へ成功scopeだけを一sessionで反映、失敗・未処理・prefix兄弟を保持 | `LibraryMutationSession`、`LibraryInstallDestinationChange`、`PackageStateMutationApplier.ApplyPackageReferenceFacts` | [`BmsLibraryFolderRenameRefreshTests.ApplyAutoRenamePlans_UnexpectedMoveFailureCommitsConfirmedPrefixAndStopsSuffix`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) が実FS/SQLiteの成功prefixだけの候補追従、`OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_PublishesOneResourceGenerationForConfirmedFoldersOnly` が実削除APIの成功scopeだけの候補失効・確定DST解除を確認する。状態遷移の条件表は[変更操作の対応表](mutations.md#実装とテストの対応)へ分担する。 |
 | 物理成功と登録保存・catalogの独立回収 | [`LibraryChartRemovalOutcome`](../../../BeMusicSeeker/Models/BmsLibraryInternal/FileOperations/LibraryChartRemovalOutcome.cs) | `OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_RegistrationAndCatalogFinalizeIndependently` が4終端を実FS/SQLite/configで、`LibraryChartRemovalReportTests` と選択workflowの報告接続が両原因と物理件数の保持を確認する。 |
 | 原子的な単一ファイルの公開と失敗時の保全 | [`AtomicFileWriter`](../../../BeMusicSeeker/Models/Utils/FileOperations/AtomicFileWriter.cs) | [`AtomicFileWriterTests`](../../../BeMusicSeeker.Tests/FileOperations/AtomicFileWriterTests.cs) |

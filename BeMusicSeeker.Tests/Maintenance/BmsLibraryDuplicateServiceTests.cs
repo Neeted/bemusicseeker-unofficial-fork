@@ -1794,7 +1794,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
-    /// 異なる内容の同名ファイルは既存実体と利用者列を保ち、採番された実移動先へ所持集合とDBを揃えることを確認します。
+    /// 実譜面衝突と保護readmeの将来通常先を含む統合で、全bytes・既存利用者列・採番実pathのDB/所持と一session確定・回収を保ちます。
     /// </summary>
     /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
     [TestMethod]
@@ -1816,6 +1816,12 @@ public sealed class BmsLibraryDuplicateServiceTests
             File.WriteAllText(collisionPath, "#PLAYER 1\r\n#TITLE existing destination\r\n#ARTIST existing\r\n#00111:02\r\n");
             byte[] sourceBytes = File.ReadAllBytes(srcChartPath);
             byte[] collisionBytes = File.ReadAllBytes(collisionPath);
+            File.WriteAllBytes(Path.Combine(dstDir, "readme.txt"), [1]);
+            File.WriteAllBytes(Path.Combine(srcDir, "readme.txt"), [2, 3]);
+            File.WriteAllBytes(Path.Combine(srcDir, "readme(1).txt"), [4, 5, 6]);
+            File.SetLastWriteTimeUtc(Path.Combine(dstDir, "readme.txt"), new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+            File.SetLastWriteTimeUtc(Path.Combine(srcDir, "readme.txt"), new DateTime(2020, 1, 3, 0, 0, 0, DateTimeKind.Utc));
+            TestBmsLibrary? library = null;
             try
             {
                 ChartFile sourceFile = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(srcChartPath));
@@ -1829,12 +1835,20 @@ public sealed class BmsLibraryDuplicateServiceTests
                     songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingFile), typeof(LR2SongDB.song));
                 }
 
-                var library = new TestBmsLibrary(
+                library = new TestBmsLibrary(
                     songDbPath,
                     null,
                     null,
                     new TestFileMutationService(),
-                    new RecordingDialogService())
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null),
+                    () => new BmsLibraryOptionsSnapshot
+                    {
+                        OperationModeLR2DB = false,
+                        EnableSmartComponentOverwrite = true,
+                        KeepSmartOverwriteProtectedFilesByRenaming = true,
+                        DeletePendingPackageSourceAfterInstall = false
+                    })
                 {
                     BmsCharts = [sourceFile, existingFile],
                     BmsonCharts = []
@@ -1874,9 +1888,18 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsNotNull(movedRow);
                 Assert.AreEqual(sourceFile.Md5, movedRow.hash);
                 Assert.IsNull(verify.Find<LR2SongDB.song>(srcChartPath));
+                CollectionAssert.AreEqual(new byte[] { 1 }, File.ReadAllBytes(Path.Combine(dstDir, "readme.txt")));
+                CollectionAssert.AreEqual(new byte[] { 4, 5, 6 }, File.ReadAllBytes(Path.Combine(dstDir, "readme(1).txt")));
+                CollectionAssert.AreEqual(new byte[] { 2, 3 }, File.ReadAllBytes(Path.Combine(dstDir, "readme(2).txt")));
+                CollectionAssert.AreEquivalent(new[] { collisionPath, actualDestinationPath, Path.Combine(dstDir, "readme.txt"),
+                    Path.Combine(dstDir, "readme(1).txt"), Path.Combine(dstDir, "readme(2).txt") }, Directory.GetFiles(dstDir, "*", System.IO.SearchOption.AllDirectories));
+                Assert.IsFalse(Directory.Exists(srcDir));
+                Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable admission));
+                admission.Dispose();
             }
             finally
             {
+                library?.RequestShutdown("protected-name-merge");
                 if (Directory.Exists(tempRootPath))
                 {
                     Directory.Delete(tempRootPath, recursive: true);

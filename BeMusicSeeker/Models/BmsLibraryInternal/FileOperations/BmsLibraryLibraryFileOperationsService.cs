@@ -1463,7 +1463,15 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
     }
 
-    public FileCollisionResolutionResult ResolveFileCollisionWithSuffix(string sourcePath, string requestedPath, string sourceHashHint = null, string logCategory = null, Action<string> logInfo = null)
+    /// <summary>既存suffix規則と実ファイルの同内容省略を使って宛先を解決します。局所予約は未存在の空き名の採用だけを制限し、未指定時は従来の実FSだけを使います。</summary>
+    /// <param name="sourcePath">内容を保全する入力元file。</param>
+    /// <param name="requestedPath">元の宛先。suffixはこのstemへ付けます。</param>
+    /// <param name="sourceHashHint">同じ入力から捕捉したhash。未指定なら必要時だけ取得します。</param>
+    /// <param name="logCategory">既存の内部診断分類。</param>
+    /// <param name="logInfo">実在衝突/hashの既存診断先。</param>
+    /// <param name="isDestinationReserved">同じ物理計画で通常配置・譜面配置等に必要なpathの照会。実在候補のhash判定や結果フラグへ予定だけの占有を混ぜません。</param>
+    public FileCollisionResolutionResult ResolveFileCollisionWithSuffix(string sourcePath, string requestedPath, string sourceHashHint = null, string logCategory = null, Action<string> logInfo = null,
+        Func<string, bool> isDestinationReserved = null)
     {
         var result = new FileCollisionResolutionResult
         {
@@ -1477,52 +1485,62 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
         string candidatePath = requestedPath;
         int suffix = 1;
-        while (LongPathFileSystem.EntryExists(candidatePath))
+        while (true)
         {
-            result.FinalPath = candidatePath;
-            if (LongPathFileSystem.DirectoryExists(candidatePath))
+            bool candidateExists = LongPathFileSystem.EntryExists(candidatePath);
+            if (!candidateExists)
             {
-                if (!string.IsNullOrWhiteSpace(logCategory))
+                if (isDestinationReserved?.Invoke(candidatePath) != true)
                 {
-                    logInfo?.Invoke(logCategory + " collision_detected source=" + sourcePath + " candidate=" + candidatePath + " existsType=directory");
+                    result.FinalPath = candidatePath;
+                    return result;
                 }
             }
             else
             {
-                result.EncounteredFileCollision = true;
-                if (!string.IsNullOrWhiteSpace(logCategory))
+                result.FinalPath = candidatePath;
+                if (LongPathFileSystem.DirectoryExists(candidatePath))
                 {
-                    logInfo?.Invoke(logCategory + " collision_detected source=" + sourcePath + " candidate=" + candidatePath + " existsType=file");
-                }
-                if (string.IsNullOrWhiteSpace(result.SourceHash))
-                {
-                    result.SourceHash = TryComputeFileMd5ForPath(sourcePath, logCategory, logInfo);
-                }
-                string destinationHash = TryComputeFileMd5ForPath(candidatePath, logCategory, logInfo);
-                if (!string.IsNullOrWhiteSpace(result.SourceHash) && !string.IsNullOrWhiteSpace(destinationHash))
-                {
-                    if (result.SourceHash.Equals(destinationHash, StringComparison.OrdinalIgnoreCase))
+                    if (!string.IsNullOrWhiteSpace(logCategory))
                     {
-                        result.DuplicateMatched = true;
-                        result.DuplicatePath = candidatePath;
-                        return result;
+                        logInfo?.Invoke(logCategory + " collision_detected source=" + sourcePath + " candidate=" + candidatePath + " existsType=directory");
                     }
-                    result.AnyHashDifferent = true;
                 }
                 else
                 {
-                    result.AnyHashUnavailable = true;
+                    result.EncounteredFileCollision = true;
                     if (!string.IsNullOrWhiteSpace(logCategory))
                     {
-                        logInfo?.Invoke(logCategory + " hash_compare_unavailable source=" + sourcePath + " candidate=" + candidatePath + " reason=" + (string.IsNullOrWhiteSpace(result.SourceHash) ? "source_hash_unavailable" : "dest_hash_unavailable"));
+                        logInfo?.Invoke(logCategory + " collision_detected source=" + sourcePath + " candidate=" + candidatePath + " existsType=file");
+                    }
+                    if (string.IsNullOrWhiteSpace(result.SourceHash))
+                    {
+                        result.SourceHash = TryComputeFileMd5ForPath(sourcePath, logCategory, logInfo);
+                    }
+                    string destinationHash = TryComputeFileMd5ForPath(candidatePath, logCategory, logInfo);
+                    if (!string.IsNullOrWhiteSpace(result.SourceHash) && !string.IsNullOrWhiteSpace(destinationHash))
+                    {
+                        if (result.SourceHash.Equals(destinationHash, StringComparison.OrdinalIgnoreCase))
+                        {
+                            result.DuplicateMatched = true;
+                            result.DuplicatePath = candidatePath;
+                            return result;
+                        }
+                        result.AnyHashDifferent = true;
+                    }
+                    else
+                    {
+                        result.AnyHashUnavailable = true;
+                        if (!string.IsNullOrWhiteSpace(logCategory))
+                        {
+                            logInfo?.Invoke(logCategory + " hash_compare_unavailable source=" + sourcePath + " candidate=" + candidatePath + " reason=" + (string.IsNullOrWhiteSpace(result.SourceHash) ? "source_hash_unavailable" : "dest_hash_unavailable"));
+                        }
                     }
                 }
             }
             candidatePath = BuildPathWithSuffix(requestedPath, suffix);
             suffix++;
         }
-        result.FinalPath = candidatePath;
-        return result;
     }
 
     public string GetNonConflictingPathWithSuffix(string requestedPath)

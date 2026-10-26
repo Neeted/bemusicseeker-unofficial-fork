@@ -3145,6 +3145,98 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(expectedInstalledPath, package.ChartEntries.Single().Chart.Path);
         });
     }
+    /// <summary>先行成功と保護名衝突packageを同要求で導入し、全bytes・実DB/所持・保存済み保留解除を一回の必須反映へ揃えます。準備失敗や先行成功の巻戻しを検出します。</summary>
+    /// <remarks>条件網羅は最終計画境界へ分担し、この代表は実ライブラリのFS/SQLite/受付終端へ接続します。</remarks>
+    [TestMethod]
+    public void InstallPendingPackages_ProtectedNamesPreserveWholeBatchAndStoredPendingRemoval()
+    {
+        WithTemporarySongDb((songDbPath, root) =>
+        {
+            string installedRoot = Path.Combine(root, "Installed");
+            string firstSource = Path.Combine(root, "FirstSource");
+            string protectedSource = Path.Combine(root, "ProtectedSource");
+            string firstDestination = Path.Combine(installedRoot, "First");
+            string protectedDestination = Path.Combine(installedRoot, "Protected");
+            string oldPath = CreateBmsFile(Path.Combine(installedRoot, "Existing"), "old.bms", "#TITLE Existing");
+            string firstPath = CreateBmsFile(firstSource, "first.bms", "#TITLE First");
+            string protectedPath = CreateBmsFile(protectedSource, "protected.bms", "#TITLE Protected");
+            ChartFile[] charts = new[] { oldPath, firstPath, protectedPath }.Select(path => BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path))).ToArray();
+            byte[][] chartBytes = new[] { oldPath, firstPath, protectedPath }.Select(File.ReadAllBytes).ToArray();
+            WriteProtectedNameFile(protectedDestination, "readme.txt", [1], false);
+            WriteProtectedNameFile(protectedSource, "readme.txt", [2, 3], true);
+            WriteProtectedNameFile(protectedSource, "readme(1).txt", [4, 5, 6], true);
+            string untouched = WriteProtectedNameFile(Path.Combine(root, "Unrelated"), "sentinel.bin", [7, 8], false);
+            ChartPackage[] packages =
+            [
+                ChartPackageTestExtensions.CreatePackage(ChartPackageTestExtensions.CreateEntryWithInstallDestination(charts[1], firstDestination)),
+                ChartPackageTestExtensions.CreatePackage(ChartPackageTestExtensions.CreateEntryWithInstallDestination(charts[2], protectedDestination))
+            ];
+            packages[0].path = firstSource;
+            packages[1].path = protectedSource;
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+            {
+                db.CreateTable<LR2SongDBExtended.install>();
+                db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(charts[0]), typeof(LR2SongDB.song));
+                foreach (ChartPackage package in packages) { db.InsertOrReplace(package, typeof(LR2SongDBExtended.install)); }
+            });
+            var library = new TestBmsLibrary(songDbPath, null, null, new RealFileMutationService(), new RecordingDialogService(),
+                new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = installedRoot,
+                    EnableSmartComponentOverwrite = true,
+                    KeepSmartOverwriteProtectedFilesByRenaming = true,
+                    DeletePendingPackageSourceAfterInstall = false
+                })
+            {
+                BmsCharts = [charts[0]],
+                BmsonCharts = [],
+                ChartPackagesPending = CreatePackageCollection(packages),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+            try
+            {
+                PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages);
+
+                Assert.AreEqual(0, result.FailedPackages.Count, result.SessionReceipt.PrimaryFailure?.ToString());
+                Assert.IsTrue(result.SessionReceipt.DurableCommit);
+                Assert.IsFalse(result.SessionReceipt.HasRequiredFailure);
+                Assert.IsFalse(result.SessionReceipt.HasDurableFinalizationFailure);
+                Assert.AreEqual(1, result.SessionReceipt.ApplyCounts.InstalledTargetApplyCount);
+                Assert.AreEqual(1, result.SessionReceipt.ApplyCounts.RequiredPublicationCount);
+                Assert.AreEqual(0, library.ChartPackagesPending.Count);
+                Assert.AreEqual(2, library.ChartPackagesInstalled.Count);
+                string[] finalCharts = [oldPath, Path.Combine(firstDestination, "first.bms"), Path.Combine(protectedDestination, "protected.bms")];
+                CollectionAssert.AreEquivalent(finalCharts, library.BmsCharts.Select(chart => chart.Path).ToArray());
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                {
+                    CollectionAssert.AreEquivalent(finalCharts, db.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+                    Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
+                    for (int index = 0; index < finalCharts.Length; index++)
+                    {
+                        LR2SongDB.song row = db.Find<LR2SongDB.song>(finalCharts[index]);
+                        Assert.IsNotNull(row);
+                        Assert.AreEqual(charts[index].Md5, row.hash);
+                        CollectionAssert.AreEqual(chartBytes[index], File.ReadAllBytes(finalCharts[index]));
+                    }
+                }
+                AssertProtectedNameFiles(protectedDestination, new Dictionary<string, byte[]>
+                {
+                    ["protected.bms"] = chartBytes[2],
+                    ["readme.txt"] = [1],
+                    ["readme(1).txt"] = [4, 5, 6],
+                    ["readme(2).txt"] = [2, 3]
+                });
+                Assert.IsFalse(Directory.Exists(firstSource));
+                Assert.IsFalse(Directory.Exists(protectedSource));
+                CollectionAssert.AreEqual(new byte[] { 7, 8 }, File.ReadAllBytes(untouched));
+                Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable admission));
+                admission.Dispose();
+            }
+            finally { library.RequestShutdown("protected-install-names"); }
+        });
+    }
+
     /// <summary>
     /// 同じ内容を別フォルダへ実導入すると所有者数だけ増やし、ハッシュ集合の版とプレイリスト集計を再利用して、不要な全体失効を検出する。
     /// </summary>
@@ -6972,11 +7064,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
     /// <summary>
-    /// 同内容の資源をsmart上書きで省略しても元入力は保存確定後にだけ消費し、準備前の消失や省略資源の片付け漏れを検出する。
+    /// 通常同等と、後続通常先でもある実在suffix同内容の省略を保ち、元入力はdurable後だけ消費します。予約だけで同内容先を除外する退行や後続上書きを検出します。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
-    public void MovePackageFilesWithReceipt_SmartSameComponentDeletesSourceDuringFinalize()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MovePackageFilesWithReceipt_SmartSameComponentDeletesSourceDuringFinalize(bool protectedSuffix)
     {
 
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -6987,9 +7081,20 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(destinationDirectoryPath);
             string sourcePath = Path.Combine(sourceDirectoryPath, "notes.txt");
             string destinationPath = Path.Combine(destinationDirectoryPath, "notes.txt");
-            File.WriteAllText(sourcePath, "same-content");
-            File.WriteAllText(destinationPath, "same-content");
-            File.SetLastWriteTimeUtc(destinationPath, File.GetLastWriteTimeUtc(sourcePath));
+            string otherSource = Path.Combine(sourceDirectoryPath, "notes(1).txt");
+            if (protectedSuffix)
+            {
+                WriteProtectedNameFile(sourceDirectoryPath, "notes.txt", [2, 3], true);
+                WriteProtectedNameFile(sourceDirectoryPath, "notes(1).txt", [4, 5, 6], true);
+                WriteProtectedNameFile(destinationDirectoryPath, "notes.txt", [1], false);
+                WriteProtectedNameFile(destinationDirectoryPath, "notes(1).txt", [2, 3], false);
+            }
+            else
+            {
+                File.WriteAllText(sourcePath, "same-content");
+                File.WriteAllText(destinationPath, "same-content");
+                File.SetLastWriteTimeUtc(destinationPath, File.GetLastWriteTimeUtc(sourcePath));
+            }
             ChartPackage package = ChartPackageTestExtensions.CreatePackage(Enumerable.Empty<ChartFile>());
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
@@ -7002,7 +7107,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     EnableSmartComponentOverwrite = true,
-                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                    KeepSmartOverwriteProtectedFilesByRenaming = protectedSuffix
                 },
                 (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
                 exception => exception.Message,
@@ -7013,7 +7118,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 _ => { },
                  _ =>
                  {
-                     callbackSawSource = File.Exists(sourcePath);
+                     callbackSawSource = File.Exists(sourcePath) && (!protectedSuffix || File.Exists(otherSource));
                      return FileDbMutationCommitResult.Durable();
                  },
                  sourceCleanupPolicy: PackageSourceCleanupPolicy.PreserveUnconsumedContents,
@@ -7025,6 +7130,16 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsFalse(File.Exists(sourcePath));
             Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
             Assert.IsTrue(File.Exists(destinationPath));
+            if (protectedSuffix)
+            {
+                AssertProtectedNameFiles(destinationDirectoryPath, new Dictionary<string, byte[]>
+                {
+                    ["notes.txt"] = [1],
+                    ["notes(1).txt"] = [2, 3],
+                    ["notes(1)(1).txt"] = [4, 5, 6]
+                });
+                Assert.IsFalse(File.Exists(otherSource));
+            }
         });
     }
     /// <summary>

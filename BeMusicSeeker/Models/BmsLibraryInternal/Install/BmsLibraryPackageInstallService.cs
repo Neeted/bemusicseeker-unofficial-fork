@@ -270,14 +270,18 @@ internal sealed class BmsLibraryPackageInstallService
         return destinationChartPath;
     }
 
-    private void ValidatePackageDestinationTypes(
+    /// <summary>通常候補と実譜面先を一度捕捉して型検査し、物理計画にも同じ値を渡します。新規directory一括移動は従来どおり個別component計画を作りません。</summary>
+    private ComponentMovePlanBuildResult ValidatePackageDestinationTypes(
         string sourcePath,
         bool isAutoNaming,
         string destinationDirectory,
         IEnumerable<string> installComponentFiles,
         IEnumerable<PackageChartEntry> installTargetEntries,
-        ISet<string> excludedComponentPaths)
+        ISet<string> excludedComponentPaths,
+        out List<KeyValuePair<string, string>> chartDestinationPaths)
     {
+        chartDestinationPaths = [];
+        ComponentMovePlanBuildResult componentPlan = null;
         FileDbMutationDestinationTypeGuard.ValidatePath(
             sourcePath,
             destinationDirectory,
@@ -285,9 +289,7 @@ internal sealed class BmsLibraryPackageInstallService
 
         if (!isAutoNaming)
         {
-            // BuildComponentMovePlan は共有する明示順の候補境界です。
-            // 下の executor 用計画と同じ除外規則と相対パス規則を適用します。
-            ComponentMovePlanBuildResult componentPlan = BuildComponentMovePlan(
+            componentPlan = BuildComponentMovePlan(
                 installComponentFiles,
                 destinationDirectory,
                 excludedComponentPaths);
@@ -304,6 +306,11 @@ internal sealed class BmsLibraryPackageInstallService
             }
         }
 
+        var chartReservations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (ComponentMovePlanItem component in componentPlan?.PlanItems ?? [])
+        {
+            AddPlannedDestinationAndParents(chartReservations, component.DestinationPath, destinationDirectory);
+        }
         foreach (PackageChartEntry entry in installTargetEntries ?? [])
         {
             ChartFile chart = entry?.Chart;
@@ -315,16 +322,98 @@ internal sealed class BmsLibraryPackageInstallService
                 : ResolveChartDestinationPath(
                     sourcePath,
                     destinationDirectory,
-                    chart);
-            if (string.IsNullOrWhiteSpace(destinationChartPath)
-                || string.IsNullOrWhiteSpace(chart?.Path))
+                    chart,
+                    chartReservations);
+            if (string.IsNullOrWhiteSpace(chart?.Path))
             {
                 continue;
             }
+            chartDestinationPaths.Add(new KeyValuePair<string, string>(chart.Path, destinationChartPath));
+            if (string.IsNullOrWhiteSpace(destinationChartPath)) { continue; }
             FileDbMutationDestinationTypeGuard.ValidatePath(
                 chart.Path,
                 destinationChartPath,
                 expectedIsDirectory: false);
+            AddPlannedDestinationAndParents(chartReservations, destinationChartPath, destinationDirectory);
+        }
+        return componentPlan;
+    }
+
+    /// <summary>同じ型検査を通した捕捉済み候補・実譜面先と固定optionsから、一計画の最終component先と消費元を決めます。通常先・必要directory・譜面先・生成先を空き名に使わず、実在同内容の省略は保持します。参照探索や候補の再列挙は行いません。</summary>
+    internal (IReadOnlyList<ComponentMovePlanItem> PlanItems, IReadOnlyList<string> SourceCleanupFiles) BuildFinalComponentMovePlan(
+        IReadOnlyList<ComponentMovePlanItem> componentCandidates,
+        IReadOnlyList<KeyValuePair<string, string>> chartDestinationPaths,
+        string destinationDirectory,
+        BmsLibraryOptionsSnapshot options,
+        Action<string> logInstallPerformance = null)
+    {
+        ArgumentNullException.ThrowIfNull(componentCandidates);
+        ArgumentNullException.ThrowIfNull(chartDestinationPaths);
+        var unavailableDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var finalDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (ComponentMovePlanItem component in componentCandidates)
+        {
+            if (component != null) { AddPlannedDestinationAndParents(unavailableDestinations, component.DestinationPath, destinationDirectory); }
+        }
+        foreach (KeyValuePair<string, string> chart in chartDestinationPaths)
+        {
+            AddPlannedDestinationAndParents(unavailableDestinations, chart.Value, destinationDirectory);
+            if (!string.IsNullOrWhiteSpace(chart.Value)) { EnsureUniqueDestinationPath(finalDestinations, chart.Value); }
+        }
+
+        var result = new List<ComponentMovePlanItem>();
+        var sourceCleanupFiles = new List<string>();
+        foreach (ComponentMovePlanItem component in componentCandidates)
+        {
+            if (string.IsNullOrWhiteSpace(component?.SourcePath)) { continue; }
+            if (!LongPathFileSystem.FileExists(component.SourcePath))
+            {
+                throw new FileNotFoundException(Resources.Error_FileNotFound, component.SourcePath);
+            }
+            string finalPath = component.DestinationPath;
+            if (options?.EnableSmartComponentOverwrite == true)
+            {
+                bool samePath = IsSamePath(component.SourcePath, finalPath);
+                ComponentMoveDecision decision = samePath ? ComponentMoveDecision.SkipSame : DecideComponentMove(component.SourcePath, finalPath);
+                bool keepByRename = options.KeepSmartOverwriteProtectedFilesByRenaming
+                    && LongPathFileSystem.FileExists(finalPath)
+                    && IsSmartOverwriteProtectedExtension(component.SourcePath)
+                    && decision != ComponentMoveDecision.SkipSame;
+                if (keepByRename)
+                {
+                    FileCollisionResolutionResult resolution = libraryFileOperationsService.ResolveFileCollisionWithSuffix(
+                        component.SourcePath, finalPath, null, "smart_overwrite", logInstallPerformance, unavailableDestinations.Contains);
+                    if (resolution.DuplicateMatched)
+                    {
+                        // 同じ固定保護設定の後続componentも、実在する同内容先を上書きしません。
+                        // 消費元だけを確定後のcleanupへ渡し、現在のhash一致で先に削除しません。
+                        sourceCleanupFiles.Add(component.SourcePath);
+                        continue;
+                    }
+                    finalPath = resolution.FinalPath;
+                }
+                else if (decision == ComponentMoveDecision.SkipSame || decision == ComponentMoveDecision.SkipOlderOrEqual)
+                {
+                    if (!samePath) { sourceCleanupFiles.Add(component.SourcePath); }
+                    continue;
+                }
+            }
+            sourceCleanupFiles.Add(component.SourcePath);
+            EnsureMutationDestinationIsDistinct(component.SourcePath, finalPath);
+            EnsureUniqueDestinationPath(finalDestinations, finalPath);
+            unavailableDestinations.Add(finalPath);
+            result.Add(new ComponentMovePlanItem { SourcePath = component.SourcePath, DestinationPath = finalPath });
+        }
+        return (result, sourceCleanupFiles);
+    }
+
+    /// <summary>既知の配置pathから必要directoryをrootまで辿り、未存在の親をfile採番で奪わないようにします。FS列挙・存在確認は行いません。</summary>
+    private void AddPlannedDestinationAndParents(ISet<string> destinations, string path, string destinationDirectory)
+    {
+        for (string current = path; !string.IsNullOrWhiteSpace(current); current = Path.GetDirectoryName(current))
+        {
+            destinations.Add(current);
+            if (IsSamePath(current, destinationDirectory)) { break; }
         }
     }
 
@@ -1473,15 +1562,18 @@ internal sealed class BmsLibraryPackageInstallService
 
             // mutation plan と同じコンポーネント／譜面候補を解決し、smart 判定、
             // source cleanup 計画、DB callback の前にパッケージ全体を検証します。
+            ComponentMovePlanBuildResult componentPlan;
+            List<KeyValuePair<string, string>> chartDestinationPaths;
             try
             {
-                ValidatePackageDestinationTypes(
+                componentPlan = ValidatePackageDestinationTypes(
                     sourcePath,
                     isAutoNaming,
                     destinationDirectory,
                     installComponentFiles,
                     installTargetEntries,
-                    componentExclusionPaths);
+                    componentExclusionPaths,
+                    out chartDestinationPaths);
             }
             catch (FileDbMutationDestinationTypeConflictException exception)
             {
@@ -1503,9 +1595,7 @@ internal sealed class BmsLibraryPackageInstallService
                     new InvalidOperationException(Resources.Warn_LibraryOperationBusy));
             }
 
-            var reservedDestinationPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var mutationPaths = new List<FileDbMutationPathPlan>();
-            var chartDestinationPaths = new List<KeyValuePair<string, string>>();
             var sourceCleanupFiles = new List<string>();
             var sourceCleanupDirectories = new List<FileDbMutationCleanupPathPlan>();
             var reservedTemporaryPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1561,117 +1651,43 @@ internal sealed class BmsLibraryPackageInstallService
                     isDirectory: true,
                     destinationExists: false,
                     reservedTemporaryPaths));
-                foreach (PackageChartEntry entry in installTargetEntries)
+                foreach (KeyValuePair<string, string> chart in chartDestinationPaths)
                 {
-                    ChartFile chart = entry?.Chart;
-                    if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
-                    {
-                        continue;
-                    }
-                    string destinationChartPath = BuildDestinationChartPath(sourcePath, destinationDirectory, chart);
-                    if (string.IsNullOrWhiteSpace(destinationChartPath))
+                    if (string.IsNullOrWhiteSpace(chart.Value))
                     {
                         throw new InvalidOperationException(
-                            "The package-install preflight did not produce a destination for chart path: "
-                            + chart.Path);
+                            "The package-install preflight did not produce a destination for chart path: " + chart.Key);
                     }
-                    chartDestinationPaths.Add(new KeyValuePair<string, string>(chart.Path, destinationChartPath));
                 }
                 sourceCleanupDirectories.Add(new FileDbMutationCleanupPathPlan(sourcePath, recursive: true));
             }
             else
             {
-                ComponentMovePlanBuildResult componentPlan = BuildComponentMovePlan(
-                    installComponentFiles,
-                    destinationDirectory,
-                    componentExclusionPaths);
-                foreach (ComponentMovePlanItem componentItem in componentPlan.PlanItems)
+                componentPlan ??= BuildComponentMovePlan(installComponentFiles, destinationDirectory, componentExclusionPaths);
+                (IReadOnlyList<ComponentMovePlanItem> PlanItems, IReadOnlyList<string> SourceCleanupFiles) finalComponents = BuildFinalComponentMovePlan(componentPlan.PlanItems, chartDestinationPaths, destinationDirectory, options, logInstallPerformance);
+                sourceCleanupFiles.AddRange(finalComponents.SourceCleanupFiles);
+                foreach (ComponentMovePlanItem component in finalComponents.PlanItems)
                 {
-                    if (string.IsNullOrWhiteSpace(componentItem?.SourcePath))
-                    {
-                        continue;
-                    }
-                    if (!LongPathFileSystem.FileExists(componentItem.SourcePath))
-                    {
-                        throw new FileNotFoundException(Resources.Error_FileNotFound, componentItem.SourcePath);
-                    }
-                    string finalPath = componentItem.DestinationPath;
-                    if (options?.EnableSmartComponentOverwrite == true)
-                    {
-                        bool samePath = IsSamePath(componentItem.SourcePath, finalPath);
-                        ComponentMoveDecision decision = samePath
-                            ? ComponentMoveDecision.SkipSame
-                            : DecideComponentMove(componentItem.SourcePath, finalPath);
-                        bool keepByRename = options.KeepSmartOverwriteProtectedFilesByRenaming
-                            && LongPathFileSystem.FileExists(finalPath)
-                            && IsSmartOverwriteProtectedExtension(componentItem.SourcePath)
-                            && decision != ComponentMoveDecision.SkipSame;
-                        if (keepByRename)
-                        {
-                            FileCollisionResolutionResult resolution = libraryFileOperationsService.ResolveFileCollisionWithSuffix(
-                                componentItem.SourcePath,
-                                finalPath,
-                                null,
-                                "smart_overwrite",
-                                logInstallPerformance);
-                            if (resolution.DuplicateMatched)
-                            {
-                                // The existing suffixed candidate is
-                                // authoritative; defer deleting this duplicate
-                                // source until after the durable DB receipt.
-                                sourceCleanupFiles.Add(componentItem.SourcePath);
-                                continue;
-                            }
-                            finalPath = resolution.FinalPath;
-                        }
-                        else if (decision == ComponentMoveDecision.SkipSame
-                            || decision == ComponentMoveDecision.SkipOlderOrEqual)
-                        {
-                            // A duplicate at a different path is still a source
-                            // component consumed by this install.  Retain it only
-                            // for the true same-path no-op; all other smart-skip
-                            // source deletes belong to post-durable finalize.
-                            if (!samePath)
-                            {
-                                sourceCleanupFiles.Add(componentItem.SourcePath);
-                            }
-                            continue;
-                        }
-                    }
-                    sourceCleanupFiles.Add(componentItem.SourcePath);
-                    EnsureMutationDestinationIsDistinct(componentItem.SourcePath, finalPath);
-                    EnsureUniqueDestinationPath(reservedDestinationPaths, finalPath);
                     mutationPaths.Add(CreateMutationPathPlan(
-                        componentItem.SourcePath,
-                        finalPath,
+                        component.SourcePath,
+                        component.DestinationPath,
                         isDirectory: false,
-                        destinationExists: LongPathFileSystem.EntryExists(finalPath),
+                        destinationExists: LongPathFileSystem.EntryExists(component.DestinationPath),
                         reservedTemporaryPaths));
                 }
 
-                foreach (PackageChartEntry entry in installTargetEntries)
+                foreach (KeyValuePair<string, string> chart in chartDestinationPaths)
                 {
-                    ChartFile chart = entry?.Chart;
-                    string destinationChartPath = ResolveChartDestinationPath(
-                        sourcePath,
-                        destinationDirectory,
-                        chart,
-                        reservedDestinationPaths);
-                    if (string.IsNullOrWhiteSpace(destinationChartPath))
+                    if (string.IsNullOrWhiteSpace(chart.Value)) { continue; }
+                    if (!LongPathFileSystem.FileExists(chart.Key))
                     {
-                        continue;
+                        throw new FileNotFoundException(Resources.Error_FileNotFound, chart.Key);
                     }
-                    if (!LongPathFileSystem.FileExists(chart?.Path))
-                    {
-                        throw new FileNotFoundException(Resources.Error_FileNotFound, chart?.Path);
-                    }
-                    sourceCleanupFiles.Add(chart.Path);
-                    EnsureMutationDestinationIsDistinct(chart.Path, destinationChartPath);
-                    EnsureUniqueDestinationPath(reservedDestinationPaths, destinationChartPath);
-                    chartDestinationPaths.Add(new KeyValuePair<string, string>(chart.Path, destinationChartPath));
+                    sourceCleanupFiles.Add(chart.Key);
+                    EnsureMutationDestinationIsDistinct(chart.Key, chart.Value);
                     mutationPaths.Add(CreateMutationPathPlan(
-                        chart.Path,
-                        destinationChartPath,
+                        chart.Key,
+                        chart.Value,
                         isDirectory: false,
                         destinationExists: false,
                         reservedTemporaryPaths));
