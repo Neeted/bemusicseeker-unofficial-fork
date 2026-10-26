@@ -110,6 +110,8 @@ LR2に見せるjukeboxルートと、本アプリが譜面・リソースを走�
 
 同期状態は `lr2_song_db_sync_status` の `name=default` 行に保持します。状態、入力署名、実行識別子、処理位置、総数、段階、エラー、更新・完了時刻を記録します。状態には `NotNeeded`、`Needed`、`Running`、`Completed`、`Failed`、`Cancelled`、`Incomplete` があります。
 
+`signature` はハッシュ化せず、固定prefix `lr2_song_db_sync_v2` に、`appSchema=1`、`chartInfoSchema=5`、`chartInfoParser=21`、`songFolderGenerator=1`、`lr2FolderFileParser=1`、`lr2CompatibilityFacts=1`、`operationModeLR2DB=0` または `1` をこの順で `|` 区切りで連結した文字列です。構成・意味の変更は[開発指針の必須承認規則](../../../AGENTS.md#変更の原則)に従います。
+
 `Completed` は、完全な生成入力、フォルダ表の確定、楽曲の生成列更新、親L/P内で取得した入力の反映、必須詳細索引・互換性投影、状態の保存が成功したことを示します。同じ入力署名で完了済みなら全体同期を省略します。これは `chart_info` の存在・完全性・現行性の証明ではありません。譜面情報の補完は[譜面情報の管理](../library/chart-info.md)に従います。
 
 通常起動ではローカル必須出力の成功後、既存状態・署名で必要な全体同期を同じ親L/Pで直接待ちます。正常・失敗・中断とcleanupの実終端後に親受付を解放します。ローカル失敗では同期へ進まず、LR2だけの通常失敗ではローカル確定を維持し独立結果・永続記録・通知へ残します。親L/P解放後の必須UIと実host接続が成功してから通常・設定共通の終端で解禁し、同期失敗をUI成功の証明にもUI失敗の取消にも読み替えません。同期の失敗を上位のローカル準備成功へ混ぜず、進捗バーの再試行ボタンは設けません。設定画面の手動同期と次回起動は新しい入力を取得します。
@@ -191,6 +193,7 @@ DB確定後の必須反映失敗・未回復の物理失敗など、既存の整
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 保存同期署名の構成・順序・版と通常mode | [`Lr2SongDbSyncSignatureBuilder`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncSignatureBuilder.cs) | [`Lr2SongDbSyncSignatureBuilderTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncSignatureBuilderTests.cs) はfalse・trueそれぞれの独立literalと全文一致を確認する。builderの参照定数と必須承認規則との整合は静的確認へ分担する。 |
 | 利用者登録分類とLR2走査集合の分離 | [`Lr2SearchRootSnapshotOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SynchronizationPorts.cs) | `BmsRootRegistrationTests.Lr2Registration_ClassifiesPublishedPlacementWithoutChangingScanRoots` が利用者登録を、`BmsLibraryLr2SongDbSyncTests.CaptureBmsDirectories_*` / `Lr2SynchronizationArchitectureTests.SearchRootSnapshot*` が実XMLの登録保持・走査正規化・通常出力包含/追加ROOT除外を分担する。 |
 | 登録と分類用配置の同時捕捉 | [`BmsLibraryOptionsSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryOptionsSnapshot.cs)、[`Lr2SynchronizationPorts`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SynchronizationPorts.cs) | [`Lr2ConfigOwnerTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2ConfigOwnerTests.cs) が旧captureの不変と新登録・配置の公開を、[`BmsConfirmation_CompletesRealFileDiffBeforeClosing`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) が新登録を使った実走査・DB・表示と後続の維持を確認します。 |
 | 文字コード変更・再調査のメタデータ限定保存 | [`CatalogMaintenanceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogMaintenanceOwner.cs)、[`CatalogMutationOwner.ApplyMaintenanceWriteUnderGuard`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogMutationOwner.cs)、`SongMetadataUpdate` | [`SelectedChartMutationWorkflowOwnerTests.ApplyEncoding_RealStoreAfterDbLoadPreservesUnchangedSongColumns`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartMutationWorkflowOwnerTests.cs) と [`SelectedChartResourceHealthWorkflowOwnerTests.RescanAsync_RealStoreAfterDbLoadPreservesUnchangedSongColumns`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartResourceHealthWorkflowOwnerTests.cs) は実DB読込み・最新詳細hydrate後の本番操作で、生メタデータ5列と固定mtime由来のdate、他の全song列・背景行の保持を読取り専用SELECTで確認する。再調査は文字列差分あり・同値を扱う。保留のsong非新設と同値・修正印は既存の選択保留実storeケースと `BmsLibraryMaintenanceServiceTests` が分担する。 |

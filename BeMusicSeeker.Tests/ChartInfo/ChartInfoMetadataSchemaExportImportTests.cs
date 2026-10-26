@@ -191,7 +191,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             ChartInfoMetadataBundleManifestRow manifest = verify.Query<ChartInfoMetadataBundleManifestRow>("SELECT * FROM chart_info_metadata_bundle;").Single();
             Assert.AreEqual(ChartInfoExportRunner.MetadataBundleFormatVersion, manifest.format_version);
             Assert.AreEqual(BmsLibraryDbGateway.CurrentChartInfoSchemaVersion, manifest.chart_info_schema_version);
-            Assert.AreEqual(BmsLibraryDbGateway.CurrentChartInfoParserVersion, manifest.chart_info_parser_version);
+            Assert.AreEqual(21, manifest.chart_info_parser_version);
             Assert.AreEqual(1, manifest.chart_info_count);
             Assert.AreEqual(2, manifest.chart_digest_count);
         });

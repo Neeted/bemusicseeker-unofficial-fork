@@ -135,7 +135,7 @@ RANDOMは全て分岐1を最初に試します。使用フラグは行の見た�
 
 `charthash` は `BMSModel.toChartString()` 相当の文字列のSHA-256です。判定幅、TOTAL、LNモード、時刻、BPM・STOP、小節線、レーン状態、地雷、LN記号と音声長が影響します。BPMは入力の元文字列ではなく計算済みdoubleを文字列化します。
 
-譜面文字列相当のUTF-8を一つの連続バッファへ書き、完成領域を一度のSHA-256へ渡します。整数はInvariantCultureのASCII数字・負号、doubleはJava書式を使い、OSの地域設定によらず同じ文字列とhashを生成します。地域依存の整数書式で作った旧hashは[解析器版による最新性と通常補完](chart-info.md#最新性の判定)に従って再解析します。出力不要の行は書込み位置を戻しますが、その行の現在BPMの更新は残します。
+譜面文字列相当のUTF-8を一つの連続バッファへ書き、完成領域を一度のSHA-256へ渡します。整数はInvariantCultureのASCII数字・負号、doubleはJava書式を使い、OSの地域設定によらず同じ文字列とhashを生成します。保存済み成功行の再利用と通常補完は[解析器版による最新性](chart-info.md#最新性の判定)に従い、地域依存の旧hashだけを理由に再解析しません。出力不要の行は書込み位置を戻しますが、その行の現在BPMの更新は残します。
 
 `ParseBytesDetailed` は既定で同じUTF-8から検証用文字列を保持します。末尾引数 `retainChartString: false` を指定した結果の `ChartString` はnullです。`Parse`・`ParseBytes`・`ChartInfoBuildService.EvaluateSnapshot` は保持を要求せず、row・診断・hashは保持ありと一致します。
 

@@ -41,13 +41,13 @@ flowchart TB
 
 | 優先順位 | 条件 | 結果 |
 | --- | --- | --- |
-| 1 | 識別条件が一致し、解析器の版が現在の `chart_info` | 既存情報を再利用する |
-| 2 | 解析器の版が現在で、記録時の時間上限が現在の上限以上である解析失敗 | 再解析しない |
+| 1 | 識別条件が一致し、解析器の版が現行以上の `chart_info` | 既存情報を再利用する |
+| 2 | 解析器の版が現行と完全一致し、記録時の時間上限が現在の上限以上である解析失敗 | 再解析しない |
 | 3 | いずれもない | 解析候補にする |
 
 現在の情報と現在の失敗が併存する場合は情報を優先します。古い解析器の結果や、現在より短い制限時間で記録した失敗は、再解析を省く根拠にしません。
 
-現行の解析器版は22です。譜面文字列の整数をASCII固定にし、旧21で地域設定の負号が混入したhashを現在情報として再利用しません。同じ入力を所持する旧行は通常補完で実際に読み直して解析し、固定UTF-8のhashと現行版を保存します。旧行の版だけを更新せず、未所持の旧行も一括削除しません。最新性、同一起動内の全件現在判定、metadataの版検査とLR2同期署名は `BmsLibraryDbGateway.CurrentChartInfoParserVersion` を共用します。
+現行の解析器版は21です。保存済み成功行の21・22は識別条件が一致すれば再利用し、地域設定に依存するhashなどの相違だけで一律に再解析・版更新・削除しません。20以前の行は通常補完の対象とし、同じ入力を所持する場合は実際に読み直して解析し、固定UTF-8のhashと現行版を保存します。旧行の版だけを更新せず、未所持の旧行も一括削除しません。数値・日時の不変書式と譜面文字列のASCII整数は維持します。最新性、同一起動内の全件現在判定、metadataの版検査とLR2同期署名は `BmsLibraryDbGateway.CurrentChartInfoParserVersion` を共用します。保存署名に関わる変更は[必須承認規則](../../../AGENTS.md#変更の原則)に従います。
 
 
 保存済みの失敗は例外型やメッセージで再分類しません。再解析が必要な場合は、一覧から解析失敗結果を明示的に削除します。
@@ -121,7 +121,7 @@ bmsonのオブジェクト欄にある数値・文字列などの変換不能値
 | --- | --- | --- |
 | 再復号のメタデータ限定保存と詳細未付与の起動状態 | `CatalogMaintenanceOwner`、`CatalogMutationOwner`、`SongMetadataUpdate` | [LR2楽曲DBの対応表](../integration/lr2-song-db.md#実装とテストの対応)の `ApplyEncoding_RealStoreAfterDbLoadPreservesUnchangedSongColumns` と `RescanAsync_RealStoreAfterDbLoadPreservesUnchangedSongColumns` が、本番操作・実DB読込み・詳細hydrate後の更新5列/dateと対象外全列の保持を確認する。 |
 | スキーマ、メタデータの入出力、起動時取込み | [`CatalogChartInfoOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogChartInfoOwner.cs)、[`ChartInfoMetadataBundleStartupImporter`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoMetadataBundleStartupImporter.cs) | [`ChartInfoMetadataSchemaExportImportTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoMetadataSchemaExportImportTests.cs) の `ImportChartInfoMetadataBundle_ImportsMissingAndStaleRowsAndClearsFailures`（同一bundle再投入を含む）、`StartupImporter_PrefersDatabaseBundleOverArchive`、`StartupImporter_ImportsArchiveBundleAndMovesImportedArchive`（抽出済みcacheの移動・再配置・一回だけの抽出） |
-| 旧21の符号依存hashの通常補完、現在成功の優先、未所持旧行の保持、署名の版接続 | [`BmsLibraryDbGateway`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs)、[`ChartInfoBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoBuildService.cs)、[`Lr2SongDbSyncSignatureBuilder`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncSignatureBuilder.cs) | [`ChartInfoBackfillStorageTests.BackfillChartInfos_ParsesMissingRowsSkipsCurrentRowsAndReparsesStaleRows`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoBackfillStorageTests.cs) は負時刻の同一BMSから、旧hashの非再利用・一回の実読込み・進捗・SQLite確定後の独立ASCII literal由来hashと現行版、未所持旧行の版/hash保持を確認する。[`Lr2SongDbSyncSignatureBuilderTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncSignatureBuilderTests.cs) は現行解析器版を含む署名トークンを照合する。metadata/hydration/全件現在判定の定数接続と旧bundle不採用後の起動継続は静的確認へ分担する。 |
+| 旧20の通常補完、21・22の成功行再利用、現在成功の優先、未所持旧行の保持 | [`BmsLibraryDbGateway`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs)、[`ChartInfoBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoBuildService.cs) | [`ChartInfoBackfillStorageTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoBackfillStorageTests.cs) は未登録・旧20からの独立literal21保存、負時刻の独立ASCII literal由来hash・実読込み・進捗、未所持旧行の版/hash保持を確認する。`BackfillChartInfos_ReusesSavedSuccessAtCurrentOrFutureParserVersion` は実DBの21・22を本番の現在行検索で採用し、読取り0と保存版・差別化hashの保持を確認する。[`ChartInfoMetadataSchemaExportImportTests.ChartInfoExport_ExportsCurrentRowsAndComplementsDigestMap`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoMetadataSchemaExportImportTests.cs) は実exportのmanifest版を独立literal21で照合し、行選別・digest補完・件数を確認する。metadata/hydration/全件現在判定の定数接続と旧bundle不採用後の起動継続は静的確認へ分担する。 |
 | 解析結果、時間上限、互換入力 | [`ChartInfoParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoParser.cs)、[`ChartInfoBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoBuildService.cs) | [`ChartInfoParserBehaviorTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoParserBehaviorTests.cs) |
 | 詳細の未知取得・解析失敗の非恒久化と次の通常機会 | [`ChartInfoBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoBuildService.cs) | [`ChartInfoBackfillStorageTests.BackfillChartInfos_UnknownInputFailureSkipsAndNextOpportunityEvaluates`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoBackfillStorageTests.cs) は実SQLiteと管理主体を使い、未知読取り／解析失敗、通常の進捗通知故障、正常対象と成功識別・旧値の保持、raw失敗行の非生成、次通常補完での同対象の評価・保存を確認する。集約・保存の実終端は既存gateで確認し、OOM終了とhashの純捕捉範囲は静的に分担する。 |
 | 実ファイル差分での未知詳細失敗と健全処理の終端 | [`FileScanParseCommitOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/FileScanParseCommitOwner.cs)、共通詳細評価器 | [`BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_UnknownDetailFailureKeepsBasicAndWaitsForHealthyWriter`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationFileScanTests.cs) は詳細一件の通常故障でも基本行・正常対象の詳細・raw失敗行非生成を保ち、遅延した健全解析・writerの終端前に完了しないことを確認する。保存失敗の非公開とパイプライン終端は既存の `ApplyFileScanDiff_StreamingWriterFailureDoesNotBlockPipeline` へ分担する。 |

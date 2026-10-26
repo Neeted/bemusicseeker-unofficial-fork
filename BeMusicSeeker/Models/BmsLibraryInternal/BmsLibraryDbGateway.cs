@@ -109,7 +109,7 @@ internal sealed class BmsLibraryDbGateway(
 
     internal const int CurrentChartInfoSchemaVersion = 5;
 
-    internal const int CurrentChartInfoParserVersion = 22;
+    internal const int CurrentChartInfoParserVersion = 21;
 
     internal const int ChartInfoMetadataBundleFormatVersion = 1;
 
