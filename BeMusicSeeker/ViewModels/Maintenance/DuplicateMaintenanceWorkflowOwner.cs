@@ -100,7 +100,7 @@ internal sealed class DuplicateMaintenanceMutationResult
     internal static DuplicateMaintenanceMutationResult FromRemoval(string header,
         LibraryChartRemovalOutcome outcome, Exception failure)
     {
-        Exception primary = outcome?.CatalogFailure;
+        Exception primary = outcome?.RequiredFailure;
         Exception combined = primary == null ? failure : failure == null ? primary : new AggregateException(primary, failure);
         return new DuplicateMaintenanceMutationResult(combined == null, header,
             outcome?.ConfirmedChartCount ?? 0, combined, removalOutcome: outcome);
@@ -302,19 +302,24 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
 
     private sealed class ConfirmationDecision
     {
-        private ConfirmationDecision(bool accepted, Exception failure)
+        private ConfirmationDecision(bool accepted, Exception failure, bool cancelled = false)
         {
             Accepted = accepted;
             Failure = failure;
+            Cancelled = cancelled;
         }
 
         internal bool Accepted { get; }
+
+        internal bool Cancelled { get; }
 
         internal Exception Failure { get; }
 
         internal static ConfirmationDecision AcceptedResult { get; } = new(true, null);
 
         internal static ConfirmationDecision Rejected { get; } = new(false, null);
+
+        internal static ConfirmationDecision CancelledResult { get; } = new(false, null, true);
 
         internal static ConfirmationDecision Failed(Exception failure)
         {
@@ -557,17 +562,19 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             foreach (string folder in prepared.WholeFolderCandidatePaths)
             {
                 ConfirmationDecision folderConfirmation = await ConfirmAsync(new UiConfirmationRequest(
-                    string.Format(BeMusicSeeker.Properties.Resources.Confirm_DeleteFolderWithNoBms, folder),
+                    prepared.GetWholeFolderConfirmationMessage(folder),
                     BeMusicSeeker.Properties.Resources.MessageBoxTitle_Confirm,
-                    MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes),
-                    "Duplicate whole-folder deletion confirmation");
+                    MessageBoxButton.YesNoCancel, MessageBoxImage.Question, MessageBoxResult.Yes),
+                    "Duplicate whole-folder deletion confirmation", wholeFolder: true);
                 if (folderConfirmation.Failure != null)
                 {
                     return DuplicateMaintenanceMutationResult.Failed(plan.SelectionHeader, folderConfirmation.Failure, 0);
                 }
+                if (folderConfirmation.Cancelled) { return DuplicateMaintenanceMutationResult.Rejected(plan.SelectionHeader); }
                 if (folderConfirmation.Accepted) { approvedFolders.Add(folder); }
             }
-            IReadOnlyList<string> approvedPaths = approvedFolders.AsReadOnly();
+            IReadOnlyList<string> approvedPaths = prepared.GetExecutableWholeFolderPaths(approvedFolders);
+            prepared = prepared.ExcludeProtectedWholeFolderApprovals(approvedFolders);
 
             LibraryChartRemovalOutcome removalOutcome = null;
             Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
@@ -575,7 +582,8 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                 (library, operationStore) => removalOutcome = operationStore.RemoveCharts(library, prepared, approvedPaths),
                 removedChartCount: 0,
                 acquiredOperationGate: operationGate,
-                physicalPaths: prepared.Targets.Select(chart => chart.Path).Concat(approvedPaths)));
+                physicalPaths: prepared.Targets.Select(chart => chart.Path).Concat(approvedPaths),
+                stopPlayback: prepared.Targets.Count > 0));
             operationGateTransferred = true;
             DuplicateMaintenanceMutationResult result = await mutationTask;
             result = DuplicateMaintenanceMutationResult.FromRemoval(plan.SelectionHeader, removalOutcome, result.Failure);
@@ -603,7 +611,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     }
 
     /// <summary>件数確認の表示設定とは独立して判断を待ち、表示失敗を非承認へ読み替えません。</summary>
-    private async Task<ConfirmationDecision> ConfirmAsync(UiConfirmationRequest request, string routeName)
+    private async Task<ConfirmationDecision> ConfirmAsync(UiConfirmationRequest request, string routeName, bool wholeFolder = false)
     {
         try
         {
@@ -615,6 +623,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             }
             return result.Status switch
             {
+                UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser when wholeFolder => ConfirmationDecision.CancelledResult,
                 UiDialogStatus.Accepted => ConfirmationDecision.AcceptedResult,
                 UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => ConfirmationDecision.Rejected,
                 UiDialogStatus.ClosedByUser => result.IsPositive
@@ -638,7 +647,8 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         int removedChartCount = 0,
         Func<BMSLibrary, IDuplicateMaintenanceStore, DuplicateMergeMaintenanceReceipt> mutationWithReceipt = null,
         IDisposable acquiredOperationGate = null,
-        IEnumerable<string> physicalPaths = null)
+        IEnumerable<string> physicalPaths = null,
+        bool stopPlayback = true)
     {
         var failures = new List<ExceptionDispatchInfo>();
         BMSLibrary library = null;
@@ -675,7 +685,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                 operationStore = store.ForAcceptedOperation(combinedCapability);
             }
             activityLease = chartMutationActivity.Enter();
-            await playback.StopPlaybackForMutationAsync().ConfigureAwait(false);
+            if (stopPlayback) { await playback.StopPlaybackForMutationAsync().ConfigureAwait(false); }
             dialogScope = library.BeginOperationDialogScope();
             PublishRefreshSuppressionChanged(isSuppressed: true);
             suppressionStarted = true;
@@ -879,6 +889,6 @@ internal sealed class BmsLibraryDuplicateMaintenanceStore : IDuplicateMaintenanc
     public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths)
     {
         ArgumentNullException.ThrowIfNull(approvedWholeFolderPaths);
-        return library.RemoveLibraryCharts(prepared, approvedWholeFolderDeletePaths: approvedWholeFolderPaths, capability: capability);
+        return library.RemoveLibraryCharts(prepared, sendToRecycleBin: true, approvedWholeFolderDeletePaths: approvedWholeFolderPaths, capability: capability);
     }
 }

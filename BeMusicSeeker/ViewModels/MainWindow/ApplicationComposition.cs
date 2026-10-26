@@ -9,6 +9,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Ribbit.Logging;
@@ -169,6 +170,10 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         this.externalPlayerProcessGateway = externalPlayerProcessGateway ?? ExternalPlayerProcessGatewayPolicy.Current;
         this.updaterProcessGateway = updaterProcessGateway ?? UpdaterProcessGatewayPolicy.Current;
         this.scoreViewerRegistrationGateway = scoreViewerRegistrationGateway ?? new AppScoreViewerRegistrationGateway();
+        Settings registrationSettings = this.settingsEditSession.Values;
+        Lr2ConfigSession registrationSession = Lr2ConfigSession;
+        BmsRootRegistrations = new BmsRootRegistrationStore(registrationSettings,
+            () => registrationSession.TryResolve(registrationSettings.LR2ConfigXmlPath, out Lr2ConfigOwner owner) ? owner : null);
         playbackSettingsStore = new SettingsPlaybackSettingsStore(() => this.settingsEditSession.Values);
         playerSettingsGateway = new SettingsPlayerSettingsGateway(() => this.settingsEditSession.Values);
         audioSettingsGateway = new SettingsAudioGateway(() => this.settingsEditSession.Values);
@@ -241,6 +246,9 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     /// <summary>初回設定・ライブラリ・プレイヤー再生成をまたいで同じLR2正本を保持します。</summary>
     internal Lr2ConfigSession Lr2ConfigSession { get; } = new();
+
+    /// <summary>構成で共有する確定登録の保存と読取りです。</summary>
+    internal BmsRootRegistrationStore BmsRootRegistrations { get; }
 
     internal ISettingsEditSession SettingsEditSession => settingsEditSession;
 
@@ -405,6 +413,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             audioSettingsGateway: audioSettingsGateway,
             operationAdmission: OperationAdmission,
             lr2ConfigSession: Lr2ConfigSession,
+            bmsRootRegistrations: BmsRootRegistrations,
             publishOutputPlacement: () => Volatile.Write(ref appliedCustomFolderOutputPlacement,
                 CustomFolderOutputSettingsSnapshot.CreateCurrent(settingsEditSession.Values)));
     }
@@ -628,6 +637,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             bmsLibraryOptionsProvider,
             uiScheduler,
             applicationPathSnapshot,
+            BmsRootRegistrations,
             chartFileScanner: chartFileScanner,
             rootFileEnumerator: rootFileEnumerator,
             operationAdmission: OperationAdmission,

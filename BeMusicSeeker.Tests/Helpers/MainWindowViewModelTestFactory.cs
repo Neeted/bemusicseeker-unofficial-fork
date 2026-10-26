@@ -36,11 +36,18 @@ internal static class MainWindowViewModelTestFactory
     /// <summary>テストホスト間で共有しないポータブル設定インスタンスを作成します。</summary>
     internal static Settings CreateIsolatedSettings(Action<Settings>? configure = null)
     {
-        string directory = Path.Combine(Path.GetTempPath(), "BmsViewModelSettings-" + Guid.NewGuid().ToString("N"));
-        isolatedSettingsDirectories.Add(directory);
+        string directory = CreateIsolatedSettingsDirectory();
         Settings settings = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory, "user.config"));
         configure?.Invoke(settings);
         return settings;
+    }
+
+    /// <summary>専用設定と実LR2 XMLを、同じtesthost終端で回収する領域へ準備します。</summary>
+    internal static string CreateIsolatedSettingsDirectory()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "BmsViewModelSettings-" + Guid.NewGuid().ToString("N"));
+        isolatedSettingsDirectories.Add(directory);
+        return directory;
     }
 
     /// <summary>このtesthostが生成した設定専用ディレクトリだけを、全テストと共有画面の終端後に回収します。</summary>
@@ -64,12 +71,15 @@ internal static class MainWindowViewModelTestFactory
         ApplicationComposition? composition = owner == null ? null : GetComposition(owner);
         return new TestBmsLibrary(
             songDbPath,
-            getLR2Config: null,
+            getLR2Config: settings.OperationModeLR2DB && !string.IsNullOrWhiteSpace(settings.LR2ConfigXmlPath)
+                ? composition?.ResolveLr2Config(settings.LR2ConfigXmlPath) ?? new Lr2ConfigOwner(new LR2Config(settings.LR2ConfigXmlPath)) : null,
             _lr2ScoreDB: null,
             startupRequiredFileScanReason: null,
             optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
             operationAdmission: composition?.OperationAdmission,
-            playlistOperationAdmission: composition?.PlaylistOperationAdmission);
+            playlistOperationAdmission: composition?.PlaylistOperationAdmission,
+            settings: settings,
+            bmsRootRegistrations: composition?.BmsRootRegistrations);
     }
 
     /// <summary>実画面が既に所有する構成をfixture入力の接続にだけ使い、別ownerを作りません。</summary>

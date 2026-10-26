@@ -989,7 +989,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         TestBmsLibrary library = lr2ModeEnabled
             ? new TestBmsLibrary(
                 songDbPath,
-                getLR2Config: null,
+                getLR2Config: new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(directoryPath)),
                 _lr2ScoreDB: null,
                 startupRequiredFileScanReason: null,
                 optionsSnapshotProvider: () => new BmsLibraryOptionsSnapshot

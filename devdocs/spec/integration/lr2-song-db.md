@@ -34,6 +34,8 @@ LR2環境の確定時と起動時の設定読込みで、`config.xml` の `<auto
 
 LR2に見せるjukeboxルートと、本アプリが譜面・リソースを走査するルートは用途が異なります。通常出力先、追加出力先、ルート出力先の扱いは[設定](../runtime/settings.md#カスタムフォルダと検索対象)を参照します。
 
+利用者登録readerは、共有XML所有者の公開登録と同時公開された配置から、通常・追加・ROOT管理領域と子孫を除いて作ります。欠落登録と保存順を保ちます。走査readerは同じ所有者の公開入力から従来の存在・Shift_JIS・祖先包含の正規化を行い、通常出力を含め、追加・ROOT領域を除きます。必要所有者がない実ライブラリをstandalone入力へ読み替えません。
+
 ### songの生成
 
 ファイル差分検出は、信頼できる走査範囲の現在パスをDBの完全一致キーで照合します。行の収束、大小文字だけ異なるパス、一対一・同一MD5での保存値引継ぎは[パスの同一性](../core/path-identity.md)に従います。全体同期は存在する行の生成列だけを更新し、不要行の削除、管理用補助行やダイジェストの整理を担当しません。
@@ -189,6 +191,7 @@ DB確定後の必須反映失敗・未回復の物理失敗など、既存の整
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 利用者登録分類とLR2走査集合の分離 | [`Lr2SearchRootSnapshotOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SynchronizationPorts.cs) | `BmsRootRegistrationTests.Lr2Registration_ClassifiesPublishedPlacementWithoutChangingScanRoots` が利用者登録を、`BmsLibraryLr2SongDbSyncTests.CaptureBmsDirectories_*` / `Lr2SynchronizationArchitectureTests.SearchRootSnapshot*` が実XMLの登録保持・走査正規化・通常出力包含/追加ROOT除外を分担する。 |
 | 登録と分類用配置の同時捕捉 | [`BmsLibraryOptionsSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryOptionsSnapshot.cs)、[`Lr2SynchronizationPorts`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SynchronizationPorts.cs) | [`Lr2ConfigOwnerTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2ConfigOwnerTests.cs) が旧captureの不変と新登録・配置の公開を、[`BmsConfirmation_CompletesRealFileDiffBeforeClosing`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) が新登録を使った実走査・DB・表示と後続の維持を確認します。 |
 | 文字コード変更・再調査のメタデータ限定保存 | [`CatalogMaintenanceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogMaintenanceOwner.cs)、[`CatalogMutationOwner.ApplyMaintenanceWriteUnderGuard`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogMutationOwner.cs)、`SongMetadataUpdate` | [`SelectedChartMutationWorkflowOwnerTests.ApplyEncoding_RealStoreAfterDbLoadPreservesUnchangedSongColumns`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartMutationWorkflowOwnerTests.cs) と [`SelectedChartResourceHealthWorkflowOwnerTests.RescanAsync_RealStoreAfterDbLoadPreservesUnchangedSongColumns`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartResourceHealthWorkflowOwnerTests.cs) は実DB読込み・最新詳細hydrate後の本番操作で、生メタデータ5列と固定mtime由来のdate、他の全song列・背景行の保持を読取り専用SELECTで確認する。再調査は文字列差分あり・同値を扱う。保留のsong非新設と同値・修正印は既存の選択保留実storeケースと `BmsLibraryMaintenanceServiceTests` が分担する。 |
 | 自動推定後導入を含む操作末尾の必要同期と先行結果保持 | `BMSLibrary.PackageInstall`、`Lr2SongDbSyncRequestCoordinator` | [`PackageInstallWorkflowOwnerTests.AutomaticContinuation_SynchronizesCommittedStagesAtTerminal`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerAutomaticContinuationTests.cs) は後段正常成功・初段後の推定失敗／取消・後段部分成功後取消・推定と同期の重畳失敗を、本番受付・実coordinator・SQLiteのsong／folder出力と同期状態まで確認する。`AutomaticContinuation_ExcludesOnlyPlaylistBusyTargetWithoutReplay` はP競合による必須失敗・同期未完了案内と先行結果保持・自動再実行0を確認する。正常行は同じ初期化後の二回目の実取り込みでCompleted省略後も正常結果・非エラー案内を維持する。`QueueLr2SongDbSync_CompletedSignatureSkipsWithoutStartingOrChangingStoredCompletion` は保存済みCompleted・run・DB保持と準備/新規要求0・L/P解放を確認し、既存の [`BmsLibraryLr2SongDbSyncTests`](../../../BeMusicSeeker.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs) は同期核の条件を分担する。 |

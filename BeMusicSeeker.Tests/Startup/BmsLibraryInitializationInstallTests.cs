@@ -63,9 +63,9 @@ public sealed class BmsLibraryInitializationInstallTests
                     new Dictionary<string, IEnumerable<string>>
                     {
                         [installed] = ["sound.wav"]
-                    }, [installed]), observer)
+                    }, [installed]), observer, settings: TestBmsFactory.CreateRootSettings([Path.Combine(root, "Library")]))
             {
-                SearchTargets = [Path.Combine(root, "Library")],
+
                 StartupBackgroundTaskScheduler = (_, _, _, work) =>
                 {
                     backgroundWork.Enqueue(work);
@@ -1055,7 +1055,7 @@ public sealed class BmsLibraryInitializationInstallTests
             var fileMutationService = new RecordingFileMutationService();
             var library = new TestBmsLibrary(
                 songDbPath,
-                null,
+                new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath)),
                 null,
                 fileMutationService,
                 dialogService,
@@ -1116,7 +1116,7 @@ public sealed class BmsLibraryInitializationInstallTests
             var fileMutationService = new RecordingFileMutationService();
             var library = new TestBmsLibrary(
                 songDbPath,
-                null,
+                new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath)),
                 null,
                 fileMutationService,
                 dialogService,
@@ -1291,7 +1291,7 @@ public sealed class BmsLibraryInitializationInstallTests
             }
             var dialogs = new RecordingDialogService { ResultToReturn = (MessageBoxResult)choice };
             var mutation = new RecordingFileMutationService();
-            var library = new TestBmsLibrary(dbPath, null, null, mutation, dialogs, new TestUiScheduler(() => null), () => CreateInitializationOptions(lr2Root));
+            var library = new TestBmsLibrary(dbPath, new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(lr2Root)), null, mutation, dialogs, new TestUiScheduler(() => null), () => CreateInitializationOptions(lr2Root));
             library.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
             dialogs.OnShow = _ =>
             {
@@ -1335,7 +1335,7 @@ public sealed class BmsLibraryInitializationInstallTests
             var original = new IOException("partial repair failure");
             var dialogs = new RecordingDialogService { ResultToReturn = MessageBoxResult.Yes };
             var mutation = new RecordingFileMutationService();
-            var library = new TestBmsLibrary(dbPath, null, null, mutation, dialogs, new TestUiScheduler(() => null), () => CreateInitializationOptions(lr2Root));
+            var library = new TestBmsLibrary(dbPath, new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(lr2Root)), null, mutation, dialogs, new TestUiScheduler(() => null), () => CreateInitializationOptions(lr2Root));
             library.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
             mutation.OnSetTimestamps = call =>
             {
@@ -1388,7 +1388,7 @@ public sealed class BmsLibraryInitializationInstallTests
             }
             var dialogs = new RecordingDialogService { ResultToReturn = MessageBoxResult.Yes };
             var mutation = new RecordingFileMutationService();
-            var library = new TestBmsLibrary(dbPath, null, null, mutation, dialogs, new TestUiScheduler(() => null), () => CreateInitializationOptions(lr2Root));
+            var library = new TestBmsLibrary(dbPath, new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(lr2Root)), null, mutation, dialogs, new TestUiScheduler(() => null), () => CreateInitializationOptions(lr2Root));
             library.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
             mutation.OnSetTimestamps = call =>
             {

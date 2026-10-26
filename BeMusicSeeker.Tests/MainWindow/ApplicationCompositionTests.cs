@@ -995,9 +995,9 @@ public sealed partial class ApplicationCompositionTests
                     new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options,
                     CapturedChartFileScanner.FromFixture([installedChart],
                         new Dictionary<string, IEnumerable<string>> { [installed] = ["sound.wav"] }, [installed]),
-                    observer, composition.OperationAdmission, composition.PlaylistOperationAdmission)
+                    observer, composition.OperationAdmission, composition.PlaylistOperationAdmission, settings: TestBmsFactory.CreateRootSettings([Path.Combine(root, "Library")]))
                 {
-                    SearchTargets = [Path.Combine(root, "Library")],
+
                     StartupBackgroundTaskScheduler = (_, _, _, work) => { background.Enqueue(work); return true; }
                 };
                 var rowsApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

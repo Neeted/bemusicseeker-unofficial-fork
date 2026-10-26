@@ -154,12 +154,7 @@ internal interface ISettingsDialogPlayHistoryPort
 
 internal interface ISettingsDialogSearchRootRuntimePort
 {
-    bool IsLibraryAttached { get; }
-
     bool HasOwnedChartUnderRealPath(string directoryPath);
-
-    /// <summary>独立モードで成立したユーザー一覧を、既存ライブラリの確定入力へ反映します。LR2は共有所有者から直接捕捉します。</summary>
-    void ApplyStandaloneSearchTargets(IReadOnlyList<string> searchTargets);
 
     void InvalidateLibraryFolderCache();
 }

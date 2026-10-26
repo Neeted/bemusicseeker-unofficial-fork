@@ -1,4 +1,7 @@
 {
+  "Confirm_DeleteRegisteredBmsRoots": "Delete the entire folder and unregister the BMS roots below?\nFolder: {0}\nBMS roots to unregister:\n{1}",
+  "Warn_CannotDeleteProtectedBmsRoot": "The entire folder cannot be deleted because it contains the last BMS root or the current install destination. Confirm another root or install destination in Settings first.\nTarget: {0}",
+  "LibraryChartRemovalReport_RegistrationFailed": "The files were deleted, but saving or publishing the BMS root registrations failed.",
   "Warn_CustomFolderCleanupFailed": "The new outputs were saved, but files or LR2 folder records at the old output locations could not be cleaned up.\nOld locations: {0}\nCause: {1}",
   "Warn_UnregisteredCustomFolderOutputBase": "LR2 output for table \"{0}\" is stopped because additional output location \"{1}\" is not registered. Select an output location again in the table properties.",
   "Settings_candidates_discarded_on_exit": "Unconfirmed settings will be discarded on exit and will not carry over to the next launch.",

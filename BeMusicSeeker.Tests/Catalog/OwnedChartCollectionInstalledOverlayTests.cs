@@ -25,9 +25,9 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             string chartPath = Path.Combine(rootPath, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1");
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(songDbPath, settings: TestBmsFactory.CreateRootSettings([rootPath]))
             {
-                SearchTargets = [rootPath]
+
             };
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);

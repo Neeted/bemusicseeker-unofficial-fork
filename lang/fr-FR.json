@@ -1,4 +1,7 @@
 {
+  "Confirm_DeleteRegisteredBmsRoots": "Supprimer le dossier entier et retirer les racines BMS suivantes ?\nDossier : {0}\nRacines BMS à retirer :\n{1}",
+  "Warn_CannotDeleteProtectedBmsRoot": "Le dossier entier ne peut pas être supprimé car il contient la dernière racine BMS ou la destination d’installation actuelle. Confirmez d’abord une autre racine ou destination dans les paramètres.\nCible : {0}",
+  "LibraryChartRemovalReport_RegistrationFailed": "Les fichiers ont été supprimés, mais l’enregistrement ou l’application des racines BMS a échoué.",
   "Warn_CustomFolderCleanupFailed": "Les nouvelles sorties ont été enregistrées, mais les fichiers ou les entrées de dossier LR2 des anciens emplacements n’ont pas pu être supprimés.\nAnciens emplacements : {0}\nCause : {1}",
   "Warn_UnregisteredCustomFolderOutputBase": "La sortie LR2 de la table « {0} » est arrêtée car l’emplacement supplémentaire « {1} » n’est pas enregistré. Sélectionnez à nouveau un emplacement dans les propriétés de la table.",
   "Settings_candidates_discarded_on_exit": "Les réglages non confirmés seront abandonnés à la fermeture et ne seront pas repris au prochain lancement.",

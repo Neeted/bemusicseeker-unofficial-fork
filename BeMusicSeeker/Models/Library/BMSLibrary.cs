@@ -2420,19 +2420,6 @@ public partial class BMSLibrary : ObservableObject
 
     private readonly Lr2SearchRootSnapshotOwner lr2SearchRootSnapshotOwner;
 
-    /// <summary>単独動作の確定検索先です。LR2の登録はXML所有者の公開入力から捕捉します。</summary>
-    public List<string> SearchTargets
-    {
-        get => lr2SearchRootSnapshotOwner?.StandaloneSearchTargets ?? [];
-        set
-        {
-            if (lr2SearchRootSnapshotOwner != null)
-            {
-                lr2SearchRootSnapshotOwner.StandaloneSearchTargets = value ?? [];
-            }
-        }
-    }
-
     private readonly IFileMutationService fileMutationService;
 
     private readonly IBmsLibraryDialogService dialogService;
@@ -2484,9 +2471,19 @@ public partial class BMSLibrary : ObservableObject
     private readonly string startupRequiredFileScanReason;
 
     private readonly Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider;
+    private readonly BmsRootRegistrationStore bmsRootRegistrations;
 
-    private BmsLibraryOptionsSnapshot CurrentOptionsSnapshot => (optionsSnapshotProvider()
-        ?? throw new InvalidOperationException("BMS library options snapshot provider returned null.")).WithLr2Input(lr2config?.Capture());
+    /// <summary>登録を一回だけ捕捉して処理の不変入力へ揃えます。LR2では公開ownerを使い、standaloneでは共通readerを使います。</summary>
+    private BmsLibraryOptionsSnapshot CurrentOptionsSnapshot
+    {
+        get
+        {
+            BmsLibraryOptionsSnapshot snapshot = (optionsSnapshotProvider()
+                ?? throw new InvalidOperationException("BMS library options snapshot provider returned null.")).WithLr2Input(lr2config?.Capture());
+            return snapshot.OperationModeLR2DB ? snapshot : snapshot with
+            { StandaloneBmsRootPaths = bmsRootRegistrations.CaptureStandaloneRoots() };
+        }
+    }
 
     private BmsLibraryInstallEstimationService CreateInstallEstimationService()
     {
@@ -2621,6 +2618,7 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="chartFileScanner">固定入力を使う任意の譜面走査境界。本番ではnullです。</param>
     /// <param name="rootFileEnumerator">固定入力を使う任意のグループ列挙境界。本番ではnullです。</param>
     /// <param name="irClient">IR 通信境界。省略時は本文まで期限を適用する通常クライアント。</param>
+    /// <param name="bmsRootRegistrations">構成の確定登録readerと保存主体。standaloneの別可変一覧を持ちません。</param>
     /// <param name="operationAdmission">構成で共有するL受付。独立した内部利用では専用受付を作ります。</param>
     /// <param name="playlistOperationAdmission">再構築前後で構成が共有するP受付。独立構成は専用受付を作り、DB・処理・終了状態はこのライブラリへ個別に所有します。</param>
     internal BMSLibrary(
@@ -2631,12 +2629,13 @@ public partial class BMSLibrary : ObservableObject
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
         IUiScheduler uiScheduler,
         ApplicationPathSnapshot applicationPathSnapshot,
+        BmsRootRegistrationStore bmsRootRegistrations,
         IChartFileScanner chartFileScanner = null,
         IRootFileEnumerator rootFileEnumerator = null,
         IBmsLibraryIrClient irClient = null,
         ChartFileOperationSynchronizer operationAdmission = null,
         ChartFileOperationSynchronizer playlistOperationAdmission = null)
-        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason, optionsSnapshotProvider, uiScheduler, applicationPathSnapshot, null, chartFileScanner, rootFileEnumerator, irClient, operationAdmission, playlistOperationAdmission)
+        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason, optionsSnapshotProvider, uiScheduler, applicationPathSnapshot, bmsRootRegistrations, null, chartFileScanner, rootFileEnumerator, irClient, operationAdmission, playlistOperationAdmission)
     {
     }
 
@@ -2647,6 +2646,7 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="chartFileScanner">固定入力を使う任意の譜面走査境界。本番ではnullです。</param>
     /// <param name="rootFileEnumerator">固定入力を使う任意のグループ列挙境界。本番ではnullです。</param>
     /// <param name="irClient">IR 通信境界。省略時は本文まで期限を適用する通常クライアント。</param>
+    /// <param name="bmsRootRegistrations">構成の確定登録readerと保存主体。standaloneの別可変一覧を持ちません。</param>
     /// <param name="operationAdmission">構成で共有するL受付。独立した内部利用では専用受付を作ります。</param>
     /// <param name="playlistOperationAdmission">再構築前後で構成が共有するP受付。独立構成は専用受付を作り、DB・処理・終了状態はこのライブラリへ個別に所有します。</param>
     internal BMSLibrary(
@@ -2659,6 +2659,7 @@ public partial class BMSLibrary : ObservableObject
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
         IUiScheduler uiScheduler,
         ApplicationPathSnapshot applicationPathSnapshot,
+        BmsRootRegistrationStore bmsRootRegistrations,
         IInstallEstimationExecutionObserver installEstimationExecutionObserver = null,
         IChartFileScanner chartFileScanner = null,
         IRootFileEnumerator rootFileEnumerator = null,
@@ -2681,6 +2682,7 @@ public partial class BMSLibrary : ObservableObject
         catalogOwnedCollectionOwner.RefreshPublisher = normalLibraryRefreshPublisher;
         lr2SynchronizationRuntimeState = new(LogInstallPerformance);
         lr2config = getLR2Config;
+        this.bmsRootRegistrations = bmsRootRegistrations ?? throw new ArgumentNullException(nameof(bmsRootRegistrations));
         playlistReferenceOwner = new(normalLibraryRefreshPublisher,
             () => TryInvokePostLeaseNotification(() => RaisePropertyChanged(nameof(NormalLibraryRefreshNotificationVersion)), "playlist_reference_change_notification_failed"));
         lr2SongDBPath = _lr2SongDB;
@@ -2830,7 +2832,8 @@ public partial class BMSLibrary : ObservableObject
             info => NLogWrapper.FileLogger?.Info(info),
             (exception, message) => NLogWrapper.FileLogger?.Warn(exception, message),
             targetOnlyFileMutationOptions,
-            recursiveDirectoryTreeFileMutationOptions);
+            recursiveDirectoryTreeFileMutationOptions,
+            bmsRootRegistrations);
         libraryFileScanPipelineOwner = new LibraryFileScanPipelineOwner(
             dbGateway,
             catalogOwnedCollectionOwner,
@@ -7098,8 +7101,9 @@ public partial class BMSLibrary : ObservableObject
     }
 
     private IReadOnlyList<string> GetAvailableSearchRoots(BmsLibraryOptionsSnapshot options)
-        => options.OperationModeLR2DB && options.Lr2Input != null
-            ? options.Lr2Input.CaptureExistingSearchRoots() : SearchTargets;
+        => options.OperationModeLR2DB
+            ? (options.Lr2Input ?? throw new InvalidOperationException("LR2 root registration owner is unavailable.")).CaptureExistingSearchRoots()
+            : options.StandaloneBmsRootPaths;
 
     private List<string> getBMSDirectories()
     {
@@ -9993,13 +9997,9 @@ public partial class BMSLibrary : ObservableObject
     internal LibraryChartRemovalPreflight PrepareLibraryChartRemoval(IEnumerable<LibraryChartRef> charts)
         => libraryMutationOwner.PrepareLibraryChartRemoval(charts);
 
-    /// <summary>直接要求も確認前の捕捉と既存モデル確認を経て、一つの削除セッションで処理します。</summary>
-    internal LibraryChartRemovalOutcome RemoveLibraryCharts(IEnumerable<LibraryChartRef> charts, bool sendToRecycleBin = true)
-        => libraryMutationOwner.RemoveLibraryCharts(charts, sendToRecycleBin);
-
     /// <summary>確認前に固定した同じ要求を、本受付後の鮮度検査と削除へ渡します。</summary>
     internal LibraryChartRemovalOutcome RemoveLibraryCharts(LibraryChartRemovalPreflight prepared,
-        bool sendToRecycleBin = true, IEnumerable<string> approvedWholeFolderDeletePaths = null, LibraryFileMutationCapability capability = null)
+        bool sendToRecycleBin, IEnumerable<string> approvedWholeFolderDeletePaths, LibraryFileMutationCapability capability = null)
         => libraryMutationOwner.RemoveLibraryCharts(prepared, sendToRecycleBin, approvedWholeFolderDeletePaths, capability);
 
     /// <summary>拡張子変更の確認前に生存tokenの現在値と安全属性を固定します。</summary>

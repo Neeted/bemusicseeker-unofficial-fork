@@ -254,7 +254,7 @@ public sealed class LibraryFolderTreeViewModelTests
             var firstWorker = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
             TestUiDispatcherHost.Invoke(() =>
             {
-                var library = new TestBmsLibrary(songDbPath) { BmsCharts = [], SearchTargets = [] };
+                var library = new TestBmsLibrary(songDbPath, settings: TestBmsFactory.CreateRootSettings([])) { BmsCharts = [] };
                 owner = CreateTreeOwner(_ => true, _ => new ExplorerOpenResult(), new WpfUiScheduler(() => dispatcher));
                 owner.AttachLibrary(library);
                 owner.ConfigureDeferredRefreshScheduler((_, work) =>
@@ -376,7 +376,7 @@ public sealed class LibraryFolderTreeViewModelTests
             {
                 BmsCharts = []
             };
-            library.SearchTargets = [tempRootPath];
+            library.FixtureSettings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([tempRootPath]);
             LibraryFolderTreeViewModel owner = CreateTreeOwner(
                 _ => true,
                 _ => new ExplorerOpenResult(),
@@ -505,7 +505,7 @@ public sealed class LibraryFolderTreeViewModelTests
             }
 
             var library = new TestBmsLibrary(songDbPath);
-            library.SearchTargets = [firstRoot, secondRoot, firstRoot];
+            library.FixtureSettings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([firstRoot, secondRoot, firstRoot]);
             var firstRefreshApplied = new TaskCompletionSource<object?>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
             var secondRefreshApplied = new TaskCompletionSource<object?>(
@@ -547,10 +547,10 @@ public sealed class LibraryFolderTreeViewModelTests
             cacheRefreshRequests = 0;
 
             int propertyChangesBeforeInvalidation = parentFolderPropertyChanges;
-            owner.ApplyStandaloneSearchTargets([replacementRoot, secondRoot]);
+            new BmsRootRegistrationStore(library.FixtureSettings, () => null).SaveUserRoots([replacementRoot, secondRoot]);
             CollectionAssert.AreEqual(
                 new[] { replacementRoot, secondRoot },
-                library.SearchTargets.ToArray());
+                BmsRootRegistrationStore.CaptureStandaloneRoots(library.FixtureSettings).ToArray());
             owner.InvalidateLibraryFolderCache();
 
             await TestUiDispatcherHost.AwaitNotificationAsync(secondRefreshApplied.Task, owner.WaitForDeferredRefreshIdleAsync(), "library-tree.second-application");
@@ -571,10 +571,10 @@ public sealed class LibraryFolderTreeViewModelTests
     }
 
     /// <summary>
-    /// 保証：ライブラリ未接続の検索先変更と失効操作は無作用で終わり、存在しない対象の更新要求を出さない。
+    /// 保証：ライブラリ未接続の失効操作は無作用で終わり、存在しない対象の更新要求を出さない。
     /// </summary>
     [TestMethod]
-    public void DetachedLibrary_SearchRootRuntimeIsNoOp()
+    public void DetachedLibrary_InvalidationHasNoEffect()
     {
         LibraryFolderTreeViewModel owner = CreateTreeOwner(
             _ => true,
@@ -584,7 +584,6 @@ public sealed class LibraryFolderTreeViewModelTests
         owner.CacheRefreshRequested += (_, _) => refreshRequests++;
 
         Assert.IsFalse(owner.IsLibraryAttached);
-        owner.ApplyStandaloneSearchTargets(["detached"]);
         owner.InvalidateLibraryFolderCache();
 
         Assert.AreEqual(0, refreshRequests);

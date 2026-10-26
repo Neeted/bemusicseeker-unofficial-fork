@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
+using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -152,13 +155,19 @@ internal sealed class LibraryChartRemovalPreflight
         IEnumerable<string> wholeFolderCandidatePaths,
         IEnumerable<string> unresolvedPaths,
         int inputCount,
-        int pathOnlyInputCount)
+        int pathOnlyInputCount,
+        IEnumerable<string> registeredUserRoots = null,
+        string installDirectory = null,
+        IEnumerable<LibraryChartRemovalTarget> rejectedTargets = null)
     {
         Targets = Array.AsReadOnly((targets ?? []).Where(target => target != null).ToArray());
         WholeFolderCandidatePaths = Array.AsReadOnly((wholeFolderCandidatePaths ?? []).ToArray());
         UnresolvedPaths = Array.AsReadOnly((unresolvedPaths ?? []).ToArray());
         InputCount = inputCount;
         PathOnlyInputCount = pathOnlyInputCount;
+        RegisteredUserRoots = Array.AsReadOnly((registeredUserRoots ?? []).ToArray());
+        InstallDirectory = installDirectory;
+        RejectedTargets = Array.AsReadOnly((rejectedTargets ?? []).ToArray());
     }
 
     /// <summary>確認前の所持識別・形式・配置を持つ固定共通値です。</summary>
@@ -171,6 +180,47 @@ internal sealed class LibraryChartRemovalPreflight
     internal int InputCount { get; }
     /// <summary>所持識別がない入力件数です。</summary>
     internal int PathOnlyInputCount { get; }
+
+    /// <summary>確認前に捕捉した利用者登録です。欠落・親子・順序を保持します。</summary>
+    internal IReadOnlyList<string> RegisteredUserRoots { get; }
+    /// <summary>同じ確認入力で保護する導入先です。</summary>
+    internal string InstallDirectory { get; }
+    /// <summary>全体削除Yesを別操作へ読み替えず、物理計画から除いた対象です。</summary>
+    internal IReadOnlyList<LibraryChartRemovalTarget> RejectedTargets { get; }
+
+    /// <summary>当該scope内の登録childも含め、全体削除と登録解除を確認します。</summary>
+    internal string GetWholeFolderConfirmationMessage(string scope)
+    {
+        string[] affected = RegisteredUserRoots.Where(root => IsWithin(root, scope)).ToArray();
+        return affected.Length == 0 ? string.Format(Resources.Confirm_DeleteFolderWithNoBms, scope)
+            : string.Format(Resources.Confirm_DeleteRegisteredBmsRoots, scope, string.Join(Environment.NewLine, affected));
+    }
+
+    /// <summary>最後の利用者登録または現在導入先を含む全体削除scopeを識別します。</summary>
+    internal bool IsProtectedWholeFolder(string scope)
+        => RegisteredUserRoots.Count > 0 && RegisteredUserRoots.All(root => IsWithin(root, scope))
+            || !string.IsNullOrWhiteSpace(InstallDirectory) && IsWithin(InstallDirectory, scope);
+
+    /// <summary>承認した候補のうち、保護scopeを除いた実物理集合を返します。</summary>
+    internal IReadOnlyList<string> GetExecutableWholeFolderPaths(IEnumerable<string> approved)
+        => Array.AsReadOnly((approved ?? []).Where(scope => WholeFolderCandidatePaths.Contains(scope, StringComparer.OrdinalIgnoreCase)
+            && !IsProtectedWholeFolder(scope)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+
+    /// <summary>Yesで拒否した直下groupだけを除き、明示選択の安全子は自身の判断を保ってP判定・停止・物理へ渡します。Noの対象は変更しません。</summary>
+    internal LibraryChartRemovalPreflight ExcludeProtectedWholeFolderApprovals(IEnumerable<string> approved)
+    {
+        string[] blocked = (approved ?? []).Where(scope => WholeFolderCandidatePaths.Contains(scope, StringComparer.OrdinalIgnoreCase)
+            && IsProtectedWholeFolder(scope)).ToArray();
+        if (blocked.Length == 0) { return this; }
+        ChartFile[] rejected = Targets.Where(target => blocked.Contains(DirectoryExt.GetDirectoryNameSimple(target.Path), StringComparer.OrdinalIgnoreCase)).ToArray();
+        return new LibraryChartRemovalPreflight(Targets.Except(rejected), WholeFolderCandidatePaths.Except(blocked, StringComparer.OrdinalIgnoreCase),
+            UnresolvedPaths, InputCount, PathOnlyInputCount, RegisteredUserRoots, InstallDirectory,
+            RejectedTargets.Concat(rejected.Select(target => new LibraryChartRemovalTarget(target.Path, LibraryChartRemovalState.NotExecuted,
+                new InvalidOperationException(string.Format(Resources.Warn_CannotDeleteProtectedBmsRoot, System.IO.Path.GetDirectoryName(target.Path)))))));
+    }
+
+    private static bool IsWithin(string path, string scope)
+        => LongPathFileSystem.IsSameOrDescendantDirectoryPath(path, scope);
 }
 
 /// <summary>一つの変更セッションで処理する、確認前の固定対象と変更先拡張子です。</summary>

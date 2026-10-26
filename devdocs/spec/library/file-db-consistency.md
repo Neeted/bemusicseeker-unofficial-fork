@@ -22,6 +22,8 @@
 
 外部変更の全てを包括的に保護する要件はありません。実行直前の存在等を安価に確認するTOCTOU対策は許容しますが、その観測後の外部変更まで防ぐ保証へ広げません。
 
+登録root全体削除では、承認済み利用者登録と実削除成功scopeから求めた残存一覧を共通保存主体へ渡します。catalogのdurable成否を登録保存の開始条件にせず、登録保存失敗でも成功した物理対象のcatalog反映を省略しません。物理成功件数、catalog原因と登録保存・公開原因を区別して回収します。登録保存に失敗した欠落rootは通常preflightで不備として検査し、自動解除・再作成・再試行で隠しません。
+
 ### 保証の前提
 
 ファイルシステムと複数のDBを、一つの原子的なトランザクションとして扱いません。各保存先の既存のトランザクション境界を維持し、一回の操作で確定した変更をまとめて渡します。アプリ内では同じ対象の書込みを排他しますが、外部アプリによる同時変更まで防止しません。
@@ -125,6 +127,7 @@ flowchart TB
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 物理成功と登録保存・catalogの独立回収 | [`LibraryChartRemovalOutcome`](../../../BeMusicSeeker/Models/BmsLibraryInternal/FileOperations/LibraryChartRemovalOutcome.cs) | `OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_RegistrationAndCatalogFinalizeIndependently` が4終端を実FS/SQLite/configで、`LibraryChartRemovalReportTests` と選択workflowの報告接続が両原因と物理件数の保持を確認する。 |
 | 原子的な単一ファイルの公開と失敗時の保全 | [`AtomicFileWriter`](../../../BeMusicSeeker/Models/Utils/FileOperations/AtomicFileWriter.cs) | [`AtomicFileWriterTests`](../../../BeMusicSeeker.Tests/FileOperations/AtomicFileWriterTests.cs) |
 | SQLiteの確定と巻戻し、元の例外の保持 | [`SQLiteConnectionEx`](../../../BeMusicSeeker/Models/LR2/SQLiteConnectionEx.cs)、[`BmsLibraryDbGateway`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) | [`SQLiteProviderRuntimeTests`](../../../BeMusicSeeker.Tests/Runtime/SQLiteProviderRuntimeTests.cs)、[`CatalogMutationOwnerTests`](../../../BeMusicSeeker.Tests/Catalog/CatalogMutationOwnerTests.cs)。`SQLiteConnectionEx_CommitBusyRemainsFailureAndRollsBackUncommittedChanges` は`DELETE` ジャーナルの読取りトランザクションで確定時に `Busy` を発生させ、失敗・未確定行不在・先行行保持・次の明示トランザクションを確認する。`ApplyLr2NormalFolderSync_RaiseRollbackKeepsPrimaryFailureAndAllowsNextExplicitSave` は通常フォルダ（`type=1`）の保存中に実際の `ROLLBACK` トリガーで元SQLite原因・未変更DBと現在値・接続解放後の次の明示保存を確認する。生値読取りの`step`／`finalize`と元原因は既存SQLiteケースが分担する。 |
 | 表レベルのDB先行確定と失敗値の非混入 | `CatalogMutationOwner.ApplyPlaylistLevelRows`、`BmsLibraryDbGateway.UpdateSongLevels` | [`CatalogMutationOwnerTests.ApplyPlaylistLevelRows_RethrowsAndPublishesFailureFact`](../../../BeMusicSeeker.Tests/Catalog/CatalogMutationOwnerTests.cs) は後続UPDATE失敗と実Commit Busyで複数行のDB・所有現在値・新しい表示投影を旧値に保ち、別の明示保存へ失敗値を混ぜない。成功時の対象BMSのlevelだけの変更と対象外BMS・BMSON・未登録行の保全は [`BmsPlaylistMigrationAndRegistrationTests.PlaylistTableLevelOverwriteWorkflow_UpdatesOnlyExistingSongLevel`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)、取消・おすすめ表拒否は `PlaylistWorkspaceActionWorkflowTests.PlaylistTableLevelOverwriteWorkflowOwnsRecommendationAndConfirmation`、Busyの値保全は `BmsLibraryLr2SongDbSyncTests.PlaylistTableLevelOverwriteWorkflow_PresentsBlockedWarningWithoutLibraryDialog` が分担する。 |

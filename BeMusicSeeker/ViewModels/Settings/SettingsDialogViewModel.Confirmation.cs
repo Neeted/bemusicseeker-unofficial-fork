@@ -534,22 +534,9 @@ public partial class SettingsDialogViewModel
 
     private IReadOnlyList<string> GetConfirmedBmsRoots()
     {
-        if (!ApplicationSettings.OperationModeLR2DB)
-        { return StandaloneBmsRootPathSettings.Deserialize(ApplicationSettings.StandaloneBmsRootPaths, ApplicationSettings.BMSRootPath); }
-        Lr2ConfigSnapshot snapshot = GetConfirmedLr2Owner()?.Capture();
-        if (snapshot == null) { return []; }
-        CustomFolderOutputSettingsSnapshot placement = snapshot.Placement;
-        IReadOnlyList<string> excluded = placement == null ? GetUserVisibleBmsSearchRootExcludedDirectories()
-            : CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(new[] { placement.LR2CustomFolderOutputBaseDir,
-                placement.LR2CustomFolderOutputBaseDirRootType }.Concat(CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(placement.LR2CustomFolderAdditionalOutputBaseDirs)));
-        return snapshot.RegisteredRoots.Where(path => !ContainsSameOrChildDirectory(excluded, path)).ToArray();
-    }
-
-    private IReadOnlyList<string> CaptureConfirmedManagedOutputRoots()
-    {
-        var managed = new List<string> { ApplicationSettings.LR2CustomFolderOutputBaseDir, ApplicationSettings.LR2CustomFolderOutputBaseDirRootType };
-        managed.AddRange(CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs));
-        return CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(managed);
+        // 初回設定画面だけは未設定XMLを許容し、実ライブラリの読取り契約と区別します。
+        if (ApplicationSettings.OperationModeLR2DB && GetConfirmedLr2Owner() == null) { return []; }
+        return bmsRootRegistrations.CaptureUserRoots();
     }
 
     /// <summary>今回のBMS一覧と明示代替導入先を捕捉し、同値でも関連媒体を再保存して公開後に必要な差分再読込みを実行します。</summary>
@@ -583,34 +570,17 @@ public partial class SettingsDialogViewModel
             async Task<StartupInitializationResult> SaveAndReload(LibraryFileMutationCapability capability)
             {
                 if (!CheckBmsRootsBeforeConfirmation(out string latestError, roots)) { ShowSettingValidationError(latestError); return null; }
-                IReadOnlyList<string> previousUserRoots = GetConfirmedBmsRoots();
                 if (!roots.Contains(install, StringComparer.OrdinalIgnoreCase))
                 {
                     ShowSettingValidationError(Resources.Error_InvalidBmsInstallDir); return null;
                 }
                 DiscardConflictingCandidates(ConflictingCandidates.Lr2Details);
-                if (ApplicationSettings.OperationModeLR2DB)
-                {
-                    Lr2ConfigOwner owner = GetConfirmedLr2Owner() ?? throw new InvalidOperationException(Resources.Error_InvalidLR2SongDbOrConfigPath);
-                    owner.SaveUserRoots(roots, CaptureConfirmedManagedOutputRoots());
-                    (string, object)[] values = new[] { (nameof(Settings.BMSInstallDir), (object)install) };
-                    ApplicationSettings.Persist(values);
-                    ApplicationSettings.Publish(values);
-                    owner.PublishUserRoots(previousUserRoots, roots);
-                }
-                else
-                {
-                    (string, object)[] values = new[] { (nameof(Settings.StandaloneBmsRootPaths), (object)SerializeStandaloneBmsRootPaths(roots)),
-                        (nameof(Settings.BMSRootPath), (object)roots[0]), (nameof(Settings.BMSInstallDir), (object)install) };
-                    ApplicationSettings.Persist(values);
-                    ApplicationSettings.Publish(values);
-                }
+                bmsRootRegistrations.SaveUserRoots(roots, install);
                 RaisePropertyChanged(nameof(ConfirmedBMSDirectories));
                 RefreshBmsRootCandidatesFromSettings();
                 ReplacementBmsInstallDir = null;
                 if (statePort.HasActiveLibraryProfile)
                 {
-                    if (!ApplicationSettings.OperationModeLR2DB) { searchRootRuntimePort.ApplyStandaloneSearchTargets(roots); }
                     return await ReloadFileDiffAsync(capability);
                 }
                 return null;
@@ -729,6 +699,7 @@ public partial class SettingsDialogViewModel
 
     private void RaiseEnvironmentAvailabilityChanged()
     {
+        RaisePropertyChanged(nameof(ConfirmedBMSDirectories));
         RaisePropertyChanged(nameof(HasEnvironmentChanges));
         RaisePropertyChanged(nameof(CanConfirmEnvironment));
         RaisePropertyChanged(nameof(CanCancelEnvironment));

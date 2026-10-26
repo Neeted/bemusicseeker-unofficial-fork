@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -7,6 +8,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -17,6 +19,324 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class OwnedChartCollectionLibraryMutationTests
 {
+    /// <summary>物理成功scope内の確認済み親子だけを解除し、catalogと登録保存の4終端を独立して回収します。失敗・未処理・scope外の登録を保持します。</summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void RemoveLibraryCharts_RegistrationAndCatalogFinalizeIndependently(bool failCatalog, bool failRegistration)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string success = Directory.CreateDirectory(Path.Combine(root, "Success")).FullName;
+            string child = Directory.CreateDirectory(Path.Combine(success, "RegisteredChild")).FullName;
+            string failed = Directory.CreateDirectory(Path.Combine(root, "Failed")).FullName;
+            string missing = Path.Combine(root, "Missing");
+            string retained = Directory.CreateDirectory(Path.Combine(root, "Retained")).FullName;
+            string configPath = Path.Combine(root, "user.config");
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            string[] registered = [success, child, failed, missing, retained];
+            settings.OperationModeLR2DB = false;
+            settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize(registered);
+            settings.BMSRootPath = success; settings.BMSInstallDir = retained; settings.Save();
+            ChartFile[] charts = new[] { success, failed, missing }.Select((folder, index) =>
+                CreateFile(new string((char)('a' + index), 32), Path.Combine(folder, "chart.bms"))).ToArray();
+            foreach (ChartFile chart in charts.Take(2)) { File.WriteAllText(chart.Path, "#TITLE Root"); }
+            var physicalFailure = new IOException("root-delete-physical-marker");
+            var filesystem = new TestFileMutationService
+            {
+                BeforeDirectoryDelete = path =>
+                {
+                    if (path != failed) { return; }
+                    // APIの返却前に物理削除だけが起きた部分失敗も、事後の不在から成功へ昇格しません。
+                    Directory.Delete(path, recursive: true);
+                    throw physicalFailure;
+                }
+            };
+            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, settings: settings) { BmsCharts = charts, BmsonCharts = [] };
+            try
+            {
+                using (var db = new LR2SongDBExtended(songDbPath))
+                {
+                    foreach (ChartFile chart in charts) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); }
+                    if (failCatalog) { db.Execute("CREATE TRIGGER root_catalog_failure BEFORE DELETE ON song BEGIN SELECT RAISE(ABORT, 'root-catalog-marker'); END;"); }
+                }
+                LibraryChartRemovalPreflight prepared = library.PrepareLibraryChartRemoval(charts.Select(chart => LibraryChartRef.FromChartFile(chart)));
+                StringAssert.Contains(prepared.GetWholeFolderConfirmationMessage(success), child);
+                LibraryChartRemovalOutcome result;
+                using (failRegistration ? File.Open(configPath, FileMode.Open, FileAccess.Read, FileShare.Read) : null)
+                { result = library.RemoveLibraryCharts(prepared, false, [success, failed, missing]); }
+                Assert.AreEqual(1, result.ConfirmedChartCount);
+                Assert.IsFalse(Directory.Exists(success));
+                Assert.IsFalse(Directory.Exists(failed));
+                Assert.AreSame(physicalFailure, result.Targets.Single(target => target.Path == charts[1].Path).Failure);
+                Assert.AreEqual(LibraryChartRemovalState.NotExecuted, result.Targets.Single(target => target.Path == charts[2].Path).State);
+                Assert.AreEqual(failCatalog, result.CatalogFailure != null);
+                Assert.AreEqual(failRegistration, result.RegistrationFailure != null);
+                Assert.AreEqual(!failCatalog, result.CatalogDurable);
+                CollectionAssert.AreEqual(new[] { success }, result.DeletedFolderPaths.ToArray());
+                string[] expected = failRegistration ? registered : [failed, missing, retained];
+                Settings fresh = PortableSettingsPersistenceTests.OpenSettings(configPath);
+                CollectionAssert.AreEqual(expected, StandaloneBmsRootPathSettings.Deserialize(fresh.StandaloneBmsRootPaths, fresh.BMSRootPath).ToArray());
+                CollectionAssert.AreEqual(expected, new BmsRootRegistrationStore(settings, () => null).CaptureUserRoots().ToArray());
+                Assert.AreEqual(retained, fresh.BMSInstallDir);
+                using LR2SongDBExtended read = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                Assert.AreEqual(failCatalog ? 3 : 2, read.Table<LR2SongDB.song>().Count());
+                if (failCatalog && failRegistration)
+                {
+                    ReadOnlyCollection<Exception> causes = ((AggregateException)result.RequiredFailure).Flatten().InnerExceptions;
+                    Assert.IsTrue(causes.Any(failure => failure.ToString().Contains("root-catalog-marker", StringComparison.Ordinal)));
+                    Assert.IsTrue(causes.Any(failure => failure is BeMusicSeeker.Properties.PortableSettingsException));
+                }
+            }
+            finally { library.RequestStop("registered-root-terminal-test"); }
+        });
+    }
+
+    /// <summary>最後・現在導入先のYesは譜面削除へ読み替えず保護し、現在導入先は登録0でも保護します。混在する独立folderだけを続行し、明示Noは従来の譜面のみ削除を保ちます。</summary>
+    [DataTestMethod]
+    [DataRow("last")]
+    [DataRow("install")]
+    [DataRow("install-without-roots")] // モデル境界の登録0条件であり、実UIの稼働profileへの到達は保証しません。
+    [DataRow("mixed")]
+    [DataRow("no")]
+    public void RemoveLibraryCharts_ProtectedWholeScopePreservesRootsAndContinuesIndependentTargets(string condition)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string first = Directory.CreateDirectory(Path.Combine(root, "Registered")).FullName;
+            string second = Directory.CreateDirectory(Path.Combine(root, "Other")).FullName;
+            string scope = first;
+            string install = first;
+            string free = Directory.CreateDirectory(Path.Combine(second, "Free")).FullName;
+            string[] roots = condition == "install-without-roots" ? [] : condition == "last" ? [first] : [first, second];
+            Settings settings = TestBmsFactory.CreateRootSettings(roots);
+            settings.BMSInstallDir = install;
+            ChartFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(scope, "chart.bms"));
+            ChartFile independent = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(free, "chart.bms"));
+            File.WriteAllText(chart.Path, "#TITLE Protected"); File.WriteAllText(independent.Path, "#TITLE Independent");
+            string resource = Path.Combine(scope, "resource.wav"); File.WriteAllText(resource, "keep");
+            ChartFile[] charts = condition == "mixed" ? [chart, independent] : [chart];
+            var filesystem = new TestFileMutationService();
+            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, settings: settings) { BmsCharts = charts, BmsonCharts = [] };
+            try
+            {
+                using (var db = new LR2SongDBExtended(songDbPath))
+                { foreach (ChartFile file in charts) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song)); } }
+                LibraryChartRemovalPreflight prepared = library.PrepareLibraryChartRemoval(charts.Select(chart => LibraryChartRef.FromChartFile(chart)));
+                LibraryChartRemovalOutcome result = library.RemoveLibraryCharts(prepared, false,
+                    condition == "no" ? [] : condition == "mixed" ? [scope, free] : [scope]);
+                Assert.AreEqual(condition == "no" || condition == "mixed" ? 1 : 0, result.ConfirmedChartCount);
+                Assert.AreEqual(condition != "no", File.Exists(chart.Path));
+                Assert.IsTrue(Directory.Exists(scope)); Assert.IsTrue(Directory.Exists(install));
+                Assert.IsTrue(File.Exists(resource));
+                Assert.AreEqual(condition != "mixed", File.Exists(independent.Path));
+                CollectionAssert.AreEqual(roots, new BmsRootRegistrationStore(settings, () => null).CaptureUserRoots().ToArray());
+                Assert.AreEqual(install, settings.BMSInstallDir);
+                using LR2SongDBExtended read = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                Assert.AreEqual(condition == "no" ? 0 : 1, read.Table<LR2SongDB.song>().Count());
+                if (condition != "no")
+                {
+                    Assert.IsTrue(result.HasError);
+                    Assert.AreEqual(LibraryChartRemovalState.NotExecuted, result.Targets.Single(target => target.Path == chart.Path).State);
+                    Assert.IsNotNull(result.Targets.Single(target => target.Path == chart.Path).Failure);
+                }
+                Assert.IsNull(result.RegistrationFailure);
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+            }
+            finally { library.RequestStop("registered-root-protection-test"); }
+        });
+    }
+
+    /// <summary>保護祖先Aは直下groupだけ拒否し、明示選択の安全子Freeは自身のYes/Noどおり処理して、祖先・兄弟の管理外資源を保持します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RemoveLibraryCharts_ProtectedAncestorPreservesExplicitChildDecision(bool wholeChild)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string ancestor = Directory.CreateDirectory(Path.Combine(root, "A")).FullName;
+            string free = Directory.CreateDirectory(Path.Combine(ancestor, "Free")).FullName;
+            string keep = Directory.CreateDirectory(Path.Combine(ancestor, "Keep")).FullName;
+            string retained = Directory.CreateDirectory(Path.Combine(root, "Retained")).FullName;
+            ChartFile parent = CreateFile(new string('a', 32), Path.Combine(ancestor, "root.bms"));
+            ChartFile child = CreateFile(new string('b', 32), Path.Combine(free, "selected.bms"));
+            File.WriteAllText(parent.Path, "parent chart"); File.WriteAllText(child.Path, "child chart");
+            File.WriteAllText(Path.Combine(ancestor, "user.dat"), "ancestor resource");
+            File.WriteAllText(Path.Combine(keep, "user.dat"), "unselected sibling resource");
+            File.WriteAllText(Path.Combine(free, "user.dat"), "child resource");
+            string unmanagedChart = Path.Combine(free, "unregistered.bms"); File.WriteAllText(unmanagedChart, "unregistered chart");
+            string configPath = Path.Combine(root, "user.config");
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            settings.OperationModeLR2DB = false;
+            settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([ancestor, retained]);
+            settings.BMSRootPath = ancestor; settings.BMSInstallDir = ancestor; settings.Save();
+            byte[] savedSettings = File.ReadAllBytes(configPath);
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), settings: settings)
+            { BmsCharts = [parent, child], BmsonCharts = [] };
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs(library.BmsCharts);
+            try
+            {
+                LibraryChartRemovalPreflight prepared = library.PrepareLibraryChartRemoval(library.BmsCharts.Select(chart => LibraryChartRef.FromChartFile(chart)));
+                CollectionAssert.AreEquivalent(new[] { ancestor, free }, prepared.WholeFolderCandidatePaths.ToArray());
+                LibraryChartRemovalOutcome result = library.RemoveLibraryCharts(prepared, false, wholeChild ? [ancestor, free] : [ancestor]);
+                Assert.AreEqual(1, result.ConfirmedChartCount);
+                Assert.AreEqual(LibraryChartRemovalState.NotExecuted, result.Targets.Single(target => target.Path == parent.Path).State);
+                Assert.IsNotNull(result.Targets.Single(target => target.Path == parent.Path).Failure);
+                Assert.AreEqual(LibraryChartRemovalState.Confirmed, result.Targets.Single(target => target.Path == child.Path).State);
+                Assert.IsTrue(result.CatalogDurable);
+                Assert.IsNull(result.RegistrationFailure);
+                CollectionAssert.AreEqual(wholeChild ? new[] { free } : [], result.DeletedFolderPaths.ToArray());
+                Assert.AreEqual("parent chart", File.ReadAllText(parent.Path));
+                Assert.AreEqual("ancestor resource", File.ReadAllText(Path.Combine(ancestor, "user.dat")));
+                Assert.AreEqual("unselected sibling resource", File.ReadAllText(Path.Combine(keep, "user.dat")));
+                Assert.IsFalse(File.Exists(child.Path));
+                Assert.AreEqual(!wholeChild, Directory.Exists(free));
+                if (!wholeChild)
+                {
+                    Assert.AreEqual("child resource", File.ReadAllText(Path.Combine(free, "user.dat")));
+                    Assert.AreEqual("unregistered chart", File.ReadAllText(unmanagedChart));
+                }
+                Assert.AreEqual(parent.Path, library.BmsCharts.Single().Path);
+                using LR2SongDBExtended read = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                Assert.AreEqual(parent.Path, read.Table<LR2SongDB.song>().Single().path);
+                CollectionAssert.AreEqual(new[] { ancestor, retained }, new BmsRootRegistrationStore(settings, () => null).CaptureUserRoots().ToArray());
+                CollectionAssert.AreEqual(savedSettings, File.ReadAllBytes(configPath));
+                Settings fresh = PortableSettingsPersistenceTests.OpenSettings(configPath);
+                CollectionAssert.AreEqual(new[] { ancestor, retained }, StandaloneBmsRootPathSettings.Deserialize(fresh.StandaloneBmsRootPaths).ToArray());
+                Assert.AreEqual(ancestor, fresh.BMSInstallDir);
+            }
+            finally { library.RequestShutdown("protected-ancestor-explicit-child-test"); }
+        });
+    }
+
+    /// <summary>空の保護rootを含む祖先と危険子の両groupを拒否し、安全な子だけを同じ一要求で削除して、旧祖先保護の全観測を維持します。</summary>
+    [TestMethod]
+    public void RemoveLibraryCharts_EmptyProtectedChildPreservesContainingGroupsAndContinuesFree()
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string outer = Directory.CreateDirectory(Path.Combine(root, "Outer")).FullName;
+            string middle = Directory.CreateDirectory(Path.Combine(outer, "Middle")).FullName;
+            string guarded = Directory.CreateDirectory(Path.Combine(middle, "Guarded")).FullName;
+            string install = Directory.CreateDirectory(Path.Combine(guarded, "EmptyInstall")).FullName;
+            string free = Directory.CreateDirectory(Path.Combine(middle, "Free")).FullName;
+            string keep = Directory.CreateDirectory(Path.Combine(middle, "Keep")).FullName;
+            string retained = Directory.CreateDirectory(Path.Combine(root, "Retained")).FullName;
+            ChartFile[] charts = [CreateFile(new string('a', 32), Path.Combine(middle, "parent.bms")),
+                CreateFile(new string('b', 32), Path.Combine(guarded, "guarded.bms")),
+                CreateFile(new string('c', 32), Path.Combine(free, "child.bms"))];
+            foreach (ChartFile chart in charts)
+            {
+                File.WriteAllText(chart.Path, chart.Md5);
+                File.WriteAllText(Path.Combine(Path.GetDirectoryName(chart.Path)!, "user.dat"), chart.Md5);
+            }
+            File.WriteAllText(Path.Combine(keep, "user.dat"), "unselected sibling");
+            string configPath = Path.Combine(root, "user.config");
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            settings.OperationModeLR2DB = false;
+            string[] roots = [outer, install, retained];
+            settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize(roots);
+            settings.BMSRootPath = outer; settings.BMSInstallDir = install; settings.Save();
+            byte[] savedSettings = File.ReadAllBytes(configPath);
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), settings: settings)
+            { BmsCharts = charts, BmsonCharts = [] };
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs(library.BmsCharts);
+            try
+            {
+                LibraryChartRemovalPreflight prepared = library.PrepareLibraryChartRemoval(library.BmsCharts.Select(chart => LibraryChartRef.FromChartFile(chart)));
+                CollectionAssert.AreEquivalent(new[] { middle, guarded, free }, prepared.WholeFolderCandidatePaths.ToArray());
+                LibraryChartRemovalOutcome result = library.RemoveLibraryCharts(prepared, false, [middle, guarded, free]);
+                Assert.AreEqual(1, result.ConfirmedChartCount);
+                foreach (ChartFile kept in charts.Take(2))
+                {
+                    Assert.AreEqual(kept.Md5, File.ReadAllText(kept.Path));
+                    Assert.AreEqual(kept.Md5, File.ReadAllText(Path.Combine(Path.GetDirectoryName(kept.Path)!, "user.dat")));
+                    LibraryChartRemovalTarget rejected = result.Targets.Single(target => target.Path == kept.Path);
+                    Assert.AreEqual(LibraryChartRemovalState.NotExecuted, rejected.State);
+                    Assert.IsNotNull(rejected.Failure);
+                }
+                Assert.IsTrue(Directory.Exists(install));
+                Assert.AreEqual(0, Directory.GetFileSystemEntries(install).Length);
+                Assert.IsFalse(Directory.Exists(free));
+                Assert.AreEqual("unselected sibling", File.ReadAllText(Path.Combine(keep, "user.dat")));
+                Assert.AreEqual(LibraryChartRemovalState.Confirmed, result.Targets.Single(target => target.Path == charts[2].Path).State);
+                CollectionAssert.AreEqual(new[] { free }, result.DeletedFolderPaths.ToArray());
+                Assert.IsTrue(result.CatalogDurable);
+                Assert.IsNull(result.RegistrationFailure);
+                string[] expectedPaths = charts.Take(2).Select(chart => chart.Path).ToArray();
+                CollectionAssert.AreEquivalent(expectedPaths, library.BmsCharts.Select(chart => chart.Path).ToArray());
+                using LR2SongDBExtended read = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                CollectionAssert.AreEquivalent(expectedPaths, read.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+                CollectionAssert.AreEqual(roots, new BmsRootRegistrationStore(settings, () => null).CaptureUserRoots().ToArray());
+                CollectionAssert.AreEqual(savedSettings, File.ReadAllBytes(configPath));
+                Settings fresh = PortableSettingsPersistenceTests.OpenSettings(configPath);
+                CollectionAssert.AreEqual(roots, StandaloneBmsRootPathSettings.Deserialize(fresh.StandaloneBmsRootPaths).ToArray());
+                Assert.AreEqual(install, fresh.BMSInstallDir);
+            }
+            finally { library.RequestShutdown("empty-protected-child-test"); }
+        });
+    }
+
+    /// <summary>登録rootの物理削除成功を実媒体の登録解除へ接続し、独立した導入先と残存rootを保持します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RemoveLibraryCharts_WholeRegisteredRootUnregistersOnlyAfterPhysicalSuccess(bool lr2)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string removed = Directory.CreateDirectory(Path.Combine(root, "Removed")).FullName;
+            string retained = Directory.CreateDirectory(Path.Combine(root, "Retained")).FullName;
+            string configPath = Path.Combine(root, "user.config");
+            BeMusicSeeker.Properties.Settings settings = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            settings.OperationModeLR2DB = false;
+            settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([removed, retained]);
+            settings.BMSRootPath = removed;
+            settings.BMSInstallDir = retained;
+            string managed = Directory.CreateDirectory(Path.Combine(root, "ManagedOutput")).FullName;
+            if (lr2)
+            {
+                settings.OperationModeLR2DB = true;
+                settings.LR2RootPath = Path.Combine(root, "LR2");
+                settings.LR2CustomFolderOutputBaseDir = managed;
+                settings.LR2ConfigXmlPath = BmsPlaylistTestSupport.CreateLr2Config(settings.LR2RootPath, removed, retained, managed).ConfigFilePath;
+            }
+            settings.Save();
+            string chartPath = Path.Combine(removed, "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE Removed");
+            ChartFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), settings: settings)
+            { BmsCharts = [chart], BmsonCharts = [] };
+            try
+            {
+                using (var db = new LR2SongDBExtended(songDbPath))
+                { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); }
+                LibraryChartRemovalOutcome result = library.RemoveLibraryCharts(
+                    library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(chart)]), false, [removed]);
+                Assert.AreEqual(1, result.ConfirmedChartCount);
+                Assert.IsFalse(Directory.Exists(removed));
+                Settings fresh = PortableSettingsPersistenceTests.OpenSettings(configPath);
+                if (lr2)
+                {
+                    CollectionAssert.AreEquivalent(new[] { retained, managed }, new LR2Config(settings.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().ToArray());
+                    CollectionAssert.AreEqual(new[] { retained }, new BmsRootRegistrationStore(settings, () => library.FixtureLr2Owner).CaptureUserRoots().ToArray());
+                    Assert.IsTrue(Directory.Exists(managed));
+                }
+                else { CollectionAssert.AreEqual(new[] { retained }, StandaloneBmsRootPathSettings.Deserialize(fresh.StandaloneBmsRootPaths, fresh.BMSRootPath).ToArray()); }
+                Assert.AreEqual(retained, fresh.BMSInstallDir);
+            }
+            finally { library.RequestStop("registered-root-test"); }
+        });
+    }
+
     /// <summary>
     /// 永久削除・ごみ箱指定の両条件で、確認済みフォルダだけを物理削除・保存確定し、一回のリソース世代公開から失敗対象を除く。
     /// </summary>
@@ -746,7 +1066,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             File.WriteAllText(originalPath, "#PLAYER 1");
             File.WriteAllText(Path.Combine(folder, "resource.wav"), "retain folder");
             var filesystem = new TestFileMutationService();
-            var dialogs = new ConfirmingRemovalDialogs(false);
+            var dialogs = new RecordingRemovalDialogs();
             var library = new TestBmsLibrary(songDbPath, null, null, filesystem, dialogs)
             { BmsCharts = [CreateFile(new string('a', 32), originalPath)], BmsonCharts = [] };
             try
@@ -785,8 +1105,8 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 ChartFile current = library.BmsCharts.Single();
                 new BmsLibraryDbGateway(songDbPath).UpsertSongs([current]);
                 Assert.AreEqual(change == 0 ? 1 : 0, library.PrepareLibraryChartRemoval([selected]).WholeFolderCandidatePaths.ToList().Count);
-                LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts([selected], false);
-                Assert.AreEqual(change == 0 ? 1 : 0, dialogs.ConfirmationCount);
+                LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([selected]), false, []);
+                Assert.AreEqual(0, dialogs.CallCount);
                 Assert.AreEqual(change == 0 ? 1 : 0, outcome.ConfirmedChartCount);
                 Assert.AreEqual(0, filesystem.DirectoryDeleteCalls);
                 Assert.AreEqual(change == 0 ? 1 : 0, filesystem.FileDeleteCalls);
@@ -945,7 +1265,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public void RemoveLibraryCharts_LastChartHonorsWholeFolderConfirmation(bool deleteWholeFolder)
+    public void RemoveLibraryCharts_LastChartHonorsExplicitWholeFolderDecision(bool deleteWholeFolder)
     {
 
         WithTemporarySongDb(songDbPath =>
@@ -956,7 +1276,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             File.WriteAllText(chart.Path, "#PLAYER 1");
             File.WriteAllText(Path.Combine(folder, "resource.wav"), "remove with the folder");
             var filesystem = new TestFileMutationService();
-            var dialogs = new ConfirmingRemovalDialogs(deleteWholeFolder);
+            var dialogs = new RecordingRemovalDialogs();
             var library = new TestBmsLibrary(songDbPath, null, null, filesystem, dialogs)
             { BmsCharts = [chart], BmsonCharts = [] };
             using (var db = new LR2SongDBExtended(songDbPath))
@@ -966,9 +1286,9 @@ public sealed class OwnedChartCollectionLibraryMutationTests
 
             CollectionAssert.AreEqual(new[] { folder }, library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((chart))]).WholeFolderCandidatePaths.ToList());
 
-            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts([LibraryChartRef.FromChartFile((chart))], false);
+            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(chart)]), false, deleteWholeFolder ? [folder] : []);
 
-            Assert.AreEqual(1, dialogs.ConfirmationCount);
+            Assert.AreEqual(0, dialogs.CallCount);
             Assert.AreEqual(1, outcome.ConfirmedChartCount);
             Assert.IsFalse(outcome.HasError);
             Assert.AreEqual(deleteWholeFolder ? 1 : 0, filesystem.DirectoryDeleteCalls);
@@ -1609,24 +1929,16 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             .Select(candidate => (candidate.Kind, candidate.Path, candidate.Md5, candidate.Sha256))];
     }
 
-    /// <summary>実Windowを開かず、利用者の確認結果だけを供給する局所通知先。</summary>
-    private sealed class ConfirmingRemovalDialogs(bool deleteWholeFolder, Action? onConfirmation = null) : IBmsLibraryDialogService
+    /// <summary>モデルが確認を再表示せず、明示された承認集合で実行することを観測します。</summary>
+    private sealed class RecordingRemovalDialogs : IBmsLibraryDialogService
     {
-        /// <summary>利用者が行った全体削除の確認回数を記録する。</summary>
-        internal int ConfirmationCount { get; private set; }
+        internal int CallCount { get; private set; }
 
-        /// <summary>画面を開かず、テストが指定した全体削除の判断を返す。</summary>
         public UiDialogDefaultResult Show(string messageBoxText, string caption, UiDialogButton button,
             UiDialogIcon icon, UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
         {
-            if (button == UiDialogButton.YesNo)
-            {
-                ConfirmationCount++;
-                onConfirmation?.Invoke();
-            }
-
-            return deleteWholeFolder ? UiDialogDefaultResult.Yes : UiDialogDefaultResult.No;
+            CallCount++;
+            return UiDialogDefaultResult.OK;
         }
     }
-
 }

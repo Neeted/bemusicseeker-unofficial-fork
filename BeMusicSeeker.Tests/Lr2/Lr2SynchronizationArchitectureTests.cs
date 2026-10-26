@@ -8,6 +8,7 @@ using System.Runtime.CompilerServices;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -362,25 +363,19 @@ public sealed class Lr2SynchronizationArchitectureTests
                 OperationModeLR2DB = true,
                 LR2CustomFolderOutputBaseDirRootType = excludedRoot
             };
-            var owner = new Lr2SearchRootSnapshotOwner(
-                null,
-                () => options)
-            {
-                StandaloneSearchTargets = [excludedRoot, excludedChild, retainedRoot]
-            };
+            Settings settings = TestBmsFactory.CreateRootSettings([excludedRoot, excludedChild, retainedRoot], lr2: true);
+            var config = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(new BeMusicSeeker.Models.LR2.LR2Config(settings.LR2ConfigXmlPath));
+            config.SetPlacement(options.CaptureOutputPlacement());
+            var owner = new Lr2SearchRootSnapshotOwner(config, () => options);
 
             CollectionAssert.AreEqual(new[] { retainedRoot }, owner.Capture().Roots.ToArray());
 
-            var normalModeOptions = new BmsLibraryOptionsSnapshot
+            Settings normalModeSettings = TestBmsFactory.CreateRootSettings([retainedRoot]);
+            BmsLibraryOptionsSnapshot normalModeOptions = BmsLibraryOptionsSnapshot.CreateCurrent(normalModeSettings) with
             {
-                OperationModeLR2DB = false
+                StandaloneBmsRootPaths = BmsRootRegistrationStore.CaptureStandaloneRoots(normalModeSettings)
             };
-            var normalModeOwner = new Lr2SearchRootSnapshotOwner(
-                null,
-                () => normalModeOptions)
-            {
-                StandaloneSearchTargets = [retainedRoot]
-            };
+            var normalModeOwner = new Lr2SearchRootSnapshotOwner(null, () => normalModeOptions);
 
             CollectionAssert.AreEqual(new[] { retainedRoot }, normalModeOwner.Capture().Roots.ToArray());
         }
@@ -428,12 +423,10 @@ public sealed class Lr2SynchronizationArchitectureTests
                 OperationModeLR2DB = true,
                 LR2CustomFolderAdditionalOutputBaseDirs = [excludedRoot]
             };
-            var owner = new Lr2SearchRootSnapshotOwner(
-                null,
-                () => options)
-            {
-                StandaloneSearchTargets = [excludedRoot, excludedChild]
-            };
+            Settings settings = TestBmsFactory.CreateRootSettings([excludedRoot, excludedChild], lr2: true);
+            var config = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(new BeMusicSeeker.Models.LR2.LR2Config(settings.LR2ConfigXmlPath));
+            config.SetPlacement(options.CaptureOutputPlacement());
+            var owner = new Lr2SearchRootSnapshotOwner(config, () => options);
 
             CollectionAssert.AreEqual(Array.Empty<string>(), owner.Capture().Roots.ToArray());
         }

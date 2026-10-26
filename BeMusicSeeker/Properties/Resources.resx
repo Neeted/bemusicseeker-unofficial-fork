@@ -4030,4 +4030,17 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   </data>
   <data name="Settings_bmt_url_switch_failed" xml:space="preserve"><value>新しいBMT設定は保存しましたが、管理URLを切り替えられませんでした。旧管理URLが有効なまま残っている可能性があります。この失敗後、旧出力先のファイルの追加整理は行っていません。</value></data>
   <data name="Settings_bmt_files_remain" xml:space="preserve"><value>新しいBMT設定と管理URLを反映しましたが、一部の旧管理ファイルを削除できず残っています。</value></data>
+  <data name="Confirm_DeleteRegisteredBmsRoots" xml:space="preserve">
+    <value>フォルダー全体を削除し、次のBMSルートの登録を解除しますか？
+フォルダー: {0}
+登録を解除するBMSルート:
+{1}</value>
+  </data>
+  <data name="Warn_CannotDeleteProtectedBmsRoot" xml:space="preserve">
+    <value>最後のBMSルートまたは現在のインストール先を含むため、フォルダー全体を削除できません。先に設定で別のルートまたはインストール先を確定してください。
+対象: {0}</value>
+  </data>
+  <data name="LibraryChartRemovalReport_RegistrationFailed" xml:space="preserve">
+    <value>ファイルは削除されましたが、BMSルート登録の保存または反映に失敗しました。</value>
+  </data>
 </root>

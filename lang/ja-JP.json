@@ -1,4 +1,7 @@
 {
+  "Confirm_DeleteRegisteredBmsRoots": "フォルダー全体を削除し、次のBMSルートの登録を解除しますか？\nフォルダー: {0}\n登録を解除するBMSルート:\n{1}",
+  "Warn_CannotDeleteProtectedBmsRoot": "最後のBMSルートまたは現在のインストール先を含むため、フォルダー全体を削除できません。先に設定で別のルートまたはインストール先を確定してください。\n対象: {0}",
+  "LibraryChartRemovalReport_RegistrationFailed": "ファイルは削除されましたが、BMSルート登録の保存または反映に失敗しました。",
   "Warn_CustomFolderCleanupFailed": "新しい出力先への反映は完了しましたが、旧出力先のファイルまたはLR2管理行を整理できませんでした。\n旧出力先: {0}\n原因: {1}",
   "Warn_UnregisteredCustomFolderOutputBase": "表「{0}」の追加出力先「{1}」が登録されていないため、LR2出力を停止しました。表のプロパティで保存先を選び直してください。",
   "Settings_candidates_discarded_on_exit": "終了時に未確定の設定候補は破棄され、次回起動へ引き継がれません。",

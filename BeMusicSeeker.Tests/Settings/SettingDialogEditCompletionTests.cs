@@ -1793,7 +1793,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(), applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
                     chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator(),
                     defaultBmsPlayerFactory: () => { defaultPlayerCount++; return new RecordingPlaybackPlayer(); });
-                var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []) { InitialSearchTargets = lr2 ? [] : [initialRoot] };
+                var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []);
                 var owner = new MainWindowViewModel(composition, factory);
                 Task? settingsLibraryTerminal = null;
                 Task? settingsPlaylistTerminal = null;
@@ -2344,6 +2344,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     _lr2ScoreDB: null,
                     startupRequiredFileScanReason: null,
                     optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
+                    settings: settings,
                     applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
                     chartFileScanner: scanner,
                     operationAdmission: composition.OperationAdmission,
@@ -2496,7 +2497,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 library = new TestBmsLibrary(database.SongDbPath, null, null, null,
                     () => BmsLibraryOptionsSnapshot.CreateCurrent(settings), TestBmsFactory.MissingEverythingBridge,
                     operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission,
-                    uiScheduler: scheduler);
+                    uiScheduler: scheduler, settings: settings);
                 playlist = MainWindowViewModelTestFactory.CreatePlaylist(database.SongDbPath, settings, library: library);
                 var owner = new MainWindowViewModel(composition, new LateFailureStartupLibraryFactory(library, playlist, () => throw failure));
                 viewModel = owner;
@@ -2617,7 +2618,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 library = new TestBmsLibrary(database.SongDbPath, null, null, null,
                     () => BmsLibraryOptionsSnapshot.CreateCurrent(settings), TestBmsFactory.MissingEverythingBridge,
                     operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission,
-                    uiScheduler: scheduler);
+                    uiScheduler: scheduler, settings: settings);
                 playlist = MainWindowViewModelTestFactory.CreatePlaylist(database.SongDbPath, settings, library: library);
                 var factory = new LateFailureStartupLibraryFactory(library, playlist, () =>
                 {
@@ -2765,6 +2766,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     _lr2ScoreDB: null,
                     startupRequiredFileScanReason: null,
                     optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
+                    settings: settings,
                     applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
                     chartFileScanner: scanner,
                     operationAdmission: composition.OperationAdmission,
@@ -3081,7 +3083,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     applicationPathSnapshot: TestBmsFactory.AvailableEverythingBridge,
                     rootFileEnumerator: new FastRootFileEnumerator());
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
-                { InitialSearchTargets = [music] };
+;
                 var viewModel = new MainWindowViewModel(composition, factory);
                 Task? parentLibraryTerminal = null;
                 Task? parentPlaylistTerminal = null;
@@ -3250,10 +3252,9 @@ public sealed partial class SettingDialogEditCompletionTests
                 var scoreDialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
                 {
-                    InitialSearchTargets = [music],
                     LibraryCreator = profile => new BMSLibrary(profile.SongDbPath, profile.Lr2ConfigOwner, profile.Lr2ScoreDbPath,
                         null, scoreDialogs, profile.StartupRequiredFileScanReason, composition.BmsLibraryOptionsProvider, composition.UiScheduler,
-                        composition.ApplicationPathSnapshot, rootFileEnumerator: new FastRootFileEnumerator(),
+                        composition.ApplicationPathSnapshot, composition.BmsRootRegistrations, rootFileEnumerator: new FastRootFileEnumerator(),
                         operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission)
                 };
                 var owner = new MainWindowViewModel(composition, factory);
@@ -3378,11 +3379,10 @@ public sealed partial class SettingDialogEditCompletionTests
                 var scoreDialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
                 {
-                    InitialSearchTargets = [music],
                     // score読取り・投影は実モデルで行い、Windowの不要な警告終端だけを既存記録窓口へ接続します。
                     LibraryCreator = profile => new BMSLibrary(profile.SongDbPath, profile.Lr2ConfigOwner, profile.Lr2ScoreDbPath,
                         null, scoreDialogs, profile.StartupRequiredFileScanReason, composition.BmsLibraryOptionsProvider,
-                        composition.UiScheduler, composition.ApplicationPathSnapshot, rootFileEnumerator: new FastRootFileEnumerator(),
+                        composition.UiScheduler, composition.ApplicationPathSnapshot, composition.BmsRootRegistrations, rootFileEnumerator: new FastRootFileEnumerator(),
                         operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission)
                 };
                 var owner = new MainWindowViewModel(composition, factory);
@@ -5377,20 +5377,13 @@ public sealed partial class SettingDialogEditCompletionTests
             this.sequence = sequence;
         }
 
-        public bool IsLibraryAttached => true;
 
         internal Func<string, bool> HasOwnedChartUnderRealPathHandler { get; set; } = _ => false;
 
         public bool HasOwnedChartUnderRealPath(string directoryPath)
             => HasOwnedChartUnderRealPathHandler(directoryPath);
 
-        internal IReadOnlyList<string> LastSearchTargets { get; private set; } = [];
 
-        public void ApplyStandaloneSearchTargets(IReadOnlyList<string> searchTargets)
-        {
-            LastSearchTargets = [.. (searchTargets ?? [])];
-            sequence.Add("apply");
-        }
 
         public void InvalidateLibraryFolderCache()
         {

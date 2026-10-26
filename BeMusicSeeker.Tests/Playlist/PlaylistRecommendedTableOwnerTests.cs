@@ -541,7 +541,8 @@ public sealed class PlaylistRecommendedTableOwnerTests
         => new(read ?? (_ => Task.FromResult(ReadWalkureInput())), notifications ?? new PlaylistOperationNotificationOwner(),
             () => new CustomFolderOutputSettingsSnapshot { ShowRecommUpdatedMsg = showSkillUpdates });
     private static BMSLibrary NewLibrary(string songPath, string? scorePath, Func<BmsLibraryOptionsSnapshot> options)
-        => new(songPath, null, scorePath, null, options, new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), TestBmsFactory.MissingEverythingBridge);
+        => new(songPath, null, scorePath, null, options, new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), TestBmsFactory.MissingEverythingBridge,
+            new BmsRootRegistrationStore(MainWindowViewModelTestFactory.CreateIsolatedSettings(settings => settings.OperationModeLR2DB = false), () => null));
     private static string NewDirectory()
     {
         string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistRecommendedTableOwnerTests), Guid.NewGuid().ToString("N"));

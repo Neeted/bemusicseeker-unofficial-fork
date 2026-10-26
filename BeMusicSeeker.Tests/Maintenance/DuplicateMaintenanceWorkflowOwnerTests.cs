@@ -10,6 +10,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -330,30 +331,69 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 重複削除の確認Cancelは失敗原因のない未実行として返し、拒否後の活動・保存開始を検出する。
+    /// 初回確認のCancelは失敗なしの未実行、表示不能は元原因付きで返し、folder確認・停止・出力開始を防ぎます。
     /// </summary>
-    [TestMethod]
-    public async Task RunHashCleanupAsync_RejectionDoesNotStartMutation()
+    [DataTestMethod]
+    [DataRow("cancel")]
+    [DataRow("failed")]
+    [DataRow("unavailable")]
+    public async Task RunHashCleanupAsync_RejectionDoesNotStartMutation(string decision)
     {
         var events = new List<string>();
+        var failure = new IOException("first confirmation failed");
+        var store = new RecordingStore(events) { WholeFolderCandidates = [@"C:\One"] };
+        var gate = new ChartFileOperationSynchronizer();
+        var activity = new ChartMutationActivityOwner();
+        var presentation = new RecordingPresentation(events);
+        int prompts = 0;
+        var dialogs = new FakeUiDialogService
+        {
+            ConfirmationHandler = request =>
+        {
+            prompts++;
+            Assert.AreEqual(MessageBoxButton.OKCancel, request.Button);
+            Assert.AreEqual(MessageBoxResult.Cancel, request.DefaultResult);
+            return Task.FromResult(decision switch
+            {
+                "failed" => UiDialogResult.Failed(failure),
+                "unavailable" => UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable),
+                _ => UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
+            });
+        }
+        };
         DuplicateMaintenanceWorkflowOwner owner = CreateOwner(
             events,
-            new RecordingPresentation(events),
-            new FakeUiDialogService
-            {
-                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
-            },
-            new RecordingStore(events));
+            presentation,
+            dialogs,
+            store, gate: gate, activity: activity);
         ChartFile first = CreateChart(@"C:\Songs\a.bms", "hash");
         ChartFile second = CreateChart(@"C:\Songs\long-name.bms", "hash");
 
-        DuplicateMaintenanceMutationResult result = await owner.RunHashCleanupAsync(
-            new DuplicateGroup([first, second], [@"C:\Songs"]),
-            @"C:\Songs");
+        try
+        {
+            DuplicateMaintenanceMutationResult result = await owner.RunHashCleanupAsync(
+                new DuplicateGroup([first, second], [@"C:\Songs"]),
+                @"C:\Songs");
 
-        Assert.IsFalse(result.Succeeded);
-        Assert.IsNull(result.Failure);
-        Assert.AreEqual(0, events.Count);
+            Assert.IsFalse(result.Succeeded);
+            if (decision == "cancel") { Assert.IsNull(result.Failure); }
+            else
+            {
+                Assert.IsNotNull(result.Failure);
+                if (decision == "failed") { Assert.AreSame(failure, result.Failure.InnerException); }
+                else { StringAssert.Contains(result.Failure.Message, "OwnerUnavailable"); }
+            }
+            Assert.AreEqual(1, prompts);
+            Assert.AreEqual(0, store.PhysicalMutationStarts);
+            Assert.IsFalse(gate.IsActive);
+            Assert.IsFalse(activity.IsActive);
+            Assert.AreEqual(0, events.Count);
+        }
+        finally
+        {
+            owner.WorkflowChanged -= presentation.OnWorkflowChanged;
+            activity.ActivityChanged -= presentation.OnActivityChanged;
+        }
     }
 
     /// <summary>
@@ -463,7 +503,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     /// <summary>
     /// 実モデルで確認前に固定した重複対象を使い、確認中のBusy拒否から実削除・片付け終端まで共通権限を保持して対象再計算や早期解放を検出する。
     /// </summary>
-    /// <remarks>実store・独立したSQLite DBと実フォルダで固定対象の削除と保存行を確認する。確認portだけを制御して実受付と終端へ接続する。</remarks>
+    /// <remarks>合成した祖先groupのprepared応答プロトコルを実store・小SQLiteへ接続する。通常UIのwhole-folder到達は保証せず、実解析のkeeper保持は別代表が担当する。</remarks>
     [TestMethod]
     public async Task RunHashCleanupAsync_RealPreparedTargetsKeepGateAndModelAdmission()
     {
@@ -476,10 +516,16 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             string duplicatePath = Path.Combine(folder, "long-name.bms");
             File.WriteAllText(keeperPath, "#PLAYER 1");
             File.WriteAllText(duplicatePath, "#PLAYER 1");
+            string configPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "user.config");
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            settings.OperationModeLR2DB = false; settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([folder]);
+            settings.BMSRootPath = folder; settings.BMSInstallDir = folder; settings.Save();
+            byte[] registeredConfig = File.ReadAllBytes(configPath);
+            string resource = Path.Combine(folder, "user.wav"); File.WriteAllText(resource, "keep resource");
             var filesystem = new TestFileMutationService();
             var library = new TestBmsLibrary(songDbPath, null, null, filesystem,
                 new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
+                () => BmsLibraryOptionsSnapshot.CreateCurrent(settings), settings: settings)
             { BmsCharts = [CreateFile(new string('a', 32), keeperPath), CreateFile(new string('a', 32), duplicatePath)], BmsonCharts = [] };
             new BmsLibraryDbGateway(songDbPath).UpsertSongs(library.BmsCharts);
             ChartFile[] selected = library.BmsCharts.ToArray();
@@ -543,6 +589,10 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 using (LibraryFileMutationLease cleanupProbe = library.TryBeginLibraryFileMutation("prepared_cleanup_terminal_guard", showMessage: false))
                 { Assert.IsNull(cleanupProbe); }
                 Assert.AreEqual(1, filesystem.FileDeleteCalls);
+                Assert.IsTrue(Directory.Exists(folder));
+                Assert.AreEqual("keep resource", File.ReadAllText(resource));
+                CollectionAssert.AreEqual(registeredConfig, File.ReadAllBytes(configPath));
+                CollectionAssert.AreEqual(new[] { folder }, new BmsRootRegistrationStore(settings, () => null).CaptureUserRoots().ToArray());
                 Assert.AreEqual(0, filesystem.DirectoryDeleteCalls);
                 Assert.AreEqual(0, filesystem.FileMoveCalls);
                 Assert.IsTrue(File.Exists(keeperPath));
@@ -561,6 +611,10 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 Assert.IsFalse(activity.IsActive);
                 Assert.AreEqual(1, confirmationCount, "拒否した要求は終端後にも再実行しません。");
                 Assert.AreEqual(1, filesystem.FileDeleteCalls);
+                Assert.IsTrue(Directory.Exists(folder));
+                Assert.AreEqual("keep resource", File.ReadAllText(resource));
+                CollectionAssert.AreEqual(registeredConfig, File.ReadAllBytes(configPath));
+                CollectionAssert.AreEqual(new[] { folder }, new BmsRootRegistrationStore(settings, () => null).CaptureUserRoots().ToArray());
                 Assert.IsTrue(gate.TryEnter(out IDisposable probe));
                 probe.Dispose();
                 using LibraryFileMutationLease next = library.TryBeginLibraryFileMutation("prepared_cleanup_released", showMessage: false);
@@ -585,7 +639,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     /// <summary>
     /// 固定した全フォルダ候補のYes・No・未選択閉鎖を変更前に判断し、承認範囲だけ実削除して所持行を保存し、判断中の受付解放や未承認資源の削除を検出する。
     /// </summary>
-    /// <remarks>実store・独立したSQLite DBと実フォルダで固定対象の削除と保存行を確認する。確認portだけを制御して実受付と終端へ接続する。</remarks>
+    /// <remarks>合成した祖先groupのprepared応答プロトコルを実store・小SQLiteへ接続する。通常UIのwhole-folder到達は保証せず、実解析のkeeper保持は別代表が担当する。</remarks>
     // 0は件数確認なし・フォルダYes、1は件数確認あり・フォルダNo、2は件数確認あり・未選択閉鎖。
     [DataTestMethod]
     [DataRow(0)]
@@ -639,7 +693,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                     folderPrompts++;
                     Assert.AreEqual(string.Format(BeMusicSeeker.Properties.Resources.Confirm_DeleteFolderWithNoBms, deletionFolder), request.MessageBoxText);
                     Assert.AreEqual(BeMusicSeeker.Properties.Resources.MessageBoxTitle_Confirm, request.Caption);
-                    Assert.AreEqual(MessageBoxButton.YesNo, request.Button);
+                    Assert.AreEqual(MessageBoxButton.YesNoCancel, request.Button);
                     Assert.AreEqual(MessageBoxImage.Question, request.Icon);
                     Assert.AreEqual(MessageBoxResult.Yes, request.DefaultResult);
                     Assert.IsFalse(gate.TryEnter(out IDisposable concurrent));
@@ -669,7 +723,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 UiDialogResult answer = decision switch
                 {
                     1 => UiDialogResult.FromMessageBoxResult(MessageBoxResult.No),
-                    2 => UiDialogResult.ClosedByUser(MessageBoxResult.No),
+                    2 => UiDialogResult.ClosedByUser(MessageBoxResult.Yes),
                     _ => UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes)
                 };
                 confirmation.SetResult(answer);
@@ -677,22 +731,27 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 Assert.AreEqual(decision == 0 ? 0 : 1, countPrompts);
                 Assert.AreEqual(1, folderPrompts);
                 Assert.AreEqual(1, store.PrepareCount);
-                Assert.AreEqual(1, store.ExecuteCount);
-                Assert.IsNotNull(store.ApprovedPaths);
-                CollectionAssert.AreEqual(decision == 0 ? new[] { deletionFolder } : [], store.ApprovedPaths.ToArray());
+                Assert.AreEqual(decision == 2 ? 0 : 1, store.ExecuteCount);
+                if (decision != 2)
+                {
+                    Assert.IsNotNull(store.ApprovedPaths);
+                    CollectionAssert.AreEqual(decision == 0 ? new[] { deletionFolder } : [], store.ApprovedPaths.ToArray());
+                }
                 Assert.AreEqual(0, modelDialogs.ModelMessages);
                 Assert.IsFalse(gate.IsActive);
                 Assert.IsFalse(activity.IsActive);
                 Assert.IsTrue(File.Exists(keeperPath));
                 Assert.IsTrue(Directory.Exists(keeperFolder));
                 using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-                Assert.IsTrue(result.Succeeded);
+                Assert.AreEqual(decision != 2, result.Succeeded);
                 Assert.IsNull(result.Failure);
-                Assert.AreEqual(1, result.RemovedChartCount);
-                Assert.IsFalse(File.Exists(deletionPath));
+                Assert.AreEqual(decision == 2 ? 0 : 1, result.RemovedChartCount);
+                Assert.AreEqual(decision == 2, File.Exists(deletionPath));
                 Assert.AreEqual(decision != 0, File.Exists(resourcePath));
                 Assert.AreEqual(decision != 0, Directory.Exists(deletionFolder));
-                Assert.AreEqual(keeperPath, readback.Table<LR2SongDB.song>().Single().path);
+                CollectionAssert.AreEquivalent(decision == 2 ? new[] { keeperPath, deletionPath } : [keeperPath],
+                    readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+                if (decision == 2) { Assert.AreEqual(0, events.Count); }
             }
             finally
             {
@@ -708,6 +767,128 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         });
     }
 
+    /// <summary>先行Yesの後も回答収集だけを行い、Cancelと既定Yes付きCloseは全要求を取消し、明示Noだけを一回の実行へ渡します。</summary>
+    [DataTestMethod]
+    [DataRow("no")]
+    [DataRow("cancel")]
+    [DataRow("close")]
+    public async Task RunHashCleanupAsync_CollectsWholeFolderDecisionsBeforeStartingMutation(string decision)
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string keeper = Path.Combine(root, "a.bms");
+            string duplicate = Path.Combine(root, "long-name.bms");
+            File.WriteAllText(keeper, "same"); File.WriteAllText(duplicate, "same");
+            var events = new List<string>();
+            var store = new RecordingStore(events) { WholeFolderCandidates = [@"C:\One", @"C:\Two"] };
+            var presentation = new RecordingPresentation(events);
+            var gate = new ChartFileOperationSynchronizer();
+            var activity = new ChartMutationActivityOwner();
+            var reached = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var answer = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var requests = new List<UiConfirmationRequest>();
+            var dialogs = new FakeUiDialogService
+            {
+                ConfirmationHandler = request =>
+                {
+                    if (request.Button == MessageBoxButton.OKCancel)
+                    {
+                        Assert.AreEqual(MessageBoxResult.Cancel, request.DefaultResult);
+                        return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                    }
+                    Assert.AreEqual(MessageBoxButton.YesNoCancel, request.Button);
+                    Assert.AreEqual(MessageBoxResult.Yes, request.DefaultResult);
+                    requests.Add(request);
+                    if (requests.Count == 1) { return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes)); }
+                    reached.TrySetResult(true);
+                    return answer.Task;
+                }
+            };
+            DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, presentation, dialogs, store, gate: gate, activity: activity);
+            Task<DuplicateMaintenanceMutationResult>? operation = null;
+            void AssertNotStarted()
+            {
+                Assert.AreEqual(0, store.PhysicalMutationStarts);
+                Assert.AreEqual(0, store.Charts.Count);
+                Assert.AreEqual(0, events.Count);
+                Assert.IsFalse(activity.IsActive);
+            }
+            try
+            {
+                operation = owner.RunHashCleanupAsync(new DuplicateGroup([CreateChart(keeper, "hash"), CreateChart(duplicate, "hash")], [root]), root);
+                Assert.AreSame(reached.Task, await Task.WhenAny(reached.Task, operation));
+                await reached.Task;
+                Assert.IsTrue(gate.IsActive);
+                AssertNotStarted();
+                answer.SetResult(decision switch
+                {
+                    "no" => UiDialogResult.FromMessageBoxResult(MessageBoxResult.No),
+                    "close" => UiDialogResult.ClosedByUser(MessageBoxResult.Yes),
+                    _ => UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
+                });
+                DuplicateMaintenanceMutationResult result = await operation;
+                Assert.AreEqual(2, requests.Count);
+                Assert.IsFalse(gate.IsActive);
+                Assert.IsNull(result.Failure);
+                Assert.AreEqual(decision == "no", result.Succeeded);
+                if (decision == "no")
+                {
+                    Assert.AreEqual(1, store.PhysicalMutationStarts);
+                    Assert.AreEqual(1, events.Count(value => value == "store-remove"));
+                    CollectionAssert.AreEqual(store.WholeFolderCandidates.Where(path => requests[0].MessageBoxText.Contains(path)).ToArray(),
+                        store.ApprovedPaths.ToArray());
+                    Assert.AreEqual(duplicate, store.Charts.Single().Path);
+                }
+                else { AssertNotStarted(); }
+                Assert.IsTrue(File.Exists(keeper)); Assert.IsTrue(File.Exists(duplicate));
+            }
+            finally
+            {
+                answer.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
+                try { if (operation != null) { await operation; } }
+                finally
+                {
+                    owner.WorkflowChanged -= presentation.OnWorkflowChanged;
+                    activity.ActivityChanged -= presentation.OnActivityChanged;
+                }
+            }
+        });
+    }
+
+    /// <summary>保護groupだけで確定実対象が0なら、preparedプロトコルの削除で不要な再生停止を始めません。</summary>
+    [TestMethod]
+    public async Task RunHashCleanupAsync_ProtectedPreparedGroupDoesNotStopPlayback()
+    {
+        var events = new List<string>();
+        var presentation = new RecordingPresentation(events);
+        var store = new RecordingStore(events) { WholeFolderCandidates = [@"C:\Songs"], RegisteredUserRoots = [@"C:\Songs"] };
+        var gate = new ChartFileOperationSynchronizer();
+        var activity = new ChartMutationActivityOwner();
+        var dialogs = new FakeUiDialogService
+        {
+            ConfirmationHandler = request => Task.FromResult(
+            UiDialogResult.FromMessageBoxResult(request.Button == MessageBoxButton.OKCancel ? MessageBoxResult.OK : MessageBoxResult.Yes))
+        };
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, presentation, dialogs, store, gate: gate, activity: activity);
+        try
+        {
+            await owner.RunHashCleanupAsync(new DuplicateGroup([CreateChart(@"C:\Songs\a.bms", "hash"),
+                CreateChart(@"C:\Songs\long-name.bms", "hash")], [@"C:\Songs"]), @"C:\Songs");
+            Assert.AreEqual(1, events.Count(value => value == "store-remove"));
+            Assert.AreEqual(0, store.Charts.Count);
+            Assert.AreEqual(0, store.ApprovedPaths.Count);
+            Assert.IsFalse(events.Contains("playback-stop"));
+            Assert.IsFalse(gate.IsActive);
+            Assert.IsFalse(activity.IsActive);
+        }
+        finally
+        {
+            owner.WorkflowChanged -= presentation.OnWorkflowChanged;
+            activity.ActivityChanged -= presentation.OnActivityChanged;
+        }
+    }
+
     /// <summary>
     /// 先行フォルダのYesがあっても後続の表示失敗・null応答・例外では全変更を始めず元原因と入力を保ち、確認途中の部分実行を検出する。
     /// </summary>
@@ -716,6 +897,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     [DataRow(0)]
     [DataRow(1)]
     [DataRow(2)]
+    [DataRow(3)]
     public async Task RunHashCleanupAsync_WholeFolderFailureDoesNotStartMutation(int failureKind)
     {
 
@@ -737,6 +919,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 Assert.AreEqual(0, events.Count);
                 if (folderCount == 1) { return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes)); }
                 if (failureKind == 2) { throw expectedFailure; }
+                if (failureKind == 3) { return Task.FromResult(UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable)); }
                 // 外部実装が契約を破ってnullを返すケースを、nullableな配列から実際の応答として渡します。
                 return Task.FromResult(failureKind == 1
                     ? new object?[] { null }.Cast<UiDialogResult>().Single()
@@ -758,6 +941,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             Assert.IsNotNull(result.Failure);
             if (failureKind == 2) { Assert.AreSame(expectedFailure, result.Failure); }
             if (failureKind == 0) { Assert.AreSame(expectedFailure, result.Failure.InnerException); }
+            if (failureKind == 3) { StringAssert.Contains(result.Failure.Message, "OwnerUnavailable"); }
             Assert.AreEqual(2, folderCount);
             Assert.AreEqual(0, events.Count);
             Assert.AreEqual(0, store.Charts.Count);
@@ -1025,14 +1209,21 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
 
         internal LibraryChartRemovalOutcome RemovalOutcome { get; set; } = null!;
         internal IReadOnlyList<string> WholeFolderCandidates { get; set; } = [];
+        internal IReadOnlyList<string> RegisteredUserRoots { get; set; } = [];
+        internal IReadOnlyList<string> ApprovedPaths { get; private set; } = [];
+        internal int PhysicalMutationStarts { get; private set; }
+
+        public bool TryBeginPhysicalMutation(BMSLibrary library, IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease? lease)
+        { PhysicalMutationStarts++; lease = null; return true; }
 
         public LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts)
-            => new(charts, WholeFolderCandidates, [], charts.Count, 0);
+            => new(charts, WholeFolderCandidates, [], charts.Count, 0, registeredUserRoots: RegisteredUserRoots);
 
         public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths)
         {
             IReadOnlyList<ChartFile> charts = prepared.Targets;
             events.Add("store-remove");
+            ApprovedPaths = approvedWholeFolderPaths;
             Charts = charts;
             return RemovalOutcome ?? new LibraryChartRemovalOutcome(charts.Select(chart => new LibraryChartRemovalTarget(chart.Path, LibraryChartRemovalState.Confirmed)), true, true);
         }

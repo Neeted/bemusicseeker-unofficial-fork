@@ -16,33 +16,39 @@ internal enum LibraryChartRemovalState
 /// <summary>A chart target and its observed filesystem result; failures retain the original exception.</summary>
 internal sealed record LibraryChartRemovalTarget(string Path, LibraryChartRemovalState State, Exception Failure = null);
 
-/// <summary>Callback-free, immutable filesystem and session terminal facts for one library deletion.</summary>
+/// <summary>一回の削除について物理事実・catalog終端・登録保存失敗を別々に保持する不変の結果です。</summary>
 internal sealed class LibraryChartRemovalOutcome
 {
-    /// <summary>Copies the observed targets and the existing catalog owner's commit facts.</summary>
+    /// <summary>観測した対象別事実と独立した必須終端の原因を保持します。</summary>
     internal LibraryChartRemovalOutcome(IEnumerable<LibraryChartRemovalTarget> targets,
-        bool catalogApplyAttempted = false, bool catalogDurable = false, Exception catalogFailure = null)
+        bool catalogApplyAttempted = false, bool catalogDurable = false, Exception catalogFailure = null, Exception registrationFailure = null)
     {
         Targets = Array.AsReadOnly((targets ?? []).ToArray());
         CatalogApplyAttempted = catalogApplyAttempted;
         CatalogDurable = catalogDurable;
         CatalogFailure = catalogFailure;
+        RegistrationFailure = registrationFailure;
     }
 
-    /// <summary>Copies deletion facts and derives catalog terminal state from the operation session.</summary>
-    /// <param name="targets">Observed filesystem deletion results.</param>
-    /// <param name="sessionReceipt">Operation-scoped catalog/derived-state terminal facts.</param>
-    /// <param name="catalogApplyAttempted">Whether the delete command reached its session commit boundary.</param>
+    /// <summary>物理成功を保ち、変更セッションと登録保存の独立した終端を集めます。</summary>
+    /// <param name="targets">削除APIの観測結果。</param>
+    /// <param name="sessionReceipt">同じ操作のcatalog・派生状態の終端証票。</param>
+    /// <param name="catalogApplyAttempted">変更セッションの確定を試みたか。</param>
+    /// <param name="registrationFailure">登録保存・限定公開の失敗。catalog原因へ置き換えません。</param>
+    /// <param name="catalogFailure">証票を返す前に起きたcatalog処理の例外。</param>
+    /// <param name="deletedFolderPaths">実executorの削除APIが成功したscope。</param>
     internal LibraryChartRemovalOutcome(
         IEnumerable<LibraryChartRemovalTarget> targets,
         LibraryMutationSessionReceipt sessionReceipt,
-        bool catalogApplyAttempted)
+        bool catalogApplyAttempted, Exception registrationFailure = null, Exception catalogFailure = null, IEnumerable<string> deletedFolderPaths = null)
     {
         Targets = Array.AsReadOnly((targets ?? []).ToArray());
         SessionReceipt = sessionReceipt ?? LibraryMutationSessionReceipt.Empty;
         CatalogApplyAttempted = catalogApplyAttempted;
         CatalogDurable = SessionReceipt.DurableCommit;
-        CatalogFailure = SessionReceipt.ApplyFailure
+        RegistrationFailure = registrationFailure;
+        DeletedFolderPaths = Array.AsReadOnly((deletedFolderPaths ?? []).ToArray());
+        CatalogFailure = catalogFailure ?? SessionReceipt.ApplyFailure
             ?? SessionReceipt.FinalizationFailure
             ?? (SessionReceipt.ConfirmedChangeCount > 0 && !SessionReceipt.DurableCommit
                 ? new InvalidOperationException("Catalog mutation did not produce a durable session receipt.")
@@ -61,10 +67,17 @@ internal sealed class LibraryChartRemovalOutcome
     internal bool CatalogDurable { get; }
     /// <summary>Catalog or required postcommit failure, independent of filesystem facts.</summary>
     internal Exception CatalogFailure { get; }
-    /// <summary>Required finalization failed after the catalog commit was observed.</summary>
+    /// <summary>物理成功後の登録保存・限定公開の失敗です。catalog原因と区別します。</summary>
+    internal Exception RegistrationFailure { get; }
+    /// <summary>executorの削除APIが成功したscopeだけを保持します。</summary>
+    internal IReadOnlyList<string> DeletedFolderPaths { get; } = Array.AsReadOnly(Array.Empty<string>());
+    /// <summary>必須終端の独立した原因を失わず、外側の結果へ渡します。</summary>
+    internal Exception RequiredFailure => CatalogFailure == null ? RegistrationFailure
+        : RegistrationFailure == null ? CatalogFailure : new AggregateException(CatalogFailure, RegistrationFailure);
+    /// <summary>catalog確定後の必須最終化の失敗です。</summary>
     internal bool RequiredFinalizationFailed => CatalogDurable && CatalogFailure != null;
     /// <summary>Whether the deletion needs a terminal error report.</summary>
-    internal bool HasError => CatalogFailure != null || Targets.Any(target => target.State != LibraryChartRemovalState.Confirmed);
+    internal bool HasError => RegistrationFailure != null || CatalogFailure != null || Targets.Any(target => target.State != LibraryChartRemovalState.Confirmed);
 }
 
 /// <summary>Stops dependent repair maintenance while carrying the already observed deletion facts.</summary>
@@ -73,7 +86,7 @@ internal sealed class LibraryChartRemovalException : Exception
 {
     /// <summary>Preserves the deletion outcome across the repair bridge's unwind.</summary>
     internal LibraryChartRemovalException(LibraryChartRemovalOutcome outcome, Exception failure = null)
-        : base("Library chart removal catalog application failed.", failure ?? outcome.CatalogFailure)
+        : base("Library chart removal required application failed.", failure ?? outcome.RequiredFailure)
     {
         Outcome = outcome;
     }

@@ -84,9 +84,7 @@ internal sealed class StartupSettingsSnapshot
             LR2RootPath = settings.LR2RootPath,
             LR2CustomFolderOutputBaseDir = settings.LR2CustomFolderOutputBaseDir,
             LR2CustomFolderAdditionalOutputBaseDirs = settings.LR2CustomFolderAdditionalOutputBaseDirs,
-            StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Deserialize(
-                settings.StandaloneBmsRootPaths,
-                settings.BMSRootPath),
+            StandaloneBmsRootPaths = BmsRootRegistrationStore.CaptureStandaloneRoots(settings),
             UsePlayeruBMplay = settings.UsePlayeruBMplay,
             uBMplayPath = settings.uBMplayPath,
             UsePlayerBMIIDXView = settings.UsePlayerBMIIDXView,

@@ -63,11 +63,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     BMSInstallDir = installRoot,
                     FolderNameFormat = "%TITLE%",
                     KeepInstallablePackagesPending = false
-                })
+                }, settings: TestBmsFactory.CreateRootSettings([installRoot]))
             {
                 BmsCharts = [],
                 BmsonCharts = [],
-                SearchTargets = [installRoot],
+
                 ChartPackagesPending = CreatePackageCollection([]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -709,11 +709,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 KeepInstallablePackagesPending = false
             };
             var library = new TestBmsLibrary(songDbPath, null, null, new RealFileMutationService(), new RecordingDialogService(),
-                new TestUiScheduler(() => null!), () => options)
+                new TestUiScheduler(() => null!), () => options, settings: TestBmsFactory.CreateRootSettings([installRoot], lr2: true))
             {
                 BmsCharts = [],
                 BmsonCharts = [],
-                SearchTargets = [installRoot],
+
                 ChartPackagesPending = CreatePackageCollection([]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -1052,7 +1052,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 {
                     OperationModeLR2DB = true
                 });
-            library.SearchTargets = [sourceDirectoryPath];
+            library.FixtureSettings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([sourceDirectoryPath]);
             OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library, [chart]);
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
@@ -2346,7 +2346,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 ChartPackagesPending = CreatePackageCollection([firstStep.Package]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
-            library.SearchTargets = [firstStep.DestinationDirectoryPath, secondStep.DestinationDirectoryPath];
+            library.FixtureSettings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([firstStep.DestinationDirectoryPath, secondStep.DestinationDirectoryPath]);
 
             // cold構築では実root列挙を一度だけ観測し、warm区間のsource workと
             // 混同しないよう観測口を切り替えます。
@@ -2864,7 +2864,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     KeepInstallablePackagesPending = true
                 });
             library.BmsCharts = [];
-            library.SearchTargets = useLr2 ? [] : [registeredRoot];
+            library.FixtureSettings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize(useLr2 ? [] : [registeredRoot]);
             string sourcePath = sourceKind switch
             {
                 "root" => registeredRoot,
@@ -3329,11 +3329,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 EnableSmartComponentOverwrite = false
             };
             var library = new TestBmsLibrary(songDbPath, null, null, new RealFileMutationService(),
-                new RecordingDialogService(), new TestUiScheduler(() => null), () => options)
+                new RecordingDialogService(), new TestUiScheduler(() => null), () => options, settings: TestBmsFactory.CreateRootSettings([installRoot]))
             {
                 BmsCharts = [],
                 BmsonCharts = [],
-                SearchTargets = [installRoot],
+
                 ChartPackagesPending = CreatePackageCollection([]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -3808,7 +3808,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             };
             OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library, backgroundFiles);
             OwnedChartCollectionTestSupport.SetLibraryBmsonSongsWithoutNotification(library, []);
-            library.SearchTargets = [installRootPath];
+            library.FixtureSettings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([installRootPath]);
 
             // 正対照として一度だけcold rootを構築し、実際の列挙markerが観測できる
             // ことを確認してから、同じlibraryをwarm状態へ戻して本番操作を測定します。
@@ -4149,11 +4149,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     FolderNameFormat = "%TITLE%",
                     KeepInstallablePackagesPending = false,
                     PendingInstallEstimateMaxParallelPackages = 1
-                })
+                }, settings: TestBmsFactory.CreateRootSettings([installRoot]))
             {
                 BmsCharts = [],
                 BmsonCharts = [],
-                SearchTargets = [installRoot],
+
                 ChartPackagesPending = CreatePackageCollection([]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -4402,11 +4402,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     BMSInstallDir = installed,
                     FolderNameFormat = "%TITLE%",
                     KeepInstallablePackagesPending = false
-                })
+                }, settings: TestBmsFactory.CreateRootSettings([installed]))
             {
                 BmsCharts = [],
                 BmsonCharts = [],
-                SearchTargets = [installed],
+
                 ChartPackagesPending = CreatePackageCollection([]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -4560,11 +4560,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     DeletePendingPackageSourceAfterInstall = false,
                     EnableSmartComponentOverwrite = false,
                     KeepSmartOverwriteProtectedFilesByRenaming = false
-                })
+                }, settings: TestBmsFactory.CreateRootSettings([installationRoot, explicitDestination]))
             {
                 BmsCharts = [existingChart],
                 BmsonCharts = [],
-                SearchTargets = [installationRoot, explicitDestination],
+
                 ChartPackagesPending = CreatePackageCollection([package]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -6705,7 +6705,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 });
             library.BmsCharts = [];
             Directory.CreateDirectory(installRootPath);
-            library.SearchTargets = [installRootPath];
+            library.FixtureSettings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([installRootPath]);
 
             PackageInstallCommandResult commandResult = library.InstallChartPackagesAutoWithProgressAsync(
                 [firstSourceDirectoryPath, secondSourceDirectoryPath, thirdSourceDirectoryPath],

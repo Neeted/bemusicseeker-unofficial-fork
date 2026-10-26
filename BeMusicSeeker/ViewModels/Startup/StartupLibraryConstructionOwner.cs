@@ -310,13 +310,6 @@ internal sealed class StartupLibraryConstructionOwner
         try { playlist = factory.CreateBmsPlaylist(libraryProfile, library) ?? throw new InvalidOperationException("Startup playlist factory returned null."); }
         catch { if (!ReferenceEquals(previousLibrary, library)) { library.RequestStop("construction_failed"); } throw; }
         StartupLibraryServices services = new(libraryProfile, library, playlist);
-        try { if (!libraryProfile.OperationModeLR2DB) { library.SearchTargets.AddRange(libraryProfile.SearchRoots); } }
-        catch
-        {
-            if (!ReferenceEquals(previousPlaylist, playlist)) { playlist.RequestStop("construction_failed"); }
-            if (!ReferenceEquals(previousLibrary, library)) { library.RequestStop("construction_failed"); }
-            throw;
-        }
         if (!ReferenceEquals(previousLibrary, library)) { previousLibrary?.RequestStop("service_replaced"); }
         if (!ReferenceEquals(previousPlaylist, playlist)) { previousPlaylist?.RequestStop("service_replaced"); }
         applicationPort.AttachStartupLibrary(library, capability);

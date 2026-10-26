@@ -11,7 +11,6 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -685,12 +684,10 @@ public sealed class SettingsDialogBehaviorTests
         }, nameof(OrdinarySaveFailureKeepsOnlyThatItemsPreviousValue));
     }
 
-    /// <summary>保存後のruntime配送／差分失敗を通知して終端し、次の別入力は保存から処理します。configロック下で旧保存を流用する再試行を検出します。</summary>
-    [DataTestMethod]
-    [DataRow(true)]
-    [DataRow(false)]
+    /// <summary>保存後の差分失敗を通知して終端し、次の別入力は保存から処理します。configロック下で旧保存を流用する再試行を検出します。</summary>
+    [TestMethod]
     [DoNotParallelize]
-    public void BmsConfirmation_RuntimeOrFileDiffFailureAllowsLatestInputResave(bool failRuntime)
+    public void BmsConfirmation_FileDiffFailureAllowsLatestInputResave()
     {
         RunOnUiDispatcher(async () =>
         {
@@ -698,19 +695,17 @@ public sealed class SettingsDialogBehaviorTests
             Settings values = OpenPersistedSettings(directory.Path);
             string configPath = Path.Combine(directory.Path, "user.config");
             var failures = new List<Exception>();
-            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, libraryAttached: true, reportApplyFailure: failures.Add);
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, reportApplyFailure: failures.Add);
             string added = Directory.CreateDirectory(Path.Combine(directory.Path, "added")).FullName;
             string latest = Directory.CreateDirectory(Path.Combine(directory.Path, "latest")).FullName;
             var failure = new IOException("controlled settings continuation failure");
-            if (failRuntime) { harness.SearchRoots.ApplyFailure = failure; }
-            else { harness.State.ReloadFileDiffHandler = () => Task.FromException(failure); }
+            harness.State.ReloadFileDiffHandler = () => Task.FromException(failure);
             await harness.Dialog.AddBmsSearchRootPathsAsync([added]);
             await harness.Dialog.CommitBmsRootsAsync();
             Assert.AreSame(failure, failures.Single());
             CollectionAssert.Contains(StandaloneBmsRootPathSettings.Deserialize(PortableSettingsPersistenceTests.OpenSettings(configPath).StandaloneBmsRootPaths).ToArray(), added);
             CollectionAssert.Contains(harness.Dialog.ConfirmedBMSDirectories.ToArray(), added);
             harness.Dialog.ShowNewPackageInstallConfirmMsg = false;
-            harness.SearchRoots.ApplyFailure = null;
             harness.State.ReloadFileDiffHandler = null;
             await harness.Dialog.AddBmsSearchRootPathsAsync([latest]);
             foreach (string root in harness.Dialog.AvailableBMSDirectories.Where(root => root != latest).ToArray())
@@ -719,17 +714,15 @@ public sealed class SettingsDialogBehaviorTests
             using (File.Open(configPath, FileMode.Open, FileAccess.Read, FileShare.Read))
             { await harness.Dialog.CommitBmsRootsAsync(); }
             Assert.AreEqual(2, failures.Count, "前回の保存成立を流用せず、今回のconfig保存失敗を通知します。");
-            Assert.AreEqual(1, harness.SearchRoots.ApplyCount);
-            Assert.AreEqual(failRuntime ? 0 : 1, harness.State.FileDiffReloadCount);
+            Assert.AreEqual(1, harness.State.FileDiffReloadCount);
             CollectionAssert.DoesNotContain(harness.Dialog.ConfirmedBMSDirectories.ToArray(), latest);
             await harness.Dialog.CommitBmsRootsAsync();
             Assert.AreEqual(2, failures.Count, string.Join(Environment.NewLine, failures));
-            Assert.AreEqual(2, harness.SearchRoots.ApplyCount);
-            Assert.AreEqual(failRuntime ? 1 : 2, harness.State.FileDiffReloadCount);
+            Assert.AreEqual(2, harness.State.FileDiffReloadCount);
             CollectionAssert.AreEqual(new[] { latest }, harness.Dialog.ConfirmedBMSDirectories.ToArray());
             Assert.AreEqual(latest, PortableSettingsPersistenceTests.OpenSettings(configPath).BMSInstallDir);
             Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(configPath).ShowNewPackageInstallConfirmMsg);
-        }, nameof(BmsConfirmation_RuntimeOrFileDiffFailureAllowsLatestInputResave));
+        }, nameof(BmsConfirmation_FileDiffFailureAllowsLatestInputResave));
     }
 
     /// <summary>無関係なライブラリ処理中も既存の画面編集可否に従ってBMS候補を追加・削除できます。実確定の拒否と、解放だけでは保存しない境界を確認します。</summary>
@@ -743,7 +736,7 @@ public sealed class SettingsDialogBehaviorTests
             Settings values = OpenPersistedSettings(directory.Path);
             string oldRoot = values.BMSInstallDir;
             string added = Directory.CreateDirectory(Path.Combine(directory.Path, "Added")).FullName;
-            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, libraryAttached: true);
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true);
             byte[] before = File.ReadAllBytes(Path.Combine(directory.Path, "user.config"));
             harness.State.IsLibraryOperationInProgress = true;
             Assert.IsTrue(harness.Dialog.IsBmsSearchRootEditorEnabled);
@@ -773,7 +766,7 @@ public sealed class SettingsDialogBehaviorTests
             string oldRoot = values.BMSInstallDir;
             string newRoot = Directory.CreateDirectory(Path.Combine(directory.Path, "new-library")).FullName;
             string transient = Directory.CreateDirectory(Path.Combine(directory.Path, "transient")).FullName;
-            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, libraryAttached: true);
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true);
             harness.Dialog.AddBmsSearchRootPathsAsync([newRoot, transient]).GetAwaiter().GetResult();
             harness.Dialog.RemoveBmsSearchRootPathAsync(transient).GetAwaiter().GetResult();
             harness.Dialog.RemoveBmsSearchRootPathAsync(oldRoot).GetAwaiter().GetResult();
@@ -936,22 +929,15 @@ public sealed class SettingsDialogBehaviorTests
         }, nameof(SectionConfirmation_PreparationReopenAdoptsOnlySavedSection));
     }
 
-    /// <summary>実XML→configの保存境界で失敗を作り、旧公開値・Close非保存・次回disk読取りと最新入力の再保存を確認します。同入力XML再保存、runtime同値config再保存をロックで識別します。</summary>
-    [DataTestMethod]
-    [DataRow("xml-failure")]
-    [DataRow("latest-input")]
-    [DataRow("same-input")]
-    [DataRow("runtime-equal")]
+    /// <summary>部分保存後の通常Close/reopenは候補だけを戻し、共有reader・実媒体を再保存せず、次の明示候補を保存して差分を完了します。媒体条件表はBmsRootRegistrationTestsへ分担します。</summary>
+    [TestMethod]
     [DoNotParallelize]
-    public void Lr2BmsExplicitConfirmationResavesLatestInputAcrossMediaFailures(string scenario)
+    public void Lr2BmsConfirmation_PartialSaveCloseKeepsPublishedInputsUntilExplicitSave()
     {
         RunOnUiDispatcher(async () =>
         {
-            using var directory = new TemporaryDirectory("lr2-latest-save");
+            using var directory = new TemporaryDirectory("lr2-partial-close");
             (string SongDbPath, string ConfigPath, string BmsRoot) layout = CreateValidLr2Layout(directory.Path);
-            var xml = System.Xml.Linq.XDocument.Load(layout.ConfigPath);
-            (xml.Root ?? throw new AssertFailedException()).Add(new System.Xml.Linq.XElement("unknown", "preserved"));
-            xml.Save(layout.ConfigPath);
             string first = Directory.CreateDirectory(Path.Combine(directory.Path, "first")).FullName;
             string latest = Directory.CreateDirectory(Path.Combine(directory.Path, "latest")).FullName;
             string configPath = Path.Combine(directory.Path, "user.config");
@@ -960,7 +946,7 @@ public sealed class SettingsDialogBehaviorTests
             values.LR2RootPath = directory.Path; values.LR2ConfigXmlPath = layout.ConfigPath; values.LR2SongDBPath = layout.SongDbPath;
             values.BMSInstallDir = layout.BmsRoot; values.Save();
             var failures = new List<Exception>();
-            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, libraryAttached: true, reportApplyFailure: failures.Add);
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, reportApplyFailure: failures.Add);
             SettingsDialogViewModel dialog = harness.Dialog;
             async Task Select(string target)
             {
@@ -970,89 +956,26 @@ public sealed class SettingsDialogBehaviorTests
                 dialog.ReplacementBmsInstallDir = target;
             }
             await Select(first);
-            byte[] originalConfig = File.ReadAllBytes(configPath);
-            string blockedPath = scenario == "xml-failure" ? layout.ConfigPath : configPath;
-            using (File.Open(blockedPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-            { await dialog.CommitBmsRootsAsync(); }
-            Assert.AreEqual(1, failures.Count, "部分保存を全成功として終えません。");
-            if (scenario == "xml-failure") { Assert.IsInstanceOfType<IOException>(failures[0]); }
-            else
-            {
-                var saveFailure = (PortableSettingsException)failures[0];
-                Assert.AreEqual(configPath, saveFailure.FilePath);
-                Assert.AreEqual("Save", saveFailure.Operation);
-                Assert.IsInstanceOfType<IOException>(saveFailure.InnerException);
-            }
-            Assert.AreEqual(layout.BmsRoot, values.BMSInstallDir);
-            Assert.AreEqual(layout.BmsRoot, PortableSettingsPersistenceTests.OpenSettings(configPath).BMSInstallDir);
-            CollectionAssert.AreEqual(originalConfig, File.ReadAllBytes(configPath));
+            using (File.Open(configPath, FileMode.Open, FileAccess.Read, FileShare.Read)) { await dialog.CommitBmsRootsAsync(); }
+            Assert.AreEqual(1, failures.Count);
+            byte[] partialConfig = File.ReadAllBytes(configPath);
+            byte[] partialXml = File.ReadAllBytes(layout.ConfigPath);
+            dialog.CloseCommand.Execute(); dialog.SetPresentationActive(false); dialog.SetPresentationActive(true);
+            CollectionAssert.AreEqual(new[] { layout.BmsRoot }, dialog.AvailableBMSDirectories.ToArray());
             CollectionAssert.AreEqual(new[] { layout.BmsRoot }, dialog.ConfirmedBMSDirectories.ToArray());
-            CollectionAssert.AreEqual(new[] { scenario == "xml-failure" ? layout.BmsRoot : first }, new LR2Config(layout.ConfigPath).GetBMSSearchDirectoriesReadOnly().ToArray());
-            Assert.AreEqual(0, harness.State.FileDiffReloadCount);
-            int expectedFailures = 1;
-            string target = first;
-            if (scenario is "latest-input" or "runtime-equal")
-            {
-                dialog.StartupSortCachePrewarmPriority = 3;
-                values.TreeViewWidth = 321d; values.Save();
-                byte[] partialConfig = File.ReadAllBytes(configPath);
-                byte[] partialXml = File.ReadAllBytes(layout.ConfigPath);
-                dialog.CloseCommand.Execute();
-                dialog.SetPresentationActive(false);
-                dialog.SetPresentationActive(true);
-                CollectionAssert.AreEqual(new[] { layout.BmsRoot }, dialog.AvailableBMSDirectories.ToArray());
-                Assert.IsNull(dialog.ReplacementBmsInstallDir);
-                Assert.IsFalse(dialog.CanCancelBmsRoots);
-                Assert.IsTrue(dialog.CanConfirmBmsRoots, "公開値と同値の候補も明示確定できます。");
-                CollectionAssert.AreEqual(partialConfig, File.ReadAllBytes(configPath));
-                CollectionAssert.AreEqual(partialXml, File.ReadAllBytes(layout.ConfigPath));
-                var nextOwner = new Lr2ConfigOwner(new LR2Config(layout.ConfigPath));
-                CollectionAssert.AreEqual(new[] { first }, nextOwner.Capture().RegisteredRoots.ToArray(), "次回初期読取りはdiskで成立したXMLを使います。");
-                Assert.AreEqual(layout.BmsRoot, PortableSettingsPersistenceTests.OpenSettings(configPath).BMSInstallDir);
-                Assert.AreEqual(0, harness.State.FileDiffReloadCount);
-                dialog.UseExternalPanelImage = true;
-                if (scenario == "latest-input") { target = latest; await Select(target); }
-                else
-                {
-                    target = layout.BmsRoot;
-                    using (File.Open(configPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-                    { await dialog.CommitBmsRootsAsync(); }
-                    expectedFailures++;
-                    Assert.AreEqual(expectedFailures, failures.Count, "同値config項目も明示保存し、保存失敗を通知します。");
-                    Assert.AreEqual(configPath, ((PortableSettingsException)failures.Last()).FilePath);
-                    CollectionAssert.AreEqual(new[] { target }, new LR2Config(layout.ConfigPath).GetBMSSearchDirectoriesReadOnly().ToArray());
-                    Assert.AreEqual(0, harness.State.FileDiffReloadCount);
-                }
-            }
-            else if (scenario == "same-input")
-            {
-                using (File.Open(layout.ConfigPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-                { await dialog.CommitBmsRootsAsync(); }
-                expectedFailures++;
-                Assert.AreEqual(expectedFailures, failures.Count, "同じ一覧でも成功XML段階と同内容XML保存を省略しません。");
-                Assert.IsInstanceOfType<IOException>(failures.Last());
-                Assert.AreEqual(layout.BmsRoot, values.BMSInstallDir);
-                Assert.AreEqual(0, harness.State.FileDiffReloadCount);
-            }
-            else { target = latest; await Select(target); }
-            await dialog.CommitBmsRootsAsync();
-            Assert.AreEqual(expectedFailures, failures.Count, string.Join(Environment.NewLine, failures));
-            Assert.AreEqual(target, values.BMSInstallDir);
-            Assert.AreEqual(target, PortableSettingsPersistenceTests.OpenSettings(configPath).BMSInstallDir);
-            CollectionAssert.AreEqual(new[] { target }, new LR2Config(layout.ConfigPath).GetBMSSearchDirectoriesReadOnly().ToArray());
-            CollectionAssert.AreEqual(new[] { target }, dialog.ConfirmedBMSDirectories.ToArray());
-            CollectionAssert.AreEqual(new[] { target }, dialog.AvailableBMSDirectories.ToArray());
+            Assert.IsNull(dialog.ReplacementBmsInstallDir);
             Assert.IsFalse(dialog.CanCancelBmsRoots);
+            Assert.IsTrue(dialog.CanConfirmBmsRoots);
+            Assert.AreEqual(0, harness.State.FileDiffReloadCount);
+            CollectionAssert.AreEqual(partialConfig, File.ReadAllBytes(configPath));
+            CollectionAssert.AreEqual(partialXml, File.ReadAllBytes(layout.ConfigPath));
+            await Select(latest);
+            await dialog.CommitBmsRootsAsync();
+            CollectionAssert.AreEqual(new[] { latest }, dialog.ConfirmedBMSDirectories.ToArray());
+            Assert.AreEqual(latest, PortableSettingsPersistenceTests.OpenSettings(configPath).BMSInstallDir);
             Assert.AreEqual(1, harness.State.FileDiffReloadCount);
-            Assert.AreEqual("preserved", System.Xml.Linq.XDocument.Load(layout.ConfigPath).Root?.Element("unknown")?.Value);
-            Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(configPath).UseExternalPanelImage);
-            if (scenario is "latest-input" or "runtime-equal")
-            {
-                Assert.AreEqual(3, PortableSettingsPersistenceTests.OpenSettings(configPath).StartupSortCachePrewarmPriority);
-                Assert.AreEqual(321d, PortableSettingsPersistenceTests.OpenSettings(configPath).TreeViewWidth);
-                Assert.IsTrue(dialog.UseExternalPanelImage, "自己欄の採用は無関係な候補を消しません。");
-            }
-        }, nameof(Lr2BmsExplicitConfirmationResavesLatestInputAcrossMediaFailures));
+            Assert.AreEqual(1, failures.Count);
+        }, nameof(Lr2BmsConfirmation_PartialSaveCloseKeepsPublishedInputsUntilExplicitSave));
     }
 
     /// <summary>右クリックrecordの確定が別recordの不正候補を保存せず、実JSONの他recordを保持することを確認します。</summary>
@@ -1290,18 +1213,17 @@ public sealed class SettingsDialogBehaviorTests
         }
     }
 
-    /// <summary>実保存と局所入口を接続し、runtime配送の失敗点だけを限定して観測します。</summary>
+    /// <summary>実保存と局所入口を接続し、必要な差分継続の終端を限定して観測します。</summary>
     private sealed class SettingsDialogHarness(SettingsDialogViewModel dialog, RecordingSettingsStatePort state,
-        RecordingSearchRootRuntimePort searchRoots, RecordingWorkspacePort workspace, RecordingCustomFolderOutputPort output) : IDisposable
+        RecordingWorkspacePort workspace, RecordingCustomFolderOutputPort output) : IDisposable
     {
         internal SettingsDialogViewModel Dialog { get; } = dialog;
         internal RecordingSettingsStatePort State { get; } = state;
-        internal RecordingSearchRootRuntimePort SearchRoots { get; } = searchRoots;
         internal RecordingWorkspacePort Workspace { get; } = workspace;
         internal RecordingCustomFolderOutputPort Output { get; } = output;
 
         internal static SettingsDialogHarness Create(Settings values, bool activeLibraryProfile = false,
-            Action<Exception>? reportApplyFailure = null, bool libraryAttached = false, Func<Task>? reloadFileDiff = null,
+            Action<Exception>? reportApplyFailure = null, Func<Task>? reloadFileDiff = null,
             ApplicationComposition? composition = null, ISettingsDialogPlayerFactoryPort? playerFactory = null,
             ISettingsDialogPlaybackRuntimePort? playbackRuntime = null, RecordingDialogService? dialogs = null,
             Func<OperationModeRestartRequest, Task<bool>>? restart = null)
@@ -1311,7 +1233,7 @@ public sealed class SettingsDialogBehaviorTests
             var output = new RecordingCustomFolderOutputPort(() => composition?.CustomFolderOutputSettingsProvider()
                 ?? CustomFolderOutputSettingsSnapshot.CreateCurrent(values));
             var history = new RecordingPlayHistoryPort();
-            var roots = new RecordingSearchRootRuntimePort { IsLibraryAttachedValue = libraryAttached };
+            var roots = new RecordingSearchRootRuntimePort();
             ISettingsDialogPlayerFactoryPort selectedFactory = playerFactory ?? new TestSettingsDialogPlayerFactoryPort();
             ISettingsDialogPlaybackRuntimePort playback = playbackRuntime ?? new TestSettingsDialogPlaybackRuntimePort();
             var sync = new Lr2SongDbSyncWorkflowOwner(new NoOpLr2SongDbSyncRuntime());
@@ -1325,7 +1247,7 @@ public sealed class SettingsDialogBehaviorTests
                     applicationPathSnapshot: ApplicationPathPolicy.Current, audioDeviceCatalog: new TestAudioDeviceCatalog(),
                     audioSettingsGateway: new TestAudioSettingsGateway(), requestOperationModeRestart: restart ?? UnexpectedRestart,
                     audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
-            return new SettingsDialogHarness(dialog, state, roots, workspace, output);
+            return new SettingsDialogHarness(dialog, state, workspace, output);
         }
 
         public void Dispose() => Dialog.Dispose();
@@ -1622,50 +1544,8 @@ public sealed class SettingsDialogBehaviorTests
 
     private sealed class RecordingSearchRootRuntimePort : ISettingsDialogSearchRootRuntimePort
     {
-
-        internal bool IsLibraryAttachedValue { get; set; }
-
-        internal IList<string>? Sequence { get; set; }
-
-        internal Func<Task>? ConfirmationObservedAsync { get; set; }
-
-        internal int ApplyCount { get; private set; }
-
-        internal IReadOnlyList<string> LastSearchTargets { get; private set; } = [];
-
-        internal Exception? ApplyFailure { get; set; }
-
-        internal Action<IReadOnlyList<string>>? ApplyObserved { get; set; }
-
-        public bool IsLibraryAttached
-        {
-            get
-            {
-                return IsLibraryAttachedValue;
-            }
-        }
-
-        public bool HasOwnedChartUnderRealPath(string directoryPath)
-        {
-            return false;
-        }
-
-        public void ApplyStandaloneSearchTargets(IReadOnlyList<string> searchTargets)
-        {
-            ApplyCount++;
-            LastSearchTargets = [.. searchTargets];
-            Sequence?.Add("apply");
-            ApplyObserved?.Invoke(LastSearchTargets);
-            if (ApplyFailure != null)
-            {
-                throw ApplyFailure;
-            }
-        }
-
-        public void InvalidateLibraryFolderCache()
-        {
-            Sequence?.Add("invalidate");
-        }
+        public bool HasOwnedChartUnderRealPath(string directoryPath) => false;
+        public void InvalidateLibraryFolderCache() { }
     }
 
     private sealed class NoOpLr2SongDbSyncRuntime : ILr2SongDbSyncWorkflowRuntime

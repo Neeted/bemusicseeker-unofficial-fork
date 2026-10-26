@@ -7,6 +7,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -50,7 +51,7 @@ public sealed partial class ApplicationCompositionTests
             chartFileScanner: CapturedChartFileScanner.FromFixture([path], new Dictionary<string, IEnumerable<string>> { [root] = [] }, [root]),
             rootFileEnumerator: new FastRootFileEnumerator(),
             fileDbMutationDialogService: dialogs, settingsDialogService: dialogs);
-        var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []) { InitialSearchTargets = [root] };
+        var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []);
         MainWindowViewModel viewModel = TestUiDispatcherHost.Dispatcher.Invoke(() => new MainWindowViewModel(composition, factory));
         IDisposable? lease = null;
         try
@@ -144,7 +145,8 @@ public sealed partial class ApplicationCompositionTests
         File.WriteAllText(chartPath, "#TITLE Preview\n#BPM 120\n#00111:01\n");
         string configPath = Path.Combine(scope.DirectoryPath, "user.config");
         BeMusicSeeker.Properties.Settings values = PortableSettingsPersistenceTests.OpenSettings(configPath);
-        values.OperationModeLR2DB = false;
+        values.OperationModeLR2DB = true;
+        values.LR2ConfigXmlPath = BmsPlaylistTestSupport.CreateLr2Config(scope.DirectoryPath).ConfigFilePath;
         values.Save();
         var session = new FakeSettingsEditSession { Values = values, PersistOwnedValues = true };
         var player = new PlaybackPanelViewModelTests.FakeBmsPlayer();
@@ -167,7 +169,7 @@ public sealed partial class ApplicationCompositionTests
             applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             fileDbMutationDialogService: dialogs, settingsDialogService: dialogs);
         MainWindowViewModel viewModel = TestUiDispatcherHost.Dispatcher.Invoke(composition.CreateMainWindowViewModel);
-        var profile = new LibraryProfile(true, scope.SongDbPath, [], null, null, false, false, false, false, "admission-lr2-test");
+        var profile = new LibraryProfile(true, scope.SongDbPath, [], composition.ResolveLr2Config(values.LR2ConfigXmlPath), null, false, false, false, false, "admission-lr2-test");
         BMSLibrary library = composition.CreateBmsLibrary(profile);
         BMSPlaylist playlist = composition.CreateBmsPlaylist(profile, library);
         var runtime = new BmsLr2SongDbSyncWorkflowRuntime(() => library, () => playlist, () => true);
@@ -237,15 +239,21 @@ public sealed partial class ApplicationCompositionTests
         string outputBase = Path.Combine(scope.DirectoryPath, "Output");
         var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2CustomFolderOutputBaseDir = outputBase };
         var outputSettings = new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = true, LR2CustomFolderOutputBaseDir = outputBase };
+        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(settings =>
+        {
+            settings.OperationModeLR2DB = true;
+            settings.LR2ConfigXmlPath = BmsPlaylistTestSupport.CreateLr2Config(scope.DirectoryPath).ConfigFilePath;
+            settings.LR2CustomFolderOutputBaseDir = outputBase;
+        });
         var composition = new ApplicationComposition(() => options,
-            settingsEditSession: new FakeSettingsEditSession(),
+            settingsEditSession: new FakeSettingsEditSession { Values = values },
             customFolderOutputSettingsProvider: () => outputSettings,
             applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
             rootFileEnumerator: new EmptyAdmissionRootFileEnumerator(),
             uiScheduler: new TestUiScheduler(() => null),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-        var profile = new LibraryProfile(true, scope.SongDbPath, [], null, null, false, true, false, false, "binding-output-test");
+        var profile = new LibraryProfile(true, scope.SongDbPath, [], composition.ResolveLr2Config(values.LR2ConfigXmlPath), null, false, true, false, false, "binding-output-test");
         BMSLibrary library = composition.CreateBmsLibrary(profile);
         BMSPlaylist playlist = composition.CreateBmsPlaylist(profile, library);
         var table = new BMSTable
@@ -304,6 +312,7 @@ public sealed partial class ApplicationCompositionTests
                 values.LR2CustomFolderOutputBaseDir = outputA;
                 values.EnableDownloadLr2IrScoreAndDetectUnsent = true;
             });
+        values.LR2ConfigXmlPath = BmsPlaylistTestSupport.CreateLr2Config(scope.DirectoryPath).ConfigFilePath;
         var captured = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseCapture = new System.Threading.ManualResetEventSlim();
         bool holdCapture = false;
@@ -323,7 +332,7 @@ public sealed partial class ApplicationCompositionTests
             rootFileEnumerator: new EmptyAdmissionRootFileEnumerator(),
             uiScheduler: new TestUiScheduler(() => null),
             applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-        var profile = new LibraryProfile(true, scope.SongDbPath, [], null, null, false, true, false, false, "capture-output-test");
+        var profile = new LibraryProfile(true, scope.SongDbPath, [], composition.ResolveLr2Config(values.LR2ConfigXmlPath), null, false, true, false, false, "capture-output-test");
         BMSLibrary library = composition.CreateBmsLibrary(profile);
         BMSPlaylist playlist = composition.CreateBmsPlaylist(profile, library);
         var table = new BMSTable
@@ -424,6 +433,7 @@ public sealed partial class ApplicationCompositionTests
                 values.EnableBeatorajaBmtOutput = false;
                 values.ScanBmsFilesOnStartup = false;
             });
+        TestBmsFactory.CreateRootSettings([music], values);
         var composition = new ApplicationComposition(settingsEditSession: new FakeSettingsEditSession { Values = values },
             applicationPathSnapshot: TestBmsFactory.AvailableEverythingBridge, rootFileEnumerator: new FastRootFileEnumerator(),
             uiScheduler: new TestUiScheduler(() => null),
@@ -432,11 +442,12 @@ public sealed partial class ApplicationCompositionTests
         var scanned = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseScan = new System.Threading.ManualResetEventSlim();
         scanner.ScanObserved = () => { scanned.TrySetResult(); releaseScan.Wait(); };
-        var library = new TestBmsLibrary(scope.SongDbPath, null, null, null, composition.BmsLibraryOptionsProvider,
+        Lr2ConfigOwner? configOwner = lr2Mode ? composition.ResolveLr2Config(values.LR2ConfigXmlPath) : null;
+        var library = new TestBmsLibrary(scope.SongDbPath, configOwner, null, null, composition.BmsLibraryOptionsProvider,
             TestBmsFactory.AvailableEverythingBridge, scanner, new TestUiScheduler(() => null), new FastRootFileEnumerator(),
-            operationAdmission: composition.OperationAdmission)
-        { SearchTargets = [music], BmsCharts = [], BmsonCharts = [] };
-        var profile = new LibraryProfile(lr2Mode, scope.SongDbPath, [music], null, null, false, lr2Mode, false, false, "parallel-daily-test");
+            operationAdmission: composition.OperationAdmission, settings: values)
+        { BmsCharts = [], BmsonCharts = [] };
+        var profile = new LibraryProfile(lr2Mode, scope.SongDbPath, [music], configOwner, null, false, lr2Mode, false, false, "parallel-daily-test");
         BMSPlaylist playlist = composition.CreateBmsPlaylist(profile, library);
         var table = new BMSTable
         {

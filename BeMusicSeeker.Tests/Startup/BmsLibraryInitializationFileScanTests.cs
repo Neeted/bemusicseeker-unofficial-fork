@@ -195,9 +195,9 @@ public sealed class BmsLibraryInitializationFileScanTests
             optionsSnapshotProvider: () => options,
             applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
             chartFileScanner: chartFileScanner,
-            dialogService: dialogService)
+            dialogService: dialogService, settings: TestBmsFactory.CreateRootSettings([chartDirectoryPath]))
         {
-            SearchTargets = [chartDirectoryPath],
+
             StartupBackgroundTaskScheduler = (_, _, _, _) => false
         };
 

@@ -407,7 +407,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 };
                 library.BmsonCharts = [song];
 
-                LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts([LibraryChartRef.FromChartFile((song))], sendToRecycleBin: false);
+                LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(song)]), sendToRecycleBin: false, approvedWholeFolderDeletePaths: []);
                 Assert.AreEqual(1, outcome.ConfirmedChartCount);
                 Assert.IsTrue(outcome.CatalogDurable);
                 Assert.IsFalse(outcome.HasError);
@@ -988,9 +988,9 @@ public sealed class BmsLibraryDuplicateServiceTests
             var library = new TestBmsLibrary(songDbPath, null, null,
                 new TestFileMutationService(), new RecordingDialogService(),
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options,
-                chartFileScanner)
+                chartFileScanner, settings: TestBmsFactory.CreateRootSettings([root]))
             {
-                SearchTargets = [root],
+
                 StartupBackgroundTaskScheduler = (_, _, _, _) => false
             };
             try

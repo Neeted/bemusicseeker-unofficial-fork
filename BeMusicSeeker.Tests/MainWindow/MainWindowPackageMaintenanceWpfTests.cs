@@ -37,7 +37,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string root = Path.Combine(Path.GetTempPath(), "installed-current-wpf-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false);
         settings.StartupSelectInstallPending = false;
         try
         {
@@ -268,8 +268,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         LR2RootPath = lr2Root,
                         FolderNameFormat = "[%ARTIST%] %TITLE%"
                     }, operationAdmission: composition.OperationAdmission,
-                    playlistOperationAdmission: composition.PlaylistOperationAdmission)
-                { BmsCharts = [chart], SearchTargets = [root] };
+                    playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: TestBmsFactory.CreateRootSettings([root]))
+                { BmsCharts = [chart] };
                 viewModel = composition.CreateMainWindowViewModelForTest();
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
@@ -388,8 +388,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         BMSInstallDir = installRoot,
                         KeepInstallablePackagesPending = false
                     }, operationAdmission: composition.OperationAdmission,
-                    playlistOperationAdmission: composition.PlaylistOperationAdmission)
-                { BmsCharts = [], SearchTargets = [installRoot] };
+                    playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: TestBmsFactory.CreateRootSettings([installRoot]))
+                { BmsCharts = [] };
                 viewModel = composition.CreateMainWindowViewModelForTest();
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
@@ -551,6 +551,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         Directory.CreateDirectory(root);
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
+                values.OperationModeLR2DB = false;
                 values.StartupSelectInstallPending = false;
             });
         try
@@ -839,9 +840,9 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
                         chartFileScanner: scanner,
                         operationAdmission: composition.OperationAdmission,
-                        playlistOperationAdmission: composition.PlaylistOperationAdmission)
+                        playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: TestBmsFactory.CreateRootSettings([root]))
                     {
-                        SearchTargets = [root],
+
                         StartupBackgroundTaskScheduler = (_, _, _, _) => false
                     };
                     initializedLibrary = library;
@@ -1086,9 +1087,9 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
                 library = new TestBmsLibrary(songDbPath, getLR2Config: null, _lr2ScoreDB: null, startupRequiredFileScanReason: null,
                     optionsSnapshotProvider: () => options, applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
-                    chartFileScanner: scanner, operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission)
+                    chartFileScanner: scanner, operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: TestBmsFactory.CreateRootSettings([candidate]))
                 {
-                    SearchTargets = [candidate],
+
                     StartupBackgroundTaskScheduler = (_, _, _, _) => false
                 };
                 library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);

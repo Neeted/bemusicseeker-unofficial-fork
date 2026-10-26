@@ -282,8 +282,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         {
             Assert.IsTrue(fixture.Owner.Enqueue([crossing, first, second]));
             await fixture.Owner.WaitForIdleAsync();
-            Assert.IsNotNull(fixture.Result);
-            Assert.IsNotNull(fixture.Result.EstimatedInstallReceipt);
+            Assert.IsNotNull(fixture.Result, fixture.Failure?.Exception.ToString());
+            Assert.IsNotNull(fixture.Result.EstimatedInstallReceipt, fixture.Result.EstimationFailure?.ToString());
             Assert.IsTrue(fixture.Result.EstimatedInstallReceipt.DurableCommit);
             Assert.AreEqual(1, fixture.Result.EstimatedInstallReceipt.ApplyCounts.InstalledTargetApplyCount);
             Assert.IsTrue(string.Equals(crossing, fixture.Result.UnprocessedPackages.Single().path, StringComparison.OrdinalIgnoreCase));
@@ -517,7 +517,19 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         internal string LibraryRoot => Path.Combine(Root, "Library");
         internal string Destination => Path.Combine(LibraryRoot, "Song");
         internal string Database => Path.Combine(Root, "song.db");
-        internal BmsLibraryOptionsSnapshot Options { get; set; }
+        private readonly Lr2ConfigOwner lr2Owner;
+        private BmsLibraryOptionsSnapshot options;
+
+        /// <summary>既存fixtureの設定切替を、正式ownerの公開配置へも同じ接点で反映します。受理済みsnapshotは変更しません。</summary>
+        internal BmsLibraryOptionsSnapshot Options
+        {
+            get => options;
+            set
+            {
+                lr2Owner.Publish(new Lr2RootChange([], []), value.CaptureOutputPlacement());
+                options = value;
+            }
+        }
         internal AutomaticContinuationObserver Observer { get; } = new();
         internal ArchiveInputFileMutationService Files { get; } = new(_ => { });
         internal TaskCompletionSource PlaybackEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -547,14 +559,15 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 File.WriteAllBytes(path, [1]);
             }
             File.WriteAllBytes(Database, []);
-            Options = CreateOptions(enabled, deleteSource);
+            options = CreateOptions(enabled, deleteSource);
+            lr2Owner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Root, LibraryRoot));
             ChartFileOperationSynchronizer admission = operationAdmission ?? new ChartFileOperationSynchronizer();
-            Library = new TestBmsLibrary(Database, null, null, Files, new FileDbReportRecordingDialogs(),
+            Library = new TestBmsLibrary(Database, lr2Owner, null, Files, new FileDbReportRecordingDialogs(),
                 uiScheduler ?? new TestUiScheduler(() => null), () => Options,
                 CapturedChartFileScanner.FromFixture([installed], new Dictionary<string, IEnumerable<string>> { [Destination] = sounds }, [Destination]),
-                Observer, admission, playlistOperationAdmission, rootFileEnumerator: new FastRootFileEnumerator())
+                Observer, admission, playlistOperationAdmission, rootFileEnumerator: new FastRootFileEnumerator(), settings: TestBmsFactory.CreateRootSettings([LibraryRoot]))
             {
-                SearchTargets = [LibraryRoot],
+
                 StartupBackgroundTaskScheduler = (_, _, _, work) => { background.Enqueue(work); return true; }
             };
             Owner = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), admission, new ChartMutationActivityOwner(),

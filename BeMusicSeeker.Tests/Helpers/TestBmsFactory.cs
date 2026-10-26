@@ -19,6 +19,24 @@ namespace BeMusicSeeker.Tests;
 /// </summary>
 internal static class TestBmsFactory
 {
+    /// <summary>既存fixtureのroot入力を専用の確定設定または実LR2 XMLへ準備します。独立した可変runtime一覧は作りません。</summary>
+    internal static Settings CreateRootSettings(System.Collections.Generic.IEnumerable<string> roots, Settings settings = null, bool lr2 = false)
+    {
+        settings ??= MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = lr2);
+        string[] paths = System.Linq.Enumerable.ToArray(roots);
+        if (settings.OperationModeLR2DB)
+        {
+            settings.LR2ConfigXmlPath = BmsPlaylistTestSupport.CreateLr2Config(
+                MainWindowViewModelTestFactory.CreateIsolatedSettingsDirectory(), paths).ConfigFilePath;
+        }
+        else
+        {
+            settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize(paths);
+            settings.BMSRootPath = System.Linq.Enumerable.FirstOrDefault(paths) ?? string.Empty;
+        }
+        return settings;
+    }
+
     /// <summary>
     /// Gets an application snapshot whose native bridge path is intentionally absent,
     /// so tests cannot depend on the local Everything service or index.
@@ -39,6 +57,18 @@ internal static class TestBmsFactory
 
 internal sealed class TestBmsLibrary : BMSLibrary
 {
+    /// <summary>当該fixtureが所有する実確定設定です。稼働rootの別一覧は保持しません。</summary>
+    internal Settings FixtureSettings { get; }
+    /// <summary>LR2 fixtureが実登録の保存・公開に用いる採用済み所有者です。</summary>
+    internal Lr2ConfigOwner FixtureLr2Owner { get; }
+
+    private static Settings CreateSettings(Lr2ConfigOwner owner = null)
+        => MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = owner != null);
+
+    private static Lr2ConfigOwner ResolveOwner(Settings settings)
+        => settings?.OperationModeLR2DB == true && !string.IsNullOrWhiteSpace(settings.LR2ConfigXmlPath)
+            ? new Lr2ConfigOwner(new LR2Config(settings.LR2ConfigXmlPath)) : null;
+
     /// <summary>専用設定または固定の既定入力を捕捉し、利用者設定を読みません。</summary>
     private static Func<BmsLibraryOptionsSnapshot> CreateOptions(Settings settings)
     {
@@ -52,8 +82,10 @@ internal sealed class TestBmsLibrary : BMSLibrary
         string _lr2ScoreDB = null,
         string startupRequiredFileScanReason = null,
         Settings settings = null)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, CreateOptions(settings), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge)
+        : base(songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, startupRequiredFileScanReason, CreateOptions(settings ??= CreateSettings(getLR2Config)), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge, new BmsRootRegistrationStore(settings, () => getLR2Config))
     {
+        FixtureSettings = settings;
+        FixtureLr2Owner = getLR2Config;
         MarkCatalogPathConvergenceCompleted();
     }
 
@@ -63,8 +95,10 @@ internal sealed class TestBmsLibrary : BMSLibrary
         string _lr2ScoreDB,
         IFileMutationService fileMutationService,
         Settings settings = null)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, null, null, CreateOptions(settings), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge)
+        : base(songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, fileMutationService, null, null, CreateOptions(settings ??= CreateSettings(getLR2Config)), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge, new BmsRootRegistrationStore(settings, () => getLR2Config))
     {
+        FixtureSettings = settings;
+        FixtureLr2Owner = getLR2Config;
         MarkCatalogPathConvergenceCompleted();
     }
 
@@ -75,8 +109,10 @@ internal sealed class TestBmsLibrary : BMSLibrary
         IFileMutationService fileMutationService,
         IBmsLibraryDialogService dialogService,
         Settings settings = null)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null, CreateOptions(settings), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge)
+        : base(songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, fileMutationService, dialogService, null, CreateOptions(settings ??= CreateSettings(getLR2Config)), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge, new BmsRootRegistrationStore(settings, () => getLR2Config))
     {
+        FixtureSettings = settings;
+        FixtureLr2Owner = getLR2Config;
         MarkCatalogPathConvergenceCompleted();
     }
 
@@ -93,16 +129,19 @@ internal sealed class TestBmsLibrary : BMSLibrary
         Settings settings = null)
         : base(
             songDbPath,
-            getLR2Config,
+            getLR2Config ??= ResolveOwner(settings),
             _lr2ScoreDB,
             fileMutationService,
             dialogService,
             null,
-            CreateOptions(settings),
+            CreateOptions(settings ??= CreateSettings(getLR2Config)),
             new TestUiScheduler(() => Dispatcher.CurrentDispatcher),
             TestBmsFactory.MissingEverythingBridge,
+            new BmsRootRegistrationStore(settings, () => getLR2Config),
             installEstimationExecutionObserver)
     {
+        FixtureSettings = settings;
+        FixtureLr2Owner = getLR2Config;
         MarkCatalogPathConvergenceCompleted();
     }
 
@@ -114,8 +153,10 @@ internal sealed class TestBmsLibrary : BMSLibrary
         IBmsLibraryDialogService dialogService,
         IUiScheduler uiScheduler,
         Settings settings = null)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null, CreateOptions(settings), uiScheduler, TestBmsFactory.MissingEverythingBridge)
+        : base(songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, fileMutationService, dialogService, null, CreateOptions(settings ??= CreateSettings(getLR2Config)), uiScheduler, TestBmsFactory.MissingEverythingBridge, new BmsRootRegistrationStore(settings, () => getLR2Config))
     {
+        FixtureSettings = settings;
+        FixtureLr2Owner = getLR2Config;
         MarkCatalogPathConvergenceCompleted();
     }
 
@@ -143,20 +184,23 @@ internal sealed class TestBmsLibrary : BMSLibrary
         IRootFileEnumerator rootFileEnumerator = null)
         : base(
             songDbPath,
-            getLR2Config,
+            getLR2Config ??= ResolveOwner(settings),
             _lr2ScoreDB,
             fileMutationService,
             dialogService,
             null,
-            optionsSnapshotProvider ?? CreateOptions(settings),
+            optionsSnapshotProvider ?? CreateOptions(settings ??= CreateSettings(getLR2Config)),
             uiScheduler,
             TestBmsFactory.MissingEverythingBridge,
+            new BmsRootRegistrationStore(settings ??= CreateSettings(getLR2Config), () => getLR2Config),
             installEstimationExecutionObserver: installEstimationExecutionObserver,
             chartFileScanner: chartFileScanner,
             rootFileEnumerator: rootFileEnumerator,
             operationAdmission: operationAdmission,
             playlistOperationAdmission: playlistOperationAdmission)
     {
+        FixtureSettings = settings;
+        FixtureLr2Owner = getLR2Config;
         MarkCatalogPathConvergenceCompleted();
     }
 
@@ -171,11 +215,14 @@ internal sealed class TestBmsLibrary : BMSLibrary
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
         ChartFileOperationSynchronizer operationAdmission = null,
         ChartFileOperationSynchronizer playlistOperationAdmission = null,
-        Settings settings = null)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, optionsSnapshotProvider,
+        Settings settings = null, BmsRootRegistrationStore bmsRootRegistrations = null)
+        : base(songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, startupRequiredFileScanReason, optionsSnapshotProvider,
             new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge,
+            bmsRootRegistrations ?? new BmsRootRegistrationStore(settings ??= CreateSettings(getLR2Config), () => getLR2Config),
             operationAdmission: operationAdmission, playlistOperationAdmission: playlistOperationAdmission)
     {
+        FixtureSettings = settings;
+        FixtureLr2Owner = getLR2Config;
         MarkCatalogPathConvergenceCompleted();
     }
 
@@ -207,7 +254,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         Settings settings = null)
         : base(
             _lr2SongDB: songDbPath,
-            getLR2Config: getLR2Config,
+            getLR2Config: getLR2Config ??= ResolveOwner(settings),
             _lr2ScoreDB: _lr2ScoreDB,
             fileMutationService: null,
             dialogService: dialogService,
@@ -215,6 +262,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
             optionsSnapshotProvider: optionsSnapshotProvider,
             uiScheduler: uiScheduler ?? new TestUiScheduler(() => Dispatcher.CurrentDispatcher),
             applicationPathSnapshot: applicationPathSnapshot,
+            bmsRootRegistrations: new BmsRootRegistrationStore(settings ??= CreateSettings(getLR2Config), () => getLR2Config),
             installEstimationExecutionObserver: null,
             chartFileScanner: chartFileScanner,
             rootFileEnumerator: rootFileEnumerator,
@@ -222,6 +270,8 @@ internal sealed class TestBmsLibrary : BMSLibrary
             operationAdmission: operationAdmission,
             playlistOperationAdmission: playlistOperationAdmission)
     {
+        FixtureSettings = settings;
+        FixtureLr2Owner = getLR2Config;
         MarkCatalogPathConvergenceCompleted();
     }
 
@@ -231,9 +281,11 @@ internal sealed class TestBmsLibrary : BMSLibrary
     internal TestBmsLibrary(
         string songDbPath,
         ApplicationPathSnapshot applicationPathSnapshot,
-        Settings settings = null)
-        : base(songDbPath, null, null, null, CreateOptions(settings), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), applicationPathSnapshot)
+        Settings settings = null, Lr2ConfigOwner getLR2Config = null)
+        : base(songDbPath, getLR2Config ??= ResolveOwner(settings), null, null, CreateOptions(settings ??= CreateSettings()), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), applicationPathSnapshot, new BmsRootRegistrationStore(settings, () => getLR2Config))
     {
+        FixtureSettings = settings;
+        FixtureLr2Owner = getLR2Config;
         MarkCatalogPathConvergenceCompleted();
     }
 }

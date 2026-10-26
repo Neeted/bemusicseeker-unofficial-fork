@@ -267,16 +267,13 @@ internal sealed class Lr2SearchRootSnapshotOwner
         this.optionsProvider = optionsProvider ?? throw new ArgumentNullException(nameof(optionsProvider));
     }
 
-    /// <summary>LR2所有者を利用しない独立構成の確定一覧です。採用済みLR2登録は複製しません。</summary>
-    internal List<string> StandaloneSearchTargets { get; set; } = [];
-
     /// <summary>走査の登録と出力配置を一度捕捉し、ファイルの現在の利用可能性だけを検査します。</summary>
     internal Lr2SearchRootSnapshot Capture(BmsLibraryOptionsSnapshot options = null)
     {
         options ??= optionsProvider()
             ?? throw new InvalidOperationException("BMS library options snapshot provider returned null.");
-        Lr2ConfigSnapshot captured = options.OperationModeLR2DB ? options.Lr2Input ?? configOwner?.Capture() : null;
-        IEnumerable<string> requestedRoots = captured?.RegisteredRoots ?? StandaloneSearchTargets;
+        Lr2ConfigSnapshot captured = options.OperationModeLR2DB ? options.Lr2Input ?? configOwner?.Capture() ?? throw new InvalidOperationException("LR2 root registration owner is unavailable.") : null;
+        IEnumerable<string> requestedRoots = captured?.RegisteredRoots ?? options.StandaloneBmsRootPaths;
         options = WithCapturedPlacement(options, captured);
         HashSet<string> excludedRoots = CreateExcludedCustomOutputRoots(options);
         List<string> existingRoots = captured != null ? [.. captured.CaptureExistingSearchRoots()]
@@ -302,9 +299,9 @@ internal sealed class Lr2SearchRootSnapshotOwner
     {
         options ??= optionsProvider()
             ?? throw new InvalidOperationException("BMS library options snapshot provider returned null.");
-        Lr2ConfigSnapshot captured = options.OperationModeLR2DB ? options.Lr2Input ?? configOwner?.Capture() : null;
+        Lr2ConfigSnapshot captured = options.OperationModeLR2DB ? options.Lr2Input ?? configOwner?.Capture() ?? throw new InvalidOperationException("LR2 root registration owner is unavailable.") : null;
         options = WithCapturedPlacement(options, captured);
-        List<string> requestedRoots = [.. (captured?.RegisteredRoots ?? StandaloneSearchTargets)
+        List<string> requestedRoots = [.. (captured?.RegisteredRoots ?? options.StandaloneBmsRootPaths)
             .Where(path => !string.IsNullOrWhiteSpace(path)).Select(path => path.Trim())];
         HashSet<string> excludedRoots = CreateExcludedCustomOutputRoots(options);
         List<string> scanRoots = [.. requestedRoots

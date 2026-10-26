@@ -59,8 +59,8 @@ public sealed class InstallableMaintenanceAdmissionTests
             CapturedChartFileScanner.FromFixture([chart], new Dictionary<string, IEnumerable<string>>
             {
                 [root] = ["sound.wav"]
-            }, [root]), new TestUiScheduler(() => null), new EmptyRootFileEnumerator())
-        { SearchTargets = [root] };
+            }, [root]), new TestUiScheduler(() => null), new EmptyRootFileEnumerator(), settings: TestBmsFactory.CreateRootSettings([root], lr2: true))
+        { };
         StartupBackgroundTaskSchedulerOwner? scheduler = null;
         scheduler = new StartupBackgroundTaskSchedulerOwner(() => library.IsShutdownRequested,
             _ => { }, _ => { }, _ => { }, text => text,

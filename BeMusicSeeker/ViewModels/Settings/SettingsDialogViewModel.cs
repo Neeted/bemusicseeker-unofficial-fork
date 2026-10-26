@@ -45,6 +45,7 @@ public partial class SettingsDialogViewModel : ViewModel
     private readonly ISettingsDialogPlayHistoryPort playHistoryPort;
 
     private readonly ISettingsDialogSearchRootRuntimePort searchRootRuntimePort;
+    private readonly BmsRootRegistrationStore bmsRootRegistrations;
 
     private readonly ISettingsDialogPlayerFactoryPort playerFactoryPort;
 
@@ -1983,7 +1984,7 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>独立導入先として保存済みの値です。選択肢は確定BMS一覧だけから表示します。</summary>
     public string BMSInstallDir => ApplicationSettings.BMSInstallDir;
 
-    /// <summary>確認不要の独立導入先選択は実操作中も有効に保ち、BMS候補の破棄確認が必要な選択だけ設定の単一受付に従って無効化します。</summary>
+    /// <summary>確認不要の選択欄は有効に保ち、実入口でLを非待機取得します。候補破棄確認が必要な選択は設定の単一受付にも従います。</summary>
     public bool IsBmsInstallDirectorySelectionEnabled => IsSettingsOperationAvailable || !RequiresBmsInstallDirectoryConfirmation;
 
     /// <summary>独立導入先の今回入力だけを検証・確認し、採用時に競合BMS候補を破棄して保存します。BMS一覧は保存しません。</summary>
@@ -2004,10 +2005,17 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (value == null || string.Equals(ApplicationSettings.BMSInstallDir, value, StringComparison.OrdinalIgnoreCase) || !IsBMSInstallDirValid(value)) { return; }
             if (RequiresBmsInstallDirectoryConfirmation && !allowCandidateConfirmation) { return; }
-            if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Bms) || !IsBMSInstallDirValid(value)) { return; }
-            if (string.Equals(ApplicationSettings.BMSInstallDir, value, StringComparison.OrdinalIgnoreCase)) { return; }
-            DiscardConflictingCandidates(ConflictingCandidates.Bms);
-            TryCommitSetting(nameof(BMSInstallDir), (nameof(Settings.BMSInstallDir), value));
+            if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Bms)) { return; }
+            if (!operationAdmission.TryEnter(out IDisposable lease)) { return; }
+            Exception saveFailure = null;
+            using (lease)
+            {
+                if (!IsBMSInstallDirValid(value) || string.Equals(ApplicationSettings.BMSInstallDir, value, StringComparison.OrdinalIgnoreCase)) { return; }
+                DiscardConflictingCandidates(ConflictingCandidates.Bms);
+                try { ApplicationSettings.Commit((nameof(Settings.BMSInstallDir), value)); }
+                catch (Exception failure) { saveFailure = failure; }
+            }
+            if (saveFailure != null) { RaisePropertyChanged(nameof(BMSInstallDir)); reportApplyFailure(saveFailure); }
         }
         finally { RaisePropertyChanged(nameof(BMSInstallDir)); RaiseValidationStateChanged(); }
     }
@@ -3720,7 +3728,7 @@ public partial class SettingsDialogViewModel : ViewModel
         IAudioSettingsGateway audioSettingsGateway = null,
         Func<OperationModeRestartRequest, Task<bool>> requestOperationModeRestart = null,
         ChartFileOperationSynchronizer operationAdmission = null,
-        Action publishOutputPlacement = null, Lr2ConfigSession lr2ConfigSession = null)
+        Action publishOutputPlacement = null, Lr2ConfigSession lr2ConfigSession = null, BmsRootRegistrationStore bmsRootRegistrations = null)
     {
         SettingsDialogViewModel settingDialogViewModel = this;
         this.lr2ConfigSession = lr2ConfigSession ?? new Lr2ConfigSession();
@@ -3736,6 +3744,10 @@ public partial class SettingsDialogViewModel : ViewModel
         this.playbackRuntimePort = playbackRuntimePort ?? throw new ArgumentNullException(nameof(playbackRuntimePort));
         this.lr2SongDbSyncWorkflow = lr2SongDbSyncWorkflow ?? throw new ArgumentNullException(nameof(lr2SongDbSyncWorkflow));
         this.settingsEditSession = settingsEditSession ?? throw new ArgumentNullException(nameof(settingsEditSession));
+        Settings registrationSettings = settingsEditSession.Values;
+        Lr2ConfigSession registrationSession = this.lr2ConfigSession;
+        this.bmsRootRegistrations = bmsRootRegistrations ?? new BmsRootRegistrationStore(registrationSettings,
+            () => registrationSession.TryResolve(registrationSettings.LR2ConfigXmlPath, out Lr2ConfigOwner owner) ? owner : null);
         this.applicationLifetime = applicationLifetime
             ?? throw new ArgumentNullException(nameof(applicationLifetime));
         this.requestOperationModeRestart = requestOperationModeRestart

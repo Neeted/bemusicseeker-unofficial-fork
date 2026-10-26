@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -23,14 +22,14 @@ internal static class StartupLibraryConstructionTestSupport
         .ToDictionary(opCode => opCode.Value);
 
 
-    internal static ApplicationComposition CreateComposition()
+    internal static ApplicationComposition CreateComposition(Settings? settings = null)
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        settings ??= MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
             });
         return new ApplicationComposition(
-            bmsLibraryOptionsProvider: () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
+            bmsLibraryOptionsProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
             settingsEditSession: new NoOpSettingsEditSession(settings),
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
@@ -44,13 +43,13 @@ internal static class StartupLibraryConstructionTestSupport
         string temporaryRoot,
         string songDbPath,
         bool operationModeLR2DB,
-        IReadOnlyList<string> searchRoots)
+        IReadOnlyList<string> searchRoots, Lr2ConfigOwner? lr2ConfigOwner = null)
     {
         return new LibraryProfile(
             operationModeLR2DB,
             songDbPath: songDbPath,
             searchRoots: searchRoots,
-            lr2ConfigOwner: null,
+            lr2ConfigOwner: lr2ConfigOwner,
             lr2ScoreDbPath: null,
             canWriteLr2Config: false,
             canOutputLr2Folders: false,
@@ -163,7 +162,6 @@ internal static class StartupLibraryConstructionTestSupport
 
         internal bool ThrowOnLibrary { get; set; }
 
-        internal IReadOnlyList<string> InitialSearchTargets { get; set; } = [];
 
         /// <summary>通信などの狭い制御境界を接続した実Libraryを同じprofileで構築します。省略時は標準構成を使います。</summary>
         internal Func<LibraryProfile, BMSLibrary>? LibraryCreator { get; init; }
@@ -177,7 +175,6 @@ internal static class StartupLibraryConstructionTestSupport
             }
             LibraryProfile = libraryProfile;
             CreatedLibrary = LibraryCreator?.Invoke(libraryProfile) ?? inner.CreateBmsLibrary(libraryProfile);
-            CreatedLibrary.SearchTargets.AddRange(InitialSearchTargets);
             return CreatedLibrary;
         }
 
@@ -237,24 +234,12 @@ internal static class StartupLibraryConstructionTestSupport
             calls.Add("application-services");
             AttachedServices = services;
             SearchRootsLibrary = services.Library;
-            SearchRootsObserved = services.Library.SearchTargets.ToArray();
+            SearchRootsObserved = services.Library.Lr2Synchronization.CaptureBmsDirectories().RequestedRoots.ToArray();
             if (ThrowOnServices)
             {
                 throw new InvalidOperationException("recording services application failure");
             }
         }
-    }
-
-    internal sealed class ThrowingSearchRoots : IReadOnlyList<string>
-    {
-        public int Count => 1;
-
-        public string this[int index] => "unused";
-
-        public IEnumerator<string> GetEnumerator()
-            => throw new InvalidOperationException("recording search-root enumeration failure");
-
-        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     internal sealed class NullStartupLibraryFactory : IStartupLibraryFactory

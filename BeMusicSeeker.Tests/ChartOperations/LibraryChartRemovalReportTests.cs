@@ -45,11 +45,14 @@ public sealed class LibraryChartRemovalReportTests
             new("missing.bms", LibraryChartRemovalState.NotExecuted),
             new(new string('p', 500), LibraryChartRemovalState.Unconfirmed, fsFailure),
             new("omitted.bms", LibraryChartRemovalState.Unconfirmed, fsFailure)];
-        var outcome = new LibraryChartRemovalOutcome(targets, true, true, catalogFailure);
+        var registrationFailure = new IOException("registration-save-marker");
+        var outcome = new LibraryChartRemovalOutcome(targets, true, true, catalogFailure, registrationFailure);
         foreach (string culture in new[] { "ja-JP", "en-US", "fr-FR", "ko-KR", "zh-CN", "zh-TW" })
         {
             UiMessageRequest request = LibraryChartRemovalReport.Create(outcome, culture: CultureInfo.GetCultureInfo(culture));
             Assert.IsNotNull(request);
+            StringAssert.Contains(request.MessageBoxText, "catalog failure");
+            StringAssert.Contains(request.MessageBoxText, "registration-save-marker");
             Assert.AreEqual(System.Windows.MessageBoxImage.Error, request.Icon);
             Assert.IsTrue(request.MessageBoxText.Length <= 4096);
             Assert.IsFalse(request.MessageBoxText.Contains(new string('p', 241), StringComparison.Ordinal));
@@ -63,6 +66,7 @@ public sealed class LibraryChartRemovalReportTests
         Assert.AreEqual(1, outcome.ConfirmedChartCount);
         Assert.IsTrue(outcome.RequiredFinalizationFailed);
         Assert.AreSame(catalogFailure, outcome.CatalogFailure);
+        Assert.AreSame(registrationFailure, outcome.RegistrationFailure);
         Assert.AreSame(fsFailure, outcome.Targets[2].Failure);
     }
 }

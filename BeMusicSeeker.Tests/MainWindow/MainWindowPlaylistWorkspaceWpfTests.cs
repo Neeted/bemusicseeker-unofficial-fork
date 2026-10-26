@@ -4476,7 +4476,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             startupRequiredFileScanReason: null,
             optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
             operationAdmission: composition.OperationAdmission,
-            playlistOperationAdmission: composition.PlaylistOperationAdmission);
+            playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: settings);
         var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath,
             () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings),
             getLr2Config: lr2ConfigOwner,

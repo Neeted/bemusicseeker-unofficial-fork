@@ -75,22 +75,31 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs =
                 CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalOutputBase]);
             testSettings.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
-            {
-                SearchTargets = [bmsRoot, nestedCustomOutputLikeDirectory, normalOutputBase, normalOutputChild, additionalOutputBase, additionalOutputChild, rootOutputBase, rootOutputChild]
-            };
+            string normalChart = Path.Combine(normalOutputChild, "normal.bms");
+            File.WriteAllText(normalChart, BmsLibraryInitializationTestSupport.CreateValidBmsText("NormalOutput"));
+            var library = new TestBmsLibrary(scope.SongDbPath, null, null, null,
+                () => BmsLibraryOptionsSnapshot.CreateCurrent(testSettings), TestBmsFactory.MissingEverythingBridge,
+                chartFileScanner: new FastDirectoryFileScanner(), rootFileEnumerator: new FastRootFileEnumerator(), settings: TestBmsFactory.CreateRootSettings([bmsRoot, nestedCustomOutputLikeDirectory, normalOutputBase, normalOutputChild, additionalOutputBase, additionalOutputChild, rootOutputBase, rootOutputChild], testSettings))
+            { BmsCharts = [], BmsonCharts = [] };
 
             Lr2SearchRootSnapshot rootSnapshot = library.Lr2Synchronization.CaptureBmsDirectories();
             HashSet<string> directories = [.. rootSnapshot.Roots.Select(NormalizeDirectory)];
 
             Assert.IsTrue(directories.Contains(NormalizeDirectory(bmsRoot)));
-            Assert.IsTrue(directories.Contains(NormalizeDirectory(nestedCustomOutputLikeDirectory)));
+            Assert.IsTrue(rootSnapshot.RequestedRoots.Any(path => NormalizeDirectory(path) == NormalizeDirectory(nestedCustomOutputLikeDirectory)));
+            Assert.IsTrue(directories.Contains(NormalizeDirectory(bmsRoot)), "登録childは実XMLに保持し、走査では祖先に包含します。");
             Assert.IsTrue(directories.Contains(NormalizeDirectory(normalOutputBase)));
-            Assert.IsTrue(directories.Contains(NormalizeDirectory(normalOutputChild)));
+            Assert.IsTrue(rootSnapshot.RequestedRoots.Any(path => NormalizeDirectory(path) == NormalizeDirectory(normalOutputChild)));
             Assert.IsFalse(directories.Contains(NormalizeDirectory(additionalOutputBase)));
             Assert.IsFalse(directories.Contains(NormalizeDirectory(additionalOutputChild)));
             Assert.IsFalse(directories.Contains(NormalizeDirectory(rootOutputBase)));
             Assert.IsFalse(directories.Contains(NormalizeDirectory(rootOutputChild)));
+            try
+            {
+                library.ReloadFileDiff();
+                Assert.IsTrue(library.BmsCharts.Any(chart => chart.Path == normalChart), "利用者readerで除く通常出力も、実走査では取り込みます。");
+            }
+            finally { library.RequestShutdown("normal-output-scan-test"); }
         }
         finally
         {
@@ -127,20 +136,20 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs =
                 CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalOutputBase]);
             testSettings.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([bmsRoot, missingRoot, normalOutputBase, normalOutputChild, additionalOutputBase, additionalOutputChild, rootOutputBase], testSettings))
             {
-                SearchTargets = [bmsRoot, missingRoot, normalOutputBase, normalOutputChild, additionalOutputBase, additionalOutputChild, rootOutputBase]
+
             };
 
             Lr2SearchRootSnapshot rootSnapshot = library.Lr2Synchronization.CaptureBmsDirectories();
             List<string> directories = [.. rootSnapshot.Roots];
 
-            CollectionAssert.AreEqual(new[] { NormalizeDirectory(bmsRoot), NormalizeDirectory(normalOutputBase), NormalizeDirectory(normalOutputChild) }, directories.Select(NormalizeDirectory).ToArray());
+            CollectionAssert.AreEquivalent(new[] { NormalizeDirectory(bmsRoot), NormalizeDirectory(normalOutputBase) }, directories.Select(NormalizeDirectory).ToArray());
             Assert.AreEqual(7, rootSnapshot.RequestedRootCount);
-            Assert.AreEqual(6, rootSnapshot.ExistingRootCount);
-            Assert.AreEqual(3, rootSnapshot.Roots.Count);
+            Assert.AreEqual(4, rootSnapshot.ExistingRootCount);
+            Assert.AreEqual(2, rootSnapshot.Roots.Count);
             Assert.AreEqual(2, rootSnapshot.ConfiguredCustomOutputRootCount);
-            Assert.AreEqual(3, rootSnapshot.ExcludedCustomOutputRootCount);
+            Assert.AreEqual(2, rootSnapshot.ExcludedCustomOutputRootCount);
         }
         finally
         {
@@ -197,9 +206,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 optionsSnapshotProvider: () => options,
                 applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
                 chartFileScanner: chartFileScanner,
-                dialogService: new BmsLibraryInitializationTestSupport.RecordingDialogService(), settings: testSettings)
+                dialogService: new BmsLibraryInitializationTestSupport.RecordingDialogService(), settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
 
@@ -273,9 +282,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 optionsSnapshotProvider: () => options,
                 applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
                 chartFileScanner: chartFileScanner,
-                dialogService: new BmsLibraryInitializationTestSupport.RecordingDialogService(), settings: testSettings)
+                dialogService: new BmsLibraryInitializationTestSupport.RecordingDialogService(), settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
 
@@ -356,9 +365,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 optionsSnapshotProvider: () => options,
                 applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
                 chartFileScanner: chartFileScanner,
-                dialogService: new BmsLibraryInitializationTestSupport.RecordingDialogService(), settings: testSettings)
+                dialogService: new BmsLibraryInitializationTestSupport.RecordingDialogService(), settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
 
@@ -426,9 +435,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 });
             }
 
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = [file]
             };
             LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
@@ -502,9 +511,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 fileMutationService: new OwnedChartCollectionTestSupport.TestFileMutationService(),
                 dialogService: new BmsLibraryInitializationTestSupport.RecordingDialogService(),
                 uiScheduler: new TestUiScheduler(() => null!),
-                optionsSnapshotProvider: () => options, settings: testSettings)
+                optionsSnapshotProvider: () => options, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = [],
                 BmsonCharts = [],
                 ChartPackagesPending = new ObservableCollection<ChartPackage>([package]),
@@ -577,9 +586,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
                 });
             }
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             library.BmsCharts = [file];
@@ -624,9 +633,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             var dialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
-            var library = new TestBmsLibrary(scope.SongDbPath, null, null, null, dialogs, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, null, null, null, dialogs, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             await using HeldLr2Operation held = await HeldLr2Operation.StartAsync(library);
@@ -844,9 +853,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory]
+
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
@@ -899,9 +908,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory]
+
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
@@ -954,9 +963,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory]
+
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
@@ -1051,9 +1060,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 fileMutationService: new OwnedChartCollectionTestSupport.TestFileMutationService(),
                 dialogService: new BmsLibraryInitializationTestSupport.RecordingDialogService(),
                 uiScheduler: new TestUiScheduler(() => null!),
-                optionsSnapshotProvider: () => options, settings: testSettings)
+                optionsSnapshotProvider: () => options, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = [],
                 BmsonCharts = [],
                 ChartPackagesPending = new ObservableCollection<ChartPackage>([package]),
@@ -1639,9 +1648,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
-            var library = new TestBmsLibrary(scope.SongDbPath, null, null, null, new BmsLibraryInitializationTestSupport.RecordingDialogService(), settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, null, null, null, new BmsLibraryInitializationTestSupport.RecordingDialogService(), settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory]
+
             };
             bool queued = false;
             library.StartupBackgroundTaskScheduler = delegate
@@ -1826,9 +1835,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 _lr2ScoreDB: null,
                 fileMutationService: null,
                 dialogService: new BmsLibraryInitializationTestSupport.RecordingDialogService(),
-                uiScheduler: new InlineUiScheduler(), settings: testSettings)
+                uiScheduler: new InlineUiScheduler(), settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory]
+
             };
             initializationInput = new(InvokeCaptureLr2SongDbSyncScanSurface(library,
                 BmsLibraryOptionsSnapshot.CreateCurrent(testSettings), [rootDirectory],
@@ -1922,9 +1931,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 _lr2ScoreDB: null,
                 fileMutationService: null,
                 dialogService: new BmsLibraryInitializationTestSupport.RecordingDialogService(),
-                uiScheduler: new InlineUiScheduler(), settings: testSettings)
+                uiScheduler: new InlineUiScheduler(), settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory]
+
             };
             int scheduledWorkCount = 0;
             library.StartupBackgroundTaskScheduler = delegate
@@ -1998,6 +2007,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         string catalogChartPath = Path.Combine(
             catalogChartRoot,
             "0011a110d2d54f455a1dbb9a03598aaa1cc092238800ca9b1c1260a8bb78db36.bms");
+        testSettings.OperationModeLR2DB = false;
         var options = new BmsLibraryOptionsSnapshot
         {
             OperationModeLR2DB = false,
@@ -2017,9 +2027,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             startupRequiredFileScanReason: null,
             optionsSnapshotProvider: () => options,
             applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
-            chartFileScanner: chartFileScanner, settings: testSettings)
+            chartFileScanner: chartFileScanner, settings: TestBmsFactory.CreateRootSettings([catalogChartRoot, rootDirectory], testSettings))
         {
-            SearchTargets = [catalogChartRoot, rootDirectory],
+
             BmsCharts = []
         };
         OwnedChartHashIndexVersionedSnapshot oldHashIndex = library.GetOwnedChartHashIndexSnapshot();
@@ -2253,9 +2263,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     lr2FolderPaths.ToDictionary(
                         path => path,
                         path => new RootFileEnumerationEntry(path, File.GetLastWriteTimeUtc(path)),
-                        StringComparer.OrdinalIgnoreCase)), settings: testSettings)
+                        StringComparer.OrdinalIgnoreCase)), settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             var progressSnapshots = new List<BMSLibrary.LibraryInitializationProgressSnapshot>();
@@ -2392,9 +2402,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     lr2FolderPaths.ToDictionary(
                         path => path,
                         path => new RootFileEnumerationEntry(path, File.GetLastWriteTimeUtc(path)),
-                        StringComparer.OrdinalIgnoreCase)), settings: testSettings)
+                        StringComparer.OrdinalIgnoreCase)), settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             library.BeginLibraryInitializationProgressOperation(71L);
@@ -2594,9 +2604,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     lr2FolderPaths.ToDictionary(
                         path => path,
                         path => new RootFileEnumerationEntry(path, File.GetLastWriteTimeUtc(path)),
-                        StringComparer.OrdinalIgnoreCase)), settings: testSettings)
+                        StringComparer.OrdinalIgnoreCase)), settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             var progressSnapshots = new List<BMSLibrary.LibraryInitializationProgressSnapshot>();
@@ -2706,9 +2716,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 startupRequiredFileScanReason: null,
                 optionsSnapshotProvider: () => options,
                 applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
-                chartFileScanner: chartFileScanner, settings: testSettings, uiScheduler: new TestUiScheduler(() => null))
+                chartFileScanner: chartFileScanner, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings), uiScheduler: new TestUiScheduler(() => null))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             var synchronizationOwner =
@@ -2889,9 +2899,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     }, typeof(LR2SongDB.folder));
                 });
             }
-            var library = new TestBmsLibrary(scope.SongDbPath, TestBmsFactory.AvailableEverythingBridge, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, TestBmsFactory.AvailableEverythingBridge, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             library.ReloadFileDiff();
@@ -2939,9 +2949,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
             File.WriteAllText(lr2FolderPath, "#TITLE External Folder", Encoding.GetEncoding("shift_jis"));
             File.SetLastWriteTimeUtc(lr2FolderPath, timestamp);
-            var library = new TestBmsLibrary(scope.SongDbPath, TestBmsFactory.AvailableEverythingBridge, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, TestBmsFactory.AvailableEverythingBridge, settings: TestBmsFactory.CreateRootSettings([searchRootDirectory], testSettings))
             {
-                SearchTargets = [searchRootDirectory],
+
                 BmsCharts = []
             };
             library.ReloadFileDiff();
@@ -3031,9 +3041,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     }, typeof(LR2SongDB.folder));
                 });
             }
-            var library = new TestBmsLibrary(scope.SongDbPath, TestBmsFactory.AvailableEverythingBridge, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, TestBmsFactory.AvailableEverythingBridge, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             library.ReloadFileDiff();
@@ -3103,9 +3113,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     }, typeof(LR2SongDB.folder));
                 });
             }
-            var library = new TestBmsLibrary(scope.SongDbPath, TestBmsFactory.AvailableEverythingBridge, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, TestBmsFactory.AvailableEverythingBridge, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             library.ReloadFileDiff();
@@ -3157,9 +3167,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     }, typeof(LR2SongDB.folder));
                 });
             }
-            var library = new TestBmsLibrary(scope.SongDbPath, TestBmsFactory.AvailableEverythingBridge, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, TestBmsFactory.AvailableEverythingBridge, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             library.ReloadFileDiff();
@@ -3197,9 +3207,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             {
                 setup.CreateTable<LR2SongDBExtended.playlist>();
             }
-            var library = new TestBmsLibrary(scope.SongDbPath, TestBmsFactory.AvailableEverythingBridge, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, TestBmsFactory.AvailableEverythingBridge, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             library.ReloadFileDiff();
@@ -3310,9 +3320,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string folderInfoPath = Path.Combine(rootDirectory, "folderinfo.txt");
             File.WriteAllText(folderInfoPath, "#TITLE Surface Root", Encoding.GetEncoding("shift_jis"));
             testSettings.LR2CustomFolderOutputBaseDir = outputBase;
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             var options = new BmsLibraryOptionsSnapshot
@@ -3400,9 +3410,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Directory.CreateDirectory(rootDirectory);
             DateTime surfaceTimestamp = new(2026, 6, 7, 4, 0, 0, DateTimeKind.Utc);
             DateTime liveTimestamp = new(2026, 6, 8, 4, 0, 0, DateTimeKind.Utc);
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             var options = new BmsLibraryOptionsSnapshot
@@ -3459,9 +3469,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllText(lr2FolderPath, "#TITLE Table", Encoding.GetEncoding("shift_jis"));
             DateTime surfaceTimestamp = new(2026, 6, 7, 4, 0, 0, DateTimeKind.Utc);
             DateTime liveTimestamp = new(2026, 6, 8, 4, 0, 0, DateTimeKind.Utc);
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             var options = new BmsLibraryOptionsSnapshot
@@ -3528,9 +3538,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 LR2CustomFolderAdditionalOutputBaseDirs = [],
                 LR2CustomFolderOutputBaseDirRootType = string.Empty
             };
-            var library = new TestBmsLibrary(scope.SongDbPath, null, null, "test", () => options, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, null, null, "test", () => options, settings: TestBmsFactory.CreateRootSettings([], testSettings))
             {
-                SearchTargets = [],
+
                 BmsCharts = []
             };
 
@@ -3582,9 +3592,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 LR2CustomFolderAdditionalOutputBaseDirs = [],
                 LR2CustomFolderOutputBaseDirRootType = string.Empty
             };
-            var library = new TestBmsLibrary(scope.SongDbPath, null, null, "test", () => options, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, null, null, "test", () => options, settings: TestBmsFactory.CreateRootSettings([], testSettings))
             {
-                SearchTargets = [],
+
                 BmsCharts = []
             };
 
@@ -3635,9 +3645,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 LR2CustomFolderAdditionalOutputBaseDirs = [],
                 LR2CustomFolderOutputBaseDirRootType = string.Empty
             };
-            var library = new TestBmsLibrary(scope.SongDbPath, null, null, "test", () => options, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, null, null, "test", () => options, settings: TestBmsFactory.CreateRootSettings([], testSettings))
             {
-                SearchTargets = [],
+
                 BmsCharts = []
             };
 
@@ -3760,9 +3770,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             testSettings.LR2CustomFolderOutputBaseDir = outputBase;
             DateTime oldTimestamp = new(2026, 6, 8, 1, 0, 0, DateTimeKind.Utc);
             DateTime preparedTimestamp = oldTimestamp.AddHours(1);
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             var options = new BmsLibraryOptionsSnapshot
@@ -3840,9 +3850,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Directory.CreateDirectory(stalePreparedChildDirectory);
             File.WriteAllText(lr2FolderPath, "#TITLE Prepared Folder", Encoding.GetEncoding("shift_jis"));
             testSettings.LR2CustomFolderOutputBaseDir = outputBase;
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             var options = new BmsLibraryOptionsSnapshot
@@ -3926,9 +3936,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                         & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
                 }, typeof(LR2SongDBExtended.playlist));
             }
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             var options = new BmsLibraryOptionsSnapshot
@@ -3989,9 +3999,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Directory.CreateDirectory(appOutputDir);
             File.WriteAllText(externalLr2FolderPath, "#TITLE External Folder", Encoding.GetEncoding("shift_jis"));
             testSettings.LR2CustomFolderOutputBaseDir = outputBase;
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             var options = new BmsLibraryOptionsSnapshot
@@ -4067,9 +4077,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     Output_dir = "ManagedTable"
                 }, typeof(LR2SongDBExtended.playlist));
             }
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             var options = new BmsLibraryOptionsSnapshot
@@ -4190,9 +4200,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                         1);
                 });
             }
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([scope.DirectoryPath], testSettings))
             {
-                SearchTargets = [scope.DirectoryPath],
+
                 BmsCharts = []
             };
 
@@ -4253,9 +4263,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                         0);
                 });
             }
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([bmsRoot], testSettings))
             {
-                SearchTargets = [bmsRoot],
+
                 BmsCharts = []
             };
 
@@ -4311,9 +4321,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             null,
             null,
             "test",
-            () => options, settings: testSettings)
+            () => options, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
         {
-            SearchTargets = [rootDirectory],
+
             BmsCharts =
             [
                 ChartTestValues.Empty() with {
@@ -4406,9 +4416,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 });
             }
             var options = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
 
@@ -4485,9 +4495,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                         0);
                 });
             }
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             var options = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
@@ -4542,9 +4552,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             {
                 setup.CreateTable<LR2SongDBExtended.playlist>();
             }
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
 
@@ -4595,9 +4605,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             {
                 setup.CreateTable<LR2SongDBExtended.playlist>();
             }
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             var options = new BmsLibraryOptionsSnapshot
@@ -4667,8 +4677,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), settings: testSettings);
-            library.SearchTargets = [rootDirectory];
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings));
             ChartFile file = ChartTestValues.Empty() with
             {
                 Path = chartPath
@@ -4848,9 +4857,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                scheduler, settings: testSettings)
+                scheduler, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             BmsLibraryOptionsSnapshot options = new()
@@ -4983,9 +4992,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                scheduler, settings: testSettings)
+                scheduler, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             BmsLibraryOptionsSnapshot options = new()
@@ -5253,9 +5262,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 fileMutationService: null,
                 dialogService: null,
                 uiScheduler: scheduler,
-                optionsSnapshotProvider: () => options, settings: testSettings)
+                optionsSnapshotProvider: () => options, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             library.StartupBackgroundTaskReporter = (name, status, _, _, _) =>
@@ -5361,9 +5370,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllText(chartPath, "#TITLE Undefined Difficulty\r\n#PLAYLEVEL 1\r\n#00111:01\r\n", Encoding.ASCII);
             ChartFileSnapshot chartSnapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             ChartFile file = CreateSyncTestFile(chartPath, chartSnapshot);
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = [file]
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
@@ -5433,9 +5442,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             };
             file = file with { Md5 = chartSnapshot.Md5 };
             file = file with { Sha256 = chartSnapshot.Sha256 };
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = [file]
             };
             var options = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
@@ -5493,9 +5502,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllText(chartPath, "#TITLE Copied Noop Sync\r\n#00111:01\r\n", Encoding.ASCII);
             ChartFileSnapshot chartSnapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             ChartFile file = CreateSyncTestFile(chartPath, chartSnapshot);
-            var firstLibrary = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var firstLibrary = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = [file]
             };
             var options = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
@@ -5514,9 +5523,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Directory.CreateDirectory(copiedDirectory);
             string copiedSongDbPath = Path.Combine(copiedDirectory, "song.db");
             File.Copy(scope.SongDbPath, copiedSongDbPath, overwrite: true);
-            var copiedLibrary = new TestBmsLibrary(copiedSongDbPath, settings: testSettings)
+            var copiedLibrary = new TestBmsLibrary(copiedSongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = [file]
             };
             initializationInput = new(InvokeCaptureLr2SongDbSyncScanSurface(
@@ -5559,9 +5568,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         {
             testSettings.OperationModeLR2DB = true;
             ResetLr2FolderDiscoverySettings();
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([], testSettings))
             {
-                SearchTargets = []
+
             };
 
             await library.QueueLr2SongDbSyncAsync("test_no_roots");
@@ -5617,9 +5626,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
                 });
             }
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([], testSettings))
             {
-                SearchTargets = [],
+
                 BmsCharts = [file]
             };
 
@@ -5662,9 +5671,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllBytes(chartPath, [.. directiveBytes, 0x82]);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             ChartFile file = CreateSyncTestFile(chartPath, snapshot);
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([], testSettings))
             {
-                SearchTargets = [],
+
                 BmsCharts = [file]
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
@@ -5739,9 +5748,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 "#PLAYER 1\r\n#TITLE generated chart info\r\n#ARTIST tester\r\n#BPM 150\r\n#PLAYLEVEL 12\r\n#RANK 3\r\n#WAV01 kick.wav\r\n#00111:01\r\n");
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             ChartFile file = CreateSyncTestFile(chartPath, snapshot);
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([], testSettings))
             {
-                SearchTargets = [],
+
                 BmsCharts = [file]
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
@@ -5785,9 +5794,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 "#PLAYER 1\r\n#TITLE stale chart info\r\n#BPM 130\r\n#PLAYLEVEL 10\r\n#WAV01 kick.wav\r\n#00111:01\r\n");
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             ChartFile file = CreateSyncTestFile(chartPath, snapshot);
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([], testSettings))
             {
-                SearchTargets = [],
+
                 BmsCharts = [file]
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
@@ -5833,9 +5842,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             ChartFile file = CreateSyncTestFile(chartPath, snapshot);
             file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = file.Path, hash = file.Md5, wav_files_defined = 99, wav_files_existing = 88 }));
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([], testSettings))
             {
-                SearchTargets = [],
+
                 BmsCharts = [file]
             };
 
@@ -6074,9 +6083,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllText(lr2FolderPath, "#TITLE 入れ子表\r\n#COMMAND song.level = 12\r\n#MAXTRACKS 64", Encoding.GetEncoding("shift_jis"));
             string outsideLr2FolderPath = Path.Combine(scope.DirectoryPath, "outside.lr2folder");
             var options = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
@@ -6152,9 +6161,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string stalePath = Path.Combine(outputBase, "stale.lr2folder");
             File.WriteAllText(lr2FolderPath, "#TITLE Output Folder", Encoding.GetEncoding("shift_jis"));
             testSettings.LR2CustomFolderOutputBaseDir = outputBase;
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
@@ -6214,9 +6223,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string lr2FolderPath = Path.Combine(outputBase, "root.lr2folder");
             File.WriteAllText(lr2FolderPath, "#TITLE Root Output", Encoding.GetEncoding("shift_jis"));
             testSettings.LR2CustomFolderOutputBaseDirRootType = outputBase;
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
 
@@ -6279,9 +6288,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 () => options,
-                TestBmsFactory.AvailableEverythingBridge, settings: testSettings)
+                TestBmsFactory.AvailableEverythingBridge, settings: TestBmsFactory.CreateRootSettings([bmsRoot], testSettings))
             {
-                SearchTargets = [bmsRoot],
+
                 BmsCharts = []
             };
             initializationInput = new(InvokeCaptureLr2SongDbSyncScanSurface(library, options, [bmsRoot], new SongTableFileCheckResult
@@ -6374,9 +6383,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 getLR2Config: null,
                 _lr2ScoreDB: null,
                 startupRequiredFileScanReason: null,
-                optionsSnapshotProvider: () => options, settings: testSettings)
+                optionsSnapshotProvider: () => options, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
             library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
@@ -6481,9 +6490,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     }, typeof(LR2SongDB.folder));
                 });
             }
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([], testSettings))
             {
-                SearchTargets = [],
+
                 BmsCharts = []
             };
 
@@ -6520,9 +6529,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string lr2FolderPath = Path.Combine(tableDirectory, "0000.lr2folder");
             File.WriteAllText(lr2FolderPath, "#TITLE Root Output", Encoding.GetEncoding("shift_jis"));
             testSettings.LR2CustomFolderOutputBaseDirRootType = outputBase;
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([bmsRoot], testSettings))
             {
-                SearchTargets = [bmsRoot],
+
                 BmsCharts = []
             };
 
@@ -6584,9 +6593,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             testSettings.LR2RootPath = lr2Root;
             LR2Config config = CreateLr2Config(lr2Root, customFolderMask: 0x2, titleFlashHours: 24, bmsRoot);
             var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
-            var library = new TestBmsLibrary(scope.SongDbPath, configOwner, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, configOwner, settings: TestBmsFactory.CreateRootSettings([bmsRoot], testSettings))
             {
-                SearchTargets = [bmsRoot],
+
                 BmsCharts = []
             };
 
@@ -6647,9 +6656,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             LR2Config config = CreateLr2Config(lr2Root, customFolderMask: 0x1, titleFlashHours: 24, bmsRoot);
             var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             var options = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
-            var library = new TestBmsLibrary(scope.SongDbPath, configOwner, null, null, () => options, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, configOwner, null, null, () => options, settings: TestBmsFactory.CreateRootSettings([bmsRoot], testSettings))
             {
-                SearchTargets = [bmsRoot],
+
                 BmsCharts = []
             };
 
@@ -6722,9 +6731,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             testSettings.LR2RootPath = lr2Root;
             LR2Config config = CreateLr2Config(lr2Root, customFolderMask: 0, titleFlashHours: 24, bmsRoot);
             var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
-            var library = new TestBmsLibrary(scope.SongDbPath, configOwner, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, configOwner, settings: TestBmsFactory.CreateRootSettings([bmsRoot], testSettings))
             {
-                SearchTargets = [bmsRoot],
+
                 BmsCharts = []
             };
 
@@ -6786,9 +6795,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             testSettings.LR2RootPath = lr2Root;
             LR2Config config = CreateLr2Config(lr2Root, customFolderMask: 0, titleFlashHours: 24, bmsRoot);
             var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
-            var library = new TestBmsLibrary(scope.SongDbPath, configOwner, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, configOwner, settings: TestBmsFactory.CreateRootSettings([bmsRoot], testSettings))
             {
-                SearchTargets = [bmsRoot],
+
                 BmsCharts = [file]
             };
 
@@ -6839,9 +6848,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Directory.CreateDirectory(rivalDirectory);
             string lr2FolderPath = Path.Combine(rivalDirectory, "rival.lr2folder");
             File.WriteAllText(lr2FolderPath, "#TITLE Rival External", Encoding.GetEncoding("shift_jis"));
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+            var library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
-                SearchTargets = [rootDirectory],
+
                 BmsCharts = []
             };
 
@@ -7049,9 +7058,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true };
         var scheduler = new QueuedUiScheduler();
         var library = new TestBmsLibrary(scope.SongDbPath, null, null, null, null, scheduler,
-            optionsSnapshotProvider: () => options, settings: testSettings)
+            optionsSnapshotProvider: () => options, settings: TestBmsFactory.CreateRootSettings([root], testSettings))
         {
-            SearchTargets = [root],
+
             BmsCharts = [first, second]
         };
         BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(scope.SongDbPath, setup =>
@@ -7285,9 +7294,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             _lr2ScoreDB: null,
             startupRequiredFileScanReason: null,
             optionsSnapshotProvider: () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true },
-            applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge, settings: testSettings)
+            applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
         {
-            SearchTargets = [rootDirectory],
+
             BmsCharts = [.. chartFiles]
         };
         BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(

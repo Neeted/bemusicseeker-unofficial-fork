@@ -25,7 +25,7 @@
 
 両受付が必要な要求は副作用前に非待機取得し、一部だけ取得して競合したら解放します。第三の全体受付はありません。通常要求は未開始Busy、全体LR2の開始競合はskipです。拒否・skipした要求を予約・再実行しません。一要求内の複数入力、成功対象の集約、内部の上限付き並列計算は別の契約として維持します。
 
-設定画面の未確定BMS・LR2詳細候補は実操作の受付とは区別します。競合する別編集への切替では対象範囲名を示して破棄を確認し、既存の画面編集可否と実処理の受付を再検査します。候補編集自体へL/P制限は追加せず、実処理を伴う即時保存では実L/P受付と最終検証後の採用点で関係候補だけを破棄します。独立導入先の項目保存にはL/P制限を追加せず、BMS候補破棄の確認だけを既存設定担当の単一操作所有へ渡します。取消・同値・不正入力・受付拒否は元候補を保ち、新要求を予約しません。稼働環境変更は破棄案内と再起動確認を一回にまとめ、Shellの先着受付拒否時にも候補を保ちます。保存済み媒体や受理済み処理の不変入力は破棄対象に含めません。操作ごとの範囲は[設定の候補切替](../runtime/settings.md#競合する候補の切替)を正本とします。
+設定画面の未確定BMS・LR2詳細候補は実操作の受付とは区別します。競合する別編集への切替では対象範囲名を示して破棄を確認し、既存の画面編集可否と実処理の受付を再検査します。候補編集自体へL/P制限は追加せず、実処理を伴う即時保存では実L/P受付と最終検証後の採用点で関係候補だけを破棄します。独立導入先は確認後の最終検証・同期項目保存だけ共通Lを非待機取得し、L中は非交差先も拒否します。確認中はLを保持せずPも追加しません。BMS候補破棄の確認だけを既存設定担当の単一操作所有へ渡します。取消・同値・不正入力・受付拒否は元候補を保ち、新要求を予約しません。稼働環境変更は破棄案内と再起動確認を一回にまとめ、Shellの先着受付拒否時にも候補を保ちます。保存済み媒体や受理済み処理の不変入力は破棄対象に含めません。操作ごとの範囲は[設定の候補切替](../runtime/settings.md#競合する候補の切替)を正本とします。
 
 ### 受付の開始・終端と権限
 
@@ -115,6 +115,7 @@ DB確定後の出力・公開失敗は確定DBを保持する部分失敗です�
 
 | 保証・境界 | 実装 | 検証・確認の分担 |
 | --- | --- | --- |
+| 独立導入先の短いLと明示再操作 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | `SettingDialogEditCompletionTests.IndependentInstallSelection_*` / `ConflictingBmsCandidates_SwitchOnlyAfterValidAcceptedOperation` が実L中拒否・確認中先着・保存区間・候補保持を、compiled代表が元の表示と次の明示選択を確認する。普通保存・P/windowの既存許可を保持する。 |
 | BMT準備・採用・URL/整理とroot後の必要score回収 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)、[`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs) | `SettingDialogEditCompletionTests.BmtSettingsAdoption_PreservesAdoptedMediaAndAllowsCurrentNextInput` が採用前後の実媒体を、`SettingsDialogBehaviorTests.BeatorajaRootConfirmation_BmtFailureStillAwaitsScoresAndRequiredUi` が親L/P中のscoreと解放後の必須UI・設定Taskを確認する。通常Close/reopen・compiled BMT・Shell joinは既存Settings表示/終了系列が分担する。 |
 | LR2の短い保存排他と操作ごとの限定公開 | [`Lr2ConfigOwner`](../../../BeMusicSeeker/Models/LR2/Lr2ConfigOwner.cs)、[`表削除`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistRemovalWorkflowOwner.cs) | [`Lr2PartialBmsSaveRetainsDeletedManagedRootThroughExplicitRetry`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) がXMLのみ成功・実ROOT表削除・明示再試行を、[`Lr2PreviewOwnerTests`](../../../BeMusicSeeker.Tests/Processes/Lr2PreviewOwnerTests.cs) が別workerの保存とprocess待機の分離を確認します。 |
 | 保留譜面操作バーの実変更活動中の拒否と次の明示操作 | [`MainWindow.GetPendingInstallBarTargets`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) と既存保留terminal | [`MainWindowPackageMaintenanceWpfTests.PendingInstallBar_UsesCurrentBoundSelectionAndPreservesMultipleRowsAfterFocusRequest`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPendingInstallBarWpfTests.cs) は実変更活動中の3クリックのterminal未到達、解放だけでは未実行、次の明示導入だけが到達することを確認する。L/P受付本体は既存ownerテストが担当する。 |

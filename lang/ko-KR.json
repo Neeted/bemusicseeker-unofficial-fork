@@ -1,4 +1,7 @@
 {
+  "Confirm_DeleteRegisteredBmsRoots": "폴더 전체를 삭제하고 다음 BMS 루트의 등록을 해제하시겠습니까?\n폴더: {0}\n등록을 해제할 BMS 루트:\n{1}",
+  "Warn_CannotDeleteProtectedBmsRoot": "마지막 BMS 루트 또는 현재 설치 위치를 포함하므로 폴더 전체를 삭제할 수 없습니다. 먼저 설정에서 다른 루트 또는 설치 위치를 확정해 주세요.\n대상: {0}",
+  "LibraryChartRemovalReport_RegistrationFailed": "파일은 삭제되었지만 BMS 루트 등록의 저장 또는 반영에 실패했습니다.",
   "Warn_CustomFolderCleanupFailed": "새 출력은 저장되었지만 이전 출력 위치의 파일 또는 LR2 폴더 레코드를 정리하지 못했습니다.\n이전 위치: {0}\n원인: {1}",
   "Warn_UnregisteredCustomFolderOutputBase": "추가 출력 위치 “{1}”이 등록되지 않아 표 “{0}”의 LR2 출력을 중지했습니다. 표 속성에서 저장 위치를 다시 선택해 주세요.",
   "Settings_candidates_discarded_on_exit": "종료 시 확정하지 않은 설정 후보는 버려지며 다음 실행으로 이어지지 않습니다.",

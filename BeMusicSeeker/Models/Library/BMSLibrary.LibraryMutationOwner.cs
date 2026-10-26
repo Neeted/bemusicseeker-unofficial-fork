@@ -21,6 +21,7 @@ namespace BeMusicSeeker.Models;
 internal sealed partial class LibraryMutationOwner
 {
     private readonly LibraryFileOperationSynchronization synchronization;
+    private readonly BmsRootRegistrationStore bmsRootRegistrations;
 
     private readonly BmsLibraryLibraryFileOperationsService libraryFileOperationsService;
 
@@ -136,6 +137,7 @@ internal sealed partial class LibraryMutationOwner
     /// mutation facts の判定、適用順序、currentness gate の境界はこの owner が所有し、
     /// 外部へは確定 receipt と lease 解放後の action だけを返します。
     /// </remarks>
+    /// <param name="bmsRootRegistrations">物理成功と承認からLibraryが求めた最終利用者一覧を保存・公開する主体。</param>
     /// <param name="applyMergeFolderMaintenance">統合と同じ生存権限で必須保守を行い、公開通知を既存の延期先へ渡す処理。</param>
     internal LibraryMutationOwner(
         LibraryFileOperationSynchronization synchronization,
@@ -173,8 +175,10 @@ internal sealed partial class LibraryMutationOwner
         Action<string> logFileInfo,
         Action<Exception, string> logFileWarning,
         FileMutationOptions targetOnlyFileMutationOptions,
-        FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
+        FileMutationOptions recursiveDirectoryTreeFileMutationOptions,
+        BmsRootRegistrationStore bmsRootRegistrations)
     {
+        this.bmsRootRegistrations = bmsRootRegistrations ?? throw new ArgumentNullException(nameof(bmsRootRegistrations));
         this.synchronization = synchronization ?? throw new ArgumentNullException(nameof(synchronization));
         this.libraryFileOperationsService = libraryFileOperationsService ?? throw new ArgumentNullException(nameof(libraryFileOperationsService));
         this.packageInstallService = packageInstallService ?? throw new ArgumentNullException(nameof(packageInstallService));
@@ -434,17 +438,7 @@ internal sealed partial class LibraryMutationOwner
         string destinationDirectory)
     {
         BmsLibraryOptionsSnapshot options = lr2SynchronizationOwner.CurrentOptionsSnapshot;
-        IReadOnlyList<string> registeredRoots = options.OperationModeLR2DB && options.Lr2Input != null
-            ? options.Lr2Input.RegisteredRoots : lr2SynchronizationOwner.CaptureBmsDirectories().RequestedRoots;
-        if (options.OperationModeLR2DB)
-        {
-            // 設定画面と同じ管理領域の分類を使い、生成出力の登録を利用者rootへ読み替えません。
-            IReadOnlyList<string> managedRoots = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(
-                new[] { options.LR2CustomFolderOutputBaseDir, options.LR2CustomFolderOutputBaseDirRootType }
-                    .Concat(options.LR2CustomFolderAdditionalOutputBaseDirs ?? []));
-            registeredRoots = registeredRoots.Where(root => !managedRoots.Any(managed =>
-                LongPathFileSystem.IsSameOrDescendantDirectoryPath(root, managed))).ToArray();
-        }
+        IReadOnlyList<string> registeredRoots = BmsRootRegistrationStore.CaptureUserRoots(options);
         return libraryFileOperationsService.BuildRootFolderMovePlans(
             ToLibraryChartRefs(charts),
             destinationDirectory,
@@ -506,9 +500,11 @@ internal sealed partial class LibraryMutationOwner
                 targets.Add(catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(current));
             }
         }
+        BmsLibraryOptionsSnapshot options = lr2SynchronizationOwner.CurrentOptionsSnapshot;
         return new LibraryChartRemovalPreflight(targets,
             libraryFileOperationsService.GetWholeFolderDeleteCandidatePaths(canonicalCharts, lookup),
-            unresolvedPaths, inputCount, pathOnlyInputCount);
+            unresolvedPaths, inputCount, pathOnlyInputCount,
+            BmsRootRegistrationStore.CaptureUserRoots(options), options.BMSInstallDir);
     }
 
     private LibraryCatalogMutationFacts ExecuteLibraryChartRemovalAfterAdmission(
@@ -575,6 +571,7 @@ internal sealed partial class LibraryMutationOwner
             targetOnlyFileMutationOptions,
             recursiveDirectoryTreeFileMutationOptions);
         targetFacts.AddRange(execution.Targets);
+        targetFacts.AddRange(prepared.RejectedTargets);
         targetFacts.AddRange(unresolved.Select(failure => new LibraryChartRemovalTarget(
             failure.Path, LibraryChartRemovalState.Unresolved, failure.Exception)));
         filesystemOutcome = new LibraryChartRemovalOutcome(targetFacts);
@@ -676,24 +673,39 @@ internal sealed partial class LibraryMutationOwner
             + " folderDeletes=" + folderDeleteCount
             + " fileDeletes=" + fileDeleteCount;
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
-        using LibraryMutationSession session = BeginLibraryMutationSession(
-            mutationCapability,
-            "delete_library",
-            postLeaseNotifications);
-        session.AppendCatalogChange(
-            catalogFacts,
-            packageReferenceFacts,
-            filesystemOutcome.Targets
+        LibraryMutationSessionReceipt sessionReceipt = null;
+        Exception catalogFailure = null;
+        try
+        {
+            using LibraryMutationSession session = BeginLibraryMutationSession(mutationCapability, "delete_library", postLeaseNotifications);
+            session.AppendCatalogChange(catalogFacts, packageReferenceFacts, filesystemOutcome.Targets
                 .Where(target => target.State == LibraryChartRemovalState.Confirmed)
                 .Select(target => new LibraryMutationSessionTarget(target.Path, string.Empty)));
-        session.AppendResourceDirectoryRemovals(deletedFolderPaths);
-        LibraryMutationSessionReceipt sessionReceipt = session.Commit();
+            session.AppendResourceDirectoryRemovals(deletedFolderPaths);
+            sessionReceipt = session.Commit();
+        }
+        catch (Exception failure) { catalogFailure = failure; }
+        Exception registrationFailure = null;
+        string[] unregistered = prepared.RegisteredUserRoots.Where(root => deletedFolderPaths.Any(scope =>
+            prepared.WholeFolderCandidatePaths.Contains(scope, StringComparer.OrdinalIgnoreCase)
+            && LongPathFileSystem.IsSameOrDescendantDirectoryPath(root, scope))).ToArray();
+        if (unregistered.Length > 0)
+        {
+            try
+            {
+                IReadOnlyList<string> remaining = bmsRootRegistrations.CaptureUserRoots()
+                    .Where(root => !unregistered.Contains(root, StringComparer.OrdinalIgnoreCase)).ToArray();
+                bmsRootRegistrations.SaveUserRoots(remaining);
+                invalidateParentFolderListCache();
+                postLeaseNotifications.Add(notifyParentFolderListCacheChanged);
+            }
+            catch (Exception failure) { registrationFailure = failure; }
+        }
         postLeaseNotifications.Add(() => LogInstallPerformance(resultLog));
-        var outcome = new LibraryChartRemovalOutcome(
-            filesystemOutcome.Targets,
-            sessionReceipt,
-            catalogApplyAttempted: true);
-        return outcome;
+        // Commitも同じ変更事実がすべて空なら反映を行わないため、保護だけの要求を反映未確認として報告しません。
+        return new LibraryChartRemovalOutcome(filesystemOutcome.Targets, sessionReceipt,
+            catalogApplyAttempted: catalogFacts.HasChanges || packageReferenceFacts.HasChanges || deletedFolderPaths.Count > 0,
+            registrationFailure: registrationFailure, catalogFailure: catalogFailure, deletedFolderPaths: deletedFolderPaths);
     }
 
 
@@ -1792,37 +1804,21 @@ internal sealed partial class LibraryMutationOwner
         return execution;
     }
 
-    /// <summary>直接要求も確認前捕捉を通し、同じ固定対象でモデル側の確認と実行を行います。</summary>
-    internal LibraryChartRemovalOutcome RemoveLibraryCharts(IEnumerable<LibraryChartRef> charts, bool sendToRecycleBin)
-    {
-        if (TryBlockCatalogMutation(nameof(BMSLibrary.RemoveLibraryCharts), showMessage: true)) { return null; }
-        return RemoveLibraryCharts(PrepareLibraryChartRemoval(charts), sendToRecycleBin, null);
-    }
-
     /// <summary>確認前の固定対象を再確定せず、既存の本受付・変更セッションで削除して解放後に結果を返します。</summary>
     /// <param name="prepared">最初の確認前に作成した不変要求。</param>
     /// <param name="sendToRecycleBin">ごみ箱へ送るか。</param>
-    /// <param name="approvedWholeFolderDeletePaths">UIで承認済みの候補。nullの場合だけ同じ候補をモデルで確認します。</param>
+    /// <param name="approvedWholeFolderDeletePaths">UIで判断済みの候補。全体削除を承認しない場合も空列を明示します。</param>
     internal LibraryChartRemovalOutcome RemoveLibraryCharts(
         LibraryChartRemovalPreflight prepared, bool sendToRecycleBin, IEnumerable<string> approvedWholeFolderDeletePaths, LibraryFileMutationCapability capability = null)
     {
         ArgumentNullException.ThrowIfNull(prepared);
+        ArgumentNullException.ThrowIfNull(approvedWholeFolderDeletePaths);
         if (TryBlockCatalogMutation(nameof(BMSLibrary.RemoveLibraryCharts), showMessage: true, capability: capability)) { return null; }
-        List<string> approvedPaths = approvedWholeFolderDeletePaths == null ? []
-            : [.. approvedWholeFolderDeletePaths.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase)];
-        if (approvedWholeFolderDeletePaths == null)
-        {
-            foreach (string candidatePath in prepared.WholeFolderCandidatePaths)
-            {
-                if (ShowOperationDialog(
-                    string.Format(Resources.Confirm_DeleteFolderWithNoBms, candidatePath),
-                    Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question,
-                    MessageBoxResult.Yes) == MessageBoxResult.Yes)
-                {
-                    approvedPaths.Add(candidatePath);
-                }
-            }
-        }
+        List<string> approvedPaths = [.. approvedWholeFolderDeletePaths.Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        LibraryChartRemovalPreflight initial = prepared;
+        prepared = initial.ExcludeProtectedWholeFolderApprovals(approvedPaths);
+        approvedPaths = initial.GetExecutableWholeFolderPaths(approvedPaths).ToList();
         List<Action> postLeaseNotifications = [];
         LibraryChartRemovalOutcome outcome = null;
         RunWithLibraryChartRemovalWriteLocks(mutationCapability =>

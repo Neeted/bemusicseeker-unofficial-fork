@@ -58,9 +58,9 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             startupRequiredFileScanReason: null,
             optionsSnapshotProvider: () => options,
             applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
-            chartFileScanner: chartFileScanner)
+            chartFileScanner: chartFileScanner, settings: TestBmsFactory.CreateRootSettings([rootDirectoryA, rootDirectoryB]))
         {
-            SearchTargets = [rootDirectoryA, rootDirectoryB],
+
             BmsCharts =
             [
                 ((ChartTestValues.Empty() with { Path = chartPathA })) with { Md5 = hashA, Favorite = 1 },
@@ -166,9 +166,9 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
             chartFileScanner: scanner,
             uiScheduler: new TestUiScheduler(() => null),
-            dialogService: dialogs)
+            dialogService: dialogs, settings: TestBmsFactory.CreateRootSettings([rootDirectoryA, rootDirectoryB]))
         {
-            SearchTargets = [rootDirectoryA, rootDirectoryB],
+
             BmsCharts =
             [
                 ((ChartTestValues.Empty() with { Path = chartPathA, Tag = "keep-a", AddDate = 1 })) with { Md5 = hashA, Favorite = 1 },
@@ -269,9 +269,9 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             startupRequiredFileScanReason: null,
             optionsSnapshotProvider: () => options,
             applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
-            chartFileScanner: chartFileScanner)
+            chartFileScanner: chartFileScanner, settings: TestBmsFactory.CreateRootSettings([rootDirectoryA, rootDirectoryB]))
         {
-            SearchTargets = [rootDirectoryA, rootDirectoryB],
+
             BmsCharts =
             [
                 ((ChartTestValues.Empty() with { Path = chartPathA })) with { Md5 = hashA, Favorite = 1 },
@@ -356,9 +356,9 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             startupRequiredFileScanReason: null,
             optionsSnapshotProvider: () => options,
             applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
-            chartFileScanner: chartFileScanner)
+            chartFileScanner: chartFileScanner, settings: TestBmsFactory.CreateRootSettings([rootDirectoryA, rootDirectoryB]))
         {
-            SearchTargets = [rootDirectoryA, rootDirectoryB],
+
             BmsCharts =
             [
                 ((ChartTestValues.Empty() with { Path = chartPathA })) with { Md5 = hashA, Favorite = 1 },

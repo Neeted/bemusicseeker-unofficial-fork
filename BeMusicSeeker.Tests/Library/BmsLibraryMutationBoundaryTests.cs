@@ -76,53 +76,6 @@ public sealed class BmsLibraryMutationBoundaryTests
     }
 
     /// <summary>
-    /// 保証：フォルダ削除の事前候補があっても明示承認がなければscope内で拒否し、実ファイル・DB・所持状態を保持する。
-    /// </summary>
-    /// <remarks>実事前準備と削除入口を接続し、手動の候補入力だけでは分からない承認不足時の無副作用を確認する。</remarks>
-    [TestMethod]
-    public void OperationDialogScope_RejectsPreparedRemovalWithoutExplicitFolderDecision()
-    {
-
-        OwnedChartCollectionTestSupport.WithTemporarySongDb(songDbPath =>
-        {
-            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
-            string folder = Path.Combine(root, "Pack");
-            Directory.CreateDirectory(folder);
-            string path = Path.Combine(folder, "chart.bms");
-            File.WriteAllText(path, "#PLAYER 1");
-            var filesystem = new OwnedChartCollectionTestSupport.TestFileMutationService();
-            var dialogs = new RecordingDialogService { ResultToReturn = MessageBoxResult.Yes };
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, dialogs,
-                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
-            { BmsCharts = [OwnedChartCollectionTestSupport.CreateFile(new string('a', 32), path)], BmsonCharts = [] };
-            new BmsLibraryDbGateway(songDbPath).UpsertSongs(library.BmsCharts);
-            try
-            {
-                LibraryChartRemovalPreflight prepared = library.PrepareLibraryChartRemoval(
-                    library.BmsCharts.Select(chart => LibraryChartRef.FromChartFile(chart)));
-                Assert.AreEqual(1, prepared.WholeFolderCandidatePaths.Count);
-                using BMSLibrary.OperationDialogScope scope = library.BeginOperationDialogScope();
-
-                Assert.ThrowsException<InvalidOperationException>(() => library.RemoveLibraryCharts(prepared, sendToRecycleBin: false));
-
-                Assert.AreEqual(0, dialogs.CallCount);
-                Assert.AreEqual(0, scope.Messages.Count);
-                Assert.AreEqual(0, filesystem.FileDeleteCalls);
-                Assert.AreEqual(0, filesystem.DirectoryDeleteCalls);
-                Assert.IsTrue(File.Exists(path));
-                using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-                Assert.AreEqual(path, readback.Table<LR2SongDB.song>().Single().path);
-                Assert.AreEqual(1, library.BmsCharts.Count);
-            }
-            finally
-            {
-                library.RequestShutdown("prepared-dialog-boundary-test");
-            }
-        });
-    }
-
-    /// <summary>
     /// 保証：強制導入を明示的に不承認としたら変更scope内でも再確認せず、対象保留パッケージを保持する。
     /// </summary>
     /// <remarks>実強制導入入口で事前決定とdialog scopeの接続を確認する。</remarks>
@@ -197,7 +150,8 @@ public sealed class BmsLibraryMutationBoundaryTests
             };
             var dialogs = new RecordingDialogService();
             var library = new TestBmsLibrary(songDbPath, null, null, null, dialogs,
-                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options)
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options,
+                settings: TestBmsFactory.CreateRootSettings([], lr2: true))
             { BmsCharts = [OwnedChartCollectionTestSupport.CreateFile(new string('a', 32), path)], BmsonCharts = [] };
             new BmsLibraryDbGateway(songDbPath).UpsertSongs(library.BmsCharts);
             Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable playlistLease));

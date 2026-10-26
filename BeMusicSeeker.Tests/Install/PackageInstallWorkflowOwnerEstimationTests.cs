@@ -72,9 +72,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         var observer = new CompletenessEstimationObserver();
         var library = new TestBmsLibrary(songDb, null, null, null, new FileDbReportRecordingDialogs(),
             new TestUiScheduler(() => null), () => options,
-            CapturedChartFileScanner.FromFixture([installedChart], new Dictionary<string, IEnumerable<string>> { [candidate] = candidateSounds }, [candidate]), observer, admission)
+            CapturedChartFileScanner.FromFixture([installedChart], new Dictionary<string, IEnumerable<string>> { [candidate] = candidateSounds }, [candidate]), observer, admission, settings: TestBmsFactory.CreateRootSettings([libraryRoot]))
         {
-            SearchTargets = [libraryRoot],
+
             StartupBackgroundTaskScheduler = (_, _, _, work) => { background.Enqueue(work); return true; }
         };
         var owner = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), admission, new ChartMutationActivityOwner(),
@@ -236,9 +236,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         File.WriteAllBytes(dbPath, []);
         var library = new TestBmsLibrary(dbPath, null, null, null, new FileDbReportRecordingDialogs(),
             new TestUiScheduler(() => null), () => options,
-            CapturedChartFileScanner.FromFixture(installed, indexed, indexed.Keys), observer, admission)
+            CapturedChartFileScanner.FromFixture(installed, indexed, indexed.Keys), observer, admission, settings: TestBmsFactory.CreateRootSettings([libraryRoot]))
         {
-            SearchTargets = [libraryRoot],
+
             StartupBackgroundTaskScheduler = (_, _, _, work) => { background.Enqueue(work); return true; }
         };
         var owner = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), admission, new ChartMutationActivityOwner(),
@@ -338,9 +338,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         var library = new TestBmsLibrary(dbPath, null, null, null, new FileDbReportRecordingDialogs(),
             new TestUiScheduler(() => null), () => options,
             CapturedChartFileScanner.FromFixture([installedChart],
-                new Dictionary<string, IEnumerable<string>> { [candidate] = ["sound.wav"] }, [candidate]), observer, admission)
+                new Dictionary<string, IEnumerable<string>> { [candidate] = ["sound.wav"] }, [candidate]), observer, admission, settings: TestBmsFactory.CreateRootSettings([libraryRoot]))
         {
-            SearchTargets = [libraryRoot],
+
             StartupBackgroundTaskScheduler = (_, _, _, work) => { background.Enqueue(work); return true; }
         };
         var owner = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), admission, new ChartMutationActivityOwner(),
@@ -436,9 +436,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         var library = new TestBmsLibrary(dbPath, null, null, null, new FileDbReportRecordingDialogs(),
             new TestUiScheduler(() => null), () => options,
             CapturedChartFileScanner.FromFixture(installedCharts,
-                new Dictionary<string, IEnumerable<string>> { [installed] = sounds }, [installed]), observer, admission)
+                new Dictionary<string, IEnumerable<string>> { [installed] = sounds }, [installed]), observer, admission, settings: TestBmsFactory.CreateRootSettings([libraryRoot]))
         {
-            SearchTargets = [libraryRoot],
+
             StartupBackgroundTaskScheduler = (_, _, _, work) => { background.Enqueue(work); return true; }
         };
         var owner = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), admission, new ChartMutationActivityOwner(),
@@ -556,11 +556,11 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             KeepInstallablePackagesPending = false
         };
         var library = new TestBmsLibrary(songDb, null, null, null, new FileDbReportRecordingDialogs(),
-            new TestUiScheduler(() => null!), () => options)
+            new TestUiScheduler(() => null!), () => options, settings: TestBmsFactory.CreateRootSettings([installRoot], lr2: true))
         {
             BmsCharts = [],
             BmsonCharts = [],
-            SearchTargets = [installRoot],
+
             ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>(),
             ChartPackagesInstalled = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>()
         };
@@ -600,7 +600,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         {
             Assert.IsTrue(owner.Enqueue([source]));
             idle = owner.WaitForIdleAsync();
-            await Task.WhenAny(prepared.Task, idle);
+            // 準備失敗時はcleanupがidleを止めるため、cleanup到達でもfinallyへ戻して両gateを解放します。
+            await Task.WhenAny(prepared.Task, cleanup.Task, idle);
             Assert.IsTrue(prepared.Task.IsCompletedSuccessfully, "実準備通知に先行する失敗終端を成功と扱いません。");
             Assert.IsTrue(library.OperationAdmission.IsActive);
             Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable probe));
@@ -692,9 +693,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             new TestUiScheduler(() => null), () => options,
             CapturedChartFileScanner.FromFixture([installedChart],
                 new Dictionary<string, IEnumerable<string>> { [installed] = ["sound.wav"] }, [installed]),
-            observer, admission)
+            observer, admission, settings: TestBmsFactory.CreateRootSettings([Path.Combine(root, "Library")]))
         {
-            SearchTargets = [Path.Combine(root, "Library")],
+
             StartupBackgroundTaskScheduler = (_, _, _, work) => { background.Enqueue(work); return true; }
         };
         var owner = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), admission,
@@ -818,9 +819,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         var observer = new HeldSuccessfulEvaluations(false);
         var library = new TestBmsLibrary(songDb, null, null, null, new FileDbReportRecordingDialogs(),
             new TestUiScheduler(() => null), () => options,
-            CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), []), observer, admission)
+            CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), []), observer, admission, settings: TestBmsFactory.CreateRootSettings([Path.Combine(root, "Library")]))
         {
-            SearchTargets = [Path.Combine(root, "Library")],
+
             StartupBackgroundTaskScheduler = (_, _, _, work) => { background.Enqueue(work); return true; }
         };
         var owner = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), admission,

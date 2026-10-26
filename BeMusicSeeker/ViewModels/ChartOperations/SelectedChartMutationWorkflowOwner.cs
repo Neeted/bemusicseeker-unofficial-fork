@@ -183,7 +183,7 @@ internal sealed class SelectedChartMutationResult
     /// <summary>Catalog failure prevents success; filesystem-only partial failure preserves continuation.</summary>
     internal static SelectedChartMutationResult FromRemoval(LibraryChartRemovalOutcome outcome, Exception failure)
     {
-        Exception primary = outcome?.CatalogFailure;
+        Exception primary = outcome?.RequiredFailure;
         Exception combined = primary == null ? failure : failure == null ? primary : new AggregateException(primary, failure);
         return new SelectedChartMutationResult(
             combined == null,
@@ -374,20 +374,15 @@ internal sealed class SelectedChartMutationWorkflowOwner
             {
                 foreach (string folderPath in prepared.WholeFolderCandidatePaths)
                 {
-                    bool approved = await ConfirmMessageAsync(
-                        string.Format(BeMusicSeeker.Properties.Resources.Confirm_DeleteFolderWithNoBms, folderPath),
-                        BeMusicSeeker.Properties.Resources.MessageBoxTitle_Confirm,
-                        MessageBoxButton.YesNo,
-                        MessageBoxResult.Yes);
-                    if (approved)
-                    {
-                        approvedWholeFolderDeletePaths.Add(folderPath);
-                    }
+                    MessageBoxResult decision = await ConfirmWholeFolderAsync(prepared.GetWholeFolderConfirmationMessage(folderPath));
+                    if (decision == MessageBoxResult.Cancel) { return SelectedChartMutationResult.Completed; }
+                    if (decision == MessageBoxResult.Yes) { approvedWholeFolderDeletePaths.Add(folderPath); }
                 }
             }
 
             LibraryChartRemovalOutcome removalOutcome = null;
-            IReadOnlyList<string> approvedFolderPaths = approvedWholeFolderDeletePaths.ToArray();
+            IReadOnlyList<string> approvedFolderPaths = prepared?.GetExecutableWholeFolderPaths(approvedWholeFolderDeletePaths) ?? [];
+            prepared = prepared?.ExcludeProtectedWholeFolderApprovals(approvedWholeFolderDeletePaths);
             SelectedChartMutationResult result = await Task.Run(() => ExecuteMutation(
                 resolution.Route == ChartDeleteRoute.Pending
                 ? SelectedChartMutationRefreshScope.Pending
@@ -413,7 +408,8 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 physicalPaths: resolution.Route == ChartDeleteRoute.Library
                     ? prepared.Targets.Select(chart => chart.Path).Concat(approvedFolderPaths)
                     : pendingCharts.Select(chart => deleteContainingPackageFoldersWhenNoBms ? Path.GetDirectoryName(chart.Path) : chart.Path),
-                recursivePhysicalPaths: true)).ConfigureAwait(false);
+                recursivePhysicalPaths: true,
+                stopPlayback: resolution.Route == ChartDeleteRoute.Pending || prepared.Targets.Count > 0)).ConfigureAwait(false);
             operationGateTransferred = true;
             if (removalOutcome != null)
             {
@@ -809,18 +805,33 @@ internal sealed class SelectedChartMutationWorkflowOwner
             new SelectedChartMutationAppliedEventArgs(libraryPathChanged, encodingChanged));
     }
 
+    /// <summary>明示Noだけを譜面のみへ進め、Cancelと既定Yesを持つ閉鎖も要求全体の取消として区別します。</summary>
+    private async Task<MessageBoxResult> ConfirmWholeFolderAsync(string message)
+    {
+        UiDialogResult result = await dialogs.ConfirmAsync(new UiConfirmationRequest(message,
+            BeMusicSeeker.Properties.Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNoCancel,
+            MessageBoxImage.Question, MessageBoxResult.Yes));
+        if (result == null) { throw new InvalidOperationException("Whole-folder deletion confirmation returned no result."); }
+        return result.Status switch
+        {
+            UiDialogStatus.Accepted => MessageBoxResult.Yes,
+            UiDialogStatus.Rejected => MessageBoxResult.No,
+            UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser => MessageBoxResult.Cancel,
+            _ => throw result.Exception ?? new InvalidOperationException(
+                "Whole-folder deletion confirmation could not be displayed (" + result.Status + ").")
+        };
+    }
+
     private async Task<bool> ConfirmMessageAsync(
         string message,
-        string routeName,
-        MessageBoxButton button = MessageBoxButton.OKCancel,
-        MessageBoxResult defaultResult = MessageBoxResult.Cancel)
+        string routeName)
     {
         UiDialogResult result = await dialogs.ConfirmAsync(new UiConfirmationRequest(
             message,
             BeMusicSeeker.Properties.Resources.Confirm,
-            button,
+            MessageBoxButton.OKCancel,
             MessageBoxImage.Question,
-            defaultResult));
+            MessageBoxResult.Cancel));
         if (result == null)
         {
             throw new InvalidOperationException(routeName + " returned no result.");
@@ -887,6 +898,7 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
     {
         return library.RemoveLibraryCharts(
             prepared,
+            sendToRecycleBin: true,
             approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths, capability: capability);
     }
 

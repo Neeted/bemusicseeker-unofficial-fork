@@ -18,43 +18,6 @@ namespace BeMusicSeeker.Tests;
 public sealed class StartupLibraryFailureContractTests
 {
     /// <summary>
-    /// 保証：検索先の列挙失敗を元の原因で返し、途中で作成した組を画面へ適用したり空検索先で成功へ読み替えたりしない。
-    /// </summary>
-    /// <remarks>本番ライブラリ・プレイリストの作成へ委譲し、列挙失敗と適用先への呼出し順を観測する。</remarks>
-    [TestMethod]
-    public void StartupLibraryConstructionOwner_PropagatesSearchRootEnumerationFailure()
-    {
-        string temporaryRoot = CreateTemporaryRoot();
-        string songDbPath = Path.Combine(temporaryRoot, "song.db");
-        CreateSongDatabase(songDbPath);
-        try
-        {
-            ApplicationComposition composition = CreateComposition();
-            var events = new List<string>();
-            var factory = new RecordingDelegatingStartupLibraryFactory(composition, events);
-            var application = new RecordingStartupLibraryApplicationPort(events);
-            LibraryProfile profile = CreateProfile(
-                temporaryRoot,
-                songDbPath,
-                operationModeLR2DB: false,
-                searchRoots: new ThrowingSearchRoots());
-
-            InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
-                () => new StartupLibraryConstructionOwner(factory).CreateAndApply(profile, application));
-
-            StringAssert.Contains(exception.Message, "recording search-root enumeration failure");
-            CollectionAssert.AreEqual(
-                new[] { "factory-library", "factory-playlist" },
-                events);
-            CollectionAssert.AreEqual(Array.Empty<string>(), application.SearchRootsObserved.ToArray());
-        }
-        finally
-        {
-            Directory.Delete(temporaryRoot, recursive: true);
-        }
-    }
-
-    /// <summary>
     /// 保証：作成先がnullまたは例外の場合は途中組だけを停止して旧組と共有受付を維持し、後の成功時だけ旧組を停止する。
     /// </summary>
     /// <remarks>本番のモデル組を作り、失敗時と次の成功時の実停止状態・新規受付の成立まで観測する。</remarks>

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -7,6 +8,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -40,6 +42,7 @@ public sealed partial class SettingDialogEditCompletionTests
     [DataRow("lr2-root", "accept")]
     [DataRow("install", "cancel")]
     [DataRow("install", "accept")]
+    [DataRow("install", "library-busy")]
     public void ConflictingBmsCandidates_SwitchOnlyAfterValidAcceptedOperation(string operation, string outcome)
     {
         TestUiDispatcherHost.Invoke(() =>
@@ -337,7 +340,7 @@ public sealed partial class SettingDialogEditCompletionTests
             finally { CompleteCandidateFixture(owner, root, null, null, primaryFailure); }
         });
     }
-    /// <summary>独立導入先は無関係なL/PやWindow操作中も普通の項目保存を行います。BMS破棄確認だけは設定担当の単一所有に従って無効表示と入口拒否を揃え、普通保存・同じTask・元候補と終端後再操作を保ちます。</summary>
+    /// <summary>独立導入先はL中に拒否し、解放だけでは保存せず次の明示選択を待ちます。Pや無関係Window操作中の普通保存を保ちます。BMS破棄確認だけは設定担当の単一所有に従って無効表示と入口拒否を揃え、普通保存・同じTask・元候補と終端後再操作を保ちます。</summary>
     [DataTestMethod]
     [DataRow("library", false)]
     [DataRow("playlist", true)]
@@ -382,15 +385,28 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.IsTrue(admission.TryEnter(out IDisposable acquired)); held = acquired;
                 }
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                bool rejected = busy == "window" && hasDraft;
-                Assert.AreEqual(!rejected, combo.IsEnabled, "設定busyでも確認不要の同期保存は有効に保ちます。");
+                bool rejected = busy == "library" || busy == "window" && hasDraft;
+                Assert.AreEqual(!(busy == "window" && hasDraft), combo.IsEnabled, "設定busyでも確認不要の同期保存は有効に保ちます。");
                 Task originalCompletion = owner.SettingDialog.SettingsOperationCompletionTask;
                 combo.SetCurrentValue(Selector.SelectedItemProperty, alternate);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(rejected ? original : alternate, PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
                 Assert.AreEqual(rejected ? original : alternate, combo.SelectedItem);
-                Assert.AreEqual(rejected, dialog.AvailableBMSDirectories.Contains(staged));
+                Assert.AreEqual(hasDraft && rejected, dialog.AvailableBMSDirectories.Contains(staged));
                 Assert.AreEqual(hasDraft && !rejected ? 1 : 0, dialogs.ConfirmationCount);
+                if (busy == "library")
+                {
+                    dialog.StartupSortCachePrewarmPriority = 3;
+                    ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationGeneral");
+                    ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationInstall");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    held?.Dispose(); held = null;
+                    Assert.AreEqual(original, PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
+                    combo.SetCurrentValue(Selector.SelectedItemProperty, alternate);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(alternate, PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
+                    Assert.AreEqual(3, PortableSettingsPersistenceTests.OpenSettings(path).StartupSortCachePrewarmPriority);
+                }
                 if (busy == "window")
                 {
                     Assert.AreSame(originalCompletion, owner.SettingDialog.SettingsOperationCompletionTask);
@@ -418,6 +434,186 @@ public sealed partial class SettingDialogEditCompletionTests
                 CompleteCandidateFixture(owner, root, held, window, primaryFailure);
             }
         });
+    }
+
+    /// <summary>実ライブラリのLと同じ受付で独立選択を拒否し、次の明示入力だけを保存します。続く実root登録解除でも新導入先と無関係候補を保持します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void IndependentInstallSelection_LibraryAdmissionPreservesValuesUntilExplicitRetry(bool lr2)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            string root = CreateTemporaryRoot();
+            MainWindowViewModel? owner = null;
+            TestBmsLibrary? library = null;
+            IDisposable? held = null;
+            Exception? primaryFailure = null;
+            try
+            {
+                string config = Path.Combine(root, "user.config");
+                Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(config));
+                string original = values.BMSInstallDir;
+                string alternate = Directory.CreateDirectory(Path.Combine(root, "Alternate")).FullName;
+                if (lr2) { var xml = new LR2Config(values.LR2ConfigXmlPath); xml.AddBMSSearchDirectories([alternate]); xml.Save(xml.ConfigFilePath); }
+                else { values.OperationModeLR2DB = false; values.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([original, alternate]); }
+                values.Save();
+                owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, dialogs: new RecordingRootDialogService());
+                library = MainWindowViewModelTestFactory.CreateLibrary(values.LR2SongDBPath, values, owner);
+                held = library.TryBeginLibraryFileMutation("independent-install-test", showMessage: false);
+                Assert.IsNotNull(held);
+                SettingsDialogViewModel dialog = owner.SettingDialog;
+                dialog.EnableBeatorajaBmtOutput = !values.EnableBeatorajaBmtOutput;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SelectBmsInstallDirectoryAsync(alternate), "independent-install-busy");
+                Assert.AreEqual(original, values.BMSInstallDir);
+                Assert.AreEqual(original, PortableSettingsPersistenceTests.OpenSettings(config).BMSInstallDir);
+                Assert.IsTrue(dialog.CanCancelBmtSettings);
+                held.Dispose(); held = null;
+                Assert.AreEqual(original, PortableSettingsPersistenceTests.OpenSettings(config).BMSInstallDir);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SelectBmsInstallDirectoryAsync(alternate), "independent-install-explicit");
+                Assert.AreEqual(alternate, PortableSettingsPersistenceTests.OpenSettings(config).BMSInstallDir);
+                Assert.IsTrue(dialog.CanCancelBmtSettings);
+                string chartPath = Path.Combine(original, "root-delete.bms");
+                File.WriteAllText(chartPath, "#TITLE Removed root");
+                ChartFile chart = ChartTestValues.Empty() with { Path = chartPath, Md5 = new string('a', 32) };
+                library.BmsCharts = [chart]; library.BmsonCharts = [];
+                new BmsLibraryDbGateway(values.LR2SongDBPath).UpsertSongs([chart]);
+                LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
+                    library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(chart)]), false, [original]);
+                Assert.AreEqual(1, removal.ConfirmedChartCount);
+                Assert.IsNull(removal.RegistrationFailure);
+                Assert.IsFalse(Directory.Exists(original));
+                Assert.AreEqual(alternate, PortableSettingsPersistenceTests.OpenSettings(config).BMSInstallDir,
+                    "登録解除は独立選択で成立した導入先を古い値へ戻しません。");
+                CollectionAssert.AreEqual(new[] { alternate }, dialog.ConfirmedBMSDirectories.ToArray());
+                Assert.IsTrue(dialog.CanCancelBmtSettings);
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                held?.Dispose();
+                library?.RequestShutdown("independent-install-test");
+                CompleteCandidateFixture(owner, root, null, null, primaryFailure);
+            }
+        });
+    }
+
+    /// <summary>実providerの同期保存前後でも同じLを保有し、成功・実媒体失敗の両終端で解放します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void IndependentInstallSelection_SaveHoldsLibraryAdmissionAndReleasesAfterFailure(bool failSave)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            string root = CreateTemporaryRoot();
+            MainWindowViewModel? owner = null;
+            Exception? primaryFailure = null;
+            try
+            {
+                string config = Path.Combine(root, "user.config");
+                Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(config));
+                string original = values.BMSInstallDir;
+                string alternate = Directory.CreateDirectory(Path.Combine(root, "Alternate")).FullName;
+                values.OperationModeLR2DB = false;
+                values.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([original, alternate]); values.Save();
+                var failures = new List<Exception>();
+                ChartFileOperationSynchronizer? admission = null;
+                bool reportedWithLibraryHeld = false;
+                owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, reportSettingsApplyFailure: failure =>
+                { failures.Add(failure); reportedWithLibraryHeld = admission?.IsActive == true; });
+                admission = MainWindowViewModelTestFactory.GetComposition(owner).OperationAdmission;
+                SettingsProperty property = values.Properties[nameof(Settings.BMSInstallDir)];
+                SettingsProvider originalProvider = property.Provider;
+                var observations = new List<bool>();
+                var provider = new InstallAdmissionObservingSettingsProvider(originalProvider, () =>
+                {
+                    bool acquired = admission.TryEnter(out IDisposable lease);
+                    lease?.Dispose();
+                    observations.Add(acquired);
+                });
+                property.Provider = provider;
+                try
+                {
+                    using (failSave ? File.Open(config, FileMode.Open, FileAccess.Read, FileShare.Read) : null)
+                    { TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SelectBmsInstallDirectoryAsync(alternate), "independent-install-save"); }
+                }
+                finally { property.Provider = originalProvider; }
+                CollectionAssert.AreEqual(new[] { false, false }, observations);
+                Assert.AreEqual(failSave ? 1 : 0, failures.Count);
+                Assert.IsFalse(reportedWithLibraryHeld, "失敗案内は短い保存区間のL解放後です。");
+                Assert.AreEqual(failSave ? original : alternate, values.BMSInstallDir);
+                Assert.AreEqual(failSave ? original : alternate, PortableSettingsPersistenceTests.OpenSettings(config).BMSInstallDir);
+                Assert.IsTrue(admission.TryEnter(out IDisposable fresh)); fresh.Dispose();
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally { CompleteCandidateFixture(owner, root, null, null, primaryFailure); }
+        });
+    }
+
+    /// <summary>確認中に確定一覧が更新されても、実L取得後の最終検証で外れた先を拒否し、関係候補を先回り破棄しません。</summary>
+    [TestMethod]
+    public void IndependentInstallSelection_RevalidatesConfirmedRootsBeforeDiscard()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            string root = CreateTemporaryRoot();
+            MainWindowViewModel? owner = null;
+            Exception? primaryFailure = null;
+            try
+            {
+                string config = Path.Combine(root, "user.config");
+                Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(config));
+                string original = values.BMSInstallDir;
+                string alternate = Directory.CreateDirectory(Path.Combine(root, "Alternate")).FullName;
+                string staged = Directory.CreateDirectory(Path.Combine(root, "Staged")).FullName;
+                values.OperationModeLR2DB = false;
+                values.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([original, alternate]); values.Save();
+                var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+                owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, dialogs: dialogs);
+                SettingsDialogViewModel dialog = owner.SettingDialog;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AddBmsSearchRootPathsAsync([staged]), "independent-install-staged");
+                dialog.EnableBeatorajaBmtOutput = !values.EnableBeatorajaBmtOutput;
+                ChartFileOperationSynchronizer admission = MainWindowViewModelTestFactory.GetComposition(owner).OperationAdmission;
+                dialogs.ConfirmationObserved = _ =>
+                {
+                    Assert.IsTrue(admission.TryEnter(out IDisposable lease));
+                    using (lease) { new BmsRootRegistrationStore(values, () => null).SaveUserRoots([original]); }
+                };
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SelectBmsInstallDirectoryAsync(alternate), "independent-install-latest-input");
+                CollectionAssert.Contains(dialog.AvailableBMSDirectories, staged);
+                Assert.IsTrue(dialog.CanCancelBmtSettings);
+                Assert.AreEqual(original, values.BMSInstallDir);
+                Assert.AreEqual(original, PortableSettingsPersistenceTests.OpenSettings(config).BMSInstallDir);
+                dialogs.ConfirmationObserved = null;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SelectBmsInstallDirectoryAsync(staged), "independent-install-invalid-candidate");
+                Assert.AreEqual(1, dialogs.ConfirmationCount);
+                CollectionAssert.Contains(dialog.AvailableBMSDirectories, staged);
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally { CompleteCandidateFixture(owner, root, null, null, primaryFailure); }
+        });
+    }
+
+    /// <summary>保存要求を実providerへ一回委譲し、元例外と保存結果をそのまま返す局所観測です。</summary>
+    private sealed class InstallAdmissionObservingSettingsProvider : System.Configuration.SettingsProvider
+    {
+        private readonly System.Configuration.SettingsProvider inner;
+        private readonly Action observe;
+        internal InstallAdmissionObservingSettingsProvider(System.Configuration.SettingsProvider inner, Action observe)
+        {
+            this.inner = inner; this.observe = observe;
+            Initialize(nameof(InstallAdmissionObservingSettingsProvider), new System.Collections.Specialized.NameValueCollection());
+        }
+        public override string ApplicationName { get => inner.ApplicationName; set => inner.ApplicationName = value; }
+        public override System.Configuration.SettingsPropertyValueCollection GetPropertyValues(System.Configuration.SettingsContext context, System.Configuration.SettingsPropertyCollection properties)
+            => inner.GetPropertyValues(context, properties);
+        public override void SetPropertyValues(System.Configuration.SettingsContext context, System.Configuration.SettingsPropertyValueCollection values)
+        {
+            observe();
+            try { inner.SetPropertyValues(context, values); }
+            finally { observe(); }
+        }
     }
 
     /// <summary>候補切替の専用媒体・Window・ownerを回収し、本体の失敗を後片付けの失敗で上書きしません。</summary>

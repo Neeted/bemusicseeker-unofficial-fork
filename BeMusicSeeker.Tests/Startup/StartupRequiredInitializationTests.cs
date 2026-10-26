@@ -748,7 +748,7 @@ public sealed class StartupRequiredInitializationTests
                     scoreDb.Insert(new LR2ScoreDB.score { hash = content.Md5, perfect = 123 });
                 });
             }
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = lr2Enabled);
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = lr2Enabled,
@@ -759,8 +759,8 @@ public sealed class StartupRequiredInitializationTests
             };
             Scanner = new FreshChartFileScanner(ChartPath, scanRoots);
             Library = new TestBmsLibrary(SongDbPath, configOwner, scorePath, null, () => options, TestBmsFactory.MissingEverythingBridge,
-                chartFileScanner: Scanner, rootFileEnumerator: new FixtureRootFileEnumerator(), settings: settings, uiScheduler: new TestUiScheduler(() => null))
-            { SearchTargets = [.. scanRoots] };
+                chartFileScanner: Scanner, rootFileEnumerator: new FixtureRootFileEnumerator(), settings: TestBmsFactory.CreateRootSettings([.. scanRoots], settings), uiScheduler: new TestUiScheduler(() => null))
+            { };
             // 後続保守はこのfixtureで開始しない。必須処理がschedulerを待つとテストが完了しない。
             Library.StartupBackgroundTaskScheduler = (_, _, _, _) => { OptionalRegistrations++; return true; };
             Playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(Library), SongDbPath,

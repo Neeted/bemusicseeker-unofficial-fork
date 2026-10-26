@@ -71,11 +71,11 @@ internal sealed class ManagedArchiveInstallFixture : IDisposable
         Dialogs = new FileDbReportRecordingDialogs();
         Library = new TestBmsLibrary(SongDb, null, null, Files, Dialogs,
             new TestUiScheduler(() => null), () => Options,
-            CapturedChartFileScanner.FromFixture(charts, resources, knownCandidate ? [CandidateDirectory] : []))
+            CapturedChartFileScanner.FromFixture(charts, resources, knownCandidate ? [CandidateDirectory] : []), settings: TestBmsFactory.CreateRootSettings([InstallRoot]))
         {
             BmsCharts = [],
             BmsonCharts = [],
-            SearchTargets = [InstallRoot],
+
             ChartPackagesPending = new ObservableCollection<ChartPackage>(),
             ChartPackagesInstalled = new ObservableCollection<ChartPackage>(),
             StartupBackgroundTaskScheduler = (_, _, _, work) => { background.Enqueue(work); return true; }

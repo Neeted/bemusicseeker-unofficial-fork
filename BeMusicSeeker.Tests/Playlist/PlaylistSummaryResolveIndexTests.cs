@@ -180,9 +180,9 @@ public sealed class PlaylistSummaryResolveIndexTests
                 optionsSnapshotProvider: () => options,
                 applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
                 chartFileScanner: chartFileScanner,
-                dialogService: new RecordingDialogService())
+                dialogService: new RecordingDialogService(), settings: TestBmsFactory.CreateRootSettings([chartDirectory]))
             {
-                SearchTargets = [chartDirectory],
+
                 BmsCharts = [oldFile]
             };
 
@@ -321,9 +321,9 @@ public sealed class PlaylistSummaryResolveIndexTests
                 optionsSnapshotProvider: () => options,
                 applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
                 chartFileScanner: chartFileScanner,
-                dialogService: new RecordingDialogService())
+                dialogService: new RecordingDialogService(), settings: TestBmsFactory.CreateRootSettings([chartDirectory]))
             {
-                SearchTargets = [chartDirectory]
+
             };
             SetLibraryFilesWithoutNotification(library, []);
             SetLibraryBmsonSongsWithoutNotification(library, [bmsonSong]);

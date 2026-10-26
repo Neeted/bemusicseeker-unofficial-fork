@@ -37,8 +37,8 @@ public sealed class RegularChartFolderRenameTests
             File.WriteAllText(path, "#PLAYER 1\n#TITLE Managed\n");
             ChartFile chart = CreateTestableBmsFile(path);
             var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2CustomFolderOutputBaseDir = managed };
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new FileDbReportRecordingDialogs(),
-                new TestUiScheduler(() => null!), () => options)
+            var library = new TestBmsLibrary(songDbPath, new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(root)),
+                null, null, new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null!), () => options)
             { BmsCharts = [chart], BmsonCharts = [] };
             new BmsLibraryDbGateway(songDbPath).UpsertSongs([chart]);
             var playback = new NoOpChartMutationPlaybackPort();

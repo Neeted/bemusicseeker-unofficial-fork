@@ -612,7 +612,7 @@ public sealed class MainWindowViewHostTests
                 ? () => BmsLibraryOptionsSnapshot.CreateCurrent(settings)
                 : mutationPreparation.CaptureOptions,
             operationAdmission: composition.OperationAdmission,
-            playlistOperationAdmission: composition.PlaylistOperationAdmission);
+            playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: settings);
         if (mutationPreparation != null) { mutationPreparation.Library = library; }
         var playlist = new TestBmsPlaylist(
             new BmsPlaylistLibraryBindings(library), songDbPath,
@@ -1347,7 +1347,7 @@ public sealed class MainWindowViewHostTests
                     uiScheduler: new WpfUiScheduler(() => dispatcher),
                     optionsSnapshotProvider: mutationPreparation.CaptureOptions,
                     operationAdmission: composition.OperationAdmission,
-                    playlistOperationAdmission: composition.PlaylistOperationAdmission);
+                    playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: settings);
                 mutationPreparation.Library = library;
                 TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings, library: library);
                 viewModel = new MainWindowViewModel(

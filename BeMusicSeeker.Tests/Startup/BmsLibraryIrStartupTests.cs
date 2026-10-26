@@ -683,7 +683,8 @@ public sealed class BmsLibraryIrStartupTests
                 UpdateLr2IrRankingCacheOnStartup = exerciseRankingCache,
                 PendingInstallEstimateMaxParallelPackages = 1
             };
-            Library = new TestBmsLibrary(songPath, null, scorePath, null, () => options,
+            var lr2Owner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(root));
+            Library = new TestBmsLibrary(songPath, lr2Owner, scorePath, null, () => options,
                 TestBmsFactory.MissingEverythingBridge,
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), irClient: Client);
             Library.StartupBackgroundTaskScheduler = (name, _, _, process) =>

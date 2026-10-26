@@ -1,8 +1,8 @@
-using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -14,7 +14,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class StartupLibraryProfileTests
 {
     /// <summary>
-    /// 保証：同じプロファイルでライブラリを先に作り、そのライブラリへプレイリストを接続してから適用し、既存検索先に指定検索先を渡す。
+    /// 保証：同じプロファイルでライブラリを先に作り、そのライブラリへプレイリストを接続してから適用し、同じ確定readerから登録を捕捉する。
     /// </summary>
     /// <remarks>本番の作成処理へ委譲して、プロファイルの受渡しだけでなく作成したプレイリストとライブラリの実接続を確認する。</remarks>
     [TestMethod]
@@ -25,12 +25,10 @@ public sealed class StartupLibraryProfileTests
         CreateSongDatabase(songDbPath);
         try
         {
-            ApplicationComposition composition = CreateComposition();
+            Settings settings = TestBmsFactory.CreateRootSettings([Path.Combine(temporaryRoot, "root-a"), Path.Combine(temporaryRoot, "root-b")]);
+            ApplicationComposition composition = CreateComposition(settings);
             var events = new List<string>();
-            var factory = new RecordingDelegatingStartupLibraryFactory(composition, events)
-            {
-                InitialSearchTargets = [Path.Combine(temporaryRoot, "pre-existing")]
-            };
+            var factory = new RecordingDelegatingStartupLibraryFactory(composition, events);
             var application = new RecordingStartupLibraryApplicationPort(events);
             var owner = new StartupLibraryConstructionOwner(factory);
             LibraryProfile profile = CreateProfile(
@@ -60,12 +58,7 @@ public sealed class StartupLibraryProfileTests
             Assert.AreSame(services, application.AttachedServices);
             Assert.AreEqual(songDbPath, profile.SongDbPath);
             Assert.IsTrue(File.Exists(profile.SongDbPath));
-            string[] expectedSearchTargets =
-            [
-                Path.Combine(temporaryRoot, "pre-existing"),
-                .. profile.SearchRoots
-            ];
-            CollectionAssert.AreEqual(expectedSearchTargets, application.SearchRootsObserved.ToArray());
+            CollectionAssert.AreEqual(new[] { Path.Combine(temporaryRoot, "root-a"), Path.Combine(temporaryRoot, "root-b") }, application.SearchRootsObserved.ToArray());
             Assert.AreSame(factory.CreatedLibrary, application.SearchRootsLibrary);
         }
         finally
@@ -77,7 +70,7 @@ public sealed class StartupLibraryProfileTests
     /// <summary>
     /// 保証：LR2モードの構築では独立モード用検索先を適用せず、起動プロファイルのルートでLR2検索設定を上書きしない。
     /// </summary>
-    /// <remarks>本番の作成処理へ委譲し、受信側ライブラリの検索先も空のままであることを観測する。</remarks>
+    /// <remarks>本番の作成処理へ委譲し、実XMLの登録がprofileの別一覧で上書きされないことを観測する。</remarks>
     [TestMethod]
     public void StartupLibraryConstructionOwner_DoesNotApplySearchRootsForLr2Profile()
     {
@@ -86,7 +79,9 @@ public sealed class StartupLibraryProfileTests
         CreateSongDatabase(songDbPath);
         try
         {
-            ApplicationComposition composition = CreateComposition();
+            string actualRoot = Directory.CreateDirectory(Path.Combine(temporaryRoot, "xml-root")).FullName;
+            Settings settings = TestBmsFactory.CreateRootSettings([actualRoot], lr2: true);
+            ApplicationComposition composition = CreateComposition(settings);
             var events = new List<string>();
             var factory = new RecordingDelegatingStartupLibraryFactory(composition, events);
             var application = new RecordingStartupLibraryApplicationPort(events);
@@ -96,15 +91,14 @@ public sealed class StartupLibraryProfileTests
                 operationModeLR2DB: true,
                 searchRoots: [
                     Path.Combine(temporaryRoot, "lr2-root"),
-                    Path.Combine(temporaryRoot, "lr2-root")]);
+                    Path.Combine(temporaryRoot, "lr2-root")], lr2ConfigOwner: composition.ResolveLr2Config(settings.LR2ConfigXmlPath));
 
             StartupLibraryServices services = new StartupLibraryConstructionOwner(factory)
                 .CreateAndApply(profile, application);
 
             Assert.AreSame(factory.CreatedLibrary, services.Library);
             Assert.AreSame(factory.CreatedLibrary, application.SearchRootsLibrary);
-            CollectionAssert.AreEqual(Array.Empty<string>(), application.SearchRootsObserved.ToArray());
-            CollectionAssert.AreEqual(Array.Empty<string>(), services.Library.SearchTargets.ToArray());
+            CollectionAssert.AreEqual(new[] { actualRoot }, application.SearchRootsObserved.ToArray());
         }
         finally
         {

@@ -126,6 +126,8 @@ DB読取り後のBMSルート失敗と、初期の設定検証・出力先の失
 
 単独動作DBはAppDataではなくポータブルなアプリデータです。ディレクトリ、DB、ライブラリ、プレイリスト、BMSONと譜面情報の構造を順に作ります。LR2互換の構造と出力設定値は保持できますが、実際のLR2出力は行いません。
 
+standaloneの通常操作は、共通の確定登録readerから要求ごとの変更不能な入力を捕捉します。起動profileは捕捉済み入力を保持し、別の可変runtime一覧への起動配送を行いません。公開後の次要求だけが新しい登録を読み、既受理入力は差し替わりません。LR2は同XML所有者の登録・配置を使い、利用者登録readerだけへ走査集合を置き換えません。
+
 単独動作のルートは複数登録でき、存在するパスの正規化と大小文字を無視した重複排除を行います。利用者が登録した親子や用途の単位を勝手にまとめません。旧 `BMSRootPath` はルート一覧が空で実在する場合だけ初回移行に使います。新規導入先は登録ルートのいずれかを必須とします。
 
 有効な実行中モードの切替はプロセス再起動です。設定の変更意図に対する確認・先着受付・最小設定の保存と終了は、設定と終了の仕様に従います。同じプロセスの再初期化でDB所有や連携先を差し替えません。まだ有効なモードが一度も成立していない初回・検証失敗時は、編集値を選んで保存した後に同じプロセスで初期化できます。
@@ -255,6 +257,7 @@ flowchart TB
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 確定readerと不変起動入力 | [`StartupSettingsSnapshot`](../../../BeMusicSeeker/ViewModels/Startup/StartupSettingsSnapshot.cs)、[`ApplicationComposition`](../../../BeMusicSeeker/ViewModels/MainWindow/ApplicationComposition.cs) | `StartupLibraryProfileTests` / `StartupSettingsSnapshotTests` が起動入力と実Library/Playlistの接続を、`SettingDialogEditCompletionTests.BmsConfirmation_CompletesRealFileDiffBeforeClosing` が公開後の実差分走査を確認する。 |
 | 初回設定からのLR2正本引継ぎと再初期化 | [`StartupLibraryConstructionOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupLibraryConstructionOwner.cs)、[`Lr2ConfigOwner`](../../../BeMusicSeeker/Models/LR2/Lr2ConfigOwner.cs) | [`Lr2InitialSettingsSaveIsInheritedByFirstLibraryConstruction`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) が未構築時の保存から初回開始を、[`BmsConfirmation_CompletesRealFileDiffBeforeClosing`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) が実LR2profileの保存・DB・表示と次差分・全再初期化を確認します。 |
 | ソート準備範囲のReload後捕捉と次回起動からの適用 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | [`MainWindowViewModelStartupProgressTests.StartupSortCachePriority_CapturesAfterReloadAndSurvivesFullReinitialization`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) はReload前3/後0を実起動後warmupへ通し、保存3→同ownerの全体再初期化0→新構成3と実際の78件の順序準備を確認する。設定捕捉から`MainWindowViewModel`・実際の対象選定・準備処理への接続を対象とし、保守との本番順序は保証しない。既存の受付窓口で保守要求を実スケジューラーへの登録前に保持し、準備処理の観測後・失敗時の `finally`に一度だけ元スケジューラーへ渡して実処理も回収する。 |
 | 準備なしと不正値の任意warmup終端 | [`StartupPostInitializationWarmupOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupPostInitializationWarmupOwner.cs)、[`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs) | [`StartupPostInitializationWarmupOwnerTests.SelectedPriority_ConnectsActualDescriptorAndSortStage`](../../../BeMusicSeeker.Tests/Startup/StartupPostInitializationWarmupOwnerTests.cs) は実事前生成対象の選定とsort段階を接続し、0でも他4段階・Completed、-1/4でFailed・virtual_order・元例外・実行権の終端を確認する。`MainWindowViewModelStartupProgressTests.StartupSortCachePriority_InvalidValueFailsOnlyOptionalWarmup` は-1/4で実必須起動の成功・操作解禁後に同じFailed結果と実行権の終端へ接続することを確認する（先行maintenance_hydrationは同じ受付窓口での保留を使う）。既存系列が取消・重複・shutdownとscheduler世代を担う。 |

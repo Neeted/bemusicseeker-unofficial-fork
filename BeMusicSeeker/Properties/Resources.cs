@@ -3186,4 +3186,7 @@ public class Resources
     public static string Settings_bmt_url_switch_failed => ResourceManager.GetString(nameof(Settings_bmt_url_switch_failed), resourceCulture);
     /// <summary>設定採用後のBMT部分失敗を、URL残存と物理ファイル残存で区別する案内です。</summary>
     public static string Settings_bmt_files_remain => ResourceManager.GetString(nameof(Settings_bmt_files_remain), resourceCulture);
+    public static string Confirm_DeleteRegisteredBmsRoots => ResourceManager.GetString("Confirm_DeleteRegisteredBmsRoots", resourceCulture);
+    public static string Warn_CannotDeleteProtectedBmsRoot => ResourceManager.GetString("Warn_CannotDeleteProtectedBmsRoot", resourceCulture);
+    public static string LibraryChartRemovalReport_RegistrationFailed => ResourceManager.GetString("LibraryChartRemovalReport_RegistrationFailed", resourceCulture);
 }

@@ -2,7 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
@@ -268,6 +274,123 @@ public sealed class UiDialogCoordinatorWpfTests
             Assert.AreSame(expected, result.Exception);
             Assert.AreEqual(MessageBoxResult.None, result.MessageBoxResult);
         });
+    }
+
+    /// <summary>3択の実modalからNo/Cancel/Close/Escを生産し、既定Yes付きCloseと明示Yesの区別を受信ownerへ渡します。</summary>
+    [DataTestMethod]
+    [DataRow("no")]
+    [DataRow("cancel")]
+    [DataRow("close")]
+    [DataRow("escape")]
+    public void WholeFolderConfirmation_RealMessageProducesDistinctNoCancelAndClose(string operationKind)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            Window owner = CreateTestWindow("whole-folder-owner");
+            windowTest.ShowAndWaitForContentRendered(owner);
+            var rendered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var closed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var operated = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Window? dialog = null;
+            bool scheduled = false;
+            int cancelClicks = 0;
+            var coordinator = new UiDialogCoordinator(new UiDialogOwnerResolver(), window =>
+            {
+                dialog = window;
+                windowTest.PrepareForOwnedPresentation(window);
+                window.Closed += (_, _) => closed.TrySetResult(true);
+                window.ContentRendered += (_, _) =>
+                {
+                    rendered.TrySetResult(true);
+                    if (scheduled) { return; }
+                    scheduled = true;
+                    window.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                    {
+                        Exception? operationFailure = null;
+                        try
+                        {
+                            Assert.AreSame(owner, window.Owner);
+                            Button[] buttons = EnumerateButtons(window).ToArray();
+                            Button yes = buttons.Single(button => AutomationProperties.GetAutomationId(button) == "ThemedMessageBoxYes");
+                            Button no = buttons.Single(button => AutomationProperties.GetAutomationId(button) == "ThemedMessageBoxNo");
+                            Button cancel = buttons.Single(button => AutomationProperties.GetAutomationId(button) == "ThemedMessageBoxCancel");
+                            Assert.IsTrue(yes.IsDefault);
+                            Assert.IsFalse(no.IsCancel);
+                            Assert.IsTrue(cancel.IsCancel);
+                            cancel.Click += (_, _) => cancelClicks++;
+                            switch (operationKind)
+                            {
+                                case "no": no.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); break;
+                                case "cancel": cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); break;
+                                case "close": window.Close(); break;
+                                case "escape":
+                                    PresentationSource source = PresentationSource.FromVisual(window)
+                                        ?? throw new InvalidOperationException("実modalのPresentationSourceがありません。");
+                                    AccessKeyManager.ProcessKey(source, "\u001B", false);
+                                    Assert.AreEqual(1, cancelClicks, "Escは実CancelボタンのClickへ配送される必要があります。");
+                                    break;
+                                default: throw new ArgumentOutOfRangeException(nameof(operationKind));
+                            }
+                        }
+                        catch (Exception failure) { operationFailure = failure; }
+                        finally
+                        {
+                            // 操作が失敗しても所有modalを回収し、元の失敗を閉鎖失敗で置き換えません。
+                            if (window.IsVisible)
+                            {
+                                operationFailure ??= new InvalidOperationException("UI操作後も実modalが閉鎖されませんでした。");
+                                try { window.Close(); }
+                                catch (Exception) { }
+                            }
+                        }
+                        if (operationFailure != null) { operated.TrySetException(operationFailure); }
+                        else { operated.TrySetResult(true); }
+                    }));
+                };
+                return UiDialogOwnerResolver.PushActiveModal(window);
+            });
+            Task<UiDialogResult> operation = Task.Run(() => coordinator.ConfirmAsync(new UiConfirmationRequest(
+                "Delete this whole folder?", "Confirm", MessageBoxButton.YesNoCancel, MessageBoxImage.Question,
+                MessageBoxResult.Yes, owner: owner)));
+            Exception? primaryFailure = null;
+            try
+            {
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(Task.WhenAny(rendered.Task, operation), "whole-folder render or failure");
+                Assert.IsTrue(rendered.Task.IsCompletedSuccessfully, "実modalの描画前に確認Taskが終了しました。");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(operated.Task, "whole-folder UI operation");
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "whole-folder Closed");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "whole-folder coordinator outcome");
+                UiDialogResult result = operation.GetAwaiter().GetResult();
+                Assert.AreEqual(operationKind == "no" ? UiDialogStatus.Rejected : operationKind == "close"
+                    ? UiDialogStatus.ClosedByUser : UiDialogStatus.CancelledByUser, result.Status);
+                Assert.AreEqual(operationKind == "no" ? MessageBoxResult.No : operationKind == "close"
+                    ? MessageBoxResult.Yes : MessageBoxResult.Cancel, result.MessageBoxResult);
+                Assert.AreEqual(operationKind is "cancel" or "escape" ? 1 : 0, cancelClicks);
+                Assert.IsNull(result.Exception);
+                Assert.IsNotNull(dialog);
+                Assert.IsFalse(dialog.IsVisible);
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                try
+                {
+                    if (dialog?.IsVisible == true) { dialog.Close(); }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "whole-folder coordinator cleanup");
+                }
+                catch (Exception) when (primaryFailure != null) { }
+            }
+        });
+
+        static IEnumerable<Button> EnumerateButtons(DependencyObject parent)
+        {
+            for (int index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(parent, index);
+                if (child is Button button) { yield return button; }
+                foreach (Button descendant in EnumerateButtons(child)) { yield return descendant; }
+            }
+        }
     }
 
     private static UiDialogCoordinator CreateTestCoordinator(

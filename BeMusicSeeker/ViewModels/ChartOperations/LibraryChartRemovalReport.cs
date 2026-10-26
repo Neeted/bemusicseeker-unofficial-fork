@@ -32,10 +32,11 @@ internal static class LibraryChartRemovalReport
             : outcome.RequiredFinalizationFailed ? nameof(Resources.LibraryChartRemovalReport_FinalizationFailed)
             : outcome.CatalogDurable ? nameof(Resources.LibraryChartRemovalReport_CatalogDurable)
             : nameof(Resources.LibraryChartRemovalReport_CatalogUnconfirmed));
+        if (outcome.RegistrationFailure != null) { body += Environment.NewLine + Localized(nameof(Resources.LibraryChartRemovalReport_RegistrationFailed)); }
         body += Environment.NewLine + Localized(nameof(Resources.LibraryChartRemovalReport_Targets))
             + Environment.NewLine + string.Join(Environment.NewLine, outcome.Targets.Select(target => target.Path)
                 .Distinct(StringComparer.OrdinalIgnoreCase).Take(3).Select(path => FileDbMutationReport.Limit(path, 240)));
-        foreach (Exception error in new[] { failure, outcome.CatalogFailure }.Concat(outcome.Targets.Select(target => target.Failure))
+        foreach (Exception error in new[] { outcome.CatalogFailure, outcome.RegistrationFailure, failure }.Concat(outcome.Targets.Select(target => target.Failure))
             .Where(error => error != null).Distinct().Take(3))
         {
             body += Environment.NewLine + FileDbMutationReport.Limit(error.Message, 400);

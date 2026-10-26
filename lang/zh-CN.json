@@ -1,4 +1,7 @@
 {
+  "Confirm_DeleteRegisteredBmsRoots": "是否删除整个文件夹并取消注册以下 BMS 根目录？\n文件夹：{0}\n将取消注册的 BMS 根目录：\n{1}",
+  "Warn_CannotDeleteProtectedBmsRoot": "此文件夹包含最后一个 BMS 根目录或当前安装位置，无法删除整个文件夹。请先在设置中确认其他根目录或安装位置。\n目标：{0}",
+  "LibraryChartRemovalReport_RegistrationFailed": "文件已删除，但 BMS 根目录注册的保存或应用失败。",
   "Warn_CustomFolderCleanupFailed": "新输出已保存，但无法清理旧输出位置的文件或 LR2 文件夹记录。\n旧位置：{0}\n原因：{1}",
   "Warn_UnregisteredCustomFolderOutputBase": "表“{0}”的附加输出位置“{1}”尚未注册，已停止该表的 LR2 输出。请在表属性中重新选择保存位置。",
   "Settings_candidates_discarded_on_exit": "退出时将丢弃尚未确认的设置，不会保留到下次启动。",
