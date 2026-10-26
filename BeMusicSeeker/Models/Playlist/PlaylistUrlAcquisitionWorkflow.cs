@@ -171,6 +171,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         return !string.IsNullOrWhiteSpace(path) && _downloadGateway.FileExists(path);
     }
 
+    /// <summary>scheme/hostの表記とfragmentを正規化し、path/queryと共有file IDの大小文字を保持する実体キーを返します。</summary>
     internal static string CreatePlaylistUrlDownloadKey(Uri uri)
     {
         return CreateDownloadKeyCore(uri);
@@ -204,7 +205,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         {
             AppHttpResponse response = await _downloadGateway.OpenReadAsync(normalizedUri, cancellationToken).ConfigureAwait(false);
             result = await DownloadPlaylistUrlResponseCandidateAsync(normalizedUri, response, tempDirectory,
-                allowSharedPageResolution ? 4 : 0, new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                allowSharedPageResolution ? 4 : 0, new HashSet<string>(StringComparer.Ordinal),
                 downloadedKeys, cancellationToken).ConfigureAwait(false);
             // 再帰元を含む全応答の解放後だけ、次候補が使う成功済みキーを確定します。
             if (result.Kind == PlaylistUrlDownloadResultKind.Downloaded && !string.IsNullOrWhiteSpace(result.DownloadKey))
@@ -943,7 +944,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
 
     private static HashSet<string> CollectSerializedVenueNonCoreDownloadKeys(Uri pageUri, string html)
     {
-        var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var keys = new HashSet<string>(StringComparer.Ordinal);
         foreach (SerializedVenueDownloadCandidate candidate in EnumerateSerializedVenueDownloadCandidates(html))
         {
             if (candidate.IsCore)
@@ -1300,7 +1301,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         }
         var firstBuilder = new UriBuilder(first) { Fragment = string.Empty };
         var secondBuilder = new UriBuilder(second) { Fragment = string.Empty };
-        return string.Equals(firstBuilder.Uri.ToString(), secondBuilder.Uri.ToString(), StringComparison.OrdinalIgnoreCase);
+        return string.Equals(firstBuilder.Uri.AbsoluteUri, secondBuilder.Uri.AbsoluteUri, StringComparison.Ordinal);
     }
 
     private static bool AddUriWithoutFragment(HashSet<string> uriSet, Uri uri)
@@ -1310,7 +1311,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
             return false;
         }
         var builder = new UriBuilder(uri) { Fragment = string.Empty };
-        return uriSet.Add(builder.Uri.ToString());
+        return uriSet.Add(builder.Uri.AbsoluteUri);
     }
 
     private async Task<bool> TryCopyStreamToFileWithLimitAsync(Stream source, string destinationPath, long maxBytes, CancellationToken cancellationToken = default)

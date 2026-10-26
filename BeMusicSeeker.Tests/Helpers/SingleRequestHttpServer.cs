@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -13,7 +14,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// テストが所有する loopback 接続を一度だけ受け付ける HTTP サーバーです。
+/// テストが所有する loopback 接続を既定で一度、または指定された有限回だけ受け付ける HTTP サーバーです。
 /// 応答、要求受信、本文送信、peer 切断、cleanup の状態を観測できます。
 /// </summary>
 internal sealed class SingleRequestHttpServer : IAsyncDisposable
@@ -22,6 +23,8 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
     private readonly CancellationTokenSource stopping = new();
     private readonly Task serverTask;
     private readonly byte[] responseBody;
+    private readonly IReadOnlyList<Response>? responses;
+    private readonly ConcurrentQueue<string> requestTargets = new();
 
     private readonly string additionalResponseHeaders;
     private readonly HttpStatusCode responseStatusCode;
@@ -61,6 +64,15 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
     /// <summary>サーバー内の到達点を診断文字列として返します。</summary>
     public string Diagnostics => string.Join(Environment.NewLine, events);
 
+    /// <summary>大小文字を保持して受信順に記録したrequest targetのsnapshotです。</summary>
+    public string[] RequestTargets => requestTargets.ToArray();
+
+    /// <summary>開始済みaccept/read/writeと切断監視を含むサーバーの実終端です。</summary>
+    public Task Completion => serverTask;
+
+    /// <summary>有限要求用のtarget・本文・追加ヘッダーを固定する応答です。</summary>
+    internal sealed record Response(string RequestTarget, byte[] Body, string AdditionalHeaders = "");
+
     /// <summary>
     /// 指定した本文を返す単一要求サーバーを開始します。
     /// </summary>
@@ -71,7 +83,22 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
     /// <param name="additionalResponseHeaders">圧縮応答等の代表検証で返す追加ヘッダー。各行はCRLFで終えます。</param>
     public SingleRequestHttpServer(byte[] responseBody, bool holdBody = false, bool holdBodyPrefix = false,
         HttpStatusCode responseStatusCode = HttpStatusCode.OK, string additionalResponseHeaders = "")
+        : this(responseBody, holdBody, holdBodyPrefix, responseStatusCode, additionalResponseHeaders, null)
     {
+    }
+
+    /// <summary>同じoriginで指定targetへ一回ずつ応答し、不一致・重複要求を失敗として記録します。</summary>
+    internal static SingleRequestHttpServer StartFiniteResponses(IReadOnlyList<Response> responses)
+    {
+        ArgumentNullException.ThrowIfNull(responses);
+        return new SingleRequestHttpServer([], false, false, HttpStatusCode.OK, "", responses);
+    }
+
+    private SingleRequestHttpServer(byte[] responseBody, bool holdBody, bool holdBodyPrefix,
+        HttpStatusCode responseStatusCode, string additionalResponseHeaders, IReadOnlyList<Response>? responses)
+    {
+        if (responses is { Count: 0 }) { throw new ArgumentException("At least one response is required.", nameof(responses)); }
+        this.responses = responses?.ToArray();
         this.responseBody = responseBody ?? [];
         this.responseStatusCode = responseStatusCode;
         this.additionalResponseHeaders = additionalResponseHeaders;
@@ -131,70 +158,85 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
     {
         try
         {
-            using TcpClient client = await listener.AcceptTcpClientAsync(stopping.Token).ConfigureAwait(false);
-            acceptedClient = client;
-            Record("client accepted");
-            using NetworkStream stream = client.GetStream();
-            using var observationCancellation = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
-            Task disconnectTask = Task.CompletedTask;
-            try
+            var servedTargets = new HashSet<string>(StringComparer.Ordinal);
+            for (int index = 0; index < (responses?.Count ?? 1); index++)
             {
-                await ReadRequestAsync(stream, stopping.Token).ConfigureAwait(false);
-                Record("request read");
-                // 期限切れはヘッダー送信と prefix 書込みの間にも起こる。
-                // 応答を書き始める前に監視し、write failure 後も peer の終端を見届ける。
-                if (holdBody)
+                using TcpClient client = await listener.AcceptTcpClientAsync(stopping.Token).ConfigureAwait(false);
+                acceptedClient = client;
+                Record("client accepted");
+                using NetworkStream stream = client.GetStream();
+                using var observationCancellation = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
+                Task disconnectTask = Task.CompletedTask;
+                try
                 {
-                    disconnectTask = ObserveClientDisconnectAsync(stream, observationCancellation.Token);
-                }
-                byte[] responseBytes = BuildHttpResponse(responseBody, responseStatusCode, additionalResponseHeaders);
-                int headerLength = responseBytes.Length - responseBody.Length;
-                await stream.WriteAsync(responseBytes.AsMemory(0, headerLength), stopping.Token).ConfigureAwait(false);
-                await stream.FlushAsync(stopping.Token).ConfigureAwait(false);
-                Record("headers sent");
-                HeadersSent.TrySetResult();
-                if (holdBodyPrefix)
-                {
-                    await Task.WhenAny(ReleaseBodyPrefix.Task, disconnectTask).ConfigureAwait(false);
-                    if (disconnectTask.IsCompleted)
+                    await ReadRequestAsync(stream, stopping.Token).ConfigureAwait(false);
+                    Record("request read");
+                    byte[] body = responseBody;
+                    string headers = additionalResponseHeaders;
+                    if (responses != null)
                     {
-                        await disconnectTask.ConfigureAwait(false);
-                        return;
+                        string target = requestTargets.Last();
+                        Response? response = responses.SingleOrDefault(candidate => string.Equals(candidate.RequestTarget, target, StringComparison.Ordinal));
+                        Assert.IsNotNull(response, "Unexpected HTTP request target: " + target);
+                        Assert.IsTrue(servedTargets.Add(target), "Excess HTTP request target: " + target);
+                        body = response.Body;
+                        headers = response.AdditionalHeaders;
                     }
-                }
-                int prefixLength = holdBody && responseBody.Length > 1 ? 1 : 0;
-                if (prefixLength > 0)
-                {
-                    await stream.WriteAsync(responseBody.AsMemory(0, prefixLength), stopping.Token).ConfigureAwait(false);
+                    // 期限切れはヘッダー送信と prefix 書込みの間にも起こる。
+                    // 応答を書き始める前に監視し、write failure 後も peer の終端を見届ける。
+                    if (holdBody)
+                    {
+                        disconnectTask = ObserveClientDisconnectAsync(stream, observationCancellation.Token);
+                    }
+                    byte[] responseBytes = BuildHttpResponse(body, responseStatusCode, headers);
+                    int headerLength = responseBytes.Length - body.Length;
+                    await stream.WriteAsync(responseBytes.AsMemory(0, headerLength), stopping.Token).ConfigureAwait(false);
                     await stream.FlushAsync(stopping.Token).ConfigureAwait(false);
-                }
-                Record("body prefix sent");
-                BodyPrefixSent.TrySetResult();
-                if (holdBody)
-                {
-                    await Task.WhenAny(ReleaseBody.Task, disconnectTask).ConfigureAwait(false);
-                    if (disconnectTask.IsCompleted)
+                    Record("headers sent");
+                    HeadersSent.TrySetResult();
+                    if (holdBodyPrefix)
                     {
-                        await disconnectTask.ConfigureAwait(false);
-                        return;
+                        await Task.WhenAny(ReleaseBodyPrefix.Task, disconnectTask).ConfigureAwait(false);
+                        if (disconnectTask.IsCompleted)
+                        {
+                            await disconnectTask.ConfigureAwait(false);
+                            return;
+                        }
                     }
+                    int prefixLength = holdBody && body.Length > 1 ? 1 : 0;
+                    if (prefixLength > 0)
+                    {
+                        await stream.WriteAsync(body.AsMemory(0, prefixLength), stopping.Token).ConfigureAwait(false);
+                        await stream.FlushAsync(stopping.Token).ConfigureAwait(false);
+                    }
+                    Record("body prefix sent");
+                    BodyPrefixSent.TrySetResult();
+                    if (holdBody)
+                    {
+                        await Task.WhenAny(ReleaseBody.Task, disconnectTask).ConfigureAwait(false);
+                        if (disconnectTask.IsCompleted)
+                        {
+                            await disconnectTask.ConfigureAwait(false);
+                            return;
+                        }
+                    }
+                    await stream.WriteAsync(body.AsMemory(prefixLength), stopping.Token).ConfigureAwait(false);
+                    await stream.FlushAsync(stopping.Token).ConfigureAwait(false);
+                    Record("body sent");
                 }
-                await stream.WriteAsync(responseBody.AsMemory(prefixLength), stopping.Token).ConfigureAwait(false);
-                await stream.FlushAsync(stopping.Token).ConfigureAwait(false);
-                Record("body sent");
-            }
-            catch (IOException failure) when (holdBody && !stopping.IsCancellationRequested && IsPeerDisconnect(failure))
-            {
-                Record("peer closed during write: " + failure);
-                // 書込み失敗を握りつぶしたり、server 自身の Dispose を切断成功と数えたりしない。
-                await disconnectTask.ConfigureAwait(false);
-                Assert.IsTrue(ClientDisconnected.Task.IsCompletedSuccessfully, "The peer disconnect was not observed.");
-            }
-            finally
-            {
-                // ローカル close による EOF / abort を peer の切断と誤認しない。
-                observationCancellation.Cancel();
-                await disconnectTask.ConfigureAwait(false);
+                catch (IOException failure) when (holdBody && !stopping.IsCancellationRequested && IsPeerDisconnect(failure))
+                {
+                    Record("peer closed during write: " + failure);
+                    // 書込み失敗を握りつぶしたり、server 自身の Dispose を切断成功と数えたりしない。
+                    await disconnectTask.ConfigureAwait(false);
+                    Assert.IsTrue(ClientDisconnected.Task.IsCompletedSuccessfully, "The peer disconnect was not observed.");
+                }
+                finally
+                {
+                    // ローカル close による EOF / abort を peer の切断と誤認しない。
+                    observationCancellation.Cancel();
+                    await disconnectTask.ConfigureAwait(false);
+                }
             }
         }
         catch (OperationCanceledException) when (stopping.IsCancellationRequested)
@@ -216,6 +258,7 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
         }
         finally
         {
+            if (responses != null) { listener.Stop(); }
             Record("server completed");
         }
     }
@@ -291,6 +334,11 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
             if (requestLineParts.Length > 0)
             {
                 RequestMethod = requestLineParts[0];
+            }
+            if (requestLineParts.Length > 1)
+            {
+                requestTargets.Enqueue(requestLineParts[1]);
+                Record("request target " + requestLineParts[1]);
             }
         }
         int contentLength = 0;

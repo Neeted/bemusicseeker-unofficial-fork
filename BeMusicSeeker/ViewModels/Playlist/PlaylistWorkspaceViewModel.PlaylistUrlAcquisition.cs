@@ -336,7 +336,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         var downloadedPaths = new List<string>();
-        var downloadedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var downloadedKeys = new HashSet<string>(StringComparer.Ordinal);
         int browserFallbackCount = 0;
         int blockedBySizeLimitCount = 0;
         int duplicateCount = 0;
@@ -454,8 +454,8 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         var downloadedPaths = new List<string>();
-        var downloadedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var failedDownloadKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var downloadedKeys = new HashSet<string>(StringComparer.Ordinal);
+        var failedDownloadKeys = new HashSet<string>(StringComparer.Ordinal);
         int noCandidateCount = 0;
         int duplicateDownloadedUrlCount = 0;
         int duplicateFailedUrlCount = 0;

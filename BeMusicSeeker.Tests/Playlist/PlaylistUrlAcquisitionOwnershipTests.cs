@@ -20,7 +20,7 @@ using Ribbit.Net;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>URLの取得判断と実workspaceから導入・表示への配送、受理されなかった入力の回収を確認します。</summary>
-/// <remarks>取得は応答portで固定し実stagingを使います。Windowは不要で、compiled購読の接続はMainWindowの代表が担います。所有移転の代表では実ownerを、保留の代表では実推定・SQLite・FSまで通します。</remarks>
+/// <remarks>取得は応答portで固定し、path caseの代表では実HTTPも使います。実stagingを使い、Windowとcompiled購読の接続はMainWindowの代表へ分担します。所有移転の代表では実ownerを、保留の代表では実推定・SQLite・FSまで通します。</remarks>
 [TestClass]
 public sealed partial class PlaylistUrlAcquisitionOwnershipTests
 {
@@ -835,7 +835,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             gateway.AddResponse(uri, () => new AppHttpResponse(uri, stream));
             var logs = new List<string>();
             var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, logs.Add);
-            var downloadedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var downloadedKeys = new HashSet<string>(StringComparer.Ordinal);
             PlaylistUrlDownloadResult? result = null;
             Exception? observed = null;
             try { result = await workflow.DownloadCandidateAsync(uri, downloadedKeys); }
@@ -1354,7 +1354,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
-    /// <summary>二取得物を変更不能なpathsでまとめてsinkへ渡し、tree展開→結果表示の順に終え、受理後のstagingを保持します。進捗・結果・診断故障を重ねても引渡しを保ち、引渡しの分割と表示順序・回収の欠落を検出します。</summary>
+    /// <summary>同じoriginのpath caseだけ違う二URLを実HTTPで取得し、別本文を変更不能なpathsで一回sinkへ渡します。通知故障の有無によらずsink→tree展開→結果表示、進捗終端、受理後の本文保持を確認します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1362,15 +1362,23 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     {
         string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
+        var server = SingleRequestHttpServer.StartFiniteResponses(new SingleRequestHttpServer.Response[]
+        {
+            new("/Song.zip", [1, 2, 3], "Content-Disposition: attachment; filename=first.zip\r\n"),
+            new("/song.zip", [4, 5, 6], "Content-Disposition: attachment; filename=second.zip\r\n")
+        });
+        PlaylistWorkspaceViewModel? workspace = null;
+        Exception? operationFailure = null;
         try
         {
-            var gateway = new FakePlaylistUrlDownloadGateway(temporaryDirectory, new byte[] { 4, 5, 6 });
+            var gateway = new BodyGateway(temporaryDirectory, Stream.Null) { RealHttp = true };
             var acquisitionWorkflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ =>
             {
                 if (failNotifications) { throw new IOException("download diagnostic unavailable"); }
             });
             var events = new List<string>();
             IReadOnlyList<string>? capturedPaths = null;
+            byte[][]? capturedBytes = null;
             bool inputsReadyAtHandoff = false;
             var dialogs = new RecordingPlaylistUrlDialogService
             {
@@ -1380,7 +1388,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
                     if (failNotifications) { throw new IOException("summary unavailable"); }
                 }
             };
-            PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+            workspace = CreateWorkspace(
                 action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot(),
                 acquisitionWorkflow,
@@ -1389,6 +1397,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
                     events.Add("sink");
                     capturedPaths = paths;
                     inputsReadyAtHandoff = paths.All(File.Exists);
+                    capturedBytes = paths.Select(File.ReadAllBytes).ToArray();
                     return true;
                 },
                 treeExpansionSink: () => events.Add("expanded"),
@@ -1403,8 +1412,8 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
 
             await workspace.RunPlaylistUrlBatchAsync(
                 [
-                    new Uri("https://example.invalid/first.zip"),
-                    new Uri("https://example.invalid/second.zip")
+                    new Uri(server.Address, "Song.zip"),
+                    new Uri(server.Address, "song.zip")
                 ],
                 isDiffUrl: false);
 
@@ -1416,18 +1425,35 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             Assert.IsFalse(statuses[^1].IsActive);
             Assert.IsTrue(inputsReadyAtHandoff);
             Assert.IsNotNull(capturedPaths);
-            Assert.AreEqual(2, capturedPaths!.Count);
+            Assert.AreEqual(2, capturedPaths.Count);
+            Assert.AreNotEqual(capturedPaths[0], capturedPaths[1]);
+            Assert.IsNotNull(capturedBytes);
+            CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, capturedBytes[0]);
+            CollectionAssert.AreEqual(new byte[] { 4, 5, 6 }, capturedBytes[1]);
+            CollectionAssert.AreEqual(new[] { "/Song.zip", "/song.zip" }, server.RequestTargets);
+            await server.Completion;
             Assert.IsTrue(((IList<string>)capturedPaths).IsReadOnly);
-            foreach (string path in capturedPaths)
+            for (int index = 0; index < capturedPaths.Count; index++)
             {
+                string path = capturedPaths[index];
                 Assert.IsTrue(File.Exists(path), "受理後の入力は導入側の寿命へ移します。");
+                CollectionAssert.AreEqual(capturedBytes[index], File.ReadAllBytes(path));
             }
         }
+        catch (Exception failure) { operationFailure = failure; throw; }
         finally
         {
-            if (Directory.Exists(temporaryDirectory))
+            var cleanupFailures = new List<Exception>();
+            try { workspace?.RequestPlaylistUrlShutdown(); if (workspace != null) { await workspace.WaitForPlaylistUrlIdleAsync(); } }
+            catch (Exception failure) { cleanupFailures.Add(failure); }
+            try { await server.DisposeAsync(); }
+            catch (Exception failure) { cleanupFailures.Add(failure); }
+            try { Directory.Delete(temporaryDirectory, recursive: true); }
+            catch (Exception failure) { cleanupFailures.Add(failure); }
+            if (cleanupFailures.Count > 0)
             {
-                Directory.Delete(temporaryDirectory, recursive: true);
+                if (operationFailure != null) { cleanupFailures.Insert(0, operationFailure); }
+                throw new AggregateException(cleanupFailures);
             }
         }
     }
@@ -1440,7 +1466,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
 
 
 
-    /// <summary>二件目の保存後・応答解放中に取消しても実終端を待ち、完了した二取得物を一回で渡して保持します。三件目の開始、完了済み入力の喪失と早すぎる引渡しを検出します。</summary>
+    /// <summary>通常/API双方でquery値のcaseだけ違う二本文を保存し、二件目の応答解放中の取消でも実終端後に一回渡します。三件目の開始、本文喪失、早すぎる引渡しを検出します。</summary>
     [DataTestMethod]
     [DataRow("api")]
     [DataRow("url")]
@@ -1452,7 +1478,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         var disposeRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Task? acquisition = null;
         string[] md5s = ["11111111111111111111111111111111", "22222222222222222222222222222222", "33333333333333333333333333333333"];
-        Uri[] uris = [new("https://example.invalid/first.zip"), new("https://example.invalid/second.zip"), new("https://example.invalid/third.zip")];
+        Uri[] uris = [new("https://example.invalid/package.zip?token=Song"), new("https://example.invalid/package.zip?token=song"), new("https://example.invalid/third.zip")];
         byte[] firstBytes = [1, 2, 3];
         byte[] secondBytes = [4, 5, 6];
         var firstStream = new DisposalGatedDownloadStream(firstBytes);
@@ -1461,8 +1487,8 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         {
             var provider = new BatchHandoffLookupProvider(md5s.Zip(uris).ToDictionary(pair => pair.First, pair => pair.Second));
             var gateway = new RecordingPlaylistUrlDownloadGateway(root);
-            gateway.AddResponse(uris[0], () => new AppHttpResponse(uris[0], firstStream));
-            gateway.AddResponse(uris[1], () => new AppHttpResponse(uris[1], secondStream));
+            gateway.AddResponse(uris[0], () => CreateNamedStreamResponse(uris[0], firstStream, "first.zip"));
+            gateway.AddResponse(uris[1], () => CreateNamedStreamResponse(uris[1], secondStream, "second.zip"));
             gateway.AddResponse(uris[2], () => new AppHttpResponse(uris[2], new MemoryStream([7, 8, 9], writable: false)));
             int handoffs = 0;
             IReadOnlyList<string>? capturedPaths = null;
@@ -2070,6 +2096,167 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             commentValue: string.Empty, memoValue: string.Empty, isRemovedValue: false);
     }
 
+    /// <summary>queryキー/値、共有IDのcase差は二本文を保存し、同一実体のhost/fragment・共有別表記は二重保存しません。要求履歴と実FSでキーと成功集合の組合せを確認します。</summary>
+    [DataTestMethod]
+    [DataRow("https://example.invalid/package.zip?Token=a", "https://example.invalid/package.zip?token=a", false)]
+    [DataRow("https://example.invalid/package.zip?token=Song", "https://example.invalid/package.zip?token=song", false)]
+    [DataRow("https://drive.google.com/file/d/AbC/view", "https://drive.google.com/open?id=abc", false)]
+    [DataRow("https://www.mediafire.com/file/AbC/package.zip/file", "https://download123.mediafire.com/token/abc/package.zip", false)]
+    [DataRow("HTTPS://EXAMPLE.invalid/package.zip#first", "https://example.invalid/package.zip#second", true)]
+    [DataRow("https://drive.google.com/file/d/AbC/view", "https://drive.usercontent.google.com/download?id=AbC&confirm=t", true)]
+    [DataRow("https://www.mediafire.com/file/AbC/package.zip/file", "https://download123.mediafire.com/other/AbC/package.zip", true)]
+    public async Task DownloadCandidate_PreservesSignificantUrlCaseAndSuppressesSameFile(string firstUrl, string secondUrl, bool duplicate)
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var gateway = new RecordingPlaylistUrlDownloadGateway(root);
+            var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+            var keys = new HashSet<string>(StringComparer.Ordinal);
+            var expectedRequests = new List<string>();
+            var results = new PlaylistUrlDownloadResult[2];
+            string[] urls = [firstUrl, secondUrl];
+            byte[][] contents = [[1, 2, 3], [4, 5, 6]];
+            for (int index = 0; index < urls.Length; index++)
+            {
+                Uri input = new(urls[index]);
+                Uri normalized = PlaylistUrlAcquisitionWorkflow.NormalizeDownloadUri(input);
+                Uri file = normalized;
+                if (normalized.Host == "www.mediafire.com")
+                {
+                    file = new Uri("https://download123.mediafire.com/token/" + normalized.Segments[2].TrimEnd('/') + "/package.zip");
+                    string html = "<a id=\"downloadButton\" href=\"" + file.AbsoluteUri + "\">Download</a>";
+                    gateway.AddResponse(normalized, () => CreateHttpResponse(normalized, Encoding.UTF8.GetBytes(html), "text/html"));
+                    expectedRequests.Add(normalized.AbsoluteUri);
+                }
+                byte[] bytes = contents[index];
+                string name = index == 0 ? "first.zip" : "second.zip";
+                gateway.AddResponse(file, () => CreateHttpResponse(file, bytes, "application/zip", "attachment; filename=" + name));
+                expectedRequests.Add(file.AbsoluteUri);
+                results[index] = await workflow.DownloadCandidateAsync(input, keys);
+            }
+
+            Assert.AreEqual(PlaylistUrlDownloadResultKind.Downloaded, results[0].Kind);
+            Assert.AreEqual(duplicate ? PlaylistUrlDownloadResultKind.Duplicate : PlaylistUrlDownloadResultKind.Downloaded, results[1].Kind);
+            CollectionAssert.AreEqual(contents[0], File.ReadAllBytes(results[0].FilePath));
+            if (!duplicate)
+            {
+                Assert.AreNotEqual(results[0].FilePath, results[1].FilePath);
+                CollectionAssert.AreEqual(contents[1], File.ReadAllBytes(results[1].FilePath));
+            }
+            Assert.AreEqual(duplicate ? 1 : 2, gateway.OpenWriteCount);
+            CollectionAssert.AreEqual(expectedRequests, gateway.RequestedUris.Select(uri => uri.AbsoluteUri).ToArray());
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>MediaFireのcase別遷移は保存へ進み、fragmentだけ変えて元へ戻る循環は二要求で止めます。深さ上限による終了と誤同一視を要求順で区別します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task DownloadCandidate_SharedPageDistinguishesCaseAndStopsFragmentCycle(bool cycle)
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        Uri first = new("https://www.mediafire.com/file/AbC/package.zip/file");
+        Uri second = new("https://www.mediafire.com/file/abc/package.zip/file");
+        Uri file = new("https://download123.mediafire.com/token/abc/package.zip");
+        try
+        {
+            var gateway = new RecordingPlaylistUrlDownloadGateway(root);
+            gateway.AddResponse(first, () => CreateHttpResponse(first, Encoding.UTF8.GetBytes("<a id=\"downloadButton\" href=\"" + second + "\">Download</a>"), "text/html"));
+            Uri target = cycle ? new Uri("https://WWW.MEDIAFIRE.COM/file/AbC/package.zip/file#again") : file;
+            gateway.AddResponse(second, () => CreateHttpResponse(second, Encoding.UTF8.GetBytes("<a id=\"downloadButton\" href=\"" + target + "\">Download</a>"), "text/html"));
+            gateway.AddResponse(file, () => CreateHttpResponse(file, [7, 8, 9], "application/zip"));
+            var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+
+            PlaylistUrlDownloadResult result = await workflow.DownloadCandidateAsync(first);
+
+            Assert.AreEqual(cycle ? PlaylistUrlDownloadResultKind.BrowserFallback : PlaylistUrlDownloadResultKind.Downloaded, result.Kind);
+            CollectionAssert.AreEqual(cycle ? new[] { first.AbsoluteUri, second.AbsoluteUri } : new[] { first.AbsoluteUri, second.AbsoluteUri, file.AbsoluteUri }, gateway.RequestedUris.Select(uri => uri.AbsoluteUri).ToArray());
+            Assert.AreEqual(cycle ? 0 : 1, gateway.OpenWriteCount);
+            if (!cycle) { CollectionAssert.AreEqual(new byte[] { 7, 8, 9 }, File.ReadAllBytes(result.FilePath)); }
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>venue非COREのhost/fragment別表記を除外したまま、caseだけ違う通常anchorの本体を保存します。非CORE要求の復活と別本体の巻込みを検出します。</summary>
+    [TestMethod]
+    public async Task DownloadCandidate_NonCoreExclusionPreservesCaseDistinctAnchor()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        Uri page = new("https://venue.bmssearch.net/freebattle/30");
+        Uri file = new("https://example.invalid/song.zip");
+        try
+        {
+            string html = "<script>{\"downloadURL\":\"https://example.invalid/Song.zip\",\"type\":\"PACKAGE\"}</script>"
+                + "<a href=\"HTTPS://EXAMPLE.INVALID/Song.zip#again\">Excluded</a><a href=\"" + file + "\">Download</a>";
+            var gateway = new RecordingPlaylistUrlDownloadGateway(root);
+            gateway.AddResponse(page, () => CreateHttpResponse(page, Encoding.UTF8.GetBytes(html), "text/html"));
+            gateway.AddResponse(file, () => CreateHttpResponse(file, [7, 8, 9], "application/zip"));
+
+            PlaylistUrlDownloadResult result = await new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }).DownloadCandidateAsync(page);
+
+            Assert.AreEqual(PlaylistUrlDownloadResultKind.Downloaded, result.Kind);
+            CollectionAssert.AreEqual(new[] { page.AbsoluteUri, file.AbsoluteUri }, gateway.RequestedUris.Select(uri => uri.AbsoluteUri).ToArray());
+            CollectionAssert.AreEqual(new byte[] { 7, 8, 9 }, File.ReadAllBytes(result.FilePath));
+            Assert.AreEqual(1, gateway.OpenWriteCount);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>workspace所有の失敗集合は同実体の再取得を止め、別MD5から得たcase別候補を塞ぎません。実workflow/FSと一回sinkで成功本文を確認します。</summary>
+    [TestMethod]
+    public async Task ExternalPackageLookup_FailedUrlSuppressesOnlySameCaseFile()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        Uri failed = new("https://example.invalid/Song.zip");
+        Uri same = new("HTTPS://EXAMPLE.INVALID/Song.zip#again");
+        Uri success = new("https://example.invalid/song.zip");
+        string[] md5s = ["11111111111111111111111111111111", "22222222222222222222222222222222", "33333333333333333333333333333333"];
+        try
+        {
+            var gateway = new RecordingPlaylistUrlDownloadGateway(root);
+            gateway.AddResponse(failed, () => throw new HttpRequestException("first candidate failed"));
+            gateway.AddResponse(success, () => CreateHttpResponse(success, [7, 8, 9], "application/zip"));
+            var provider = new BatchHandoffLookupProvider(md5s.Zip(new[] { failed, same, success }).ToDictionary(pair => pair.First, pair => pair.Second));
+            int handoffs = 0;
+            IReadOnlyList<string>? capturedPaths = null;
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(), () => new PlaylistUrlAcquisitionOptionsSnapshot(),
+                new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }), paths =>
+                {
+                    handoffs++;
+                    capturedPaths = paths;
+                    Assert.AreEqual(1, paths.Count);
+                    CollectionAssert.AreEqual(new byte[] { 7, 8, 9 }, File.ReadAllBytes(paths[0]));
+                    return true;
+                }, dialogService: new RecordingPlaylistUrlDialogService(),
+                externalLookupService: new PlaylistExternalPackageLookupService([provider]));
+
+            await workspace.RunPlaylistExternalPackageLookupAsync(md5s.Select(CreatePlaylistExternalPackageRow));
+
+            CollectionAssert.AreEqual(md5s, provider.RequestedMd5s);
+            CollectionAssert.AreEqual(new[] { failed.AbsoluteUri, success.AbsoluteUri }, gateway.RequestedUris.Select(uri => uri.AbsoluteUri).ToArray());
+            Assert.AreEqual(1, handoffs);
+            Assert.IsNotNull(capturedPaths);
+            CollectionAssert.AreEqual(new byte[] { 7, 8, 9 }, File.ReadAllBytes(capturedPaths[0]));
+            Assert.AreEqual(1, gateway.OpenWriteCount);
+            Assert.IsFalse(workspace.IsPlaylistUrlDownloadRunning);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    private static AppHttpResponse CreateNamedStreamResponse(Uri uri, Stream stream, string name)
+    {
+        var message = new HttpResponseMessage { Content = new ByteArrayContent([]) };
+        message.Content.Headers.ContentLength = stream.Length;
+        message.Content.Headers.ContentDisposition = new ContentDispositionHeaderValue("attachment") { FileName = name };
+        return new AppHttpResponse(uri, message, stream);
+    }
+
     private static AppHttpResponse CreateHttpResponse(
         Uri requestUri,
         byte[] content,
@@ -2156,7 +2343,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         private readonly string temporaryDirectory;
 
         private readonly Dictionary<string, Func<AppHttpResponse>> responses =
-            new(StringComparer.OrdinalIgnoreCase);
+            new(StringComparer.Ordinal);
 
         internal RecordingPlaylistUrlDownloadGateway(string temporaryDirectory)
         {

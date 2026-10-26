@@ -20,6 +20,36 @@ public sealed class AppHttpClientTests
 {
     public TestContext TestContext { get; set; } = null!;
 
+    /// <summary>有限二応答の一件だけを取得してもDisposeが次acceptを取消し、実serverTaskを回収します。要求不足を完了通知待ちで停止させる誤りを検出します。</summary>
+    [TestMethod]
+    [TestCategory("Http")]
+    public async Task FiniteServer_DisposeReclaimsUnrequestedResponse()
+    {
+        var server = SingleRequestHttpServer.StartFiniteResponses(new SingleRequestHttpServer.Response[]
+        {
+            new("/first", Encoding.UTF8.GetBytes("first")),
+            new("/second", Encoding.UTF8.GetBytes("second"))
+        });
+        Exception? operationFailure = null;
+        try
+        {
+            string response = await AppHttpClient.Shared.GetStringAsync(new Uri(server.Address, "first"), Encoding.UTF8);
+            Assert.AreEqual("first", response);
+            CollectionAssert.AreEqual(new[] { "/first" }, server.RequestTargets);
+            Assert.IsFalse(server.Completion.IsCompleted, "二件目のacceptをfixtureが所有しています。");
+        }
+        catch (Exception failure) { operationFailure = failure; throw; }
+        finally
+        {
+            try { await server.DisposeAsync(); }
+            catch (Exception cleanupFailure) when (operationFailure != null)
+            {
+                throw new AggregateException(operationFailure, cleanupFailure);
+            }
+        }
+        Assert.IsTrue(server.Completion.IsCompletedSuccessfully, server.Diagnostics);
+    }
+
     /// <summary>BOM付きファイルを同期取得して本文だけを返し、BOMが解析入力へ混入する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Http")]

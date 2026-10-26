@@ -102,7 +102,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         var service = new PlaylistExternalPackageLookupService([first, second]);
         const string savedPath = "C:\\temp\\a.7z";
         const string savedKey = "https://cdn.example.invalid/a.7z";
-        var downloadedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var downloadedKeys = new HashSet<string>(StringComparer.Ordinal);
 
         PlaylistExternalPackageWorkflowResult result = await service.DownloadFirstAvailablePackageAsync(
             SampleMd5,
@@ -113,8 +113,8 @@ public sealed class PlaylistExternalPackageLookupServiceTests
                 return Task.FromResult(completed);
             },
             downloadedKeys,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            uri => uri.AbsoluteUri,
+            new HashSet<string>(StringComparer.Ordinal),
+            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey,
             _ => { },
             cancellation.Token);
 
@@ -127,12 +127,12 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         Assert.AreEqual(0, second.LookupCount);
     }
 
-    /// <summary>先頭候補の取得失敗後だけ次の候補を順に試して成功を返す。失敗での早期打切りや同じ候補の再試行を検出する。</summary>
+    /// <summary>先頭候補の取得失敗後にpath caseだけ違う次提供元を順に試して成功を返します。失敗の早期打切りと別実体の誤除外を検出します。</summary>
     [TestMethod]
     public async Task LookupService_TriesNextProviderWhenDownloadFails()
     {
-        var first = new FakeProvider("A", new Uri("https://example.invalid/a.7z"));
-        var second = new FakeProvider("B", new Uri("https://example.invalid/b.7z"));
+        var first = new FakeProvider("A", new Uri("https://example.invalid/Package.7z"));
+        var second = new FakeProvider("B", new Uri("https://example.invalid/package.7z"));
         var service = new PlaylistExternalPackageLookupService([first, second]);
         var attemptedProviders = new List<string>();
 
@@ -145,9 +145,9 @@ public sealed class PlaylistExternalPackageLookupServiceTests
                     ? PlaylistExternalPackageDownloadAttempt.Failed()
                     : PlaylistExternalPackageDownloadAttempt.Downloaded("C:\\temp\\b.7z", lookup.DownloadUri.AbsoluteUri));
             },
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            uri => uri.AbsoluteUri,
+            new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal),
+            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey,
             _ => { });
 
         Assert.AreEqual(PlaylistExternalPackageWorkflowResultKind.Downloaded, result.Kind);
@@ -167,9 +167,9 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         PlaylistExternalPackageWorkflowResult result = await service.DownloadFirstAvailablePackageAsync(
             SampleMd5,
             (lookup, token) => Task.FromResult(PlaylistExternalPackageDownloadAttempt.Downloaded("C:\\temp\\b.7z", lookup.DownloadUri.AbsoluteUri)),
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            uri => uri.AbsoluteUri,
+            new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal),
+            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey,
             _ => { if (failDiagnostic) { throw new IOException("diagnostic failed"); } });
 
         Assert.AreEqual(PlaylistExternalPackageWorkflowResultKind.Downloaded, result.Kind);
@@ -187,9 +187,9 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         PlaylistExternalPackageWorkflowResult result = await service.DownloadFirstAvailablePackageAsync(
             SampleMd5,
             (lookup, token) => throw new TaskCanceledException("timeout"),
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            uri => uri.AbsoluteUri,
+            new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal),
+            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey,
             _ => { });
 
         Assert.AreEqual(PlaylistExternalPackageWorkflowResultKind.Failed, result.Kind);
@@ -221,7 +221,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         {
             await service.DownloadFirstAvailablePackageAsync(
                 SampleMd5, (_, _) => throw failure, new HashSet<string>(), failedKeys,
-                uri => uri.AbsoluteUri, _ => { });
+                PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey, _ => { });
         }
         catch (Exception exception) { observed = exception; }
         Assert.AreSame(failure, observed);
@@ -237,7 +237,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         var first = new FakeProvider("A", packageUri);
         var second = new FakeProvider("B", new Uri("https://example.invalid/other.7z"));
         var service = new PlaylistExternalPackageLookupService([first, second]);
-        var downloadedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { packageUri.AbsoluteUri };
+        var downloadedKeys = new HashSet<string>(StringComparer.Ordinal) { packageUri.AbsoluteUri };
         int downloadAttemptCount = 0;
 
         PlaylistExternalPackageWorkflowResult result = await service.DownloadFirstAvailablePackageAsync(
@@ -248,8 +248,8 @@ public sealed class PlaylistExternalPackageLookupServiceTests
                 return Task.FromResult(PlaylistExternalPackageDownloadAttempt.Downloaded("C:\\temp\\package.7z", lookup.DownloadUri.AbsoluteUri));
             },
             downloadedKeys,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            uri => uri.AbsoluteUri,
+            new HashSet<string>(StringComparer.Ordinal),
+            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey,
             _ => { });
 
         Assert.AreEqual(PlaylistExternalPackageWorkflowResultKind.DuplicateDownloadedUrl, result.Kind);
@@ -258,14 +258,14 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         Assert.AreEqual(0, second.LookupCount);
     }
 
-    /// <summary>一度失敗したURLを別MD5の照会が返しても再取得せず、失敗URLの重複結果を返す。ハッシュ単位だけで失敗を記憶する誤りを検出する。</summary>
+    /// <summary>別MD5から同じ失敗実体のhost/fragment別表記を得ても再取得せず、case別候補は成功させます。失敗状態のMD5限定とURL全体の大小文字無視を検出します。</summary>
     [TestMethod]
     public async Task LookupService_DoesNotRetryFailedUrlInSameRun()
     {
-        Uri failedUri = new("https://example.invalid/package.7z");
+        Uri failedUri = new("https://example.invalid/Package.7z");
         var first = new FakeProvider("A", failedUri);
         var service = new PlaylistExternalPackageLookupService([first]);
-        var failedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var failedKeys = new HashSet<string>(StringComparer.Ordinal);
         int downloadAttemptCount = 0;
 
         PlaylistExternalPackageWorkflowResult firstResult = await service.DownloadFirstAvailablePackageAsync(
@@ -275,25 +275,38 @@ public sealed class PlaylistExternalPackageLookupServiceTests
                 downloadAttemptCount++;
                 return Task.FromResult(PlaylistExternalPackageDownloadAttempt.Failed());
             },
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>(StringComparer.Ordinal),
             failedKeys,
-            uri => uri.AbsoluteUri,
+            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey,
             _ => { });
-        PlaylistExternalPackageWorkflowResult secondResult = await service.DownloadFirstAvailablePackageAsync(
+        var sameService = new PlaylistExternalPackageLookupService([new FakeProvider("A", new Uri("HTTPS://EXAMPLE.INVALID/Package.7z#again"))]);
+        PlaylistExternalPackageWorkflowResult secondResult = await sameService.DownloadFirstAvailablePackageAsync(
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             (lookup, token) =>
             {
                 downloadAttemptCount++;
                 return Task.FromResult(PlaylistExternalPackageDownloadAttempt.Downloaded("C:\\temp\\package.7z", lookup.DownloadUri.AbsoluteUri));
             },
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>(StringComparer.Ordinal),
             failedKeys,
-            uri => uri.AbsoluteUri,
+            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey,
             _ => { });
+
+        Uri distinctUri = new("https://example.invalid/package.7z");
+        var distinctService = new PlaylistExternalPackageLookupService([new FakeProvider("A", distinctUri)]);
+        PlaylistExternalPackageWorkflowResult thirdResult = await distinctService.DownloadFirstAvailablePackageAsync(
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            (lookup, token) =>
+            {
+                downloadAttemptCount++;
+                return Task.FromResult(PlaylistExternalPackageDownloadAttempt.Downloaded("C:\\temp\\package.7z", lookup.DownloadUri.AbsoluteUri));
+            }, new HashSet<string>(StringComparer.Ordinal), failedKeys,
+            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey, _ => { });
 
         Assert.AreEqual(PlaylistExternalPackageWorkflowResultKind.Failed, firstResult.Kind);
         Assert.AreEqual(PlaylistExternalPackageWorkflowResultKind.DuplicateFailedUrl, secondResult.Kind);
-        Assert.AreEqual(1, downloadAttemptCount);
+        Assert.AreEqual(PlaylistExternalPackageWorkflowResultKind.Downloaded, thirdResult.Kind);
+        Assert.AreEqual(2, downloadAttemptCount);
         Assert.IsTrue(failedKeys.Contains(failedUri.AbsoluteUri));
     }
 
@@ -301,12 +314,12 @@ public sealed class PlaylistExternalPackageLookupServiceTests
     [TestMethod]
     public async Task LookupService_DoesNotRetryRedirectedFailedUrlInSameRun()
     {
-        Uri sourceUri = new("https://example.invalid/download?id=package");
+        Uri sourceUri = new("https://example.invalid/download.zip?id=package");
         Uri finalUri = new("https://cdn.example.invalid/package.7z");
         var first = new FakeProvider("A", sourceUri);
         var second = new FakeProvider("B", finalUri);
         var service = new PlaylistExternalPackageLookupService([first, second]);
-        var failedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var failedKeys = new HashSet<string>(StringComparer.Ordinal);
         int downloadAttemptCount = 0;
 
         PlaylistExternalPackageWorkflowResult result = await service.DownloadFirstAvailablePackageAsync(
@@ -316,9 +329,9 @@ public sealed class PlaylistExternalPackageLookupServiceTests
                 downloadAttemptCount++;
                 return Task.FromResult(PlaylistExternalPackageDownloadAttempt.Failed(finalUri.AbsoluteUri));
             },
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>(StringComparer.Ordinal),
             failedKeys,
-            uri => uri.AbsoluteUri,
+            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey,
             _ => { });
 
         Assert.AreEqual(PlaylistExternalPackageWorkflowResultKind.Failed, result.Kind);
@@ -345,9 +358,9 @@ public sealed class PlaylistExternalPackageLookupServiceTests
                 downloadAttempted = true;
                 return Task.FromResult(PlaylistExternalPackageDownloadAttempt.Downloaded("C:\\temp\\package.7z", lookup.DownloadUri.AbsoluteUri));
             },
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            uri => uri.AbsoluteUri,
+            new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal),
+            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey,
             _ => { },
             cancellation.Token));
 

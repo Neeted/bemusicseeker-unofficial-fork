@@ -571,9 +571,9 @@ internal sealed class PlaylistExternalPackageLookupService
     /// </summary>
     /// <param name="chartMd5">検索対象の譜面 MD5。</param>
     /// <param name="downloadAsync">候補 URL のダウンロードを試行する関数。第 2 引数には処理中断用トークンが渡されます。</param>
-    /// <param name="downloadedDownloadKeys">成功済み URL の重複判定キー。</param>
-    /// <param name="failedDownloadKeys">失敗済み URL の重複判定キー。</param>
-    /// <param name="downloadKeyFactory">候補 URL から重複判定キーを作成する関数。</param>
+    /// <param name="downloadedDownloadKeys">有意な大小文字を区別する成功済み実体キー集合。</param>
+    /// <param name="failedDownloadKeys">有意な大小文字を区別する失敗済み実体キー集合。同じ失敗実体だけを再試行から除きます。</param>
+    /// <param name="downloadKeyFactory">scheme/hostとfragmentを正規化し、path/query・共有file IDを保持するキー生成関数。</param>
     /// <param name="log">診断ログを出力する関数。</param>
     /// <param name="cancellationToken">処理を中断するためのトークン。</param>
     /// <returns>優先順検索とダウンロード試行の結果。</returns>
