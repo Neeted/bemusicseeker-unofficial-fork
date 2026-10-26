@@ -4911,7 +4911,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>通常Close/Escは受理済みTaskを完了させず実WindowとDataContextだけを閉じ、再表示でも同じTask・制限と独立保存を維持します。実MainWindow接続はFileDiff系列が分担します。</summary>
+    /// <summary>通常Close/Escは未確定BMT候補を破棄して保存済み項目を保ち、実Windowの閉鎖・再表示でも同じ未完了Taskと操作制限を維持します。実MainWindow接続はFileDiff系列が分担します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -4935,6 +4935,11 @@ public sealed class SettingsWindowPresentationTests
             Task? operation = null;
             try
             {
+                bool confirmedBmtOutput = values.EnableBeatorajaBmtOutput;
+                viewModel.SettingDialog.EnableBeatorajaBmtOutput = !confirmedBmtOutput;
+                Assert.IsTrue(viewModel.SettingDialog.CanCancelBmtSettings);
+                float savedQuality = viewModel.SettingDialog.EncoderQuality == 0.5f ? 0.6f : 0.5f;
+                viewModel.SettingDialog.EncoderQuality = savedQuality;
                 operation = window.RunViewOperationAsync(() => operationCompletion.Task);
 
                 Task terminal = viewModel.SettingDialog.SettingsOperationCompletionTask;
@@ -4948,11 +4953,17 @@ public sealed class SettingsWindowPresentationTests
                 TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "settings-normal-close");
                 Assert.AreEqual(1, presentation.CloseRequestCount);
                 Assert.IsNull(window.DataContext);
+                Assert.AreEqual(confirmedBmtOutput, viewModel.SettingDialog.EnableBeatorajaBmtOutput, "実閉鎖では未確定のBMT候補を最新確定値へ戻します。");
+                Assert.AreEqual(confirmedBmtOutput, values.EnableBeatorajaBmtOutput);
+                Assert.AreEqual(savedQuality, values.EncoderQuality, "通常閉鎖で保存済みの通常項目を戻しません。");
                 Assert.IsFalse(operation.IsCompleted);
                 reopened = new SettingsWindow { DataContext = viewModel.SettingDialog };
                 presentation.CloseAction = reopened.CloseFromPresentation;
                 windowTest.ShowAndWaitForContentRendered(reopened);
                 Assert.AreSame(terminal, viewModel.SettingDialog.SettingsOperationCompletionTask);
+                Assert.IsFalse(terminal.IsCompleted);
+                Assert.AreEqual(confirmedBmtOutput, viewModel.SettingDialog.EnableBeatorajaBmtOutput);
+                Assert.AreEqual(savedQuality, viewModel.SettingDialog.EncoderQuality);
                 Assert.IsFalse(viewModel.SettingDialog.IsEditCompletionEnabled);
                 ((ListBox)reopened.FindName("settingsNavigation")).SelectedItem = reopened.FindName("navigationRecording");
                 TestUiDispatcherHost.ProcessQueuedPresentation();

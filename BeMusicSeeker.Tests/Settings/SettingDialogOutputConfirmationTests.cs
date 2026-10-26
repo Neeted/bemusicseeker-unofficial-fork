@@ -16,7 +16,7 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class SettingDialogEditCompletionTests
 {
-    /// <summary>有効な導入先の出力採用を実保存・XML・DB・配置変更前に拒否し、別の確定ルートへ導入先を変えた後は同じ操作と実出力が完了して初期化検査にも通ります。</summary>
+    /// <summary>有効な導入先の出力採用と確認中のP先着を実保存・XML・DB・配置変更前に拒否し、P解放だけでは再実行しません。別の確定ルートを導入先にした後の次の明示操作で実出力を完了し、初期化検査にも通ります。</summary>
     [TestMethod]
     public void OutputConfirmation_ProtectsInstallDirectoryUntilAnotherConfirmedRootIsSelected()
     {
@@ -58,6 +58,10 @@ public sealed partial class SettingDialogEditCompletionTests
                 { BMSTables = new ObservableCollection<BMSTable>([table]) };
                 SetPrivateField(owner, "tables", playlist);
                 owner.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);
+                var confirmationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var releaseConfirmation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                Task? rejectedOutput = null;
+                IDisposable? confirmationLease = null;
                 try
                 {
                     playlist.CommitBMSTableWithEntriesToDB(table);
@@ -83,6 +87,43 @@ public sealed partial class SettingDialogEditCompletionTests
                         Assert.AreEqual(0L, reader.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'folder'"));
                     }
                     owner.SettingDialog.SelectBmsInstallDirectoryAsync(alternative).GetAwaiter().GetResult();
+                    oldSettings = File.ReadAllBytes(settingsPath);
+                    oldXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
+                    LR2SongDBExtended.playlist previousHeader;
+                    using (LR2SongDBExtended reader = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly())
+                    { previousHeader = reader.Table<LR2SongDBExtended.playlist>().Single(); }
+                    dialogs.ConfirmationObservedAsync = () => { confirmationEntered.TrySetResult(); return releaseConfirmation.Task; };
+                    owner.SettingDialog.LR2CustomFolderOutputDir = install;
+                    rejectedOutput = owner.SettingDialog.CommitOutputSettingsAsync("normal");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(confirmationEntered.Task, rejectedOutput), "output-adoption-confirmation-entered");
+                    Assert.IsTrue(confirmationEntered.Task.IsCompletedSuccessfully);
+                    Assert.IsFalse(rejectedOutput.IsCompleted);
+                    Assert.IsTrue(composition.PlaylistOperationAdmission.TryEnter(out IDisposable acquired));
+                    confirmationLease = acquired;
+                    releaseConfirmation.TrySetResult();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(rejectedOutput, "output-adoption-P-rejected");
+                    void AssertOutputUnchanged()
+                    {
+                        CollectionAssert.AreEqual(oldSettings, File.ReadAllBytes(settingsPath));
+                        CollectionAssert.AreEqual(oldXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
+                        Assert.AreEqual(oldOutput, values.LR2CustomFolderOutputBaseDir);
+                        Assert.AreEqual("preserved output", File.ReadAllText(oldFile));
+                        Assert.IsFalse(Directory.Exists(Path.Combine(install, "Table")));
+                        using LR2SongDBExtended reader = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
+                        LR2SongDBExtended.playlist currentHeader = reader.Table<LR2SongDBExtended.playlist>().Single();
+                        Assert.AreEqual(previousHeader.output_dir, currentHeader.output_dir);
+                        Assert.AreEqual(previousHeader.custom_folder_output_base_name, currentHeader.custom_folder_output_base_name);
+                        Assert.AreEqual(0L, reader.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'folder'"));
+                    }
+                    AssertOutputUnchanged();
+                    Assert.AreEqual(1, dialogs.ConfirmationCount);
+                    Assert.AreEqual(2, dialogs.MessageCount, "導入先保護とP受付拒否をそれぞれ一回通知します。");
+                    Assert.AreEqual(oldOutput, owner.SettingDialog.LR2CustomFolderOutputDir);
+                    confirmationLease.Dispose();
+                    confirmationLease = null;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    AssertOutputUnchanged();
+                    Assert.AreEqual(1, dialogs.ConfirmationCount, "P解放だけでは再確認・再実行を予約しません。");
                     owner.SettingDialog.LR2CustomFolderOutputDir = install;
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("normal"), "adopt-output-after-install-change");
                     Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
@@ -94,6 +135,9 @@ public sealed partial class SettingDialogEditCompletionTests
                 }
                 finally
                 {
+                    releaseConfirmation.TrySetResult();
+                    confirmationLease?.Dispose();
+                    if (rejectedOutput != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(rejectedOutput, "output-adoption-rejection-cleanup"); }
                     playlist.RequestShutdown("install-directory-output-fixture");
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "install-directory-output-owner-cleanup");
                     owner.SettingDialog.Dispose();

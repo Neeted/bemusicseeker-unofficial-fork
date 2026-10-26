@@ -161,7 +161,8 @@ public sealed partial class SettingDialogEditCompletionTests
         });
     }
 
-    /// <summary>通常・ROOT・追加先の実compiled選択入口から保存し、picker取消と確認取消では実二媒体を変更しません。同値の通常・ROOT明示選択も共有拒否したXMLの再保存へ到達し、初期Bindingは保存しません。媒体失敗と生成・整理はOutputConfirmationが分担します。</summary>
+    /// <summary>通常・ROOT・追加先の実compiled選択入口から保存し、picker取消・確認取消・確認中のP先着では候補と実二媒体を保持します。同値の通常・ROOT明示選択も共有拒否したXMLの再保存へ到達し、初期Bindingは保存しません。</summary>
+    /// <remarks>確認中のP先着はWindowを開いたまま拒否後の実Binding復帰まで確認します。通常Closeの候補破棄とTask寿命はSettingsWindowPresentationTests、媒体失敗・実生成・整理はOutputConfirmationが分担します。</remarks>
     [DataTestMethod]
     [DataRow("normal", "accept")]
     [DataRow("root", "accept")]
@@ -219,6 +220,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 CollectionAssert.Contains(owner.SettingDialog.AvailableBMSDirectories, staged);
                 var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
                 Button select;
+                BeMusicSeeker.Views.Settings.SettingsPathPicker? outputPicker = null;
                 if (section == "additional")
                 {
                     ListBox list = FindDescendants<ListBox>(page).Single(item => item.Name == "additionalOutputList");
@@ -227,9 +229,9 @@ public sealed partial class SettingDialogEditCompletionTests
                 else
                 {
                     string property = section == "normal" ? nameof(SettingsDialogViewModel.LR2CustomFolderOutputDir) : nameof(SettingsDialogViewModel.LR2CustomFolderAsRootOutputDir);
-                    BeMusicSeeker.Views.Settings.SettingsPathPicker picker = FindDescendants<BeMusicSeeker.Views.Settings.SettingsPathPicker>(page)
+                    outputPicker = FindDescendants<BeMusicSeeker.Views.Settings.SettingsPathPicker>(page)
                         .Single(item => item.GetBindingExpression(BeMusicSeeker.Views.Settings.SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == property);
-                    select = FindDescendants<Button>(picker).Single();
+                    select = FindDescendants<Button>(outputPicker).Single();
                 }
                 if (outcome == "confirmation-busy")
                 {
@@ -251,16 +253,27 @@ public sealed partial class SettingDialogEditCompletionTests
                 select.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 if (outcome == "confirmation-busy")
                 {
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(confirmationEntered.Task, "output-confirmation-entered");
-                    Assert.IsFalse(owner.SettingDialog.SettingsOperationCompletionTask.IsCompleted);
-                    window.Close();
-                    Assert.IsTrue(window.IsVisible, "確認中も実操作Taskを追跡し、通常Closeを拒否します。");
+                    Task operation = owner.SettingDialog.SettingsOperationCompletionTask;
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(confirmationEntered.Task, operation,
+                        "output-confirmation-entered"), "output-confirmation-arrival");
+                    Assert.IsFalse(operation.IsCompleted);
                     CollectionAssert.Contains(owner.SettingDialog.AvailableBMSDirectories, staged);
-                    Assert.IsTrue(MainWindowViewModelTestFactory.GetComposition(owner).PlaylistOperationAdmission.TryEnter(out IDisposable acquired));
+                    ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
+                    Assert.IsTrue(composition.OperationAdmission.TryEnter(out IDisposable? confirmationLibraryLease), "確認待機ではLを予約しません。");
+                    confirmationLibraryLease?.Dispose();
+                    Assert.IsTrue(composition.PlaylistOperationAdmission.TryEnter(out IDisposable acquired), "確認待機ではPを予約しません。");
                     confirmationLease = acquired;
                     releaseConfirmation.TrySetResult();
                 }
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "output-selection-terminal");
+                if (outcome == "confirmation-busy")
+                {
+                    Assert.IsTrue(MainWindowViewModelTestFactory.GetComposition(owner).OperationAdmission.TryEnter(out IDisposable? rejectedLibraryLease), "P拒否で一時取得したLは解放します。");
+                    rejectedLibraryLease?.Dispose();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(oldNormal, owner.SettingDialog.LR2CustomFolderOutputDir);
+                    Assert.AreEqual(oldNormal, outputPicker?.Path, "未受理の出力候補だけを確定配置へ戻し、実Bindingへ反映します。");
+                }
                 Assert.AreEqual(outcome == "same" ? 1 : 0, failures.Count, string.Join(Environment.NewLine, failures));
                 Assert.AreEqual(outcome == "invalid-after-busy" ? 2 : outcome == "confirmation-busy" ? 1 : 0, dialogs.MessageCount, dialogs.LastMessageText);
                 Assert.AreEqual(outcome == "invalid-after-busy" ? 2 : 1, dialogs.FolderRequests.Count);
