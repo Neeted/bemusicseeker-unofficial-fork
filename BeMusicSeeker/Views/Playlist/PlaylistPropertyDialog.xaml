@@ -139,16 +139,26 @@
                     <StackPanel Margin="0,8,0,0"
                                 IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBox, Mode=OneWay}">
                       <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_pageuri, Mode=OneWay}">
-                        <TextBox Style="{StaticResource App.Canonical.TextBoxStyle}"
-                                 Text="{Binding Page_url, Mode=TwoWay}" />
+                        <TextBox x:Name="pageUrlTextBox"
+                                 Style="{StaticResource App.Canonical.TextBoxStyle}">
+                          <TextBox.Text>
+                            <Binding Path="Page_url" Mode="TwoWay">
+                              <Binding.ValidationRules>
+                                <v:PlaylistPageUrlValidationRule ValidationStep="ConvertedProposedValue" />
+                              </Binding.ValidationRules>
+                            </Binding>
+                          </TextBox.Text>
+                        </TextBox>
                       </settings:SettingsField>
                       <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_headeruri, Mode=OneWay}">
-                        <TextBox Style="{StaticResource App.Canonical.TextBoxStyle}"
+                        <TextBox x:Name="headerUrlTextBox"
+                                 Style="{StaticResource App.Canonical.TextBoxStyle}"
                                  Text="{Binding Header_url, Mode=TwoWay}" />
                       </settings:SettingsField>
                       <settings:SettingsField Margin="0"
                                               Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_datauri, Mode=OneWay}">
-                        <TextBox Style="{StaticResource App.Canonical.TextBoxStyle}"
+                        <TextBox x:Name="dataUrlTextBox"
+                                 Style="{StaticResource App.Canonical.TextBoxStyle}"
                                  Text="{Binding Data_url, Mode=TwoWay}" />
                       </settings:SettingsField>
                     </StackPanel>

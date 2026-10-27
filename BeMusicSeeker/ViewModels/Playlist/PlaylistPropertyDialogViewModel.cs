@@ -256,6 +256,7 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>ページURLを取得・設定します。nullは明示解除とし、非nullの入力は既存の絶対URI検証・空白解除を維持します。</summary>
     public Uri Page_url
     {
         get
@@ -270,7 +271,11 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         {
             if (!(_Page_url == value))
             {
-                if (IsUrlValid(value) && value.IsAbsoluteUri)
+                if (value == null)
+                {
+                    _Page_url = null;
+                }
+                else if (IsUrlValid(value) && value.IsAbsoluteUri)
                 {
                     _Page_url = value;
                 }

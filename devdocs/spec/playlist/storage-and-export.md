@@ -41,6 +41,12 @@ entryの所持譜面の解決・所持集計と参照索引への登録は、MD5
 
 LR2の管理出力先を変える保存は、[出力配置条件](lr2-custom-folders.md#出力先と事前検査)を副作用前に満たす必要があります。保存済み包含配置への明示出力・移行・削除も同じ条件で拒否し、正本の保存や出力先の自動修正を行いません。配置を変えないエントリの追加・削除は既存のDB先行確定を維持します。付随するLR2出力が包含配置で拒否された場合は、編集済みのDB・モデルを保持し、確定後の出力失敗として通知します。
 
+### プロパティのURL
+
+Page・Header・Dataはnullによる明示解除を受理します。Pageの非null指定は有効な絶対URIを要求し、Header・Dataは有効な相対URIも受理します。同期OFFではURLの未設定やHeader・Dataの片方だけの指定も許容します。不正な非null入力を未設定や旧値へ置き換えて保存しません。画面での空欄・変換失敗と訂正・取消は[プロパティ画面](../ui/playlist-properties.md#単一プレイリストの編集)に従います。
+
+外部同期ONでは、Pageが `bmseeker` の既存例外を除き、Header・Dataがともに設定され、PageまたはHeaderが絶対URIであることを要求します。Pageがnullでも絶対Headerを基点に相対Dataを使えます。HTTP(S)だけを要求する取得操作の検査を、この保存条件へ流用しません。
+
 ### 互換フォルダ名
 
 新規取得と明示的な外部データ初期化では、ヘッダーに `compat_prefix` があれば空文字・CP932範囲外の文字も含めその値を保存します。なければ `tag`、次に `symbol` を候補とし、選んだ値をCP932で厳密に表せる場合だけ採用します。表せなければ文字を削ったり次候補へ切り替えたりせず `LEVEL ` とします。候補がない場合も同じです。レベル値が数字か記号かでは決めません。
@@ -232,6 +238,7 @@ SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| プロパティURLのnull解除、相対参照と外部同期の必須条件 | [`PlaylistPropertySaveService`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertySaveService.cs)、[`PlaylistPropertyDialogViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertyDialogViewModel.cs) | [`PlaylistWorkspaceActionWorkflowTests.PlaylistPropertySave_UrlAcceptancePreservesClearRelativeSourcesAndSyncRequirements`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs) は同期OFFの解除・片側指定・相対Header/Data、同期ONの必須URL・絶対基点・bmseeker例外、相対Page拒否のDB不変と有効なPageなし同期設定の保存を担う。実画面からの空欄解除・変換失敗・候補保持・訂正再保存・取消は[プロパティ画面の対応表](../ui/playlist-properties.md#実装とテストの対応)へ分担する。 |
 | data転送後の参照と登録・DB再読込み | `PlaylistExternalSyncOwner.LoadExternalTableAsync` / `RegistrateExternalTableAsync` | [`BmsPlaylistExternalLoadTests.RegistrateExternalTableAsync_RedirectedDataPreservesReferencesAfterDatabaseReload`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalLoadTests.cs) は実HTTP data転送後の相対本体・差分、元headerと公開data基準を、取得表・登録済み集合・別readonly DB・新readerで確認する。転送hopごとの要求集合・回数も照合する。 |
 | 解決済みdata参照だけの保存判断と同値抑止 | `PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState`、`PlaylistReloadPersistenceDecision.EffectiveDataUriChanged` | [`PlaylistReloadMergeTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistReloadMergeTests.cs) の `MergeReloadedBMSTableState_EffectiveDataUriChangeSavesHeaderWithoutDateOrEntries` は空entry・全絶対entryとHTTP path/queryのcase差で、header/state/BMT対象、entry非保存と日時保持を確認する。`MergeReloadedBMSTableState_EquivalentDataUriDoesNotPersist` は同じ実参照の相対/絶対・scheme/host・fragment・file/UNC、`MergeReloadedBMSTableState_UnrelatedSourceContextDoesNotPersist` は無関係page/header差と文脈なしの手動・内蔵表を分担する。 |
 | 同本文で実data基準だけ変わる通常reloadの確定参照公開 | `PlaylistExternalSyncOwner.ReloadPlaylistTargetsAsync`、`PlaylistAggregatePersistenceOwner.TryApplyReloadedTableAsync` | [`BmsPlaylistExternalReloadTests.ReloadPlaylistTargetsAsync_RedirectedDataContextPersistsWithoutUpdatedFlag`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalReloadTests.cs) は全絶対entryの実転送と通常登録・reloadを通し、UpdatedとStatePersisted、新旧表とreceipt・現行集合の一致、公開data基準、元同期元、hash・日時・ローカル属性と別DB・新readerを確認する。参照公開・詳細選択・プロパティ保存は既存receiptと新旧参照差/StatePersistedの接続を静的確認し、画面の条件網羅を重ねない。 |

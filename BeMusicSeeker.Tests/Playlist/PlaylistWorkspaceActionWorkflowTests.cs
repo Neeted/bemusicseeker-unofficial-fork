@@ -2093,6 +2093,75 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         };
     }
 
+    /// <summary>同期OFFのnull解除・相対Header/Dataと、同期ONの必須URL・絶対base・bmseeker例外を実sessionで判定し、相対Pageの拒否とPageなし同期設定の保存を新DB接続で確認します。</summary>
+    /// <remarks>文字列からUriへの変換失敗とOKのBinding反映は実WPFケースへ分担し、到達根拠のない不正なtyped Uriは作りません。</remarks>
+    [TestMethod]
+    public async Task PlaylistPropertySave_UrlAcceptancePreservesClearRelativeSourcesAndSyncRequirements()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        using (PlaylistPropertyEditSession session = await fixture.Service.CreateEditSessionAsync(fixture.Table)
+            ?? throw new AssertFailedException("URL条件の編集sessionを作成できません。"))
+        {
+            // OFFはURLの解除と片側だけの指定を許容し、Pageだけは絶対URIを要求する。
+            // ONはHeader/Dataと絶対baseを要求するが、既存のbmseeker例外を維持する。
+            foreach ((string condition, bool sync, string? page, string? header, string? data, bool accepted) in new[]
+            {
+                ("off-clear-all", false, (string?)null, (string?)null, (string?)null, true),
+                ("off-header-only", false, null, "header.json", null, true),
+                ("off-data-only", false, null, null, "data.json", true),
+                ("off-absolute-page-relative-sources", false, "https://example.test/table/", "header.json", "data.json", true),
+                ("off-relative-page", false, "table/", "header.json", "data.json", false),
+                ("on-page-base", true, "https://example.test/table/", "header.json", "data.json", true),
+                ("on-header-base-without-page", true, null, "https://example.test/header.json", "data.json", true),
+                ("on-missing-header", true, "https://example.test/table/", null, "data.json", false),
+                ("on-missing-data", true, "https://example.test/table/", "header.json", null, false),
+                ("on-missing-absolute-base", true, null, "header.json", "data.json", false),
+                ("on-bmseeker-exception", true, "bmseeker:playlist", null, null, true)
+            })
+            {
+                session.Values.IsExternalSync = sync;
+                session.Values.PageUrl = page == null ? null : new Uri(page, UriKind.RelativeOrAbsolute);
+                session.Values.HeaderUrl = header == null ? null : new Uri(header, UriKind.RelativeOrAbsolute);
+                session.Values.DataUrl = data == null ? null : new Uri(data, UriKind.RelativeOrAbsolute);
+                Assert.AreEqual(accepted, fixture.Service.IsValid(session, session.Values), condition);
+            }
+            session.Values.IsExternalSync = false;
+            session.Values.PageUrl = new Uri("table/", UriKind.Relative);
+            session.Values.HeaderUrl = new Uri("header.json", UriKind.Relative);
+            session.Values.DataUrl = new Uri("data.json", UriKind.Relative);
+            session.Values.Symbol = "Must not save";
+            Assert.IsNull(await fixture.Service.TrySaveAsync(session, session.Values));
+            Assert.AreEqual("PF", fixture.Table.symbol);
+            using LR2SongDBExtended unchanged = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+            BMSTable read = unchanged.Table<BMSTable>().Single(table => table.playlist_id == fixture.Table.playlist_id);
+            Assert.AreEqual("PF", read.symbol);
+            Assert.AreEqual(fixture.Table.Page_url, read.Page_url);
+            Assert.AreEqual(fixture.Table.Header_url, read.Header_url);
+            Assert.AreEqual(fixture.Table.Data_url, read.Data_url);
+        }
+
+        // 同期済みのURL設定を編集する通常経路。URL変更による外部再取得とは分けて保存契約を確認する。
+        fixture.Table.Page_url = null;
+        fixture.Table.Header_url = new Uri("https://example.test/header.json");
+        fixture.Table.Data_url = new Uri("data.json", UriKind.Relative);
+        fixture.Table.is_external_sync = true;
+        fixture.Playlist.CommitBMSTableHeaderToDB(fixture.Table);
+        using PlaylistPropertyEditSession validSession = await fixture.Service.CreateEditSessionAsync(fixture.Table)
+            ?? throw new AssertFailedException("Pageなし同期設定の編集sessionを作成できません。");
+        validSession.Values.Symbol = "Saved with header base";
+        PlaylistPropertySaveCommit commit = await fixture.Service.TrySaveAsync(validSession, validSession.Values)
+            ?? throw new AssertFailedException("有効なPageなし同期設定が拒否されました。");
+        Assert.IsTrue(commit.RequestedValuesSaved);
+        Assert.IsNull(commit.Exception);
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        BMSTable saved = verify.Table<BMSTable>().Single(table => table.playlist_id == fixture.Table.playlist_id);
+        Assert.IsNull(saved.Page_url);
+        Assert.AreEqual(fixture.Table.Header_url, saved.Header_url);
+        Assert.AreEqual(new Uri("data.json", UriKind.Relative), saved.Data_url);
+        Assert.IsTrue(saved.is_external_sync);
+        Assert.AreEqual("Saved with header base", saved.symbol);
+    }
+
     /// <summary>実表writerをworkerで保有したまま保存を開始し、呼出しが未完了Taskを返してwriter解放後に完了することを確認します。</summary>
     [TestMethod]
     public async Task PlaylistPropertySave_WaitsOffUiThreadBehindAWriter()

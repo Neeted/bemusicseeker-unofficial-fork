@@ -1202,6 +1202,265 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         });
     }
 
+    /// <summary>実メニューで開くpropertyのPage空欄解除と相対Header/DataをOKから保存し、新DB接続の空文字・nullモデル・再表示を確認します。不正URLと別候補を取消しても保存値を保ちます。</summary>
+    /// <remarks>Page空欄だけは旧null setterへ一度明示反映し、実保存・読戻しまで観測します。Header/Dataは事前反映せずOKのBinding確定を保証し、同期条件表は保存サービス側へ分担します。</remarks>
+    [TestMethod]
+    public void PlaylistPropertyDialog_ClearPageAndRelativeSourcesPersistAndReopenWithoutSavingCancel()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope, closeNextMessage: () => true);
+            Exception? primaryFailure = null;
+            try
+            {
+                BMSTable current = fixture.Table;
+                current.Page_url = new Uri("https://example.test/original/");
+                current.Header_url = new Uri("https://example.test/original/header.json");
+                current.Data_url = new Uri("https://example.test/original/data.json");
+                current.symbol = "Saved symbol";
+                current.is_external_sync = false;
+                fixture.Playlist.CommitBMSTableHeaderToDB(current);
+                string dbPath = Path.Combine(fixture.Root, "data", "song.db");
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                foreach (bool clearSources in new[] { false, true })
+                {
+                    // 1回目はPage解除と相対source、2回目はHeader/Dataも明示解除する。
+                    PlaylistSummaryRow row = CreatePlaylistSummaryRow(current);
+                    summary.ItemsSource = new List<PlaylistSummaryRow> { row };
+                    summary.SelectRowsByPredicate(_ => true);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    ModalObservation<PlaylistPropertyDialog> observation = OpenPropertyDialog(fixture.Window, summary, row,
+                        "property-url-clear-" + clearSources, (dialog, _) =>
+                        {
+                            TextBox page = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.Page_url)));
+                            TextBox header = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.Header_url)));
+                            TextBox data = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.Data_url)));
+                            if (clearSources)
+                            {
+                                Assert.AreEqual(string.Empty, page.Text);
+                                Assert.AreEqual("header.json", header.Text);
+                                Assert.AreEqual("data.json", data.Text);
+                            }
+                            page.Text = string.Empty;
+                            if (!clearSources)
+                            {
+                                BindingExpression binding = page.GetBindingExpression(TextBox.TextProperty)
+                                    ?? throw new AssertFailedException("Page URLの実Bindingがありません。");
+                                binding.UpdateSource();
+                            }
+                            header.Text = clearSources ? string.Empty : "header.json";
+                            data.Text = clearSources ? string.Empty : "data.json";
+                            bool closed = false;
+                            EventHandler onClosed = (_, _) => closed = true;
+                            dialog.Closed += onClosed;
+                            try
+                            {
+                                RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
+                                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.WaitForOperationCompletionAsync(), "property-url-clear-save");
+                                Assert.IsTrue(closed, "URL解除の保存完了後に同じ所有ダイアログが閉じます。");
+                            }
+                            finally { dialog.Closed -= onClosed; }
+                        });
+                    Assert.AreSame(fixture.Window, observation.Owner);
+                    Assert.IsFalse(observation.OwnerEnabled);
+                    Assert.AreEqual(1, observation.DataContextDetachCount);
+                    Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                    using (LR2SongDBExtended verify = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly())
+                    {
+                        BMSTable read = verify.Table<BMSTable>().Single(table => table.playlist_id == current.playlist_id);
+                        Assert.IsTrue(string.IsNullOrEmpty(verify.ExecuteScalar<string>("SELECT page_url FROM playlist WHERE playlist_id=?;", current.playlist_id)));
+                        Assert.IsNull(read.Page_url);
+                        string storedHeader = verify.ExecuteScalar<string>("SELECT header_url FROM playlist WHERE playlist_id=?;", current.playlist_id);
+                        string storedData = verify.ExecuteScalar<string>("SELECT data_url FROM playlist WHERE playlist_id=?;", current.playlist_id);
+                        if (clearSources)
+                        {
+                            Assert.IsTrue(string.IsNullOrEmpty(storedHeader));
+                            Assert.IsTrue(string.IsNullOrEmpty(storedData));
+                        }
+                        else
+                        {
+                            Assert.AreEqual("header.json", storedHeader);
+                            Assert.AreEqual("data.json", storedData);
+                        }
+                        Assert.AreEqual(clearSources ? null : new Uri("header.json", UriKind.Relative), read.Header_url);
+                        Assert.AreEqual(clearSources ? null : new Uri("data.json", UriKind.Relative), read.Data_url);
+                        Assert.AreEqual("Saved symbol", read.symbol);
+                        Assert.IsNull(current.Page_url);
+                        Assert.AreEqual(read.Header_url, current.Header_url);
+                        Assert.AreEqual(read.Data_url, current.Data_url);
+                        // 新接続から読んだモデルを正本にして、次の実メニューも保存済み値から開く。
+                        fixture.Playlist.BMSTables[0] = current = read;
+                    }
+                }
+                PlaylistSummaryRow reopenedRow = CreatePlaylistSummaryRow(current);
+                summary.ItemsSource = new List<PlaylistSummaryRow> { reopenedRow };
+                summary.SelectRowsByPredicate(_ => true);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                OpenPropertyDialog(fixture.Window, summary, reopenedRow, "property-url-clear-reopen-cancel", (dialog, _) =>
+                {
+                    foreach (string path in new[] { nameof(PlaylistPropertyDialogViewModel.Page_url), nameof(PlaylistPropertyDialogViewModel.Header_url), nameof(PlaylistPropertyDialogViewModel.Data_url) })
+                    {
+                        Assert.AreEqual(string.Empty, FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, path)).Text);
+                    }
+                    FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.Page_url))).Text = "http://[invalid";
+                    TextBox symbol = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.symbol)));
+                    symbol.Text = "Cancelled symbol";
+                    symbol.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+                    Assert.AreEqual("Cancelled symbol", ((PlaylistPropertyDialogViewModel)dialog.DataContext).symbol);
+                    RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.WaitForOperationCompletionAsync(), "property-url-cancel-terminal");
+                });
+                Assert.IsNull(current.Page_url);
+                Assert.IsNull(current.Header_url);
+                Assert.IsNull(current.Data_url);
+                Assert.AreEqual("Saved symbol", current.symbol);
+                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                using LR2SongDBExtended afterCancel = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+                BMSTable unchanged = afterCancel.Table<BMSTable>().Single(table => table.playlist_id == current.playlist_id);
+                Assert.IsNull(unchanged.Page_url);
+                Assert.IsNull(unchanged.Header_url);
+                Assert.IsNull(unchanged.Data_url);
+                Assert.AreEqual("Saved symbol", unchanged.symbol);
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                try { fixture.Close(); }
+                catch (Exception cleanupFailure) when (primaryFailure != null) { primaryFailure.Data["PropertyUrlClearCleanupFailure"] = cleanupFailure.ToString(); }
+            }
+        });
+    }
+
+    /// <summary>実propertyのURL3欄の変換失敗と相対PageをOKで拒否し、raw入力・別候補・DB・正本を保ちます。同じダイアログで訂正後に保存でき、旧typed URLによる部分保存を検出します。</summary>
+    /// <remarks>各URLを事前UpdateSourceせず実compiled OKを通します。所有通知の表明失敗は記録して実操作Task終端後に再表明し、任意通知のcatchへ隠しません。</remarks>
+    [TestMethod]
+    public void PlaylistPropertyDialog_UrlErrorsKeepDraftAndSavedValuesUntilCorrectedInSameDialog()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            PlaylistPropertyDialog? shown = null;
+            Exception? notificationObservationFailure = null;
+            var notifications = new List<UiMessageRequest>();
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope, messagePresenter: (owner, request) =>
+            {
+                notifications.Add(request);
+                try
+                {
+                    PlaylistPropertyDialog dialog = shown ?? throw new AssertFailedException("URL編集前に予期しない通知があります。");
+                    Assert.AreSame(dialog, owner);
+                    Assert.AreSame(dialog, request.Owner);
+                    Assert.IsTrue(dialog.IsVisible);
+                }
+                catch (Exception failure) { notificationObservationFailure = failure; }
+                return new ThemedMessageBoxResponse(MessageBoxResult.OK, closedWithoutSelection: false);
+            });
+            Exception? primaryFailure = null;
+            try
+            {
+                BMSTable table = fixture.Table;
+                table.Page_url = new Uri("https://example.test/original/");
+                table.Header_url = new Uri("https://example.test/original/header.json");
+                table.Data_url = new Uri("https://example.test/original/data.json");
+                table.is_external_sync = false;
+                table.symbol = "Original symbol";
+                fixture.Playlist.CommitBMSTableHeaderToDB(table);
+                string dbPath = Path.Combine(fixture.Root, "data", "song.db");
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                foreach ((string path, string invalid, string corrected) in new[]
+                {
+                    (nameof(PlaylistPropertyDialogViewModel.Page_url), "http://[invalid", "https://example.test/corrected/"),
+                    (nameof(PlaylistPropertyDialogViewModel.Header_url), "http://[invalid", "corrected-header.json"),
+                    (nameof(PlaylistPropertyDialogViewModel.Data_url), "http://[invalid", "corrected-data.json"),
+                    (nameof(PlaylistPropertyDialogViewModel.Page_url), "relative-page/", "https://example.test/final/")
+                })
+                {
+                    // 変換失敗3欄と、Uriに変換できるがPage条件を満たさない相対指定を独立sessionで編集する。
+                    Uri oldPage = table.Page_url;
+                    Uri oldHeader = table.Header_url;
+                    Uri oldData = table.Data_url;
+                    string oldSymbol = table.symbol;
+                    string candidate = "Candidate " + path + " " + invalid;
+                    PlaylistSummaryRow row = CreatePlaylistSummaryRow(table);
+                    summary.ItemsSource = new List<PlaylistSummaryRow> { row };
+                    summary.SelectRowsByPredicate(_ => true);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    notifications.Clear();
+                    notificationObservationFailure = null;
+                    ModalObservation<PlaylistPropertyDialog> observation = OpenPropertyDialog(fixture.Window, summary, row,
+                        "property-url-invalid-" + path + "-" + invalid, (dialog, _) =>
+                        {
+                            shown = dialog;
+                            var draft = (PlaylistPropertyDialogViewModel)dialog.DataContext;
+                            TextBox source = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, path));
+                            TextBox symbol = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.symbol)));
+                            source.Text = invalid;
+                            symbol.Text = candidate;
+                            symbol.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+                            Assert.AreEqual(candidate, draft.symbol);
+                            RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.WaitForOperationCompletionAsync(), "property-url-invalid-terminal");
+                            Assert.IsNull(notificationObservationFailure, "所有通知の観測に失敗しました。" + Environment.NewLine + notificationObservationFailure);
+                            Assert.IsTrue(notifications.Any(request => request.MessageBoxText == Resources.Error_PlaylistPropertiesInvalid), "入力不備を既存の検証失敗通知で伝えます。");
+                            Assert.IsTrue(dialog.IsVisible);
+                            Assert.IsTrue(dialog.IsEnabled);
+                            Assert.IsFalse(dialog.HasTerminalOutcome);
+                            Assert.AreSame(fixture.Window, dialog.Owner);
+                            Assert.AreSame(draft, fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                            Assert.AreEqual(invalid, source.Text);
+                            Assert.AreEqual(candidate, symbol.Text);
+                            Assert.AreEqual(candidate, draft.symbol);
+                            Assert.AreEqual(oldPage, table.Page_url);
+                            Assert.AreEqual(oldHeader, table.Header_url);
+                            Assert.AreEqual(oldData, table.Data_url);
+                            Assert.AreEqual(oldSymbol, table.symbol);
+                            using (LR2SongDBExtended unchanged = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly())
+                            {
+                                BMSTable read = unchanged.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id);
+                                Assert.AreEqual(oldPage, read.Page_url);
+                                Assert.AreEqual(oldHeader, read.Header_url);
+                                Assert.AreEqual(oldData, read.Data_url);
+                                Assert.AreEqual(oldSymbol, read.symbol);
+                            }
+                            source.Text = corrected;
+                            bool closed = false;
+                            EventHandler onClosed = (_, _) => closed = true;
+                            dialog.Closed += onClosed;
+                            try
+                            {
+                                RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
+                                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.WaitForOperationCompletionAsync(), "property-url-corrected-save");
+                                Assert.IsTrue(closed, "訂正後は同じダイアログの保存が成功して閉じます。");
+                                Assert.IsNull(notificationObservationFailure, "所有通知の観測に失敗しました。" + Environment.NewLine + notificationObservationFailure);
+                            }
+                            finally { dialog.Closed -= onClosed; }
+                        });
+                    shown = null;
+                    Assert.AreSame(fixture.Window, observation.Owner);
+                    Assert.IsFalse(observation.OwnerEnabled);
+                    Assert.AreEqual(1, observation.DataContextDetachCount);
+                    Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                    using LR2SongDBExtended verify = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+                    BMSTable saved = verify.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id);
+                    Uri correctedUri = new(corrected, UriKind.RelativeOrAbsolute);
+                    Assert.AreEqual(path == nameof(PlaylistPropertyDialogViewModel.Page_url) ? correctedUri : oldPage, saved.Page_url);
+                    Assert.AreEqual(path == nameof(PlaylistPropertyDialogViewModel.Header_url) ? correctedUri : oldHeader, saved.Header_url);
+                    Assert.AreEqual(path == nameof(PlaylistPropertyDialogViewModel.Data_url) ? correctedUri : oldData, saved.Data_url);
+                    Assert.AreEqual(candidate, saved.symbol);
+                    Assert.AreEqual(saved.Page_url, table.Page_url);
+                    Assert.AreEqual(saved.Header_url, table.Header_url);
+                    Assert.AreEqual(saved.Data_url, table.Data_url);
+                    Assert.AreEqual(candidate, table.symbol);
+                }
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                try { fixture.Close(); }
+                catch (Exception cleanupFailure) when (primaryFailure != null) { primaryFailure.Data["PropertyUrlInvalidCleanupFailure"] = cleanupFailure.ToString(); }
+            }
+        });
+    }
+
     /// <summary>実property画面のUp・Down・自然順を独立順と比較し、DB由来の自然順からの新編集、LR2の完全一致タイトルとfolder行まで接続します。保存前の正本と出力bytes、別表の出力・DBを保ちます。</summary>
     /// <remarks>実controlの選択とイベント接続、所有モーダル・保存Task・native閉鎖をこの代表で確認し、LR2全出力種別の条件はcustom-folder系列へ分担します。</remarks>
     [TestMethod]

@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -187,13 +188,16 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
         Exception failure = null;
         try
         {
+            bool urlInputsValid = !save || UpdateAndValidateUrlInputs();
             IsEnabled = false;
             PlaylistPropertyDialogOperationResult result;
             try
             {
-                result = save
-                    ? await viewModel.SaveAndApplyAsync()
-                    : await viewModel.ResetPropertiesAsync();
+                result = !urlInputsValid
+                    ? PlaylistPropertyDialogOperationResult.ValidationFailed
+                    : save
+                        ? await viewModel.SaveAndApplyAsync()
+                        : await viewModel.ResetPropertiesAsync();
             }
             catch (Exception operationFailure)
             {
@@ -232,6 +236,18 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
             else if (failure != null) { completion.TrySetException(failure); }
             else { completion.TrySetResult(true); }
         }
+    }
+
+    // 型変換・画面検証でsetterへ届かなかった入力を、旧値の保存へ読み替えない。
+    private bool UpdateAndValidateUrlInputs()
+    {
+        pageUrlTextBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+        headerUrlTextBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+        dataUrlTextBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+        bool pageHasError = Validation.GetHasError(pageUrlTextBox);
+        bool headerHasError = Validation.GetHasError(headerUrlTextBox);
+        bool dataHasError = Validation.GetHasError(dataUrlTextBox);
+        return !pageHasError && !headerHasError && !dataHasError;
     }
 
     private async Task CloseWithResultAsync(bool result)
@@ -351,5 +367,18 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
         List<string> list = [.. folder_order];
         list.Sort(comparer);
         viewModel.folder_order = new ObservableCollection<string>(list);
+    }
+}
+
+/// <summary>プロパティ画面のPage入力を型変換後・setter前に検査し、相対URIの入力文字列を訂正まで保持します。</summary>
+/// <remarks>この画面だけのBinding検証です。画面を通らない保存のURL条件と外部同期の必須条件は、既存の保存サービスが検証します。</remarks>
+internal sealed class PlaylistPageUrlValidationRule : ValidationRule
+{
+    /// <summary>nullによる解除、既存の空白解除、絶対URIを受理し、その他の相対URIを拒否します。</summary>
+    public override ValidationResult Validate(object value, CultureInfo cultureInfo)
+    {
+        return value == null || value is Uri uri && (uri.IsAbsoluteUri || string.IsNullOrWhiteSpace(uri.ToString()))
+            ? ValidationResult.ValidResult
+            : new ValidationResult(false, BeMusicSeeker.Properties.Resources.Error_InvalidPageUriAbsoluteRequired);
     }
 }
