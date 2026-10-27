@@ -68,7 +68,7 @@ internal static class BeatorajaBmtTableImportService
         return table;
     }
 
-    /// <summary>BMTの所属とnullable levelを通常JSON読込みへ渡し、設定の生URLを正本として表を復元します。</summary>
+    /// <summary>BMTの所属とnullable levelを常にCompatibleのJSON読込みへ渡し、設定の生URLを正本として表を復元します。BMTで未採用の日時fieldは転送しません。</summary>
     /// <param name="tableData">フォルダ・譜面・コースを含むBMTデータ。</param>
     /// <param name="configTableUrl">キャッシュ内のURLより優先する設定の絶対URL。</param>
     internal static BMSTable CreateTable(JObject tableData, string configTableUrl)
@@ -113,8 +113,8 @@ internal static class BeatorajaBmtTableImportService
         JArray data = BuildDataRows(folders);
 
         var table = new BMSTable();
-        table.LoadHeaderJSON(header.ToString(Formatting.None), configTableUri, configTableUri);
-        table.LoadDataJSON(data.ToString(Formatting.None));
+        table.LoadHeaderJSON(header.ToString(Formatting.None), PlaylistJsonDatePolicy.Compatible, configTableUri, configTableUri);
+        table.LoadDataJSON(data.ToString(Formatting.None), PlaylistJsonDatePolicy.Compatible);
         return table;
     }
 

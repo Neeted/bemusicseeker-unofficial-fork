@@ -622,8 +622,21 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         return val.ToString(Formatting.Indented);
     }
 
-    /// <summary>表ヘッダーを読み込み、入力形式の失敗だけをヘッダー解析失敗へ変換します。採用するlast_updateは固定日時文法を要求し、任意の順序の不正値は従来どおり省略します。</summary>
+    /// <summary>モデル直接読取りは固定日時文法を要求し、入力形式の失敗だけをヘッダー解析失敗へ変換します。</summary>
     public void LoadHeaderJSON(string _header_json, Uri _page_url_absolute = null, Uri __header_url = null, string _data_json = null, bool preserveLoadedCompatPrefix = false)
+        => LoadHeaderJSON(_header_json, PlaylistJsonDatePolicy.Strict, _page_url_absolute, __header_url, _data_json, preserveLoadedCompatPrefix);
+
+    /// <summary>操作元で確定した日時方針でheaderを読み、原文・未知キー・hashの計算を保持します。</summary>
+    /// <param name="_header_json">未加工のheader原文。</param>
+    /// <param name="datePolicy">ローカルJSON初回と外部再取得を区別した日時方針。</param>
+    /// <param name="_page_url_absolute">既存規則で保持するページURI。</param>
+    /// <param name="__header_url">相対参照の基準となるヘッダーURI。</param>
+    /// <param name="_data_json">同じ日時方針で同時に読む任意のdata原文。</param>
+    /// <param name="preserveLoadedCompatPrefix">既存表の互換接頭辞を維持するか。</param>
+    /// <param name="logDateWarning">既存診断窓口。省略時はFileLoggerへ通知します。</param>
+    /// <param name="dateContext">元指定・実文書URI・操作を追える一時診断文脈。</param>
+    internal void LoadHeaderJSON(string _header_json, PlaylistJsonDatePolicy datePolicy, Uri _page_url_absolute = null, Uri __header_url = null,
+        string _data_json = null, bool preserveLoadedCompatPrefix = false, Action<Exception, string> logDateWarning = null, string dateContext = null)
     {
         if (_header_json == null)
         {
@@ -684,11 +697,13 @@ public partial class BMSTable : LR2SongDBExtended.playlist
             base.compat_prefix = explicitCompatPrefix;
         }
         List<string> headerFolderOrder = null;
-        if (TryGetNonNullProperty(val, "last_update", out JToken lastUpdateToken) && !string.IsNullOrWhiteSpace(lastUpdateToken.ToString()))
+        using var dateDiagnostics = new PlaylistJsonDate.Diagnostics("document=header table=" + JsonConvert.SerializeObject(base.name) + " " + dateContext, logDateWarning);
+        if (TryGetNonNullProperty(val, "last_update", out JToken lastUpdateToken))
         {
             try
             {
-                base.last_update = PlaylistJsonDate.Parse(lastUpdateToken.ToString(), "last_update");
+                DateTime? parsed = PlaylistJsonDate.Read(lastUpdateToken, "last_update", datePolicy, dateDiagnostics);
+                if (parsed.HasValue) { base.last_update = parsed.Value; }
             }
             catch (PlaylistJsonDateException ex)
             {
@@ -757,7 +772,7 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         }
         if (_data_json != null)
         {
-            LoadDataJSON(_data_json);
+            LoadDataJSON(_data_json, datePolicy, logDateWarning, dateContext);
         }
         EnableExternalSync();
     }
@@ -777,21 +792,28 @@ public partial class BMSTable : LR2SongDBExtended.playlist
             : Lr2CompatibleFolderFallbackPrefix;
     }
 
-    /// <summary>表データを全行解析後に採用します。採用行の非空追加日が固定文法に不適合なら一表の保存前に拒否し、内部故障・資源不足は呼出元へ伝播します。</summary>
-    public void LoadDataJSON(string _data_json)
+    /// <summary>表データを全行解析後に採用します。直接読取りは採用行の非空追加日を固定文法で検査します。</summary>
+    public void LoadDataJSON(string _data_json) => LoadDataJSON(_data_json, PlaylistJsonDatePolicy.Strict);
+
+    /// <summary>操作元の日時方針を全採用行に適用し、互換日時の不適合だけを省略します。他の解析失敗と全行採用の境界は保持します。</summary>
+    /// <param name="_data_json">hash計算にも使う未加工の原文。</param>
+    /// <param name="datePolicy">header解析前に確定した同じ日時方針。</param>
+    /// <param name="logDateWarning">文書内の全不適合値をまとめて渡す診断窓口。</param>
+    /// <param name="dateContext">元指定・実文書URI・操作の診断文脈。</param>
+    internal void LoadDataJSON(string _data_json, PlaylistJsonDatePolicy datePolicy, Action<Exception, string> logDateWarning = null, string dateContext = null)
     {
         if (_data_json == null)
         {
             throw new ArgumentNullException("_data_json");
         }
+        using var dateDiagnostics = new PlaylistJsonDate.Diagnostics("document=data table=" + JsonConvert.SerializeObject(base.name) + " " + dateContext, logDateWarning);
         List<BMSTableEntry> parsedEntries;
         try
         {
             JArray val = ParseJson(_data_json) as JArray ?? throw new FormatException("playlist data must be an array.");
             base.data_sha256 = ComputeSha256Hex(_data_json);
             parsedEntries = [.. val
-                .Select(token => token as JObject ?? throw new FormatException("playlist entry must be an object"))
-                .Select(json => new BMSTableEntry(json, this))
+                .Select((token, index) => new BMSTableEntry(token as JObject ?? throw new FormatException("playlist entry must be an object"), this, datePolicy, dateDiagnostics, index))
                 .Where(entry => PlaylistAggregatePersistenceOwner.CreateComparablePlaylistEntryRow(entry) != null)];
         }
         catch (Exception ex) when (ex is JsonException or FormatException or InvalidCastException or OverflowException)

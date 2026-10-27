@@ -16,13 +16,13 @@ beatorajaに登録した難易度表URLを、プレイリストとBMT出力の�
 
 設定の確定済み `BeatorajaRootPath` を使います。別rootの候補がある場合は破棄確認し、取消・検証不成立・実P受付拒否では元候補を保持します。実受付と最終検査後にroot候補だけを確定値へ戻し、他セクションの候補は保持します。設定Windowは実取込みTaskの終端までClose・同再操作を拒否します。`config_sys.json` の `tableURL` から文字列を順序付きで読み、空文字を除き、同じ絶対URLは先頭だけを採用します。絶対URIとして解釈できない値は失敗件数へ含めます。
 
-確認後、既存表のページURLまたは絶対ヘッダーURLとの一致を調べます。一致する表は再取得せず順序反映だけの対象とします。未登録URLは通常の外部表取得を試み、採用日時の不適合を除く失敗では対応するBMTキャッシュから復元します。採用するlast_update/adddateが不適合なら型付き原因とheader/data解析分類で識別し、有効BMTがあっても復元せず失敗へ終端します。正常な先行行も含め一表を保存前に停止し、独立した他表の登録・既存表・URL順と所有規則を保持します。欄名・固定形式・元データ訂正後の再実行をトップレベルの結果Messageから実summary通知へ渡します。
+確認後、既存表のページURLまたは絶対ヘッダーURLとの一致を調べます。一致する表は再取得せず順序反映だけの対象とします。未登録URLは通常の外部表取得を試み、失敗時は既存の受付条件で対応BMTキャッシュから復元します。日時方針は[保存と出力](storage-and-export.md#実装とテストの対応)に従い、URL初回はCompatibleで任意日時の不適合だけを省略して全採用行を保ち、古いBMTへ戻しません。ローカルJSON初回だけはStrictとし、不適合な採用日時を型付きheader/data原因で識別して、有効cacheがあっても復元せず保存前に止めます。既存のUI訂正要求、独立した他表の登録、既存表、URL順と所有規則を保持します。
 
 外部取得は通常再読込みと同じ上限で並列化します。取得後に元URL順へ戻し、DB登録、重複名解消、表示集合、参照、URL補完、BMTの実出力と終端をまとめて進めます。DBと表示の変更は並列化しません。進捗はURL取得だけでなく登録・参照・順序反映・完了処理を含みます。
 
 #### 一致・取得・復元の分岐
 
-採用日時の不適合で停止した対象を除き、一URLの取得元選択と、既存表またはDB登録候補へ振り分けるまでを示します。矢印は判定・処理順です。外部取得は上限内で並列化できますが、DB登録・参照更新・順序反映の成否はこの図に含めません。
+StrictのローカルJSON初回で日時不適合になった対象を除き、一URLの取得元選択と、既存表またはDB登録候補へ振り分けるまでを示します。矢印は判定・処理順です。外部取得は上限内で並列化できますが、DB登録・参照更新・順序反映の成否はこの図に含めません。
 
 ```mermaid
 flowchart TB
@@ -45,7 +45,7 @@ BMTからの復元はこの入口で規定した経路だけです。取得成�
 
 ### キャッシュからの復元
 
-検索するファイル名は、生の設定URLのSHA-256＋`.bmt` です。表名、タグ、フォルダ・譜面・コースを復元し、譜面の `title`、`artist`、`md5`、`sha256`、`url`、`appendurl`、`org_md5` を引き継ぎます。直接DBへ書かず、合成したヘッダー・データJSONを通常の `LoadHeaderJSON` / `LoadDataJSON` へ渡します。
+検索するファイル名は、生の設定URLのSHA-256＋`.bmt` です。表名、タグ、フォルダ・譜面・コースを復元し、譜面の `title`、`artist`、`md5`、`sha256`、`url`、`appendurl`、`org_md5` を引き継ぎます。直接DBへ書かず、合成したヘッダー・データJSONを常にCompatibleを明示した `LoadHeaderJSON` / `LoadDataJSON` へ渡します。BMT readerが採用していない日時fieldを新しく転送せず、元操作の日時方針を継承しません。
 
 非数値のフォルダ所属も保持し、数値を抽出できない所属の `level` はnullにします。合成JSONでは `folder` と明示nullを含む `org_level` を渡し、数値所属との混在や同じhashの異なる所属を保ちます。通常登録・DB保存・読戻しでも所属とnullable levelを維持し、BMT再出力では各フォルダへ所属を引き継ぎます。
 
@@ -73,7 +73,7 @@ BMT出力を無効から有効へ切り替える際、有効なbeatorajaルー�
 | 取得・既存一致・復元・生URL・重複名・失敗集計 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) |
 | キャッシュ復元の非数値所属・nullable level・同hashの別所属 | [`BeatorajaBmtTableImportService`](../../../BeMusicSeeker/Models/Playlist/BeatorajaBmtTableImportService.cs) | [`BmtTableExportServiceTests`](../../../BeMusicSeeker.Tests/Playlist/BmtTableExportServiceTests.cs) の `BeatorajaBmtTableImportService_CreateTable_PreservesMembershipsAndNullableLevels` は、共通タグの非数値二所属とタグなし数値混在を実JSON変換・解析後のhash/所属/level集合で確認する。既存の `BeatorajaBmtTableImportService_LoadCachedTable_RestoresTableWithConfigRawUrl` は数値level・実gzip・属性・コース・生URLを担い、一般JSONのnull・受理範囲は既存の `BMSTableLoadTests` へ分担する。 |
 | BMT復元から通常登録・保存・読戻し・再生成への接続 | [`PlaylistWorkspaceViewModel.BeatorajaTableUrlImport`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.BeatorajaTableUrlImport.cs)、[`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`PlaylistWorkspaceExternalSourceTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceExternalSourceTests.cs) の `StartBeatorajaTableUrlImport_CachedNonnumericMembershipsSurvivePersistenceAndReexport` はloopback HTTP 404から実gzipを復元する一例。復元成功と外部同期失敗STATUSを区別し、同hashの非数値二所属・数値一所属を登録モデル、新しいreadonly DB接続、通常DB読戻し、実BMT再生成で確認する。levelはモデルとDB、BMTは所属とhashを観測する。設定URLと異なる元cacheおよび再生成前のファイル除去により、既存ファイル残存だけの成功を防ぐ。実取込みTask・サマリー通知と残余Taskを回収し、購読・store/library・HTTP・一時領域を解放する。 |
-| 混合対象の実取込み・日時拒否・BMT復元境界と終端 | [`PlaylistWorkspaceViewModel.BeatorajaTableUrlImport`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.BeatorajaTableUrlImport.cs) | `PlaylistWorkspaceExternalSourceTests.StartBeatorajaTableUrlImport_NewTablePublishesOwnedProgressAndSuccessfulSummary` はB/E/U/H/D/Aの混合6対象を実Startから処理し、Imported/Existing/Failed/Failed/Failed/Imported、登録2・既存1・失敗3・復元0を確認する。Hのlast_update、Dの先行正常行後のadddate不適合は、有効な固有名/hashの実gzip BMTがあっても型付き原因で拒否し、実summaryのトップレベルMessageに訂正案内を渡す。新readonly DBとモデルで両表・正常先行行・cache由来の表/entry不在を確認し、成功/既存5表のID・所属・内容・相対順・台帳、管理外U/H/D順・config他キー・管理外BMT bytesを保持する。通信中Busy、要求元付き進捗、実Task/consumer/gate/HTTP回収も維持する。`StartBeatorajaTableUrlImport_CachedNonnumericMembershipsSurvivePersistenceAndReexport` は404から実gzip復元・DB・再出力と復元成功/404 STATUSの対照を担う。日時の形式網羅・通常load/reload通知は[保存仕様](storage-and-export.md#実装とテストの対応)へ分担する。 |
+| 混合対象の実取込み・日時方針・BMT復元境界と終端 | [`PlaylistWorkspaceViewModel.BeatorajaTableUrlImport`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.BeatorajaTableUrlImport.cs) | `PlaylistWorkspaceExternalSourceTests.StartBeatorajaTableUrlImport_NewTablePublishesOwnedProgressAndSuccessfulSummary` は通常成功・既存一致・通常取得失敗・順序・ID/所属・管理台帳/config/管理外BMT・通信中Busyと進捗・実Task終端を担う。日時は別の `StartBeatorajaTableUrlImport_InvalidOptionalDatesKeepExternalRowsAndStrictLocalCacheBoundary` へ分担し、有効cacheがあるURLのheader/data不適合でも外部全行を保存し、Strictのlocal JSON初回は復元せず拒否する。`StartBeatorajaTableUrlImport_CachedNonnumericMembershipsSurvivePersistenceAndReexport` は404の実gzip復元・DB・再出力と404 STATUSの対照を維持する。BMT readerのCompatible接続は静的確認し、現在転送しない日時fieldのためのtestは加えない。日時の文法・診断・通常取込/再取得は[保存仕様](storage-and-export.md#実装とテストの対応)へ分担する。 |
 | 順序と台帳・設定URL同期 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) |
 
 ## 関連資料

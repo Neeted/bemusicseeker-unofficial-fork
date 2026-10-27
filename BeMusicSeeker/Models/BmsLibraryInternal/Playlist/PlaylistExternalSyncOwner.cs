@@ -75,7 +75,7 @@ internal sealed class PlaylistExternalSyncOwner
     /// </summary>
     /// <param name="httpClient">外部データ取得に使う HTTP client。</param>
     /// <param name="recommendedTableOwner">おすすめ表の解決 owner。</param>
-    /// <param name="logWarning">失敗を記録する callback。</param>
+    /// <param name="logWarning">失敗または任意日時の不適合を記録するcallback。日時省略の成功診断では例外はnullです。</param>
     /// <param name="isPlaylistUrlCompletionEnabled">URL 補完の有効状態を返す callback。</param>
     /// <param name="schedulePlaylistUrlCompletionRefresh">URL 補完 refresh を予約する callback。</param>
     /// <param name="playlistAggregatePersistenceOwner">playlist 正本と active membership の owner。</param>
@@ -155,13 +155,14 @@ internal sealed class PlaylistExternalSyncOwner
         this.requiredReferenceApply = requiredReferenceApply;
     }
 
+    /// <summary>外部表を再取得として互換読取りします。初回取込みは要求元を明示する一括入口を使います。</summary>
     internal BMSTable LoadExternalTable(Uri pageUri, BMSTable baseTable = null)
     {
         return LoadExternalTableAsync(pageUri, baseTable).GetAwaiter().GetResult();
     }
 
     /// <summary>
-    /// 外部表の通信または内蔵表のローカル計算へ取消しを伝播し、完成した表を返します。
+    /// 外部表をCompatibleで再取得し、通信または内蔵表のローカル計算へ取消しを伝播して完成表を返します。
     /// </summary>
     /// <param name="pageUri">外部表の取得元。</param>
     /// <param name="baseTable">ローカル設定を引き継ぐ既存表。</param>
@@ -171,11 +172,11 @@ internal sealed class PlaylistExternalSyncOwner
         Uri pageUri,
         BMSTable baseTable = null,
         CancellationToken cancellationToken = default)
-        => LoadExternalTableCoreAsync(pageUri, baseTable, cancellationToken, null);
+        => LoadExternalTableCoreAsync(pageUri, baseTable, cancellationToken, null, initialImport: false);
 
     private async Task<BMSTable> LoadExternalTableCoreAsync(
         Uri pageUri, BMSTable baseTable, CancellationToken cancellationToken,
-        Lazy<Task<WalkureScoreInput>> scoreCapture)
+        Lazy<Task<WalkureScoreInput>> scoreCapture, bool initialImport)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (pageUri == null || !pageUri.IsAbsoluteUri)
@@ -197,6 +198,10 @@ internal sealed class PlaylistExternalSyncOwner
         try
         {
             (string input, bool isJson, Uri responseUri) = await GetExternalContentAsync(pageUri, cancellationToken, detectKind: true).ConfigureAwait(false);
+            // 初回の元指定と既存本文分類だけで確定し、redirectやdata_urlで方針を変えません。
+            PlaylistJsonDatePolicy datePolicy = initialImport && originalPageUri.IsFile && isJson
+                ? PlaylistJsonDatePolicy.Strict : PlaylistJsonDatePolicy.Compatible;
+            string operation = initialImport ? "initial_import" : "reload";
             string headerJson;
             if (isJson)
             {
@@ -222,7 +227,8 @@ internal sealed class PlaylistExternalSyncOwner
             {
                 bmsTable.compat_prefix = baseTable.compat_prefix;
             }
-            bmsTable.LoadHeaderJSON(headerJson, pageUri, headerUri, preserveLoadedCompatPrefix: baseTable != null);
+            bmsTable.LoadHeaderJSON(headerJson, datePolicy, pageUri, headerUri, preserveLoadedCompatPrefix: baseTable != null,
+                logDateWarning: logWarning, dateContext: "operation=" + operation + " source=" + FormatUriForLog(originalPageUri) + " uri=" + FormatUriForLog(responseHeaderUri));
             // 元pageは次の同期元として保ち、転送で意味が変わった相対headerだけを材料化する。
             if (!Uri.Equals(bmsTable.GetAbsoluteHeaderUrl(), resolvedHeaderUri))
             {
@@ -264,7 +270,8 @@ internal sealed class PlaylistExternalSyncOwner
             {
                 bmsTable.Data_url = responseDataUri;
             }
-            bmsTable.LoadDataJSON(dataJson);
+            bmsTable.LoadDataJSON(dataJson, datePolicy, logWarning,
+                "operation=" + operation + " source=" + FormatUriForLog(originalPageUri) + " uri=" + FormatUriForLog(responseDataUri));
             return bmsTable;
         }
         catch (Exception ex)
@@ -310,6 +317,7 @@ internal sealed class PlaylistExternalSyncOwner
     /// <param name="reason">ログと後処理へ渡す理由。</param>
     /// <param name="cancellationToken">取得待機・原入力読取り・計算を取り消すトークン。</param>
     /// <param name="schedulePlaylistUrlCompletionRefresh">独立したURL補完の更新を予約するか。</param>
+    /// <param name="initialImport">未登録元からの初回取込みか。設定継承やbaseTableの有無から推定せず、ローカルJSONだけStrictにします。</param>
     /// <returns>各対象の取得結果。個別の失敗を成功表へ置き換えません。</returns>
     internal async Task<List<PlaylistExternalTableLoadResult>> LoadExternalTableSnapshotsAsync(
         IEnumerable<BMSTable> targets,
@@ -317,7 +325,8 @@ internal sealed class PlaylistExternalSyncOwner
         Action<PlaylistSyncProgressSnapshot> progressCallback = null,
         string reason = "LoadExternalTableSnapshotsAsync",
         CancellationToken cancellationToken = default,
-        bool schedulePlaylistUrlCompletionRefresh = true)
+        bool schedulePlaylistUrlCompletionRefresh = true,
+        bool initialImport = false)
     {
         List<BMSTable> targetSnapshot = [.. (targets ?? [])
             .Where(table => table != null)
@@ -357,7 +366,7 @@ internal sealed class PlaylistExternalSyncOwner
                 BMSTable externalTable = await LoadExternalTableCoreAsync(
                     uri,
                     inheritLocalTableProperties ? table : null,
-                    cancellationToken, scoreCapture).ConfigureAwait(false);
+                    cancellationToken, scoreCapture, initialImport).ConfigureAwait(false);
                 results[index] = new PlaylistExternalTableLoadResult
                 {
                     SourceTable = table,
@@ -697,7 +706,7 @@ internal sealed class PlaylistExternalSyncOwner
         return RegistrateExternalTableAsync(pageUri).GetAwaiter().GetResult();
     }
 
-    /// <summary>URI入力の通信前に保存受付を判定し、実登録・管理出力・必要公開の終端まで待ちます。</summary>
+    /// <summary>URI入力の通信前に保存受付を判定し、初回取込みの日時方針で取得して実登録・管理出力・必要公開の終端まで待ちます。</summary>
     /// <param name="capability">同じ受理済み変更の生存局所権限。nullは通信前に新規受付を判定します。</param>
     internal async Task<BMSTable> RegistrateExternalTableAsync(
         Uri pageUri,
@@ -712,7 +721,7 @@ internal sealed class PlaylistExternalSyncOwner
             cancellationToken, capability).ConfigureAwait(false);
     }
 
-    /// <summary>元URIの文字列契約を保って取得し、準備済み入力の登録へ生存権限を転送します。保存後の失敗と確定事実を返します。</summary>
+    /// <summary>元URIの文字列契約と初回取込みの日時方針で取得し、準備済み入力の登録へ生存権限を転送します。ローカルJSON初回はStrictに保ち、保存後の失敗と確定事実を返します。</summary>
     /// <param name="capability">既に受理された同じ変更の局所権限。nullの新規要求は通信前に受付を判定します。</param>
     internal async Task<BMSTable> RegistrateExternalTableAsync(
         Uri pageUri,
@@ -732,7 +741,7 @@ internal sealed class PlaylistExternalSyncOwner
         }
         using LibraryFileMutationLease admission = mutationAdmission?.Invoke(capability);
         using LibraryFileMutationCapability authority = admission?.CreateMutationCapability();
-        BMSTable table = await LoadExternalTableAsync(pageUri, null, cancellationToken).ConfigureAwait(false);
+        BMSTable table = await LoadExternalTableCoreAsync(pageUri, null, cancellationToken, null, initialImport: true).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         return await RegistrateExternalTableAsync(
             table,
@@ -1067,7 +1076,7 @@ internal sealed class PlaylistExternalSyncOwner
             BMSTable reloadedTable;
             try
             {
-                reloadedTable = await LoadExternalTableCoreAsync(uri, table, cancellationToken, scoreCapture).ConfigureAwait(false);
+                reloadedTable = await LoadExternalTableCoreAsync(uri, table, cancellationToken, scoreCapture, initialImport: false).ConfigureAwait(false);
             }
             catch (Exception sourceFailure) when (uri.Scheme != "bmseeker"
                 && !(sourceFailure is OperationCanceledException && cancellationToken.IsCancellationRequested)

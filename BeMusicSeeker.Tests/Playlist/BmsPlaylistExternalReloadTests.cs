@@ -29,6 +29,84 @@ public sealed class BmsPlaylistExternalReloadTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>不適合日時のhash初期化では日時を保ち、同原文を再保存せず、既知header/data原文差だけ更新日時を進めます。旧adddate/memoは実mergeと新DBで保持します。</summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ReloadPlaylistTargetsAsync_InvalidDatesKeepLocalValuesAndSkipUnchangedWrites()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistExternalReloadTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var tasks = new ConcurrentQueue<Task>();
+        TestBmsPlaylist? playlist = null;
+        Exception? primary = null;
+        try
+        {
+            string path = CreateTempSongDbPath(directory); PlaylistPersistenceRepository.EnsureSchema(path);
+            string headerPath = Path.Combine(directory, "header.json"), dataPath = Path.Combine(directory, "data.json");
+            string header = "{\"name\":\"Hash dates\",\"last_update\":\"bad A\",\"data_url\":\"data.json\",\"unknown\":19}";
+            const string data = "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Keep\",\"adddate\":1700000000,\"unknown\":23}]";
+            File.WriteAllText(headerPath, header); File.WriteAllText(dataPath, data);
+            testSettings.EnablePlaylistUrlCompletion = false; testSettings.OperationModeLR2DB = false;
+            playlist = new TestBmsPlaylist(path, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, settings: testSettings)
+            { BMSTables = [] };
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { tasks.Enqueue(Task.Run(work)); return true; };
+            var seed = new BMSTable();
+            seed.LoadHeaderJSON(header, PlaylistJsonDatePolicy.Compatible, __header_url: new Uri(headerPath));
+            seed.LoadDataJSON(data, PlaylistJsonDatePolicy.Compatible);
+            seed.playlist_id = 7920; seed.header_sha256 = null; seed.data_sha256 = null; seed.is_bmt_output = false;
+            DateTime originalUpdate = new(2020, 2, 3, 4, 5, 6), originalAdd = new(2019, 1, 2, 3, 4, 5);
+            seed.last_update = originalUpdate; seed.entries.Single().adddate = originalAdd; seed.entries.Single().memo = "Keep memo";
+            playlist.BMSTables.Add(seed); playlist.CommitBMSTableWithEntriesToDB(seed);
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult initialized = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([seed]);
+            initialized.ThrowIfFailed();
+            Assert.IsFalse(initialized.Single().Updated); Assert.IsTrue(initialized.Single().StatePersisted);
+            BMSTable current = playlist.BMSTables.Single();
+            Assert.AreEqual(originalUpdate, current.last_update);
+            Assert.IsFalse(string.IsNullOrEmpty(current.header_sha256)); Assert.IsFalse(string.IsNullOrEmpty(current.data_sha256));
+            using (var db = new LR2SongDBExtended(path))
+            {
+                db.Execute("CREATE TRIGGER date_no_header_write BEFORE INSERT ON playlist WHEN NEW.playlist_id = 7920 BEGIN SELECT RAISE(ABORT, 'unchanged header write'); END;");
+                db.Execute("CREATE TRIGGER date_no_entry_write BEFORE INSERT ON playlist_entry WHEN NEW.playlist_id = 7920 BEGIN SELECT RAISE(ABORT, 'unchanged entry write'); END;");
+                db.Execute("CREATE TRIGGER date_no_header_update BEFORE UPDATE ON playlist WHEN OLD.playlist_id = 7920 BEGIN SELECT RAISE(ABORT, 'unchanged header update'); END;");
+                db.Execute("CREATE TRIGGER date_no_entry_update BEFORE UPDATE ON playlist_entry WHEN OLD.playlist_id = 7920 BEGIN SELECT RAISE(ABORT, 'unchanged entry update'); END;");
+                db.Execute("CREATE TRIGGER date_no_header_delete BEFORE DELETE ON playlist WHEN OLD.playlist_id = 7920 BEGIN SELECT RAISE(ABORT, 'unchanged header delete'); END;");
+                db.Execute("CREATE TRIGGER date_no_entry_delete BEFORE DELETE ON playlist_entry WHEN OLD.playlist_id = 7920 BEGIN SELECT RAISE(ABORT, 'unchanged entry delete'); END;");
+            }
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult unchanged = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([current]);
+            unchanged.ThrowIfFailed(); Assert.IsFalse(unchanged.Single().StatePersisted); Assert.IsFalse(unchanged.Single().Updated);
+            using (var db = new LR2SongDBExtended(path))
+            {
+                foreach (string name in new[] { "date_no_header_write", "date_no_entry_write", "date_no_header_update", "date_no_entry_update", "date_no_header_delete", "date_no_entry_delete" }) { db.Execute("DROP TRIGGER " + name); }
+            }
+            header = header.Replace("bad A", "bad B", StringComparison.Ordinal); File.WriteAllText(headerPath, header);
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult changedHeader = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([playlist.BMSTables.Single()]);
+            changedHeader.ThrowIfFailed(); Assert.IsTrue(changedHeader.Single().Updated);
+            current = playlist.BMSTables.Single(); Assert.IsTrue(current.last_update > originalUpdate);
+            // dataの空白も原文hashの差として残します。日時キーや未知キーを削りません。
+            File.WriteAllText(dataPath, " \n" + data);
+            DateTime beforeDataReload = DateTime.Now;
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult changedData = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([current]);
+            changedData.ThrowIfFailed(); Assert.IsTrue(changedData.Single().Updated);
+            current = playlist.BMSTables.Single(); Assert.IsTrue(current.last_update >= beforeDataReload && current.last_update <= DateTime.Now);
+            Assert.AreEqual(originalAdd, current.entries.Single().adddate); Assert.AreEqual("Keep memo", current.entries.Single().memo);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(path).OpenSongDbReadOnly();
+            BMSTable persisted = verify.Table<BMSTable>().Single(); BMSTableEntry entry = verify.Table<BMSTableEntry>().Single();
+            Assert.AreEqual(current.last_update, persisted.last_update); Assert.AreEqual(originalAdd, entry.adddate); Assert.AreEqual("Keep memo", entry.memo);
+        }
+        catch (Exception error) { primary = error; throw; }
+        finally
+        {
+            var failures = new List<Exception>();
+            async Task Clean(Func<Task> work) { try { await work(); } catch (Exception error) { failures.Add(error); } }
+            if (playlist != null) { await Clean(playlist.WaitForPlaylistMutationIdleAsync); }
+            while (tasks.TryDequeue(out Task? task)) { await Clean(() => task); }
+            playlist?.RequestShutdown("date-hash-reload");
+            await Clean(() => { Directory.Delete(directory, recursive: true); return Task.CompletedTask; });
+            if (failures.Count > 0) { if (primary == null) { throw new AggregateException(failures); } Console.WriteLine(new AggregateException(failures)); }
+        }
+    }
+
     /// <summary>同本文の実data転送A→Bを既存BMT/台帳を残す通常reloadへ通し、相対URL1/2をDBと実gzipへ反映します。次の同入力通常出力は投影/writeを省略します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]

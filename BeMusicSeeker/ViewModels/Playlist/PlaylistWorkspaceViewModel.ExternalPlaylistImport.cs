@@ -195,7 +195,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     },
                     "external_playlist_import",
                     cancellationToken,
-                    schedulePlaylistUrlCompletionRefresh: false).ConfigureAwait(false);
+                    schedulePlaylistUrlCompletionRefresh: false, initialImport: true).ConfigureAwait(false);
                 ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
 
                 var itemBySourceTable = loadItems.ToDictionary(item => item.SourceTable);

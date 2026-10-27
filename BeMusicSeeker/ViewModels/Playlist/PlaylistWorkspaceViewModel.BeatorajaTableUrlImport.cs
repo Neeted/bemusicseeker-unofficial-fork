@@ -225,7 +225,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                             BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_load_tables),
                         "beatoraja_table_url_import",
                         CancellationToken.None,
-                        schedulePlaylistUrlCompletionRefresh: false).ConfigureAwait(false);
+                        schedulePlaylistUrlCompletionRefresh: false, initialImport: true).ConfigureAwait(false);
                     var itemBySourceTable = loadItems.ToDictionary(item => item.SourceTable);
                     completedCount = totalCount;
                     if (loadResults.Any(result => result?.Succeeded != true))

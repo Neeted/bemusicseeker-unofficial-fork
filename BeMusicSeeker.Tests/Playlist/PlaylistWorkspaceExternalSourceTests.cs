@@ -437,9 +437,8 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     }
 
     /// <summary>
-    /// 保証：混合6対象のURI・Kindを元入力順で照合し、登録済みの参照表示をモデルから確認する。
+    /// 保証：混合4対象のURI・Kindを元入力順で照合し、登録済みの参照表示をモデルから確認する。
     /// 登録確定・IDとentry所属、既存表の非取得・内容、残る二表・管理台帳・config他キー・管理外BMTを保つ。
-    /// last_update/adddate不適合の二表は有効な実gzip BMTがあっても復元せず、先行正常行も保存しません。summaryに訂正可能な日時通知を渡します。
     /// 通信中Busyと要求元付き進捗を観測し、実受付Taskとconsumerを合流してからHTTP・tempを解放する。
     /// </summary>
     [TestMethod]
@@ -453,8 +452,6 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         SingleRequestHttpServer? secondServer = null;
         SingleRequestHttpServer? unmanagedServer = null;
         SingleRequestHttpServer? existingServer = null;
-        SingleRequestHttpServer? headerDateServer = null;
-        SingleRequestHttpServer? dataDateServer = null;
         PlaylistWorkspaceViewModel? workspace = null;
         TestBmsPlaylist? acceptedPlaylist = null;
         TestBmsLibrary? acceptedLibrary = null;
@@ -475,23 +472,6 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 "{\"name\":\"New A\",\"symbol\":\"A\",\"compat_prefix\":\"\",\"output_dir\":\"NewA\",\"data_url\":\"" + new Uri(Path.Combine(root, "second-data.json")).AbsoluteUri + "\"}"));
             unmanagedServer = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes("not a difficulty table"));
             existingServer = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes("existing table must not be fetched"));
-            File.WriteAllText(Path.Combine(root, "invalid-date-data.json"), new JArray(
-                new JObject { ["title"] = "Invalid D first valid row", ["md5"] = new string('f', 32), ["adddate"] = "2024-01-02" },
-                new JObject { ["title"] = "Invalid D rejected row", ["md5"] = new string('9', 32), ["adddate"] = "decorated [2024/1/2]" }).ToString());
-            headerDateServer = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes(new JObject
-            {
-                ["name"] = "Invalid H",
-                ["last_update"] = "2024/12/3100",
-                ["data_url"] = new Uri(Path.Combine(root, "data.json")).AbsoluteUri
-            }.ToString()));
-            dataDateServer = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes(new JObject
-            {
-                ["name"] = "Invalid D",
-                ["last_update"] = "2024-01-02",
-                ["data_url"] = new Uri(Path.Combine(root, "invalid-date-data.json")).AbsoluteUri
-            }.ToString()));
-            string headerDateUri = headerDateServer.Address.AbsoluteUri;
-            string dataDateUri = dataDateServer.Address.AbsoluteUri;
             string inputUri = server.Address.AbsoluteUri;
             string secondUri = secondServer.Address.AbsoluteUri;
             string unmanagedUri = unmanagedServer.Address.AbsoluteUri;
@@ -532,26 +512,16 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 BMSTables = new ObservableCollection<BMSTable>(existing)
             };
             acceptedPlaylist = playlist;
-            playlist.CommitBMSTablesWithEntriesToDB(existing);
-            await playlist.BmtOutput.ExportAllAsync("new-table-import-fixture");
-            foreach ((string url, string name, char digit) in new[] { (headerDateUri, "Cached H", '7'), (dataDateUri, "Cached D", '8') })
-            {
-                WriteBmtJson(BeatorajaBmtTableImportService.GetCachedTablePath(output, url), new JObject
-                {
-                    ["url"] = url,
-                    ["name"] = name,
-                    ["tag"] = "C",
-                    ["folder"] = new JArray(new JObject { ["name"] = "1", ["songs"] = new JArray(new JObject { ["title"] = name + " song", ["md5"] = new string(digit, 32) }) })
-                });
-            }
-            var configDocument = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config));
-            configDocument["tableURL"] = new Newtonsoft.Json.Linq.JArray(inputUri, existingUri, unmanagedUri, headerDateUri, dataDateUri, secondUri);
-            File.WriteAllText(config, configDocument.ToString());
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
             {
                 auxiliaryWork.Enqueue(Task.Run(work));
                 return true;
             };
+            playlist.CommitBMSTablesWithEntriesToDB(existing);
+            await playlist.BmtOutput.ExportAllAsync("new-table-import-fixture");
+            var configDocument = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config));
+            configDocument["tableURL"] = new Newtonsoft.Json.Linq.JArray(inputUri, existingUri, unmanagedUri, secondUri);
+            File.WriteAllText(config, configDocument.ToString());
             var library = new TestBmsLibrary(songDbPath);
             acceptedLibrary = library;
             workspace = CreateDetailWorkspace(out _,
@@ -586,28 +556,15 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 $"取込み結果: {outcome.Kind}, URI={outcome.Uri}, 表名={outcome.TableName}, 例外={outcome.Exception}"));
             Assert.AreEqual(2, summary.ImportedCount, diagnostics);
             Assert.AreEqual(1, summary.ExistingCount, diagnostics);
-            Assert.AreEqual(3, summary.FailedCount, diagnostics);
+            Assert.AreEqual(1, summary.FailedCount, diagnostics);
             Assert.AreEqual(0, summary.RestoredFromBmtCount, diagnostics);
             Assert.AreEqual(0, summary.WarningCount, diagnostics);
-            Assert.AreEqual(6, summary.Outcomes.Count, diagnostics);
-            CollectionAssert.AreEqual(new[] { inputUri, existingUri, unmanagedUri, headerDateUri, dataDateUri, secondUri },
+            Assert.AreEqual(4, summary.Outcomes.Count, diagnostics);
+            CollectionAssert.AreEqual(new[] { inputUri, existingUri, unmanagedUri, secondUri },
                 summary.Outcomes.Select(outcome => outcome.Uri.AbsoluteUri).ToArray());
             CollectionAssert.AreEqual(new[] { BeatorajaTableUrlImportOutcomeKind.Imported, BeatorajaTableUrlImportOutcomeKind.Existing,
-                BeatorajaTableUrlImportOutcomeKind.Failed, BeatorajaTableUrlImportOutcomeKind.Failed,
                 BeatorajaTableUrlImportOutcomeKind.Failed, BeatorajaTableUrlImportOutcomeKind.Imported },
                 summary.Outcomes.Select(outcome => outcome.Kind).ToArray(), diagnostics);
-            foreach ((string url, string field) in new[] { (headerDateUri, "last_update"), (dataDateUri, "adddate") })
-            {
-                Exception? failure = summary.Outcomes.Single(outcome => outcome.Uri.AbsoluteUri == url).Exception;
-                Assert.IsNotNull(failure);
-                if (field == "last_update") { Assert.IsInstanceOfType<PlaylistHeaderParseException>(failure); }
-                else { Assert.IsInstanceOfType<PlaylistDataParseException>(failure); }
-                Assert.IsInstanceOfType<PlaylistJsonDateException>(failure.InnerException);
-                // MainWindowのsummary sinkが表示するトップレベルMessageへ訂正案内が届くことを確認します。
-                StringAssert.Contains(failure.Message, string.Format(BeMusicSeeker.Properties.Resources.Error_PlaylistJsonDateFormat, field));
-            }
-            Assert.IsFalse(playlist.BMSTables.Any(table => table.name is "Invalid H" or "Invalid D" or "Cached H" or "Cached D"));
-            Assert.IsFalse(playlist.BMSTables.SelectMany(table => table.entries).Any(entry => entry.md5 == new string('f', 32) || entry.md5 == new string('9', 32) || entry.md5 == new string('7', 32) || entry.md5 == new string('8', 32)));
             Assert.IsFalse(existingServer.HeadersSent.Task.IsCompleted, "既存一致のURLを再取得しません。");
             BeatorajaTableUrlImportOutcome imported = summary.Outcomes.First();
             Assert.AreEqual(BeatorajaTableUrlImportOutcomeKind.Imported, imported.Kind, diagnostics);
@@ -653,12 +610,10 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 List<BmtTableExportService.ManagedTableUrlEntry> managed = BmtTableExportService.ReadManagedTableUrls(output);
                 CollectionAssert.AreEquivalent(headers.Select(table => table.playlist_id.ToString()).ToArray(),
                     managed.Select(item => item.PlaylistIdentity).ToArray());
-                Assert.IsFalse(managed.Any(item => item.Url == unmanagedUri || item.Url == headerDateUri || item.Url == dataDateUri));
-                Assert.IsFalse(headers.Any(table => table.name is "Invalid H" or "Invalid D" or "Cached H" or "Cached D"));
-                Assert.IsFalse(verify.Table<BMSTableEntry>().Any(entry => entry.md5 == new string('f', 32) || entry.md5 == new string('9', 32) || entry.md5 == new string('7', 32) || entry.md5 == new string('8', 32)));
+                Assert.IsFalse(managed.Any(item => item.Url == unmanagedUri));
             }
             CollectionAssert.AreEqual(expectedOrder, workspace.PlaylistSummaryView.Select(row => row.TableRef.name).ToArray());
-            CollectionAssert.AreEqual(new[] { unmanagedUri, headerDateUri, dataDateUri, inputUri, existingUri, secondUri, "https://example.com/remaining1", "https://example.com/remaining2" }, BeatorajaConfigService.ReadTableUrls(beatorajaRoot).ToArray());
+            CollectionAssert.AreEqual(new[] { unmanagedUri, inputUri, existingUri, secondUri, "https://example.com/remaining1", "https://example.com/remaining2" }, BeatorajaConfigService.ReadTableUrls(beatorajaRoot).ToArray());
             Assert.AreEqual(37, (int?)Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config))["other"]?["volume"]);
             CollectionAssert.AreEqual(unmanagedBytes, File.ReadAllBytes(unmanagedBmt));
             PlaylistSyncProgressSnapshot[] notifications = progress.ToArray();
@@ -679,8 +634,6 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             secondServer?.ReleaseBody.TrySetResult();
             unmanagedServer?.ReleaseBody.TrySetResult();
             existingServer?.ReleaseBody.TrySetResult();
-            headerDateServer?.ReleaseBody.TrySetResult();
-            dataDateServer?.ReleaseBody.TrySetResult();
             var cleanupFailures = new List<Exception>();
             async Task CleanupAsync(Func<Task> action)
             {
@@ -697,7 +650,12 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                         acceptedPlaylist.WaitForPlaylistMutationIdleAsync(), "new table import cleanup summary"));
                 }
             }
-            if (workspace != null) { await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync); }
+            if (workspace != null)
+            {
+                await CleanupAsync(workspace.WaitForDetailBuildIdleAsync);
+                await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
+                await CleanupAsync(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+            }
             while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
             await CleanupAsync(() => { workspace?.RefreshPlaylistTreeTables(null); return Task.CompletedTask; });
             while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
@@ -707,8 +665,6 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             if (secondServer != null) { await CleanupAsync(async () => await secondServer.DisposeAsync()); }
             if (unmanagedServer != null) { await CleanupAsync(async () => await unmanagedServer.DisposeAsync()); }
             if (existingServer != null) { await CleanupAsync(async () => await existingServer.DisposeAsync()); }
-            if (headerDateServer != null) { await CleanupAsync(async () => await headerDateServer.DisposeAsync()); }
-            if (dataDateServer != null) { await CleanupAsync(async () => await dataDateServer.DisposeAsync()); }
             await CleanupAsync(() => { Directory.Delete(root, recursive: true); return Task.CompletedTask; });
             if (cleanupFailures.Count > 0)
             {
@@ -1327,7 +1283,10 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             if (workspace != null)
             {
                 workspace.ExternalPlaylistImportQueueSummaryReady -= summaryHandler;
+                await CleanupAsync(workspace.WaitForDetailBuildIdleAsync);
                 await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
+                await CleanupAsync(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+                await CleanupAsync(() => { workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
             }
             while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
             await CleanupAsync(() => { playlist?.RequestShutdown("adddate-import-test"); return Task.CompletedTask; });
@@ -1788,6 +1747,190 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         Assert.IsNotNull(catalog.Children[0].Children[1].Children[0].url);
         Assert.IsNotNull(catalog.Children[0].Children[2].Children[0].url);
         Assert.IsNull(catalog.Children[0].Children[0].Children);
+    }
+
+    /// <summary>通常初回入口でURL転送後のheader/dataを互換読取りし、local JSONのheader/dataはHTTP参照でもStrictに保ちます。local HTMLの分類も本文で決めます。</summary>
+    [DataTestMethod]
+    [DataRow("url")]
+    [DataRow("local-header")]
+    [DataRow("local-data")]
+    [DataRow("local-html")]
+    public async Task TryStartPlaylistImport_DatePolicyFollowsOriginalSourceAndBodyKind(string sourceKind)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceExternalSourceTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var tasks = new ConcurrentQueue<Task>();
+        var servers = new List<SingleRequestHttpServer>();
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        Exception? primary = null;
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("en-US", useUserOverride: false);
+            string path = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(path);
+            const string rows = "[{\"title\":\"Keep first\",\"adddate\":\"2026-10-19T03:04:05.0000001\"},{\"title\":\"Keep invalid\",\"artist\":\"Other\",\"adddate\":\"12/11/2025\"}]";
+            var data = new SingleRequestHttpServer(Encoding.UTF8.GetBytes(rows)); servers.Add(data);
+            string headerText = new JObject { ["name"] = "Date policy", ["symbol"] = "D", ["last_update"] = sourceKind == "local-data" ? "2026-10-19" : "2026.10.19", ["data_url"] = data.Address.AbsoluteUri }.ToString();
+            Uri source;
+            if (sourceKind == "url")
+            {
+                var header = new SingleRequestHttpServer(Encoding.UTF8.GetBytes(headerText)); servers.Add(header);
+                var redirect = new SingleRequestHttpServer([], responseStatusCode: HttpStatusCode.Redirect,
+                    additionalResponseHeaders: "Location: " + header.Address.AbsoluteUri + "\r\n"); servers.Add(redirect);
+                source = redirect.Address;
+            }
+            else
+            {
+                string header = Path.Combine(directory, "header.json"); File.WriteAllText(header, headerText);
+                source = new Uri(header);
+                if (sourceKind == "local-html")
+                {
+                    string html = Path.Combine(directory, "source.json");
+                    File.WriteAllText(html, "<html><head><meta name=\"bmstable\" content=\"header.json\"></head></html>");
+                    source = new Uri(html);
+                }
+            }
+            playlist = new TestBmsPlaylist(path, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot())
+            { BMSTables = [] };
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { tasks.Enqueue(Task.Run(work)); return true; };
+            library = new TestBmsLibrary(path);
+            workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
+            ExternalPlaylistImportQueueSummary? summary = null;
+            workspace.ExternalPlaylistImportQueueSummaryReady += (_, args) => summary = args.Summary;
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+            DateTime before = DateTime.Now;
+            Assert.AreEqual(PlaylistImportStartStatus.Started, workspace.TryStartPlaylistImport([source]).Status);
+            await playlist.WaitForPlaylistMutationIdleAsync();
+            Assert.IsNotNull(summary);
+            bool strict = sourceKind is "local-header" or "local-data";
+            Assert.AreEqual(strict ? 0 : 1, summary.ImportedCount);
+            Assert.AreEqual(strict ? 1 : 0, summary.FailedCount);
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(path).OpenSongDbReadOnly();
+            if (strict)
+            {
+                Assert.AreEqual(0, playlist.BMSTables.Count);
+                Assert.AreEqual(0, db.Table<BMSTable>().Count());
+                Assert.AreEqual(0, db.Table<BMSTableEntry>().Count());
+                Exception? error = summary.Outcomes.Single().Exception;
+                Assert.IsNotNull(error);
+                Assert.IsInstanceOfType<PlaylistJsonDateException>(error.InnerException);
+                StringAssert.Contains(error.Message, string.Format(BeMusicSeeker.Properties.Resources.Error_PlaylistJsonDateFormat, sourceKind == "local-header" ? "last_update" : "adddate"));
+                Assert.AreEqual(sourceKind == "local-header" ? 0 : 1, data.RequestTargets.Length);
+            }
+            else
+            {
+                BMSTable saved = db.Table<BMSTable>().Single();
+                Assert.AreEqual(new DateTime(2026, 10, 19), saved.last_update);
+                BMSTableEntry[] entries = db.Table<BMSTableEntry>().OrderBy(entry => entry.title).ToArray();
+                Assert.AreEqual(2, entries.Length);
+                Assert.AreEqual(new DateTime(2026, 10, 19, 3, 4, 5).AddTicks(1), entries.Single(entry => entry.title == "Keep first").adddate);
+                BMSTableEntry invalid = entries.Single(entry => entry.title == "Keep invalid");
+                Assert.AreEqual("Other", invalid.artist);
+                Assert.IsTrue(invalid.adddate >= before && invalid.adddate <= DateTime.Now);
+                Assert.IsTrue(workspace.CapturePlaylistSyncStatusSnapshot().Values.All(status => !status.HasFailureStatus));
+            }
+
+        }
+        catch (Exception error) { primary = error; throw; }
+        finally
+        {
+            var failures = new List<Exception>();
+            async Task Clean(Func<Task> work) { try { await work(); } catch (Exception error) { failures.Add(error); } }
+            foreach (SingleRequestHttpServer server in servers) { server.ReleaseBody.TrySetResult(); server.ReleaseBodyPrefix.TrySetResult(); }
+            if (playlist != null) { await Clean(playlist.WaitForPlaylistMutationIdleAsync); }
+            if (workspace != null)
+            {
+                await Clean(workspace.WaitForDetailBuildIdleAsync); await Clean(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
+                await Clean(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+                await Clean(() => { workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+            }
+            while (tasks.TryDequeue(out Task? task)) { await Clean(() => task); }
+            playlist?.RequestShutdown("date-policy-import"); library?.RequestShutdown("date-policy-import");
+            foreach (SingleRequestHttpServer server in servers) { await Clean(async () => await server.DisposeAsync()); }
+            await Clean(() => { Directory.Delete(directory, recursive: true); return Task.CompletedTask; });
+            CultureInfo.CurrentCulture = previousCulture;
+            if (failures.Count > 0) { if (primary == null) { throw new AggregateException(failures); } Console.WriteLine(new AggregateException(failures)); }
+        }
+    }
+
+    /// <summary>Table URLのheader/data不適合は新しい外部表の全行を採用し、有効cacheへ戻りません。local JSON初回はcacheがあってもStrict拒否を維持します。</summary>
+    [TestMethod]
+    public async Task StartBeatorajaTableUrlImport_InvalidOptionalDatesKeepExternalRowsAndStrictLocalCacheBoundary()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceExternalSourceTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsPlaylist? playlist = null; TestBmsLibrary? library = null; PlaylistWorkspaceViewModel? workspace = null;
+        var tasks = new ConcurrentQueue<Task>();
+        var servers = new List<SingleRequestHttpServer>();
+        Task operation = Task.CompletedTask;
+        Exception? primary = null;
+        try
+        {
+            string path = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(path);
+            string data = Path.Combine(directory, "data.json");
+            File.WriteAllText(data, "[{\"title\":\"Keep valid\",\"adddate\":\"2026-10-19\"},{\"title\":\"Keep invalid\",\"adddate\":1700000000}]");
+            var header = new SingleRequestHttpServer(Encoding.UTF8.GetBytes(new JObject { ["name"] = "External dates", ["last_update"] = "not a date", ["data_url"] = new Uri(data).AbsoluteUri }.ToString()));
+            servers.Add(header);
+            string local = Path.Combine(directory, "local.json");
+            File.WriteAllText(local, new JObject { ["name"] = "Strict local", ["last_update"] = "not a date", ["data_url"] = new Uri(data).AbsoluteUri }.ToString());
+            string[] urls = [header.Address.AbsoluteUri, new Uri(local).AbsoluteUri];
+            string beatoraja = Path.Combine(directory, "beatoraja"), output = Path.Combine(beatoraja, "table");
+            Directory.CreateDirectory(output); File.WriteAllBytes(Path.Combine(beatoraja, "beatoraja.jar"), []);
+            File.WriteAllText(Path.Combine(beatoraja, "config_sys.json"), new JObject { ["tablepath"] = "table", ["tableURL"] = new JArray(urls) }.ToString());
+            foreach (string url in urls)
+            {
+                WriteBmtJson(BeatorajaBmtTableImportService.GetCachedTablePath(output, url), new JObject
+                { ["url"] = url, ["name"] = "Stale cache", ["folder"] = new JArray(new JObject { ["name"] = "1", ["songs"] = new JArray(new JObject { ["title"] = "stale", ["md5"] = new string('a', 32) }) }) });
+            }
+            var options = new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaRootPath = beatoraja, RegisterBeatorajaBmtUrls = true };
+            playlist = new TestBmsPlaylist(path, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => options,
+                () => new CustomFolderOutputSettingsSnapshot(), BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(path, CustomFolderOutputPhysicalSurface.Empty))
+            { BMSTables = [] };
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { tasks.Enqueue(Task.Run(work)); return true; };
+            library = new TestBmsLibrary(path);
+            workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
+                playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables));
+            workspace.RefreshPlaylistTreeTables(playlist, library);
+            workspace.BeatorajaTableUrlImportConfirmationRequested += (_, args) => args.Confirmed = true;
+            BeatorajaTableUrlImportSummary? summary = null;
+            workspace.BeatorajaTableUrlImportSummaryReady += (_, args) => summary = args.Summary;
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+            operation = workspace.StartBeatorajaTableUrlImport(beatoraja); await operation;
+            Assert.IsNotNull(summary);
+            Assert.AreEqual(1, summary.ImportedCount); Assert.AreEqual(1, summary.FailedCount);
+            Assert.AreEqual(0, summary.RestoredFromBmtCount); Assert.AreEqual(0, summary.WarningCount);
+            CollectionAssert.AreEqual(new[] { BeatorajaTableUrlImportOutcomeKind.Imported, BeatorajaTableUrlImportOutcomeKind.Failed }, summary.Outcomes.Select(item => item.Kind).ToArray());
+            Assert.IsInstanceOfType<PlaylistHeaderParseException>(summary.Outcomes[1].Exception);
+            Assert.IsInstanceOfType<PlaylistJsonDateException>(summary.Outcomes[1].Exception?.InnerException);
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(path).OpenSongDbReadOnly();
+            Assert.AreEqual("External dates", db.Table<BMSTable>().Single().name);
+            CollectionAssert.AreEquivalent(new[] { "Keep valid", "Keep invalid" }, db.Table<BMSTableEntry>().Select(entry => entry.title).ToArray());
+            Assert.IsFalse(workspace.CapturePlaylistSyncStatusSnapshot()["id:" + playlist.BMSTables.Single().playlist_id].HasFailureStatus);
+        }
+        catch (Exception error) { primary = error; throw; }
+        finally
+        {
+            var failures = new List<Exception>();
+            async Task Clean(Func<Task> work) { try { await work(); } catch (Exception error) { failures.Add(error); } }
+            foreach (SingleRequestHttpServer server in servers) { server.ReleaseBody.TrySetResult(); server.ReleaseBodyPrefix.TrySetResult(); }
+            await Clean(() => operation);
+            if (playlist != null) { await Clean(playlist.WaitForPlaylistMutationIdleAsync); }
+            if (workspace != null)
+            {
+                await Clean(workspace.WaitForDetailBuildIdleAsync); await Clean(workspace.WaitForPlaylistSummaryDataBuildIdleAsync); await Clean(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+                await Clean(() => { workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+            }
+            while (tasks.TryDequeue(out Task? task)) { await Clean(() => task); }
+            playlist?.RequestShutdown("date-table-url"); library?.RequestShutdown("date-table-url");
+            foreach (SingleRequestHttpServer server in servers) { await Clean(async () => await server.DisposeAsync()); }
+            await Clean(() => { Directory.Delete(directory, recursive: true); return Task.CompletedTask; });
+            if (failures.Count > 0) { if (primary == null) { throw new AggregateException(failures); } Console.WriteLine(new AggregateException(failures)); }
+        }
     }
 
 }

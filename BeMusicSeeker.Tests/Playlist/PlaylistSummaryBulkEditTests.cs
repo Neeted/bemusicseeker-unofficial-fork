@@ -34,6 +34,72 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistSummaryBulkEditTests
 {
+    /// <summary>登録済みfileの設定非継承取得もCompatibleで名前・記号を初期化し、既存entry/adddate/memo・日時・prefix・出力先を保ちます。</summary>
+    [TestMethod]
+    public async Task BulkExternalProperties_InvalidOptionalDatesStillInitializeNameAndSymbol()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistSummaryBulkEditTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var tasks = new ConcurrentQueue<Task>();
+        TestBmsPlaylist? playlist = null; TestBmsLibrary? library = null; PlaylistWorkspaceViewModel? workspace = null;
+        Exception? primary = null;
+        try
+        {
+            string path = CreateTempSongDbPath(directory); PlaylistPersistenceRepository.EnsureSchema(path);
+            string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
+            File.WriteAllText(header, "{\"name\":\"External name\",\"symbol\":\"EX\",\"last_update\":\"invalid header\",\"data_url\":\"data.json\"}");
+            File.WriteAllText(data, "[{\"title\":\"external row\",\"adddate\":1700000000}]");
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => { values.OperationModeLR2DB = false; values.EnablePlaylistUrlCompletion = false; });
+            playlist = new TestBmsPlaylist(path, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, settings: settings)
+            { BMSTables = [] };
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { tasks.Enqueue(Task.Run(work)); return true; };
+            library = new TestBmsLibrary(path, settings: settings);
+            DateTime update = new(2020, 1, 2), added = new(2019, 3, 4);
+            var entry = new BMSTableEntry { title = "local row", adddate = added, memo = "local memo" };
+            var table = new BMSTable
+            {
+                playlist_id = 7930,
+                name = "Manual name",
+                symbol = "M",
+                Header_url = new Uri(header),
+                Data_url = new Uri(data),
+                compat_prefix = "P",
+                Output_dir = "Fixed",
+                last_update = update,
+                is_bmt_output = false,
+                entries = [entry]
+            };
+            playlist.BMSTables.Add(table); playlist.CommitBMSTableWithEntriesToDB(table);
+            workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
+            await workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync([new PlaylistSummaryRow { TableRef = table }],
+                new PlaylistWorkspaceViewModel.PlaylistSummaryExternalPropertyInitializationOptions { Name = true, Symbol = true });
+            Assert.AreEqual("External name", table.name); Assert.AreEqual("EX", table.symbol);
+            Assert.AreSame(entry, table.entries.Single()); Assert.AreEqual(added, entry.adddate); Assert.AreEqual("local memo", entry.memo);
+            Assert.AreEqual(update, table.last_update); Assert.AreEqual("P", table.compat_prefix); Assert.AreEqual("Fixed", table.Output_dir);
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(path).OpenSongDbReadOnly();
+            BMSTable saved = db.Table<BMSTable>().Single(); BMSTableEntry savedEntry = db.Table<BMSTableEntry>().Single();
+            Assert.AreEqual("External name", saved.name); Assert.AreEqual("EX", saved.symbol); Assert.AreEqual(update, saved.last_update);
+            Assert.AreEqual(added, savedEntry.adddate); Assert.AreEqual("local memo", savedEntry.memo); Assert.AreEqual("local row", savedEntry.title);
+        }
+        catch (Exception error) { primary = error; throw; }
+        finally
+        {
+            var failures = new List<Exception>();
+            async Task Clean(Func<Task> work) { try { await work(); } catch (Exception error) { failures.Add(error); } }
+            if (playlist != null) { await Clean(playlist.WaitForPlaylistMutationIdleAsync); }
+            if (workspace != null)
+            {
+                await Clean(workspace.WaitForDetailBuildIdleAsync); await Clean(workspace.WaitForPlaylistSummaryDataBuildIdleAsync); await Clean(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+                await Clean(() => { workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+            }
+            while (tasks.TryDequeue(out Task? task)) { await Clean(() => task); }
+            playlist?.RequestShutdown("date-property-initialization"); library?.RequestShutdown("date-property-initialization");
+            await Clean(() => { Directory.Delete(directory, recursive: true); return Task.CompletedTask; });
+            if (failures.Count > 0) { if (primary == null) { throw new AggregateException(failures); } Console.WriteLine(new AggregateException(failures)); }
+        }
+    }
+
     /// <summary>六つの実反映入口で全件退役と無変更対象を含む一部退役を拒否し、実DB・管理BMT・生存正本と入力を保持します。別storeはBMTで代表確認し、同ID別参照は実再同期ケースへ分担します。通信前拒否は外部headerを削除して識別します。</summary>
     [DataTestMethod]
     [DataRow("bmt")]

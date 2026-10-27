@@ -380,8 +380,18 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         return entry;
     }
 
-    /// <summary>外部表の行を読み込みます。採用する行の追加日は固定文法で全体解析し、不適合なら表全体の保存前に拒否します。</summary>
+    /// <summary>直接読取りの採用行は追加日を固定文法で全体解析し、不適合なら拒否します。</summary>
     public BMSTableEntry(JObject dataJson, BMSTable parentTable = null)
+        : this(dataJson, parentTable, PlaylistJsonDatePolicy.Strict, null, -1) { }
+
+    /// <summary>同じ文書の日時方針と診断集約先で行を読みます。不採用行の追加日は検査しません。</summary>
+    /// <param name="dataJson">元文書の行DOM。日時キーを変更しません。</param>
+    /// <param name="parentTable">相対参照とfolder変換の基準表。</param>
+    /// <param name="datePolicy">操作元で確定した日時方針。</param>
+    /// <param name="dateDiagnostics">文書全体の不適合値の集約先。</param>
+    /// <param name="rowIndex">元data配列のindex。</param>
+    internal BMSTableEntry(JObject dataJson, BMSTable parentTable, PlaylistJsonDatePolicy datePolicy,
+        PlaylistJsonDate.Diagnostics dateDiagnostics, int rowIndex)
         : this()
     {
         if (dataJson == null)
@@ -522,10 +532,12 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             base.lr2_bmsid = null;
         }
         if (TryGetNonNullProperty(dataJson, "adddate", out JToken addDateToken)
-            && !string.IsNullOrWhiteSpace(addDateToken.ToString())
             && PlaylistAggregatePersistenceOwner.CreateComparablePlaylistEntryRow(this) != null)
         {
-            base.adddate = PlaylistJsonDate.Parse(addDateToken.ToString(), "adddate");
+            string identity = !string.IsNullOrWhiteSpace(md5) ? md5 : !string.IsNullOrWhiteSpace(sha256) ? sha256
+                : !string.IsNullOrWhiteSpace(base.lr2_bmsid) ? base.lr2_bmsid : title;
+            DateTime? parsed = PlaylistJsonDate.Read(addDateToken, "adddate", datePolicy, dateDiagnostics, rowIndex, identity);
+            if (parsed.HasValue) { base.adddate = parsed.Value; }
         }
     }
 

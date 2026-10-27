@@ -856,7 +856,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 inheritLocalTableProperties: false,
                 UpdatePlaylistSummaryExternalPropertyInitializationLoadProgress,
                 reason,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken, initialImport: false).ConfigureAwait(false);
             UpdatePlaylistSummaryExternalPropertyInitializationProgress(0, loadResults.Count, string.Empty);
 
             List<PlaylistSummaryExternalPropertyInitializationChange> pendingChanges = [];

@@ -1029,4 +1029,197 @@ public sealed class BMSTableLoadTests
         table.PublishHeaderCommitProperties(edit, receipt);
         return candidate.HasChanges;
     }
+    /// <summary>両方針の固定文法・1〜7桁tickとoffsetを独立literalの壁時計/UTCで照合します。</summary>
+    [TestMethod]
+    public void LoadJson_DatePoliciesPreserveFixedGrammarTicksAndOffset()
+    {
+        (string Text, DateTime Expected)[] cases =
+        [
+            ("2026/1/9", new DateTime(2026, 1, 9)),
+            ("2026/1/9 3:4:5", new DateTime(2026, 1, 9, 3, 4, 5)),
+            ("2026-10-19", new DateTime(2026, 10, 19)),
+            ("2026-10-19T03:04:05", new DateTime(2026, 10, 19, 3, 4, 5)),
+            ("2026-10-19T03:04:05.1", new DateTime(2026, 10, 19, 3, 4, 5).AddTicks(1000000)),
+            ("2026-10-19T03:04:05.12", new DateTime(2026, 10, 19, 3, 4, 5).AddTicks(1200000)),
+            ("2026-10-19T03:04:05.123", new DateTime(2026, 10, 19, 3, 4, 5).AddTicks(1230000)),
+            ("2026-10-19T03:04:05.1234", new DateTime(2026, 10, 19, 3, 4, 5).AddTicks(1234000)),
+            ("2026-10-19T03:04:05.12345", new DateTime(2026, 10, 19, 3, 4, 5).AddTicks(1234500)),
+            ("2026-10-19T03:04:05.123456", new DateTime(2026, 10, 19, 3, 4, 5).AddTicks(1234560)),
+            ("2026-10-19T03:04:05.1234567", new DateTime(2026, 10, 19, 3, 4, 5).AddTicks(1234567)),
+            ("2026-10-19T03:04:05.1234567+05:30", TimeZoneInfo.ConvertTimeFromUtc(new DateTime(2026, 10, 18, 21, 34, 5, DateTimeKind.Utc).AddTicks(1234567), TimeZoneInfo.Local)),
+            ("2026-10-19T03:04:05.1234567-02:15", TimeZoneInfo.ConvertTimeFromUtc(new DateTime(2026, 10, 19, 5, 19, 5, DateTimeKind.Utc).AddTicks(1234567), TimeZoneInfo.Local)),
+            ("2026-10-19T03:04:05.1234567Z", TimeZoneInfo.ConvertTimeFromUtc(new DateTime(2026, 10, 19, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234567), TimeZoneInfo.Local)),
+            ("2026/1/9 3:4:5+05:30", TimeZoneInfo.ConvertTimeFromUtc(new DateTime(2026, 1, 8, 21, 34, 5, DateTimeKind.Utc), TimeZoneInfo.Local))
+        ];
+        foreach (PlaylistJsonDatePolicy policy in Enum.GetValues<PlaylistJsonDatePolicy>())
+        {
+            foreach ((string text, DateTime expected) in cases)
+            {
+                var table = new BMSTable();
+                table.LoadHeaderJSON(new JObject { ["last_update"] = text }.ToString(), policy);
+                table.LoadDataJSON(new JArray(new JObject { ["title"] = "date", ["adddate"] = text }).ToString(), policy);
+                Assert.AreEqual(expected.Ticks, table.last_update.Ticks, text);
+                Assert.AreEqual(expected.Kind, table.last_update.Kind, text);
+                Assert.AreEqual(expected.Ticks, table.entries.Single().adddate.Ticks, text);
+                Assert.AreEqual(expected.Kind, table.entries.Single().adddate.Kind, text);
+            }
+        }
+    }
+
+    /// <summary>限定互換形式と全曜日をGregorianで受理し、Strictの受理集合を広げません。</summary>
+    [TestMethod]
+    public void LoadJson_CompatibleAcceptsOnlyUnambiguousAdditionalDates()
+    {
+        (JToken Token, DateTime Expected)[] cases =
+        [
+            (new JValue(" \t2026-10-19\r\n"), new DateTime(2026, 10, 19)),
+            (new JValue("2026.10.19"), new DateTime(2026, 10, 19)),
+            (new JValue("20261019"), new DateTime(2026, 10, 19)),
+            (new JValue(20261019), new DateTime(2026, 10, 19)),
+            (new JValue("2026/10/19 3:4"), new DateTime(2026, 10, 19, 3, 4, 0)),
+            (new JValue("19/10/2026"), new DateTime(2026, 10, 19)),
+            (new JValue("10/19/2026"), new DateTime(2026, 10, 19)),
+            (new JValue("16.3.2021"), new DateTime(2021, 3, 16)),
+            (new JValue("11/11/2025"), new DateTime(2025, 11, 11)),
+            (new JValue("2024/2/29 (木)"), new DateTime(2024, 2, 29)),
+            (new JValue("2024/2/29 (Thu)"), new DateTime(2024, 2, 29))
+        ];
+        foreach ((JToken token, DateTime expected) in cases)
+        {
+            var table = new BMSTable();
+            string header = new JObject { ["last_update"] = token }.ToString();
+            string data = new JArray(new JObject { ["title"] = "date", ["adddate"] = token }).ToString();
+            Assert.ThrowsException<PlaylistHeaderParseException>(() => table.LoadHeaderJSON(header));
+            Assert.ThrowsException<PlaylistDataParseException>(() => table.LoadDataJSON(data));
+            table.LoadHeaderJSON(header, PlaylistJsonDatePolicy.Compatible);
+            table.LoadDataJSON(data, PlaylistJsonDatePolicy.Compatible);
+            Assert.AreEqual(expected, table.last_update);
+            Assert.AreEqual(expected, table.entries.Single().adddate);
+            Assert.AreEqual(DateTimeKind.Unspecified, table.entries.Single().adddate.Kind);
+        }
+        string[] japanese = ["日", "月", "火", "水", "木", "金", "土"];
+        string[] english = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        for (int index = 0; index < 7; index++)
+        {
+            foreach (string day in new[] { japanese[index], english[index] })
+            {
+                var table = new BMSTable();
+                table.LoadDataJSON(new JArray(new JObject { ["title"] = day, ["adddate"] = "2026/10/" + (18 + index).ToString(CultureInfo.InvariantCulture) + " (" + day + ")" }).ToString(), PlaylistJsonDatePolicy.Compatible);
+                Assert.AreEqual(new DateTime(2026, 10, 18 + index), table.entries.Single().adddate);
+            }
+        }
+    }
+
+    /// <summary>曖昧・範囲外・未対応tokenをStrictで拒否し、Compatibleでは全行の他値と既定日時を保持します。</summary>
+    [TestMethod]
+    public void LoadJson_CompatibleOmitsInvalidDatesWithoutDroppingRows()
+    {
+        string[] invalidJson = ["\"12/11/2025\"", "\"19/10/26\"", "\"updated 2026-10-19\"", "\"２０２６１０１９\"", "1700000000", "20261019.0", "2.0261019e7", "true", "{}", "[]", "\"2025/2/29\"", "\"0000-01-01\"", "\"2026-13-01\"", "\"2026-10-19T03:04:05.12345678\"", "\"2026-10-19 tail\"", "\"2024/2/29 (金)\"", "\"2024/2/29 (Thursday)\"", "\"2026/1/9 3:4:5 +05:30\""];
+        foreach (string json in invalidJson)
+        {
+            string header = "{\"name\":\"Keep\",\"last_update\":" + json + "}";
+            string data = "[{\"title\":\"Valid first\",\"adddate\":\"2026-10-19\"},{\"title\":\"Keep invalid\",\"artist\":\"Other field\",\"adddate\":" + json + "}]";
+            var table = new BMSTable { last_update = new DateTime(2020, 1, 2) };
+            Assert.ThrowsException<PlaylistHeaderParseException>(() => table.LoadHeaderJSON(header), json);
+            Assert.ThrowsException<PlaylistDataParseException>(() => table.LoadDataJSON(data), json);
+            var warnings = new List<string>();
+            DateTime before = DateTime.Now;
+            table.LoadHeaderJSON(header, PlaylistJsonDatePolicy.Compatible, logDateWarning: (_, message) => warnings.Add(message));
+            table.LoadDataJSON(data, PlaylistJsonDatePolicy.Compatible, (_, message) => warnings.Add(message));
+            DateTime after = DateTime.Now;
+            Assert.AreEqual(new DateTime(2020, 1, 2), table.last_update, json);
+            CollectionAssert.AreEqual(new[] { "Valid first", "Keep invalid" }, table.entries.Select(entry => entry.title).ToArray());
+            Assert.AreEqual("Other field", table.entries[1].artist);
+            Assert.AreEqual(new DateTime(2026, 10, 19), table.entries[0].adddate);
+            Assert.IsTrue(table.entries[1].adddate >= before && table.entries[1].adddate <= after, json);
+            Assert.AreEqual(2, warnings.Count, json);
+        }
+        foreach (PlaylistJsonDatePolicy policy in Enum.GetValues<PlaylistJsonDatePolicy>())
+        {
+            var warnings = new List<string>();
+            var table = new BMSTable { last_update = new DateTime(2020, 1, 2) };
+            table.LoadHeaderJSON("{\"last_update\":\" \",\"output_date\":\"invalid\"}", policy, logDateWarning: (_, message) => warnings.Add(message));
+            table.LoadDataJSON("[{\"artist\":\"unused\",\"adddate\":{}},{\"title\":\"null\",\"adddate\":null},{\"title\":\"empty\",\"adddate\":\" \"},{\"title\":\"missing\"}]", policy, (_, message) => warnings.Add(message));
+            Assert.AreEqual(3, table.entries.Count);
+            Assert.AreEqual(new DateTime(2020, 1, 2), table.last_update);
+            Assert.AreEqual(0, warnings.Count);
+        }
+    }
+
+    /// <summary>異文化と非Gregorianの既定暦でも文法・曖昧拒否・compact・offset・Invariant数値診断を変えません。</summary>
+    [DataTestMethod]
+    [DataRow("en-US", false)]
+    [DataRow("fr-FR", false)]
+    [DataRow("ja-JP", false)]
+    [DataRow("ja-JP", true)]
+    [DataRow("ar-SA", false)]
+    public void LoadJson_CompatibleDateGrammarIsIndependentOfCultureAndCalendar(string cultureName, bool japaneseCalendar)
+    {
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        try
+        {
+            var culture = new CultureInfo(cultureName, useUserOverride: false);
+            if (japaneseCalendar) { culture.DateTimeFormat.Calendar = new JapaneseCalendar(); }
+            CultureInfo.CurrentCulture = culture;
+            var table = new BMSTable();
+            var warnings = new List<string>();
+            table.LoadHeaderJSON("{\"last_update\":20261019}", PlaylistJsonDatePolicy.Compatible);
+            table.LoadDataJSON("[{\"title\":\"weekday\",\"adddate\":\"2024/2/29 (Thu)\"},{\"title\":\"ambiguous\",\"adddate\":\"12/11/2025\"},{\"title\":\"number\",\"adddate\":1700000000},{\"title\":\"offset\",\"adddate\":\"2026-10-19T03:04:05.1234567+05:30\"},{\"title\":\"float\",\"adddate\":2.5}]", PlaylistJsonDatePolicy.Compatible, (_, message) => warnings.Add(message));
+            Assert.AreEqual(new DateTime(2026, 10, 19), table.last_update);
+            Assert.AreEqual(new DateTime(2024, 2, 29), table.entries[0].adddate);
+            Assert.AreEqual(TimeZoneInfo.ConvertTimeFromUtc(new DateTime(2026, 10, 18, 21, 34, 5, DateTimeKind.Utc).AddTicks(1234567), TimeZoneInfo.Local), table.entries[3].adddate);
+            StringAssert.Contains(warnings.Single(), "1700000000");
+            StringAssert.Contains(warnings.Single(), "\"value\":\"2.5\"");
+            StringAssert.Contains(warnings.Single(), "ambiguous_month_day");
+        }
+        finally { CultureInfo.CurrentCulture = previous; }
+    }
+
+    /// <summary>全異値・decoded原値・型・初出index/件数と次文書の診断を保ち、原DOMのhashを独立SHA256で照合します。</summary>
+    [TestMethod]
+    public void LoadJson_DateWarningsKeepEveryDecodedValueAndOriginalHashes()
+    {
+        var warnings = new List<string>();
+        var table = new BMSTable();
+        const string header = "{ \"name\":\"Raw\",\"last_update\":\" raw \",\"unknown\":{\"keep\":17} }";
+        string prefix = "[{\"title\":\"first\",\"adddate\":\" raw \",\"unknown\":17},{\"title\":\"same\",\"adddate\":\" \\u0072aw \"},{\"title\":\"integer\",\"adddate\":1700000000},{\"title\":\"string\",\"adddate\":\"1700000000\"},";
+        string data = prefix + string.Join(",", Enumerable.Range(0, 257).Select(index => new JObject { ["title"] = "row " + index, ["adddate"] = "invalid " + index }.ToString(Formatting.None))) + "]";
+        table.LoadHeaderJSON(header, PlaylistJsonDatePolicy.Compatible, logDateWarning: (_, message) => warnings.Add(message));
+        table.LoadDataJSON(data, PlaylistJsonDatePolicy.Compatible, (_, message) => warnings.Add(message));
+        Assert.AreEqual(261, table.entries.Count);
+        Assert.AreEqual(2, warnings.Count);
+        JObject[] rows = JArray.Parse(warnings[1][(warnings[1].IndexOf(" values=", StringComparison.Ordinal) + 8)..]).Cast<JObject>().ToArray();
+        Assert.AreEqual(260, rows.Length);
+        JObject repeated = rows.Single(row => row.Value<string>("value") == " raw ");
+        Assert.AreEqual("adddate", repeated.Value<string>("field"));
+        Assert.AreEqual(0, repeated.Value<int>("firstIndex"));
+        Assert.AreEqual(2, repeated.Value<int>("count"));
+        CollectionAssert.AreEquivalent(new[] { "Integer", "String" }, rows.Where(row => row.Value<string>("value") == "1700000000").Select(row => row.Value<string>("tokenType")).ToArray());
+        for (int index = 0; index < 257; index++) { Assert.IsTrue(rows.Any(row => row.Value<string>("value") == "invalid " + index)); }
+        string Digest(string text) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
+        Assert.AreEqual(Digest(header), table.LoadedRawHeaderSha256);
+        Assert.AreEqual(Digest("{\"name\":\"Raw\",\"last_update\":\" raw \",\"unknown\":{\"keep\":17}}"), table.header_sha256);
+        Assert.AreEqual(Digest(data), table.data_sha256);
+        string comparisonHash = table.header_sha256;
+        const string escapedHeader = "{\"name\":\"Raw\",\"last_update\":\" \\u0072aw \",\"unknown\":{\"keep\":17}}";
+        table.LoadHeaderJSON(escapedHeader, PlaylistJsonDatePolicy.Compatible, logDateWarning: (_, _) => { });
+        Assert.AreEqual(Digest(escapedHeader), table.LoadedRawHeaderSha256);
+        Assert.AreNotEqual(Digest(header), table.LoadedRawHeaderSha256);
+        Assert.AreEqual(comparisonHash, table.header_sha256, "headerはDOM再出力後の比較hashとrawhashを区別します。");
+        table.LoadHeaderJSON(escapedHeader.Replace("17", "18", StringComparison.Ordinal), PlaylistJsonDatePolicy.Compatible, logDateWarning: (_, _) => { });
+        Assert.AreNotEqual(comparisonHash, table.header_sha256, "未知キーを日時処理で削除しません。");
+        var controls = new List<string>();
+        table.LoadDataJSON("[{\"title\":\"controls\",\"adddate\":\" \\tbad\\n\\\"value\\\" \"}]", PlaylistJsonDatePolicy.Compatible, (_, message) => controls.Add(message));
+        JToken controlValue = JArray.Parse(controls.Single()[(controls.Single().IndexOf(" values=", StringComparison.Ordinal) + 8)..])[0]["value"] ?? throw new AssertFailedException();
+        Assert.AreEqual(" \tbad\n\"value\" ", controlValue.Value<string>());
+        Assert.IsFalse(controls.Single().Contains('\n'), "制御文字は一行のJSON値として識別可能にします。");
+        table.LoadDataJSON(data, PlaylistJsonDatePolicy.Compatible, (_, message) => warnings.Add(message));
+        Assert.AreEqual(3, warnings.Count);
+        table.LoadDataJSON(data, PlaylistJsonDatePolicy.Compatible, (_, _) => throw new InvalidOperationException("diagnostic failure"));
+        Assert.AreEqual(261, table.entries.Count);
+        var strictWarnings = new List<string>();
+        Assert.ThrowsException<PlaylistHeaderParseException>(() => table.LoadHeaderJSON(header, PlaylistJsonDatePolicy.Strict, logDateWarning: (_, message) => strictWarnings.Add(message)));
+        StringAssert.Contains(strictWarnings.Single(), " raw ");
+    }
+
 }
