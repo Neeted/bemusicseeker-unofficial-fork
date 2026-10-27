@@ -14,6 +14,7 @@ internal sealed class UpdateDownloadService
     private const string UpdateFailureReceiptFileName = "update-failure.txt";
     private const string UpdateFailureReceiptTemporaryFileName = "update-failure.txt.tmp";
     private const string TransactionJournalFileName = "update-transaction.json";
+    private const string TransactionLockFileName = "update-transaction.lock";
     private const string UpdaterReadyFileName = "updater-ready.txt";
     private const string UpdaterDecisionFileName = "updater-decision.txt";
     private const string UpdaterExecutableFileName = "BeMusicSeeker.Updater.exe";
@@ -173,6 +174,10 @@ internal sealed class UpdateDownloadService
         return Path.Combine(applicationPathSnapshot.BaseDirectory, "update_work");
     }
 
+    /// <summary>
+    /// 前回の一時物を回収し、未完了の更新と未確認の失敗記録を既存の回復・通知へ渡します。
+    /// 更新ツールが使用し続けるcurrentと、解放後も同じパスで再利用する同期ロックは保持します。
+    /// </summary>
     internal void CleanupPreviousWorkDirectory()
     {
         string workRoot = GetUpdateWorkRoot();
@@ -201,7 +206,8 @@ internal sealed class UpdateDownloadService
                 continue;
             }
             if (string.Equals(childName, UpdateFailureReceiptFileName, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(childName, UpdateFailureReceiptTemporaryFileName, StringComparison.OrdinalIgnoreCase))
+                || string.Equals(childName, UpdateFailureReceiptTemporaryFileName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(childName, TransactionLockFileName, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }

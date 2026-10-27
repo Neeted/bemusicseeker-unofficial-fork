@@ -75,7 +75,8 @@ public sealed class UpdateDownloadServiceTests
     }
 
     /// <summary>
-    /// 以前のdownloadsを掃除してもcurrent配下のpayloadファイルを保持する。実processの受付・終了はUpdaterPackageSyncTestsが分担する。
+    /// journal・receiptがない清掃でも解放済み同期ロックとcurrentの元内容を保持し、
+    /// 古いdownloadsだけを回収する。保持中の削除例外だけを無視する誤りを検出する。
     /// </summary>
     [TestMethod]
     public void CleanupPreviousWorkDirectoryPreservesActiveUpdaterPayload()
@@ -84,29 +85,40 @@ public sealed class UpdateDownloadServiceTests
         string applicationPath = Path.Combine(root, "BeMusicSeeker.exe");
         string workRoot = Path.Combine(root, "update_work");
         string currentDirectory = Path.Combine(workRoot, "current");
-        Directory.CreateDirectory(currentDirectory);
-        Directory.CreateDirectory(Path.Combine(workRoot, "downloads"));
-        File.WriteAllText(applicationPath, string.Empty);
-        File.WriteAllText(Path.Combine(currentDirectory, "BeMusicSeeker.Updater.exe"), "running-updater");
-        File.WriteAllText(Path.Combine(workRoot, "downloads", "stale.zip"), "stale-package");
+        string updaterPath = Path.Combine(currentDirectory, "BeMusicSeeker.Updater.exe");
+        string lockPath = Path.Combine(workRoot, "update-transaction.lock");
+        byte[] lockBytes = [1, 2, 3];
+        byte[] updaterBytes = [4, 5, 6];
+        Exception? primaryFailure = null;
 
         try
         {
+            Directory.CreateDirectory(currentDirectory);
+            Directory.CreateDirectory(Path.Combine(workRoot, "downloads"));
+            File.WriteAllText(applicationPath, string.Empty);
+            File.WriteAllBytes(updaterPath, updaterBytes);
+            File.WriteAllBytes(lockPath, lockBytes);
+            File.WriteAllText(Path.Combine(workRoot, "downloads", "stale.zip"), "stale-package");
             var service = new UpdateDownloadService(
                 ApplicationPathSnapshot.FromExecutablePath(applicationPath),
                 new RecordingUpdaterProcessGateway());
 
             service.CleanupPreviousWorkDirectory();
 
-            Assert.IsTrue(File.Exists(Path.Combine(currentDirectory, "BeMusicSeeker.Updater.exe")));
+            CollectionAssert.AreEqual(lockBytes, File.ReadAllBytes(lockPath));
+            CollectionAssert.AreEqual(updaterBytes, File.ReadAllBytes(updaterPath));
             Assert.IsFalse(Directory.Exists(Path.Combine(workRoot, "downloads")));
+            using FileStream reusedLock = File.Open(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            Assert.AreEqual((long)lockBytes.Length, reusedLock.Length);
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = exception;
+            throw;
         }
         finally
         {
-            if (Directory.Exists(root))
-            {
-                Directory.Delete(root, recursive: true);
-            }
+            DeleteCleanupTestDirectory(root, primaryFailure);
         }
     }
 
@@ -152,20 +164,30 @@ public sealed class UpdateDownloadServiceTests
     }
 
     /// <summary>
-    /// 更新失敗receiptを原因付きで通知し、確認されるまで実ファイルを保持して確認後に消費し、失敗を黙って消す誤りを検出する。
+    /// journalなし・同期ロック排他保持中も本来の失敗receiptを通知し、lock/current/未確認receiptを保持して
+    /// downloadsを回収する。ロック削除失敗で原因を覆う誤りと、確認前に記録を消す誤りを検出する。
     /// </summary>
     [TestMethod]
     public void CleanupPreviousWorkDirectoryPublishesAndConsumesUpdaterFailureReceipt()
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateDownloadServiceTests", Guid.NewGuid().ToString("N"));
         string applicationPath = Path.Combine(root, "BeMusicSeeker.exe");
-        string failureReceiptPath = Path.Combine(root, "update_work", "update-failure.txt");
-        Directory.CreateDirectory(Path.GetDirectoryName(failureReceiptPath)!);
-        File.WriteAllText(applicationPath, string.Empty);
-        File.WriteAllText(failureReceiptPath, "updater failure details");
+        string workRoot = Path.Combine(root, "update_work");
+        string currentDirectory = Path.Combine(workRoot, "current");
+        string updaterPath = Path.Combine(currentDirectory, "BeMusicSeeker.Updater.exe");
+        string lockPath = Path.Combine(workRoot, "update-transaction.lock");
+        string failureReceiptPath = Path.Combine(workRoot, "update-failure.txt");
+        Exception? primaryFailure = null;
 
         try
         {
+            Directory.CreateDirectory(currentDirectory);
+            Directory.CreateDirectory(Path.Combine(workRoot, "downloads"));
+            File.WriteAllText(applicationPath, string.Empty);
+            File.WriteAllText(updaterPath, "running-updater");
+            File.WriteAllText(failureReceiptPath, "updater failure details");
+            File.WriteAllText(Path.Combine(workRoot, "downloads", "stale.zip"), "stale-package");
+            using FileStream heldLock = File.Open(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             var service = new UpdateDownloadService(
                 ApplicationPathSnapshot.FromExecutablePath(applicationPath),
                 new RecordingUpdaterProcessGateway());
@@ -174,16 +196,22 @@ public sealed class UpdateDownloadServiceTests
                 () => service.CleanupPreviousWorkDirectory());
 
             StringAssert.Contains(exception.Message, "updater failure details");
-            Assert.IsTrue(File.Exists(failureReceiptPath));
+            Assert.IsTrue(File.Exists(lockPath));
+            Assert.AreEqual("running-updater", File.ReadAllText(updaterPath));
+            Assert.AreEqual("updater failure details", File.ReadAllText(failureReceiptPath));
+            Assert.IsFalse(Directory.Exists(Path.Combine(workRoot, "downloads")));
             exception.Acknowledge();
             Assert.IsFalse(File.Exists(failureReceiptPath));
+            Assert.IsTrue(File.Exists(lockPath));
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = exception;
+            throw;
         }
         finally
         {
-            if (Directory.Exists(root))
-            {
-                Directory.Delete(root, recursive: true);
-            }
+            DeleteCleanupTestDirectory(root, primaryFailure);
         }
     }
 
@@ -483,6 +511,29 @@ public sealed class UpdateDownloadServiceTests
             {
                 Directory.Delete(root, recursive: true);
             }
+        }
+    }
+
+    /// <summary>
+    /// 固有の清掃テスト領域を回収し、回収失敗と絶対パスを元の失敗とは分けて残します。
+    /// </summary>
+    private static void DeleteCleanupTestDirectory(string root, Exception? primaryFailure)
+    {
+        try
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+        catch (Exception cleanupFailure)
+        {
+            var diagnostic = new IOException("一時領域を回収できません: " + root, cleanupFailure);
+            if (primaryFailure is null)
+            {
+                throw diagnostic;
+            }
+            primaryFailure.Data["DirectorySecondaryDiagnostics"] = diagnostic.ToString();
         }
     }
 

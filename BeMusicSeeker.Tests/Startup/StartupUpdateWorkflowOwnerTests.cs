@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -48,33 +49,172 @@ public sealed class StartupUpdateWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 保証：更新前の清掃が失敗したら更新確認へ進まず、失敗の提示と元例外を含む終端を返す。
+    /// 保証：journal・receiptなしで同期ロックを排他保持する新版起動時も実清掃から更新なし終端へ一度進み、
+    /// lock/currentを保持して古いdownloadsを回収する。清掃の省略とロック解放待ちによる停滞を検出する。
+    /// </summary>
+    [TestMethod]
+    public async Task Start_CleansUpWithHeldTransactionLockAndPublishesNoUpdateTerminal()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StartupUpdateWorkflowOwnerTests", Guid.NewGuid().ToString("N"));
+        string workRoot = Path.Combine(root, "update_work");
+        string currentDirectory = Path.Combine(workRoot, "current");
+        string updaterPath = Path.Combine(currentDirectory, "BeMusicSeeker.Updater.exe");
+        string lockPath = Path.Combine(workRoot, "update-transaction.lock");
+        int checkCount = 0;
+        int terminalCount = 0;
+        int failurePresentationCount = 0;
+        Task worker = Task.CompletedTask;
+        Exception? primaryFailure = null;
+
+        try
+        {
+            Directory.CreateDirectory(currentDirectory);
+            Directory.CreateDirectory(Path.Combine(workRoot, "downloads"));
+            File.WriteAllText(updaterPath, "running-updater");
+            File.WriteAllText(Path.Combine(workRoot, "downloads", "stale.zip"), "stale-package");
+            using FileStream heldLock = File.Open(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            var service = new UpdateDownloadService(
+                ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
+                new UnexpectedUpdaterProcessGateway());
+            StartupUpdateWorkflowOwner owner = CreateOwner(
+                () =>
+                {
+                    Interlocked.Increment(ref checkCount);
+                    return Task.FromResult(UpdateCheckResult.NoUpdate("1.0.0.0"));
+                },
+                cleanup: service.CleanupPreviousWorkDirectory,
+                schedule: action => worker = StartLongRunningAsync(action));
+            StartupUpdateWorkflowCompletionReceipt? receipt = null;
+            owner.TerminalPublished += published =>
+            {
+                receipt = published;
+                Interlocked.Increment(ref terminalCount);
+            };
+            owner.FailurePresentationRequested += _ => Interlocked.Increment(ref failurePresentationCount);
+
+            Assert.IsTrue(owner.Start());
+            // 排他を解放する前に実workerとownerの両終端を待つ。
+            await worker;
+            await WaitForCompletion(owner);
+
+            Assert.IsNotNull(receipt);
+            Assert.AreEqual(StartupUpdateWorkflowOutcome.NoUpdate, receipt.Outcome);
+            Assert.AreEqual(1, checkCount);
+            Assert.AreEqual(1, terminalCount);
+            Assert.AreEqual(0, failurePresentationCount);
+            Assert.IsTrue(File.Exists(lockPath));
+            Assert.AreEqual("running-updater", File.ReadAllText(updaterPath));
+            Assert.IsFalse(Directory.Exists(Path.Combine(workRoot, "downloads")));
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = exception;
+            throw;
+        }
+        finally
+        {
+            try
+            {
+                await worker;
+            }
+            catch (Exception cleanupFailure) when (primaryFailure is not null)
+            {
+                primaryFailure.Data["WorkerSecondaryDiagnostics"] = cleanupFailure.ToString();
+            }
+            finally
+            {
+                DeleteCleanupTestDirectory(root, primaryFailure);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 保証：実清掃で古いdownloadの排他保持による削除失敗が起きたら更新確認へ進まず、
+    /// 実際の削除例外を失敗提示と終端へ渡す。清掃例外の一括抑制で成功へ進む誤りを検出する。
     /// </summary>
     [TestMethod]
     public async Task CleanupFailurePublishesFailureBeforeCheckingForUpdates()
     {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StartupUpdateWorkflowOwnerTests", Guid.NewGuid().ToString("N"));
+        string downloadsDirectory = Path.Combine(root, "update_work", "downloads");
+        string stalePackagePath = Path.Combine(downloadsDirectory, "stale.zip");
         int checkCount = 0;
         int failurePresentationCount = 0;
-        StartupUpdateWorkflowOwner owner = CreateOwner(
-            () =>
-            {
-                Interlocked.Increment(ref checkCount);
-                return Task.FromResult(UpdateCheckResult.NoUpdate("1.0.0.0"));
-            },
-            cleanup: () => throw new IOException("cleanup failed"),
-            schedule: action => StartLongRunningAsync(action));
-        StartupUpdateWorkflowCompletionReceipt receipt = null!;
-        owner.TerminalPublished += published => receipt = published;
-        owner.FailurePresentationRequested += _ => Interlocked.Increment(ref failurePresentationCount);
+        Exception? actualCleanupFailure = null;
+        Exception? presentedFailure = null;
+        Task worker = Task.CompletedTask;
+        Exception? primaryFailure = null;
 
-        Assert.IsTrue(owner.Start());
-        await owner.WaitForIdleAsync();
-        await owner.WaitForTerminalAsync();
-        Assert.IsNotNull(receipt);
-        Assert.AreEqual(StartupUpdateWorkflowOutcome.Failed, receipt.Outcome);
-        Assert.IsNotNull(receipt.Exception);
-        Assert.AreEqual(1, failurePresentationCount);
-        Assert.AreEqual(0, checkCount);
+        try
+        {
+            Directory.CreateDirectory(downloadsDirectory);
+            File.WriteAllText(stalePackagePath, "stale-package");
+            using FileStream heldDownload = File.Open(stalePackagePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            var service = new UpdateDownloadService(
+                ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
+                new UnexpectedUpdaterProcessGateway());
+            StartupUpdateWorkflowOwner owner = CreateOwner(
+                () =>
+                {
+                    Interlocked.Increment(ref checkCount);
+                    return Task.FromResult(UpdateCheckResult.NoUpdate("1.0.0.0"));
+                },
+                cleanup: () =>
+                {
+                    try
+                    {
+                        service.CleanupPreviousWorkDirectory();
+                    }
+                    catch (Exception exception)
+                    {
+                        actualCleanupFailure = exception;
+                        throw;
+                    }
+                },
+                schedule: action => worker = StartLongRunningAsync(action));
+            StartupUpdateWorkflowCompletionReceipt? receipt = null;
+            owner.TerminalPublished += published => receipt = published;
+            owner.FailurePresentationRequested += exception =>
+            {
+                presentedFailure = exception;
+                Interlocked.Increment(ref failurePresentationCount);
+            };
+
+            Assert.IsTrue(owner.Start());
+            await worker;
+            await WaitForCompletion(owner);
+
+            Assert.IsNotNull(receipt);
+            Assert.AreEqual(StartupUpdateWorkflowOutcome.Failed, receipt.Outcome);
+            Assert.IsNotNull(actualCleanupFailure);
+            Assert.IsInstanceOfType<IOException>(actualCleanupFailure);
+            StringAssert.Contains(actualCleanupFailure.Message, "stale.zip");
+            Assert.AreSame(actualCleanupFailure, receipt.Exception);
+            Assert.AreSame(actualCleanupFailure, presentedFailure);
+            Assert.AreEqual(1, failurePresentationCount);
+            Assert.AreEqual(0, checkCount);
+            Assert.IsTrue(File.Exists(stalePackagePath));
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = exception;
+            throw;
+        }
+        finally
+        {
+            try
+            {
+                await worker;
+            }
+            catch (Exception cleanupFailure) when (primaryFailure is not null)
+            {
+                primaryFailure.Data["WorkerSecondaryDiagnostics"] = cleanupFailure.ToString();
+            }
+            finally
+            {
+                DeleteCleanupTestDirectory(root, primaryFailure);
+            }
+        }
     }
 
     /// <summary>
@@ -715,6 +855,42 @@ public sealed class StartupUpdateWorkflowOwnerTests
                 IncludesChartInfoMetadata = false
             }],
             "https://example.test/releases/v2.0.0.0");
+    }
+
+    /// <summary>
+    /// workerと所有ハンドルの終端後に固有領域を回収し、元の失敗と回収失敗・絶対パスを分けます。
+    /// </summary>
+    private static void DeleteCleanupTestDirectory(string root, Exception? primaryFailure)
+    {
+        try
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+        catch (Exception cleanupFailure)
+        {
+            var diagnostic = new IOException("一時領域を回収できません: " + root, cleanupFailure);
+            if (primaryFailure is null)
+            {
+                throw diagnostic;
+            }
+            primaryFailure.Data["DirectorySecondaryDiagnostics"] = diagnostic.ToString();
+        }
+    }
+
+    private sealed class UnexpectedUpdaterProcessGateway : IUpdaterProcessGateway
+    {
+        public IPreparedUpdaterLaunch Prepare(UpdaterProcessLaunchRequest request)
+        {
+            throw new AssertFailedException("更新なしの清掃で更新ツールを準備してはいけません。");
+        }
+
+        public bool RecoverIncompleteTransaction(string executablePath, string applicationDirectory)
+        {
+            throw new AssertFailedException("journalなしの清掃で回復を開始してはいけません。");
+        }
     }
 
     private sealed class FakePreparedUpdaterLaunch : IPreparedUpdaterLaunch
