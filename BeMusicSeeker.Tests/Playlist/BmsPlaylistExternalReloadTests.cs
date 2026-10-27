@@ -4,7 +4,10 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Net;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
@@ -25,6 +28,400 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsPlaylistExternalReloadTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+
+    /// <summary>同本文の実data転送A→Bを既存BMT/台帳を残す通常reloadへ通し、相対URL1/2をDBと実gzipへ反映します。次の同入力通常出力は投影/writeを省略します。</summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ReloadPlaylistTargetsAsync_RedirectedRelativeUrlsReachExistingBmtAndNextOutputSkips()
+    {
+        const string dataJson = "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Relative song\",\"level\":\"1\",\"url\":\"../packages/song.zip?Token=A\",\"url_diff\":\"patches/fix.zip?Key=B\"}]";
+        var final = new SingleRequestHttpServer(Encoding.UTF8.GetBytes(dataJson));
+        Uri finalData = new(final.Address, "published/current/rows.json");
+        var redirect = new SingleRequestHttpServer([], responseStatusCode: HttpStatusCode.Redirect,
+            additionalResponseHeaders: "Location: " + finalData.AbsoluteUri + "\r\n");
+        string headerJson = "{\"name\":\"Relative context\",\"symbol\":\"R\",\"data_url\":\"" + new Uri(redirect.Address, "data.json").AbsoluteUri + "\"}";
+        var header = new SingleRequestHttpServer(Encoding.UTF8.GetBytes(headerJson));
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistExternalReloadTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        using var cancellation = new CancellationTokenSource();
+        TestBmsPlaylist? playlist = null;
+        Task? operation = null;
+        Exception? failure = null;
+        var acceptedWork = new System.Collections.Concurrent.ConcurrentQueue<(string Store, Task Work)>();
+        var releaseWork = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void OwnStartupWork(TestBmsPlaylist store, string storeName)
+        {
+            store.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                // 元のHTTP/DB/BMT観測までは保持し、受理した実delegateを一度呼ぶunwrapped Taskを所有する。
+                var task = Task.Run(async () =>
+                {
+                    await releaseWork.Task.ConfigureAwait(false);
+                    await work().ConfigureAwait(false);
+                });
+                acceptedWork.Enqueue((storeName, task));
+                return true;
+            };
+        }
+
+        try
+        {
+            testSettings.EnablePlaylistUrlCompletion = false;
+            string songPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string bmtDirectory = Path.Combine(directory, "bmt");
+            playlist = new TestBmsPlaylist(songPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot
+                {
+                    EnableBeatorajaBmtOutput = true,
+                    BeatorajaBmtTablePath = bmtDirectory,
+                    BeatorajaBmtHashOutputMode = nameof(BeatorajaBmtHashOutputMode.Original)
+                },
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, settings: testSettings)
+            { BMSTables = new ObservableCollection<BMSTable>() };
+            OwnStartupWork(playlist, nameof(playlist));
+            Uri originalHeader = new(header.Address, "original/header.json");
+            var original = new BMSTable(headerJson, null, originalHeader)
+            {
+                Data_url = new Uri("https://old-data.test/archive/rows.json"),
+                name = "Manual relative table",
+                last_update = new DateTime(2024, 6, 1, 10, 20, 30)
+            };
+            // data基準をAへ確定してから同じ本文を解析し、事前gzipの相対URLを実際にAへ解決する。
+            original.LoadDataJSON(dataJson);
+            original.entries.Single().memo = "local memo";
+            original.entries.Single().adddate = new DateTime(2023, 7, 15, 9, 30, 0);
+            operation = playlist.ExternalSyncOwner.RegistrateExternalTableAsync(original, false, "relative-bmt-seed", cancellation.Token);
+            await operation;
+            string bmtPath = Path.Combine(bmtDirectory, BMSTable.ComputeSha256Hex(originalHeader.AbsoluteUri) + ".bmt");
+            string manifestPath = Path.Combine(bmtDirectory, BmtTableExportService.ManifestFileName);
+            Assert.IsTrue(File.Exists(manifestPath));
+            JObject oldSong = ReadRedirectedBmtSong(bmtPath);
+            Assert.AreEqual("https://old-data.test/packages/song.zip?Token=A", oldSong.Value<string>("url"));
+            Assert.AreEqual("https://old-data.test/archive/patches/fix.zip?Key=B", oldSong.Value<string>("appendurl"));
+            DateTime lastUpdate = original.last_update;
+            DateTime addDate = original.entries.Single().adddate;
+            string headerHash = original.header_sha256, dataHash = original.data_sha256;
+            var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
+            playlist.BmtOutput.ExportProgressReporter = progress.Enqueue;
+
+            Task<PlaylistExternalSyncOwner.PlaylistReloadOperationResult> reload = playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
+                [original], reason: "redirect-relative-bmt", cancellationToken: cancellation.Token);
+            operation = reload;
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult results = await reload;
+            results.ThrowIfFailed();
+            PlaylistExternalSyncOwner.PlaylistReloadTargetResult result = results.Single();
+            BMSTable current = playlist.BMSTables.Single();
+            Uri expectedUrl = new(final.Address, "published/packages/song.zip?Token=A");
+            Uri expectedDiff = new(final.Address, "published/current/patches/fix.zip?Key=B");
+            Assert.AreSame(current, result.ResultTable);
+            Assert.AreNotSame(original, current);
+            Assert.IsFalse(result.Updated);
+            Assert.IsTrue(result.StatePersisted);
+            Assert.IsTrue(result.NeedsBmtExport);
+            Assert.IsNotNull(result.UpdateReceipt);
+            Assert.IsTrue(result.UpdateReceipt.ReferenceEntriesChanged);
+            Assert.AreEqual(originalHeader, current.Header_url);
+            Assert.AreEqual(finalData, current.GetAbsoluteDataUrl());
+            Assert.AreEqual(headerHash, current.header_sha256);
+            Assert.AreEqual(dataHash, current.data_sha256);
+            Assert.AreEqual(lastUpdate, current.last_update);
+            Assert.AreEqual(original.playlist_id, current.playlist_id);
+            Assert.AreEqual("Manual relative table", current.name);
+            Assert.AreEqual("local memo", current.entries.Single().memo);
+            Assert.AreEqual(addDate, current.entries.Single().adddate);
+            Assert.AreEqual(expectedUrl, current.entries.Single().Url);
+            Assert.AreEqual(expectedDiff, current.entries.Single().Url_diff);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                LR2SongDBExtended.playlist_entry persisted = db.Table<LR2SongDBExtended.playlist_entry>().Single();
+                Assert.AreEqual(expectedUrl, new Uri(persisted.url));
+                Assert.AreEqual(expectedDiff, new Uri(persisted.url_diff));
+                Assert.AreEqual(lastUpdate, db.Table<BMSTable>().Single().last_update);
+            }
+            JObject newSong = ReadRedirectedBmtSong(bmtPath);
+            Assert.AreEqual(expectedUrl.AbsoluteUri, newSong.Value<string>("url"));
+            Assert.AreEqual(expectedDiff.AbsoluteUri, newSong.Value<string>("appendurl"));
+            Assert.IsTrue(progress.Any(snapshot => snapshot.IsActive), "URL解決先の差をmetadataだけで誤skipせず必要投影へ進めます。");
+            byte[] updatedBytes = File.ReadAllBytes(bmtPath);
+            DateTime updatedTime = File.GetLastWriteTimeUtc(bmtPath);
+            progress.Clear();
+
+            // 同じ実file状態を保った次の通常要求。mtime操作・force・追加HTTP取得で省略判定を迂回しない。
+            operation = playlist.BmtOutput.ExportTablesAsync([current], "redirect-relative-bmt-repeat");
+            await operation;
+            Assert.IsFalse(progress.Any(snapshot => snapshot.IsActive));
+            Assert.AreEqual(updatedTime, File.GetLastWriteTimeUtc(bmtPath));
+            CollectionAssert.AreEqual(updatedBytes, File.ReadAllBytes(bmtPath));
+            BmtTableExportService.PlaylistExportMetadata metadata = BmtTableExportService.CreatePlaylistExportMetadata(current);
+            Assert.IsFalse(BmtTableExportService.CreateExportPlan(bmtDirectory, [metadata], cleanupStaleManagedFiles: false).RequiresProjection(metadata));
+            CollectionAssert.AreEqual(new[] { "/original/header.json" }, header.RequestTargets);
+            CollectionAssert.AreEqual(new[] { "/data.json" }, redirect.RequestTargets);
+            CollectionAssert.AreEqual(new[] { "/published/current/rows.json" }, final.RequestTargets);
+            await Task.WhenAll(header.Completion, redirect.Completion, final.Completion);
+        }
+        catch (Exception ex) { failure = ex; throw; }
+        finally
+        {
+            var cleanupFailures = new List<Exception>();
+            try
+            {
+                try { cancellation.Cancel(); }
+                catch (Exception ex) { cleanupFailures.Add(ex); }
+                foreach (SingleRequestHttpServer server in new[] { header, redirect, final })
+                {
+                    server.ReleaseBodyPrefix.TrySetResult();
+                    server.ReleaseBody.TrySetResult();
+                }
+                if (operation != null)
+                {
+                    try { await operation; }
+                    catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+                    catch (Exception ex) { cleanupFailures.Add(ex); }
+                }
+                foreach (SingleRequestHttpServer server in new[] { header, redirect, final })
+                {
+                    try { await server.DisposeAsync(); }
+                    catch (Exception ex) { cleanupFailures.Add(ex); }
+                }
+            }
+            finally { releaseWork.TrySetResult(); }
+            // 主operationとHTTPのproducer終端後に固定し、store別の実work異常も主失敗と区別する。
+            foreach (IGrouping<string, (string Store, Task Work)> storeWork in acceptedWork.ToArray().GroupBy(item => item.Store))
+            {
+                var workCompletion = Task.WhenAll(storeWork.Select(item => item.Work));
+                try { await workCompletion; }
+                catch (Exception ex)
+                {
+                    cleanupFailures.Add(new InvalidOperationException(
+                        "転送テストの任意startup work終了失敗: " + storeWork.Key, workCompletion.Exception ?? ex));
+                }
+            }
+            if (playlist != null)
+            {
+                try
+                {
+                    playlist.RequestShutdown("redirect-relative-bmt-complete");
+                    await playlist.WaitForPlaylistMutationIdleAsync();
+                    Assert.IsFalse(playlist.HasShutdownBlockingWork);
+                }
+                catch (Exception ex) { cleanupFailures.Add(ex); }
+            }
+            try { Directory.Delete(directory, recursive: true); }
+            catch (Exception ex) { cleanupFailures.Add(ex); }
+            if (cleanupFailures.Count > 0)
+            {
+                var cleanupFailure = new AggregateException(cleanupFailures);
+                if (failure == null) { throw cleanupFailure; }
+                System.Diagnostics.Trace.WriteLine("転送BMTのcleanup二次失敗: " + cleanupFailure);
+            }
+        }
+    }
+
+    /// <summary>書込み終端後に毎回新しいgzip readerを開き、実媒体に保存された単一曲を返します。</summary>
+    private static JObject ReadRedirectedBmtSong(string path)
+    {
+        using FileStream stream = File.OpenRead(path);
+        using var gzip = new GZipStream(stream, CompressionMode.Decompress);
+        using var reader = new StreamReader(gzip, Encoding.UTF8);
+        var table = JObject.Parse(reader.ReadToEnd());
+        return (JObject)table.SelectTokens("folder[*].songs[*]").Single();
+    }
+
+    /// <summary>同じ本文・全絶対entryの転送先dataだけが移動しても通常reloadで保存・新参照公開し、日時・hash・ローカル属性・元同期元を維持します。</summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ReloadPlaylistTargetsAsync_RedirectedDataContextPersistsWithoutUpdatedFlag()
+    {
+        const string dataJson = "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Absolute song\",\"level\":\"1\",\"url\":\"https://packages.test/song.zip\",\"url_diff\":\"https://packages.test/fix.zip\"}]";
+        var final = new SingleRequestHttpServer(Encoding.UTF8.GetBytes(dataJson));
+        Uri finalData = new(final.Address, "published/current/rows.json");
+        var redirect = new SingleRequestHttpServer([], responseStatusCode: HttpStatusCode.Redirect,
+            additionalResponseHeaders: "Location: " + finalData.AbsoluteUri + "\r\n");
+        string headerJson = "{\"name\":\"Context table\",\"symbol\":\"C\",\"data_url\":\"" + new Uri(redirect.Address, "data.json").AbsoluteUri + "\"}";
+        var header = new SingleRequestHttpServer(Encoding.UTF8.GetBytes(headerJson));
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistExternalReloadTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        using var cancellation = new CancellationTokenSource();
+        TestBmsPlaylist? playlist = null, reader = null;
+        Task? operation = null;
+        Exception? failure = null;
+        var acceptedWork = new System.Collections.Concurrent.ConcurrentQueue<(string Store, Task Work)>();
+        var releaseWork = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void OwnStartupWork(TestBmsPlaylist store, string storeName)
+        {
+            store.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                // 元のHTTP/DB/BMT観測までは保持し、受理した実delegateを一度呼ぶunwrapped Taskを所有する。
+                var task = Task.Run(async () =>
+                {
+                    await releaseWork.Task.ConfigureAwait(false);
+                    await work().ConfigureAwait(false);
+                });
+                acceptedWork.Enqueue((storeName, task));
+                return true;
+            };
+        }
+
+        try
+        {
+            testSettings.EnablePlaylistUrlCompletion = false;
+            string songPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            playlist = new TestBmsPlaylist(songPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, settings: testSettings)
+            { BMSTables = new ObservableCollection<BMSTable>() };
+            OwnStartupWork(playlist, nameof(playlist));
+            Uri originalHeader = new(header.Address, "original/header.json");
+            // 過去の成功時と同じ本文をparserへ通し、移動前の実data基準だけを保存済み状態にする。
+            var original = new BMSTable(headerJson, null, originalHeader, dataJson)
+            {
+                Data_url = new Uri("https://old-data.test/archive/rows.json"),
+                name = "Manual table name",
+                symbol = "M",
+                last_update = new DateTime(2024, 6, 1, 10, 20, 30),
+                is_bmt_output = false
+            };
+            original.EnableExternalSync();
+            original.entries.Single().memo = "local memo";
+            original.entries.Single().adddate = new DateTime(2023, 7, 15, 9, 30, 0);
+            operation = playlist.ExternalSyncOwner.RegistrateExternalTableAsync(original, false, "redirect-context-seed", cancellation.Token);
+            await operation;
+            DateTime oldLastUpdate = original.last_update;
+            DateTime oldAddDate = original.entries.Single().adddate;
+            string oldHeaderHash = original.header_sha256;
+            string oldDataHash = original.data_sha256;
+            PlaylistExternalSyncOwner.PlaylistTableUpdateReceipt? published = null;
+            playlist.ExternalSyncOwner.PlaylistTableUpdateReceiptPublished += (_, args) => published = args.Receipt;
+
+            Task<PlaylistExternalSyncOwner.PlaylistReloadOperationResult> reload = playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
+                [original], reason: "redirect-context-test", cancellationToken: cancellation.Token, publishReferenceReceipts: true);
+            operation = reload;
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult results = await reload;
+            results.ThrowIfFailed();
+            PlaylistExternalSyncOwner.PlaylistReloadTargetResult result = results.Single();
+            BMSTable current = playlist.BMSTables.Single();
+            Assert.IsTrue(result.Succeeded);
+            Assert.IsFalse(result.Updated);
+            Assert.IsTrue(result.StatePersisted);
+            Assert.IsTrue(result.NeedsBmtExport);
+            Assert.AreNotSame(original, current);
+            Assert.AreSame(current, result.ResultTable);
+            Assert.IsNotNull(result.UpdateReceipt);
+            Assert.AreSame(current, result.UpdateReceipt.NewTable);
+            Assert.AreSame(result.UpdateReceipt, published);
+            Assert.IsFalse(result.UpdateReceipt.ReferenceEntriesChanged);
+            Assert.IsFalse(result.UpdateReceipt.Updated);
+            Assert.IsNull(current.Page_url);
+            Assert.AreEqual(originalHeader, current.Header_url);
+            Assert.AreEqual(finalData, current.GetAbsoluteDataUrl());
+            Assert.AreEqual(original.playlist_id, current.playlist_id);
+            Assert.AreEqual("Manual table name", current.name);
+            Assert.AreEqual("M", current.symbol);
+            Assert.AreEqual(original.Output_dir, current.Output_dir);
+            Assert.AreEqual(original.ignore_folder_output, current.ignore_folder_output);
+            Assert.AreEqual(original.is_bmt_output, current.is_bmt_output);
+            Assert.AreEqual(original.bmt_sort, current.bmt_sort);
+            Assert.AreEqual(oldLastUpdate, current.last_update);
+            Assert.AreEqual(oldHeaderHash, current.header_sha256);
+            Assert.AreEqual(oldDataHash, current.data_sha256);
+            Assert.AreEqual("local memo", current.entries.Single().memo);
+            Assert.AreEqual(oldAddDate, current.entries.Single().adddate);
+            Assert.AreEqual(new Uri("https://packages.test/song.zip"), current.entries.Single().Url);
+            Assert.AreEqual(new Uri("https://packages.test/fix.zip"), current.entries.Single().Url_diff);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                BMSTable persisted = db.Table<BMSTable>().Single();
+                Assert.AreEqual(finalData, persisted.GetAbsoluteDataUrl());
+                Assert.AreEqual(originalHeader, persisted.Header_url);
+                Assert.AreEqual(oldLastUpdate, persisted.last_update);
+                Assert.AreEqual(oldDataHash, persisted.data_sha256);
+                LR2SongDBExtended.playlist_entry entry = db.Table<LR2SongDBExtended.playlist_entry>().Single();
+                Assert.AreEqual("local memo", entry.memo);
+                Assert.AreEqual(oldAddDate, entry.adddate);
+            }
+            reader = new TestBmsPlaylist(songPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, settings: testSettings);
+            OwnStartupWork(reader, nameof(reader));
+            operation = reader.ReloadTablesAsync(exportBeatorajaBmt: false);
+            await operation;
+            BMSTable hydrated = reader.BMSTables.Single();
+            reader.EnsurePlaylistEntriesLoaded(hydrated, "redirect-context-test");
+            Assert.AreEqual(finalData, hydrated.GetAbsoluteDataUrl());
+            Assert.AreEqual(originalHeader, hydrated.Header_url);
+            Assert.AreEqual(oldLastUpdate, hydrated.last_update);
+            Assert.AreEqual("local memo", hydrated.entries.Single().memo);
+            Assert.AreEqual(oldAddDate, hydrated.entries.Single().adddate);
+            Assert.AreEqual(current.entries.Single().Url, hydrated.entries.Single().Url);
+            Assert.AreEqual(current.entries.Single().Url_diff, hydrated.entries.Single().Url_diff);
+            CollectionAssert.AreEqual(new[] { "/original/header.json" }, header.RequestTargets);
+            CollectionAssert.AreEqual(new[] { "/data.json" }, redirect.RequestTargets);
+            CollectionAssert.AreEqual(new[] { "/published/current/rows.json" }, final.RequestTargets);
+            await Task.WhenAll(header.Completion, redirect.Completion, final.Completion);
+        }
+        catch (Exception ex) { failure = ex; throw; }
+        finally
+        {
+            var cleanupFailures = new List<Exception>();
+            try
+            {
+                try { cancellation.Cancel(); }
+                catch (Exception ex) { cleanupFailures.Add(ex); }
+                foreach (SingleRequestHttpServer server in new[] { header, redirect, final })
+                {
+                    server.ReleaseBodyPrefix.TrySetResult();
+                    server.ReleaseBody.TrySetResult();
+                }
+                if (operation != null)
+                {
+                    try { await operation; }
+                    catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+                    catch (Exception ex) { cleanupFailures.Add(ex); }
+                }
+                foreach (SingleRequestHttpServer server in new[] { header, redirect, final })
+                {
+                    try { await server.DisposeAsync(); }
+                    catch (Exception ex) { cleanupFailures.Add(ex); }
+                }
+            }
+            finally { releaseWork.TrySetResult(); }
+            // 主operationとHTTPのproducer終端後に固定し、store別の実work異常も主失敗と区別する。
+            foreach (IGrouping<string, (string Store, Task Work)> storeWork in acceptedWork.ToArray().GroupBy(item => item.Store))
+            {
+                var workCompletion = Task.WhenAll(storeWork.Select(item => item.Work));
+                try { await workCompletion; }
+                catch (Exception ex)
+                {
+                    cleanupFailures.Add(new InvalidOperationException(
+                        "転送テストの任意startup work終了失敗: " + storeWork.Key, workCompletion.Exception ?? ex));
+                }
+            }
+            foreach (TestBmsPlaylist? store in new[] { reader, playlist })
+            {
+                if (store == null) { continue; }
+                try
+                {
+                    store.RequestShutdown("redirect-context-test-complete");
+                    await store.WaitForPlaylistMutationIdleAsync();
+                    Assert.IsFalse(store.HasShutdownBlockingWork);
+                }
+                catch (Exception ex) { cleanupFailures.Add(ex); }
+            }
+            try { Directory.Delete(directory, recursive: true); }
+            catch (Exception ex) { cleanupFailures.Add(ex); }
+            if (cleanupFailures.Count > 0)
+            {
+                var cleanupFailure = new AggregateException(cleanupFailures);
+                if (failure == null) { throw cleanupFailure; }
+                System.Diagnostics.Trace.WriteLine("転送reloadのcleanup二次失敗: " + cleanupFailure);
+            }
+        }
+    }
 
     /// <summary>
     /// 単表入口と二表入口で、正本置換後の実BMT失敗が確定参照を隠さず、

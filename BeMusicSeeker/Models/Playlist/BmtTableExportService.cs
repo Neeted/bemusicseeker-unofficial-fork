@@ -709,7 +709,7 @@ internal static class BmtTableExportService
         }
     }
 
-    /// <summary>表の正本から、生成省略を判断する入力を捕捉します。</summary>
+    /// <summary>表の正本から、解決済みdata参照を含めて生成省略を判断する入力を捕捉します。entryは必要投影まで展開しません。</summary>
     internal static PlaylistExportMetadata CreatePlaylistExportMetadata(BMSTable table)
     {
         if (table == null || !table.playlist_id.HasValue)
@@ -730,6 +730,7 @@ internal static class BmtTableExportService
         };
     }
 
+    /// <summary>行を展開せず既存の投影入力へ実data参照を加え、本文hashが同じでも相対URLの解決先の変化を識別します。</summary>
     private static string BuildProjectionInputSha256(BMSTable table)
     {
         if (table == null)
@@ -746,6 +747,17 @@ internal static class BmtTableExportService
                 .Select(course => course?.course_json)
                 .Where(courseJson => !string.IsNullOrWhiteSpace(courseJson)))
         };
+        Uri effectiveDataUri = table.GetAbsoluteDataUrl();
+        if (effectiveDataUri != null)
+        {
+            string effectiveDataReference = effectiveDataUri.GetComponents(UriComponents.HttpRequestUrl, UriFormat.SafeUnescaped);
+            if (effectiveDataUri.IsUnc || (effectiveDataUri.IsFile && Path.IsPathFullyQualified(effectiveDataUri.LocalPath)))
+            {
+                effectiveDataReference = effectiveDataReference.ToUpperInvariant();
+            }
+            // 文脈なしの旧入力形は維持し、URI比較で同値な表記だけを一つへ揃える。
+            projectionInput["effectiveDataUri"] = effectiveDataReference;
+        }
         return BMSTable.ComputeSha256Hex(projectionInput.ToString(Formatting.None));
     }
 

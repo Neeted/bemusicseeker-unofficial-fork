@@ -59,6 +59,10 @@ LR2の管理出力先を変える保存は、[出力配置条件](lr2-custom-fol
 
 ### 外部取得と公開の境界
 
+HTTP転送後の相対参照は[外部表の転送と相対参照](downloads.md#外部表の転送と相対参照)に従います。HTML入力の元 `Page_url`、直接header JSON入力の元 `Header_url` は次回の同期元として保持し、一時転送先へ置換しません。HTMLのraw相対headerを元pageで解決すると実header要求先と異なる場合だけ、既存の `Header_url` に実header要求先を保存します。
+
+完成する表の `GetAbsoluteDataUrl()` が実最終data URIと異なる場合だけ、既存の `Data_url` にその実URIを保存してからentryを読み込みます。同じ参照なら通常のraw相対表現を保持します。返却表、登録保存、DB再読込みと公開data基準でentry本体・差分の意味を揃え、最終URIの永続fieldや本文hashへの混入を加えません。参照同値は `Uri.Equals` で判定し、HTTPのpath/queryの有意な大小文字を保ち、fragmentだけの差を変更にしません。保存済み同期元のfile・ドライブ・UNCの解決意味も維持します。
+
 HTMLはアプリのHTTP管理主体が取得した本文だけを解析し、パーサーに再取得や外部DTD取得をさせません。ページ、ヘッダーJSON、データJSONは各一回取得します。相対ヘッダーURLはページ、相対データURLはヘッダーを基準に解決します。
 
 取得と解析はUIスレッド外で行います。集合の書込みロックは重複確認・採番・出力先算出など短い状態変更に限定し、DB保存はその外で行います。確定後の表示集合への追加・置換はUIスケジューラーへ渡し、その処理の `Completion` を待って成功とします。UI完了を待つ間は表・集合・UIのロックを保持しません。
@@ -114,9 +118,12 @@ DB接続・短いモデルロックを解放してからUIスケジューラー�
 | 既知のデータハッシュから別値へ変化 | ヘッダー・コース・譜面行。 | 更新する。 |
 | データハッシュの初期化 | ヘッダー・コース・譜面行。 | 更新しない。 |
 | 表示名 `name` または取得元名 `org_name` だけが変化 | ヘッダーとコース。譜面行は保存し直さない。 | 更新しない。 |
+| 本文hashが同じで、解決済みdata参照だけが変化 | ヘッダーとコース。空entry・全絶対entryでも保存し、URI差だけを譜面行保存の原因にしない。 | 更新しない。 |
 | 譜面行の内容比較だけで差分を検出 | 一致行のローカル状態を引き継いで譜面行を保存する。 | 更新しない。 |
 
 いずれもBMT再出力の対象です。内容比較はハッシュ未初期化や古い状態でも譜面差分を反映するためのもので、更新日時の独立した根拠にはしません。外部表の初回登録は取得元の日時があればそれを使い、なければ登録時刻です。空のローカル表は作成時刻を初期値とし、通常保存でDBへ反映します。
+
+解決済みdata参照が同じなら、raw相対/絶対の表現差や無関係なpage/headerの差だけで保存・BMT対象を増やしません。URIだけの保存も `Updated=false`、`StatePersisted=true` の新しい確定表として既存receiptと新旧参照差で公開し、利用者の同期元、ID、手動名・記号、出力設定、hash、memo・adddateを保持します。相対entryの解決先が変わる場合の通常URL値の差は、既存の行内容比較で必要な行保存へ反映します。BMTも実data参照を入力指紋へ含め、変更回は生成bytesが同じでも一度の投影・書込みを行い得ます。その後の同じ完全入力・実ファイル状態での投影/書込み省略と、旧指紋の初回更新は[BMTの管理台帳](bmt-export.md#管理台帳と未変更判定)に従います。
 
 リコメンドは再読込み時に三方針の自動名へ戻し、難度推定表と通常外部表は手動名を保持します。名称差だけでもDB保存と画面公開を行います。実力更新通知は、成功反映前後の取得元名から解釈できる★数値と設定で別に判定し、ハッシュ初期化・更新検知・日時の有無で制限しません。詳細は[内蔵リコメンド](local-recommendations.md#uriui取消と保存)を参照します。
 
@@ -225,6 +232,9 @@ SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| data転送後の参照と登録・DB再読込み | `PlaylistExternalSyncOwner.LoadExternalTableAsync` / `RegistrateExternalTableAsync` | [`BmsPlaylistExternalLoadTests.RegistrateExternalTableAsync_RedirectedDataPreservesReferencesAfterDatabaseReload`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalLoadTests.cs) は実HTTP data転送後の相対本体・差分、元headerと公開data基準を、取得表・登録済み集合・別readonly DB・新readerで確認する。転送hopごとの要求集合・回数も照合する。 |
+| 解決済みdata参照だけの保存判断と同値抑止 | `PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState`、`PlaylistReloadPersistenceDecision.EffectiveDataUriChanged` | [`PlaylistReloadMergeTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistReloadMergeTests.cs) の `MergeReloadedBMSTableState_EffectiveDataUriChangeSavesHeaderWithoutDateOrEntries` は空entry・全絶対entryとHTTP path/queryのcase差で、header/state/BMT対象、entry非保存と日時保持を確認する。`MergeReloadedBMSTableState_EquivalentDataUriDoesNotPersist` は同じ実参照の相対/絶対・scheme/host・fragment・file/UNC、`MergeReloadedBMSTableState_UnrelatedSourceContextDoesNotPersist` は無関係page/header差と文脈なしの手動・内蔵表を分担する。 |
+| 同本文で実data基準だけ変わる通常reloadの確定参照公開 | `PlaylistExternalSyncOwner.ReloadPlaylistTargetsAsync`、`PlaylistAggregatePersistenceOwner.TryApplyReloadedTableAsync` | [`BmsPlaylistExternalReloadTests.ReloadPlaylistTargetsAsync_RedirectedDataContextPersistsWithoutUpdatedFlag`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalReloadTests.cs) は全絶対entryの実転送と通常登録・reloadを通し、UpdatedとStatePersisted、新旧表とreceipt・現行集合の一致、公開data基準、元同期元、hash・日時・ローカル属性と別DB・新readerを確認する。参照公開・詳細選択・プロパティ保存は既存receiptと新旧参照差/StatePersistedの接続を静的確認し、画面の条件網羅を重ねない。 |
 | 保存生値の遅延親MD5・公開読取り・clone・JSONの同値 | [`BMSTableEntry`](../../../BeMusicSeeker/Models/Playlist/BMSTableEntry.cs) | [`BmtTableExportServiceTests.HydratedParentMd5_FirstPublicReadCloneAndJsonPreserveSavedParents`](../../../BeMusicSeeker.Tests/Playlist/BmtTableExportServiceTests.cs) がMD5あり／SHA256のみ×親0・1・複数を通常保存し、各入口ごとに別の新接続・起動hydrateを使って、一覧・保存文字列・Duplicate・再読込みsnapshot・JSONの初回読取りを固定親列と比較する。別readonly接続の生保存行で対象hash・親MD5と無関係行の不変を確認する。受理文法・null等の条件は既存 `BMSTableLoadTests` / `PlaylistUrlCompletionTests`、実gzip接続は[BMTの対応表](bmt-export.md#実装とテストの対応)へ分担する。 |
 | ヘッダー一括保存の全件/一部失効拒否、空入力、非厳格互換 | `BMSPlaylist.CommitBMSTableHeadersToDB` | [`BmsPlaylistPersistenceLifecycleTests.CommitHeaders_CurrentTargetRequirementRejectsAllAndPartialRetirementButAllowsEmpty`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs)。実SQLiteで失効時に生存対象だけを部分保存せず、`false`では現行対象のみ保存することを確認する。保存境界で現行参照集合を一度構築して照合する点は静的確認で分担する。 |
 | 外部属性一括適用のDB後出力故障と確定表示の終端 | [`PlaylistWorkspaceViewModel.PlaylistSummaryBulkEdit`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.PlaylistSummaryBulkEdit.cs) | [`PlaylistSummaryBulkEditTests.BulkExternalProperties_BmtFailureRefreshesCommittedPresentationAndPreservesPrimary`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs) は実BMT台帳の読取り故障で、確定済みDB・live・参照・概要コピー・詳細とkeyword候補を保ち、guard解放後の通知終端とPの保持・解放を確認する。二次通知故障でも元の出力原因を返す。DB前失敗の成功通知抑止は同クラスの既存検証が担う。 |

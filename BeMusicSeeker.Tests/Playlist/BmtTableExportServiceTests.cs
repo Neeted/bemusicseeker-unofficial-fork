@@ -23,6 +23,158 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmtTableExportServiceTests
 {
+    /// <summary>実metadataが本文hash・日時・同期元だけでURI差を落とさず、HTTP path/queryのcaseと予約文字の別参照を投影指紋へ反映します。</summary>
+    [DataTestMethod]
+    [DataRow("https://data.test/old/rows.json", "https://data.test/new/rows.json")]
+    [DataRow("https://data.test/A.json", "https://data.test/a.json")]
+    [DataRow("https://data.test/rows.json?Key=1", "https://data.test/rows.json?key=1")]
+    [DataRow("https://data.test/rows.json?token=A", "https://data.test/rows.json?token=a")]
+    [DataRow("https://data.test/a%2Fb.json", "https://data.test/a/b.json")]
+    [TestCategory("Playlist")]
+    public void CreatePlaylistExportMetadata_EffectiveDataUriChangesProjectionFingerprint(string oldData, string newData)
+    {
+        BMSTable table = CreateProjectionContextTable(1, new Uri(oldData));
+        BmtTableExportService.PlaylistExportMetadata before = BmtTableExportService.CreatePlaylistExportMetadata(table);
+        table.Data_url = new Uri(newData);
+        BmtTableExportService.PlaylistExportMetadata after = BmtTableExportService.CreatePlaylistExportMetadata(table);
+
+        Assert.AreNotEqual(before.ProjectionInputSha256, after.ProjectionInputSha256);
+        Assert.AreEqual(before.Url, after.Url);
+        Assert.AreEqual(before.HeaderSha256, after.HeaderSha256);
+        Assert.AreEqual(before.DataSha256, after.DataSha256);
+        Assert.AreEqual(before.LastUpdateTicks, after.LastUpdateTicks);
+    }
+
+    /// <summary>相対/絶対、scheme/host/既定port/fragmentとWindows file/UNCの同参照は同じ投影入力になり、表現だけによる再生成を増やしません。</summary>
+    [DataTestMethod]
+    [DataRow("https://data.test/defs/header.json", "../rows.json", "https://data.test/rows.json")]
+    [DataRow("https://data.test/header.json", "HTTPS://DATA.test:443/rows.json#before", "https://data.test/rows.json#after")]
+    [DataRow("file:///C:/Tables/Defs/header.json", "../Rows.json", "file:///c:/tables/rows.json")]
+    [DataRow("file://SERVER/share/Defs/header.json", "../Rows.json", "file://server/SHARE/rows.json")]
+    [TestCategory("Playlist")]
+    public void CreatePlaylistExportMetadata_EquivalentDataReferencesKeepProjectionFingerprint(string header, string oldData, string newData)
+    {
+        BMSTable table = CreateProjectionContextTable(1, new Uri(oldData, UriKind.RelativeOrAbsolute));
+        table.Header_url = new Uri(header);
+        string before = BmtTableExportService.CreatePlaylistExportMetadata(table).ProjectionInputSha256;
+        table.Data_url = new Uri(newData, UriKind.RelativeOrAbsolute);
+
+        Assert.AreEqual(before, BmtTableExportService.CreatePlaylistExportMetadata(table).ProjectionInputSha256);
+    }
+
+    /// <summary>実data参照が同じ場合の無関係page/header差と、文脈なしの内蔵/手動表へ入力差を広げません。</summary>
+    [DataTestMethod]
+    [DataRow(true, false)]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [TestCategory("Playlist")]
+    public void CreatePlaylistExportMetadata_UnrelatedSourcesKeepProjectionFingerprint(bool hasData, bool builtin)
+    {
+        BMSTable table = CreateProjectionContextTable(1, hasData ? new Uri("https://data.test/rows.json") : null);
+        table.Page_url = builtin ? new Uri("bmseeker://recommendation/before") : new Uri("https://sync.test/before");
+        table.Header_url = new Uri("https://sync.test/old/header.json");
+        string before = BmtTableExportService.CreatePlaylistExportMetadata(table).ProjectionInputSha256;
+        table.Page_url = builtin ? new Uri("bmseeker://recommendation/after") : new Uri("https://other.test/after");
+        table.Header_url = new Uri("https://other.test/new/header.json");
+
+        Assert.AreEqual(before, BmtTableExportService.CreatePlaylistExportMetadata(table).ProjectionInputSha256);
+    }
+
+    /// <summary>旧schema2/同生成版の文脈あり表だけを通常部分出力で一度移行し、文脈なしlocal・対象外管理表・管理外物を保ち、次回は投影/writeを省略します。</summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void ExportTableDataSet_LegacyDataContextMigratesOnlyRequestedTableThenSkips()
+    {
+        WithTemporaryDirectory(delegate (string directory)
+        {
+            // タグt・外部false・接頭辞/順序/コース空でURI項目がない旧schema2の固定指紋。
+            // 現行private計算の複製ではなく、文脈なし旧入力の互換fixtureとして使う。
+            const string legacyProjection = "385772b9137d1993b3fd8767a66c2af5bd073d88022d135050c8ad4810211353";
+            BMSTable local = CreateProjectionContextTable(1, null);
+            BMSTable target = CreateProjectionContextTable(2, new Uri("https://data.test/target/rows.json"));
+            BMSTable unrelated = CreateProjectionContextTable(3, new Uri("https://data.test/other/rows.json"));
+            BMSTable[] tables = [local, target, unrelated];
+            BmtTableExportService.PlaylistExportMetadata[] metadata = [.. tables.Select(BmtTableExportService.CreatePlaylistExportMetadata)];
+            BmtTableExportService.ExportPlan initialPlan = BmtTableExportService.CreateExportPlan(directory, metadata, cleanupStaleManagedFiles: true);
+            BmtTableExportService.ExportTableDataSet(directory, tables.Zip(metadata, (table, item) => Tuple.Create(
+                item.PlaylistIdentity, BmtTableExportService.BuildTableData(table, null, BeatorajaBmtHashOutputMode.Original))), initialPlan, null);
+            string manifestPath = Path.Combine(directory, BmtTableExportService.ManifestFileName);
+            var oldManifest = JObject.Parse(File.ReadAllText(manifestPath, Encoding.UTF8));
+            Assert.AreEqual(2, oldManifest.Value<int>("schemaVersion"));
+            int exporterVersion = oldManifest.Value<int>("exporterVersion");
+            foreach (JProperty property in ((JObject)(oldManifest["playlists"] ?? throw new InvalidDataException())).Properties())
+            {
+                ((JObject)property.Value)["projectionInputSha256"] = legacyProjection;
+            }
+            JToken unrelatedOwnership = (oldManifest["playlists"]?["3"] ?? throw new InvalidDataException()).DeepClone();
+            File.WriteAllText(manifestPath, oldManifest.ToString(), Encoding.UTF8);
+            string localPath = Path.Combine(directory, metadata[0].FileName);
+            string targetPath = Path.Combine(directory, metadata[1].FileName);
+            string unrelatedPath = Path.Combine(directory, metadata[2].FileName);
+            byte[] localBytes = File.ReadAllBytes(localPath), unrelatedBytes = File.ReadAllBytes(unrelatedPath);
+            DateTime localTime = File.GetLastWriteTimeUtc(localPath), unrelatedTime = File.GetLastWriteTimeUtc(unrelatedPath);
+            string sentinelPath = Path.Combine(directory, "unmanaged.bmt");
+            File.WriteAllText(sentinelPath, "unmanaged sentinel");
+
+            Assert.AreEqual(legacyProjection, metadata[0].ProjectionInputSha256, "data文脈なしlocalは旧指紋を保持します。");
+            BmtTableExportService.ExportPlan localPlan = BmtTableExportService.CreateExportPlan(directory, [metadata[0]], cleanupStaleManagedFiles: false);
+            Assert.IsFalse(localPlan.RequiresProjection(metadata[0]));
+            BmtTableExportService.ExportResult localResult = BmtTableExportService.ExportTableDataSet(directory, [], localPlan, null);
+            Assert.AreEqual(0, localResult.WrittenCount);
+            Assert.AreEqual(1, localResult.SkippedWriteCount);
+            BmtTableExportService.ExportPlan migratePlan = BmtTableExportService.CreateExportPlan(directory, [metadata[1]], cleanupStaleManagedFiles: false);
+            Assert.IsTrue(migratePlan.RequiresProjection(metadata[1]));
+            BmtTableExportService.ExportResult migrated = BmtTableExportService.ExportTableDataSet(directory,
+                [Tuple.Create("2", BmtTableExportService.BuildTableData(target, null, BeatorajaBmtHashOutputMode.Original))], migratePlan, null);
+            Assert.AreEqual(1, migrated.WrittenCount);
+            Assert.AreEqual(0, migrated.SkippedWriteCount);
+            DateTime targetTime = File.GetLastWriteTimeUtc(targetPath);
+            byte[] targetBytes = File.ReadAllBytes(targetPath);
+            var updatedManifest = JObject.Parse(File.ReadAllText(manifestPath, Encoding.UTF8));
+            var playlists = (JObject)(updatedManifest["playlists"] ?? throw new InvalidDataException());
+            Assert.AreEqual(exporterVersion, updatedManifest.Value<int>("exporterVersion"));
+            Assert.AreEqual(metadata[1].ProjectionInputSha256, playlists["2"]?.Value<string>("projectionInputSha256"));
+            Assert.AreEqual(legacyProjection, playlists["3"]?.Value<string>("projectionInputSha256"));
+            Assert.IsTrue(JToken.DeepEquals(unrelatedOwnership, playlists["3"]), "部分出力の非対象所有は全項目を保持します。");
+
+            BmtTableExportService.ExportPlan repeatPlan = BmtTableExportService.CreateExportPlan(directory, [metadata[1]], cleanupStaleManagedFiles: false);
+            Assert.IsFalse(repeatPlan.RequiresProjection(metadata[1]));
+            var progress = new List<int>();
+            BmtTableExportService.ExportResult repeated = BmtTableExportService.ExportTableDataSet(directory, [], repeatPlan,
+                (completed, _, _) => progress.Add(completed));
+            Assert.AreEqual(0, repeated.WrittenCount);
+            Assert.AreEqual(1, repeated.SkippedWriteCount);
+            Assert.AreEqual(0, progress.Count);
+            Assert.AreEqual(targetTime, File.GetLastWriteTimeUtc(targetPath));
+            CollectionAssert.AreEqual(targetBytes, File.ReadAllBytes(targetPath));
+            Assert.AreEqual(localTime, File.GetLastWriteTimeUtc(localPath));
+            CollectionAssert.AreEqual(localBytes, File.ReadAllBytes(localPath));
+            Assert.AreEqual(unrelatedTime, File.GetLastWriteTimeUtc(unrelatedPath));
+            CollectionAssert.AreEqual(unrelatedBytes, File.ReadAllBytes(unrelatedPath));
+            Assert.AreEqual("unmanaged sentinel", File.ReadAllText(sentinelPath));
+            CollectionAssert.AreEquivalent(new[] { "1", "2", "3" }, repeated.CurrentManagedTables.Select(item => item.PlaylistIdentity).ToArray());
+            Assert.AreEqual("Song", ReadBmtJson(targetPath)["folder"]?[0]?["songs"]?[0]?.Value<string>("title"));
+        });
+    }
+
+    /// <summary>本番metadataを通す、本文hash・日時が既知の小さい表を用意します。外部同期flagなしでも実data参照がある条件を含めます。</summary>
+    private static BMSTable CreateProjectionContextTable(int id, Uri? data)
+    {
+        return new BMSTable
+        {
+            playlist_id = id,
+            name = "Context " + id,
+            tag = "t",
+            compat_prefix = string.Empty,
+            is_external_sync = false,
+            Data_url = data,
+            header_sha256 = new string('a', 64),
+            data_sha256 = new string('b', 64),
+            last_update = new DateTime(2024, 6, 1, 10, 20, 30),
+            entries = [new BMSTableEntry { md5 = Md5A, title = "Song", folder = "Alpha", Url = new Uri("https://packages.test/song.zip") }]
+        };
+    }
+
     /// <summary>cleanup・単表削除・URL-only・全出力・改名の実削除失敗で、未削除 BMT の物理所有を残し URL 所有と分けて失敗対象・原因を返し、ロック解除後の明示 cleanup で回収できることを確認します。</summary>
     [TestMethod]
     // 全量整理／単表削除／URL-only化／全出力／URL改名は、files と playlists の更新範囲が異なる。

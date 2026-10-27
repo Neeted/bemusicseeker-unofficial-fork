@@ -78,6 +78,9 @@ internal sealed class PlaylistAggregatePersistenceOwner
         /// <summary>表示名または取得元名の差です。ヘッダー保存を必要としますが、更新日時は進めません。</summary>
         public bool NamesChanged { get; internal set; }
 
+        /// <summary>解決済みdata参照の差です。ヘッダーと状態の保存を必要としますが、更新日時やentry保存の根拠にはしません。</summary>
+        public bool EffectiveDataUriChanged { get; internal set; }
+
         public bool EntryFingerprintChanged { get; internal set; }
 
         public bool HeaderKnownChanged { get; internal set; }
@@ -92,8 +95,8 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
         public bool UpdatesLastUpdate => HeaderKnownChanged || DataKnownChanged;
 
-        /// <summary>名称差、ハッシュ差または初期化によって、ヘッダーとコースを保存する必要があるかを返します。</summary>
-        public bool NeedsHeaderPersistence => NamesChanged || HeaderKnownChanged || HeaderHashInitialized || HeaderHashMigrated || DataKnownChanged || DataHashInitialized;
+        /// <summary>名称・解決済みdata参照・ハッシュの差または初期化によって、ヘッダーとコースを保存する必要があるかを返します。</summary>
+        public bool NeedsHeaderPersistence => NamesChanged || EffectiveDataUriChanged || HeaderKnownChanged || HeaderHashInitialized || HeaderHashMigrated || DataKnownChanged || DataHashInitialized;
 
         public bool NeedsEntryPersistence => EntryFingerprintChanged || DataKnownChanged || DataHashInitialized;
 
@@ -1337,7 +1340,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
         return MergeReloadedBMSTableState(oldTable, reloadedTable, persistedActiveRows, out _, out _, out persistenceDecision, logLastUpdateDecision);
     }
 
-    /// <summary>取得結果へ既存設定・所属・メモを統合し、名称差のヘッダー保存と既知ハッシュ差の更新日時を別々に判定します。</summary>
+    /// <summary>取得結果へ既存設定・所属・メモを統合し、名称・解決済みdata参照のヘッダー保存と既知ハッシュ差の更新日時を別々に判定します。</summary>
     internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, IReadOnlyCollection<ComparablePlaylistEntryRow> persistedActiveRows, out bool hasContentChanges, out bool hasStateToPersist, out PlaylistReloadPersistenceDecision persistenceDecision, bool logLastUpdateDecision = false)
     {
         if (oldTable == null)
@@ -1359,6 +1362,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
         {
             NamesChanged = !string.Equals(oldTable.name, newTable.name, StringComparison.Ordinal)
                 || !string.Equals(oldTable.org_name, newTable.org_name, StringComparison.Ordinal),
+            EffectiveDataUriChanged = !Uri.Equals(oldTable.GetAbsoluteDataUrl(), newTable.GetAbsoluteDataUrl()),
             EntryFingerprintChanged = playlistContentDiffResult.HasChanges,
             HeaderKnownChanged = hashChangeResult.HeaderKnownChanged,
             HeaderHashInitialized = hashChangeResult.HeaderHashInitialized,

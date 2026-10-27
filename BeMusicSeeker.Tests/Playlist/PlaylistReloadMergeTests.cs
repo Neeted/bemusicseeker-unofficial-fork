@@ -12,6 +12,106 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistReloadMergeTests
 {
+    /// <summary>空行・全絶対URL行で本文hashが同じでもdata基準差を保存し、path/queryのcaseを捨てる比較と日時・entryの過剰保存を検出します。</summary>
+    [DataTestMethod]
+    [DataRow("https://example.test/old/rows.json", "https://example.test/new/rows.json", false)]
+    [DataRow("https://example.test/old/rows.json", "https://example.test/new/rows.json", true)]
+    [DataRow("https://example.test/rows/A.json", "https://example.test/rows/a.json", true)]
+    [DataRow("https://example.test/rows.json?token=A", "https://example.test/rows.json?token=a", true)]
+    [DataRow("https://example.test/rows.json?Key=1", "https://example.test/rows.json?key=1", true)]
+    [TestCategory("Playlist")]
+    public void MergeReloadedBMSTableState_EffectiveDataUriChangeSavesHeaderWithoutDateOrEntries(string oldData, string newData, bool hasEntry)
+    {
+        BMSTable original = CreateUriContextTable(hasEntry);
+        BMSTable reloaded = CreateUriContextTable(hasEntry);
+        original.Header_url = reloaded.Header_url = new Uri("https://example.test/header.json");
+        original.Data_url = new Uri(oldData);
+        reloaded.Data_url = new Uri(newData);
+
+        BMSTable merged = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(original, reloaded,
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(original.entries), out PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision decision);
+
+        Assert.IsTrue(decision.EffectiveDataUriChanged);
+        Assert.IsTrue(decision.NeedsHeaderPersistence);
+        Assert.IsTrue(decision.NeedsStatePersistence);
+        Assert.IsTrue(decision.NeedsBmtExport);
+        Assert.IsFalse(decision.NeedsEntryPersistence);
+        Assert.IsFalse(decision.EntryFingerprintChanged);
+        Assert.IsFalse(decision.UpdatesLastUpdate);
+        Assert.AreEqual(original.last_update, merged.last_update);
+        Assert.AreEqual(original.header_sha256, merged.header_sha256);
+        Assert.AreEqual(original.data_sha256, merged.data_sha256);
+        Assert.AreEqual(new Uri(newData), merged.GetAbsoluteDataUrl());
+    }
+
+    /// <summary>相対/絶対表記、scheme/host、fragmentとfile/UNCの同参照は保存を増やさず、HTTP専用化や文字列表現の比較への退行を検出します。</summary>
+    [DataTestMethod]
+    [DataRow("https://example.test/defs/header.json", "rows.json", "https://example.test/defs/rows.json")]
+    [DataRow("https://example.test/defs/header.json", "https://EXAMPLE.test/rows.json#before", "HTTPS://example.test/rows.json#after")]
+    [DataRow("file:///C:/tables/defs/header.json", "../rows.json", "file:///C:/tables/rows.json")]
+    [DataRow("file://server/share/defs/header.json", "../rows.json", "file://server/share/rows.json")]
+    [TestCategory("Playlist")]
+    public void MergeReloadedBMSTableState_EquivalentDataUriDoesNotPersist(string header, string oldData, string newData)
+    {
+        BMSTable original = CreateUriContextTable(hasEntry: true);
+        BMSTable reloaded = CreateUriContextTable(hasEntry: true);
+        original.Header_url = reloaded.Header_url = new Uri(header);
+        original.Data_url = new Uri(oldData, UriKind.RelativeOrAbsolute);
+        reloaded.Data_url = new Uri(newData, UriKind.RelativeOrAbsolute);
+
+        PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(original, reloaded,
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(original.entries), out PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision decision);
+
+        Assert.IsFalse(decision.EffectiveDataUriChanged);
+        Assert.IsFalse(decision.NeedsStatePersistence);
+        Assert.IsFalse(decision.NeedsBmtExport);
+    }
+
+    /// <summary>絶対dataが同じ場合の無関係なpage/header差と、data文脈なしの手動・内蔵表は従来の保存判断へ委ね、URI三項全体の過剰比較を検出します。</summary>
+    [DataTestMethod]
+    [DataRow("https://example.test/page", "https://elsewhere.test/page", true)]
+    [DataRow(null, null, false)]
+    [DataRow("bmseeker://recommendation/before", "bmseeker://recommendation/after", false)]
+    [TestCategory("Playlist")]
+    public void MergeReloadedBMSTableState_UnrelatedSourceContextDoesNotPersist(string? oldPage, string? newPage, bool hasData)
+    {
+        BMSTable original = CreateUriContextTable(hasEntry: false);
+        BMSTable reloaded = CreateUriContextTable(hasEntry: false);
+        original.Page_url = oldPage == null ? null : new Uri(oldPage);
+        reloaded.Page_url = newPage == null ? null : new Uri(newPage);
+        if (hasData)
+        {
+            original.Header_url = new Uri("https://example.test/old/header.json");
+            reloaded.Header_url = new Uri("https://elsewhere.test/new/header.json");
+            original.Data_url = reloaded.Data_url = new Uri("https://data.test/rows.json");
+        }
+
+        PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(original, reloaded,
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(original.entries), out PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision decision);
+
+        Assert.IsFalse(decision.EffectiveDataUriChanged);
+        Assert.IsFalse(decision.NeedsStatePersistence);
+        Assert.IsFalse(decision.NeedsBmtExport);
+    }
+
+    /// <summary>URI以外に差のない、本文hashが既知の表を作ります。絶対entryはdata基準差と行差を分離します。</summary>
+    private static BMSTable CreateUriContextTable(bool hasEntry)
+    {
+        BMSTable table = CreateTable("URI context", new DateTime(2024, 6, 1, 10, 20, 30));
+        table.playlist_id = 17;
+        table.org_name = table.name;
+        table.header_sha256 = new string('b', 64);
+        table.data_sha256 = new string('c', 64);
+        if (hasEntry)
+        {
+            BMSTableEntry entry = CreateEntry(new string('a', 32), "1");
+            entry.Url = new Uri("https://packages.test/song.zip");
+            entry.Url_diff = new Uri("https://packages.test/diff.zip");
+            table.entries = [entry];
+        }
+        return table;
+    }
+
     /// <summary>表示名だけ・取得元名だけ・どちらも不変の条件でヘッダー保存を選び、譜面保存と更新日時の再採番を行わない。名前変更の保存漏れと日時の誤更新を検出する。</summary>
     [DataTestMethod]
     // 表示名だけの変更、取得元名だけの変更、両方不変でヘッダー保存判断を分ける。

@@ -189,28 +189,32 @@ internal sealed class PlaylistExternalSyncOwner
 
         Uri originalPageUri = pageUri;
         Uri headerUri = null;
+        Uri responsePageUri = null;
+        Uri responseHeaderUri = null;
         Uri resolvedHeaderUri = null;
         Uri resolvedDataUri = null;
         BMSTable bmsTable = null;
         try
         {
-            (string input, bool isJson) = await GetExternalContentAsync(pageUri, cancellationToken, detectKind: true).ConfigureAwait(false);
+            (string input, bool isJson, Uri responseUri) = await GetExternalContentAsync(pageUri, cancellationToken, detectKind: true).ConfigureAwait(false);
             string headerJson;
             if (isJson)
             {
                 headerUri = pageUri;
                 pageUri = null;
                 resolvedHeaderUri = headerUri;
+                responseHeaderUri = responseUri;
                 headerJson = input;
-            }
-            else if (TryResolveHeaderUri(input, pageUri, out headerUri))
-            {
-                resolvedHeaderUri = !headerUri.IsAbsoluteUri ? new Uri(pageUri, headerUri) : headerUri;
-                (headerJson, _) = await GetExternalContentAsync(resolvedHeaderUri, cancellationToken).ConfigureAwait(false);
             }
             else
             {
-                throw new PlaylistHeaderUriNotFoundException(originalPageUri);
+                responsePageUri = responseUri;
+                if (!TryResolveHeaderUri(input, responsePageUri, out headerUri))
+                {
+                    throw new PlaylistHeaderUriNotFoundException(originalPageUri);
+                }
+                resolvedHeaderUri = !headerUri.IsAbsoluteUri ? new Uri(responsePageUri, headerUri) : headerUri;
+                (headerJson, _, responseHeaderUri) = await GetExternalContentAsync(resolvedHeaderUri, cancellationToken).ConfigureAwait(false);
             }
 
             bmsTable = new BMSTable();
@@ -219,6 +223,11 @@ internal sealed class PlaylistExternalSyncOwner
                 bmsTable.compat_prefix = baseTable.compat_prefix;
             }
             bmsTable.LoadHeaderJSON(headerJson, pageUri, headerUri, preserveLoadedCompatPrefix: baseTable != null);
+            // 元pageは次の同期元として保ち、転送で意味が変わった相対headerだけを材料化する。
+            if (!Uri.Equals(bmsTable.GetAbsoluteHeaderUrl(), resolvedHeaderUri))
+            {
+                bmsTable.Header_url = resolvedHeaderUri;
+            }
             if (baseTable != null)
             {
                 bmsTable.playlist_id = baseTable.playlist_id;
@@ -238,7 +247,8 @@ internal sealed class PlaylistExternalSyncOwner
                     GetCustomFolderOutputSettings().PlaylistDefaultIgnoreFolderOutput);
             }
 
-            resolvedDataUri = bmsTable.GetAbsoluteDataUrl();
+            resolvedDataUri = bmsTable.Data_url == null ? null
+                : bmsTable.Data_url.IsAbsoluteUri ? bmsTable.Data_url : new Uri(responseHeaderUri, bmsTable.Data_url);
             if (resolvedDataUri == null)
             {
                 throw new InvalidOperationException(
@@ -247,7 +257,13 @@ internal sealed class PlaylistExternalSyncOwner
                     + " headerUrl=" + FormatUriForLog(bmsTable.Header_url)
                     + " sourcePage=" + FormatUriForLog(originalPageUri));
             }
-            (string dataJson, _) = await GetExternalContentAsync(resolvedDataUri, cancellationToken).ConfigureAwait(false);
+            (string dataJson, _, Uri responseDataUri) = await GetExternalContentAsync(resolvedDataUri, cancellationToken).ConfigureAwait(false);
+            // entryの相対URLと保存後の公開data基準を、実際に読んだ文書へ揃える。
+            // 通常の相対表現は同じ参照なら保持し、本文hashにはURIを混ぜない。
+            if (!Uri.Equals(bmsTable.GetAbsoluteDataUrl(), responseDataUri))
+            {
+                bmsTable.Data_url = responseDataUri;
+            }
             bmsTable.LoadDataJSON(dataJson);
             return bmsTable;
         }
@@ -256,9 +272,10 @@ internal sealed class PlaylistExternalSyncOwner
             logWarning?.Invoke(
                 ex,
                 "playlist_external_load_failed pageUri=" + FormatUriForLog(originalPageUri)
-                + " resolvedPageUri=" + FormatUriForLog(pageUri)
+                + " resolvedPageUri=" + FormatUriForLog(responsePageUri)
                 + " rawHeaderUri=" + FormatUriForLog(headerUri)
                 + " resolvedHeaderUri=" + FormatUriForLog(resolvedHeaderUri)
+                + " responseHeaderUri=" + FormatUriForLog(responseHeaderUri)
                 + " rawDataUrl=" + FormatTextForLog(bmsTable?.data_url)
                 + " storedPageUrl=" + FormatUriForLog(bmsTable?.Page_url)
                 + " storedHeaderUrl=" + FormatUriForLog(bmsTable?.Header_url)
@@ -268,7 +285,8 @@ internal sealed class PlaylistExternalSyncOwner
         }
     }
 
-    private async Task<(string Text, bool IsJson)> GetExternalContentAsync(Uri uri, CancellationToken cancellationToken, bool detectKind = false)
+    /// <summary>本文と分類、相対参照の基準となる実応答URIを、応答の解放前に確定して返します。</summary>
+    private async Task<(string Text, bool IsJson, Uri ResponseUri)> GetExternalContentAsync(Uri uri, CancellationToken cancellationToken, bool detectKind = false)
     {
         // HttpClientが扱う4 schemeとローカルファイルを維持し、未対応の取得元だけを入力失敗にします。
         // 読取り全体のNotSupportedExceptionを捕捉して内部故障まで隠すことはしません。
@@ -281,7 +299,8 @@ internal sealed class PlaylistExternalSyncOwner
         using CancellationTokenSource deadline = uri.IsFile ? null : httpClient.CreateRequestDeadline();
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline?.Token ?? CancellationToken.None);
         using AppHttpResponse response = await httpClient.OpenReadAsync(uri, cancellation.Token).ConfigureAwait(false);
-        return await ExternalPlaylistContentReader.ReadAsync(response.ResponseStream, detectKind, cancellation.Token).ConfigureAwait(false);
+        (string text, bool isJson) = await ExternalPlaylistContentReader.ReadAsync(response.ResponseStream, detectKind, cancellation.Token).ConfigureAwait(false);
+        return (text, isJson, response.ResponseUri);
     }
 
     /// <summary>複数表を取得します。内蔵推薦は一操作内で同じfreshなスコア結果・失敗を共有します。</summary>
@@ -1425,7 +1444,7 @@ internal sealed class PlaylistExternalSyncOwner
 
         /// <summary>
         /// 正規の playlist / playlist_entry 状態がこのリロードで永続化されたかを示します。
-        /// hash 初期化や entry fingerprint 修復では <see cref="Updated"/> が false の場合もあるため、
+        /// hash 初期化・解決済みdata参照の変更や entry fingerprint 修復では <see cref="Updated"/> が false の場合もあるため、
         /// durable state に従う派生出力はこの値を基準に収束させます。
         /// </summary>
         internal bool StatePersisted { get; init; }
