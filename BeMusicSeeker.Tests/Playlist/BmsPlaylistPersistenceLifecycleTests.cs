@@ -1630,13 +1630,18 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
-    /// <summary>修復対象のない実再読込で、同じhydration要求を示す非active進捗だけを公開して架空の実行中表示を検出します。</summary>
+    /// <summary>修復対象のない実再読込で、同じhydration要求を示す非active進捗だけを公開して架空の実行中表示を検出します。受理した任意補完workも実終端まで回収し、DB利用中のdir削除とcleanupによる主失敗の上書きを防ぎます。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task ReloadTables_ZeroTargetRepairPublishesOnlyInactiveProgress()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
+        TestBmsPlaylist? playlist = null;
+        Task? reloadTask = null;
+        var acceptedWork = new ConcurrentQueue<Task>();
+        var releaseWork = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Exception? primaryFailure = null;
         try
         {
             string lr2RootPath = Path.Combine(tempDirectory, "LR2");
@@ -1660,7 +1665,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             };
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(
+            playlist = new TestBmsPlaylist(
                 songDbPath,
                 configOwner,
                 null,
@@ -1673,8 +1678,20 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                     CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
             var repairProgress = new List<PlaylistSyncProgressSnapshot>();
             playlist.CustomFolderOutputRepairProgressReporter = repairProgress.Add;
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                // 元の進捗観測点は任意workの実開始前に保ち、実delegateを一度実行するTaskを所有する。
+                var task = Task.Run(async () =>
+                {
+                    await releaseWork.Task.ConfigureAwait(false);
+                    await work().ConfigureAwait(false);
+                });
+                acceptedWork.Enqueue(task);
+                return true;
+            };
 
-            await playlist.ReloadTablesAsync(exportBeatorajaBmt: false);
+            reloadTask = playlist.ReloadTablesAsync(exportBeatorajaBmt: false);
+            await reloadTask;
 
             Assert.AreEqual(1, repairProgress.Count);
             Assert.AreEqual("custom_folder_repair", repairProgress[0].Source);
@@ -1684,11 +1701,53 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.IsFalse(repairProgress.Any(snapshot => snapshot.IsActive));
             Assert.IsFalse(repairProgress[^1].IsActive);
         }
+        catch (Exception ex)
+        {
+            primaryFailure = ex;
+            throw;
+        }
         finally
         {
-            if (Directory.Exists(tempDirectory))
+            var cleanupFailures = new List<Exception>();
+            try
             {
-                Directory.Delete(tempDirectory, recursive: true);
+                if (reloadTask != null)
+                {
+                    try { await reloadTask; }
+                    catch (Exception ex)
+                    {
+                        // tryで観測済みの同じReload faultはcleanupの別原因へ重複計上しない。
+                        if (!ReferenceEquals(ex, primaryFailure)) { cleanupFailures.Add(ex); }
+                    }
+                }
+            }
+            finally
+            {
+                releaseWork.TrySetResult();
+            }
+            // 一度のReloadが予約producerなので、その終端後に受理Taskを固定して実workまで回収する。
+            var workCompletion = Task.WhenAll(acceptedWork.ToArray());
+            try { await workCompletion; }
+            catch (Exception ex) { cleanupFailures.Add(workCompletion.Exception ?? ex); }
+            if (playlist != null)
+            {
+                try
+                {
+                    playlist.RequestShutdown("zero-target-repair-test-complete");
+                    await playlist.WaitForPlaylistMutationIdleAsync();
+                }
+                catch (Exception ex) { cleanupFailures.Add(ex); }
+            }
+            try
+            {
+                if (Directory.Exists(tempDirectory)) { Directory.Delete(tempDirectory, recursive: true); }
+            }
+            catch (Exception ex) { cleanupFailures.Add(ex); }
+            if (cleanupFailures.Count > 0)
+            {
+                var cleanupFailure = new AggregateException(cleanupFailures);
+                if (primaryFailure == null) { throw cleanupFailure; }
+                System.Diagnostics.Trace.WriteLine("zero-target fixtureのcleanup二次失敗: " + cleanupFailure);
             }
         }
     }
