@@ -1723,6 +1723,111 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>名前なし所属のLEVEL/ADDDATE両方向と受理済み空白名を実保存・出力し、同hashの別所属の値や別所属専用曲の混入を検出します。空白名の保存値を保ち、名前なしLEVEL昇順は読取り接続の未指定走査順を反転しても同じ所属内順を保つことと、方向変更保存後に同じファイルのCOMMANDが降順へ変わることを確認します。</summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    [DataRow("", LR2SongDBExtended.playlist.CustomFolderSortType.LEVEL, true)]
+    [DataRow("", LR2SongDBExtended.playlist.CustomFolderSortType.LEVEL, false)]
+    [DataRow("", LR2SongDBExtended.playlist.CustomFolderSortType.ADDDATE, true)]
+    [DataRow("", LR2SongDBExtended.playlist.CustomFolderSortType.ADDDATE, false)]
+    [DataRow("   ", LR2SongDBExtended.playlist.CustomFolderSortType.LEVEL, true)]
+    public void ReOutputCustomFolderAndCommitToDB_UserFolderSortUsesOwnMembershipValues(
+        string folder,
+        LR2SongDBExtended.playlist.CustomFolderSortType sortType,
+        bool ascending)
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var table = new BMSTable
+            {
+                playlist_id = 7391,
+                name = "MembershipSort",
+                symbol = "MS",
+                Output_dir = "MembershipSort",
+                entry_type = LR2SongDBExtended.playlist.EntryUnitType.File,
+                folder_sort_key = sortType,
+                folder_sort_ascending = ascending,
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                // 別所属を先に保存し、同hashのlevel/adddateが対象所属と逆の順序になる入力を作る。
+                entries = new[]
+                {
+                    (Number: 1, Folder: "Other", Level: 9, Year: 2019),
+                    (Number: 2, Folder: "Other", Level: 1, Year: 2011),
+                    (Number: 3, Folder: "Other", Level: 0, Year: 2010),
+                    (Number: 1, Folder: folder, Level: 3, Year: 2013),
+                    (Number: 2, Folder: folder, Level: 6, Year: 2016)
+                }.Select(value => new BMSTableEntry
+                {
+                    md5 = value.Number.ToString("x32"),
+                    title = "Song " + value.Number,
+                    folder = value.Folder,
+                    level = value.Level,
+                    adddate = new DateTime(value.Year, 1, 1)
+                }).ToArray(),
+                Folder_order = [folder, "Other"]
+            };
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.RunInTransaction(() =>
+                {
+                    db.CreateTable<LR2ScoreDB.score>();
+                    foreach (int number in new[] { 1, 2, 3 })
+                    {
+                        string hash = number.ToString("x32");
+                        db.Execute("INSERT INTO song (hash, title, path) VALUES (?, ?, ?);", hash, "Song " + number, hash + ".bms");
+                    }
+                });
+            }
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            {
+                BMSTables = new ObservableCollection<BMSTable>(new[] { table })
+            };
+
+            playlist.ReOutputCustomFolderAndCommitToDB(table);
+
+            // 空文字・空白名の表示titleは表名となるため、対象先頭の実ファイルを読む。
+            string outputPath = Path.Combine(outputBaseDir, "MembershipSort", "0000.lr2folder");
+            string command = ReadCustomFolderCommand(ReadShiftJisText(outputPath));
+            using (var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            {
+                CollectionAssert.AreEqual(new[] { folder, folder },
+                    verify.Query<LR2SongDBExtended.playlist_entry>("SELECT folder FROM playlist_entry WHERE playlist_id = ? AND folder <> ?;", table.playlist_id, "Other")
+                        .Select(entry => entry.folder).ToArray());
+                AssertCustomFolderCommandHashOrder(verify, command, ascending ? [1, 2] : [2, 1]);
+                if (folder.Length == 0 && sortType == LR2SongDBExtended.playlist.CustomFolderSortType.LEVEL && ascending)
+                {
+                    verify.Execute("PRAGMA reverse_unordered_selects = ON;");
+                    AssertCustomFolderCommandHashOrder(verify, command, [1, 2]);
+                }
+            }
+            if (folder.Length == 0 && sortType == LR2SongDBExtended.playlist.CustomFolderSortType.LEVEL && ascending)
+            {
+                table.folder_sort_ascending = false;
+
+                playlist.ReOutputCustomFolderAndCommitToDB(table);
+
+                string regeneratedCommand = ReadCustomFolderCommand(ReadShiftJisText(outputPath));
+                using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+                AssertCustomFolderCommandHashOrder(verify, regeneratedCommand, [2, 1]);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
     /// <summary>導入済み履歴表を参照する最終プレイ降順と欠損末尾のSQLを実ファイル・DBへ出力し、プレイ回数sortを代用しません。異なる日時・回数への置換を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]

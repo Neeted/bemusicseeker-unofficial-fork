@@ -95,6 +95,10 @@
 
 コマンドはLR2/OpenLR2が `song LEFT JOIN score ON song.hash=score.hash` に適用できるWHERE句断片です。ファイル単位の表は所属MD5へ絞り、フォルダ単位の表は所属MD5から得た `song.folder` へ広げます。`playlist_entry`、`chart_info`、必要な `ir_score` と履歴表も参照します。
 
+所属範囲の指定は `null` だけを全所属（ALL）とし、非nullは空文字・受理済み空白名を含む実所属として扱います。LEVEL/ADDDATEのソート値も抽出と同じ所属範囲から参照し、同じhashの別所属にあるlevel/adddateを混ぜません。空文字・空白名の保存値は保持し、表示上の表名への置換とは区別します。ALLで同じhashが複数所属にある場合の代表値、スキーマ・索引・ランダムの規則は変更しません。
+
+この所属内ソートは新規生成、および既存表の内容・設定を変更保存する等の明示再出力で反映します。通常起動や手動の全体同期だけで、既存ファイルの旧COMMANDが自動更新されることは保証しません。
+
 最終プレイ順は次の固定SQLを使います。
 
 ```sql
@@ -155,6 +159,7 @@ ROOT登録の補完・同期、表削除、プロパティ、一括編集は同�
 | 旧先削除失敗と新先状態、次通常処理で旧残余不変 | `BMSPlaylist` | [`RegenerateCustomFolderOutputs_UsesInjectedSettingsAndPreservesCommittedDestinationAfterOldCleanupFailure`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
 | 同一編集セッションの未完了移行・config原子的保存とC保存前の完了 | `PlaylistPropertySaveService`、`BMSPlaylist.MigrateCustomFolderOutputDirectoryWithSettings` | [`BmsPlaylistCustomFolderOutputTests.PlaylistPropertyDialog_UnfinishedOutputsCompleteBeforeSavingFurtherEdits`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)。DB=B、旧A/新B、ディスクから再読込みしたconfig、BMT、他表と管理外データを確認する。通常型・ルート型・追加先の正常移行は既存保存・移行テストと分担する。 |
 | 種類・SQL・階層と保存設定 | [`BMSTable`](../../../BeMusicSeeker/Models/Playlist/BMSTable.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) |
+| 名前なし・空白名の所属保持とLEVEL/ADDDATEの所属内ソート、変更保存時の再出力 | [`BMSPlaylist.makeCustomFolderCmdSort`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`BmsPlaylistCustomFolderOutputTests.ReOutputCustomFolderAndCommitToDB_UserFolderSortUsesOwnMembershipValues`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) が実保存値、生成COMMANDのSQLite上の順序と別所属専用曲の除外を確認する。名前なしはLEVEL/ADDDATE両方向、空白名はLEVEL昇順を扱い、名前なしLEVEL昇順だけは方向変更保存後に同じファイルを再読込みして降順を確認する。同じ代表の初回COMMANDは、ケース所有の読取り接続で未指定走査順を反転しても所属内のhash順が不変であることを確認する。ALL/通常名・旧NULL生存行・File/Folderは既存の `ReOutputCustomFolder_RawNullLiveEntriesRemainIncludedAndUsePersistedSortValues`、種類の独立有効化・ランダム・スキーマは既存ケースと分担する。 |
 | 一括生成・旧出力先・状態・受付 | [`PlaylistCustomFolderOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistCustomFolderOutputOwner.cs) | [`PlaylistCustomFolderOutputOwnerTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistCustomFolderOutputOwnerTests.cs)、[`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) |
 | 部分修復の開始・更新・全終端の要求識別 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) の `HydrateRequiredAsync` | [`BmsPlaylistPersistenceLifecycleTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs) の `ReloadTables_HydrationRepairRegeneratesBatchPrunesStaleRowsAndPreservesCurrentFiles` と `ReloadTables_ZeroTargetRepairPublishesOnlyInactiveProgress`: 通知元`custom_folder_repair`と要求のSource`playlist_custom_folder_output_repair`、世代・親操作IDを保ち、成功・元の修復失敗・対象0件の全終端まで同じ要求IDを確認する。一括再生成・余分な行の整理・現在ファイルと利用者列の保持、既存の部分修復カウントも維持する。 |
 | 通常・追加先の同一登録維持と親子配置の拒否 | [`CustomFolderOutputBaseSearchRootSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/CustomFolderOutputBaseSearchRootSyncService.cs) | [`LR2ConfigTests`](../../../BeMusicSeeker.Tests/Lr2/LR2ConfigTests.cs) の `OutputBaseSearchRootValidation_OnlyRootOutputCanContainRegisteredDirectories`、`SyncAdditionalOutputBaseRoots_RejectsParentOrChildWithoutReplacingRegistration`、`RepairNormalOutputBaseRoots_RejectsInvalidAdditionalBeforeAddingDefault`: パス方向、全候補の変更前検証、XML・登録の保持。 |

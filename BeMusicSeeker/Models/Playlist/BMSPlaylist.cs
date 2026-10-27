@@ -1920,7 +1920,7 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="ftype">ソート種別。</param>
     /// <param name="asc">昇順であれば <see langword="true"/>。</param>
     /// <param name="playlist_id">プレイリスト内参照が必要な場合のプレイリスト ID。</param>
-    /// <param name="folder">フォルダ限定参照が必要な場合のフォルダ名。</param>
+    /// <param name="folder">LEVEL/ADDDATEの参照範囲。<see langword="null"/>は全所属、非nullは空文字・空白名を含む指定所属に限定します。</param>
     /// <returns>ORDER BY 句に相当する文字列。不要なら空文字列。</returns>
     /// <exception cref="ArgumentNullException">必要な <paramref name="playlist_id"/> が未指定の場合。</exception>
     private string makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType ftype, bool asc, int? playlist_id = null, string folder = null)
@@ -1943,7 +1943,7 @@ public partial class BMSPlaylist : ObservableObject
                         throw new ArgumentNullException("playlist_id");
                     }
                     string columnName3 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
-                    if (string.IsNullOrWhiteSpace(folder))
+                    if (folder == null)
                     {
                         return "(SELECT " + ftype.ToColumnName() + " FROM " + tableName + " WHERE " + columnName2 + " = song.hash AND " + columnName3 + " = " + playlist_id + " AND ifnull(" + columnName + ", 0) = 0) " + text;
                     }
@@ -4890,15 +4890,11 @@ public partial class BMSPlaylist : ObservableObject
     /// <summary>
     /// SQL リテラルとして安全に埋め込める単引用符付き文字列へ変換します。
     /// </summary>
-    /// <param name="str">引用する文字列。</param>
+    /// <param name="str">引用する文字列。<see langword="null"/>は空文字として扱い、非nullの空白だけの所属名も値を保持します。</param>
     /// <returns>単引用符で囲み、必要なエスケープを行った文字列。</returns>
     private static string sqlQuote(string str = null)
     {
-        if (!string.IsNullOrWhiteSpace(str))
-        {
-            return "'" + str.Replace("'", "''") + "'";
-        }
-        return "''";
+        return "'" + (str ?? string.Empty).Replace("'", "''") + "'";
     }
 
     /// <summary>
