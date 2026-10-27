@@ -334,7 +334,7 @@ public sealed partial class SettingDialogEditCompletionTests
         finally { Directory.Delete(directory, true); }
     }
 
-    /// <summary>改名のDB失敗後、同じruntimeは旧公開名から新操作を始めます。fresh ownerはdiskの新定義だけを読み、保存されなかった旧名を過去の改名対応で補わず、表の再選択で解消します。</summary>
+    /// <summary>改名のDB失敗後、同じruntimeは旧公開名から内部空白を含む新名へ保存・出力します。fresh ownerはdiskの新定義だけを読み、保存されなかった旧名を過去の改名対応で補わず、表の再選択で解消します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -344,7 +344,7 @@ public sealed partial class SettingDialogEditCompletionTests
         try
         {
             string settingsPath = Path.Combine(directory, "settings", "user.config");
-            string original = Path.Combine(directory, "Original"), failed = Path.Combine(directory, "Failed"), latest = Path.Combine(directory, "Latest");
+            string original = Path.Combine(directory, "Original"), failed = Path.Combine(directory, "Failed"), latest = Path.Combine(directory, "My Charts");
             Settings values = CreateValidCustomFolderSettings(directory, [original], PortableSettingsPersistenceTests.OpenSettings(settingsPath));
             values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([original]);
             values.Save();
@@ -420,12 +420,13 @@ public sealed partial class SettingDialogEditCompletionTests
                         table = current.Playlist.BMSTables.Single();
                     }
                     dialog.SelectedCustomFolderAdditionalOutputBaseDir = reopenOwner ? failed : original;
-                    dialog.SelectedCustomFolderAdditionalOutputBaseName = "Latest";
+                    dialog.SelectedCustomFolderAdditionalOutputBaseName = "My Charts";
                     dialog.RenameSelectedCustomFolderAdditionalOutputBaseDir();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync("additional"), "output-header-next-request");
                     Assert.AreEqual(1, failures.Count, string.Join(Environment.NewLine, failures));
-                    Assert.AreEqual(reopenOwner ? "Original" : "Latest", table.custom_folder_output_base_name);
+                    Assert.AreEqual(reopenOwner ? "Original" : "My Charts", table.custom_folder_output_base_name);
                     Assert.AreEqual(CustomFolderOutputBaseRegistry.SerializeBaseDirectories([latest]), values.LR2CustomFolderAdditionalOutputBaseDirs);
+                    Assert.AreEqual(CustomFolderOutputBaseRegistry.SerializeBaseDirectories([latest]), PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderAdditionalOutputBaseDirs);
                     Assert.AreEqual(!reopenOwner, File.Exists(Path.Combine(latest, "Table", "0000.lr2folder")));
                     Assert.IsFalse(Directory.Exists(Path.Combine(values.LR2CustomFolderOutputBaseDir, "Table")));
                     if (reopenOwner)
@@ -436,7 +437,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         using (property)
                         {
                             Assert.AreEqual("Original", property.custom_folder_output_base_option.BaseName);
-                            property.custom_folder_output_base_option = property.OutputBaseOptions.Single(option => option.BaseName == "Latest");
+                            property.custom_folder_output_base_option = property.OutputBaseOptions.Single(option => option.BaseName == "My Charts");
                             Task<PlaylistPropertyDialogOperationResult> saving = property.SaveAndApplyAsync();
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(saving, "output-header-reselect");
                             Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, saving.GetAwaiter().GetResult());
@@ -444,7 +445,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         Assert.IsTrue(File.Exists(Path.Combine(latest, "Table", "0000.lr2folder")));
                     }
                     using LR2SongDBExtended verify = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
-                    Assert.AreEqual("Latest", verify.Table<BMSTable>().Single().custom_folder_output_base_name);
+                    Assert.AreEqual("My Charts", verify.Table<BMSTable>().Single().custom_folder_output_base_name);
                 }
                 finally
                 {

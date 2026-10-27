@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -22,6 +24,232 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class SettingDialogEditCompletionTests
 {
+    /// <summary>実改名Bindingは途中の空白を保ち、同値の明示改名でも保存せず前後空白を除去します。別ページの通常保存は候補を保ち、通常Closeだけが未確定名を最新公開名へ戻し、同VM再表示後の明示改名にも混入させません。</summary>
+    /// <remarks>実表・生成先はOutputConfirmation_HeaderFailureUsesPublishedNamesOrFreshSavedDefinitions、受理済みTaskのClose時の継続はRunViewOperation_NormalCloseAndEscapePreserveTaskAcrossReopenへ分担し、このWindowは生入力と確定・破棄の接続を確認します。</remarks>
+    [TestMethod]
+    public void CompiledAdditionalOutputRename_PreservesInputSpacesUntilConfirmation()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string root = CreateTemporaryRoot();
+            string path = Path.Combine(root, "user.config");
+            string original = Path.Combine(root, "Original");
+            Settings values = CreateValidCustomFolderSettings(root, [original], PortableSettingsPersistenceTests.OpenSettings(path));
+            values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([original]);
+            values.Save();
+            string oldNormal = values.LR2CustomFolderOutputBaseDir;
+            string oldRoot = values.LR2CustomFolderOutputBaseDirRootType;
+            string savedAdditional = values.LR2CustomFolderAdditionalOutputBaseDirs;
+            byte[] previousSettings = File.ReadAllBytes(path);
+            byte[] previousConfig = File.ReadAllBytes(values.LR2ConfigXmlPath);
+            SettingsProperty[] observedProperties = values.Properties.Cast<SettingsProperty>().ToArray();
+            SettingsProvider originalProvider = values.Properties[nameof(Settings.LR2CustomFolderOutputBaseDir)].Provider;
+            int providerWriteNotifications = 0;
+            var observingProvider = new InstallAdmissionObservingSettingsProvider(originalProvider,
+                () => Interlocked.Increment(ref providerWriteNotifications));
+            var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+            var failures = new List<Exception>();
+            MainWindowViewModel owner = CreateViewModel(new SettingsEditSession(values), firstStartup: true, dialogs: dialogs, reportSettingsApplyFailure: failures.Add);
+            SettingsWindow? window = null;
+            SettingsWindow? reopened = null;
+            try
+            {
+                // 直接Persistする出力確定と通常Saveの両方を、専用providerへの実書込み要求で観測します。
+                foreach (SettingsProperty property in observedProperties) { property.Provider = observingProvider; }
+                SettingsDialogViewModel dialog = owner.SettingDialog;
+                var presentation = new WindowClosingPresentationPort();
+                dialog.AttachPresentationPort(presentation);
+                window = new SettingsWindow(dialogs) { DataContext = dialog };
+                presentation.CurrentWindow = window;
+                scope.ShowAndWaitForContentRendered(window);
+                var editor = (TextBox)GetCategoryControl(window, "Playlist", nameof(SettingsDialogViewModel.SelectedCustomFolderAdditionalOutputBaseName)).Control;
+                var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                ListBox list = FindDescendants<ListBox>(page).Single(item => item.Name == "additionalOutputList");
+                list.SelectedItem = original;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(original, list.SelectedItem);
+                Assert.AreEqual("Original", editor.Text);
+
+                void AssertUnconfirmedInput(string expected)
+                {
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(expected, editor.Text, "Bindingからの書戻しで編集中の空白を失いません。");
+                    Assert.AreEqual(expected, dialog.SelectedCustomFolderAdditionalOutputBaseName);
+                    Assert.AreEqual(original, dialog.SelectedCustomFolderAdditionalOutputBaseDir);
+                    CollectionAssert.AreEqual(new[] { original }, dialog.CustomFolderAdditionalOutputBaseDirList.ToArray());
+                    Assert.AreEqual(oldNormal, dialog.LR2CustomFolderOutputDir);
+                    Assert.AreEqual(oldRoot, dialog.LR2CustomFolderAsRootOutputDir);
+                    Assert.AreEqual(oldNormal, values.LR2CustomFolderOutputBaseDir);
+                    Assert.AreEqual(oldRoot, values.LR2CustomFolderOutputBaseDirRootType);
+                    Assert.AreEqual(savedAdditional, values.LR2CustomFolderAdditionalOutputBaseDirs);
+                    Assert.AreEqual(0, Volatile.Read(ref providerWriteNotifications), "改名ボタンで確定するまではproviderへの書込みを開始しません。");
+                    Assert.AreEqual(0, dialogs.ConfirmationCount);
+                    CollectionAssert.AreEqual(previousSettings, File.ReadAllBytes(path));
+                    CollectionAssert.AreEqual(previousConfig, File.ReadAllBytes(values.LR2ConfigXmlPath));
+                }
+
+                editor.SelectAll();
+                editor.SelectedText = "My";
+                AssertUnconfirmedInput("My");
+                editor.Select(editor.Text.Length, 0);
+                editor.SelectedText = " ";
+                AssertUnconfirmedInput("My ");
+                editor.Select(editor.Text.Length, 0);
+                editor.SelectedText = "Charts";
+                AssertUnconfirmedInput("My Charts");
+                editor.Select(editor.Text.Length, 0);
+                editor.SelectedText = " ";
+                AssertUnconfirmedInput("My Charts ");
+                editor.Select(0, 0);
+                editor.SelectedText = " ";
+                AssertUnconfirmedInput(" My Charts ");
+
+                Button rename = FindDescendants<Button>((DependencyObject)list.Parent).Single(button => Equals(button.Content, Resources.Rename_folder));
+                Assert.IsTrue(rename.IsEnabled);
+                rename.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SettingsOperationCompletionTask, "additional-output-rename-terminal");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                Assert.AreEqual(0, dialogs.MessageCount, dialogs.LastMessageText);
+                Assert.IsTrue(Volatile.Read(ref providerWriteNotifications) > 0, "実確定は専用providerへ書込みを要求します。");
+                string renamed = Path.Combine(root, "My Charts");
+                Assert.AreEqual("My Charts", editor.Text);
+                Assert.AreEqual("My Charts", dialog.SelectedCustomFolderAdditionalOutputBaseName);
+                Assert.AreEqual(renamed, dialog.SelectedCustomFolderAdditionalOutputBaseDir);
+                CollectionAssert.AreEqual(new[] { renamed }, dialog.CustomFolderAdditionalOutputBaseDirList.ToArray());
+                Settings fresh = PortableSettingsPersistenceTests.OpenSettings(path);
+                CollectionAssert.AreEqual(new[] { renamed }, CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(fresh.LR2CustomFolderAdditionalOutputBaseDirs).ToArray());
+                Assert.AreEqual(oldNormal, fresh.LR2CustomFolderOutputBaseDir);
+                Assert.AreEqual(oldRoot, fresh.LR2CustomFolderOutputBaseDirRootType);
+                Assert.IsTrue(window.IsVisible);
+
+                int writesBeforeSameName = Volatile.Read(ref providerWriteNotifications);
+                int confirmationsBeforeSameName = dialogs.ConfirmationCount;
+                int messagesBeforeSameName = dialogs.MessageCount;
+                int failuresBeforeSameName = failures.Count;
+                byte[] settingsBeforeSameName = File.ReadAllBytes(path);
+                byte[] configBeforeSameName = File.ReadAllBytes(values.LR2ConfigXmlPath);
+                bool confirmedKeepBmt = values.KeepBeatorajaBmtFilesWhenOutputDisabled;
+                dialog.KeepBeatorajaBmtFilesWhenOutputDisabled = !confirmedKeepBmt;
+                editor.Select(0, 0);
+                editor.SelectedText = " ";
+                editor.Select(editor.Text.Length, 0);
+                editor.SelectedText = "  ";
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(" My Charts  ", editor.Text);
+                Assert.AreEqual(" My Charts  ", dialog.SelectedCustomFolderAdditionalOutputBaseName);
+                Assert.AreEqual(writesBeforeSameName, Volatile.Read(ref providerWriteNotifications));
+                rename.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SettingsOperationCompletionTask, "additional-output-same-name-terminal");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual("My Charts", editor.Text, "同値の明示改名でも確定時の正規化を表示へ戻します。");
+                Assert.AreEqual("My Charts", dialog.SelectedCustomFolderAdditionalOutputBaseName);
+                Assert.AreEqual(renamed, dialog.SelectedCustomFolderAdditionalOutputBaseDir);
+                CollectionAssert.AreEqual(new[] { renamed }, dialog.CustomFolderAdditionalOutputBaseDirList.ToArray());
+                Assert.AreEqual(CustomFolderOutputBaseRegistry.SerializeBaseDirectories([renamed]), values.LR2CustomFolderAdditionalOutputBaseDirs);
+                Assert.AreEqual(oldNormal, values.LR2CustomFolderOutputBaseDir);
+                Assert.AreEqual(oldRoot, values.LR2CustomFolderOutputBaseDirRootType);
+                Assert.AreEqual(writesBeforeSameName, Volatile.Read(ref providerWriteNotifications));
+                Assert.AreEqual(confirmationsBeforeSameName, dialogs.ConfirmationCount);
+                Assert.AreEqual(messagesBeforeSameName, dialogs.MessageCount);
+                Assert.AreEqual(failuresBeforeSameName, failures.Count);
+                CollectionAssert.AreEqual(settingsBeforeSameName, File.ReadAllBytes(path));
+                CollectionAssert.AreEqual(configBeforeSameName, File.ReadAllBytes(values.LR2ConfigXmlPath));
+                Assert.AreEqual(!confirmedKeepBmt, dialog.KeepBeatorajaBmtFilesWhenOutputDisabled, "同値改名は無関係なBMT候補を破棄・採用しません。");
+                Assert.AreEqual(confirmedKeepBmt, values.KeepBeatorajaBmtFilesWhenOutputDisabled);
+                fresh = PortableSettingsPersistenceTests.OpenSettings(path);
+                CollectionAssert.AreEqual(new[] { renamed }, CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(fresh.LR2CustomFolderAdditionalOutputBaseDirs).ToArray());
+                Assert.AreEqual(confirmedKeepBmt, fresh.KeepBeatorajaBmtFilesWhenOutputDisabled);
+
+                int writesAfterRename = Volatile.Read(ref providerWriteNotifications);
+                editor.SelectAll();
+                editor.SelectedText = "Discarded Draft ";
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual("Discarded Draft ", editor.Text);
+                Assert.AreEqual("Discarded Draft ", dialog.SelectedCustomFolderAdditionalOutputBaseName);
+                Assert.AreEqual(writesAfterRename, Volatile.Read(ref providerWriteNotifications), "未確定名の入力だけでは追加保存しません。");
+                int writesBeforeOrdinarySave = Volatile.Read(ref providerWriteNotifications);
+                string savedFormat = values.FolderNameFormat == "%ARTIST% - %TITLE%" ? "%TITLE%" : "%ARTIST% - %TITLE%";
+                EditCategoryControl(window, "Install", nameof(SettingsDialogViewModel.FolderNameFormat), savedFormat);
+                Assert.AreEqual(savedFormat, values.FolderNameFormat);
+                Assert.AreEqual(savedFormat, PortableSettingsPersistenceTests.OpenSettings(path).FolderNameFormat);
+                Assert.IsTrue(Volatile.Read(ref providerWriteNotifications) > writesBeforeOrdinarySave, "別ページの通常項目を実保存します。");
+                editor = (TextBox)GetCategoryControl(window, "Playlist", nameof(SettingsDialogViewModel.SelectedCustomFolderAdditionalOutputBaseName)).Control;
+                Assert.AreEqual("Discarded Draft ", editor.Text, "ページ移動と別項目の保存では編集中の候補を破棄しません。");
+                Assert.AreEqual("Discarded Draft ", dialog.SelectedCustomFolderAdditionalOutputBaseName);
+                Assert.AreEqual(renamed, dialog.SelectedCustomFolderAdditionalOutputBaseDir);
+                CollectionAssert.AreEqual(new[] { renamed }, dialog.CustomFolderAdditionalOutputBaseDirList.ToArray());
+                Assert.AreEqual(CustomFolderOutputBaseRegistry.SerializeBaseDirectories([renamed]), values.LR2CustomFolderAdditionalOutputBaseDirs);
+                Assert.AreEqual(CustomFolderOutputBaseRegistry.SerializeBaseDirectories([renamed]), PortableSettingsPersistenceTests.OpenSettings(path).LR2CustomFolderAdditionalOutputBaseDirs);
+                int writesBeforeClose = Volatile.Read(ref providerWriteNotifications);
+                byte[] settingsBeforeClose = File.ReadAllBytes(path);
+                byte[] configBeforeClose = File.ReadAllBytes(values.LR2ConfigXmlPath);
+                var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                EventHandler closedHandler = (_, _) => closed.TrySetResult();
+                window.Closed += closedHandler;
+                try
+                {
+                    window.Close();
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "additional-output-rename-normal-close");
+                }
+                finally { window.Closed -= closedHandler; }
+                Assert.IsFalse(window.IsVisible);
+                Assert.IsNull(window.DataContext);
+                Assert.AreEqual("My Charts", dialog.SelectedCustomFolderAdditionalOutputBaseName, "通常Closeでは未確定名だけを最新公開名へ戻します。");
+                Assert.AreEqual(writesBeforeClose, Volatile.Read(ref providerWriteNotifications));
+                CollectionAssert.AreEqual(settingsBeforeClose, File.ReadAllBytes(path));
+                CollectionAssert.AreEqual(configBeforeClose, File.ReadAllBytes(values.LR2ConfigXmlPath));
+
+                reopened = new SettingsWindow(dialogs) { DataContext = dialog };
+                presentation.CurrentWindow = reopened;
+                scope.ShowAndWaitForContentRendered(reopened);
+                editor = (TextBox)GetCategoryControl(reopened, "Playlist", nameof(SettingsDialogViewModel.SelectedCustomFolderAdditionalOutputBaseName)).Control;
+                Assert.AreEqual("My Charts", editor.Text, "同VMの再表示では再選択せずに最新公開名を表示します。");
+                Assert.AreEqual("My Charts", dialog.SelectedCustomFolderAdditionalOutputBaseName);
+                Assert.AreEqual(writesBeforeClose, Volatile.Read(ref providerWriteNotifications));
+                CollectionAssert.AreEqual(settingsBeforeClose, File.ReadAllBytes(path));
+                CollectionAssert.AreEqual(configBeforeClose, File.ReadAllBytes(values.LR2ConfigXmlPath));
+                Assert.AreEqual(savedFormat, PortableSettingsPersistenceTests.OpenSettings(path).FolderNameFormat);
+
+                editor.SelectAll();
+                editor.SelectedText = "Next Charts";
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual("Next Charts", editor.Text);
+                Assert.AreEqual("Next Charts", dialog.SelectedCustomFolderAdditionalOutputBaseName);
+                page = (FrameworkElement)((ContentControl)reopened.FindName("settingsPageContent")).Content;
+                list = FindDescendants<ListBox>(page).Single(item => item.Name == "additionalOutputList");
+                Assert.AreEqual(renamed, list.SelectedItem);
+                rename = FindDescendants<Button>((DependencyObject)list.Parent).Single(button => Equals(button.Content, Resources.Rename_folder));
+                Assert.IsTrue(rename.IsEnabled);
+                rename.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SettingsOperationCompletionTask, "additional-output-rename-after-reopen-terminal");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                Assert.AreEqual(0, dialogs.MessageCount, dialogs.LastMessageText);
+                string next = Path.Combine(root, "Next Charts");
+                Assert.AreEqual("Next Charts", editor.Text);
+                Assert.AreEqual("Next Charts", dialog.SelectedCustomFolderAdditionalOutputBaseName);
+                Assert.AreEqual(next, dialog.SelectedCustomFolderAdditionalOutputBaseDir);
+                CollectionAssert.AreEqual(new[] { next }, dialog.CustomFolderAdditionalOutputBaseDirList.ToArray());
+                fresh = PortableSettingsPersistenceTests.OpenSettings(path);
+                CollectionAssert.AreEqual(new[] { next }, CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(fresh.LR2CustomFolderAdditionalOutputBaseDirs).ToArray());
+                Assert.AreEqual(savedFormat, fresh.FolderNameFormat);
+                Assert.AreEqual(oldNormal, fresh.LR2CustomFolderOutputBaseDir);
+                Assert.AreEqual(oldRoot, fresh.LR2CustomFolderOutputBaseDirRootType);
+            }
+            finally
+            {
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "additional-output-rename-cleanup-terminal");
+                if (window?.IsVisible == true) { window.CloseForOwnerShutdown(); }
+                if (reopened?.IsVisible == true) { reopened.CloseForOwnerShutdown(); }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "additional-output-rename-owner-terminal");
+                owner.SettingDialog.Dispose();
+                foreach (SettingsProperty property in observedProperties) { property.Provider = originalProvider; }
+                Directory.Delete(root, recursive: true);
+            }
+        });
+    }
+
     /// <summary>実recordボタンは選択行の差分へBindingし、別行だけの変更では無効、無効入力でも取消可となり、実取消は選択行だけを戻します。不正な保存rawから追加した両種の新規行も取消でき、実保存rawは変更しません。</summary>
     [DataTestMethod]
     [DataRow(false)]

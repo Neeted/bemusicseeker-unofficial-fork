@@ -232,6 +232,7 @@ public partial class SettingsDialogViewModel : ViewModel
         presentationPort?.CloseSettingsDialog();
     }
 
+    /// <summary>通常閉鎖では候補を最新公開値へ戻し、配置自体が同じでも編集中の追加先名を破棄します。保存済み値と受理済みTaskは変更しません。</summary>
     private void ExecuteCloseCommand()
     {
         if (!IsEditCancellationEnabled)
@@ -241,6 +242,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
         SetAudioSettingsPageVisible(false);
         InitializeSectionEditors();
+        SelectedCustomFolderAdditionalOutputBaseName = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(SelectedCustomFolderAdditionalOutputBaseDir);
         ClosePresentation();
     }
 
@@ -1328,6 +1330,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>追加出力先の編集中の改名候補を生入力のまま保持します。前後空白の正規化と名前の検査は改名確定時に行います。</summary>
     public string SelectedCustomFolderAdditionalOutputBaseName
     {
         get
@@ -1340,7 +1343,6 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         set
         {
-            value = value?.Trim();
             if (!string.Equals(selectedCustomFolderAdditionalOutputBaseName, value, StringComparison.Ordinal))
             {
                 selectedCustomFolderAdditionalOutputBaseName = value;
@@ -4607,7 +4609,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
     }
 
-    /// <summary>追加出力候補の末尾名を変更します。拒否時は公開済み配置へ戻します。</summary>
+    /// <summary>追加出力候補の末尾名を変更します。同値時は自己候補の表示だけを選択先名へ揃え、拒否時は公開済み配置へ戻します。</summary>
     public void RenameSelectedCustomFolderAdditionalOutputBaseDir()
     {
         string selectedPath = SelectedCustomFolderAdditionalOutputBaseDir;
@@ -4623,6 +4625,7 @@ public partial class SettingsDialogViewModel : ViewModel
             if (string.Equals(selectedPath, newPath, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(oldName, newName, StringComparison.OrdinalIgnoreCase))
             {
+                SelectedCustomFolderAdditionalOutputBaseName = oldName;
                 return;
             }
             ValidateCustomFolderAdditionalOutputBasePath(newPath, selectedPath);

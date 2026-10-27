@@ -1084,14 +1084,16 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
     }
 
-    /// <summary>末尾名に現在ディレクトリ表現を指定し、出力先の名前変更要求を ArgumentException で拒否する既存判断を確認します。</summary>
-    [TestMethod]
-    public void AdditionalOutputBaseRename_RejectsCurrentDirectoryName()
+    /// <summary>改名確定時に現在ディレクトリ表現と空白だけの名前を拒否し、生入力を保持する画面でも無効な出力先を作らない既存判断を確認します。</summary>
+    [DataTestMethod]
+    [DataRow(".")]
+    [DataRow("   ")]
+    public void AdditionalOutputBaseRename_RejectsCurrentDirectoryName(string name)
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
         string additionalOutputBase = Path.Combine(root, "AdditionalOutput");
         Assert.ThrowsException<ArgumentException>(() =>
-            CustomFolderOutputBaseRegistry.RenameLastDirectoryName(additionalOutputBase, "."));
+            CustomFolderOutputBaseRegistry.RenameLastDirectoryName(additionalOutputBase, name));
     }
 
     /// <summary>通常出力先を移す同期で旧登録を外し新登録を実 LR2 設定へ追加することを確認します。</summary>
