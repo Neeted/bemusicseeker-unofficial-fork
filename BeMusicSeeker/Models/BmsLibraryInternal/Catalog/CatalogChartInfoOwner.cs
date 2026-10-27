@@ -72,6 +72,8 @@ internal sealed class CatalogChartInfoOwner
 
     private Action<CatalogChartInfoOwnerEvent> workflowEvent;
 
+    private Func<LibraryFileMutationCapability, Task> completeDuplicateData = _ => Task.CompletedTask;
+
     private Func<IDisposable> workflowBeginDigestMutationWindow = () => EmptyDisposable.Instance;
 
     private Func<IReadOnlyList<LibraryChartDigestChange>, string, CatalogCommitReceipt, Action> workflowPrepareDigestPublication;
@@ -194,6 +196,7 @@ internal sealed class CatalogChartInfoOwner
     /// <param name="workflowEvent">chart-info表示状態の通知。</param>
     /// <param name="beginDigestMutationWindow">digest操作の入力mutation window。</param>
     /// <param name="prepareDigestPublication">commit済みdigest factsからcommon effects公開処理を準備するcallback。</param>
+    /// <param name="completeDuplicateData">親受付の解放前に、現在表示に必要な重複データ準備を完了する接続です。</param>
     internal void ConfigureWorkflow(
         BmsLibraryDbGateway dbGateway,
         CatalogMutationOwner mutationOwner,
@@ -201,7 +204,8 @@ internal sealed class CatalogChartInfoOwner
         Action<string> logWarning,
         Action<CatalogChartInfoOwnerEvent> workflowEvent,
         Func<IDisposable> beginDigestMutationWindow = null,
-        Func<IReadOnlyList<LibraryChartDigestChange>, string, CatalogCommitReceipt, Action> prepareDigestPublication = null)
+        Func<IReadOnlyList<LibraryChartDigestChange>, string, CatalogCommitReceipt, Action> prepareDigestPublication = null,
+        Func<LibraryFileMutationCapability, Task> completeDuplicateData = null)
     {
         workflowDbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
         workflowMutationOwner = mutationOwner ?? throw new ArgumentNullException(nameof(mutationOwner));
@@ -210,6 +214,22 @@ internal sealed class CatalogChartInfoOwner
         this.workflowEvent = workflowEvent;
         workflowBeginDigestMutationWindow = beginDigestMutationWindow ?? (() => EmptyDisposable.Instance);
         workflowPrepareDigestPublication = prepareDigestPublication;
+        this.completeDuplicateData = completeDuplicateData ?? (_ => Task.CompletedTask);
+    }
+
+    /// <summary>受理済み読込み・補完の変更と必要な重複準備を同じ権限内で終え、両方の失敗を保持します。</summary>
+    private async Task CompleteAcceptedChartInfoWorkAsync(Func<Task> work, LibraryFileMutationCapability capability)
+    {
+        ExceptionDispatchInfo failure = null;
+        try { await work().ConfigureAwait(false); }
+        catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
+        try { await completeDuplicateData(capability).ConfigureAwait(false); }
+        catch (Exception exception)
+        {
+            if (failure != null) { throw new AggregateException(failure.SourceException, exception); }
+            throw;
+        }
+        failure?.Throw();
     }
 
     internal object BackfillGate => backfillGate;
@@ -645,9 +665,14 @@ internal sealed class CatalogChartInfoOwner
             await WaitForHydrationIdleAsync().ConfigureAwait(false);
             using IDisposable lease = await operationAdmission.EnterAcceptedBackgroundAsync().ConfigureAwait(false);
             if (TrySkip("chart_info_backfill", reason)) { return; }
-            QueueBackfill(reason, processSynchronously: true,
-                hydrationResult: new() { Succeeded = result.Succeeded, OwnerCount = result.OwnerCount, BackfillCandidateOwnerCount = result.CandidateOwnerCount },
-                originatingRequest: result.ProgressRequest);
+            using LibraryFileMutationCapability capability = operationAdmission.CreateMutationCapability(lease);
+            await CompleteAcceptedChartInfoWorkAsync(() =>
+            {
+                QueueBackfill(reason, processSynchronously: true,
+                    hydrationResult: new() { Succeeded = result.Succeeded, OwnerCount = result.OwnerCount, BackfillCandidateOwnerCount = result.CandidateOwnerCount },
+                    originatingRequest: result.ProgressRequest);
+                return Task.CompletedTask;
+            }, capability).ConfigureAwait(false);
         };
         Func<string, string, string, Func<Task>, bool> scheduler = SchedulerProvider?.Invoke();
         if (scheduler != null)
@@ -1261,7 +1286,12 @@ internal sealed class CatalogChartInfoOwner
             {
                 await WaitForHydrationIdleAsync().ConfigureAwait(false);
                 using IDisposable lease = await operationAdmission.EnterAcceptedBackgroundAsync().ConfigureAwait(false);
-                ProcessBackfillRequests();
+                using LibraryFileMutationCapability capability = operationAdmission.CreateMutationCapability(lease);
+                await CompleteAcceptedChartInfoWorkAsync(() =>
+                {
+                    ProcessBackfillRequests();
+                    return Task.CompletedTask;
+                }, capability).ConfigureAwait(false);
             }).ObserveFault("ProcessChartInfoBackfillRequests");
         }
     }
@@ -1774,7 +1804,8 @@ internal sealed class CatalogChartInfoOwner
         Func<Task> acceptedWork = async () =>
         {
             using IDisposable lease = await operationAdmission.EnterAcceptedBackgroundAsync().ConfigureAwait(false);
-            await process().ConfigureAwait(false);
+            using LibraryFileMutationCapability capability = operationAdmission.CreateMutationCapability(lease);
+            await CompleteAcceptedChartInfoWorkAsync(process, capability).ConfigureAwait(false);
         };
         Func<string, string, string, Func<Task>, bool> scheduler = SchedulerProvider?.Invoke();
         if (scheduler != null)

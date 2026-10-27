@@ -37,7 +37,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
 
     internal event EventHandler<MainChartListSortRequestedEventArgs> SortChanged;
 
-    internal event EventHandler<MainChartListSortRequestedEventArgs> SortRefreshRequested;
+    internal event EventHandler<RegularChartSortRefreshRequestedEventArgs> SortRefreshRequested;
 
     internal event EventHandler<RegularChartTreeNavigationPresentationRequestedEventArgs> TreeNavigationPresentationRequested;
 
@@ -49,7 +49,6 @@ internal sealed partial class RegularChartListOwner : IDisposable
 
     private readonly object syncRoot = new();
     private readonly object normalLibraryRefreshApplyLock = new();
-    private readonly object duplicateChartGroupsRefreshLock = new();
     private readonly MainChartListViewModel mainChartList;
     private readonly PlaylistWorkspaceViewModel playlistWorkspace;
     private readonly Action<string> log;
@@ -64,10 +63,11 @@ internal sealed partial class RegularChartListOwner : IDisposable
     private readonly Dictionary<NormalLibrarySortCacheKey, ChartListOrder> virtualOrderCache = [];
     private readonly Dictionary<VirtualChartSubsetSortCacheKey, ChartListOrder> virtualSubsetOrderCache = [];
     private readonly HashSet<Task> folderRenameTasks = [];
-    private readonly HashSet<Task> packageViewBuildTasks = [];
+    private readonly HashSet<Task> viewPreparationTasks = [];
     private readonly NormalLibraryRowCache rowCache = new();
     private CancellationTokenSource currentCancellation;
     private long currentRequestId;
+    private RegularChartNavigationRequest currentNavigation;
     private bool regularRequestActive;
     private IReadOnlyList<LibraryChartRow> folderRows;
     private IReadOnlyList<LibraryChartRow> keywordRows;
@@ -85,8 +85,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
     private long sourceGeneration;
     private long sortKeyGeneration;
     private long sortRequestRevision;
-    private MainChartListSortRequestedEventArgs pendingSortRefresh;
-    private bool sortRefreshWorkerActive;
+    private RegularChartSortRefreshRequestedEventArgs pendingSortRefresh;
+    private Task sortRefreshWorker;
     private long warningGeneration;
     private long installDestinationGeneration;
     private long maintenanceGeneration;
@@ -100,7 +100,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
     private bool normalLibraryRefreshDrainScheduled;
     private TaskCompletionSource<bool> normalLibraryRefreshDrainCompletionSource;
     private Task normalLibraryRefreshDrainCompletion = Task.CompletedTask;
-    private bool duplicateChartGroupsRefreshRunning;
+    private (BMSLibrary Library, Task Work)? duplicateDataPreparation;
     private CancellationTokenSource virtualOrderPrewarmCancellation;
 
     private RegularChartListPrewarmLease virtualOrderPrewarmLease;
@@ -111,6 +111,12 @@ internal sealed partial class RegularChartListOwner : IDisposable
     private bool disposed;
 
     private readonly IUiDialogService mutationDialogs;
+    private IUiDialogService duplicateNavigationDialogs;
+
+    /// <summary>重複解析を開始できない場合の案内を、画面の既存通知窓口へ接続します。</summary>
+    internal void ConfigureDuplicateNavigationDialogs(IUiDialogService dialogs)
+        => duplicateNavigationDialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
+
 
     /// <summary>Composes list behavior with the terminal dialog dependency for manual folder mutations.</summary>
     internal RegularChartListOwner(
@@ -141,13 +147,13 @@ internal sealed partial class RegularChartListOwner : IDisposable
         this.mainChartList.AppliedColumnModeCommitted += MainChartListAppliedColumnModeCommitted;
     }
 
+    /// <summary>現在の選択を保ってライブラリを接続・交換します。交換時は既存の構築番号と入力識別で旧一覧候補を失効させ、開始済みTaskは完了まで回収します。</summary>
     internal void AttachNormalLibraryRefreshSource(BMSLibrary library)
     {
         PropertyChangedEventListener previousListener = null;
         CancellationTokenSource previousRequest = null;
-        // Attachment only updates this owner's listener state.  It must not
-        // wait on the shared physical-file gate because startup attachment is
-        // performed while that gate is intentionally held.
+        // 起動時は既にファイル操作の権限を持つため、接続のために同じ権限を再取得しない。
+        // 通知購読と一覧の参照元をロック内で交換し、旧処理の取消と購読解除はロック外で行う。
         {
             PropertyChangedEventListener nextListener = null;
             lock (normalLibraryRefreshApplyLock)
@@ -158,17 +164,19 @@ internal sealed partial class RegularChartListOwner : IDisposable
                     {
                         return;
                     }
-                    if (normalBuildCommits != null && !ReferenceEquals(normalBuildLibrary, library))
-                    { previousRequest = InvalidateCurrentRequestUnsafe(); }
+                    // ライブラリ交換でも利用者の選択を保ち、実体化済みの行を含む旧候補だけを失効させる。
+                    previousRequest = InvalidateCurrentRequestUnsafe();
 
                     previousListener = normalLibraryRefreshListener;
                     normalLibraryRefreshListener = null;
+                    normalLibraryRefreshSource?.DisconnectDuplicateDataPreparation(PrepareAcceptedDuplicateDataAsync);
                     normalLibraryRefreshSource = library;
                     normalLibraryRefreshHandledNotificationVersion = 0;
                     normalLibraryRefreshRequestedNotificationVersion = 0;
                     normalLibraryRefreshRequestedReason = null;
                     if (!disposed && library != null)
                     {
+                        library.ConnectDuplicateDataPreparation(PrepareAcceptedDuplicateDataAsync);
                         nextListener = new PropertyChangedEventListener(library);
                         normalLibraryRefreshListener = nextListener;
                     }
@@ -537,6 +545,34 @@ internal sealed partial class RegularChartListOwner : IDisposable
         }
     }
 
+    /// <summary>有効な画面移動を同期的に受理し、次の受付か停止まで同じ要求参照を保ちます。一覧の参照元ライブラリは、画面選択とは別に検査します。</summary>
+    internal RegularChartNavigationRequest AcceptNavigation(DuplicateViewContext duplicateContext = null)
+    {
+        lock (syncRoot)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (pendingNormalPresentation.HasValue)
+            { pendingNormalPresentation.Value.Presentation.Completion?.TrySetResult(RegularChartListTerminalResult.Stale()); }
+            return currentNavigation = new RegularChartNavigationRequest(this, duplicateContext);
+        }
+    }
+
+    /// <summary>重複データの完成通知を受けたUIが、現在の選択を解決するための受付参照を取得します。依存更新には適用済みの参照を使います。</summary>
+    internal RegularChartNavigationRequest CaptureNavigation()
+    {
+        lock (syncRoot) { return currentNavigation; }
+    }
+
+    /// <summary>指定した画面受付が現在も有効かを確認します。初期値のnullも参照が一致する間は有効です。</summary>
+    internal bool IsCurrentNavigation(RegularChartNavigationRequest request)
+    {
+        lock (syncRoot) { return IsCurrentNavigationUnsafe(request); }
+    }
+
+    private bool IsCurrentNavigationUnsafe(RegularChartNavigationRequest request)
+        => !disposed && ReferenceEquals(currentNavigation, request);
+
+    /// <summary>通常ツリーの有効入力を受理し、同じ受付のUI配送と一覧更新を開始します。</summary>
     internal bool NavigateTree(RegularChartFolderFilterKind? filterKind, string filterKey = null)
     {
         if (filterKind.HasValue
@@ -545,83 +581,290 @@ internal sealed partial class RegularChartListOwner : IDisposable
         {
             return false;
         }
+        EventHandler<RegularChartTreeNavigationPresentationRequestedEventArgs> handler = TreeNavigationPresentationRequested
+            ?? throw new InvalidOperationException("Regular chart tree navigation presentation is not composed.");
         RegularNormalLibraryTreeFilter filter = filterKind.HasValue
-            ? RegularNormalLibraryTreeFilter.Create(filterKind.Value, filterKey)
-            : null;
-        bool keywordPresentationRefreshRequired = playlistWorkspace.RequestPlaylistSummaryMode(enabled: false);
+            ? RegularNormalLibraryTreeFilter.Create(filterKind.Value, filterKey) : null;
+        ObserveSynchronousNavigation(StartViewPreparation((navigation, _) => DispatchNavigationAsync(navigation, () =>
+        {
+            bool keywordRefresh = playlistWorkspace.RequestPlaylistSummaryMode(enabled: false);
+            if (!IsCurrentNavigation(navigation)) { return Task.CompletedTask; }
+            lock (syncRoot)
+            {
+                if (!IsCurrentNavigationUnsafe(navigation)) { return Task.CompletedTask; }
+                treeFilter = filter;
+            }
+            var request = new RegularChartTreeNavigationPresentationRequestedEventArgs(keywordRefresh,
+                MainViewUpdateMode.FolderFilterSelected)
+            { Navigation = navigation };
+            handler(this, request);
+            return request.Presentation;
+        }), runOnWorker: false, duplicateContext: null), "regularTreeNavigation");
+        return true;
+    }
+
+    /// <summary>有効な保守画面の移動要求を処理開始前に受理します。重複ではデータ準備を、その他の保守画面では一覧表示までを回収します。</summary>
+    internal Task<bool> NavigateMaintenanceAsync(MainViewUpdateMode mode, object parameter = null,
+        string reason = "maintenance_navigation")
+    {
+        if (!IsMaintenanceNavigationMode(mode)) { return Task.FromResult(false); }
+        object capturedParameter = CaptureMaintenanceParameter(mode, parameter);
+        return StartMaintenanceNavigation(mode, capturedParameter, reason, out _, runOnWorker: true);
+    }
+
+    /// <summary>UIへ適用済みの画面受付を使って依存更新を反映します。停止後は準備や通知を開始せず、未受理の結果を返します。</summary>
+    /// <param name="navigation">UIへ適用した参照です。初期に捕捉したnullを後発受付へ付け替えません。</param>
+    /// <param name="refreshCurrentView">現在の画面対象を表示し、その完了Taskを返す処理です。</param>
+    /// <returns>受理したUI配送と表示処理の完了を表すTaskです。停止時には開始済みTaskを回収します。</returns>
+    internal Task RefreshCurrentViewAsync(RegularChartNavigationRequest navigation, Func<Task> refreshCurrentView)
+    {
+        ArgumentNullException.ThrowIfNull(refreshCurrentView);
+        return StartViewPreparation((_, _) => DispatchNavigationAsync(navigation, refreshCurrentView),
+            runOnWorker: false, acceptNavigation: false);
+    }
+
+    /// <summary>同期入口も同じ短命受付と表示判定を使います。boolは受理を表し、UIの非同期完了を待ちません。</summary>
+    internal bool NavigateMaintenance(MainViewUpdateMode mode, object parameter = null,
+        string reason = "maintenance_navigation")
+    {
+        if (!IsMaintenanceNavigationMode(mode)) { return false; }
+        object capturedParameter = CaptureMaintenanceParameter(mode, parameter);
+        Task<bool> execution = StartMaintenanceNavigation(mode, capturedParameter, reason, out bool accepted, runOnWorker: false);
+        ObserveSynchronousNavigation(execution, "regularMaintenanceNavigation");
+        return accepted;
+    }
+
+    /// <summary>新規解析だけを選択受理前に共通受付へ非待機で受け付け、Busyでは表示文脈を変更しません。</summary>
+    private Task<bool> StartMaintenanceNavigation(MainViewUpdateMode mode, object parameter, string reason, out bool accepted, bool runOnWorker)
+    {
+        IDisposable operationLease = null;
+        bool busy;
         lock (syncRoot)
         {
-            if (disposed)
-            {
-                throw new ObjectDisposedException(nameof(RegularChartListOwner));
-            }
-            treeFilter = filter;
+            ObjectDisposedException.ThrowIf(disposed, this);
+            BMSLibrary library = normalLibraryRefreshSource;
+            busy = mode == MainViewUpdateMode.DuplicateFilterSelected && library != null
+                && library.DuplicateChartGroups == null && !IsDuplicateDataPreparationActiveUnsafe(library)
+                && !chartFileOperations.TryEnter(out operationLease);
         }
-        (TreeNavigationPresentationRequested
-            ?? throw new InvalidOperationException("Regular chart tree navigation presentation is not composed."))(
-                this,
-                new RegularChartTreeNavigationPresentationRequestedEventArgs(
-                    keywordPresentationRefreshRequired,
-                    MainViewUpdateMode.FolderFilterSelected));
-        return true;
-    }
-
-    internal Task<bool> NavigateMaintenanceAsync(
-        MainViewUpdateMode mode,
-        object parameter = null,
-        string reason = "maintenance_navigation")
-    {
-        return Task.Run(() => NavigateMaintenance(mode, parameter, reason));
-    }
-
-    internal bool NavigateMaintenance(
-        MainViewUpdateMode mode,
-        object parameter = null,
-        string reason = "maintenance_navigation")
-    {
-        if (!IsMaintenanceNavigationMode(mode))
+        accepted = !busy;
+        if (busy) { return RejectAsync(); }
+        try
         {
+            return StartViewPreparation(async (navigation, library) =>
+            {
+                using (operationLease)
+                using (LibraryFileMutationCapability capability = operationLease == null ? null : chartFileOperations.CreateMutationCapability(operationLease))
+                { await ExecuteMaintenanceNavigation(navigation, library, mode, parameter, reason, capability).ConfigureAwait(false); }
+            }, runOnWorker: runOnWorker && mode != MainViewUpdateMode.DuplicateFilterSelected,
+                duplicateContext: mode == MainViewUpdateMode.DuplicateFilterSelected ? (DuplicateViewContext)parameter : null);
+        }
+        catch { operationLease?.Dispose(); throw; }
+
+        async Task<bool> RejectAsync()
+        {
+            await StartViewPreparation((_, _) => NotifyLibraryOperationBusyAsync(duplicateNavigationDialogs), runOnWorker: false, acceptNavigation: false).ConfigureAwait(false);
             return false;
         }
-        bool keywordPresentationRefreshRequired = playlistWorkspace.RequestPlaylistSummaryMode(enabled: false);
-        BMSLibrary library = CaptureAttachedLibrary();
-        if (library == null)
-        {
-            if (keywordPresentationRefreshRequired)
-            {
-                RaiseMaintenanceNavigationPresentationRequested(
-                    mode,
-                    parameter,
-                    keywordPresentationRefreshRequired: true,
-                    refreshRequested: false);
-            }
-            return true;
-        }
-        if (mode == MainViewUpdateMode.DuplicateFilterSelected)
-        {
-            if (keywordPresentationRefreshRequired)
-            {
-                RaiseMaintenanceNavigationPresentationRequested(
-                    mode,
-                    parameter,
-                    keywordPresentationRefreshRequired: true,
-                    refreshRequested: false);
-                keywordPresentationRefreshRequired = false;
-            }
-            EnsureDuplicateChartGroupsReady(library, reason);
-        }
-        RaiseMaintenanceNavigationPresentationRequested(
-            mode,
-            parameter,
-            keywordPresentationRefreshRequired,
-            refreshRequested: true);
-        return true;
     }
 
-    internal bool EnsureDuplicateChartGroupsReady(string reason)
+    private static object CaptureMaintenanceParameter(MainViewUpdateMode mode, object parameter)
+        => mode == MainViewUpdateMode.DuplicateFilterSelected ? CaptureDuplicateContext(parameter) : parameter;
+
+    /// <summary>重複ルート、グループ、フォルダの入力を共通の選択文脈へ変換し、それぞれの対象の意味を保ちます。</summary>
+    internal static DuplicateViewContext CaptureDuplicateContext(object parameter)
+        => parameter switch
+        {
+            null => DuplicateViewContext.ForRoot(),
+            DuplicateViewContext context => context,
+            DuplicateGroup group => DuplicateViewContext.CaptureGroup(group),
+            string folder => DuplicateViewContext.ForFolder(folder),
+            _ => DuplicateViewContext.ForGroup(null)
+        };
+
+    private async Task ExecuteMaintenanceNavigation(RegularChartNavigationRequest navigation, BMSLibrary library,
+        MainViewUpdateMode mode, object parameter, string reason, LibraryFileMutationCapability capability)
     {
-        BMSLibrary library = CaptureAttachedLibrary();
-        return library != null && EnsureDuplicateChartGroupsReady(library, reason);
+        await DispatchNavigationAsync(navigation, () =>
+        {
+            bool keywordRefresh = playlistWorkspace.RequestPlaylistSummaryMode(enabled: false);
+            if (!IsCurrentNavigation(navigation)) { return Task.CompletedTask; }
+            bool hasAttachedLibrary;
+            lock (syncRoot) { hasAttachedLibrary = normalLibraryRefreshSource != null; }
+            // 重複以外の画面は現在のライブラリから一覧を作る。ライブラリ未接続時はサマリー解除の通知だけを行う。
+            if (!hasAttachedLibrary && !keywordRefresh) { return Task.CompletedTask; }
+            var request = new RegularChartMaintenanceNavigationPresentationRequestedEventArgs(
+                mode, parameter, keywordRefresh, refreshRequested: hasAttachedLibrary && mode != MainViewUpdateMode.DuplicateFilterSelected)
+            { Navigation = navigation };
+            (MaintenanceNavigationPresentationRequested
+                ?? throw new InvalidOperationException("Regular chart maintenance navigation presentation is not composed."))(this, request);
+            if (mode == MainViewUpdateMode.DuplicateFilterSelected)
+            {
+                RegularDuplicateViewInput input;
+                lock (syncRoot)
+                {
+                    input = ReferenceEquals(normalLibraryRefreshSource, library) && !IsDuplicateDataPreparationActiveUnsafe(library)
+                        ? RegularDuplicateViewInput.Capture(library) : null;
+                }
+                // 完成済み結果は表示だけを開始し、Lを所有する解析の準備Taskへ混ぜない。
+                if (input != null) { DuplicateDataReady?.Invoke(this, new RegularDuplicateDataReadyEventArgs(library, input)); }
+            }
+            return request.Presentation;
+        }).ConfigureAwait(false);
+        if (mode == MainViewUpdateMode.DuplicateFilterSelected && library != null)
+        {
+            // 解析前の画面文脈は現在の選択だけへ反映し、開始した解析は後発選択でも完了させる。
+            await StartDuplicateDataPreparation(library, reason, capability).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>選択命令を持たないデータ完成通知です。VMが現在の選択をUIで解決して表示を開始します。</summary>
+    internal event EventHandler<RegularDuplicateDataReadyEventArgs> DuplicateDataReady;
+
+    /// <summary>接続中ライブラリで開始済みの準備Taskだけを参照します。未準備でも新しい解析は開始しません。</summary>
+    internal Task PrepareDuplicateDataAsync(string reason = "duplicate_dependency")
+    {
+        lock (syncRoot)
+        {
+            return !disposed && IsDuplicateDataPreparationActiveUnsafe(normalLibraryRefreshSource)
+                ? duplicateDataPreparation.Value.Work : Task.CompletedTask;
+        }
+    }
+
+    /// <summary>受理済み変更の共通権限で、接続中ライブラリの現在の重複選択に必要な準備だけを行います。</summary>
+    private Task PrepareAcceptedDuplicateDataAsync(BMSLibrary library, LibraryFileMutationCapability capability)
+    {
+        lock (syncRoot)
+        {
+            if (disposed || !ReferenceEquals(normalLibraryRefreshSource, library) || currentNavigation?.DuplicateContext == null)
+            { return Task.CompletedTask; }
+            if (IsDuplicateDataPreparationActiveUnsafe(library)) { return duplicateDataPreparation.Value.Work; }
+            if (library.DuplicateChartGroups != null) { return Task.CompletedTask; }
+        }
+        return StartDuplicateDataPreparation(library, "accepted_library_change", capability);
+    }
+
+    private bool IsDuplicateDataPreparationActiveUnsafe(BMSLibrary library)
+        => duplicateDataPreparation is { } active && ReferenceEquals(active.Library, library) && !active.Work.IsCompleted;
+
+    /// <summary>共通Lを所有する実解析と完成通知だけを、単一の準備Taskとして開始前に登録します。準備済み表示は登録せず、進行中の実解析があれば同じTaskへ合流します。</summary>
+    private Task StartDuplicateDataPreparation(BMSLibrary library, string reason, LibraryFileMutationCapability capability = null)
+    {
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task execution;
+        lock (syncRoot)
+        {
+            if (library == null || disposed || !ReferenceEquals(normalLibraryRefreshSource, library)) { return Task.CompletedTask; }
+            if (IsDuplicateDataPreparationActiveUnsafe(library)) { return duplicateDataPreparation.Value.Work; }
+            if (library.DuplicateChartGroups != null || capability == null) { return Task.CompletedTask; }
+            using (chartFileOperations.Borrow(capability)) { }
+            execution = Task.Run(async () =>
+            {
+                await start.Task.ConfigureAwait(false);
+                if (library.DuplicateChartGroups == null)
+                {
+                    using LibraryFileMutationLease borrowed = chartFileOperations.Borrow(capability);
+                    library.SearchDuplicateChartGroups();
+                }
+                await RequestLibraryChangeDelivery(reason, library, requireDelivery: false).ConfigureAwait(false);
+                RegularDuplicateViewInput input = RegularDuplicateViewInput.Capture(library)
+                    ?? throw new InvalidOperationException("Duplicate data preparation did not produce ready groups.");
+                await normalLibraryRefreshUiScheduler.InvokeAsync(() =>
+                {
+                    lock (syncRoot) { if (disposed || !ReferenceEquals(normalLibraryRefreshSource, library)) { return Task.CompletedTask; } }
+                    var ready = new RegularDuplicateDataReadyEventArgs(library, input);
+                    DuplicateDataReady?.Invoke(this, ready);
+                    // 通知受信中の同期例外はデータ準備の失敗として返す。一覧表示は別のTaskとして所有する。
+                    return Task.CompletedTask;
+                }).ConfigureAwait(false);
+            });
+            duplicateDataPreparation = (library, execution);
+            viewPreparationTasks.Add(execution);
+        }
+        execution.ObserveFault("duplicateDataPreparation");
+        _ = ReleaseViewPreparationAsync(execution);
+        start.SetResult();
+        return execution;
+    }
+
+    /// <summary>準備済み重複の表示開始と非同期終端を所有し、失敗を既存の操作失敗通知へ一度渡します。通知中も停止の回収対象です。</summary>
+    /// <param name="presentation">現在選択を検査して表示を開始するUI側の処理です。同期開始例外も通知対象に含みます。</param>
+    /// <param name="dialogs">既存の操作失敗通知を表示する窓口です。</param>
+    internal void PresentDuplicateData(Func<Task> presentation, IUiDialogService dialogs)
+    {
+        ArgumentNullException.ThrowIfNull(presentation);
+        ArgumentNullException.ThrowIfNull(dialogs);
+        Task execution = StartViewPreparation(async (_, _) =>
+        {
+            try { await normalLibraryRefreshUiScheduler.InvokeAsync(presentation).ConfigureAwait(false); }
+            catch (OperationCanceledException) { }
+            catch (Exception exception)
+            {
+                logWarning("duplicate presentation failed: " + exception);
+                try
+                {
+                    UiDialogResult result = await dialogs.ShowMessageAsync(UiMessageRequest.CreateError(
+                        BeMusicSeeker.Properties.Resources.Msg_error_unexpected,
+                        BeMusicSeeker.Properties.Resources.Error)).ConfigureAwait(false);
+                    if (result == null || result.Status is not (UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser))
+                    { FileDbMutationReport.LogNotificationFailure(result?.Exception ?? new InvalidOperationException("Duplicate presentation failure was not displayed.")); }
+                }
+                catch (Exception notificationFailure) { FileDbMutationReport.LogNotificationFailure(notificationFailure); }
+            }
+        }, runOnWorker: false, acceptNavigation: false);
+        execution.ObserveFault("duplicatePresentation");
+    }
+
+    private async Task DispatchNavigationAsync(RegularChartNavigationRequest navigation, Func<Task> presentation)
+    {
+        if (!IsCurrentNavigation(navigation)) { return; }
+        var delivery = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+        // UI配送の拒否や中断もTaskへ返し、開始されない処理の完了を待ち続けない。
+        await normalLibraryRefreshUiScheduler.InvokeAsync(() => dispatchToUi(() =>
+        {
+            try { delivery.TrySetResult(IsCurrentNavigation(navigation) ? presentation() : Task.CompletedTask); }
+            catch (Exception exception) { delivery.TrySetException(exception); }
+        })).ConfigureAwait(false);
+        await (await delivery.Task.ConfigureAwait(false)).ConfigureAwait(false);
+    }
+
+    private static void ObserveSynchronousNavigation(Task execution, string operation)
+    {
+        // 同期入口で既に発生した例外は従来どおり呼出元へ返し、未終端のUI処理を同期的には待ちません。
+        if (execution.IsFaulted) { execution.GetAwaiter().GetResult(); }
+        execution.ObserveFault(operation);
+    }
+
+    /// <summary>画面移動と依存更新のTaskを開始前に登録します。停止後は依存更新を未受理とし、明示した画面移動には破棄済み例外を返します。受理済みTaskはロック外で回収します。</summary>
+    private Task<bool> StartViewPreparation(Func<RegularChartNavigationRequest, BMSLibrary, Task> execute,
+        bool runOnWorker, bool acceptNavigation = true, DuplicateViewContext duplicateContext = null)
+    {
+        // 非同期入口では開始合図の継続を非同期実行にし、UIで解析の継続を実行しない。
+        var start = new TaskCompletionSource<bool>(runOnWorker
+            ? TaskCreationOptions.RunContinuationsAsynchronously : TaskCreationOptions.None);
+        RegularChartNavigationRequest navigation;
+        BMSLibrary library;
+        Task<bool> execution;
+        lock (syncRoot)
+        {
+            if (disposed && !acceptNavigation) { return Task.FromResult(false); }
+            ObjectDisposedException.ThrowIf(disposed, this);
+            navigation = acceptNavigation ? AcceptNavigation(duplicateContext) : currentNavigation;
+            library = normalLibraryRefreshSource;
+            execution = runOnWorker ? Task.Run(ExecuteAsync) : ExecuteAsync();
+            viewPreparationTasks.Add(execution);
+        }
+        // 処理はTask集合へ登録してから開始し、登録のロック内ではUIを呼び出さない。
+        start.SetResult(true);
+        _ = ReleaseViewPreparationAsync(execution);
+        return execution;
+
+        async Task<bool> ExecuteAsync()
+        {
+            await start.Task.ConfigureAwait(false);
+            await execute(navigation, library).ConfigureAwait(false);
+            return true;
+        }
     }
 
     internal static bool IsMaintenanceNavigationMode(MainViewUpdateMode mode)
@@ -637,123 +880,37 @@ internal sealed partial class RegularChartListOwner : IDisposable
             or MainViewUpdateMode.ChartInfoParseErrorFilterSelected;
     }
 
+    /// <summary>導入画面の受付をワーカー投入前に固定し、UI配送から表示終端までを返します。</summary>
     internal Task<bool> NavigateInstallAsync(MainViewUpdateMode mode, object parameter = null)
     {
-        return Task.Run(() => NavigateInstall(mode, parameter));
+        if (!IsInstallNavigationMode(mode)) { return Task.FromResult(false); }
+        return StartViewPreparation(
+            (navigation, _) => ExecuteInstallNavigation(navigation, mode, parameter), runOnWorker: true, duplicateContext: null);
     }
 
+    /// <summary>導入画面の同期入口です。受理だけを返し、同じ受付の表示を非同期に回収します。</summary>
     internal bool NavigateInstall(MainViewUpdateMode mode, object parameter = null)
     {
-        if (mode != MainViewUpdateMode.NewlyInstalledFolderSelected
-            && mode != MainViewUpdateMode.PendingInstallFolderSelected)
-        {
-            return false;
-        }
-        bool keywordPresentationRefreshRequired = playlistWorkspace.RequestPlaylistSummaryMode(enabled: false);
-        lock (syncRoot)
-        {
-            if (disposed)
-            {
-                throw new ObjectDisposedException(nameof(RegularChartListOwner));
-            }
-        }
-        (InstallNavigationPresentationRequested
-            ?? throw new InvalidOperationException("Regular chart install navigation presentation is not composed."))(
-                this,
-                new RegularChartInstallNavigationPresentationRequestedEventArgs(
-                    mode,
-                    parameter,
-                    keywordPresentationRefreshRequired));
+        if (!IsInstallNavigationMode(mode)) { return false; }
+        ObserveSynchronousNavigation(StartViewPreparation(
+            (navigation, _) => ExecuteInstallNavigation(navigation, mode, parameter), runOnWorker: false, duplicateContext: null), "regularInstallNavigation");
         return true;
     }
 
-    private BMSLibrary CaptureAttachedLibrary()
-    {
-        lock (syncRoot)
-        {
-            if (disposed)
-            {
-                throw new ObjectDisposedException(nameof(RegularChartListOwner));
-            }
-            return normalLibraryRefreshSource;
-        }
-    }
+    private static bool IsInstallNavigationMode(MainViewUpdateMode mode)
+        => mode is MainViewUpdateMode.NewlyInstalledFolderSelected or MainViewUpdateMode.PendingInstallFolderSelected;
 
-    private bool EnsureDuplicateChartGroupsReady(BMSLibrary library, string reason)
-    {
-        if (library.DuplicateChartGroups != null)
+    private Task ExecuteInstallNavigation(RegularChartNavigationRequest navigation, MainViewUpdateMode mode, object parameter)
+        => DispatchNavigationAsync(navigation, () =>
         {
-            return true;
-        }
-        int version = library.DuplicateChartGroupsInvalidationVersion;
-        var waitStopwatch = Stopwatch.StartNew();
-        bool waited = false;
-        lock (duplicateChartGroupsRefreshLock)
-        {
-            while (duplicateChartGroupsRefreshRunning)
-            {
-                waited = true;
-                Monitor.Wait(duplicateChartGroupsRefreshLock);
-                if (library.DuplicateChartGroups != null)
-                {
-                    LogDuplicateRefreshCoalesce(reason, version, "joined", waitStopwatch.ElapsedMilliseconds);
-                    return true;
-                }
-                version = library.DuplicateChartGroupsInvalidationVersion;
-            }
-            if (library.DuplicateChartGroups != null)
-            {
-                if (waited)
-                {
-                    LogDuplicateRefreshCoalesce(reason, version, "joined", waitStopwatch.ElapsedMilliseconds);
-                }
-                return true;
-            }
-            duplicateChartGroupsRefreshRunning = true;
-        }
-
-        int searchVersion = version;
-        var searchStopwatch = Stopwatch.StartNew();
-        try
-        {
-            library.SearchDuplicateChartGroups();
-            return library.DuplicateChartGroups != null;
-        }
-        finally
-        {
-            searchStopwatch.Stop();
-            lock (duplicateChartGroupsRefreshLock)
-            {
-                duplicateChartGroupsRefreshRunning = false;
-                Monitor.PulseAll(duplicateChartGroupsRefreshLock);
-            }
-            LogDuplicateRefreshCoalesce(reason, searchVersion, "searched", searchStopwatch.ElapsedMilliseconds);
-        }
-    }
-
-    private void LogDuplicateRefreshCoalesce(string reason, int version, string action, long elapsedMs)
-    {
-        log("duplicate_refresh_coalesce action=" + action
-            + " reason=" + (reason ?? string.Empty)
-            + " version=" + version
-            + " elapsedMs=" + elapsedMs);
-    }
-
-    private void RaiseMaintenanceNavigationPresentationRequested(
-        MainViewUpdateMode mode,
-        object parameter,
-        bool keywordPresentationRefreshRequired,
-        bool refreshRequested)
-    {
-        (MaintenanceNavigationPresentationRequested
-            ?? throw new InvalidOperationException("Regular chart maintenance navigation presentation is not composed."))(
-                this,
-                new RegularChartMaintenanceNavigationPresentationRequestedEventArgs(
-                    mode,
-                    parameter,
-                    keywordPresentationRefreshRequired,
-                    refreshRequested));
-    }
+            bool keywordRefresh = playlistWorkspace.RequestPlaylistSummaryMode(enabled: false);
+            if (!IsCurrentNavigation(navigation)) { return Task.CompletedTask; }
+            var request = new RegularChartInstallNavigationPresentationRequestedEventArgs(mode, parameter, keywordRefresh)
+            { Navigation = navigation };
+            (InstallNavigationPresentationRequested
+                ?? throw new InvalidOperationException("Regular chart install navigation presentation is not composed."))(this, request);
+            return request.Presentation;
+        });
 
     internal RegularNormalLibraryTreeFilter CaptureTreeFilter(bool enabled)
     {
@@ -783,12 +940,13 @@ internal sealed partial class RegularChartListOwner : IDisposable
     private bool TryBeginRequest(
         bool retireDetailSource,
         out RegularChartListRequestLease lease,
-        out PlaylistSourceRetirementRequest detailSourceRetirement)
+        out PlaylistSourceRetirementRequest detailSourceRetirement,
+        RegularChartNavigationRequest navigation = null)
     {
         CancellationTokenSource previous;
         lock (syncRoot)
         {
-            if (disposed)
+            if (disposed || navigation != null && !IsCurrentNavigationUnsafe(navigation))
             {
                 lease = null;
                 detailSourceRetirement = null;
@@ -808,7 +966,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
             normalBuildMd5Keys.Clear();
             normalBuildSha256Keys.Clear();
             pendingNormalPresentation = null;
-            lease = new RegularChartListRequestLease(currentRequestId, currentCancellation.Token);
+            lease = new RegularChartListRequestLease(currentRequestId, currentCancellation.Token, currentNavigation);
         }
         if (detailSourceRetirement != null)
         {
@@ -841,20 +999,23 @@ internal sealed partial class RegularChartListOwner : IDisposable
         bool retireDetailSource,
         out RegularChartListRequestLease lease,
         out PlaylistSourceRetirementRequest detailSourceRetirement,
-        long? expectedRequestId = null)
+        long? expectedRequestId = null,
+        RegularChartNavigationRequest navigation = null,
+        bool resetDerivedCaches = false)
     {
         CancellationTokenSource previousRequest;
         CancellationTokenSource prewarmCancellation = null;
         lock (syncRoot)
         {
-            if (disposed || expectedRequestId.HasValue && currentRequestId != expectedRequestId.Value)
+            if (disposed || navigation != null && !IsCurrentNavigationUnsafe(navigation)
+                || expectedRequestId.HasValue && currentRequestId != expectedRequestId.Value)
             {
                 lease = null;
                 detailSourceRetirement = null;
                 return false;
             }
             // packageのUI入口予約より後に選択が変わっていない場合だけ、破棄とlease発行を一緒に確定する。
-            if (expectedRequestId.HasValue) { ResetDerivedCachesUnsafe(); }
+            if (expectedRequestId.HasValue || resetDerivedCaches) { ResetDerivedCachesUnsafe(); }
             if (virtualSourceRowsLibraryReserved
                 && !ReferenceEquals(virtualSourceRowsLibrary, library))
             {
@@ -882,7 +1043,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
             normalBuildMd5Keys.Clear();
             normalBuildSha256Keys.Clear();
             pendingNormalPresentation = null;
-            lease = new RegularChartListRequestLease(currentRequestId, currentCancellation.Token);
+            lease = new RegularChartListRequestLease(currentRequestId, currentCancellation.Token, currentNavigation);
         }
         if (detailSourceRetirement != null)
         {
@@ -921,53 +1082,56 @@ internal sealed partial class RegularChartListOwner : IDisposable
         CancelAndDispose(previous);
     }
 
-    internal void QueueSort(MainChartListSortRequestedEventArgs request)
+    /// <summary>適用済み画面の並べ替えを同期的に受理します。開始前に登録した処理が、UI配送から一覧表示の完了までを所有します。</summary>
+    /// <param name="request">既存の列・方向・区分を持つ整列入力です。</param>
+    /// <param name="navigation">UI適用済み参照です。初期nullを最新へ取り直さず、同じ現在参照の間だけ有効です。</param>
+    internal void QueueSort(MainChartListSortRequestedEventArgs request, RegularChartNavigationRequest navigation = null)
     {
-        if (request == null)
-        {
-            throw new ArgumentNullException(nameof(request));
-        }
-
+        ArgumentNullException.ThrowIfNull(request);
         if (request.Target != MainChartListSortTarget.Regular)
-        {
-            throw new ArgumentException("A regular chart-list sort request is required.", nameof(request));
-        }
+        { throw new ArgumentException("A regular chart-list sort request is required.", nameof(request)); }
         MainChartListSortRequestedEventArgs ownedRequest;
-        bool startWorker;
+        TaskCompletionSource start = null;
+        Task execution = null;
         CancellationTokenSource previousRequest;
         lock (syncRoot)
         {
-            var next = ChartListSortSpecification.Create(
-                request.ColumnName,
-                request.Direction,
-                hasValue: true);
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (!IsCurrentNavigationUnsafe(navigation)) { return; }
+            var next = ChartListSortSpecification.Create(request.ColumnName, request.Direction, hasValue: true);
             if (currentSort.HasValue
                 && string.Equals(currentSort.RequestedColumnName, next.RequestedColumnName, StringComparison.Ordinal)
-                && currentSort.Direction == next.Direction)
-            {
-                return;
-            }
+                && currentSort.Direction == next.Direction) { return; }
             currentSort = next;
-            ownedRequest = new MainChartListSortRequestedEventArgs(
-                request.ColumnName,
-                request.Direction,
-                request.Target,
-                ++sortRequestRevision);
+            ownedRequest = new MainChartListSortRequestedEventArgs(request.ColumnName, request.Direction, request.Target, ++sortRequestRevision);
             previousRequest = InvalidateCurrentRequestUnsafe();
-            pendingSortRefresh = ownedRequest;
-            startWorker = !sortRefreshWorkerActive;
-            sortRefreshWorkerActive = true;
+            pendingSortRefresh = new RegularChartSortRefreshRequestedEventArgs(ownedRequest, navigation);
+            if (sortRefreshWorker == null)
+            {
+                start = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                Task startTask = start.Task;
+                execution = Task.Run(async () =>
+                {
+                    await startTask.ConfigureAwait(false);
+                    await ProcessSortRefreshQueueAsync().ConfigureAwait(false);
+                });
+                sortRefreshWorker = execution;
+                viewPreparationTasks.Add(execution);
+            }
         }
-        CancelAndDispose(previousRequest);
         try
         {
+            CancelAndDispose(previousRequest);
             SortChanged?.Invoke(this, ownedRequest);
         }
         finally
         {
-            if (startWorker)
+            // 通知が失敗しても受理済み要求を開始する。ロック内でUIやTaskの完了を待たない。
+            if (start != null)
             {
-                Task.Run(ProcessSortRefreshQueue).ObserveFault("regularChartListSortRequested");
+                execution.ObserveFault("regularChartListSortRequested");
+                _ = ReleaseViewPreparationAsync(execution);
+                start.SetResult();
             }
         }
     }
@@ -1035,7 +1199,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 folderRenameTasks.Add(renameTask);
             }
         }
-        if (renameTask == null) { return RejectFolderRenameBusyAsync(); }
+        if (renameTask == null) { return NotifyLibraryOperationBusyAsync(); }
         _ = renameTask.ContinueWith(task =>
         {
             lock (syncRoot) { folderRenameTasks.Remove(task); }
@@ -1043,11 +1207,12 @@ internal sealed partial class RegularChartListOwner : IDisposable
         return renameTask;
     }
 
-    private async Task RejectFolderRenameBusyAsync()
+    private async Task NotifyLibraryOperationBusyAsync(IUiDialogService dialogs = null)
     {
-        if (mutationDialogs != null)
+        dialogs ??= mutationDialogs;
+        if (dialogs != null)
         {
-            UiDialogResult result = await mutationDialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(
+            UiDialogResult result = await dialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(
                 BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning)).ConfigureAwait(false);
             UiDialogRoute.ThrowIfNotShown(result, "Folder rename Busy notification");
         }
@@ -1148,7 +1313,11 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 CaptureNotification(dialogScope.Flush);
             }
             // ThreadStaticの短いdialog scopeを外してから非同期待機し、元workerへscopeを残しません。
-            try { await requiredDelivery.ConfigureAwait(false); }
+            try
+            {
+                await requiredDelivery.ConfigureAwait(false);
+                await library.CompleteAcceptedDuplicateDataAsync(capability).ConfigureAwait(false);
+            }
             catch (Exception failure)
             {
                 if (!IsCurrentLibrary(library)) { /* 表示所有者の停止・交換後は旧表示を必要条件にしません。 */ }
@@ -1285,45 +1454,49 @@ internal sealed partial class RegularChartListOwner : IDisposable
             || section == MainViewOperationSection.FullScanCheck;
     }
 
-    private void ProcessSortRefreshQueue()
+    private async Task ProcessSortRefreshQueueAsync()
     {
-        bool restartWorker = false;
-        try
+        ExceptionDispatchInfo failure = null;
+        while (true)
         {
-            while (true)
-            {
-                MainChartListSortRequestedEventArgs request;
-                lock (syncRoot)
-                {
-                    request = pendingSortRefresh;
-                    pendingSortRefresh = null;
-                    if (request == null)
-                    {
-                        return;
-                    }
-                }
-                if (IsCurrentSortRequest(request))
-                {
-                    SortRefreshRequested?.Invoke(this, request);
-                }
-            }
-        }
-        finally
-        {
+            RegularChartSortRefreshRequestedEventArgs request;
             lock (syncRoot)
             {
-                sortRefreshWorkerActive = false;
-                if (pendingSortRefresh != null)
+                request = pendingSortRefresh;
+                pendingSortRefresh = null;
+                if (request == null || disposed)
                 {
-                    sortRefreshWorkerActive = true;
-                    restartWorker = true;
+                    // 次要求の登録と同じロック内で追跡を外し、処理の所有が途切れる再起動を避ける。
+                    sortRefreshWorker = null;
+                    break;
                 }
             }
-            if (restartWorker)
+            try
             {
-                Task.Run(ProcessSortRefreshQueue).ObserveFault("regularChartListSortRequested");
+                await normalLibraryRefreshUiScheduler.InvokeAsync(() =>
+                {
+                    if (IsCurrentSortRequest(request)
+                        && mainChartList.CurrentOperationContext.OperationSection != MainViewOperationSection.PlayHistory
+                        && !(playlistWorkspace.IsPlaylistDetailViewActive && !playlistWorkspace.IsPlaylistSummaryMode))
+                    { SortRefreshRequested?.Invoke(this, request); }
+                }).ConfigureAwait(false);
             }
+            catch (Exception exception) { failure ??= ExceptionDispatchInfo.Capture(exception); }
+            try
+            {
+                // 後続購読先が失敗しても、先にVMが開始した同じ表示Taskの終端を所有する。
+                await request.Presentation.ConfigureAwait(false);
+            }
+            catch (Exception exception) { failure ??= ExceptionDispatchInfo.Capture(exception); }
         }
+        failure?.Throw();
+    }
+
+    /// <summary>UI入力を読む前に、並べ替えを受理した時点の画面受付と整列版が現在も有効かを確認します。</summary>
+    internal bool IsCurrentSortRequest(RegularChartSortRefreshRequestedEventArgs request)
+    {
+        lock (syncRoot)
+        { return !disposed && IsCurrentNavigationUnsafe(request.Navigation) && IsCurrentSortRequest(request.SortRequest); }
     }
 
     internal bool IsCurrentSortRequest(MainChartListSortRequestedEventArgs request)
@@ -2415,12 +2588,22 @@ internal sealed partial class RegularChartListOwner : IDisposable
         if (!TryBeginRequest(
             request.RetireDetailSource,
             out RegularChartListRequestLease lease,
-            out PlaylistSourceRetirementRequest detailSourceRetirement))
+            out PlaylistSourceRetirementRequest detailSourceRetirement, navigation: request.Navigation))
         {
             return default;
         }
         request.DetailSourceRetirement = detailSourceRetirement;
 
+        RegularChartListBuildResult build = BuildMaterialized(request, lease, out RegularChartListPresentationResult presentation, HasTreeFilter);
+        if (presentation == null) { return default; }
+        RegularChartListTerminalResult terminal = TryCommit(lease, presentation);
+        return terminal.WasCommitted ? new RegularMaterializedChartListApplyResult(terminal.RowsApply, build, request.Mode) : default;
+    }
+
+    private RegularChartListBuildResult BuildMaterialized(RegularMaterializedChartListApplyRequest request,
+        RegularChartListRequestLease lease, out RegularChartListPresentationResult presentation, bool hasTreeFilter)
+    {
+        presentation = null;
         Stopwatch stopwatch = request.Stopwatch ?? Stopwatch.StartNew();
         RegularChartListBuildResult build;
         try
@@ -2431,7 +2614,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 new RegularChartListBuildInput
                 {
                     CurrentTreeMode = request.RefreshRequest.CurrentTreeMode,
-                    HasVirtualNormalLibraryTreeFilter = HasTreeFilter,
+                    HasVirtualNormalLibraryTreeFilter = hasTreeFilter,
                     IsPlaylistDetailView = false,
                     HasFolderRowsOverride = request.HasFolderRowsOverride,
                     FolderRowsOverride = request.FolderRowsOverride,
@@ -2448,9 +2631,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
 
         IList rowsView = build.Sort.RowsView;
         long terminalStageStartMs = stopwatch.ElapsedMilliseconds;
-        RegularChartListTerminalResult terminal = TryCommit(
-            lease,
-            RegularChartListPresentationResult.ForMaterialized(
+        presentation = RegularChartListPresentationResult.ForMaterialized(
                 build,
                 new MainChartListRowsApplyRequest
                 {
@@ -2468,10 +2649,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 request.ColumnSelection,
                 request.Mode,
                 stopwatch,
-                request.DetailSourceRetirement));
-        return terminal.WasCommitted
-            ? new RegularMaterializedChartListApplyResult(terminal.RowsApply, build, request.Mode)
-            : default;
+                request.DetailSourceRetirement);
+        return build;
     }
 
     /// <summary>
@@ -2513,16 +2692,16 @@ internal sealed partial class RegularChartListOwner : IDisposable
         playlistWorkspace.PublishColumnPresentation(commit);
     }
 
-    /// <summary>
-    /// Applies a main-library refresh route and owns the regular request construction for that route.
-    /// </summary>
-    /// <param name="route">The route classified for the main-library workflow.</param>
-    /// <param name="library">The current BMS library.</param>
-    /// <param name="parameter">The parameter supplied by the refresh trigger.</param>
-    /// <param name="treeParameter">The current tree selection parameter.</param>
-    /// <param name="preserveSummary">Whether the current table summary should be preserved.</param>
-    /// <param name="stopwatch">The stopwatch covering the refresh workflow.</param>
-    /// <returns>The regular chart-list entry result.</returns>
+    /// <summary>正規入口で捕捉した画面受付と表示入力を、通常一覧の各構築経路へ渡します。</summary>
+    /// <param name="route">既存の一覧経路・現在のツリー区分です。</param>
+    /// <param name="library">表示対象ライブラリです。</param>
+    /// <param name="parameter">今回の入力対象です。</param>
+    /// <param name="treeParameter">継続表示で維持するツリー対象です。</param>
+    /// <param name="preserveSummary">サマリーを保持するかどうかです。</param>
+    /// <param name="stopwatch">一覧更新全体の計測です。</param>
+    /// <param name="filters">捕捉済みの絞込みです。</param>
+    /// <param name="navigation">同じ短命な画面受付です。自動更新では現在の受付を引き継ぎ、独立した直接呼出しでは省略できます。</param>
+    /// <returns>既存の利用権と画面受付が有効な場合だけ採用した結果です。</returns>
     internal RegularChartListEntryResult ApplyMainLibraryView(
         ChartListRefreshRoute route,
         BMSLibrary library,
@@ -2530,7 +2709,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
         object treeParameter,
         bool preserveSummary,
         Stopwatch stopwatch,
-        ChartListFilterSnapshot filters = null)
+        ChartListFilterSnapshot filters = null,
+        RegularChartNavigationRequest navigation = null)
     {
         if (route.Kind != ChartListRefreshRouteKind.ContinueMainLibrary)
         {
@@ -2551,11 +2731,24 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 IncludeBmsonRows = route.IncludeBmsonRows,
                 PreserveSummary = preserveSummary,
                 Stopwatch = stopwatch,
-                Filters = filters ?? ChartListFilterSnapshot.Default
+                Filters = filters ?? ChartListFilterSnapshot.Default,
+                Navigation = navigation
             });
     }
 
+    /// <summary>直接呼出しもUI捕捉と共通構築処理を使います。本番の非同期入口は同じ候補をワーカーで構築します。</summary>
     internal RegularChartListEntryResult ApplyRegularView(RegularChartListEntryRequest request)
+    {
+        PreparedRegularView prepared = PrepareRegularView(request);
+        if (prepared == null) { return default; }
+        RegularChartListPresentationResult presentation = prepared.Build();
+        if (presentation != null) { presentation.InputIsCurrent = prepared.InputIsCurrent; }
+        RegularChartListTerminalResult terminal = presentation == null ? RegularChartListTerminalResult.Stale()
+            : TryCommitCore(prepared.Lease, presentation);
+        return prepared.Finish(terminal);
+    }
+
+    private PreparedRegularView PrepareRegularView(RegularChartListEntryRequest request)
     {
         if (request == null || request.Stopwatch == null)
         {
@@ -2569,6 +2762,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         {
             throw new InvalidOperationException("Package views require ApplyMainLibraryViewAsync.");
         }
+        if (request.Navigation != null && !IsCurrentNavigation(request.Navigation)) { return null; }
         ChartListSortSpecification sort = CaptureSort();
         ChartListFilterSnapshot filters = request.Filters ?? ChartListFilterSnapshot.Default;
         string keywordFilter = filters.KeywordFilter;
@@ -2593,64 +2787,98 @@ internal sealed partial class RegularChartListOwner : IDisposable
 
         if (IsDefaultVirtualRequest(request.Mode, request.CurrentTreeMode))
         {
-            RegularVirtualNormalLibraryApplyResult result = TryApplyVirtualNormalLibrary(
-                new RegularVirtualNormalLibraryApplyRequest
-                {
-                    Library = request.Library,
-                    IncludeBmsonRows = request.IncludeBmsonRows,
-                    TreeFilter = CaptureTreeFilter(ShouldApplyDefaultTreeFilter(request.CurrentTreeMode)),
-                    KeywordFilter = keywordFilter,
-                    ModeFilter = modeFilter,
-                    SortColumnName = virtualSortColumn,
-                    SortDirection = virtualSortDirection,
-                    ExternalVersions = externalVersions,
-                    ColumnSelection = columnSelection,
-                    PreserveSummary = request.PreserveSummary,
-                    Mode = request.Mode,
-                    Stopwatch = request.Stopwatch,
-                    RetireDetailSource = true,
-                    Reason = request.Mode.ToString()
-                });
-            LogDefaultVirtualEntry(request, sort, result, sortWasReset);
-            if (result.WasCommitted && sortWasReset)
+            var input = new RegularVirtualNormalLibraryApplyRequest
             {
-                ResetSortParameters(sort);
-            }
-            return new RegularChartListEntryResult(result.WasCommitted, RegularChartListEntryRoute.DefaultVirtual, sortWasReset);
+                Navigation = request.Navigation,
+                Library = request.Library,
+                IncludeBmsonRows = request.IncludeBmsonRows,
+                TreeFilter = CaptureTreeFilter(ShouldApplyDefaultTreeFilter(request.CurrentTreeMode)),
+                KeywordFilter = keywordFilter,
+                ModeFilter = modeFilter,
+                SortColumnName = virtualSortColumn,
+                SortDirection = virtualSortDirection,
+                ExternalVersions = externalVersions,
+                ColumnSelection = columnSelection,
+                PreserveSummary = request.PreserveSummary,
+                Mode = request.Mode,
+                Stopwatch = request.Stopwatch,
+                RetireDetailSource = true,
+                Reason = request.Mode.ToString()
+            };
+            if (!TryBeginVirtualRequest(request.Library, true, out RegularChartListRequestLease lease,
+                    out PlaylistSourceRetirementRequest retirement, navigation: request.Navigation, resetDerivedCaches: true)) { return null; }
+            input.DetailSourceRetirement = retirement;
+            mainChartList.RowProjection.CaptureVersions(request.Library);
+            RegularVirtualNormalLibraryApplyResult result = default;
+            return new PreparedRegularView(lease, () =>
+            {
+                result = BuildVirtualNormalLibrary(input, lease, out RegularChartListPresentationResult presentation);
+                return presentation;
+            }, terminal =>
+            {
+                result = result.WithTerminal(terminal);
+                LogDefaultVirtualEntry(request, sort, result, sortWasReset);
+                if (terminal.WasCommitted && sortWasReset) { ResetSortIfCurrent(lease, sort); }
+                return new RegularChartListEntryResult(terminal.WasCommitted, RegularChartListEntryRoute.DefaultVirtual, sortWasReset);
+            });
         }
 
-        if (IsSubsetVirtualRequest(request.Mode, request.CurrentTreeMode)
-            && TryResolveSubsetSource(request, request.Library, out RegularChartListSubsetSource subset))
+        bool duplicateView = request.CurrentTreeMode == MainViewUpdateMode.DuplicateFilterSelected;
+        RegularDuplicateViewInput duplicateInput = duplicateView ? request.DuplicateInput ?? RegularDuplicateViewInput.Capture(request.Library) : null;
+        if (duplicateView && duplicateInput == null && request.ConfirmedUnresolvedDuplicateSource == null) { return null; }
+        object subsetParameter = request.TreeParameter ?? request.Parameter;
+        bool canResolveSubset = !duplicateView || subsetParameter is DuplicateViewContext || request.ConfirmedUnresolvedDuplicateSource != null;
+        if (IsSubsetVirtualRequest(request.Mode, request.CurrentTreeMode) && canResolveSubset)
         {
-            RegularVirtualChartSubsetApplyResult result = TryApplyVirtualChartSubset(
-                new RegularVirtualChartSubsetApplyRequest
-                {
-                    Library = request.Library,
-                    SourceCharts = subset.SourceCharts,
-                    SourceProjectionMode = subset.SourceProjectionMode,
-                    ApplyResourceHealthProjection = subset.ApplyResourceHealthProjection,
-                    TreeMode = request.CurrentTreeMode,
-                    SubsetName = subset.Name,
-                    SelectionContext = (request.TreeParameter ?? request.Parameter) is DuplicateViewContext duplicateSelection
-                        ? (duplicateSelection.Kind, duplicateSelection.Kind == DuplicateViewContextKind.Root
-                            ? string.Empty : duplicateSelection.Value?.ToUpperInvariant()) : null,
-                    KeywordFilter = keywordFilter,
-                    ModeFilter = modeFilter,
-                    SortColumnName = virtualSortColumn,
-                    SortDirection = virtualSortDirection,
-                    ExternalVersions = externalVersions,
-                    ColumnSelection = columnSelection,
-                    PreserveSummary = request.PreserveSummary,
-                    Mode = request.Mode,
-                    Stopwatch = request.Stopwatch,
-                    RetireDetailSource = true
-                });
-            LogSubsetVirtualEntry(request, sort, subset.Name, result, sortWasReset);
-            if (result.WasCommitted && sortWasReset)
+            var input = new RegularVirtualChartSubsetApplyRequest
             {
-                ResetSortParameters(sort);
-            }
-            return new RegularChartListEntryResult(result.WasCommitted, RegularChartListEntryRoute.SubsetVirtual, sortWasReset);
+                Navigation = request.Navigation,
+                Library = request.Library,
+                TreeMode = request.CurrentTreeMode,
+                SelectionContext = (request.TreeParameter ?? request.Parameter) is DuplicateViewContext duplicateSelection
+                    ? (duplicateSelection.Kind, duplicateSelection.Kind == DuplicateViewContextKind.Root
+                        ? string.Empty : duplicateSelection.Value?.ToUpperInvariant()) : null,
+                KeywordFilter = keywordFilter,
+                ModeFilter = modeFilter,
+                SortColumnName = virtualSortColumn,
+                SortDirection = virtualSortDirection,
+                ExternalVersions = externalVersions,
+                ColumnSelection = columnSelection,
+                PreserveSummary = request.PreserveSummary,
+                Mode = request.Mode,
+                Stopwatch = request.Stopwatch,
+                RetireDetailSource = true
+            };
+            if (!TryBeginVirtualRequest(request.Library, true, out RegularChartListRequestLease lease,
+                    out PlaylistSourceRetirementRequest retirement, navigation: request.Navigation, resetDerivedCaches: true)) { return null; }
+            input.DetailSourceRetirement = retirement;
+            mainChartList.RowProjection.CaptureVersions(request.Library);
+            RegularVirtualChartSubsetApplyResult result = default;
+            return new PreparedRegularView(lease, () =>
+            {
+                RegularChartListSubsetSource subset;
+                bool resolved;
+                if (request.ConfirmedUnresolvedDuplicateSource != null) { subset = request.ConfirmedUnresolvedDuplicateSource; resolved = true; }
+                else
+                {
+                    resolved = duplicateView ? TryResolveDuplicateSource(duplicateInput.Groups, subsetParameter, out subset)
+                    : TryResolveSubsetSource(request, request.Library, out subset);
+                }
+                if (!resolved) { throw new InvalidOperationException("The captured regular subset did not resolve."); }
+                input.SourceCharts = subset.SourceCharts;
+                input.SourceProjectionMode = subset.SourceProjectionMode;
+                input.ApplyResourceHealthProjection = subset.ApplyResourceHealthProjection;
+                input.SubsetName = subset.Name;
+                result = BuildVirtualChartSubset(input, lease, out RegularChartListPresentationResult presentation);
+                return presentation;
+            }, terminal =>
+            {
+                result = result.WithTerminal(terminal);
+                LogSubsetVirtualEntry(request, sort, input.SubsetName, result, sortWasReset);
+                if (terminal.WasCommitted && sortWasReset) { ResetSortIfCurrent(lease, sort); }
+                return new RegularChartListEntryResult(terminal.WasCommitted, RegularChartListEntryRoute.SubsetVirtual, sortWasReset);
+            })
+            { InputIsCurrent = duplicateInput == null ? null : () => duplicateInput.IsCurrent };
         }
 
         bool virtualSubsetRequiredFailure = IsSubsetVirtualRequired(request.Mode, request.CurrentTreeMode);
@@ -2696,29 +2924,48 @@ internal sealed partial class RegularChartListOwner : IDisposable
             folderRowsOverride = [];
         }
 
-        if (!virtualSubsetRequiredFailure)
+        var materializedInput = new RegularMaterializedChartListApplyRequest
         {
-            PrepareResourceHealthIndexForView(
-                request.Library,
-                request.CurrentTreeMode,
-                "normal_library_view");
-        }
+            Navigation = request.Navigation,
+            RefreshRequest = refreshRequest,
+            HasFolderRowsOverride = hasFolderRowsOverride,
+            FolderRowsOverride = folderRowsOverride,
+            ExternalVersions = externalVersions,
+            ColumnSelection = effectiveMode == request.Mode ? columnSelection : treeColumnSelection,
+            PreserveSummary = request.PreserveSummary,
+            Mode = effectiveMode,
+            Stopwatch = request.Stopwatch,
+            RetireDetailSource = true
+        };
+        if (!TryBeginRequest(true, out RegularChartListRequestLease materializedLease,
+                out PlaylistSourceRetirementRequest materializedRetirement, request.Navigation)) { return null; }
+        materializedInput.DetailSourceRetirement = materializedRetirement;
+        bool hasTreeFilter = HasTreeFilter;
+        RegularChartListBuildResult build = default;
+        return new PreparedRegularView(materializedLease, () =>
+        {
+            if (!virtualSubsetRequiredFailure) { PrepareResourceHealthIndexForView(request.Library, request.CurrentTreeMode, "normal_library_view"); }
+            build = BuildMaterialized(materializedInput, materializedLease, out RegularChartListPresentationResult presentation, hasTreeFilter);
+            return presentation;
+        }, terminal =>
+        {
+            RegularMaterializedChartListApplyResult result = terminal.WasCommitted
+                ? new RegularMaterializedChartListApplyResult(terminal.RowsApply, build, effectiveMode) : default;
+            LogMaterializedEntry(request, effectiveMode, refreshRequest, result);
+            return new RegularChartListEntryResult(terminal.WasCommitted, RegularChartListEntryRoute.Materialized, sortWasReset: false);
+        })
+        { InputIsCurrent = duplicateInput == null ? null : () => duplicateInput.IsCurrent };
+    }
 
-        RegularMaterializedChartListApplyResult materialized = TryApplyMaterialized(
-            new RegularMaterializedChartListApplyRequest
-            {
-                RefreshRequest = refreshRequest,
-                HasFolderRowsOverride = hasFolderRowsOverride,
-                FolderRowsOverride = folderRowsOverride,
-                ExternalVersions = externalVersions,
-                ColumnSelection = effectiveMode == request.Mode ? columnSelection : treeColumnSelection,
-                PreserveSummary = request.PreserveSummary,
-                Mode = effectiveMode,
-                Stopwatch = request.Stopwatch,
-                RetireDetailSource = true
-            });
-        LogMaterializedEntry(request, effectiveMode, refreshRequest, materialized);
-        return new RegularChartListEntryResult(materialized.WasCommitted, RegularChartListEntryRoute.Materialized, sortWasReset: false);
+    // 一回のUI入力と構築の利用権を、画面外での構築処理へ渡す。構築中に現在値を取り直さない。
+    private sealed class PreparedRegularView(RegularChartListRequestLease lease,
+        Func<RegularChartListPresentationResult> build, Func<RegularChartListTerminalResult, RegularChartListEntryResult> finish)
+    {
+        internal RegularChartListRequestLease Lease { get; } = lease;
+        /// <summary>完成キャッシュの参照/失効版を同じ候補の最終UI採用へ渡します。</summary>
+        internal Func<bool> InputIsCurrent { get; init; }
+        internal Func<RegularChartListPresentationResult> Build { get; } = build;
+        internal Func<RegularChartListTerminalResult, RegularChartListEntryResult> Finish { get; } = finish;
     }
 
     private static bool TryResolveVirtualSort(
@@ -2878,8 +3125,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
     {
         if (duplicateGroups == null)
         {
-            source = RegularChartListSubsetSource.ForCharts([], "duplicate_empty");
-            return true;
+            source = null;
+            return false;
         }
         List<DuplicateGroup> groups = [.. (duplicateGroups ?? []).Where(group => group != null)];
         if (parameter is DuplicateViewContext context)
@@ -3203,16 +3450,26 @@ internal sealed partial class RegularChartListOwner : IDisposable
         {
             throw new ArgumentNullException(nameof(request));
         }
-        ResetDerivedCaches();
         if (!TryBeginVirtualRequest(
             request.Library,
             request.RetireDetailSource,
             out RegularChartListRequestLease lease,
-            out PlaylistSourceRetirementRequest detailSourceRetirement))
+            out PlaylistSourceRetirementRequest detailSourceRetirement, navigation: request.Navigation, resetDerivedCaches: true))
         {
             return RegularVirtualNormalLibraryApplyResult.NotCommitted();
         }
         request.DetailSourceRetirement = detailSourceRetirement;
+        mainChartList.RowProjection.CaptureVersions(request.Library);
+        RegularVirtualNormalLibraryApplyResult result = BuildVirtualNormalLibrary(request, lease, out RegularChartListPresentationResult presentation);
+        if (presentation == null) { return default; }
+        RegularChartListTerminalResult terminal = TryCommitVirtual(lease, presentation);
+        return terminal.WasCommitted ? result.WithTerminal(terminal) : default;
+    }
+
+    private RegularVirtualNormalLibraryApplyResult BuildVirtualNormalLibrary(RegularVirtualNormalLibraryApplyRequest request,
+        RegularChartListRequestLease lease, out RegularChartListPresentationResult presentation)
+    {
+        presentation = null;
         PrepareResourceHealthIndexForView(
             request.Library,
             MainViewUpdateMode.FolderFilterSelected,
@@ -3227,7 +3484,6 @@ internal sealed partial class RegularChartListOwner : IDisposable
         {
             Net10PerformanceLog.Write(performanceInteraction, "owner_started");
         }
-        mainChartList.RowProjection.CaptureVersions(request.Library);
 
         long stageStartMs = stopwatch.ElapsedMilliseconds;
         IReadOnlyList<ChartListSourceRow> sourceRows = GetOrCreateVirtualNormalLibrarySourceRows(
@@ -3305,9 +3561,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
             CreateNormalFilter(request), scorePosition: scorePosition,
             selectionScope: (request.Library, request.IncludeBmsonRows, request.TreeFilter?.Kind, request.TreeFilter?.Term));
         distinctFolderCount = rowsView.DistinctFolderCount;
-        RegularChartListTerminalResult terminal = TryCommitVirtual(
-            lease,
-            RegularChartListPresentationResult.ForVirtual(
+        presentation = RegularChartListPresentationResult.ForVirtual(
                 new MainChartListRowsApplyRequest
                 {
                     Rows = rowsView,
@@ -3324,14 +3578,10 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 request.ColumnSelection,
                 request.Mode,
                 stopwatch,
-                request.DetailSourceRetirement));
-        if (!terminal.WasCommitted)
-        {
-            return RegularVirtualNormalLibraryApplyResult.NotCommitted();
-        }
+                request.DetailSourceRetirement);
 
         return new RegularVirtualNormalLibraryApplyResult(
-            terminal,
+            default,
             rowsView,
             order,
             sortCacheKey,
@@ -3364,16 +3614,16 @@ internal sealed partial class RegularChartListOwner : IDisposable
             throw new ArgumentException("Exactly one virtual subset source must be provided.", nameof(request));
         }
 
-        ResetDerivedCaches();
         if (!TryBeginVirtualRequest(
             request.Library,
             request.RetireDetailSource,
             out RegularChartListRequestLease lease,
-            out PlaylistSourceRetirementRequest detailSourceRetirement))
+            out PlaylistSourceRetirementRequest detailSourceRetirement, navigation: request.Navigation, resetDerivedCaches: true))
         {
             return default;
         }
         request.DetailSourceRetirement = detailSourceRetirement;
+        mainChartList.RowProjection.CaptureVersions(request.Library);
         RegularVirtualChartSubsetApplyResult result = BuildVirtualChartSubset(request, lease, out RegularChartListPresentationResult presentation);
         if (presentation == null) { return default; }
         RegularChartListTerminalResult terminal = TryCommitVirtual(lease, presentation);
@@ -3383,8 +3633,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
     private RegularVirtualChartSubsetApplyResult BuildVirtualChartSubset(
         RegularVirtualChartSubsetApplyRequest request,
         RegularChartListRequestLease lease,
-        out RegularChartListPresentationResult presentation,
-        bool captureProjectionVersions = true)
+        out RegularChartListPresentationResult presentation)
     {
         presentation = null;
         if (lease.Token.IsCancellationRequested) { return default; }
@@ -3397,7 +3646,6 @@ internal sealed partial class RegularChartListOwner : IDisposable
         }
 
         Stopwatch stopwatch = request.Stopwatch ?? Stopwatch.StartNew();
-        if (captureProjectionVersions) { mainChartList.RowProjection.CaptureVersions(request.Library); }
         var scoreInput = new ChartListScoreInput(request.Library);
         int scorePosition = scoreInput.Position;
         var referenceInput = new ChartListReferenceInput(request.Library);
@@ -3855,6 +4103,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
         RegularChartListRequestLease lease,
         RegularChartListPresentationResult presentation)
     {
+        if (presentation.InputIsCurrent?.Invoke() == false)
+        { presentation.Completion?.TrySetResult(RegularChartListTerminalResult.Stale()); return RegularChartListTerminalResult.Stale(); }
         bool prepared;
         lock (syncRoot) { prepared = IsCurrentUnsafe(lease) && PrepareNormalCandidateUnsafe(lease, presentation); }
         if (!prepared)
@@ -3869,7 +4119,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         {
             lock (syncRoot)
             {
-                if (!IsCurrentUnsafe(lease)
+                if (!IsCurrentUnsafe(lease) || presentation.InputIsCurrent?.Invoke() == false
                     || !PrepareNormalCandidateUnsafe(lease, presentation))
                 {
                     return false;
@@ -3985,7 +4235,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         RegularChartListTerminalResult terminal = applied.WasApplied
             ? RegularChartListTerminalResult.Committed(applied.RowsApply)
             : RegularChartListTerminalResult.Stale();
-        if (applied.WasApplied) { presentation.Completion?.TrySetResult(terminal); }
+        if (applied.WasApplied || presentation.InputIsCurrent?.Invoke() == false) { presentation.Completion?.TrySetResult(terminal); }
         return terminal;
     }
 
@@ -4009,9 +4259,11 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 requestCancellation = currentCancellation;
                 currentCancellation = null;
                 currentRequestId = 0L;
+                currentNavigation = null;
                 regularRequestActive = false;
                 normalLibraryRefreshListenerToDispose = normalLibraryRefreshListener;
                 normalLibraryRefreshListener = null;
+                normalLibraryRefreshSource?.DisconnectDuplicateDataPreparation(PrepareAcceptedDuplicateDataAsync);
                 normalLibraryRefreshSource = null;
                 normalBuildCommits = null;
                 normalBuildScoreChanges = null;
@@ -4027,7 +4279,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 normalLibraryRefreshCompletion = Task.WhenAll(normalCandidateDeliveries.Append(normalLibraryRefreshDrainCompletion));
                 prewarmCancellation = virtualOrderPrewarmCancellation;
                 prewarmCompletion = virtualOrderPrewarmCompletion;
-                viewAndMutationTasksToDrain = [.. folderRenameTasks, .. packageViewBuildTasks];
+                viewAndMutationTasksToDrain = [.. folderRenameTasks, .. viewPreparationTasks];
                 shutdownCompletion = DrainShutdownAsync(
                     prewarmCompletion,
                     prewarmCancellation,
@@ -4123,6 +4375,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
     private bool IsCurrentUnsafe(RegularChartListRequestLease lease)
     {
         return regularRequestActive
+            && IsCurrentNavigationUnsafe(lease.Navigation)
             && currentRequestId == lease.RequestId
             && !lease.Token.IsCancellationRequested;
     }
@@ -4466,11 +4719,15 @@ internal sealed class NormalLibraryRefreshAppliedEventArgs : EventArgs
 
 internal sealed class RegularChartListRequestLease
 {
-    internal RegularChartListRequestLease(long requestId, CancellationToken token)
+    /// <summary>構築取消に加え、元の正規画面受付を行採用まで保持します。</summary>
+    internal RegularChartListRequestLease(long requestId, CancellationToken token, RegularChartNavigationRequest navigation = null)
     {
         RequestId = requestId;
         Token = token;
+        Navigation = navigation;
     }
+    /// <summary>この構築を開始した画面受付です。キャッシュ自己通知と独立して比較します。</summary>
+    internal RegularChartNavigationRequest Navigation { get; }
     internal long RequestId { get; }
     internal CancellationToken Token { get; }
 }
@@ -4519,7 +4776,16 @@ internal sealed class RegularChartListBuildInput
 
 internal sealed class RegularChartListEntryRequest
 {
+    /// <summary>元の画面受付を利用権発行・採用まで渡します。独立した直接呼出しではnullです。</summary>
+    internal RegularChartNavigationRequest Navigation { get; set; }
+
     internal BMSLibrary Library { get; set; }
+
+    /// <summary>UIで捕捉した完成結果です。再失効を最終採用でも検査します。</summary>
+    internal RegularDuplicateViewInput DuplicateInput { get; set; }
+
+    /// <summary>保守後の選択解決で所属の消失を確定した空一覧です。データ未準備の代用には使いません。</summary>
+    internal RegularChartListSubsetSource ConfirmedUnresolvedDuplicateSource { get; set; }
 
     internal ChartListFilterSnapshot Filters { get; set; }
 
@@ -4626,6 +4892,9 @@ internal enum RegularChartListPresentationKind
 
 internal sealed class RegularChartListPresentationResult
 {
+    /// <summary>捕捉したキャッシュ参照と失効版を、UIでの採用直前に照合します。未準備や再失効なら候補を採用しません。</summary>
+    internal Func<bool> InputIsCurrent { get; set; }
+
     private RegularChartListPresentationResult(
         RegularChartListBuildResult build,
         MainChartListRowsApplyRequest rowsRequest,
@@ -4758,6 +5027,9 @@ internal sealed class RegularChartListPresentationResult
 
 internal sealed class RegularMaterializedChartListApplyRequest
 {
+    /// <summary>元の画面受付を利用権発行・採用まで渡します。独立した直接呼出しではnullです。</summary>
+    internal RegularChartNavigationRequest Navigation { get; set; }
+
     internal RegularChartListRefreshRequest RefreshRequest { get; set; }
     internal bool HasFolderRowsOverride { get; set; }
     internal IEnumerable<LibraryChartRow> FolderRowsOverride { get; set; }
@@ -4809,6 +5081,9 @@ internal readonly struct RegularMaterializedChartListApplyResult
 
 internal sealed class RegularVirtualNormalLibraryApplyRequest
 {
+    /// <summary>元の画面受付を利用権発行・採用まで渡します。独立した直接呼出しではnullです。</summary>
+    internal RegularChartNavigationRequest Navigation { get; set; }
+
     internal BMSLibrary Library { get; set; }
     internal bool IncludeBmsonRows { get; set; }
     internal RegularNormalLibraryTreeFilter TreeFilter { get; set; }
@@ -4828,6 +5103,9 @@ internal sealed class RegularVirtualNormalLibraryApplyRequest
 
 internal sealed class RegularVirtualChartSubsetApplyRequest
 {
+    /// <summary>元の画面受付を利用権発行・採用まで渡します。独立した直接呼出しではnullです。</summary>
+    internal RegularChartNavigationRequest Navigation { get; set; }
+
     internal BMSLibrary Library { get; set; }
     internal IEnumerable<ChartFile> SourceCharts { get; set; }
     internal IEnumerable<PackageChartEntry> SourceEntries { get; set; }
@@ -4977,6 +5255,12 @@ internal readonly struct RegularVirtualNormalLibraryApplyResult
     internal long SortMs { get; }
     internal long OrderCacheLookupMs { get; }
     internal long OrderBuildMs { get; }
+
+    /// <summary>ワーカーで構築した同じ候補へ、UI採用と必要配送後の終端を結びます。</summary>
+    internal RegularVirtualNormalLibraryApplyResult WithTerminal(RegularChartListTerminalResult terminal)
+        => new(terminal, RowsView, Order, SortCacheKey, SourceRowCount, FolderCount, KeywordCount, ModeCount,
+            DistinctFolderCount, SourceRowsCacheHit, SortCacheHit, SummaryCacheHit, SourceRowsMs, FolderMs,
+            KeywordMs, ModeMs, SortMs, OrderCacheLookupMs, OrderBuildMs);
 
     internal static RegularVirtualNormalLibraryApplyResult NotCommitted() => default;
 }

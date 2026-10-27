@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -22,6 +23,34 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryDuplicateServiceTests
 {
+    /// <summary>実解析の確定通知を保留した間は共通Lを保持し、実移動要求を未開始で拒みます。通知完了後は解放され、元の譜面とDBを保ちます。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void DuplicateAdmission_RealAnalysisRejectsLibraryMoveUntilRequiredNotificationsComplete()
+    {
+        RegularChartNavigationTests.RunColdDuplicateFixture(fixture =>
+        {
+            MainWindowViewModel vm = fixture.ViewModel;
+            fixture.StartDuplicate(); fixture.AwaitGate(); fixture.AwaitGroupsWhileGated();
+            Assert.IsTrue(fixture.Library.OperationAdmission.IsActive);
+            ChartFile chart = fixture.Library.BmsCharts.Single(current => current.Path == fixture.Duplicates[0].Path);
+            string destination = Path.Combine(Path.GetDirectoryName(chart.Directory) ?? throw new AssertFailedException(), "rejected-move");
+            var target = new ChartOperationTarget(chart, null, ChartOperationSourceScope.Library, true, false, false, ChartOperationCapabilities.MoveInLibrary);
+            Task<SelectedChartMutationResult> move = vm.SelectedChartMutations.MoveAsync(new SelectedChartMoveRequest([target], destination));
+            fixture.AwaitOwned(move, "move rejected during duplicate analysis");
+            Assert.IsNotNull(move.Result.Failure);
+            Assert.IsFalse(move.Result.HasDurableCommit);
+            Assert.IsTrue(File.Exists(chart.Path));
+            Assert.IsFalse(Directory.Exists(destination));
+            fixture.CompleteDuplicate();
+            Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
+            Assert.IsTrue(fixture.Library.OperationAdmission.TryEnter(out IDisposable next));
+            next.Dispose();
+            Assert.IsTrue(File.Exists(chart.Path));
+            Assert.IsTrue(fixture.Library.BmsCharts.Any(current => current.Path == chart.Path));
+        });
+    }
+
     /// <summary>登録本体と空の登録子を含む統合元を物理変更前に拒否し、元先の譜面・音源・DB・所持を保全します。</summary>
     [TestMethod]
     [DataRow(false)]

@@ -22,7 +22,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class MainWindowCatalogProjectionTests
 {
     /// <summary>二配置の削除・最後の配置の削除・再加入が実手動リロードから全表示へ収束し、エントリー保存値を変えないことを確認します。</summary>
-    /// <remarks>通知欠落と画面接続の誤りはカタログ単体では観測できないため、Windowなしの実Dispatcherで標準構成とDBを動かします。外部の譜面発見だけを完全な捕捉入力へ代替します。</remarks>
+    /// <remarks>通知欠落と画面接続の誤りを観測するため、Windowなしの実Dispatcherで標準構成とDBを動かします。通常ルートの表示完了は要求が返すTaskから確認し、外部の譜面発見だけを完全な捕捉入力へ代替します。</remarks>
     [TestMethod]
     public void ManualReload_StandardCompositionConvergesNormalDetailAndSummary()
     {
@@ -139,10 +139,28 @@ public sealed class MainWindowCatalogProjectionTests
                 void Reload() => Await(owner.ReloadFileDiffAsync(), "catalog-projection-manual-reload");
                 void ShowNormal()
                 {
-                    regular.NavigateTree(null);
-                    Task refresh = (typeof(MainWindowViewModel).GetMethod("RefreshLibraryMainViewForCurrentFilter", BindingFlags.Instance | BindingFlags.NonPublic)
-                        ?? throw new AssertFailedException()).Invoke(owner, null) as Task ?? throw new AssertFailedException("通常一覧の実反映Taskがありません。");
-                    Await(refresh, "catalog-projection-normal");
+                    var arrived = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    EventHandler<RegularChartTreeNavigationPresentationRequestedEventArgs> requested = (_, args) => arrived.TrySetResult(args.Presentation);
+                    regular.TreeNavigationPresentationRequested += requested;
+                    Exception? failure = null;
+                    try
+                    {
+                        Assert.IsTrue(regular.NavigateTree(null));
+                        Await(arrived.Task, "catalog-projection-normal-typed-arrival");
+                        Await(arrived.Task.GetAwaiter().GetResult(), "catalog-projection-normal-presentation");
+                    }
+                    catch (Exception exception) { failure = exception; throw; }
+                    finally
+                    {
+                        try
+                        {
+                            // 実際に開始した表示Taskだけを回収する。画面移動の外側Taskは既存の画面停止処理が回収する。
+                            if (arrived.Task.IsCompletedSuccessfully)
+                            { Await(arrived.Task.GetAwaiter().GetResult(), "catalog-projection-normal-presentation-cleanup"); }
+                        }
+                        catch (Exception cleanupFailure) when (failure != null) { failure.Data["CatalogProjectionNormalCleanupFailure"] = cleanupFailure; }
+                        finally { regular.TreeNavigationPresentationRequested -= requested; }
+                    }
                 }
                 void ShowDetail()
                 {

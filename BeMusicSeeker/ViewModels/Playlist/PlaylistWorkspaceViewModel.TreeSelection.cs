@@ -42,6 +42,9 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler<PlaylistTreeSelectionActivatedEventArgs> TreeSelectionActivated;
 
+    /// <summary>有効な明示選択の版を更新した後、UIへ配送する前に同期通知します。依存更新や選択解除は新しい画面受付にしません。</summary>
+    internal event EventHandler<PlaylistTreeSelectionActivatedEventArgs> TreeSelectionAccepted;
+
     internal event EventHandler PlaylistTablesPresentationChanged;
 
     internal event EventHandler<PlaylistCatalogChangedEventArgs> PlaylistCatalogChanged;
@@ -336,12 +339,15 @@ public sealed partial class PlaylistWorkspaceViewModel
     internal void RequestSummarySelection()
     {
         long selectionRevision = ClearPlaylistDetailSelection();
+        var accepted = PlaylistTreeSelectionActivatedEventArgs.Summary(selectionRevision, summaryModeChanged: false);
+        TreeSelectionAccepted?.Invoke(this, accepted);
         PlaylistSourceRetirementRequest detailSourceRetirement =
             PrepareDetailSourceRetirementForRegularView();
         RegisterPlaylistSummaryDetailSourceRetirement(detailSourceRetirement);
         dispatchPresentation(
             () =>
             {
+                if (accepted.Navigation != null && !accepted.Navigation.IsCurrent) { return; }
                 bool isCurrent;
                 lock (playlistDetailSelectionSyncRoot)
                 {
@@ -363,7 +369,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     this,
                     PlaylistTreeSelectionActivatedEventArgs.Summary(
                         selectionRevision,
-                        summaryModeChanged));
+                        summaryModeChanged, accepted.Navigation));
                 lock (playlistDetailSelectionSyncRoot)
                 {
                     if (!IsCurrentPlaylistSummarySelectionWithoutLock(selectionRevision))
@@ -424,32 +430,30 @@ public sealed partial class PlaylistWorkspaceViewModel
             playlistDetailSelection = selection;
             selectionRevision = ++playlistDetailSelectionRevision;
         }
+        var accepted = PlaylistTreeSelectionActivatedEventArgs.CreateDetail(selection, selectionRevision, summaryModeChanged: false);
+        if (table != null) { TreeSelectionAccepted?.Invoke(this, accepted); }
         dispatchPresentation(
             () =>
             {
-                bool isCurrent;
+                if (accepted.Navigation != null && !accepted.Navigation.IsCurrent) { return; }
+                PlaylistDetailSelection currentSelection;
+                long currentRevision;
                 lock (playlistDetailSelectionSyncRoot)
                 {
-                    isCurrent = IsCurrentPlaylistDetailSelectionWithoutLock(selection, selectionRevision);
+                    // 同じ選択参照で表やフォルダが置換された場合は、現在の対象を解決する。旧選択の版や受付は再適用しない。
+                    if (accepted.Navigation == null && !IsCurrentPlaylistDetailSelectionWithoutLock(selection, selectionRevision)) { return; }
+                    currentSelection = playlistDetailSelection?.Clone();
+                    currentRevision = playlistDetailSelectionRevision;
                 }
-                if (!isCurrent)
-                {
-                    return;
-                }
+                if (currentSelection == null) { return; }
                 bool summaryModeChanged = RequestPlaylistSummaryMode(enabled: false);
                 lock (playlistDetailSelectionSyncRoot)
                 {
-                    if (!IsCurrentPlaylistDetailSelectionWithoutLock(selection, selectionRevision))
-                    {
-                        return;
-                    }
+                    if (!IsCurrentPlaylistDetailSelectionWithoutLock(currentSelection, currentRevision)) { return; }
                 }
-                TreeSelectionActivated?.Invoke(
-                    this,
-                    PlaylistTreeSelectionActivatedEventArgs.CreateDetail(
-                        selection,
-                        selectionRevision,
-                        summaryModeChanged));
+                TreeSelectionActivated?.Invoke(this,
+                    PlaylistTreeSelectionActivatedEventArgs.CreateDetail(currentSelection, currentRevision,
+                        summaryModeChanged, accepted.Navigation));
             });
     }
 
@@ -615,13 +619,17 @@ internal sealed class PlaylistTreeSelectionActivatedEventArgs : EventArgs
         bool isSummary,
         PlaylistDetailSelection detail,
         long selectionRevision,
-        bool summaryModeChanged)
+        bool summaryModeChanged, RegularChartNavigationRequest navigation = null)
     {
+        Navigation = navigation;
         IsSummary = isSummary;
         Detail = detail;
         SelectionRevision = selectionRevision;
         SummaryModeChanged = summaryModeChanged;
     }
+
+    /// <summary>同期受付で接続した同じ要求です。UI配送まで保持し、古いサマリー解除・選択を抑止します。</summary>
+    internal RegularChartNavigationRequest Navigation { get; set; }
 
     internal bool IsSummary { get; }
 
@@ -631,20 +639,22 @@ internal sealed class PlaylistTreeSelectionActivatedEventArgs : EventArgs
 
     internal bool SummaryModeChanged { get; }
 
+    /// <summary>サマリーの選択版と、それに対応する受付参照をUI配送まで保持します。</summary>
     internal static PlaylistTreeSelectionActivatedEventArgs Summary(
         long selectionRevision,
-        bool summaryModeChanged)
-        => new(true, null, selectionRevision, summaryModeChanged);
+        bool summaryModeChanged, RegularChartNavigationRequest navigation = null)
+        => new(true, null, selectionRevision, summaryModeChanged, navigation);
 
+    /// <summary>詳細一覧の固定選択と選択版、それに対応する受付参照をUI配送まで保持します。</summary>
     internal static PlaylistTreeSelectionActivatedEventArgs CreateDetail(
         PlaylistDetailSelection detail,
         long selectionRevision,
-        bool summaryModeChanged)
+        bool summaryModeChanged, RegularChartNavigationRequest navigation = null)
     {
         return new PlaylistTreeSelectionActivatedEventArgs(
             isSummary: false,
             detail ?? throw new ArgumentNullException(nameof(detail)),
             selectionRevision,
-            summaryModeChanged);
+            summaryModeChanged, navigation);
     }
 }

@@ -668,6 +668,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         LibraryFileMutationLease playlistLease = null;
         LibraryFileMutationCapability playlistCapability = null;
         LibraryFileMutationCapability combinedCapability = null;
+        LibraryFileMutationCapability capability = null;
         bool suppressionStarted = false;
         try
         {
@@ -683,7 +684,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                     selectionContext,
                     new InvalidOperationException("Duplicate maintenance library is not available."));
             }
-            using LibraryFileMutationCapability capability = chartFileOperations.CreateMutationCapability(operationGate);
+            capability = chartFileOperations.CreateMutationCapability(operationGate);
             IDuplicateMaintenanceStore operationStore = store.ForAcceptedOperation(capability);
             if (physicalPaths != null)
             {
@@ -726,6 +727,12 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             {
                 CaptureCleanupFailure(dialogScope.Dispose, failures);
             }
+            if (library != null && capability != null)
+            {
+                try { await library.CompleteAcceptedDuplicateDataAsync(capability).ConfigureAwait(false); }
+                catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
+            }
+            CaptureCleanupFailure(() => capability?.Dispose(), failures);
             CaptureCleanupFailure(() => combinedCapability?.Dispose(), failures);
             CaptureCleanupFailure(() => playlistCapability?.Dispose(), failures);
             CaptureCleanupFailure(() => playlistLease?.Dispose(), failures);

@@ -617,6 +617,9 @@ internal sealed class PackageInstallWorkflowOwner
             }
         }
 
+        try { await library.CompleteAcceptedDuplicateDataAsync(capability).ConfigureAwait(false); }
+        catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
+
         if (failures.Count > 0 && commandResult != null)
         {
             terminalFailure = failures.Count == 1 ? failures[0].SourceException

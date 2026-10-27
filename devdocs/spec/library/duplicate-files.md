@@ -54,11 +54,33 @@ BMSの警告は同じ所持tokenの共通現在値へ反映し、BMSONは重複�
 
 フォルダが一つなら同一フォルダ内の重複削除、二つなら選択元からもう一方への統合、三つ以上なら統合先メニューの展開を行います。
 
+グループの再表示は一つの同期UI反映で行い、WPFが子の交換時に選ぶ親ルートを新しい利用者の移動として受け付けません。現在対象のコンテナを同期的に取得できる場合だけ選択表示を保ち、未実現ならツリーの選択表示なしを許容します。論理的な現在対象と一覧は保ち、追加の再試行や後の再選択は予約しません。
+
+統合とハッシュ整理の成功後は、操作開始時の受理済み選択が現在も有効な場合だけ、捕捉した次のグループを選択します。別画面や別の重複グループへの後発選択を受理した場合は、古い操作からツリー選択・展開・一覧・検索条件を変更しません。次の対象が未準備または消失した場合の空一覧も同じ条件で適用します。データ変更と必要通知の完了、失敗通知、共通受付の解放は、表示操作を省く場合も回収します。
+
 同一フォルダ内ではMD5ごとに一件を残します。更新日時が古いもの、同日時ならファイル名が短いものを優先します。設定に応じて確認し、`RemoveLibraryCharts` からごみ箱へ送ります。削除数は計画件数ではなく、削除APIの成功で確認した対象数です。個別の物理削除失敗後の独立対象は処理できますが、カタログ・必須反映の失敗では次グループへの成功時選択を行いません。
+
+### 初回解析中の画面移動
+
+新しい重複解析は、画面選択を受理する前に共通のライブラリ変更受付を非待機で取得します。競合時は既存のBusy案内で未開始とし、有効な表示と検索条件を保ちます。解放後の予約や自動再試行は行いません。準備済み結果の表示と、進行中の同じ解析結果を参照する表示には新しい受付を要求しません。
+
+受理した要求は、現在の選択をUIで確認してサマリーを解除し、検索文脈を更新してから解析を始めます。解析中も閲覧、検索、並べ替えと許可された別画面への移動を受理し、後発の選択を優先します。古い要求は一覧、左の選択、検索条件を変更しません。
+
+画面受付ごとの短命な参照を、UIでの最初の副作用から一覧構築と採用まで検査します。適用済みの画面対象にもその参照を対応付け、依存更新や検索・絞込み・並べ替えでは適用済み参照を検査します。後発選択を受理してUIへ適用する前の旧表示を、新しい選択として扱いません。プレイリストと履歴の対象は既存の所有者が解決します。
+
+データ準備は同じライブラリの実行中Taskへ合流し、キャッシュ構築、警告のカタログ確定、必要な通知配送まで同じ共通受付を保持します。行の構築や描画の完了だけを理由に、解析の受付を延長しません。完成通知は準備元ライブラリと完成結果だけを運び、UIはその時点で有効な重複選択と検索・絞込み・並び順から表示を始めます。他画面へ移動済みならデータだけを更新し、再訪時に最新結果を表示します。未準備、解析済み0件、絞込み結果0件、所属消失による空一覧を区別します。捕捉した結果が再失効した場合は既存の失効番号と参照で不採用にします。
+
+元の移動要求と一覧表示の完了時機を一致させる保証は設けません。データ準備の失敗はその操作結果へ返し、表示開始の同期例外と表示Taskの失敗は一覧の所有者が既存の操作失敗通知へ一度渡します。取消は失敗通知にしません。開始済みの準備・表示・通知は既存のTask集合へ登録し、停止時に回収します。重複ルートは、必要なグループが準備済みで現在も同じ選択のときに展開します。一覧描画と展開の厳密な順序は要求しません。
+
+ライブラリの接続・交換では現在の利用者選択を保ち、旧ライブラリで捕捉した一覧候補と完成通知を採用しません。旧データ準備は必要な終端まで回収し、新ライブラリの準備へ待ち直しません。起動時に通常ルートを選択してからライブラリを接続する場合も、その通常一覧を表示します。通常一覧・部分集合・導入一覧の構築、UI採用、必要配送、表示同期と停止回収は共通の一覧処理を使います。
 
 ### 更新の集約と後続保守
 
-結果のプロパティと無効化の `DuplicateChartGroupsInvalidationVersion` は分離します。`EnsureDuplicateChartGroupsReady` は同時要求を一つの処理へ集約し、後続は同じ結果を待ちます。
+受理済みのライブラリ変更で重複結果が失効したとき、現在の受理済み選択が重複表示なら、同じ存続中の権限による内部継続として必要なデータ準備を完了します。`BMSLibrary.CompleteAcceptedDuplicateDataAsync` を一つの直接接続として使い、各操作が準備の必要性や解析を独自に判断しません。短いモデルロック、更新抑制、通知のスレッド内スコープを外し、親の共通受付を解放する前に待機します。同期コミットからUIや別所有者のTaskを同期的に待ちません。
+
+現在選択が重複以外なら失効だけを残し、次の明示表示で最新化します。通常の警告無視や成績更新から重複解析を増やしません。内部継続の失敗でも先行した変更の確定事実と失敗結果を保持します。直接接続はライブラリの交換と一覧所有者の停止に合わせて解除します。
+
+結果のプロパティと無効化の `DuplicateChartGroupsInvalidationVersion` は分離します。`PrepareDuplicateDataAsync` は、同じライブラリで開始済みのデータ準備Taskだけを参照し、新しい解析を暗黙に開始しません。単一の実行中準備は、共通Lを持つ実解析と必要通知だけを表します。準備済み結果の表示は既存の表示Taskとして所有し、解析の準備へ混ぜません。再利用の正本は完成キャッシュと失効版とし、完了済みTaskを別のキャッシュとして保持しません。ライブラリ交換後は旧ライブラリの準備へ合流せず、その完成通知も採用しません。交換前に開始したTaskは、既存の集合で完了まで回収します。
 
 構築済みのプレイリスト候補索引は、所持項目の確定差分で維持します。無関係な現在値更新から先行読込みを開始せず、初回の必要な準備とライブラリ交換時の取消は索引の所有者が管理します。通常一覧、フォルダ、導入、重複の更新抑制は、解除時に保留した通知を流します。
 
@@ -78,7 +100,7 @@ BMSの警告は同じ所持tokenの共通現在値へ反映し、BMSONは重複�
 
 警告対象は捕捉した重複bucketのlookup hashへ所属する譜面で判断します。増分snapshotから別々に列挙した行の参照同一性を要求せず、接続先の固有な兄弟譜面には重複警告を付けません。
 
-`SearchDuplicateChartGroups` の重複ハッシュ数・対象行数・接続フォルダ数、`duplicate_refresh_coalesce` の検索・合流、`ui_suppress`、`duplicate_refresh_priority`、`duplicate_group_autoselect` を診断に使います。確定結果と異常報告の回数は共通の変更仕様に従います。
+`SearchDuplicateChartGroups` の重複ハッシュ数・対象行数・接続フォルダ数、`ui_suppress`、`duplicate_refresh_priority`、`duplicate_group_autoselect` を診断に使います。確定結果と異常報告の回数は共通の変更仕様に従います。
 
 ## 実装とテストの対応
 
@@ -89,6 +111,12 @@ BMSの警告は同じ所持tokenの共通現在値へ反映し、BMSONは重複�
 | 登録本体・空の登録子を含む元の準備拒否と通常作品の統合 | [`LibraryMutationOwner.MergeChartDirectory`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.Merge.cs)、`BmsLibraryDuplicateMaintenanceStore` | [`BmsLibraryDuplicateServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) の `MergeChartDirectory_RejectsRegisteredSourceScope` と `MergeChartDirectory_AllowsOrdinaryChildAndSimilarSibling` が元先のFS・DB・登録・新library読込みを確認する。[`DuplicateMaintenanceWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) の `RunFolderMergeAsync_RegisteredScopeRefusalReleasesAdmissionForNextMerge` は本番storeを通る停止後拒否と次要求の受付を確認する。改名の保護条件と保証の分担は[変更仕様](mutations.md#実装とテストの対応)を参照する。 |
 | MD5識別、接続グループ、兄弟譜面、警告 | [`BmsLibraryDuplicateService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/BmsLibraryDuplicateService.cs)、[`OwnedDuplicateChartRowSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/OwnedChartCollectionState.cs) | [`BmsLibraryDuplicateServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) |
 | 同版の共通現在値捕捉、確定差分、固有警告・未表示行・検索・順序・健康度・再選択 | [`DuplicateGroup.ProjectCurrentChart`](../../../BeMusicSeeker/Models/Library/DuplicateGroup.cs)、[`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs)、[`ChartSubsetReferenceRows`](../../../BeMusicSeeker/ViewModels/ChartList/ChartSubsetReferenceRows.cs)、[`ChartListOrder.IsSortedFor`](../../../BeMusicSeeker/ViewModels/ChartList/ChartListOrder.cs) | [`RegularChartNormalLibraryRefreshTests.Duplicates`](../../../BeMusicSeeker.Tests/ChartList/RegularChartNormalLibraryRefreshTests.Duplicates.cs) の `DuplicateCurrentValues_RealEncodingAndRescanPatchOnlyAffectedRows` は、実重複検索から一件の文字コード変更・BMS/BMSONの再調査・通知配送・再選択を通し、配送前の再選択を含め検索加入/離脱・Title/健康度順・旧snapshot不変と対象だけの仕事量を確認する。`ChartListVirtualViewTests.CapturedOrder_CurrentValuesRespectDirectionTitleAndStableTies` は昇降順の副キー・元順序・空入力と整列済み値変更を確認する。解析条件とwarm索引は `BmsLibraryDuplicateServiceTests` が分担する。 |
+| 解析の共通受付、Busyと読取り、受理済み変更の内部継続 | [`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs)、[`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) | `RegularChartNavigationTests.DuplicateAdmission_BusyPreservesViewAndCachedDisplayDoesNotReenter` はBusy時のサマリー・検索保全、予約なし、準備済み表示を確認する。`DuplicateAdmission_RowsBuildDoesNotExtendDataAdmission` は行構築と受付解放の独立性を確認する。`BmsLibraryDuplicateServiceTests.DuplicateAdmission_RealAnalysisRejectsLibraryMoveUntilRequiredNotificationsComplete` は実解析中の移動拒否を確認する。`DuplicateDependencyInvalidation_PreparesOutsideUiAndKeepsLaterSummary` は実移動のFS・SQLite・通知と、表示中の内部継続、非表示時の失効と明示再訪を分担する。実統合と実ツリーのBusyは `MainWindowPackageMaintenanceWpfTests` が確認する。`DuplicateSelections_ActualMergeKeepsLaterGroupInsteadOfCapturedNextGroup` は実統合中の後発別群を、`DuplicateSelections_ActualHashCleanupRespectsLaterViewAndKeepsNormalAutoSelection` は実Hash整理の通常成功と後発別画面を分担し、Tree・一覧・検索の保全と実ファイル・DB整理後の受付解放を確認する。 |
+| 初回解析中の後発画面移動、完成通知、解析前の文脈更新 | [`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs)、`MainWindowViewModel`、`MainWindow.dupulicateFileCheckFolderSelect` | [`RegularChartNavigationTests.ColdDuplicate_LaterNavigationKeepsSemanticTargetThroughCompletion`](../../../BeMusicSeeker.Tests/ChartList/RegularChartNavigationTests.cs) と `DuplicateNavigation_QueuedPresentationCannotClearLaterSummary` が後発画面と遅いUI配送を確認する。`ColdDuplicate_OwnNotificationsKeepAcceptedRootAndReadyRows` は初期・保守・完成0件と、グループ配送後の解析中に選ぶフォルダの行集合、データ確定と必要警告を確認する。`MainWindowPackageMaintenanceWpfTests.ColdDuplicateTree_LaterPlaylistRootKeepsSelectionAndVisibleSummary` は実ツリー選択、サマリーのBinding、解析前の検索文脈と準備済みルート展開を確認する。 |
+| データ失敗・表示失敗・取消・通知と停止回収 | [`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs)、`MainWindowViewModel` | [`RegularChartCommitAndLifecycleTests.DuplicatePresentation_FailureNotifiesOnceAndStopWaitsForNotification`](../../../BeMusicSeeker.Tests/ChartList/RegularChartCommitAndLifecycleTests.cs) は同期開始例外・非同期失敗・取消と通知待機中の停止を確認する。`DuplicateData_DeliveryFailureRemainsOnNavigationOperation` はデータ配送失敗を操作結果へ返す。[`RegularChartNavigationTests.ColdDuplicate_OwnNotificationsKeepAcceptedRootAndReadyRows`](../../../BeMusicSeeker.Tests/ChartList/RegularChartNavigationTests.cs) の表示失敗条件は実一覧の失敗と準備取消、実VMからの通知一度を確認する。`StopAsync_WaitsForAcceptedDuplicateProducerBeforeItsOwnerNotification` は開始済み解析の回収を分担する。 |
+| ライブラリ交換時の選択維持と旧処理回収 | [`RegularChartListOwner.AttachNormalLibraryRefreshSource`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs)、`MainWindowViewModel` | [`RegularChartNavigationTests.SourceAuthorityReplacement_KeepsCurrentSelectionAndRejectsOldSourceWork`](../../../BeMusicSeeker.Tests/ChartList/RegularChartNavigationTests.cs) が、旧一覧構築中の交換と旧候補の不採用、独立解析中の新規接続のBusy拒否と有効状態の保持を分担する。`MainWindowPackageMaintenanceWpfTests.ResourceHealthMaintenanceNotificationRefreshesRealizedNormalRowBeforeDisplay` は起動時の通常ルート、接続後の実一覧とBinding、後続保守の実反映を確認する。 |
+| 後発選択の受理後・UI適用前に届く旧通知 | [`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs)、`RegularChartListRefreshTypes`、`MainWindowViewModel`、`PlaylistWorkspaceViewModel.TreeSelection` | [`RegularChartNavigationTests.ColdDuplicate_AutoRefreshCannotAdoptOldTargetWhileAcceptedInstallUiIsPending`](../../../BeMusicSeeker.Tests/ChartList/RegularChartNavigationTests.cs) は特定の導入項目を受理してUI配送を保持し、旧解析と通知を完了しても旧一覧を採用せず、配送後は特定項目だけを表示することを確認する。 |
+| 重複結果の準備中の検索・絞込み・並べ替え | [`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs)、`MainWindowViewModel` | [`RegularChartNavigationTests.DuplicateInvalidation_NormalFiltersAwaitReadyInputAndAdoptLatestFilter`](../../../BeMusicSeeker.Tests/ChartList/RegularChartNavigationTests.cs) は実設定変更から同じデータ準備へ合流し、仮の空一覧や古い条件を採用せず、完成時の条件と順序、完成後の正当な空結果を確認する。 |
 | 同名・空名、明示root、folder配下、未解決、行選択の識別 | [`DuplicateViewContext`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateViewContext.cs)、[`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs) | [`RegularChartViewBuildAndOrderingTests`](../../../BeMusicSeeker.Tests/ChartList/RegularChartViewBuildAndOrderingTests.cs) の `RegularEntry_SelectsDuplicateSubsetFromLibraryOwner` と `RegularEntry_DuplicateFolderContextSelectsOnlyMatchingCharts` が実ownerからのpath集合、選択scope、子孫と同prefix兄弟、捕捉後の元list変更を確認する。 |
 | 操作前の次対象・三以上の存続宛先、実左Treeまでの接続と消失時解除 | [`MaintenanceTreeViewModel`](../../../BeMusicSeeker/ViewModels/Maintenance/MaintenanceTreeViewModel.cs)、`DuplicateMaintenanceWorkflowOwner`、`MainWindow.ApplyDuplicateMaintenanceSelectionAsync` | [`MaintenanceTreeViewModelTests`](../../../BeMusicSeeker.Tests/Maintenance/MaintenanceTreeViewModelTests.cs) と [`DuplicateMaintenanceWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) が捕捉値と現在結果の所属を確認する。[`MainWindowPackageMaintenanceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) の `DuplicateSelections_ActualMergeSelectsCapturedNextGroupThroughCompiledTree` は実検索・標準composition・本番store・SQLite/FSからauto左選択までを通し、`DuplicateSelections_DisappearedTargetClearsTreeAndRowsWithoutHeaderFallback` は対象消失時の左無選択・空一覧・旧行選択解除を分担する。 |
 | 統合、後続保守、受付解放、失敗と通知 | [`DuplicateMaintenanceWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs) | [`DuplicateMaintenanceWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs)、[`BmsLibraryDuplicateServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) |

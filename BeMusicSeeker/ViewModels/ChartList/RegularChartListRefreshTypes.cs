@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
@@ -76,8 +77,70 @@ internal sealed class RegularNormalLibraryTreeFilter
     }
 }
 
+/// <summary>一回の正規受付を一覧採用まで識別し、重複の選択対象を短命に保持します。</summary>
+internal sealed class RegularChartNavigationRequest
+{
+    private readonly RegularChartListOwner owner;
+    /// <summary>受付した重複選択の対象を保持します。重複以外の画面対象は既存の所有者が管理します。</summary>
+    internal RegularChartNavigationRequest(RegularChartListOwner owner, DuplicateViewContext duplicateContext)
+    { this.owner = owner; DuplicateContext = duplicateContext; }
+    /// <summary>データ完成時に表示対象を解決するための重複選択です。重複以外の受付ではnullです。</summary>
+    internal DuplicateViewContext DuplicateContext { get; }
+    /// <summary>同じ正規受付が現在かを確認します。依存入口は適用済参照を明示して使います。</summary>
+    internal bool IsCurrent => owner.IsCurrentNavigation(this);
+}
+
+/// <summary>準備元ライブラリと完成結果をUIへ通知します。表示先は、通知受信時の現在選択から決めます。</summary>
+internal sealed class RegularDuplicateDataReadyEventArgs(BMSLibrary library, RegularDuplicateViewInput input) : EventArgs
+{
+    /// <summary>データを準備したライブラリです。接続先を交換した後は旧ライブラリの通知を採用しません。</summary>
+    internal BMSLibrary Library { get; } = library;
+    /// <summary>完成したグループ集合と既存の失効版です。データ未準備と解析済み0件を区別します。</summary>
+    internal RegularDuplicateViewInput Input { get; } = input ?? throw new ArgumentNullException(nameof(input));
+
+}
+
+/// <summary>完成した重複結果の参照と失効版を、UIでの採用まで照合するための入力です。未準備時には作成しません。</summary>
+internal sealed class RegularDuplicateViewInput
+{
+    private readonly BMSLibrary library;
+    private readonly int invalidationVersion;
+    private RegularDuplicateViewInput(BMSLibrary library, IReadOnlyList<DuplicateGroup> groups, int version)
+    { this.library = library; Groups = groups; invalidationVersion = version; }
+    /// <summary>完成した結果です。0件も準備済み結果として保持します。</summary>
+    internal IReadOnlyList<DuplicateGroup> Groups { get; }
+    /// <summary>捕捉後の再失効・結果交換を最終UIで検出し、再試行せず候補を失効させます。</summary>
+    internal bool IsCurrent => ReferenceEquals(library?.DuplicateChartGroups, Groups)
+        && library.DuplicateChartGroupsInvalidationVersion == invalidationVersion;
+    /// <summary>完成した参照と既存失効版だけを捕捉します。未準備時には入力自体を作りません。</summary>
+    internal static RegularDuplicateViewInput Capture(BMSLibrary library)
+    {
+        int version = library?.DuplicateChartGroupsInvalidationVersion ?? 0;
+        List<DuplicateGroup> groups = library?.DuplicateChartGroups;
+        return groups == null ? null : new(library, groups, version);
+    }
+}
+
+/// <summary>整列条件と受付時の画面参照をUIへ渡し、受信側が開始した表示Taskを実行元へ返します。</summary>
+internal sealed class RegularChartSortRefreshRequestedEventArgs(
+    MainChartListSortRequestedEventArgs sortRequest, RegularChartNavigationRequest navigation) : EventArgs
+{
+    /// <summary>既存の列・方向・区分・並べ替え版を持つ入力です。履歴との共有型は変更しません。</summary>
+    internal MainChartListSortRequestedEventArgs SortRequest { get; } = sortRequest;
+    /// <summary>並べ替えを受理した時点の画面受付です。後発画面へ移動した場合は表示を更新しません。</summary>
+    internal RegularChartNavigationRequest Navigation { get; } = navigation;
+    /// <summary>UIでの行採用と必要な通知配送までを表すTaskです。並べ替え処理が完了まで回収します。</summary>
+    internal Task Presentation { get; set; } = Task.CompletedTask;
+}
+
 internal sealed class RegularChartTreeNavigationPresentationRequestedEventArgs : EventArgs
 {
+    /// <summary>受付からUI実行・行採用まで引き継ぐ短命な要求です。</summary>
+    internal RegularChartNavigationRequest Navigation { get; init; }
+
+    /// <summary>受信VMが開始した同じ表示Taskです。配送元が実終端まで回収します。</summary>
+    internal Task Presentation { get; set; } = Task.CompletedTask;
+
     internal RegularChartTreeNavigationPresentationRequestedEventArgs(
         bool keywordPresentationRefreshRequired,
         MainViewUpdateMode refreshMode)
@@ -93,6 +156,12 @@ internal sealed class RegularChartTreeNavigationPresentationRequestedEventArgs :
 
 internal sealed class RegularChartMaintenanceNavigationPresentationRequestedEventArgs : EventArgs
 {
+    /// <summary>受付からUI実行・行採用まで引き継ぐ短命な要求です。</summary>
+    internal RegularChartNavigationRequest Navigation { get; init; }
+
+    /// <summary>受信VMが開始した同じ表示Taskです。配送元が実終端まで回収します。</summary>
+    internal Task Presentation { get; set; } = Task.CompletedTask;
+
     internal RegularChartMaintenanceNavigationPresentationRequestedEventArgs(
         MainViewUpdateMode mode,
         object parameter,
@@ -116,6 +185,12 @@ internal sealed class RegularChartMaintenanceNavigationPresentationRequestedEven
 
 internal sealed class RegularChartInstallNavigationPresentationRequestedEventArgs : EventArgs
 {
+    /// <summary>受付からUI実行・行採用まで引き継ぐ短命な要求です。</summary>
+    internal RegularChartNavigationRequest Navigation { get; init; }
+
+    /// <summary>受信VMが開始した同じ表示Taskです。配送元が実終端まで回収します。</summary>
+    internal Task Presentation { get; set; } = Task.CompletedTask;
+
     internal RegularChartInstallNavigationPresentationRequestedEventArgs(
         MainViewUpdateMode mode,
         object parameter,

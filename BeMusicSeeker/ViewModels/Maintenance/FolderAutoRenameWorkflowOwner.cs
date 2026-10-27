@@ -658,6 +658,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
         IDisposable activityLease = null;
         IDisposable operationGate = run.OperationGate;
         bool ownsOperationGate = operationGate == null;
+        LibraryFileMutationCapability capability = null;
         bool suppressionStarted = false;
         bool mutationAllowed = true;
         var failures = new List<ExceptionDispatchInfo>();
@@ -681,7 +682,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 {
                     PublishRefreshSuppressionChanged(isSuppressed: true);
                 }
-                using LibraryFileMutationCapability capability = chartFileOperations.CreateMutationCapability(operationGate);
+                capability = chartFileOperations.CreateMutationCapability(operationGate);
                 using LibraryFileMutationCapability playlistCapability = run.PlaylistLease?.CreateMutationCapability();
                 using LibraryFileMutationCapability combinedCapability = playlistCapability == null ? null : capability.WithPlaylistCapability(playlistCapability);
                 mutation((run.PreparedPort ?? mutationPort).ForAcceptedOperation(combinedCapability ?? capability));
@@ -697,10 +698,6 @@ internal sealed class FolderAutoRenameWorkflowOwner
             {
                 CaptureCleanupFailure(() => PublishRefreshSuppressionChanged(isSuppressed: false), failures);
             }
-            if (ownsOperationGate && operationGate != null && releaseAcquiredOperationGate)
-            {
-                CaptureCleanupFailure(operationGate.Dispose, failures);
-            }
             if (activityLease != null)
             {
                 CaptureCleanupFailure(activityLease.Dispose, failures);
@@ -709,6 +706,16 @@ internal sealed class FolderAutoRenameWorkflowOwner
             {
                 CaptureCleanupFailure(dialogScope.Dispose, failures);
                 CaptureCleanupFailure(dialogScope.Flush, failures);
+            }
+            if (capability != null && refreshSuppression)
+            {
+                try { await library.CompleteAcceptedDuplicateDataAsync(capability).ConfigureAwait(false); }
+                catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
+            }
+            CaptureCleanupFailure(() => capability?.Dispose(), failures);
+            if (ownsOperationGate && operationGate != null && releaseAcquiredOperationGate)
+            {
+                CaptureCleanupFailure(operationGate.Dispose, failures);
             }
         }
         switch (failures.Count)

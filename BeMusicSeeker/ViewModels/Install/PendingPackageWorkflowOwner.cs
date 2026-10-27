@@ -1445,6 +1445,11 @@ internal sealed class PendingPackageWorkflowOwner
                 CaptureCleanupFailure(activityLease.Dispose, failures);
             }
             if (dialogScope != null) { CaptureCleanupFailure(dialogScope.Dispose, failures); }
+            if (library != null)
+            {
+                try { await library.CompleteAcceptedDuplicateDataAsync(capability).ConfigureAwait(false); }
+                catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
+            }
             combinedCapability?.Dispose();
             playlistCapability?.Dispose();
             playlistLease?.Dispose();

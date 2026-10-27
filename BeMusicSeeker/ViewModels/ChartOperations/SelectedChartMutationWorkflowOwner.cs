@@ -753,6 +753,8 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 CaptureCleanupFailure(dialogScope.Dispose, failures);
                 CaptureNotification(dialogScope.Flush);
             }
+            try { await library.CompleteAcceptedDuplicateDataAsync(capability).ConfigureAwait(false); }
+            catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
             CaptureCleanupFailure(() => combinedCapability?.Dispose(), failures);
             CaptureCleanupFailure(() => playlistCapability?.Dispose(), failures);
             CaptureCleanupFailure(() => playlistLease?.Dispose(), failures);

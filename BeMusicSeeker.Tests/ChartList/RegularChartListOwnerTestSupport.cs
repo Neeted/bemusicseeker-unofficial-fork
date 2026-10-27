@@ -432,11 +432,19 @@ internal static class RegularChartListOwnerTestSupport
             await Schedule(action, priority).Completion.ConfigureAwait(false);
         }
 
+        /// <summary>UIで処理を一回開始し、配送と返されたTaskの両方を完了まで待ちます。同期例外、非同期の失敗、取消は呼出元へ返します。</summary>
         public async Task InvokeAsync(
             Func<Task> action,
             UiSchedulePriority priority = UiSchedulePriority.Normal)
         {
-            await action().ConfigureAwait(false);
+            var execution = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+            IUiScheduledOperation operation = Schedule(() =>
+            {
+                try { execution.TrySetResult(action()); }
+                catch (Exception exception) { execution.TrySetException(exception); }
+            }, priority);
+            await operation.Completion.ConfigureAwait(false);
+            await (await execution.Task.ConfigureAwait(false)).ConfigureAwait(false);
         }
     }
 

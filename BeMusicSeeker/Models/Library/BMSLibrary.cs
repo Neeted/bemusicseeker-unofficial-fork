@@ -727,6 +727,29 @@ public partial class BMSLibrary : ObservableObject
     /// <summary>推定入力の必須背景更新と利用者操作が共有する論理受付です。</summary>
     internal ChartFileOperationSynchronizer OperationAdmission { get; }
 
+    private Func<BMSLibrary, LibraryFileMutationCapability, Task> duplicateDataPreparation;
+
+    /// <summary>接続中の一覧所有者が、受理済み変更の仕上げに必要な重複データを準備する窓口を接続します。</summary>
+    internal void ConnectDuplicateDataPreparation(Func<BMSLibrary, LibraryFileMutationCapability, Task> prepare)
+        => Interlocked.Exchange(ref duplicateDataPreparation, prepare ?? throw new ArgumentNullException(nameof(prepare)));
+
+    /// <summary>この所有者の接続だけを解除し、交換後の別所有者の接続は保持します。</summary>
+    internal void DisconnectDuplicateDataPreparation(Func<BMSLibrary, LibraryFileMutationCapability, Task> prepare)
+    {
+        Func<BMSLibrary, LibraryFileMutationCapability, Task> current = Volatile.Read(ref duplicateDataPreparation);
+        if (Equals(current, prepare)) { Interlocked.CompareExchange(ref duplicateDataPreparation, null, current); }
+    }
+
+    /// <summary>存続中の共通受付権限で、現在の表示に必要な重複準備を完了します。同期コミットの外側で、親受付を解放する前に待機します。</summary>
+    internal Task CompleteAcceptedDuplicateDataAsync(LibraryFileMutationCapability capability)
+    {
+        Func<BMSLibrary, LibraryFileMutationCapability, Task> prepare = Volatile.Read(ref duplicateDataPreparation);
+        if (prepare == null) { return Task.CompletedTask; }
+        using LibraryFileMutationLease borrowed = OperationAdmission.Borrow(capability);
+        return prepare(this, capability);
+    }
+
+
     // 本番では未設定。評価・適用・終端の診断を公開APIに追加せず観測する。
     private readonly IInstallEstimationExecutionObserver installEstimationExecutionObserver;
 
@@ -2870,7 +2893,8 @@ public partial class BMSLibrary : ObservableObject
             LogInstallPerformanceWarn,
             HandleCatalogChartInfoOwnerEvent,
             libraryMutationOwner.BeginOwnedDigestMutationWindow,
-            libraryMutationOwner.PrepareOwnedChartDigestPublication);
+            libraryMutationOwner.PrepareOwnedChartDigestPublication,
+            CompleteAcceptedDuplicateDataAsync);
         dbGateway.EnsureLibraryStartupSchema();
         listenerForRwlockBMSFilesInitializedAll = PropertyChangedSubscription.Create(rwlockBMSFilesInitializedAll);
         listenerForRwlockBMSFilesInitializedMin = PropertyChangedSubscription.Create(rwlockBMSFilesInitializedMin);

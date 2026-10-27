@@ -608,8 +608,9 @@ public partial class MainWindowViewModel : ViewModel,
     private readonly StartupProgressWorkflowOwner startupProgressWorkflowOwner;
 
     private MainViewUpdateMode treeViewFilterTypeSelected;
-
     private object treeViewFilterParameterSelected;
+    // UIへ適用した画面対象と受付参照を対応付け、依存更新で旧対象を後発要求へ付け替えないようにする。
+    private RegularChartNavigationRequest appliedNavigation;
 
     public SettingsDialogViewModel SettingDialog { get; private set; }
 
@@ -1276,15 +1277,9 @@ public partial class MainWindowViewModel : ViewModel,
 
     private Task RefreshLibraryMainViewForCurrentFilter()
     {
-        if (RegularChartListOwner.IsMaintenanceNavigationMode(treeViewFilterTypeSelected))
-        {
-            regularChartListOwner.NavigateMaintenance(
-                treeViewFilterTypeSelected,
-                treeViewFilterParameterSelected,
-                "refresh_current_filter");
-            return Task.CompletedTask;
-        }
-        return RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
+        RegularChartNavigationRequest navigation = appliedNavigation;
+        return regularChartListOwner.RefreshCurrentViewAsync(navigation, () =>
+            RefreshChartRowsViewCaptured(MainViewUpdateMode.TreeViewFilterNotChanged, navigation: navigation));
     }
 
     private void RefreshLibraryMainViewForDataDependency(MainViewDataDependency dependency, string reason)
@@ -1470,7 +1465,7 @@ public partial class MainWindowViewModel : ViewModel,
         if ((mask & UiRefreshChannel.DuplicateTree) != 0)
         {
             var stopwatch4 = Stopwatch.StartNew();
-            MaintenanceTree.ApplyDuplicateGroupsPresentation();
+            PresentDuplicateGroups();
             stopwatch4.Stop();
             num4 = stopwatch4.ElapsedMilliseconds;
         }
@@ -1694,18 +1689,16 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return;
         }
-        if (RegularChartListOwner.IsMaintenanceNavigationMode(treeViewFilterTypeSelected))
+        RegularChartNavigationRequest navigation = appliedNavigation;
+        regularChartListOwner.RefreshCurrentViewAsync(navigation, () =>
         {
-            MainViewUpdateMode mode = treeViewFilterTypeSelected;
-            if (mode != MainViewUpdateMode.DuplicateFilterSelected)
+            // 重複の元データ変更は既存のグループ通知経路へ分担し、他の現在対象だけを再表示します。
+            if (treeViewFilterTypeSelected == MainViewUpdateMode.DuplicateFilterSelected)
             {
-                regularChartListOwner.NavigateMaintenance(
-                    mode,
-                    reason: reason);
+                return Task.CompletedTask;
             }
-            return;
-        }
-        RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
+            return RefreshChartRowsViewCaptured(MainViewUpdateMode.TreeViewFilterNotChanged, navigation: navigation);
+        });
     }
 
     private void IncrementNormalLibrarySourceGenerationForBmsonSync(
@@ -1923,6 +1916,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void ChartFiltersModeFilterChanged(object sender, EventArgs e)
     {
+        if (!regularChartListOwner.IsCurrentNavigation(appliedNavigation)) { return; }
         ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
         if (filters.ModeFilter == ChartModeFilter.None)
         {
@@ -1938,6 +1932,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void ChartFiltersKeywordFilterChanged(object sender, EventArgs e)
     {
+        if (!regularChartListOwner.IsCurrentNavigation(appliedNavigation)) { return; }
         ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
         if (PlaylistWorkspace.TryRequestPlaylistDetailFilter(MainViewUpdateMode.KeywordFilterUpdated, filters))
         {
@@ -2077,8 +2072,9 @@ public partial class MainWindowViewModel : ViewModel,
             TryLogStartupInitializationComplete,
             startupBackgroundTaskProgressSynchronization);
         treeViewFilterTypeSelected = GetStartupSettingsSnapshot().StartupSelectInstallPending
-            ? MainViewUpdateMode.PendingInstallFolderSelected
-            : MainViewUpdateMode.FolderFilterSelected;
+            ? MainViewUpdateMode.PendingInstallFolderSelected : MainViewUpdateMode.FolderFilterSelected;
+        treeViewFilterParameterSelected = null;
+        appliedNavigation = null;
         customFolderOutputSettingsProvider = composition.CustomFolderOutputSettingsProvider;
         playHistoryDisplaySettingsStore = composition.PlayHistoryDisplaySettingsStore;
         MainChartList = composition.CreateMainChartListViewModel(
@@ -2142,6 +2138,7 @@ public partial class MainWindowViewModel : ViewModel,
             request => PlaylistWorkspace.RunExternalPlaylistSyncAsync(
                 request.Reason, request.FromReloadTables, request.PublishReferenceReceipt,
                 request.OperationToken, request.Capability));
+        PlaylistWorkspace.TreeSelectionAccepted += (_, request) => request.Navigation = regularChartListOwner.AcceptNavigation();
         PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
         PlaylistWorkspace.PlaylistLampNavigationRequested += PlaylistWorkspacePlaylistLampNavigationRequested;
         PlaylistWorkspace.PlaylistPresentationRefreshRequested += PlaylistWorkspacePlaylistPresentationRefreshRequested;
@@ -2310,6 +2307,7 @@ public partial class MainWindowViewModel : ViewModel,
         PlaylistWorkspace.PlaylistDetailSortChanged += PlaylistWorkspacePlaylistDetailSortChanged;
         PlaylistWorkspace.PlaylistDetailFilterChanged += PlaylistWorkspacePlaylistDetailFilterChanged;
         regularChartListOwner = childComposition.RegularChartListOwner;
+        regularChartListOwner.ConfigureDuplicateNavigationDialogs(FileDbMutationDialogs);
         PlaylistWorkspace.SetLibraryChangeDelivery(regularChartListOwner.DeliverPendingLibraryChangesAsync);
         startupPostInitializationWarmupOwner = new StartupPostInitializationWarmupOwner(
             () =>
@@ -2378,6 +2376,7 @@ public partial class MainWindowViewModel : ViewModel,
         regularChartListOwner.RefreshSuppressionChanged += RegularChartListOwnerRefreshSuppressionChanged;
         regularChartListOwner.TreeNavigationPresentationRequested += RegularChartListOwnerTreeNavigationPresentationRequested;
         regularChartListOwner.MaintenanceNavigationPresentationRequested += RegularChartListOwnerMaintenanceNavigationPresentationRequested;
+        regularChartListOwner.DuplicateDataReady += RegularChartListOwnerDuplicateDataReady;
         regularChartListOwner.InstallNavigationPresentationRequested += RegularChartListOwnerInstallNavigationPresentationRequested;
         MainChartList.SortRequested += MainChartListSortRequested;
         MainChartList.OperationContextChanged += (_, _) =>
@@ -2389,7 +2388,7 @@ public partial class MainWindowViewModel : ViewModel,
         MainChartList.CellEditStarted += MainChartListCellEditStarted;
         MainChartList.CellEditEndedRequested += MainChartListCellEditEndedRequested;
         regularChartListOwner.SortChanged += RegularChartListOwnerSortChanged;
-        regularChartListOwner.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
+        regularChartListOwner.SortRefreshRequested += RegularChartListOwnerSortRefreshRequested;
 
         ShellShutdownWorkflow = new ShellShutdownWorkflowOwner(
             StartupUpdateWorkflow,
@@ -2449,7 +2448,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
         else if (!PlaylistWorkspace.TryRequestPlaylistDetailSort(request.ColumnName, request.Direction))
         {
-            regularChartListOwner.QueueSort(request);
+            regularChartListOwner.QueueSort(request, appliedNavigation);
         }
     }
 
@@ -2524,11 +2523,23 @@ public partial class MainWindowViewModel : ViewModel,
         {
             throw new ArgumentNullException(nameof(request));
         }
+        if (!regularChartListOwner.IsCurrentNavigation(request.Navigation)) { return; }
         if (request.KeywordPresentationRefreshRequired)
         {
             UpdateChartKeywordSearchContext();
         }
-        RefreshChartRowsView(request.RefreshMode);
+        request.Presentation = RefreshChartRowsViewCaptured(request.RefreshMode, navigation: request.Navigation);
+    }
+
+    /// <summary>完成通知を受けた時点の有効な重複選択を表示します。表示と失敗通知の終端は一覧の所有者が回収します。</summary>
+    private void RegularChartListOwnerDuplicateDataReady(object sender, RegularDuplicateDataReadyEventArgs ready)
+    {
+        if (!ReferenceEquals(ready.Library, files) || !ready.Input.IsCurrent) { return; }
+        RegularChartNavigationRequest navigation = regularChartListOwner.CaptureNavigation();
+        if (navigation?.DuplicateContext == null || !regularChartListOwner.IsCurrentNavigation(navigation)) { return; }
+        regularChartListOwner.PresentDuplicateData(() => RefreshChartRowsViewCaptured(
+            ReferenceEquals(appliedNavigation, navigation) ? MainViewUpdateMode.TreeViewFilterNotChanged : MainViewUpdateMode.DuplicateFilterSelected,
+            navigation.DuplicateContext, navigation: navigation, duplicateInput: ready.Input), FileDbMutationDialogs);
     }
 
     private void RegularChartListOwnerMaintenanceNavigationPresentationRequested(
@@ -2539,13 +2550,19 @@ public partial class MainWindowViewModel : ViewModel,
         {
             throw new ArgumentNullException(nameof(request));
         }
+        if (!regularChartListOwner.IsCurrentNavigation(request.Navigation)) { return; }
         if (request.KeywordPresentationRefreshRequired)
         {
             UpdateChartKeywordSearchContext();
         }
+        if (request.Mode == MainViewUpdateMode.DuplicateFilterSelected)
+        {
+            SetTreeViewFilterSelection(request.Mode, request.Parameter, request.Navigation);
+            UpdateChartKeywordSearchContext();
+        }
         if (request.RefreshRequested)
         {
-            RefreshChartRowsView(request.Mode, request.Parameter);
+            request.Presentation = RefreshChartRowsViewCaptured(request.Mode, request.Parameter, navigation: request.Navigation);
         }
     }
 
@@ -2557,11 +2574,12 @@ public partial class MainWindowViewModel : ViewModel,
         {
             throw new ArgumentNullException(nameof(request));
         }
+        if (!regularChartListOwner.IsCurrentNavigation(request.Navigation)) { return; }
         if (request.KeywordPresentationRefreshRequired)
         {
             UpdateChartKeywordSearchContext();
         }
-        RefreshChartRowsView(request.Mode, request.Parameter);
+        request.Presentation = RefreshChartRowsViewCaptured(request.Mode, request.Parameter, navigation: request.Navigation);
     }
 
     private void PlaylistWorkspaceTreeSelectionActivated(
@@ -2572,10 +2590,11 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return;
         }
+        if (!regularChartListOwner.IsCurrentNavigation(request.Navigation)) { return; }
         if (request.IsSummary)
         {
             regularChartListOwner.PrepareForMainViewRefresh();
-            SetTreeViewFilterSelection(MainViewUpdateMode.PlaylistFilterSelected, null);
+            SetTreeViewFilterSelection(MainViewUpdateMode.PlaylistFilterSelected, null, request.Navigation);
             PlayHistory.ClearSummaryPresentation();
             if (request.SummaryModeChanged)
             {
@@ -2588,11 +2607,11 @@ public partial class MainWindowViewModel : ViewModel,
         {
             UpdateChartKeywordSearchContext();
         }
-        RefreshChartRowsView(
+        RefreshChartRowsViewCaptured(
             selection.Filter == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected
                 ? MainViewUpdateMode.PlaylistNotOwnedFilterSelected
                 : MainViewUpdateMode.PlaylistFilterSelected,
-            selection);
+            selection, navigation: request.Navigation);
     }
 
     private void PlaylistWorkspacePlaylistDetailReloadRefreshRequested(object sender, EventArgs e)
@@ -2609,6 +2628,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void RegularChartListOwnerSortChanged(object sender, MainChartListSortRequestedEventArgs request)
     {
+        if (!regularChartListOwner.IsCurrentNavigation(appliedNavigation)) { return; }
         if (MainChartList.CurrentOperationContext.OperationSection != MainViewOperationSection.PlayHistory && !IsPlaylistDetailWorkflowActive)
         {
             SyncMainChartListSortPresentation();
@@ -2633,27 +2653,36 @@ public partial class MainWindowViewModel : ViewModel,
             return;
         }
 
+        RegularChartNavigationRequest navigation = regularChartListOwner.AcceptNavigation();
         PlaylistWorkspace.RequestPlaylistSummaryMode(enabled: false);
         PlaylistWorkspace.ClearPlaylistDetailSelection();
         lock (playHistoryViewRequestLock)
         {
             treeViewFilterTypeSelected = MainViewUpdateMode.PlayHistorySelected;
             treeViewFilterParameterSelected = request;
+            appliedNavigation = navigation;
         }
 
-        Task.Run(() => RefreshChartRowsView(MainViewUpdateMode.PlayHistorySelected, request))
+        Task.Run(() => RefreshChartRowsViewCaptured(MainViewUpdateMode.PlayHistorySelected, request, navigation: navigation))
             .ObserveFault("playHistoryPeriodSelect");
+    }
+
+    private void RegularChartListOwnerSortRefreshRequested(object sender, RegularChartSortRefreshRequestedEventArgs request)
+    {
+        if (regularChartListOwner.IsCurrentSortRequest(request)
+            && (ReferenceEquals(request.Navigation, appliedNavigation) && regularChartListOwner.IsCurrentNavigation(request.Navigation))
+            && MainChartList.CurrentOperationContext.OperationSection != MainViewOperationSection.PlayHistory
+            && !IsPlaylistDetailWorkflowActive)
+        {
+            request.Presentation = RefreshChartRowsViewCaptured(MainViewUpdateMode.SortUpdated,
+                expectedSortTarget: MainChartListSortTarget.Regular, navigation: request.Navigation);
+        }
     }
 
     private void ChartListOwnerSortRefreshRequested(object sender, MainChartListSortRequestedEventArgs request)
     {
-        bool isCurrent = request.Target == MainChartListSortTarget.PlayHistory
-            ? PlayHistory.IsCurrentSortRequest(request)
-            : regularChartListOwner.IsCurrentSortRequest(request);
-        if (isCurrent
-            && (request.Target == MainChartListSortTarget.PlayHistory
-                ? MainChartList.CurrentOperationContext.OperationSection == MainViewOperationSection.PlayHistory
-                : MainChartList.CurrentOperationContext.OperationSection != MainViewOperationSection.PlayHistory && !IsPlaylistDetailWorkflowActive))
+        if (PlayHistory.IsCurrentSortRequest(request)
+            && MainChartList.CurrentOperationContext.OperationSection == MainViewOperationSection.PlayHistory)
         {
             RefreshChartRowsView(MainViewUpdateMode.SortUpdated, expectedSortTarget: request.Target);
         }
@@ -2751,6 +2780,7 @@ public partial class MainWindowViewModel : ViewModel,
         object sender,
         MainChartListSortRequestedEventArgs request)
     {
+        if (!regularChartListOwner.IsCurrentNavigation(appliedNavigation)) { return; }
         if (!IsPlaylistDetailWorkflowActive
             || !PlaylistWorkspace.IsCurrentPlaylistDetailSortRequest(request))
         {
@@ -2767,6 +2797,7 @@ public partial class MainWindowViewModel : ViewModel,
         object sender,
         PlaylistDetailFilterChangedEventArgs request)
     {
+        if (!regularChartListOwner.IsCurrentNavigation(appliedNavigation)) { return; }
         if (!IsPlaylistDetailWorkflowActive
             || !PlaylistWorkspace.IsCurrentPlaylistDetailFilterRequest(request))
         {
@@ -2944,15 +2975,17 @@ public partial class MainWindowViewModel : ViewModel,
         var scanWarnings = new ConcurrentDictionary<LibraryScanWarningKind, LibraryScanWarning>();
         IReadOnlyList<UiMessageRequest> CaptureNotifications() => Array.AsReadOnly(scanWarnings.Values.OrderBy(warning => warning.Kind)
             .Select(StartupLibraryInitializationWorkflowOwner.CreateScanWarningNotification).ToArray());
+        StartupInitializationResult operationResult;
         try
         {
             FileDiffReloadWorkflowResult result = await FileDiffReloadWorkflow.ReloadAsync(new("ReloadFileDiff", operationToken, capability,
                 new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "reload_file_diff", operationToken), warning => scanWarnings.TryAdd(warning.Kind, warning))).LoggingAndPropagate("ReloadFileDiff");
-            return new(StartupInitializationOutcome.Succeeded, GetStartupSettingsSnapshot(), operationToken,
+            operationResult = new(StartupInitializationOutcome.Succeeded, GetStartupSettingsSnapshot(), operationToken,
                 RequiredResult: new(result.FileResult, null), OperationKind: StartupProgressOperationKind.ReloadFileDiff, BackupNotifications: CaptureNotifications());
         }
-        catch (Exception failure) { return CreateLimitedInitializationFailure(operationToken, StartupProgressOperationKind.ReloadFileDiff, failure) with { BackupNotifications = CaptureNotifications() }; }
+        catch (Exception failure) { operationResult = CreateLimitedInitializationFailure(operationToken, StartupProgressOperationKind.ReloadFileDiff, failure) with { BackupNotifications = CaptureNotifications() }; }
         finally { EndUiUpdateSuppression(scheduleFlush: false); _semaphore.Release(); }
+        return await CompleteAcceptedDuplicateInputAsync(operationResult, capability);
     }
 
     /// <summary>全再初期化の必須処理を同じL/Pで終え、解放後の共通UI・通知・後続へ合流します。</summary>
@@ -2981,6 +3014,7 @@ public partial class MainWindowViewModel : ViewModel,
         IReadOnlyList<UiMessageRequest> CaptureNotifications() => Array.AsReadOnly(scanWarnings.Values.OrderBy(warning => warning.Kind)
             .Select(StartupLibraryInitializationWorkflowOwner.CreateScanWarningNotification).ToArray());
         Action scoreNotification = null;
+        StartupInitializationResult operationResult;
         try
         {
             playHistoryWorkflowOwner.InvalidateReadCache("full_reinitialize");
@@ -2990,15 +3024,35 @@ public partial class MainWindowViewModel : ViewModel,
                 new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "reinitialize", operationToken), approval, repairNotificationObserver, warning => scanWarnings.TryAdd(warning.Kind, warning), notification => scoreNotification = notification);
             if (required.Lr2Failure != null) { UpdateLr2SongDbSyncRuntimeStatus(files.GetLr2SongDbSyncStatusSnapshot()); }
             startupReadyDataReached = true;
-            return new(StartupInitializationOutcome.Succeeded, GetStartupSettingsSnapshot(), operationToken,
+            operationResult = new(StartupInitializationOutcome.Succeeded, GetStartupSettingsSnapshot(), operationToken,
                 RequiredResult: required, OperationKind: StartupProgressOperationKind.FullReinitialize, BackupNotifications: CaptureNotifications(), ScoreNotification: scoreNotification);
         }
-        catch (Exception failure) { return CreateLimitedInitializationFailure(operationToken, StartupProgressOperationKind.FullReinitialize, failure) with { BackupNotifications = CaptureNotifications(), ScoreNotification = scoreNotification }; }
+        catch (Exception failure) { operationResult = CreateLimitedInitializationFailure(operationToken, StartupProgressOperationKind.FullReinitialize, failure) with { BackupNotifications = CaptureNotifications(), ScoreNotification = scoreNotification }; }
         finally
         {
             EndUiUpdateSuppression(scheduleFlush: false);
             _semaphore.Release();
             startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
+        }
+        return await CompleteAcceptedDuplicateInputAsync(operationResult, capability);
+    }
+
+    /// <summary>親受付の存続中に必要な重複データを準備し、先行する変更の失敗結果も保持します。</summary>
+    private async Task<StartupInitializationResult> CompleteAcceptedDuplicateInputAsync(
+        StartupInitializationResult result, LibraryFileMutationCapability capability)
+    {
+        try
+        {
+            if (files != null) { await files.CompleteAcceptedDuplicateDataAsync(capability); }
+            return result;
+        }
+        catch (Exception failure)
+        {
+            return result with
+            {
+                Outcome = StartupInitializationOutcome.OperationFailed,
+                Failure = result.Failure == null ? failure : new AggregateException(result.Failure, failure)
+            };
         }
     }
 
@@ -3581,11 +3635,22 @@ public partial class MainWindowViewModel : ViewModel,
         startupReadyDataReached = false;
         startupReadyUiReached = false;
         startupReadyOperableReached = false;
-        StartupRequiredInitializationResult requiredResult = await InitializeStartupLibraryFilesAsync(
-            () => startupLibraryInitializationWorkflowOwner.InitializeRequiredAsync(
-                files, tables, Lr2SongDbSyncWorkflow, startupPerformanceInteraction, capability,
-                new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "required_initialization", operationToken),
-                startupCustomFolderSettings, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver, forceBeatorajaBmtProjection));
+        StartupRequiredInitializationResult requiredResult;
+        try
+        {
+            requiredResult = await InitializeStartupLibraryFilesAsync(
+                () => startupLibraryInitializationWorkflowOwner.InitializeRequiredAsync(
+                    files, tables, Lr2SongDbSyncWorkflow, startupPerformanceInteraction, capability,
+                    new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "required_initialization", operationToken),
+                    startupCustomFolderSettings, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver, forceBeatorajaBmtProjection));
+        }
+        catch (Exception failure)
+        {
+            try { await files.CompleteAcceptedDuplicateDataAsync(capability); }
+            catch (Exception preparationFailure) { throw new AggregateException(failure, preparationFailure); }
+            throw;
+        }
+        await files.CompleteAcceptedDuplicateDataAsync(capability);
         if (IsRequiredInitializationShutdownRequested) { return new(StartupInitializationOutcome.ShutdownRequested); }
         return new(StartupInitializationOutcome.Succeeded, startupSettings, operationToken, RequiredResult: requiredResult, BackupNotifications: backupNotifications);
     }
@@ -3815,6 +3880,11 @@ public partial class MainWindowViewModel : ViewModel,
         startupProgressWorkflowOwner.TryCompleteStartupProgressPlaylistReference(completion.Version, completion.OperationToken);
     }
 
+    /// <summary>現在表示の入口がUI適用済み参照を一度捕捉します。内部の遅い配送も同じ参照を渡し、nullを後発要求へ取り直しません。</summary>
+    private Task RefreshChartRowsView(MainViewUpdateMode mode, object parameter = null,
+        MainChartListSortTarget? expectedSortTarget = null, RegularChartListSubsetSource confirmedUnresolvedDuplicateSource = null)
+        => RefreshChartRowsViewCaptured(mode, parameter, expectedSortTarget, appliedNavigation, confirmedUnresolvedDuplicateSource);
+
     /// <summary>
     /// 指定された更新モードとパラメータに基づいて、メインの chart row 表示用コレクションを生成・更新します。
     /// ツリーでのフォルダ選択、プレイリストや難易度表の適用、Missingファイル等の保守フィルタ、およびキーワードやキーモードでの絞り込み等を行います。<br/>
@@ -3822,11 +3892,19 @@ public partial class MainWindowViewModel : ViewModel,
     /// </summary>
     /// <param name="mode">更新の契機（どのフィルタや要素が変更されたかを示す更新モード）。</param>
     /// <param name="parameter">選択されたプレイリスト（BMSTable）やフォルダ名などの追加パラメータ、無い場合は null。</param>
-    private Task RefreshChartRowsView(
+    /// <param name="expectedSortTarget">受付した並べ替えが現在の操作区分へ属する場合だけ更新します。</param>
+    /// <param name="navigation">元の画面受付です。最初の表示副作用より前に判定し、行採用まで同じ参照を渡します。</param>
+    /// <param name="confirmedUnresolvedDuplicateSource">保守後の選択解決で所属消失を確定した空一覧です。データ未準備とは区別します。</param>
+    /// <param name="duplicateInput">完成通知で捕捉した重複結果です。未準備の入力では一覧候補を作成しません。</param>
+    private Task RefreshChartRowsViewCaptured(
         MainViewUpdateMode mode,
         object parameter = null,
-        MainChartListSortTarget? expectedSortTarget = null)
+        MainChartListSortTarget? expectedSortTarget = null,
+        RegularChartNavigationRequest navigation = null,
+        RegularChartListSubsetSource confirmedUnresolvedDuplicateSource = null,
+        RegularDuplicateViewInput duplicateInput = null)
     {
+        if (!regularChartListOwner.IsCurrentNavigation(navigation)) { return Task.CompletedTask; }
         if (expectedSortTarget.HasValue
             && expectedSortTarget.Value != (MainChartList.CurrentOperationContext.OperationSection == MainViewOperationSection.PlayHistory
                 ? MainChartListSortTarget.PlayHistory
@@ -3836,7 +3914,6 @@ public partial class MainWindowViewModel : ViewModel,
         }
         regularChartListOwner.PrepareForMainViewRefresh();
         var viewBuildStopwatch = Stopwatch.StartNew();
-        ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
         MainViewUpdateMode requestedMode = mode;
         MainViewOperationSection previousOperationSection = MainChartList.CurrentOperationContext.OperationSection;
         MainViewUpdateMode activeTreeViewFilterMode = MainViewUpdateMode.TreeViewFilterNotChanged;
@@ -3890,7 +3967,7 @@ public partial class MainWindowViewModel : ViewModel,
                     parameter,
                     viewBuildStopwatch,
                     playHistoryKeywordRequest,
-                    filters.KeywordFilter,
+                    ChartFilters.CaptureSnapshot().KeywordFilter,
                     PlayHistory.SelectedDisplayTarget)));
             return Task.CompletedTask;
         }
@@ -3900,7 +3977,7 @@ public partial class MainWindowViewModel : ViewModel,
             {
                 parameter = NormalizeDuplicateViewParameter(parameter);
             }
-            SetTreeViewFilterSelection(mode, parameter);
+            SetTreeViewFilterSelection(mode, parameter, navigation);
             activeTreeViewFilterMode = mode;
             activeTreeViewFilterParameter = IsPlaylistViewMode(mode) ? null : parameter;
             hasActiveTreeViewFilterSnapshot = true;
@@ -3946,7 +4023,7 @@ public partial class MainWindowViewModel : ViewModel,
                     parameter,
                     viewBuildStopwatch,
                     activeRequest,
-                    filters.KeywordFilter,
+                    ChartFilters.CaptureSnapshot().KeywordFilter,
                     PlayHistory.SelectedDisplayTarget)));
             return Task.CompletedTask;
         }
@@ -3957,30 +4034,38 @@ public partial class MainWindowViewModel : ViewModel,
                 route.Mode, route.RequestedMode, activeTreeViewFilterMode,
                 ShouldUsePlaylistBuildCoalescingWindow(route.Mode, route.RequestedMode), CapturePlaylistOpenReadinessSnapshot());
         }
-        Task regularRefresh = ApplyRegularViewAsync();
+        Task regularRefresh = regularChartListOwner.ApplyMainLibraryViewAsync(CaptureRegularInput, navigation, result =>
+        {
+            // 一覧の所有者が、採用と必要な配送の後に同じTask内で呼ぶ。停止時はこの表示同期まで回収する。
+            if (result.WasCommitted && result.SortWasReset && regularChartListOwner.IsCurrentNavigation(navigation)
+                && MainChartList.CurrentOperationContext.OperationSection != MainViewOperationSection.PlayHistory
+                && !IsPlaylistDetailWorkflowActive)
+            { SyncMainChartListSortPresentation(); }
+        });
         regularRefresh.ObserveFault("refreshRegularChartRowsView");
         return regularRefresh;
 
-        async Task ApplyRegularViewAsync()
+        RegularChartListEntryRequest CaptureRegularInput()
         {
-            RegularChartListEntryResult regularResult = await regularChartListOwner.ApplyMainLibraryViewAsync(
-                route,
-                files,
-                parameter,
-                activeTreeViewFilterParameter,
-                PlaylistWorkspace.IsPlaylistSummaryModeRequested,
-                viewBuildStopwatch,
-                filters).ConfigureAwait(false);
-            if (regularResult.WasCommitted && regularResult.SortWasReset)
+            if (!regularChartListOwner.IsCurrentNavigation(navigation)) { return null; }
+            ChartListRefreshRoute currentRoute = route;
+            object currentParameter = parameter;
+            object currentTreeParameter = activeTreeViewFilterParameter;
+            return new RegularChartListEntryRequest
             {
-                await uiScheduler.InvokeAsync(() =>
-                {
-                    if (MainChartList.CurrentOperationContext.OperationSection != MainViewOperationSection.PlayHistory)
-                    {
-                        SyncMainChartListSortPresentation();
-                    }
-                }).ConfigureAwait(false);
-            }
+                DuplicateInput = duplicateInput,
+                Library = files,
+                Mode = currentRoute.Mode,
+                RequestedMode = currentRoute.RequestedMode,
+                CurrentTreeMode = currentRoute.CurrentTreeMode,
+                Parameter = currentParameter,
+                TreeParameter = currentTreeParameter,
+                IncludeBmsonRows = currentRoute.IncludeBmsonRows,
+                PreserveSummary = PlaylistWorkspace.IsPlaylistSummaryModeRequested,
+                Filters = ChartFilters.CaptureSnapshot(),
+                Stopwatch = viewBuildStopwatch,
+                ConfirmedUnresolvedDuplicateSource = confirmedUnresolvedDuplicateSource
+            };
         }
     }
 
@@ -4062,9 +4147,11 @@ public partial class MainWindowViewModel : ViewModel,
             mode = treeViewFilterTypeSelected;
             parameter = treeViewFilterParameterSelected;
         }
+        // 同じ表示区分で表やフォルダが置換された場合は、プレイリスト所有者の現在選択から対象を解決する。
+        if (parameter is PlaylistDetailSelection) { parameter = PlaylistWorkspace.CapturePlaylistDetailSelection(); }
     }
 
-    private void SetTreeViewFilterSelection(MainViewUpdateMode mode, object parameter)
+    private void SetTreeViewFilterSelection(MainViewUpdateMode mode, object parameter, RegularChartNavigationRequest navigation)
     {
         if (mode == MainViewUpdateMode.PlayHistorySelected)
         {
@@ -4079,7 +4166,8 @@ public partial class MainWindowViewModel : ViewModel,
             lock (playHistoryViewRequestLock)
             {
                 treeViewFilterTypeSelected = mode;
-                treeViewFilterParameterSelected = IsPlaylistViewMode(mode) ? null : parameter;
+                treeViewFilterParameterSelected = parameter;
+                appliedNavigation = navigation;
             }
         });
         playHistoryWorkflowOwner.ClearSummaryFilters();
@@ -4217,24 +4305,14 @@ public partial class MainWindowViewModel : ViewModel,
     }
 
     private static object NormalizeDuplicateViewParameter(object parameter)
-    {
-        if (parameter == null) { return DuplicateViewContext.ForRoot(); }
-        if (parameter is DuplicateViewContext) { return parameter; }
-        if (parameter is DuplicateGroup duplicateGroup)
-        {
-            return DuplicateViewContext.CaptureGroup(duplicateGroup);
-        }
-        if (parameter is string folderPath)
-        {
-            return DuplicateViewContext.ForFolder(folderPath);
-        }
-        return DuplicateViewContext.ForGroup(null);
-    }
+        => RegularChartListOwner.CaptureDuplicateContext(parameter);
 
     /// <summary>消失した所属の表示を既存の一覧更新へ渡します。準備済み結果だけを使い、選択解除のための重複再検索は行いません。</summary>
     internal Task ApplyUnresolvedDuplicateSelectionAsync(DuplicateViewContext selection)
         => RefreshChartRowsView(MainViewUpdateMode.DuplicateFilterSelected,
-            selection?.Kind == DuplicateViewContextKind.GroupFolder ? selection : DuplicateViewContext.ForGroup(null));
+            selection?.Kind == DuplicateViewContextKind.GroupFolder ? selection : DuplicateViewContext.ForGroup(null),
+            confirmedUnresolvedDuplicateSource: RegularChartListSubsetSource.ForCharts([], "duplicate_unresolved",
+                ChartListSourceProjectionMode.DuplicateCurrent, applyResourceHealthProjection: true));
 
     private static string ResolveBmsonSourceGenerationReason(BmsonLibraryRowCacheSyncResult result, string reasonPrefix)
     {
@@ -4335,26 +4413,33 @@ public partial class MainWindowViewModel : ViewModel,
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Warning, reason);
     }
 
+    /// <summary>重複Treeの同期反映を画面へ委ねます。画面は同じcallback内でBindingを更新し、自動的な親選択を新規受付へ流さないようにします。</summary>
+    internal event Action<Action> DuplicateGroupsPresentationRequested;
+
+    /// <summary>グループ通知を既存の表示TaskとしてUIへ渡し、失敗通知と停止回収まで一覧所有者へ接続します。</summary>
+    private void PresentDuplicateGroups()
+    {
+        regularChartListOwner.PresentDuplicateData(() =>
+        {
+            Action<Action> presentation = DuplicateGroupsPresentationRequested;
+            if (presentation == null) { MaintenanceTree.ApplyDuplicateGroupsPresentation(); }
+            else { presentation(MaintenanceTree.ApplyDuplicateGroupsPresentation); }
+            return Task.CompletedTask;
+        }, FileDbMutationDialogs);
+    }
+
     private void RefreshDuplicatePresentationAfterGroupsChanged(string reason)
     {
         string refreshReason = string.IsNullOrWhiteSpace(reason) ? "bms_files_duplicated_changed" : reason;
         InvalidateNormalLibrarySortDependency(MainViewDataDependency.Warning, NormalLibraryWarningChangedReason);
         if (!TrySuppress(UiRefreshChannel.DuplicateTree))
         {
-            MaintenanceTree.ApplyDuplicateGroupsPresentation();
+            PresentDuplicateGroups();
         }
         if (treeViewFilterTypeSelected == MainViewUpdateMode.DuplicateFilterSelected)
         {
-            if (TrySuppress(UiRefreshChannel.LibraryMainView))
-            {
-                return;
-            }
-            if (MaintenanceTree.DuplicateChartGroups == null)
-            {
-                regularChartListOwner.EnsureDuplicateChartGroupsReady(refreshReason);
-                return;
-            }
-            RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
+            if (TrySuppress(UiRefreshChannel.LibraryMainView)) { return; }
+            // グループ変更通知はツリーを更新する。一覧は、データ準備と必要な配送を終えた完成通知から更新する。
         }
         else
         {

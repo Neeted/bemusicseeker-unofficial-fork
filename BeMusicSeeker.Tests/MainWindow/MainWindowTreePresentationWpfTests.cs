@@ -171,7 +171,7 @@ public sealed class MainWindowTreePresentationWpfTests
         }
     }
 
-    /// <summary>実ライブラリroot選択が通常一覧の主体へ無条件フィルターの更新要求を一回届けることを確認し、tree選択と一覧表示の接続漏れを検出します。</summary>
+    /// <summary>実ツリーのルート選択から、絞込みのない一覧要求が一回届き、表示Taskが正常完了することを確認します。</summary>
     [TestMethod]
     public void RegularLibrarySelectionUsesActualTreeOwnerRoute()
     {
@@ -189,20 +189,49 @@ public sealed class MainWindowTreePresentationWpfTests
             {
                 createdViewModel = viewModel;
                 RegularChartTreeNavigationPresentationRequestedEventArgs? request = null;
-                viewModel.RegularChartList.TreeNavigationPresentationRequested += (_, value) => request = value;
-                var libraryRoot = (TreeViewItem)FindElementWithBinding(
-                    window,
-                    HeaderedItemsControl.HeaderProperty,
-                    "Resources.Library")!;
+                var arrived = new TaskCompletionSource<RegularChartTreeNavigationPresentationRequestedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+                EventHandler<RegularChartTreeNavigationPresentationRequestedEventArgs> handler = (_, value) =>
+                {
+                    request = value;
+                    arrived.TrySetResult(value);
+                };
+                viewModel.RegularChartList.TreeNavigationPresentationRequested += handler;
+                Exception? failure = null;
+                try
+                {
+                    var libraryRoot = (TreeViewItem)FindElementWithBinding(
+                        window,
+                        HeaderedItemsControl.HeaderProperty,
+                        "Resources.Library")!;
 
-                libraryRoot.RaiseEvent(new RoutedEventArgs(TreeViewItem.SelectedEvent, libraryRoot));
+                    libraryRoot.RaiseEvent(new RoutedEventArgs(TreeViewItem.SelectedEvent, libraryRoot));
 
-                Assert.AreEqual(1, calls.Count);
-                Assert.IsNull(calls[0].FilterKind);
-                Assert.IsNull(calls[0].FilterKey);
-                Assert.IsNotNull(request);
-                Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, request!.RefreshMode);
-                Assert.IsNull(viewModel.RegularChartList.CaptureTreeFilter(enabled: true));
+                    Assert.AreEqual(1, calls.Count);
+                    Assert.IsNull(calls[0].FilterKind);
+                    Assert.IsNull(calls[0].FilterKey);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(arrived.Task, "regular-tree-typed-request");
+                    RegularChartTreeNavigationPresentationRequestedEventArgs delivered = arrived.Task.GetAwaiter().GetResult();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(delivered.Presentation, "regular-tree-presentation-terminal");
+                    Assert.IsNotNull(request);
+                    Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, request!.RefreshMode);
+                    Assert.IsNull(viewModel.RegularChartList.CaptureTreeFilter(enabled: true));
+                }
+                catch (Exception exception) { failure = exception; throw; }
+                finally
+                {
+                    try
+                    {
+                        if (arrived.Task.IsCompletedSuccessfully)
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                                arrived.Task.Result.Presentation, "regular-tree-presentation-cleanup");
+                        }
+                    }
+                    catch (Exception cleanupFailure) when (failure != null)
+                    { failure.Data["RegularTreePresentationCleanupFailure"] = cleanupFailure.ToString(); }
+                    finally { viewModel.RegularChartList.TreeNavigationPresentationRequested -= handler; }
+                    // 画面移動の外側Taskは、画面を閉じる際に一覧所有者の停止処理が回収する。
+                }
             },
             allowStartupUiInteraction: true,
             regularLibraryTreeTerminal: terminal);

@@ -3328,14 +3328,11 @@ public sealed class ChartListVirtualViewTests
             library.DuplicateChartGroups = [new([.. library.BmsCharts], [tempRootPath])];
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             typeof(MainWindowViewModel).GetField("treeViewFilterTypeSelected", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, MainViewUpdateMode.DuplicateFilterSelected);
-            // 通常のルート遷移後と同じ明示入力を持たせ、modeだけの不完全なfixtureで全件を要求しません。
-            FieldInfo? duplicateParameter = typeof(MainWindowViewModel).GetField("treeViewFilterParameterSelected", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.IsNotNull(duplicateParameter);
-            duplicateParameter.SetValue(viewModel, DuplicateViewContext.ForRoot());
+            typeof(MainWindowViewModel).GetField("treeViewFilterParameterSelected", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, DuplicateViewContext.ForRoot());
             viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
-            var sortRefresh = new TaskCompletionSource<MainChartListSortRequestedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var sortRefresh = new TaskCompletionSource<RegularChartSortRefreshRequestedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
             var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            EventHandler<MainChartListSortRequestedEventArgs> sortRequested = (_, request) => sortRefresh.TrySetResult(request);
+            EventHandler<RegularChartSortRefreshRequestedEventArgs> sortRequested = (_, request) => sortRefresh.TrySetResult(request);
             PropertyChangedEventHandler presentationChanged = (_, change) =>
             {
                 if (change.PropertyName is nameof(MainChartListViewModel.Rows) or nameof(MainChartListViewModel.SortParameters)
@@ -3350,11 +3347,12 @@ public sealed class ChartListVirtualViewTests
             try
             {
                 viewModel.MainChartList.RequestSort("UnsupportedColumn", ListSortDirection.Descending);
-                MainChartListSortRequestedEventArgs sortRequest = await sortRefresh.Task;
-                // 要求イベントはRefreshChartRowsViewのTaskを待ちません。後続の実公開まで通常のawaitで待ちます。
+                RegularChartSortRefreshRequestedEventArgs sortRequest = await sortRefresh.Task;
+                // 同じ正規要求の表示Taskと既存の実公開をそれぞれ回収します。
+                await sortRequest.Presentation;
                 await published.Task;
 
-                Assert.AreEqual(MainChartListSortTarget.Regular, sortRequest.Target);
+                Assert.AreEqual(MainChartListSortTarget.Regular, sortRequest.SortRequest.Target);
                 Assert.IsNull(regularOwner.CaptureSortParameters());
                 Assert.IsNull(viewModel.MainChartList.SortParameters);
                 var view = viewModel.MainChartList.Rows as ChartListVirtualView;

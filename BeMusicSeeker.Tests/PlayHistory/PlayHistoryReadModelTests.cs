@@ -2682,7 +2682,7 @@ public sealed class PlayHistoryReadModelTests
     /// <summary>
     /// 条件変更の購読例外を呼出元へ返しても通常/履歴のrefresh通知を起動し、受理済み更新を欠落させない。
     /// </summary>
-    /// <remarks>sort通知の到達を観測する。実背景Taskの終端を受け取る窓口はなく、keyword/対象用idleをsort終端へ読み替えない。</remarks>
+    /// <remarks>通常一覧と履歴の並べ替え通知の到達を観測します。通常一覧の表示完了は専用ケースが分担し、履歴側の待機を通常一覧の完了証拠にしません。</remarks>
     // 実shell構成または共有設定providerへの接続を使うため直列化する。
     [DoNotParallelize]
     [TestMethod]
@@ -2691,10 +2691,10 @@ public sealed class PlayHistoryReadModelTests
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         RegularChartListOwner regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
-        var regularRefreshed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var regularRefreshed = new TaskCompletionSource<RegularChartSortRefreshRequestedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
         EventHandler<MainChartListSortRequestedEventArgs> regularChanged = (_, _) => throw new InvalidOperationException("expected regular notification failure");
         regularOwner.SortChanged += regularChanged;
-        EventHandler<MainChartListSortRequestedEventArgs> regularRefresh = (_, _) => regularRefreshed.TrySetResult();
+        EventHandler<RegularChartSortRefreshRequestedEventArgs> regularRefresh = (_, request) => regularRefreshed.TrySetResult(request);
         regularOwner.SortRefreshRequested += regularRefresh;
 
         var playHistoryOwner = new PlayHistoryWorkflowOwner();
@@ -2722,10 +2722,21 @@ public sealed class PlayHistoryReadModelTests
         }
         finally
         {
-            regularOwner.SortChanged -= regularChanged;
-            regularOwner.SortRefreshRequested -= regularRefresh;
-            playHistoryOwner.SortChanged -= playChanged;
-            playHistoryOwner.SortRefreshRequested -= playRefresh;
+            try
+            {
+                if (regularRefreshed.Task.IsCompletedSuccessfully) { await regularRefreshed.Task.Result.Presentation; }
+            }
+            finally
+            {
+                try { await regularOwner.StopAsync(); }
+                finally
+                {
+                    regularOwner.SortChanged -= regularChanged;
+                    regularOwner.SortRefreshRequested -= regularRefresh;
+                    playHistoryOwner.SortChanged -= playChanged;
+                    playHistoryOwner.SortRefreshRequested -= playRefresh;
+                }
+            }
         }
     }
 
@@ -4064,7 +4075,7 @@ public sealed class PlayHistoryReadModelTests
 
         Assert.ThrowsException<TargetInvocationException>(() => setSelection.Invoke(
             viewModel,
-            new object[] { MainViewUpdateMode.FolderFilterSelected, null! }));
+            new object[] { MainViewUpdateMode.FolderFilterSelected, null!, null! }));
 
         Assert.AreEqual(MainViewOperationSection.InstallPending, viewModel.MainChartList.CurrentOperationContext.OperationSection);
         Assert.AreEqual(ChartOperationSourceScope.PendingPackage, viewModel.MainChartList.CurrentOperationContext.SourceScope);

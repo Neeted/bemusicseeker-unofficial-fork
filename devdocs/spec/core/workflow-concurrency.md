@@ -72,6 +72,14 @@
 
 無関係な更新で高価な全体再計算を起動する場合は、入力依存を狭めます。広い失効を読取りキャッシュの都合で認めても、永続確定の正否はそれで判断しません。診断用の理由文字列で通知・受付・反映方針を切り替えず、型付きの選択値を使います。
 
+画面受付の最新性と、データ自身の通知による一覧構築の失効を区別します。短命な正規受付参照をUIの副作用から一覧採用まで渡し、適用済み画面対象にも対応付けます。依存更新はその適用済み参照を検査し、後発選択を受理してUIへ適用する前の旧表示を新しい選択へ付け替えません。ライブラリ交換では選択を保ち、旧データからの候補を既存の入力識別と構築番号で不採用にします。
+
+新規の重複解析は[操作の競合ポリシー](operation-concurrency-policy.md#ライブラリ保留保守)の共通Lへ非待機で受け付けます。受理済み変更に必要な再準備は親の生存権限を借用し、自己再取得や解放後の予約にしません。
+
+データ準備と表示の終端は、それぞれの所有者が管理します。完成通知は完成事実だけを渡し、現在の有効な選択から表示を始めます。開始したデータ準備は表示の古さだけで取り消さず、表示の失敗は表示所有者が既存の操作失敗通知へ渡します。開始済みの準備・表示・通知は、停止時に実Taskの終端を回収します。重複解析の条件と保証は[重複仕様](../library/duplicate-files.md#初回解析中の画面移動)に従います。
+
+通常一覧の並べ替えは、要求時の整列版と画面受付をUI入力前にも検査します。通常一覧・部分集合・導入一覧の索引、絞込み、順序はUI外で構築し、行交換準備を含む採用全体はUIで実行します。有効な候補の採用、必要配送、ロック外の表示同期まで同じ実Taskで所有し、並べ替え要求もその終端を待ちます。後発選択で失効した保留候補は、構築の取消だけに依存せず待機を終えます。
+
 ### 実ロック状態と表示通知
 
 `ReaderWriterLockSlimWrapper` の実 `Enter` / `Exit` と保持数更新は必須です。ライブラリ・プレイリストが操作可否を判断する保持数の値は、表示通知より先に確定します。既存の保持数計上区分は維持し、昇格可能読取りは書込み相当として扱います。3つの保持数の設定処理の `PropertyChanged` は表示への転送であり、その購読者の失敗で実取得・解放を失敗へ変えません。`ObservableObject` 全体の通知契約は変更しません。
@@ -98,6 +106,8 @@
 | 複合ロックの取得・解放通知の故障と処理本体の結果保全 | [`LibraryFileOperationSynchronization`](../../../BeMusicSeeker/Models/BmsLibraryInternal/FileOperations/LibraryFileOperationSynchronization.cs) | [`Lr2SynchronizationArchitectureTests.FolderMoveSnapshotScope_ThrowingDisplayObserversPreserveBodyOutcomeAndReleaseAllLocks`](../../../BeMusicSeeker.Tests/Lr2/Lr2SynchronizationArchitectureTests.cs) は3つの実ロックの表示通知を失敗させ、処理本体の成功・失敗の両条件で元の結果・型・メッセージ・スタックを保ち、全解放と次の明示取得を確認する。通常の取得・逆順解放は同クラスの既存ケースが分担する。 |
 | 実解放失敗での全解放試行・元のスタック、取得時の二次故障と診断の分離 | [`LibraryFileOperationSynchronization`](../../../BeMusicSeeker/Models/BmsLibraryInternal/FileOperations/LibraryFileOperationSynchronization.cs) の `CompositeDisposable`、[`ReaderWriterLockSlimWrapper`](../../../BeMusicSeeker/Models/Utils/ReaderWriterLockSlimWrapper.cs) の通知処理 | 逆順の全解放試行、`ExceptionDispatchInfo` による最初の実解放失敗の保持、取得失敗の再送出と二次診断の分離を静的に確認する。実解放失敗と取得時の二次故障は自動テストでは未確認。 |
 | 設定・試聴・終了 | [設定](../runtime/settings.md)、[音声](../runtime/audio.md)、[終了](../runtime/shutdown.md) | 各仕様で、実際の完了と後片付けまでの経路を確認する。 |
+| 初回重複解析中の選択優先と開始済み処理の回収 | [`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs)、`MainWindowViewModel`、`PlaylistWorkspaceViewModel.TreeSelection` | [重複仕様の対応表](../library/duplicate-files.md#実装とテストの対応)に従い、後発画面の優先、遅れて届くUI通知、解析自身の変更通知、停止時の回収を確認する。実ツリーの選択とサマリーのBindingは実画面の代表ケースが分担する。 |
+| 通常一覧の並べ替えと後発選択・停止 | `RegularChartListOwner`、`RegularChartListRefreshTypes`、`MainWindowViewModel` | [`MainWindowPackageMaintenanceWpfTests.RegularHeaderSort_CompiledTablePreservesNonemptySelectionThroughActualPresentation`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) は、実表のヘッダーが持つ `RequestSort` から一覧の全順と所持譜面の非空選択の保持を確認する。マウス位置の判定から `RequestSort` への接続は静的に確認する。[`RegularChartCommitAndLifecycleTests.RegularSort_BlockedOrderIsOwnedByStopAndCannotOverwriteLaterNavigation`](../../../BeMusicSeeker.Tests/ChartList/RegularChartCommitAndLifecycleTests.cs) は、一覧構築中の停止によるTask回収と、後発の通常画面選択の優先を確認する。 |
 | 世代番号と新しい状態の採用 | 対象機能の要求・結果・管理主体 | 自動テストで規定全体を固定せず、設計と差分を点検する。機能テストでは本番で成立する時系列を確認し、[対象契約に合う検証境界](../development/test-authoring.md#検証境界と保証の分担)から結果を観測する。排他・スレッド制約が対象なら、その制御を担う実装を動かす。 |
 
 ## 関連資料
