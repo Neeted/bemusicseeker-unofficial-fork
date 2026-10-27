@@ -1389,7 +1389,8 @@ public sealed class BmsPlaylistExternalReloadTests
             original.name = "My recommendations";
             original.last_update = new DateTime(2024, 6, 1, 10, 20, 30);
             original.symbol = "CUSTOM";
-            original.compat_prefix = "KEEP ";
+            var prefixEdit = new PlaylistHeaderEdit { Fields = PlaylistHeaderFields.CompatPrefix, CompatPrefix = "KEEP " };
+            original.ApplyEntryMutation(original.PrepareHeaderMutation(prefixEdit));
             original.Output_dir = "LocalRecommendations";
             original.custom_folder_output_base_name = "CustomName";
             original.bmt_sort = 42;
@@ -1493,15 +1494,22 @@ public sealed class BmsPlaylistExternalReloadTests
             string bmtDirectory = Path.Combine(directory, "Bmt");
             string bmtName = BmtTableExportService.ExportTableData(bmtDirectory, BmtTableExportService.BuildTableData(updated), id.ToString());
             Assert.IsTrue(File.Exists(Path.Combine(bmtDirectory, bmtName)));
-            // 既存 BMT 契約はタイトルを要求し、外部表のフォルダへタグを付けます。
+            // 既存BMT契約のtag＋互換levelを固定lamp対応から期待し、保存prefixを出力名へ残さない。
+            var bmtFolders = new Dictionary<string, string>
+            {
+                ["KEEP EASY"] = "CUSTOMEASY",
+                ["KEEP NORMAL"] = "CUSTOMNORMAL",
+                ["KEEP HARD"] = "CUSTOMHARD",
+                ["KEEP FC"] = "CUSTOMFC"
+            };
             // 同じ譜面の複数目標も有効行ごとに、実際の圧縮出力から照合します。
             string[] expectedBmtRows = updated.entries.Where(entry => !entry.is_removed && !string.IsNullOrWhiteSpace(entry.title))
-                .Select(entry => entry.md5 + ":CUSTOM" + entry.folder).ToArray();
+                .Select(entry => entry.md5 + ":" + bmtFolders[entry.folder]).ToArray();
             JObject actualBmt = BeatorajaBmtTableImportService.ReadCachedTableData(Path.Combine(bmtDirectory, bmtName));
             Assert.AreEqual(updated.Page_url.OriginalString, actualBmt.Value<string>("url"));
             Assert.AreEqual(mixedName, actualBmt.Value<string>("name"));
             Assert.AreEqual("CUSTOM", actualBmt.Value<string>("tag"));
-            CollectionAssert.AreEqual(updated.folder_list.Select(folder => "CUSTOM" + folder).ToArray(),
+            CollectionAssert.AreEqual(bmtFolders.Where(pair => updated.entries.Any(entry => !entry.is_removed && !string.IsNullOrWhiteSpace(entry.title) && entry.folder == pair.Key)).Select(pair => pair.Value).ToArray(),
                 ((JArray)(actualBmt["folder"] ?? throw new FormatException())).Select(folder => folder.Value<string>("name")).ToArray());
             CollectionAssert.AreEquivalent(expectedBmtRows,
                 ((JArray)(actualBmt["folder"] ?? throw new FormatException())).SelectMany(folder =>

@@ -197,7 +197,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
         await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => owner.LoadWalkureTableAsync(new Uri("bmseeker:table.recommended")));
     }
 
-    /// <summary>旧mode・id・filter・nameと未知パラメーターを受理して同じ推薦を生成し、所属・出力設定は保持して名称だけ自動名へ戻す。URI互換の誤拒否と利用者設定の損失を検出する。</summary>
+    /// <summary>旧mode・id・filter・nameと未知パラメーターを受理して同じ推薦を生成し、保存prefixを完成所属・明示順へ一度適用して出力設定を保ち、名称を自動名へ戻す。URI互換の誤拒否と属性だけのprefix復元を検出する。</summary>
     [TestMethod]
     public async Task LoadWalkureTable_RecommendedPreservesBasePropertiesAndIgnoresLegacyParameters()
     {
@@ -238,7 +238,286 @@ public sealed class PlaylistRecommendedTableOwnerTests
             Assert.AreEqual(original.is_bmt_output, result.is_bmt_output);
         }
         Assert.AreEqual("R★", baseline.org_symbol);
-        CollectionAssert.AreEqual(new[] { "EASY", "NORMAL", "HARD", "FC" }, baseline.Folder_order.ToArray());
+        CollectionAssert.AreEqual(new[] { "BASE EASY", "BASE NORMAL", "BASE HARD", "BASE FC" }, baseline.Folder_order.ToArray());
+        Assert.IsTrue(baseline.entries.All(entry => entry.is_removed || new[] { "BASE EASY", "BASE NORMAL", "BASE HARD", "BASE FC" }.Contains(entry.folder)));
+    }
+
+    /// <summary>保存prefix付き推薦を実スコアDBのA/B選択変更から通常reloadし、独立649所属・明示順・DB・gzipと次の未変更skipを確認します。任意workは子予約分も実終端まで回収します。</summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ReloadPlaylistTargetsAsync_SavedRecommendedPrefixSurvivesSelectedScoreDatabaseChange()
+    {
+        string directory = NewDirectory();
+        BMSLibrary? library = null;
+        TestBmsPlaylist? playlist = null;
+        Task? operation = null;
+        using var cancellation = new CancellationTokenSource();
+        var releaseWork = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var acceptedWork = new System.Collections.Concurrent.ConcurrentQueue<(string Owner, string Name, Task Work)>();
+        Exception? failure = null;
+
+        bool ScheduleOwned(string owner, string name, Func<Task> work)
+        {
+            var task = Task.Run(async () =>
+            {
+                await releaseWork.Task.ConfigureAwait(false);
+                await work().ConfigureAwait(false);
+            });
+            acceptedWork.Enqueue((owner, name, task));
+            return true;
+        }
+
+        async Task<T> Observe<T>(Task<T> task)
+        {
+            operation = task;
+            return await task;
+        }
+
+        static string Membership(string md5, string folder, double? probability)
+            => md5 + ":" + folder + ":" + (probability ?? throw new FormatException("Missing recommendation probability"))
+                .ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+
+        static string LampFolder(string lamp) => lamp switch
+        {
+            "easy" => "EASY",
+            "normal" => "NORMAL",
+            "hard" => "HARD",
+            "fullCombo" => "FC",
+            _ => throw new FormatException("Unknown independent target lamp: " + lamp)
+        };
+
+        try
+        {
+            string songPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string scoreA = Path.Combine(directory, "player-a", "score.db"), scoreB = Path.Combine(directory, "player-b", "score.db");
+            WalkureScoreInput inputA = ReadWalkureInput("mixed"), inputB = ReadWalkureInput("standard");
+            using (var db = new LR2SongDBExtended(songPath))
+            {
+                db.RunInTransaction(() =>
+                {
+                    db.CreateTable<LR2SongDBExtended.chart_info>();
+                    foreach (string md5 in inputA.Scores.Keys.Concat(inputB.Scores.Keys).Distinct(StringComparer.OrdinalIgnoreCase))
+                    {
+                        db.Insert(ChartInfoStorageMapping.ToStorage(new ChartDetails { md5 = md5, sha256 = BMSTable.ComputeSha256Hex(md5) }),
+                            typeof(LR2SongDBExtended.chart_info));
+                    }
+                });
+            }
+            foreach ((string path, WalkureScoreInput input) in new[] { (scoreA, inputA), (scoreB, inputB) })
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path) ?? throw new FormatException());
+                using var db = new SQLiteConnection(path);
+                db.RunInTransaction(() =>
+                {
+                    db.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
+                    foreach ((string md5, WalkureLamp lamp) in input.Scores)
+                    {
+                        // beatoraja保存clear値を原観測へ明示対応し、推薦reader自体は代替しない。
+                        int clear = lamp switch
+                        {
+                            WalkureLamp.Failed => 2,
+                            WalkureLamp.Easy => 4,
+                            WalkureLamp.Normal => 5,
+                            WalkureLamp.Hard => 6,
+                            WalkureLamp.FullCombo => 8,
+                            _ => throw new FormatException("Unexpected score fixture lamp: " + lamp)
+                        };
+                        db.Execute("INSERT INTO score VALUES (?,0,?,0,0,0,0,0,0,0,1,1)", BMSTable.ComputeSha256Hex(md5), clear);
+                    }
+                });
+            }
+            BmsLibraryOptionsSnapshot options = new() { UseBeatorajaScoreDb = true, BeatorajaScoreDbPath = scoreA };
+            library = NewLibrary(songPath, null, () => options);
+            library.StartupBackgroundTaskScheduler = (name, _, _, work) => ScheduleOwned("library", name, work);
+            string bmtDirectory = Path.Combine(directory, "bmt");
+            Directory.CreateDirectory(bmtDirectory);
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.EnablePlaylistUrlCompletion = false;
+                values.OperationModeLR2DB = false;
+            });
+            playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath,
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
+                playlistUrlCompletionOptionsProvider: () => new PlaylistUrlCompletionOptionsSnapshot(),
+                beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot
+                {
+                    EnableBeatorajaBmtOutput = true,
+                    BeatorajaBmtTablePath = bmtDirectory,
+                    BeatorajaBmtHashOutputMode = nameof(BeatorajaBmtHashOutputMode.Original)
+                }, settings: settings);
+            playlist.StartupBackgroundTaskScheduler = (name, _, _, work) => ScheduleOwned("playlist", name, work);
+            Uri source = new("bmseeker:table.recommended");
+            BMSTable original = await Observe(playlist.ExternalSyncOwner.LoadExternalTableAsync(source, cancellationToken: cancellation.Token));
+            original = await Observe(playlist.ExternalSyncOwner.RegistrateExternalTableAsync(original, false, "saved-prefix-seed", cancellation.Token));
+            original.symbol = "CUSTOM";
+            original.Output_dir = "SavedRecommendations";
+            original.custom_folder_output_base_name = "SavedBase";
+            original.bmt_sort = 7;
+            original.is_bmt_output = true;
+            playlist.CommitPlaylistHeaderEdits(new Dictionary<BMSTable, PlaylistHeaderEdit>
+            {
+                [original] = new() { Fields = PlaylistHeaderFields.CompatPrefix, CompatPrefix = "KEEP " }
+            }, capability: null);
+            string[] expectedOrder = ["KEEP EASY", "KEEP NORMAL", "KEEP HARD", "KEEP FC"];
+            CollectionAssert.AreEqual(expectedOrder, original.Folder_order.ToArray());
+            Assert.IsTrue(original.entries.All(entry => entry.is_removed || expectedOrder.Contains(entry.folder)));
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual("KEEP ", db.Table<BMSTable>().Single().compat_prefix);
+                CollectionAssert.AreEqual(expectedOrder, db.Table<BMSTable>().Single().Folder_order.ToArray());
+                Assert.IsTrue(db.Table<LR2SongDBExtended.playlist_entry>().All(entry => entry.is_removed || expectedOrder.Contains(entry.folder)));
+            }
+            operation = playlist.BmtOutput.ExportTablesAsync([original], "saved-prefix-seed-output");
+            await operation;
+            string bmtPath = Path.Combine(bmtDirectory, BMSTable.ComputeSha256Hex(source.AbsoluteUri) + ".bmt");
+            Assert.IsTrue(File.Exists(bmtPath));
+            Assert.IsTrue(File.Exists(Path.Combine(bmtDirectory, BmtTableExportService.ManifestFileName)));
+            string sentinel = Path.Combine(bmtDirectory, "unmanaged.bmt");
+            byte[] sentinelBytes = [17, 29, 43];
+            File.WriteAllBytes(sentinel, sentinelBytes);
+            string hashA = original.data_sha256, headerHashA = original.header_sha256;
+            int? id = original.playlist_id;
+
+            options = new BmsLibraryOptionsSnapshot { UseBeatorajaScoreDb = true, BeatorajaScoreDbPath = scoreB };
+            BMSTable unqualifiedB = await Observe(CreateOwner(library.ReadRecommendationScoresAsync)
+                .LoadWalkureTableAsync(source, cancellationToken: cancellation.Token));
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult changed = await Observe(playlist.ExternalSyncOwner
+                .ReloadPlaylistTargetsAsync([original], reason: "saved-prefix-score-b", cancellationToken: cancellation.Token));
+            changed.ThrowIfFailed();
+            PlaylistExternalSyncOwner.PlaylistReloadTargetResult result = changed.Single();
+            BMSTable current = playlist.BMSTables.Single();
+            Assert.IsTrue(result.Succeeded && result.Updated && result.StatePersisted && result.NeedsBmtExport);
+            Assert.AreSame(current, result.ResultTable);
+            Assert.AreNotSame(original, current);
+            Assert.AreNotEqual(hashA, current.data_sha256);
+            Assert.AreNotEqual(headerHashA, current.header_sha256);
+            Assert.AreEqual(unqualifiedB.data_sha256, current.data_sha256);
+            Assert.AreEqual(unqualifiedB.header_sha256, current.header_sha256);
+
+            var report = JObject.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestData", "Walkure", "legacy-player-report.json")));
+            JToken[] candidates = ((JArray)(report["recommendations"] ?? throw new FormatException()))
+                .Where(row => row.Value<string>("entryType") == "chart").ToArray();
+            Assert.AreEqual(649, candidates.Length);
+            string[] expectedRows = candidates.Select(row => Membership(row.Value<string>("hash") ?? throw new FormatException(),
+                "KEEP " + LampFolder(row.Value<string>("targetClearLamp") ?? throw new FormatException()), row.Value<double>("recommendationProbabilityPercent"))).ToArray();
+            string expectedName = string.Format(Resources.RecommendFormat, Resources.Recommended_standard, "6.60");
+
+            void AssertHeader(BMSTable table)
+            {
+                Assert.AreEqual(id, table.playlist_id);
+                Assert.AreEqual(source, table.Page_url);
+                Assert.AreEqual("KEEP ", table.compat_prefix);
+                Assert.AreEqual("CUSTOM", table.symbol);
+                Assert.AreEqual("SavedRecommendations", table.Output_dir);
+                Assert.AreEqual("SavedBase", table.custom_folder_output_base_name);
+                Assert.AreEqual(7, table.bmt_sort);
+                Assert.IsTrue(table.is_bmt_output);
+                Assert.AreEqual(expectedName, table.name);
+                Assert.AreEqual(expectedName, table.org_name);
+                Assert.AreEqual(unqualifiedB.header_sha256, table.header_sha256);
+                Assert.AreEqual(unqualifiedB.data_sha256, table.data_sha256);
+                CollectionAssert.AreEqual(expectedOrder, table.Folder_order.ToArray());
+            }
+
+            AssertHeader(current);
+            CollectionAssert.AreEquivalent(expectedRows, current.entries.Where(entry => !entry.is_removed)
+                .Select(entry => Membership(entry.md5, entry.folder, entry.level)).ToArray());
+            void AssertDatabase(DateTime lastUpdate)
+            {
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly();
+                BMSTable persisted = db.Table<BMSTable>().Single();
+                AssertHeader(persisted);
+                Assert.AreEqual(lastUpdate, persisted.last_update);
+                CollectionAssert.AreEquivalent(expectedRows, db.Table<LR2SongDBExtended.playlist_entry>().Where(entry => !entry.is_removed)
+                    .Select(entry => Membership(entry.md5, entry.folder, entry.level)).ToArray());
+            }
+            AssertDatabase(current.last_update);
+            // 新しいgzip readerで実媒体を読み、保存prefixを除いた固定lamp/tag対応を独立reportへ適用する。
+            JObject bmt = BeatorajaBmtTableImportService.ReadCachedTableData(bmtPath);
+            Assert.AreEqual(source.OriginalString, bmt.Value<string>("url"));
+            Assert.AreEqual(expectedName, bmt.Value<string>("name"));
+            Assert.AreEqual("CUSTOM", bmt.Value<string>("tag"));
+            var folders = (JArray)(bmt["folder"] ?? throw new FormatException());
+            CollectionAssert.AreEqual(new[] { "CUSTOMEASY", "CUSTOMNORMAL", "CUSTOMHARD" }, folders.Select(folder => folder.Value<string>("name")).ToArray());
+            CollectionAssert.AreEquivalent(candidates.Select(row => row.Value<string>("hash") + ":CUSTOM"
+                    + LampFolder(row.Value<string>("targetClearLamp") ?? throw new FormatException())).ToArray(),
+                folders.SelectMany(folder => ((JArray)(folder["songs"] ?? throw new FormatException()))
+                    .Select(song => song.Value<string>("md5") + ":" + folder.Value<string>("name"))).ToArray());
+            CollectionAssert.AreEqual(sentinelBytes, File.ReadAllBytes(sentinel));
+            byte[] bmtBytes = File.ReadAllBytes(bmtPath);
+            DateTime bmtTime = File.GetLastWriteTimeUtc(bmtPath), lastUpdateB = current.last_update;
+            var progress = new System.Collections.Concurrent.ConcurrentQueue<PlaylistSyncProgressSnapshot>();
+            playlist.BmtOutput.ExportProgressReporter = progress.Enqueue;
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult unchanged = await Observe(playlist.ExternalSyncOwner
+                .ReloadPlaylistTargetsAsync([current], reason: "saved-prefix-same-score-b", cancellationToken: cancellation.Token));
+            unchanged.ThrowIfFailed();
+            PlaylistExternalSyncOwner.PlaylistReloadTargetResult repeated = unchanged.Single();
+            Assert.IsTrue(repeated.Succeeded && !repeated.Updated && !repeated.StatePersisted && !repeated.NeedsBmtExport);
+            AssertHeader(playlist.BMSTables.Single());
+            AssertDatabase(lastUpdateB);
+            Assert.IsFalse(progress.Any(snapshot => snapshot.IsActive));
+            CollectionAssert.AreEqual(bmtBytes, File.ReadAllBytes(bmtPath));
+            Assert.AreEqual(bmtTime, File.GetLastWriteTimeUtc(bmtPath));
+            CollectionAssert.AreEqual(sentinelBytes, File.ReadAllBytes(sentinel));
+        }
+        catch (Exception ex) { failure = ex; throw; }
+        finally
+        {
+            var cleanupFailures = new List<Exception>();
+            try { cancellation.Cancel(); }
+            catch (Exception ex) { cleanupFailures.Add(ex); }
+            try
+            {
+                if (operation != null)
+                {
+                    try { await operation; }
+                    catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+                    catch (Exception ex) { if (!ReferenceEquals(ex, failure)) { cleanupFailures.Add(ex); } }
+                }
+            }
+            finally { releaseWork.TrySetResult(); }
+            // 主producer終端後、受理workの子予約も各batch終端後の空queueまで回収する。
+            while (!acceptedWork.IsEmpty)
+            {
+                var batch = new List<(string Owner, string Name, Task Work)>();
+                while (acceptedWork.TryDequeue(out (string Owner, string Name, Task Work) item)) { batch.Add(item); }
+                foreach (IGrouping<string, (string Owner, string Name, Task Work)> group in batch.GroupBy(item => item.Owner + ":" + item.Name))
+                {
+                    var completion = Task.WhenAll(group.Select(item => item.Work));
+                    try { await completion; }
+                    catch (Exception ex) { cleanupFailures.Add(new InvalidOperationException("推薦prefixの受理work終了失敗: " + group.Key, completion.Exception ?? ex)); }
+                }
+            }
+            if (playlist != null)
+            {
+                try
+                {
+                    playlist.RequestShutdown("saved-prefix-test-complete");
+                    await playlist.WaitForPlaylistMutationIdleAsync();
+                    Assert.IsFalse(playlist.HasShutdownBlockingWork);
+                }
+                catch (Exception ex) { cleanupFailures.Add(ex); }
+            }
+            if (library != null)
+            {
+                try
+                {
+                    library.RequestShutdown("saved-prefix-test-complete");
+                    await library.OperationAdmission.WaitForIdleAsync();
+                    Assert.IsFalse(library.HasShutdownBlockingWork);
+                }
+                catch (Exception ex) { cleanupFailures.Add(ex); }
+            }
+            try { Directory.Delete(directory, true); }
+            catch (Exception ex) { cleanupFailures.Add(ex); }
+            if (cleanupFailures.Count > 0)
+            {
+                var cleanupFailure = new AggregateException(cleanupFailures);
+                if (failure == null) { throw cleanupFailure; }
+                System.Diagnostics.Trace.WriteLine("推薦prefixのcleanup二次失敗: " + cleanupFailure);
+            }
+        }
     }
 
     /// <summary>3推薦方針は一回のスコア捕捉を共有して異なる独立期待★を生成し、次の操作で再捕捉する。表ごとの重複読取りと操作を跨いだキャッシュを検出する。</summary>

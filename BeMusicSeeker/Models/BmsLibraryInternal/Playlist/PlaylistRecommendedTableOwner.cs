@@ -44,7 +44,7 @@ internal sealed class PlaylistRecommendedTableOwner
     /// <param name="baseTable">設定を引き継ぐ既存表。</param>
     /// <param name="cancellationToken">読取り、計算、表生成を取り消すトークン。</param>
     /// <param name="scoreCapture">複数表操作内だけで共有する原入力。</param>
-    /// <returns>完成行集合を共通取込みで確定し、所属・正規化・フォルダ状態を揃えた表。行の所属IDは親表の現在値から取得します。</returns>
+    /// <returns>未修飾の生成hashを保ち、保存済み接頭辞を完成行の所属と明示順へ一度適用した未公開表。行の所属IDは親表の現在値から取得します。</returns>
     internal async Task<BMSTable> LoadWalkureTableAsync(
         Uri pageUri, BMSTable baseTable = null, CancellationToken cancellationToken = default,
         Lazy<Task<WalkureScoreInput>> scoreCapture = null)
@@ -108,7 +108,9 @@ internal sealed class PlaylistRecommendedTableOwner
             {
                 table.name = baseTable.name;
             }
-            table.compat_prefix = baseTable.compat_prefix;
+            // 生成hash確定後の完成表だけを共通候補で変換し、所属・明示順・索引を同時に揃える。
+            var prefixEdit = new PlaylistHeaderEdit { Fields = PlaylistHeaderFields.CompatPrefix, CompatPrefix = baseTable.compat_prefix };
+            table.ApplyEntryMutation(table.PrepareHeaderMutation(prefixEdit));
             table.playlist_id = baseTable.playlist_id;
             table.symbol = baseTable.symbol;
             table.ignore_folder_output = baseTable.ignore_folder_output;
