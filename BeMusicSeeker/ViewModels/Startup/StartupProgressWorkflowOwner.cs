@@ -912,20 +912,15 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     }
 
     /// <summary>
-    /// 起動・リロード進捗の表示を現在の内部状態から再計算します。
+    /// 受付時に完了を記録し、同じ操作の表示は配送時の現在状態から解決します。失敗前の配送で現在の失敗表示を戻しません。
     /// </summary>
     internal void RecomputeStartupProgressPresentation(long expectedOperationToken = 0L)
     {
         bool isActive;
-        string label;
-        string subLabel;
-        double value;
-        double maximum;
         bool shouldHideLater = false;
         long hideOperationToken = 0L;
         long reflectOperationToken = 0L;
         bool operationCompletedForLog = false;
-        StartupProgressOperationKind operationKindForLog = StartupProgressOperationKind.None;
         lock (startupProgressLock)
         {
             StartupProgressState state = startupProgressState;
@@ -936,42 +931,13 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             }
             isActive = state.IsActive;
             reflectOperationToken = state.OperationToken;
-            operationKindForLog = state.OperationKind;
-            if (!isActive)
+            operationCompletedForLog = isActive && !state.IsFailed && AreExpectedStartupProgressPhasesCompleted(state);
+            if (operationCompletedForLog && !state.CompletionHideScheduled)
             {
-                label = string.Empty;
-                subLabel = string.Empty;
-                value = 0.0;
-                maximum = 1.0;
-            }
-            else
-            {
-                maximum = Math.Max(1.0, CountExpectedStartupProgressPhases(state));
-                value = CountCompletedExpectedStartupProgressPhases(state);
-                bool operationCompleted = !state.IsFailed && AreExpectedStartupProgressPhasesCompleted(state);
-                operationCompletedForLog = operationCompleted;
-                if (state.IsFailed)
-                {
-                    label = GetStartupProgressFailedLabel(state.OperationKind);
-                    subLabel = state.FailureSubLabel;
-                }
-                else if (operationCompleted)
-                {
-                    label = GetStartupProgressCompletedLabel(state.OperationKind);
-                    subLabel = string.Empty;
-                    if (!state.CompletionHideScheduled)
-                    {
-                        state.CompletionHideScheduled = true;
-                        startupProgressState = state;
-                        shouldHideLater = true;
-                        hideOperationToken = state.OperationToken;
-                    }
-                }
-                else
-                {
-                    label = GetStartupProgressRunningLabel(state.OperationKind);
-                    subLabel = string.Empty;
-                }
+                state.CompletionHideScheduled = true;
+                startupProgressState = state;
+                shouldHideLater = true;
+                hideOperationToken = state.OperationToken;
             }
         }
         if (operationCompletedForLog)
@@ -980,6 +946,10 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         }
         Action reflect = delegate
         {
+            string label;
+            string subLabel;
+            double value;
+            double maximum;
             lock (startupProgressLock)
             {
                 if (isActive)
@@ -992,6 +962,31 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
                 else if (startupProgressState.IsActive)
                 {
                     return;
+                }
+                StartupProgressState state = startupProgressState;
+                if (!isActive)
+                {
+                    label = string.Empty;
+                    subLabel = string.Empty;
+                    value = 0.0;
+                    maximum = 1.0;
+                }
+                else
+                {
+                    maximum = Math.Max(1.0, CountExpectedStartupProgressPhases(state));
+                    value = CountCompletedExpectedStartupProgressPhases(state);
+                    if (state.IsFailed)
+                    {
+                        label = GetStartupProgressFailedLabel(state.OperationKind);
+                        subLabel = state.FailureSubLabel;
+                    }
+                    else
+                    {
+                        label = AreExpectedStartupProgressPhasesCompleted(state)
+                            ? GetStartupProgressCompletedLabel(state.OperationKind)
+                            : GetStartupProgressRunningLabel(state.OperationKind);
+                        subLabel = string.Empty;
+                    }
                 }
             }
             ApplyPresentation(isActive, label, subLabel, value, maximum);

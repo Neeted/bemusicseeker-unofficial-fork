@@ -366,6 +366,46 @@ public sealed class MainWindowViewModelStartupProgressTests
         Assert.IsFalse(owner.IsStartupUiInteractionBlocked);
     }
 
+    /// <summary>同じ操作で失敗前に予約した表示更新を失敗後に実行しても、現在の失敗名と入力原因を通常表示や空の詳細へ戻しません。</summary>
+    [TestMethod]
+    public void StartupProgress_QueuedPresentationCannotOverwriteCurrentFailure()
+    {
+        var queued = new Queue<Action>();
+        bool holdPresentation = false;
+        StartupProgressWorkflowOwner owner = TestStartupProgressOwnerFactory.Create(dispatch: action =>
+        {
+            if (holdPresentation) { queued.Enqueue(action); }
+            else { action(); }
+        });
+        try
+        {
+            long token = owner.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+            holdPresentation = true;
+            owner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyData, token);
+            Assert.IsTrue(queued.Count > 0);
+
+            holdPresentation = false;
+            const string cause = "required UI failed before delayed progress";
+            owner.FailStartupProgressOperation(cause);
+            string expectedLabel = string.Format(Resources.Statusbar_progress_operation_failed_format, Resources.Statusbar_progress_startup);
+            Assert.AreEqual(token, owner.GetActiveStartupProgressOperationToken());
+            Assert.IsTrue(owner.IsFailed);
+            Assert.AreEqual(expectedLabel, owner.Label);
+            Assert.AreEqual(cause, owner.SubLabel);
+
+            while (queued.Count > 0) { queued.Dequeue()(); }
+            Assert.AreEqual(token, owner.GetActiveStartupProgressOperationToken());
+            Assert.IsTrue(owner.IsFailed);
+            Assert.AreEqual(expectedLabel, owner.Label);
+            Assert.AreEqual(cause, owner.SubLabel);
+        }
+        finally
+        {
+            holdPresentation = false;
+            while (queued.Count > 0) { queued.Dequeue()(); }
+        }
+    }
+
     /// <summary>全再初期化が失敗した後は対応tokenのcleanup終端で再試行可へ進み、失敗状態を保ってUI操作禁止を解除します。</summary>
     [TestMethod]
     public void StartupProgress_FullReinitializeFailureBecomesRetryableAfterCleanup()
