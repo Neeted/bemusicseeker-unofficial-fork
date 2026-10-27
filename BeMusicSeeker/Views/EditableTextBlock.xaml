@@ -11,7 +11,7 @@
             </Shape.Stroke>
           </Rectangle>
           <!-- TextBoxView自身の左右2 DIPのキャレット余白を含め、表示時の文字位置へ揃える。 -->
-          <TextBox Margin="0" BorderThickness="0" Padding="0,0,4,0" Background="{DynamicResource App.ControlBackgroundBrush}" Foreground="{Binding Foreground, ElementName=mainControl}" CaretBrush="{Binding Foreground, ElementName=mainControl}" Text="{Binding Text, ElementName=mainControl, UpdateSourceTrigger=PropertyChanged}" KeyDown="TextBox_KeyDown" Loaded="TextBox_Loaded" LostFocus="TextBox_LostFocus" />
+          <TextBox Margin="0" BorderThickness="0" Padding="0,0,4,0" Background="{DynamicResource App.ControlBackgroundBrush}" Foreground="{Binding Foreground, ElementName=mainControl}" CaretBrush="{Binding Foreground, ElementName=mainControl}" Text="{Binding CandidateText, ElementName=mainControl, UpdateSourceTrigger=PropertyChanged}" KeyDown="TextBox_KeyDown" Loaded="TextBox_Loaded" LostFocus="TextBox_LostFocus" />
         </Grid>
       </DataTemplate>
       <DataTemplate x:Key="DisplayModeTemplate">

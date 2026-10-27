@@ -486,6 +486,414 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         });
     }
 
+    /// <summary>無変更/変更Escape後も表示Bindingを保ち、実scrollで同じ部品を別folderへ再利用して、そのfolderだけを一回保存します。</summary>
+    /// <remarks>実compiled入力とMainWindow/DBへの接続を担当します。保存失敗・拒否・選択復元の条件差は既存owner/構造テストに分担し、OS入力・物理focus成功は要求しません。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PlaylistFolderEdit_CancelKeepsBindingAndRecycledControlRenamesCurrentFolder(bool changeBeforeEscape)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var messages = new List<UiMessageRequest>();
+            var failureNotified = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope, messagePresenter: (_, request) =>
+            {
+                messages.Add(request);
+                failureNotified.TrySetResult();
+                return new ThemedMessageBoxResponse(MessageBoxResult.OK, false);
+            });
+            PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+            ChartFileOperationSynchronizer admission = fixture.Library.Lr2Synchronization.PlaylistOperationAdmission;
+            var leases = new ConcurrentQueue<Task>();
+            var leaseStarted = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var rejected = new ConcurrentQueue<PlaylistWorkspaceMutationRejectedEventArgs>();
+            var commits = new List<string>();
+            Exception? primary = null;
+            EditableTextBlock? observed = null;
+            TreeViewItem? observedTable = null;
+            ScrollViewer? observedScroll = null;
+            System.ComponentModel.DependencyPropertyDescriptor? descriptor = null;
+            Task? structureConsumer = null;
+            TaskCompletionSource? structureTransferred = null;
+            string? expectedTransferredFolder = null;
+            int contextChanges = 0;
+            int scrollChanges = 0;
+            EventHandler availability = (_, _) =>
+            {
+                if (admission.IsActive)
+                {
+                    Task lease = admission.WaitForIdleAsync();
+                    leases.Enqueue(lease);
+                    leaseStarted.TrySetResult(lease);
+                }
+            };
+            EventHandler<PlaylistWorkspaceMutationRejectedEventArgs> rejection = (_, args) =>
+            {
+                rejected.Enqueue(args);
+                failureNotified.TrySetResult();
+            };
+            RoutedEventHandler editChanged = (_, args) =>
+            {
+                if (args is EditableTextBlockEditModeChangedEventArgs { CommittedText: string value })
+                {
+                    commits.Add(value);
+                }
+            };
+            DependencyPropertyChangedEventHandler contextChanged = (_, _) => contextChanges++;
+            ScrollChangedEventHandler scrolled = (_, args) => { if (args.VerticalChange != 0) { scrollChanges++; } };
+            EventHandler transferred = (_, _) =>
+            {
+                if (structureTransferred is TaskCompletionSource consumer
+                    && observedTable != null && expectedTransferredFolder is string expected
+                    && MainWindow.GetPlaylistFolderNodes(observedTable) is IEnumerable<PlaylistFolderNode> nodes
+                    && nodes.Any(node => !node.IsSpecial && node.FolderName == expected))
+                {
+                    structureConsumer = consumer.Task;
+                    fixture.Window.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => consumer.TrySetResult()));
+                }
+            };
+            try
+            {
+                fixture.Table.is_external_sync = false;
+                string[] names = Enumerable.Range(0, 240).Select(index => $"Folder {index:D3}").ToArray();
+                fixture.Table.entries = names.Select((name, index) => new BMSTableEntry
+                {
+                    md5 = (index + 1).ToString("x32", CultureInfo.InvariantCulture),
+                    title = name,
+                    folder = name
+                }).ToList();
+                var originalFolders = names.Select((name, index) =>
+                    new KeyValuePair<string, string>((index + 1).ToString("x32", CultureInfo.InvariantCulture), name))
+                    .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+                fixture.Table.Folder_order = names.ToList();
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(admission.WaitForIdleAsync(), "tree-edit-fixture-idle");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var tree = (TreeView)fixture.Window.FindName("treeViewPlaylist");
+                tree.Height = 180;
+                var root = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                root.IsExpanded = true;
+                tree.UpdateLayout();
+                TreeViewItem tableItem = root.ItemContainerGenerator.ContainerFromItem(fixture.Table) as TreeViewItem
+                    ?? throw new AssertFailedException("実表コンテナがありません。");
+                observedTable = tableItem;
+                tableItem.IsExpanded = true;
+                tree.Dispatcher.Invoke(DispatcherPriority.Loaded, new Action(tree.UpdateLayout));
+                TreeViewItem itemA = FindDescendants<TreeViewItem>(tableItem).FirstOrDefault(item =>
+                    item.DataContext is PlaylistFolderNode { IsSpecial: false } folder && folder.FolderName == names[0])
+                    ?? throw new AssertFailedException("実viewportに通常folder Aがありません。");
+                EditableTextBlock controlA = FindDescendants<EditableTextBlock>(itemA).Single();
+                observed = controlA;
+                var folderA = (PlaylistFolderNode)controlA.DataContext;
+                DisplayBinding(controlA, folderA, names[0]);
+                admission.AvailabilityChanged += availability;
+                workspace.MutationRejected += rejection;
+                controlA.EditModeChanged += editChanged;
+                controlA.DataContextChanged += contextChanged;
+                AssertFoldersUnchanged();
+                itemA.IsSelected = true;
+                controlA.IsInEditMode = true;
+                tree.UpdateLayout();
+                TextBox editorA = Editor(controlA);
+                Assert.AreEqual(names[0], editorA.Text);
+                DisplayBinding(controlA, folderA, names[0]);
+                if (changeBeforeEscape) { Type(editorA, "Discarded A candidate"); }
+                Assert.AreEqual(changeBeforeEscape ? "Discarded A candidate" : names[0], controlA.CandidateText);
+                DisplayBinding(controlA, folderA, names[0]);
+                AssertFoldersUnchanged();
+                SendKey(editorA, Key.Escape);
+                tree.UpdateLayout();
+                Assert.IsFalse(controlA.IsInEditMode);
+                DisplayBinding(controlA, folderA, names[0]);
+                Assert.AreEqual(names[0], FindDescendants<TextBlock>(controlA).Single().Text);
+                Assert.AreEqual(0, commits.Count);
+                Assert.AreEqual(0, leases.Count, "取消はP受付を開始しません。");
+                AssertFoldersUnchanged();
+
+                // 同じA参照の実recyclingを要求します。別部品取得・手動DataContext差替えで代用しません。
+                itemA.IsSelected = false;
+                FocusManager.SetFocusedElement(FocusManager.GetFocusScope(controlA), null);
+                Keyboard.ClearFocus();
+                ScrollViewer scroll = FindDescendants<ScrollViewer>(tree).First();
+                observedScroll = scroll;
+                scroll.ScrollChanged += scrolled;
+                Assert.IsTrue(scroll.ScrollableHeight > scroll.ViewportHeight, "離れた通常folderへscrollできる実領域が必要です。");
+                scroll.ScrollToVerticalOffset(scroll.ScrollableHeight / 2);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(tree.Dispatcher.InvokeAsync(tree.UpdateLayout,
+                    DispatcherPriority.Background).Task, "tree-edit-scroll-layout");
+                string scrollState = $"offset={scroll.VerticalOffset}, extent={scroll.ExtentHeight}, viewport={scroll.ViewportHeight}, changes={scrollChanges}, contexts={contextChanges}, generator={tableItem.ItemContainerGenerator.Status}, current={controlA.DataContext}";
+                Assert.IsTrue(scrollChanges > 0 && scroll.VerticalOffset > 0, "実ScrollChangedと移動後offsetを確認します。" + scrollState);
+                Assert.AreEqual(GeneratorStatus.ContainersGenerated, tableItem.ItemContainerGenerator.Status);
+                Assert.IsTrue(contextChanges > 0, "固定A部品のDataContextChangedが必要です。" + scrollState);
+                Assert.IsTrue(FindDescendants<EditableTextBlock>(tree).Any(control => ReferenceEquals(control, controlA)),
+                    "固定A部品が実treeへ再利用されていません。" + scrollState);
+                PlaylistFolderNode folderC = controlA.DataContext as PlaylistFolderNode
+                    ?? throw new AssertFailedException("再利用先が通常folderではありません。");
+                Assert.IsFalse(folderC.IsSpecial);
+                Assert.AreNotEqual(folderA.FolderName, folderC.FolderName);
+                Assert.IsTrue(names.Contains(folderC.FolderName, StringComparer.Ordinal));
+                DisplayBinding(controlA, folderC, folderC.FolderName);
+                Assert.AreEqual(folderC.FolderName, FindDescendants<TextBlock>(controlA).Single().Text);
+
+                descriptor = System.ComponentModel.DependencyPropertyDescriptor.FromProperty(MainWindow.PlaylistFolderNodesProperty, typeof(TreeViewItem))
+                    ?? throw new AssertFailedException("実構成Bindingのtarget監視を作れません。");
+                descriptor.AddValueChanged(tableItem, transferred);
+                TreeViewItem itemC = FindDescendants<TreeViewItem>(tableItem).Single(item => ReferenceEquals(item.DataContext, folderC));
+                itemC.IsSelected = true;
+                controlA.IsInEditMode = true;
+                tree.UpdateLayout();
+                TextBox editorC = Editor(controlA);
+                string savedName = folderC.FolderName + " renamed";
+                Type(editorC, savedName);
+                tree.Dispatcher.Invoke(DispatcherPriority.Loaded, new Action(tree.UpdateLayout));
+                Assert.AreEqual(savedName, controlA.CandidateText);
+                Assert.AreEqual(savedName, editorC.Text);
+                DisplayBinding(controlA, folderC, folderC.FolderName);
+                AssertFoldersUnchanged();
+                Assert.AreEqual(0, commits.Count, "Cの候補入力でも確定通知を出しません。");
+                Assert.AreEqual(0, leases.Count, "Cの候補入力ではP受付を開始しません。");
+                // 既存選択の転送では完了させず、今回の改名先を含む構成target転送だけを捕捉します。
+                expectedTransferredFolder = savedName;
+                structureTransferred = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                SendKey(editorC, Key.Return);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(leaseStarted.Task, failureNotified.Task), "tree-edit-rename-start-or-failure");
+                Assert.AreEqual(0, rejected.Count, "改名開始までに受付拒否を通知しません。");
+                Assert.AreEqual(0, messages.Count, "改名開始までに失敗を通知しません。");
+                Assert.IsTrue(leaseStarted.Task.IsCompletedSuccessfully, "当該Pの開始通知が必要です。");
+                // 開始通知から得た実P解放tokenを別に待ちます。RenameFolderAsync自体のTaskとは区別します。
+                Task lease = leaseStarted.Task.GetAwaiter().GetResult();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(lease, "tree-edit-rename-lease");
+                Assert.AreEqual(1, leases.Count, "確定はP受付を一回だけ開始します。");
+                structureConsumer = structureTransferred.Task;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(structureConsumer, "tree-edit-rename-binding-consumer");
+                Assert.AreEqual(1, commits.Count);
+                Assert.AreEqual(savedName, commits[0]);
+                Assert.AreEqual(0, rejected.Count);
+                Assert.AreEqual(0, messages.Count);
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly())
+                {
+                    Assert.AreEqual(originalFolders.Count, fixture.Table.entries.Count);
+                    foreach (KeyValuePair<string, string> original in originalFolders)
+                    {
+                        string expected = original.Value == folderC.FolderName ? savedName : original.Value;
+                        BMSTableEntry entry = fixture.Table.entries.Single(item => item.md5 == original.Key);
+                        Assert.AreEqual(expected, entry.folder);
+                        Assert.AreEqual(expected, db.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ?;", fixture.Table.playlist_id, original.Key));
+                    }
+                }
+                tree.UpdateLayout();
+                EditableTextBlock currentC = FindDescendants<EditableTextBlock>(tree).FirstOrDefault(control =>
+                    control.DataContext is PlaylistFolderNode folder && folder.FolderName == savedName)
+                    ?? throw new AssertFailedException("改名後の現treeにCの表示部品がありません。");
+                DisplayBinding(currentC, (PlaylistFolderNode)currentC.DataContext, savedName);
+                Assert.AreEqual(savedName, FindDescendants<TextBlock>(currentC).Single().Text);
+                // 保存時のItemsSource置換では旧部品が退役してもよく、以後のpool残留は要求しません。
+
+                void AssertFoldersUnchanged()
+                {
+                    using LR2SongDBExtended db = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly();
+                    Assert.AreEqual(originalFolders.Count, fixture.Table.entries.Count);
+                    foreach (KeyValuePair<string, string> original in originalFolders)
+                    {
+                        Assert.AreEqual(original.Value, fixture.Table.entries.Single(entry => entry.md5 == original.Key).folder);
+                        Assert.AreEqual(original.Value, db.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ?;", fixture.Table.playlist_id, original.Key));
+                    }
+                }
+                static void DisplayBinding(EditableTextBlock control, PlaylistFolderNode source, string expected)
+                {
+                    BindingExpression binding = BindingOperations.GetBindingExpression(control, EditableTextBlock.TextProperty)
+                        ?? throw new AssertFailedException("外側の表示Bindingが失われています。");
+                    Assert.AreEqual(BindingStatus.Active, binding.Status);
+                    Assert.AreSame(source, binding.DataItem);
+                    Assert.AreEqual(nameof(PlaylistFolderNode.DisplayName), binding.ParentBinding.Path.Path);
+                    Assert.AreEqual(BindingMode.OneWay, binding.ParentBinding.Mode);
+                    Assert.AreEqual(expected, source.DisplayName);
+                    Assert.AreEqual(expected, control.Text);
+                }
+                static TextBox Editor(EditableTextBlock control)
+                {
+                    TextBox editor = FindDescendants<TextBox>(control).Single();
+                    BindingExpression binding = BindingOperations.GetBindingExpression(editor, TextBox.TextProperty)
+                        ?? throw new AssertFailedException("内部の候補Bindingがありません。");
+                    Assert.AreSame(control, binding.DataItem);
+                    Assert.AreEqual(nameof(EditableTextBlock.CandidateText), binding.ParentBinding.Path.Path);
+                    return editor;
+                }
+                static void Type(TextBox editor, string value)
+                {
+                    editor.SelectAll();
+                    editor.SelectedText = value;
+                    Assert.IsNotNull(BindingOperations.GetBindingExpression(editor, TextBox.TextProperty));
+                }
+                static void SendKey(TextBox editor, Key key)
+                {
+                    PresentationSource source = PresentationSource.FromVisual(editor) ?? throw new AssertFailedException("実editorの表示sourceがありません。");
+                    var args = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key) { RoutedEvent = Keyboard.KeyDownEvent };
+                    editor.RaiseEvent(args);
+                    Assert.IsTrue(args.Handled, "compiled KeyDown接続を通過します。");
+                }
+            }
+            catch (Exception failure) { primary = failure; throw; }
+            finally
+            {
+                // 捕捉した実受付/開始済みconsumerを回収してから購読とWindowを解放します。
+                try
+                {
+                    foreach (Task lease in leases) { TestUiDispatcherHost.AwaitTaskOnDispatcher(lease, "tree-edit-cleanup-lease"); }
+                    if (structureConsumer != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(structureConsumer, "tree-edit-cleanup-consumer"); }
+                }
+                catch (Exception cleanupFailure) when (primary != null) { primary.Data["TreeEditTerminalCleanupFailure"] = cleanupFailure.ToString(); }
+                finally
+                {
+                    admission.AvailabilityChanged -= availability;
+                    workspace.MutationRejected -= rejection;
+                    if (observed != null) { observed.EditModeChanged -= editChanged; observed.DataContextChanged -= contextChanged; }
+                    if (observedScroll != null) { observedScroll.ScrollChanged -= scrolled; }
+                    if (observedTable != null) { descriptor?.RemoveValueChanged(observedTable, transferred); }
+                    try { fixture.Close(); }
+                    catch (Exception cleanupFailure) when (primary != null)
+                    {
+                        primary.Data["TreeEditWindowCleanupFailure"] = cleanupFailure.ToString();
+                        if (Directory.Exists(fixture.Root)) { primary.Data["TreeEditRemainingOwnedPath"] = fixture.Root; }
+                    }
+                }
+            }
+        });
+    }
+
+    /// <summary>compiled編集部品で候補の寿命、不変通知、通知中の次編集、表示sourceの追従と編集不可時の開始要求を確認します。</summary>
+    /// <remarks>手動context交換は候補破棄だけの検査です。実TreeView再利用と保存対象は前の実MainWindowケースに分担します。</remarks>
+    [TestMethod]
+    public void EditableTreeHeader_CompiledEditorKeepsCandidateLifetimeAndImmutableCompletion()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var sourceA = new TextBlock { Text = "Source A" };
+            var sourceB = new TextBlock { Text = "Source B" };
+            var control = new EditableTextBlock { Width = 300, Height = 40, DataContext = sourceA, IsEditable = false };
+            control.SetBinding(EditableTextBlock.TextProperty, new Binding(nameof(TextBlock.Text)) { Mode = BindingMode.OneWay });
+            var window = new Window { Width = 340, Height = 120, Content = control };
+            var notifications = new List<EditableTextBlockEditModeChangedEventArgs>();
+            RoutedEventHandler record = (_, args) => notifications.Add((EditableTextBlockEditModeChangedEventArgs)args);
+            control.EditModeChanged += record;
+            Exception? primary = null;
+            RoutedEventHandler? reenter = null;
+            try
+            {
+                scope.ShowAndWaitForContentRendered(window);
+                control.IsInEditMode = true;
+                Assert.IsFalse(control.IsInEditMode);
+                control.IsEditable = true;
+                Assert.IsFalse(control.IsInEditMode, "編集不可時の開始要求を予約として残しません。");
+                Assert.AreEqual(0, notifications.Count);
+                TextBox editorA = Begin("Source A");
+                Type(editorA, "Discard A");
+                control.IsInEditMode = true;
+                Assert.AreEqual("Discard A", control.CandidateText, "重複trueで候補を再初期化しません。");
+                control.DataContext = sourceB;
+                window.UpdateLayout();
+                Assert.IsFalse(control.IsInEditMode);
+                Assert.IsTrue(notifications.All(args => args.CommittedText == null));
+                AssertDisplay("Source B");
+                TextBox editorB = Begin("Source B");
+                Type(editorB, string.Empty);
+                SendKey(editorB, Key.Return);
+                editorB.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent));
+                EditableTextBlockEditModeChangedEventArgs empty = notifications.Single(args => args.CommittedText != null);
+                Assert.AreEqual(string.Empty, empty.CommittedText, "空文字は取消のnullと区別します。");
+                AssertDisplay("Source B");
+                sourceB.Text = "Published B";
+                AssertDisplay("Published B");
+                TextBox cancelEditor = Begin("Published B");
+                Type(cancelEditor, "Discard B");
+                SendKey(cancelEditor, Key.Escape);
+                Assert.AreEqual(1, notifications.Count(args => args.CommittedText != null));
+                AssertDisplay("Published B");
+
+                TextBox unloading = Begin("Published B");
+                Type(unloading, "Discard unloaded");
+                window.Content = null;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsFalse(control.IsInEditMode);
+                Assert.AreEqual(1, notifications.Count(args => args.CommittedText != null));
+                window.Content = control;
+                window.UpdateLayout();
+                reenter = (_, args) =>
+                {
+                    if (args is EditableTextBlockEditModeChangedEventArgs { CommittedText: "First completion" })
+                    {
+                        control.IsInEditMode = true;
+                        control.CandidateText = "Next candidate";
+                    }
+                };
+                control.EditModeChanged += reenter;
+                TextBox first = Begin("Published B");
+                Type(first, "First completion");
+                SendKey(first, Key.Return);
+                Assert.IsTrue(control.IsInEditMode);
+                Assert.AreEqual("Next candidate", control.CandidateText);
+                Assert.AreEqual(string.Empty, empty.CommittedText, "捕捉した前通知は次編集でも変わりません。");
+                EditableTextBlockEditModeChangedEventArgs completed = notifications.Single(args => args.CommittedText == "First completion");
+                window.UpdateLayout();
+                TextBox next = FindDescendants<TextBox>(control).Single();
+                SendKey(next, Key.Escape);
+                Assert.IsFalse(control.IsInEditMode);
+                Assert.AreEqual("First completion", completed.CommittedText);
+                Assert.AreEqual(2, notifications.Count(args => args.CommittedText != null));
+                sourceB.Text = "Published after completion";
+                AssertDisplay("Published after completion");
+
+                TextBox Begin(string expected)
+                {
+                    control.IsInEditMode = true;
+                    window.UpdateLayout();
+                    TextBox editor = FindDescendants<TextBox>(control).Single();
+                    Assert.AreEqual(expected, editor.Text);
+                    Assert.AreEqual(expected, control.CandidateText);
+                    BindingExpression candidateBinding = BindingOperations.GetBindingExpression(editor, TextBox.TextProperty)
+                        ?? throw new AssertFailedException("内部候補Bindingがありません。");
+                    Assert.AreEqual(nameof(EditableTextBlock.CandidateText), candidateBinding.ParentBinding.Path.Path);
+                    Assert.AreSame(control, candidateBinding.DataItem);
+                    return editor;
+                }
+                void AssertDisplay(string expected)
+                {
+                    window.UpdateLayout();
+                    BindingExpression binding = BindingOperations.GetBindingExpression(control, EditableTextBlock.TextProperty)
+                        ?? throw new AssertFailedException("外側の表示Bindingがありません。");
+                    Assert.AreEqual(BindingStatus.Active, binding.Status);
+                    Assert.AreSame(sourceB, binding.DataItem);
+                    Assert.AreEqual(nameof(TextBlock.Text), binding.ParentBinding.Path.Path);
+                    Assert.AreEqual(BindingMode.OneWay, binding.ParentBinding.Mode);
+                    Assert.AreEqual(expected, control.Text);
+                    Assert.AreEqual(expected, FindDescendants<TextBlock>(control).Single().Text);
+                }
+                static void Type(TextBox editor, string text)
+                {
+                    editor.SelectAll();
+                    editor.SelectedText = text;
+                    Assert.IsNotNull(BindingOperations.GetBindingExpression(editor, TextBox.TextProperty));
+                }
+                static void SendKey(TextBox editor, Key key)
+                {
+                    PresentationSource source = PresentationSource.FromVisual(editor) ?? throw new AssertFailedException("compiled editorの表示sourceがありません。");
+                    var args = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key) { RoutedEvent = Keyboard.KeyDownEvent };
+                    editor.RaiseEvent(args);
+                    Assert.IsTrue(args.Handled);
+                }
+            }
+            catch (Exception failure) { primary = failure; throw; }
+            finally
+            {
+                control.EditModeChanged -= record;
+                if (reenter != null) { control.EditModeChanged -= reenter; }
+                try { window.Close(); }
+                catch (Exception cleanupFailure) when (primary != null) { primary.Data["EditableHeaderWindowCleanupFailure"] = cleanupFailure.ToString(); }
+            }
+        });
+    }
+
     /// <summary>実MainWindowの単一配送から、開いたplaylistへ保守値・独立score・別表参照を局所配送します。score版とMD5の実batch・行通知・drain終端を待ち、実controlと集計TextBlockのBinding、無関係行・未訪問BMSONを確認し、条件網羅は各ownerへ分担します。</summary>
     [TestMethod]
     public void CatalogMaintenance_ActualMainWindowRefreshesOpenPlaylistAndBoundCells()

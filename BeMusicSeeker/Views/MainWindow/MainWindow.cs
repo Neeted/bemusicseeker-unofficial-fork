@@ -3651,7 +3651,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async void playlistTableFolderNameChanged(object sender, RoutedEventArgs e)
     {
-        if (sender is not EditableTextBlock editableTextBlock || !editableTextBlock.IsTextChanged())
+        if (sender is not EditableTextBlock editableTextBlock
+            || e is not EditableTextBlockEditModeChangedEventArgs { CommittedText: string nameAfter })
         {
             return;
         }
@@ -3678,7 +3679,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 return;
             }
-            string nameAfter = editableTextBlock.Text;
             try
             {
                 await viewModel.PlaylistWorkspace
