@@ -1465,7 +1465,7 @@ public partial class MainWindowViewModel : ViewModel,
         if ((mask & UiRefreshChannel.DuplicateTree) != 0)
         {
             var stopwatch4 = Stopwatch.StartNew();
-            PresentDuplicateGroups();
+            MaintenanceTree.ApplyDuplicateGroupsPresentation();
             stopwatch4.Stop();
             num4 = stopwatch4.ElapsedMilliseconds;
         }
@@ -4307,12 +4307,16 @@ public partial class MainWindowViewModel : ViewModel,
     private static object NormalizeDuplicateViewParameter(object parameter)
         => RegularChartListOwner.CaptureDuplicateContext(parameter);
 
-    /// <summary>消失した所属の表示を既存の一覧更新へ渡します。準備済み結果だけを使い、選択解除のための重複再検索は行いません。</summary>
+    /// <summary>成功した保守の消失対象を新たな空表示として受理し、既存の一覧処理へ渡します。途中のサマリーも解除し、選択解除のための重複再検索は行いません。</summary>
     internal Task ApplyUnresolvedDuplicateSelectionAsync(DuplicateViewContext selection)
-        => RefreshChartRowsView(MainViewUpdateMode.DuplicateFilterSelected,
-            selection?.Kind == DuplicateViewContextKind.GroupFolder ? selection : DuplicateViewContext.ForGroup(null),
+    {
+        DuplicateViewContext context = selection?.Kind == DuplicateViewContextKind.GroupFolder ? selection : DuplicateViewContext.ForGroup(null);
+        RegularChartNavigationRequest navigation = regularChartListOwner.AcceptNavigation(context);
+        PlaylistWorkspace.RequestPlaylistSummaryMode(enabled: false);
+        return RefreshChartRowsViewCaptured(MainViewUpdateMode.DuplicateFilterSelected, context, navigation: navigation,
             confirmedUnresolvedDuplicateSource: RegularChartListSubsetSource.ForCharts([], "duplicate_unresolved",
                 ChartListSourceProjectionMode.DuplicateCurrent, applyResourceHealthProjection: true));
+    }
 
     private static string ResolveBmsonSourceGenerationReason(BmsonLibraryRowCacheSyncResult result, string reasonPrefix)
     {
@@ -4413,28 +4417,13 @@ public partial class MainWindowViewModel : ViewModel,
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Warning, reason);
     }
 
-    /// <summary>重複Treeの同期反映を画面へ委ねます。画面は同じcallback内でBindingを更新し、自動的な親選択を新規受付へ流さないようにします。</summary>
-    internal event Action<Action> DuplicateGroupsPresentationRequested;
-
-    /// <summary>グループ通知を既存の表示TaskとしてUIへ渡し、失敗通知と停止回収まで一覧所有者へ接続します。</summary>
-    private void PresentDuplicateGroups()
-    {
-        regularChartListOwner.PresentDuplicateData(() =>
-        {
-            Action<Action> presentation = DuplicateGroupsPresentationRequested;
-            if (presentation == null) { MaintenanceTree.ApplyDuplicateGroupsPresentation(); }
-            else { presentation(MaintenanceTree.ApplyDuplicateGroupsPresentation); }
-            return Task.CompletedTask;
-        }, FileDbMutationDialogs);
-    }
-
     private void RefreshDuplicatePresentationAfterGroupsChanged(string reason)
     {
         string refreshReason = string.IsNullOrWhiteSpace(reason) ? "bms_files_duplicated_changed" : reason;
         InvalidateNormalLibrarySortDependency(MainViewDataDependency.Warning, NormalLibraryWarningChangedReason);
         if (!TrySuppress(UiRefreshChannel.DuplicateTree))
         {
-            PresentDuplicateGroups();
+            MaintenanceTree.ApplyDuplicateGroupsPresentation();
         }
         if (treeViewFilterTypeSelected == MainViewUpdateMode.DuplicateFilterSelected)
         {

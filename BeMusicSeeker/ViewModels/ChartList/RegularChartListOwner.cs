@@ -731,12 +731,12 @@ internal sealed partial class RegularChartListOwner : IDisposable
         }
     }
 
-    /// <summary>受理済み変更の共通権限で、接続中ライブラリの現在の重複選択に必要な準備だけを行います。</summary>
-    private Task PrepareAcceptedDuplicateDataAsync(BMSLibrary library, LibraryFileMutationCapability capability)
+    /// <summary>受理済み変更の共通権限で、接続中ライブラリの必要な準備を行います。明示した重複保守では現在画面によらず成功後選択のグループを準備し、一般変更では現在の重複表示だけを対象にします。</summary>
+    private Task PrepareAcceptedDuplicateDataAsync(BMSLibrary library, LibraryFileMutationCapability capability, bool requireGroups)
     {
         lock (syncRoot)
         {
-            if (disposed || !ReferenceEquals(normalLibraryRefreshSource, library) || currentNavigation?.DuplicateContext == null)
+            if (disposed || !ReferenceEquals(normalLibraryRefreshSource, library) || (!requireGroups && currentNavigation?.DuplicateContext == null))
             { return Task.CompletedTask; }
             if (IsDuplicateDataPreparationActiveUnsafe(library)) { return duplicateDataPreparation.Value.Work; }
             if (library.DuplicateChartGroups != null) { return Task.CompletedTask; }

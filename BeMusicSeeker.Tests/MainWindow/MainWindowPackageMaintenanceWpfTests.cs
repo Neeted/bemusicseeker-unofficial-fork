@@ -2009,7 +2009,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         });
     }
 
-    /// <summary>同名の実検索結果を実Treeで手動選択し、本番composition/storeの二folder統合後に操作前の次群だけを表示・選択します。旧行選択を別群へ持ち越しません。</summary>
+    /// <summary>実Treeのルート・同名群・フォルダを手動選択し、実統合の成功後は操作前に捕捉した次群を選びます。実Binding・旧行選択解除・FS/DB反映と必要通知中の親L保持・終端回収を確認します。途中の別画面からの自動選択は実Hashの代表が分担します。</summary>
     [TestMethod]
     public void DuplicateSelections_ActualMergeSelectsCapturedNextGroupThroughCompiledTree()
     {
@@ -2017,84 +2017,22 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         {
             MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
             var root = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
-            DuplicateGroup first = library.DuplicateChartGroups[0];
-            DuplicateGroup next = library.DuplicateChartGroups[1];
-            Assert.AreEqual(first.Header, next.Header);
-            // 同見出し時の並び自体は固定せず、現在先頭/次に対応する独立fixtureの二組を選びます。
-            ChartFile[] firstCharts = first.Folders.Contains(charts[0].Directory) ? charts[..2] : charts[2..];
-            ChartFile[] nextCharts = first.Folders.Contains(charts[0].Directory) ? charts[2..] : charts[..2];
+            DuplicateGroup source = library.DuplicateChartGroups[0];
+            DuplicateGroup automatic = library.DuplicateChartGroups[1];
+            ChartFile[] sourceCharts = charts.Where(chart => source.Folders.Contains(chart.Directory)).ToArray();
+            ChartFile[] nextCharts = charts.Where(chart => automatic.Folders.Contains(chart.Directory)).ToArray();
+            string[] nextFolders = automatic.Folders.ToArray();
+            Assert.AreEqual(source.Header, automatic.Header);
             SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => root.IsSelected = true, charts.Select(chart => chart.Path).ToArray());
-            TreeViewItem nextItem = RealizeDuplicateGroupItem(root, next);
-            SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => nextItem.IsSelected = true, nextCharts[0].Path, nextCharts[1].Path);
-            TreeViewItem nextFolder = RealizeDuplicateFolderItem(root, next, nextCharts[0].Directory);
+            TreeViewItem nextItem = RealizeDuplicateGroupItem(root, automatic);
+            SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => nextItem.IsSelected = true, nextCharts.Select(chart => chart.Path).ToArray());
+            TreeViewItem nextFolder = RealizeDuplicateFolderItem(root, automatic, nextCharts[0].Directory);
             SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => nextFolder.IsSelected = true, nextCharts[0].Path);
-            TreeViewItem sourceFolder = RealizeDuplicateFolderItem(root, first, firstCharts[0].Directory);
-            SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => sourceFolder.IsSelected = true, firstCharts[0].Path);
+            TreeViewItem sourceFolder = RealizeDuplicateFolderItem(root, source, sourceCharts[0].Directory);
+            SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => sourceFolder.IsSelected = true, sourceCharts[0].Path);
             var table = (CustomTableView)window.FindName("customTableView");
             table.SelectedIndex = 0;
             Assert.AreEqual(1, table.GetSelectedRowsSnapshot().Count);
-            MenuItem merge = CreateCompiledDuplicateMerge(window, sourceFolder, firstCharts[1].Directory);
-            using var release = new ManualResetEventSlim(false);
-            var requiredNotification = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            int claimed = 0;
-            PropertyChangedEventHandler committed = (_, args) =>
-            {
-                if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion)
-                    && library.DuplicateChartGroups?.Count == 1 && !Directory.Exists(firstCharts[0].Directory)
-                    && Interlocked.Exchange(ref claimed, 1) == 0)
-                { requiredNotification.TrySetResult(); release.Wait(); }
-            };
-            library.PropertyChanged += committed;
-            try
-            {
-                SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => RaiseMenuClick(merge),
-                    new[] { nextCharts[0].Path, nextCharts[1].Path }, handler =>
-                    {
-                        try
-                        {
-                            TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(requiredNotification.Task, handler, "actual merge required notification"), "actual merge notification gate");
-                            Assert.IsFalse(handler.IsCompleted);
-                            Assert.IsTrue(library.OperationAdmission.IsActive);
-                            Assert.IsFalse(library.OperationAdmission.TryEnter(out IDisposable rejected));
-                            Assert.IsNull(rejected);
-                            Assert.IsFalse(library.IsWriteLockHeldInitializeMin || library.IsWriteLockHeldInitializeBMSFiles || library.IsWriteLockHeldDuplicateChartGroups);
-                        }
-                        finally { release.Set(); }
-                    });
-            }
-            finally { release.Set(); library.PropertyChanged -= committed; }
-            var left = (TreeView)window.FindName("treeView");
-            Assert.IsInstanceOfType(left.SelectedItem, typeof(DuplicateGroup));
-            var selected = (DuplicateGroup)left.SelectedItem;
-            CollectionAssert.AreEquivalent(new[] { nextCharts[0].Directory, nextCharts[1].Directory }, selected.Folders);
-            Assert.IsFalse(Directory.Exists(firstCharts[0].Directory));
-            Assert.IsTrue(File.Exists(firstCharts[1].Path));
-            IReadOnlyList<object> selectedRows = table.GetSelectedRowsSnapshot();
-            Assert.AreEqual(0, selectedRows.Count, "旧群の選択を持ち越しません。selected paths="
-                + string.Join("|", selectedRows.OfType<LibraryChartRow>().Select(row => row.Chart.Path))
-                + " table index=" + table.SelectedIndex);
-            Assert.IsFalse(library.OperationAdmission.IsActive);
-        });
-    }
-
-    /// <summary>実統合の必要通知中に、自動選択候補とは異なる第三群へ移動します。成功後も後発群の実Tree・一覧・検索条件を保ち、元の次群へ一時的にも切り替えません。</summary>
-    [TestMethod]
-    public void DuplicateSelections_ActualMergeKeepsLaterGroupInsteadOfCapturedNextGroup()
-    {
-        RunDuplicateSelectionFixture((scope, viewModel, window, library, charts, navigation) =>
-        {
-            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
-            var root = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
-            DuplicateGroup source = library.DuplicateChartGroups[0];
-            DuplicateGroup automatic = library.DuplicateChartGroups[1];
-            DuplicateGroup later = library.DuplicateChartGroups[2];
-            ChartFile[] sourceCharts = charts.Where(chart => source.Folders.Contains(chart.Directory)).ToArray();
-            string[] laterPaths = charts.Where(chart => later.Folders.Contains(chart.Directory)).Select(chart => chart.Path).ToArray();
-            string[] laterFolders = later.Folders.ToArray();
-            Assert.IsNull(DuplicateViewContext.CaptureGroup(automatic).ResolveGroup([later]));
-            viewModel.ChartFilters.KeywordFilter = "same";
-            TreeViewItem sourceFolder = RealizeDuplicateFolderItem(root, source, sourceCharts[0].Directory);
-            SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => sourceFolder.IsSelected = true, sourceCharts[0].Path);
             MenuItem merge = CreateCompiledDuplicateMerge(window, sourceFolder, sourceCharts[1].Directory);
             using var release = new ManualResetEventSlim(false);
             var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2102,89 +2040,53 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             PropertyChangedEventHandler committed = (_, args) =>
             {
                 if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion)
-                    && library.DuplicateChartGroups?.Count == 2 && !Directory.Exists(sourceCharts[0].Directory)
+                    && library.DuplicateChartGroups?.Count == 1 && !Directory.Exists(sourceCharts[0].Directory)
                     && Interlocked.Exchange(ref claimed, 1) == 0)
                 { reached.TrySetResult(); release.Wait(); }
             };
-            var violations = new List<string>();
-            RegularChartNavigationRequest? laterNavigation = null;
-            Task? laterHandler = null;
-            PropertyChangedEventHandler rowsChanged = (_, args) =>
-            {
-                if (args.PropertyName == nameof(MainChartListViewModel.Rows) && laterNavigation != null
-                    && !viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Select(row => row.Chart.Path).OrderBy(path => path, StringComparer.Ordinal)
-                        .SequenceEqual(laterPaths.OrderBy(path => path, StringComparer.Ordinal)))
-                { violations.Add("後発群以外の一覧が公開されました。"); }
-            };
-            RoutedPropertyChangedEventHandler<object> selectionChanged = (_, _) =>
-            {
-                if (laterNavigation != null && ((TreeView)window.FindName("treeView")).SelectedItem is DuplicateGroup selected
-                    && !selected.Folders.OrderBy(path => path, StringComparer.Ordinal).SequenceEqual(laterFolders.OrderBy(path => path, StringComparer.Ordinal)))
-                { violations.Add("元の統合が別群を選択しました。"); }
-            };
-            PropertyChangedEventHandler searchChanged = (_, _) =>
-            {
-                if (laterNavigation != null && (viewModel.ChartFilters.KeywordFilter != "same"
-                    || viewModel.ChartFilters.CurrentKeywordSearchContext != GridKeywordSearchContext.ChartList))
-                { violations.Add("元の統合が後発群の検索条件を変更しました。"); }
-            };
             library.PropertyChanged += committed;
-            viewModel.ChartFilters.PropertyChanged += searchChanged;
-            viewModel.MainChartList.PropertyChanged += rowsChanged;
-            var tree = (TreeView)window.FindName("treeView");
-            tree.SelectedItemChanged += selectionChanged;
             try
             {
-                SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => RaiseMenuClick(merge), laterPaths, handler =>
+                SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => RaiseMenuClick(merge), nextCharts.Select(chart => chart.Path).ToArray(), handler =>
                 {
                     try
                     {
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(reached.Task, handler,
-                            "merge ready before later group"), "merge actual notification");
+                            "merge required notification"), "merge actual notification");
                         Assert.IsTrue(library.OperationAdmission.IsActive);
                         Assert.IsFalse(handler.IsCompleted);
-                        // モデルの最新参照とBindingの配送は別なので、実Treeに現在表示された同じ所属の項目を選ぶ。
-                        DuplicateGroup currentLater = root.Items.Cast<DuplicateGroup>().Single(group => group.Folders.Contains(laterFolders[0]));
-                        TreeViewItem laterItem = RealizeDuplicateGroupItem(root, currentLater);
-                        // 同じ解析の必要通知はまだ保留中なので、選択は受理だけを確認し、開始したハンドラーは解放後に回収する。
-                        laterHandler = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => laterItem.IsSelected = true);
-                        laterNavigation = viewModel.RegularChartList.CaptureNavigation();
-                        Assert.AreSame(currentLater, tree.SelectedItem);
+                        Assert.IsFalse(library.OperationAdmission.TryEnter(out IDisposable rejected));
+                        Assert.IsNull(rejected);
+                        Assert.IsFalse(library.IsWriteLockHeldInitializeMin || library.IsWriteLockHeldInitializeBMSFiles || library.IsWriteLockHeldDuplicateChartGroups);
                     }
                     finally { release.Set(); }
                 });
-                if (laterHandler != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(laterHandler, "later group Selected handler"); }
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual(0, violations.Count, string.Join(Environment.NewLine, violations));
-                Assert.IsTrue(viewModel.RegularChartList.IsCurrentNavigation(laterNavigation));
+                var tree = (TreeView)window.FindName("treeView");
                 Assert.IsInstanceOfType(tree.SelectedItem, typeof(DuplicateGroup));
-                CollectionAssert.AreEquivalent(laterFolders, ((DuplicateGroup)tree.SelectedItem).Folders);
-                Assert.AreEqual("same", viewModel.ChartFilters.KeywordFilter);
+                CollectionAssert.AreEquivalent(nextFolders, ((DuplicateGroup)tree.SelectedItem).Folders);
+                Assert.AreEqual(MainViewUpdateMode.DuplicateFilterSelected, viewModel.MainChartList.LastAppliedColumnMode);
+                Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count, "元のフォルダの行選択は次群へ持ち越しません。");
                 Assert.IsFalse(Directory.Exists(sourceCharts[0].Directory));
                 Assert.IsTrue(File.Exists(sourceCharts[1].Path));
+                using (var db = new LR2SongDBExtended(Path.Combine(Path.GetDirectoryName(sourceCharts[0].Directory) ?? throw new AssertFailedException(), "song.db")))
+                {
+                    Assert.IsFalse(db.Table<LR2SongDB.song>().Any(row => row.path == sourceCharts[0].Path));
+                    Assert.IsTrue(db.Table<LR2SongDB.song>().Any(row => row.path == sourceCharts[1].Path));
+                }
                 Assert.IsFalse(library.OperationAdmission.IsActive);
             }
             finally
             {
                 release.Set();
-                try
-                { if (laterHandler != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(laterHandler, "later group handler cleanup"); } }
-                finally
-                {
-                    library.PropertyChanged -= committed;
-                    viewModel.ChartFilters.PropertyChanged -= searchChanged;
-                    viewModel.MainChartList.PropertyChanged -= rowsChanged;
-                    tree.SelectedItemChanged -= selectionChanged;
-                }
+                library.PropertyChanged -= committed;
             }
-        }, groupCount: 3);
+        });
     }
 
-    /// <summary>実Gキーで単一フォルダ内の同内容ファイルを整理します。通常成功は次群を選び、削除前に別画面へ移動した条件では実失効後もそのTree・一覧・検索を保ち、古い空一覧を反映しません。</summary>
+    /// <summary>実GキーによるHash整理の削除前に通常一覧へ移り、成功後は捕捉した次群へ自動選択します。実ファイル・所持・SQLiteの整理と、別画面でも必要なgroups準備・実Binding・親L回収を確認します。</summary>
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void DuplicateSelections_ActualHashCleanupRespectsLaterViewAndKeepsNormalAutoSelection(bool laterView)
+    public void DuplicateSelections_ActualHashCleanupSelectsCapturedNextGroupAfterLaterView()
     {
         MainWindowViewModel? actualViewModel = null;
         var terminal = new MainWindowDuplicateMaintenanceTerminal(
@@ -2210,31 +2112,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual(2, original.Length);
             TreeViewItem folder = RealizeDuplicateFolderItem(root, source, source.Folders[0]);
             SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => folder.IsSelected = true, original.Select(chart => chart.Path).ToArray());
-            var tree = (TreeView)window.FindName("treeView");
             var normal = (TreeViewItem)window.FindName("treeViewItemFullScanCheckAllCharts");
-            var violations = new List<string>();
-            RegularChartNavigationRequest? laterNavigation = null;
-            PropertyChangedEventHandler rowsChanged = (_, args) =>
-            {
-                if (laterNavigation != null && args.PropertyName == nameof(MainChartListViewModel.Rows)
-                    && (viewModel.MainChartList.LastAppliedColumnMode != MainViewUpdateMode.FullScanAllChartsFilterSelected
-                        || !viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Select(row => row.Chart.Path).OrderBy(path => path, StringComparer.Ordinal)
-                            .SequenceEqual(expectedPaths.OrderBy(path => path, StringComparer.Ordinal))))
-                { violations.Add("旧Hash結果が後発画面へ一覧を反映しました。"); }
-            };
-            RoutedPropertyChangedEventHandler<object> selectionChanged = (_, _) =>
-            {
-                if (laterNavigation != null && !normal.IsSelected) { violations.Add("旧Hash結果が後発Tree選択を変更しました。"); }
-            };
-            PropertyChangedEventHandler searchChanged = (_, _) =>
-            {
-                if (laterNavigation != null && (viewModel.ChartFilters.KeywordFilter != "same"
-                    || viewModel.ChartFilters.CurrentKeywordSearchContext != GridKeywordSearchContext.ChartList))
-                { violations.Add("旧Hash結果が後発画面の検索条件を変更しました。"); }
-            };
-            viewModel.ChartFilters.PropertyChanged += searchChanged;
-            viewModel.MainChartList.PropertyChanged += rowsChanged;
-            tree.SelectedItemChanged += selectionChanged;
             try
             {
                 SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () =>
@@ -2251,48 +2129,29 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                             "real hash file deletion"), "hash physical gate");
                         Assert.IsTrue(library.OperationAdmission.IsActive);
                         Assert.IsFalse(handler.IsCompleted);
-                        if (laterView)
-                        {
-                            viewModel.ChartFilters.KeywordFilter = "same";
-                            SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => normal.IsSelected = true, expectedPaths);
-                            laterNavigation = viewModel.RegularChartList.CaptureNavigation();
-                        }
+                        viewModel.ChartFilters.KeywordFilter = "same";
+                        SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => normal.IsSelected = true, expectedPaths, null,
+                            MainViewUpdateMode.FullScanAllChartsFilterSelected);
+                        Assert.IsTrue(normal.IsSelected);
+                        Assert.AreEqual(MainViewUpdateMode.FullScanAllChartsFilterSelected, viewModel.MainChartList.LastAppliedColumnMode);
                     }
                     finally { release.Set(); }
-                });
+                }, MainViewUpdateMode.DuplicateFilterSelected);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual(0, violations.Count, string.Join(Environment.NewLine, violations));
                 Assert.AreEqual(1, mutations.FileDeleteCalls);
-                string[] surviving = original.Where(chart => File.Exists(chart.Path)).Select(chart => chart.Path).ToArray();
-                Assert.AreEqual(1, surviving.Length);
+                Assert.AreEqual(1, original.Count(chart => File.Exists(chart.Path)));
                 string removed = original.Single(chart => !File.Exists(chart.Path)).Path;
                 Assert.IsFalse(library.BmsCharts.Any(chart => chart.Path == removed));
                 using (var db = new LR2SongDBExtended(Path.Combine(Path.GetDirectoryName(original[0].Directory) ?? throw new AssertFailedException(), "song.db")))
                 { Assert.IsFalse(db.Table<LR2SongDB.song>().Any(row => row.path == removed)); }
-                if (laterView)
-                {
-                    Assert.IsNull(library.DuplicateChartGroups, "別画面では実失効だけを残します。");
-                    Assert.IsTrue(normal.IsSelected);
-                    Assert.AreSame(normal, tree.SelectedItem);
-                    Assert.IsTrue(viewModel.RegularChartList.IsCurrentNavigation(laterNavigation));
-                    Assert.AreEqual("same", viewModel.ChartFilters.KeywordFilter);
-                    Assert.AreEqual(MainViewUpdateMode.FullScanAllChartsFilterSelected, viewModel.MainChartList.LastAppliedColumnMode);
-                }
-                else
-                {
-                    Assert.IsInstanceOfType(tree.SelectedItem, typeof(DuplicateGroup));
-                    CollectionAssert.AreEquivalent(next.Folders, ((DuplicateGroup)tree.SelectedItem).Folders);
-                    Assert.IsNotNull(library.DuplicateChartGroups);
-                }
+                var tree = (TreeView)window.FindName("treeView");
+                Assert.IsInstanceOfType(tree.SelectedItem, typeof(DuplicateGroup));
+                CollectionAssert.AreEquivalent(next.Folders, ((DuplicateGroup)tree.SelectedItem).Folders);
+                Assert.AreEqual(MainViewUpdateMode.DuplicateFilterSelected, viewModel.MainChartList.LastAppliedColumnMode);
+                Assert.IsNotNull(library.DuplicateChartGroups);
                 Assert.IsFalse(library.OperationAdmission.IsActive);
             }
-            finally
-            {
-                release.Set();
-                viewModel.ChartFilters.PropertyChanged -= searchChanged;
-                viewModel.MainChartList.PropertyChanged -= rowsChanged;
-                tree.SelectedItemChanged -= selectionChanged;
-            }
+            finally { release.Set(); }
         }, terminal, hashSource: true, fileMutations: mutations);
     }
 
@@ -2344,7 +2203,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
 
     private static void RunDuplicateSelectionFixture(
         Action<TestWindowPresentationScope, MainWindowViewModel, MainWindow, TestBmsLibrary, ChartFile[], DuplicateSelectionNavigationTasks> test,
-        MainWindowDuplicateMaintenanceTerminal? terminal = null, int groupCount = 2, bool hashSource = false,
+        MainWindowDuplicateMaintenanceTerminal? terminal = null, bool hashSource = false,
         OwnedChartCollectionTestSupport.TestFileMutationService? fileMutations = null)
     {
         string directory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_DuplicateSelection_" + Guid.NewGuid().ToString("N"));
@@ -2373,7 +2232,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 {
                     attachedViewModel = viewModel;
                     var paths = new List<string>();
-                    for (int group = 0; group < groupCount; group++)
+                    for (int group = 0; group < 2; group++)
                     {
                         for (int member = 0; member < 2; member++)
                         {
@@ -2406,7 +2265,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: settings)
                     { BmsCharts = charts };
                     library.SearchDuplicateChartGroups();
-                    Assert.AreEqual(groupCount, library.DuplicateChartGroups.Count);
+                    Assert.AreEqual(2, library.DuplicateChartGroups.Count);
                     ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
                     viewModel.MaintenanceTree.AttachLibrary(library);
                 });
@@ -2418,7 +2277,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         }
     }
 
-    /// <summary>実画面の入力から開始した一覧Taskを回収し、期待するパス集合が実表のBindingへ届いたことを確認します。</summary>
+    /// <summary>実画面の入力から開始した一覧Taskを回収し、期待するモードとパス集合が実表のBindingへ届いたことを確認します。同じパス集合を持つ移動前の別画面では完了としません。</summary>
     private static void SelectDuplicateTreeAndAwaitRows(MainWindowViewModel viewModel, MainWindow window,
         DuplicateSelectionNavigationTasks navigation, Action action, params string[] expectedPaths)
     {
@@ -2426,7 +2285,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     }
 
     private static void SelectDuplicateTreeAndAwaitRows(MainWindowViewModel viewModel, MainWindow window,
-        DuplicateSelectionNavigationTasks navigation, Action action, string[] expectedPaths, Action<Task>? operationStarted)
+        DuplicateSelectionNavigationTasks navigation, Action action, string[] expectedPaths, Action<Task>? operationStarted,
+        MainViewUpdateMode expectedColumnMode = MainViewUpdateMode.DuplicateFilterSelected)
     {
         var table = (CustomTableView)window.FindName("customTableView");
         int firstRequest = navigation.Count;
@@ -2461,7 +2321,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.IsTrue(requests.All(task => task.Result), "全正規要求が受理されます。表示対象は実Rowsで別に確認します。");
             observeBinding = true;
             ObserveBinding();
-            TestUiDispatcherHost.AwaitPresentationOnDispatcher(bound.Task, "duplicate expected rows actual ItemsSource Binding");
+            TestUiDispatcherHost.AwaitPresentationOnDispatcher(bound.Task, "duplicate expected mode and rows actual ItemsSource Binding");
+            Assert.AreEqual(expectedColumnMode, viewModel.MainChartList.LastAppliedColumnMode);
             Assert.AreSame(viewModel.MainChartList.Rows, table.ItemsSource);
             CollectionAssert.AreEquivalent(expectedPaths,
                 viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Select(row => row.Chart.Path).ToArray());
@@ -2485,7 +2346,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
 
         void ObserveBinding()
         {
-            if (!observeBinding || !ReferenceEquals(table.ItemsSource, viewModel.MainChartList.Rows)) { return; }
+            if (!observeBinding || viewModel.MainChartList.LastAppliedColumnMode != expectedColumnMode
+                || !ReferenceEquals(table.ItemsSource, viewModel.MainChartList.Rows)) { return; }
             string[] paths = table.ItemsSource.Cast<LibraryChartRow>().Select(row => row.Chart.Path).ToArray();
             if (paths.Length == expectedPaths.Length
                 && paths.OrderBy(path => path, StringComparer.Ordinal).SequenceEqual(expectedPaths.OrderBy(path => path, StringComparer.Ordinal)))

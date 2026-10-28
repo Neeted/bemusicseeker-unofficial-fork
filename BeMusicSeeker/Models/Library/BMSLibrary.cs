@@ -727,26 +727,28 @@ public partial class BMSLibrary : ObservableObject
     /// <summary>推定入力の必須背景更新と利用者操作が共有する論理受付です。</summary>
     internal ChartFileOperationSynchronizer OperationAdmission { get; }
 
-    private Func<BMSLibrary, LibraryFileMutationCapability, Task> duplicateDataPreparation;
+    private Func<BMSLibrary, LibraryFileMutationCapability, bool, Task> duplicateDataPreparation;
 
     /// <summary>接続中の一覧所有者が、受理済み変更の仕上げに必要な重複データを準備する窓口を接続します。</summary>
-    internal void ConnectDuplicateDataPreparation(Func<BMSLibrary, LibraryFileMutationCapability, Task> prepare)
+    internal void ConnectDuplicateDataPreparation(Func<BMSLibrary, LibraryFileMutationCapability, bool, Task> prepare)
         => Interlocked.Exchange(ref duplicateDataPreparation, prepare ?? throw new ArgumentNullException(nameof(prepare)));
 
     /// <summary>この所有者の接続だけを解除し、交換後の別所有者の接続は保持します。</summary>
-    internal void DisconnectDuplicateDataPreparation(Func<BMSLibrary, LibraryFileMutationCapability, Task> prepare)
+    internal void DisconnectDuplicateDataPreparation(Func<BMSLibrary, LibraryFileMutationCapability, bool, Task> prepare)
     {
-        Func<BMSLibrary, LibraryFileMutationCapability, Task> current = Volatile.Read(ref duplicateDataPreparation);
+        Func<BMSLibrary, LibraryFileMutationCapability, bool, Task> current = Volatile.Read(ref duplicateDataPreparation);
         if (Equals(current, prepare)) { Interlocked.CompareExchange(ref duplicateDataPreparation, null, current); }
     }
 
-    /// <summary>存続中の共通受付権限で、現在の表示に必要な重複準備を完了します。同期コミットの外側で、親受付を解放する前に待機します。</summary>
-    internal Task CompleteAcceptedDuplicateDataAsync(LibraryFileMutationCapability capability)
+    /// <summary>存続中の共通受付権限で必要な重複準備を完了します。同期コミットの外側で、親受付を解放する前に待機します。表示所有者が未接続なら何も開始しません。</summary>
+    /// <param name="capability">親操作が完了処理まで保持する共通受付権限です。</param>
+    /// <param name="requireGroups">明示した重複保守の成功後選択に備え、現在画面によらず最新グループを準備する場合にtrueです。</param>
+    internal Task CompleteAcceptedDuplicateDataAsync(LibraryFileMutationCapability capability, bool requireGroups = false)
     {
-        Func<BMSLibrary, LibraryFileMutationCapability, Task> prepare = Volatile.Read(ref duplicateDataPreparation);
+        Func<BMSLibrary, LibraryFileMutationCapability, bool, Task> prepare = Volatile.Read(ref duplicateDataPreparation);
         if (prepare == null) { return Task.CompletedTask; }
         using LibraryFileMutationLease borrowed = OperationAdmission.Borrow(capability);
-        return prepare(this, capability);
+        return prepare(this, capability, requireGroups);
     }
 
 
@@ -2894,7 +2896,7 @@ public partial class BMSLibrary : ObservableObject
             HandleCatalogChartInfoOwnerEvent,
             libraryMutationOwner.BeginOwnedDigestMutationWindow,
             libraryMutationOwner.PrepareOwnedChartDigestPublication,
-            CompleteAcceptedDuplicateDataAsync);
+            capability => CompleteAcceptedDuplicateDataAsync(capability));
         dbGateway.EnsureLibraryStartupSchema();
         listenerForRwlockBMSFilesInitializedAll = PropertyChangedSubscription.Create(rwlockBMSFilesInitializedAll);
         listenerForRwlockBMSFilesInitializedMin = PropertyChangedSubscription.Create(rwlockBMSFilesInitializedMin);

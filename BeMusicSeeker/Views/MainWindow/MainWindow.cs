@@ -662,7 +662,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         UnsubscribeViewModelUiInteractions();
         subscribedViewModel = viewModel;
         viewModel.RequiredStartupUiApplying += ApplyRequiredStartupPlayerHost;
-        viewModel.DuplicateGroupsPresentationRequested += MainWindow_DuplicateGroupsPresentationRequested;
         playlistWorkspaceTerminals.UrlInstallTreeExpansionEventSource
             .Subscribe(MainWindow_PlaylistUrlInstallTreeExpansionRequested);
         viewModel.PlaylistWorkspace.PlaylistPropertyValidationError += MainWindow_PlaylistPropertyValidationError;
@@ -694,7 +693,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         subscribedViewModel.RequiredStartupUiApplying -= ApplyRequiredStartupPlayerHost;
-        subscribedViewModel.DuplicateGroupsPresentationRequested -= MainWindow_DuplicateGroupsPresentationRequested;
         subscribedViewModel.SettingDialog.DetachPresentationPort(this);
         playlistWorkspaceTerminals.UrlInstallTreeExpansionEventSource
             .Unsubscribe(MainWindow_PlaylistUrlInstallTreeExpansionRequested);
@@ -4571,47 +4569,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    /// <summary>自己のグループ反映を一つのUI処理で完結させ、WPFの親選択を利用者の移動として受け付けません。現在対象が同期的に実現済みの場合だけ選択表示を保ちます。</summary>
-    private void MainWindow_DuplicateGroupsPresentationRequested(Action applyGroups)
-    {
-        if (base.DataContext is not MainWindowViewModel viewModel || IsShellClosingOrClosed()) { return; }
-        TreeViewItem root = treeViewItemSearchDuplicated;
-        root.Selected -= dupulicateFileCheckFolderSelect;
-        try
-        {
-            // ItemsSourceの交換で選択子が消えるとWPFは親rootを選ぶため、交換前に表示選択だけを外す。
-            // 論理選択は既存navに残し、保留した再選択や入力履歴を作らない。
-            if (IsSameOrDescendantOf(_lastSelectedTreeViewItem, root) && _lastSelectedTreeViewItem != root)
-            {
-                _lastSelectedTreeViewItem.IsSelected = false;
-                _lastSelectedTreeViewItem = null;
-            }
-            applyGroups();
-            root.GetBindingExpression(ItemsControl.ItemsSourceProperty)?.UpdateTarget();
-            root.UpdateLayout();
-            RegularChartNavigationRequest navigation = viewModel.RegularChartList.CaptureNavigation();
-            DuplicateViewContext selection = navigation?.DuplicateContext;
-            if (selection == null || !viewModel.RegularChartList.IsCurrentNavigation(navigation)) { return; }
-            if (selection.Kind == DuplicateViewContextKind.Root) { root.IsSelected = true; return; }
-            DuplicateGroup group = selection.Kind == DuplicateViewContextKind.GroupFolder
-                ? selection.ResolveGroup(root.Items.Cast<DuplicateGroup>())
-                : root.Items.Cast<DuplicateGroup>().SingleOrDefault(candidate => candidate.Folders.Contains(selection.Value, StringComparer.OrdinalIgnoreCase));
-            if (group == null || root.ItemContainerGenerator.ContainerFromItem(group) is not TreeViewItem groupItem) { return; }
-            TreeViewItem target = groupItem;
-            if (selection.Kind == DuplicateViewContextKind.FolderPath)
-            {
-                groupItem.GetBindingExpression(ItemsControl.ItemsSourceProperty)?.UpdateTarget();
-                groupItem.UpdateLayout();
-                string folder = group.Folders.FirstOrDefault(path => string.Equals(path, selection.Value, StringComparison.OrdinalIgnoreCase));
-                if (folder == null || groupItem.ItemContainerGenerator.ContainerFromItem(folder) is not TreeViewItem folderItem) { return; }
-                target = folderItem;
-            }
-            // 未実現だけなら表示選択なしを許容し、現在対象・一覧・操作結果を親や別群へ読み替えない。
-            if (viewModel.RegularChartList.IsCurrentNavigation(navigation)) { target.IsSelected = true; }
-        }
-        finally { root.Selected += dupulicateFileCheckFolderSelect; }
-    }
-
     private async void dupulicateFileCheckFolderSelect(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("tree_duplicate_file_check_select"))
@@ -6115,10 +6072,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 return;
             }
-            RegularChartNavigationRequest navigation = viewModel.RegularChartList.CaptureNavigation();
             DuplicateMaintenanceMutationResult result = await duplicateMaintenanceTerminal
                 .MergeFolderAsync(srcPath, dstPath, duplicateGroup);
-            await ApplyDuplicateFolderMergeResultAsync(result, srcPath, dstPath, viewModel, navigation);
+            await ApplyDuplicateFolderMergeResultAsync(result, srcPath, dstPath, viewModel);
         }
         catch (Exception exception)
         {
@@ -6126,13 +6082,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    /// <summary>統合の失敗・確定事実を通知し、成功後の次群選択は開始時の受付が現在の場合だけ適用します。</summary>
+    /// <summary>統合の失敗・確定事実を通知し、成功後は操作前に捕捉した次群または存続群を選択します。</summary>
     private async Task ApplyDuplicateFolderMergeResultAsync(
         DuplicateMaintenanceMutationResult result,
         string sourcePath,
         string destinationPath,
-        MainWindowViewModel viewModel,
-        RegularChartNavigationRequest navigation)
+        MainWindowViewModel viewModel)
     {
         if (!result.Succeeded)
         {
@@ -6167,15 +6122,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 Path.GetFileName(sourcePath),
                 Path.GetFileName(destinationPath)));
         }
-        catch { /* 任意診断の失敗だけでは、現在選択への反映を止めません。 */ }
-        await ApplyDuplicateMaintenanceSelectionAsync(result.SelectionContext, viewModel, navigation);
+        catch { /* 任意診断の失敗だけでは、成功後の選択を止めません。 */ }
+        await ApplyDuplicateMaintenanceSelectionAsync(result.SelectionContext, viewModel);
     }
 
-    /// <summary>保守開始時の選択が現在も有効な場合だけ、捕捉した次の対象を選択します。後発の受理後は表示へ触れず、通知待ちの後も同じ参照で確認します。</summary>
-    private async Task ApplyDuplicateMaintenanceSelectionAsync(DuplicateViewContext selection, MainWindowViewModel viewModel,
-        RegularChartNavigationRequest navigation)
+    /// <summary>明示した保守の成功後は、途中の選択によらず捕捉した対象を選択します。消失した所属は別群へ読み替えず空表示にします。</summary>
+    private async Task ApplyDuplicateMaintenanceSelectionAsync(DuplicateViewContext selection, MainWindowViewModel viewModel)
     {
-        if (viewModel == null || IsShellClosingOrClosed() || !viewModel.RegularChartList.IsCurrentNavigation(navigation))
+        if (viewModel == null || IsShellClosingOrClosed())
         {
             return;
         }
@@ -6186,8 +6140,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         TaskCompletionSource<bool> duplicateGroupsChanged = CreateDuplicateGroupsChangedSignal();
         PropertyChangedEventHandler handler = (sender, args) =>
         {
-            if (args.PropertyName == nameof(MaintenanceTreeViewModel.DuplicateChartGroups)
-                && viewModel.RegularChartList.IsCurrentNavigation(navigation))
+            if (args.PropertyName == nameof(MaintenanceTreeViewModel.DuplicateChartGroups))
             {
                 duplicateGroupsChanged.TrySetResult(true);
             }
@@ -6198,14 +6151,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             string lastReason = string.Empty;
             for (int attempt = 0; attempt < 2; attempt++)
             {
-                if (!viewModel.RegularChartList.IsCurrentNavigation(navigation))
-                {
-                    return;
-                }
                 (bool succeeded, string failReason) = await TryApplyDuplicateMaintenanceSelectionAsync(
                     selection,
-                    viewModel,
-                    navigation);
+                    viewModel);
                 lastReason = failReason;
                 if (succeeded)
                 {
@@ -6218,21 +6166,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 }
                 Task signal = duplicateGroupsChanged.Task;
                 await Task.WhenAny(signal, Task.Delay(1500));
-                if (!viewModel.RegularChartList.IsCurrentNavigation(navigation))
-                {
-                    return;
-                }
                 duplicateGroupsChanged = CreateDuplicateGroupsChangedSignal();
             }
-            if (!IsShellClosingOrClosed() && viewModel.RegularChartList.IsCurrentNavigation(navigation))
+            if (!IsShellClosingOrClosed())
             {
                 if (lastReason == "group_not_found" || lastReason == "duplicated_list_null")
                 {
-                    if (IsSameOrDescendantOf(_lastSelectedTreeViewItem, treeViewItemSearchDuplicated))
+                    if (_lastSelectedTreeViewItem != null)
                     {
                         _lastSelectedTreeViewItem.IsSelected = false;
                     }
-                    if (!viewModel.RegularChartList.IsCurrentNavigation(navigation)) { return; }
                     await viewModel.ApplyUnresolvedDuplicateSelectionAsync(selection);
                 }
                 NLogWrapper.FileLogger?.Warn("duplicate_group_autoselect pending reason=" + lastReason);
@@ -6251,8 +6194,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async Task<(bool Succeeded, string FailReason)> TryApplyDuplicateMaintenanceSelectionAsync(
         DuplicateViewContext selection,
-        MainWindowViewModel viewModel,
-        RegularChartNavigationRequest navigation)
+        MainWindowViewModel viewModel)
     {
         string failReason = string.Empty;
         DispatcherPriority[] retryPriorities = [DispatcherPriority.Loaded, DispatcherPriority.Render, DispatcherPriority.ContextIdle];
@@ -6260,8 +6202,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             await Dispatcher.Yield(retryPriority);
             if (IsShellClosingOrClosed()) { return (false, "window_closed"); }
-            if (!viewModel.RegularChartList.IsCurrentNavigation(navigation)) { return (false, "navigation_changed"); }
-            if (TrySelectDuplicateGroupByMembership(selection, viewModel, navigation, out failReason))
+            if (TrySelectDuplicateGroupByMembership(selection, viewModel, out failReason))
             {
                 return (true, string.Empty);
             }
@@ -6284,7 +6225,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     }
 
     private bool TrySelectDuplicateGroupByMembership(DuplicateViewContext selection, MainWindowViewModel viewModel,
-        RegularChartNavigationRequest navigation, out string failReason)
+        out string failReason)
     {
         failReason = string.Empty;
         // XAML上で Name="treeViewItemSearchDuplicated" を持つTreeViewItem
@@ -6309,8 +6250,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return false;
         }
 
-        if (!viewModel.RegularChartList.IsCurrentNavigation(navigation)) { failReason = "navigation_changed"; return false; }
-        // 現在選択のままなら、候補を表示できるよう親を展開する。
+        // 成功後の候補を表示できるよう親を展開する。
         treeViewItemFullScanCheck.IsExpanded = true;
         duplicateRootItem.IsExpanded = true;
         duplicateRootItem.BringIntoView();
@@ -6336,8 +6276,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         // コンテナを取得して選択
         if (targetItem != null)
         {
-            // コンテナの実現中に別の選択が受理された場合も、古い候補では選択しない。
-            if (!viewModel.RegularChartList.IsCurrentNavigation(navigation)) { failReason = "navigation_changed"; return false; }
             targetItem.IsSelected = true;
             targetItem.IsExpanded = true;
             targetItem.BringIntoView();
@@ -6480,24 +6418,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 {
                     return;
                 }
-                RegularChartNavigationRequest navigation = viewModel.RegularChartList.CaptureNavigation();
                 DuplicateMaintenanceMutationResult result = await duplicateMaintenanceTerminal
                     .MergeFolderAsync(srcPath, action.DestinationPath, duplicateGroup);
                 await ApplyDuplicateFolderMergeResultAsync(
                     result,
                     srcPath,
                     action.DestinationPath,
-                    viewModel,
-                    navigation);
+                    viewModel);
             }
             else if (action.Kind == DuplicateFolderKeyboardActionKind.Cleanup)
             {
                 // フォルダが1つの場合: ハッシュ重複BMSファイルの整理
                 e.Handled = true;
-                RegularChartNavigationRequest navigation = viewModel.RegularChartList.CaptureNavigation();
                 DuplicateMaintenanceMutationResult result = await duplicateMaintenanceTerminal
                     .CleanupHashAsync(duplicateGroup, srcPath);
-                await ApplyDuplicateHashCleanupResultAsync(result, srcPath, viewModel, navigation);
+                await ApplyDuplicateHashCleanupResultAsync(result, srcPath, viewModel);
             }
             else if (action.Kind == DuplicateFolderKeyboardActionKind.OpenContextMenu)
             {
@@ -6513,12 +6448,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    /// <summary>ハッシュ整理の失敗・確定事実を通知し、成功後の次群選択は開始時の受付が現在の場合だけ適用します。</summary>
+    /// <summary>ハッシュ整理の失敗・確定事実を通知し、成功後は操作前に捕捉した次群を選択します。</summary>
     private async Task ApplyDuplicateHashCleanupResultAsync(
         DuplicateMaintenanceMutationResult result,
         string folderPath,
-        MainWindowViewModel viewModel,
-        RegularChartNavigationRequest navigation)
+        MainWindowViewModel viewModel)
     {
         if (!result.Succeeded)
         {
@@ -6539,8 +6473,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 result.RemovedChartCount,
                 Path.GetFileName(folderPath)));
         }
-        catch { /* 任意診断の失敗だけでは、現在選択への反映を止めません。 */ }
-        await ApplyDuplicateMaintenanceSelectionAsync(result.SelectionContext, viewModel, navigation);
+        catch { /* 任意診断の失敗だけでは、成功後の選択を止めません。 */ }
+        await ApplyDuplicateMaintenanceSelectionAsync(result.SelectionContext, viewModel);
     }
 
     /// <summary>

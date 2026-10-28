@@ -727,9 +727,10 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             {
                 CaptureCleanupFailure(dialogScope.Dispose, failures);
             }
-            if (library != null && capability != null)
+            if (suppressionStarted && library != null && capability != null)
             {
-                try { await library.CompleteAcceptedDuplicateDataAsync(capability).ConfigureAwait(false); }
+                // 実変更を開始した明示保守は、途中の画面移動によらず成功後選択の準備まで親Lで回収する。
+                try { await library.CompleteAcceptedDuplicateDataAsync(capability, requireGroups: true).ConfigureAwait(false); }
                 catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
             }
             CaptureCleanupFailure(() => capability?.Dispose(), failures);

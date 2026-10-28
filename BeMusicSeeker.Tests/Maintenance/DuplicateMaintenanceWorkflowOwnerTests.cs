@@ -78,6 +78,105 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         });
     }
 
+    /// <summary>明示保守の必要な準備が失敗しても、統合とHash削除それぞれの先行確定・元失敗を結果へ残します。実ライブラリの接続で同じ存続権限と必要指定を確認し、準備終端まで親Lを保持して最後に回収します。</summary>
+    [TestMethod]
+    [DataRow("merge")]
+    [DataRow("hash")]
+    public async Task ExplicitMaintenance_RequiredPreparationFailurePreservesFactsAndReleasesAdmission(string operationKind)
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new AssertFailedException();
+            ChartFile keeper = CreateChart(Path.Combine(root, "a.bms"), "same-hash");
+            ChartFile duplicate = CreateChart(Path.Combine(root, "duplicate.bms"), "same-hash");
+            File.WriteAllText(keeper.Path, "same content");
+            File.WriteAllText(duplicate.Path, "same content");
+            FakeUiDialogService dialogs = AcceptedDialogs();
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new FileDbReportRecordingDialogs(),
+                settings: TestBmsFactory.CreateRootSettings([root]))
+            { BmsCharts = [keeper, duplicate] };
+            var originalFailure = new IOException("required original finalization failure");
+            var preparationFailure = new IOException("required duplicate preparation failure");
+            var session = new LibraryMutationSessionReceipt([new LibraryMutationSessionTarget(duplicate.Path, keeper.Path)],
+                durableCommit: true, finalizationFailure: originalFailure);
+            var mergeReceipt = new DuplicateMergeMaintenanceReceipt(true, ResourceHealthIndexUpdateMode.DeferOnUpdates,
+                MaintenanceWorkflowResultFacts.From(null), false, false, false, false, false, session);
+            var removal = new LibraryChartRemovalOutcome([new(duplicate.Path, LibraryChartRemovalState.Confirmed)], true, true, originalFailure);
+            var events = new List<string>();
+            var store = new TerminalRecordingStore(events, mergeReceipt) { RemovalOutcome = removal };
+            var activity = new ChartMutationActivityOwner();
+            var presentation = new RecordingPresentation(events);
+            var selection = DuplicateViewContext.ForGroup(Path.Combine(root, "next"));
+            var owner = new DuplicateMaintenanceWorkflowOwner(() => library, library.OperationAdmission, activity, presentation,
+                dialogs, () => false, _ => true, _ => new ExplorerOpenResult(), _ => selection, store);
+            var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Func<BMSLibrary, LibraryFileMutationCapability, bool, Task> prepare = (source, capability, requireGroups) =>
+            {
+                Assert.AreSame(library, source);
+                Assert.IsTrue(requireGroups, "明示保守は現在画面によらず成功後選択の準備を指定します。");
+                using (source.OperationAdmission.Borrow(capability)) { }
+                Assert.IsTrue(source.OperationAdmission.IsActive);
+                reached.TrySetResult();
+                return CompletePreparationAsync();
+            };
+            async Task CompletePreparationAsync()
+            {
+                await release.Task;
+                throw preparationFailure;
+            }
+            library.ConnectDuplicateDataPreparation(prepare);
+            Task<DuplicateMaintenanceMutationResult>? operation = null;
+            try
+            {
+                var group = new DuplicateGroup([keeper, duplicate], [root, Path.Combine(root, "destination")]);
+                operation = operationKind == "merge"
+                    ? owner.RunFolderMergeAsync(root, Path.Combine(root, "destination"), group)
+                    : owner.RunHashCleanupAsync(group, root);
+                Assert.AreSame(reached.Task, await Task.WhenAny(reached.Task, operation));
+                await reached.Task;
+                Assert.IsFalse(operation.IsCompleted);
+                Assert.IsTrue(library.OperationAdmission.IsActive);
+                Assert.IsFalse(library.OperationAdmission.TryEnter(out IDisposable rejected));
+                Assert.IsNull(rejected);
+                release.TrySetResult();
+                DuplicateMaintenanceMutationResult result = await operation;
+                Assert.IsFalse(result.Succeeded);
+                Assert.IsTrue(result.HasDurableCommit);
+                Assert.IsTrue(result.HasDurableFinalizationFailure);
+                Assert.AreSame(selection, result.SelectionContext);
+                Assert.IsInstanceOfType(result.Failure, typeof(AggregateException));
+                CollectionAssert.AreEquivalent(new Exception[] { originalFailure, preparationFailure },
+                    ((AggregateException)result.Failure).Flatten().InnerExceptions.ToArray());
+                if (operationKind == "merge")
+                {
+                    Assert.AreSame(mergeReceipt, result.MutationReceipt);
+                    Assert.AreEqual(1, store.MergeWithReceiptCallCount);
+                }
+                else
+                {
+                    Assert.AreSame(removal, result.RemovalOutcome);
+                    Assert.AreEqual(1, result.RemovedChartCount);
+                    CollectionAssert.AreEqual(new[] { duplicate.Path }, store.Charts.Select(chart => chart.Path).ToArray());
+                }
+                Assert.IsFalse(activity.IsActive);
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable next));
+                next.Dispose();
+            }
+            finally
+            {
+                release.TrySetResult();
+                try { if (operation != null) { await operation; } }
+                finally
+                {
+                    library.DisconnectDuplicateDataPreparation(prepare);
+                    library.RequestShutdown("explicit-maintenance-required-preparation");
+                }
+            }
+        });
+    }
+
     /// <summary>
     /// フォルダ統合は再生停止後に表示抑制・保存処理の順に進み、解放後に活動を終えて操作前に捕捉した次の所属を返し、処理順の逆転を検出する。
     /// </summary>
