@@ -62,13 +62,17 @@
 
 候補は、文字列、カーソル位置、表示先、候補集合の版、置換範囲に対応します。適用時にいずれかが異なる場合は適用を拒否して再計算します。古い置換範囲を新しい文字列へ使いません。
 
+選択を維持する行本人の識別は、適用可否に使う入力状態の識別と分けます。お気に入り・履歴は種別と保存式本文、項目・値は種別と挿入内容で照合します。同じ行が残る再表示では選択を維持し、選択行が消えた場合は未選択にします。同値再計算や言語変更の後も、行内操作の対象は行本人の識別で表示中の行へ解決します。保存IDや保存形式は追加しません。
+
 ### 閉じる操作とフォーカス
 
 フォーカスを失うか、ウィンドウが非アクティブになると候補を閉じます。Escで閉じた場合は、同じ文字列・位置・表示先・候補集合の版に限り再表示を抑制します。いずれかが変われば抑制を解除し、Ctrl+Spaceでは明示的に再計算して開きます。
 
-上下キーは区画をまたいで候補を選び、入力欄にキーボードフォーカスを残します。EnterまたはTabで選択中の候補、選択がなければ最初の候補を適用します。IMEの変換確定に使ったEnterは候補の適用に使いません。
+上下キーは区画をまたいで候補を選び、先頭・末尾で折り返し、入力欄にキーボードフォーカスを残します。選択は各区画のListBoxへ投影し、画面外から生成・再利用される行の強調もEnterの適用対象と一致させます。EnterまたはTabで選択中の候補、選択がなければ最初の候補を適用します。Tabの方向はその入力時の修飾キーで判断します。IMEの変換確定に使ったEnterは候補の適用に使いません。
 
-ウィンドウ内で入力欄とそのポップアップ以外をクリックすると、ポップアップが既に閉じていてもキーボードフォーカスを解除します。履歴保存を伴う通常の離脱処理は `LostKeyboardFocus` に集約します。
+ウィンドウ内で入力欄とそのポップアップ以外をクリックすると、ポップアップが既に閉じていてもキーボードフォーカスを解除します。入力欄・所有Popup・その行内ボタンの内部移動では候補を保ちます。行内ボタンから一覧や別の検索欄へ移る場合も、元の検索部品だけが履歴確定とBlurを一回行います。入力欄とPopupの `LostKeyboardFocus`、外側クリックは同じ離脱処理へ接続します。
+
+同値の表示通知では候補の行を再生成しません。言語・テーマなどの純表示変更では候補・選択・区画のscrollを維持し、再利用した行内ボタンのツールチップとアクセシビリティ名も現行言語へ更新します。ownerや候補集合の版は現在値へ更新します。ウィンドウ非活性・owner交換・Unloadedは表示とfocusの終端として古い候補、保留中のフォーカス移動と行内ボタンの論理フォーカスを失効させ、履歴確定は追加しません。履歴確定を伴う通常の外部focus離脱とは区別します。Unloadedを機能ownerの最終終了にはせず、再Loaded時に購読を戻します。
 
 検索欄のクリア操作は、入力イベントの受付時に対応する検索文字列を同期的に空にし、フォーカスを維持・復帰させ、空入力の候補を直ちに表示します。タイマーで後から戻さず、二つの検索欄を相互に操作しません。検索結果側の遅延は変えません。
 
@@ -97,7 +101,8 @@
 | 表示先ごとの候補、入力と適用、古い候補の拒否 | [`KeywordSearchAssistanceOwner`](../../../BeMusicSeeker/ViewModels/Search/KeywordSearchAssistance.cs) | [`KeywordSearchPresentationTests`](../../../BeMusicSeeker.Tests/Search/KeywordSearchPresentationTests.cs)、[`GridKeywordSearchQueryTests`](../../../BeMusicSeeker.Tests/Search/GridKeywordSearchQueryTests.cs)、[`ChartListFilterViewModelTests`](../../../BeMusicSeeker.Tests/ChartList/ChartListFilterViewModelTests.cs)、[`PlaylistWorkspacePresentationStateTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePresentationStateTests.cs) |
 | 正規表現の意味を保持した詳細要求、初回と局所更新の一致 | [`PlaylistRequestFactory`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistRequestFactory.cs)、[`PlaylistDetailVirtualView`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistDetailVirtualView.cs) | `GridKeywordSearchQueryTests.MatchesChartList_RegexCharacterClassCasePreservesMeaning` は通常一覧の表示行とsource行で単一バックスラッシュの6式を評価する。`PlaylistViewPipelineTests.PlaylistRegexRequest_CharacterClassSwitchBuildsDistinctInitialViews` は実factoryから要求合流と初回表示を確認し、実DBへのMEMO保存・譜面TITLE確定後の集合は `PlaylistCatalogViewChangeTests.TitleRegex_EntryMemoCommitsPreserveMembershipAndMetadataChangesReevaluate` が分担する。 |
 | 保存の成功順序、失敗時の不変性、履歴とお気に入り | [`KeywordSearchSavedQueryOwner`](../../../BeMusicSeeker/ViewModels/Search/KeywordSearchSavedQuery.cs) | [`KeywordSearchSavedQueryStoreTests`](../../../BeMusicSeeker.Tests/Search/KeywordSearchSavedQueryStoreTests.cs)、[`ApplicationCompositionTests`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionTests.cs) |
-| 明示入力のIME判定、区画のスクロール、行内ボタン、行の再利用 | [`KeywordSearchEditor`](../../../BeMusicSeeker/Views/Search/KeywordSearchEditor.xaml.cs) | [`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs)で明示入力と実WPFの接続・配置を自動検証する。OSの実フォーカス・IME・キー操作は[ユーザーに推奨する実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分ける。 |
+| 現在modifier・IME判定、仮想化後の選択・強調・適用、区画横断と折返し、言語変更での行再利用 | [`KeywordSearchEditor`](../../../BeMusicSeeker/Views/Search/KeywordSearchEditor.xaml.cs) | [`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs)の `SearchEditor_LargeFavoritesVirtualizeOffViewportRows` は言語往復後も同じ行内ボタンの説明を更新して選択・入力・各scrollを保持することを含む。`SearchEditor_NavigationAndImeKeepInputLifecycleOwnedByEditor`、`SearchEditor_ActiveImeCompositionRoutedEventsDoNotApplyOrCommitHistory` と共に共通入力境界と実WPFの接続・生成を確認する。 |
+| 保存行本人の選択維持、所有Popupからの離脱、保留focusの寿命 | 同上 | `SearchEditor_SavedRowSelectionSurvivesActionRoundTripAndClearsOnRemoval` はCtrl+Spaceの同値再計算後も選択した保存行のボタンへ移動できること、`SearchEditor_LargeFavoritesVirtualizeOffViewportRows` は言語往復後のボタン往復と同候補適用を含む。`SearchEditor_OwnedPopupFocusTransitionsEndOnlyTheDepartedEditor`、`SearchEditor_PendingActionFocusIsInvalidatedAtEachLifetimeBoundary` と共に実部品の入力・focusイベント接続と保存状態・閉鎖通知を確認する。古い入力の拒否と同値通知・Blur冪等は `KeywordSearchPresentationTests.KsaRevisionCandidate_*` / `KsaLifecycle_*` が分担する。OSの物理フォーカス・IME・キー操作は[ユーザーに推奨する実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分ける。 |
 | 表示文字列の言語間整合 | 表示リソースと各言語の辞書 | [`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs) |
 
 ## 関連資料

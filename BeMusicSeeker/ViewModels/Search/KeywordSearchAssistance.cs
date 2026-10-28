@@ -217,6 +217,20 @@ public sealed class KeywordSearchPresentationItem
 
     internal bool IsSavedQuery => Kind is KeywordSearchPresentationItemKind.Favorite or KeywordSearchPresentationItemKind.History;
 
+    /// <summary>
+    /// 入力状態の適用可否とは独立に、同じ区画の同じ候補行かを比較します。
+    /// 保存式は保存された本文、補完は挿入内容で識別し、新しい保存IDは持ちません。
+    /// </summary>
+    /// <param name="other">比較する候補行。</param>
+    /// <returns>種別と行の内容が一致する場合は <see langword="true"/>。</returns>
+    internal bool HasSameRowIdentity(KeywordSearchPresentationItem other)
+        => other != null
+            && Kind == other.Kind
+            && string.Equals(
+                IsSavedQuery ? Query : InsertionText,
+                other.IsSavedQuery ? other.Query : other.InsertionText,
+                StringComparison.Ordinal);
+
     internal int ReplacementStart => Identity.ReplacementStart;
 
     internal int ReplacementLength => Identity.ReplacementLength;
@@ -1093,7 +1107,13 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
     private CandidateSnapshotKey CreateCurrentKeyUnsafe()
         => new(currentText, currentCaretIndex, context, catalogSnapshot.Revision);
 
-    private static bool PresentationEquivalent(
+    /// <summary>
+    /// 入力・版・表示内容が等しい通知を、所有者と表示部品で同じ基準により判定します。
+    /// </summary>
+    /// <param name="first">現在の表示。</param>
+    /// <param name="second">次の表示。</param>
+    /// <returns>再反映が不要な場合は <see langword="true"/>。</returns>
+    internal static bool PresentationEquivalent(
         KeywordSearchPresentationState first,
         KeywordSearchPresentationState second)
     {

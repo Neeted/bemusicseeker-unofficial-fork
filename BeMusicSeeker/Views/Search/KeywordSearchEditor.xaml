@@ -6,7 +6,6 @@
              x:Name="editor"
              Focusable="False"
              PreviewKeyDown="EditorPreviewKeyDown"
-             PreviewKeyUp="EditorPreviewKeyUp"
              SnapsToDevicePixels="True"
              UseLayoutRounding="True">
   <UserControl.Resources>
@@ -148,7 +147,7 @@
                   FontSize="14"
                   Focusable="True"
                   IsTabStop="True"
-                  Loaded="RemoveFavoriteButtonLoaded"
+                  Loaded="ActionButtonLoaded"
                   PreviewMouseLeftButtonDown="ActionButtonPreviewMouseLeftButtonDown"
                   Click="RemoveFavoriteButtonClick">
             <Button.Style>
@@ -173,7 +172,7 @@
                   FontSize="14"
                   Focusable="True"
                   IsTabStop="True"
-                  Loaded="AddFavoriteButtonLoaded"
+                  Loaded="ActionButtonLoaded"
                   PreviewMouseLeftButtonDown="ActionButtonPreviewMouseLeftButtonDown"
                   Click="AddFavoriteButtonClick">
             <Button.Style>
@@ -198,7 +197,7 @@
                   FontSize="14"
                   Focusable="True"
                   IsTabStop="True"
-                  Loaded="DeleteHistoryButtonLoaded"
+                  Loaded="ActionButtonLoaded"
                   PreviewMouseLeftButtonDown="ActionButtonPreviewMouseLeftButtonDown"
                   Click="DeleteHistoryButtonClick">
             <Button.Style>
@@ -225,8 +224,7 @@
              TextChanged="InputTextBoxTextChanged"
              SelectionChanged="InputTextBoxSelectionChanged"
              GotKeyboardFocus="InputTextBoxGotKeyboardFocus"
-             LostKeyboardFocus="InputTextBoxLostKeyboardFocus"
-             PreviewKeyDown="InputTextBoxPreviewKeyDown" />
+             />
     <Popup x:Name="AssistancePopup"
            Placement="Bottom"
            PlacementTarget="{Binding ElementName=editorSurface}"
@@ -234,6 +232,7 @@
            StaysOpen="True"
            AllowsTransparency="True">
       <Border BorderBrush="{DynamicResource App.BorderBrush}"
+              PreviewKeyDown="EditorPreviewKeyDown"
               BorderThickness="1"
               Background="{DynamicResource App.PopupBackgroundBrush}"
               Padding="0"

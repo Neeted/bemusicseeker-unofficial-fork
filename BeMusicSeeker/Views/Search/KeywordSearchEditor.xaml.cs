@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Windows;
@@ -53,7 +54,15 @@ public partial class KeywordSearchEditor : UserControl
 
     private bool resourceServiceSubscribed;
 
-    private bool shiftKeyDown;
+    private bool interactionActive;
+
+    private bool endingInteraction;
+
+    private bool applyingPresentation;
+
+    private DispatcherOperation pendingActionFocusOperation;
+
+    private DispatcherOperation pendingInputFocusOperation;
 
     private KeywordSearchPresentationItem pendingActionFocusItem;
 
@@ -71,6 +80,10 @@ public partial class KeywordSearchEditor : UserControl
         presentation = null;
         Loaded += KeywordSearchEditorLoaded;
         Unloaded += KeywordSearchEditorUnloaded;
+        AddHandler(Keyboard.LostKeyboardFocusEvent,
+            new KeyboardFocusChangedEventHandler(EditorLostKeyboardFocus), handledEventsToo: true);
+        AssistancePopup.Child.AddHandler(Keyboard.LostKeyboardFocusEvent,
+            new KeyboardFocusChangedEventHandler(EditorLostKeyboardFocus), handledEventsToo: true);
         TextCompositionManager.AddPreviewTextInputStartHandler(
             InputTextBox,
             InputTextBoxPreviewTextInputStart);
@@ -112,9 +125,9 @@ public partial class KeywordSearchEditor : UserControl
     internal KeywordSearchPresentationState Presentation => presentation;
 
     /// <summary>
-    /// Injects the owner for this editor's normal or playlist-summary search scope.
+    /// 通常検索またはプレイリスト一覧検索の所有者を接続し、交換時は旧候補と保留focusを破棄します。
     /// </summary>
-    /// <param name="owner">The explicit immutable-presentation owner.</param>
+    /// <param name="owner">候補と保存式を所有する明示的な接続先。</param>
     internal void Configure(KeywordSearchAssistanceOwner owner)
     {
         ArgumentNullException.ThrowIfNull(owner);
@@ -125,7 +138,10 @@ public partial class KeywordSearchEditor : UserControl
             return;
         }
 
+        EndInteraction(commitHistory: false);
         UnsubscribeOwner();
+        presentation = null;
+        selectedIndex = -1;
         assistanceOwner = owner;
         SubscribeOwner();
         ApplyPresentation(owner.Presentation);
@@ -153,36 +169,31 @@ public partial class KeywordSearchEditor : UserControl
     }
 
     /// <summary>
-    /// Closes the local surface for a window deactivation without writing popup state to a ViewModel.
+    /// ウィンドウ非活性時に候補と保留focusを閉じ、Popupの状態をViewModelへ持ち込みません。
     /// </summary>
     internal void CloseForWindowDeactivation()
     {
-        imeCompositionActive = false;
-        if (assistanceOwner != null)
-        {
-            ApplyPresentation(assistanceOwner.Blur());
-        }
-        else
-        {
-            AssistancePopup.IsOpen = false;
-            SectionsHost.Children.Clear();
-        }
+        EndInteraction(commitHistory: false);
     }
 
     /// <summary>
-    /// Clears keyboard focus when a host-level mouse route observes an outside click.
-    /// The TextBox lost-focus handler remains the single owner-blur and history-commit
-    /// lifecycle so the route also works when assistance is already closed.
+    /// 親画面で検出した外側クリックを通常の離脱処理へ接続し、所有するキーボードfocusを解除します。
+    /// 候補が既に閉じている場合も、入力欄・Popupからの離脱と同じ一回の履歴確定を使います。
     /// </summary>
-    /// <param name="clickedElement">The original element receiving the mouse event.</param>
+    /// <param name="clickedElement">マウスイベントを受け取った元の要素。</param>
     internal void ClearKeyboardFocusIfOutside(DependencyObject clickedElement)
     {
-        if (IsOwnedElement(clickedElement) || !InputTextBox.IsKeyboardFocusWithin)
+        if (IsOwnedElement(clickedElement))
         {
             return;
         }
 
-        Keyboard.ClearFocus();
+        bool clearFocus = Keyboard.FocusedElement is DependencyObject focused && IsOwnedElement(focused);
+        EndInteraction(commitHistory: true);
+        if (clearFocus)
+        {
+            Keyboard.ClearFocus();
+        }
     }
 
     private void KeywordSearchEditorLoaded(object sender, RoutedEventArgs e)
@@ -194,13 +205,9 @@ public partial class KeywordSearchEditor : UserControl
 
     private void KeywordSearchEditorUnloaded(object sender, RoutedEventArgs e)
     {
-        imeCompositionActive = false;
+        EndInteraction(commitHistory: false);
         UnsubscribeOwner();
         UnsubscribeResourceService();
-        if (assistanceOwner != null)
-        {
-            ApplyPresentation(assistanceOwner.Blur());
-        }
     }
 
     private void SubscribeResourceService()
@@ -251,6 +258,11 @@ public partial class KeywordSearchEditor : UserControl
         {
             ApplyPresentation(assistanceOwner?.Refresh(InputTextBox.Text, InputTextBox.CaretIndex));
         }
+        // 区画を再利用したボタンはLoadedが再発火しないため、実体化済みの表示だけを更新します。
+        foreach (Button button in FindVisualDescendants<Button>(SectionsHost))
+        {
+            SetActionAccessibility(button);
+        }
     }
 
     private void SubscribeOwner()
@@ -275,6 +287,7 @@ public partial class KeywordSearchEditor : UserControl
 
     private void AssistanceOwnerPresentationChanged(object sender, EventArgs e)
     {
+        KeywordSearchAssistanceOwner owner = assistanceOwner;
         if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
         {
             return;
@@ -283,7 +296,13 @@ public partial class KeywordSearchEditor : UserControl
         {
             Dispatcher.BeginInvoke(
                 System.Windows.Threading.DispatcherPriority.Input,
-                new Action(() => ApplyPresentation(assistanceOwner?.Presentation)));
+                new Action(() =>
+                {
+                    if (IsLoaded && ownerSubscribed && ReferenceEquals(owner, assistanceOwner))
+                    {
+                        ApplyPresentation(owner.Presentation);
+                    }
+                }));
             return;
         }
         ApplyPresentation(assistanceOwner?.Presentation);
@@ -311,20 +330,55 @@ public partial class KeywordSearchEditor : UserControl
         {
             return;
         }
-        ApplyPresentation(assistanceOwner.Focus(InputTextBox.Text, InputTextBox.CaretIndex));
-    }
-
-    private void InputTextBoxLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
-    {
-        imeCompositionActive = false;
-        if (assistanceOwner == null
-            || pendingActionFocusItem != null
-            || IsOwnedElement(e.NewFocus as DependencyObject))
+        if (interactionActive && IsOwnedElement(e.OldFocus as DependencyObject))
         {
             return;
         }
-        CommitCurrentHistory();
-        ApplyPresentation(assistanceOwner.Blur());
+        interactionActive = true;
+        ApplyPresentation(assistanceOwner.Focus(InputTextBox.Text, InputTextBox.CaretIndex));
+    }
+
+    private void EditorLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (applyingPresentation || IsOwnedElement(e.NewFocus as DependencyObject))
+        {
+            return;
+        }
+        EndInteraction(commitHistory: true);
+    }
+
+    private void EndInteraction(bool commitHistory)
+    {
+        imeCompositionActive = false;
+        if (endingInteraction || !interactionActive)
+        {
+            InvalidatePendingFocus();
+            return;
+        }
+        interactionActive = false;
+        endingInteraction = true;
+        try
+        {
+            InvalidatePendingFocus();
+            if (commitHistory)
+            {
+                CommitCurrentHistory();
+            }
+        }
+        finally
+        {
+            try
+            {
+                if (assistanceOwner != null)
+                {
+                    ApplyPresentation(assistanceOwner.Blur());
+                }
+            }
+            finally
+            {
+                endingInteraction = false;
+            }
+        }
     }
 
     private void InputTextBoxPreviewTextInputStart(object sender, TextCompositionEventArgs e)
@@ -337,56 +391,44 @@ public partial class KeywordSearchEditor : UserControl
         => imeCompositionActive = false;
 
     private void EditorPreviewKeyDown(object sender, KeyEventArgs e)
+        => e.Handled |= HandleEditorKey(
+            e.OriginalSource as DependencyObject, e.Key, e.KeyboardDevice.Modifiers, e.ImeProcessedKey);
+
+    /// <summary>
+    /// 入力欄と所有Popupのキーを現在の修飾キーで判定し、同じ行内の移動へ接続します。
+    /// </summary>
+    /// <param name="source">入力元の実部品。</param>
+    /// <param name="key">処理するキー。</param>
+    /// <param name="modifiers">この入力で現在押されている修飾キー。</param>
+    /// <param name="imeProcessedKey">IMEが処理した元のキー。</param>
+    /// <returns>検索部品が処理した場合は <see langword="true"/>。</returns>
+    internal bool HandleEditorKey(
+        DependencyObject source, Key key, ModifierKeys modifiers, Key imeProcessedKey = Key.None)
     {
-        if (e.Key is Key.LeftShift or Key.RightShift)
+        if (ReferenceEquals(source, InputTextBox))
         {
-            shiftKeyDown = true;
-            return;
+            return HandleInputKey(key, modifiers, imeProcessedKey);
         }
-
-        var originalSource = e.OriginalSource as DependencyObject;
-        if (e.Key == Key.Tab && IsActionButton(originalSource))
+        Button button = FindVisualAncestor<Button>(source);
+        if (!IsActionButton(button) || IsImeCommitKey(key, imeProcessedKey))
         {
-            CycleActionButtons((Button)originalSource, IsShiftPressed(e));
-            e.Handled = true;
-            return;
+            return false;
         }
-
-        if (e.Key == Key.Tab
-            && ReferenceEquals(originalSource, InputTextBox)
-            && IsShiftPressed(e)
-            && AssistancePopup.IsOpen
-            && TryFocusSavedRowAction())
+        if (key == Key.Tab)
         {
-            e.Handled = true;
-            return;
+            CycleActionButtons(button, (modifiers & ModifierKeys.Shift) != 0);
+            return true;
         }
-
-        if (e.Key == Key.Escape && IsActionButton(originalSource))
+        if (key == Key.Escape)
         {
             FocusInputTextBox();
             if (assistanceOwner != null)
             {
                 ApplyPresentation(assistanceOwner.SuppressCurrentSnapshot());
             }
-            e.Handled = true;
+            return true;
         }
-    }
-
-    private void EditorPreviewKeyUp(object sender, KeyEventArgs e)
-    {
-        if (e.Key is Key.LeftShift or Key.RightShift)
-        {
-            shiftKeyDown = false;
-        }
-    }
-
-    private void InputTextBoxPreviewKeyDown(object sender, KeyEventArgs e)
-    {
-        e.Handled |= HandleInputKey(
-            e.Key,
-            e.KeyboardDevice.Modifiers,
-            e.ImeProcessedKey);
+        return false;
     }
 
     /// <summary>
@@ -409,6 +451,11 @@ public partial class KeywordSearchEditor : UserControl
         if (assistanceOwner == null || IsImeCommitKey(key, imeProcessedKey))
         {
             return false;
+        }
+
+        if (key == Key.Tab && (modifiers & ModifierKeys.Shift) != 0)
+        {
+            return AssistancePopup.IsOpen && TryFocusSavedRowAction();
         }
 
         if ((modifiers & ModifierKeys.Control) != 0 && key == Key.Space)
@@ -492,31 +539,76 @@ public partial class KeywordSearchEditor : UserControl
         }
 
         KeywordSearchPresentationItem selectedItem = SelectedItem;
+        bool equivalent = KeywordSearchAssistanceOwner.PresentationEquivalent(presentation, next);
         presentation = next;
-        selectedIndex = selectedItem == null
-            ? Math.Min(selectedIndex, next.VisibleItems.Count - 1)
-            : FindItemIndex(next.VisibleItems, selectedItem.Identity);
-        if (selectedIndex < 0 && next.VisibleItems.Count > 0 && AssistancePopup.IsOpen)
+        if (next.IsOpen && !endingInteraction)
         {
-            selectedIndex = -1;
+            interactionActive = true;
         }
+        if (equivalent)
+        {
+            return;
+        }
+        selectedIndex = selectedItem == null
+            ? -1
+            : FindItemIndex(next.VisibleItems, selectedItem);
         if (!next.IsOpen)
         {
+            InvalidatePendingFocus();
+            selectedIndex = -1;
             AssistancePopup.IsOpen = false;
             SectionsHost.Children.Clear();
             renderedSections.Clear();
-            pendingActionFocusItem = null;
-            ClearActionLogicalFocus();
             return;
         }
-
-        RenderSections(next);
-        AssistancePopup.IsOpen = true;
-        ApplySelectionVisuals();
+        applyingPresentation = true;
+        try
+        {
+            RenderSections(next);
+            AssistancePopup.IsOpen = true;
+            ApplySelectionVisuals();
+        }
+        finally
+        {
+            applyingPresentation = false;
+        }
     }
 
     private void RenderSections(KeywordSearchPresentationState state)
     {
+        KeywordSearchPresentationSection[] sections = state.Sections.Where(section => section.IsVisible).ToArray();
+        if (sections.Length == renderedSections.Count
+            && sections.Select((section, index) =>
+                renderedSections[index].Tag is KeywordSearchPresentationSectionKind kind
+                && kind == section.Kind
+                && renderedSections[index].Items.Count == section.Items.Count
+                && section.Items.Select((item, row) =>
+                    item.HasSameRowIdentity((KeywordSearchPresentationItem)renderedSections[index].Items[row])).All(same => same))
+                .All(same => same))
+        {
+            // 純表示変更や同じ候補の版更新では区画を保持し、仮想scrollを先頭へ戻しません。
+            for (int index = 0; index < sections.Length; index++)
+            {
+                ListBox rows = renderedSections[index];
+                var items = (ObservableCollection<KeywordSearchPresentationItem>)rows.ItemsSource;
+                for (int row = 0; row < items.Count; row++)
+                {
+                    KeywordSearchPresentationItem nextItem = sections[index].Items[row];
+                    if (!items[row].Identity.Equals(nextItem.Identity)
+                        || items[row].Actions != nextItem.Actions
+                        || !string.Equals(items[row].DisplayText, nextItem.DisplayText, StringComparison.Ordinal))
+                    {
+                        items[row] = nextItem;
+                    }
+                }
+                if (rows.Parent is StackPanel panel && panel.Children[0] is TextBlock header)
+                {
+                    header.Text = sections[index].HeaderText;
+                }
+            }
+            return;
+        }
+        InvalidatePendingFocus();
         SectionsHost.Children.Clear();
         renderedSections.Clear();
         foreach (KeywordSearchPresentationSection section in state.Sections)
@@ -544,7 +636,8 @@ public partial class KeywordSearchEditor : UserControl
 
             var rows = new ListBox
             {
-                ItemsSource = section.Items,
+                ItemsSource = new ObservableCollection<KeywordSearchPresentationItem>(section.Items),
+                Tag = section.Kind,
                 Template = (ControlTemplate)FindResource("KeywordSearchListBoxTemplate"),
                 ItemTemplate = (DataTemplate)FindResource("KeywordSearchItemTemplate"),
                 ItemContainerStyle = (Style)FindResource("KeywordSearchListBoxItemStyle"),
@@ -636,22 +729,26 @@ public partial class KeywordSearchEditor : UserControl
     private void DeleteHistoryButtonClick(object sender, RoutedEventArgs e)
         => HandleActionButton(sender, KeywordSearchEditorAction.DeleteHistory);
 
-    private void RemoveFavoriteButtonLoaded(object sender, RoutedEventArgs e)
-        => SetActionAccessibility(sender, AppResources.Keyword_search_remove_favorite_tooltip);
+    private void ActionButtonLoaded(object sender, RoutedEventArgs e)
+        => SetActionAccessibility(sender);
 
-    private void AddFavoriteButtonLoaded(object sender, RoutedEventArgs e)
-        => SetActionAccessibility(sender, AppResources.Keyword_search_add_favorite_tooltip);
-
-    private void DeleteHistoryButtonLoaded(object sender, RoutedEventArgs e)
-        => SetActionAccessibility(sender, AppResources.Keyword_search_delete_history_tooltip);
-
-    private static void SetActionAccessibility(object sender, string accessibleText)
+    private static void SetActionAccessibility(object sender)
     {
         if (sender is not Button button)
         {
             return;
         }
-        string text = accessibleText ?? string.Empty;
+        string text = button.Name switch
+        {
+            "RemoveFavoriteButton" => AppResources.Keyword_search_remove_favorite_tooltip,
+            "AddFavoriteButton" => AppResources.Keyword_search_add_favorite_tooltip,
+            "DeleteHistoryButton" => AppResources.Keyword_search_delete_history_tooltip,
+            _ => null
+        };
+        if (text == null)
+        {
+            return;
+        }
         button.ToolTip = text;
         AutomationProperties.SetName(button, text);
     }
@@ -678,7 +775,6 @@ public partial class KeywordSearchEditor : UserControl
             RestoreInputFocusAfterKeyboardAction(restoreFocusAfterKeyboardActivation);
             return;
         }
-        selectedIndex = -1;
         FocusInputTextBox();
         RefreshFromInput();
         RestoreInputFocusAfterKeyboardAction(restoreFocusAfterKeyboardActivation);
@@ -691,11 +787,15 @@ public partial class KeywordSearchEditor : UserControl
             return;
         }
 
-        Dispatcher.BeginInvoke(
+        pendingInputFocusOperation?.Abort();
+        KeywordSearchAssistanceOwner owner = assistanceOwner;
+        pendingInputFocusOperation = Dispatcher.BeginInvoke(
             DispatcherPriority.Input,
             new Action(() =>
             {
-                if (!IsLoaded || InputTextBox.IsKeyboardFocusWithin)
+                pendingInputFocusOperation = null;
+                if (!IsLoaded || !interactionActive || !ReferenceEquals(owner, assistanceOwner)
+                    || InputTextBox.IsKeyboardFocusWithin)
                 {
                     return;
                 }
@@ -712,6 +812,9 @@ public partial class KeywordSearchEditor : UserControl
 
     private void FocusInputTextBox()
     {
+        pendingActionFocusOperation?.Abort();
+        pendingActionFocusOperation = null;
+        pendingActionFocusItem = null;
         ClearActionLogicalFocus();
         FocusManager.SetFocusedElement(
             FocusManager.GetFocusScope(InputTextBox),
@@ -750,7 +853,7 @@ public partial class KeywordSearchEditor : UserControl
         {
             applyingText = false;
         }
-        InputTextBox.Focus();
+        FocusInputTextBox();
         RefreshFromInput();
     }
 
@@ -775,7 +878,7 @@ public partial class KeywordSearchEditor : UserControl
         selectedIndex = 0;
         ApplySelectionVisuals();
         ScrollSelectedRowIntoView();
-        InputTextBox.Focus();
+        FocusInputTextBox();
     }
 
     private void Navigate(int delta)
@@ -790,7 +893,7 @@ public partial class KeywordSearchEditor : UserControl
             : (selectedIndex + delta + count) % count;
         ApplySelectionVisuals();
         ScrollSelectedRowIntoView();
-        InputTextBox.Focus();
+        FocusInputTextBox();
     }
 
     private KeywordSearchPresentationItem SelectedItem
@@ -805,19 +908,9 @@ public partial class KeywordSearchEditor : UserControl
         int flattenedIndex = 0;
         foreach (ListBox rows in renderedSections)
         {
-            for (int itemIndex = 0; itemIndex < rows.Items.Count; itemIndex++)
-            {
-                if (rows.ItemContainerGenerator.ContainerFromIndex(itemIndex) is not ListBoxItem container)
-                {
-                    flattenedIndex++;
-                    continue;
-                }
-
-                container.SetCurrentValue(
-                    ListBoxItem.IsSelectedProperty,
-                    flattenedIndex == selectedIndex);
-                flattenedIndex++;
-            }
+            int localIndex = selectedIndex - flattenedIndex;
+            rows.SelectedIndex = localIndex >= 0 && localIndex < rows.Items.Count ? localIndex : -1;
+            flattenedIndex += rows.Items.Count;
         }
     }
 
@@ -855,15 +948,21 @@ public partial class KeywordSearchEditor : UserControl
 
     private bool FocusFirstAction(KeywordSearchPresentationItem item)
     {
-        pendingActionFocusItem = item;
+        pendingActionFocusOperation?.Abort();
+        pendingActionFocusOperation = null;
+        pendingActionFocusItem = null;
         foreach (ListBox rows in renderedSections)
         {
-            if (!rows.Items.Contains(item))
+            // 同値再計算では表示中のitemを保持するため、新presentationとの参照一致を要求しません。
+            KeywordSearchPresentationItem displayedItem = rows.Items.OfType<KeywordSearchPresentationItem>()
+                .FirstOrDefault(candidate => candidate.HasSameRowIdentity(item));
+            if (displayedItem == null)
             {
                 continue;
             }
+            pendingActionFocusItem = displayedItem;
 
-            if (rows.ItemContainerGenerator.ContainerFromItem(item) is ListBoxItem container)
+            if (rows.ItemContainerGenerator.ContainerFromItem(displayedItem) is ListBoxItem container)
             {
                 Button button = GetActionButtons(container).FirstOrDefault();
                 if (button != null)
@@ -874,32 +973,14 @@ public partial class KeywordSearchEditor : UserControl
                     }
                     else
                     {
-                        RetryPendingActionFocus(item, rows);
+                        RetryPendingActionFocus(displayedItem, rows);
                     }
                     return true;
                 }
             }
 
-            rows.ScrollIntoView(item);
-            Dispatcher.BeginInvoke(
-                DispatcherPriority.Loaded,
-                new Action(() =>
-                {
-                    if (pendingActionFocusItem == null
-                        || !pendingActionFocusItem.Identity.Equals(item.Identity)
-                        || rows.ItemContainerGenerator.ContainerFromItem(item) is not ListBoxItem container)
-                    {
-                        pendingActionFocusItem = null;
-                        return;
-                    }
-
-                    Button button = GetActionButtons(container).FirstOrDefault();
-                    if (button != null)
-                    {
-                        _ = TryFocusActionButton(button);
-                    }
-                    pendingActionFocusItem = null;
-                }));
+            rows.ScrollIntoView(displayedItem);
+            RetryPendingActionFocus(displayedItem, rows);
             return true;
         }
         pendingActionFocusItem = null;
@@ -907,16 +988,20 @@ public partial class KeywordSearchEditor : UserControl
     }
 
     private void RetryPendingActionFocus(
-        KeywordSearchPresentationItem item,
+        KeywordSearchPresentationItem displayedItem,
         ListBox rows)
     {
-        Dispatcher.BeginInvoke(
+        KeywordSearchAssistanceOwner owner = assistanceOwner;
+        pendingActionFocusOperation = Dispatcher.BeginInvoke(
             DispatcherPriority.Input,
             new Action(() =>
             {
-                if (pendingActionFocusItem == null
-                    || !pendingActionFocusItem.Identity.Equals(item.Identity)
-                    || rows.ItemContainerGenerator.ContainerFromItem(item) is not ListBoxItem container)
+                pendingActionFocusOperation = null;
+                if (!IsLoaded || !interactionActive || !AssistancePopup.IsOpen
+                    || !ReferenceEquals(owner, assistanceOwner)
+                    || !renderedSections.Contains(rows)
+                    || !ReferenceEquals(pendingActionFocusItem, displayedItem)
+                    || rows.ItemContainerGenerator.ContainerFromItem(displayedItem) is not ListBoxItem container)
                 {
                     pendingActionFocusItem = null;
                     return;
@@ -980,6 +1065,16 @@ public partial class KeywordSearchEditor : UserControl
         actionLogicalFocusTarget = null;
     }
 
+    private void InvalidatePendingFocus()
+    {
+        pendingActionFocusOperation?.Abort();
+        pendingActionFocusOperation = null;
+        pendingInputFocusOperation?.Abort();
+        pendingInputFocusOperation = null;
+        pendingActionFocusItem = null;
+        ClearActionLogicalFocus();
+    }
+
     private static IEnumerable<Button> GetActionButtons(ListBoxItem container)
         => FindVisualDescendants<Button>(container)
             .Where(button => button.Focusable
@@ -996,11 +1091,6 @@ public partial class KeywordSearchEditor : UserControl
             && button.IsTabStop
             && AssistancePopup.Child is DependencyObject popupChild
             && IsDescendantOf(button, popupChild);
-
-    private bool IsShiftPressed(KeyEventArgs e)
-        => shiftKeyDown
-            || (e.KeyboardDevice.Modifiers & ModifierKeys.Shift) != 0
-            || (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
 
     private static T FindVisualAncestor<T>(DependencyObject element)
         where T : DependencyObject
@@ -1041,15 +1131,15 @@ public partial class KeywordSearchEditor : UserControl
 
     private static int FindItemIndex(
         IReadOnlyList<KeywordSearchPresentationItem> items,
-        KeywordSearchCandidateIdentity identity)
+        KeywordSearchPresentationItem item)
     {
-        if (identity == null)
+        if (item == null)
         {
             return -1;
         }
         for (int index = 0; index < (items?.Count ?? 0); index++)
         {
-            if (items[index].Identity.Equals(identity))
+            if (items[index].HasSameRowIdentity(item))
             {
                 return index;
             }
@@ -1071,14 +1161,8 @@ public partial class KeywordSearchEditor : UserControl
         {
             return false;
         }
-        if (element is Button { Tag: KeywordSearchPresentationItem actionItem }
-            && HasAction(actionItem))
-        {
-            return true;
-        }
         if (IsDescendantOf(element, this)
-            || (AssistancePopup.Child is DependencyObject popupChild && IsDescendantOf(element, popupChild))
-            || AssistancePopup.IsMouseOver)
+            || (AssistancePopup.Child is DependencyObject popupChild && IsDescendantOf(element, popupChild)))
         {
             return true;
         }
