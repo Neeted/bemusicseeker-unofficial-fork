@@ -754,13 +754,14 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
-    /// <summary>改名・別folderの更新・特殊子と内容あり/空folder削除を実保存し、選択requestと詳細hashを照合して旧名復元や一律root選択を検出します。WPFの構造置換イベントは実MainWindow代表へ分担します。</summary>
+    /// <summary>改名・別folderの更新・特殊子と内容あり/空folder削除を実保存し、選択requestと詳細hashを照合します。Bから前後空白Aへの改名はAを保持し、独立DB読取りと新storeの読込み後も全所属と各詳細表示を維持します。WPFの構造置換は実MainWindow代表へ分担します。</summary>
     [DataTestMethod]
     [DataRow("rename")]
     [DataRow("other")]
     [DataRow("special")]
     [DataRow("remove")]
     [DataRow("empty")]
+    [DataRow("whitespace")]
     public async Task PlaylistFolderMutation_PreservesOrRemapsSelectionAndDetail(string operation)
     {
         using PlaylistWorkspaceTestPorts.OwnedPlaylistStore owned = PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
@@ -772,7 +773,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             is_bmt_output = false,
             entries = [new BMSTableEntry { md5 = new string('a', 32), title = "A", folder = "A" },
                 new BMSTableEntry { md5 = new string('b', 32), title = "B", folder = "B" },
-                new BMSTableEntry { md5 = BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER, folder = "Empty" }]
+                new BMSTableEntry { md5 = BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER, title = "Empty folder", folder = "Empty" }]
         };
         owned.Store.BMSTables.Add(table);
         owned.Store.CommitBMSTableWithEntriesToDB(table);
@@ -783,23 +784,67 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         workspace.RequestDetailSelection(table, operation == "special"
             ? PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned)
-            : PlaylistFolderNode.CreateFolder(operation == "empty" ? "Empty" : "A"));
+            : PlaylistFolderNode.CreateFolder(operation switch { "empty" => "Empty", "whitespace" => "B", _ => "A" }));
         workspace.SetDetailDataSource(new PlaylistDetailDataSource(new TestBmsLibrary(owned.SongDbPath), owned.Store, new MainChartRowProjectionOwner()));
         workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
         if (operation is "remove" or "empty")
         {
             await workspace.PlaylistRemovalWorkflow.RemoveFolderAsync(table, PlaylistFolderNode.CreateFolder(operation == "empty" ? "Empty" : "A"));
         }
-        else { await workspace.RenameFolderAsync(table, PlaylistFolderNode.CreateFolder(operation == "other" ? "B" : "A"), "C"); }
+        else
+        {
+            await workspace.RenameFolderAsync(table,
+                PlaylistFolderNode.CreateFolder(operation is "other" or "whitespace" ? "B" : "A"),
+                operation == "whitespace" ? " A " : "C");
+        }
         PlaylistDetailSelection selection = workspace.CapturePlaylistDetailSelection();
         Assert.AreSame(table, selection.Table);
         Assert.AreEqual(operation == "empty" ? PlaylistDetailSelectionScope.OrdinaryRoot : PlaylistDetailSelectionScope.Folder, selection.Scope);
-        Assert.AreEqual(operation switch { "rename" => "C", "remove" => "", "other" => "A", _ => null }, selection.FolderName);
+        Assert.AreEqual(operation switch { "rename" => "C", "remove" => "", "other" => "A", "whitespace" => " A ", _ => null }, selection.FolderName);
         Assert.AreEqual(operation == "special" ? PlaylistDetailFilter.PlaylistNotOwnedFilterSelected : PlaylistDetailFilter.PlaylistFilter, selection.Filter);
-        await workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected,
+        Task refreshing = workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected,
             MainViewUpdateMode.PlaylistFilterSelected, false, default);
-        string[] expected = operation is "special" or "empty" ? [new string('a', 32), new string('b', 32)] : [new string('a', 32)];
+        try { await refreshing; }
+        finally { await Task.WhenAll(refreshing, workspace.WaitForDetailBuildIdleAsync()); }
+        string[] expected = operation is "special" or "empty" ? [new string('a', 32), new string('b', 32)]
+            : [new string(operation == "whitespace" ? 'b' : 'a', 32)];
         CollectionAssert.AreEquivalent(expected, workspace.DetailViewState.Source.Rows.Select(row => row.Entry.md5).ToArray());
+        if (operation == "whitespace")
+        {
+            (string, string, string)[] all = new[] { (new string('a', 32), "A", "A"), (new string('b', 32), "B", " A "),
+                (BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER, "Empty folder", "Empty") };
+            CollectionAssert.AreEquivalent(all, table.entries.Select(entry => (entry.md5, entry.title, entry.folder)).ToArray());
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(owned.SongDbPath).OpenSongDbReadOnly())
+            {
+                CollectionAssert.AreEquivalent(all, db.Table<BMSTableEntry>().Where(entry => entry.playlist_id == table.playlist_id)
+                    .ToArray().Select(entry => (entry.md5, entry.title, entry.folder)).ToArray());
+            }
+            var freshStore = new TestBmsPlaylist(owned.SongDbPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
+            freshStore.BMSTables = new ObservableCollection<BMSTable>(new PlaylistPersistenceRepository(owned.SongDbPath).LoadPlaylistHeaders());
+            BMSTable freshTable = freshStore.BMSTables.Single(item => item.playlist_id == table.playlist_id);
+            Assert.AreNotSame(table, freshTable);
+            Assert.IsFalse(freshTable.ArePlaylistEntriesLoaded);
+            freshStore.EnsurePlaylistEntriesLoaded(freshTable, "folder_name_readback");
+            CollectionAssert.AreEquivalent(all, freshTable.entries.Select(entry => (entry.md5, entry.title, entry.folder)).ToArray());
+            using PlaylistWorkspaceViewModel freshWorkspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => freshStore);
+            freshWorkspace.SetDetailDataSource(new PlaylistDetailDataSource(new TestBmsLibrary(owned.SongDbPath), freshStore, new MainChartRowProjectionOwner()));
+            freshWorkspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+            foreach ((string folder, string hash, string title) in new[] { ("A", new string('a', 32), "A"), (" A ", new string('b', 32), "B"), ("A", new string('a', 32), "A") })
+            {
+                freshWorkspace.RequestDetailSelection(freshTable, PlaylistFolderNode.CreateFolder(folder));
+                Task freshRefresh = freshWorkspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
+                    MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, false, default);
+                try { await freshRefresh; }
+                finally { await Task.WhenAll(freshRefresh, freshWorkspace.WaitForDetailBuildIdleAsync()); }
+                Assert.AreEqual(folder, freshWorkspace.CapturePlaylistDetailSelection().FolderName);
+                CollectionAssert.AreEqual(new[] { (hash, title, folder) }, freshWorkspace.DetailViewState.Source.Rows
+                    .Select(row => (row.Entry.md5, row.Entry.title, row.Entry.folder)).ToArray());
+                CollectionAssert.AreEqual(new[] { (hash, title, folder) }, freshWorkspace.DetailViewState.View.Rows.Cast<PlaylistDetailRow>()
+                    .Select(row => (row.Entry.md5, row.Title, row.Folder)).ToArray());
+            }
+        }
     }
 
     /// <summary>prefix確定後・旧対応通知前に同じキーを明示選択し、新Q1が旧Q1の対応先QQ1へ再変換されないことを、実保存と詳細hashで確認します。</summary>

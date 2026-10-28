@@ -114,6 +114,12 @@ internal readonly struct PlaylistDetailBuildDecision
 
 internal static class PlaylistDetailBuildDecisionService
 {
+    /// <summary>
+    /// 保存済み所属名をOrdinalで照合し、元集合の再構築と表示条件だけの更新を判定します。
+    /// </summary>
+    /// <param name="request">所属名を原値で保持する詳細要求。</param>
+    /// <param name="snapshot">採用済み元集合と表示条件の状態。</param>
+    /// <returns>選択・確定版・表示条件に対応する詳細更新方法。</returns>
     internal static PlaylistDetailBuildDecision Decide(PlaylistBuildRequest request, PlaylistDetailBuildStateSnapshot snapshot)
     {
         if (request == null)
@@ -137,7 +143,7 @@ internal static class PlaylistDetailBuildDecisionService
         bool selectionChanged = !snapshot.CurrentSourceIdentity.HasValue
             || snapshot.CurrentTable != request.Identity.Table
             || snapshot.CurrentSelectionScope != request.Identity.SelectionScope
-            || !string.Equals(PlaylistRequestFactory.NormalizeFolderName(snapshot.CurrentFolderName), request.Identity.FolderName, StringComparison.Ordinal)
+            || !string.Equals(snapshot.CurrentFolderName, request.Identity.FolderName, StringComparison.Ordinal)
             || snapshot.CurrentFilterType != request.Identity.FilterType
             || snapshot.CurrentSourceIdentity.Value.HasResolvedSelection != request.Identity.HasResolvedSelection;
         bool libraryIndexInvalidated = snapshot.LastBuiltLibraryIndexVersion != request.Identity.LibraryIndexVersion;

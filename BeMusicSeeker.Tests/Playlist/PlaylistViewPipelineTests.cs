@@ -1016,9 +1016,9 @@ public sealed class PlaylistViewPipelineTests
         }
     }
 
-    /// <summary>要求作成でfolderと検索式の前後空白を除いて同じ要求へ合流し、通常語の大小文字無視は検索側で維持します。</summary>
+    /// <summary>保存済み所属名の前後空白・空名・空白名とrootを区別し、同じ所属だけ検索式の前後空白を除いて合流します。通常語の大小文字無視は検索側で維持します。</summary>
     [TestMethod]
-    public void CreatePlaylistRequestIdentity_NormalizesKeywordAndFolderForDedup()
+    public void CreatePlaylistRequestIdentity_PreservesFolderKeysAndNormalizesKeywordForDedup()
     {
         var table = new BMSTable();
         var sortParameters = new ChartListSortParameters
@@ -1027,12 +1027,22 @@ public sealed class PlaylistViewPipelineTests
             Direction = ListSortDirection.Ascending
         };
 
-        PlaylistRequestIdentity left = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, " FolderA ", PlaylistDetailFilter.PlaylistFilter, " keyword ", ChartModeFilter._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, scoreSnapshotVersion: 30, chartInfoIndexVersion: 40, hasResolvedSelection: true);
-        PlaylistRequestIdentity right = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "FolderA", PlaylistDetailFilter.PlaylistFilter, "keyword", ChartModeFilter._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, scoreSnapshotVersion: 30, chartInfoIndexVersion: 40, hasResolvedSelection: true);
-
-        Assert.AreEqual(left, right);
+        PlaylistRequestIdentity Identity(string? folder, string keyword) => PlaylistRequestFactory.CreateIdentity(
+            table, PlaylistDetailSelectionScope.Folder, folder, PlaylistDetailFilter.PlaylistFilter, keyword,
+            ChartModeFilter._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20,
+            scoreSnapshotVersion: 30, chartInfoIndexVersion: 40, hasResolvedSelection: true);
+        string[] folders = ["A", " A ", "", " "];
+        PlaylistRequestIdentity[] identities = folders.Select(folder => Identity(folder, " keyword ")).ToArray();
+        Assert.AreEqual(folders.Length, identities.Distinct().Count());
+        for (int index = 0; index < folders.Length; index++)
+        {
+            Assert.AreEqual(folders[index], identities[index].FolderName);
+            Assert.AreEqual(identities[index], Identity(folders[index], "keyword"));
+            Assert.AreNotEqual(identities[index], Identity(null, "keyword"), "nullは実folderではなくrootを表します。");
+        }
+        Assert.IsNull(Identity(null, "keyword").FolderName);
         PlaylistDetailSourceRow row = CreateSourceRow(new string('1', 32), "KEYWORD", 7);
-        Assert.IsTrue(PlaylistDetailVirtualView.Matches(row, left));
+        Assert.IsTrue(PlaylistDetailVirtualView.Matches(row, identities[0]));
     }
 
     /// <summary>実factoryの文字クラスと補集合を順次要求し、同じ式だけが合流し、初回表示が各式の一行を選ぶことを確認します。式全体の大文字化による誤合流を検出します。</summary>
@@ -1198,19 +1208,20 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("selection_changed", reason);
     }
 
-    /// <summary>検索語と鍵数だけが変わる要求はsourceを再構築せず表示だけを適用し、表示変更をsource失効と混同しません。</summary>
+    /// <summary>前後空白を持つ同一所属で検索語と鍵数だけが変わる要求は表示だけを適用し、再利用判定側のTrimによるsource再構築を検出します。</summary>
     [TestMethod]
     public void PlaylistDetailBuildDecision_WhenOnlyPresentationChanges_AppliesViewOnly()
     {
         var table = new BMSTable();
-        PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "Folder", PlaylistDetailFilter.PlaylistFilter, "alpha", ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
-        PlaylistRequestIdentity request = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "Folder", PlaylistDetailFilter.PlaylistFilter, "beta", ChartModeFilter._7KEYS, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, " A ", PlaylistDetailFilter.PlaylistFilter, "alpha", ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity request = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, " A ", PlaylistDetailFilter.PlaylistFilter, "beta", ChartModeFilter._7KEYS, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
 
         PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(
             CreatePlaylistBuildRequest(request),
             CreatePlaylistDetailBuildStateSnapshot(current));
 
         Assert.AreEqual(PlaylistDetailBuildAction.ApplyViewOnly, decision.Action);
+        Assert.IsFalse(decision.SelectionChanged);
         Assert.IsTrue(decision.PresentationIdentityChanged);
         Assert.IsNull(decision.SourceInvalidationReason);
     }

@@ -1098,7 +1098,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         });
     }
 
-    /// <summary>実TreeViewの構造置換による親Selectedを発生させ、改名・prefix保存・別folder更新後の選択と詳細hashを確認します。復元配送前の明示選択も通し、古い復元の優先とOSフォーカス依存を検出します。</summary>
+    /// <summary>実TreeViewの構造置換による親Selectedを発生させ、改名・prefix保存・別folder更新後の選択と詳細hashを確認します。復元配送前の明示選択とA/前後空白Aの実切替を通し、古い復元の優先と所属混同を検出します。</summary>
+    /// <remarks>compiled見出し・選択node・workspace・実詳細行の接続を担当し、空名の条件網羅と保存再読込みはworkspace系列へ分担します。OSフォーカス成功は要求しません。</remarks>
     [TestMethod]
     public void PlaylistFolderStructure_ActualTreeKeepsWorkspaceSelectionAndNewExplicitSelection()
     {
@@ -1276,6 +1277,19 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     Folder("QQQ1").IsSelected = true;
                 });
                 AssertSelection("QQQ1", new string('a', 32));
+
+                RenameForCollision("QQQ1", "A");
+                RenameForCollision("QQQQ1", " A ");
+                foreach ((string name, string hash, string title) in new[]
+                    { (" A ", new string('b', 32), "B"), ("A", new string('a', 32), "A"), (" A ", new string('b', 32), "B") })
+                {
+                    Folder(name).IsSelected = true;
+                    AssertSelection(name, hash);
+                    Assert.AreEqual(name, FindDescendants<EditableTextBlock>(Folder(name)).Single().Text,
+                        "compiled見出しは所属名の前後空白を保持します。");
+                    CollectionAssert.AreEqual(new[] { (hash, title, name) }, workspace.DetailViewState.View.Rows.Cast<PlaylistDetailRow>()
+                        .Select(row => (row.Entry.md5, row.Title, row.Folder)).ToArray());
+                }
             }
             catch (Exception failure) { primaryFailure = failure; throw; }
             finally

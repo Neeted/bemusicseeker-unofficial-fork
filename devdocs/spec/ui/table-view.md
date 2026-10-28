@@ -30,6 +30,8 @@ LEVELの整列は型付き数値キーを優先し、必要な文字列fallback�
 
 プレイリストツリーのフォルダ構成更新では、workspaceの選択を正本にします。ItemsSourceの置換中にWPFが選択する親を新しい利用者選択として採用せず、コンテナ生成後に同じ選択revisionの表示だけを同期します。改名・接頭辞変更は確定した対応へ追従し、別フォルダ更新と特殊NO SONGノードの選択を保ちます。同期配送前の新しい明示選択を古い復元で上書きしません。通常の初回選択、再クリックとキーボード選択は従来の要求経路を使います。選択フォルダの削除先は[保存仕様](../playlist/storage-and-export.md#手動編集と失敗)に従います。
 
+通常フォルダの見出し・選択・詳細要求は保存済み所属名の前後空白を保持し、`A` と ` A ` を別所属として表示します。空名・空白名も表rootへ読み替えません。同じ所属の検索や並べ替えだけの変更は元集合を再取得せず、その所属の行から表示を作ります。保存と再読込みの識別契約は[保存仕様](../playlist/storage-and-export.md#手動編集と失敗)に従います。
+
 通常Selectedと再クリックは、実際に表示された親TreeViewItemのItemsSourceを選択の出自として渡します。モデル確定後も旧表示が残る間のクリックは旧構成の対応へ追従し、新表示からの同名キーの選択へ旧対応を再適用しません。要求の複製・表参照差替えでも出自を保持し、現在のモデル構成へ暗黙に読み替えません。LampViewerも存在確認と同じ公開構成を使います。
 
 ### プレイリストツリーのドロップとホバー
@@ -333,7 +335,7 @@ DPIは変更コールバックと描画開始時の環境確認で追従しま�
 
 再生開始後の入力保持は `MainWindowPlaybackWpfTests.InternalReady_RestoresTableOnceAndPreservesLaterSearchOrMemoInput` が実MainWindow・検索control・本番受付のMEMOセルで確認します。表への初回要求と後発入力後の追加要求なしを観測し、物理OSフォーカス移動は[推奨実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分担します。再生状態通知による行・選択・未確定編集の保持は既存の `PlaybackStateChangesRefreshLoadedTableWithoutReplacingRowsOrCommittingEditor` が分担します。
 
-[`MainWindowPlaylistWorkspaceWpfTests.PlaylistFolderStructure_ActualTreeKeepsWorkspaceSelectionAndNewExplicitSelection`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) は実TreeViewの構造置換・親Selected・改名・接頭辞保存・別フォルダ更新と、復元配送前の明示選択を通し、ツリー・workspace・詳細hashの一致を確認します。選択の判断と削除先の条件差は [`PlaylistWorkspaceActionWorkflowTests.PlaylistFolderMutation_PreservesOrRemapsSelectionAndDetail`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)、新構成の同キー明示選択と旧prefix対応の衝突は同クラスの `PlaylistPropertySave_NewExplicitSelectionDoesNotApplyOldPrefixMap` が担います。表置換と古い要求の拒否は既存の詳細更新・外部表置換系列へ維持します。
+[`MainWindowPlaylistWorkspaceWpfTests.PlaylistFolderStructure_ActualTreeKeepsWorkspaceSelectionAndNewExplicitSelection`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) は実TreeViewの構造置換・親Selected・改名・接頭辞保存・別フォルダ更新と、復元配送前の明示選択を通し、ツリー・workspace・詳細hashの一致を確認します。同じWindow寿命内のA/前後空白A切替ではcompiled見出し・選択node・workspaceと実詳細行のhash・title・folderを照合します。選択の判断と削除先・保存再読込みの条件差は [`PlaylistWorkspaceActionWorkflowTests.PlaylistFolderMutation_PreservesOrRemapsSelectionAndDetail`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)、新構成の同キー明示選択と旧prefix対応の衝突は同クラスの `PlaylistPropertySave_NewExplicitSelectionDoesNotApplyOldPrefixMap` が担います。空名を含む実要求と元集合再利用は `PlaylistWorkspaceDetailRefreshTests.RequestDetailRefresh_PreservesExactFolderMembershipThroughSelectionAndPresentation` へ分担します。表置換と古い要求の拒否は既存の詳細更新・外部表置換系列へ維持します。
 
 同じ実ツリー代表で、prefix確定後・構成通知前の旧ItemsSourceから選択する区間と、新Bindingを適用して同名の別譜面を選択する区間を制御します。通常Selectedはキー操作後も使う確定経路として確認し、再クリックは実PreviewMouseDownから配送します。物理キーとOSフォーカス移動は自動検証の保証に含めません。構成Bindingのtarget転送と、その後の遅延選択同期の終端を待ち、workerの完了や一般的なidleから表示成功を推測しません。
 

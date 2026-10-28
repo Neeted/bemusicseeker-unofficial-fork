@@ -139,6 +139,8 @@ DB接続・短いモデルロックを解放してからUIスケジューラー�
 
 ### 手動編集と失敗
 
+保存済みの通常フォルダ名は前後空白を含むOrdinalの所属キーとして扱います。`A` と ` A `、空文字と空白だけの名前はそれぞれ別所属で、表rootを示すnullとも区別します。改名・保存再読込み・再選択・詳細要求と元集合の再利用判定は同じ原値を使い、一括Trim・同名統合・禁止・自動改名は行いません。検索式の前後空白除去と並べ替え条件の正規化は所属名を変えません。
+
 セル編集は[一覧の共通基準](../ui/table-view.md#行のドラッグと編集)に従い、必要表示と編集cleanupまで受付を保持します。既存の単一配送と実適用Taskを使い、receiptごとの完了管理や構築候補の後継への完了引継ぎは設けません。現在表示の編集列は正規化・補完後の確定値へ局所反映し、後からの参照投影で旧値へ戻しません。参照待ちの元投影を採用するときは、その対象の現在entry値を照合して確定編集属性を保ちます。全receiptの完全投影・後発構築の採用をセル保存の完了条件にしません。
 
 選択中の通常フォルダを改名した場合は、確定した名前の対応へ選択を移します。接頭辞変更でも同じ対応を使い、別フォルダと特殊NO SONGノードの選択を保ちます。フォルダ削除では内容の移動先の空名フォルダを選び、そのノードが残らない場合は表本体を選びます。更新後に利用者が新しく明示選択した項目には、旧構成の改名対応を再適用しません。ツリー・workspace・詳細集合を一致させ、構造置換の親選択を明示選択と混同しません。
@@ -246,7 +248,9 @@ SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行
 
 ## 実装とテストの対応
 
-フォルダ改名・別フォルダの更新・NO SONG・内容あり削除から空名フォルダへの移動・空フォルダ削除から表本体への移動は [`PlaylistWorkspaceActionWorkflowTests.PlaylistFolderMutation_PreservesOrRemapsSelectionAndDetail`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs) が実保存、選択requestと詳細hashを確認します。同クラスの `PlaylistPropertySave_PrefixReceiptUpdatesExistingDetailAndLaterRequests` は通常のprefix追従と後続編集、`PlaylistPropertySave_NewExplicitSelectionDoesNotApplyOldPrefixMap` は確定後の同キー明示選択を守る境界を担います。実ツリーの選択同期は [一覧仕様](../ui/table-view.md#実装とテストの対応) のWPF代表へ分担します。
+フォルダ改名・別フォルダの更新・NO SONG・内容あり削除から空名フォルダへの移動・空フォルダ削除から表本体への移動は [`PlaylistWorkspaceActionWorkflowTests.PlaylistFolderMutation_PreservesOrRemapsSelectionAndDetail`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs) が実保存、選択requestと詳細hashを確認します。前後空白名への改名では他所属を含む完全なhash・title・folder集合を独立DB読取りと新storeのヘッダー読込み・entry hydration後に照合し、新しい表での再選択と詳細表示も確認します。同クラスの `PlaylistPropertySave_PrefixReceiptUpdatesExistingDetailAndLaterRequests` は通常のprefix追従と後続編集、`PlaylistPropertySave_NewExplicitSelectionDoesNotApplyOldPrefixMap` は確定後の同キー明示選択を守る境界を担います。実ツリーの選択同期は [一覧仕様](../ui/table-view.md#実装とテストの対応) のWPF代表へ分担します。
+
+所属名の要求識別は `PlaylistRequestFactory.CreateIdentity`、元集合の再利用判断は `PlaylistDetailBuildDecisionService.Decide` が原値を照合します。`PlaylistViewPipelineTests.CreatePlaylistRequestIdentity_PreservesFolderKeysAndNormalizesKeywordForDedup` は同一Folder範囲の空名・空白名・A・前後空白Aとnullを区別し、同じ所属の検索前後空白だけを同一視します。同クラスの `PlaylistDetailBuildDecision_WhenOnlyPresentationChanges_AppliesViewOnly` は前後空白名での再利用判断を確認します。`PlaylistWorkspaceDetailRefreshTests.RequestDetailRefresh_PreservesExactFolderMembershipThroughSelectionAndPresentation` は実要求の終端後にrootと各所属の完全なsource・表示集合を照合し、Aとの往復、検索変更・解除・並べ替えでの元集合再取得不要を確認します。
 
 [`BMSTableLoadTests`](../../../BeMusicSeeker.Tests/Playlist/BMSTableLoadTests.cs) は構成・明示順の変更不能性と旧公開入力の不変を確認します。[`PlaylistEntryCommitTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistEntryCommitTests.cs) はprefix・改名確定後の公開値、DB前失敗の旧構成維持、MEMO・実行時URL補完での構成再利用を既存16/128件の仕事量・保存保証と合わせて確認します。保存済み構成の通知時点は上記property保存と [`PlaylistCatalogViewChangeTests.WorkspaceRenameFolder_UsesReceiptAndRefreshesOnlyRemappedSelection`](../../../BeMusicSeeker.Tests/Playlist/PlaylistCatalogViewChangeTests.cs) が公開値とreadonly DBで確認し、実Binding終端はWPF代表へ分担します。
 

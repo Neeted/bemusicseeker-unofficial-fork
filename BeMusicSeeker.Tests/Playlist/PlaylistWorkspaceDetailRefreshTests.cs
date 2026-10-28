@@ -81,6 +81,59 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             "the ordinary playlist root must preserve the real [NO SONG] folder");
     }
 
+    /// <summary>実詳細要求のroot・空名・空白名・A・前後空白Aを順に採用し、各所属のhash・表示titleと保存済み所属キー全体を確認します。同じ空白Aの検索変更・解除・並べ替えでは元集合を再取得せず、Aとの往復で別所属を混同しません。</summary>
+    /// <remarks>表示集合の所属は各表示行の取得元entryで照合します。空白だけのFOLDERセルに適用される既存表示補完は所属キーの保証に含めません。</remarks>
+    [TestMethod]
+    public async Task RequestDetailRefresh_PreservesExactFolderMembershipThroughSelectionAndPresentation()
+    {
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
+        BMSTableEntry[] entries = [
+            new BMSTableEntry { md5 = new string('a', 32), title = "Plain", folder = "A" },
+            new BMSTableEntry { md5 = new string('b', 32), title = "Spaced Beta", folder = " A " },
+            new BMSTableEntry { md5 = new string('c', 32), title = "Spaced Alpha", folder = " A " },
+            new BMSTableEntry { md5 = new string('d', 32), title = "Empty", folder = "" },
+            new BMSTableEntry { md5 = new string('e', 32), title = "Blank", folder = " " }];
+        (string Hash, string Title, string Folder)[] membership = entries.Select(entry => (Hash: entry.md5, Title: entry.title, Folder: entry.folder)).ToArray();
+        var table = new BMSTable { entries = entries.ToList() };
+        workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+        foreach (string? folder in new string?[] { null, "", " ", "A", " A ", "A", " A " })
+        {
+            workspace.RequestDetailSelection(table, folder == null ? null : PlaylistFolderNode.CreateFolder(folder));
+            await Refresh();
+            (string Hash, string Title, string Folder)[] expected = folder == null ? membership : membership.Where(entry => entry.Folder == folder).ToArray();
+            AssertRows(expected, expected);
+            Assert.AreEqual(folder, workspace.CapturePlaylistDetailSelection().FolderName);
+        }
+
+        (string Hash, string Title, string Folder)[] spaced = new[] { membership[1], membership[2] };
+        int loaded = dataSource.EnsureEntriesLoadedCallCount;
+        workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("title:Alpha", ChartModeFilter.All));
+        await Refresh();
+        AssertRows(spaced, [membership[2]]);
+        workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.Title), System.ComponentModel.ListSortDirection.Descending);
+        workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+        await Refresh();
+        AssertRows(spaced, spaced);
+        CollectionAssert.AreEqual(new[] { "Spaced Beta", "Spaced Alpha" },
+            workspace.DetailViewState.View.Rows.Cast<PlaylistDetailRow>().Select(row => row.Title).ToArray());
+        Assert.AreEqual(loaded, dataSource.EnsureEntriesLoadedCallCount, "同一所属の表示変更は元集合を再取得しません。");
+
+        async Task Refresh()
+        {
+            Task completion = workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
+                MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, false, default);
+            try { await completion; }
+            finally { await Task.WhenAll(completion, workspace.WaitForDetailBuildIdleAsync()); }
+        }
+        void AssertRows((string Hash, string Title, string Folder)[] source, (string Hash, string Title, string Folder)[] visible)
+        {
+            CollectionAssert.AreEquivalent(source,
+                workspace.DetailViewState.Source.Rows.Select(row => (row.Entry.md5, row.Entry.title, row.Entry.folder)).ToArray());
+            CollectionAssert.AreEquivalent(visible,
+                workspace.DetailViewState.View.Rows.Cast<PlaylistDetailRow>().Select(row => (row.Entry.md5, row.Title, row.Entry.folder)).ToArray());
+        }
+    }
+
     /// <summary>現要求のchart情報更新を新しいsource行へ反映し、旧行の情報を変えず新しい情報版を採用して既存表示の破壊や更新漏れを検出します。</summary>
     [TestMethod]
     public void TryPatchDetailSourceChartInfo_ReplacesCurrentGenerationWithoutMutatingOldRow()

@@ -4,25 +4,10 @@ using BeMusicSeeker.Models;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// Builds normalized playlist request identities and source invalidation reasons outside the shell ViewModel.
+/// 保存済み所属キーを保持する詳細要求の識別と、元集合の失効理由を構築します。
 /// </summary>
 internal static class PlaylistRequestFactory
 {
-    /// <summary>
-    /// Normalizes a playlist folder name for request identity comparison while preserving the null root-playlist marker.
-    /// </summary>
-    /// <param name="folderName">Folder name from the selected playlist tree node.</param>
-    /// <returns>Trimmed folder name, or <see langword="null"/> when the request targets the playlist root.</returns>
-    internal static string NormalizeFolderName(string folderName)
-    {
-        if (folderName == null)
-        {
-            return null;
-        }
-
-        return folderName.Trim();
-    }
-
     /// <summary>
     /// 検索式の意味を保持したまま、要求比較に不要な前後空白を除きます。
     /// </summary>
@@ -60,11 +45,11 @@ internal static class PlaylistRequestFactory
     }
 
     /// <summary>
-    /// 詳細要求の合流とsource再利用に使う、選択・条件・必要な確定位置を正規化します。
+    /// 保存済み所属キーを保ち、詳細要求の合流とsource再利用に使う条件・必要な確定位置を構築します。
     /// </summary>
     /// <param name="table">選択した表。</param>
     /// <param name="selectionScope">元集合の選択範囲。</param>
-    /// <param name="folderName">選択した実folder名。rootはnull。</param>
+    /// <param name="folderName">前後空白も所属キーに含む実folder名。rootのnullと空文字・空白名を区別します。</param>
     /// <param name="filterType">詳細filter種別。</param>
     /// <param name="keywordFilter">検索条件。</param>
     /// <param name="modeFilter">譜面mode条件。</param>
@@ -92,7 +77,7 @@ internal static class PlaylistRequestFactory
         return new PlaylistRequestIdentity(
             table,
             selectionScope,
-            NormalizeFolderName(folderName),
+            folderName,
             filterType,
             NormalizeKeywordFilter(keywordFilter),
             modeFilter,
