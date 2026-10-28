@@ -12,14 +12,14 @@
 
 採用する場合の方針は次のとおり。
 
-- 開く時点のパス・種類・配置と、保存済み文字コード・確定状態を捕捉する。確定した具体的指定は表示メタデータに使い、それ以外は既存の自動判定を維持する。
+- 開く時点のパス・種類・配置と、所持では保存済み、保留では現在の項目内の文字コード・確定状態を捕捉する。確定した具体的指定は表示メタデータに使い、それ以外は既存の自動判定を維持する。
 - 実ファイル読取りは既存の一回を使い、採用した復号方式と由来を診断結果として返す。表示のための再読取り・再解析、新しいDB列は追加しない。
 - 表示メタデータと、CP932で扱うBMS/PMS資源名・定義番号の解釈を分ける。BMSONは既存のUTF-8を維持する。判定アルゴリズムや資源の確認先は変更しない。
 - コピー可能な読取り専用欄に「UTF-8（保存済み指定）」「CP932（自動判定）」「CP932（判定未確定）」等を表示する。BOMが指定に優先した場合は実際の採用方式と由来を示す。
 - `EncodingFixed` だけで手動指定と断定せず、未保存の操作履歴を推測・永続化しない。`EncodingName` の `?`・`unknown` をそのまま実使用方式と表示しない。
 - 読取り完了時にタイトル等と一緒に確定し、閉鎖後の非反映を維持する。表示文言は既定リソースと6言語を揃える。
 
-完了条件は、所持・保留双方の保存済み指定、指定なし、未確定判定、BOM、BMSONで表示と実際の解釈が一致し、従来の資源診断を保つこと。`ChartPropertiesViewModelTests`、`ChartResourceDiagnosticsTests`、`ChartPropertiesWindowTests` を実解析と代表Bindingに分担する。採用時に [プロパティ仕様](../spec/ui/chart-properties.md)を更新する。
+完了条件は、所持の保存済み指定と保留の現在項目内の指定、指定なし、未確定判定、BOM、BMSONで表示と実際の解釈が一致し、従来の資源診断を保つこと。保留指定のDB保存・再起動復元は追加しない。`ChartPropertiesViewModelTests`、`ChartResourceDiagnosticsTests`、`ChartPropertiesWindowTests` を実解析と代表Bindingに分担する。採用時に [プロパティ仕様](../spec/ui/chart-properties.md)を更新する。
 
 ## 行ドラッグの件数表示
 
@@ -117,9 +117,17 @@ LR2Configの共通整数読取りはcustomfolder/titleflash/autoreloadから表�
 
 利用者合意により本人IR処理は廃止候補として扱い、A→B→Aの混入は今回の必須修正へ昇格させない。存廃の決定前に修正も撤去も実装しない。
 
+### プレイヤーを戻したときのキャッシュ
+
 正常取得応答が得られる前提では、[IR更新](../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrService.cs)がプレイヤー別metadataのdigest一致を、現在の共通ir_score集合の一致と読み替える。Bの成績へ置換してもAのmetadataは残るため、Aへ戻るとBを返す経路がある。実サービスへの接続成功は確認していない。
 
 存続して修正する場合は、現成績の内容・所有と取得結果を一致させる。新しいプレイヤー別DBや履歴の無条件削除を先行せず、正常空応答、同内容時の無書込み、成績とmetadataの同一トランザクション、失敗時の旧状態保持を維持する。廃止する場合は本人IRの設定・取得・表示・保存資料の責務をまとめて整理し、別の順位キャッシュやLR2ローカルスコアの扱いを便乗変更しない。
+
+### 高得点の本人IRによるクリア降格
+
+ローカルHARD・1000点、本人IREASY・1800点では、[IR更新](../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrService.cs)の得点優先の採用から [BMSScore.Overwrite](../../BeMusicSeeker/Models/Chart/BMSScore.cs) がクリアと達成時optionも上書きし、アプリ内でHARDがEASYへ下がり得る。統合後の値で未送信を判定するため表示も消え得る。影響は採用成績・一覧・検索・ランプ・未送信表示で、ローカルのスコアDBを書き換える問題ではない。
+
+本人IRを存続する場合は、クリアとその達成optionを得点・判定数等の採用から分ける案を検討する。プレイヤー復帰とは別原因だが、存廃前に別の保存機構や修正を先行しない。ローカル/IRのクリア優劣と得点優劣、同点、IRだけの成績についてランプ・option・派生得点・未送信を確認する。手動ランキング取得の廃止を本人IRの存廃・本修正の採用と読み替えず、順位cacheへ便乗変更しない。
 
 ## BMT混在フォルダ名と通常外部表の出力名
 
@@ -244,6 +252,24 @@ BMIIDX/LR2でAの捕捉済み終了通知がB開始後に届くと、Bのprocess
 採用時はSetStdDevValで、標準偏差0のため定義できない値を既存のnullable値へ揃え、空欄等の既存の算出不可表示に接続する。50点や0点という別の意味の数値へ置き換えない。
 
 実parserから参加者1人・複数人同点・通常の分散ありを渡し、平均と同点／ローカル高得点で非有限値がsnapshotと一覧へ流れないこと、分散ありの従来値が変わらないことを確認する。
+
+## 履歴更新列の空欄と並べ替え
+
+[PlayHistoryRow](../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryRow.cs) のCLEAR・BP・COMBOはベスト更新なしを空欄にする一方、[PlayHistorySortEngine](../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistorySortEngine.cs) は非表示の新ベスト値で整列する。BP表示が `10 → 空欄 → 20` のように混在し得る。
+
+将来採用時は更新flagがfalseなら整列キーをnullとし、空欄位置は既存nullable列の規則へ揃える案を検討する。「常に末尾」と新規に決めず、履歴保存値・検索の意味は変えない。3列の更新あり/なし/欠損、昇降順・同値を確認する。今回の履歴投影・日付境界修正には含めない。
+
+## T/Nの計算可能性とdefined検索
+
+[GridKeywordSearchQuery](../../BeMusicSeeker/ViewModels/Search/GridKeywordSearchQuery.cs) の `tn` / `t/n` のdefinedはTOTAL定義だけを見ているが、[ChartInfoDisplayFormatter](../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoDisplayFormatter.cs) の比率はノーツ数0以下でnullになる。TOTAL明示済みのゼロノート譜面は空欄でも `tn:defined` に一致する。
+
+将来採用時はTOTALのdefinedを維持し、T/NだけTOTAL明示ありかつ計算可能へ揃える案を検討する。TOTAL未定義の補完値を新たにdefinedとしない。ノーツ0/正数、TOTAL明示あり/なし、解析情報なしと `tn:defined` / `tn:undefined` / `t/n:` / `total:defined` を比較する。保存式比較や検索候補の修正には含めない。
+
+## 初期化失敗後の更新開始
+
+外付けドライブ不在等で初期化が失敗すると、失敗表示の `StartupProgress.IsActive` が維持され、後処理完了後も `CanStartUpdate` がfalseとなる。実操作の終端と失敗表示の寿命の混同が原因である。
+
+将来採用時は実操作・終了準備の既存状態へ開始可否を接続する。現在の `IsOperationActive` も同じ `IsActive` を含むため、参照を置き換えるだけでは解消しない。通常初期化中・ファイル変更中・失敗後処理中は抑止し、後処理完了後に開始可能なことを確認する。失敗表示を強制的に隠す回避や新しい永続状態は追加しない。Updaterのファイル整理修正とは別の未採用課題である。
 
 ## 採用・完了時
 
