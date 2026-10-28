@@ -88,6 +88,13 @@ public partial class SettingsDialogViewModel
         if (!refreshingSectionEditors) { RaisePropertyChanged(propertyName); RaiseEnvironmentAvailabilityChanged(); }
     }
 
+    /// <summary>確定候補の差し替えで選択が解除されても、同じ導入設定ページへ確定導入先を再適用します。</summary>
+    private void RaiseConfirmedBmsSelectionChanged()
+    {
+        RaisePropertyChanged(nameof(ConfirmedBMSDirectories));
+        RaisePropertyChanged(nameof(BMSInstallDir));
+    }
+
     private void InitializeSectionEditors()
     {
         refreshingSectionEditors = true;
@@ -576,7 +583,7 @@ public partial class SettingsDialogViewModel
                 }
                 DiscardConflictingCandidates(ConflictingCandidates.Lr2Details);
                 bmsRootRegistrations.SaveUserRoots(roots, install);
-                RaisePropertyChanged(nameof(ConfirmedBMSDirectories));
+                RaiseConfirmedBmsSelectionChanged();
                 RefreshBmsRootCandidatesFromSettings();
                 ReplacementBmsInstallDir = null;
                 if (statePort.HasActiveLibraryProfile)
@@ -699,7 +706,7 @@ public partial class SettingsDialogViewModel
 
     private void RaiseEnvironmentAvailabilityChanged()
     {
-        RaisePropertyChanged(nameof(ConfirmedBMSDirectories));
+        RaiseConfirmedBmsSelectionChanged();
         RaisePropertyChanged(nameof(HasEnvironmentChanges));
         RaisePropertyChanged(nameof(CanConfirmEnvironment));
         RaisePropertyChanged(nameof(CanCancelEnvironment));
@@ -1044,7 +1051,7 @@ public partial class SettingsDialogViewModel
                         publishOutputPlacement();
                         if (rootChange != null) { GetConfirmedLr2Owner().Publish(rootChange, target); }
                         CancelBmsRoots();
-                        RaisePropertyChanged(nameof(ConfirmedBMSDirectories));
+                        RaiseConfirmedBmsSelectionChanged();
                         if (statePort.HasActiveLibraryProfile)
                         {
                             await Task.Run(() => customFolderOutputPort.RegenerateCustomFolderOutputs(previousLocations, target, capability));

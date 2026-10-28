@@ -240,6 +240,112 @@ public sealed partial class SettingDialogEditCompletionTests
             finally { CompleteCandidateFixture(owner, root, null, null, primaryFailure); }
         });
     }
+    /// <summary>事前生成した導入設定ページで、ルート確定の非先頭代替B、局所取消、公開前の実保存失敗、追加だけの非先頭A維持を、確定候補・fresh reader・実選択の一致で確認します。</summary>
+    /// <remarks>候補通知の生産から同じcompiledページのBindingまで通し、選択の再代入や再生成で表示を補いません。媒体部分成功と公開後再読込みは既存BMS確定系列、独立選択の確認取消と未確定候補非漏出は次のcompiled系列へ分担します。</remarks>
+    [DataTestMethod]
+    [DataRow("replace")]
+    [DataRow("cancel")]
+    [DataRow("saveFailure")]
+    [DataRow("add")]
+    public void CompiledBmsRootConfirmation_UpdatesExistingInstallSelectionOrKeepsConfirmedState(string operation)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string root = CreateTemporaryRoot();
+            MainWindowViewModel? owner = null;
+            SettingsWindow? window = null;
+            Exception? primaryFailure = null;
+            try
+            {
+                string path = Path.Combine(root, "user.config");
+                string original = Directory.CreateDirectory(Path.Combine(root, "A")).FullName;
+                string firstAlternative = Directory.CreateDirectory(Path.Combine(root, "C")).FullName;
+                string replacement = Directory.CreateDirectory(Path.Combine(root, "B")).FullName;
+                string added = Directory.CreateDirectory(Path.Combine(root, "D")).FullName;
+                string[] initialRoots = operation == "add" ? [firstAlternative, original, replacement] : [original, firstAlternative, replacement];
+                Settings values = CreateValidStandaloneSettings(original, PortableSettingsPersistenceTests.OpenSettings(path));
+                values.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize(initialRoots);
+                values.Save();
+                var failures = new List<Exception>();
+                var dialogs = new RecordingRootDialogService();
+                owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false,
+                    reportSettingsApplyFailure: failures.Add, dialogs: dialogs);
+                SettingsDialogViewModel dialog = owner.SettingDialog;
+                window = new SettingsWindow(dialogs) { DataContext = dialog };
+                scope.ShowAndWaitForContentRendered(window);
+                var navigation = (ListBox)window.FindName("settingsNavigation");
+                navigation.SelectedItem = window.FindName("navigationInstall");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                ComboBox install = FindDescendants<ComboBox>(window).Single(item => item.GetBindingExpression(Selector.SelectedItemProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.BMSInstallDir));
+                CollectionAssert.AreEqual(initialRoots, install.Items.Cast<string>().ToArray());
+                Assert.AreEqual(original, install.SelectedItem);
+
+                (SettingsProperty Property, SettingsProvider Provider)[] observedProperties = new[]
+                { nameof(Settings.StandaloneBmsRootPaths), nameof(Settings.BMSRootPath), nameof(Settings.BMSInstallDir) }
+                    .Select(name => (values.Properties[name], values.Properties[name].Provider)).ToArray();
+                var provider = new InstallAdmissionObservingSettingsProvider(observedProperties[0].Provider, () => { });
+                foreach ((SettingsProperty Property, SettingsProvider Provider) item in observedProperties) { item.Property.Provider = provider; }
+                try
+                {
+                    navigation.SelectedItem = window.FindName("navigationGeneral");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    if (operation == "add")
+                    { TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AddBmsSearchRootPathsAsync([added]), "install-selection-add-root"); }
+                    else
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.RemoveBmsSearchRootPathAsync(original), "install-selection-remove-root");
+                        ComboBox replacementChoice = FindDescendants<ComboBox>(window).Single(item => item.GetBindingExpression(Selector.SelectedItemProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.ReplacementBmsInstallDir));
+                        replacementChoice.SetCurrentValue(Selector.SelectedItemProperty, replacement);
+                    }
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(0, provider.SaveCount, "候補編集だけでは保存しません。");
+                    CollectionAssert.AreEqual(initialRoots, dialog.ConfirmedBMSDirectories.ToArray());
+                    CollectionAssert.AreEqual(initialRoots, install.Items.Cast<string>().ToArray());
+                    Assert.AreEqual(original, install.SelectedItem);
+                    bool cancelled = operation == "cancel";
+                    bool failed = operation == "saveFailure";
+                    Button action = FindDescendants<Button>(window).Single(button => Equals(button.Tag, cancelled ? "cancel:bms" : "confirm:bms"));
+                    Assert.IsTrue(action.IsEnabled);
+                    using (failed ? File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read) : null)
+                    {
+                        action.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SettingsOperationCompletionTask, "install-selection-root-terminal");
+                    }
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    string[] expectedRoots = cancelled || failed ? initialRoots
+                        : operation == "add" ? [.. initialRoots, added] : [firstAlternative, replacement];
+                    string expectedInstall = operation == "replace" ? replacement : original;
+                    Settings saved = PortableSettingsPersistenceTests.OpenSettings(path);
+                    CollectionAssert.AreEqual(expectedRoots, StandaloneBmsRootPathSettings.Deserialize(saved.StandaloneBmsRootPaths, saved.BMSRootPath).ToArray());
+                    CollectionAssert.AreEqual(expectedRoots, dialog.ConfirmedBMSDirectories.ToArray());
+                    Assert.AreEqual(expectedInstall, saved.BMSInstallDir);
+                    Assert.AreEqual(expectedInstall, dialog.BMSInstallDir);
+                    Assert.AreEqual(expectedInstall, install.SelectedItem);
+                    CollectionAssert.AreEqual(expectedRoots, install.Items.Cast<string>().ToArray());
+                    CollectionAssert.AreEqual(failed ? new[] { firstAlternative, replacement } : expectedRoots, dialog.AvailableBMSDirectories);
+                    Assert.AreEqual(failed ? replacement : null, dialog.ReplacementBmsInstallDir);
+                    Assert.AreEqual(failed ? 1 : 0, failures.Count);
+                    Assert.AreEqual(cancelled ? 0 : 1, provider.SaveCount, "確定の一回だけが保存を要求します。");
+
+                    navigation.SelectedItem = window.FindName("navigationInstall");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    ComboBox redisplayed = FindDescendants<ComboBox>(window).Single(item => item.GetBindingExpression(Selector.SelectedItemProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.BMSInstallDir));
+                    Assert.AreSame(install, redisplayed, "生成済みの導入設定ページを再表示します。");
+                    CollectionAssert.AreEqual(expectedRoots, redisplayed.Items.Cast<string>().ToArray());
+                    Assert.AreEqual(expectedInstall, redisplayed.SelectedItem);
+                    Assert.AreEqual(cancelled ? 0 : 1, provider.SaveCount, "失敗後の解放やページ再表示で保存を再試行しません。");
+                    Assert.AreEqual(failed ? 1 : 0, failures.Count);
+                }
+                finally
+                {
+                    foreach ((SettingsProperty Property, SettingsProvider Provider) item in observedProperties) { item.Property.Provider = item.Provider; }
+                }
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally { CompleteCandidateFixture(owner, root, null, window, primaryFailure); }
+        });
+    }
+
     /// <summary>独立導入先の実Bindingは確定BMSだけを候補にし、選択の確認取消では元候補・保存先・表示を保ち、承認時だけ当該項目を保存します。</summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -606,10 +712,13 @@ public sealed partial class SettingDialogEditCompletionTests
             Initialize(nameof(InstallAdmissionObservingSettingsProvider), new System.Collections.Specialized.NameValueCollection());
         }
         public override string ApplicationName { get => inner.ApplicationName; set => inner.ApplicationName = value; }
+        /// <summary>同期保存の要求回数です。初期表示や再表示からの追加保存を検出します。</summary>
+        internal int SaveCount { get; private set; }
         public override System.Configuration.SettingsPropertyValueCollection GetPropertyValues(System.Configuration.SettingsContext context, System.Configuration.SettingsPropertyCollection properties)
             => inner.GetPropertyValues(context, properties);
         public override void SetPropertyValues(System.Configuration.SettingsContext context, System.Configuration.SettingsPropertyValueCollection values)
         {
+            SaveCount++;
             observe();
             try { inner.SetPropertyValues(context, values); }
             finally { observe(); }

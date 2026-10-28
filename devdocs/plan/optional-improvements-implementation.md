@@ -32,7 +32,7 @@
 | U03 共通表の表示とコピー | TSV空行 → URL幅 → フルスキャンDST編集・非編集案内 → 言語cache | U02後。同担当が能力付与・編集終端・一時投影まで所有。U15のDST検証と順序調整 |
 | U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U03後、U05/U08と直列 |
 | U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04/U08と直列 |
-| U07 言語変更と確認文言 | 検索 → プロパティ → ランプ → 確認ボタン | 既存owner別コミット。全言語資源は一担当。U03/U16/U17/U20/U23と共有編集を調整 |
+| U07 言語変更と確認文言 | 検索 → プロパティ → ランプ → 確認ボタン | 既存owner別コミット。全言語資源は一担当。U03/U16/U17/U20と共有編集を調整 |
 | U08 手動ランキング取得廃止 | UI・専用通信・資料・専用テストを除去 | MainWindow/composition/Ir。U04/U05後、起動時ローカルcache維持 |
 | U09 確定文字コードの保持と導入・同期への引継ぎ | LR2全体同期 → 導入成功先への引継ぎ | Maintenance/Catalog/Install/LR2。導入serviceはU15との順序調整後、署名変更なし |
 | U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile。U13のWriter検証と調整 |
@@ -45,9 +45,8 @@
 | U20 外部同期の処理済み進捗 | 通知生産・表示・文言 | ExternalSyncOwner/SyncProgress/Hub、U22と直列、U07の言語資源編集と調整 |
 | U21 詳細セル保存中の編集開始 | 先行保存終端まで次の編集開始を止める | 現行の識別選択と編集値引渡しを維持し、同じ表担当でU02へ接続 |
 | U22 standalone外部表の出力名検査 | LR2専用検査をLR2モードへ限定 | ExternalSyncOwner。U20と同担当で順次 |
-| U23 BMSルート確定後の導入先選択表示 | 保存値と選択肢の通知を揃える | Settings VM/page、U07設定通知と編集を調整 |
 
-現在の所有は、`optional-updater` がU21後にU02と共通表、`optional-search-ui` がU07の言語表示、`optional-encoding` がU09、`optional-bms-input` がU12と再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U13/U14/U16/U17/U20/U22/U23は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
+現在の所有は、`optional-updater` がU21後にU02と共通表、`optional-search-ui` がU07の言語表示、`optional-encoding` がU09、`optional-bms-input` がU12と再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U13/U14/U16/U17/U20/U22は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
 
 ### 開始・引継ぎと計画の更新
 
@@ -488,9 +487,3 @@ Aの保存を制御している間、Bのクリック・F2・文字入力では�
 standaloneで表名 `한글`・ASCII tagの外部表を取り込むと、CP932向け `Output_dir` が空になり、`PlaylistExternalSyncOwner` の単表・一括登録でモード判定前に拒否される。配置やプロパティ保存には既にモード別検査があるため、検証機構全体を作り替えず、無条件の空出力名拒否を捕捉済み `OperationModeLR2DB` が有効な場合へ限定する。
 
 アプリ内名・Unicode・JSON保存値を保ち、翻字・仮ASCII名・強制改名を行わない。通常URL/JSONインポートの単独・複数登録と再読込み、LR2モードの既存拒否・配置検査・重複URL/名前・必要出力を確認する。`BmsPlaylistMigrationAndRegistrationTests`、`PlaylistWorkspaceExternalSourceTests` 等へ分担する。U20と同じownerの編集を直列化する。
-
-## U23 BMSルート確定後の導入先選択表示
-
-導入設定ページを一度開いた後、旧導入先Aを検索ルートから外し代替Bを確定すると、保存値はBでも選択が空になる。`SettingsDialogViewModel.Confirmation` が `ConfirmedBMSDirectories` だけを通知し `BMSInstallDir` を通知しないためで、編集中の一般的な通知不足とは分ける。
-
-ルート確定後の候補と確定値の通知を揃え、保存値を実ページの選択へ反映する。先頭候補の補完・別保存領域・設定全体の通知再設計は不要。事前生成したページでA→B、取消、保存失敗、ルート追加だけを確認し、保存値・候補・選択が一致することを保証する。U07設定通知との同時編集を避ける。
