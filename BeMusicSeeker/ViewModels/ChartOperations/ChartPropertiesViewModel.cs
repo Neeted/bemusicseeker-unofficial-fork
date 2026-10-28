@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -11,15 +12,18 @@ using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
 
-/// <summary>一回のプロパティ表示の読込み、整形、閉鎖後の非反映を管理します。</summary>
+/// <summary>一回の読取り結果を現言語で整形し、閉鎖後の通知と結果反映を終了します。</summary>
 internal sealed class ChartPropertiesViewModel : ViewModel
 {
     private readonly Func<ChartResourceDiagnostics> read;
     private readonly ChartFileKind kind;
+    private readonly ChartResourcePlacementBasis placementBasis;
+    private ChartResourceDiagnostics diagnostics;
+    private bool failed;
     private Task loadTask;
     private bool closed;
 
-    /// <summary>捕捉された選択譜面の実パスと読取り処理で表示を準備します。構築時には読みません。</summary>
+    /// <summary>捕捉された選択譜面の実パスと読取り処理で表示と言語購読を準備します。構築時には読まず、購読はCloseで終了します。</summary>
     internal ChartPropertiesViewModel(ChartFile chart, Func<ChartResourceDiagnostics> read = null, ChartResourcePlacement placement = null)
     {
         ArgumentNullException.ThrowIfNull(chart);
@@ -29,14 +33,10 @@ internal sealed class ChartPropertiesViewModel : ViewModel
         Artist = chart.Artist;
         placement ??= new ChartResourcePlacement(ChartResourcePlacementBasis.Current, System.IO.Path.GetDirectoryName(chart.Path));
         VerificationPath = placement.Directory;
-        VerificationBasis = placement.Basis switch
-        {
-            ChartResourcePlacementBasis.Destination => Resources.ChartPropertiesConfiguredDestination,
-            ChartResourcePlacementBasis.FirstCandidate => Resources.ChartPropertiesFirstCandidate,
-            _ => Resources.ChartPropertiesCurrentPlacement
-        };
+        placementBasis = placement.Basis;
         ChartResourcePlacement capturedPlacement = placement;
         this.read = read ?? (() => new ChartResourceDiagnosticsService().Read(chart.Path, chart.Kind, capturedPlacement));
+        ResourceService.Current.PropertyChanged += ResourceServicePropertyChanged;
     }
 
     /// <summary>プロパティを開く時点の配置を機能側で捕捉します。通常所持は実配置を維持します。</summary>
@@ -51,8 +51,13 @@ internal sealed class ChartPropertiesViewModel : ViewModel
 
     /// <summary>捕捉した譜面パスです。</summary>
     public string Path { get; }
-    /// <summary>開いた時点で捕捉した資源の確認基準です。</summary>
-    public string VerificationBasis { get; }
+    /// <summary>開いた時点で捕捉した資源の確認基準を現言語で表示します。</summary>
+    public string VerificationBasis => placementBasis switch
+    {
+        ChartResourcePlacementBasis.Destination => Resources.ChartPropertiesConfiguredDestination,
+        ChartResourcePlacementBasis.FirstCandidate => Resources.ChartPropertiesFirstCandidate,
+        _ => Resources.ChartPropertiesCurrentPlacement
+    };
     /// <summary>開いた時点で捕捉した資源の確認先です。</summary>
     public string VerificationPath { get; }
     /// <summary>読み取ったタイトルです。</summary>
@@ -61,7 +66,7 @@ internal sealed class ChartPropertiesViewModel : ViewModel
     public string Artist { get; private set; }
     /// <summary>取得・解析失敗時だけ表示する文言です。初期・読取り中・成功時は空です。</summary>
     public string Status { get; private set; } = string.Empty;
-    /// <summary>不足・確認不能のコピー可能な一覧です。</summary>
+    /// <summary>取得済みの不足・確認不能を現言語で整形した、コピー可能な一覧です。</summary>
     public string Issues { get; private set; } = string.Empty;
     /// <summary>定義元を保つ未使用リソース定義の一覧です。</summary>
     public string UnusedDefinitions { get; private set; } = string.Empty;
@@ -76,8 +81,12 @@ internal sealed class ChartPropertiesViewModel : ViewModel
     /// <summary>背景読取りを一度だけ開始し、失敗を表示へ回収した同じTaskを返します。</summary>
     internal Task LoadAsync() => loadTask ??= LoadCoreAsync();
 
-    /// <summary>画面への結果反映を終了します。開始済みTaskは引き続き失敗を回収します。</summary>
-    internal void Close() => closed = true;
+    /// <summary>言語購読と画面への反映を終了します。開始済みTaskは引き続き失敗を回収します。</summary>
+    internal void Close()
+    {
+        closed = true;
+        ResourceService.Current.PropertyChanged -= ResourceServicePropertyChanged;
+    }
 
     private async Task LoadCoreAsync()
     {
@@ -90,17 +99,10 @@ internal sealed class ChartPropertiesViewModel : ViewModel
             }
             Title = result.Title;
             Artist = result.Artist;
-            Issues = JoinOrNone(result.Issues.Select(issue =>
-                FormatDefinition(issue.Definition) + " (" + FormatReason(issue.Reason) + ")"));
-            UnusedDefinitions = JoinOrNone(result.UnusedDefinitions.Select(FormatDefinition));
-            UndefinedReferences = JoinOrNone(result.UndefinedReferences.Select(number => FormatNumber(number.Source, number.Id)));
-            Status = string.Empty;
+            diagnostics = result;
             RaisePropertyChanged(nameof(Title));
             RaisePropertyChanged(nameof(Artist));
-            RaisePropertyChanged(nameof(Issues));
-            RaisePropertyChanged(nameof(UnusedDefinitions));
-            RaisePropertyChanged(nameof(UndefinedReferences));
-            RaisePropertyChanged(nameof(Status));
+            RefreshLocalizedText();
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -111,10 +113,38 @@ internal sealed class ChartPropertiesViewModel : ViewModel
             catch { /* 純粋な診断出力の失敗で、元の読取り失敗の終端や表示を変えません。 */ }
             if (!closed)
             {
-                Status = Resources.ChartPropertiesFailed;
-                RaisePropertyChanged(nameof(Status));
+                failed = true;
+                RefreshLocalizedText();
             }
         }
+    }
+
+    private void ResourceServicePropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        if (!closed && e.PropertyName == nameof(ResourceService.Resources))
+        {
+            RefreshLocalizedText();
+        }
+    }
+
+    private void RefreshLocalizedText()
+    {
+        // 初期・読取り中を成功した空一覧へ読み替えず、取得済みの事実だけを再整形します。
+        if (diagnostics is not null)
+        {
+            Issues = JoinOrNone(diagnostics.Issues.Select(issue =>
+                FormatDefinition(issue.Definition) + " (" + FormatReason(issue.Reason) + ")"));
+            UnusedDefinitions = JoinOrNone(diagnostics.UnusedDefinitions.Select(FormatDefinition));
+            UndefinedReferences = JoinOrNone(diagnostics.UndefinedReferences.Select(number => FormatNumber(number.Source, number.Id)));
+        }
+        Status = failed ? Resources.ChartPropertiesFailed : string.Empty;
+        RaisePropertyChanged(nameof(VerificationBasis));
+        RaisePropertyChanged(nameof(Issues));
+        RaisePropertyChanged(nameof(UnusedDefinitions));
+        RaisePropertyChanged(nameof(UndefinedReferences));
+        RaisePropertyChanged(nameof(UnusedDescription));
+        RaisePropertyChanged(nameof(UndefinedDescription));
+        RaisePropertyChanged(nameof(Status));
     }
 
     private static string JoinOrNone(IEnumerable<string> lines)

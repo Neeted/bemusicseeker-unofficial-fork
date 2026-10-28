@@ -1,8 +1,10 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -14,7 +16,7 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class ChartPropertiesWindowManagerTests
 {
-    /// <summary>個別Close後の成功/通常失敗も終了回収へ残り、閉鎖済み画面へ反映しません。終了受付後は新規窓・読取りを拒否し、finallyでgateと実Taskを回収します。</summary>
+    /// <summary>実Windowの個別Closeで言語購読を終え、遅延成功/通常失敗と後の言語変更も通知しません。終了受付後は新規窓・読取りを拒否し、実読取り終端までshutdownを完了しません。</summary>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -24,6 +26,7 @@ public sealed class ChartPropertiesWindowManagerTests
         {
             var owner = new ThemedWindow { Width = 300, Height = 200, Content = new System.Windows.Controls.TextBlock { Text = "Owner" } };
             scope.ShowAndWaitForContentRendered(owner);
+            CultureInfo? previousCulture = Resources.Culture;
             using var release = new ManualResetEventSlim();
             var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             using var model = new ChartPropertiesViewModel(ChartTestValues.Empty(), () =>
@@ -42,6 +45,7 @@ public sealed class ChartPropertiesWindowManagerTests
             }, scope.PrepareForOwnedPresentation);
             try
             {
+                ResourceService.Current.ChangeCulture("ja-JP");
                 manager.Open(ChartTestValues.Empty());
                 Task read = manager.ReadCompletion;
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(
@@ -52,20 +56,29 @@ public sealed class ChartPropertiesWindowManagerTests
                 child.Close();
                 int notifications = 0;
                 model.PropertyChanged += (_, _) => notifications++;
+                ResourceService.Current.ChangeCulture("en-US");
+                Assert.AreEqual(0, notifications);
                 Task shutdown = manager.CompleteShutdownAsync();
                 Assert.IsFalse(shutdown.IsCompleted);
+                Assert.IsFalse(read.IsCompleted);
                 manager.Open(ChartTestValues.Empty());
                 Assert.AreEqual(1, created);
                 release.Set();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(shutdown, "modeless-read-shutdown");
+                Assert.IsTrue(read.IsCompletedSuccessfully);
+                ResourceService.Current.ChangeCulture("ja-JP");
                 Assert.AreEqual(0, notifications);
                 Assert.AreEqual(string.Empty, model.Status);
                 Assert.AreEqual(string.Empty, model.Title);
             }
             finally
             {
+                child?.Close();
+                model.Close();
                 release.Set();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(manager.CompleteShutdownAsync(), "modeless-read-finally");
+                ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+                Resources.Culture = previousCulture;
             }
         });
     }

@@ -1,10 +1,13 @@
+using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -16,12 +19,13 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class ChartPropertiesWindowTests
 {
-    /// <summary>表示後に読取り中から結果へ移り、三分類の右下16 DIP保護と共通style接続を確認し、メタデータも読取専用TextBoxで選択・全選択・コピーできます。実クリップボードは書き換えず、Escで閉じて開始済みTaskを回収します。</summary>
+    /// <summary>同じ実Windowの言語変更で確認基準・理由・なし・形式説明のBindingを更新し、元パスとメタデータを保ちます。三分類の右下16 DIP保護・読取専用選択・標準コピー・Esc閉鎖も維持します。</summary>
     [TestMethod]
     public void Window_DisplaysReadOnlyCategoriesSupportsNormalCopyAndClosesWithEscape()
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
+            CultureInfo? previousCulture = Resources.Culture;
             var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             using var release = new ManualResetEventSlim();
             using var model = new ChartPropertiesViewModel(ChartTestValues.Empty() with { Path = "chart.bms" }, () =>
@@ -30,12 +34,13 @@ public sealed class ChartPropertiesWindowTests
                 release.Wait();
                 return new ChartResourceDiagnostics("Title", "Artist",
                     [new ChartResourceDiagnosticIssue(new ChartResourceDefinition("#WAV", "01", ChartResourceReference.Parse("missing.wav", ChartResourceKind.Audio)), ChartResourceDiagnosticReason.Missing)],
-                    [new ChartResourceDefinition("#WAV", "02", ChartResourceReference.Parse("unused.wav", ChartResourceKind.Audio))], [new ChartResourceReferenceNumber("#WAV", "ZZ")]);
+                    [], []);
             }, new ChartResourcePlacement(ChartResourcePlacementBasis.FirstCandidate, @"C:\Candidate"));
             var window = new ChartPropertiesWindow(model);
             Task? operation = null;
             try
             {
+                ResourceService.Current.ChangeCulture("ja-JP");
                 scope.ShowAndWaitForContentRendered(window);
                 operation = model.LoadAsync();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
@@ -47,6 +52,23 @@ public sealed class ChartPropertiesWindowTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(Visibility.Collapsed, ((TextBox)window.FindName("readStatus")).Visibility);
                 Assert.AreEqual(0d, ((TextBox)window.FindName("readStatus")).DesiredSize.Height);
+                foreach (string culture in new[] { "ja-JP", "en-US", "ja-JP" })
+                {
+                    ResourceService.Current.ChangeCulture(culture);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(Resources.ChartPropertiesFirstCandidate, ((TextBox)window.FindName("valueVerificationBasis")).Text);
+                    Assert.AreEqual("#WAV01 missing.wav (" + Resources.ChartPropertiesMissing + ")", ((TextBox)window.FindName("listIssues")).Text);
+                    var unused = (TextBox)window.FindName("listUnusedDefinitions");
+                    var undefined = (TextBox)window.FindName("listUndefinedReferences");
+                    Assert.AreEqual(Resources.None, unused.Text);
+                    Assert.AreEqual(Resources.None, undefined.Text);
+                    Assert.AreEqual(Resources.ChartPropertiesUnusedDescription, ((Grid)unused.Parent).Children.OfType<TextBlock>().Single().Text);
+                    Assert.AreEqual(Resources.ChartPropertiesUndefinedDescription, ((Grid)undefined.Parent).Children.OfType<TextBlock>().Single().Text);
+                    Assert.AreEqual("Title", ((TextBox)window.FindName("valueTitle")).Text);
+                    Assert.AreEqual("Artist", ((TextBox)window.FindName("valueArtist")).Text);
+                    Assert.AreEqual("chart.bms", ((TextBox)window.FindName("valuePath")).Text);
+                    Assert.AreEqual(@"C:\Candidate", ((TextBox)window.FindName("valueVerificationPath")).Text);
+                }
                 Assert.AreEqual(ResizeMode.CanResize, window.ResizeMode);
                 Assert.AreEqual("Title", ((TextBox)window.FindName("valueTitle")).Text);
                 Assert.AreEqual("Artist", ((TextBox)window.FindName("valueArtist")).Text);
@@ -63,7 +85,7 @@ public sealed class ChartPropertiesWindowTests
                 }
                 var navigation = (ListBox)window.FindName("categoryNavigation");
                 string[] names = ["listIssues", "listUnusedDefinitions", "listUndefinedReferences"];
-                string[] expected = ["missing.wav", "unused.wav", "ZZ"];
+                string[] expected = ["missing.wav", Resources.None, Resources.None];
                 for (int i = 0; i < names.Length; i++)
                 {
                     navigation.SelectedIndex = i;
@@ -93,22 +115,28 @@ public sealed class ChartPropertiesWindowTests
             }
             finally
             {
+                window.Close();
+                model.Close();
                 release.Set();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(operation ?? model.LoadAsync(), "chart-properties-window-finally");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(operation ?? Task.CompletedTask, "chart-properties-window-finally");
+                ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+                Resources.Culture = previousCulture;
             }
         });
     }
-    /// <summary>失敗時だけパス下の読取専用欄が枠付きで表示され、標準の全選択・コピー対象になります。実クリップボードは書き換えず、開始したTaskはfinallyで回収します。</summary>
+    /// <summary>失敗欄のBindingは同じ実Windowの言語変更で再翻訳され、例外本文を表示しません。枠付きの読取専用欄と標準の全選択・コピーを保ち、開始済みTaskを回収します。</summary>
     [TestMethod]
     public void Window_ShowsBorderedSelectableFailureOnlyAfterReadFailure()
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
+            CultureInfo? previousCulture = Resources.Culture;
             using var model = new ChartPropertiesViewModel(ChartTestValues.Empty(), () => throw new IOException("private failure"));
             var window = new ChartPropertiesWindow(model);
             Task? operation = null;
             try
             {
+                ResourceService.Current.ChangeCulture("ja-JP");
                 var status = (TextBox)window.FindName("readStatus");
                 Assert.AreEqual(Visibility.Collapsed, status.Visibility);
                 scope.ShowAndWaitForContentRendered(window);
@@ -119,14 +147,25 @@ public sealed class ChartPropertiesWindowTests
                 Assert.IsTrue(status.IsReadOnly);
                 Assert.IsTrue(status.BorderThickness.Left > 0);
                 Assert.AreEqual(((TextBox)window.FindName("valuePath")).BorderThickness, status.BorderThickness);
-                Assert.AreEqual(model.Status, status.Text);
+                foreach (string culture in new[] { "ja-JP", "en-US", "ja-JP" })
+                {
+                    ResourceService.Current.ChangeCulture(culture);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(Resources.ChartPropertiesFailed, status.Text);
+                    Assert.IsFalse(status.Text.Contains("private failure", System.StringComparison.Ordinal));
+                    Assert.IsTrue(status.IsVisible);
+                }
                 ApplicationCommands.SelectAll.Execute(null, status);
                 Assert.AreEqual(status.Text, status.SelectedText);
                 Assert.IsTrue(ApplicationCommands.Copy.CanExecute(null, status));
             }
             finally
             {
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(operation ?? model.LoadAsync(), "chart-properties-failure-finally");
+                window.Close();
+                model.Close();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(operation ?? Task.CompletedTask, "chart-properties-failure-finally");
+                ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+                Resources.Culture = previousCulture;
             }
         });
     }

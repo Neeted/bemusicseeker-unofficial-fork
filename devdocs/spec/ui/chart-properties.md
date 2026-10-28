@@ -26,6 +26,8 @@
 
 値と一覧は有効な読取り専用TextBoxで選択でき、Ctrl+A/Cの通常操作でコピーできます。一覧の内容はこの画面内だけ上端に揃え、通常入力の共通スタイルは変えません。パス下の欄は失敗時だけ枠付きで表示し、初期・読取り中・成功ではCollapsedで領域も余白も取りません。読取中の一覧は空欄とし、成功して空だった一覧だけに「なし」を表示します。専用コピー・再読込・閉じるボタンやF5操作は設けません。タイトルバーまたはEscで読取り中にも閉じられます。各窓は実行時に捕捉した譜面だけを一度読み、メインの選択・導入先・候補の変更や別窓の開閉、元ファイルの移動・削除で既結果を差し替えません。再確認は新しく開きます。
 
+開いている同じ窓で言語を変更すると、捕捉した資源の確認基準、不足・確認不能の理由、成功した空一覧の「なし」、BMS/BMSONごとの説明、失敗表示を現言語へ更新します。配置基準の種別・確認先パス、定義元・番号・元パス・診断理由の事実、タイトル・アーティスト・実パスは変えず、再読取り・再解析・診断ログの再出力は行いません。初期・読取り中は言語を変更しても三一覧と失敗欄は空のまま、読取りが終わった時点の言語で結果を整形します。失敗を成功の空一覧へ置き換えず、翻訳のために元例外を保存しません。
+
 三つの一覧TextBoxは自身の可視枠をスクロールバーの基準とし、右・下に表示状態へ連動しない16 DIPの保護域を持ちます。左・上の入力余白と併せ、TextBox.Paddingが一回だけ所有します。画面外周16と上部選択の内容余白を重ねず、ウィンドウの拡大で一覧の表示領域を広げます。
 
 ### 読取りと解析
@@ -38,7 +40,7 @@
 
 操作の分類は[操作の競合ポリシー](../core/operation-concurrency-policy.md#音声と独立した読取り)を正本とします。単一の捕捉内容を読み、その後存在を確認した結果を示します。進行中の変更や外部更新との原子的な整合は要求しません。予約・再試行・世代番号・永続キャッシュは追加しません。
 
-取得・解析の失敗は空の成功に置き換えず、ローカライズした失敗表示を残します。表示モデルが操作名・譜面パス・元例外を既存の `NLogWrapper.FileLogger` へ一度渡し、閉鎖後の通常失敗も原因を診断できるようにします。ログ出力の失敗は局所化し、元の失敗の終端・表示を置き換えません。UI文言には例外本文を渡しません。結果は一画面の寿命に閉じ、DB・健康度・警告・自動導入判定・ライブラリ参照へ書き戻しません。閉鎖後は結果・通知を反映せず、開始済みの読取りTaskの通常失敗は表示モデルが回収します。専用の `ChartPropertiesWindowManager` がShow前に窓を登録し、Show後に表示が継続している場合だけ実読取りTaskを開始・追跡します。WindowのLoadedでは読みません。個別Close後も未終端読取りは所有し、完了済みTaskと閉じた窓は保持し続けません。メイン最初の終了受付で新規表示・読取りを拒否して全窓をCloseし、最終終了処理では先に個別Closeした窓の読取りも既存の終端処理より前にjoinします。Show中の終了再入で閉じた窓は、その後読取りを開始しません。UIの同期的な待機は行いません。
+取得・解析の失敗は空の成功に置き換えず、ローカライズした失敗表示を残します。表示モデルが操作名・譜面パス・元例外を既存の `NLogWrapper.FileLogger` へ一度渡し、閉鎖後の通常失敗も原因を診断できるようにします。ログ出力の失敗は局所化し、元の失敗の終端・表示を置き換えません。UI文言には例外本文を渡しません。結果は一画面の寿命に閉じ、DB・健康度・警告・自動導入判定・ライブラリ参照へ書き戻しません。既存のWindowClosedから表示モデルのCloseへ接続して言語購読を解除します。閉鎖後は言語変更も遅延成功・失敗も結果・通知を反映せず、開始済みの読取りTaskの通常失敗は表示モデルが回収します。専用の `ChartPropertiesWindowManager` がShow前に窓を登録し、Show後に表示が継続している場合だけ実読取りTaskを開始・追跡します。WindowのLoadedでは読みません。個別Close後も未終端読取りは所有し、完了済みTaskと閉じた窓は保持し続けません。メイン最初の終了受付で新規表示・読取りを拒否して全窓をCloseし、最終終了処理では先に個別Closeした窓の読取りも既存の終端処理より前にjoinします。Show中の終了再入で閉じた窓は、その後読取りを開始しません。UIの同期的な待機は行いません。
 
 表示自体の失敗では作成済みの実WindowをCloseし、テーマ購読を含む窓の寿命を回収します。元例外・操作・譜面パスを既存ログへ渡し、終了受付前だけ既存shell失敗通知へ一度返します。終了受付後に戻るShow失敗は[終了開始後の画面反映](../runtime/shutdown.md#終了開始後の画面反映)に従って新しい通知を抑止します。取得・解析の失敗回収とログは既存表示モデルが担当します。
 
@@ -49,11 +51,11 @@
 | 一覧の局所枠と固定保護域 | `ChartPropertiesWindow.xaml` の三つのResourceList | `ChartPropertiesWindowTests` の既存表示・Copyケースで読取り専用選択と共通表示資源への接続・右下16を確認する。長い多数行での末尾文字の保護は同じ共通TextBoxを使う `PlaylistImportDialogTests` の実入力ケースが代表する。 |
 | 単一の実ファイル、保留、複数・未所持・欠損 | [`ChartPropertiesViewModel.ResolveTarget`](../../../BeMusicSeeker/ViewModels/ChartOperations/ChartPropertiesViewModel.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`ChartPropertiesViewModelTests`](../../../BeMusicSeeker.Tests/Resources/ChartPropertiesViewModelTests.cs) の条件判定、[`MainWindowSelectedChartContextMenuWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowSelectedChartContextMenuWpfTests.cs) のcompiledメニューから実manager・独立Windowへの配送、同一譜面の複数表示・個別閉鎖・選択非追従、実Show失敗の通知と終了後抑止。 |
 | 定義単位・未定義参照番号・必要参照と存在規則、BMSON、取得・解析失敗 | [`ChartResourceDiagnosticsService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceDiagnosticsService.cs)、[`ChartResourceExistence`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceExistence.cs) | [`ChartResourceDiagnosticsTests`](../../../BeMusicSeeker.Tests/Resources/ChartResourceDiagnosticsTests.cs) は実軽量パーサー・小さい物理ディレクトリを使用。WAV/BMPの別名前空間・BASE62・定義単位とBMSONの音声三系統/三種BGAイベントを確認。CP932の未使用・同一定義番号複数定義・任意画像の採用行は不正な元バイトを含む入力で確認。全行と特殊IDの網羅は既存 `ChartResourceSnapshotTests`、数値受理は `BmsonSongParserTests`、健康度と導入は既存 `BmsLibraryMaintenanceServiceTests` / `InstallEstimationServiceTests` へ分担。 |
-| 背景で一回、失敗表示、閉鎖後終端・非反映 | `ChartPropertiesViewModel` | `ChartPropertiesViewModelTests` はgateと実Taskで成功・遅延成功・遅延失敗を観測し、finallyで解放・回収する。 |
+| 背景で一回、現言語での再整形、失敗表示、閉鎖後終端・非反映 | `ChartPropertiesViewModel` | `ChartPropertiesViewModelTests` の既存5ケースは、BMS/BMSONの全理由・元コマンド/番号/パス・形式説明、読取り中と完成後の言語変更、空成功の三一覧、失敗の再翻訳、捕捉した設定先、閉鎖後の言語通知0と遅延成功/失敗の非反映を分担する。gateと実Taskを使い、finallyでClose・解放・回収して言語を復元する。 |
 | 保留の不変配置と元譜面定義、確認基準・パス | `ChartResourcePlacement`、`ChartPropertiesViewModel`、`ChartPropertiesWindow` | `ChartResourceDiagnosticsTests.Read_PreservesOriginalDefinitionsWhileUsingCapturedInstallationPlacement` は異なる配置でも定義番号・未使用・未定義を保持する。`ChartPropertiesViewModelTests.LoadAsync_KeepsPlacementCapturedBeforeDestinationChanges` は読取り中の設定先変更非追従、`ChartPropertiesWindowTests` は実Binding、`MainWindowSelectedChartContextMenuWpfTests` は保留文脈の実メニュー配送を確認する。 |
-| 独立窓の寿命、終了受付・実読取りjoin | [`ChartPropertiesWindowManager`](../../../BeMusicSeeker/Views/ChartProperties/ChartPropertiesWindowManager.cs)、`MainWindow` | [`ChartPropertiesWindowManagerTests`](../../../BeMusicSeeker.Tests/Resources/ChartPropertiesWindowManagerTests.cs) は個別Close後の遅延成功/通常失敗、実Show失敗・再入を確認。[`MainWindowViewHostTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewHostTests.cs) は二つのreaderの最後の実終端より前に最終終了しない接続を確認。タスクバー設定は共通表示scope介入前、Ownerなし・非モーダルは実表示後に観測する。 |
-| 三分類、読取り専用・標準コピー、Esc | [`ChartPropertiesWindow`](../../../BeMusicSeeker/Views/ChartProperties/ChartPropertiesWindow.xaml) | [`ChartPropertiesWindowTests`](../../../BeMusicSeeker.Tests/Resources/ChartPropertiesWindowTests.cs) は表示scopeと共有Dispatcherで実binding、一覧の上端揃え、分類切替、失敗欄のCollapsed/枠付き表示、SelectAll/Copy可否、Esc閉鎖を確認。クリップボードの実書込み・OS入力・実モニター表示は自動検証の保証外。 |
-| 通常解析への診断詳細非保持、再生・DB・索引への非接続 | 任意の `ChartResourceParseDetails` と読取サービス | 通常呼出元、`ChartFile`・DB、依存経路を静的に確認する。翻訳辞書の整合は既存 `LocalizationResourceParityTests` へ分担。 |
+| 独立窓の寿命、終了受付・実読取りjoin | [`ChartPropertiesWindowManager`](../../../BeMusicSeeker/Views/ChartProperties/ChartPropertiesWindowManager.cs)、`MainWindow` | [`ChartPropertiesWindowManagerTests`](../../../BeMusicSeeker.Tests/Resources/ChartPropertiesWindowManagerTests.cs) は実Windowの個別Close後の言語通知0・遅延成功/通常失敗の非反映と読取り終端までのshutdown待機、実Show失敗・再入を確認。[`MainWindowViewHostTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewHostTests.cs) は二つのreaderの最後の実終端より前に最終終了しない接続を確認。タスクバー設定は共通表示scope介入前、Ownerなし・非モーダルは実表示後に観測する。 |
+| 三分類、読取り専用・標準コピー、Esc | [`ChartPropertiesWindow`](../../../BeMusicSeeker/Views/ChartProperties/ChartPropertiesWindow.xaml) | [`ChartPropertiesWindowTests`](../../../BeMusicSeeker.Tests/Resources/ChartPropertiesWindowTests.cs) は表示scopeと共有Dispatcherで同じ窓の言語変更による確認基準・理由・なし・形式説明と失敗表示の実Binding、一覧の上端揃え、分類切替、失敗欄のCollapsed/枠付き表示、SelectAll/Copy可否、Esc閉鎖を確認。クリップボードの実書込み・OS入力・実モニター表示は自動検証の保証外。 |
+| 通常解析への診断詳細非保持、再生・DB・索引への非接続 | 任意の `ChartResourceParseDetails` と読取サービス | 通常呼出元、`ChartFile`・DB、依存経路と、言語更新が再解析・再ログ出力・例外保持へ接続しないことを静的に確認する。翻訳辞書の整合は既存 `LocalizationResourceParityTests` へ分担。 |
 
 ## 関連資料
 

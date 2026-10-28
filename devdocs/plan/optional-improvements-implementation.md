@@ -32,7 +32,7 @@
 | U03 共通表の表示とコピー | TSV空行 → URL幅 → フルスキャンDST編集・非編集案内 → 言語cache | U02後。同担当が能力付与・編集終端・一時投影まで所有。U15のDST検証と順序調整 |
 | U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U03後、U05/U08と直列 |
 | U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04/U08と直列 |
-| U07 言語変更と確認文言 | プロパティ → ランプ → 確認ボタン | 既存owner別コミット。全言語資源は一担当。U03/U16/U17/U20と共有編集を調整 |
+| U07 言語変更と確認文言 | ランプ → 確認ボタン | 既存owner別コミット。全言語資源は一担当。U03/U16/U17/U20と共有編集を調整 |
 | U08 手動ランキング取得廃止 | UI・専用通信・資料・専用テストを除去 | MainWindow/composition/Ir。U04/U05後、起動時ローカルcache維持 |
 | U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
 | U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile。U13のWriter検証と調整 |
@@ -181,17 +181,6 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 `MainWindowPlaylistWorkspaceWpfTests` でクリック→1秒以内に検索入力→callback後も検索の全文/フォーカス保持・改名0回、移動しない場合は一回開始を確認。F2、別ノード、切離し、重複クリックで古い要求が再開しない代表を分担する。遅延完了後の全UI状態を保証する一般フレームワークへ拡張しない。DnDと同MainWindowツリー領域のため同担当へまとめられる。
 
 ## U07 言語変更と確認文言
-
-### 開いている譜面プロパティ
-
-**現存。** `ChartPropertiesWindowManager.Show`相当の通常窓生成→ `ChartPropertiesViewModel` → `LoadAsync` は一回の背景診断を表示する。`ChartPropertiesViewModel` のconstructorは配置basisを翻訳済み `VerificationBasis` に置換して保持し、`LoadCoreAsync` は診断結果を `Issues` / `UnusedDefinitions` / `UndefinedReferences` に整形して結果本体を保持しない。失敗 `Status` も文字列だけ。`UnusedDescription` / `UndefinedDescription` は資源getterでもPropertyChangedが発火しない。ResourceService購読なし。
-
-- 方針: 捕捉した配置basisと取得済みの診断事実を画面寿命の入力として保ち、既存の `FormatReason` / `JoinOrNone` に再整形を集める。成功/失敗/初期という必要な表示状態から失敗文を再生成し、元例外を翻訳目的で保持しない。basis、issues、なし、BMS/BMSON説明、失敗Statusの通知を揃える。Title/Artist/path/実診断内容はそのまま。
-- 寿命: `ChartPropertiesWindow.WindowClosed` → `viewModel.Close()` が既存終端。ここで購読解除し、開始済みLoadAsyncの失敗回収/非反映を保つ。managerは開始済みTaskを終了待機するため、その寿命を新造しない。
-- 完了条件: 開いた同じ窓の言語変更で確認基準・不足理由・なし・形式説明・失敗表示が新言語。read回数一回、元path/配置basis/資源factを保持。読込み中の言語変更は完成時の現言語で表示。閉鎖後は言語通知・完了結果の反映なし。
-- 既存テスト: `ChartPropertiesViewModelTests.LoadAsync_RunsOnceInBackgroundAndPublishesResult`、`LoadAsync_KeepsPlacementCapturedBeforeDestinationChanges`、`Close_ObservesStartedReadWithoutPublishingAfterClose`、`LoadAsync_ExposesLocalizedFailureWithoutExceptionDetails`、`LoadAsync_FormatsSourceCommandsAndFormatSpecificDescriptions`。実Binding/コピー/窓閉鎖は `ChartPropertiesWindowTests` とmanager系列に分担する。
-- 共有書込み先: `ChartPropertiesViewModel.cs`、同VM/Window tests。保存済み文字コードを診断へ渡す別候補と同ファイルを直列化し、言語更新から再解析を呼ばない。
-- 除外: 一回読込み、捕捉配置保持、閉鎖後非反映、WindowのResourceService直結ラベルは既存保証。
 
 ### ランプの既存区間
 
