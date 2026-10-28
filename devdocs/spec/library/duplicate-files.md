@@ -44,7 +44,9 @@ BMSの警告は同じ所持tokenの共通現在値へ反映し、BMSONは重複�
 
 共通現在値の更新だけでは全重複解析や全行の具体化を行いません。グループ所属・フォルダ一覧・`Header` は検索結果のまま維持し、グループを再検索したときに置換します。共通値の差分反映で、ツリー所属や自動選択キーまで更新する保証は持ちません。捕捉済みの操作snapshotは変更しません。
 
-統合先メニューには同じグループから入力元を除いたフォルダを表示します。`ShowDuplicateFileCheckConfirmMsg` が有効なら確認してから実行します。再生停止、画面更新抑制、重複表示優先の範囲を設定し、[変更セッションの統合契約](mutations.md#フォルダ統合と確定後の保守)へ渡します。DB失敗時の全体補償や、独自の通知経路は持ちません。
+統合先メニューには同じグループから、入力元と同一または親子関係にあるフォルダを除いて表示します。同一・包含の判定は既存のパス比較を双方向に使い、大小文字・末尾の区切り文字の違いを同一として扱います。兄弟フォルダと接頭辞だけが同じ兄弟は候補へ残し、候補の重複排除は大小文字を無視します。候補の算出では存在確認や動的な受付を行わず、実行時の物理側の拒否条件を維持します。
+
+`ShowDuplicateFileCheckConfirmMsg` が有効なら確認してから実行します。再生停止、画面更新抑制、重複表示優先の範囲を設定し、[変更セッションの統合契約](mutations.md#フォルダ統合と確定後の保守)へ渡します。DB失敗時の全体補償や、独自の通知経路は持ちません。
 
 停止後のモデル準備では、元フォルダが確定済み利用者BMSルート本体または空の登録子を含む祖先なら統合を拒否します。元先の実体・DB・登録を保持し、登録の解除・付替えを行いません。登録を含まない通常作品は、登録配下や同prefixの兄弟でも通常の統合条件で処理できます。
 
@@ -52,7 +54,7 @@ BMSの警告は同じ所持tokenの共通現在値へ反映し、BMSONは重複�
 
 ### Ctrl+Gと同一フォルダ内の整理
 
-フォルダが一つなら同一フォルダ内の重複削除、二つなら選択元からもう一方への統合、三つ以上なら統合先メニューの展開を行います。
+元グループのフォルダが一つなら同一フォルダ内の重複削除を行います。複数フォルダで有効な統合先候補がゼロなら、統合もメニュー展開も行いません。有効候補があるときは元グループの件数に従い、二つなら選択元からもう一方へ統合し、三つ以上なら統合先メニューを展開します。三つ以上から有効候補が一つに絞れても、直接統合へ変更しません。
 
 統合とハッシュ整理が成功したら、途中で別画面や別の重複グループへ移っていても、操作前に捕捉した次群または存続群を選択します。次の対象がなければ自動選択せず、捕捉した所属が消失した場合は空表示と選択解除を行います。同名の別群・現在位置の別群・全件へ読み替えません。処理失敗時は成功後選択を行いません。
 
@@ -119,7 +121,8 @@ BMSの警告は同じ所持tokenの共通現在値へ反映し、BMSONは重複�
 | 重複結果の準備中の検索・絞込み・並べ替え | [`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs)、`MainWindowViewModel` | [`RegularChartNavigationTests.DuplicateInvalidation_NormalFiltersAwaitReadyInputAndAdoptLatestFilter`](../../../BeMusicSeeker.Tests/ChartList/RegularChartNavigationTests.cs) は実設定変更から同じデータ準備へ合流し、仮の空一覧や古い条件を採用せず、完成時の条件と順序、完成後の正当な空結果を確認する。 |
 | 同名・空名、明示root、folder配下、未解決、行選択の識別 | [`DuplicateViewContext`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateViewContext.cs)、[`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs) | [`RegularChartViewBuildAndOrderingTests`](../../../BeMusicSeeker.Tests/ChartList/RegularChartViewBuildAndOrderingTests.cs) の `RegularEntry_SelectsDuplicateSubsetFromLibraryOwner` と `RegularEntry_DuplicateFolderContextSelectsOnlyMatchingCharts` が実ownerからのpath集合、選択scope、子孫と同prefix兄弟、捕捉後の元list変更を確認する。 |
 | 操作前の次対象・三以上の存続宛先、実左Treeまでの接続と消失時解除 | [`MaintenanceTreeViewModel`](../../../BeMusicSeeker/ViewModels/Maintenance/MaintenanceTreeViewModel.cs)、`DuplicateMaintenanceWorkflowOwner`、`MainWindow.ApplyDuplicateMaintenanceSelectionAsync` | [`MaintenanceTreeViewModelTests`](../../../BeMusicSeeker.Tests/Maintenance/MaintenanceTreeViewModelTests.cs) と [`DuplicateMaintenanceWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) が捕捉値と現在結果の所属を確認する。[`MainWindowPackageMaintenanceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) の `DuplicateSelections_ActualMergeSelectsCapturedNextGroupThroughCompiledTree` は実検索・標準composition・本番store・SQLite/FSからauto左選択までを通し、`DuplicateSelections_DisappearedTargetClearsTreeAndRowsWithoutHeaderFallback` は対象消失時の左無選択・空一覧・旧行選択解除を分担する。 |
-| 統合、後続保守、受付解放、失敗と通知 | [`DuplicateMaintenanceWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs) | [`DuplicateMaintenanceWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs)、[`BmsLibraryDuplicateServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) |
+| 統合先候補の同一・親子除外、兄弟保持、大小文字の重複排除とCtrl+Gの元件数分岐 | [`DuplicateMaintenanceWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs) の `CaptureDuplicateFolderMergeDestinations`、`CaptureDuplicateFolderKeyboardAction` | [`DuplicateMaintenanceWorkflowOwnerTests.DuplicateFolderInteractionQueries_PreserveDestinationAndKeyboardPolicy`](../../../BeMusicSeeker.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) は管理主体の実装で候補の件数付き集合一致、末尾区切り文字・大小文字・親子・接頭辞だけが同じ兄弟、二件／三件以上の候補ゼロ、有効一件時の元件数分岐と単一フォルダ整理を確認する。存在確認は呼出し失敗の代替にし、物理資源を使わない。実メニューとショートカットからの対象受渡し・単一フォルダ整理への接続は [`MainWindowPackageMaintenanceWpfTests.CompiledDuplicateContextAndShortcutRoutesUseOneTypedTerminal`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) が分担する。 |
+| 統合、後続保守、受付解放、失敗と通知 | [`DuplicateMaintenanceWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs) | [`DuplicateMaintenanceWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs)、[`BmsLibraryDuplicateServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs)。同一・子・祖先の宛先を物理変更前に拒否して元入力を保つ保証は [`BmsLibraryPackageInstallServiceTests.MovePackageFilesWithReceipt_RejectsOverlappingDirectoryDestinationBeforeMutation`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) が分担する。 |
 | 削除の確認件数とカタログ反映 | [`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.cs) | [`OwnedChartCollectionLibraryMutationTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionLibraryMutationTests.cs)、[`BmsLibraryFolderRenameRefreshTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) |
 | 終端の分類と多言語表示 | [`FileDbMutationReport`](../../../BeMusicSeeker/ViewModels/ChartOperations/FileDbMutationReport.cs) | [`FileDbMutationReportTests`](../../../BeMusicSeeker.Tests/ChartOperations/FileDbMutationReportTests.cs)、[`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs) |
 

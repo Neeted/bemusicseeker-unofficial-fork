@@ -35,12 +35,11 @@
 | U08 手動ランキング取得廃止 | UI・専用通信・資料・専用テストを除去 | MainWindow/composition/Ir。U04/U05後、起動時ローカルcache維持 |
 | U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
 | U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile |
-| U14 重複統合候補 | 候補とCtrl+Gを物理条件へ揃える | Duplicate owner。U15の物理パス判定と共有する場合だけ直列 |
 | U15 導入・推定 | 宛先による範囲拡張廃止 → 入れ子禁止 → 重複保留の登録整理 → 候補根変換・ユニークhash票 → DST表記 | PackageInstall/service/estimation。同一writer。候補根と票数は同じ座標へ揃える。登録整理は発見結果/完全性を共用。U03/U09と順序調整 |
 | U16 ランプの対象・取得元 | 実NO SONG所属 → 成績と履歴の同一捕捉 | lamp source/model/viewer。U07ランプ・U17日付と直列 |
 | U17 履歴投影・日付境界 | 所属大小文字 → 履歴/ランプの日付共用 | PlayHistory/HistoricalSnapshot、U16後 |
 
-現在の所有は、`optional-updater` が共通表、`optional-search-ui` がU07の言語表示、`optional-encoding` がU09、`optional-bms-input` が再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U14/U16/U17は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
+現在の所有は、`optional-updater` が共通表、`optional-search-ui` がU07の言語表示、`optional-encoding` がU09、`optional-bms-input` が再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U16/U17は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
 
 ### 開始・引継ぎと計画の更新
 
@@ -199,17 +198,6 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 `BMSFile` は `#BASE` を扱わず、大文字化で定義件数が減るかで基数を推測する。`#BASE 62`、`#WAVAA normal.wav`、`#LNOBJ aa` のように小文字音源が未定義だとAAとaaを潰し、通常音をLN終端として除く。
 
 明示BASE62では定義・ノート・LNOBJを同じ大小文字区別で扱い、BASEなしの既存推測と受理範囲を保つ。WAV AA/aa双方あり、片方だけ、LNOBJだけ大小が異なる入力で通常音が残り、LNOBJ終端自身は発音しないことを実音声イベントで確認する。分岐・BOMの現行契約と同じparserで整合させ、基本情報側の解析へ便乗変更しない。
-
-## U14 重複統合候補
-
-### 重複フォルダ統合の候補表示
-
-- 通常入口・原因: `BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs:339` の `CaptureDuplicateFolderMergeDestinations` は同一パスだけを除外する。`CaptureDuplicateFolderKeyboardAction`（353付近）は元グループの2件で一件へ直接統合、3件以上でメニューを開く。親子も候補に残る一方、`BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs:2256` の `EnsureDirectoryMutationDestinationIsDistinct` は相互包含を拒否し、同ファイル1560から統合の物理準備へ接続される。
-- 影響: 実行できない宛先をメニュー・Ctrl+Gから選べる。物理拒否は維持する。
-- 方針: 既存のパス比較を使って同一・相互包含を候補から除く。候補ゼロでは操作しない。元グループ件数による直接統合／メニューの分岐を維持し、3件以上から有効候補が1件になっても新しく直接統合しない。
-- 境界: 利用者向け動作の追加未決なし。物理前提のうち動的な受付・存在確認まで候補計算へ複写しない。
-- 検証: `DuplicateMaintenanceWorkflowOwnerTests.DuplicateFolderInteractionQueries_PreserveDestinationAndKeyboardPolicy` は無関係なA/B/Cのみ。親→子、子→親、有効兄弟、候補ゼロ、有効候補1件だが元件数3件のメニュー維持を同系列へ追加。実物理側拒否は既存導入・統合テストで保持する。
-- 単位・依存: この候補変更だけの独立単位。U15の残存整理と同じ導入サービスの共有パス判定を触る場合は直列化し、候補表示のために物理操作や独自正規化を増やさない。対応仕様は `devdocs/spec/library/mutations.md`。
 
 ## U15 導入・推定
 

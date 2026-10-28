@@ -336,6 +336,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         }
     }
 
+    /// <summary>同じグループから、入力元と同一または親子関係にあるパスを除き、大小文字を無視して重複しない統合先候補を捕捉します。</summary>
     internal IReadOnlyList<string> CaptureDuplicateFolderMergeDestinations(
         DuplicateGroup duplicateGroup,
         string sourcePath)
@@ -346,9 +347,13 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         }
 
         return [.. (duplicateGroup.Folders ?? [])
-            .Except([sourcePath], StringComparer.OrdinalIgnoreCase)];
+            .Except([sourcePath], StringComparer.OrdinalIgnoreCase)
+            .Where(destinationPath =>
+                !LongPathFileSystem.IsSameOrDescendantDirectoryPath(destinationPath, sourcePath)
+                && !LongPathFileSystem.IsSameOrDescendantDirectoryPath(sourcePath, destinationPath))];
     }
 
+    /// <summary>単一フォルダの整理を維持し、複数フォルダでは有効候補があるときだけ元の件数に従って直接統合またはメニュー展開を選びます。</summary>
     internal DuplicateFolderKeyboardAction CaptureDuplicateFolderKeyboardAction(
         DuplicateGroup duplicateGroup,
         string sourcePath)
@@ -363,10 +368,14 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         {
             return new DuplicateFolderKeyboardAction(DuplicateFolderKeyboardActionKind.Cleanup);
         }
+        IReadOnlyList<string> destinations = CaptureDuplicateFolderMergeDestinations(duplicateGroup, sourcePath);
+        if (destinations.Count == 0)
+        {
+            return new DuplicateFolderKeyboardAction(DuplicateFolderKeyboardActionKind.None);
+        }
         if (folderCount == 2)
         {
-            string destinationPath = CaptureDuplicateFolderMergeDestinations(duplicateGroup, sourcePath)
-                .FirstOrDefault();
+            string destinationPath = destinations[0];
             return string.IsNullOrWhiteSpace(destinationPath)
                 ? new DuplicateFolderKeyboardAction(DuplicateFolderKeyboardActionKind.None)
                 : new DuplicateFolderKeyboardAction(

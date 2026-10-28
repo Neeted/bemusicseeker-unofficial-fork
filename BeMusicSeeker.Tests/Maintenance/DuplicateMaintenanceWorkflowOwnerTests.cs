@@ -635,29 +635,62 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 同じ重複グループの別フォルダだけを統合候補にし、三件以上はメニュー・二件は相手への統合・一件は削除へ判断して対象数の誤分類を検出する。
+    /// 同一・親子パスを候補から除き、兄弟と接頭辞だけ同じ兄弟を大小文字重複なしで残す。候補ゼロは無操作とし、有効候補が一件でも元の件数によるメニュー・直接統合・単一フォルダ整理を維持する。
     /// </summary>
     [TestMethod]
     public void DuplicateFolderInteractionQueries_PreserveDestinationAndKeyboardPolicy()
     {
-        DuplicateMaintenanceWorkflowOwner owner = CreateOwner([], new RecordingPresentation([]), AcceptedDialogs(), new RecordingStore([]));
-        var group = new DuplicateGroup([], [@"C:\A", @"C:\B", @"C:\C"]);
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(
+            [],
+            new RecordingPresentation([]),
+            AcceptedDialogs(),
+            new RecordingStore([]),
+            directoryExists: _ => throw new AssertFailedException("統合候補の照会で存在確認を行わない。"));
+        const string sourcePath = @"C:\Songs\A";
+        var group = new DuplicateGroup([], [sourcePath, @"c:\songs\a", @"C:\Songs\A\",
+            @"C:\Songs", @"C:\Songs\A\Child", @"C:\Songs\B", @"c:\songs\b", @"C:\Songs\AB"]);
 
-        CollectionAssert.AreEqual(
-            new[] { @"C:\B", @"C:\C" },
-            (System.Collections.ICollection)owner.CaptureDuplicateFolderMergeDestinations(group, @"C:\A"));
-        DuplicateFolderKeyboardAction menuAction = owner.CaptureDuplicateFolderKeyboardAction(group, @"C:\A");
+        IReadOnlyList<string> destinations = owner.CaptureDuplicateFolderMergeDestinations(group, sourcePath);
+        Assert.AreEqual(2, destinations.Count);
+        CollectionAssert.AreEquivalent(
+            new[] { @"C:\SONGS\B", @"C:\SONGS\AB" },
+            destinations.Select(path => path.ToUpperInvariant()).ToArray());
+        DuplicateFolderKeyboardAction menuAction = owner.CaptureDuplicateFolderKeyboardAction(group, sourcePath);
         Assert.AreEqual(DuplicateFolderKeyboardActionKind.OpenContextMenu, menuAction.Kind);
 
-        group.Folders = [@"C:\A", @"C:\B"];
-        DuplicateFolderKeyboardAction mergeAction = owner.CaptureDuplicateFolderKeyboardAction(group, @"C:\A");
-        Assert.AreEqual(DuplicateFolderKeyboardActionKind.Merge, mergeAction.Kind);
-        Assert.AreEqual(@"C:\B", mergeAction.DestinationPath);
+        // 二件の親・子・同一表記違いと、三件以上で全て親子の場合は、空メニューも統合も開始しない。
+        List<string>[] groupsWithoutDestinations =
+        [
+            [sourcePath, @"C:\Songs"],
+            [sourcePath, @"C:\Songs\A\Child"],
+            [sourcePath, @"c:\songs\a\"],
+            [sourcePath, @"C:\Songs", @"C:\Songs\A\Child"]
+        ];
+        foreach (List<string> folders in groupsWithoutDestinations)
+        {
+            group.Folders = folders;
+            Assert.AreEqual(0, owner.CaptureDuplicateFolderMergeDestinations(group, sourcePath).Count);
+            DuplicateFolderKeyboardAction noAction = owner.CaptureDuplicateFolderKeyboardAction(group, sourcePath);
+            Assert.AreEqual(DuplicateFolderKeyboardActionKind.None, noAction.Kind);
+            Assert.IsNull(noAction.DestinationPath);
+        }
 
-        group.Folders = [@"C:\A"];
+        // 有効候補数ではなく元の三件を使い、一件に絞れても直接統合へ切り替えない。
+        group.Folders = [sourcePath, @"C:\Songs", @"C:\Songs\B"];
+        Assert.AreEqual(1, owner.CaptureDuplicateFolderMergeDestinations(group, sourcePath).Count);
+        Assert.AreEqual(
+            DuplicateFolderKeyboardActionKind.OpenContextMenu,
+            owner.CaptureDuplicateFolderKeyboardAction(group, sourcePath).Kind);
+
+        group.Folders = [sourcePath, @"C:\Songs\B"];
+        DuplicateFolderKeyboardAction mergeAction = owner.CaptureDuplicateFolderKeyboardAction(group, sourcePath);
+        Assert.AreEqual(DuplicateFolderKeyboardActionKind.Merge, mergeAction.Kind);
+        Assert.AreEqual(@"C:\Songs\B", mergeAction.DestinationPath);
+
+        group.Folders = [sourcePath];
         Assert.AreEqual(
             DuplicateFolderKeyboardActionKind.Cleanup,
-            owner.CaptureDuplicateFolderKeyboardAction(group, @"C:\A").Kind);
+            owner.CaptureDuplicateFolderKeyboardAction(group, sourcePath).Kind);
     }
 
     /// <summary>
