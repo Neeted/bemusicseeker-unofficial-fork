@@ -17,6 +17,129 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class RibbitBmsFileTimingTests
 {
+    /// <summary>
+    /// AA/aaの両定義は明示62と従来推測のどちらでも別音源として発音し、16/36宣言で強制的に同一視する誤りも検出する。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow("#BASE 62\n")]
+    [DataRow("#BASE 16\n")]
+    [DataRow("#BASE 36\n")]
+    [DataRow("")]
+    public void UpperAndLowerResourceDefinitionsKeepDistinctAudioEvents(string declaration)
+    {
+        WithChart(declaration + "#BPM 120\n#WAVAA upper.wav\n#WAVaa lower.wav\n#00111:AAaa\n", bms =>
+            AssertScheduledAudio(bms, ("upper.wav", 96000L), ("lower.wav", 144000L)));
+    }
+
+    /// <summary>
+    /// 明示62ではLNOBJと大小文字だけ異なる通常音を2秒に残し、3秒の終端自身は鳴らさない。
+    /// 両定義と通常音だけの定義を両方向で通し、定義件数に依存した同一視と通常音の誤除去を検出する。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow("#WAVAA upper.wav\n#WAVaa lower.wav\n", "AA", "aa", "upper.wav")]
+    [DataRow("#WAVAA upper.wav\n#WAVaa lower.wav\n", "aa", "AA", "lower.wav")]
+    [DataRow("#WAVAA upper.wav\n", "AA", "aa", "upper.wav")]
+    [DataRow("#WAVaa lower.wav\n", "aa", "AA", "lower.wav")]
+    public void ExplicitBase62KeepsNormalAudioAndSilencesOppositeCaseLnobj(
+        string definitions, string normalId, string endId, string expectedResource)
+    {
+        WithChart("#BASE 62\n#BPM 120\n" + definitions + $"#LNOBJ {endId}\n#00111:{normalId}{endId}\n", bms =>
+            AssertScheduledAudio(bms, (expectedResource, 96000L)));
+    }
+
+    /// <summary>
+    /// 宣言なしのAA/aaとGG/ggは単一定義へ従来どおり同一視し、拡張IDの+/も受理して、明示62対応の互換性退行を検出する。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow("AA", "AAaa", true)] // 16進推測でも大小文字の両ノートを残します。
+    [DataRow("GG", "GGgg", true)] // 36進推測でも大小文字の両ノートを残します。
+    [DataRow("+/", "+/", false)] // 既存の拡張IDを標準62文字だけへ制限しません。
+    public void MissingBaseDeclarationKeepsLegacyCaseInferenceAndExtendedIds(string definedId, string notes, bool hasSecondNote)
+    {
+        (string Resource, long StartFrame)[] expected = hasSecondNote
+            ? [("legacy.wav", 96000L), ("legacy.wav", 144000L)]
+            : [("legacy.wav", 96000L)];
+        WithChart($"#BPM 120\n#WAV{definedId} legacy.wav\n#00111:{notes}\n", bms => AssertScheduledAudio(bms, expected));
+    }
+
+    /// <summary>
+    /// 最後の有効BASEを宣言前の定義・LNOBJ・ノートにも適用し、62なら通常音だけ一回、従来推測ならLNOBJと同一視して無音にする。
+    /// 不正宣言での上書き、16/36への復帰漏れと、整数書式の過剰な拒否を検出する。
+    /// </summary>
+    [DataTestMethod]
+    // 62の強制は後続16/36で解除し、逆順なら宣言前の通常音を残します。
+    [DataRow("#BASE 62\n", "#BASE 36\n", false)]
+    [DataRow("#BASE 62\n", "#BASE 16\n", false)]
+    [DataRow("#BASE 36\n", "#BASE 62\n", true)]
+    [DataRow("#BASE 16\n", "#BASE 62\n", true)]
+    // 不正文字列、未対応値、整数overflow、小数形式は最後の有効宣言を変更しません。
+    [DataRow("#BASE 62\n", "#BASE bogus\n#BASE 64\n#BASE 2147483648\n", true)]
+    [DataRow("", "#BASE bogus\n#BASE 64\n#BASE 2147483648\n#BASE 62.0\n", false)]
+    // 既存の整数指示と同じ符号・先頭ゼロ・前後空白を受理します。
+    [DataRow("", "#BASE +62\n", true)]
+    [DataRow("", "#BASE 062\n", true)]
+    [DataRow("", "#BASE   62  \n", true)]
+    public void LastValidBaseDeclarationAppliesToEarlierNotesAndLnobj(string before, string after, bool keepsNormalAudio)
+    {
+        string source = "#BPM 120\n" + before + "#WAVAA upper.wav\n#LNOBJ aa\n#00111:AAaa\n" + after;
+        (string Resource, long StartFrame)[] expected = keepsNormalAudio ? [("upper.wav", 96000L)] : [];
+        WithChart(source, bms => AssertScheduledAudio(bms, expected));
+    }
+
+    /// <summary>
+    /// 通常読込みと監査準備のBOM有無で共通部分と採用枝の有効BASEを全体へ適用し、非採用末尾宣言による上書きを検出する。
+    /// 採用62は宣言前の通常音を残し、採用36は同一視へ戻す。採用64は先頭62を保持し、先頭指示の欠落を識別する。
+    /// 全条件でENDIF後の8秒の共通音を一回残す。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(36, 62, 36, true, false, false)]
+    [DataRow(36, 62, 36, true, true, false)]
+    [DataRow(36, 62, 36, true, false, true)]
+    [DataRow(36, 62, 36, true, true, true)]
+    [DataRow(62, 36, 62, false, false, false)]
+    [DataRow(62, 36, 62, false, true, false)]
+    [DataRow(62, 36, 62, false, false, true)]
+    [DataRow(62, 36, 62, false, true, true)]
+    // 後続の採用宣言を不正値とし、先頭62の欠落で2秒のupperが消える条件を両入口・BOM有無で確認します。
+    [DataRow(62, 64, 36, true, false, false)]
+    [DataRow(62, 64, 36, true, true, false)]
+    [DataRow(62, 64, 36, true, false, true)]
+    [DataRow(62, 64, 36, true, true, true)]
+    public void SelectedBranchBaseControlsNormalAndPreparedInputWithOrWithoutBom(
+        int commonBase, int selectedBase, int skippedBase, bool keepsNormalAudio, bool includeBom, bool preparedInput)
+    {
+        string source = $"#BASE {commonBase}\n#BPM 120\n#WAVAA upper.wav\n#WAV01 common.wav\n#LNOBJ aa\n#00111:AAaa\n"
+            + $"#RANDOM 1\n#IF 1\n#BASE {selectedBase}\n#ELSE\n#BASE {skippedBase}\n#ENDIF\n#00401:01\n";
+        var encoding = new UTF8Encoding(includeBom);
+        byte[] bytes = encoding.GetPreamble().Concat(encoding.GetBytes(source)).ToArray();
+        string directory = Path.Combine(Path.GetTempPath(), "ribbit-base-input-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string path = Path.Combine(directory, "input.bms");
+            File.WriteAllBytes(path, bytes);
+            BMSFile bms;
+            if (preparedInput)
+            {
+                string decoded = BMSFile.DecodeForAudit(bytes, out Encoding detectedEncoding);
+                bms = BMSFile.ParsePreparedForAudit(path, decoded, detectedEncoding,
+                    Convert.ToHexString(MD5.HashData(bytes)).ToLowerInvariant(), new BmsParseOptions());
+            }
+            else
+            {
+                bms = PlaybackChart.Load(path).Bms ?? throw new AssertFailedException("BMS解析結果が必要です。");
+            }
+            (string Resource, long StartFrame)[] expected = keepsNormalAudio
+                ? [("upper.wav", 96000L), ("common.wav", 384000L)]
+                : [("common.wav", 384000L)];
+            AssertScheduledAudio(bms, expected);
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
     /// <summary>実在する親階層のBMPと譜面側同名画像を置き、slash・backslashの親参照がBmpArrayでも意図した参照先を保つ。</summary>
     [DataTestMethod]
     [DataRow("../../images/art.bmp")]
@@ -498,6 +621,12 @@ public sealed class RibbitBmsFileTimingTests
         Assert.AreSame(cause, failure.InnerException);
         Assert.IsFalse(failure.IsInputFailure, "通常範囲の乱数実装故障を譜面入力不良に変換しません。");
         CollectionAssert.AreEqual(new[] { (2, 1, true), (3, 2, false) }, observed.ToArray());
+    }
+
+    private static void AssertScheduledAudio(BMSFile bms, params (string Resource, long StartFrame)[] expected)
+    {
+        CollectionAssert.AreEquivalent(expected, BmsAudioFrameSchedule.Create(bms, 48000).Events
+            .Select(audioEvent => (bms.WavArray[audioEvent.WavIndex], audioEvent.StartFrame)).ToArray());
     }
 
     private static string AssertDecodedPlaybackInputs(byte[] bytes, string expectedSource, string expectedTitle,

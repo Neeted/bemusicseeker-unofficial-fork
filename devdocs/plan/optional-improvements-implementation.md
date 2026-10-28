@@ -32,10 +32,9 @@
 | U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U03後、U05と直列 |
 | U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04と直列 |
 | U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
-| U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile |
 | U15 導入・推定 | 宛先による範囲拡張廃止 → 入れ子禁止 → 重複保留の登録整理 → 候補根変換・ユニークhash票 → DST表記 | PackageInstall/service/estimation。同一writer。候補根と票数は同じ座標へ揃える。登録整理は発見結果/完全性を共用。U09と順序調整 |
 
-現在の所有は、`optional-updater` が共通表、`optional-encoding` がU09、`optional-bms-input` が再生入力、`optional-lr2-output` がU15。空いた作業ツリーは全体ルートが共有先の終了に応じて最新devから再利用する。メイン以外最大5本であり、枠を埋めることを目的にしない。
+現在の所有は、`optional-updater` が共通表、`optional-encoding` がU09、`optional-lr2-output` がU15。空いた作業ツリーは全体ルートが共有先の終了に応じて最新devから再利用する。メイン以外最大5本であり、枠を埋めることを目的にしない。
 
 ### 開始・引継ぎと計画の更新
 
@@ -133,14 +132,6 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 成功先で健康度・警告を評価し、既存の導入終端の保存へまとめる。導入失敗した対象、資源だけ更新した別所持譜面、同hashの別配置へ指定を広げない。現行の所持再スキャンの確定指定保持へ接続し、新しい由来列や保守対象追加を行わない。
 
 通常導入・推定先導入・自動継続・部分失敗の実配置とDB読戻しで成功対象だけのPath/Hash/Encoding/Fixed/タイトル一致、成功先での評価、後続再スキャン・再起動での保持を確認する。U15が扱う導入serviceの編集完了後に同じwriterを渡す。
-
-## U10 BMS再生入力
-
-### 明示BASE62の音源IDとLNOBJ
-
-`BMSFile` は `#BASE` を扱わず、大文字化で定義件数が減るかで基数を推測する。`#BASE 62`、`#WAVAA normal.wav`、`#LNOBJ aa` のように小文字音源が未定義だとAAとaaを潰し、通常音をLN終端として除く。
-
-明示BASE62では定義・ノート・LNOBJを同じ大小文字区別で扱い、BASEなしの既存推測と受理範囲を保つ。WAV AA/aa双方あり、片方だけ、LNOBJだけ大小が異なる入力で通常音が残り、LNOBJ終端自身は発音しないことを実音声イベントで確認する。分岐・BOMの現行契約と同じparserで整合させ、基本情報側の解析へ便乗変更しない。
 
 ## U15 導入・推定
 

@@ -1522,8 +1522,8 @@ public partial class BMSFile
         {
             throw new InvalidOperationException("Source cannot be null");
         }
-        ParseMain(Source, randomPattern);
-        SetIndexEncoding();
+        bool preserveIndexCase = ParseMain(Source, randomPattern);
+        SetIndexEncoding(preserveIndexCase);
         ResolveNoteConflict();
         CalculateTiming();
         if (Measures.LastIndex < 0)
@@ -1532,8 +1532,10 @@ public partial class BMSFile
         }
     }
 
-    private void ParseMain(string source, Queue<int> pattern = null)
+    private bool ParseMain(string source, Queue<int> pattern = null)
     {
+        // 採用枝の最後の有効宣言を解析後へ渡し、宣言前の定義・ノート・LNOBJにも同じ解釈を適用します。
+        bool preserveIndexCase = false;
         randomPattern.Clear();
         Random genRan = parseOptions?.RandomSource ?? new Random();
         object[] selector(string s, int n)
@@ -1796,6 +1798,13 @@ public partial class BMSFile
                                 break;
                             case "#GENRE":
                                 Genre = parameter;
+                                break;
+                            case "#BASE":
+                                if (int.TryParse(parameter, NumberStyles.Integer, NumericCulture, out int indexBase)
+                                    && indexBase is 16 or 36 or 62)
+                                {
+                                    preserveIndexCase = indexBase == 62;
+                                }
                                 break;
                             case "#LNOBJ":
                                 if (parameter.IsBMSBase64())
@@ -2400,11 +2409,17 @@ public partial class BMSFile
         {
             enumerator?.Dispose();
         }
+        return preserveIndexCase;
     }
 
-    private void SetIndexEncoding()
+    private void SetIndexEncoding(bool preserveIndexCase)
     {
         IndexEncoding = IndexEncoding.Base64;
+        // 明示62だけは大小文字を保持し、16/36と宣言なしは互換性のため従来の定義件数による推測へ戻します。
+        if (preserveIndexCase)
+        {
+            return;
+        }
         string[] array = new string[4096];
         string[] array2 = new string[4096];
         string[] array3 = new string[4096];
