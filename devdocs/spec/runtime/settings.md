@@ -12,8 +12,6 @@
 
 録音設定の品質・増幅率の数値ラベルは、言語やOS文化圏によらず小数点を `.`、小数1桁・桁区切りなしで表示します。Sliderの型付き値と設定保存の意味を維持し、録音ファイル名の任意書式文字列には適用しません。
 
-保存・生成の簡素化は採用済みの契約です。実装と旧保証テストの置換が未完了の範囲は[リリース前の必須修正](../../plan/release-blocking-fixes.md)で管理します。
-
 ### 起動時の設定診断
 
 読取り可能な設定の正規化保存とバージョン記録の保存が失敗した場合は、同じ読込み済み値・文化圏・テーマで起動を継続します。保存警告のコールバックや任意の診断が例外を返しても、初期化結果へ加えず再通知しません。保存時の再読込み、旧設定の移行、その他の必須設定準備の失敗は保存警告へ格下げせず、後続の初期化へ進みません。元ファイルの保全と失敗分類は[設定の永続化](settings-persistence.md#起動時の回復)に従います。
@@ -336,7 +334,7 @@ BMSディレクトリの追加・削除・複数選択・D&Dは設定画面内�
 | 保存前の再表示後に採用した欄の候補同期 | 設定の局所確定と各欄編集処理 | `SettingsDialogBehaviorTests.BmsConfirmation_CapturesRootsAndReplacementBeforeCloseDuringPreparation` と `SectionConfirmation_PreparationReopenAdoptsOnlySavedSection` が保存前の再表示、捕捉入力の保存、自己欄の同期と無関係な画像候補の保持を確認する。 |
 | 通常Close・Esc・再表示と受理済み入力の寿命 | 設定ViewModel・WindowとMainWindowの表示/終了接続 | `SettingsWindowPresentationTests.RunViewOperation_NormalCloseAndEscapePreserveTaskAcrossReopen` は実Closed通知後の未確定BMT候補破棄・保存済み通常項目の保持と、新Windowの同じ未完了Task・操作制限を確認する。`MainWindow_NormalSettingsCloseEndsModalBeforeActualFileDiffTerminates` は実MainWindowとFileDiff・L/P・終了joinを、`BmsConfirmation_CapturesRootsAndReplacementBeforeCloseDuringPreparation` と `SectionConfirmation_PreparationReopenAdoptsOnlySavedSection` は受理済み入力の保持を分担する。`BackupPage_RestoreSuccessClosesOnceDespiteCompletionAndExitNoticeFailures` は必要UI待ちのClose/Esc保留を分担する。 |
 | 非同期実操作の単一受付、拒否前副作用なし、独立同期保存と終端 | `SettingsDialogViewModel.Operation`、設定Windowと各ページ | `SettingsDialogBehaviorTests`、`SettingsWindowCompiledBehaviorTests`、`SettingDialogEditCompletionTests`でVMの受付・実Radio・実入口とShell直接joinを分担する。自動音声列挙・能力照会は既存音声系列が担う。 |
-| 出力への有効な導入先の取込み拒否と再操作 | `ValidateOutputBasePreservesInstallDirectory`、局所出力確定 | `SettingDialogCustomFolderOutputBaseTests.OutputBase_ProtectsConfirmedInstallDirectory`の通常・追加・ROOTの同一/包含親、大小文字・末尾・BMS2、既存不正状態の互換性と、既存実媒体系列の副作用0・別導入先選択後の成功を維持する。受理済み要求固定・成功工程省略の旧ケースは[必須修正計画](../../plan/release-blocking-fixes.md)で置換する。 |
+| 出力への有効な導入先の取込み拒否と再操作 | `ValidateOutputBasePreservesInstallDirectory`、局所出力確定 | `SettingDialogCustomFolderOutputBaseTests.OutputBase_ProtectsConfirmedInstallDirectory`の通常・追加・ROOTの同一/包含親、大小文字・末尾・BMS2、既存不正状態の互換性と、既存実媒体系列の副作用0・別導入先選択後の成功を維持する。 |
 | LR2の初回・未採用入力の検査 | [`Lr2ConfigSession.TryResolve`](../../../BeMusicSeeker/Models/LR2/Lr2ConfigOwner.cs) | [`LR2ConfigTests`](../../../BeMusicSeeker.Tests/Lr2/LR2ConfigTests.cs) は未指定・不正パス、不完全XML・必須構造欠落の拒否と元ファイル保持、xml/xmh・欠落登録・空jukeboxの受理と参照時の非変更を確認します。採用後の外部変更非採用は所有者の局所検証が分担します。 |
 | BMS候補の確認後破棄・正本・公開入力の分離 | `SettingsDialogViewModel.Confirmation`、`Lr2ConfigOwner` | `ConflictingBmsCandidates_SwitchOnlyAfterValidAcceptedOperation`は取消・承認・確認中P先着と無関係候補保持を通常入口で分担する。`Lr2OutputConfirmationDiscardsApprovedCandidatesWithoutResurrectingOldOutput`、`Lr2UserRootAdoptionDiscardsCandidatesBeforeMovingOutputAndConfirmingBms`は候補破棄後の旧管理登録非復活と一般ファイル保全を実ownerで確認する。XML部分成功・管理表削除は既存`Lr2Partial*`系列、compiled picker・実Bindingは`CompiledOutputSelection_CommitsOnlySelectedPlacementAndKeepsCancelledMedia`が分担する。 |
 | 本文端と余白の一回適用、分類・見出し・操作の固定 | `SettingsWindow.xaml`、`SettingsControls.xaml`、11設定ページ | `SettingsWindowPresentationTests.SettingsWindow_SidebarReachesNativeClientEdgeWhilePageKeepsInnerSpacing` は左分類・本文端と内容inset、`SettingsWindow_AllPagesFitActualMinimumWidthViewport` は11ページの横方向到達性、`AudioSettingsPage_LongDeviceTestStatusWrapsAtMinimumWindowWidthAndKeepsFullAutomationName` は採用最小幅の長文折返しを確認する。`SettingsControlPresentationTests.SettingsWindow_NavigationAutomationSelectionSynchronizesPageAndResetsScroll` は本文移動中の見出し・フッター固定と分類変更時の先頭復帰を分担する。 |

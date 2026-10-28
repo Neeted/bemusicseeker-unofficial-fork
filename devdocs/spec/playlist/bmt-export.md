@@ -10,8 +10,6 @@
 
 ## 仕様
 
-設定変更時の準備・採用・整理の契約は更新済みです。実装・旧保証テストの置換が未完了の範囲は[リリース前の必須修正](../../plan/release-blocking-fixes.md)で管理します。
-
 ### 有効条件と場所
 
 `EnableBeatorajaBmtOutput` が有効で、ルートに `config_sys.json` と `beatoraja.jar` または `beatoraja.exe` がある場合に出力します。出力先は `tablepath` から求め、相対ならbeatorajaルートを基準にします。派生値の `BeatorajaBmtTablePath` は画面から直接編集しません。スコアは確定ルートの `playerpath` と選択IDから独立して解決し、スコア操作からBMT出力先を解決・保存しません。
