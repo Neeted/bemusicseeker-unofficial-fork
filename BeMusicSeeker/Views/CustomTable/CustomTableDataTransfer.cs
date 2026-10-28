@@ -99,26 +99,38 @@ internal static class CustomTableDataTransfer
     }
 
     /// <summary>
-    /// 可視列の編集値をコピー用に正規化し、列区切りのTABと行区切りのCRLFを保ったTSVを作ります。
+    /// 可視列の編集値をコピー用に正規化し、空行を含む行数と列区切りのTAB・行区切りのCRLFを保ったTSVを作ります。
     /// </summary>
     /// <param name="rows">コピーする行。nullの行は除外します。</param>
     /// <param name="columns">出力順の列。非表示列は除外します。</param>
-    /// <returns>コピーするTSV。行または列の指定がなければ空文字。</returns>
-    internal static string BuildTsv(IReadOnlyList<object> rows, IReadOnlyList<CustomTableColumn> columns)
+    /// <param name="text">生成したTSV。対象がない場合も空文字を返します。</param>
+    /// <returns>可視列とnull以外の行があればtrue。生成文字列が空でもtrueを返し、呼び出し側で既存Clipboardを空に置換できるようにします。</returns>
+    internal static bool TryBuildTsv(IReadOnlyList<object> rows, IReadOnlyList<CustomTableColumn> columns, out string text)
     {
+        text = string.Empty;
         if (rows == null || rows.Count == 0 || columns == null || columns.Count == 0)
         {
-            return string.Empty;
+            return false;
+        }
+        CustomTableColumn[] visibleColumns = [.. columns.Where(column => column?.IsVisible == true)];
+        if (visibleColumns.Length == 0)
+        {
+            return false;
         }
         var builder = new StringBuilder();
-        foreach (object row in rows.Where(row => row != null))
+        bool hasRow = false;
+        foreach (object row in rows)
         {
-            if (builder.Length > 0)
+            if (row == null)
             {
-                builder.AppendLine();
+                continue;
+            }
+            if (hasRow)
+            {
+                builder.Append("\r\n");
             }
             bool firstColumn = true;
-            foreach (CustomTableColumn column in columns.Where(column => column?.IsVisible == true))
+            foreach (CustomTableColumn column in visibleColumns)
             {
                 if (!firstColumn)
                 {
@@ -127,8 +139,10 @@ internal static class CustomTableDataTransfer
                 builder.Append(BuildCellText(row, column));
                 firstColumn = false;
             }
+            hasRow = true;
         }
-        return builder.ToString();
+        text = builder.ToString();
+        return hasRow;
     }
 
     /// <summary>

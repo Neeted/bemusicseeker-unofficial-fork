@@ -89,7 +89,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 CollectionAssert.AreEqual(new[] { 1, 3 }, Selected());
                 Assert.AreNotSame(before[0], table.GetSelectedRowsSnapshot()[0]);
                 Assert.AreNotSame(before[1], table.GetSelectedRowsSnapshot()[1]);
-                string tsv = CustomTableDataTransfer.BuildTsv(table.GetSelectedRowsSnapshot(), table.VisibleColumns);
+                Assert.IsTrue(CustomTableDataTransfer.TryBuildTsv(table.GetSelectedRowsSnapshot(), table.VisibleColumns, out string tsv));
                 StringAssert.Contains(tsv, "Selection 1"); StringAssert.Contains(tsv, "Selection 3");
                 Assert.IsFalse(tsv.Contains("Selection 4", StringComparison.Ordinal));
                 // 新しい利用者選択を直前に変更し、旧要求の開始時選択を使う実装を区別します。
@@ -153,7 +153,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     Assert.AreEqual(1, editEnded);
                     CollectionAssert.AreEqual(new[] { 1, 2 }, Selected());
                     Assert.AreEqual(1, table.SelectedIndex, "主行Aを新しい位置へ復元します。");
-                    tsv = CustomTableDataTransfer.BuildTsv(table.GetSelectedRowsSnapshot(), table.VisibleColumns);
+                    Assert.IsTrue(CustomTableDataTransfer.TryBuildTsv(table.GetSelectedRowsSnapshot(), table.VisibleColumns, out tsv));
                     StringAssert.Contains(tsv, "Selection 1"); StringAssert.Contains(tsv, "Selection 2");
                     Assert.IsFalse(tsv.Contains("Selection 3", StringComparison.Ordinal));
                     table.HandleKeyDown(Key.Down, ModifierKeys.Shift);

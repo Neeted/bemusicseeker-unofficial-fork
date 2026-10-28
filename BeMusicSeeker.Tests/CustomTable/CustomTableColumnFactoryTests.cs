@@ -654,7 +654,8 @@ public sealed class CustomTableColumnFactoryTests
                 : destination, displayText, context);
             Assert.AreEqual(destination, column.GetEditText(row));
             Assert.AreEqual(destination, CustomTableDataTransfer.BuildCellText(row, column));
-            Assert.AreEqual(destination, CustomTableDataTransfer.BuildTsv([row], [column]));
+            Assert.IsTrue(CustomTableDataTransfer.TryBuildTsv([row], [column], out string tsv));
+            Assert.AreEqual(destination, tsv);
             Assert.AreEqual(destination, chart.InstallDestination);
             CollectionAssert.AreEqual(candidates, column.GetEditSuggestions(row).ToArray());
         }
@@ -879,13 +880,61 @@ public sealed class CustomTableColumnFactoryTests
             new { Title = "B\0Title", Artist = "Artist Two" }
         };
 
-        string tsv = CustomTableDataTransfer.BuildTsv(rows, columns);
+        Assert.IsTrue(CustomTableDataTransfer.TryBuildTsv(rows, columns, out string tsv));
 
         Assert.AreEqual("A Title\tArtist Part  One\r\nB Title\tArtist Two", tsv);
         Assert.AreEqual("A\tTitle", rows[0].Title);
         Assert.AreEqual("Artist\0Part\r\nOne", rows[0].Artist);
         Assert.AreEqual("B\0Title", rows[1].Title);
         Assert.AreEqual("Artist Two", rows[1].Artist);
+    }
+
+    /// <summary>一列の空セルも有効な行として先頭・中間・末尾・全空の順序と数を保ち、対象なしと空文字の成功を区別します。非表示列とnull行を除外し、入力を変更しないことも確認します。</summary>
+    [DataTestMethod]
+    [DataRow("leading", true, "\r\nSong")]
+    [DataRow("middle", true, "Song\r\n\r\nEnd")]
+    [DataRow("trailing", true, "Song\r\n")]
+    [DataRow("all-empty", true, "\r\n")]
+    [DataRow("one-empty", true, "")]
+    [DataRow("null-value", true, "")]
+    [DataRow("no-rows", false, "")]
+    [DataRow("null-rows", false, "")]
+    [DataRow("mixed-null-rows", true, "\r\nSong")]
+    [DataRow("no-columns", false, "")]
+    [DataRow("hidden-only", false, "")]
+    public void CustomTableDataTransfer_TsvPreservesEmptyRowsAndDistinguishesMissingTargets(string scenario, bool expectedSuccess, string expectedText)
+    {
+        object?[] rows = scenario switch
+        {
+            "leading" => [string.Empty, "Song"],
+            "middle" => ["Song", string.Empty, "End"],
+            "trailing" => ["Song", string.Empty],
+            "all-empty" => [string.Empty, string.Empty],
+            "one-empty" => [string.Empty],
+            "null-value" => [new object()],
+            "no-rows" => [],
+            "null-rows" => [null, null],
+            "mixed-null-rows" => [null, string.Empty, null, "Song", null],
+            "no-columns" or "hidden-only" => ["Song"],
+            _ => throw new ArgumentOutOfRangeException(nameof(scenario))
+        };
+        object?[] originalRows = [.. rows];
+        var visible = new CustomTableColumn("Title", "TITLE", new CustomTableColumnSettings.ColumnLayout(), 1,
+            null, TextAlignment.Left, _ => "display", editTextSelector: row => row as string);
+        var hidden = new CustomTableColumn("Hidden", "Hidden", new CustomTableColumnSettings.ColumnLayout { Visibility = Visibility.Hidden }, 0,
+            null, TextAlignment.Left, _ => throw new AssertFailedException("非表示列をコピーしました。"));
+        CustomTableColumn?[] columns = scenario switch
+        {
+            "no-columns" => [],
+            "hidden-only" => [hidden, null],
+            _ => [hidden, null, visible]
+        };
+
+        bool success = CustomTableDataTransfer.TryBuildTsv(rows, columns, out string text);
+
+        Assert.AreEqual(expectedSuccess, success);
+        Assert.AreEqual(expectedText, text);
+        CollectionAssert.AreEqual(originalRows, rows);
     }
 
     /// <summary>表示ラベルではなく編集値をコピーし、C0・C1の各文字を空白一つへ変換してNUL前後と通常文字・Unicodeを保ち、欠損対象・null・空の編集値を空文字にすることを確認し、文字の欠落や過剰な正規化を検出します。</summary>

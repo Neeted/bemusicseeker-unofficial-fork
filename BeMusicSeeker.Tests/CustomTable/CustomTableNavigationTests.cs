@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls.Primitives;
@@ -14,6 +15,54 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTableNavigationTests
 {
+    /// <summary>実Ctrl+Shift+Cが空値の先頭選択行も可視列順でTSVへ渡し、非選択行を読まず選択を保つことを確認します。主行の最終列で専用例外を送出し、Ctrl+Cへの誤接続時もOS Clipboardへ到達させません。</summary>
+    [TestMethod]
+    public void CopySelectedRowsShortcut_VisitsEmptyAndNonemptySelectedRowsInVisibleColumnOrder()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            object[] rows = [string.Empty, "Unselected", "Song"];
+            var visits = new List<string>();
+            var clipboardSentinel = new InvalidOperationException("TSVの対象観測を終えたためClipboard前で停止します。");
+            CustomTableColumn MakeColumn(string id, int index) => new(
+                id, id, new CustomTableColumnSettings.ColumnLayout { Width = 60, DisplayIndex = index },
+                index, null, TextAlignment.Left, _ => string.Empty,
+                editTextSelector: row =>
+                {
+                    int rowIndex = Array.IndexOf(rows, row);
+                    visits.Add($"{rowIndex}:{id}");
+                    Assert.AreNotEqual(1, rowIndex, "非選択行をコピーしました。");
+                    if (rowIndex == 2 && id == "Last")
+                    {
+                        throw clipboardSentinel;
+                    }
+                    return row as string;
+                });
+            CustomTableView table = CreateTable([MakeColumn("First", 0), MakeColumn("Last", 1)]);
+            try
+            {
+                table.ItemsSource = rows;
+                table.SelectRowsByPredicate(row => ReferenceEquals(row, rows[0]) || ReferenceEquals(row, rows[2]), row => ReferenceEquals(row, rows[2]));
+                Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+                AssertCurrentCell(table, 2, "Last");
+                object[] selectedRows = [.. table.GetSelectedRowsSnapshot()];
+                int selectionNotifications = 0;
+                table.SelectionChanged += (_, _) => selectionNotifications++;
+
+                InvalidOperationException thrown = Assert.ThrowsException<InvalidOperationException>(
+                    () => table.HandleKeyDown(Key.C, ModifierKeys.Control | ModifierKeys.Shift));
+
+                Assert.AreSame(clipboardSentinel, thrown);
+                CollectionAssert.AreEqual(new[] { "0:First", "0:Last", "2:First", "2:Last" }, visits);
+                CollectionAssert.AreEqual(selectedRows, table.GetSelectedRowsSnapshot().ToArray());
+                Assert.AreEqual(2, table.SelectedIndex);
+                AssertCurrentCell(table, 2, "Last");
+                Assert.AreEqual(0, selectionNotifications);
+            }
+            finally { table.ItemsSource = null; }
+        });
+    }
+
     /// <summary>外部主行変更の入力直後に同列と画面外の対象行を可視化し、同値では手動scrollを保ちます。消えた列・0列・解除・空行の古いhitを使わないことも確認します。</summary>
     [TestMethod]
     public void ExternalSelection_RevealsCurrentRowAndColumnOnlyWhenPrimaryChanges()

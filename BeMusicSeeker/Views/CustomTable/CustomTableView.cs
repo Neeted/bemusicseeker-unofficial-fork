@@ -1826,8 +1826,7 @@ public sealed class CustomTableView : Grid
 
     private bool CopySelectedRowsToClipboard()
     {
-        string text = CustomTableDataTransfer.BuildTsv(GetSelectedRowsSnapshot(), VisibleColumns);
-        if (string.IsNullOrEmpty(text))
+        if (!CustomTableDataTransfer.TryBuildTsv(GetSelectedRowsSnapshot(), VisibleColumns, out string text))
         {
             return false;
         }
