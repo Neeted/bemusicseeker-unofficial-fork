@@ -81,7 +81,7 @@ internal sealed class PlaylistLampAggregationService
         foreach (PlaylistLampEntrySnapshot entry in request.Entries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (entry == null || !entry.IsActiveRealEntry || IsSyntheticFolder(entry.FolderName))
+            if (entry == null || !entry.IsActiveRealEntry)
             {
                 continue;
             }
@@ -328,7 +328,7 @@ internal sealed class PlaylistLampAggregationService
         var known = new HashSet<string>(folders, StringComparer.Ordinal);
         foreach (PlaylistLampEntrySnapshot entry in request.Entries)
         {
-            if (entry == null || !entry.IsActiveRealEntry || IsSyntheticFolder(entry.FolderName))
+            if (entry == null || !entry.IsActiveRealEntry)
             {
                 continue;
             }
@@ -364,11 +364,6 @@ internal sealed class PlaylistLampAggregationService
             }
         }
         return result;
-    }
-
-    private static bool IsSyntheticFolder(string folderName)
-    {
-        return string.Equals(folderName, "[NO SONG]", StringComparison.Ordinal);
     }
 
     private static Dictionary<PlaylistLampClearCategory, int> CreateClearCounts()

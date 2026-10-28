@@ -41,7 +41,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
 
         PlaylistSourceBuildResult result = workspace.BuildDetailSourceRows(
             table,
-            PlaylistDetailSelectionScope.Folder,
             "target",
             CancellationToken.None,
             ref cancellationStage);
@@ -51,36 +50,35 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual(1, dataSource.EnsureEntriesLoadedCallCount);
     }
 
-    /// <summary>通常rootの詳細sourceでは通常folderと旧特殊[NO SONG]行の双方を保持し、lamp全体scopeの除外規則を通常rootへ誤適用することを防ぎます。</summary>
+    /// <summary>通常rootの詳細sourceでは実フォルダ名[NO SONG]を他の通常folderとともに保持し、特殊表示名と同じ実所属を落とすことを防ぎます。</summary>
     [TestMethod]
-    public void BuildDetailSourceRows_OrdinaryRootRetainsSpecialFolderRows()
+    public void BuildDetailSourceRows_OrdinaryRootRetainsRealFolderNamedNoSong()
     {
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         var normal = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "normal")
         {
             folder = "normal"
         };
-        var special = new TestablePlaylistEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "special")
+        var namedNoSong = new TestablePlaylistEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "real folder named no song")
         {
             folder = "[NO SONG]"
         };
         var table = new BMSTable
         {
-            entries = [normal, special]
+            entries = [normal, namedNoSong]
         };
         string cancellationStage = string.Empty;
 
         PlaylistSourceBuildResult result = workspace.BuildDetailSourceRows(
             table,
-            PlaylistDetailSelectionScope.OrdinaryRoot,
             folderName: null,
             CancellationToken.None,
             ref cancellationStage);
 
         CollectionAssert.AreEquivalent(
-            new[] { normal, special },
+            new[] { normal, namedNoSong },
             result.SourceRows.Select(row => row.Entry).ToArray(),
-            "the ordinary playlist root must preserve its legacy [NO SONG] projection");
+            "the ordinary playlist root must preserve the real [NO SONG] folder");
     }
 
     /// <summary>現要求のchart情報更新を新しいsource行へ反映し、旧行の情報を変えず新しい情報版を採用して既存表示の破壊や更新漏れを検出します。</summary>
@@ -350,7 +348,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
 
         PlaylistSourceBuildResult result = workspace.BuildDetailSourceRows(
             table,
-            PlaylistDetailSelectionScope.Folder,
             null,
             CancellationToken.None,
             ref cancellationStage);
@@ -374,7 +371,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
 
         Assert.ThrowsException<OperationCanceledException>(() => workspace.BuildDetailSourceRows(
             table,
-            PlaylistDetailSelectionScope.OrdinaryRoot,
             null,
             cancellation.Token,
             ref cancellationStage));
@@ -1105,7 +1101,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
 
         workspace.BuildDetailSourceRows(
             table,
-            PlaylistDetailSelectionScope.OrdinaryRoot,
             null,
             CancellationToken.None,
             ref cancellationStage);

@@ -490,10 +490,6 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
             }
             foreach (PlaylistLampFolderRow row in next.FolderRows ?? [])
             {
-                if (string.Equals(row.FolderName, "[NO SONG]", StringComparison.Ordinal))
-                {
-                    continue;
-                }
                 folderRows.Add(new PlaylistLampViewerFolderRowViewModel(row, PlaylistId, this));
             }
         }

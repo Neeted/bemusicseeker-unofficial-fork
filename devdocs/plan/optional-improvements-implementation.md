@@ -35,7 +35,7 @@
 | U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
 | U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile |
 | U15 導入・推定 | 宛先による範囲拡張廃止 → 入れ子禁止 → 重複保留の登録整理 → 候補根変換・ユニークhash票 → DST表記 | PackageInstall/service/estimation。同一writer。候補根と票数は同じ座標へ揃える。登録整理は発見結果/完全性を共用。U03/U09と順序調整 |
-| U16 ランプの対象・取得元 | 実NO SONG所属 → 成績と履歴の同一捕捉 | lamp source/model/viewer。U17日付と直列 |
+| U16 ランプの対象・取得元 | 成績と履歴の同一捕捉 | lamp source/model/viewer。U17日付と直列 |
 | U17 日付境界 | 履歴/ランプの日付共用 | PlayHistory/HistoricalSnapshot、U16後 |
 
 現在の所有は、`optional-updater` が共通表、`optional-encoding` がU09、`optional-bms-input` が再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U16/U17は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
@@ -245,15 +245,6 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 
 ## U16 ランプの対象・取得元
 
-### 実フォルダ名 `[NO SONG]` のランプ集計
-
-- 通常入口・原因: `BmsLibraryPlaylistLampDataSource.CaptureCore`（`BeMusicSeeker/Models/BmsLibraryInternal/Playlist/BmsLibraryPlaylistLampDataSource.cs:79`）は通常表の `folder_list` とentryを供給している。ところが `PlaylistLampModels.cs:865` の順序正規化、`PlaylistLampAggregationService.cs:85,369` の集計、`BeMusicSeeker/ViewModels/Playlist/PlaylistLampViewerViewModel.cs:493` の行、`PlaylistWorkspaceViewModel.PlaylistLampViewer.cs:273` の遷移、`PlaylistWorkspaceViewModel.DetailSource.cs:91` の全通常フォルダ範囲が文字列 `[NO SONG]` だけで除外する。遷移先には既に `PlaylistFolderNode.IsSpecial` があり、その型条件と重複する名前条件が正当な実フォルダを拒否する。
-- 影響: 行・件数・全体ランプ・クリック先の通常一覧から同名の実所属が消える。
-- 方針: 特殊ノードは型／既存選択種別で除外し、通常表の保存folder名はそのまま集計・表示・遷移させる。供給に本来特殊ノードがないなら、全階層へ新しいboolを運ぶ設計を増やさず、文字列による誤除外を削除して型境界だけ残す。
-- 境界: 受理済み名を禁止・改名しないこと以外に利用者動作の未決なし。
-- 検証: `PlaylistLampAggregationTests.cs:198` は通常entryにこの名前を付けて特殊ノード代わりにし、除外を期待している。ここを同名実folderの正しい件数・ランプへ改め、本物の特殊node除外は `PlaylistWorkspaceActionWorkflowTests` へ分担。実folderの行・全体・全通常folderへの遷移、特殊node非対象を確認する。
-- 単位・依存: ランプモデルからworkspace詳細ソースまで一単位。言語変更後のランプ表示改善と同じviewerを触るので同責任者または直列化。同じU16の取得元捕捉はデータソース、U17の日付境界はランプ履歴系だが原因・判定は別にする。仕様は `devdocs/spec/playlist/lamp-viewer.md` の正本へ反映する。
-
 ### ランプ現在成績と履歴取得元の同一捕捉
 
 - 原因: `BmsLibraryPlaylistLampDataSource.cs:137` がcurrent score snapshotを捕捉した後、223で引数なし `historicalSourceContextFactory()` を呼ぶ。`BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs:4244` の `ResolvePlaylistLampHistoricalScoreSourceContext` は最新設定とactive provider、Beatorajaでは再取得したscore snapshotから履歴DBパスとnotesを作る。`PlaylistLampHistoricalScoreSnapshot.cs:98` の照合はprovider種別だけ。
@@ -261,7 +252,7 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 - 方針: `BMSLibrary.ScoreSnapshot` が既に持つ `ActiveScoreSource`・`ScoreDbPath`・`SourceGeneration`・`ScoresBySha256` を一回の捕捉値として履歴文脈へ渡す。factoryをその引数から構築する形へ置換し、MainWindowの最新設定と別snapshot再読込みを取り除く。既に完成して公開済みの一組があれば使用し、準備できない場合は未表示／取得不可とする。
 - 境界: 利用者動作の追加未決なし。LR2のリンク有効条件を既存snapshotの取得元契約へどう写すかは実装時に確認する。旧スコア保持cacheや自動retryで一貫性を作らない。
 - 検証: `BmsLibraryPlaylistLampDataSourceTests.CaptureAsync_recapturesCurrentMembershipOwnershipAndApplicationScore:127` とfactory failure系列、`PlaylistLampHistoricalScoreSnapshotTests` を基礎とし、A/Bの実DBでcurrent捕捉後・history構築前にB公開する順序を制御。A一式またはB一式（未準備ならunavailable）を確認し、Bに履歴があるhash／ないhashの混在を検出する。B公開後の新しい日付要求はB成績・履歴・日付範囲を使う。後発日付要求優先と通常Close終端を維持。
-- 単位・依存: data source・factory・文脈とそのテストを一単位。NO SONG改善とdata source、U17の日付境界と履歴スナップショットが重なるため所有調整。本人IRcacheの存廃とは分離する。既存snapshot以上の永続状態・長期lock・追加DB読み直しを導入しない。
+- 単位・依存: data source・factory・文脈とそのテストを一単位。U17の日付境界と履歴スナップショットが重なるため所有調整。本人IRcacheの存廃とは分離する。既存snapshot以上の永続状態・長期lock・追加DB読み直しを導入しない。
 
 ## U17 日付境界
 

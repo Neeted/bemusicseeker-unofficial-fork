@@ -273,7 +273,6 @@ public sealed partial class PlaylistWorkspaceViewModel
     private static bool ContainsNormalFolder(IReadOnlyList<PlaylistFolderNode> nodes, string folderName)
     {
         return nodes != null
-            && !string.Equals(folderName, "[NO SONG]", StringComparison.Ordinal)
             && nodes.Any(node => !node.IsSpecial && string.Equals(node.FolderName, folderName, StringComparison.Ordinal));
     }
 }

@@ -172,7 +172,7 @@ public sealed class PlaylistLampAggregationTests
         Assert.AreEqual(2, Count(result.RankSegments, PlaylistLampRankCategory.NP));
     }
 
-    /// <summary>フォルダ内の重複・削除・ダミーと特殊フォルダを除外し、通常フォルダの順と空行を維持する。異なるフォルダの同一譜面まで除外したり特殊行を総数へ加える誤りを検出する。</summary>
+    /// <summary>フォルダ内の重複・削除・ダミーを除外し、実フォルダ名[NO SONG]を含む順と空行・件数・成績を維持する。異なるフォルダの同一譜面や特殊表示名と同じ実所属を落とす誤りを検出する。</summary>
     [TestMethod]
     public void Aggregate_usesCanonicalFolderOrderKeepsEmptyAndExcludesNonRealEntries()
     {
@@ -195,11 +195,11 @@ public sealed class PlaylistLampAggregationTests
             Entry("a", "chart-2", owned: false, sha256: "b"),
             Entry("empty", "dummy", owned: false, md5: BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER, isDummy: true),
             Entry("z", "removed", owned: true, sha256: "a", isRemoved: true),
-            Entry("[NO SONG]", "special", owned: true, sha256: "a")
+            Entry("[NO SONG]", "chart-1", owned: true, sha256: "a")
         };
         var request = new PlaylistLampAggregationRequest(
             "42",
-            ["z", "a", "empty", "[NO SONG]"],
+            ["z", "[NO SONG]", "a", "empty"],
             entries,
             scoreSnapshot,
             PlaylistUpdatedAt);
@@ -207,19 +207,26 @@ public sealed class PlaylistLampAggregationTests
         PlaylistLampAggregationResult result = new PlaylistLampAggregationService().Aggregate(request);
 
         Assert.AreEqual(PlaylistLampViewerState.Ready, result.State);
-        CollectionAssert.AreEqual(new[] { "z", "a", "empty" }, result.FolderRows.Select(row => row.FolderName).ToArray());
-        Assert.AreEqual(3, result.Statistics.TotalCount);
-        Assert.AreEqual(2, result.Statistics.OwnedCount);
+        CollectionAssert.AreEqual(new[] { "z", "[NO SONG]", "a", "empty" }, result.FolderRows.Select(row => row.FolderName).ToArray());
+        Assert.AreEqual(4, result.Statistics.TotalCount);
+        Assert.AreEqual(3, result.Statistics.OwnedCount);
         Assert.AreEqual(1, result.Statistics.MissingCount);
+        Assert.AreEqual(3, result.Statistics.PlayedCount);
+        Assert.AreEqual(1, result.Statistics.UnplayedCount);
         Assert.AreEqual(1, result.FolderRows[0].Count);
-        Assert.AreEqual(2, result.FolderRows[1].Count);
-        Assert.AreEqual(0, result.FolderRows[2].Count);
+        Assert.AreEqual(1, result.FolderRows[1].Count);
+        Assert.AreEqual(2, result.FolderRows[2].Count);
+        Assert.AreEqual(0, result.FolderRows[3].Count);
         Assert.AreEqual(1, Count(result.FolderRows[0].ClearSegments, PlaylistLampClearCategory.PERFECT));
         Assert.AreEqual(1, Count(result.FolderRows[1].ClearSegments, PlaylistLampClearCategory.PERFECT));
-        Assert.AreEqual(1, Count(result.FolderRows[1].ClearSegments, PlaylistLampClearCategory.NP));
+        Assert.AreEqual(1, Count(result.FolderRows[2].ClearSegments, PlaylistLampClearCategory.PERFECT));
+        Assert.AreEqual(1, Count(result.FolderRows[2].ClearSegments, PlaylistLampClearCategory.NP));
+        Assert.AreEqual(3, Count(result.ClearSegments, PlaylistLampClearCategory.PERFECT));
         Assert.AreEqual(1, Count(result.ClearSegments, PlaylistLampClearCategory.NP));
-        Assert.AreEqual(3, result.ClearSegments.Sum(segment => segment.Count));
-        Assert.AreEqual(3, result.RankSegments.Sum(segment => segment.Count));
+        Assert.AreEqual(3, Count(result.RankSegments, PlaylistLampRankCategory.AAA));
+        Assert.AreEqual(1, Count(result.RankSegments, PlaylistLampRankCategory.NP));
+        Assert.AreEqual(4, result.ClearSegments.Sum(segment => segment.Count));
+        Assert.AreEqual(4, result.RankSegments.Sum(segment => segment.Count));
     }
 
     /// <summary>beatorajaのPA・CLEAR・補助クリアとMAXランクを表示カテゴリへ対応させ、良い成績からNPまでの並びを維持する。別名の誤分類と積上げ区間の意味順の逆転を検出する。</summary>
@@ -375,15 +382,16 @@ public sealed class PlaylistLampAggregationTests
         }
     }
 
-    /// <summary>エントリが空でも通常フォルダの順と0件行を維持し、割合を利用不可にする。空行の消失やゼロ分母を0%と扱う誤りを検出する。</summary>
+    /// <summary>エントリが空でも実名[NO SONG]を含む通常フォルダの順と0件行を維持し、割合を利用不可にする。名前による空行の消失やゼロ分母を0%と扱う誤りを検出する。</summary>
     [TestMethod]
     public void Aggregate_emptyPlaylistPreservesOrdinaryFoldersAndLeavesRatesUnavailable()
     {
         PlaylistLampScoreSnapshot snapshot = CreateScoreSnapshot(ActiveScoreSource.Lr2);
-        PlaylistLampAggregationResult result = Aggregate("empty", ["first", "second"], [], snapshot);
+        PlaylistLampAggregationResult result = Aggregate("empty", ["first", "[NO SONG]"], [], snapshot);
 
         Assert.AreEqual(PlaylistLampViewerState.Empty, result.State);
-        CollectionAssert.AreEqual(new[] { "first", "second" }, result.FolderRows.Select(row => row.FolderName).ToArray());
+        CollectionAssert.AreEqual(new[] { "first", "[NO SONG]" }, result.FolderRows.Select(row => row.FolderName).ToArray());
+        Assert.AreEqual(0, result.Statistics.TotalCount);
         Assert.IsTrue(result.FolderRows.All(row => row.Count == 0));
         Assert.IsNull(result.Statistics.OwnershipRate);
         Assert.IsNull(result.Statistics.PlayRate);

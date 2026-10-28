@@ -862,10 +862,6 @@ internal sealed class PlaylistLampAggregationRequest
         foreach (string folder in folderOrder ?? [])
         {
             string value = folder ?? string.Empty;
-            if (string.Equals(value, "[NO SONG]", StringComparison.Ordinal))
-            {
-                continue;
-            }
             if (seen.Add(value))
             {
                 result.Add(value);

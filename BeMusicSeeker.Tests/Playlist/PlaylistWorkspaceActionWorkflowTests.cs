@@ -968,7 +968,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
 
             Assert.IsTrue(confirmed.FolderNodes.Any(node => node.FolderName == "NEW 1"));
             string stage = string.Empty;
-            PlaylistSourceBuildResult detail = workspace.BuildDetailSourceRows(selection.Table, selection.Scope, selection.FolderName, CancellationToken.None, ref stage);
+            PlaylistSourceBuildResult detail = workspace.BuildDetailSourceRows(selection.Table, selection.FolderName, CancellationToken.None, ref stage);
             Assert.AreEqual("NEW 1", detail.SourceRows.Single().Folder);
             using LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly();
             Assert.AreEqual("NEW 1", db.Table<LR2SongDBExtended.playlist_entry>().Single(entry => entry.playlist_id == table.playlist_id).folder);
@@ -1868,10 +1868,11 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         });
     }
 
-    /// <summary>実VMの全体lamp要求から詳細buildを完了し、二つの通常folderの該当行だけを採用して特殊folderと不一致scoreを除外します。</summary>
+    /// <summary>実VMの全体lamp要求から実名[NO SONG]を含む三つの通常folderのNP行を確定し、同名folderへの移動後も通常選択を維持する。本物の特殊ノードへの要求は通知・選択・filter・詳細要求版を変えず拒否する。</summary>
+    /// <remarks>実MainWindow consumerと詳細buildの終端まで動かし、要求の発行だけでなく最終確定行と通常filterへの接続を確認する。特殊ノードは同じ表示名でもIsSpecialで区別し、カテゴリ条件の網羅は集計・一覧パーサー側へ分担する。</remarks>
     [TestMethod]
     [DoNotParallelize]
-    public void PlaylistLampNavigation_OverallRunsMainWindowConsumerAcrossNormalFoldersAndExcludesSpecialFolder()
+    public void PlaylistLampNavigation_OverallAndRealNoSongFolderCommitNormalRowsAndRejectSpecialNode()
     {
         TestUiDispatcherHost.Invoke(() =>
         {
@@ -1931,22 +1932,27 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                     folder = "First"
                 };
                 normalNonMatch.SetSha256(new string('3', 64));
-                var specialFolderNoSong = new TestablePlaylistEntry(
+                var namedFolderNoSong = new TestablePlaylistEntry(
                     "44444444444444444444444444444444",
-                    "special no song control")
+                    "real folder named no song")
                 {
                     folder = "[NO SONG]"
                 };
-                specialFolderNoSong.SetSha256(new string('4', 64));
+                namedFolderNoSong.SetSha256(new string('4', 64));
                 const int playlistId = 7404;
                 var table = new BMSTable
                 {
                     playlist_id = playlistId,
                     name = "Overall lamp navigation",
-                    entries = [firstFolderNoPlay, secondFolderNoSong, normalNonMatch, specialFolderNoSong],
-                    Folder_order = ["First", "Second"]
+                    entries = [firstFolderNoPlay, secondFolderNoSong, normalNonMatch, namedFolderNoSong],
+                    Folder_order = ["First", "Second", "[NO SONG]"]
                 };
                 playlist.BMSTables = new ObservableCollection<BMSTable> { table };
+                PlaylistFolderNode namedFolder = table.FolderNodes.Single(node => !node.IsSpecial && node.FolderName == "[NO SONG]");
+                PlaylistFolderNode specialNode = table.FolderNodes.Single(node => node.IsSpecial);
+                Assert.AreEqual(namedFolder.DisplayName, specialNode.DisplayName);
+                Assert.AreEqual(string.Empty, specialNode.FolderName);
+                Assert.IsFalse(table.FolderNodes.Any(node => !node.IsSpecial && node.FolderName == specialNode.FolderName));
 
                 var detailDataSource = new FakePlaylistDetailDataSource
                 {
@@ -1971,8 +1977,8 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                                 normalNonMatch.md5,
                                 ClearType.HARD,
                                 RankType.A),
-                            [specialFolderNoSong.sha256] = CreateScore(
-                                specialFolderNoSong.md5,
+                            [namedFolderNoSong.sha256] = CreateScore(
+                                namedFolderNoSong.md5,
                                 ClearType.NO_SONG,
                                 RankType.INVALID)
                         }
@@ -2037,13 +2043,52 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                     .Cast<PlaylistDetailRow>()
                     .ToList();
                 CollectionAssert.AreEquivalent(
-                    new[] { firstFolderNoPlay, secondFolderNoSong },
+                    new[] { firstFolderNoPlay, secondFolderNoSong, namedFolderNoSong },
                     finalRows.Select(row => row.Entry).ToArray());
                 Assert.IsFalse(finalRows.Any(row => ReferenceEquals(row.Entry, normalNonMatch)));
-                Assert.IsFalse(finalRows.Any(row => ReferenceEquals(row.Entry, specialFolderNoSong)));
                 Assert.AreEqual(
                     MainViewUpdateMode.PlaylistFilterSelected,
                     viewModel.MainChartList.LastCompletion.Mode);
+
+                Assert.IsTrue(viewModel.PlaylistWorkspace.TryRequestPlaylistLampNavigation(
+                    PlaylistLampSegmentInvocationRequest.ForClear(
+                        playlistId.ToString(CultureInfo.InvariantCulture),
+                        namedFolder.FolderName,
+                        PlaylistLampClearCategory.NP)));
+                requestVersion = viewModel.PlaylistWorkspace.DetailBuildState.RequestVersion;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    viewModel.PlaylistWorkspace.WaitForDetailRequestCompletionAsync(requestVersion),
+                    "playlist-lamp.real-no-song.consumer-detail-build");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                Assert.AreEqual(2, publications.Count);
+                Assert.AreEqual(PlaylistLampViewerNavigationScope.Folder, publications[1].Request.Scope);
+                selection = viewModel.PlaylistWorkspace.CapturePlaylistDetailSelection();
+                Assert.IsNotNull(selection);
+                Assert.AreSame(table, selection.Table);
+                Assert.AreEqual(namedFolder.FolderName, selection.FolderName);
+                Assert.AreEqual(PlaylistDetailSelectionScope.Folder, selection.Scope);
+                Assert.AreEqual(PlaylistDetailFilter.PlaylistFilter, selection.Filter);
+                CollectionAssert.AreEqual(
+                    new[] { namedFolderNoSong },
+                    viewModel.MainChartList.Rows.Cast<PlaylistDetailRow>().Select(row => row.Entry).ToArray());
+                Assert.AreEqual(MainViewUpdateMode.PlaylistFilterSelected, viewModel.MainChartList.LastCompletion.Mode);
+                ChartListFilterSnapshot appliedFilter = viewModel.PlaylistWorkspace.CapturePlaylistDetailFilterSnapshot();
+                Assert.AreEqual(appliedFilter.KeywordFilter, viewModel.ChartFilters.KeywordFilter);
+
+                Assert.IsFalse(viewModel.PlaylistWorkspace.TryRequestPlaylistLampNavigation(
+                    PlaylistLampSegmentInvocationRequest.ForClear(
+                        playlistId.ToString(CultureInfo.InvariantCulture),
+                        specialNode.FolderName,
+                        PlaylistLampClearCategory.NP)));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(2, publications.Count);
+                Assert.AreEqual(requestVersion, viewModel.PlaylistWorkspace.DetailBuildState.RequestVersion);
+                Assert.IsTrue(selection.Matches(viewModel.PlaylistWorkspace.CapturePlaylistDetailSelection()));
+                ChartListFilterSnapshot afterRejected = viewModel.PlaylistWorkspace.CapturePlaylistDetailFilterSnapshot();
+                Assert.AreEqual(appliedFilter.KeywordFilter, afterRejected.KeywordFilter);
+                Assert.AreEqual(appliedFilter.ModeFilter, afterRejected.ModeFilter);
+                Assert.AreEqual(appliedFilter.KeywordFilter, viewModel.ChartFilters.KeywordFilter);
             }
             finally
             {

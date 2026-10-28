@@ -18,7 +18,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryPlaylistLampDataSourceTests
 {
-    /// <summary>未所持MD5エントリを実chart_infoで補完し、所持SHAとは区別したスコア検索SHAを渡す。補完漏れや所持誤認を検出する。</summary>
+    /// <summary>実フォルダ名[NO SONG]と未所持MD5エントリを捕捉し、実chart_infoの補完SHAを所持SHAとは区別して渡す。名前による所属欠落・補完漏れ・所持誤認を検出する。</summary>
     [TestMethod]
     public async Task CaptureAsync_keepsChartInfoShaSeparateAndUsesItForBeatorajaLookup()
     {
@@ -42,11 +42,11 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
             await AwaitChartInfoHydrationAsync(library);
 
             BMSTableEntry entry = CreateEntry(md5, null);
-            entry.folder = "folder";
+            entry.folder = "[NO SONG]";
             var table = new BMSTable
             {
                 playlist_id = 17,
-                Folder_order = ["folder"],
+                Folder_order = ["[NO SONG]"],
                 entries = [entry]
             };
             var playlist = new TestBmsPlaylist(songDbPath)
@@ -60,6 +60,8 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
                 CancellationToken.None);
             PlaylistLampEntrySnapshot snapshot = request.Entries.Single();
 
+            CollectionAssert.AreEqual(new[] { "[NO SONG]" }, request.FolderOrder.ToArray());
+            Assert.AreEqual("[NO SONG]", snapshot.FolderName);
             Assert.IsFalse(snapshot.IsOwned);
             Assert.AreEqual(chartInfoSha256, snapshot.ChartInfoSha256);
             Assert.AreEqual(string.Empty, snapshot.ResolvedSha256);

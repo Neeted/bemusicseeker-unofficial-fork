@@ -376,7 +376,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             long sourceStartMs = stopwatch.ElapsedMilliseconds;
             PlaylistSourceBuildResult sourceBuild = BuildDetailSourceRows(
                 request.Identity.Table,
-                request.Identity.SelectionScope,
                 request.Identity.FolderName,
                 cancellationToken,
                 ref cancellationStage);

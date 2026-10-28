@@ -11,19 +11,19 @@ internal enum PlaylistDetailFilter
 }
 
 /// <summary>
-/// Identifies the semantic source scope represented by a playlist-detail selection.
-/// The scope is part of build identity because an overall lamp navigation and the
-/// ordinary playlist root both use a null folder name while exposing different rows.
+/// プレイリスト詳細選択の意味を識別します。
+/// ランプ全体からの移動と通常ルートは、ともにフォルダ名がnullで全通常フォルダを表示しますが、
+/// 選択の出自を区別するため構築identityに範囲を保持します。
 /// </summary>
 internal enum PlaylistDetailSelectionScope
 {
-    /// <summary>The ordinary playlist root, including its legacy special-folder rows.</summary>
+    /// <summary>実フォルダ名が[NO SONG]の場合も含む、通常プレイリストのルート。</summary>
     OrdinaryRoot = 1,
 
-    /// <summary>A specific playlist folder, including the not-owned special folder.</summary>
+    /// <summary>未所持の特殊ノードを含む、特定のプレイリストフォルダ選択。</summary>
     Folder,
 
-    /// <summary>All current normal folders for an overall lamp-viewer navigation.</summary>
+    /// <summary>ランプ全体からの移動による、現在の全通常フォルダ。</summary>
     OverallNormalFolders
 }
 

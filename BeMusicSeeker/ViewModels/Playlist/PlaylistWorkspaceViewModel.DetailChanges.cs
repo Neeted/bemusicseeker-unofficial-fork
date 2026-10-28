@@ -320,7 +320,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         var keys = new HashSet<PlaylistEntryLookupKey>(CatalogReadSnapshot.LookupKeyComparer);
         foreach (PlaylistEntryChange change in receipt.Changes)
         {
-            if (!IsDetailEntryInScope(change.After, identity?.SelectionScope ?? DetailViewState.Source.CurrentSelectionScope,
+            if (!IsDetailEntryInScope(change.After,
                 identity?.FolderName ?? DetailViewState.Source.CurrentFolderName)) { continue; }
             if (!dependencies.TryGet(change.Entry, out PlaylistDetailSourceRow previous)
                 || !CatalogReadSnapshot.LookupKeyComparer.Equals(previous.LookupKey, LookupKey(change.After)))
@@ -334,7 +334,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         foreach (PlaylistEntryChange change in receipt.Changes)
         {
             dependencies.TryGet(change.Entry, out PlaylistDetailSourceRow before);
-            bool inScope = IsDetailEntryInScope(change.After, identity?.SelectionScope ?? DetailViewState.Source.CurrentSelectionScope,
+            bool inScope = IsDetailEntryInScope(change.After,
                 identity?.FolderName ?? DetailViewState.Source.CurrentFolderName);
             if (!inScope)
             {

@@ -10,9 +10,9 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
-    /// <summary>entry 値・版を一緒に捕捉し、必要候補と current の同時捕捉から初回入力を作ります。</summary>
+    /// <summary>指定フォルダ、または全通常フォルダのentry値・版と必要候補を捕捉し、初回入力を作ります。</summary>
     internal PlaylistSourceBuildResult BuildDetailSourceRows(
-        BMSTable table, PlaylistDetailSelectionScope selectionScope, string folderName,
+        BMSTable table, string folderName,
         CancellationToken cancellationToken, ref string cancellationStage)
     {
         IPlaylistDetailDataSource dataSource = Volatile.Read(ref detailDataSource)
@@ -26,7 +26,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         foreach (PlaylistEntryChange entry in entries.Entries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (IsDetailEntryInScope(entry.After, selectionScope, folderName)) { selected.Add(entry); }
+            if (IsDetailEntryInScope(entry.After, folderName)) { selected.Add(entry); }
         }
         cancellationStage = "entry_resolve";
         CatalogReadSnapshot catalog = dataSource.CapturePlaylistReadSnapshot(selected.Select(entry => LookupKey(entry.After)), cancellationToken);
@@ -85,10 +85,9 @@ public sealed partial class PlaylistWorkspaceViewModel
             ? new(PlaylistEntryLookupKeyKind.Md5, value.Md5)
             : new(PlaylistEntryLookupKeyKind.Sha256, value.Sha256);
 
-    private static bool IsDetailEntryInScope(PlaylistEntryValue value, PlaylistDetailSelectionScope scope, string folder)
+    private static bool IsDetailEntryInScope(PlaylistEntryValue value, string folder)
         => value != null && !value.IsRemoved && value.Md5 != "00000000000000000000000000000000"
-            && (folder == null || value.Folder == folder)
-            && (scope != PlaylistDetailSelectionScope.OverallNormalFolders || value.Folder != "[NO SONG]");
+            && (folder == null || value.Folder == folder);
 
     /// <summary>未所持詳細の重い読取りをworkerで準備し、現役sourceへの登録済み投影をUIの一処理で消費します。</summary>
     internal bool TryPatchDetailSourceChartInfo(PlaylistBuildRequest request, CancellationToken cancellationToken,

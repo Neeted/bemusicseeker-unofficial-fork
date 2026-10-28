@@ -1763,7 +1763,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         });
     }
 
-    /// <summary>画面外の最大フォルダを含む共通件数尺度を切り替え、選択・スクロール・既存投影を保って再捕捉と再集計をせず、非整数DPI通知でも同じ状態を保って幅不変のラベルを再評価し、明示日付変更で新入力を捕捉したときだけ尺度を再計算することを確認します。</summary>
+    /// <summary>画面外の実フォルダ名[NO SONG]を最大行として共通件数尺度へ含め、表示モード・DPI変更時は選択・スクロール・既存投影を維持し、明示日付変更時だけ尺度を再計算する。実名を特殊扱いする誤りと、NP操作の対象欠落も検出する。</summary>
+    /// <remarks>実Windowの仮想化と左右のBindingを使い、最大行の実体化前から共通尺度が効くことと、実ButtonのAutomation Invokeが同じ通常フォルダへの要求を一件発行する接続を確認する。</remarks>
     [TestMethod]
     public void Viewer_countModeUsesAllNormalFoldersAndPreservesProjectionUntilDataRefresh()
     {
@@ -1773,8 +1774,16 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             var executor = new CountingLampBuildExecutor();
             var session = new PlaylistLampViewerSession("playlist", source, buildExecutor: executor);
             var requests = new List<PlaylistLampViewerNavigationRequest>();
+            var namedFolderNavigationApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var viewModel = new PlaylistLampViewerViewModel("playlist", "共通尺度と長いタイトルの表示確認", session,
-                TestUiDispatcherHost.Dispatcher, requests.Add);
+                TestUiDispatcherHost.Dispatcher, request =>
+                {
+                    requests.Add(request);
+                    if (request.Scope == PlaylistLampViewerNavigationScope.Folder && request.FolderName == "[NO SONG]")
+                    {
+                        namedFolderNavigationApplied.TrySetResult();
+                    }
+                });
             var owner = new Window { Width = 480, Height = 320, ShowInTaskbar = false, Content = new Grid() };
             windowTest.ShowAndWaitForContentRendered(owner);
             var window = new PlaylistLampViewerWindow(owner, viewModel) { Height = 560 };
@@ -1791,7 +1800,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 window.UpdateLayout();
                 SelectDisplayMode(window, false);
                 Assert.AreEqual(150, viewModel.CurrentResult.Statistics.TotalCount);
-                Assert.IsFalse(viewModel.FolderRows.Any(row => row.FolderName == "[NO SONG]"));
+                Assert.AreEqual(100, viewModel.FolderRows.Single(row => row.FolderName == "[NO SONG]").Count);
                 Assert.AreEqual(0, viewModel.FolderRows.Single(row => row.FolderName == "empty").Count);
                 IReadOnlyList<PlaylistLampViewerStatistic>[] statisticGroups = viewModel.StatisticGroups.ToArray();
                 PlaylistLampViewerStatistic[] statistics = statisticGroups.SelectMany(group => group).Concat(viewModel.SupplementaryStatistics).ToArray();
@@ -1815,7 +1824,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 AssertFolderOccupancy(small, 1d);
                 Assert.IsFalse(FindDescendants<Border>(window).Any(border =>
                     AutomationProperties.GetAutomationId(border) == "PlaylistLampViewerFolderRow"
-                    && border.DataContext is PlaylistLampViewerFolderRowViewModel row && row.FolderName == "maximum"),
+                    && border.DataContext is PlaylistLampViewerFolderRowViewModel row && row.FolderName == "[NO SONG]"),
                     "the scale must include the maximum row before it is materialized");
                 Button hardButton = FindDescendants<Button>(small).Single(button =>
                     button.DataContext is PlaylistLampViewerSegmentViewModel segment && segment.CategoryKey == "HARD");
@@ -1905,7 +1914,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 scroll.ScrollToEnd();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
-                Border maximum = FindRenderedFolder(window, "maximum");
+                Border maximum = FindRenderedFolder(window, "[NO SONG]");
                 Button maximumButton = FindDescendants<Button>(maximum).First();
                 double maximumWidth = maximumButton.ActualWidth;
                 foreach (bool count in new[] { false, true })
@@ -1917,6 +1926,23 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                         : string.Format(CultureInfo.InvariantCulture, Resources.PlaylistLampViewer_percentage_format, 100d), maximumButton.Content);
                     AssertOverallLabel(window, count, 100);
                 }
+                Button maximumNp = FindDescendants<Button>(maximum).Single(button =>
+                    button.DataContext is PlaylistLampViewerSegmentViewModel segment
+                    && segment.Kind == PlaylistLampSegmentKind.Clear && segment.CategoryKey == "NP");
+                AutomationPeer maximumNpPeer = UIElementAutomationPeer.CreatePeerForElement(maximumNp)
+                    ?? throw new AssertFailedException("実フォルダのNP区間にAutomation peerがありません。");
+                int requestsBeforeInvoke = requests.Count;
+                ((IInvokeProvider)maximumNpPeer.GetPattern(PatternInterface.Invoke)).Invoke();
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(
+                    namedFolderNavigationApplied.Task, "lamp-real-no-song-button-navigation-applied");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(requestsBeforeInvoke + 1, requests.Count);
+                PlaylistLampViewerNavigationRequest namedFolderRequest = requests[^1];
+                Assert.AreEqual(PlaylistLampViewerNavigationScope.Folder, namedFolderRequest.Scope);
+                Assert.AreEqual("[NO SONG]", namedFolderRequest.FolderName);
+                Assert.AreEqual(PlaylistLampSegmentKind.Clear, namedFolderRequest.Kind);
+                Assert.AreEqual(PlaylistLampClearCategory.NP, namedFolderRequest.ClearCategory);
+                Assert.IsNull(namedFolderRequest.RankCategory);
                 source.Replace(CreateScaleRequest(200));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(session.UpdateSelectedAsOfDateAsync(session.Query.SelectedLocalDate.HasValue ? null : DateTime.Today.AddDays(-1)), "common scale changed maximum");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -1924,6 +1950,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
                 Assert.IsTrue(viewModel.IsCountMode);
+                Assert.AreEqual(250, viewModel.CurrentResult.Statistics.TotalCount);
+                Assert.AreEqual(200, viewModel.FolderRows.Single(row => row.FolderName == "[NO SONG]").Count);
                 Assert.AreEqual(200d, viewModel.FolderBarScale);
                 small = FindRenderedFolder(window, "small");
                 AssertFolderOccupancy(small, 0.25d);
@@ -2711,12 +2739,10 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             return new PlaylistLampEntrySnapshot("small", "small-" + index, true,
                 sha256: score.Sha256, resolvedSha256: score.Sha256);
         }).Concat(Enumerable.Range(0, maximumCount).Select(index =>
-            new PlaylistLampEntrySnapshot("maximum", "maximum-" + index, false, sha256: "missing")))
-            .Concat(Enumerable.Range(0, 250).Select(index =>
-                new PlaylistLampEntrySnapshot("[NO SONG]", "special-" + index, false, sha256: "special"))).ToArray();
+            new PlaylistLampEntrySnapshot("[NO SONG]", "maximum-" + index, false, sha256: "missing"))).ToArray();
         string[] folders = new[] { "leading-empty", "small", "empty" }
             .Concat(Enumerable.Range(0, 60).Select(index => "padding-" + index))
-            .Concat(new[] { "maximum", "[NO SONG]" }).ToArray();
+            .Concat(new[] { "[NO SONG]" }).ToArray();
         var snapshot = new PlaylistLampScoreSnapshot(ActiveScoreSource.Beatoraja, ScoreTableLoadStatus.Loaded,
             1, 1, null, scoresBySha256: scores.ToDictionary(score => score.Sha256, StringComparer.OrdinalIgnoreCase));
         return new PlaylistLampAggregationRequest("playlist", folders, entries, snapshot);
