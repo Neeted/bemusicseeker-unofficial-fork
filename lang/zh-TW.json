@@ -1,4 +1,7 @@
 {
+  "DialogButtonOk": "確定",
+  "DialogButtonYes": "是",
+  "DialogButtonNo": "否",
   "Error_PlaylistEntryLevelFormat": "ENTRY LEVEL必須輸入以點為小數分隔符的完整有限數值（例如 -1.5、1e2）。留空可清除數值。",
   "Error_PlaylistJsonDateFormat": "{0}的日期時間無效。請使用 yyyy-MM-dd、yyyy-MM-ddTHH:mm:ss（可選1～7位小數秒及Z/±HH:mm），或 yyyy/M/d（可選H:m:s及±HH:mm）格式修正來源資料後重試。",
   "Confirm_DeleteRegisteredBmsRoots": "是否刪除整個資料夾並取消註冊以下 BMS 根目錄？\n資料夾：{0}\n將取消註冊的 BMS 根目錄：\n{1}",

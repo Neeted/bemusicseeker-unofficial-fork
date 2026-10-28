@@ -31,15 +31,14 @@
 | U03 共通表の表示とコピー | TSV空行 → URL幅 → フルスキャンDST編集・非編集案内 → 言語cache | 同担当が能力付与・編集終端・一時投影まで所有。U15のDST検証と順序調整 |
 | U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U03後、U05/U08と直列 |
 | U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04/U08と直列 |
-| U07 確認文言 | 確認ボタン | 既存owner別コミット。全言語資源は一担当。U03と共有編集を調整 |
 | U08 手動ランキング取得廃止 | UI・専用通信・資料・専用テストを除去 | MainWindow/composition/Ir。U04/U05後、起動時ローカルcache維持 |
 | U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
 | U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile |
 | U15 導入・推定 | 宛先による範囲拡張廃止 → 入れ子禁止 → 重複保留の登録整理 → 候補根変換・ユニークhash票 → DST表記 | PackageInstall/service/estimation。同一writer。候補根と票数は同じ座標へ揃える。登録整理は発見結果/完全性を共用。U03/U09と順序調整 |
-| U16 ランプの対象・取得元 | 実NO SONG所属 → 成績と履歴の同一捕捉 | lamp source/model/viewer。U07ランプ・U17日付と直列 |
+| U16 ランプの対象・取得元 | 実NO SONG所属 → 成績と履歴の同一捕捉 | lamp source/model/viewer。U17日付と直列 |
 | U17 日付境界 | 履歴/ランプの日付共用 | PlayHistory/HistoricalSnapshot、U16後 |
 
-現在の所有は、`optional-updater` が共通表、`optional-search-ui` がU07の言語表示、`optional-encoding` がU09、`optional-bms-input` が再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U16/U17は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
+現在の所有は、`optional-updater` が共通表、`optional-encoding` がU09、`optional-bms-input` が再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U16/U17は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
 
 ### 開始・引継ぎと計画の更新
 
@@ -159,14 +158,6 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 そのクリックの短命な開始要求として、後発の明示入力/フォーカス移動、対象交換/切離し、別編集開始/終了で失効させる。既存部品の編集候補と保存入口を使う。現在の無条件な遅延callbackを残して新ガードを重ねず、旧開始要求の一つの所有に整理する。全画面入力管理器、恒久世代台帳、固定待機の再試行は不要。
 
 `MainWindowPlaylistWorkspaceWpfTests` でクリック→1秒以内に検索入力→callback後も検索の全文/フォーカス保持・改名0回、移動しない場合は一回開始を確認。F2、別ノード、切離し、重複クリックで古い要求が再開しない代表を分担する。遅延完了後の全UI状態を保証する一般フレームワークへ拡張しない。DnDと同MainWindowツリー領域のため同担当へまとめられる。
-
-## U07 確認文言
-
-### 確認ボタンの翻訳
-
-**現存。** `BeMusicSeeker/Views/ThemedMessageBox.cs:GetButtons` がOK/Yes/No/Cancelを固定英語で生成する。既定資源・`Resources.cs`・`lang/`の6言語へ既存資源を優先して接続する。modal表示中の言語変更購読や翻訳cacheは不要。
-
-`ThemedMessageBoxTests` はdefault/resultの純粋規則、`DialogPresentationTests` は実Content・明示応答・Enter・Escへ分担する。既存のYes=全体/No=譜面のみ/Cancel・X・Esc=全操作取消の契約は変えない。資源を触る他翻訳作業と担当を揃えれば、ファイル衝突を避けて独立実装可能。
 
 ## U08 手動ランキング取得廃止
 

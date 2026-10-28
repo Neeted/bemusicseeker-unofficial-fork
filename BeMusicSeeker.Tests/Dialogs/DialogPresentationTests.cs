@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -14,8 +15,10 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
@@ -28,6 +31,191 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class DialogPresentationTests
 {
+    /// <summary>6言語それぞれで実ボタンの4役割が現在の言語資源を表示し、固定英語や役割の取り違えを検出します。</summary>
+    /// <remarks>実Contentへの接続を2つの代表構成で確認し、辞書とgetterの整合はLocalizationResourceParityTestsへ分担します。</remarks>
+    [DataTestMethod]
+    [DataRow("en-US")]
+    [DataRow("fr-FR")]
+    [DataRow("ja-JP")]
+    [DataRow("ko-KR")]
+    [DataRow("zh-CN")]
+    [DataRow("zh-TW")]
+    public void ThemedMessageBox_CurrentLanguageReachesEveryButtonRole(string cultureName)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            CultureInfo previousCulture = Resources.Culture;
+            try
+            {
+                Resources.Culture = CultureInfo.GetCultureInfo(cultureName);
+                var owner = new Window { Width = 240, Height = 80, Content = new Border() };
+                windowTest.ShowAndWaitForContentRendered(owner);
+                AssertLocalizedMessageBoxResponse(windowTest, owner, MessageBoxButton.OKCancel, MessageBoxResult.OK, "click");
+                AssertLocalizedMessageBoxResponse(windowTest, owner, MessageBoxButton.YesNoCancel, MessageBoxResult.Yes, "click");
+            }
+            finally { Resources.Culture = previousCulture; }
+        });
+    }
+
+    /// <summary>表示を閉じて言語を変更した後の次の確認で新しい資源を表示し、初回言語の文言を保持する誤りを検出します。</summary>
+    /// <remarks>同じownerの実モーダルを順に開き、表示中の言語変更は保証対象に含めません。</remarks>
+    [TestMethod]
+    public void ThemedMessageBox_NextPresentationUsesChangedLanguage()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            CultureInfo previousCulture = Resources.Culture;
+            try
+            {
+                var owner = new Window { Width = 240, Height = 80, Content = new Border() };
+                windowTest.ShowAndWaitForContentRendered(owner);
+                Resources.Culture = CultureInfo.GetCultureInfo("ja-JP");
+                AssertLocalizedMessageBoxResponse(windowTest, owner, MessageBoxButton.YesNoCancel, MessageBoxResult.Yes, "click");
+                Resources.Culture = CultureInfo.GetCultureInfo("fr-FR");
+                AssertLocalizedMessageBoxResponse(windowTest, owner, MessageBoxButton.YesNoCancel, MessageBoxResult.Yes, "click");
+            }
+            finally { Resources.Culture = previousCulture; }
+        });
+    }
+
+    /// <summary>翻訳済みの4構成で明示応答とEnter・Escが実ボタンを通り、文言変更で応答の意味を変えないことを確認します。</summary>
+    /// <remarks>公開AccessKeyManagerからキーを配送します。純粋な既定値規則と全体削除の取消分岐は既存の専用テストへ分担します。</remarks>
+    [DataTestMethod]
+    [DataRow(MessageBoxButton.OK, MessageBoxResult.OK, "enter")]
+    [DataRow(MessageBoxButton.OKCancel, MessageBoxResult.OK, "click")]
+    [DataRow(MessageBoxButton.OKCancel, MessageBoxResult.Cancel, "click")]
+    [DataRow(MessageBoxButton.YesNo, MessageBoxResult.Yes, "click")]
+    [DataRow(MessageBoxButton.YesNo, MessageBoxResult.No, "escape")]
+    [DataRow(MessageBoxButton.YesNoCancel, MessageBoxResult.No, "click")]
+    [DataRow(MessageBoxButton.YesNoCancel, MessageBoxResult.Yes, "enter")]
+    [DataRow(MessageBoxButton.YesNoCancel, MessageBoxResult.Cancel, "escape")]
+    public void ThemedMessageBox_LocalizedButtonsPreserveExplicitAndKeyboardResponses(
+        MessageBoxButton buttons, MessageBoxResult response, string operationKind)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            CultureInfo previousCulture = Resources.Culture;
+            try
+            {
+                Resources.Culture = CultureInfo.GetCultureInfo("ja-JP");
+                var owner = new Window { Width = 240, Height = 80, Content = new Border() };
+                windowTest.ShowAndWaitForContentRendered(owner);
+                AssertLocalizedMessageBoxResponse(windowTest, owner, buttons, response, operationKind);
+            }
+            finally { Resources.Culture = previousCulture; }
+        });
+    }
+
+    private static void AssertLocalizedMessageBoxResponse(
+        TestWindowPresentationScope windowTest, Window owner, MessageBoxButton buttons,
+        MessageBoxResult response, string operationKind)
+    {
+        var labels = new Dictionary<MessageBoxResult, string>
+        {
+            [MessageBoxResult.OK] = Resources.DialogButtonOk,
+            [MessageBoxResult.Yes] = Resources.DialogButtonYes,
+            [MessageBoxResult.No] = Resources.DialogButtonNo,
+            [MessageBoxResult.Cancel] = Resources.Cancel,
+        };
+        var rendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var operated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Window? dialog = null;
+        bool scheduled = false;
+        int selectedClicks = 0;
+        Task<ThemedMessageBoxResponse> operation = owner.Dispatcher.InvokeAsync(() => ThemedMessageBox.ShowWithStatus(
+            owner, "Localized confirmation", "Confirmation", buttons, MessageBoxImage.Question, response,
+            modalScopeFactory: window =>
+            {
+                dialog = window;
+                windowTest.PrepareForOwnedPresentation(window);
+                window.Closed += (_, _) => closed.TrySetResult();
+                window.ContentRendered += (_, _) =>
+                {
+                    rendered.TrySetResult();
+                    if (scheduled) { return; }
+                    scheduled = true;
+                    window.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                    {
+                        Exception? operationFailure = null;
+                        try
+                        {
+                            Assert.AreSame(owner, window.Owner);
+                            Button[] actualButtons = FindVisualDescendants<Button>(window).ToArray();
+                            MessageBoxResult[] roles = buttons switch
+                            {
+                                MessageBoxButton.OK => [MessageBoxResult.OK],
+                                MessageBoxButton.OKCancel => [MessageBoxResult.OK, MessageBoxResult.Cancel],
+                                MessageBoxButton.YesNo => [MessageBoxResult.Yes, MessageBoxResult.No],
+                                MessageBoxButton.YesNoCancel => [MessageBoxResult.Yes, MessageBoxResult.No, MessageBoxResult.Cancel],
+                                _ => throw new ArgumentOutOfRangeException(nameof(buttons)),
+                            };
+                            Assert.AreEqual(roles.Length, actualButtons.Length);
+                            foreach (MessageBoxResult role in roles)
+                            {
+                                Button actual = actualButtons.Single(candidate =>
+                                    AutomationProperties.GetAutomationId(candidate) == $"ThemedMessageBox{role}");
+                                Assert.AreEqual(labels[role], actual.Content, $"{Resources.Culture.Name}: {role}");
+                            }
+                            Button selected = actualButtons.Single(candidate =>
+                                AutomationProperties.GetAutomationId(candidate) == $"ThemedMessageBox{response}");
+                            selected.Click += (_, _) => selectedClicks++;
+                            if (operationKind == "click") { selected.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }
+                            else
+                            {
+                                PresentationSource source = PresentationSource.FromVisual(window)
+                                    ?? throw new InvalidOperationException("確認画面のPresentationSourceがありません。");
+                                string key = operationKind switch
+                                {
+                                    "enter" => "\r",
+                                    "escape" => "\u001B",
+                                    _ => throw new ArgumentOutOfRangeException(nameof(operationKind)),
+                                };
+                                AccessKeyManager.ProcessKey(source, key, false);
+                            }
+                            Assert.AreEqual(1, selectedClicks, "応答は対応する実ボタンのClickを一度通る必要があります。");
+                        }
+                        catch (Exception failure) { operationFailure = failure; }
+                        finally
+                        {
+                            if (window.IsVisible)
+                            {
+                                operationFailure ??= new InvalidOperationException("応答後も確認画面が閉鎖されませんでした。");
+                                try { window.Close(); }
+                                catch (Exception) { }
+                            }
+                        }
+                        if (operationFailure != null) { operated.TrySetException(operationFailure); }
+                        else { operated.TrySetResult(); }
+                    }));
+                };
+                return UiDialogOwnerResolver.PushActiveModal(window);
+            })).Task;
+        Exception? primaryFailure = null;
+        try
+        {
+            TestUiDispatcherHost.AwaitPresentationOnDispatcher(
+                TestUiDispatcherHost.AwaitNotificationAsync(rendered.Task, operation, "localized message render"),
+                "localized message render or failure");
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(operated.Task, "localized message UI operation");
+            TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "localized message Closed");
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "localized message response");
+            ThemedMessageBoxResponse actual = operation.GetAwaiter().GetResult();
+            Assert.AreEqual(response, actual.MessageBoxResult);
+            Assert.IsFalse(actual.ClosedWithoutSelection);
+        }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            try
+            {
+                if (dialog?.IsVisible == true) { dialog.Close(); }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "localized message cleanup");
+            }
+            catch (Exception) when (primaryFailure != null) { }
+        }
+    }
+
     /// <summary>各dialogの実表示で役割別styleと外部sentinel・Applicationへの非波及を確認します。設定の環境カードと通常ラジオを区別し、BMS/BMT・選択recordの確定はPrimary、取消とroot/scoreの再試行はQuietとして確認します。</summary>
     [DataTestMethod]
     [DataRow("SettingsWindow")]

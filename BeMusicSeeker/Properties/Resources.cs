@@ -319,6 +319,15 @@ public class Resources
 
     public static string Cancel => ResourceManager.GetString("Cancel", resourceCulture);
 
+    /// <summary>確認ダイアログで了承を表すボタン文言です。</summary>
+    public static string DialogButtonOk => ResourceManager.GetString(nameof(DialogButtonOk), resourceCulture);
+
+    /// <summary>確認ダイアログで肯定を表すボタン文言です。</summary>
+    public static string DialogButtonYes => ResourceManager.GetString(nameof(DialogButtonYes), resourceCulture);
+
+    /// <summary>確認ダイアログで否定を表すボタン文言です。</summary>
+    public static string DialogButtonNo => ResourceManager.GetString(nameof(DialogButtonNo), resourceCulture);
+
     public static string Close => ResourceManager.GetString("Close", resourceCulture);
 
 

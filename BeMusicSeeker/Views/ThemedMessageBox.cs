@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
+using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Views;
 
@@ -299,23 +300,23 @@ internal static class ThemedMessageBox
         {
             MessageBoxButton.OKCancel => new[]
             {
-                new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.OK, "OK"),
-                new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.Cancel, "Cancel"),
+                new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.OK, Resources.DialogButtonOk),
+                new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.Cancel, Resources.Cancel),
             },
             MessageBoxButton.YesNo =>
             [
-                new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.Yes, "Yes"),
-                new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.No, "No"),
+                new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.Yes, Resources.DialogButtonYes),
+                new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.No, Resources.DialogButtonNo),
             ],
             MessageBoxButton.YesNoCancel =>
             [
-                new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.Yes, "Yes"),
-                new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.No, "No"),
-                new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.Cancel, "Cancel"),
+                new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.Yes, Resources.DialogButtonYes),
+                new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.No, Resources.DialogButtonNo),
+                new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.Cancel, Resources.Cancel),
             ],
             _ =>
             [
-                new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.OK, "OK"),
+                new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.OK, Resources.DialogButtonOk),
             ],
         };
     }

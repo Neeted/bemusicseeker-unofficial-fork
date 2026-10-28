@@ -4055,4 +4055,13 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Playlist_reload_last_processed_label_format" xml:space="preserve">
     <value>直近の処理終了：{0}</value>
   </data>
+  <data name="DialogButtonOk" xml:space="preserve">
+    <value>OK</value>
+  </data>
+  <data name="DialogButtonYes" xml:space="preserve">
+    <value>はい</value>
+  </data>
+  <data name="DialogButtonNo" xml:space="preserve">
+    <value>いいえ</value>
+  </data>
 </root>

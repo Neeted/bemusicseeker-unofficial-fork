@@ -42,6 +42,12 @@
 
 一時試聴のコピー回収と局所診断は[音声](../runtime/audio.md#曲の再生と解放)に従います。`App` の緊急表示は `EmergencyDialog` に限定し、通常画面からの緊急経路の流用は認めません。
 
+### 確認ボタンの言語と応答
+
+通常の確認画面のOK・Yes・No・Cancelは、表示時点の言語資源を実ボタンの文言に使います。OK・Yes・Noには専用の確認ボタン資源、Cancelには共通の取消資源を使い、言語変更後の次の表示から新しい文言を反映します。開いているモーダルの言語変更購読や翻訳のキャッシュは持ちません。
+
+翻訳は既定応答、明示応答、Enter・Esc・閉じる操作の意味を変えません。フォルダー全体の確認ではYesが全体、Noが譜面のみ、Cancel・閉じる・Escが全操作の取消を表し、確認の表示失敗は承認や取消に置き換えません。
+
 ### 設定画面と子ウィンドウ
 
 設定画面は、親を必須とする `ShowWindowAsync` のモーダル表示です。設定内の選択・通知・子ウィンドウでは、表示中の `SettingsWindow` を親とし、`MainWindow` へ勝手に戻しません。
@@ -62,6 +68,7 @@ LR2個別参照の確認・選択で表示失敗が起きた場合は、元の�
 | --- | --- | --- |
 | 直接表示を行うファイルの限定 | [UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs)、上記の表示部品 | [DialogRouteConsolidationTests](../../../BeMusicSeeker.Tests/Dialogs/DialogRouteConsolidationTests.cs) の `DirectDialogRouteFiles_MatchDocumentedBoundaries`: 検出対象のファイル集合と表が一致すること。正規表現・比較対象は実装側を参照する。 |
 | 緊急表示と通常表示の分離 | [EmergencyDialog](../../../BeMusicSeeker/Views/Dialogs/EmergencyDialog.cs) | 同テスト群: コンパイル後の呼出し関係から、緊急表示を使う境界を確認する。 |
+| 確認ボタンの翻訳と応答の意味 | [ThemedMessageBox](../../../BeMusicSeeker/Views/ThemedMessageBox.cs) | [DialogPresentationTests](../../../BeMusicSeeker.Tests/Dialogs/DialogPresentationTests.cs) は6言語の実Content、言語変更後の次表示、4構成の代表的な明示応答・Enter・Escを確認する。[ThemedMessageBoxTests](../../../BeMusicSeeker.Tests/Dialogs/ThemedMessageBoxTests.cs) は既定値と結果変換、[UiDialogCoordinatorWpfTests](../../../BeMusicSeeker.Tests/Dialogs/UiDialogCoordinatorWpfTests.cs) の `WholeFolderConfirmation_RealMessageProducesDistinctNoCancelAndClose` はフォルダー全体確認のNo・Cancel・閉じる・Escの区別、[LocalizationResourceParityTests](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs) は辞書・getter・6言語の整合を分担する。 |
 | 設定内の選択・子画面と親子関係 | [SettingsWindow](../../../BeMusicSeeker/Views/Settings/SettingsWindow.xaml)、[UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs) | [SettingDialogEditCompletionTests](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)、[SettingsWindowPresentationTests](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs)、[SettingsControlPresentationTests](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs): 取消、確認、親ウィンドウ、公開Automationによる選択を自動検証する。実フォーカスは[ユーザーに推奨する実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分ける。 |
 | 設定の入力検証通知、表示失敗と入力保持 | [SettingsDialogViewModel](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) の `ShowUiMessage` | [SettingDialogEditCompletionTests](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `CustomFolderOutputValidation_UsesInjectedDialogAndPreservesRejectedValue`: 注入済み窓口への一度の通知、表示成功・失敗・親なしの結果、拒否値と保存済みXMLの不変。 |
 | 設定終了後の保存完了通知と再表示 | [MainWindow](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs)、[SettingsWindow](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs) | [SettingsWindowPresentationTests](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) の `MainWindow_InitialSettingsCloseBeforeRealCompletionMessageAndRecoverAfterInitialization`: 実通知の表示と親、旧画面の終了、新しい設定画面の編集受付。 |

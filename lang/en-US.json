@@ -1,4 +1,7 @@
 {
+  "DialogButtonOk": "OK",
+  "DialogButtonYes": "Yes",
+  "DialogButtonNo": "No",
   "Error_PlaylistEntryLevelFormat": "ENTRY LEVEL must be a whole finite number with a dot decimal separator (for example, -1.5 or 1e2). Clear the value with an empty field.",
   "Error_PlaylistJsonDateFormat": "{0} has an invalid date. Use yyyy-MM-dd or yyyy-MM-ddTHH:mm:ss (optional 1–7 fractional digits and Z/±HH:mm), or yyyy/M/d with optional H:m:s and ±HH:mm. Correct the source data and retry.",
   "Confirm_DeleteRegisteredBmsRoots": "Delete the entire folder and unregister the BMS roots below?\nFolder: {0}\nBMS roots to unregister:\n{1}",
