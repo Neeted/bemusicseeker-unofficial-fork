@@ -16,6 +16,14 @@ BMS・bmsonに共通の音声初期化、機器選択、再生、デバイステ
 
 録音・音声変換で `BMSAutoPlayWriter` が作るBPMタグはInvariantの小数表現を使い、OS地域によって小数点を変えません。BMS・bmsonの既存BPM値とタグ・エンコーダーへの受渡しを維持します。タグ生成のproviderは静的確認、PCM出力と品質・引用・タグ引数の対応は既存の `BMSAutoPlayWriterTests` と `AudioEncoderCommandFactoryTests` に分担します。
 
+### BMS再生入力の条件分岐
+
+内蔵再生・先読み・音声変換が使う `BMSFile` は、現在の乱数選択に一致する `#IF` / `#ELSEIF`、または一致する条件がない場合の `#ELSE` を一つだけ採用します。複数の `#ELSEIF` と入れ子も各階層の停止命令を基準に解釈し、選択枝のメタデータ、`WavArray` / `BmpArray` の定義、譜面イベントを一回だけ反映します。`#ENDIF` 後の共通イベントも一回反映します。
+
+未選択枝にある WAV・BMP・STAGEFILE・BANNER・BACKBMP のpathは、従来どおり `Resources` へ収集します。全資源pathの収集と、再生に採用する定義・イベントは区別します。乱数選択方式は変えず、完了した選択だけを記述順に `RandomPattern` と監査callbackへ一回記録し、未選択枝内の乱数は `Used = false` として保持します。
+
+`PlaybackChart.FromBms` は採用済みのメタデータ、音源定義、発音時刻を共通再生境界へ投影します。ライブラリの基本情報parserとは別の入力経路です。
+
 ### 所有と初期化
 
 `PlaybackPanelViewModel` が保持するライブラリ参照は、一時導入試聴の保留入力解決に使います。ライブラリ参照の接続と交換には、構成が所有する生存中の論理受付権限を明示的に渡します。一時導入試聴も同じ受付の下で参照を使い、交換と入力解決が重ならないようにします。
@@ -324,6 +332,7 @@ SRC=6の信号検査は44.1↔48、48↔96kHzで1/5/10/18kHzの振幅差≤0.01d
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| BMSのIF・複数ELSEIF・ELSE・入れ子の一枝採用、未選択資源pathの収集、乱数監査 | [`BMSFile.ParseMain`](../../../BeMusicSeeker/Ribbit/BMS/BMSFile.cs)、[`PlaybackChart.FromBms`](../../../BeMusicSeeker/Ribbit/BMS/PlaybackChart.cs) | [`RibbitBmsFileTimingTests`](../../../BeMusicSeeker.Tests/Chart/RibbitBmsFileTimingTests.cs) の `ConditionalBranchesApplyOnlyTheSelectedDefinitionsAndEvents` は固定選択1/2/3/4、`NestedConditionalBranchesKeepSelectionResourcesAndAuditAtTheirOwnDepth` は親採用時の内ELSEIFと親不採用時の外ELSEについて、採用定義・イベントの正確集合、全資源path、監査順・Usedを確認する。`PlaybackProjectionUsesOnlySelectedBranchMetadataResourcesAndEventTimes` は代表一条件の曲名・音源名・発音数と時刻の投影を、既存の `AuditReportsEachUsedAndSkippedRandomChoiceOnceInOrder` と `AuditKeepsOnlyCompletedRandomChoicesWhenTheNextSelectionFails` は監査一回性と選択故障前までの完了記録を分担する。 |
 | 保存音量を捕捉した次回初期化と実時間音量の操作終端 | `BassAudioPlaybackRuntime.Initialize` / `SetVolume` | `AudioContractsTests.InternalNextSession_VolumeCompletionKeepsLatestVolumeAcrossCapturedInitialization` は保存50/preview10から、SRC変更で50を捕捉した次sessionの本番初期化exclusive gateを機器代替内で保持する。実Panel→内蔵player→runtimeへの20変更を別Taskから届け、gate解放前のsetter自体の正常終端と次曲未終端を観測する。保存20がnative初期化の前/後の双方で、両終端後の現在音量・確定値20、`DeviceVolume` 0.2、旧session解放と同出力session再利用を確認する。既存設定/Panelケースがpreview非漏出・最新確定値への保存失敗復帰・同値終端・Popup bindingを分担する。 |
 | 次回player置換の停止失効、採用済み/未採用要求と実故障 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs) の `ReplacePlayerCoreAsync` / `BeginPlaybackCore` | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs) の `PendingPlayerReplacement_StopCancelsStartWithoutConsumingUnadoptedOrNewRequest` は通常/一時配置のClose/UI待ちと新保存保持を、`PendingPlayerFactory_StopBeforeReturnKeepsRequestForExplicitStart` はfactory中Stopを、`PendingPlayerReplacement_StopDoesNotSuppressOldCloseFailure` は取消後も元Close故障を通知することを確認する。 |
 | 実音声機器・OS音量・切断と再接続 | [`BassAudioSession`](../../../BeMusicSeeker/Ribbit/Media/Audio/BassAudioSession.cs)、[`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs)、本書の[診断と実機確認](#診断と実機確認) | 下記の自動テストは要求・結果・資源寿命を検証する。実環境での聴感・機器との接続は、変更に応じて[ユーザーに推奨する実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分ける。 |

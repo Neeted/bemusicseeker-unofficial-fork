@@ -314,6 +314,72 @@ public sealed class RibbitBmsFileTimingTests
     }
 
     /// <summary>
+    /// IF・二つのELSEIF・ELSEを固定選択し、採用枝の定義とイベントだけを一回反映して後続枝の混入・上書きを検出する。
+    /// 未選択枝も含む全資源pathの収集と、選択監査の一回通知は選択結果と別に確認する。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(1, "if", 0)]
+    [DataRow(2, "elseif1", 1)]
+    [DataRow(3, "elseif2", 2)]
+    [DataRow(4, "else", 3)]
+    public void ConditionalBranchesApplyOnlyTheSelectedDefinitionsAndEvents(int choice, string branch, int measure)
+    {
+        var observed = new List<(int Range, int Value, bool Used)>();
+        var options = new BmsParseOptions { RandomChoice = value => observed.Add((value.Range, value.Value, value.Used)) };
+        WithChart(ConditionalBranchesSource(), bms =>
+        {
+            AssertSelectedBranch(bms, branch, measure);
+            AssertCollectedBranchResources(bms, ["if", "elseif1", "elseif2", "else"]);
+            (int Range, int Value, bool Used)[] expected = [(4, choice, true)];
+            CollectionAssert.AreEqual(expected, observed.ToArray());
+            CollectionAssert.AreEqual(expected, bms.RandomPattern.Select(value => (value.Range, value.Value, value.Used)).ToArray());
+        }, options: options, choices: new Queue<int>([choice]));
+    }
+
+    /// <summary>
+    /// 親採用時は内ELSEIFだけ、親不採用時は内側全体を飛ばして外ELSEだけを採用し、内外の停止命令の混同を検出する。
+    /// 内側を飛ばす場合も全資源pathと未使用乱数を収集し、後続乱数まで記述順で一回記録する。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(1, 2, "inner-elseif", 1, true)]
+    [DataRow(2, 3, "outer-else", 3, false)]
+    public void NestedConditionalBranchesKeepSelectionResourcesAndAuditAtTheirOwnDepth(
+        int outerChoice, int innerChoice, string branch, int measure, bool innerUsed)
+    {
+        string source = "#BPM 120\n#WAV02 common.wav\n#RANDOM 2\n#IF 1\n#RANDOM 3\n#IF 1\n"
+            + BranchSource("inner-if", 0) + "#ELSEIF 2\n" + BranchSource("inner-elseif", 1)
+            + "#ELSE\n" + BranchSource("inner-else", 2) + "#ENDIF\n#ELSE\n"
+            + BranchSource("outer-else", 3) + "#ENDIF\n#RANDOM 4\n#00401:02\n";
+        var observed = new List<(int Range, int Value, bool Used)>();
+        var options = new BmsParseOptions { RandomChoice = value => observed.Add((value.Range, value.Value, value.Used)) };
+        WithChart(source, bms =>
+        {
+            AssertSelectedBranch(bms, branch, measure);
+            AssertCollectedBranchResources(bms, ["inner-if", "inner-elseif", "inner-else", "outer-else"]);
+            (int Range, int Value, bool Used)[] expected = [(2, outerChoice, true), (3, innerChoice, innerUsed), (4, 3, true)];
+            CollectionAssert.AreEqual(expected, observed.ToArray());
+            CollectionAssert.AreEqual(expected, bms.RandomPattern.Select(value => (value.Range, value.Value, value.Used)).ToArray());
+        }, options: options, choices: new Queue<int>([outerChoice, innerChoice, 3]));
+    }
+
+    /// <summary>
+    /// ELSEIF採用結果を再生境界へ投影し、曲名・音源名・二つの発音時刻に未選択枝や重複が戻る接続の誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public void PlaybackProjectionUsesOnlySelectedBranchMetadataResourcesAndEventTimes()
+    {
+        WithChart(ConditionalBranchesSource(), bms =>
+        {
+            var chart = PlaybackChart.FromBms(bms);
+            Assert.AreEqual("elseif1-title", chart.Title);
+            CollectionAssert.AreEqual(new[] { (1, "elseif1.wav"), (2, "common.wav") },
+                chart.ResourceNames.Select((path, index) => (index, path)).Where(value => !string.IsNullOrEmpty(value.path)).ToArray());
+            CollectionAssert.AreEquivalent(new[] { (1, 20000000L), (2, 80000000L) },
+                chart.AudioEvents.Select(value => (value.ResourceIndex, value.Start.ToTimeSpan().Ticks)).ToArray());
+        }, options: new BmsParseOptions(), choices: new Queue<int>([2]));
+    }
+
+    /// <summary>
     /// 採用・不採用のRANDOM選択を記述順に一回ずつ通知して解析結果にも残し、監査履歴の重複・欠落を検出する。
     /// </summary>
     [TestMethod]
@@ -350,6 +416,41 @@ public sealed class RibbitBmsFileTimingTests
         Assert.AreSame(cause, failure.InnerException);
         Assert.IsFalse(failure.IsInputFailure, "通常範囲の乱数実装故障を譜面入力不良に変換しません。");
         CollectionAssert.AreEqual(new[] { (2, 1, true), (3, 2, false) }, observed.ToArray());
+    }
+
+    private static string ConditionalBranchesSource() =>
+        "#BPM 120\n#WAV02 common.wav\n#RANDOM 4\n#IF 1\n" + BranchSource("if", 0)
+        + "#ELSEIF 2\n" + BranchSource("elseif1", 1) + "#eLsEiF 3\n" + BranchSource("elseif2", 2)
+        + "#ELSE\n" + BranchSource("else", 3) + "#ENDIF\n#00401:02\n";
+
+    private static string BranchSource(string branch, int measure) =>
+        $"#TITLE {branch}-title\n#ARTIST {branch}-artist\n#GENRE {branch}-genre\n"
+        + $"#WAV01 {branch}.wav\n#BMP01 {branch}.bmp\n#STAGEFILE {branch}-stage.bmp\n"
+        + $"#BANNER {branch}-banner.bmp\n#BACKBMP {branch}-back.bmp\n#{measure:000}01:01\n#{measure:000}04:01\n";
+
+    private static void AssertSelectedBranch(BMSFile bms, string branch, int measure)
+    {
+        Assert.AreEqual(branch + "-title", bms.Title);
+        Assert.AreEqual(branch + "-artist", bms.Artist);
+        Assert.AreEqual(branch + "-genre", bms.Genre);
+        Assert.AreEqual(branch + "-stage.bmp", bms.Stagefile);
+        Assert.AreEqual(branch + "-banner.bmp", bms.Banner);
+        Assert.AreEqual(branch + "-back.bmp", bms.Backbmp);
+        CollectionAssert.AreEqual(new[] { (1, branch + ".wav"), (2, "common.wav") },
+            bms.WavArray.Select((path, index) => (index, path)).Where(value => !string.IsNullOrEmpty(value.path)).ToArray());
+        CollectionAssert.AreEqual(new[] { (1, branch + ".bmp") },
+            bms.BmpArray.Select((path, index) => (index, path)).Where(value => !string.IsNullOrEmpty(value.path)).ToArray());
+        CollectionAssert.AreEquivalent(new[] { (measure, Fraction.Zero, 1), (4, Fraction.Zero, 2) },
+            bms.Measures.BgmNotes.Select(note => (note.Measure.Index, note.Position, note.Index)).ToArray());
+        CollectionAssert.AreEqual(new[] { (measure, Fraction.Zero, 1) },
+            bms.Measures.BgaBaseNotes.Select(note => (note.Measure.Index, note.Position, note.Index)).ToArray());
+    }
+
+    private static void AssertCollectedBranchResources(BMSFile bms, string[] branches)
+    {
+        string[] expected = branches.SelectMany(branch => new[] { branch + ".wav", branch + ".bmp",
+            branch + "-stage.bmp", branch + "-banner.bmp", branch + "-back.bmp" }).Append("common.wav").ToArray();
+        CollectionAssert.AreEquivalent(expected, bms.Resources.FilePaths.ToArray());
     }
 
     private sealed class FailOnUnspecifiedRandom(Exception failure) : Random

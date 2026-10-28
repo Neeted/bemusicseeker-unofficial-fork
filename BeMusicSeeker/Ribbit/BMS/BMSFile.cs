@@ -1550,6 +1550,8 @@ public partial class BMSFile
         try
         {
             object[] cur = enumerator.Current;
+            // 再帰が進めた停止命令も同じ変数で判断し、呼出し前の命令を参照しません。
+            // 資源番号の拡張表記を保つため、元の命令は保持し、命令の識別時だけ大文字化します。
             string command = string.Empty;
             string parameter = string.Empty;
             int ifDepth = 0;
@@ -1563,8 +1565,7 @@ public partial class BMSFile
                     parameter = (string)cur[2];
                     if (!string.IsNullOrWhiteSpace(command) && command[0] == '#')
                     {
-                        string text = command.ToUpperInvariant();
-                        switch (text)
+                        switch (command.ToUpperInvariant())
                         {
                             case "#ELSEIF":
                             case "#ELSE":
@@ -1572,9 +1573,9 @@ public partial class BMSFile
                                 ifDepth--;
                                 break;
                         }
-                        bool flag = stopCond(text);
+                        bool flag = stopCond(command.ToUpperInvariant());
                         NLogWrapper.DebuggerLogger?.Trace((flag ? "PARSE! " : "SKIPED ") + new string('\t', ifDepth) + command + " " + parameter);
-                        switch (text)
+                        switch (command.ToUpperInvariant())
                         {
                             case "#IF":
                             case "#ELSEIF":
@@ -1586,7 +1587,7 @@ public partial class BMSFile
                         {
                             return false;
                         }
-                        switch (text)
+                        switch (command.ToUpperInvariant())
                         {
                             case "#RANDOM":
                                 {
@@ -1663,8 +1664,7 @@ public partial class BMSFile
                     parameter = (string)cur[2];
                     if (!string.IsNullOrWhiteSpace(command) && command[0] == '#')
                     {
-                        string text = command.ToUpperInvariant();
-                        switch (text)
+                        switch (command.ToUpperInvariant())
                         {
                             case "#ELSEIF":
                             case "#ELSE":
@@ -1672,11 +1672,11 @@ public partial class BMSFile
                                 ifDepth--;
                                 break;
                         }
-                        bool flag = stopCond(text);
+                        bool flag = stopCond(command.ToUpperInvariant());
                         NLogWrapper.DebuggerLogger?.Trace("PARSE! " + new string('\t', ifDepth) + command + " " + parameter);
                         if (flag)
                         {
-                            switch (text)
+                            switch (command.ToUpperInvariant())
                             {
                                 case "#IF":
                                 case "#ELSEIF":
@@ -1686,7 +1686,7 @@ public partial class BMSFile
                             }
                             return false;
                         }
-                        switch (text)
+                        switch (command.ToUpperInvariant())
                         {
                             case "#RANDOM":
                                 {
@@ -1738,7 +1738,7 @@ public partial class BMSFile
                                         {
                                             if (!parseLines(l => ifDepth == curIfDepth && (l == "#ELSEIF" || l == "#ELSE" || l == "#ENDIF")))
                                             {
-                                                switch (text)
+                                                switch (command.ToUpperInvariant())
                                                 {
                                                     case "#ELSEIF":
                                                     case "#ELSE":
@@ -1754,7 +1754,7 @@ public partial class BMSFile
                                         }
                                         if (!skipLines(l => ifDepth == curIfDepth && (l == "#ELSEIF" || l == "#ELSE" || l == "#ENDIF")))
                                         {
-                                            switch (text)
+                                            switch (command.ToUpperInvariant())
                                             {
                                                 case "#ELSEIF":
                                                     continue;
