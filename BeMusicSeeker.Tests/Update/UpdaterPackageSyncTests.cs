@@ -13,7 +13,10 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Update;
+using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.Win32;
 
@@ -27,6 +30,7 @@ public sealed class UpdaterPackageSyncTests
 
     /// <summary>
     /// 同じドライブの非root作業場所からroot配置を受付け、proceed前の旧構成保持と適用後の管理対象・長パス・実再起動を確認する。
+    /// 管理外の空フォルダを保持し、保存済みSongsルートが更新後も通常preflightを通ることを確認する。
     /// </summary>
     /// <remarks>ケース専用の非ZドライブとJobを所有し、プロセス・回復登録・別名・実領域の順に回収する。UNC実共有の検証とは分担する。</remarks>
     [TestMethod]
@@ -45,7 +49,13 @@ public sealed class UpdaterPackageSyncTests
             CopyRestartExecutable(appDirectoryPath, "restart-marker.txt", "old-version");
             WriteTextFile(appDirectoryPath, "obsolete.dll", "old-managed");
             WriteTextFile(appDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.exe\nrestart.json\nobsolete.dll");
-            WriteTextFile(appDirectoryPath, "config/user.config", "preserved-config");
+            string songsDirectory = Directory.CreateDirectory(Path.Combine(appDirectoryPath, "Songs")).FullName;
+            string otherEmptyDirectory = Directory.CreateDirectory(Path.Combine(appDirectoryPath, "user-empty", "nested-empty")).FullName;
+            string settingsPath = Path.Combine(appDirectoryPath, "config", "user.config");
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            settings.Commit(
+                (nameof(Settings.OperationModeLR2DB), false),
+                (nameof(Settings.StandaloneBmsRootPaths), StandaloneBmsRootPathSettings.Serialize([songsDirectory])));
             WriteTextFile(appDirectoryPath, "data/settings.db", "preserved-data");
             WriteTextFile(appDirectoryPath, "logs/user.log", "preserved-log");
             WriteTextFile(appDirectoryPath, "unmanaged.txt", "user-content");
@@ -83,6 +93,17 @@ public sealed class UpdaterPackageSyncTests
             Assert.AreEqual(preservedBefore, ComputePreservedTreeHash(appDirectoryPath));
             Assert.AreEqual("preserved-log", File.ReadAllText(Path.Combine(appDirectoryPath, "logs", "user.log")));
             Assert.AreEqual("user-content", File.ReadAllText(Path.Combine(appDirectoryPath, "unmanaged.txt")));
+            Assert.IsTrue(Directory.Exists(songsDirectory));
+            Assert.IsTrue(Directory.Exists(otherEmptyDirectory));
+            Assert.AreEqual(0, Directory.GetFileSystemEntries(songsDirectory).Length);
+            Assert.AreEqual(0, Directory.GetFileSystemEntries(otherEmptyDirectory).Length);
+            Settings reloadedSettings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            IReadOnlyList<string> savedRoots = new BmsRootRegistrationStore(reloadedSettings, () => null).CaptureUserRoots();
+            CollectionAssert.AreEqual(new[] { songsDirectory }, savedRoots.ToArray());
+            LibraryDirectoryPreflightService preflight = new();
+            LibraryDirectoryPreflightRequest request = preflight.CreateRequest(
+                savedRoots, savedRoots, new BmsLibraryOptionsSnapshot { OperationModeLR2DB = reloadedSettings.OperationModeLR2DB });
+            preflight.EnsureAvailable(request, probeOutputBases: true);
             Assert.IsFalse(File.Exists(packagePath));
             Assert.IsFalse(Directory.Exists(backupDirectory));
             Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "update_work", "update-transaction.json")));
@@ -963,6 +984,7 @@ public sealed class UpdaterPackageSyncTests
 
     /// <summary>
     /// メタデータを含まない更新では旧アプリ管理archive・DB・取込履歴を整理し、新版と古いメタデータを混在させる誤りを検出する。
+    /// 旧取込archiveの削除を確認し、空になった親フォルダの有無は固定しない。
     /// </summary>
     /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
@@ -997,12 +1019,14 @@ public sealed class UpdaterPackageSyncTests
             Assert.AreEqual("new-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
             Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "chart-info-metadata.7z")));
             Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "chart-info-metadata.db")));
-            Assert.IsFalse(Directory.Exists(Path.Combine(appDirectoryPath, "imported_metadata")));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "imported_metadata", "chart-info-metadata.7z")));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "imported_metadata", "chart-info-metadata.aaaaaaaaaaaa.7z")));
         });
     }
 
     /// <summary>
     /// 同梱版更新は新しいmetadata archiveへ置換して旧DB・取込履歴を整理し、古い解析情報を残す誤りを検出する。
+    /// 旧取込archiveの削除を確認し、空になった親フォルダの有無は固定しない。
     /// </summary>
     /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
@@ -1039,7 +1063,8 @@ public sealed class UpdaterPackageSyncTests
             Assert.AreEqual("new-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
             Assert.AreEqual("new-bundled-archive", File.ReadAllText(Path.Combine(appDirectoryPath, "chart-info-metadata.7z")));
             Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "chart-info-metadata.db")));
-            Assert.IsFalse(Directory.Exists(Path.Combine(appDirectoryPath, "imported_metadata")));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "imported_metadata", "chart-info-metadata.7z")));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "imported_metadata", "chart-info-metadata.bbbbbbbbbbbb.7z")));
         });
     }
 

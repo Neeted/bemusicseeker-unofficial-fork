@@ -1596,7 +1596,6 @@ internal static partial class Program
             }
             SafeDeletePath(path);
         }
-        RemoveEmptyDirectories(appDirectory);
     }
 
     private static void RemoveBlockingManagedAncestors(
@@ -2452,50 +2451,6 @@ internal static partial class Program
             {
                 UpdaterFileSystem.CreateDirectory(destinationChild);
                 CopyDirectoryContentsToBackup(sourceChild, destinationChild);
-            }
-        }
-    }
-
-    private static void RemoveEmptyDirectories(string appDirectory)
-    {
-        foreach (string directory in EnumerateDirectoriesWithoutReparsePoints(appDirectory).OrderByDescending(path => path.Length))
-        {
-            string name = Path.GetFileName(directory);
-            if (PreservedTopLevelNames.Contains(name))
-            {
-                continue;
-            }
-
-            if (!UpdaterFileSystem.EnumerateFileSystemEntries(directory).Any())
-            {
-                UpdaterFileSystem.DeleteDirectory(directory, recursive: false);
-            }
-        }
-    }
-
-    private static IEnumerable<string> EnumerateDirectoriesWithoutReparsePoints(string rootDirectory)
-    {
-        var pending = new Stack<string>();
-        pending.Push(rootDirectory);
-        while (pending.Count > 0)
-        {
-            string parent = pending.Pop();
-            foreach (string entry in UpdaterFileSystem.EnumerateFileSystemEntries(parent))
-            {
-                if (!UpdaterFileSystem.DirectoryExists(entry))
-                {
-                    continue;
-                }
-
-                if (string.Equals(parent, rootDirectory, StringComparison.OrdinalIgnoreCase)
-                    && PreservedTopLevelNames.Contains(Path.GetFileName(entry)))
-                {
-                    continue;
-                }
-
-                EnsureNoReparsePointEntry(entry);
-                yield return entry;
-                pending.Push(entry);
             }
         }
     }
