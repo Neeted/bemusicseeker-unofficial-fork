@@ -1740,13 +1740,14 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
         return [.. remainingEntries.Select(entry => entry.Chart)];
     }
 
+    /// <summary>要求が保持した項目/所持譜面の出自をモデルへ渡します。保留不在を所持として補完せず、所持要求は同pathの保留群から分離します。</summary>
     public ChartFile SetPending(
         BMSLibrary library,
         PendingInstallDestinationEditRequest request,
         string destinationDirectory)
     {
         PackageChartEntry entry = request.PackageEntry ?? request.GetOrCreateChartEntry();
-        return entry != null && library.SetPendingInstallDestination(entry, destinationDirectory)
+        return entry != null && library.SetPendingInstallDestination(entry, destinationDirectory, request.PackageEntry == null)
             ? entry.Chart
             : null;
     }

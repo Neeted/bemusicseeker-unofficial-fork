@@ -26,6 +26,92 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class RegularChartNavigationTests
 {
+    /// <summary>実所持編集を通常の再表示へ保持し、実FullReinitialize通知と同DBの新ownerには持ち越しません。resetを直接辞書消去で代替しません。</summary>
+    [TestMethod]
+    public void InstallDestinationEdit_SurvivesRedisplayButNotFullReinitializeOrNewOwner()
+    {
+        WithTemporarySongDb(songDb =>
+        {
+            string root = Path.GetDirectoryName(songDb) ?? throw new AssertFailedException();
+            string source = Path.Combine(root, "source"), destination = Path.Combine(root, "destination");
+            Directory.CreateDirectory(source); Directory.CreateDirectory(destination);
+            string path = Path.Combine(source, "a.bms"), known = Path.Combine(destination, "known.bms");
+            File.WriteAllText(path, "#PLAYER 1\n#TITLE A\n#BPM 120\n"); File.WriteAllText(known, "#PLAYER 1\n#TITLE Known\n#BPM 120\n");
+            var scanner = CapturedChartFileScanner.FromFixture([path, known],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [source] = [], [destination] = [] }, [root]);
+            var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, ScanBmsFilesOnStartup = true };
+            var synchronizer = new ChartFileOperationSynchronizer();
+            TestBmsLibrary CreateLibrary(ChartFileOperationSynchronizer admission) => new(songDb, getLR2Config: null, _lr2ScoreDB: null, startupRequiredFileScanReason: null,
+                optionsSnapshotProvider: () => options, applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge, chartFileScanner: scanner,
+                operationAdmission: admission, settings: TestBmsFactory.CreateRootSettings([root]))
+            { StartupBackgroundTaskScheduler = (_, _, _, _) => false };
+            TestBmsLibrary library = CreateLibrary(synchronizer);
+            var table = new MainChartListViewModel(action => action());
+            var pending = new PendingPackageWorkflowOwner(() => library, synchronizer, new ChartMutationActivityOwner(), new NoOpChartMutationPlaybackPort(),
+                new TestUiDialogService(), () => new InstallDestinationWorkflowSettingsSnapshot(false, false), ExternalShellGatewayPolicy.Current);
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(table), action => action(), pendingPackageWorkflow: pending, chartFileOperations: synchronizer);
+            EventHandler<PendingPackageWorkflowChangedEventArgs> applied = (_, args) => { if (args is PendingPackageMutationAppliedEventArgs mutation) { owner.ApplyPendingDestinationProjection(mutation); } };
+            pending.WorkflowChanged += applied;
+            try
+            {
+                library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+                owner.AttachNormalLibraryRefreshSource(library);
+                owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None).GetAwaiter().GetResult();
+                Redisplay();
+                LibraryChartRow row = table.Rows.Cast<LibraryChartRow>().Single(item => item.path == path);
+                var context = new MainChartListCellEditContext(row, "instl_dst", ChartOperationSourceScope.Library, MainViewOperationSection.FullScanCheck);
+                Assert.IsTrue(owner.CanBeginCellEdit(context));
+                owner.CompleteCellEdit(new MainChartListCellEditEndedEventArgs(context, destination, true)).GetAwaiter().GetResult();
+                Redisplay();
+                Assert.AreEqual(destination, table.Rows.Cast<LibraryChartRow>().Single(item => item.path == path).instl_dst);
+                Assert.IsTrue(string.IsNullOrEmpty(table.Rows.Cast<LibraryChartRow>().Single(item => item.path == known).instl_dst));
+                library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.FullReinitialize);
+                owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None).GetAwaiter().GetResult();
+                Redisplay();
+                Assert.IsTrue(string.IsNullOrEmpty(table.Rows.Cast<LibraryChartRow>().Single(item => item.path == path).instl_dst));
+                var freshAdmission = new ChartFileOperationSynchronizer();
+                TestBmsLibrary fresh = CreateLibrary(freshAdmission);
+                try
+                {
+                    fresh.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+                    var nextTable = new MainChartListViewModel(action => action());
+                    using RegularChartListOwner nextOwner = CreateOwner(nextTable, CreateWorkspaceForOwner(nextTable), action => action(), chartFileOperations: freshAdmission);
+                    nextOwner.ApplyMainLibraryView(Route(), fresh, null, null, false, Stopwatch.StartNew());
+                    Assert.IsTrue(string.IsNullOrEmpty(nextTable.Rows.Cast<LibraryChartRow>().Single(item => item.path == path).instl_dst));
+                }
+                finally { fresh.RequestShutdown("destination-new-owner-test"); }
+            }
+            finally { pending.WorkflowChanged -= applied; library.RequestShutdown("destination-lifetime-test"); }
+
+            void Redisplay() => owner.ApplyMainLibraryView(Route(), library, null, null, false, Stopwatch.StartNew());
+            static ChartListRefreshRoute Route() => new(ChartListRefreshRouteKind.ContinueMainLibrary, MainViewUpdateMode.FolderFilterSelected,
+                MainViewUpdateMode.FolderFilterSelected, MainViewUpdateMode.FolderFilterSelected, false, false);
+        });
+    }
+    /// <summary>編集可否のpure probeを区分/出自で限定し、文脈なしの能力を拡大しません。別installed package・playlistと不整合scopeは拒否し、両形式の通常所持だけ全件確認で受理します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void InstallDestinationPermission_UsesCurrentSectionAndSourceWithoutBeginningEdit(bool bmson)
+    {
+        ChartFile chart = ChartTestValues.Empty(bmson ? ChartFileKind.Bmson : ChartFileKind.Bms) with { Path = @"C:\owned\chart", Md5 = new string('a', 32) };
+        var owned = LibraryChartRow.FromChartFile(chart);
+        var pending = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(chart));
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(owned, out ChartOperationTarget plain));
+        Assert.IsFalse(plain.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
+        foreach (MainViewOperationSection section in Enum.GetValues<MainViewOperationSection>())
+        {
+            foreach (ChartOperationSourceScope scope in Enum.GetValues<ChartOperationSourceScope>())
+            {
+                Assert.AreEqual(section == MainViewOperationSection.FullScanCheck && scope == ChartOperationSourceScope.Library,
+                    GridRowResolver.TryGetInstallDestinationEditTarget(owned, scope, section, out _), $"{section}/{scope}");
+                Assert.AreEqual(section == MainViewOperationSection.InstallPending && scope == ChartOperationSourceScope.PendingPackage,
+                    GridRowResolver.TryGetInstallDestinationEditTarget(pending, scope, section, out _), $"pending {section}/{scope}");
+            }
+        }
+        PlaylistDetailRow playlist = new PlaylistDetailSourceRow(new BMSTableEntry { md5 = chart.Md5 }, chart).CreateViewRow();
+        Assert.IsFalse(GridRowResolver.TryGetInstallDestinationEditTarget(playlist, ChartOperationSourceScope.Library, MainViewOperationSection.FullScanCheck, out _));
+    }
     /// <summary>後発選択と表示失敗の診断を、MSTestが指定する結果ディレクトリへ保存します。</summary>
     public TestContext? TestContext { get; set; }
 
@@ -90,9 +176,11 @@ public sealed class RegularChartNavigationTests
         });
     }
 
-    /// <summary>保留セル編集の受理から完了まで実pending ownerへ元package項目と入力先を配送し、導入先だけの変更通知を返して別譜面編集や余分なライブラリ変更を検出します。</summary>
-    [TestMethod]
-    public async Task InstlDstCellEdit_UsesPendingOwnerWithExactChartTargetAndText()
+    /// <summary>全件確認の所持一譜面と保留項目の編集を同じ判定から実ownerへ配送し、出自・入力先と所持だけの一時投影通知を保ちます。実modelの適用範囲はRegroup系列へ分担します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task InstlDstCellEdit_UsesPendingOwnerWithExactChartTargetAndText(bool owned)
     {
         var table = new MainChartListViewModel(action => action());
         PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner(table);
@@ -141,15 +229,15 @@ public sealed class RegularChartNavigationTests
         };
         var entry = PackageChartEntry.FromChart((file));
         store.SetResult = entry.Chart;
-        var row = LibraryChartRow.FromPackageChartEntry(entry);
+        LibraryChartRow row = owned ? LibraryChartRow.FromChartFile(file) : LibraryChartRow.FromPackageChartEntry(entry);
         const string destination = @"C:\wave6e-owner-chain\destination";
 
-        table.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+        table.SetOperationContext(owned ? MainViewUpdateMode.FullScanAllChartsFilterSelected : MainViewUpdateMode.PendingInstallFolderSelected);
         Assert.IsTrue(table.TryBeginCellEdit(row, "instl_dst"));
         Assert.IsNotNull(beginning);
         Assert.AreSame(row, beginning.Row);
-        Assert.AreEqual(MainViewOperationSection.InstallPending, beginning.OperationSection);
-        Assert.AreEqual(ChartOperationSourceScope.PendingPackage, beginning.SourceScope);
+        Assert.AreEqual(owned ? MainViewOperationSection.FullScanCheck : MainViewOperationSection.InstallPending, beginning.OperationSection);
+        Assert.AreEqual(owned ? ChartOperationSourceScope.Library : ChartOperationSourceScope.PendingPackage, beginning.SourceScope);
 
         table.NotifyCellEditStarted(row, "instl_dst");
         table.RequestCellEditEnded(row, "instl_dst", destination, commit: true);
@@ -159,11 +247,13 @@ public sealed class RegularChartNavigationTests
         await acceptedEdit;
 
         Assert.IsNotNull(store.LastPendingRequest);
-        Assert.AreSame(entry, store.LastPendingRequest!.PackageEntry);
-        Assert.AreSame(entry, store.LastPendingRequest.GetOrCreateChartEntry());
+        PendingInstallDestinationEditRequest savedRequest = store.LastPendingRequest ?? throw new AssertFailedException("編集要求がありません。");
+        Assert.AreSame(owned ? null : entry, savedRequest.PackageEntry);
+        if (owned) { Assert.AreSame(file, savedRequest.ChartFile); }
+        else { Assert.AreSame(entry, savedRequest.GetOrCreateChartEntry()); }
         Assert.AreEqual(destination, store.LastDestinationDirectory);
         Assert.IsTrue(applied.InstallDestinationStateChanged);
-        Assert.AreEqual(0, applied.ChangedCharts.Count);
+        Assert.AreEqual(owned ? 1 : 0, applied.ChangedCharts.Count);
     }
 
 

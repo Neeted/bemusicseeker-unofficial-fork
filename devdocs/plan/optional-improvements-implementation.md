@@ -13,7 +13,7 @@
 - `chartInfoParser` は21を維持する。`lr2_song_db_sync_status.signature` の構成・意味・prefix・順序・参照定数は、利用者の事前明示承認なしに変更しない。旧BMSON対応でも版更新・全件強制再解析を加えず、同hash・版21キャッシュの通常再利用を保つ。
 - 基本BMS/PMSの資源指示・資源名はCP932、先頭BOMの自動補正なしを維持する。表示メタデータの復号・再生parserのBOM処理と混同しない。所持再スキャンの確定文字コード保持は現行契約を使い、確定済み保持経路の無変更は無書込み、未確定の再検出は従来どおりとする。
 - プレイリスト一覧は同じ表／譜面を選択し続け、主行消失時は残存選択の表示順先頭、全消失時は解除する。単列TSVも空欄の行を保つ。再生行消失時は単曲リピートで同じ譜面を継続し、通常自動送りは終曲で停止、手動前後送りは無作用とする。表示側の選択復元を別曲の再生根拠にしない。
-- 構成ファイルフルスキャンのINSTL DSTは手入力・候補選択で指定でき、編集した所持一譜面だけへ既存の一時投影で保持する。同一起動中の画面再表示・後続再インストールへ使い、全リセット・再起動を越える保持やDB保存は追加しない。セル確定だけで再インストールを実行しない。保留パッケージは従来どおり全項目へ適用する。真に編集対象外の一覧には確定パスだけ表示し、▼・候補案内を出さない。
+- 導入先の編集能力と表示案内、一譜面/保留の出自と一時保持は[一覧](../spec/ui/table-view.md#行のドラッグと編集)と[導入先推定](../spec/library/install-estimation.md#比較用の基本情報と導入先の代表ペア)を正本とする。
 - 詳細セルの保存・必要表示・後処理が終わるまで、次の詳細セルの編集開始だけを止める。行選択・再生は止めず、終端後の明示編集を受け付ける。編集待ち行列や自動再保存は追加しない。
 - 保留文字コードは現在の保留項目の寿命だけで保持し、再起動復元を追加しない。実際に導入成功した譜面の指定だけ成功先の所持データへ保存し、資源だけ更新した別の所持譜面や同hash別配置へ適用を広げない。
 - 親・子それぞれの譜面が自己領域内に実在する音声・BGA・動画を定義する入れ子は重要警告として行を強調し、自動・手動とも導入しない。未使用定義は数える。譜面を持つ子領域は親から除外し、親音源参照だけの子、バナーだけ、未定義の同梱媒体だけでは禁止しない。全ての子譜面を一律拒否する案は採らない。
@@ -28,13 +28,13 @@
 
 | 単位 | 対象・コミットの区切り | 共有先・順序 |
 | --- | --- | --- |
-| U03 共通表の表示とコピー | TSV空行 → URL幅 → フルスキャンDST編集・非編集案内 → 言語cache | 同担当が能力付与・編集終端・一時投影まで所有。U15のDST検証と順序調整 |
+| U03 共通表の表示とコピー | TSV空行 → URL幅 → 言語cache | 同担当が共通表の列・編集寿命を所有 |
 | U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U03後、U05/U08と直列 |
 | U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04/U08と直列 |
 | U08 手動ランキング取得廃止 | UI・専用通信・資料・専用テストを除去 | MainWindow/composition/Ir。U04/U05後、起動時ローカルcache維持 |
 | U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
 | U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile |
-| U15 導入・推定 | 宛先による範囲拡張廃止 → 入れ子禁止 → 重複保留の登録整理 → 候補根変換・ユニークhash票 → DST表記 | PackageInstall/service/estimation。同一writer。候補根と票数は同じ座標へ揃える。登録整理は発見結果/完全性を共用。U03/U09と順序調整 |
+| U15 導入・推定 | 宛先による範囲拡張廃止 → 入れ子禁止 → 重複保留の登録整理 → 候補根変換・ユニークhash票 → DST表記 | PackageInstall/service/estimation。同一writer。候補根と票数は同じ座標へ揃える。登録整理は発見結果/完全性を共用。U09と順序調整 |
 | U16 ランプの対象・取得元 | 成績と履歴の同一捕捉 | lamp source/model/viewer。U17日付と直列 |
 | U17 日付境界 | 履歴/ランプの日付共用 | PlayHistory/HistoricalSnapshot、U16後 |
 
@@ -77,20 +77,6 @@ Loadedは表示同期と一回購読、Unloadedは表示購読・予約だけの
 既存幅から表示種別・値・配置・action・repeat editを同じ列定義で導く。40へ戻せば戻る。新mode保存フラグやDPI物理pixel条件を持たず、列再構築/cache失効・編集終端・幅保存を再利用する。`CustomTableColumn.cs`、`CustomTableView`/interaction、列設定の共有変更になる。
 
 `CustomTableColumnFactoryTests`/`CustomTableEditingTests`/`CustomTableColumnSettingsTests` と実URL列で40→広幅→40、Url1/2、空値、編集許可/拒否、候補編集中の幅変更、保存幅復元、Tooltip/コピーを確認。既定幅の繰返し取得と広幅で取得しない結果を別に確認する。選択/current-cell単位と同じ表担当で順次実装可能。
-
-### INSTL DSTの編集案内とフルスキャンの再インストール先指定
-
-**表示判断と編集判断の不一致、およびフルスキャンの能力付与不足を改善する未実装項目。** `CustomTableColumnFactory.GetInstallDestinationText` はchartの `InstallDestinationSuggestions` が非空なら、画面の操作文脈にかかわらず `▼ SelectCandidate` または `▼ path` を返す。`RegularChartListOwner.CanBeginCellEdit` は `InstallPending`/`FullScanCheck` 区分かつ `UpdateInstallDestination` 能力を要求するが、`GridRowResolver` は同能力を保留パッケージだけへ付与している。`MainWindowViewModel.MainChartListCellEditBeginningRequested` はプレイリスト詳細なら別の `CanBeginDetailEdit` へ振り分け、導入先列はその編集属性に含まれない。列表示だけを編集可否の根拠にせず、通常の編集受付と揃える。
-
-**ユーザー確定:** 構成ファイルフルスキャン画面でも、保留と同じ手入力・候補選択により、所持譜面の再インストール先を指定できるようにする。通常の所持行は編集した一譜面を対象とし、同フォルダや同hashの別配置へ一括適用しない。保留パッケージでは既存どおり全項目へ適用する。真に編集不可の一覧は確定済みパスだけを表示し、▼・候補選択案内を出さない。編集権限の拡張はこのフルスキャンに限り、別のインストール済みパッケージ画面や未所持プレイリスト行へ広げない。
-
-指定先の保持には既存の一時投影を使う。形式・hash・pathが同じ譜面の画面再表示では確定値を保持し、同一起動中の後続再インストールがその値を使う。全リセット・再起動後は保持せず、再スキャンでの識別変更を越える保持も保証しない。新しいDB保存項目を追加せず、セル確定だけで物理再インストールを開始しない。手入力の実在・既知所持先の検査、空編集・取消・明示クリアの区別、候補と確定パスの正本は[導入先推定](../spec/library/install-estimation.md#比較用の基本情報と導入先の代表ペア)と既存編集終端へ揃える。
-
-実装は `MainChartListViewModel` の `FullScanCheck` 文脈、`GridRowResolver` の能力付与、`RegularChartListOwner` の編集開始・確定から既存の `PendingPackageWorkflowOwner.SetPendingAsync`／`BMSLibrary.SetPendingInstallDestination` へ接続する。モデルは既に全件確認の既知所持譜面を受け付け、単独所持行の変更を `MainChartRowProjectionOwner` の一時投影へ公開する。別操作の `FixInstalledLocationsAsync` は表示行の現在導入先を `RepairInstalledLocationRequest` へ捕捉するため、この通常経路まで追って指定先の利用を確認する。列定義へ編集可否を最小限渡し、表示cache失効も同じ文脈の切替へ接続する。候補表示専用の別状態、一覧ごとの独立権限判定、全行購読、別の再インストール経路は追加しない。
-
-既存 `CustomTableColumnFactoryTests.InstallDestinationCell_DecoratesCandidatesWithoutChangingEditPaths` はcontextを渡さず候補があれば▼という内部期待を固定しており、利用者契約の根拠にしない。独立テスト設計には追加契約と保持寿命を渡し、`CustomTableEditingTests`、`CustomTablePhase6CacheTests`、`MainWindowPackageMaintenanceWpfTests`、導入先更新と再インストールの既存テストで保証を分担する。実フルスキャン画面の全件・欠落・欠落無視（`FullScanAllChartsFilterSelected` / `FileMissingFilterSelected` / `FileMissingIgnoredFilterSelected`）の通常入口で編集開始、候補選択・手入力、確定・取消、確定値と一覧表示の一致、画面再表示の保持、後続の明示再インストールによる指定先利用を確認する。セル確定だけでは物理処理しないこと、単譜面と保留パッケージ全項目の範囲、全リセット・再起動を越える保持を追加しないことも確認する。候補を持つ同じ元値で非編集一覧は案内なし・編集不可、保留とフルスキャンは案内と操作が一致することを確認し、保留の既存操作を維持する。
-
-現行の識別選択と[詳細セルの編集開始・保存終端](../spec/ui/table-view.md#行のドラッグと編集)を維持し、同じ表担当が、このU03項目を実装する。導入サービスを共有するU15とは編集・検証の順序を調整する。機能仕様の実装済み記述への反映は製品変更と同時に行う。
 
 ### 共通表の保留候補案内
 

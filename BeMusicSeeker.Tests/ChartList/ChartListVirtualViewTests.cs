@@ -2661,7 +2661,7 @@ public sealed class ChartListVirtualViewTests
         });
     }
 
-    /// <summary>導入先設定・有効パスと両代表値空・消去を通知中の現在値と次要求へ反映し、候補・警告保持と旧値復活を検証します。</summary>
+    /// <summary>同pathの所持一時値と保留の直接行/virtual sourceを分離し、項目の設定・空代表値・消去を通知中の値と次要求へ反映します。所持修復先と保留候補・警告を相互に汚染しません。</summary>
     [TestMethod]
     public void PackageChartSourceRows_InstallDestinationEditsNotifyCurrentProjectionAndPreserveEstimation()
     {
@@ -2694,6 +2694,10 @@ public sealed class ChartListVirtualViewTests
         ChartWarning[] estimationWarnings = entry.Chart.Warnings.ToArray();
         Assert.IsTrue(estimationWarnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
         var projectionOwner = new MainChartRowProjectionOwner();
+        const string ownedDestination = @"C:\OwnedDestination";
+        projectionOwner.UpdateTransientStates([bmson with { InstallDestination = ownedDestination }], forceInstallDestinationProjection: true);
+        LibraryChartRow ownedRow = projectionOwner.CreateLibraryRow(null, bmson);
+        LibraryChartRow directPackageRow = projectionOwner.CreatePackageRow(null, entry);
         ChartListSourceRow sourceRow = projectionOwner.BuildPackageSourceRows(null, [entry], includeResourceHealth: false).Single();
         LibraryChartRow row = projectionOwner.CreateSubsetRow(null, sourceRow, includeResourceHealth: false);
 
@@ -2760,6 +2764,11 @@ public sealed class ChartListVirtualViewTests
 
         void AssertCurrentProjection(string path, string title, string artist)
         {
+            Assert.AreEqual(ownedDestination, ownedRow.instl_dst);
+            Assert.AreEqual(path, directPackageRow.instl_dst);
+            Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(ownedRow, out ChartOperationTarget ownedTarget));
+            Assert.IsTrue(RepairInstalledLocationRequest.TryCreate([ownedTarget], out RepairInstalledLocationRequest repair));
+            Assert.AreEqual(ownedDestination, repair.RepairCharts.Single().InstallDestination);
             Assert.AreEqual(path, sourceRow.InstallDestination);
             Assert.AreEqual(title, sourceRow.InstallDestinationTitle);
             Assert.AreEqual(artist, sourceRow.InstallDestinationArtist);

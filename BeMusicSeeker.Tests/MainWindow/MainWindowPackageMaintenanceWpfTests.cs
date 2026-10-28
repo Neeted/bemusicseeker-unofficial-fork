@@ -30,6 +30,183 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed partial class MainWindowPackageMaintenanceWpfTests
 {
+    /// <summary>三つの実treeから候補/手入力・取消・再表示保持をcompiled編集へ接続し、確定だけでは物理処理しません。全件条件は同path保留との分離と明示修復のfile/DB終端も確認します。</summary>
+    [DataTestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    public void FullScanDestinationEditing_RealTreePreservesOriginAndFeedsExplicitRepair(int mode)
+    {
+        using IDisposable culture = TestResourceInitializer.UseJapaneseCulture();
+        string root = Path.Combine(Path.GetTempPath(), "FullScanDestination-" + Guid.NewGuid().ToString("N"));
+        string sourceDirectory = Path.Combine(root, "Source"), aDirectory = Path.Combine(root, "A"), bDirectory = Path.Combine(root, "B");
+        foreach (string directory in new[] { sourceDirectory, aDirectory, bDirectory }) { Directory.CreateDirectory(directory); }
+        string sourcePath = Path.Combine(sourceDirectory, "source.bms"), aPath = Path.Combine(aDirectory, "known-a.bms"), bPath = Path.Combine(bDirectory, "known-b.bms");
+        string movedPath = Path.Combine(aDirectory, "source.bms");
+        const string text = "#PLAYER 1\r\n#TITLE Target Song\r\n#ARTIST Target Artist\r\n#BPM 120\r\n#WAV01 tone.wav\r\n#00111:01\r\n";
+        File.WriteAllText(sourcePath, text); File.WriteAllText(aPath, text + "#GENRE A\r\n"); File.WriteAllText(bPath, text + "#GENRE B\r\n");
+        File.WriteAllText(Path.Combine(aDirectory, "tone.wav"), "sound"); File.WriteAllText(Path.Combine(bDirectory, "tone.wav"), "sound");
+        byte[] originalBytes = File.ReadAllBytes(sourcePath);
+        string songDb = Path.Combine(root, "song.db"); File.WriteAllBytes(songDb, []);
+        TestBmsLibrary? library = null;
+        MainWindowViewModel? prepared = null;
+        Task<bool>? navigation = null;
+        Task repairTask = Task.CompletedTask;
+        RepairInstalledLocationRequest? repaired = null;
+        int repairCalls = 0;
+        PendingPackageWorkflowOwner? physicalRepair = null;
+        var tasks = new List<Task>();
+        var maintenance = new MainWindowMaintenanceTreeTerminal((update, parameter) =>
+        {
+            navigation = (prepared ?? throw new AssertFailedException()).RegularChartList.NavigateMaintenanceAsync(update, parameter);
+            tasks.Add(navigation); return navigation;
+        });
+        var repair = new MainWindowInstalledLocationRepairTerminal(_ => Task.CompletedTask, _ => Task.CompletedTask, request =>
+        {
+            repairCalls++; repaired = request;
+            repairTask = mode == 0 ? (physicalRepair ?? throw new AssertFailedException()).FixInstalledLocationsAsync(request) : Task.CompletedTask;
+            tasks.Add(repairTask); return repairTask;
+        });
+        try
+        {
+            var scanner = CapturedChartFileScanner.FromFixture([sourcePath, aPath, bPath],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [sourceDirectory] = [], [aDirectory] = ["tone.wav"], [bDirectory] = ["tone.wav"] }, [root]);
+            var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, ScanBmsFilesOnStartup = true };
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.StartupSelectInstallPending = false),
+                (scope, vm, window) =>
+                {
+                    TestBmsLibrary currentLibrary = library ?? throw new AssertFailedException();
+                    ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(vm);
+                    MainWindowPresentationTestHarness.ShowCompiledContent(scope, vm, window);
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    try
+                    {
+                        if (mode == 2)
+                        {
+                            currentLibrary.SetChartResourceWarningsIgnored([currentLibrary.BmsCharts.Single(chart => chart.Path == sourcePath)]);
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(vm.RegularChartList.DeliverPendingLibraryChangesAsync(currentLibrary, CancellationToken.None), "destination-ignore-delivery");
+                        }
+                        Navigate();
+                        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(Current(), out ChartOperationTarget searchTarget));
+                        Assert.IsTrue(RepairInstalledLocationRequest.TryCreate([searchTarget], out RepairInstalledLocationRequest search));
+                        Task estimate = vm.PendingPackages.SearchCorrectAsync(search); tasks.Add(estimate);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(estimate, "fullscan-destination-estimate"); TestUiDispatcherHost.ProcessQueuedPresentation();
+                        CollectionAssert.Contains(Current().Chart.InstallDestinationSuggestions.ToArray(), bDirectory);
+                        Begin(); Commit(() => Assert.IsTrue(table.HandleEditSuggestionClick(bDirectory)));
+                        Assert.AreEqual(bDirectory, Current().instl_dst);
+                        Begin(); Editor().Text = aDirectory; Commit(() => Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None)));
+                        Assert.AreEqual(aDirectory, Current().instl_dst);
+                        Begin(); Assert.AreEqual(aDirectory, Editor().Text); Editor().Text = bDirectory;
+                        table.HandleKeyDown(Key.Escape, ModifierKeys.None); table.HandleKeyDown(Key.Escape, ModifierKeys.None);
+                        Assert.AreEqual(aDirectory, Current().instl_dst);
+                        Assert.AreEqual(0, repairCalls); CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(sourcePath));
+                        Assert.IsFalse(File.Exists(movedPath));
+                        using (var db = new LR2SongDBExtended(songDb))
+                        { Assert.AreEqual(1, db.Table<LR2SongDB.song>().Count(chart => chart.path == sourcePath)); Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count(chart => chart.path == movedPath)); }
+                        Task pending = vm.RegularChartList.NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected); tasks.Add(pending);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(pending, "destination-pending-navigation"); TestUiDispatcherHost.ProcessQueuedPresentation();
+                        if (mode == 0)
+                        {
+                            Assert.IsTrue(string.IsNullOrEmpty(Current().instl_dst));
+                            Begin(); Assert.IsTrue(string.IsNullOrEmpty(Editor().Text));
+                            Editor().Text = bDirectory; Commit(() => Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None)));
+                            Assert.AreEqual(bDirectory, Current().instl_dst);
+                            Assert.IsNotNull(Current().PackageEntry);
+                        }
+                        Navigate(); Assert.AreEqual(aDirectory, Current().instl_dst);
+                        Begin(); Assert.AreEqual(aDirectory, Editor().Text);
+                        table.HandleKeyDown(Key.Escape, ModifierKeys.None); table.HandleKeyDown(Key.Escape, ModifierKeys.None);
+                        var menu = (ContextMenu)window.FindResource("tableContextMenu"); menu.PlacementTarget = new FrameworkElement { DataContext = Current() };
+                        MenuItem group = menu.Items.OfType<MenuItem>().Single(item => item.Items.OfType<MenuItem>().Any(child => Equals(child.Header, Resources.Reinstall_to_estimation)));
+                        MenuItem command = group.Items.OfType<MenuItem>().Single(item => Equals(item.Header, Resources.Reinstall_to_estimation));
+                        Task invocation = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(command)); tasks.Add(invocation);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(invocation, "fullscan-explicit-repair-event"); TestUiDispatcherHost.AwaitTaskOnDispatcher(repairTask, "fullscan-explicit-repair-task");
+                        RepairInstalledLocationRequest captured = repaired ?? throw new AssertFailedException("compiled修復要求がありません。");
+                        Assert.AreEqual(1, repairCalls); Assert.AreEqual(aDirectory, captured.RepairCharts.Single().InstallDestination);
+                        if (mode == 0)
+                        {
+                            Assert.IsFalse(File.Exists(sourcePath)); CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(movedPath));
+                            Assert.IsTrue(currentLibrary.BmsCharts.Any(chart => chart.Path == movedPath));
+                            using var db = new LR2SongDBExtended(songDb);
+                            Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count(chart => chart.path == sourcePath));
+                            Assert.AreEqual(1, db.Table<LR2SongDB.song>().Count(chart => chart.path == movedPath));
+                        }
+                    }
+                    finally
+                    {
+                        table.HandleKeyDown(Key.Escape, ModifierKeys.None); table.HandleKeyDown(Key.Escape, ModifierKeys.None);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(tasks), "fullscan-destination-task-cleanup");
+                    }
+                    LibraryChartRow Current()
+                    {
+                        Assert.AreSame(vm.MainChartList.Rows, table.ItemsSource);
+                        return table.ItemsSource.Cast<LibraryChartRow>().Single(row => row.path == sourcePath);
+                    }
+                    TextBox Editor() => table.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).Single();
+                    void Begin()
+                    {
+                        vm.MainChartList.ColumnsSettings.InstallDst.Visibility = Visibility.Visible;
+                        table.Columns = [table.Columns.Single(column => column.EditPropertyName == "instl_dst")];
+                        table.UpdateLayout(); table.SelectRowsByPredicate(value => value is LibraryChartRow row && row.path == sourcePath);
+                        Assert.IsTrue(table.SurfaceHeight > table.HeaderHeight);
+                        Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                    }
+                    void Navigate()
+                    {
+                        var rowsApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        PropertyChangedEventHandler changed = (_, args) => { if (args.PropertyName == nameof(MainChartListViewModel.Rows)) { rowsApplied.TrySetResult(); } };
+                        vm.MainChartList.PropertyChanged += changed;
+                        try
+                        {
+                            string name = mode == 0 ? "treeViewItemFullScanCheckAllCharts" : mode == 1 ? "treeViewItemFullScanCheck" : "treeViewItemFullScanCheckIgnored";
+                            var item = (TreeViewItem)window.FindName(name); item.RaiseEvent(new RoutedEventArgs(TreeViewItem.SelectedEvent, item));
+                            Task accepted = navigation ?? throw new AssertFailedException("実tree要求がありません。");
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(accepted, "fullscan-destination-tree");
+                            TestUiDispatcherHost.AwaitPresentationOnDispatcher(rowsApplied.Task, "fullscan-destination-rows");
+                            TestUiDispatcherHost.ProcessQueuedPresentation(); Assert.AreEqual(MainViewOperationSection.FullScanCheck, vm.MainChartList.CurrentOperationContext.OperationSection);
+                            Assert.IsNotNull(Current());
+                        }
+                        finally { vm.MainChartList.PropertyChanged -= changed; }
+                    }
+                    void Commit(Action action)
+                    {
+                        var received = new TaskCompletionSource<PendingPackageMutationAppliedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        EventHandler<PendingPackageWorkflowChangedEventArgs> changed = (_, args) => { if (args is PendingPackageMutationAppliedEventArgs value) { received.TrySetResult(value); } };
+                        vm.PendingPackages.WorkflowChanged += changed;
+                        Task admission = Task.CompletedTask;
+                        try
+                        {
+                            action(); admission = composition.OperationAdmission.WaitForIdleAsync(); tasks.Add(admission);
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(received.Task, admission, "fullscan-cell-delivery"), "fullscan-cell-delivery");
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(received.Task.Result.Presentation, "fullscan-cell-presentation");
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(admission, "fullscan-cell-admission"); TestUiDispatcherHost.ProcessQueuedPresentation();
+                        }
+                        finally { try { TestUiDispatcherHost.AwaitTaskOnDispatcher(admission, "fullscan-cell-cleanup"); } finally { vm.PendingPackages.WorkflowChanged -= changed; } }
+                    }
+                }, maintenanceTreeTerminal: maintenance, installedLocationRepairTerminal: repair, prepareViewModel: vm =>
+                {
+                    prepared = vm;
+                    ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(vm);
+                    library = new TestBmsLibrary(songDb, getLR2Config: null, _lr2ScoreDB: null, startupRequiredFileScanReason: null,
+                        optionsSnapshotProvider: () => options, applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge, chartFileScanner: scanner,
+                        operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: TestBmsFactory.CreateRootSettings([root]))
+                    { StartupBackgroundTaskScheduler = (_, _, _, _) => false };
+                    library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+                    if (mode == 0)
+                    {
+                        var entry = PackageChartEntry.FromChart(library.BmsCharts.Single(chart => chart.Path == sourcePath));
+                        BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
+                        var package = ChartPackage.FromChartEntries([entry]); package.path = sourceDirectory; library.ChartPackagesPending = [package];
+                        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDb, db => { db.CreateTable<LR2SongDBExtended.install>(); db.InsertOrReplace(package, typeof(LR2SongDBExtended.install)); });
+                    }
+                    ((IStartupLibraryApplicationPort)vm).AttachStartupLibrary(library);
+                    physicalRepair = new PendingPackageWorkflowOwner(() => library, composition.OperationAdmission, new ChartMutationActivityOwner(), vm.PlaybackPanel,
+                        new FileDbReportRecordingDialogs(), () => new InstallDestinationWorkflowSettingsSnapshot(false, false), composition.ExternalShellGateway);
+                });
+        }
+        finally { library?.RequestShutdown("fullscan-destination-test"); if (Directory.Exists(root)) { Directory.Delete(root, recursive: true); } }
+    }
+
     /// <summary>実際の表ヘッダーの並べ替え要求から通常一覧の全順を確認し、行の位置が変わっても所持譜面の識別と非空の選択を保つことを確認します。</summary>
     [TestMethod]
     public void RegularHeaderSort_CompiledTablePreservesNonemptySelectionThroughActualPresentation()

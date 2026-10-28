@@ -9398,13 +9398,14 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>
-    /// 検証した編集値を対象パッケージの導入先と代表情報へ反映し、候補と推定警告を保持します。
+    /// 検証した編集値を要求出自の所持一譜面または保留群の導入先と代表情報へ反映し、候補と推定警告を保持します。
     /// 空値は導入先と代表情報だけを消去し、検証拒否時は対象の状態を変更しません。
     /// </summary>
     /// <param name="targetEntry">編集対象の保留項目、または全件確認で扱う所持譜面。</param>
     /// <param name="destinationDirectory">入力された導入先。空値も受け付けます。</param>
+    /// <param name="isOwnedChartEdit">所持一譜面の要求ならtrue。同pathの保留群とは分離し、保留要求の失効を所持へ読み替えません。</param>
     /// <returns>導入先を検証し、対象へ適用した場合は <see langword="true"/>。</returns>
-    internal bool SetPendingInstallDestination(PackageChartEntry targetEntry, string destinationDirectory)
+    internal bool SetPendingInstallDestination(PackageChartEntry targetEntry, string destinationDirectory, bool isOwnedChartEdit)
     {
         if (targetEntry == null)
         {
@@ -9417,9 +9418,10 @@ public partial class BMSLibrary : ObservableObject
                 bool allowStandaloneLibraryChart;
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
-                    allowStandaloneLibraryChart = IsKnownLibraryChartUnsafe(targetEntry.Chart);
+                    allowStandaloneLibraryChart = isOwnedChartEdit && IsKnownLibraryChartUnsafe(targetEntry.Chart);
                 }
-                PendingInstallDestinationSelectionResult selection = CreateInstallEstimationService().ValidateInstallDestination(targetEntry, ChartPackagesPending, CreateKnownChartDirectorySnapshotUnsafe(), destinationDirectory, allowStandaloneLibraryChart);
+                PendingInstallDestinationSelectionResult selection = CreateInstallEstimationService().ValidateInstallDestination(targetEntry,
+                    isOwnedChartEdit ? [] : ChartPackagesPending, CreateKnownChartDirectorySnapshotUnsafe(), destinationDirectory, allowStandaloneLibraryChart);
                 if (!selection.Success)
                 {
                     ShowOperationDialog(selection.WarningMessage, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
@@ -9428,7 +9430,7 @@ public partial class BMSLibrary : ObservableObject
                 IReadOnlyDictionary<PackageChartEntry, string> relativeDirectories = BmsLibraryPackageInstallService.CapturePendingRelativeDirectories(selection.TargetEntries, selection.Package);
                 (DirectoryResourceLookupCache.Entry Bundled, bool Complete) source = ApplyResolvedInstallDestinationPathAndMetadataToEntries(selection.TargetEntries, selection.ValidatedDestinationDirectory, selection.Package, relativeDirectories);
                 RefreshPendingResourceHealth(selection.TargetEntries, selection.Package, source.Bundled, source.Complete, relativeDirectories);
-                ClearDeferredEstimateReasonForEntriesUnsafe(selection.TargetEntries);
+                if (!isOwnedChartEdit) { ClearDeferredEstimateReasonForEntriesUnsafe(selection.TargetEntries); }
                 return true;
             }
         }

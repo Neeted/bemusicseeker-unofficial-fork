@@ -81,8 +81,8 @@ public sealed class BmsLibraryStateApplierTests
                 var index = new LibraryResourceIndex();
                 foreach (string directory in new[] { source, survivor, outside }) { index.DirectoryLookupCache.AddDir(directory, ["candidate.wav"]); }
                 LibraryResourceIndexTestSupport.GetOwner(library).Replace(index);
-                Assert.IsTrue(library.SetPendingInstallDestination(entries[0], source));
-                Assert.IsTrue(library.SetPendingInstallDestination(entries[1], outside));
+                Assert.IsTrue(library.SetPendingInstallDestination(entries[0], source, false));
+                Assert.IsTrue(library.SetPendingInstallDestination(entries[1], outside, false));
                 for (int i = 0; i < entries.Length; i++)
                 {
                     ChartFile chart = entries[i].Chart;

@@ -339,6 +339,8 @@ public sealed class CustomTableView : Grid
         {
             SubscribeMainChartList(e.NewValue as MainChartListViewModel);
         }
+        InvalidateColumnCellValues();
+        RequestRedraw("operation_context");
     }
 
     private void SubscribeMainChartList(MainChartListViewModel mainChartList)
@@ -354,6 +356,7 @@ public sealed class CustomTableView : Grid
             subscribedMainChartList.RowsReplacementCanceled -= MainChartListRowsReplacementCanceled;
             subscribedMainChartList.RowsReplacementPublishFailed -= MainChartListRowsReplacementCanceled;
             subscribedMainChartList.DisplayRefreshRequested -= MainChartListDisplayRefreshRequested;
+            subscribedMainChartList.OperationContextChanged -= MainChartListOperationContextChanged;
         }
         subscribedMainChartList = mainChartList;
         if (subscribedMainChartList != null)
@@ -363,6 +366,7 @@ public sealed class CustomTableView : Grid
             subscribedMainChartList.RowsReplacementCanceled += MainChartListRowsReplacementCanceled;
             subscribedMainChartList.RowsReplacementPublishFailed += MainChartListRowsReplacementCanceled;
             subscribedMainChartList.DisplayRefreshRequested += MainChartListDisplayRefreshRequested;
+            subscribedMainChartList.OperationContextChanged += MainChartListOperationContextChanged;
         }
     }
 
@@ -402,6 +406,25 @@ public sealed class CustomTableView : Grid
     private void MainChartListDisplayRefreshRequested(object sender, EventArgs e)
     {
         InvokePresentationAction(RefreshDisplay);
+    }
+
+    /// <summary>生存する表示文脈の能力変更だけで列値と描画を失効させ、editor・選択・現在セルを保持します。</summary>
+    private void MainChartListOperationContextChanged(object sender, EventArgs e)
+    {
+        InvokePresentationAction(() =>
+        {
+            if (!IsLoaded || !ReferenceEquals(sender, subscribedMainChartList)) { return; }
+            InvalidateColumnCellValues();
+            RequestRedraw("operation_context");
+        });
+    }
+
+    /// <summary>表示のたびに最新文脈を一度捕捉します。受付を伴う編集開始probeは使いません。</summary>
+    private bool CanEditInstallDestination(object row)
+    {
+        if (DataContext is not MainChartListViewModel mainChartList) { return false; }
+        MainChartListOperationContext context = mainChartList.CurrentOperationContext;
+        return GridRowResolver.TryGetInstallDestinationEditTarget(row, context.SourceScope, context.OperationSection, out _);
     }
 
     private void InvokePresentationAction(Action action)
@@ -925,7 +948,7 @@ public sealed class CustomTableView : Grid
     {
         Columns = PlaylistSummaryColumnsSettings != null
             ? CustomTableColumnFactory.CreatePlaylistSummaryColumns(PlaylistSummaryColumnsSettings).ToArray()
-            : [.. CustomTableColumnFactory.CreateMainColumns(ColumnsSettings)];
+            : [.. CustomTableColumnFactory.CreateMainColumns(ColumnsSettings, CanEditInstallDestination)];
         InvalidateColumnLayoutSnapshot();
         InvalidateColumnCellValues();
     }

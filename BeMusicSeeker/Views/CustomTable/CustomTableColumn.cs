@@ -328,7 +328,10 @@ internal static class CustomTableColumnFactory
     private const double WrappedTooltipTextWidth = 420d;
     private static Brush UndefinedCellBackgroundBrush => CustomTablePalette.Current.UndefinedCellBackground;
 
-    internal static IReadOnlyList<CustomTableColumn> CreateMainColumns(CustomTableColumnSettings settings)
+    /// <summary>表示列を作成します。導入先の候補案内は現在の編集文脈を副作用なしで判定する述語が許可した行だけへ表示します。</summary>
+    /// <param name="settings">表示順・可視性と列幅の正本。</param>
+    /// <param name="canEditInstallDestination">現在文脈の編集能力。未指定なら案内を出さず生pathだけを表示します。受付を行うprobeは渡しません。</param>
+    internal static IReadOnlyList<CustomTableColumn> CreateMainColumns(CustomTableColumnSettings settings, Func<object, bool> canEditInstallDestination = null)
     {
         if (settings == null)
         {
@@ -336,7 +339,7 @@ internal static class CustomTableColumnFactory
         }
         CustomTableColumn[] columns = settings.Kind == CustomTableColumnSettings.ViewKind.PLAY_HISTORY
             ? CreateAllPlayHistoryColumns(settings)
-            : CreateAllMainColumns(settings);
+            : CreateAllMainColumns(settings, canEditInstallDestination);
         return [.. columns
             .Where(column => column.IsVisible)
             .OrderBy(column => column.DisplayIndex >= 0 ? column.DisplayIndex : int.MaxValue)
@@ -389,7 +392,7 @@ internal static class CustomTableColumnFactory
         }
     }
 
-    private static CustomTableColumn[] CreateAllMainColumns(CustomTableColumnSettings settings)
+    private static CustomTableColumn[] CreateAllMainColumns(CustomTableColumnSettings settings, Func<object, bool> canEditInstallDestination = null)
     {
         return
         [
@@ -409,7 +412,7 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("Sha256", "SHA256 HASH", settings.Sha256, 13, "sha256", TextAlignment.Center, row => GetString(row, "sha256"), maxWidth: 480),
             new CustomTableColumn("Folder", "FOLDER", settings.Folder, 14, "Folder", TextAlignment.Left, row => GetString(row, "Folder"), editPropertyName: "Folder"),
             new CustomTableColumn("Path", "PATH", settings.Path, 15, "path", TextAlignment.Left, row => GetString(row, "path")),
-            new CustomTableColumn("InstallDst", "INSTL DST", settings.InstallDst, 16, "instl_dst", TextAlignment.Left, GetInstallDestinationText, editPropertyName: "instl_dst", editTextSelector: row => GetString(row, "instl_dst"), editSuggestionsSelector: GetInstallDestinationSuggestions),
+            new CustomTableColumn("InstallDst", "INSTL DST", settings.InstallDst, 16, "instl_dst", TextAlignment.Left, row => GetInstallDestinationText(row, canEditInstallDestination?.Invoke(row) == true), editPropertyName: "instl_dst", editTextSelector: row => GetString(row, "instl_dst"), editSuggestionsSelector: GetInstallDestinationSuggestions),
             new CustomTableColumn("InstallDstTitle", Resources.Header_InstallDstTitle, settings.InstallDstTitle, 17, "InstallDestinationTitle", TextAlignment.Left, row => GetString(row, "InstallDestinationTitle")),
             new CustomTableColumn("InstallDstArtist", Resources.Header_InstallDstArtist, settings.InstallDstArtist, 18, "InstallDestinationArtist", TextAlignment.Left, row => GetString(row, "InstallDestinationArtist")),
             new CustomTableColumn("WavHealth", "WAV", settings.WavHealth, 19, "WAVHealth", TextAlignment.Right, row => FormatSuffix(GetValue(row, "WAVHealth"), "%", "-"), maxWidth: 50, autoTrimTooltip: false),
@@ -524,10 +527,10 @@ internal static class CustomTableColumnFactory
         };
     }
 
-    private static string GetInstallDestinationText(object row)
+    private static string GetInstallDestinationText(object row, bool canEdit)
     {
         string destination = GetString(row, "instl_dst");
-        if (!GetInstallDestinationSuggestions(row).Any(candidate => !string.IsNullOrWhiteSpace(candidate)))
+        if (!canEdit || !GetInstallDestinationSuggestions(row).Any(candidate => !string.IsNullOrWhiteSpace(candidate)))
         {
             return destination;
         }

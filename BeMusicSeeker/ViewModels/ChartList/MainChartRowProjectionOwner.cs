@@ -32,14 +32,14 @@ internal sealed class MainChartRowProjectionOwner
         Volatile.Write(ref chartInfoVersion, library?.ChartInfoIndexVersion ?? 0);
     }
 
-    /// <summary>表示行へ専門提供元を接続します。元集合入力がある場合はその同じscore投影を共有します。</summary>
+    /// <summary>表示行へ専門提供元を接続します。元集合入力がある場合は同じscore投影を共有し、保留項目の導入先へ所持一時値を重ねません。</summary>
     internal void ConfigureLibraryRow(BMSLibrary library, LibraryChartRow row, ChartListSourceRow scoreSource = null)
     {
         if (row == null)
         {
             return;
         }
-        row.SetChartTransientStateProvider(GetTransientState);
+        row.SetChartTransientStateProvider(row.PackageEntry == null ? GetTransientState : null);
         row.SetScoreProjectionProvider(scoreSource == null
             ? chart => library?.ResolveChartScoreSnapshot(chart.Kind, chart.Path, chart.Md5, chart.Sha256)
             : _ => scoreSource.ScoreValue, () => 0);
@@ -88,7 +88,7 @@ internal sealed class MainChartRowProjectionOwner
         return row;
     }
 
-    /// <summary>専用package元集合全体を同じscore入力へ接続し、既存の投影一巡でMD5/SHAを登録して参照を捕捉してから返します。</summary>
+    /// <summary>専用package元集合全体を同じscore入力へ接続し、既存の投影一巡でMD5/SHAを登録して参照を捕捉します。導入先は項目自身の版と通知を正本とし、同pathの所持一時値を接続しません。</summary>
     internal List<ChartListSourceRow> BuildPackageSourceRows(
         BMSLibrary library,
         IEnumerable<PackageChartEntry> entries,
@@ -101,7 +101,7 @@ internal sealed class MainChartRowProjectionOwner
             (entries ?? []).Select(entry => { NormalInputWorkObserver?.Invoke("package_projection", 1); RegisterReferenceKeys(keys, entry?.Chart); return entry; }),
             includeResourceHealth ? row => ResolveResourceHealth(library, row) : null,
             row => referenceInput.Resolve(row.CapturedChart.Md5, row.CapturedChart.Sha256),
-            GetTransientState,
+            null,
             chart => ResolveChartInfo(library, chart),
             row => ResolveChartInfo(library, row),
             () => ChartInfoVersion,

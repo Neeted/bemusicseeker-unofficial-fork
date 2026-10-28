@@ -21,6 +21,76 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTablePhase6CacheTests
 {
+    /// <summary>実表示済みの同じ行を可→不可→可へ切り替え、editor・選択・scrollを保ちます。旧VMの通知は無効で、同じ表/行の再Loadedは最新文脈を描画します。切離し中のcache寿命は固定しません。</summary>
+    [TestMethod]
+    public void InstallDestinationPermission_ContextChangesRefreshValuesWithoutReplacingEditor()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var first = new MainChartListViewModel(); var second = new MainChartListViewModel();
+            first.SetOperationContext(MainViewUpdateMode.FullScanAllChartsFilterSelected);
+            var settings = new CustomTableColumnSettings();
+            foreach (CustomTableColumnSettings.ColumnLayout? layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings)) { layout.Visibility = Visibility.Hidden; }
+            settings.InstallDst.Visibility = Visibility.Visible; settings.InstallDst.Width = 320;
+            ChartFile chart = ChartFileProjection.WithPackageState(ChartTestValues.Empty() with { Path = @"C:\owned\a.bms", Md5 = new string('a', 32) },
+                @"C:\destination", string.Empty, string.Empty, [@"C:\candidate"], []);
+            var row = LibraryChartRow.FromChartFile(chart);
+            var table = new CustomTableView { Width = 220, Height = 120, DataContext = first, ColumnsSettings = settings, ItemsSource = new object[] { row } };
+            var popup = (Popup)(typeof(CustomTableView).GetField("editSuggestionPopup", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(table)
+                ?? throw new AssertFailedException("編集popupがありません。"));
+            scope.TrackPopup(popup);
+            var window = new Window { Width = 260, Height = 170, Content = table };
+            try
+            {
+                scope.ShowAndWaitForContentRendered(window);
+                CustomTableColumn column = table.VisibleColumns.Single();
+                Assert.IsTrue(table.HandleKeyDown(System.Windows.Input.Key.Down, System.Windows.Input.ModifierKeys.None));
+                Assert.IsTrue(table.HandleKeyDown(System.Windows.Input.Key.F2, System.Windows.Input.ModifierKeys.None));
+                TextBox editor = table.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).Single();
+                editor.Text = "uncommitted";
+                double offset = table.HorizontalOffset;
+                AssertValue(true);
+                ChangeContext(first, MainViewUpdateMode.FolderFilterSelected);
+                AssertValue(false);
+                ChangeContext(first, MainViewUpdateMode.FullScanAllChartsFilterSelected);
+                AssertValue(true);
+                table.DataContext = second;
+                AssertValue(false);
+                ChangeContext(first, MainViewUpdateMode.FolderFilterSelected);
+                Assert.AreEqual(chart.InstallDestination, table.GetCellValue(row, column, out bool hit).Text); Assert.IsTrue(hit);
+                Assert.AreSame(editor, table.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).Single());
+                Assert.AreEqual("uncommitted", editor.Text); Assert.AreEqual(offset, table.HorizontalOffset);
+                Assert.AreSame(row, table.GetSelectedRowsSnapshot().Single());
+                table.HandleKeyDown(System.Windows.Input.Key.Escape, System.Windows.Input.ModifierKeys.None);
+                table.HandleKeyDown(System.Windows.Input.Key.Escape, System.Windows.Input.ModifierKeys.None);
+                AssertValue(false);
+                System.Collections.IList sourceRows = table.ItemsSource ?? throw new AssertFailedException("再Loaded前の行集合がありません。");
+                double reloadOffset = table.HorizontalOffset;
+                window.Content = null;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsFalse(table.IsLoaded);
+                ChangeContext(second, MainViewUpdateMode.FullScanAllChartsFilterSelected);
+                window.Content = table;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(table.IsLoaded); AssertValue(true);
+                Assert.AreSame(table, window.Content); Assert.AreSame(sourceRows, table.ItemsSource);
+                Assert.AreSame(row, table.ItemsSource[0]); Assert.AreSame(row, table.GetSelectedRowsSnapshot().Single());
+                Assert.AreEqual(chart.InstallDestination, column.GetEditText(row));
+                Assert.AreEqual(reloadOffset, table.HorizontalOffset);
+
+                // 実表示採用と同じcommit/公開を使う。初期準備用のSetOperationContextだけでは通知しない。
+                static void ChangeContext(MainChartListViewModel owner, MainViewUpdateMode mode)
+                    => owner.PublishOperationContextChanged(owner.CommitOperationContextWithoutNotification(mode));
+
+                void AssertValue(bool allowed)
+                {
+                    RenderExistingTable(table);
+                    Assert.AreEqual(allowed ? "▼ " + chart.InstallDestination : chart.InstallDestination, table.GetCellValue(row, column, out _).Text);
+                }
+            }
+            finally { window.Content = null; table.ItemsSource = null; window.Close(); }
+        });
+    }
     /// <summary>三列の指定幅と水平移動から可視列・対象列・幅変更の端を解決することを確認し、配置キャッシュの座標や表示範囲の計算誤りを検出します。</summary>
     [TestMethod]
     public void ColumnLayoutSnapshot_ResolvesVisibleColumnsAndResizeEdges()
@@ -625,11 +695,11 @@ public sealed class CustomTablePhase6CacheTests
             var settings = new CustomTableColumnSettings();
             settings.InstallDst.Visibility = Visibility.Visible;
             settings.InstallDst.Width = 250;
-            CustomTableColumn column = CustomTableColumnFactory.CreateMainColumns(settings)
+            CustomTableColumn column = CustomTableColumnFactory.CreateMainColumns(settings, value => GridRowResolver.TryGetInstallDestinationEditTarget(value, ChartOperationSourceScope.Library, MainViewOperationSection.FullScanCheck, out _))
                 .Single(candidate => candidate.Id == "InstallDst");
             string longPath = @"C:\BMS\" + new string('W', 120);
             ChartFile chart = ChartFileProjection.WithPackageState(
-                (ChartTestValues.Empty()),
+                (ChartTestValues.Empty() with { Path = @"C:\owned\marker.bms", Md5 = new string('a', 32) }),
                 hasDestination ? longPath : string.Empty, string.Empty, string.Empty,
                 new[] { longPath, longPath + "-other" }.Take(candidateCount).ToArray(), []);
             var row = LibraryChartRow.FromChartFile(chart);

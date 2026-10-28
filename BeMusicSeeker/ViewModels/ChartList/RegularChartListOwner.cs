@@ -1136,6 +1136,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         }
     }
 
+    /// <summary>捕捉した出自・表示区分のpure能力判定から開始可否を返します。全件確認の導入先は通常所持一譜面だけに限定します。</summary>
     internal bool CanBeginCellEdit(MainChartListCellEditContext context)
     {
         if (context == null || string.IsNullOrWhiteSpace(context.PropertyName))
@@ -1147,9 +1148,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
             return GridRowResolver.TryGetFolderEditChartOperationTarget(context.Row, context.SourceScope, out _);
         }
         return string.Equals(context.PropertyName, "instl_dst", StringComparison.Ordinal)
-            && IsInstallDestinationEditSection(context.OperationSection)
-            && GridRowResolver.TryGetChartOperationTarget(context.Row, context.SourceScope, out ChartOperationTarget target)
-            && target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination);
+            && GridRowResolver.TryGetInstallDestinationEditTarget(context.Row, context.SourceScope, context.OperationSection, out _);
     }
 
     /// <summary>通常・保留セルの実編集Taskを返し、必要表示と受付終端を端末の所有者へ接続します。取消・対象外は変更しません。</summary>
@@ -1167,9 +1166,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
             return RenameChartFolderAsync(renameRequest, request.Text);
         }
         if (string.Equals(context.PropertyName, "instl_dst", StringComparison.Ordinal)
-            && IsInstallDestinationEditSection(context.OperationSection)
-            && GridRowResolver.TryGetChartOperationTarget(context.Row, context.SourceScope, out ChartOperationTarget installTarget)
-            && installTarget.HasCapability(ChartOperationCapabilities.UpdateInstallDestination)
+            && GridRowResolver.TryGetInstallDestinationEditTarget(context.Row, context.SourceScope, context.OperationSection, out ChartOperationTarget installTarget)
             && PendingInstallDestinationEditRequest.TryCreate(installTarget, out PendingInstallDestinationEditRequest installRequest))
         {
             return pendingPackageWorkflow.SetPendingAsync(installRequest, request.Text);
@@ -1446,12 +1443,6 @@ internal sealed partial class RegularChartListOwner : IDisposable
         {
             return !disposed && ReferenceEquals(normalLibraryRefreshSource, library);
         }
-    }
-
-    private static bool IsInstallDestinationEditSection(MainViewOperationSection section)
-    {
-        return section == MainViewOperationSection.InstallPending
-            || section == MainViewOperationSection.FullScanCheck;
     }
 
     private async Task ProcessSortRefreshQueueAsync()

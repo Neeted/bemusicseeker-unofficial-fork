@@ -622,7 +622,7 @@ public sealed class CustomTableColumnFactoryTests
             columns["InstallDst"].GetEditSuggestions(bmsonRow).ToArray());
     }
 
-    /// <summary>導入先の有無と候補0・1・2件を組み合わせ、表示には候補印を付けても編集・コピー・TSVと候補一覧は実パスを保つことを確認し、装飾を保存値へ混ぜる誤りを検出します。</summary>
+    /// <summary>候補0・1・複数と導入先有無を同じ値で比較し、保留/全件確認だけ案内を出し、文脈なし/不可はpathだけにします。編集・コピー・TSVの生値と候補は保ちます。</summary>
     [DataTestMethod]
     [DataRow(0, false)]
     [DataRow(0, true)]
@@ -635,32 +635,29 @@ public sealed class CustomTableColumnFactoryTests
 
         var settings = new CustomTableColumnSettings();
         settings.InstallDst.Visibility = Visibility.Visible;
-        CustomTableColumn column = CustomTableColumnFactory.CreateMainColumns(settings)
-            .Single(candidate => candidate.Id == "InstallDst");
         string destination = hasDestination ? @"C:\BMS\A" : string.Empty;
         string[] candidates = new[] { @"C:\BMS\A", @"C:\BMS\B" }.Take(candidateCount).ToArray();
         ChartFile chart = ChartFileProjection.WithPackageState(
-            (ChartTestValues.Empty()),
+            (ChartTestValues.Empty() with { Path = @"C:\owned\target.bms", Md5 = new string('a', 32) }),
             destination, string.Empty, string.Empty, candidates, []);
-        var row = LibraryChartRow.FromChartFile(chart);
-
-        string displayText = column.GetText(row);
-        if (candidateCount == 0)
+        foreach (string context in new[] { "pending", "fullscan", "blocked", "unspecified" })
         {
-            Assert.AreEqual(destination, displayText);
+            LibraryChartRow row = context == "pending" ? LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(chart)) : LibraryChartRow.FromChartFile(chart);
+            Func<object, bool>? permission = context == "unspecified" ? null : value => GridRowResolver.TryGetInstallDestinationEditTarget(value,
+                context == "pending" ? ChartOperationSourceScope.PendingPackage : ChartOperationSourceScope.Library,
+                context == "pending" ? MainViewOperationSection.InstallPending : context == "fullscan" ? MainViewOperationSection.FullScanCheck : MainViewOperationSection.Library, out _);
+            CustomTableColumn column = CustomTableColumnFactory.CreateMainColumns(settings, permission).Single(candidate => candidate.Id == "InstallDst");
+            string displayText = column.GetText(row);
+            bool allowed = context is "pending" or "fullscan";
+            Assert.AreEqual(allowed && candidateCount > 0
+                ? "▼ " + (hasDestination ? destination : BeMusicSeeker.Properties.Resources.InstallDestination_SelectCandidate)
+                : destination, displayText, context);
+            Assert.AreEqual(destination, column.GetEditText(row));
+            Assert.AreEqual(destination, CustomTableDataTransfer.BuildCellText(row, column));
+            Assert.AreEqual(destination, CustomTableDataTransfer.BuildTsv([row], [column]));
+            Assert.AreEqual(destination, chart.InstallDestination);
+            CollectionAssert.AreEqual(candidates, column.GetEditSuggestions(row).ToArray());
         }
-        else
-        {
-            StringAssert.Contains(displayText, "▼");
-            StringAssert.Contains(displayText, hasDestination
-                ? destination
-                : BeMusicSeeker.Properties.Resources.InstallDestination_SelectCandidate);
-        }
-        Assert.AreEqual(destination, column.GetEditText(row));
-        Assert.AreEqual(destination, CustomTableDataTransfer.BuildCellText(row, column));
-        Assert.AreEqual(destination, CustomTableDataTransfer.BuildTsv([row], [column]));
-        Assert.AreEqual(destination, chart.InstallDestination);
-        CollectionAssert.AreEqual(candidates, column.GetEditSuggestions(row).ToArray());
     }
 
     /// <summary>本体URLと差分URLのある未所持行から各編集欄へ実URLを渡すことを確認し、操作用の表示文字やもう一方のURLを編集値に使う誤りを検出します。</summary>

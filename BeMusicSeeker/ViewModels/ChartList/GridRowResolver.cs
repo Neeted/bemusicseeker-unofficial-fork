@@ -135,6 +135,23 @@ internal static class GridRowResolver
         return true;
     }
 
+    /// <summary>表示中の出自と区分から、保留項目または全件確認の通常所持一譜面だけへ導入先編集能力を付与します。表示probeでも受付や編集状態を変更しません。</summary>
+    internal static bool TryGetInstallDestinationEditTarget(object row, ChartOperationSourceScope sourceScope,
+        MainViewOperationSection section, out ChartOperationTarget target)
+    {
+        target = null;
+        bool pending = section == MainViewOperationSection.InstallPending && sourceScope == ChartOperationSourceScope.PendingPackage;
+        bool owned = section == MainViewOperationSection.FullScanCheck && sourceScope == ChartOperationSourceScope.Library;
+        if ((!pending && !owned) || IsPlaylistRow(row)
+            || !TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget resolved)
+            || string.IsNullOrWhiteSpace(resolved.Chart.Path)
+            || (owned && (!resolved.IsOwned || resolved.PackageEntry != null))
+            || (pending && resolved.PackageEntry == null)) { return false; }
+        target = pending ? resolved : new ChartOperationTarget(resolved.Chart, resolved.PlaylistEntry, resolved.SourceScope, resolved.IsOwned,
+            resolved.IsPending, resolved.IsPlaylistMissing, resolved.Capabilities | ChartOperationCapabilities.UpdateInstallDestination, resolved.PackageEntry);
+        return true;
+    }
+
     internal static bool IsBmsonChartRow(object row)
     {
         return TryGetChartFile(row, out ChartFile chart) && chart.Kind == ChartFileKind.Bmson;
@@ -260,7 +277,12 @@ internal static class GridRowResolver
 
     private static PackageChartEntry ResolvePackageEntry(object row)
     {
-        return row is LibraryChartRow libraryChartRow ? libraryChartRow.PackageEntry : null;
+        return row switch
+        {
+            LibraryChartRow libraryChartRow => libraryChartRow.PackageEntry,
+            ChartListSourceRow sourceRow => sourceRow.PackageEntry,
+            _ => null
+        };
     }
 
     private static ChartFile ResolveOperationChart(object row, ChartFile chart) => chart;
