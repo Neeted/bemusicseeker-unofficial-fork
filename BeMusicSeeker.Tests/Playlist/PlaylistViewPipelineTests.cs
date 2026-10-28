@@ -131,7 +131,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(viewMaterializeMs >= 0);
     }
 
-    /// <summary>古い詳細要求は行置換準備を一回取り消し、現行行・列表示・summary設定を維持して旧結果を適用しません。</summary>
+    /// <summary>行置換準備中に版が失効した詳細要求は準備を一回取り消し、現行行・列表示・summary設定を維持して旧結果を適用しません。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void PlaylistDetailTerminal_StaleRequestCancelsPreparationWithoutApplyingRows()
@@ -141,20 +141,18 @@ public sealed class PlaylistViewPipelineTests
         var oldRows = new List<object>();
         var candidateRows = new List<object> { new object() };
         viewModel.MainChartList.Rows = oldRows;
-        viewModel.MainChartList.ColumnsSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var oldColumns = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        viewModel.MainChartList.ColumnsSettings = oldColumns;
         viewModel.PlaylistWorkspace.ColumnSettingsVisibilityForPlaylist = System.Windows.Visibility.Collapsed;
         PlaylistSummaryColumnSettings oldSummaryColumns = viewModel.PlaylistWorkspace.PlaylistSummaryColumnsSettings;
-        PlaylistRequestIdentity identity = CreatePlaylistIdentity("stale-terminal");
-        var request = new PlaylistBuildRequest
-        {
-            RequestVersion = 1,
-            Mode = MainViewUpdateMode.PlaylistFilterSelected,
-            RequestedMode = MainViewUpdateMode.PlaylistFilterSelected,
-            Identity = identity
-        };
+        viewModel.PlaylistWorkspace.DetailBuildState.RequestVersion = 1;
         int preparingCount = 0;
         int canceledCount = 0;
-        viewModel.MainChartList.RowsReplacing += (_, _) => preparingCount++;
+        viewModel.MainChartList.RowsReplacing += (_, _) =>
+        {
+            preparingCount++;
+            viewModel.PlaylistWorkspace.DetailBuildState.RequestVersion++;
+        };
         viewModel.MainChartList.RowsReplacementCanceled += (_, _) => canceledCount++;
 
         PlaylistDetailTerminalCommitResult result = viewModel.PlaylistWorkspace.ApplyDetailTerminal(
@@ -162,6 +160,7 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsFalse(result.Applied);
         Assert.AreSame(oldRows, viewModel.MainChartList.Rows);
+        Assert.AreSame(oldColumns, viewModel.MainChartList.ColumnsSettings);
         Assert.AreEqual(System.Windows.Visibility.Collapsed, viewModel.PlaylistWorkspace.ColumnSettingsVisibilityForPlaylist);
         Assert.AreSame(oldSummaryColumns, viewModel.PlaylistWorkspace.PlaylistSummaryColumnsSettings);
         Assert.AreEqual(1, preparingCount);
@@ -177,6 +176,9 @@ public sealed class PlaylistViewPipelineTests
         using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         var oldRows = new List<object>();
         viewModel.MainChartList.Rows = oldRows;
+        CustomTableColumnSettings oldColumns = viewModel.MainChartList.ColumnsSettings;
+        PlaylistSummaryColumnSettings oldSummaryColumns = viewModel.PlaylistWorkspace.PlaylistSummaryColumnsSettings;
+        System.Windows.Visibility oldColumnsVisibility = viewModel.PlaylistWorkspace.ColumnSettingsVisibilityForPlaylist;
         viewModel.PlaylistWorkspace.DetailBuildState.RequestVersion = 1;
         PlaylistSourceRetirementRequest retirement =
             viewModel.PlaylistWorkspace.PrepareDetailSourceRetirementForRegularView();
@@ -191,6 +193,9 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsFalse(result.Applied);
         Assert.AreSame(oldRows, viewModel.MainChartList.Rows);
+        Assert.AreSame(oldColumns, viewModel.MainChartList.ColumnsSettings);
+        Assert.AreSame(oldSummaryColumns, viewModel.PlaylistWorkspace.PlaylistSummaryColumnsSettings);
+        Assert.AreEqual(oldColumnsVisibility, viewModel.PlaylistWorkspace.ColumnSettingsVisibilityForPlaylist);
         Assert.IsTrue(viewModel.PlaylistWorkspace.IsPlaylistSummaryModeRequested);
         Assert.AreEqual(2, viewModel.PlaylistWorkspace.DetailBuildState.RequestVersion);
     }
@@ -264,11 +269,11 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(viewLockHeldDuringColumnModeEvent);
     }
 
-    /// <summary>古い要求の取消通知中に別Taskがbuildロックを取得でき、通知をロック内で同期配送する誤りを検出します。</summary>
+    /// <summary>準備中に失効した要求の取消通知へ実際に到達し、別Taskがbuildロックを取得できることでロック内同期配送を検出します。</summary>
     [TestMethod]
     public void PlaylistDetailTerminal_StaleCancellationPublishesAfterBuildLockIsReleased()
     {
-        var buildState = new PlaylistDetailBuildState { RequestVersion = 2 };
+        var buildState = new PlaylistDetailBuildState { RequestVersion = 1 };
         var viewState = new PlaylistDetailViewState();
         var table = new MainChartListViewModel
         {
@@ -310,8 +315,11 @@ public sealed class PlaylistViewPipelineTests
             () => { },
             _ => { },
             (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+        int canceledCount = 0;
+        table.RowsReplacing += (_, _) => buildState.RequestVersion++;
         table.RowsReplacementCanceled += (_, _) =>
         {
+            canceledCount++;
             var lockProbe = Task.Run(() =>
             {
                 lock (buildState.SyncRoot)
@@ -325,6 +333,7 @@ public sealed class PlaylistViewPipelineTests
             CreatePlaylistTerminalRequest(new List<object> { new object() }, requestVersion: 1));
 
         Assert.IsFalse(result.Applied);
+        Assert.AreEqual(1, canceledCount, "準備後の失効から取消callbackへ実際に到達します。");
     }
 
     /// <summary>現行世代でもtoken取消済みなら詳細終端を拒否し、候補行をMainChartListへ適用しません。</summary>

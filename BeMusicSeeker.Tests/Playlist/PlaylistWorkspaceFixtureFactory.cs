@@ -79,7 +79,6 @@ internal static class PlaylistWorkspaceFixtureFactory
         Action<Action>? dispatchPresentation = null,
         Action<Action>? catalogNotificationQueue = null,
         PlaylistSummaryBmtSortCoordinator? playlistSummaryBmtSort = null,
-        Action<PlaylistSummarySelectionRestoreRequest>? selectionRestoreSink = null,
         Func<Action, Task>? restoreUiApplyScheduler = null,
         Func<bool>? restoreUiThreadCheck = null,
         Action<Uri>? browserOpenSink = null,
@@ -198,8 +197,6 @@ internal static class PlaylistWorkspaceFixtureFactory
                 request.CompletionReceipt,
                 () => { });
         };
-        workspace.PlaylistSummarySelectionRestoreRequested +=
-            selectionRestoreSink ?? PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink;
         dataSource = new FakePlaylistDetailDataSource();
         workspace.SetDetailDataSource(dataSource);
         return workspace;

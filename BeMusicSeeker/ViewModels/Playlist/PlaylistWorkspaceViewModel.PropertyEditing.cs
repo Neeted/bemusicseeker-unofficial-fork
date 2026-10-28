@@ -514,33 +514,41 @@ public sealed partial class PlaylistWorkspaceViewModel
     private Task ApplySummarySavedPropertiesAsync(BMSTable table)
         => playlistRestoreUiApplyScheduler(() =>
         {
-            PlaylistSummaryRow current = null;
-            System.Collections.Specialized.NotifyCollectionChangedEventArgs change = null;
-            bool textChanged = false;
-            int projectedRows = 0, filteredRows = 0, comparisons = 0;
-            lock (playlistSummaryTransitionLock)
-            {
-                playlistSummaryRowsCache.TryGetTableRow(table, out PlaylistSummaryRow raw);
-                if (isPlaylistSummaryMode && appliedPlaylistSummaryIdentity is PlaylistSummaryPresentationIdentity identity)
-                {
-                    playlistSummaryView.TryGetTableRow(table, out current);
-                    var sort = new ChartListSortParameters { ColumnsName = identity.SortColumn, Direction = identity.SortDirection };
-                    IComparer<PlaylistSummaryRow> comparer = PlaylistSummarySortEngine.CreateComparer(sort, out _);
-                    var countedComparer = Comparer<PlaylistSummaryRow>.Create((left, right) => { comparisons++; return comparer.Compare(left, right); });
-                    change = playlistSummaryView.ApplySavedProperties(table, raw, countedComparer,
-                        target => { filteredRows++; return ApplyPlaylistSummaryFilters([target], identity.KeywordFilter, identity.OwnedFilter).Any(); }, out projectedRows);
-                    string nextText = FormatPlaylistSummaryText(playlistSummaryView.TotalCharts, playlistSummaryView.Count);
-                    textChanged = playlistSummaryText != nextText;
-                    playlistSummaryText = nextText;
-                }
-                else if (raw != null) { raw.ApplySavedProperties(table, notify: false); projectedRows++; }
-            }
-            // 表示交換後の旧rowは完了対象にしません。現在行だけ派生属性と局所集合変更を通知します。
-            LogBuild("playlist_summary_edit projectedRows=" + projectedRows + " filteredRows=" + filteredRows + " comparisons=" + comparisons);
             var failures = new List<Exception>();
-            if (current != null) { TryPublish(current.PublishSavedProperties, failures); }
-            TryPublish(() => playlistSummaryView.PublishLocalChange(change), failures);
-            if (textChanged) { TryPublish(() => RaisePropertyChanged(nameof(PlaylistSummaryText)), failures); }
+            try
+            {
+                playlistSummaryView.PreserveSelection(() =>
+                {
+                    PlaylistSummaryRow current = null;
+                    System.Collections.Specialized.NotifyCollectionChangedEventArgs change = null;
+                    bool textChanged = false;
+                    int projectedRows = 0, filteredRows = 0, comparisons = 0;
+                    lock (playlistSummaryTransitionLock)
+                    {
+                        playlistSummaryRowsCache.TryGetTableRow(table, out PlaylistSummaryRow raw);
+                        if (isPlaylistSummaryMode && appliedPlaylistSummaryIdentity is PlaylistSummaryPresentationIdentity identity)
+                        {
+                            playlistSummaryView.TryGetTableRow(table, out current);
+                            var sort = new ChartListSortParameters { ColumnsName = identity.SortColumn, Direction = identity.SortDirection };
+                            IComparer<PlaylistSummaryRow> comparer = PlaylistSummarySortEngine.CreateComparer(sort, out _);
+                            var countedComparer = Comparer<PlaylistSummaryRow>.Create((left, right) => { comparisons++; return comparer.Compare(left, right); });
+                            change = playlistSummaryView.ApplySavedProperties(table, raw, countedComparer,
+                            target => { filteredRows++; return ApplyPlaylistSummaryFilters([target], identity.KeywordFilter, identity.OwnedFilter).Any(); }, out projectedRows);
+                            string nextText = FormatPlaylistSummaryText(playlistSummaryView.TotalCharts, playlistSummaryView.Count);
+                            textChanged = playlistSummaryText != nextText;
+                            playlistSummaryText = nextText;
+                        }
+                        else if (raw != null) { raw.ApplySavedProperties(table, notify: false); projectedRows++; }
+                    }
+                    // 表示交換後の旧rowは完了対象にしません。現在行だけ派生属性と局所集合変更を通知します。
+                    LogBuild("playlist_summary_edit projectedRows=" + projectedRows + " filteredRows=" + filteredRows + " comparisons=" + comparisons);
+                    if (current != null) { TryPublish(current.PublishSavedProperties, failures); }
+                    TryPublish(() => playlistSummaryView.PublishLocalChange(change), failures);
+                    if (textChanged) { TryPublish(() => RaisePropertyChanged(nameof(PlaylistSummaryText)), failures); }
+                    return true;
+                }, () => TryPublish(() => playlistSummaryView.PublishSelectionUpdateCompleted(EventArgs.Empty), failures));
+            }
+            catch (Exception ex) { failures.Add(ex); }
             if (failures.Count > 0) { throw new PlaylistSummaryPublishException(new AggregateException(failures)); }
         });
 

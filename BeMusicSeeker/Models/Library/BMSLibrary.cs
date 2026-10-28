@@ -9482,6 +9482,9 @@ public partial class BMSLibrary : ObservableObject
         return playlistReferenceOwner.Find(chart);
     }
 
+    /// <summary>索引の排他を待たず、最後に変更と通知登録を終えた参照版だけを取得します。</summary>
+    internal long PlaylistReferenceRevision => playlistReferenceOwner.ReferenceRevision;
+
     /// <summary>必要なMD5/SHA両キーの参照表示を同じ索引版で捕捉します。空bucketを除外しません。</summary>
     internal PlaylistReferenceReadSnapshot CapturePlaylistReferenceReadSnapshot(IEnumerable<PlaylistEntryLookupKey> keys, CancellationToken cancellationToken = default)
         => playlistReferenceOwner.Capture(keys, cancellationToken);

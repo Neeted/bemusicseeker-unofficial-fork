@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -74,8 +75,9 @@ public sealed class MainWindowCatalogProjectionTests
             PlaylistPersistenceRepository.EnsureSchema(paths.StandaloneSongDbPath);
             new PlaylistPersistenceRepository(paths.StandaloneSongDbPath).ReplaceTablesWithEntries([savedTable]);
             var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs();
+            var delayedUi = new DelayedDrainUiScheduler(new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
             var composition = new ApplicationComposition(settingsEditSession: new NoOpSettingsEditSession(settings),
-                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                uiScheduler: delayedUi,
                 applicationLifetime: new TestApplicationLifetime(firstStartup: false),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(), applicationPathSnapshot: paths,
                 chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator(),
@@ -125,7 +127,26 @@ public sealed class MainWindowCatalogProjectionTests
                 string added = Path.Combine(music, "added.bms");
                 File.WriteAllText(added, ownedContents);
                 scanner.Capture(keep, added);
-                Reload();
+                // 実通常drainだけを遅らせ、外側の再読込みTaskが同操作の通知と必要表示を終えるまで返らないことを確認する。
+                delayedUi.Arm();
+                Task reload = owner.ReloadFileDiffAsync();
+                Task drain = Task.CompletedTask;
+                Exception? reloadFailure = null;
+                try
+                {
+                    Await(TestUiDispatcherHost.AwaitNotificationAsync(delayedUi.Reserved, reload, "catalog-projection-drain-reserved"), "catalog-projection-drain-reserved");
+                    Assert.IsFalse(reload.IsCompleted, "通常通知が未配送の間は再読込みの必要表示が完了しません。");
+                    drain = delayedUi.Release();
+                    Await(reload, "catalog-projection-delayed-reload");
+                    Await(drain, "catalog-projection-delayed-drain");
+                }
+                catch (Exception failure) { reloadFailure = failure; throw; }
+                finally
+                {
+                    drain = delayedUi.Release();
+                    try { Await(Task.WhenAll(reload, drain), "catalog-projection-delayed-cleanup"); }
+                    catch (Exception cleanupFailure) when (reloadFailure != null) { reloadFailure.Data["CatalogProjectionReloadCleanupFailure"] = cleanupFailure; }
+                }
                 AssertNormal(keep, added);
                 owner.PlaylistWorkspace.RequestDetailSelection(table, PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned));
                 Await(owner.PlaylistWorkspace.WaitForDetailBuildIdleAsync(), "catalog-projection-missing-after-add");
@@ -232,6 +253,51 @@ public sealed class MainWindowCatalogProjectionTests
     private static void Await(Task task, string reason) => TestUiDispatcherHost.AwaitTaskOnDispatcher(task, reason);
     private static T Field<T>(object target, string name) => (T)(target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(target)
         ?? throw new AssertFailedException(name));
+
+    /// <summary>再加入の通常ownerのdrainだけを一回保留し、解放後は実Dispatcherへ配送します。</summary>
+    private sealed class DelayedDrainUiScheduler(IUiScheduler inner) : IUiScheduler
+    {
+        private readonly TaskCompletionSource reserved = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private ScheduledScoreOperation? held;
+        private Task release = Task.CompletedTask;
+        private int armed;
+        internal Task Reserved => reserved.Task;
+        internal void Arm() => Interlocked.Exchange(ref armed, 1);
+        internal Task Release()
+        {
+            Interlocked.Exchange(ref armed, 0);
+            ScheduledScoreOperation? operation = Interlocked.Exchange(ref held, null);
+            if (operation != null)
+            {
+                release = inner.InvokeAsync(() =>
+                {
+                    try { operation.Run(); }
+                    finally { operation.Complete(); }
+                });
+            }
+            return release;
+        }
+        public bool IsAvailable => inner.IsAvailable;
+        public bool CanExecuteInline => inner.CanExecuteInline;
+        public bool CheckAccess() => inner.CheckAccess();
+        public IUiScheduledOperation Schedule(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            // 通常owner自身のdrainだけを識別し、foldertreeの遅延配送をgateと取り違えない。
+            if (priority == UiSchedulePriority.Normal && action.Target?.GetType().DeclaringType == typeof(RegularChartListOwner)
+                && Interlocked.CompareExchange(ref armed, 0, 1) == 1)
+            {
+                var operation = new ScheduledScoreOperation(action, accepted: true);
+                held = operation;
+                reserved.TrySetResult();
+                return operation;
+            }
+            return inner.Schedule(action, priority);
+        }
+        public void Invoke(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.Invoke(action, priority);
+        public T Invoke<T>(Func<T> action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.Invoke(action, priority);
+        public Task InvokeAsync(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.InvokeAsync(action, priority);
+        public Task InvokeAsync(Func<Task> action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.InvokeAsync(action, priority);
+    }
 
     /// <summary>操作前に捕捉した完全な発見結果だけを返し、走査以降の解析・保存・通知は本番へ渡します。</summary>
     private sealed class ReloadScanner(string root) : IChartFileScanner

@@ -22,6 +22,10 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// <summary>初回構築と局所更新の実投影地点を観測します。通常実行では未設定です。</summary>
     internal Action<string> DetailWorkObserver { get; set; }
 
+    /// <summary>lock取得前の現在選択を、一配送の変更と公開通知の終端まで保持します。</summary>
+    private T PreserveDetailSelection<T>(Func<T> update)
+        => DetailViewState.View.Rows is PlaylistDetailVirtualView view ? view.PreserveSelection(update) : update();
+
     private void ReportDetailWork(string kind) => DetailWorkObserver?.Invoke(kind);
 
     private PlaylistDetailDependencies EnsureDetailDependencies()
@@ -79,45 +83,49 @@ public sealed partial class PlaylistWorkspaceViewModel
         catch { /* 元Taskの所有者が失敗を観測します。後続差分の配送は続けます。 */ }
         await playlistRestoreUiApplyScheduler(() =>
         {
-            if (!ReferenceEquals(store, detailEntryCommitStore)) { return; }
-            lock (DetailBuildState.SyncRoot)
+            PreserveDetailSelection(() =>
             {
-                foreach (PlaylistEntryCommitReceipt receipt in receipts)
+                if (!ReferenceEquals(store, detailEntryCommitStore)) { return false; }
+                lock (DetailBuildState.SyncRoot)
                 {
-                    BufferEntryCommit(DetailBuildState.CurrentBuildRequest, receipt);
-                    BufferEntryCommit(DetailBuildState.PendingRequest, receipt);
-                    lock (DetailViewState.SyncRoot)
+                    foreach (PlaylistEntryCommitReceipt receipt in receipts)
                     {
-                        if (receipt.Revision > DetailViewState.Source.LastBuiltPlaylistRevision
-                            && (ReferenceEquals(DetailViewState.Source.CurrentTable, receipt.Table)
-                                || DetailViewState.Source.Rows.Count > 0 && ReferenceEquals(DetailViewState.Source.Rows[0].Entry.parent, receipt.Table)))
+                        BufferEntryCommit(DetailBuildState.CurrentBuildRequest, receipt);
+                        BufferEntryCommit(DetailBuildState.PendingRequest, receipt);
+                        lock (DetailViewState.SyncRoot)
                         {
-                            PlaylistDetailDependencies dependencies = EnsureDetailDependencies();
-                            if (TryApplyEditedEntryValues(dependencies, receipt))
+                            if (receipt.Revision > DetailViewState.Source.LastBuiltPlaylistRevision
+                                && (ReferenceEquals(DetailViewState.Source.CurrentTable, receipt.Table)
+                                    || DetailViewState.Source.Rows.Count > 0 && ReferenceEquals(DetailViewState.Source.Rows[0].Entry.parent, receipt.Table)))
                             {
-                                if (deferredEntryCommits.Any(value => ReferenceEquals(value.Table, receipt.Table)))
+                                PlaylistDetailDependencies dependencies = EnsureDetailDependencies();
+                                if (TryApplyEditedEntryValues(dependencies, receipt))
+                                {
+                                    if (deferredEntryCommits.Any(value => ReferenceEquals(value.Table, receipt.Table)))
+                                    { deferredEntryCommits.Add(receipt); }
+                                    else { DetailViewState.Source.LastBuiltPlaylistRevision = receipt.Revision; }
+                                    UpdateDetailIdentities();
+                                    ReportDetailWork("playlist_entry_commit_applied");
+                                }
+                                else if (dependencies.PendingReferenceProjections.Count > 0
+                                    || deferredEntryCommits.Any(value => ReferenceEquals(value.Table, receipt.Table))
+                                    || !TryApplyEntryCommit(EnsureDetailDependencies(), receipt, DetailViewState.View.Rows as PlaylistDetailVirtualView,
+                                    DetailViewState.View.CurrentIdentity, DetailViewState.Source.LastBuiltLibraryIndexVersion))
                                 { deferredEntryCommits.Add(receipt); }
-                                else { DetailViewState.Source.LastBuiltPlaylistRevision = receipt.Revision; }
-                                UpdateDetailIdentities();
-                                ReportDetailWork("playlist_entry_commit_applied");
-                            }
-                            else if (dependencies.PendingReferenceProjections.Count > 0
-                                || deferredEntryCommits.Any(value => ReferenceEquals(value.Table, receipt.Table))
-                                || !TryApplyEntryCommit(EnsureDetailDependencies(), receipt, DetailViewState.View.Rows as PlaylistDetailVirtualView,
-                                DetailViewState.View.CurrentIdentity, DetailViewState.Source.LastBuiltLibraryIndexVersion))
-                            { deferredEntryCommits.Add(receipt); }
-                            else
-                            {
-                                DetailViewState.Source.LastBuiltPlaylistRevision = receipt.Revision;
-                                UpdateDetailIdentities();
-                                ReportDetailWork("playlist_entry_commit_applied");
+                                else
+                                {
+                                    DetailViewState.Source.LastBuiltPlaylistRevision = receipt.Revision;
+                                    UpdateDetailIdentities();
+                                    ReportDetailWork("playlist_entry_commit_applied");
+                                }
                             }
                         }
                     }
                 }
-            }
-            PublishDetailChanges();
-            if (refreshSummary) { RequestPlaylistSummaryDataRefresh("playlist_entry_lookup_changed"); }
+                PublishDetailChanges();
+                if (refreshSummary) { RequestPlaylistSummaryDataRefresh("playlist_entry_lookup_changed"); }
+                return true;
+            });
         }).ConfigureAwait(false);
     }
 
@@ -163,6 +171,9 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     /// <summary>通常単一drainのcatalog・詳細・scoreの同一batchを既存sourceと構築中要求へ渡し、score位置は連続rangeだけ進めます。</summary>
     internal void ApplyLibraryChanges(BMSLibrary library, NormalLibraryRefreshNotificationBatch batch)
+        => PreserveDetailSelection(() => { ApplyLibraryChangesCore(library, batch); return true; });
+
+    private void ApplyLibraryChangesCore(BMSLibrary library, NormalLibraryRefreshNotificationBatch batch)
     {
         if (library == null || batch == null || detailDataSource is not PlaylistDetailDataSource attached
             || !ReferenceEquals(attached.Library, library)) { return; }
@@ -458,10 +469,14 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (dependencies.PendingReferenceProjections.Count == 0) { ApplyReferenceCommits(dependencies, view, request.Identity); }
         request.ReferenceInput = dependencies.ReferenceInput;
         request.RequiredReferenceRevision = dependencies.ReferenceInput?.Library?.CapturePlaylistReferenceReadSnapshot([]).Revision ?? 0;
-        request.WaitingForData = detailDataSource.CatalogRevision > catalogRevision
-            || (request.Identity.Table?.PlaylistEntriesRevision ?? 0) > entryRevision
-            || detailDataSource.ScoreSnapshotVersion > scoreVersion
-            || (dependencies.ReferenceInput?.Revision ?? 0) < request.RequiredReferenceRevision;
+        request.WaitingForData = !HasRequiredDetailCandidateVersions(request, request.RequiredReferenceRevision);
         return !request.WaitingForData;
     }
+
+    /// <summary>投影や索引準備をせず、候補の実反映位置が既存正本の必要版を覆うかだけを判定します。</summary>
+    private bool HasRequiredDetailCandidateVersions(PlaylistBuildRequest request, long requiredReferenceRevision)
+        => detailDataSource.CatalogRevision <= request.Identity.LibraryIndexVersion
+            && (request.Identity.Table?.PlaylistEntriesRevision ?? 0) <= request.Identity.PlaylistRevision
+            && detailDataSource.ScoreSnapshotVersion <= request.Identity.ScoreSnapshotVersion
+            && (request.InputDependencies?.ReferenceInput?.Revision ?? 0) >= requiredReferenceRevision;
 }

@@ -184,7 +184,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 {
                     Rows = viewApply.FinalRows,
                     ColumnsSettings = columnSelection.ColumnsSettings,
-                    SelectionPolicy = MainChartListSelectionPolicy.Reset,
+                    SelectionPolicy = MainChartListSelectionPolicy.Preserve,
                     Summary = IsPlaylistSummaryModeRequested
                     ? MainChartListSummaryUpdate.Preserve()
                     : MainChartListSummaryUpdate.NormalRows(viewApply.FinalRows),
@@ -410,6 +410,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             throw new ArgumentException("Source rows are required when replacing the playlist source.", nameof(request));
         }
         var result = new PlaylistDetailTerminalCommitResult();
+        System.Threading.Tasks.Task preparedDataChanged = null;
+        bool followUpOnWorker = false;
         bool CommitDetailPresentation(Action commitRows)
         {
             bool committed;
@@ -422,9 +424,12 @@ public sealed partial class PlaylistWorkspaceViewModel
                 }
                 lock (DetailViewState.SyncRoot)
                 {
-                    if (detailDataSource != null && !TryPrepareDetailCandidate(request.BuildRequest,
-                        request.SourceRows, request.ViewRows as PlaylistDetailVirtualView, request.CancellationToken))
+                    long requiredReferences = detailDataSource?.ReferenceRevision ?? 0;
+                    if (!ReferenceEquals(preparedDataChanged, request.BuildRequest.DataChanged.Task)
+                        || detailDataSource != null && !HasRequiredDetailCandidateVersions(request.BuildRequest, requiredReferences))
                     {
+                        request.BuildRequest.WaitingForData = true;
+                        followUpOnWorker = true;
                         return false;
                     }
                 }
@@ -466,26 +471,44 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
         }
 
-        MainChartListPresentationApplyResult applied;
+        MainChartListPresentationApplyResult applied = default;
         int requestedScoreDelivery = -1;
         long requestedReferenceDelivery = -1;
         while (true)
         {
-            System.Threading.Tasks.Task dataChanged;
-            lock (DetailBuildState.SyncRoot) { dataChanged = request.BuildRequest.DataChanged.Task; }
-            try
+            bool prepared;
+            lock (DetailBuildState.SyncRoot)
             {
-                applied = detailMainChartList.ApplyPresentation(
-                    request.MainRowsRequest,
-                    CommitDetailPresentation,
-                    PublishDetailPresentation);
+                if (request.CancellationToken.IsCancellationRequested
+                    || request.BuildRequest.RequestVersion != DetailBuildState.RequestVersion) { break; }
+                lock (DetailViewState.SyncRoot)
+                {
+                    prepared = detailDataSource == null || TryPrepareDetailCandidate(request.BuildRequest,
+                        request.SourceRows, request.ViewRows as PlaylistDetailVirtualView, request.CancellationToken);
+                    // 準備と同じlock内で旧signalを捕捉し、配送がUI採用に先行しても待機の起床を失いません。
+                    preparedDataChanged = request.BuildRequest.DataChanged.Task;
+                }
             }
-            catch (MainChartListPresentationPublishException ex)
+            applied = default;
+            followUpOnWorker = false;
+            if (prepared)
             {
-                result.MainRowsApply = ex.RowsApply;
-                throw new PlaylistDetailTerminalPublishException(
-                    ex.InnerException ?? ex, ownershipTransferred: true, result);
+                try
+                {
+                    // UIは既存版/signalの純粋再検査と、一回の採用・公開・選択復元だけを担当します。
+                    playlistRestoreUiApplyScheduler(() => applied = detailMainChartList.ApplyPresentation(
+                        request.MainRowsRequest,
+                        CommitDetailPresentation,
+                        PublishDetailPresentation)).GetAwaiter().GetResult();
+                }
+                catch (MainChartListPresentationPublishException ex)
+                {
+                    result.MainRowsApply = ex.RowsApply;
+                    throw new PlaylistDetailTerminalPublishException(
+                        ex.InnerException ?? ex, ownershipTransferred: true, result);
+                }
             }
+            if (followUpOnWorker) { continue; }
             if (applied.WasApplied || !request.BuildRequest.WaitingForData
                 || request.BuildRequest.RequestVersion != DetailBuildState.RequestVersion) { break; }
             int scorePosition = request.BuildRequest.Identity.ScoreSnapshotVersion;
@@ -512,7 +535,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 continue;
             }
             // 本番では build worker 上です。UI とモデルの排他を解放して、確定結果の配送だけを待ちます。
-            dataChanged.Wait(request.CancellationToken);
+            preparedDataChanged.Wait(request.CancellationToken);
         }
         if (!applied.WasApplied)
         {

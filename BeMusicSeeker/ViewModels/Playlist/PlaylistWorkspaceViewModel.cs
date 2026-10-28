@@ -12,6 +12,7 @@ using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Livet;
 
@@ -397,8 +398,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability)
         => getPlaylistStore()?.RegenerateCustomFolderOutputs(previousLocations, settings, capability);
 
-    internal event Action<PlaylistSummarySelectionRestoreRequest> PlaylistSummarySelectionRestoreRequested;
-
     internal event EventHandler<PlaylistPresentationRefreshRequestedEventArgs> PlaylistPresentationRefreshRequested;
 
     internal async Task ResetPlaylistSummaryColumnsToDefaultAsync()
@@ -507,7 +506,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         int visibleInsertIndex,
         int? currentPlaylistId, LibraryFileMutationCapability capability)
     {
-        long selectionRestoreOperationId = 0L;
         PlaylistSummarySelectionRestoreRequest selectionRestoreRequest = null;
         long dataRebuildGeneration = 0L;
         try
@@ -525,10 +523,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
                         && appliedDraggedRows.Any(row => row.PlaylistId == currentPlaylistId)
                         ? currentPlaylistId
                         : null;
-                    selectionRestoreOperationId = QueuePlaylistSummarySelectionRestore(
-                        appliedDraggedRows,
-                        appliedCurrentPlaylistId,
-                        out selectionRestoreRequest);
+                    selectionRestoreRequest = QueuePlaylistSummarySelectionRestore(appliedDraggedRows, appliedCurrentPlaylistId);
                 }, capability);
             if (!changed)
             {
@@ -537,31 +532,27 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             await GetPlaylistStore().BmtOutput.SyncUrlsAsync("playlist_summary_bmt_sort_drag_drop", capability).ConfigureAwait(false);
             dataRebuildGeneration = RequestPlaylistSummaryBmtSortRefresh(
                 "playlist_summary_bmt_sort_drag_drop",
-                selectionRestoreOperationId > 0L
+                selectionRestoreRequest != null
                     ? generation => SetPlaylistSummarySelectionRestoreMinimumGenerationUnsafe(
-                        selectionRestoreOperationId,
                         selectionRestoreRequest,
                         generation)
                     : null);
-            if (selectionRestoreOperationId > 0L && dataRebuildGeneration <= 0L)
+            if (selectionRestoreRequest != null && dataRebuildGeneration <= 0L)
             {
-                ClearPlaylistSummarySelectionRestore(selectionRestoreOperationId);
+                ClearPlaylistSummarySelectionRestore(selectionRestoreRequest);
             }
             return dataRebuildGeneration;
         }
         catch
         {
-            ClearPlaylistSummarySelectionRestore(selectionRestoreOperationId);
+            ClearPlaylistSummarySelectionRestore(selectionRestoreRequest);
             throw;
         }
     }
 
-    private long QueuePlaylistSummarySelectionRestore(
-        IEnumerable<PlaylistSummaryRow> draggedRows,
-        int? currentPlaylistId,
-        out PlaylistSummarySelectionRestoreRequest selectionRestoreRequest)
+    private PlaylistSummarySelectionRestoreRequest QueuePlaylistSummarySelectionRestore(
+        IEnumerable<PlaylistSummaryRow> draggedRows, int? currentPlaylistId)
     {
-        selectionRestoreRequest = null;
         var playlistIds = new HashSet<int>();
         foreach (PlaylistSummaryRow row in draggedRows ?? [])
         {
@@ -572,48 +563,38 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         }
         if (playlistIds.Count == 0)
         {
-            return 0L;
+            return null;
         }
         int? selectedCurrentPlaylistId = currentPlaylistId.HasValue && playlistIds.Contains(currentPlaylistId.Value)
             ? currentPlaylistId
             : playlistIds.FirstOrDefault();
-        selectionRestoreRequest = new PlaylistSummarySelectionRestoreRequest(playlistIds, selectedCurrentPlaylistId);
+        var selectionRestoreRequest = new PlaylistSummarySelectionRestoreRequest(playlistIds, selectedCurrentPlaylistId);
         lock (playlistSummaryTransitionLock)
         {
-            long operationId = ++playlistSummarySelectionRestoreOperationId;
-            if (operationId <= 0L)
-            {
-                operationId = playlistSummarySelectionRestoreOperationId = 1L;
-            }
-            pendingPlaylistSummarySelectionPlaylistIds = playlistIds;
-            pendingPlaylistSummaryCurrentPlaylistId = selectedCurrentPlaylistId;
+            pendingPlaylistSummarySelectionRestore = selectionRestoreRequest;
             pendingPlaylistSummarySelectionMinDataGeneration = long.MaxValue;
-            pendingPlaylistSummarySelectionOperationId = operationId;
-            return operationId;
+            return selectionRestoreRequest;
         }
     }
 
     private void SetPlaylistSummarySelectionRestoreMinimumGenerationUnsafe(
-        long operationId,
         PlaylistSummarySelectionRestoreRequest selectionRestoreRequest,
         long dataRebuildGeneration)
     {
-        // The data generation, rather than drop completion order, identifies the view that can consume this intent.
-        // A later callback may therefore replace an earlier pending intent even when its operation started first.
+        // 開始順ではなくデータ世代がこの意図を消費できる表示を特定します。
+        // 先に開始した操作でも、後から割り当てられた新世代の意図で置き換えられます。
         if (selectionRestoreRequest == null
             || dataRebuildGeneration <= 0L
             || lastPlaylistSummaryAppliedDataGeneration > dataRebuildGeneration
-            || (pendingPlaylistSummarySelectionPlaylistIds != null
+            || (pendingPlaylistSummarySelectionRestore != null
                 && pendingPlaylistSummarySelectionMinDataGeneration > 0L
                 && pendingPlaylistSummarySelectionMinDataGeneration != long.MaxValue
                 && dataRebuildGeneration < pendingPlaylistSummarySelectionMinDataGeneration))
         {
             return;
         }
-        pendingPlaylistSummarySelectionPlaylistIds = new HashSet<int>(selectionRestoreRequest.PlaylistIds);
-        pendingPlaylistSummaryCurrentPlaylistId = selectionRestoreRequest.CurrentPlaylistId;
+        pendingPlaylistSummarySelectionRestore = selectionRestoreRequest;
         pendingPlaylistSummarySelectionMinDataGeneration = dataRebuildGeneration;
-        pendingPlaylistSummarySelectionOperationId = operationId;
     }
 
     private bool TryTakePlaylistSummarySelectionRestore(out PlaylistSummarySelectionRestoreRequest request)
@@ -621,8 +602,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         lock (playlistSummaryTransitionLock)
         {
             if (playlistSummaryDataBuildStopped
-                || pendingPlaylistSummarySelectionPlaylistIds == null
-                || pendingPlaylistSummarySelectionPlaylistIds.Count == 0
+                || pendingPlaylistSummarySelectionRestore == null
+                || pendingPlaylistSummarySelectionRestore.PlaylistIds.Count == 0
                 || pendingPlaylistSummarySelectionMinDataGeneration <= 0L
                 || pendingPlaylistSummarySelectionMinDataGeneration == long.MaxValue
                 || lastPlaylistSummaryAppliedDataGeneration < pendingPlaylistSummarySelectionMinDataGeneration)
@@ -636,23 +617,21 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
                 request = null;
                 return false;
             }
-            request = new PlaylistSummarySelectionRestoreRequest(
-                pendingPlaylistSummarySelectionPlaylistIds,
-                pendingPlaylistSummaryCurrentPlaylistId);
+            request = pendingPlaylistSummarySelectionRestore;
             ClearPlaylistSummarySelectionRestoreUnsafe();
             return true;
         }
     }
 
-    private void ClearPlaylistSummarySelectionRestore(long operationId)
+    private void ClearPlaylistSummarySelectionRestore(PlaylistSummarySelectionRestoreRequest request)
     {
-        if (operationId <= 0L)
+        if (request == null)
         {
             return;
         }
         lock (playlistSummaryTransitionLock)
         {
-            if (pendingPlaylistSummarySelectionOperationId == operationId)
+            if (ReferenceEquals(pendingPlaylistSummarySelectionRestore, request))
             {
                 ClearPlaylistSummarySelectionRestoreUnsafe();
             }
@@ -661,10 +640,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
 
     private void ClearPlaylistSummarySelectionRestoreUnsafe()
     {
-        pendingPlaylistSummarySelectionPlaylistIds = null;
-        pendingPlaylistSummaryCurrentPlaylistId = null;
+        pendingPlaylistSummarySelectionRestore = null;
         pendingPlaylistSummarySelectionMinDataGeneration = 0L;
-        pendingPlaylistSummarySelectionOperationId = 0L;
     }
 
     internal async Task ApplyImportedTablesToBmtFrontAsync(IReadOnlyList<BMSTable> importedTables, LibraryFileMutationCapability capability)
@@ -737,15 +714,9 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
 
     private long lastPlaylistSummaryAppliedDataGeneration;
 
-    private long playlistSummarySelectionRestoreOperationId;
-
-    private HashSet<int> pendingPlaylistSummarySelectionPlaylistIds;
-
-    private int? pendingPlaylistSummaryCurrentPlaylistId;
+    private PlaylistSummarySelectionRestoreRequest pendingPlaylistSummarySelectionRestore;
 
     private long pendingPlaylistSummarySelectionMinDataGeneration;
-
-    private long pendingPlaylistSummarySelectionOperationId;
 
     private long playlistSummaryRowsCacheGeneration;
 
@@ -1443,7 +1414,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
 
     private void ClearPlaylistSummarySelectionRestoreIfSupersededUnsafe(long nextDataRebuildGeneration)
     {
-        if (pendingPlaylistSummarySelectionPlaylistIds != null
+        if (pendingPlaylistSummarySelectionRestore != null
             && pendingPlaylistSummarySelectionMinDataGeneration > 0L
             && pendingPlaylistSummarySelectionMinDataGeneration != long.MaxValue
             && nextDataRebuildGeneration > pendingPlaylistSummarySelectionMinDataGeneration)
@@ -1648,6 +1619,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         }
     }
 
+    /// <summary>現行要求の行と通知を一括反映し、反映直前の選択または対応するBMT選択意図を終端で復元します。</summary>
     internal bool TryApplyPlaylistSummary(PlaylistSummaryApplyRequest request)
     {
         if (request?.Rows == null)
@@ -1655,28 +1627,57 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             throw new ArgumentException("Playlist summary rows are required.", nameof(request));
         }
 
+        var publishExceptions = new List<Exception>();
+        bool applied = false;
+        bool rowsChanged = false;
+        try
+        {
+            EventArgs startingArgs = EventArgs.Empty;
+            lock (playlistSummaryTransitionLock)
+            {
+                if (IsPlaylistSummaryApplyCurrentUnsafe(request)
+                    && !Equals(appliedPlaylistSummaryIdentity, GetPlaylistSummaryApplyIdentity(request)))
+                { startingArgs = new CustomTableSelectionResetStartingEventArgs(); }
+            }
+            applied = playlistSummaryView.PreserveSelection(() => TryApplyPlaylistSummaryCore(request, publishExceptions, out rowsChanged), () =>
+            {
+                TryPublish(TrySchedulePlaylistReloadCleanup, publishExceptions);
+                EventArgs args = rowsChanged && TryTakePlaylistSummarySelectionRestore(out PlaylistSummarySelectionRestoreRequest restore)
+                    ? new CustomTableSelectionUpdateEventArgs(restore.PlaylistIds.Cast<object>(), restore.CurrentPlaylistId, restore.CurrentPlaylistId)
+                    : EventArgs.Empty;
+                TryPublish(() => playlistSummaryView.PublishSelectionUpdateCompleted(args), publishExceptions);
+            }, startingArgs);
+        }
+        catch (Exception ex) { publishExceptions.Add(ex); }
+        if (publishExceptions.Count > 0) { throw new PlaylistSummaryPublishException(new AggregateException(publishExceptions)); }
+        return applied;
+    }
+
+    /// <summary>同じtransition lock内で予備判定と実採用を照合し、通知中の要求失効も実採用前に拒否します。</summary>
+    private bool IsPlaylistSummaryApplyCurrentUnsafe(PlaylistSummaryApplyRequest request)
+        => isPlaylistSummaryModeRequested && !playlistSummaryDataBuildStopped
+            && request.PresentationGeneration == playlistSummaryPresentationGeneration
+            && (!request.DataRebuildGeneration.HasValue || request.DataRebuildGeneration.Value == playlistSummaryDataRebuildGeneration)
+            && (!request.CacheGeneration.HasValue || request.CacheGeneration.Value == playlistSummaryRowsCacheGeneration);
+
+    /// <summary>未指定時も既存の表示識別規則を使い、Resetの予備判定と採用を揃えます。</summary>
+    private static PlaylistSummaryPresentationIdentity GetPlaylistSummaryApplyIdentity(PlaylistSummaryApplyRequest request)
+        => request.Identity ?? new PlaylistSummaryPresentationIdentity(
+            request.CacheGeneration ?? request.DataRebuildGeneration ?? request.PresentationGeneration,
+            string.Empty, PlaylistOwnedFilter.All, nameof(PlaylistSummaryRow.Name), ListSortDirection.Ascending);
+
+    private bool TryApplyPlaylistSummaryCore(PlaylistSummaryApplyRequest request, List<Exception> publishExceptions, out bool rowsChanged)
+    {
         string nextSummaryText;
-        PlaylistSummaryPresentationIdentity identity = request.Identity
-            ?? new PlaylistSummaryPresentationIdentity(
-                request.CacheGeneration
-                    ?? request.DataRebuildGeneration
-                    ?? request.PresentationGeneration,
-                string.Empty,
-                PlaylistOwnedFilter.All,
-                nameof(PlaylistSummaryRow.Name),
-                ListSortDirection.Ascending);
-        bool rowsChanged;
+        PlaylistSummaryPresentationIdentity identity = GetPlaylistSummaryApplyIdentity(request);
+        rowsChanged = false;
         bool textChanged;
         bool operationContextChanged;
         PlaylistPresentationModeCommit modeCommit;
         PlaylistSourceRetirementRequest detailSourceRetirement;
         lock (playlistSummaryTransitionLock)
         {
-            if (!isPlaylistSummaryModeRequested
-                || playlistSummaryDataBuildStopped
-                || request.PresentationGeneration != playlistSummaryPresentationGeneration
-                || (request.DataRebuildGeneration.HasValue && request.DataRebuildGeneration.Value != playlistSummaryDataRebuildGeneration)
-                || (request.CacheGeneration.HasValue && request.CacheGeneration.Value != playlistSummaryRowsCacheGeneration))
+            if (!IsPlaylistSummaryApplyCurrentUnsafe(request))
             {
                 return false;
             }
@@ -1717,7 +1718,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
                 ? null
                 : CommitDetailSourceClearForRegularView(detailSourceRetirement);
 
-        var publishExceptions = new List<Exception>();
         if (rowsChanged)
         {
             TryPublish(playlistSummaryView.PublishReset, publishExceptions);
@@ -1727,14 +1727,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         {
             TryPublish(() => RaisePropertyChanged(nameof(PlaylistSummaryText)), publishExceptions);
         }
-        if (rowsChanged)
-        {
-            PublishPlaylistSummarySelectionRestore(publishExceptions);
-        }
-        else
-        {
-            TrySchedulePlaylistReloadCleanup();
-        }
         TryPublish(
             () => detailMainChartList.PublishOperationContextChanged(operationContextChanged),
             publishExceptions);
@@ -1742,10 +1734,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         TryPublish(
             () => PublishDetailSourceClearForRegularView(detailSourceClearCommit),
             publishExceptions);
-        if (publishExceptions.Count > 0)
-        {
-            throw new PlaylistSummaryPublishException(new AggregateException(publishExceptions));
-        }
         return true;
     }
 
@@ -1758,58 +1746,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         catch (Exception ex)
         {
             exceptions.Add(ex);
-        }
-    }
-
-    private void PublishPlaylistSummarySelectionRestore(List<Exception> exceptions)
-    {
-        TrySchedulePlaylistReloadCleanup();
-        if (!TryTakePlaylistSummarySelectionRestore(out PlaylistSummarySelectionRestoreRequest request))
-        {
-            return;
-        }
-
-        if (PlaylistSummarySelectionRestoreRequested == null)
-        {
-            TryPublish(
-                () => throw new InvalidOperationException(
-                    nameof(PlaylistSummarySelectionRestoreRequested) + " is not subscribed."),
-                exceptions);
-            return;
-        }
-
-        TryPublish(
-            () => dispatchPresentation(() => PublishPlaylistSummarySelectionRestoreOnPresentationThread(request)),
-            exceptions);
-    }
-
-    private void PublishPlaylistSummarySelectionRestoreOnPresentationThread(
-        PlaylistSummarySelectionRestoreRequest request)
-    {
-        Action<PlaylistSummarySelectionRestoreRequest>[] subscribers =
-            PlaylistSummarySelectionRestoreRequested?.GetInvocationList()
-                .Cast<Action<PlaylistSummarySelectionRestoreRequest>>()
-                .ToArray();
-        if (subscribers == null)
-        {
-            return;
-        }
-
-        var subscriberExceptions = new List<Exception>();
-        foreach (Action<PlaylistSummarySelectionRestoreRequest> subscriber in subscribers)
-        {
-            try
-            {
-                subscriber(request);
-            }
-            catch (Exception ex)
-            {
-                subscriberExceptions.Add(ex);
-            }
-        }
-        if (subscriberExceptions.Count > 0)
-        {
-            throw new AggregateException(subscriberExceptions);
         }
     }
 
@@ -1899,9 +1835,33 @@ internal sealed class PlaylistSummaryPresentationIdentity : IEquatable<PlaylistS
 }
 
 /// <summary>採用済み行・表参照/位置索引・件数を同じ寿命で保持し、一括採用と局所編集を接続します。</summary>
-internal sealed class PlaylistSummaryVersionedCollection : ObservableCollection<PlaylistSummaryRow>
+internal sealed class PlaylistSummaryVersionedCollection : ObservableCollection<PlaylistSummaryRow>, ICustomTableSelectionIdentitySource
 {
     private readonly Dictionary<BMSTable, (PlaylistSummaryRow Row, int Index)> rowsByTable = new(ReferenceEqualityComparer.Instance);
+
+    private readonly Dictionary<int, int> indicesByPlaylistId = [];
+    /// <summary>行集合の変更前に、更新直前の選択識別を捕捉します。</summary>
+    public event EventHandler SelectionUpdateStarting;
+    /// <summary>公開通知後に、一般選択または操作固有の選択意図を復元します。</summary>
+    public event EventHandler SelectionUpdateCompleted;
+
+    /// <summary>Items更新前から公開通知終端まで選択を一回捕捉・復元します。実全体Resetだけ編集値の先引渡しを開始通知で指定します。</summary>
+    internal T PreserveSelection<T>(Func<T> update, Action completed = null, EventArgs startingArgs = null)
+        => CustomTableSelectionUpdate.Run(() => SelectionUpdateStarting?.Invoke(this, startingArgs ?? EventArgs.Empty), update,
+            completed ?? (() => PublishSelectionUpdateCompleted(EventArgs.Empty)));
+
+    /// <summary>操作固有の選択意図または一般復元を、更新終端で表へ渡します。</summary>
+    internal void PublishSelectionUpdateCompleted(EventArgs args) => SelectionUpdateCompleted?.Invoke(this, args);
+
+    /// <summary>表示位置を表IDへ変換し、行投影の交換後も同じ表を照合します。</summary>
+    public object GetSelectionIdentity(int index) => index >= 0 && index < Count ? Items[index]?.PlaylistId : null;
+
+    /// <summary>一括採用・局所更新と一緒に維持するID索引から表示位置を返します。</summary>
+    public int IndexOfSelectionIdentity(object identity)
+        => identity is int id && indicesByPlaylistId.TryGetValue(id, out int index) ? index : -1;
+
+    /// <summary>同じsummary表示の更新だけを同一文脈とします。</summary>
+    public bool SharesSelectionIdentityScope(ICustomTableSelectionIdentitySource other) => ReferenceEquals(this, other);
 
     internal long Version { get; private set; }
 
@@ -1924,10 +1884,12 @@ internal sealed class PlaylistSummaryVersionedCollection : ObservableCollection<
     {
         Items.Clear();
         rowsByTable.Clear();
+        indicesByPlaylistId.Clear();
         TotalCharts = 0;
         for (int index = 0; index < rows.Count; index++)
         {
             Items.Add(rows[index]);
+            if (rows[index]?.PlaylistId is int id) { indicesByPlaylistId.TryAdd(id, index); }
             TotalCharts = checked(TotalCharts + (rows[index]?.TotalCharts ?? 0));
             if (rows[index]?.TableRef is BMSTable table) { rowsByTable.TryAdd(table, (rows[index], index)); }
         }
@@ -1938,6 +1900,7 @@ internal sealed class PlaylistSummaryVersionedCollection : ObservableCollection<
     protected override void ClearItems()
     {
         rowsByTable.Clear();
+        indicesByPlaylistId.Clear();
         TotalCharts = 0;
         base.ClearItems();
     }
@@ -1958,6 +1921,7 @@ internal sealed class PlaylistSummaryVersionedCollection : ObservableCollection<
         if (current != null && !included)
         {
             Items.RemoveAt(oldIndex); rowsByTable.Remove(table); TotalCharts -= current.TotalCharts;
+            if (current.PlaylistId is int id) { indicesByPlaylistId.Remove(id); }
             ReindexShiftedReferences(oldIndex, Items.Count - 1);
             return new(System.Collections.Specialized.NotifyCollectionChangedAction.Remove, current, oldIndex);
         }
@@ -1997,6 +1961,7 @@ internal sealed class PlaylistSummaryVersionedCollection : ObservableCollection<
     {
         for (int index = first; index <= last; index++)
         {
+            if (Items[index].PlaylistId is int id) { indicesByPlaylistId[id] = index; }
             if (Items[index].TableRef is BMSTable table) { rowsByTable[table] = (Items[index], index); }
         }
     }
@@ -2062,6 +2027,7 @@ internal struct PlaylistSummaryDataRefreshRequestResult
     internal bool Queued;
 }
 
+/// <summary>BMT操作が実際に適用した表IDと主行を、対応データ世代の反映まで保持する不変の意図です。</summary>
 internal sealed class PlaylistSummarySelectionRestoreRequest
 {
     internal PlaylistSummarySelectionRestoreRequest(

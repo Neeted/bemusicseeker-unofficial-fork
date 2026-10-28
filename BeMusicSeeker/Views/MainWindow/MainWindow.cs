@@ -598,7 +598,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         ApplySavedTreeViewWidth();
         AddHandler(UIElement.PreviewMouseDownEvent, new MouseButtonEventHandler(keywordSearchWindowPreviewMouseDown), true);
         Deactivated += MainWindow_Deactivated;
-        viewModel.PlaylistWorkspace.PlaylistSummarySelectionRestoreRequested += MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;
         viewModel.PlaylistWorkspace.DetailFolderSelectionRemapped += PlaylistDetailFolderSelectionRemapped;
         SubscribeViewModelUiInteractions(viewModel);
         Closed += MainWindow_Closed;
@@ -1787,7 +1786,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         if (viewModel != null)
         {
-            viewModel.PlaylistWorkspace.PlaylistSummarySelectionRestoreRequested -= MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;
             viewModel.PlaylistWorkspace.DetailFolderSelectionRemapped -= PlaylistDetailFolderSelectionRemapped;
         }
         CancelRelatedDocumentRequest();
@@ -2130,39 +2128,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             MessageBoxButton.OK,
             MessageBoxImage.Hand,
             MessageBoxResult.OK);
-    }
-
-    private void MainWindowViewModel_PlaylistSummarySelectionRestoreRequested(PlaylistSummarySelectionRestoreRequest request)
-    {
-        if (request == null)
-        {
-            return;
-        }
-        if (!Dispatcher.CheckAccess())
-        {
-            Dispatcher.BeginInvoke(
-                new Action(() => ApplyPlaylistSummarySelectionRestoreToView(request)),
-                DispatcherPriority.Background);
-            return;
-        }
-        ApplyPlaylistSummarySelectionRestoreToView(request);
-    }
-
-    private void ApplyPlaylistSummarySelectionRestoreToView(PlaylistSummarySelectionRestoreRequest request)
-    {
-        if (customTablePlaylistSummary == null || request == null)
-        {
-            return;
-        }
-        HashSet<int> playlistIdSet = new(request.PlaylistIds);
-        int? currentPlaylistId = request.CurrentPlaylistId;
-        customTablePlaylistSummary.SelectRowsByPredicate(
-            row => row is PlaylistSummaryRow playlistSummaryRow
-                && playlistSummaryRow.PlaylistId.HasValue
-                && playlistIdSet.Contains(playlistSummaryRow.PlaylistId.Value),
-            row => currentPlaylistId.HasValue
-                && row is PlaylistSummaryRow playlistSummaryRow
-                && playlistSummaryRow.PlaylistId == currentPlaylistId);
     }
 
     private bool IsPlaylistSummaryBmtSortDropAllowed(DragEventArgs e, out List<PlaylistSummaryRow> draggedRows, out PlaylistSummaryRow primaryDraggedRow, out int visibleInsertIndex)

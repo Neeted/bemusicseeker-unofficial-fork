@@ -64,18 +64,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         ChartListReferenceInput input = dependencies.ReferenceInput;
         if (input != null)
         {
-            if (projection.Keys == null)
-            {
-                projection.Keys = new(CatalogReadSnapshot.LookupKeyComparer);
-                foreach ((PlaylistDetailSourceRow Before, PlaylistDetailSourceRow After) change in projection.Changes)
-                {
-                    if (change.After == null) { continue; }
-                    foreach (PlaylistEntryLookupKey key in ReferenceKeys(change.After.EntryValue, change.After.Chart, change.After.sha256))
-                    { if (!dependencies.IncludesReferenceKey(key)) { projection.Keys.Add(key); } }
-                }
-                if (projection.Keys.Count > 0 && input.Library != null)
-                { projection.Snapshot = input.Library.CapturePlaylistReferenceReadSnapshot(projection.Keys); }
-            }
+            PrepareReferenceProjection(dependencies, projection);
             if (projection.Snapshot != null)
             {
                 ApplyReferenceCommits(dependencies, view, identity, projection.Snapshot.Revision);
@@ -109,6 +98,25 @@ public sealed partial class PlaylistWorkspaceViewModel
         dependencies.PendingReferenceProjections.Remove(receipt);
         ApplyReferenceCommits(dependencies, view, identity);
         return true;
+    }
+
+    /// <summary>新しい参照依存の読取り入力だけを準備し、source/viewへの適用から分離します。</summary>
+    private void PrepareReferenceProjection(PlaylistDetailDependencies dependencies, PlaylistPendingReferenceProjection projection)
+    {
+        ChartListReferenceInput input = dependencies.ReferenceInput;
+        if (input == null) { return; }
+        if (projection.Keys == null)
+        {
+            projection.Keys = new(CatalogReadSnapshot.LookupKeyComparer);
+            foreach ((PlaylistDetailSourceRow Before, PlaylistDetailSourceRow After) change in projection.Changes)
+            {
+                if (change.After == null) { continue; }
+                foreach (PlaylistEntryLookupKey key in ReferenceKeys(change.After.EntryValue, change.After.Chart, change.After.sha256))
+                { if (!dependencies.IncludesReferenceKey(key)) { projection.Keys.Add(key); } }
+            }
+            if (projection.Keys.Count > 0 && input.Library != null)
+            { projection.Snapshot = input.Library.CapturePlaylistReferenceReadSnapshot(projection.Keys); }
+        }
     }
 
     private bool TryPatchPendingDetails(PlaylistDetailDependencies dependencies, PlaylistDetailVirtualView view,

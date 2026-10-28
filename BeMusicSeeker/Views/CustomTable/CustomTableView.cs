@@ -371,14 +371,14 @@ public sealed class CustomTableView : Grid
         InvokePresentationAction(PrepareForItemsSourceSwap);
     }
 
-    /// <summary>譜面一覧のBinding公開後に、同じ元集合なら選択識別を復元し、別の元集合なら旧添字による選択を解除します。</summary>
+    /// <summary>識別対応の譜面一覧へ移るBinding公開後に、同じ元集合なら選択識別を復元し、識別非対応の元表示や別集合の旧添字による選択を解除します。</summary>
     private void MainChartListRowsSelectionPreserving(object sender, MainChartListSelectionRestoration e)
     {
         InvokePresentationAction(() =>
         {
+            if (e.Rows is not ICustomTableSelectionIdentitySource after) { return; }
             if (ItemsSource is not ICustomTableSelectionIdentitySource before
-                || e.Rows is not ICustomTableSelectionIdentitySource after) { return; }
-            if (!before.SharesSelectionIdentityScope(after))
+                || !before.SharesSelectionIdentityScope(after))
             {
                 e.Register(() =>
                 {
@@ -798,6 +798,7 @@ public sealed class CustomTableView : Grid
 
     private void ItemsSourceCollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
     {
+        if (!ReferenceEquals(sender, ItemsSource)) { return; }
         CommitActiveEdit();
         currentCellHit = null;
         ClearPendingItemsSourceSwapColumnRedrawSuppression();
@@ -815,6 +816,12 @@ public sealed class CustomTableView : Grid
     private void CaptureSelectionIdentities(object sender, EventArgs e)
     {
         if (sender is not ICustomTableSelectionIdentitySource source || !ReferenceEquals(sender, ItemsSource)) { return; }
+        if (e is CustomTableSelectionResetStartingEventArgs)
+        {
+            // 編集終端の同期再入が局所更新を完結してから、外側の旧行と選択を捕捉する。
+            CommitActiveEdit();
+            if (!ReferenceEquals(sender, ItemsSource)) { return; }
+        }
         selectionIdentities = CaptureSelectionIdentities(source);
     }
 
@@ -826,11 +833,16 @@ public sealed class CustomTableView : Grid
     /// <summary>最終順序へ選択を戻します。主行の添字が同じでも副選択と基点を必ず照合します。</summary>
     private void RestoreSelectionIdentities(object sender, EventArgs e)
     {
-        if (!selectionIdentities.HasValue || sender is not ICustomTableSelectionIdentitySource source
-            || !ReferenceEquals(sender, ItemsSource)) { return; }
-        (object[] Selected, object Current, object Anchor) captured = selectionIdentities.Value;
+        if (sender is not ICustomTableSelectionIdentitySource source || !ReferenceEquals(sender, ItemsSource)) { return; }
+        (object[] Selected, object Current, object Anchor)? captured = selectionIdentities;
         selectionIdentities = null;
-        RestoreSelectionIdentities(source, captured);
+        if (e is CustomTableSelectionUpdateEventArgs requested)
+        {
+            RestoreSelectionIdentities(source, (requested.Selected, requested.Current, requested.Anchor));
+            EnsureRowVisible(selectionModel.CurrentIndex);
+            EnsureCurrentCellForCurrentRow();
+        }
+        else if (captured.HasValue) { RestoreSelectionIdentities(source, captured.Value); }
     }
 
     /// <summary>残る選択・主行・基点だけを採用し、同じ主添字でも副選択の旧位置を使いません。</summary>

@@ -16,7 +16,6 @@ using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 using static BeMusicSeeker.Tests.PlaylistWorkspaceFixtureFactory;
-using PlaylistWorkspaceViewModelTests = BeMusicSeeker.Tests.PlaylistWorkspaceExternalSourceTests;
 
 namespace BeMusicSeeker.Tests;
 
@@ -1190,235 +1189,86 @@ public sealed class PlaylistWorkspacePresentationStateTests
         }
     }
 
-    /// <summary>実BMT drop後のsummary確定で行通知と選択復元通知が両方失敗しても二例外を集約し、選択ID・current IDの復元要求を一回配送します。</summary>
+    /// <summary>summaryの一括反映は更新直前の選択識別を旧集合で捕捉し、ResetとBinding公開後に新投影のID索引を照合します。</summary>
     [TestMethod]
-    public async Task PlaylistWorkspaceSummarySelectionRestoreEventFailureAggregatesWithPropertyFailure()
+    public void SummaryApply_CapturesImmediatelyBeforeReplacementAndCompletesAfterNotifications()
     {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        try
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        workspace.IsPlaylistSummaryMode = true;
+        void Apply(params int[] ids) => Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
         {
-            string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
-            {
-            }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
-            var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
-            var playlist = new TestBmsPlaylist(songDbPath)
-            {
-                BMSTables = new ObservableCollection<BMSTable>([first, second])
-            };
-            var restoreRequests = new List<PlaylistSummarySelectionRestoreRequest>();
-            PlaylistSummaryBmtSortCoordinator bmtSort = new(() => playlist, () => playlist.BMSTables);
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                playlistStoreProvider: () => playlist,
-                playlistSummaryBmtSort: bmtSort,
-                presentationRefreshDeferredProvider: _ => true,
-                selectionRestoreSink: request =>
-                {
-                    restoreRequests.Add(request);
-                    throw new InvalidOperationException("selection restore failed");
-                });
-            workspace.IsPlaylistSummaryMode = true;
-
-            await workspace.DropSummaryRowsInBmtOrderAsync(
-                [
-                    new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
-                    new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second }
-                ],
-                [new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second }],
-                visibleInsertIndex: 0,
-                currentPlaylistId: second.playlist_id);
-            long dataRebuildGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
-            Assert.IsTrue(dataRebuildGeneration > 0L);
-            Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest buildRequest));
-            try
-            {
-                workspace.PropertyChanged += (_, e) =>
-                {
-                    if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryView))
-                    {
-                        throw new InvalidOperationException("rows binding failed");
-                    }
-                };
-                PlaylistSummaryPublishException exception = Assert.ThrowsException<PlaylistSummaryPublishException>(() =>
-                    workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
-                    {
-                        Rows = new ObservableCollection<PlaylistSummaryRow>(),
-                        PresentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration,
-                        DataRebuildGeneration = buildRequest.Generation,
-                        CacheGeneration = buildRequest.CacheGeneration
-                    }));
-
-                var aggregate = exception.InnerException as AggregateException;
-                Assert.IsNotNull(aggregate);
-                Assert.AreEqual(2, aggregate!.InnerExceptions.Count);
-                Assert.AreEqual(1, restoreRequests.Count);
-                CollectionAssert.AreEquivalent(new[] { second.playlist_id }, restoreRequests[0].PlaylistIds.ToArray());
-                Assert.AreEqual(second.playlist_id, restoreRequests[0].CurrentPlaylistId);
-            }
-            finally
-            {
-                workspace.CompletePlaylistSummaryDataBuild(buildRequest);
-            }
-        }
-        finally
+            Rows = new ObservableCollection<PlaylistSummaryRow>(ids.Select(id => new PlaylistSummaryRow { PlaylistId = id })),
+            PresentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration()
+        }));
+        Apply(1, 2, 3, 4);
+        var source = (BeMusicSeeker.Views.ICustomTableSelectionIdentitySource)workspace.PlaylistSummaryView;
+        int selectedIndex = 0;
+        object? captured = null;
+        var notifications = new List<string>();
+        source.SelectionUpdateStarting += (_, _) => { captured = source.GetSelectionIdentity(selectedIndex); notifications.Add("start"); };
+        ((System.Collections.Specialized.INotifyCollectionChanged)workspace.PlaylistSummaryView).CollectionChanged += (_, _) => notifications.Add("reset");
+        workspace.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(workspace.PlaylistSummaryView)) { notifications.Add("binding"); } };
+        source.SelectionUpdateCompleted += (_, args) =>
         {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
+            Assert.AreEqual(EventArgs.Empty, args, "一般更新には別の明示選択を作りません。");
+            Assert.AreEqual(3, captured);
+            Assert.AreEqual(3, source.IndexOfSelectionIdentity(captured));
+            Assert.AreEqual(-1, source.IndexOfSelectionIdentity(999));
+            notifications.Add("complete");
+        };
+        var pending = new PlaylistSummaryApplyRequest
+        {
+            Rows = new ObservableCollection<PlaylistSummaryRow>(new[] { 1, 2, 4, 3 }.Select(id => new PlaylistSummaryRow { PlaylistId = id })),
+            PresentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration()
+        };
+        // 要求の準備後でも、反映前の選択変更を捕捉対象にします。
+        selectedIndex = 2;
+        Assert.IsTrue(workspace.TryApplyPlaylistSummary(pending));
+        CollectionAssert.AreEqual(new[] { "start", "reset", "binding", "complete" }, notifications);
     }
 
-    /// <summary>実BMT drop後に復元購読先がなく行通知も失敗する場合、両方を集約して復元先不在を成功として隠しません。</summary>
+    /// <summary>行Bindingと共通選択完了通知の失敗を集約し、次の更新も開始・完了を一組として公開します。</summary>
     [TestMethod]
-    public async Task PlaylistWorkspaceSummarySelectionRestoreMissingSubscriberAggregatesWithPropertyFailure()
+    public void SummaryApply_SelectionCompletionFailureAggregatesWithBindingFailure()
     {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        try
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        workspace.IsPlaylistSummaryMode = true;
+        var source = (BeMusicSeeker.Views.ICustomTableSelectionIdentitySource)workspace.PlaylistSummaryView;
+        int starts = 0, completions = 0;
+        source.SelectionUpdateStarting += (_, _) => starts++;
+        source.SelectionUpdateCompleted += (_, _) =>
         {
-            string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
-            {
-            }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
-            var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
-            var playlist = new TestBmsPlaylist(songDbPath)
-            {
-                BMSTables = new ObservableCollection<BMSTable>([first, second])
-            };
-            Action<PlaylistSummarySelectionRestoreRequest> restoreHandler = _ => { };
-            PlaylistSummaryBmtSortCoordinator bmtSort = new(() => playlist, () => playlist.BMSTables);
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                playlistStoreProvider: () => playlist,
-                playlistSummaryBmtSort: bmtSort,
-                presentationRefreshDeferredProvider: _ => true,
-                selectionRestoreSink: restoreHandler);
-            workspace.PlaylistSummarySelectionRestoreRequested -= restoreHandler;
-            workspace.IsPlaylistSummaryMode = true;
-
-            await workspace.DropSummaryRowsInBmtOrderAsync(
-                [
-                    new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
-                    new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second }
-                ],
-                [new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second }],
-                visibleInsertIndex: 0,
-                currentPlaylistId: second.playlist_id);
-            Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest buildRequest));
-            try
-            {
-                workspace.PropertyChanged += (_, e) =>
+            completions++;
+            throw new InvalidOperationException("selection completion failed");
+        };
+        workspace.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(workspace.PlaylistSummaryView)) { throw new InvalidOperationException("rows binding failed"); }
+        };
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            long generation = workspace.BeginPlaylistSummaryPresentationGeneration();
+            PlaylistSummaryPublishException failure = Assert.ThrowsException<PlaylistSummaryPublishException>(() =>
+                workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
                 {
-                    if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryView))
-                    {
-                        throw new InvalidOperationException("rows binding failed");
-                    }
-                };
-                PlaylistSummaryPublishException exception = Assert.ThrowsException<PlaylistSummaryPublishException>(() =>
-                    workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
-                    {
-                        Rows = new ObservableCollection<PlaylistSummaryRow>(),
-                        PresentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration,
-                        DataRebuildGeneration = buildRequest.Generation,
-                        CacheGeneration = buildRequest.CacheGeneration
-                    }));
-
-                var aggregate = exception.InnerException as AggregateException;
-                Assert.IsNotNull(aggregate);
-                Assert.AreEqual(2, aggregate!.InnerExceptions.Count);
-            }
-            finally
-            {
-                workspace.CompletePlaylistSummaryDataBuild(buildRequest);
-            }
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
-    }
-
-    /// <summary>実BMT dropからキューに置いた選択復元は配送前に解除されたviewへ届かず、古い購読delegateを捕捉して呼びません。</summary>
-    [TestMethod]
-    public async Task PlaylistWorkspaceSummarySelectionRestoreDoesNotReachUnsubscribedView()
-    {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        try
-        {
-            string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
-            {
-            }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
-            var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
-            var playlist = new TestBmsPlaylist(songDbPath)
-            {
-                BMSTables = new ObservableCollection<BMSTable>([first, second])
-            };
-            Queue<Action> pendingActions = new();
-            int invocationCount = 0;
-            Action<PlaylistSummarySelectionRestoreRequest> restoreHandler = _ => invocationCount++;
-            PlaylistSummaryBmtSortCoordinator bmtSort = new(() => playlist, () => playlist.BMSTables);
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                dispatchPresentation: action => pendingActions.Enqueue(action),
-                playlistStoreProvider: () => playlist,
-                playlistSummaryBmtSort: bmtSort,
-                presentationRefreshDeferredProvider: _ => true,
-                selectionRestoreSink: restoreHandler);
-            workspace.IsPlaylistSummaryMode = true;
-
-            await workspace.DropSummaryRowsInBmtOrderAsync(
-                [
-                    new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
-                    new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second }
-                ],
-                [new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second }],
-                visibleInsertIndex: 0,
-                currentPlaylistId: second.playlist_id);
-            Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest buildRequest));
-            try
-            {
-                Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
-                {
-                    Rows = new ObservableCollection<PlaylistSummaryRow>(),
-                    PresentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration,
-                    DataRebuildGeneration = buildRequest.Generation,
-                    CacheGeneration = buildRequest.CacheGeneration
+                    Rows = new ObservableCollection<PlaylistSummaryRow> { new() { PlaylistId = attempt + 1 } },
+                    PresentationGeneration = generation
                 }));
-            }
-            finally
-            {
-                workspace.CompletePlaylistSummaryDataBuild(buildRequest);
-            }
-
-            Assert.IsTrue(pendingActions.Count > 0);
-            workspace.PlaylistSummarySelectionRestoreRequested -= restoreHandler;
-            while (pendingActions.Count > 0)
-            {
-                pendingActions.Dequeue()();
-            }
-            Assert.AreEqual(0, invocationCount);
+            var aggregate = failure.InnerException as AggregateException;
+            Assert.IsNotNull(aggregate);
+            CollectionAssert.AreEquivalent(new[] { "rows binding failed", "selection completion failed" }, aggregate.InnerExceptions.Select(value => value.Message).ToArray());
         }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
+        source.SelectionUpdateStarting += (_, _) => throw new InvalidOperationException("selection start failed");
+        PlaylistSummaryPublishException startFailure = Assert.ThrowsException<PlaylistSummaryPublishException>(() =>
+            workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
             {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
+                Rows = new ObservableCollection<PlaylistSummaryRow>(),
+                PresentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration()
+            }));
+        StringAssert.Contains(startFailure.ToString(), "selection start failed");
+        StringAssert.Contains(startFailure.ToString(), "selection completion failed");
+        Assert.AreEqual(3, starts);
+        Assert.AreEqual(3, completions);
     }
 
 }

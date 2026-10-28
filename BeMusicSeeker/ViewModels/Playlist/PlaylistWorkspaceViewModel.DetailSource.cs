@@ -90,23 +90,29 @@ public sealed partial class PlaylistWorkspaceViewModel
             && (folder == null || value.Folder == folder)
             && (scope != PlaylistDetailSelectionScope.OverallNormalFolders || value.Folder != "[NO SONG]");
 
-    /// <summary>旧呼出しも依存索引の未所持行だけを扱い、全件長 patch 配列を作りません。</summary>
+    /// <summary>未所持詳細の重い読取りをworkerで準備し、現役sourceへの登録済み投影をUIの一処理で消費します。</summary>
     internal bool TryPatchDetailSourceChartInfo(PlaylistBuildRequest request, CancellationToken cancellationToken,
         out int sourceCount, out int dependencyCount, out int patchedCount, out long elapsedMs)
     {
         var watch = Stopwatch.StartNew();
+        PlaylistDetailDependencies preparedDependencies;
+        List<PlaylistDetailSourceRow> preparedRows;
+        int chartInfoVersion = request.Identity.ChartInfoIndexVersion;
         lock (DetailBuildState.SyncRoot)
         {
             lock (DetailViewState.SyncRoot)
             {
-                PlaylistDetailDependencies dependencies = EnsureDetailDependencies();
-                sourceCount = dependencies.Rows.Count;
+                preparedDependencies = EnsureDetailDependencies();
+                preparedRows = preparedDependencies.Rows;
+                sourceCount = preparedRows.Count;
                 dependencyCount = patchedCount = 0;
                 if (request.RequestVersion != DetailBuildState.RequestVersion) { elapsedMs = watch.ElapsedMilliseconds; return false; }
+                cancellationToken.ThrowIfCancellationRequested();
+                if (preparedDependencies.PendingReferenceProjections.Count > 0) { elapsedMs = watch.ElapsedMilliseconds; return false; }
                 BMSLibrary.ScoreSnapshot scores = detailDataSource.GetScoreSnapshot();
-                var projection = new PlaylistPendingReferenceProjection { ChartInfoVersion = request.Identity.ChartInfoIndexVersion };
-                // 正規通知では明示キーを使います。明示再要求の未所持詳細は既存の依存集合だけを評価します。
-                foreach (PlaylistDetailSourceRow row in dependencies.EntryChartInfoRows())
+                var projection = new PlaylistPendingReferenceProjection { ChartInfoVersion = chartInfoVersion };
+                // 明示再要求の未所持詳細は既存の依存集合だけを評価し、参照snapshotの準備もworkerに残します。
+                foreach (PlaylistDetailSourceRow row in preparedDependencies.EntryChartInfoRows())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     dependencyCount++;
@@ -116,23 +122,36 @@ public sealed partial class PlaylistWorkspaceViewModel
                     projection.Changes.Add((row, next));
                     patchedCount++;
                 }
-                if (projection.Changes.Count > 0)
-                {
-                    if (dependencies.PendingReferenceProjections.Count > 0) { elapsedMs = watch.ElapsedMilliseconds; return false; }
-                    dependencies.PendingReferenceProjections.Add(dependencies.DetailProjectionKey, projection);
-                    if (!TryCommitReferenceProjection(dependencies, dependencies.DetailProjectionKey, projection,
-                        DetailViewState.View.Rows as PlaylistDetailVirtualView, DetailViewState.View.CurrentIdentity))
-                    { elapsedMs = watch.ElapsedMilliseconds; return false; }
-                }
-                DetailViewState.Source.LastBuiltChartInfoIndexVersion = request.Identity.ChartInfoIndexVersion;
-                DetailViewState.Source.CurrentIdentity = WithDetailVersions(request.Identity,
-                    DetailViewState.Source.LastBuiltLibraryIndexVersion, DetailViewState.Source.LastBuiltPlaylistRevision,
-                    DetailViewState.Source.LastBuiltScoreSnapshotVersion, DetailViewState.Source.LastBuiltChartInfoIndexVersion).SourceIdentity;
+                PrepareReferenceProjection(preparedDependencies, projection);
+                cancellationToken.ThrowIfCancellationRequested();
+                preparedDependencies.PendingReferenceProjections.Add(preparedDependencies.DetailProjectionKey, projection);
             }
         }
+        bool applied = false;
+        // 登録後の投影はsourceが所有します。要求の取消でUI配送を捨てず、現役sourceなら既存consumerへ渡します。
+        playlistRestoreUiApplyScheduler(() => applied = PreserveDetailSelection(() =>
+        {
+            bool ready, currentRequest;
+            lock (DetailBuildState.SyncRoot)
+            {
+                lock (DetailViewState.SyncRoot)
+                {
+                    PlaylistDetailSourceSnapshotState state = DetailViewState.Source;
+                    if (!ReferenceEquals(state.Dependencies, preparedDependencies) || !ReferenceEquals(state.Rows, preparedRows)
+                        || !state.CurrentIdentity.HasValue) { return false; }
+                    ready = state.LastBuiltChartInfoIndexVersion >= chartInfoVersion
+                        || ResumePendingDetailProjection(preparedDependencies, DetailViewState.View.Rows as PlaylistDetailVirtualView,
+                            DetailViewState.View.CurrentIdentity);
+                    if (ready) { UpdateDetailIdentities(); }
+                    currentRequest = request.RequestVersion == DetailBuildState.RequestVersion && !cancellationToken.IsCancellationRequested;
+                }
+            }
+            PublishDetailChanges();
+            return ready && currentRequest;
+        })).GetAwaiter().GetResult();
         elapsedMs = watch.ElapsedMilliseconds;
-        PublishDetailChanges();
-        return true;
+        cancellationToken.ThrowIfCancellationRequested();
+        return applied;
     }
 
     private BMSScore ResolveDetailScore(PlaylistDetailSourceRow row, BeMusicSeeker.Models.ChartDetails info, BMSLibrary.ScoreSnapshot scores)

@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -18,7 +20,16 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
     {
         var publisher = new NormalLibraryRefreshPublisher();
         int wakes = 0;
-        var owner = new BmsLibraryPlaylistReferenceOwner(publisher, () => wakes++);
+        Func<long> publishedRevision = () => -1;
+        var wakeRevisions = new List<long>();
+        var owner = new BmsLibraryPlaylistReferenceOwner(publisher, () => { wakes++; wakeRevisions.Add(publishedRevision()); });
+        publishedRevision = () => owner.ReferenceRevision;
+        void AssertPublished(PlaylistReferenceCommitReceipt receipt)
+        {
+            Assert.AreEqual(receipt.Revision, owner.ReferenceRevision);
+            Assert.AreEqual(receipt.Revision, owner.Capture([]).Revision);
+            Assert.AreEqual(receipt.Revision, wakeRevisions.Last(), "配送起動前に変更済み参照版を公開します。");
+        }
         var table = new BMSTable { name = "B name", symbol = "B" };
         owner.ReplaceTables([Snapshot(table)]);
         int handled = publisher.Version;
@@ -27,14 +38,18 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         var key = PlaylistEntryLookupKey.FromEntry(first);
         Assert.IsFalse(owner.Capture([key]).Values.ContainsKey(key));
         PlaylistReferenceCommitReceipt one = owner.Apply([Delta(table, first, null, first.CaptureValue())]);
+        AssertPublished(one);
         Assert.AreEqual("B", ChangedDisplay(one, key).Symbols);
         PlaylistReferenceCommitReceipt two = owner.Apply([Delta(table, second, null, second.CaptureValue())]);
+        AssertPublished(two);
         Assert.AreEqual(0, two.Changes.Count);
         Assert.AreEqual("B", owner.Find(first.md5, null).Symbols);
         PlaylistReferenceCommitReceipt three = owner.Apply([Delta(table, first, first.CaptureValue(), null)]);
+        AssertPublished(three);
         Assert.AreEqual(0, three.Changes.Count);
         Assert.AreEqual("B", owner.Find(first.md5, null).Symbols);
         PlaylistReferenceCommitReceipt four = owner.Apply([Delta(table, second, second.CaptureValue(), null)]);
+        AssertPublished(four);
         Assert.IsNull(four.Changes[key]);
         Assert.IsFalse(owner.Capture([key]).Values.ContainsKey(key));
         NormalLibraryRefreshNotificationBatch batch = publisher.GetNotificationsAfter(handled);
@@ -45,6 +60,46 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         Assert.IsNull(owner.Apply([Delta(table, second, before, before with { EffectiveUrl = new Uri("https://example.invalid/url") })]));
         Assert.AreEqual(version, publisher.Version);
         Assert.AreEqual(wakeCount, wakes);
+        Assert.AreEqual(four.Revision, owner.ReferenceRevision, "no-opは参照版を進めません。");
+    }
+
+    /// <summary>実header更新で索引lockを保持しても、別threadの参照版読取りは解放前に旧確定版を返し、完了後は新しい不変receiptと一致します。</summary>
+    [TestMethod]
+    public async Task ReferenceRevision_DoesNotWaitForHeaderMutationLock()
+    {
+        string md5 = new('a', 32);
+        var table = new BMSTable { name = "Before", symbol = "OLD" };
+        var owner = new BmsLibraryPlaylistReferenceOwner();
+        owner.ReplaceTables([Snapshot(table, CreateEntry(md5))]);
+        long before = owner.ReferenceRevision;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        owner.WorkObserver = kind =>
+        {
+            if (kind != "reference_header_key_visited") { return; }
+            entered.TrySetResult();
+            release.Wait();
+        };
+        Task<PlaylistReferenceCommitReceipt> update = Task.Run(() => owner.Apply([], [new(table, "NEW", "After", null, 0)]));
+        Task<long> read = Task.FromResult(before);
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, update, "reference-header-lock");
+            read = Task.Run(() => owner.ReferenceRevision);
+            await TestUiDispatcherHost.AwaitNotificationAsync(read, update, "reference-scalar-with-header-lock");
+            Assert.AreEqual(before, await read);
+            Assert.IsFalse(update.IsCompleted);
+            release.Set();
+            PlaylistReferenceCommitReceipt receipt = await update;
+            Assert.AreEqual(receipt.Revision, owner.ReferenceRevision);
+            Assert.AreEqual(receipt.Revision, owner.Capture([]).Revision);
+        }
+        finally
+        {
+            release.Set();
+            try { await Task.WhenAll(update, read); }
+            finally { owner.WorkObserver = null; }
+        }
     }
 
     /// <summary>MD5 present-emptyはSHAへ進まず、消失後だけSHAを使う。捕捉済みpresenceと表示は後続更新で変わらない。</summary>
@@ -111,7 +166,12 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         int handled = publisher.Version;
         TestablePlaylistEntry first = CreateEntry(new string('a', 32));
         TestablePlaylistEntry second = CreateEntry(new string('b', 32));
-        void Reset() => publisher.Publish(new NormalLibraryRefreshPublishRequest { ResetsPriorNotifications = true });
+        void Reset()
+        {
+            long referenceRevision = owner.ReferenceRevision;
+            publisher.Publish(new NormalLibraryRefreshPublishRequest { ResetsPriorNotifications = true });
+            Assert.AreEqual(referenceRevision, owner.ReferenceRevision, "通常catalogのreset通知だけでは独立参照版を進めません。");
+        }
         if (resetFirst) { Reset(); }
         long before = owner.Capture([]).Revision;
         PlaylistReferenceCommitReceipt receipt = owner.Apply([Delta(a, first, null, first.CaptureValue()), Delta(b, second, null, second.CaptureValue())]);

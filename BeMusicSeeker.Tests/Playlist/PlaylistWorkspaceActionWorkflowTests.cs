@@ -143,6 +143,20 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
         PlaylistSummaryRow target = workspace.PlaylistSummaryView[0];
         Assert.AreSame(fixture.Table, target.TableRef);
+        var selectionSource = (BeMusicSeeker.Views.ICustomTableSelectionIdentitySource)workspace.PlaylistSummaryView;
+        int selectionStarts = 0, selectionCompletions = 0, capturedPosition = -1, completedPosition = -1;
+        object? capturedId = null;
+        selectionSource.SelectionUpdateStarting += (_, _) =>
+        {
+            selectionStarts++;
+            capturedPosition = selectionSource.IndexOfSelectionIdentity(target.PlaylistId);
+            capturedId = selectionSource.GetSelectionIdentity(capturedPosition);
+        };
+        selectionSource.SelectionUpdateCompleted += (_, _) =>
+        {
+            selectionCompletions++;
+            completedPosition = selectionSource.IndexOfSelectionIdentity(capturedId);
+        };
         logs.Clear();
         int dataReservations = 0;
         workspace.PlaylistPresentationRefreshRequested += (_, request) =>
@@ -153,6 +167,9 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.IsTrue((await workspace.CompleteSummaryPropertyEditAsync(target, nameof(PlaylistSummaryRow.Name), "  Z saved  ", true)).IsApplied);
         Assert.AreSame(target, sortColumn == nameof(PlaylistSummaryRow.LastUpdate)
             ? workspace.PlaylistSummaryView[0] : workspace.PlaylistSummaryView[^1]);
+        Assert.AreEqual(0, capturedPosition);
+        Assert.AreEqual(sortColumn == nameof(PlaylistSummaryRow.LastUpdate) ? 0 : unrelated, completedPosition);
+        Assert.AreEqual(1, selectionStarts); Assert.AreEqual(1, selectionCompletions);
         Assert.AreEqual("Z saved", target.Name);
         Assert.AreEqual(fixture.Table.Output_dir, target.FolderName);
         Assert.IsTrue(target.FolderNameUndefined);
@@ -161,6 +178,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.AreEqual("S", target.Symbol);
         Assert.IsTrue((await workspace.CompleteSummaryPropertyEditAsync(target, nameof(PlaylistSummaryRow.CompatPrefix), "  Q ", true)).IsApplied);
         Assert.AreEqual("Q ", target.CompatPrefix);
+        Assert.AreEqual(3, selectionStarts); Assert.AreEqual(3, selectionCompletions);
         await workspace.WaitForDetailBuildIdleAsync();
         Assert.AreEqual(0, dataReservations, "実entry配送を購読しても全summary更新を予約しません。");
         Assert.AreEqual(dataGeneration, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
@@ -181,6 +199,8 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.AreEqual(1, workspace.PlaylistSummaryView.Count);
         Assert.IsTrue((await workspace.CompleteSummaryPropertyEditAsync(target, nameof(PlaylistSummaryRow.Name), "Gone", true)).IsApplied);
         Assert.AreEqual(0, workspace.PlaylistSummaryView.Count);
+        Assert.AreEqual(-1, completedPosition, "filterで消えた選択IDは旧添字へ読み替えません。");
+        Assert.AreEqual(selectionStarts, selectionCompletions);
         Assert.AreEqual(string.Format(Resources.Playlist_summary_format, 0, 0), workspace.PlaylistSummaryText);
     }
 

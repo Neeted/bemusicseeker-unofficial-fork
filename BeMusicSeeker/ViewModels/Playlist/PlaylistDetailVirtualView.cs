@@ -5,10 +5,11 @@ using System.Collections.Immutable;
 using System.Collections.Specialized;
 using System.Linq;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Views;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal sealed class PlaylistDetailVirtualView : IList, IChartListViewMetadata, INotifyCollectionChanged
+internal sealed class PlaylistDetailVirtualView : IList, IChartListViewMetadata, INotifyCollectionChanged, ICustomTableSelectionIdentitySource
 {
     private ImmutableList<PlaylistDetailSourceRow> sourceRows;
     // 順序木は捕捉した比較キーを保ち、編集中の最新表示投影だけをこちらで置換します。
@@ -20,6 +21,31 @@ internal sealed class PlaylistDetailVirtualView : IList, IChartListViewMetadata,
     private readonly Dictionary<BMSTableEntry, PlaylistDetailRow> realizedRows = [];
     private readonly Dictionary<BMSTableEntry, (PlaylistDetailSourceRow Before, PlaylistDetailSourceRow After)> deferred = [];
     public event NotifyCollectionChangedEventHandler CollectionChanged;
+    /// <summary>一配送の差分を反映する前に、選択識別の捕捉を要求します。</summary>
+    public event EventHandler SelectionUpdateStarting;
+    /// <summary>差分の公開後に、生存entryで選択を復元します。</summary>
+    public event EventHandler SelectionUpdateCompleted;
+
+    /// <summary>一配送の複数変更と公開通知を一組として、反映直前の選択を保持します。</summary>
+    internal T PreserveSelection<T>(Func<T> update)
+        => CustomTableSelectionUpdate.Run(() => SelectionUpdateStarting?.Invoke(this, EventArgs.Empty),
+            update, () => SelectionUpdateCompleted?.Invoke(this, EventArgs.Empty));
+
+    /// <summary>行を実体化せず、表示位置にある生存entryを識別として返します。</summary>
+    public object GetSelectionIdentity(int index)
+        => index >= 0 && index < Count ? sourceRows[index].Entry : null;
+
+    /// <summary>entry索引と既存の順序検索だけで現在位置を照合します。</summary>
+    public int IndexOfSelectionIdentity(object identity)
+        => identity is BMSTableEntry entry && entries.TryGetValue(entry, out PlaylistDetailSourceRow row)
+            ? currentIdentity.HasValue ? Find(row, currentIdentity.Value) : -1 : -1;
+
+    /// <summary>同じ表・選択範囲・folder・filter区分の再評価だけへ選択を引き継ぎます。</summary>
+    public bool SharesSelectionIdentityScope(ICustomTableSelectionIdentitySource other)
+        => other is PlaylistDetailVirtualView view
+            && currentIdentity is PlaylistRequestIdentity before && view.currentIdentity is PlaylistRequestIdentity after
+            && ReferenceEquals(before.Table, after.Table) && before.SelectionScope == after.SelectionScope
+            && string.Equals(before.FolderName, after.FolderName, StringComparison.Ordinal) && before.FilterType == after.FilterType;
 
     private readonly int distinctFolderCount;
     private readonly Dictionary<string, int> folderCounts = new(StringComparer.OrdinalIgnoreCase);

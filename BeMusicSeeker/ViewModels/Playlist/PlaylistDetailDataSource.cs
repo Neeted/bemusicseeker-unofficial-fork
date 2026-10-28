@@ -18,6 +18,9 @@ internal interface IPlaylistDetailDataSource
 
     long CatalogRevision { get; }
 
+    /// <summary>参照索引の排他を待たずに取得する最後の確定参照版です。表示値の捕捉とは区別します。</summary>
+    long ReferenceRevision { get; }
+
     void EnsureEntriesLoaded(BMSTable table, string reason);
 
     /// <summary>同じ観測点のlookupと基準版を捕捉します。初回は最初の投影前に一回捕捉し、対象全entryで共有します。</summary>
@@ -72,6 +75,9 @@ internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
     public int ScoreSnapshotVersion => library.GetScoreRuntimeStateForDiagnostics().SnapshotVersion;
 
     public long CatalogRevision => library.CatalogRevision;
+
+    /// <inheritdoc/>
+    public long ReferenceRevision => library.PlaylistReferenceRevision;
 
     public void EnsureEntriesLoaded(BMSTable table, string reason)
     {

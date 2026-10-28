@@ -54,6 +54,8 @@ internal sealed class BmsLibraryPlaylistReferenceOwner
     { this.publisher = publisher; this.wake = wake; }
     /// <summary>実参照格納・lookup・bucket・表示生成地点だけの任意observerです。集計状態は呼出側が所有します。</summary>
     internal Action<string> WorkObserver { get; set; }
+    /// <summary>索引変更と不変通知登録を終えた最後の参照版を、索引の排他を待たず取得します。同じ値の捕捉にはCaptureを使います。</summary>
+    internal long ReferenceRevision => Volatile.Read(ref indexRevision);
     /// <summary>MD5 bucketの存在を優先し、不在時だけSHAを引きます。</summary>
     internal PlaylistReferenceDisplay Find(string md5, string sha256)
     { lock (syncRoot) { WorkObserver?.Invoke("reference_lookup"); return index.Find(md5, sha256); } }
@@ -122,8 +124,18 @@ internal sealed class BmsLibraryPlaylistReferenceOwner
     private PlaylistReferenceCommitReceipt Register(PlaylistReferenceIndex.ChangeResult result)
     {
         if (!result.HasChanges) { return null; }
-        var receipt = new PlaylistReferenceCommitReceipt(indexRevision, ++indexRevision, result.Changes);
-        publisher?.Register(receipt);
-        return receipt;
+        long previousRevision = indexRevision;
+        long nextRevision = previousRevision + 1;
+        try
+        {
+            var receipt = new PlaylistReferenceCommitReceipt(previousRevision, nextRevision, result.Changes);
+            publisher?.Register(receipt);
+            return receipt;
+        }
+        finally
+        {
+            // 索引変更済みなら登録の失敗でも版を戻さず、元例外を保つ。配送起動より先に公開する。
+            Volatile.Write(ref indexRevision, nextRevision);
+        }
     }
 }

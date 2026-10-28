@@ -124,6 +124,8 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 hasResolvedSelection: true)
         };
 
+        workspace.DetailViewState.Source.CurrentIdentity = request.Identity.SourceIdentity;
+        workspace.DetailViewState.View.CurrentIdentity = request.Identity;
         bool patched = workspace.TryPatchDetailSourceChartInfo(
             request,
             CancellationToken.None,
@@ -196,6 +198,8 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 hasResolvedSelection: true)
         };
 
+        workspace.DetailViewState.Source.CurrentIdentity = request.Identity.SourceIdentity;
+        workspace.DetailViewState.View.CurrentIdentity = request.Identity;
         bool patched = workspace.TryPatchDetailSourceChartInfo(
             request,
             CancellationToken.None,
@@ -254,6 +258,82 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.IsFalse(patched);
         Assert.AreSame(oldRows, workspace.DetailViewState.Source.Rows);
         Assert.AreSame(oldInfo, oldRow.EntryChartInfo);
+    }
+
+    /// <summary>登録済み詳細投影は要求の失効・取消後も同じ現役sourceへ反映し、退役後には新source・viewを変えません。</summary>
+    [DataTestMethod]
+    [DataRow("stale")]
+    [DataRow("cancel")]
+    [DataRow("retired")]
+    public async Task TryPatchDetailSourceChartInfo_RegisteredProjectionFollowsSourceLifetime(string outcome)
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource,
+            restoreUiApplyScheduler: async action => { entered.TrySetResult(); await release.Task; action(); });
+        using var cancellation = new CancellationTokenSource();
+        var oldInfo = new BeMusicSeeker.Models.ChartDetails { sha256 = new string('a', 64), parser_version = 1 };
+        var newInfo = new BeMusicSeeker.Models.ChartDetails { sha256 = oldInfo.sha256, parser_version = 2 };
+        var entry = new TestablePlaylistEntry(new string('a', 32), "source owned");
+        entry.SetSha256(oldInfo.sha256);
+        var table = new BMSTable { entries = [entry] };
+        var oldRow = new PlaylistDetailSourceRow(entry, null, entryChartInfo: oldInfo);
+        PlaylistRequestIdentity Identity(BMSTable sourceTable, int detailVersion) => PlaylistRequestFactory.CreateIdentity(sourceTable,
+            PlaylistDetailSelectionScope.OrdinaryRoot, null, PlaylistDetailFilter.PlaylistFilter, string.Empty, ChartModeFilter.All,
+            null, 1, 1, 1, detailVersion, true);
+        PlaylistRequestIdentity oldIdentity = Identity(table, 1);
+        workspace.DetailViewState.Source.Rows = [oldRow];
+        workspace.DetailViewState.Source.CurrentIdentity = oldIdentity.SourceIdentity;
+        workspace.DetailViewState.View.CurrentIdentity = oldIdentity;
+        workspace.DetailViewState.View.Rows = new PlaylistDetailVirtualView([oldRow], identity: oldIdentity);
+        workspace.DetailBuildState.RequestVersion = 7;
+        dataSource.ChartInfo = newInfo;
+        var request = new PlaylistBuildRequest { RequestVersion = 7, Identity = Identity(table, 2) };
+        Task<bool> patch = Task.Run(() => workspace.TryPatchDetailSourceChartInfo(request, cancellation.Token, out _, out _, out _, out _));
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, patch, "registered-detail-projection-ui-gate");
+            Assert.AreSame(oldInfo, workspace.DetailViewState.Source.Rows[0].EntryChartInfo);
+            Assert.AreEqual(1, workspace.DetailViewState.Source.Dependencies.PendingReferenceProjections.Count);
+            if (outcome == "cancel") { cancellation.Cancel(); }
+            else { workspace.DetailBuildState.RequestVersion++; }
+            List<PlaylistDetailSourceRow>? replacement = null;
+            System.Collections.IList? replacementView = null;
+            if (outcome == "retired")
+            {
+                var replacementTable = new BMSTable { entries = [new BMSTableEntry { md5 = new string('b', 32), title = "new source" }] };
+                replacement = [new PlaylistDetailSourceRow(replacementTable.entries[0], null)];
+                PlaylistRequestIdentity identity = Identity(replacementTable, 1);
+                workspace.DetailViewState.Source.Rows = replacement;
+                workspace.DetailViewState.Source.Dependencies = null;
+                workspace.DetailViewState.Source.CurrentIdentity = identity.SourceIdentity;
+                workspace.DetailViewState.View.CurrentIdentity = identity;
+                replacementView = new PlaylistDetailVirtualView(replacement, identity: identity);
+                workspace.DetailViewState.View.Rows = replacementView;
+            }
+            release.TrySetResult();
+            if (outcome == "cancel") { await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () => await patch); }
+            else { Assert.IsFalse(await patch, "失効した要求は成功へ戻しません。"); }
+            if (outcome == "retired")
+            {
+                Assert.AreSame(replacement, workspace.DetailViewState.Source.Rows);
+                Assert.AreSame(replacementView, workspace.DetailViewState.View.Rows);
+                Assert.IsNull(workspace.DetailViewState.Source.Rows[0].EntryChartInfo);
+            }
+            else
+            {
+                Assert.AreSame(newInfo, workspace.DetailViewState.Source.Rows[0].EntryChartInfo);
+                Assert.AreEqual(2, workspace.DetailViewState.Source.LastBuiltChartInfoIndexVersion);
+                PlaylistDetailDependencies dependencies = workspace.DetailViewState.Source.Dependencies ?? throw new AssertFailedException("現役sourceの依存がありません。");
+                Assert.AreEqual(0, dependencies.PendingReferenceProjections.Count);
+            }
+            Assert.AreSame(oldInfo, oldRow.EntryChartInfo);
+        }
+        finally
+        {
+            release.TrySetResult();
+            try { await patch; } catch (OperationCanceledException) when (outcome == "cancel") { }
+        }
     }
 
     /// <summary>同じ表の所持・欠損行へ未所持条件を適用し、resolveできる実library参照だけを除外することを確認します。</summary>

@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -165,7 +166,8 @@ public sealed class PlaylistCatalogViewChangeTests
         bool hold = false;
         await using var fixture = new Fixture(3, entryDeliveryScheduler: async action =>
         {
-            if (hold) { entered.TrySetResult(); await release.Task; }
+            // 旧entry配送だけを保留し、同じUI schedulerを使う別表の採用は通します。
+            if (hold) { hold = false; entered.TrySetResult(); await release.Task; }
             action();
         });
         var other = new BMSTable
@@ -339,6 +341,58 @@ public sealed class PlaylistCatalogViewChangeTests
         finally { release.TrySetResult(); await refresh; fixture.Workspace.DetailWorkObserver = null; }
     }
 
+    /// <summary>worker準備後の未配送header確定をUI採用前に見つけ、古い候補を公開せず実drain後に参照値と適用版を揃えます。</summary>
+    [TestMethod]
+    public async Task ReferenceCommit_AfterWorkerPreparationWaitsForDeliveryBeforeUiAdoption()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int hold = 1;
+        Dispatcher dispatcher = TestUiDispatcherHost.Dispatcher;
+        await using var fixture = new Fixture(16, regularDelivery: true, entryDeliveryScheduler: async action =>
+        {
+            if (Interlocked.Exchange(ref hold, 0) == 1)
+            {
+                entered.TrySetResult();
+                await release.Task;
+            }
+            await dispatcher.InvokeAsync(action).Task;
+        });
+        await fixture.DrainLibraryChanges();
+        Task refresh = fixture.Refresh();
+        ScheduledScoreOperation? delivery = null;
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, refresh, "reference-prepared-ui-candidate");
+            BMSTable table = fixture.Playlist.BMSTables.Single();
+            using (LibraryFileMutationLease lease = fixture.Playlist.AcquirePlaylistMutationLease("reference_after_worker_preparation"))
+            using (LibraryFileMutationCapability capability = lease.CreateMutationCapability())
+            {
+                fixture.Playlist.CommitPlaylistHeaderEdits(new Dictionary<BMSTable, PlaylistHeaderEdit>
+                { [table] = new() { Fields = PlaylistHeaderFields.Symbol, Symbol = "AFTER" } }, capability);
+            }
+            long required = fixture.Library.PlaylistReferenceRevision;
+            release.TrySetResult();
+            await TestUiDispatcherHost.AwaitNotificationAsync(fixture.DeliveryRequested.Task, refresh, "reference-prepared-candidate-delivery");
+            delivery = await fixture.DeliveryScheduler.NextAsync();
+            Assert.IsFalse(refresh.IsCompleted);
+            Assert.AreEqual(0, fixture.MainTable.Rows.Count, "未配送の新参照版を持つ旧候補は採用しません。");
+            delivery.Run(); delivery.Complete();
+            await refresh;
+            Assert.AreEqual(16, fixture.MainTable.Rows.Count);
+            Assert.IsTrue(fixture.MainTable.Rows.Cast<PlaylistDetailRow>().All(row => row.RefTablesSymbols == "AFTER"));
+            Assert.AreEqual(required, fixture.Workspace.DetailViewState.Source.Dependencies?.ReferenceInput?.Revision);
+        }
+        finally
+        {
+            release.TrySetResult();
+            delivery?.Abort();
+            while (fixture.DeliveryScheduler.TryTake(out ScheduledScoreOperation? queued)) { queued.Abort(); }
+            fixture.Workspace.CancelDetailBuilds();
+            await refresh;
+        }
+    }
+
     /// <summary>同条件要求でも未配送参照を待ち、配送callbackと実Completionを区別します。要求取消は共有drainを取り消しません。</summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -486,12 +540,14 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>入力捕捉後の実保守を配送前で止め、旧入力へ新版を付けず、配送後に同じ候補へ局所差分だけを反映します。</summary>
+    /// <remarks>Windowを作らず共有Dispatcherへ採用を配送し、RowsReplacingのUI所属と、現役sourceへの合法なUI配送を候補のworker追随から分けます。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task BuildingCandidate_WaitsForCommitDeliveryAndResumesWithoutRebuild(bool deliverBeforeAdoption)
     {
-        await using var fixture = new Fixture(16);
+        System.Windows.Threading.Dispatcher dispatcher = TestUiDispatcherHost.Dispatcher;
+        await using var fixture = new Fixture(16, entryDeliveryScheduler: action => dispatcher.InvokeAsync(action).Task);
         await fixture.Refresh();
         var oldRows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
         var oldFirst = (PlaylistDetailRow)oldRows[0];
@@ -501,6 +557,7 @@ public sealed class PlaylistCatalogViewChangeTests
         bool changed = false;
         EventHandler callback = (_, _) =>
         {
+            Assert.IsTrue(dispatcher.CheckAccess(), "採用前callbackは共有UI dispatcher上で実行します。");
             if (changed) { return; }
             changed = true;
             ChartFile target = fixture.Workspace.DetailViewState.Source.Rows[0].OwnedCurrent;
@@ -529,7 +586,7 @@ public sealed class PlaylistCatalogViewChangeTests
                 Assert.IsFalse(refresh.IsCompleted);
                 Assert.AreSame(oldRows, fixture.Workspace.DetailViewState.View.Rows);
                 Assert.AreEqual("A target", oldFirst.Title);
-                fixture.Deliver();
+                TestUiDispatcherHost.Invoke(fixture.Deliver);
             }
             await refresh;
             if (fixture.Workspace.DetailViewState.View.Rows[0] is not PlaylistDetailRow adopted)
@@ -541,7 +598,7 @@ public sealed class PlaylistCatalogViewChangeTests
         finally
         {
             fixture.MainTable.RowsReplacing -= callback;
-            fixture.Deliver();
+            TestUiDispatcherHost.Invoke(fixture.Deliver);
             if (refresh != null) { await refresh; }
         }
     }
@@ -828,6 +885,69 @@ public sealed class PlaylistCatalogViewChangeTests
         Assert.AreEqual(2, rows.RealizedRowCount, "対象と既訪問の背景一行だけを保持し、未訪問行を実体化しません。");
     }
 
+    /// <summary>workerが登録した詳細投影のUI採用を保留し、通常配送が先行消費した後の再開で再適用・追加通知・背景実体化を行いません。</summary>
+    [TestMethod]
+    public async Task ChartInfoPatch_NormalDeliveryConsumesRegisteredProjectionBeforeUiApply()
+    {
+        bool hold = false;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var fixture = new Fixture(16, entryDeliveryScheduler: async action =>
+        {
+            if (hold) { entered.TrySetResult(); await release.Task; }
+            action();
+        });
+        ChartFile file = fixture.Library.BmsCharts[0];
+        fixture.Library.BmsCharts = fixture.Library.BmsCharts.Skip(1).ToList();
+        fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.ChartNotes), ListSortDirection.Ascending);
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        BMSTable table = fixture.Playlist.BMSTables[0];
+        int oldPosition = rows.IndexOfSelectionIdentity(table.entries[0]);
+        var target = (PlaylistDetailRow)rows[oldPosition];
+        var background = (PlaylistDetailRow)rows[rows.IndexOfSelectionIdentity(table.entries[1])];
+        Assert.IsNull(target.ChartNotes);
+        fixture.PauseDelivery = true;
+        fixture.BatchNotificationsOnDelivery = true;
+        ChartInfoInlineBuildResult built = fixture.Library.BuildAndPersistInlineChartInfoForInstalledCharts("detail-patch-before-ui-apply", [file]);
+        Assert.AreEqual(1, built.SuccessCount);
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        { Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT notes FROM chart_info WHERE sha256 = ?;", file.Sha256)); }
+        PlaylistRequestIdentity before = fixture.Workspace.DetailViewState.View.CurrentIdentity ?? throw new AssertFailedException();
+        var request = new PlaylistBuildRequest
+        {
+            RequestVersion = fixture.Workspace.DetailBuildState.RequestVersion,
+            Identity = PlaylistRequestFactory.CreateIdentity(before.Table, before.SelectionScope, before.FolderName, before.FilterType,
+                before.KeywordFilter, before.ModeFilter, fixture.Workspace.CapturePlaylistDetailSortParameters(), fixture.Library.CatalogRevision,
+                before.Table.PlaylistEntriesRevision, fixture.Library.GetScoreSnapshotForDiagnostics().Version, fixture.Library.ChartInfoIndexVersion, true)
+        };
+        var work = new List<string>();
+        fixture.Workspace.DetailWorkObserver = work.Add;
+        int notifications = 0;
+        rows.CollectionChanged += (_, _) => notifications++;
+        hold = true;
+        Task<bool> patch = Task.Run(() => fixture.Workspace.TryPatchDetailSourceChartInfo(request, CancellationToken.None, out _, out _, out _, out _));
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, patch, "detail-patch-ui-apply-pending");
+            Assert.IsNull(target.ChartNotes, "UI採用前は登録した新情報を表示へ先取りしません。");
+            Assert.AreSame(target, rows[oldPosition]);
+            fixture.Deliver();
+            Assert.AreEqual(1, target.ChartNotes);
+            Assert.AreSame(target, rows[15]);
+            int published = notifications, realized = rows.RealizedRowCount, workCount = work.Count;
+            release.TrySetResult();
+            Assert.IsTrue(await patch);
+            Assert.AreEqual(published, notifications);
+            Assert.AreEqual(realized, rows.RealizedRowCount);
+            Assert.AreEqual(workCount, work.Count, "先行consumerの反映版を採用し、順序・投影を再処理しません。");
+            Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+            Assert.AreSame(background, rows[0]);
+            Assert.AreEqual(2, rows.RealizedRowCount);
+        }
+        finally { hold = false; release.TrySetResult(); await patch; }
+    }
+
     /// <summary>未配送catalogを必要とするentry追加を保留したまま別表を開いても、その後の配送で旧表entryが混入しません。</summary>
     [TestMethod]
     public async Task DeferredEntryCommit_DoesNotLeakIntoLaterTable()
@@ -984,6 +1104,10 @@ public sealed class PlaylistCatalogViewChangeTests
         var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
         var target = (PlaylistDetailRow)rows[0];
         var next = (PlaylistDetailRow)rows[1];
+        int selectionDepth = 0, orderNotifications = 0;
+        rows.SelectionUpdateStarting += (_, _) => { Assert.AreEqual(0, selectionDepth); selectionDepth++; };
+        rows.SelectionUpdateCompleted += (_, _) => { Assert.AreEqual(1, selectionDepth); selectionDepth--; };
+        rows.CollectionChanged += (_, _) => { Assert.AreEqual(1, selectionDepth, "順序通知は選択scope内へ含めます。"); orderNotifications++; };
         var work = new List<string>();
         fixture.Workspace.DetailWorkObserver = work.Add;
         var level = new MainChartListCellEditContext(target, nameof(PlaylistDetailRow.Level),
@@ -1004,6 +1128,9 @@ public sealed class PlaylistCatalogViewChangeTests
         Assert.AreEqual(count - 1, rows.Count);
         Assert.AreSame(next, rows[0]);
         Assert.AreEqual(-1, rows.IndexOf(target));
+        Assert.AreEqual(0, selectionDepth); Assert.AreEqual(2, orderNotifications);
+        Assert.AreEqual(1, rows.RealizedRowCount, "削除したtarget以外の背景を実体化しません。");
+        Assert.AreEqual(0, work.Count(kind => kind == "playlist_detail_materialized"));
         Assert.AreEqual(2, work.Count(kind => kind == "playlist_source_projection"));
         Assert.AreEqual(0, work.Count(kind => kind == "playlist_dependency_index_entry"));
         Assert.AreEqual(0, work.Count(kind => kind == "playlist_order_buffer"));
@@ -1156,10 +1283,28 @@ public sealed class PlaylistCatalogViewChangeTests
         }
         else
         {
-            await fixture.Workspace.DeleteSelectedEntriesAsync([first]);
-            Assert.AreEqual(count - 1, rows.Count);
-            Assert.AreSame(next, rows[0]);
+            object survivor = rows.GetSelectionIdentity(2);
+            int starts = 0, completions = 0, changes = 0;
+            rows.SelectionUpdateStarting += (_, _) => starts++;
+            rows.SelectionUpdateCompleted += (_, _) =>
+            {
+                completions++;
+                if (rows.IndexOfSelectionIdentity(first.Entry) < 0)
+                {
+                    Assert.AreEqual(-1, rows.IndexOfSelectionIdentity(next.Entry));
+                    Assert.AreEqual(0, rows.IndexOfSelectionIdentity(survivor));
+                }
+            };
+            rows.CollectionChanged += (_, _) => { changes++; Assert.AreEqual(starts - 1, completions); };
+            await fixture.Workspace.DeleteSelectedEntriesAsync([first, next]);
+            Assert.AreEqual(count - 2, rows.Count);
+            Assert.AreSame(survivor, rows.GetSelectionIdentity(0));
+            Assert.AreEqual(starts, completions);
+            Assert.AreEqual(2, changes);
+            Assert.AreEqual(0, work.Count(kind => kind == "playlist_detail_materialized"));
+            Assert.AreEqual(0, rows.RealizedRowCount);
             Assert.IsFalse(table.ContainsEntry(first.Entry));
+            Assert.IsFalse(table.ContainsEntry(next.Entry));
         }
         Assert.AreEqual(0, reloads);
         Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
@@ -1395,40 +1540,99 @@ public sealed class PlaylistCatalogViewChangeTests
             fixture.Workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion);
     }
 
-    /// <summary>初回A投影後/B投影前の実更新を、捕捉baselineにrange適用してから採用します。途中で読んだ新lookup版による付替えは認めません。</summary>
+    /// <summary>初回A投影後/B投影前の実更新をworkerでrange適用し、rootではUI採用待ち中の別key差分も最初のRows公開へ含めます。</summary>
+    /// <remarks>folderは初回投影中の差分、rootは準備後のC差分も保証します。Windowなしの共有Dispatcherで、候補投影・scoreコピーのworker所属とRowsReplacing・Rows公開のUI所属を分担します。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ScoreRanges_CommittedDuringInitialProjectionAreAppliedBeforeAdoption(bool folder)
     {
-        await using var fixture = new Fixture(16, firstFolder: folder ? "source" : null, regularDelivery: true, oracleScores: true);
+        System.Windows.Threading.Dispatcher dispatcher = TestUiDispatcherHost.Dispatcher;
+        var adoptionEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var adoptionRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int holdAdoption = folder ? 0 : 1;
+        await using var fixture = new Fixture(16, firstFolder: folder ? "source" : null, regularDelivery: true, oracleScores: true,
+            entryDeliveryScheduler: async action =>
+            {
+                if (Interlocked.Exchange(ref holdAdoption, 0) == 1)
+                {
+                    adoptionEntered.TrySetResult();
+                    await adoptionRelease.Task;
+                }
+                await dispatcher.InvokeAsync(action).Task;
+            });
         await fixture.DrainLibraryChanges();
         if (folder) { fixture.Workspace.RequestDetailSelection(fixture.Playlist.BMSTables.Single(), PlaylistFolderNode.CreateFolder("source")); }
         fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.stddevVal), ListSortDirection.Ascending);
         var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
-        int projected = 0;
+        int projected = 0, uiProjection = 0, uiScoreCopies = 0, publishedRows = 0;
         fixture.Workspace.DetailWorkObserver = kind =>
         {
+            // 初回候補だけが存在する区間なので、これらの投影は現役sourceの合法なUI配送ではありません。
+            if (kind is "playlist_source_projection" or "playlist_detail_dependency_projection" && dispatcher.CheckAccess())
+            { Interlocked.Increment(ref uiProjection); }
             if (kind == "playlist_source_projection" && Interlocked.Increment(ref projected) == 2)
             { reached.TrySetResult(); release.Wait(); }
         };
+        fixture.Library.ScoreSnapshotWorkObserver = kind =>
+        {
+            if (kind == "score_projection_value_copied" && dispatcher.CheckAccess()) { Interlocked.Increment(ref uiScoreCopies); }
+        };
+        EventHandler replacing = (_, _) => Assert.IsTrue(dispatcher.CheckAccess(), "RowsReplacingはUI採用actionに含めます。");
+        PropertyChangedEventHandler published = (_, args) =>
+        {
+            if (args.PropertyName != nameof(MainChartListViewModel.Rows)) { return; }
+            Assert.IsTrue(dispatcher.CheckAccess());
+            publishedRows++;
+            CollectionAssert.AreEqual(folder ? new[] { "entry 1", "entry 2", "entry 0" } : new[] { "entry 2", "entry 1", "entry 0" },
+                fixture.MainTable.Rows.Cast<PlaylistDetailRow>().Take(3).Select(row => row.Entry.title).ToArray(),
+                "最初のRows公開から、UI採用待ち中に届いた差分を含む最終順序を公開します。");
+            Assert.AreEqual(fixture.Library.GetScoreSnapshotForDiagnostics().Version,
+                fixture.Workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion);
+        };
+        fixture.MainTable.RowsReplacing += replacing;
+        fixture.MainTable.PropertyChanged += published;
         Task refresh = fixture.Refresh();
         try
         {
-            await reached.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(reached.Task, refresh, "initial-score-projection");
             fixture.ChangeScore(0, 40); fixture.ChangeScore(1, 5);
             await fixture.DrainLibraryChanges();
             release.Set();
+            if (!folder)
+            {
+                await TestUiDispatcherHost.AwaitNotificationAsync(adoptionEntered.Task, refresh, "prepared-candidate-ui-adoption");
+                Assert.AreEqual(0, publishedRows);
+                fixture.ChangeScore(2, 1);
+                await fixture.DrainLibraryChanges();
+                adoptionRelease.TrySetResult();
+            }
             await refresh;
             var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
-            CollectionAssert.AreEqual(new[] { "entry 1", "entry 2", "entry 0" }, rows.Cast<PlaylistDetailRow>().Take(3).Select(row => row.Entry.title).ToArray());
-            Assert.AreEqual(5, ((PlaylistDetailRow)rows[0]).score);
+            CollectionAssert.AreEqual(folder ? new[] { "entry 1", "entry 2", "entry 0" } : new[] { "entry 2", "entry 1", "entry 0" },
+                rows.Cast<PlaylistDetailRow>().Take(3).Select(row => row.Entry.title).ToArray());
+            Assert.AreEqual(folder ? 5 : 1, ((PlaylistDetailRow)rows[0]).score);
             Assert.AreEqual(40, ((PlaylistDetailRow)rows[2]).score);
+            Assert.AreEqual(1, publishedRows);
+            Assert.AreEqual(0, uiProjection, "初回候補と依存差分の投影をworkerに保ちます。");
+            Assert.AreEqual(0, uiScoreCopies, "候補追随のscoreコピーをUIへ移しません。");
             Assert.AreEqual(fixture.Library.GetScoreSnapshotForDiagnostics().Version,
                 fixture.Workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion);
         }
-        finally { release.Set(); fixture.Workspace.CancelDetailBuilds(); await refresh; }
+        finally
+        {
+            release.Set(); adoptionRelease.TrySetResult();
+            fixture.Workspace.CancelDetailBuilds();
+            try { await refresh; }
+            finally
+            {
+                fixture.MainTable.RowsReplacing -= replacing;
+                fixture.MainTable.PropertyChanged -= published;
+                fixture.Workspace.DetailWorkObserver = null;
+                fixture.Library.ScoreSnapshotWorkObserver = null;
+            }
+        }
     }
 
     /// <summary>実drainのfanout失敗、正常配送だがworkspace未反映、port欠落を要求失敗へ収束させ、score新版のreuseと永久待機を防ぎます。</summary>

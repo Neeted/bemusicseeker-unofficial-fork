@@ -163,7 +163,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
-    /// <summary>順序四入口を実DB・本番サマリー・configへ接続し、同期前のP保持、ドラッグ選択世代、無変更と次操作を確認します。</summary>
+    /// <summary>順序四入口を実DB・本番サマリー・configへ接続し、同期前のP保持、無変更と次操作を確認します。</summary>
     [DataTestMethod]
     // 四つの入口へ異なる選択を渡し、どれも独立期待の3→1→2へ並べ替えます。
     [DataRow("top")]
@@ -219,11 +219,9 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Dictionary<string, byte[]> bytes = files.ToDictionary(path => path, File.ReadAllBytes);
             Dictionary<string, DateTime> times = files.ToDictionary(path => path, File.GetLastWriteTimeUtc);
             var library = new TestBmsLibrary(db);
-            List<PlaylistSummarySelectionRestoreRequest> selections = [];
             workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
                 playlistLibraryProvider: () => library,
-                playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables),
-                selectionRestoreSink: selections.Add);
+                playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables));
             workspace.RefreshPlaylistTreeTables(playlist, library);
             workspace.IsPlaylistSummaryMode = true;
             workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.BmtSort), System.ComponentModel.ListSortDirection.Ascending);
@@ -259,12 +257,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             {
                 CollectionAssert.AreEqual(bytes[file], File.ReadAllBytes(file));
                 Assert.AreEqual(times[file], File.GetLastWriteTimeUtc(file));
-            }
-            if (command == "drop")
-            {
-                Assert.AreEqual(1, selections.Count);
-                CollectionAssert.AreEquivalent(new[] { 3 }, selections[0].PlaylistIds.ToArray());
-                Assert.AreEqual(3, selections[0].CurrentPlaylistId);
             }
             long generation = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
             await workspace.ApplyCurrentVisibleBmtOrderAsync(workspace.PlaylistSummaryView.ToArray());
@@ -1648,26 +1640,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual(0, notifications.Count);
         }
         finally { Directory.Delete(tempDirectory, recursive: true); }
-    }
-
-    /// <summary>現世代のsummary行を適用しても保留された選択復元がなければ復元要求を公開せず、適用ごとの意図しない選択変更を防ぎます。</summary>
-    [TestMethod]
-    public void PlaylistWorkspaceSummaryApplyDoesNotPublishSelectionWithoutPendingRestore()
-    {
-        var restoreRequests = new List<PlaylistSummarySelectionRestoreRequest>();
-        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
-        workspace.IsPlaylistSummaryMode = true;
-        workspace.PlaylistSummarySelectionRestoreRequested += restoreRequests.Add;
-        long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
-        long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
-        Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
-        {
-            Rows = new ObservableCollection<PlaylistSummaryRow> { new() },
-            PresentationGeneration = presentationGeneration,
-            DataRebuildGeneration = dataGeneration
-        }));
-
-        Assert.AreEqual(0, restoreRequests.Count);
     }
 
     /// <summary>summary buildの後発開始で先行tokenを取消し、modeを外れたら後発も取消して新buildを拒否し、両完了後にidleへ戻します。</summary>

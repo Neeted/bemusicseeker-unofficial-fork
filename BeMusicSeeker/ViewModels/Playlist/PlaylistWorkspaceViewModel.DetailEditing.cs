@@ -204,7 +204,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         primaryFailure?.Throw();
     }
 
-    private void CompleteDetailEditSession()
+    private void CompleteDetailEditSession() => PreserveDetailSelection(() =>
     {
         lock (DetailViewState.SyncRoot)
         {
@@ -213,7 +213,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             { (DetailViewState.View.Rows as PlaylistDetailVirtualView)?.FlushDeferred(current); }
         }
         PublishDetailChanges();
-    }
+        return true;
+    });
 
     private static bool IsDetailEditableProperty(string propertyName)
     {

@@ -32,6 +32,9 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
 
     public int ScoreSnapshotVersion => 1;
 
+    /// <summary>他の入力版から導出せず、テストが独立して指定する現在確定参照版です。</summary>
+    public long ReferenceRevision { get; set; }
+
     internal long? CurrentCatalogRevision { get; set; }
 
     public long CatalogRevision => CurrentCatalogRevision ?? ResolveIndexSnapshot.CatalogRevision;

@@ -1429,7 +1429,7 @@ public partial class MainWindowViewModel : ViewModel,
     private void FlushPendingUiRefresh(UiRefreshChannel mask, long operationToken, bool logReadiness)
         => FlushRequiredUiRefreshAsync(mask, operationToken, logReadiness).ObserveFault("Library presentation refresh");
 
-    /// <summary>今回のライブラリ、保留、表一覧と選択中詳細の実表示を直接待ちます。独立readerやwarmupのidleを追加しません。</summary>
+    /// <summary>今回の確定通知を既存drainで配送してから、ライブラリ、保留、表一覧と選択中詳細の必須表示を待ちます。独立readerやwarmupのidleを追加しません。</summary>
     private async Task FlushRequiredUiRefreshAsync(UiRefreshChannel mask, long operationToken, bool logReadiness)
     {
         LogUiSuppression("ui_suppress flush mask=" + mask);
@@ -1472,6 +1472,8 @@ public partial class MainWindowViewModel : ViewModel,
         if ((mask & UiRefreshChannel.LibraryMainView) != 0)
         {
             var stopwatch5 = Stopwatch.StartNew();
+            // 同じ操作から遅れて届くreset通知が、この必須表示の候補を失効させる前に配送を終える。
+            if (files != null) { await regularChartListOwner.DeliverPendingLibraryChangesAsync(files, CancellationToken.None); }
             await RefreshLibraryMainViewForCurrentFilter();
             stopwatch5.Stop();
             num5 = stopwatch5.ElapsedMilliseconds;

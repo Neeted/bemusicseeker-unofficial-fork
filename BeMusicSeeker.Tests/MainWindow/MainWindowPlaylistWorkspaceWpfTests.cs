@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -43,6 +44,346 @@ namespace BeMusicSeeker.Tests;
 public sealed class MainWindowPlaylistWorkspaceWpfTests
 {
     private const string NativeModalFixturePlaylistName = "Native modal fixture";
+
+    /// <summary>実summary Bindingの行投影交換で主添字が不変でも副選択をIDで保ち、BMTドラッグの確定対象は更新直前の別選択より優先します。</summary>
+    /// <remarks>表の選択行とTSV対象を観測します。保存・config・受付終端の網羅はBmtOrderCommandsへ分担します。</remarks>
+    [TestMethod]
+    public void SummaryRowsReplacement_KeepsSelectedIdsAndPrioritizesBmtDropIntent()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope);
+            Task? operation = null;
+            try
+            {
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                BMSTable[] tables = Enumerable.Range(1, 4).Select(id => new BMSTable
+                { playlist_id = id, name = "Selection " + id, bmt_sort = id, is_bmt_output = false }).ToArray();
+                fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>(tables);
+                fixture.Playlist.CommitBMSTableHeadersToDB(tables);
+                workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
+                workspace.SetPlaylistSummaryMode(true);
+                workspace.RebuildPlaylistSummaryView(runAsync: false);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "selection-summary-idle");
+                var table = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                Assert.AreSame(workspace.PlaylistSummaryView, table.ItemsSource);
+                table.Width = 500; table.Height = 180;
+                table.Measure(new Size(500, 180)); table.Arrange(new Rect(0, 0, 500, 180));
+                table.UpdateLayout();
+                void Apply(params int[] ids)
+                {
+                    Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+                    {
+                        Rows = new ObservableCollection<PlaylistSummaryRow>(ids.Select(id => CreatePlaylistSummaryRow(tables[id - 1]))),
+                        PresentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration()
+                    }));
+                }
+                int[] Selected() => table.GetSelectedRowsSnapshot().Cast<PlaylistSummaryRow>().Select(row => row.PlaylistId ?? -1).ToArray();
+                Apply(1, 2, 3, 4);
+                table.SelectRowsByPredicate(row => row is PlaylistSummaryRow summary && summary.PlaylistId is 1 or 3,
+                    row => row is PlaylistSummaryRow summary && summary.PlaylistId == 1);
+                object[] before = table.GetSelectedRowsSnapshot().ToArray();
+                Apply(1, 2, 4, 3);
+                Assert.AreEqual(0, table.SelectedIndex);
+                CollectionAssert.AreEqual(new[] { 1, 3 }, Selected());
+                Assert.AreNotSame(before[0], table.GetSelectedRowsSnapshot()[0]);
+                Assert.AreNotSame(before[1], table.GetSelectedRowsSnapshot()[1]);
+                string tsv = CustomTableDataTransfer.BuildTsv(table.GetSelectedRowsSnapshot(), table.VisibleColumns);
+                StringAssert.Contains(tsv, "Selection 1"); StringAssert.Contains(tsv, "Selection 3");
+                Assert.IsFalse(tsv.Contains("Selection 4", StringComparison.Ordinal));
+                // 新しい利用者選択を直前に変更し、旧要求の開始時選択を使う実装を区別します。
+                table.SelectRowsByPredicate(row => row is PlaylistSummaryRow summary && summary.PlaylistId == 4);
+                Apply(3, 2, 1, 4);
+                CollectionAssert.AreEqual(new[] { 4 }, Selected());
+                // OwnedCharts更新の全体Reset前に、同値Name編集の同期再入を旧ABC表示で完結させます。
+                workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.OwnedCharts), System.ComponentModel.ListSortDirection.Descending);
+                workspace.RebuildPlaylistSummaryView(runAsync: false);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "selection-owned-summary-idle");
+                PlaylistSummaryRow[] OwnedRows(params (int Id, int Owned)[] values) => values.Select(value =>
+                {
+                    PlaylistSummaryRow row = CreatePlaylistSummaryRow(tables[value.Id - 1]);
+                    row.OwnedCharts = value.Owned; row.TotalCharts = value.Owned;
+                    return row;
+                }).ToArray();
+                long oldGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
+                var oldIdentity = new PlaylistSummaryPresentationIdentity(oldGeneration, string.Empty, PlaylistOwnedFilter.All,
+                    nameof(PlaylistSummaryRow.OwnedCharts), System.ComponentModel.ListSortDirection.Descending);
+                PlaylistSummaryRow[] oldRows = OwnedRows((1, 4), (2, 3), (3, 1));
+                var unchanged = new PlaylistSummaryApplyRequest
+                { Rows = oldRows, Identity = oldIdentity, PresentationGeneration = oldGeneration };
+                Assert.IsTrue(workspace.TryApplyPlaylistSummary(unchanged));
+                CustomTableColumn[] previousColumns = table.Columns.ToArray();
+                table.Columns = [.. table.Columns.Where(column => column.EditPropertyName == nameof(PlaylistSummaryRow.Name))];
+                table.SelectedIndex = 1;
+                table.HandleKeyDown(Key.Up, ModifierKeys.Shift);
+                int editEnded = 0;
+                EventHandler<CustomTableCellEditEndedEventArgs> ended = (_, args) =>
+                {
+                    editEnded++;
+                    Assert.IsTrue(args.Commit);
+                    Assert.AreSame(oldRows[0], args.Row);
+                    Assert.AreEqual(nameof(PlaylistSummaryRow.Name), args.EditPropertyName);
+                    Assert.AreEqual(tables[0].name, args.Text);
+                    CollectionAssert.AreEqual(new[] { 1, 2, 3 }, table.ItemsSource.Cast<PlaylistSummaryRow>().Select(row => row.PlaylistId ?? -1).ToArray());
+                };
+                table.CellEditEnded += ended;
+                try
+                {
+                    Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                    TextBox editor = table.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).Single();
+                    editor.Text = "unconfirmed summary draft";
+                    Assert.IsTrue(workspace.TryApplyPlaylistSummary(unchanged));
+                    Assert.AreSame(editor, table.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).Single());
+                    Assert.AreEqual("unconfirmed summary draft", editor.Text);
+                    Assert.AreEqual(0, editEnded, "同じ表示の再適用ではeditorを終端しません。");
+                    editor.Text = tables[0].name;
+                    long nextGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
+                    var changed = new PlaylistSummaryApplyRequest
+                    {
+                        Rows = OwnedRows((3, 5), (1, 4), (2, 3)),
+                        PresentationGeneration = nextGeneration,
+                        Identity = new PlaylistSummaryPresentationIdentity(nextGeneration, string.Empty, PlaylistOwnedFilter.All,
+                            nameof(PlaylistSummaryRow.OwnedCharts), System.ComponentModel.ListSortDirection.Descending)
+                    };
+                    bool resetApplied = false;
+                    operation = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => resetApplied = workspace.TryApplyPlaylistSummary(changed));
+                    Assert.IsTrue(resetApplied);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "selection-summary-reset-edit-terminal");
+                    Assert.AreEqual(1, editEnded);
+                    CollectionAssert.AreEqual(new[] { 1, 2 }, Selected());
+                    Assert.AreEqual(1, table.SelectedIndex, "主行Aを新しい位置へ復元します。");
+                    tsv = CustomTableDataTransfer.BuildTsv(table.GetSelectedRowsSnapshot(), table.VisibleColumns);
+                    StringAssert.Contains(tsv, "Selection 1"); StringAssert.Contains(tsv, "Selection 2");
+                    Assert.IsFalse(tsv.Contains("Selection 3", StringComparison.Ordinal));
+                    table.HandleKeyDown(Key.Down, ModifierKeys.Shift);
+                    CollectionAssert.AreEqual(new[] { 2 }, Selected(), "Shift基点Bを保持し、ShiftDownはBだけを選びます。");
+                }
+                finally
+                {
+                    table.CellEditEnded -= ended;
+                    table.Columns = previousColumns;
+                }
+                workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.BmtSort), System.ComponentModel.ListSortDirection.Ascending);
+                workspace.RebuildPlaylistSummaryView(runAsync: false);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "selection-bmt-summary-idle");
+                table.SelectRowsByPredicate(row => row is PlaylistSummaryRow summary && summary.PlaylistId == 1);
+                PlaylistSummaryRow[] visible = workspace.PlaylistSummaryView.ToArray();
+                PlaylistSummaryRow dragged = visible.Single(row => row.PlaylistId == 3);
+                var applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var selectionSource = (ICustomTableSelectionIdentitySource)workspace.PlaylistSummaryView;
+                EventHandler matchingCompleted = (_, args) =>
+                {
+                    if (args is CustomTableSelectionUpdateEventArgs) { applied.TrySetResult(); }
+                };
+                selectionSource.SelectionUpdateCompleted += matchingCompleted;
+                try
+                {
+                    operation = workspace.DropSummaryRowsInBmtOrderAsync(visible, [dragged], 0, 3);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "selection-bmt-drop-terminal");
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(applied.Task, "selection-bmt-applied");
+                }
+                finally { selectionSource.SelectionUpdateCompleted -= matchingCompleted; }
+                CollectionAssert.AreEqual(new[] { 3 }, Selected());
+                PlaylistSummaryRow current = table.ItemsSource[table.SelectedIndex] as PlaylistSummaryRow ?? throw new AssertFailedException("BMTの主行がありません。");
+                Assert.AreEqual(3, current.PlaylistId);
+                Assert.IsNotNull(table.GetCurrentCellColumn(table.SelectedIndex));
+                table.HandleKeyDown(Key.Down, ModifierKeys.Shift);
+                Assert.AreEqual(2, Selected().Length, "BMTのShift基点も明示主行へ揃えます。");
+                table.SelectRowsByPredicate(row => row is PlaylistSummaryRow summary && summary.PlaylistId == 3);
+                visible = workspace.PlaylistSummaryView.ToArray();
+                long beforeNoChange = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+                operation = workspace.DropSummaryRowsInBmtOrderAsync(visible, [visible[0]], 0, 3);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "selection-bmt-no-change");
+                Assert.AreEqual(beforeNoChange, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+                CollectionAssert.AreEqual(new[] { 3 }, Selected());
+                var supersededApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                long supersededGeneration = long.MaxValue;
+                EventHandler supersededCompleted = (_, _) =>
+                {
+                    if (workspace.CurrentPlaylistSummaryDataRebuildGeneration >= supersededGeneration) { supersededApplied.TrySetResult(); }
+                };
+                selectionSource.SelectionUpdateCompleted += supersededCompleted;
+                System.ComponentModel.PropertyChangedEventHandler? supersede = null;
+                supersede = (_, args) =>
+                {
+                    if (args.PropertyName != nameof(workspace.PlaylistSummaryView)) { return; }
+                    workspace.PropertyChanged -= supersede;
+                    supersededGeneration = workspace.RequestPlaylistSummaryDataRefresh("selection-notification-supersedes-bmt");
+                };
+                workspace.PropertyChanged += supersede;
+                try
+                {
+                    visible = workspace.PlaylistSummaryView.ToArray();
+                    operation = workspace.DropSummaryRowsInBmtOrderAsync(visible, [visible.Single(row => row.PlaylistId == 4)], 0, 4);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "selection-bmt-superseded-drop");
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(supersededApplied.Task, "selection-bmt-superseded-presentation");
+                    CollectionAssert.AreEqual(new[] { 3 }, Selected(), "通知中に世代更新された旧BMT意図では現選択を上書きしません。");
+                }
+                finally
+                {
+                    workspace.PropertyChanged -= supersede;
+                    selectionSource.SelectionUpdateCompleted -= supersededCompleted;
+                }
+                table.ItemsSource = null;
+                Apply(1, 2, 3, 4);
+                Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count, "解除済みの表へ旧sourceの更新を届けません。");
+            }
+            finally
+            {
+                try { if (operation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "selection-summary-cleanup"); } }
+                finally { fixture.Close(); }
+            }
+        });
+    }
+
+    /// <summary>実詳細更新の同文脈view交換で同hashの別entryを区別し、主行・Shift基点とcompiled削除対象を保ち、別folderでは解除します。</summary>
+    /// <remarks>標準workspaceの詳細構築から実Binding・compiledメニューまでを接続し、物理削除の保存条件は既存mutation系列へ分担します。</remarks>
+    [TestMethod]
+    public void DetailRowsReplacement_KeepsEntrySelectionAndCompiledRemovalTargets()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            IReadOnlyList<object>? removed = null;
+            var removal = new MainWindowPlaylistEntryRemovalTerminal(rows => { removed = rows; return Task.CompletedTask; });
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope,
+                configureSettings: values =>
+                {
+                    string playerRoot = Path.Combine(values.BMSRootPath, "selection-history");
+                    string player = Path.Combine(playerRoot, "player", "selection");
+                    Directory.CreateDirectory(player);
+                    File.WriteAllText(Path.Combine(playerRoot, "beatoraja.jar"), string.Empty);
+                    File.WriteAllText(Path.Combine(playerRoot, BeatorajaConfigService.ConfigFileName), "{\"playername\":\"selection\"}");
+                    string sha256 = new('a', 64);
+                    string scorePath = Path.Combine(player, "score.db");
+                    using (var score = new SQLite.SQLiteConnection(scorePath))
+                    {
+                        score.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
+                        score.Execute("INSERT INTO score VALUES (?, 0, 4, 50, 0, 0, 0, 100, 50, 5, 1, 1)", sha256);
+                        score.Execute("CREATE TABLE player (date INTEGER PRIMARY KEY, playcount INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, egd INTEGER, lgd INTEGER, ebd INTEGER, lbd INTEGER, epr INTEGER, lpr INTEGER, ems INTEGER, lms INTEGER, playtime INTEGER)");
+                    }
+                    using (var history = new SQLite.SQLiteConnection(Path.Combine(player, "scorelog.db")))
+                    {
+                        history.Execute("CREATE TABLE scorelog (sha256 TEXT NOT NULL, mode INTEGER, clear INTEGER, oldclear INTEGER, score INTEGER, oldscore INTEGER, combo INTEGER, oldcombo INTEGER, minbp INTEGER, oldminbp INTEGER, date INTEGER)");
+                        history.Execute("INSERT INTO scorelog VALUES (?, 0, 4, 3, 100, 90, 50, 40, 5, 6, 1700000000)", sha256);
+                    }
+                    values.UseBeatorajaScoreDb = true;
+                    values.BeatorajaRootPath = playerRoot;
+                    values.BeatorajaPlayerId = "selection";
+                    values.BeatorajaScoreDbPath = scorePath;
+                }, playlistWorkspaceTerminals: CreateTerminals(entryRemoval: removal));
+            try
+            {
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                BMSTableEntry[] entries = Enumerable.Range(0, 4).Select(index => new BMSTableEntry
+                { md5 = index < 2 ? new string('a', 32) : index.ToString("x32"), title = "Entry " + index, folder = "Folder " + index, level = index }).ToArray();
+                fixture.Table.entries = entries.ToList();
+                fixture.Table.is_external_sync = false;
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                playlistRoot.IsExpanded = true;
+                MaterializeTreeItems(playlistRoot);
+                TreeViewItem tableItem = playlistRoot.ItemContainerGenerator.ContainerFromItem(fixture.Table) as TreeViewItem
+                    ?? throw new AssertFailedException("選択を検証する表の実ツリー項目がありません。");
+                tableItem.IsSelected = true;
+                workspace.RequestDetailSelection(fixture.Table);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                void Refresh()
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
+                        MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, false, default), "entry-selection-refresh");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "entry-selection-idle");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
+                workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.Title), System.ComponentModel.ListSortDirection.Ascending);
+                Refresh();
+                var table = (CustomTableView)fixture.Window.FindName("customTableView");
+                Assert.AreSame(fixture.ViewModel.MainChartList.Rows, table.ItemsSource);
+                table.Width = 500; table.Height = 180;
+                table.Measure(new Size(500, 180)); table.Arrange(new Rect(0, 0, 500, 180));
+                table.UpdateLayout();
+                table.SelectedIndex = 1;
+                table.HandleKeyDown(Key.Up, ModifierKeys.Shift);
+                IList previous = table.ItemsSource;
+                int replacingCalls = 0;
+                EventHandler? beforeReplacing = null;
+                beforeReplacing = (_, _) =>
+                {
+                    fixture.ViewModel.MainChartList.RowsReplacing -= beforeReplacing;
+                    Assert.IsTrue(table.Dispatcher.CheckAccess(), "採用前の編集準備と選択操作をUI上で実行します。");
+                    replacingCalls++;
+                    table.SelectedIndex = 2;
+                    table.HandleKeyDown(Key.Up, ModifierKeys.Shift);
+                };
+                fixture.ViewModel.MainChartList.RowsReplacing += beforeReplacing;
+                try
+                {
+                    workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.Title), System.ComponentModel.ListSortDirection.Descending);
+                    Refresh();
+                }
+                finally { fixture.ViewModel.MainChartList.RowsReplacing -= beforeReplacing; }
+                Assert.AreEqual(1, replacingCalls);
+                Assert.AreNotSame(previous, table.ItemsSource);
+                Assert.AreSame(fixture.ViewModel.MainChartList.Rows, table.ItemsSource, "公開された実Bindingを補完せず観測します。");
+                CollectionAssert.AreEqual(new[] { entries[2], entries[1] }, table.GetSelectedRowsSnapshot().Cast<PlaylistDetailRow>().Select(row => row.Entry).ToArray());
+                PlaylistDetailRow current = table.ItemsSource[table.SelectedIndex] as PlaylistDetailRow ?? throw new AssertFailedException("詳細の主行がありません。");
+                Assert.AreSame(entries[1], current.Entry);
+                Assert.AreEqual(table.SelectedIndex, fixture.ViewModel.MainChartList.SelectedIndex);
+                var menu = (ContextMenu)fixture.Window.FindResource("tableContextMenu");
+                menu.PlacementTarget = table;
+                Assert.IsTrue(RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemDeleteEntry")).Handled);
+                Assert.IsNotNull(removed);
+                CollectionAssert.AreEqual(new[] { entries[2], entries[1] }, removed.Cast<PlaylistDetailRow>().Select(row => row.Entry).ToArray());
+                table.HandleKeyDown(Key.Up, ModifierKeys.Shift);
+                CollectionAssert.AreEqual(new[] { entries[2] }, table.GetSelectedRowsSnapshot().Cast<PlaylistDetailRow>().Select(row => row.Entry).ToArray());
+                workspace.RequestDetailSelection(fixture.Table, PlaylistFolderNode.CreateFolder("Folder 1"));
+                Refresh();
+                Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count);
+                Assert.AreEqual(-1, table.SelectedIndex);
+                Assert.AreEqual(-1, fixture.ViewModel.MainChartList.SelectedIndex);
+
+                var historyPublished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var detailPublished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                System.ComponentModel.PropertyChangedEventHandler published = (_, args) =>
+                {
+                    if (args.PropertyName != nameof(MainChartListViewModel.Rows)) { return; }
+                    if (fixture.ViewModel.MainChartList.Rows is PlayHistoryVirtualView) { historyPublished.TrySetResult(); }
+                    if (historyPublished.Task.IsCompleted && fixture.ViewModel.MainChartList.Rows is PlaylistDetailVirtualView)
+                    { detailPublished.TrySetResult(); }
+                };
+                fixture.ViewModel.MainChartList.PropertyChanged += published;
+                try
+                {
+                    var historyRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlayHistory");
+                    historyRoot.IsSelected = true;
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(historyPublished.Task, "entry-selection-history-binding");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsInstanceOfType<PlayHistoryVirtualView>(fixture.ViewModel.MainChartList.Rows);
+                    Assert.AreEqual(MainViewOperationSection.PlayHistory, fixture.ViewModel.MainChartList.CurrentOperationContext.OperationSection);
+                    Assert.AreSame(fixture.ViewModel.MainChartList.Rows, table.ItemsSource);
+                    Assert.AreEqual(1, table.ItemsSource.Count);
+                    table.SelectedIndex = 0;
+                    Assert.AreEqual(0, fixture.ViewModel.MainChartList.SelectedIndex);
+                    tableItem.IsSelected = true;
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(detailPublished.Task, "entry-selection-from-history-binding");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "entry-selection-from-history-idle");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsInstanceOfType<PlaylistDetailVirtualView>(fixture.ViewModel.MainChartList.Rows);
+                    Assert.AreSame(fixture.ViewModel.MainChartList.Rows, table.ItemsSource);
+                    Assert.IsTrue(table.ItemsSource.Count > 0);
+                    Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count);
+                    Assert.AreEqual(-1, table.SelectedIndex);
+                    Assert.AreEqual(-1, fixture.ViewModel.MainChartList.SelectedIndex);
+                    removed = null;
+                    RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemDeleteEntry"));
+                    Assert.IsTrue(removed == null || removed.Count == 0, "履歴から移動した詳細で、新しい選択なしに削除対象を渡しません。");
+                }
+                finally { fixture.ViewModel.MainChartList.PropertyChanged -= published; }
+            }
+            finally { fixture.Close(); }
+        });
+    }
 
     /// <summary>fr-FRの実ENTRY LEVELセルで固定dot表示を無変更Enterし、Escape・不正入力の実通知・次の正常保存まで正本とDBを確認します。</summary>
     /// <remarks>実列・Binding・F2/Enter/Escapeからdefault端末への接続を担当します。文化別の数値条件は保存主体へ分担し、数値文化と翻訳文化を分けます。</remarks>
@@ -5110,7 +5451,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         Func<Window, UiMessageRequest, ThemedMessageBoxResponse>? messagePresenter = null,
         Action<Settings>? configureSettings = null,
         Func<BeatorajaBmtOptionsSnapshot>? bmtOptionsProvider = null,
-        bool withScoreDatabase = false)
+        bool withScoreDatabase = false,
+        MainWindowPlaylistWorkspaceTerminals? playlistWorkspaceTerminals = null)
     {
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -5210,8 +5552,24 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             window = ownership.CreateWindow(() => new MainWindow(
                 viewModel,
                 settingsWindowCreated: null,
+                libraryReloadMenuTerminal: null,
+                regularLibraryTreeTerminal: null,
+                maintenanceTreeTerminal: null,
+                installTreeTerminal: null,
+                zeroNoteRecheckTerminal: null,
+                columnResetTerminal: null,
+                folderAutoRenameTerminal: null,
+                duplicateMaintenanceTerminal: null,
+                maintenanceRescanTerminal: null,
+                packageCatalogTerminal: null,
+                pendingInstallEstimationTerminal: null,
+                pendingInstallationTerminal: null,
+                installedLocationRepairTerminal: null,
+                pendingBulkMaintenanceTerminal: null,
+                mainChartCellEditTerminal: null,
                 playlistWorkspaceDialogService: actualRouteDialogService,
-                mainWindowForegroundTerminal: foregroundTerminal));
+                mainWindowForegroundTerminal: foregroundTerminal,
+                playlistWorkspaceTerminals: playlistWorkspaceTerminals));
             RoutedEventHandler ensureNonActivatingPosition = (_, _) =>
                 window.Dispatcher.BeginInvoke(
                     DispatcherPriority.Render,
