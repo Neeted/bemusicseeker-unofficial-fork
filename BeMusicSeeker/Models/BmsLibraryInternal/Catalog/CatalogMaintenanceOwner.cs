@@ -170,7 +170,7 @@ internal sealed class CatalogMaintenanceOwner
         }
     }
 
-    /// <summary>保守結果を現在値へ確定し、更新がなければ既存の健全性索引を完了後の入力版へ接続します。明示した選択保留は資源だけを再調査し、成功結果を保存差分と独立して返します。保留の保存差分は同path/hashのDB行と比較し、配置表示を比較元にしません。</summary>
+    /// <summary>保守結果を現在値へ確定し、更新がなければ既存の健全性索引を完了後の入力版へ接続します。明示した選択保留は資源だけを再調査し、成功結果を保存差分と独立して返します。保留の評価結果は項目の寿命内だけで使い、songと保守行を読み書きしません。</summary>
     internal CatalogMaintenanceOperationReceipt ApplyMaintenance(
         ResourceMaintenanceTargetSet targetSet,
         bool forceUpdate,
@@ -223,15 +223,6 @@ internal sealed class CatalogMaintenanceOwner
                 indexCurrentBeforeUpdate = inputMutation.BaseIndexCurrent;
                 try
                 {
-                    List<ChartFile> pendingTargets = [.. targetCharts.Where(chart => chart.Token == null && selectedPendingPaths?.Contains(chart.Path) == true)];
-                    IReadOnlyDictionary<string, ResourceHealthMaintenanceSnapshot> savedByPath = dbGateway.LoadMaintenanceSnapshotsByPath(pendingTargets.Select(chart => chart.Path));
-                    var selectedPendingSnapshots = new Dictionary<string, ResourceHealthMaintenanceSnapshot>(StringComparer.Ordinal);
-                    foreach (ChartFile chart in pendingTargets)
-                    {
-                        // ハッシュの表記差は既存の内容識別契約に従い、保存差分へ混ぜません。未登録・別内容も選択キーを残します。
-                        selectedPendingSnapshots[chart.Path] = savedByPath.TryGetValue(chart.Path, out ResourceHealthMaintenanceSnapshot saved)
-                            && string.Equals(saved.Hash, chart.Md5, StringComparison.OrdinalIgnoreCase) ? saved with { Hash = chart.Md5 } : null;
-                    }
                     workflowResult = maintenanceService.UpdateMaintenanceInfo(
                         targetCharts,
                         forceUpdate,
@@ -245,7 +236,7 @@ internal sealed class CatalogMaintenanceOwner
                         effects =>
                         {
                             postCommitEffects = effects;
-                        }, selectedPendingSnapshots);
+                        }, selectedPendingPaths);
                     if (workflowResult?.HasUpdates == true)
                     {
                         basicValuesChanged = ApplyCommittedCurrentValues(workflowResult.ChangedCharts);
@@ -353,7 +344,7 @@ internal sealed class CatalogMaintenanceOwner
         }
     }
 
-    /// <summary>所持の現行値と明示した保留項目から文字コード変更を準備し、DB成功後に所持現在値を反映します。保留はsong行を新設しません。</summary>
+    /// <summary>所持の現行値と明示した保留項目から文字コード変更を準備し、所持分のDB成功後に現在値の反映を許可します。保留だけならDB保存を要求せず、その項目の寿命内に保持します。</summary>
     internal MaintenanceEncodingUpdateResult ApplyEncoding(IEnumerable<ChartFile> charts, string encoding,
         IReadOnlyList<PackageChartEntry> pendingEntries = null)
     {
@@ -379,11 +370,10 @@ internal sealed class CatalogMaintenanceOwner
                     return result;
                 }
 
-                CatalogMaintenanceWriteReceipt receipt = catalogMutationOwner.ApplyMaintenanceWriteUnderGuard(new(
+                var writeRequest = new CatalogMaintenanceWriteRequest(
                     result.ChangedCharts.Where(chart => chart.Token != null).Select(chart => chart.ResourceHealthMaintenanceSnapshot),
-                    result.SongMetadataUpdates, currentValues: result.ChangedCharts,
-                    encodingOnlyInfos: result.ChangedCharts.Where(chart => chart.Token == null).Select(chart => chart.ResourceHealthMaintenanceSnapshot)));
-                if (!receipt.Applied)
+                    result.SongMetadataUpdates, currentValues: result.ChangedCharts);
+                if (writeRequest.HasChanges && !catalogMutationOwner.ApplyMaintenanceWriteUnderGuard(writeRequest).Applied)
                 {
                     throw new InvalidOperationException("Encoding changes were not persisted.");
                 }

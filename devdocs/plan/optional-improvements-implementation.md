@@ -34,7 +34,7 @@
 | U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04/U08と直列 |
 | U07 言語変更と確認文言 | 音声 → 検索 → プロパティ → ランプ → 確認ボタン | 既存owner別コミット。全言語資源は一担当。U03/U16/U17/U20/U23と共有編集を調整 |
 | U08 手動ランキング取得廃止 | UI・専用通信・資料・専用テストを除去 | MainWindow/composition/Ir。U04/U05後、起動時ローカルcache維持 |
-| U09 確定文字コードの保持と導入・同期への引継ぎ | 保留保存境界 → LR2全体同期 → 導入成功先への引継ぎ | Maintenance/Catalog/Install/LR2。導入serviceはU15との順序調整後、署名変更なし |
+| U09 確定文字コードの保持と導入・同期への引継ぎ | LR2全体同期 → 導入成功先への引継ぎ | Maintenance/Catalog/Install/LR2。導入serviceはU15との順序調整後、署名変更なし |
 | U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile。U13のWriter検証と調整 |
 | U12 内蔵再生の対象と候補探索 | 現在曲識別・送り位置・FolderSkip・Repeat失敗探索を統合 | 同じPlayback queue/VMで一単位。現行のentry索引を利用し、選択scopeは流用しない |
 | U13 音声変換の出力名 | Writerのfile path契約へ統一 | Writer/変換owner。U10と検証の重複を調整 |
@@ -256,14 +256,6 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 - 既存保証の整理: `RankingCacheDownloadWorkflowOwnerTests` と手動専用service/Downloadテストは対応する製品経路の削除に合わせて退役。`MainWindowSelectedChartContextMenuWpfTests` とcomposition testは現行項目への期待を更新。`BmsLibraryIrStartupTests.InitializeStartup_RankingCacheDerivedValuesReachNormalSearchAndLampAggregation`、起動時cache parser/service、`StartupRankingRefreshPolicyTests` を残し、共通保証を失わない。`devdocs/spec/integration/lr2-ranking.md` の手動取得・保存・関連保証表とユーザーマニュアルの該当案内も同単位で整理する。Resources本体・6言語で専用文言を揃えて除く。
 
 ## U09 確定文字コードの保持と導入・同期への引継ぎ
-
-### 保留の保存境界
-
-`CatalogMaintenanceOwner.ApplyEncoding` は保留の `EncodingOnlyInfos` を保存するが、起動時の保留再読込みは復元せず、所持パスにない保守行は後で整理される。保留の文字コードは現在の `PackageChartEntry` へ保持し、表示・推定・フォルダ名生成へ同じ値を渡す。保留だけの操作はDB確定を必要とせず、空の保存要求の `NotApplied` を失敗と扱わない。所持混在要求は所持の保存契約と成功後の反映を維持する。
-
-選択保留の資源再調査も評価・`EvaluatedPendingCharts` の表示反映を残し、maintenance保存集合から外す。保留保存の差分比較専用読込み、不要になる `EncodingOnlyInfos` 要求・保存分岐を退役させる。既存の保留由来maintenance行は通常の整理に委ね、毎操作の移行・修復を追加しない。
-
-`SelectedChartMutationWorkflowOwnerTests` と `SelectedChartResourceHealthWorkflowOwnerTests` の保留保存期待を新契約へ置換する。Big5等の指定後に資源再調査しても指定・表示を保持し、保留のsong/maintenanceを新設しないこと、資源増減時の再評価・配置・警告・混在所持保存を確認する。再起動後の保留指定復元は追加しない。
 
 ### 導入成功先への指定引継ぎ
 

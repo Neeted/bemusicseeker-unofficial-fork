@@ -237,7 +237,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
         });
     }
 
-    /// <summary>保留のみ・所持混在で実再調査から既存表示行までの反映と、入力元100%・配置先0%の分離を確認します。ASCIIの自動判定と異なる指定文字コード、非CP932入力、修正印の真偽を交差させ、保留のsong非新設と所持の再復号保存、元配置・所属・非選択項目の保持を保証します。</summary>
+    /// <summary>保留のみ・所持混在で実再調査から既存表示行までの反映と、入力元100%・配置先0%の分離、保留pathのINSERT/UPDATE拒否による無書込みを確認します。ASCIIの自動判定と異なる指定文字コード、非CP932入力、修正印の真偽を交差させ、保留のsong非新設と所持の再復号保存、元配置・所属・非選択項目の保持を保証します。</summary>
     [TestMethod]
     [DataRow(false, false, false, true)]
     [DataRow(false, true, false, false)]
@@ -285,7 +285,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
                 BmsLibraryPackageInstallService.RefreshPendingResourceHealth([entry], package, cache);
             }
             ResourceHealthMaintenanceSnapshot marked = entry.Chart.ResourceHealthMaintenanceSnapshot with
-            { Encoding = "utf-8", EncodingFixed = encodingFixed };
+            { Encoding = "big5", EncodingFixed = encodingFixed };
             entry.ApplyCurrentChart(ChartFileProjection.WithMaintenance(entry.Chart, marked));
             entry.ReplaceResourceHealthProjection(marked, BmsLibraryMaintenanceService.BuildResourceHealthWarnings(marked), entry.ResourcePlacement);
             ChartFile before = entry.Chart;
@@ -311,6 +311,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
                 db.CreateTable<LR2SongDBExtended.install>();
                 db.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
                 db.InsertOrReplace(unrelatedPackage, typeof(LR2SongDBExtended.install));
+                RejectPendingWrites(db, path);
             });
             var targets = new List<ChartOperationTarget>
             {
@@ -335,9 +336,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
                 SelectedChartResourceHealthWorkflowResult result = await owner.RescanAsync(request);
                 Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
                 using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
-                LR2SongDBExtended.maintenance saved = read.Table<LR2SongDBExtended.maintenance>().Single(info => info.path == path);
-                Assert.AreEqual(1, saved.wav_files_defined);
-                Assert.AreEqual(1, saved.wav_files_existing);
+                Assert.IsFalse(read.Table<LR2SongDBExtended.maintenance>().Any(info => info.path == path));
                 ChartFile current = entry.Chart;
                 Assert.AreEqual(hasDestination ? 0 : 100, current.WAVHealth);
                 Assert.AreEqual(hasDestination ? 0 : 100, row.WAVHealth);
@@ -345,9 +344,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
                 Assert.AreEqual(hasDestination, row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
                 Assert.IsFalse(current.Warnings.Any(warning => warning.Category == ChartWarningCategory.Lr2Compatibility));
                 Assert.IsFalse(row.Chart.Warnings.Any(warning => warning.Category == ChartWarningCategory.Lr2Compatibility));
-                Assert.AreEqual("utf-8", saved.encoding);
-                Assert.AreEqual(encodingFixed, saved.is_encoding_fixed);
-                Assert.AreEqual(saved.encoding, current.EncodingName);
+                Assert.AreEqual("big5", current.EncodingName);
                 Assert.AreEqual(encodingFixed, current.ResourceHealthMaintenanceSnapshot.EncodingFixed);
                 Assert.AreEqual(before.RawTitle, current.RawTitle, "資源だけの再調査は保留のメタデータを再復号しません。");
                 Assert.AreSame(original, entry.GetOriginalResourceHealth());
@@ -427,8 +424,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
             {
                 db.CreateTable<LR2SongDBExtended.install>();
                 db.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
-                db.Execute("CREATE TRIGGER reject_same_maintenance_insert BEFORE INSERT ON maintenance BEGIN SELECT RAISE(ABORT, 'unexpected maintenance insert'); END;");
-                db.Execute("CREATE TRIGGER reject_same_maintenance_update BEFORE UPDATE ON maintenance BEGIN SELECT RAISE(ABORT, 'unexpected maintenance update'); END;");
+                RejectPendingWrites(db, path);
             });
             Assert.IsTrue(ChartResourceHealthRequest.TryCreate([new ChartOperationTarget(before, null,
                 ChartOperationSourceScope.PendingPackage, false, true, false,
@@ -470,14 +466,14 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
         });
     }
 
-    /// <summary>入力元の保存前行・今回検査・配置表示を独立させ、削除・追加・保存同値・未登録・別hashを実再調査で確認します。同値では書込み拒否triggerを使い、全条件で非選択の所持索引をTryGetから先に観測して同じsnapshotの維持を保証します。</summary>
+    /// <summary>入力元の既存行・今回検査・配置表示を独立させ、削除・追加・同値・未登録・別hashを実再調査で確認します。全条件で保留pathのINSERT/UPDATE拒否と読取り専用接続からの既存行不変を観測し、非選択の所持索引をTryGetから先に観測して同じsnapshotの維持を保証します。</summary>
     [TestMethod]
     [DataRow("same", 1, 0, 0, true)]
     [DataRow("same", 0, 1, 1, false)]
     [DataRow("same", 0, 1, 0, true)]
     [DataRow("absent", 1, 1, 1, true)]
     [DataRow("different", 1, 1, 1, true)]
-    public async Task RescanAsync_UsesStoredSourceValuesAndKeepsOwnedIndex(string storedState, int storedExisting, int destinationExisting, int sourceExisting, bool initialSourceExists)
+    public async Task RescanAsync_KeepsStoredRowsUntouchedAndOwnedIndex(string storedState, int storedExisting, int destinationExisting, int sourceExisting, bool initialSourceExists)
     {
         await WithTemporarySongDbAsync(async songDbPath =>
         {
@@ -550,17 +546,12 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
                 Origin = MaintenanceInfoOrigin.Calculated
             };
             if (storedState != "absent") { gateway.UpsertMaintenanceInfos([savedBefore]); }
-            bool noWrite = storedState == "same" && storedExisting == sourceExisting;
             BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
             {
                 db.CreateTable<LR2SongDBExtended.install>();
                 db.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
                 db.InsertOrReplace(unrelatedPackage, typeof(LR2SongDBExtended.install));
-                if (noWrite)
-                {
-                    db.Execute("CREATE TRIGGER reject_unchanged_source_insert BEFORE INSERT ON maintenance BEGIN SELECT RAISE(ABORT, 'unexpected source insert'); END;");
-                    db.Execute("CREATE TRIGGER reject_unchanged_source_update BEFORE UPDATE ON maintenance BEGIN SELECT RAISE(ABORT, 'unexpected source update'); END;");
-                }
+                RejectPendingWrites(db, path);
             });
             Assert.IsTrue(ChartResourceHealthRequest.TryCreate([new ChartOperationTarget(before, null,
                 ChartOperationSourceScope.PendingPackage, false, true, false,
@@ -587,14 +578,9 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
                 Assert.AreSame(backgroundProjection, indexAfter.GetProjection(backgroundBefore.Kind, backgroundBefore.Path, backgroundBefore.Md5));
                 Assert.AreEqual(catalogRevision, library.CatalogRevision);
                 using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
-                ResourceHealthMaintenanceSnapshot saved = MaintenanceStorageMapping.ToCommon(read.Table<LR2SongDBExtended.maintenance>().Single(info => info.path == path));
-                Assert.AreEqual(1, saved.WavFilesDefined);
-                Assert.AreEqual(sourceExisting, saved.WavFilesExisting);
-                Assert.AreEqual(noWrite ? savedBefore.Hash : before.Md5, saved.Hash);
-                Assert.AreEqual(path, saved.Path);
-                Assert.AreEqual("utf-8", saved.Encoding);
-                Assert.IsFalse(saved.EncodingFixed);
-                if (noWrite) { Assert.AreEqual(savedBefore, saved); }
+                LR2SongDBExtended.maintenance? saved = read.Table<LR2SongDBExtended.maintenance>().SingleOrDefault(info => info.path == path);
+                Assert.AreEqual(storedState == "absent" ? null : savedBefore, saved == null ? null : MaintenanceStorageMapping.ToCommon(saved),
+                    "入力元の増減・同値にかかわらず、保留の既存行を更新せず未登録行も作りません。");
                 ChartFile current = entry.Chart;
                 Assert.AreEqual(1, current.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
                 Assert.AreEqual(destinationExisting, current.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
@@ -623,7 +609,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
         });
     }
 
-    /// <summary>子階層譜面の再調査で入力元の音源削除をDBへ保存し、初回に捕捉した同梱音源は最終相対配置で既存行へ反映します。packageなしの再評価でも相対位置・同梱完全性・先頭候補・元配置を維持します。</summary>
+    /// <summary>子階層譜面の再調査で入力元の音源削除を評価してもDBへ保存せず、初回に捕捉した同梱音源は最終相対配置で既存行へ反映します。packageなしの再評価でも相対位置・同梱完全性・先頭候補・元配置を維持します。</summary>
     [TestMethod]
     public async Task RescanAsync_NestedPendingChartKeepsCapturedBundledPlacement()
     {
@@ -673,6 +659,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
             {
                 db.CreateTable<LR2SongDBExtended.install>();
                 db.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
+                RejectPendingWrites(db, path);
             });
             Assert.IsTrue(ChartResourceHealthRequest.TryCreate([new ChartOperationTarget(before, null,
                 ChartOperationSourceScope.PendingPackage, false, true, false,
@@ -684,12 +671,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
                 SelectedChartResourceHealthWorkflowResult result = await owner.RescanAsync(request);
                 Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
                 using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
-                LR2SongDBExtended.maintenance saved = read.Table<LR2SongDBExtended.maintenance>().Single(info => info.path == path);
-                Assert.AreEqual(1, saved.wav_files_defined);
-                Assert.AreEqual(0, saved.wav_files_existing);
-                Assert.AreEqual(before.Md5, saved.hash);
-                Assert.AreEqual("utf-8", saved.encoding);
-                Assert.IsFalse(saved.is_encoding_fixed);
+                Assert.IsFalse(read.Table<LR2SongDBExtended.maintenance>().Any(info => info.path == path));
                 Assert.AreEqual(1, entry.Chart.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
                 Assert.AreEqual(1, entry.Chart.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
                 Assert.AreEqual(100, entry.Chart.WAVHealth);
@@ -716,6 +698,16 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
             }
             finally { library.RequestShutdown("nested-pending-resource-rescan-test"); }
         });
+    }
+
+    /// <summary>保留pathだけの同値を含む書込みを拒否し、混在する所持の保存は妨げません。</summary>
+    private static void RejectPendingWrites(LR2SongDBExtended db, string path)
+    {
+        string sqlPath = path.Replace("'", "''", System.StringComparison.Ordinal);
+        db.Execute($"CREATE TRIGGER reject_pending_maintenance_insert BEFORE INSERT ON maintenance WHEN NEW.path = '{sqlPath}' BEGIN SELECT RAISE(ABORT, 'unexpected pending maintenance insert'); END;");
+        db.Execute($"CREATE TRIGGER reject_pending_maintenance_update BEFORE UPDATE ON maintenance WHEN NEW.path = '{sqlPath}' BEGIN SELECT RAISE(ABORT, 'unexpected pending maintenance update'); END;");
+        db.Execute($"CREATE TRIGGER reject_pending_song_insert BEFORE INSERT ON song WHEN NEW.path = '{sqlPath}' BEGIN SELECT RAISE(ABORT, 'unexpected pending song insert'); END;");
+        db.Execute($"CREATE TRIGGER reject_pending_song_update BEFORE UPDATE ON song WHEN NEW.path = '{sqlPath}' BEGIN SELECT RAISE(ABORT, 'unexpected pending song update'); END;");
     }
 
     private static SelectedChartResourceHealthWorkflowOwner CreateOwner(

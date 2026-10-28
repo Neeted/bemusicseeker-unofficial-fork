@@ -8598,12 +8598,12 @@ public partial class BMSLibrary : ObservableObject
 
     /// <summary>
     /// 指定された譜面の構成ファイル health を明示的に再計算します。
-    /// 通常の hydration とは異なり、ユーザー操作に基づいて実ファイル確認と DB 更新を行います。
+    /// 利用者操作に基づいて実ファイルを確認し、所持分の必要なDB保存が成功してから結果を反映します。保留だけならDB保存は不要です。
     /// </summary>
     /// <param name="charts">再スキャン対象。</param>
     /// <param name="progressReporter">section 単位の進捗通知。</param>
     /// <param name="cancellationToken">section 境界で確認するキャンセル token。</param>
-    /// <param name="pendingEntries">選択した保留項目。現在値を計算入力にし、DB確定後に同じ項目へ反映します。</param>
+    /// <param name="pendingEntries">選択した保留項目。現在値を計算入力にし、所持分の必要な保存が成功してから同じ項目へ反映します。保留だけならDB確定を必要としません。</param>
     /// <returns>再スキャン結果。</returns>
     internal MaintenanceWorkflowResult RescanResourceHealthCharts(
         IEnumerable<ChartFile> charts,
@@ -8687,7 +8687,7 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>
-    /// 指定した所持譜面と明示した保留項目の文字コードを確定します。保留はメンテナンス情報だけを保存し、同じ項目へ反映します。
+    /// 指定した所持譜面と明示した保留項目の文字コードを確定します。所持分の必要なDB保存が成功してから反映し、保留だけならDB保存を要求せず同じ項目の寿命内に保持します。
     /// </summary>
     internal void SetBMSFilesEncoding(IEnumerable<ChartFile> charts, string encoding = "", LibraryFileMutationCapability capability = null,
         IReadOnlyList<PackageChartEntry> pendingEntries = null)

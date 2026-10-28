@@ -1599,7 +1599,7 @@ internal sealed partial class LibraryMutationOwner
     /// <summary>
     /// 確定済み maintenance target を canonical writer と共通 semantic 反映へ渡し、
     /// lease 解放後に実行する公開 action を組み立てます。
-    /// 明示された保留項目はDB確定後に同じentryへ反映し、所持全体のdispatchへ追加しません。
+    /// 明示された保留項目は所持分の必要なDB保存が成功してから同じentryへ反映します。保留だけならDB確定を必要とせず、所持全体のdispatchへ追加しません。
     /// </summary>
     internal MaintenanceWorkflowResult ApplyCatalogMaintenanceCore(
         ResourceMaintenanceTargetSet maintenanceTargets,
@@ -2297,7 +2297,7 @@ internal sealed partial class LibraryMutationOwner
         return targets;
     }
 
-    /// <summary>必要なDB保存を終えた入力元の再調査結果を、保存同値でも選択保留へ反映します。導入先・候補がある項目は新しい参照で配置を再評価します。</summary>
+    /// <summary>所持分の必要なDB保存を終えた入力元の再調査結果を、保留の現在値が同値でも選択保留へ反映します。導入先・候補がある項目は新しい参照で配置を再評価します。</summary>
     private void ApplyPendingResourceHealth(IReadOnlyList<PackageChartEntry> entries, IReadOnlyList<ChartFile> values)
     {
         if (entries == null || entries.Count == 0) { return; }
@@ -2322,7 +2322,7 @@ internal sealed partial class LibraryMutationOwner
         }
     }
 
-    /// <summary>DB確定済みの文字コード変更を、要求で指定された保留項目だけへ接続します。所持識別への逆照合は行いません。</summary>
+    /// <summary>所持分の必要なDB保存が成功した文字コード変更を、要求で指定された保留項目の寿命内へ接続します。所持識別への逆照合は行いません。</summary>
     internal void ApplyPendingEncoding(IReadOnlyList<PackageChartEntry> entries, IReadOnlyList<ChartFile> values)
     {
         var pendingByPath = new Dictionary<string, ChartFile>(StringComparer.Ordinal);

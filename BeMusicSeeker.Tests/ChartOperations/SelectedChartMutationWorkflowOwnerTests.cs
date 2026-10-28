@@ -1714,15 +1714,16 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         });
     }
 
-    /// <summary>保留だけ・所持混在で明示再復号と修正印確定を実DBまで確認します。同一path/hash行の非文字コード列を維持し、未登録・別hashでは未判定行を保存して、推定先健康度の永続化・song新設・元配置結果と所属の変更を検出します。</summary>
+    /// <summary>保留だけ・所持混在でBig5の明示再復号と現指定の確定を実ownerからSQLiteまで確認します。保留pathのINSERT/UPDATE拒否で同値を含む無書込みと既存sentinel不変を観測し、現在項目・既存表示行・推定入力・配置・所属を確認します。所持保存失敗では両方の現在値とDBを保持し、成功公開を行いません。</summary>
     [TestMethod]
-    [DataRow(true, false, "existing")]
-    [DataRow(false, false, "absent")]
-    [DataRow(true, true, "different_hash")]
-    [DataRow(false, true, "existing")]
-    [DataRow(true, false, "absent")]
-    [DataRow(false, false, "different_hash")]
-    public async Task ApplyEncoding_RealStoreUpdatesSelectedPendingEntriesWithoutChangingPlacement(bool decode, bool includeOwned, string storedState)
+    [DataRow(true, false, "existing", false)]
+    [DataRow(false, false, "absent", false)]
+    [DataRow(true, true, "different_hash", false)]
+    [DataRow(false, true, "existing", false)]
+    [DataRow(true, false, "absent", false)]
+    [DataRow(false, false, "different_hash", false)]
+    [DataRow(true, true, "existing", true)]
+    public async Task ApplyEncoding_RealStoreUpdatesSelectedPendingEntriesWithoutChangingPlacement(bool decode, bool includeOwned, string storedState, bool ownedSaveFails)
     {
         await WithTemporarySongDbAsync(async songDbPath =>
         {
@@ -1731,12 +1732,14 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             string destination = Path.Combine(root, "Destination");
             Directory.CreateDirectory(source);
             Directory.CreateDirectory(destination);
-            const string title = "日本語の譜面";
+            const string title = "繁體中文譜面 title";
+            const string artist = "作曲者 artist";
             string pendingPath = Path.Combine(source, "pending.bms");
-            File.WriteAllText(pendingPath, "#TITLE " + title + "\n#ARTIST 作曲者\n#WAV01 tone.wav\n#00111:01\n", System.Text.Encoding.GetEncoding("shift_jis"));
-            ChartFile parsed = PackageChartEntry.FromPath(pendingPath).Chart;
+            File.WriteAllText(pendingPath, "#TITLE " + title + "\n#ARTIST " + artist + "\n#WAV01 tone.wav\n#00111:01\n", System.Text.Encoding.GetEncoding("big5"));
+            ChartFile parsed = BmsChartFileParser.ApplyMetadataEncoding(ChartFileContentReader.ReadSnapshot(pendingPath),
+                PackageChartEntry.FromPath(pendingPath).Chart, "big5");
             ResourceHealthMaintenanceSnapshot initial = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(parsed) with
-            { Encoding = decode ? "utf-8" : "shift_jis", EncodingFixed = false };
+            { Encoding = decode ? "utf-8" : "big5", EncodingFixed = false };
             ChartFile pending = ChartFileProjection.WithMaintenance(parsed, initial);
             if (decode) { pending = pending with { Title = "before", RawTitle = "before" }; }
             var entry = PackageChartEntry.FromChart(pending);
@@ -1751,12 +1754,13 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             cache.AddDir(destination, ["tone.wav"]);
             BmsLibraryPackageInstallService.RefreshPendingResourceHealth([entry], package, cache);
             ResourceHealthMaintenanceSnapshot currentHealth = entry.Chart.ResourceHealthMaintenanceSnapshot with
-            { Encoding = decode ? "utf-8" : "shift_jis", EncodingFixed = false };
+            { Encoding = decode ? "utf-8" : "big5", EncodingFixed = false };
             entry.ApplyCurrentChart(ChartFileProjection.WithMaintenance(entry.Chart, currentHealth));
             entry.ReplaceResourceHealthProjection(currentHealth, BmsLibraryMaintenanceService.BuildResourceHealthWarnings(currentHealth), entry.ResourcePlacement);
             ChartFile before = entry.Chart;
             Assert.AreEqual(100, before.WAVHealth);
             ChartResourcePlacement placement = entry.ResourcePlacement;
+            LibraryChartRow row = new MainChartRowProjectionOwner().CreatePackageRow(null, entry);
             string ownedPath = Path.Combine(root, "owned.bms");
             File.Copy(pendingPath, ownedPath);
             ChartFile owned = ChartFileProjection.WithMaintenance(parsed with { Path = ownedPath }, initial with { Path = ownedPath });
@@ -1793,6 +1797,19 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 Lr2ResourceHasParentTraversal = true
             };
             if (storedState != "absent") { gateway.UpsertMaintenanceInfos([stored]); }
+            ChartFile? ownedBefore = includeOwned ? library.BmsCharts.Single() : null;
+            string pendingSqlPath = pendingPath.Replace("'", "''", StringComparison.Ordinal);
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+            {
+                db.Execute($"CREATE TRIGGER reject_pending_maintenance_insert BEFORE INSERT ON maintenance WHEN NEW.path = '{pendingSqlPath}' BEGIN SELECT RAISE(ABORT, 'unexpected pending insert'); END;");
+                db.Execute($"CREATE TRIGGER reject_pending_maintenance_update BEFORE UPDATE ON maintenance WHEN NEW.path = '{pendingSqlPath}' BEGIN SELECT RAISE(ABORT, 'unexpected pending update'); END;");
+                db.Execute($"CREATE TRIGGER reject_pending_song_insert BEFORE INSERT ON song WHEN NEW.path = '{pendingSqlPath}' BEGIN SELECT RAISE(ABORT, 'unexpected pending song insert'); END;");
+                db.Execute($"CREATE TRIGGER reject_pending_song_update BEFORE UPDATE ON song WHEN NEW.path = '{pendingSqlPath}' BEGIN SELECT RAISE(ABORT, 'unexpected pending song update'); END;");
+                if (ownedSaveFails)
+                {
+                    db.Execute("CREATE TRIGGER reject_owned_maintenance_insert BEFORE INSERT ON maintenance BEGIN SELECT RAISE(ABORT, 'owned save failed'); END;");
+                }
+            });
             var targets = new List<ChartOperationTarget>
             {
                 new(before, null, ChartOperationSourceScope.PendingPackage, false, true, false,
@@ -1806,13 +1823,45 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             var owner = new SelectedChartMutationWorkflowOwner(() => library, library.OperationAdmission,
                 new ChartMutationActivityOwner(), new RecordingPresentation(), AcceptedMessageDialogs(),
                 AcceptedMessageDialogs(), new BmsLibrarySelectedChartMutationStore());
+            int published = 0;
+            owner.WorkflowChanged += (_, args) => { if (args is SelectedChartMutationAppliedEventArgs) { published++; } };
             try
             {
-                SelectedChartMutationResult result = await owner.ApplyEncodingAsync(new SelectedChartEncodingRequest(targets, decode ? "shift_jis" : string.Empty));
+                SelectedChartMutationResult result = await owner.ApplyEncodingAsync(new SelectedChartEncodingRequest(targets, decode ? "big5" : string.Empty));
+                using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
+                LR2SongDBExtended.maintenance? saved = read.Table<LR2SongDBExtended.maintenance>().SingleOrDefault(value => value.path == pendingPath);
+                Assert.AreEqual(storedState == "absent" ? null : stored, saved == null ? null : MaintenanceStorageMapping.ToCommon(saved),
+                    "保留の保存行は新設せず、別内容や同値の既存行も変更しません。");
+                if (ownedSaveFails)
+                {
+                    Assert.IsFalse(result.Succeeded);
+                    Assert.AreEqual(before.RawTitle, entry.Chart.RawTitle);
+                    Assert.AreEqual(before.RawArtist, entry.Chart.RawArtist);
+                    Assert.AreEqual(before.EncodingName, entry.Chart.EncodingName);
+                    Assert.IsFalse(entry.Chart.ResourceHealthMaintenanceSnapshot.EncodingFixed);
+                    Assert.AreEqual(before.RawTitle, row.Chart.RawTitle);
+                    Assert.AreSame(original, entry.GetOriginalResourceHealth());
+                    Assert.AreSame(placement, entry.ResourcePlacement);
+                    Assert.AreSame(ownedBefore, library.BmsCharts.Single());
+                    Assert.IsNotNull(ownedBefore);
+                    Assert.AreEqual(ownedBefore.RawTitle, read.Table<LR2SongDB.song>().Single().title);
+                    Assert.IsFalse(read.Table<LR2SongDBExtended.maintenance>().Any(value => value.path == ownedPath));
+                    Assert.AreEqual(0, published);
+                    return;
+                }
                 Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
+                Assert.AreEqual(1, published);
                 ChartFile current = entry.Chart;
                 Assert.AreEqual(title, current.RawTitle);
-                Assert.AreEqual("shift_jis", current.EncodingName);
+                Assert.AreEqual("big5", current.EncodingName);
+                Assert.AreEqual(artist, current.RawArtist);
+                Assert.AreEqual(title, row.Chart.RawTitle);
+                Assert.AreEqual(artist, row.Chart.RawArtist);
+                Assert.AreEqual("big5", row.Chart.EncodingName);
+                Assert.IsTrue(row.Chart.ResourceHealthMaintenanceSnapshot.EncodingFixed);
+                InstallEstimationMetadataProfile profile = PackageInstallEstimationSnapshotBuilder.BuildTargetMetadataProfile([entry]);
+                Assert.AreEqual(title, profile.DominantPairDisplayTitle);
+                Assert.AreEqual(artist, profile.DominantPairDisplayArtist);
                 Assert.IsTrue(current.ResourceHealthMaintenanceSnapshot.EncodingFixed);
                 Assert.AreSame(original, entry.GetOriginalResourceHealth());
                 Assert.AreSame(placement, entry.ResourcePlacement);
@@ -1825,33 +1874,82 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 Assert.IsNull(current.Token);
                 Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
                 Assert.AreEqual(includeOwned ? 1 : 0, library.BmsCharts.Count);
-                using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
-                LR2SongDBExtended.maintenance saved = read.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == pendingPath);
-                Assert.AreEqual("shift_jis", saved.encoding);
-                Assert.IsTrue(saved.is_encoding_fixed);
-                ResourceHealthMaintenanceSnapshot expectedStored = storedState == "existing"
-                    ? stored with { Encoding = "shift_jis", EncodingFixed = true }
-                    : new ResourceHealthMaintenanceSnapshot
-                    {
-                        Path = pendingPath,
-                        Hash = parsed.Md5,
-                        Encoding = "shift_jis",
-                        EncodingFixed = true,
-                        Origin = MaintenanceInfoOrigin.Calculated
-                    };
-                Assert.AreEqual(expectedStored, MaintenanceStorageMapping.ToCommon(saved),
-                    "同一内容の既存行は非文字コード列を保持し、未登録・別内容は健康度と警告を未判定にします。");
                 Assert.AreEqual(includeOwned ? 1 : 0, read.Table<LR2SongDB.song>().Count());
                 Assert.AreEqual(pendingPath, read.Table<LR2SongDBExtended.install>().Single().path);
                 if (includeOwned)
                 {
                     Assert.AreEqual(title, library.BmsCharts.Single().RawTitle);
                     Assert.IsTrue(library.BmsCharts.Single().ResourceHealthMaintenanceSnapshot.EncodingFixed);
-                    Assert.IsTrue(read.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == ownedPath).is_encoding_fixed);
+                    LR2SongDBExtended.maintenance ownedSaved = read.Table<LR2SongDBExtended.maintenance>().Single(value => value.path == ownedPath);
+                    Assert.AreEqual("big5", ownedSaved.encoding);
+                    Assert.IsTrue(ownedSaved.is_encoding_fixed);
+                    Assert.AreEqual(title, read.Table<LR2SongDB.song>().Single().title);
                 }
             }
             finally { library.RequestShutdown("pending-encoding-test"); }
 
+        });
+    }
+
+    /// <summary>実DBファイルを利用不能にした状態でも、保留のBig5指定と続く音源の追加・削除の再調査が成功し、同じ項目と生成済み行の復号値・固定印を保持します。DBファイルを新設しないことを観測して、空の保存要求を失敗にする経路を検出します。</summary>
+    [TestMethod]
+    public async Task ApplyEncoding_AndPendingResourceRescanKeepBig5WithoutDatabase()
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            string? root = Path.GetDirectoryName(songDbPath);
+            Assert.IsNotNull(root);
+            string path = Path.Combine(root, "pending.bms");
+            string audioPath = Path.Combine(root, "tone.wav");
+            const string title = "繁體中文譜面 title";
+            File.WriteAllText(path, "#TITLE " + title + "\n#ARTIST 作曲者 artist\n#WAV01 tone.wav\n#00111:01\n", System.Text.Encoding.GetEncoding("big5"));
+            var entry = PackageChartEntry.FromPath(path);
+            BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
+            var package = ChartPackage.FromChartEntries([entry]);
+            package.path = path;
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(),
+                new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
+            { BmsCharts = [], BmsonCharts = [], ChartPackagesPending = [package] };
+            LibraryChartRow row = new MainChartRowProjectionOwner().CreatePackageRow(null, entry);
+            ResourceHealthMaintenanceSnapshot original = entry.GetOriginalResourceHealth();
+            var owner = new SelectedChartMutationWorkflowOwner(() => library, library.OperationAdmission,
+                new ChartMutationActivityOwner(), new RecordingPresentation(), AcceptedMessageDialogs(),
+                AcceptedMessageDialogs(), new BmsLibrarySelectedChartMutationStore());
+            var resourceOwner = new SelectedChartResourceHealthWorkflowOwner(() => library, AcceptedMessageDialogs());
+            string unavailableDatabase = songDbPath + ".unavailable";
+            File.Move(songDbPath, unavailableDatabase);
+            try
+            {
+                var target = new ChartOperationTarget(entry.Chart, null, ChartOperationSourceScope.PendingPackage,
+                    false, true, false, ChartOperationCapabilities.RunBmsEncodingFix, entry);
+                SelectedChartMutationResult encodingResult = await owner.ApplyEncodingAsync(new SelectedChartEncodingRequest([target], "big5"));
+                Assert.IsTrue(encodingResult.Succeeded, encodingResult.Failure?.ToString());
+                Assert.AreEqual(title, entry.Chart.RawTitle);
+                foreach (bool resourceExists in new[] { true, false })
+                {
+                    if (resourceExists) { File.WriteAllText(audioPath, "audio"); }
+                    else { File.Delete(audioPath); }
+                    Assert.IsTrue(ChartResourceHealthRequest.TryCreate([new ChartOperationTarget(entry.Chart, null,
+                        ChartOperationSourceScope.PendingPackage, false, true, false,
+                        ChartOperationCapabilities.RunResourceHealthCheck, entry)], out ChartResourceHealthRequest request));
+                    SelectedChartResourceHealthWorkflowResult result = await resourceOwner.RescanAsync(request);
+                    Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
+                    Assert.AreEqual(resourceExists ? 100 : 0, entry.Chart.WAVHealth);
+                    Assert.AreEqual(resourceExists ? 100 : 0, row.WAVHealth);
+                    Assert.AreEqual(title, row.Chart.RawTitle);
+                    Assert.AreEqual("big5", row.Chart.EncodingName);
+                    Assert.IsTrue(row.Chart.ResourceHealthMaintenanceSnapshot.EncodingFixed);
+                    Assert.AreSame(original, entry.GetOriginalResourceHealth());
+                    Assert.AreSame(entry, package.ChartEntries.Single());
+                    Assert.IsFalse(File.Exists(songDbPath), "保留だけの操作はDBを開いて新設しません。");
+                }
+            }
+            finally
+            {
+                File.Move(unavailableDatabase, songDbPath, overwrite: true);
+                library.RequestShutdown("pending-without-database-test");
+            }
         });
     }
 
