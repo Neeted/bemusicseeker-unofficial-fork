@@ -289,8 +289,8 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 | --- | --- | ---: | ---: | --- | --- | --- |
 | Status | `♬` | 18 | 18 | false | false | 固定アイコン列 |
 | Mode | `KEYS` | 50 | 50 | false | true | 幅固定 |
-| Url1 | `URL1` | 40 | 40 | false | true | 取得用アイコン列 |
-| Url2 | `URL2` | 40 | 40 | false | true | 取得用アイコン列 |
+| Url1 | `URL1` | 40 | unbounded | true | true | 40 DIPは取得アイコン、広幅は元URLの通常セル |
+| Url2 | `URL2` | 40 | unbounded | true | true | 40 DIPは取得アイコン、広幅は元URLの通常セル |
 | Hash | `MD5 HASH` | 40 | 240 | true | true | 最大幅のみ制限 |
 | Sha256 | `SHA256 HASH` | 40 | 480 | true | true | 最大幅のみ制限 |
 | WavHealth | `WAV` | 40 | 50 | true | true | リソース健全性 |
@@ -299,6 +299,8 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 | CharcterEncoding | `ENCODING` | 40 | 130 | true | true | 文字コード表示 |
 
 上記以外のメイン一覧列は既定制約を使います。`Ranking` も既定制約であり、初期幅は 95 だが `MinWidth=40`, `MaxWidth=unbounded` でリサイズ可能です。`Rate` と `ChartDuration` は初期幅を 60 にしているが、個別の最小幅 / 最大幅は指定していません。
+
+URL1/URL2の役割は保存済みの `Width` だけから復元し、別の表示modeは保存しません。40 DIPへ戻すと取得アイコンへ戻ります。広幅は元URLを左寄せし、通常テキストの省略時tooltipと再クリック編集を使います。クリック・F2・文字入力・空URL・権限と幅変更中の編集終端は[一覧の編集仕様](table-view.md#行のドラッグと編集)に従います。設定読戻し後の既定補完で、利用者のURL列幅を上書きしません。
 
 #### プレイリスト一覧
 
@@ -342,6 +344,7 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 | 保存済み列設定の保持と欠損補完 | [`CustomTableColumnSettings`](../../../BeMusicSeeker/ViewModels/ChartList/CustomTableColumnSettings.cs)、[`PlaylistSummaryColumnSettings`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistSummaryColumnSettings.cs) | [`CustomTableColumnSettingsTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableColumnSettingsTests.cs) は保存済みの選択・幅等を保持し、欠損した設定だけを補うことと非表示列を含む表示位置の一意性を確認する。既定値の全一覧・全順序は固定しない。 |
 | 列の定義、意味付きの説明、表示と編集の値 | [`CustomTableColumnFactory`](../../../BeMusicSeeker/Views/CustomTable/CustomTableColumn.cs) | [`CustomTableColumnFactoryTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableColumnFactoryTests.cs) |
 | WAV・BGA・MOVIEの未判定／対象外表示と数値の百分率表示 | [`CustomTableColumnFactory`](../../../BeMusicSeeker/Views/CustomTable/CustomTableColumn.cs) の各列の文字列取得 | [`CustomTableColumnFactoryTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableColumnFactoryTests.cs) で実際の列formatterへnullと数値を渡し、3列の `-` と百分率を確認する。計数・検査済み判定は保守テストへ分担する。 |
+| URL列の可変幅と保存後の役割復元 | `CustomTableColumnFactory`、`CustomTableColumn`、`CustomTableColumnSettings` | `CustomTableColumnFactoryTests.CreateMainColumns_UsesCurrentWidthForUrlDisplayAndRawEditing` は両URL列の可変幅と元URL、`CustomTableColumnLayout_ResizeHitPrefersResizableColumnBoundary` はURLのresize受理と状態列の固定を確認する。`CustomTableColumnSettingsTests.UrlWidths_SaveAndReloadThroughProviderRestoreColumnRoles` は専用パスの実Settings providerへ異なる幅を保存し、新wrapperの読戻し・既定補完後の実factoryから幅と役割を復元する。入力・描画・局所cacheの保証は[一覧](table-view.md#実装とテストの対応)へ分担する。 |
 | 導入先候補0・1・2件と設定先有無、表示装飾と生パスの分離 | [`CustomTableColumnFactory`](../../../BeMusicSeeker/Views/CustomTable/CustomTableColumn.cs) の `InstallDst` | [`CustomTableColumnFactoryTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableColumnFactoryTests.cs) の `InstallDestinationCell_DecoratesCandidatesWithoutChangingEditPaths`: 6通りの表示、編集初期値、セルコピー・TSVの生パス、モデルの導入先、候補項目を確認する。 |
 | 候補の印と長い導入先の省略表示 | `CustomTableColumnFactory`、`CustomTableSurface` | [`CustomTablePhase6CacheTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTablePhase6CacheTests.cs) の `InstallDestinationCell_RendersCandidateMarkerInsideNarrowCell`: 幅250px・既定行高で実列を描画し、候補0・1・2件と設定先有無について、長いパスが省略されても候補の印の字形がセルのクリップ内に残ることを確認する。 |
 | 省略判定と描画の書体・文字列の一致 | [`CustomTableTextLayoutCache`](../../../BeMusicSeeker/Views/CustomTable/CustomTableTextLayoutCache.cs) | [`CustomTableTextLayoutCacheTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableTextLayoutCacheTests.cs) |

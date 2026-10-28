@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Windows;
@@ -13,6 +14,37 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTableColumnSettingsTests
 {
+    /// <summary>両URL列の異なる利用者幅を実providerへ保存し、新wrapperで読戻し・既定補完した後も幅だけからボタン/通常セルを復元します。別modeの保存に依存しません。</summary>
+    [TestMethod]
+    public void UrlWidths_SaveAndReloadThroughProviderRestoreColumnRoles()
+    {
+        string directory = MainWindowViewModelTestFactory.CreateIsolatedSettingsDirectory();
+        string path = Path.Combine(directory, "user.config");
+        try
+        {
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
+            var columns = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST);
+            columns.Url1.Visibility = columns.Url2.Visibility = Visibility.Visible;
+            columns.Url1.Width = 41; columns.Url2.Width = 240;
+            settings.PlaylistCustomTableColumnSettings = columns;
+            settings.Save();
+
+            Settings reloaded = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings.EnsureColumnSettingDefaults(reloaded);
+            CustomTableColumnSettings restored = reloaded.PlaylistCustomTableColumnSettings;
+            Assert.AreEqual(41, restored.Url1.Width); Assert.AreEqual(240, restored.Url2.Width);
+            var actual = CustomTableColumnFactory.CreateMainColumns(restored).ToDictionary(column => column.Id);
+            foreach (string id in new[] { "Url1", "Url2" })
+            {
+                Assert.AreEqual(CustomTableCellKind.Text, actual[id].CellKind);
+                Assert.IsTrue(actual[id].CanResize); Assert.IsTrue(actual[id].EditOnRepeatClick);
+                actual[id].Layout.Width = 40;
+                Assert.AreEqual(CustomTableCellKind.DownloadIcon, actual[id].CellKind);
+            }
+        }
+        finally { if (Directory.Exists(directory)) { Directory.Delete(directory, recursive: true); } }
+    }
+
     /// <summary>全表示種別で非表示列も一意の表示位置を持ち、表示切替時の列位置衝突を防ぎます。</summary>
     [TestMethod]
     public void Constructor_AssignsUniqueDisplayIndexToHiddenColumns()

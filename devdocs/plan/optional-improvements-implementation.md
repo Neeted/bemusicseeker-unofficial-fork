@@ -28,7 +28,7 @@
 
 | 単位 | 対象・コミットの区切り | 共有先・順序 |
 | --- | --- | --- |
-| U03 共通表の表示とコピー | URL幅 → 言語cache | 同担当が共通表の列・編集寿命を所有 |
+| U03 共通表の表示とコピー | 言語cache | 同担当が共通表の列・編集寿命を所有 |
 | U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U03後、U05と直列 |
 | U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04と直列 |
 | U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
@@ -56,16 +56,6 @@ Loadedは表示同期と一回購読、Unloadedは表示購読・予約だけの
 既存のEditableTextBlockの候補分離/Escape、再生開始時の一回フォーカス、右クリック現在セル、通常一覧の識別復元、保存→出力→必要表示→編集解除→受付解放、三択のCancel/X/Escは維持する境界であり、新規実装対象ではない。設定Bindingや非モーダル終了も、具体的な不足なしに全体を作り直さない。初回重複解析の完了で画面を奪わない保証を、明示Merge/Hash成功後の無条件の次群/存続群選択へ広げない。
 
 ## U03 共通表の表示とコピー
-
-### URL列幅による表示と操作
-
-**現存する固定ボタンを機能拡張する項目。** `CustomTableColumnFactory.CreateAllMainColumns` のUrl1/Url2はmin/max40、CanResize=false、DownloadIcon、repeat edit=falseで固定。幅を持つ設定自体は既存 `ColumnLayout` にある。
-
-確定済み計画の契約は40 DIPなら現行取得ボタンで通常クリック/再クリックとも取得、F2/文字入力による既存編集と元URLコピーを維持。40より広ければ元URLを表示し、通常セルの選択・再クリック/F2/文字入力編集に揃え、取得actionは出さない。空URLも同じ役割とし、幅だけで編集権限を増やさない。単クリック即編集・行double click変更は含めない。
-
-既存幅から表示種別・値・配置・action・repeat editを同じ列定義で導く。40へ戻せば戻る。新mode保存フラグやDPI物理pixel条件を持たず、列再構築/cache失効・編集終端・幅保存を再利用する。`CustomTableColumn.cs`、`CustomTableView`/interaction、列設定の共有変更になる。
-
-`CustomTableColumnFactoryTests`/`CustomTableEditingTests`/`CustomTableColumnSettingsTests` と実URL列で40→広幅→40、Url1/2、空値、編集許可/拒否、候補編集中の幅変更、保存幅復元、Tooltip/コピーを確認。既定幅の繰返し取得と広幅で取得しない結果を別に確認する。選択/current-cell単位と同じ表担当で順次実装可能。
 
 ### 共通表の保留候補案内
 

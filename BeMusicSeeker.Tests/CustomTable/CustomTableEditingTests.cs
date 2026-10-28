@@ -20,6 +20,142 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class CustomTableEditingTests
 {
+    /// <summary>実URL列の40 DIPは通常/反復クリックで取得し、広幅は初回選択と再クリック編集を使います。両幅のF2/文字入力は元URLと開始判定を通し、外部同期の拒否を幅で回避しません。</summary>
+    [DataTestMethod]
+    [DataRow("Url1", true, false)]
+    [DataRow("Url2", true, false)]
+    [DataRow("Url1", false, false)]
+    [DataRow("Url2", false, false)]
+    [DataRow("Url1", true, true)]
+    [DataRow("Url2", true, true)]
+    public void UrlWidth_RealClicksAndExplicitEditingKeepRawTargetAndPermission(string columnId, bool hasUrl, bool externalSync)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var entry = new BMSTableEntry { Url = hasUrl ? new Uri("https://example.test/main") : null, Url_diff = hasUrl ? new Uri("https://example.test/diff") : null };
+            var playlist = new BMSTable { is_external_sync = externalSync, entries = [entry] };
+            PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, null).CreateViewRow();
+            var settings = new CustomTableColumnSettings();
+            settings.Url1.Visibility = settings.Url2.Visibility = Visibility.Visible;
+            CustomTableColumn column = CustomTableColumnFactory.CreateMainColumns(settings).Single(item => item.Id == columnId);
+            var table = new CustomTableView { Width = 320, Height = 100, HeaderHeight = 20, RowHeight = 40, ColumnsSettings = settings, Columns = [column], ItemsSource = new[] { row } };
+            TrackEditPopup(scope, table);
+            var actions = new List<CustomTableCellActionRequestedEventArgs>();
+            var completed = new List<CustomTableCellEditEndedEventArgs>();
+            int beginnings = 0;
+            EventHandler<CustomTableCellEditBeginningEventArgs> onBeginning = (_, args) =>
+            {
+                beginnings++;
+                args.Cancel = !GridRowResolver.CanEditPlaylistCell(args.Row, args.EditPropertyName);
+            };
+            EventHandler<CustomTableCellEditEndedEventArgs> onEnded = (_, args) => completed.Add(args);
+            EventHandler<CustomTableCellActionRequestedEventArgs> onAction = (_, args) => actions.Add(args);
+            table.CellEditBeginning += onBeginning; table.CellEditEnded += onEnded; table.CellActionRequested += onAction;
+            try
+            {
+                scope.ShowAndWaitForContentRendered(new Window { Width = 360, Height = 150, Content = table });
+                string raw = hasUrl ? columnId == "Url1" ? "https://example.test/main" : "https://example.test/diff" : string.Empty;
+                foreach (int width in new[] { 40, 260, 40 })
+                {
+                    column.Layout.Width = width;
+                    Assert.AreSame(column, table.Columns.Single());
+                    table.SelectedIndex = -1;
+                    int actionStart = actions.Count;
+                    var point = new Point(15, 35);
+                    CustomTableHitTestResult hit = table.HitTestTable(point);
+                    Assert.AreEqual(CustomTableHitKind.Cell, hit.Kind); Assert.AreSame(row, hit.Row); Assert.AreSame(column, hit.Column);
+                    Assert.IsTrue(table.HandleCellMouseDown(hit, MouseButton.Left, ModifierKeys.None, 1, point));
+                    Assert.IsNull(EditBox(table), "初回クリックは選択または取得だけです。");
+                    Assert.IsTrue(table.HandleCellMouseDown(table.HitTestTable(point), MouseButton.Left, ModifierKeys.None, 1, point));
+                    Assert.AreEqual(width == 40 && hasUrl ? 2 : 0, actions.Count - actionStart);
+                    if (width > 40 && !externalSync)
+                    {
+                        Assert.AreEqual(raw, (EditBox(table) ?? throw new AssertFailedException("広幅の再クリックeditorがありません。")).Text);
+                        Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+                    }
+                    else { Assert.IsNull(EditBox(table)); }
+                    foreach (bool typeToEdit in new[] { false, true })
+                    {
+                        int beforeBeginning = beginnings;
+                        int beforeCompleted = completed.Count;
+                        if (typeToEdit)
+                        {
+                            var args = new TextCompositionEventArgs(Keyboard.PrimaryDevice, new TextComposition(InputManager.Current, table, "input"))
+                            { RoutedEvent = TextCompositionManager.PreviewTextInputEvent, Source = table };
+                            table.RaiseEvent(args); Assert.AreEqual(!externalSync, args.Handled);
+                        }
+                        else { Assert.AreEqual(!externalSync, table.HandleKeyDown(Key.F2, ModifierKeys.None)); }
+                        Assert.AreEqual(beforeBeginning + 1, beginnings);
+                        if (externalSync) { Assert.IsNull(EditBox(table)); }
+                        else
+                        {
+                            Assert.AreEqual(typeToEdit ? "input" : raw, (EditBox(table) ?? throw new AssertFailedException("明示editorがありません。")).Text);
+                            Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+                            CustomTableCellEditEndedEventArgs ended = completed.Last();
+                            Assert.IsTrue(ended.Commit); Assert.AreSame(row, ended.Row); Assert.AreSame(column, ended.Column);
+                            Assert.AreEqual(columnId == "Url1" ? "Url" : "Url_diff", ended.EditPropertyName);
+                            Assert.AreEqual(typeToEdit ? "input" : raw, ended.Text);
+                        }
+                        Assert.AreEqual(beforeCompleted + (externalSync ? 0 : 1), completed.Count);
+                    }
+                    Assert.AreEqual(width == 40 && hasUrl ? 2 : 0, actions.Count - actionStart, "編集開始で取得を追加しません。");
+                }
+                Assert.IsTrue(actions.All(action => ReferenceEquals(action.Hit.Row, row) && ReferenceEquals(action.Hit.Column, column)));
+                Assert.AreSame(playlist, entry.parent);
+            }
+            finally
+            {
+                table.HandleKeyDown(Key.Escape, ModifierKeys.None);
+                table.CellEditBeginning -= onBeginning; table.CellEditEnded -= onEnded; table.CellActionRequested -= onAction;
+                table.ItemsSource = null;
+            }
+        });
+    }
+
+    /// <summary>URLまたは候補付き導入先の編集中に列幅を変えると、旧行・属性・手入力を一回確定し、editorと候補Popupを閉じます。モデルの候補を保ち、旧候補を後から確定しません。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void UrlWidth_ChangeCommitsExistingUrlOrDestinationEditorOnce(bool editDestination)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ChartFile chart = ChartFileProjection.WithPackageState(ChartTestValues.Empty(), CandidateA, string.Empty, string.Empty, [CandidateA, CandidateB], []);
+            PlaylistDetailRow row = new PlaylistDetailSourceRow(new BMSTableEntry { Url = new Uri("https://example.test/main") }, chart).CreateViewRow();
+            var settings = new CustomTableColumnSettings();
+            settings.Url1.Visibility = settings.InstallDst.Visibility = Visibility.Visible;
+            CustomTableColumn[] columns = [.. CustomTableColumnFactory.CreateMainColumns(settings).Where(column => column.Id is "Url1" or "InstallDst")];
+            var table = new CustomTableView { Width = 480, Height = 110, HeaderHeight = 20, RowHeight = 40, ColumnsSettings = settings, Columns = columns, ItemsSource = new[] { row } };
+            var popup = (Popup)(typeof(CustomTableView).GetField("editSuggestionPopup", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(table)
+                ?? throw new InvalidOperationException("候補Popupが見つかりません。"));
+            scope.TrackPopup(popup);
+            var completed = new List<CustomTableCellEditEndedEventArgs>();
+            table.CellEditEnded += (_, args) => completed.Add(args);
+            try
+            {
+                scope.ShowAndWaitForContentRendered(new Window { Width = 520, Height = 160, Content = table });
+                CustomTableColumn target = columns.Single(column => column.Id == (editDestination ? "InstallDst" : "Url1"));
+                double x = columns.TakeWhile(column => !ReferenceEquals(column, target)).Sum(column => column.Width) + 15;
+                var point = new Point(x, 35);
+                Assert.IsTrue(table.HandleCellMouseDown(table.HitTestTable(point), MouseButton.Left, ModifierKeys.None, 1, point));
+                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                TextBox editor = EditBox(table) ?? throw new AssertFailedException("変更前editorがありません。");
+                string input = editDestination ? @"C:\BMS\Manual" : "https://example.test/changed";
+                editor.Text = input;
+                if (editDestination) { Assert.IsTrue(table.HandleKeyDown(Key.Down, ModifierKeys.None)); Assert.IsTrue(popup.IsOpen); }
+                settings.Url1.Width = 200;
+                Assert.AreEqual(1, completed.Count);
+                Assert.IsTrue(completed[0].Commit); Assert.AreSame(row, completed[0].Row); Assert.AreSame(target, completed[0].Column);
+                Assert.AreEqual(target.EditPropertyName, completed[0].EditPropertyName); Assert.AreEqual(input, completed[0].Text);
+                Assert.IsNull(EditBox(table)); Assert.IsFalse(popup.IsOpen);
+                Assert.IsFalse(table.HandleEditSuggestionClick(CandidateB)); Assert.AreEqual(1, completed.Count);
+                CollectionAssert.AreEqual(new[] { CandidateA, CandidateB }, row.Chart.InstallDestinationSuggestions.ToArray());
+                settings.Url1.Width = 40; Assert.AreEqual(1, completed.Count);
+            }
+            finally { table.HandleKeyDown(Key.Escape, ModifierKeys.None); table.ItemsSource = null; }
+        });
+    }
+
     /// <summary>候補が一件または二件あっても空入力のEnterは空の導入先を一回確定することを確認し、未選択候補を自動採用する誤りを検出します。</summary>
     [TestMethod]
     [DataRow(1)]

@@ -32,6 +32,15 @@ internal sealed class CustomTableRowCache
     /// <summary>ソース・列・表示値の全体更新時に値と描画を一緒に破棄します。</summary>
     internal void Clear() => rows.Clear();
 
+    /// <summary>保持済みの行だけで指定列の表示値を失効させ、他列の値と行参照を保ちます。幅依存のURL表示切替で使います。</summary>
+    internal void InvalidateColumnValues(string columnId)
+    {
+        foreach (CustomTableRowEntry row in rows.Values)
+        {
+            row.InvalidateColumnValue(columnId);
+        }
+    }
+
     /// <summary>値を保持したまま、文字・列配置などの描画条件だけを失効させます。</summary>
     internal void ClearDrawings()
     {
@@ -72,6 +81,9 @@ internal sealed class CustomTableRowEntry
 
     /// <summary>警告も列値と同じ行寿命で遅延取得します。</summary>
     internal bool HasHighlightedWarning => highlightedWarning ??= CustomTableColumnFactory.HasHighlightedWarning(row);
+
+    /// <summary>列幅で表示が変わる一列の値だけを除去します。配置変更による描画失効は表側で処理します。</summary>
+    internal void InvalidateColumnValue(string columnId) => values.Remove(columnId);
 
     /// <summary>必要になった列だけを取得して再利用します。null行は列の取得処理を呼ばず空セルを返します。</summary>
     internal CustomTableCellValue GetValue(CustomTableColumn column, out bool hit)

@@ -940,8 +940,29 @@ public sealed class CustomTableView : Grid
     private void ColumnLayoutPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
         CommitActiveEdit();
+        if (e.PropertyName == nameof(ICustomTableColumnLayout.Width) && sender is ICustomTableColumnLayout layout)
+        {
+            ApplyColumnWidthChange(layout);
+            return;
+        }
         currentCellHit = null;
         RebuildColumns();
+    }
+
+    // 列インスタンスと他列の取得済み値を保ち、幅で役割が変わるURL列だけを再評価します。
+    private void ApplyColumnWidthChange(ICustomTableColumnLayout layout)
+    {
+        foreach (CustomTableColumn column in VisibleColumns)
+        {
+            if (ReferenceEquals(column.Layout, layout) && column.HasWidthDependentContent)
+            {
+                rowCache.InvalidateColumnValues(column.Id);
+            }
+        }
+        InvalidateColumnLayoutSnapshot();
+        CloseCellToolTip();
+        UpdateScrollBars();
+        RequestRedraw("column_resize");
     }
 
     private void RebuildColumns()
@@ -1395,7 +1416,6 @@ public sealed class CustomTableView : Grid
         if (hit.Kind == CustomTableHitKind.HeaderResize)
         {
             ClearPendingSingleSelectionOnMouseUp();
-            CommitActiveEdit();
             BeginColumnResize(hit, e.GetPosition(surface).X);
             e.Handled = true;
             return;
@@ -2633,12 +2653,16 @@ public sealed class CustomTableView : Grid
         return column?.CellKind == CustomTableCellKind.StatusIcon;
     }
 
-    private void BeginColumnResize(CustomTableHitTestResult hit, double surfaceX)
+    /// <summary>実見出し境界のヒットから幅変更を開始し、旧セルの入力を一回確定してからドラッグ座標を捕捉します。</summary>
+    /// <param name="hit">幅変更可能な見出し境界の実ヒット。</param>
+    /// <param name="surfaceX">表の描画面を基準とする入力開始位置。</param>
+    internal void BeginColumnResize(CustomTableHitTestResult hit, double surfaceX)
     {
         if (hit?.Column == null || hit.Column.Layout == null || !hit.Column.CanResize)
         {
             return;
         }
+        CommitActiveEdit();
         CloseCellToolTip();
         isResizingColumn = true;
         resizingColumnLayout = hit.Column.Layout;
@@ -2650,7 +2674,9 @@ public sealed class CustomTableView : Grid
         CaptureMouse();
     }
 
-    private void UpdateColumnResize(double surfaceX)
+    /// <summary>開始位置からの実入力座標で列幅を更新します。同期の設定通知と直接列の経路を一つの局所失効へ揃えます。</summary>
+    /// <param name="surfaceX">表の描画面を基準とする現在の入力位置。</param>
+    internal void UpdateColumnResize(double surfaceX)
     {
         if (!isResizingColumn || resizingColumnLayout == null)
         {
@@ -2660,15 +2686,17 @@ public sealed class CustomTableView : Grid
         int width = Math.Max(resizingColumnMinWidth, Math.Min(resizingColumnMaxWidth, (int)Math.Round(resizingStartWidth + delta)));
         if (resizingColumnLayout.Width != width)
         {
-            resizingColumnLayout.Width = width;
-            InvalidateColumnLayoutSnapshot();
-            InvalidateColumnCellValues();
-            UpdateScrollBars();
-            RequestRedraw("column_resize");
+            ICustomTableColumnLayout layout = resizingColumnLayout;
+            layout.Width = width;
+            if (layout is not INotifyPropertyChanged notifying || !subscribedColumnLayouts.Contains(notifying))
+            {
+                ApplyColumnWidthChange(layout);
+            }
         }
     }
 
-    private void EndColumnResize()
+    /// <summary>幅変更の入力捕捉とカーソルを解除し、確定した現在幅で再描画します。</summary>
+    internal void EndColumnResize()
     {
         if (!isResizingColumn)
         {
@@ -2737,7 +2765,10 @@ public sealed class CustomTableView : Grid
         };
     }
 
-    private string ResolveCellToolTip(CustomTableHitTestResult hit)
+    /// <summary>実セルの明示tooltipを優先し、通常テキストは現在幅で省略される場合だけ元文字列を返します。</summary>
+    /// <param name="hit">表示内容を調べる現存セルの実ヒット。</param>
+    /// <returns>表示する補助文字列。必要がなければnull。</returns>
+    internal string ResolveCellToolTip(CustomTableHitTestResult hit)
     {
         string explicitTooltip = hit.Column.GetTooltip(hit.Row);
         if (!string.IsNullOrWhiteSpace(explicitTooltip))

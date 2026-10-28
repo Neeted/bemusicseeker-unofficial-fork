@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -21,6 +22,72 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTablePhase6CacheTests
 {
+    /// <summary>実見出しresizeで40→41→広幅→40を描画し、URL値・tooltip・hit/actionとカーソルが追随することを確認します。未編集中は同じ列と他列の保持値を保ち、未表示行を追加評価しません。設定通知あり/直接Columnsの両入口を使います。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    [DoNotParallelize]
+    public void UrlWidth_ActualResizeRefreshesOnlyUrlValuesAndKeepsOtherRetainedCells(bool subscribeSettings)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var settings = new CustomTableColumnSettings();
+            settings.Url1.Width = 40;
+            settings.Url1.Visibility = Visibility.Visible;
+            var visited = new HashSet<object>();
+            int otherCalls = 0;
+            object[] rows = [.. Enumerable.Range(0, 64).Select(index => new DisplayRow { Text = "https://example.test/long/path/that/remains/truncated/" + index })];
+            var url = new CustomTableColumn("Url1", "URL1", settings.Url1, 0, null, TextAlignment.Center,
+                row => { visited.Add(row); return "\uE14F"; },
+                tooltipSelector: _ => "download tooltip", cellKind: CustomTableCellKind.DownloadIcon,
+                editTextSelector: row => { visited.Add(row); return ((DisplayRow)row).Text; }, editOnRepeatClick: false);
+            var other = new CustomTableColumn("Other", "OTHER", new CustomTableColumnSettings.ColumnLayout { Width = 100 }, 1, null,
+                TextAlignment.Left, _ => { otherCalls++; return "unchanged"; });
+            var table = new CustomTableView { Width = 360, Height = 120, HeaderHeight = 20, RowHeight = 25, ColumnsSettings = subscribeSettings ? settings : null, Columns = [url, other], ItemsSource = rows };
+            int actions = 0;
+            table.CellActionRequested += (_, args) => { Assert.AreSame(url, args.Hit.Column); actions++; };
+            try
+            {
+                scope.ShowAndWaitForContentRendered(new Window { Content = table, SizeToContent = SizeToContent.WidthAndHeight });
+                RenderExistingTable(table);
+                object[] initialVisited = [.. visited];
+                int initialOtherCalls = otherCalls;
+                Assert.IsTrue(initialVisited.Length > 0 && initialVisited.Length < rows.Length);
+                CustomTableRowDrawing priorDrawing = table.GetRowEntry(rows[0]).Drawings[0];
+                foreach (int width in new[] { 41, 200, 40 })
+                {
+                    double edge = url.Width;
+                    CustomTableHitTestResult resize = table.HitTestTable(new Point(edge, 10));
+                    Assert.AreEqual(CustomTableHitKind.HeaderResize, resize.Kind); Assert.AreSame(url, resize.Column);
+                    table.BeginColumnResize(resize, edge);
+                    Assert.AreSame(Cursors.SizeWE, table.Cursor);
+                    table.UpdateColumnResize(width);
+                    table.EndColumnResize();
+                    Assert.IsNull(table.Cursor);
+                    Assert.AreSame(url, table.Columns[0]); Assert.AreSame(other, table.Columns[1]); Assert.AreEqual(width, url.Width);
+                    RenderExistingTable(table);
+                    CustomTableCellValue value = table.GetCellValue(rows[0], url, out bool hit);
+                    Assert.IsTrue(hit);
+                    Assert.AreEqual(width > 40 ? CustomTableCellKind.Text : CustomTableCellKind.DownloadIcon, value.CellKind);
+                    Assert.AreEqual(width > 40 ? ((DisplayRow)rows[0]).Text : "\uE14F", value.Text);
+                    Assert.AreEqual(width > 40 ? TextAlignment.Left : TextAlignment.Center, value.Alignment);
+                    CustomTableRowDrawing drawing = table.GetRowEntry(rows[0]).Drawings[0];
+                    Assert.AreNotSame(priorDrawing, drawing, "現在幅で実描画を作り直します。"); priorDrawing = drawing;
+                    var point = new Point(15, 35);
+                    CustomTableHitTestResult cell = table.HitTestTable(point);
+                    Assert.AreEqual(CustomTableHitKind.Cell, cell.Kind); Assert.AreSame(url, cell.Column);
+                    Assert.AreEqual(width > 40 ? ((DisplayRow)rows[0]).Text : "download tooltip", table.ResolveCellToolTip(cell));
+                    int beforeActions = actions;
+                    Assert.IsTrue(table.HandleCellMouseDown(cell, MouseButton.Left, ModifierKeys.None, 1, point));
+                    Assert.AreEqual(beforeActions + (width == 40 ? 1 : 0), actions);
+                    Assert.AreEqual(initialOtherCalls, otherCalls, "他列の保持値を再取得しません。");
+                    CollectionAssert.AreEquivalent(initialVisited, visited.ToArray(), "幅変更で未表示の行を読みません。");
+                }
+            }
+            finally { table.EndColumnResize(); ReleaseTable(table); }
+        });
+    }
+
     /// <summary>実表示済みの同じ行を可→不可→可へ切り替え、editor・選択・scrollを保ちます。旧VMの通知は無効で、同じ表/行の再Loadedは最新文脈を描画します。切離し中のcache寿命は固定しません。</summary>
     [TestMethod]
     public void InstallDestinationPermission_ContextChangesRefreshValuesWithoutReplacingEditor()
@@ -450,7 +517,7 @@ public sealed class CustomTablePhase6CacheTests
         var iconColumn = new CustomTableColumn(
             "Download",
             "DL",
-            layout: null,
+            layout: new CustomTableColumnSettings.ColumnLayout { Width = 40 },
             fallbackOrder: 0,
             sortMemberPath: null,
             alignment: TextAlignment.Center,

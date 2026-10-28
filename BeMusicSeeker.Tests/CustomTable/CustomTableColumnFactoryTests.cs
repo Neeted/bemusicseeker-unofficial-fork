@@ -548,7 +548,7 @@ public sealed class CustomTableColumnFactoryTests
         }
     }
 
-    /// <summary>レベル・メモ・URL・フォルダ・導入先の編集先と入力種別を接続し、BMSとbmsonの導入候補から空値を除くことを確認し、編集する状態や候補供給の取り違えを検出します。</summary>
+    /// <summary>レベル・メモ・フォルダ・導入先の編集先と入力種別を接続し、BMSとbmsonの導入候補から空値を除くことを確認します。URLの幅別役割はUsesCurrentWidthForUrlDisplayAndRawEditingが担当します。</summary>
     [TestMethod]
     public void CreateMainColumns_AssignsEditableMetadata()
     {
@@ -567,11 +567,6 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsTrue(columns["Comment"].EditTextWrapping);
         Assert.AreEqual("memo", columns["Memo"].EditPropertyName);
         Assert.IsTrue(columns["Memo"].EditTextWrapping);
-        Assert.AreEqual("Url", columns["Url1"].EditPropertyName);
-        Assert.IsNull(columns["Url1"].TooltipTextWidth);
-        Assert.IsFalse(columns["Url1"].EditOnRepeatClick);
-        Assert.AreEqual("Url_diff", columns["Url2"].EditPropertyName);
-        Assert.IsFalse(columns["Url2"].EditOnRepeatClick);
         Assert.AreEqual("Folder", columns["Folder"].EditPropertyName);
         Assert.AreEqual("instl_dst", columns["InstallDst"].EditPropertyName);
 
@@ -661,24 +656,46 @@ public sealed class CustomTableColumnFactoryTests
         }
     }
 
-    /// <summary>本体URLと差分URLのある未所持行から各編集欄へ実URLを渡すことを確認し、操作用の表示文字やもう一方のURLを編集値に使う誤りを検出します。</summary>
-    [TestMethod]
-    public void CreateMainColumns_UsesActualUrlTextForUrlEditing()
+    /// <summary>一度生成した両URL列を40→41→広幅→40へ変え、空値も含め種別・配置・再クリック・tooltipが現在幅に追随し、編集・セルコピー・TSVは元URLを保つことを確認します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CreateMainColumns_UsesCurrentWidthForUrlDisplayAndRawEditing(bool hasUrl)
     {
         var settings = new CustomTableColumnSettings();
         settings.Url1.Visibility = Visibility.Visible;
         settings.Url2.Visibility = Visibility.Visible;
         var entry = new BMSTableEntry
         {
-            Url = new Uri("https://example.test/main"),
-            Url_diff = new Uri("https://example.test/diff")
+            Url = hasUrl ? new Uri("https://example.test/main") : null,
+            Url_diff = hasUrl ? new Uri("https://example.test/diff") : null
         };
         PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
 
         var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
 
-        Assert.AreEqual("https://example.test/main", columns["Url1"].GetEditText(row));
-        Assert.AreEqual("https://example.test/diff", columns["Url2"].GetEditText(row));
+        foreach (string id in new[] { "Url1", "Url2" })
+        {
+            CustomTableColumn column = columns[id];
+            string raw = hasUrl ? id == "Url1" ? "https://example.test/main" : "https://example.test/diff" : string.Empty;
+            Assert.AreEqual(id == "Url1" ? "Url" : "Url_diff", column.EditPropertyName);
+            Assert.IsTrue(column.CanResize); Assert.AreEqual(40, column.MinWidth); Assert.AreEqual(int.MaxValue, column.MaxWidth);
+            Assert.IsNull(column.TooltipTextWidth);
+            foreach (int width in new[] { 40, 41, 260, 40 })
+            {
+                column.Layout.Width = width;
+                bool wide = width > 40;
+                Assert.AreEqual(wide ? CustomTableCellKind.Text : CustomTableCellKind.DownloadIcon, column.CellKind);
+                Assert.AreEqual(wide ? TextAlignment.Left : TextAlignment.Center, column.Alignment);
+                Assert.AreEqual(wide, column.EditOnRepeatClick);
+                Assert.AreEqual(wide ? raw : hasUrl ? "\uE14F" : string.Empty, column.GetText(row));
+                Assert.AreEqual(wide ? null : id == "Url1" ? row.UrlToolTipText : row.UrlDiffToolTipText, column.GetTooltip(row));
+                Assert.AreEqual(raw, column.GetEditText(row));
+                Assert.AreEqual(raw, CustomTableDataTransfer.BuildCellText(row, column));
+                Assert.IsTrue(CustomTableDataTransfer.TryBuildTsv([row], [column], out string tsv));
+                Assert.AreEqual(raw, tsv);
+            }
+        }
     }
 
     /// <summary>レベル・難度・TOTALの定義状態を変えると未定義の列だけ強調されることを確認し、欠損を通常値と同じ表示にする誤りを検出します。</summary>
@@ -839,7 +856,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsFalse(CustomTableColumnLayout.IsGridLineFullyVisible(0d, 0d, 75d));
     }
 
-    /// <summary>題名の端では幅変更を受理し固定URL列の端では拒否することを確認し、列境界のヒット判定で固定列を変更可能にする誤りを検出します。</summary>
+    /// <summary>題名とURL列の端では幅変更を受理し、状態列の固定幅は維持することを確認します。</summary>
     [TestMethod]
     public void CustomTableColumnLayout_ResizeHitPrefersResizableColumnBoundary()
     {
@@ -860,12 +877,15 @@ public sealed class CustomTableColumnFactoryTests
         CustomTableColumn[] columns = [.. CustomTableColumnFactory.CreateMainColumns(settings)];
 
         bool titleResize = CustomTableColumnLayout.TryResolveResizeColumn(columns, surfaceX: 99, horizontalOffset: 0, viewportWidth: 200, margin: 4, out CustomTableColumn titleColumn, out _, out _);
-        bool fixedUrlResize = CustomTableColumnLayout.TryResolveResizeColumn(columns, surfaceX: 220, horizontalOffset: 0, viewportWidth: 240, margin: 4, out CustomTableColumn urlColumn, out _, out _);
+        bool urlResize = CustomTableColumnLayout.TryResolveResizeColumn(columns, surfaceX: 220, horizontalOffset: 0, viewportWidth: 240, margin: 4, out CustomTableColumn urlColumn, out _, out _);
 
         Assert.IsTrue(titleResize);
         Assert.AreEqual("Title", titleColumn.Id);
-        Assert.IsFalse(fixedUrlResize);
-        Assert.IsNull(urlColumn);
+        Assert.IsTrue(urlResize);
+        Assert.AreEqual("Url1", urlColumn.Id);
+        settings.Status.Visibility = Visibility.Visible;
+        CustomTableColumn status = CustomTableColumnFactory.CreateMainColumns(settings).Single(column => column.Id == "Status");
+        Assert.IsFalse(CustomTableColumnLayout.TryResolveResizeColumn([status], surfaceX: status.Width, horizontalOffset: 0, viewportWidth: 240, margin: 4, out _, out _, out _));
     }
 
     /// <summary>題名・作者の二行を可視列順のTSVへ変換し、セル内Tab・NUL・改行だけを空白にして入力値を保つことを確認し、NUL以降の欠落や列・行の区切りの破壊を検出します。</summary>

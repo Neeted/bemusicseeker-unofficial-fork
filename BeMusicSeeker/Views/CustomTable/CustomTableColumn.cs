@@ -114,6 +114,10 @@ internal enum CustomTableStatusIconKind
 
 public sealed class CustomTableColumn
 {
+    private readonly CustomTableCellKind configuredCellKind;
+    private readonly TextAlignment configuredAlignment;
+    private readonly bool configuredEditOnRepeatClick;
+
     internal CustomTableColumn(
         string id,
         string header,
@@ -148,7 +152,7 @@ public sealed class CustomTableColumn
         Layout = layout;
         FallbackOrder = fallbackOrder;
         SortMemberPath = sortMemberPath;
-        Alignment = alignment;
+        configuredAlignment = alignment;
         TextSelector = textSelector;
         ForegroundSelector = foregroundSelector;
         BackgroundSelector = backgroundSelector;
@@ -161,10 +165,10 @@ public sealed class CustomTableColumn
         MaxWidth = maxWidth.HasValue ? Math.Max(MinWidth, maxWidth.Value) : int.MaxValue;
         CanResize = canResize;
         CanReorder = canReorder;
-        CellKind = cellKind;
+        configuredCellKind = cellKind;
         EditPropertyName = editPropertyName;
         EditTextWrapping = editTextWrapping;
-        EditOnRepeatClick = editOnRepeatClick;
+        configuredEditOnRepeatClick = editOnRepeatClick;
         EditOverlayWidth = editOverlayWidth;
         EditTextSelector = editTextSelector;
         EditSuggestionsSelector = editSuggestionsSelector;
@@ -182,7 +186,8 @@ public sealed class CustomTableColumn
 
     public string SortMemberPath { get; }
 
-    public TextAlignment Alignment { get; }
+    /// <summary>広げたURL列は元URLを左寄せにし、その他は列定義の配置を使います。</summary>
+    public TextAlignment Alignment => UsesWideDownloadCell ? TextAlignment.Left : configuredAlignment;
 
     public bool UseBoldText { get; }
 
@@ -198,13 +203,15 @@ public sealed class CustomTableColumn
 
     public bool UseIconText => CellKind != CustomTableCellKind.Text;
 
-    public CustomTableCellKind CellKind { get; }
+    /// <summary>取得用URL列は現在幅40 DIPでボタン、それより広い幅で通常テキストとして扱います。</summary>
+    public CustomTableCellKind CellKind => UsesWideDownloadCell ? CustomTableCellKind.Text : configuredCellKind;
 
     public string EditPropertyName { get; }
 
     public bool EditTextWrapping { get; }
 
-    public bool EditOnRepeatClick { get; }
+    /// <summary>広げたURL列は通常セルと同じ再クリック編集を使います。編集の許可判定は別途維持します。</summary>
+    public bool EditOnRepeatClick => UsesWideDownloadCell || configuredEditOnRepeatClick;
 
     public int? EditOverlayWidth { get; }
 
@@ -217,6 +224,11 @@ public sealed class CustomTableColumn
     public int Width => ClampWidth(Layout?.Width ?? 50);
 
     public bool IsVisible => Layout == null || Layout.Visibility == Visibility.Visible;
+
+    /// <summary>現在幅によって表示値も変わる列だけを、列幅通知から局所失効させます。</summary>
+    internal bool HasWidthDependentContent => configuredCellKind == CustomTableCellKind.DownloadIcon;
+
+    private bool UsesWideDownloadCell => HasWidthDependentContent && Width > 40;
 
     internal Func<object, string> TextSelector { get; }
 
@@ -234,20 +246,24 @@ public sealed class CustomTableColumn
 
     internal Func<object, IEnumerable<string>> EditSuggestionsSelector { get; }
 
+    /// <summary>40 DIPの取得表示と広幅の元URL表示を、同じ列の現在幅から選びます。</summary>
     internal string GetText(object row)
     {
-        return TextSelector == null ? string.Empty : TextSelector(row) ?? string.Empty;
+        return UsesWideDownloadCell ? GetEditText(row) : TextSelector?.Invoke(row) ?? string.Empty;
     }
 
+    /// <summary>取得表示では専用tooltipを保ち、広幅URLでは通常テキストの省略判定へ委ねます。</summary>
     internal string GetTooltip(object row)
     {
+        if (UsesWideDownloadCell) { return null; }
         string tooltip = TooltipSelector == null ? null : TooltipSelector(row);
         return string.IsNullOrWhiteSpace(tooltip) ? null : tooltip;
     }
 
+    /// <summary>表示幅に依存しない元の編集値を返し、URLの編集・コピーに取得用表示を混ぜません。</summary>
     internal string GetEditText(object row)
     {
-        return EditTextSelector == null ? GetText(row) : EditTextSelector(row) ?? string.Empty;
+        return EditTextSelector == null ? TextSelector?.Invoke(row) ?? string.Empty : EditTextSelector(row) ?? string.Empty;
     }
 
     internal Brush GetForeground(object row)
@@ -403,8 +419,8 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("Genre", "GENRE", settings.Genre, 4, "genre", TextAlignment.Left, row => GetString(row, "genre")),
             new CustomTableColumn("Mode", "KEYS", settings.Mode, 5, "mode", TextAlignment.Right, row => FormatSuffix(GetValue(row, "mode"), "KEYS", "?KEYS"), minWidth: 50, maxWidth: 50, canResize: false, autoTrimTooltip: false),
             new CustomTableColumn("Tag", "TAG", settings.Tag, 6, "tag", TextAlignment.Left, row => GetString(row, "tag")),
-            new CustomTableColumn("Url1", "URL1", settings.Url1, 7, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, cellKind: CustomTableCellKind.DownloadIcon, editPropertyName: nameof(PlaylistDetailRow.Url), editOnRepeatClick: false, editOverlayWidth: 250, editTextSelector: row => GridRowResolver.GetUrl(row)?.ToString()),
-            new CustomTableColumn("Url2", "URL2", settings.Url2, 8, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDiffDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlDiffToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, cellKind: CustomTableCellKind.DownloadIcon, editPropertyName: nameof(PlaylistDetailRow.Url_diff), editOnRepeatClick: false, editOverlayWidth: 250, editTextSelector: row => GridRowResolver.GetUrlDiff(row)?.ToString()),
+            new CustomTableColumn("Url1", "URL1", settings.Url1, 7, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlToolTipText)), minWidth: 40, cellKind: CustomTableCellKind.DownloadIcon, editPropertyName: nameof(PlaylistDetailRow.Url), editOnRepeatClick: false, editOverlayWidth: 250, editTextSelector: row => GridRowResolver.GetUrl(row)?.ToString()),
+            new CustomTableColumn("Url2", "URL2", settings.Url2, 8, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDiffDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlDiffToolTipText)), minWidth: 40, cellKind: CustomTableCellKind.DownloadIcon, editPropertyName: nameof(PlaylistDetailRow.Url_diff), editOnRepeatClick: false, editOverlayWidth: 250, editTextSelector: row => GridRowResolver.GetUrlDiff(row)?.ToString()),
             new CustomTableColumn("Warning", "WARNING", settings.Warning, 9, nameof(LibraryChartRow.WarningDigestText), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.WarningDigestText)), tooltipSelector: row => GetString(row, nameof(LibraryChartRow.WarningTooltipText))),
             new CustomTableColumn("Comment", "COMMENT", settings.Comment, 10, null, TextAlignment.Left, row => GetString(row, "comment"), tooltipSelector: row => GetString(row, "comment"), editPropertyName: "comment", editTextWrapping: true, tooltipTextWidth: WrappedTooltipTextWidth),
             new CustomTableColumn("Memo", "MEMO", settings.Memo, 11, null, TextAlignment.Left, row => GetString(row, "memo"), tooltipSelector: row => GetString(row, "memo"), editPropertyName: "memo", editTextWrapping: true, tooltipTextWidth: WrappedTooltipTextWidth),
