@@ -8,7 +8,7 @@ using BeMusicSeeker.ViewModels;
 namespace BeMusicSeeker.Views;
 
 /// <summary>
-/// Provides the selected-chart feature terminals used by compiled table context-menu routes.
+/// コンパイル済みの譜面メニューから、譜面操作と閲覧の担当へ接続します。
 /// </summary>
 internal sealed class MainWindowSelectedChartContextMenuTerminals
 {
@@ -17,7 +17,6 @@ internal sealed class MainWindowSelectedChartContextMenuTerminals
         MainWindowSelectedChartResourceHealthTerminal selectedChartResourceHealth,
         MainWindowSelectedChartAudioConversionTerminal selectedChartAudioConversion,
         MainWindowChartInfoParseFailureRemovalTerminal chartInfoParseFailureRemoval,
-        MainWindowRankingCacheTerminal rankingCache,
         MainWindowScoreViewerTerminal scoreViewer,
         MainWindowSelectedChartExternalActionsTerminal selectedChartExternalActions)
     {
@@ -25,7 +24,6 @@ internal sealed class MainWindowSelectedChartContextMenuTerminals
         SelectedChartResourceHealth = selectedChartResourceHealth ?? throw new ArgumentNullException(nameof(selectedChartResourceHealth));
         SelectedChartAudioConversion = selectedChartAudioConversion ?? throw new ArgumentNullException(nameof(selectedChartAudioConversion));
         ChartInfoParseFailureRemoval = chartInfoParseFailureRemoval ?? throw new ArgumentNullException(nameof(chartInfoParseFailureRemoval));
-        RankingCache = rankingCache ?? throw new ArgumentNullException(nameof(rankingCache));
         ScoreViewer = scoreViewer ?? throw new ArgumentNullException(nameof(scoreViewer));
         SelectedChartExternalActions = selectedChartExternalActions ?? throw new ArgumentNullException(nameof(selectedChartExternalActions));
     }
@@ -37,8 +35,6 @@ internal sealed class MainWindowSelectedChartContextMenuTerminals
     internal MainWindowSelectedChartAudioConversionTerminal SelectedChartAudioConversion { get; }
 
     internal MainWindowChartInfoParseFailureRemovalTerminal ChartInfoParseFailureRemoval { get; }
-
-    internal MainWindowRankingCacheTerminal RankingCache { get; }
 
     internal MainWindowScoreViewerTerminal ScoreViewer { get; }
 
@@ -60,10 +56,6 @@ internal sealed class MainWindowSelectedChartContextMenuTerminals
                 viewModel.SelectedChartAudioConversion.RunAsync),
             new MainWindowChartInfoParseFailureRemovalTerminal(
                 viewModel.ChartInfoParseFailureRemoval.BeginRemove),
-            new MainWindowRankingCacheTerminal(
-                viewModel.RankingCacheDownloadWorkflow.HasRankingTarget,
-                viewModel.RankingCacheDownloadWorkflow.CanRequestRanking,
-                viewModel.RankingCacheDownloadWorkflow.Request),
             new MainWindowScoreViewerTerminal(
                 viewModel.ScoreViewerRegistration.HasScoreViewerTarget,
                 viewModel.ScoreViewerRegistration.CanRegisterScoreViewer,
@@ -180,35 +172,6 @@ internal sealed class MainWindowChartInfoParseFailureRemovalTerminal
 
     internal ChartInfoParseFailureRemovalOperation BeginRemove(ChartInfoParseFailureRemovalRequest request)
         => beginRemove(request ?? throw new ArgumentNullException(nameof(request)));
-}
-
-/// <summary>
-/// Narrows ranking-cache context-menu state and request operations to the existing owner.
-/// </summary>
-internal sealed class MainWindowRankingCacheTerminal
-{
-    private readonly Func<IEnumerable<ChartOperationTarget>, bool> hasRankingTarget;
-    private readonly Func<IEnumerable<ChartOperationTarget>, bool> canRequestRanking;
-    private readonly Func<IEnumerable<ChartOperationTarget>, bool> request;
-
-    internal MainWindowRankingCacheTerminal(
-        Func<IEnumerable<ChartOperationTarget>, bool> hasRankingTarget,
-        Func<IEnumerable<ChartOperationTarget>, bool> canRequestRanking,
-        Func<IEnumerable<ChartOperationTarget>, bool> request)
-    {
-        this.hasRankingTarget = hasRankingTarget ?? throw new ArgumentNullException(nameof(hasRankingTarget));
-        this.canRequestRanking = canRequestRanking ?? throw new ArgumentNullException(nameof(canRequestRanking));
-        this.request = request ?? throw new ArgumentNullException(nameof(request));
-    }
-
-    internal bool HasRankingTarget(IEnumerable<ChartOperationTarget> targets)
-        => hasRankingTarget(targets ?? throw new ArgumentNullException(nameof(targets)));
-
-    internal bool CanRequestRanking(IEnumerable<ChartOperationTarget> targets)
-        => canRequestRanking(targets ?? throw new ArgumentNullException(nameof(targets)));
-
-    internal bool Request(IEnumerable<ChartOperationTarget> targets)
-        => request(targets ?? throw new ArgumentNullException(nameof(targets)));
 }
 
 /// <summary>

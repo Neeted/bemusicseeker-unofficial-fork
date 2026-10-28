@@ -523,7 +523,6 @@ hr {
 <li class="toc-level-3"><a href="#copy-operations">Copy Operations</a></li>
 <li class="toc-level-3"><details open><summary><a href="#context-menu">Context Menu</a></summary><ul>
 <li class="toc-level-4"><a href="#opening-external-pages-and-programs">Opening External Pages and Programs</a></li>
-<li class="toc-level-4"><a href="#updating-rankings">Updating Rankings</a></li>
 <li class="toc-level-4"><a href="#checking-encoding-and-file-state">Checking Encoding and File State</a></li>
 <li class="toc-level-4"><a href="#installation-and-destination-correction">Installation and Destination Correction</a></li>
 <li class="toc-level-4"><a href="#moving-deleting-and-converting-files">Moving, Deleting, and Converting Files</a></li>
@@ -1202,7 +1201,7 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <td>LR2 Integration</td>
 <td>Update LR2IR ranking cache on startup</td>
 <td>OFF</td>
-<td>Reads LR2IR ranking data after startup and updates display data such as <code>RANKING</code>, <code>RANK UPDATE</code>, <code>T-SCORE</code>, and <code>ΔMAX</code>. This may be heavy during the first build or after changing LR2ID, so enable it only when needed.</td>
+<td>Reads LR2IR ranking data from existing local XML files after startup and updates display data such as <code>RANKING</code>, <code>RANK UPDATE</code>, <code>T-SCORE</code>, and <code>ΔMAX</code>. This may be heavy during the first build or after changing LR2ID, so enable it only when needed.</td>
 </tr>
 <tr>
 <td>LR2 Integration</td>
@@ -1365,10 +1364,6 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <li><code>Open text file</code>: Opens document candidates such as readme files in the same folder from a submenu.</li>
 <li><code>Open in chart viewer</code>: Registers or displays the chart in the chart viewer.</li>
 </ul>
-<h4 id="updating-rankings">Updating Rankings</h4>
-<ul>
-<li><code>Update ranking data</code>: Update ranking information for selected charts, even when automatic startup refresh is OFF. It depends on an external cache service; see <a href="#cannot-retrieve-data-from-external-services">Cannot Retrieve Data from External Services</a> if retrieval fails.</li>
-</ul>
 <h4 id="checking-encoding-and-file-state">Checking Encoding and File State</h4>
 <ul>
 <li><code>Chart properties</code>: Check the <a href="#checking-chart-properties">resource details</a> in a read-only window.</li>
@@ -1400,7 +1395,7 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <li><code>Remove from list</code>: Removes the target from the new / pending / installed package display. Distinguish this from operations that delete actual files.</li>
 <li><code>Remove metadata parse failure record</code>: Shown on the parse errors screen. Deletes the saved parse failure record and returns the item to the set of files to be parsed again.</li>
 </ul>
-<p>In playlist detail for unowned charts, configured <code>Open web pages</code> entries, <code>Open main URL in browser</code>, <code>Open diff URL in browser</code>, <code>Find source via external API</code>, <code>Open in chart viewer</code>, <code>Update ranking data</code>, and <code>Remove entry</code> remain available where their row capabilities allow them. Hash-based actions, such as web pages and external APIs, require the corresponding MD5 or SHA-256. Main and additional-chart URL actions require a valid URL; <code>Remove entry</code> requires no hash.</p>
+<p>In playlist detail for unowned charts, configured <code>Open web pages</code> entries, <code>Open main URL in browser</code>, <code>Open diff URL in browser</code>, <code>Find source via external API</code>, <code>Open in chart viewer</code>, and <code>Remove entry</code> remain available where their row capabilities allow them. Hash-based actions, such as web pages and external APIs, require the corresponding MD5 or SHA-256. Main and additional-chart URL actions require a valid URL; <code>Remove entry</code> requires no hash.</p>
 <h4 id="rename-to-invalid-extension">Rename to Invalid Extension</h4>
 <p>Rename BMS-family charts to <code>.bmx</code> and PMS-family charts to <code>.pmx</code> so they are no longer loaded as normal charts. Use this to exclude zero-note charts or mistakenly registered files.</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>If an identical file already exists at the destination or a numbered candidate name, the original chart is deleted as a duplicate. Keep a copy first if you need the original.</p></div>
@@ -2086,7 +2081,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>Ordinary user folders and manually selected source archives are not deleted by <code>Remove from list</code> alone. To delete actual files, use <code>Delete file</code> -&gt; <code>Move to Recycle bin</code> from the context menu. However, if the package was created in BeMusicSeeker-managed temporary storage by URL import or a similar flow, removing it from Pending may also delete the temporary source files.</p>
 <h3 id="playlists--external-sites">Playlists / External Sites</h3>
 <h4 id="cannot-retrieve-data-from-external-services">Cannot Retrieve Data from External Services</h4>
-<p>Ranking caches, IR, and source searches depend on external services. Check whether the destination is available and try again later for temporary problems. Service shutdowns or data-format changes can also prevent retrieval. Check the destination and cause recorded in the log.</p>
+<p>IR and source searches depend on external services. Check whether the destination is available and try again later for temporary problems. Service shutdowns or data-format changes can also prevent retrieval. Check the destination and cause recorded in the log.</p>
 <h4 id="cannot-generate-recommendations">Cannot Generate Recommendations</h4>
 <p>Check that the player and score database selected in <code>General</code> settings are correct and that the score database is accessible, then reload the relevant table.</p>
 <h4 id="playlist-status-fails">Playlist <code>STATUS</code> Fails</h4>

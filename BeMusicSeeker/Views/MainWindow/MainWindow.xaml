@@ -168,8 +168,6 @@
         </MenuItem>
         <MenuItem Name="tableContextMenuItemRegisterScore" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_chart_viewer, Mode=OneWay}" Click="tableContextMenuItemRegisterBMSFileToScoreViwer" />
         <Separator />
-        <MenuItem Name="tableContextMenuItemUpdateRankingData" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Update_ranking_data, Mode=OneWay}" Click="tableContextMenuItemUpdateRankingDataClick" />
-        <Separator />
         <MenuItem Name="tableContextMenuItemFixEncoding">
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Fix_character_encoding, Mode=OneWay}" />
@@ -240,8 +238,6 @@
         <MenuItem Name="tableContextMenuItemFindExternalPackage" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Find_external_package_from_playlist_md5, Mode=OneWay}" Click="tableContextMenuItemFindExternalPackageClick" />
         <Separator />
         <MenuItem Name="tableContextMenuItemRegisterScore" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_chart_viewer, Mode=OneWay}" Click="tableContextMenuItemRegisterBMSFileToScoreViwer" />
-        <Separator />
-        <MenuItem Name="tableContextMenuItemUpdateRankingData" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Update_ranking_data, Mode=OneWay}" Click="tableContextMenuItemUpdateRankingDataClick" />
         <Separator />
         <MenuItem Name="tableContextMenuItemDeleteEntry" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_playlist_entry, Mode=OneWay}" Click="tableContextMenuItemDeleteEntryClick" />
       </ContextMenu>

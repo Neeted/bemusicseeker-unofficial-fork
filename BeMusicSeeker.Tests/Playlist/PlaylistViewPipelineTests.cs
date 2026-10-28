@@ -3106,7 +3106,7 @@ public sealed class PlaylistViewPipelineTests
             | ChartOperationCapabilities.MoveInLibrary | ChartOperationCapabilities.RemoveFromLibrary
             | ChartOperationCapabilities.RepairInstalledLocation;
         const ChartOperationCapabilities bmsHashes = ChartOperationCapabilities.UseLr2Ir
-            | ChartOperationCapabilities.UseScoreViewer | ChartOperationCapabilities.UpdateRanking;
+            | ChartOperationCapabilities.UseScoreViewer;
         const ChartOperationCapabilities bmsLocal = ChartOperationCapabilities.RunBmsEncodingCheck
             | ChartOperationCapabilities.RunBmsEncodingFix | ChartOperationCapabilities.RunZeroNoteCheck
             | ChartOperationCapabilities.RenameInvalidExtension;

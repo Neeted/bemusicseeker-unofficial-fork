@@ -17,7 +17,7 @@
 - 詳細セルの保存・必要表示・後処理が終わるまで、次の詳細セルの編集開始だけを止める。行選択・再生は止めず、終端後の明示編集を受け付ける。編集待ち行列や自動再保存は追加しない。
 - 保留文字コードは現在の保留項目の寿命だけで保持し、再起動復元を追加しない。実際に導入成功した譜面の指定だけ成功先の所持データへ保存し、資源だけ更新した別の所持譜面や同hash別配置へ適用を広げない。
 - 親・子それぞれの譜面が自己領域内に実在する音声・BGA・動画を定義する入れ子は重要警告として行を強調し、自動・手動とも導入しない。未使用定義は数える。譜面を持つ子領域は親から除外し、親音源参照だけの子、バナーだけ、未定義の同梱媒体だけでは禁止しない。全ての子譜面を一律拒否する案は採らない。
-- 履歴右クリックのhashコピーを廃止し、MD5列を追加して既存SHA256列を使う。右クリックの「ランキングデータの更新」も廃止する。他用途のhash値・ローカルランキングcacheは残す。
+- 履歴右クリックのhashコピーを廃止し、MD5列を追加して既存SHA256列を使う。他用途のhash値・ローカルランキングcacheは残す。
 - 空名・空白名の実子フォルダと表rootを区別し、保存済み所属名の前後空白を詳細要求で除かない。外部プレイヤー固有の試聴・再生、資源のみ導入後の保守対象拡張、プロパティ診断への文字コード引継ぎは対象外。
 - 競合を許す必要性を先に判断し、既存受付・未開始拒否・明示再操作を優先する。予約、自動再試行、永続修復台帳、全画面共通管理器を増やさず、受理済みTaskの回収とデータ正しさを保つ。
 - 対象パスはリポジトリ相対、行番号は調査版の目安。既存テストは保証分担の入口であり、テスト数・内部APIの固定要求ではない。
@@ -29,9 +29,8 @@
 | 単位 | 対象・コミットの区切り | 共有先・順序 |
 | --- | --- | --- |
 | U03 共通表の表示とコピー | TSV空行 → URL幅 → 言語cache | 同担当が共通表の列・編集寿命を所有 |
-| U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U03後、U05/U08と直列 |
-| U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04/U08と直列 |
-| U08 手動ランキング取得廃止 | UI・専用通信・資料・専用テストを除去 | MainWindow/composition/Ir。U04/U05後、起動時ローカルcache維持 |
+| U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U03後、U05と直列 |
+| U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04と直列 |
 | U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
 | U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile |
 | U15 導入・推定 | 宛先による範囲拡張廃止 → 入れ子禁止 → 重複保留の登録整理 → 候補根変換・ユニークhash票 → DST表記 | PackageInstall/service/estimation。同一writer。候補根と票数は同じ座標へ揃える。登録整理は発見結果/完全性を共用。U09と順序調整 |
@@ -143,19 +142,6 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 そのクリックの短命な開始要求として、後発の明示入力/フォーカス移動、対象交換/切離し、別編集開始/終了で失効させる。既存部品の編集候補と保存入口を使う。現在の無条件な遅延callbackを残して新ガードを重ねず、旧開始要求の一つの所有に整理する。全画面入力管理器、恒久世代台帳、固定待機の再試行は不要。
 
 `MainWindowPlaylistWorkspaceWpfTests` でクリック→1秒以内に検索入力→callback後も検索の全文/フォーカス保持・改名0回、移動しない場合は一回開始を確認。F2、別ノード、切離し、重複クリックで古い要求が再開しない代表を分担する。遅延完了後の全UI状態を保証する一般フレームワークへ拡張しない。DnDと同MainWindowツリー領域のため同担当へまとめられる。
-
-## U08 手動ランキング取得廃止
-
-### 手動ランキング更新の廃止と終了寿命
-
-**手動通信の入口・寿命問題は残るが、採用方針は廃止に確定したため新しい終了待機設計は不要。** `MainWindow.xaml:171/244` の「ランキングデータの更新」→ `tableContextMenuItemUpdateRankingDataClick`（7548行付近）→ `MainWindowRankingCacheTerminal` → `RankingCacheDownloadWorkflowOwner.Request` がbackground taskを開始し、`ObserveFault` だけでShell shutdownへjoinしない。
-
-- 採用方針: 両context menuの項目と連続/末尾の不要separatorを除去する。terminal、composition引数/保持、owner/runtime、専用capability、専用UI可否判定を本番参照に従って取り除く。到達しなくなる通信末端も残さない。
-- 専用末端の候補: `BMSLibrary.GetIRDataNeedUpdates` / `DownloadIRData` / `IRDataCacheInfo`、`rankingInfoUrl` / `rankingDataUrl`、`BmsLibraryIrClient.GetRankingInfo` / `DownloadRankingData` とinterface、`BmsLibraryIrService.GetIRDataNeedUpdatesFromRankingInfo` / `DownloadRankingCacheFiles` / `PrepareDownloadedRankingCache` / `PromoteDownloadedRankingCache` / `ApplyPreparedDownloadedRankingCache` と専用DTO。共通helperは起動時cache読込みの参照を確認して残す。
-- 維持: `UpdateLr2IrRankingCacheOnStartup` 設定、既存Ir XML、`ir_data`、起動時のローカルcache走査/再集計、順位/オフライン推定、本人IR設定・通信・成績、LR2ローカルスコア。ユーザーファイルやDB既存行を削除する移行は作らない。起動時cache読込みは `BMSLibrary:7104` → serviceの既存cache reloadであり、手動Downloadとは別入口。
-- 旧計画から除く: 存続/廃止の再判断、手動task取消/join/staging cleanupの実装案、手動通信成功/部分失敗を維持する受入。廃止する経路を終了寿命へ接続する二重作業はしない。サービス終了の提供情報は実疎通確認済みと書かない。
-- 完了条件: 所持/保留/未所持等の通常context menuで項目なし・不要separatorなし。手動owner/通信/専用設定や表示資源の残参照なし。起動時cache XMLと保存済み順位の通常反映、オフライン推定、本人IRは従来どおり。設定と既存ファイル/DB値に便乗変更なし。
-- 既存保証の整理: `RankingCacheDownloadWorkflowOwnerTests` と手動専用service/Downloadテストは対応する製品経路の削除に合わせて退役。`MainWindowSelectedChartContextMenuWpfTests` とcomposition testは現行項目への期待を更新。`BmsLibraryIrStartupTests.InitializeStartup_RankingCacheDerivedValuesReachNormalSearchAndLampAggregation`、起動時cache parser/service、`StartupRankingRefreshPolicyTests` を残し、共通保証を失わない。`devdocs/spec/integration/lr2-ranking.md` の手動取得・保存・関連保証表とユーザーマニュアルの該当案内も同単位で整理する。Resources本体・6言語で専用文言を揃えて除く。
 
 ## U09 確定文字コードの導入への引継ぎ
 

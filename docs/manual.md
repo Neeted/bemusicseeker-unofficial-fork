@@ -405,7 +405,7 @@ If startup scanning is OFF, [reload the library](#library-reload) before estimat
 | Initialization | Set initial selection to Install > Pending at startup | ON | Opens the pending package screen as the initial view after startup. Intended for users who want to prioritize new installs and pending cleanup. |
 | Initialization | Enable song.db access optimization PRAGMAs | ON | Optimize database reading. Normally leave this ON. |
 | Initialization | Startup sort cache preparation | Basic only | Choose which columns to sort in advance after startup. See the [column comparison](#startup-sort-cache-preparation). Changes apply from the next application start. |
-| LR2 Integration | Update LR2IR ranking cache on startup | OFF | Reads LR2IR ranking data after startup and updates display data such as `RANKING`, `RANK UPDATE`, `T-SCORE`, and `ΔMAX`. This may be heavy during the first build or after changing LR2ID, so enable it only when needed. |
+| LR2 Integration | Update LR2IR ranking cache on startup | OFF | Reads LR2IR ranking data from existing local XML files after startup and updates display data such as `RANKING`, `RANK UPDATE`, `T-SCORE`, and `ΔMAX`. This may be heavy during the first build or after changing LR2ID, so enable it only when needed. |
 | LR2 Integration | Estimate offline score rankings | OFF | Estimates ranks for charts whose local score is higher than the LR2IR score when LR2IR ranking cache data is applied. To apply this during startup, also enable `Update LR2IR ranking cache on startup`. |
 | LR2 Integration | Download LR2IR scores and detect unsent IR scores | OFF | Retrieves LR2IR score information and detects unsent state from differences with local scores. |
 
@@ -545,10 +545,6 @@ Right-clicking a chart row or playlist row opens operations for the selected row
 - `Open text file`: Opens document candidates such as readme files in the same folder from a submenu.
 - `Open in chart viewer`: Registers or displays the chart in the chart viewer.
 
-#### Updating Rankings
-
-- `Update ranking data`: Update ranking information for selected charts, even when automatic startup refresh is OFF. It depends on an external cache service; see [Cannot Retrieve Data from External Services](#cannot-retrieve-data-from-external-services) if retrieval fails.
-
 #### Checking Encoding and File State
 
 - `Chart properties`: Check the [resource details](#checking-chart-properties) in a read-only window.
@@ -583,7 +579,7 @@ Right-clicking a chart row or playlist row opens operations for the selected row
 - `Remove from list`: Removes the target from the new / pending / installed package display. Distinguish this from operations that delete actual files.
 - `Remove metadata parse failure record`: Shown on the parse errors screen. Deletes the saved parse failure record and returns the item to the set of files to be parsed again.
 
-In playlist detail for unowned charts, configured `Open web pages` entries, `Open main URL in browser`, `Open diff URL in browser`, `Find source via external API`, `Open in chart viewer`, `Update ranking data`, and `Remove entry` remain available where their row capabilities allow them. Hash-based actions, such as web pages and external APIs, require the corresponding MD5 or SHA-256. Main and additional-chart URL actions require a valid URL; `Remove entry` requires no hash.
+In playlist detail for unowned charts, configured `Open web pages` entries, `Open main URL in browser`, `Open diff URL in browser`, `Find source via external API`, `Open in chart viewer`, and `Remove entry` remain available where their row capabilities allow them. Hash-based actions, such as web pages and external APIs, require the corresponding MD5 or SHA-256. Main and additional-chart URL actions require a valid URL; `Remove entry` requires no hash.
 
 #### Rename to Invalid Extension
 
@@ -1383,7 +1379,7 @@ Ordinary user folders and manually selected source archives are not deleted by `
 
 #### Cannot Retrieve Data from External Services
 
-Ranking caches, IR, and source searches depend on external services. Check whether the destination is available and try again later for temporary problems. Service shutdowns or data-format changes can also prevent retrieval. Check the destination and cause recorded in the log.
+IR and source searches depend on external services. Check whether the destination is available and try again later for temporary problems. Service shutdowns or data-format changes can also prevent retrieval. Check the destination and cause recorded in the log.
 
 #### Cannot Generate Recommendations
 

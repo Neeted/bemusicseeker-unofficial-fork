@@ -6608,7 +6608,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MenuItem menuItemFindExternalPackage = null;
         MenuItem menuItem3 = null;
         MenuItem menuItem4 = null;
-        MenuItem menuItem7 = null;
         MenuItem menuItem8 = null;
         MenuItem menuItem9 = null;
         MenuItem menuItem10 = null;
@@ -6657,9 +6656,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     break;
                 case "tableContextMenuItemOpenDocument":
                     menuItemOpenDocument = item as MenuItem;
-                    break;
-                case "tableContextMenuItemUpdateRankingData":
-                    menuItem7 = item as MenuItem;
                     break;
                 case "tableContextMenuItemInstall":
                     menuItem8 = item as MenuItem;
@@ -6809,12 +6805,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             menuItem18.Visibility = hasScoreViewerTarget ? Visibility.Visible : Visibility.Collapsed;
             menuItem18.IsEnabled = selectedChartContextMenuTerminals.ScoreViewer.CanRegisterScoreViewer(selectedTargets);
         }
-        if (menuItem7 != null)
-        {
-            bool hasRankingTarget = selectedChartContextMenuTerminals.RankingCache.HasRankingTarget(selectedTargets);
-            menuItem7.Visibility = hasRankingTarget ? Visibility.Visible : Visibility.Collapsed;
-            menuItem7.IsEnabled = selectedChartContextMenuTerminals.RankingCache.CanRequestRanking(selectedTargets);
-        }
         MenuItem menuItemDeleteInstallPackages = contextMenu.Items.OfType<MenuItem>().FirstOrDefault(item => item.Name == "tableContextMenuItemDeleteInstallPackages");
         List<string> selectedChartInfoParseFailureMd5s = GetSelectedChartInfoParseFailureMd5s();
         if (menuItemRemoveChartInfoParseFailure != null)
@@ -6933,11 +6923,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     menuItem18.Visibility = Visibility.Collapsed;
                     menuItem18.IsEnabled = false;
                 }
-                if (menuItem7 != null)
-                {
-                    menuItem7.Visibility = Visibility.Collapsed;
-                    menuItem7.IsEnabled = false;
-                }
                 if (menuItemRenameInvalidExt != null)
                 {
                     menuItemRenameInvalidExt.Visibility = Visibility.Collapsed;
@@ -6976,11 +6961,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 menuItem18.Visibility = Visibility.Collapsed;
                 menuItem18.IsEnabled = false;
-            }
-            if (menuItem7 != null)
-            {
-                menuItem7.Visibility = Visibility.Collapsed;
-                menuItem7.IsEnabled = false;
             }
             if (menuItem8 != null)
             {
@@ -7038,6 +7018,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 menuItemDeleteInstallPackages.IsEnabled = false;
             }
         }
+        CollapseRedundantTableContextMenuSeparators(contextMenu);
     }
 
     private void tableContextMenuPlaylistMissingOpened(object sender, RoutedEventArgs e)
@@ -7074,7 +7055,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             programParentName: "tableContextMenuItemOpenProgramActions");
         bool isBmsonContextRow = rowTarget?.Chart.Kind == ChartFileKind.Bmson;
         bool canOpenScoreViewer = selectedChartContextMenuTerminals.ScoreViewer.HasScoreViewerTarget([rowTarget]);
-        bool canUpdateRanking = selectedChartContextMenuTerminals.RankingCache.CanRequestRanking([rowTarget]);
         List<object> effectivePlaylistUrlRows = GetEffectiveContextMenuRows(row);
         PlaylistUrlContextMenuAvailability playlistUrlAvailability =
             playlistWorkspaceTerminals.UrlAcquisition.CaptureAvailability(
@@ -7112,13 +7092,46 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     item.Visibility = canOpenScoreViewer ? Visibility.Visible : Visibility.Collapsed;
                     item.IsEnabled = canOpenScoreViewer;
                     break;
-                case "tableContextMenuItemUpdateRankingData":
-                    item.Visibility = canUpdateRanking ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = canUpdateRanking;
-                    break;
             }
         }
-        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + playlistUrlAvailability.CanOpenUrl + " urlDiff=" + playlistUrlAvailability.CanOpenDiffUrl + " canOpenScoreViewer=" + canOpenScoreViewer + " canUpdateRanking=" + canUpdateRanking);
+        CollapseRedundantTableContextMenuSeparators(contextMenu);
+        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + playlistUrlAvailability.CanOpenUrl + " urlDiff=" + playlistUrlAvailability.CanOpenDiffUrl + " canOpenScoreViewer=" + canOpenScoreViewer);
+    }
+
+    /// <summary>現在表示する譜面メニューの先頭・連続・末尾に不要な区切り線を残しません。</summary>
+    private static void CollapseRedundantTableContextMenuSeparators(ContextMenu menu)
+    {
+        Separator pendingSeparator = null;
+        bool hasVisibleItem = false;
+        foreach (Control item in menu.Items)
+        {
+            if (item is Separator separator)
+            {
+                // 無名の固定区切りは、閲覧項目などの表示が変わる再Openでも再評価します。
+                if (string.IsNullOrEmpty(separator.Name))
+                {
+                    separator.Visibility = Visibility.Visible;
+                }
+                if (separator.Visibility != Visibility.Visible)
+                {
+                    continue;
+                }
+                separator.Visibility = Visibility.Collapsed;
+                if (hasVisibleItem && pendingSeparator == null)
+                {
+                    pendingSeparator = separator;
+                }
+            }
+            else if (item.Visibility == Visibility.Visible)
+            {
+                if (pendingSeparator != null)
+                {
+                    pendingSeparator.Visibility = Visibility.Visible;
+                    pendingSeparator = null;
+                }
+                hasVisibleItem = true;
+            }
+        }
     }
 
     private void playHistoryContextMenuOpened(object sender, RoutedEventArgs e)
@@ -7513,22 +7526,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     }
 
 
-
-    private void tableContextMenuItemUpdateRankingDataClick(object sender, RoutedEventArgs e)
-    {
-        if (!TryGetContextMenuRow(e.Source, out _))
-        {
-            return;
-        }
-        List<ChartOperationTarget> targets = GetSelectedChartTargets();
-        if (targets.Count != 0)
-        {
-            if (selectedChartContextMenuTerminals.RankingCache.Request(targets))
-            {
-                e.Handled = true;
-            }
-        }
-    }
 
     private async void tableContextMenuItemRegisterBMSFileToScoreViwer(object sender, RoutedEventArgs e)
     {

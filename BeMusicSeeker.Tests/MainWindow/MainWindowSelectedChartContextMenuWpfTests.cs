@@ -248,7 +248,6 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                     {
                         "tableContextMenuItemFixEncoding",
                         "tableContextMenuItemRegisterScore",
-                        "tableContextMenuItemUpdateRankingData",
                         "tableContextMenuItemRenameInvalidExt"
                     })
                     {
@@ -565,53 +564,53 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             selectedChartContextMenuTerminals: CreateTerminals(chartInfoParseFailureRemoval: parseTerminal));
     }
 
-    /// <summary>compiled順位更新メニューは単一選択として可否を照会し、Clickへ同じ対象譜面を渡して一要求だけを受理します。</summary>
-    [TestMethod]
-    public void CompiledRankingContextMenuUsesExactSelectionSnapshotAndOneRequest()
+    /// <summary>所持・保留・未所持のcompiledメニューは手動順位取得を含まず、閲覧項目の表示・非表示に応じても表示直下の区切りを連続・末尾へ残しません。</summary>
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void CompiledChartContextMenus_HaveNoManualRankingAndRedundantVisibleSeparators(bool showViewer)
     {
-        var availabilitySnapshots = new List<List<ChartOperationTarget>>();
-        var requestSnapshots = new List<List<ChartOperationTarget>>();
-        MainWindowRankingCacheTerminal ranking = new(
-            targets =>
-            {
-                availabilitySnapshots.Add(targets.ToList());
-                return true;
-            },
-            targets =>
-            {
-                availabilitySnapshots.Add(targets.ToList());
-                return true;
-            },
-            targets =>
-            {
-                requestSnapshots.Add(targets.ToList());
-                return true;
-            });
-        LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", @"C:\wave6e-ranking\chart.bms");
-
+        MainWindowScoreViewerTerminal scoreViewer = new(
+            _ => showViewer,
+            _ => showViewer,
+            (_, _) => throw new AssertFailedException("メニュー表示の確認では譜面ビューアを起動しません。"),
+            (_, _, _) => throw new AssertFailedException("メニュー表示の確認では譜面ビューアを起動しません。"));
+        LibraryChartRow owned = CreateChartRow(ChartFileKind.Bms, "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", @"C:\context-menu\chart.bms");
+        var pending = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(owned.Chart));
+        PlaylistDetailRow missing = CreateMissingPlaylistRow("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE");
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
             MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 var table = (CustomTableView)window.FindName("customTableView");
-                table.ItemsSource = new List<object> { row };
-                table.SelectRowsByPredicate(_ => true);
-                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
-                var menu = (ContextMenu)window.FindResource("tableContextMenu");
-                menu.PlacementTarget = new FrameworkElement { DataContext = row };
-                OpenContextMenu(menu);
+                foreach ((object? row, MainViewUpdateMode mode, string? resource, bool viewerVisible) in new (object, MainViewUpdateMode, string, bool)[]
+                {
+                    (owned, MainViewUpdateMode.FolderFilterSelected, "tableContextMenu", showViewer),
+                    (pending, MainViewUpdateMode.PendingInstallFolderSelected, "tableContextMenu", showViewer),
+                    (missing, MainViewUpdateMode.PlaylistNotOwnedFilterSelected, "tableContextMenuPlaylistMissing", showViewer),
+                    (missing, MainViewUpdateMode.PlaylistNotOwnedFilterSelected, "tableContextMenu", false)
+                })
+                {
+                    table.ItemsSource = new List<object> { row };
+                    table.SelectRowsByPredicate(_ => true);
+                    viewModel.MainChartList.SetOperationContext(mode);
+                    var menu = (ContextMenu)window.FindResource(resource);
+                    menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                    OpenContextMenu(menu);
 
-                MenuItem update = FindMenuItem(menu, "tableContextMenuItemUpdateRankingData");
-                Assert.AreEqual(Visibility.Visible, update.Visibility);
-                Assert.IsTrue(update.IsEnabled);
-                RoutedEventArgs args = RaiseMenuClick(update);
-                Assert.IsTrue(args.Handled);
-                Assert.AreEqual(1, requestSnapshots.Count);
-                Assert.AreEqual(1, requestSnapshots[0].Count);
-                Assert.AreSame(row.Chart, requestSnapshots[0][0].Chart);
-                Assert.IsTrue(availabilitySnapshots.All(snapshot => snapshot.Count == 1));
+                    Assert.IsFalse(menu.Items.OfType<MenuItem>().Any(item => item.Name == "tableContextMenuItemUpdateRankingData"));
+                    Assert.AreEqual(viewerVisible ? Visibility.Visible : Visibility.Collapsed,
+                        FindMenuItem(menu, "tableContextMenuItemRegisterScore").Visibility, resource);
+                    Control[] visibleItems = menu.Items.OfType<Control>().Where(item => item.Visibility == Visibility.Visible).ToArray();
+                    Assert.IsTrue(visibleItems.Length > 0);
+                    Assert.IsFalse(visibleItems[^1] is Separator, resource);
+                    for (int index = 1; index < visibleItems.Length; index++)
+                    {
+                        Assert.IsFalse(visibleItems[index - 1] is Separator && visibleItems[index] is Separator, resource);
+                    }
+                }
             },
-            selectedChartContextMenuTerminals: CreateTerminals(rankingCache: ranking));
+            selectedChartContextMenuTerminals: CreateTerminals(scoreViewer: scoreViewer));
     }
 
     /// <summary>通常譜面と未所持詳細のcompiled閲覧Clickはそれぞれ選択行の譜面を端末へ渡してHandledを設定し、通常側では未完了Task中にもHandledが成立することを確認します。</summary>
@@ -1373,7 +1372,6 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
         MainWindowSelectedChartResourceHealthTerminal? resourceHealth = null,
         MainWindowSelectedChartAudioConversionTerminal? audio = null,
         MainWindowChartInfoParseFailureRemovalTerminal? chartInfoParseFailureRemoval = null,
-        MainWindowRankingCacheTerminal? rankingCache = null,
         MainWindowScoreViewerTerminal? scoreViewer = null,
         MainWindowSelectedChartExternalActionsTerminal? selectedChartExternalActions = null)
     {
@@ -1392,10 +1390,6 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 _ => new ChartInfoParseFailureRemovalOperation(
                     Task.FromResult(new ChartInfoParseFailureRemovalAcceptance(accepted: false)),
                     Task.FromResult(ChartInfoParseFailureRemovalResult.NotStarted))),
-            rankingCache ?? new MainWindowRankingCacheTerminal(
-                _ => false,
-                _ => false,
-                _ => false),
             scoreViewer ?? new MainWindowScoreViewerTerminal(
                 _ => false,
                 _ => false,

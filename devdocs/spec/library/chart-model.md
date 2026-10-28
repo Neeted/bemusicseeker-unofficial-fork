@@ -119,7 +119,7 @@ UIからは `ChartOperationTarget` に譜面、元の項目、所持・保留・
 | `OpenFile` / `OpenFolder` | 可 | 可 | 実パスがあり、欠落していないこと。 |
 | `OpenPlaylistUrls` | 可 | 可 | プレイリスト項目にURLまたは差分URLがあること。 |
 | `RunResourceHealthCheck` | 可 | 可 | 実パスがあり、欠落していないこと。 |
-| `UseLr2Ir` / `UseScoreViewer` / `UpdateRanking` | 可 | 不可 | BMSで、有効なMD5があること。BMS-IRリンクでLR2BMSIDを代用しません。 |
+| `UseLr2Ir` / `UseScoreViewer` | 可 | 不可 | BMSで、有効なMD5があること。BMS-IRリンクでLR2BMSIDを代用しません。 |
 | `RunBmsEncodingCheck` / `RunBmsEncodingFix` / `RunZeroNoteCheck` | 可 | 不可 | 欠落していないBMSであること。 |
 | `RenameInvalidExtension` | 可 | 不可 | 欠落していないBMSであること。 |
 | `ConvertToAudio` | 可 | 可 | 実パスがあり、欠落・保留状態ではないこと。 |

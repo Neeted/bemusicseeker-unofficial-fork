@@ -158,7 +158,6 @@ public sealed class MainWindowContextMenuResourceTests
         ChartOperationTarget rowTarget = CreateContextMenuTarget(
             ChartFileKind.Bms,
             ChartOperationCapabilities.UseLr2Ir
-                | ChartOperationCapabilities.UpdateRanking
                 | ChartOperationCapabilities.RunResourceHealthCheck
                 | ChartOperationCapabilities.UpdateInstallDestination
                 | ChartOperationCapabilities.RemoveFromLibrary

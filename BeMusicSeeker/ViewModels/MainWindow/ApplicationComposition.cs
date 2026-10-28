@@ -418,6 +418,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
                 CustomFolderOutputSettingsSnapshot.CreateCurrent(settingsEditSession.Values)));
     }
 
+    /// <summary>メイン画面の譜面操作・閲覧と起動処理の担当を、構成寿命で共有する依存へ接続します。</summary>
     internal MainWindowChildComposition CreateMainWindowChildComposition(
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace,
@@ -460,7 +461,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         IUiDialogService selectedChartAudioConversionDialogService = null,
         ISelectedChartAudioConversionExecutor selectedChartAudioConversionExecutor = null,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow = null,
-        RankingCacheDownloadWorkflowOwner rankingCacheDownloadWorkflow = null,
         Func<string, bool> selectedChartExternalActionFileExists = null,
         Action<string> libraryFolderTreeLog = null,
         Action<string> libraryFolderTreeLogWarning = null,
@@ -521,7 +521,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
                 ?? audioSettingsGateway.ApplyEncoderFallback,
             selectedChartAudioConversionDialogService,
             lr2SongDbSyncWorkflow,
-            rankingCacheDownloadWorkflow,
             selectedChartExternalActionFileExists,
             libraryFolderTreeLog,
             libraryFolderTreeLogWarning,
@@ -691,9 +690,9 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 internal sealed class MainWindowChildComposition
 {
     /// <summary>
-    /// Creates the child owner graph with explicit search persistence boundaries.
+    /// 検索設定の保存境界と譜面操作・閲覧・起動処理の依存を明示して、画面寿命の担当を構成します。
     /// </summary>
-    /// <param name="keywordSearchFavoritesSettingsStore">The explicit normal/summary Favorites settings boundary.</param>
+    /// <param name="keywordSearchFavoritesSettingsStore">通常一覧・概要で共有するお気に入り設定の保存境界。</param>
     /// <param name="exitForUnrestoredDestination">操作終端後に通常Closeを通さず最終終了する境界。</param>
     /// <param name="playlistOperationAdmission">構成寿命で共有するPの新規受付を閉じるための既存owner。</param>
     internal MainWindowChildComposition(
@@ -745,7 +744,6 @@ internal sealed class MainWindowChildComposition
         Action<EncoderType> selectedChartAudioConversionEncoderFallback = null,
         IUiDialogService selectedChartAudioConversionDialogService = null,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow = null,
-        RankingCacheDownloadWorkflowOwner rankingCacheDownloadWorkflow = null,
         Func<string, bool> selectedChartExternalActionFileExists = null,
         Action<string> libraryFolderTreeLog = null,
         Action<string> libraryFolderTreeLogWarning = null,
@@ -926,8 +924,6 @@ internal sealed class MainWindowChildComposition
             chartFileOperations);
         Lr2SongDbSyncWorkflow = lr2SongDbSyncWorkflow
             ?? throw new ArgumentNullException(nameof(lr2SongDbSyncWorkflow));
-        RankingCacheDownloadWorkflow = rankingCacheDownloadWorkflow
-            ?? throw new ArgumentNullException(nameof(rankingCacheDownloadWorkflow));
     }
 
     internal MainChartListViewModel MainChartList { get; }
@@ -983,8 +979,6 @@ internal sealed class MainWindowChildComposition
     internal SelectedChartAudioConversionWorkflowOwner SelectedChartAudioConversion { get; }
 
     internal Lr2SongDbSyncWorkflowOwner Lr2SongDbSyncWorkflow { get; }
-
-    internal RankingCacheDownloadWorkflowOwner RankingCacheDownloadWorkflow { get; }
 
     private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
         BMSLibrary library,

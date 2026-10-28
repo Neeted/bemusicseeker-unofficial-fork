@@ -11,7 +11,6 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Models.Utils;
 using Ribbit.Logging;
 using Ribbit.Util.Extensions;
 
@@ -38,44 +37,8 @@ internal sealed class BmsLibraryIrService
         public IrCacheRefreshResult Result { get; } = new IrCacheRefreshResult();
     }
 
-    internal sealed class RankingCacheDownloadBatch
-    {
-        internal List<BMSLibrary.IRDataCacheInfo> Source { get; } = [];
-
-        internal List<BMSLibrary.IRDataCacheInfo> Failed { get; } = [];
-
-        internal List<DownloadedRankingCacheFile> DownloadedFiles { get; } = [];
-    }
-
-    internal sealed class RankingCacheApplyPlan
-    {
-        internal RankingCacheDownloadBatch DownloadBatch { get; init; }
-
-        internal List<RankingCacheReloadResult> ParsedResults { get; } = [];
-
-        internal List<BMSLibrary.IRDataCacheInfo> Failed { get; } = [];
-
-        internal HashSet<string> PromotedStagedPaths { get; } =
-            new(StringComparer.OrdinalIgnoreCase);
-    }
-
-    internal sealed class RankingCacheApplyResult
-    {
-        internal List<BMSLibrary.IRDataCacheInfo> Failed { get; } = [];
-
-    }
-
-    internal sealed class DownloadedRankingCacheFile
-    {
-        internal BMSLibrary.IRDataCacheInfo CacheInfo { get; init; }
-
-        internal string StagedPath { get; init; }
-    }
-
     internal sealed class RankingCacheReloadResult
     {
-        public string FilePath { get; set; }
-
         public LR2IRData IrData { get; set; }
 
         public Lr2IrRankingLookup Lookup { get; set; }
@@ -613,214 +576,9 @@ internal sealed class BmsLibraryIrService
             || (score.clear != irScore.clear && (score.clear != ClearType.PA || irScore.clear != ClearType.FC));
     }
 
-    public List<LR2IRData> LoadIrData(int lr2Id, BmsLibraryDbGateway dbGateway)
-    {
-        return LoadIrDataWithMetrics(lr2Id, dbGateway).Rows;
-    }
-
     public IrDataLoadResult LoadIrDataWithMetrics(int lr2Id, BmsLibraryDbGateway dbGateway)
     {
         return dbGateway?.LoadIrDataWithMetrics(lr2Id) ?? new IrDataLoadResult();
-    }
-
-    internal List<BMSLibrary.IRDataCacheInfo> GetIRDataNeedUpdatesFromRankingInfo(
-        int lr2Id,
-        IEnumerable<BMSLibrary.IRDataCacheInfo> rankingInfo,
-        BmsLibraryDbGateway dbGateway)
-    {
-        List<BMSLibrary.IRDataCacheInfo> outer = [.. (rankingInfo ?? [])];
-        List<LR2IRData> inner = LoadIrData(lr2Id, dbGateway);
-        return [.. (from i in outer
-                join d in inner on i.md5 equals d.hash into d
-                select new
-                {
-                    irCacheInfo = i,
-                    irDataDb = d.DefaultIfEmpty()
-                } into grp
-                from a in grp.irDataDb
-                select new
-                {
-                    grp.irCacheInfo,
-                    irDataDb = a
-                } into b
-                where b.irDataDb == null || b.irCacheInfo.lastupdate > b.irDataDb.lastupdate
-                select b.irCacheInfo)];
-    }
-
-    internal RankingCacheDownloadBatch DownloadRankingCacheFiles(
-        IEnumerable<BMSLibrary.IRDataCacheInfo> cacheInfo,
-        string stagingDirectoryPath,
-        IBmsLibraryIrClient irClient,
-        Uri rankingDataUrl)
-    {
-        if (string.IsNullOrWhiteSpace(stagingDirectoryPath))
-        {
-            throw new ArgumentException("A ranking cache staging directory is required.", nameof(stagingDirectoryPath));
-        }
-        Directory.CreateDirectory(stagingDirectoryPath);
-        var batch = new RankingCacheDownloadBatch();
-        batch.Source.AddRange(cacheInfo ?? []);
-        object failedLock = new();
-        object downloadedLock = new();
-        batch.Source.AsParallel().WithDegreeOfParallelism(3).ForAll(delegate (BMSLibrary.IRDataCacheInfo info)
-        {
-            try
-            {
-                string stagedPath = Path.Combine(stagingDirectoryPath, info.md5 + ".xml");
-                irClient.DownloadRankingData(rankingDataUrl, info.md5, stagedPath);
-                lock (downloadedLock)
-                {
-                    batch.DownloadedFiles.Add(new DownloadedRankingCacheFile
-                    {
-                        CacheInfo = info,
-                        StagedPath = stagedPath
-                    });
-                }
-            }
-            catch
-            {
-                lock (failedLock)
-                {
-                    batch.Failed.Add(info);
-                }
-            }
-        });
-        return batch;
-    }
-
-    internal RankingCacheApplyPlan PrepareDownloadedRankingCache(
-        int lr2Id,
-        RankingCacheDownloadBatch batch)
-    {
-        if (batch == null)
-        {
-            throw new ArgumentNullException(nameof(batch));
-        }
-        var plan = new RankingCacheApplyPlan
-        {
-            DownloadBatch = batch
-        };
-        plan.Failed.AddRange(batch.Failed);
-        object parsedLock = new();
-        ReloadRankingCacheTargets(
-            batch.DownloadedFiles.Select(downloadedFile => downloadedFile.StagedPath),
-            lr2Id,
-            ResolveRankingCacheXmlReloadDegree(),
-            delegate (RankingCacheReloadResult result)
-            {
-                lock (parsedLock)
-                {
-                    plan.ParsedResults.Add(result);
-                }
-            });
-        var sourceByHash = batch.Source
-            .Where(info => info != null && !string.IsNullOrWhiteSpace(info.md5))
-            .GroupBy(info => info.md5, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-        foreach (RankingCacheReloadResult result in plan.ParsedResults)
-        {
-            if (result == null || result.Failed || result.IrData == null)
-            {
-                string failedHash = result?.FilePath == null
-                    ? null
-                    : Path.GetFileNameWithoutExtension(result.FilePath);
-                if (!string.IsNullOrWhiteSpace(failedHash)
-                    && sourceByHash.TryGetValue(
-                        failedHash,
-                        out BMSLibrary.IRDataCacheInfo failedInfo))
-                {
-                    plan.Failed.Add(failedInfo);
-                }
-            }
-        }
-        return plan;
-    }
-
-    /// <summary>解析済みの取得cacheを昇格し、ファイル失敗は対象の非採用と局所診断で終えます。</summary>
-    internal void PromoteDownloadedRankingCache(
-        RankingCacheApplyPlan plan,
-        string irCacheDirPath)
-    {
-        if (plan == null)
-        {
-            throw new ArgumentNullException(nameof(plan));
-        }
-        var parsedStagedPaths = new HashSet<string>(
-            plan.ParsedResults
-                .Where(result => result != null
-                    && !result.Failed
-                    && result.IrData != null
-                    && !string.IsNullOrWhiteSpace(result.FilePath))
-                .Select(result => result.FilePath),
-            StringComparer.OrdinalIgnoreCase);
-        foreach (DownloadedRankingCacheFile downloadedFile in plan.DownloadBatch.DownloadedFiles)
-        {
-            if (!parsedStagedPaths.Contains(downloadedFile.StagedPath))
-            {
-                plan.Failed.Add(downloadedFile.CacheInfo);
-                continue;
-            }
-            try
-            {
-                string cacheFilePath = Path.Combine(
-                    irCacheDirPath,
-                    downloadedFile.CacheInfo.md5 + ".xml");
-                LongPathFileSystem.MoveFile(
-                    downloadedFile.StagedPath,
-                    cacheFilePath,
-                    overwrite: true);
-                plan.PromotedStagedPaths.Add(downloadedFile.StagedPath);
-            }
-            catch (Exception ex)
-            {
-                WarnRankingCacheFileFailure(ex, downloadedFile.StagedPath, "promote");
-                plan.Failed.Add(downloadedFile.CacheInfo);
-            }
-        }
-    }
-
-    /// <summary>解析と昇格に成功した順位cacheを一括保存し、確定後だけ共有スコアへ採用します。</summary>
-    /// <param name="plan">取得・解析・昇格の結果。</param>
-    /// <param name="dbGateway">順位cacheの保存先。</param>
-    /// <param name="bmsScores">呼出元がロックと通知抑止を保持する共有スコア。</param>
-    /// <param name="estimateOfflineScoreRanking">ローカルスコアが高い場合に順位を推定するか。</param>
-    /// <returns>取得・解析・昇格に失敗した対象。</returns>
-    /// <remarks>保存・確定の失敗は伝播し、共有スコアの更新や新規追加を行いません。昇格済みXMLの巻戻しは行いません。</remarks>
-    internal RankingCacheApplyResult ApplyPreparedDownloadedRankingCache(
-        RankingCacheApplyPlan plan,
-        BmsLibraryDbGateway dbGateway,
-        List<BMSScore> bmsScores,
-        bool estimateOfflineScoreRanking)
-    {
-        if (plan == null)
-        {
-            throw new ArgumentNullException(nameof(plan));
-        }
-        var applyResult = new RankingCacheApplyResult();
-        applyResult.Failed.AddRange(plan.Failed.Distinct());
-        List<RankingCacheReloadResult> resultsToApply = [.. plan.ParsedResults.Where(result =>
-            result != null
-            && !result.Failed
-            && result.IrData != null
-            && plan.PromotedStagedPaths.Contains(result.FilePath))];
-        dbGateway.UpsertIrData(resultsToApply.Select(result => result.IrData));
-        Dictionary<string, BMSScore> scoresByHash = BuildScoreIndex(bmsScores);
-
-        int offlineEstimateXmlLoadCount = 0;
-        foreach (RankingCacheReloadResult result in resultsToApply)
-        {
-            ApplyIrDataToScoresIndexed(
-                result.IrData,
-                result.Lookup,
-                dbGateway.ScoreDbPath,
-                bmsScores,
-                scoresByHash,
-                estimateOfflineScoreRanking,
-                ref offlineEstimateXmlLoadCount,
-                allowLookupFileLoad: false);
-        }
-
-        return applyResult;
     }
 
     /// <summary>保存順位とcacheを読み、必要な保存を確定してから共有スコアへ反映します。</summary>
@@ -1086,7 +844,7 @@ internal sealed class BmsLibraryIrService
 
     private RankingCacheReloadResult LoadRankingCacheSummary(string filePath, int lr2Id)
     {
-        var result = new RankingCacheReloadResult { FilePath = filePath };
+        var result = new RankingCacheReloadResult();
         try
         {
             string md5 = Path.GetFileNameWithoutExtension(filePath);

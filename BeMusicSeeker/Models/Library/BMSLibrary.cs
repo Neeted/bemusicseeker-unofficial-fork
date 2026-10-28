@@ -16,7 +16,6 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
-using Newtonsoft.Json.Linq;
 using NLog;
 using Ribbit.Logging;
 using Ribbit.Util.Extensions;
@@ -602,68 +601,6 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    /// <summary>
-    /// LR2IR ランキングデータのキャッシュ情報（MD5ハッシュ、データサイズ、最終更新日時）を保持するクラスです。
-    /// ribbit.xyz サーバーから取得した JSON をパースして生成されます。
-    /// </summary>
-    public class IRDataCacheInfo
-    {
-        public string md5 { get; set; }
-
-        public int size { get; set; }
-
-        public DateTime lastupdate { get; set; }
-
-        public IRDataCacheInfo(JObject json)
-        {
-            if (json == null)
-            {
-                throw new ArgumentNullException(nameof(json));
-            }
-            if (TryGetNonNullProperty(json, "md5", out JToken md5Token)
-                && TryGetNonNullProperty(json, "size", out JToken sizeToken)
-                && TryGetNonNullProperty(json, "lastupdate", out JToken lastUpdateToken))
-            {
-                string md5Value = md5Token.ToString();
-                if (!LR2SongDB.md5HashRegex.IsMatch(md5Value))
-                {
-                    throw new ArgumentException(Resources.Error_NotMd5Hash, "json.md5");
-                }
-                md5 = md5Value;
-                size = ParseSize(sizeToken);
-                lastupdate = DateTime.ParseExact(lastUpdateToken.ToString(), "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
-                return;
-            }
-            throw new ArgumentException(Resources.Error_InvalidJsonObject, "json");
-        }
-
-        private static bool TryGetNonNullProperty(JObject source, string propertyName, out JToken value)
-        {
-            return source.TryGetValue(propertyName, out value) && value.Type != JTokenType.Null;
-        }
-
-        private static int ParseSize(JToken token)
-        {
-            if (token.Type == JTokenType.Integer)
-            {
-                return token.Value<int>();
-            }
-            if (token.Type == JTokenType.Float)
-            {
-                double value = token.Value<double>();
-                if (!double.IsNaN(value)
-                    && !double.IsInfinity(value)
-                    && value >= int.MinValue
-                    && value <= int.MaxValue
-                    && Math.Truncate(value) == value)
-                {
-                    return (int)value;
-                }
-            }
-            return int.Parse(token.ToString(), CultureInfo.InvariantCulture);
-        }
-    }
-
     private readonly string lr2SongDBPath;
 
     private readonly IUiScheduler uiScheduler;
@@ -1118,10 +1055,6 @@ public partial class BMSLibrary : ObservableObject
     private bool _IsWriteLockHeldInitializeBMSFilesZeroNote = true;
 
     private static readonly Regex lr2IRScoreRegex = new("\\t<score>\\r?\\n\\t\\t<hash>([a-f0-9]+)</hash>\\r?\\n\\t\\t<clear>(\\d+)</clear>\\r?\\n\\t\\t<notes>(\\d+)</notes>\\r?\\n\\t\\t<combo>(\\d+)</combo>\\r?\\n\\t\\t<pg>(\\d+)</pg>\\r?\\n\\t\\t<gr>(\\d+)</gr>\\r?\\n\\t\\t<gd>(\\d+)</gd>\\r?\\n\\t\\t<bd>(\\d+)</bd>\\r?\\n\\t\\t<pr>(\\d+)</pr>\\r?\\n\\t\\t<minbp>(\\d+)</minbp>\\r?\\n\\t\\t<option>(\\d+)</option>\\r?\\n\\t\\t<lastupdate>(\\d+)</lastupdate>\\r?\\n\\t</score>\\r?\\n", RegexOptions.Compiled);
-
-    private static readonly Uri rankingInfoUrl = new("http://www.ribbit.xyz/bms/services/lr2ircache/ranking");
-
-    private static readonly Uri rankingDataUrl = new("http://www.ribbit.xyz/bms/services/lr2ircache/ranking/");
 
     private static readonly Regex customTrimStartRegex1 = new("^(\\d+(S|D)P|midi|bms|music)[.:・\\s]+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
@@ -8051,104 +7984,6 @@ public partial class BMSLibrary : ObservableObject
             + " offlineEstimateXmlLoads=" + result.OfflineEstimateXmlLoadCount);
         uiScheduler.Invoke(() => RefreshScoreSnapshotFromCurrentScores("refresh_ranking_cache")());
         return result;
-    }
-
-    public List<IRDataCacheInfo> GetIRDataNeedUpdates(IEnumerable<string> md5s)
-    {
-        RankingDownloadContext context = CaptureRankingDownloadContext();
-        List<IRDataCacheInfo> rankingInfo = irClient.GetRankingInfo(rankingInfoUrl, md5s);
-        using (rwlockLR2IrDir.GetReaderGuard())
-        {
-            using (rwlockBMSScores.GetReaderGuard())
-            {
-                EnsureCurrentRankingDownloadContext(context);
-                return irService.GetIRDataNeedUpdatesFromRankingInfo(
-                    context.Lr2Id,
-                    rankingInfo,
-                    dbGateway);
-            }
-        }
-    }
-
-    /// <summary>順位cacheの成功対象を昇格・保存して実lookupへ採用し、通知失敗を実失敗対象へ加えずに返します。</summary>
-    /// <param name="cacheInfo">取得する順位cache対象。</param>
-    /// <returns>取得・解析・昇格に失敗した対象。</returns>
-    public List<IRDataCacheInfo> DownloadIRData(IEnumerable<IRDataCacheInfo> cacheInfo)
-    {
-        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        RankingDownloadContext context = CaptureRankingDownloadContext();
-        if (cacheInfo == null)
-        {
-            throw new ArgumentNullException("cacheInfo");
-        }
-        string irCacheDirPath = Path.Combine(
-            Path.GetDirectoryName(context.ScoreDbPath),
-            "..\\..\\Ir");
-        if (!LongPathFileSystem.DirectoryExists(irCacheDirPath))
-        {
-            throw new DirectoryNotFoundException(string.Format(Resources.Error_IRCacheDirNotFound, irCacheDirPath));
-        }
-        string stagingDirectoryPath = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeeker_RankingCache_" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            BmsLibraryIrService.RankingCacheDownloadBatch downloadBatch =
-                irService.DownloadRankingCacheFiles(
-                    cacheInfo,
-                    stagingDirectoryPath,
-                    irClient,
-                    rankingDataUrl);
-            BmsLibraryIrService.RankingCacheApplyPlan applyPlan =
-                irService.PrepareDownloadedRankingCache(
-                    context.Lr2Id,
-                    downloadBatch);
-            BmsLibraryIrService.RankingCacheApplyResult applyResult;
-            using (rwlockLR2IrDir.GetWriterGuard())
-            {
-                using (rwlockBMSScores.GetWriterGuard())
-                {
-                    EnsureCurrentRankingDownloadContext(context);
-
-                    irService.PromoteDownloadedRankingCache(
-                        applyPlan,
-                        irCacheDirPath);
-                    using (BMSScore.SuppressPropertyChangedScope())
-                    {
-                        applyResult = irService.ApplyPreparedDownloadedRankingCache(
-                            applyPlan,
-                            dbGateway,
-                            BMSScores,
-                            options.EstimateOfflineScoreRanking);
-                    }
-
-                }
-            }
-            uiScheduler.Invoke(() => RefreshScoreSnapshotFromCurrentScores("download_ir_data")());
-            return applyResult.Failed;
-        }
-        finally
-        {
-            try
-            {
-                if (LongPathFileSystem.DirectoryExists(stagingDirectoryPath))
-                {
-                    LongPathFileSystem.DeleteDirectory(stagingDirectoryPath, recursive: true);
-                }
-            }
-            catch (OutOfMemoryException ex)
-            {
-                Environment.FailFast("順位取得の後片付け中にメモリが不足しました。", ex);
-            }
-            catch (Exception ex)
-            {
-                LogInstallPerformanceWarn(
-                    "ranking_cache_download staging_cleanup_failed path=\""
-                    + stagingDirectoryPath
-                    + "\" exception="
-                    + ex.GetType().Name);
-            }
-        }
     }
 
     private RankingDownloadContext CaptureRankingDownloadContext()

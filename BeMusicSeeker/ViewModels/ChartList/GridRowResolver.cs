@@ -319,7 +319,7 @@ internal static class GridRowResolver
             }
             if (hasMd5)
             {
-                capabilities |= ChartOperationCapabilities.UseScoreViewer | ChartOperationCapabilities.UpdateRanking;
+                capabilities |= ChartOperationCapabilities.UseScoreViewer;
             }
             if (!isPlaylistMissing)
             {

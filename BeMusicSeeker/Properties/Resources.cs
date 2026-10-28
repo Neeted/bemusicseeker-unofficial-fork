@@ -929,12 +929,6 @@ public class Resources
 
     public static string Msg_conversion_stopped => ResourceManager.GetString("Msg_conversion_stopped", resourceCulture);
 
-    public static string Msg_download_completed => ResourceManager.GetString("Msg_download_completed", resourceCulture);
-
-    public static string Msg_download_ranking_cache => ResourceManager.GetString("Msg_download_ranking_cache", resourceCulture);
-
-    public static string Msg_error_cache_download => ResourceManager.GetString("Msg_error_cache_download", resourceCulture);
-
     public static string Msg_error_preview => ResourceManager.GetString("Msg_error_preview", resourceCulture);
 
     public static string Msg_error_timeout_dblock_restore => ResourceManager.GetString("Msg_error_timeout_dblock_restore", resourceCulture);
@@ -1023,8 +1017,6 @@ public class Resources
 
     public static string Msg_override_level_warning => ResourceManager.GetString("Msg_override_level_warning", resourceCulture);
 
-    public static string Msg_ranking_cache_notfound => ResourceManager.GetString("Msg_ranking_cache_notfound", resourceCulture);
-
     public static string Msg_register_chart => ResourceManager.GetString("Msg_register_chart", resourceCulture);
 
     public static string Msg_remove_chart_info_parse_failure_record => ResourceManager.GetString("Msg_remove_chart_info_parse_failure_record", resourceCulture);
@@ -1048,8 +1040,6 @@ public class Resources
     public static string Msg_success_uninstall => ResourceManager.GetString("Msg_success_uninstall", resourceCulture);
 
     public static string Msg_unregister_root_folder => ResourceManager.GetString("Msg_unregister_root_folder", resourceCulture);
-
-    public static string Msg_warn_cache_download => ResourceManager.GetString("Msg_warn_cache_download", resourceCulture);
 
     public static string Msg_warn_play_temp_install => ResourceManager.GetString("Msg_warn_play_temp_install", resourceCulture);
 
@@ -1458,8 +1448,6 @@ public class Resources
     public static string Update_history_v0353_1 => ResourceManager.GetString("Update_history_v0353_1", resourceCulture);
     public static string Update_history_v1000_1 => ResourceManager.GetString("Update_history_v1000_1", resourceCulture);
 
-    public static string Update_ranking_data => ResourceManager.GetString("Update_ranking_data", resourceCulture);
-
     public static string Use_LR2_DB => ResourceManager.GetString("Use_LR2_DB", resourceCulture);
 
     public static string Beatoraja_integration => ResourceManager.GetString("Beatoraja_integration", resourceCulture);
@@ -1565,10 +1553,6 @@ public class Resources
     public static string MessageBoxTitle_Confirm => ResourceManager.GetString("MessageBoxTitle_Confirm", resourceCulture);
 
 
-    public static string Error_NotMd5Hash => ResourceManager.GetString("Error_NotMd5Hash", resourceCulture);
-
-
-    public static string Error_InvalidJsonObject => ResourceManager.GetString("Error_InvalidJsonObject", resourceCulture);
 
 
     public static string Error_LR2ScoreDBNotConnected => ResourceManager.GetString("Error_LR2ScoreDBNotConnected", resourceCulture);
@@ -1740,8 +1724,6 @@ public class Resources
 
     public static string Error_LR2ScoreDBNotFound => ResourceManager.GetString("Error_LR2ScoreDBNotFound", resourceCulture);
 
-
-    public static string Error_IRCacheDirNotFound => ResourceManager.GetString("Error_IRCacheDirNotFound", resourceCulture);
 
 
     public static string Error_PathTooLong => ResourceManager.GetString("Error_PathTooLong", resourceCulture);

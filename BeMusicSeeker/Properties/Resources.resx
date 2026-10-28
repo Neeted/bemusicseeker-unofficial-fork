@@ -265,9 +265,6 @@ RANKING/RANK UPDATE/T-SCORE/ΔMAXの表示を更新できますが、
 手動でファイル削除をお願いします。
 この問題が一時的でない場合、開発者へ報告頂けると改善される場合があります。</value>
   </data>
-  <data name="Msg_download_completed" xml:space="preserve">
-    <value>ダウンロードが完了しました</value>
-  </data>
   <data name="Import" xml:space="preserve">
     <value>インポート</value>
   </data>
@@ -426,10 +423,6 @@ title:re:^alpha
     <value>再インストール先が不明か未調査です
 「再インストール先を推定」機能を先に実行してください</value>
   </data>
-  <data name="Msg_download_ranking_cache" xml:space="preserve">
-    <value>LR2ランキングデータをキャッシュサーバからダウンロードします
-続行しますか？</value>
-  </data>
   <data name="Msg_clear_pendings" xml:space="preserve">
     <value>下記パッケージをインストール保留から削除します。
 よろしいですか？</value>
@@ -462,10 +455,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   </data>
   <data name="Player_Name_Internal" xml:space="preserve">
     <value>内蔵プレイヤー (音声のみ)</value>
-  </data>
-  <data name="Msg_error_cache_download" xml:space="preserve">
-    <value>LR2ランキングデータキャッシュの取得中にエラーが発生しました。
-この問題が一時的でない場合、開発者へ報告頂けると改善される場合があります。</value>
   </data>
   <data name="Target" xml:space="preserve">
     <value>対象</value>
@@ -524,10 +513,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Reinitialize_library" xml:space="preserve">
     <value>初期化再実行</value>
   </data>
-  <data name="Msg_warn_cache_download" xml:space="preserve">
-    <value>スコアDBと接続されていないかプレイヤーがLR2IRに登録されていないため
-ランキングデータの閲覧機能がオフになっています。</value>
-  </data>
   <data name="Change_stage_file" xml:space="preserve">
     <value>既定のパネル画像を変更する</value>
   </data>
@@ -570,9 +555,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   </data>
   <data name="Override_level" xml:space="preserve">
     <value>レベルを上書き</value>
-  </data>
-  <data name="Update_ranking_data" xml:space="preserve">
-    <value>ランキングデータの更新</value>
   </data>
   <data name="Msg_warn_playlist_backup" xml:space="preserve">
     <value>プレイリストが存在しないためバックアップの必要がありません。</value>
@@ -622,10 +604,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   </data>
   <data name="Record_setting_replacepattern" xml:space="preserve">
     <value>使用できる置換記号</value>
-  </data>
-  <data name="Msg_ranking_cache_notfound" xml:space="preserve">
-    <value>対象のデータは既にキャッシュより新しいか
-データが見つかりませんでした</value>
   </data>
   <data name="Clear_estimation" xml:space="preserve">
     <value>インストール先をクリア</value>
@@ -2048,12 +2026,6 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="MessageBoxTitle_Confirm" xml:space="preserve">
     <value>確認</value>
   </data>
-  <data name="Error_NotMd5Hash" xml:space="preserve">
-    <value>md5 hashではありません</value>
-  </data>
-  <data name="Error_InvalidJsonObject" xml:space="preserve">
-    <value>無効なJSONオブジェクトです</value>
-  </data>
   <data name="Error_LR2ScoreDBNotConnected" xml:space="preserve">
     <value>LR2スコアDBと接続されていません。</value>
   </data>
@@ -2233,9 +2205,6 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   </data>
   <data name="Error_LR2ScoreDBNotFound" xml:space="preserve">
     <value>LR2スコアDBが見つかりませんでした。パス: {0}</value>
-  </data>
-  <data name="Error_IRCacheDirNotFound" xml:space="preserve">
-    <value>{0}が見つかりませんでした</value>
   </data>
   <data name="Error_PathTooLong" xml:space="preserve">
     <value>パスが長過ぎます: {0}</value>

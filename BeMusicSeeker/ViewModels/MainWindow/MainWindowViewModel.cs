@@ -94,8 +94,6 @@ public partial class MainWindowViewModel : ViewModel,
     /// </summary>
     internal FileDiffReloadWorkflowOwner FileDiffReloadWorkflow { get; private set; }
 
-    internal RankingCacheDownloadWorkflowOwner RankingCacheDownloadWorkflow { get; private set; }
-
     internal PendingPackageWorkflowOwner PendingPackages { get; private set; }
 
     /// <summary>
@@ -2195,9 +2193,6 @@ public partial class MainWindowViewModel : ViewModel,
                     () => files,
                     () => tables,
                     () => GetStartupSettingsSnapshot().OperationModeLR2DB)),
-            rankingCacheDownloadWorkflow: new RankingCacheDownloadWorkflowOwner(
-                new BmsRankingCacheDownloadRuntime(() => files),
-                new UiDialogCoordinator()),
             libraryFolderTreeLog: LogUiSuppression,
             libraryFolderTreeLogWarning: LogUiSuppressionWarning);
         ProgressHub = childComposition.ProgressHub;
@@ -2263,7 +2258,6 @@ public partial class MainWindowViewModel : ViewModel,
             }),
             Lr2SongDbSyncWorkflow,
             _ => tables.ApplyRequiredLibraryReferencesAsync());
-        RankingCacheDownloadWorkflow = childComposition.RankingCacheDownloadWorkflow;
         PendingPackages = childComposition.PendingPackageWorkflow;
         PendingPackages.WorkflowChanged += PendingPackageWorkflowChanged;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);

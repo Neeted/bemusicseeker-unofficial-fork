@@ -23,7 +23,6 @@ internal enum ChartOperationCapabilities
     OpenFolder = 1 << 1,
     UseLr2Ir = 1 << 3,
     UseScoreViewer = 1 << 4,
-    UpdateRanking = 1 << 5,
     RunResourceHealthCheck = 1 << 6,
     RunBmsEncodingCheck = 1 << 7,
     RunBmsEncodingFix = 1 << 8,

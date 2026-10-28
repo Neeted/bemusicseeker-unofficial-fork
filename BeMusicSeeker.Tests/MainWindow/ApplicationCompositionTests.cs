@@ -77,8 +77,7 @@ public sealed partial class ApplicationCompositionTests
                     selectedChartMutationLibraryProvider: () => library, selectedChartResourceHealthDialogService: dialogs,
                     selectedChartResourceHealthLibraryProvider: () => library, folderAutoRenameDialogService: dialogs,
                     maintenanceRescanDialogService: dialogs, chartInfoParseFailureRemovalDialogService: dialogs,
-                    chartInfoParseFailureRemovalLibraryProvider: () => library, lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
-                    rankingCacheDownloadWorkflow: CreateDisabledRankingCacheDownloadWorkflowOwner());
+                    chartInfoParseFailureRemovalLibraryProvider: () => library, lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner());
                 Task<PackageCatalogMutationResult>? removal = null;
                 try
                 {
@@ -689,7 +688,6 @@ public sealed partial class ApplicationCompositionTests
             chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
                  chartInfoParseFailureRemovalLibraryProvider: () => null!,
                  lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
-                 rankingCacheDownloadWorkflow: CreateDisabledRankingCacheDownloadWorkflowOwner(),
                  startupProgressWorkflowOwner: TestStartupProgressOwnerFactory.Create());
             try
             {
@@ -1515,13 +1513,6 @@ public sealed partial class ApplicationCompositionTests
                 () => null!,
                 () => null!,
                 () => false));
-    }
-
-    private static RankingCacheDownloadWorkflowOwner CreateDisabledRankingCacheDownloadWorkflowOwner()
-    {
-        return new RankingCacheDownloadWorkflowOwner(
-            new BmsRankingCacheDownloadRuntime(() => null!),
-            new TestUiDialogService());
     }
 
     private static void AttachImmediatePlaylistPresentationRouter(PlaylistWorkspaceViewModel workspace)

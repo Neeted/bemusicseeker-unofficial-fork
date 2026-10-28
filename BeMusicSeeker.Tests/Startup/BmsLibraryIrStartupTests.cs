@@ -982,10 +982,5 @@ public sealed class BmsLibraryIrStartupTests
             finally { Completed.TrySetResult(); }
         }
 
-        public List<BMSLibrary.IRDataCacheInfo> GetRankingInfo(Uri rankingInfoUrl, IEnumerable<string> md5s)
-            => throw new AssertFailedException("ランキングキャッシュの通信は対象外。");
-
-        public void DownloadRankingData(Uri rankingDataUrl, string md5, string destinationPath)
-            => throw new AssertFailedException("ランキングキャッシュの通信は対象外。");
     }
 }
