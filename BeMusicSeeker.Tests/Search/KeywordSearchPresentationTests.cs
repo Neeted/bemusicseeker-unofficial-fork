@@ -422,13 +422,14 @@ public sealed class KeywordSearchPresentationTests
         Assert.IsTrue(state.VisibleItems.Any(item => item.DisplayText == "Alpha One"));
     }
 
-    /// <summary>お気に入り行の適用で検索式全体と末尾カーソルを設定して履歴へ保存することを確認し、候補文字だけの部分置換や履歴記録漏れを検出します。</summary>
+    /// <summary>regexお気に入り行の原文全体と末尾カーソルを適用し、反対文字クラスの既存履歴も残すことを確認し、部分置換・大小変換・別式の重複除去を検出します。</summary>
     [TestMethod]
     public void KsaSavedRowApply_ReplacesWholeQueryAndCommitsHistory()
     {
         PresentationSettingsStore store = new()
         {
-            KeywordSearchFavorites = KeywordSearchFavoritesStore.Serialize(["title:favorite"])
+            KeywordSearchFavorites = KeywordSearchFavoritesStore.Serialize([@"TiTlE:Re:\d"]),
+            KeywordSearchHistory = KeywordSearchHistoryStore.Serialize([@"title:re:\D"])
         };
         KeywordSearchSavedQueryOwner savedQueries = new(
             KeywordSearchSavedQueryScope.Normal,
@@ -451,10 +452,10 @@ public sealed class KeywordSearchPresentationTests
             4L);
 
         Assert.IsTrue(result.Succeeded);
-        Assert.AreEqual("title:favorite", result.Text);
+        Assert.AreEqual(@"TiTlE:Re:\d", result.Text);
         Assert.AreEqual(result.Text.Length, result.CaretIndex);
         CollectionAssert.AreEqual(
-            new[] { "title:favorite" },
+            new[] { @"TiTlE:Re:\d", @"title:re:\D" },
             KeywordSearchHistoryStore.Deserialize(store.KeywordSearchHistory).ToArray());
     }
 

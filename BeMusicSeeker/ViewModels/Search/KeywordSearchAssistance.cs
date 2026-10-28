@@ -941,7 +941,7 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
         {
             return [];
         }
-        int colonIndex = FindUnquotedChar(fieldPrefix, ':');
+        int colonIndex = GridKeywordSearchSyntax.FindUnquotedChar(fieldPrefix, ':');
         if (colonIndex >= 0)
         {
             return [];
@@ -1247,7 +1247,7 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
         string tokenPrefix = text.Substring(span.Start, safeCaretIndex - span.Start);
         bool negated = tokenPrefix.Length > 1 && tokenPrefix[0] == '-';
         int fieldOffset = negated ? 1 : 0;
-        int colonIndex = FindUnquotedChar(tokenPrefix, ':');
+        int colonIndex = GridKeywordSearchSyntax.FindUnquotedChar(tokenPrefix, ':');
         if (colonIndex <= fieldOffset)
         {
             return false;
@@ -1420,44 +1420,6 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
             }
         }
         return false;
-    }
-
-    private static int FindUnquotedChar(string value, char target)
-    {
-        bool inQuote = false;
-        bool escaping = false;
-        for (int index = 0; index < (value?.Length ?? 0); index++)
-        {
-            char character = value[index];
-            if (inQuote)
-            {
-                if (escaping)
-                {
-                    escaping = false;
-                    continue;
-                }
-                if (character == '\\')
-                {
-                    escaping = true;
-                    continue;
-                }
-                if (character == '"')
-                {
-                    inQuote = false;
-                }
-                continue;
-            }
-            if (character == '"')
-            {
-                inQuote = true;
-                continue;
-            }
-            if (character == target)
-            {
-                return index;
-            }
-        }
-        return -1;
     }
 
     private static TokenSpan FindCurrentToken(string text, int caretIndex)

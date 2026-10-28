@@ -145,8 +145,8 @@ internal sealed class GridKeywordSearchQuery
         {
             return new GridKeywordSearchQuery([]);
         }
-        SearchCondition[] parsedConditions = [.. Tokenize(keywordFilter)
-            .Select(ParseCondition)
+        SearchCondition[] parsedConditions = [.. GridKeywordSearchSyntax.Tokenize(keywordFilter)
+            .Select(range => ParseCondition(keywordFilter[range]))
             .OrderBy(condition => condition.SortWeight)];
         return new GridKeywordSearchQuery(parsedConditions);
     }
@@ -251,105 +251,17 @@ internal sealed class GridKeywordSearchQuery
         return true;
     }
 
-    private static IEnumerable<string> Tokenize(string keywordFilter)
+    private static SearchCondition ParseCondition(string token)
     {
-        var builder = new StringBuilder();
-        bool inQuote = false;
-        bool escaping = false;
-        foreach (char c in keywordFilter ?? string.Empty)
+        GridKeywordSearchSyntax.TokenSyntax syntax = GridKeywordSearchSyntax.ParseToken(token);
+        if (token.Length == 0 || token == "-")
         {
-            if (inQuote)
-            {
-                if (escaping)
-                {
-                    builder.Append('\\');
-                    builder.Append(c);
-                    escaping = false;
-                    continue;
-                }
-                if (c == '\\')
-                {
-                    escaping = true;
-                    continue;
-                }
-                builder.Append(c);
-                if (c == '"')
-                {
-                    inQuote = false;
-                }
-                continue;
-            }
-            if (char.IsWhiteSpace(c))
-            {
-                if (builder.Length > 0)
-                {
-                    yield return builder.ToString();
-                    builder.Clear();
-                }
-                continue;
-            }
-            builder.Append(c);
-            if (c == '"')
-            {
-                inQuote = true;
-            }
+            return SearchCondition.Invalid(syntax.IsNegated, field: null, GridKeywordSearchDiagnosticKind.EmptyNegation, "-");
         }
-        if (escaping)
-        {
-            builder.Append('\\');
-        }
-        if (builder.Length > 0)
-        {
-            yield return builder.ToString();
-        }
-    }
-
-    private static SearchCondition ParseCondition(string rawToken)
-    {
-        string token = rawToken ?? string.Empty;
-        if (token == "-")
-        {
-            return SearchCondition.Invalid(isNegated: true, field: null, GridKeywordSearchDiagnosticKind.EmptyNegation, "-");
-        }
-        bool isNegated = token.Length > 1 && token[0] == '-';
-        if (isNegated)
-        {
-            token = token.Substring(1);
-        }
-        if (string.IsNullOrEmpty(token))
-        {
-            return SearchCondition.Invalid(isNegated, field: null, GridKeywordSearchDiagnosticKind.EmptyNegation, "-");
-        }
-        if (IsWindowsDriveToken(token))
-        {
-            return CreateCondition(isNegated, field: null, isRegex: false, rawTerms: token);
-        }
-        int colonIndex = FindUnquotedChar(token, ':');
-        if (colonIndex <= 0)
-        {
-            return CreateCondition(isNegated, field: null, isRegex: false, rawTerms: token);
-        }
-        string field = token.Substring(0, colonIndex).Trim().ToLowerInvariant();
-        string rawTerms = token.Substring(colonIndex + 1);
-        if (string.Equals(field, "re", StringComparison.OrdinalIgnoreCase))
-        {
-            return CreateCondition(isNegated, field: null, isRegex: true, rawTerms);
-        }
-        bool isRegex = false;
-        if (rawTerms.StartsWith("re:", StringComparison.OrdinalIgnoreCase))
-        {
-            isRegex = true;
-            rawTerms = rawTerms.Substring(3);
-        }
-        return CreateCondition(isNegated, field, isRegex, rawTerms);
-    }
-
-    private static bool IsWindowsDriveToken(string token)
-    {
-        return token != null
-            && token.Length >= 2
-            && token[1] == ':'
-            && ((token[0] >= 'A' && token[0] <= 'Z') || (token[0] >= 'a' && token[0] <= 'z'));
+        string field = syntax.FieldRange is Range fieldRange
+            ? token[fieldRange].Trim().ToLowerInvariant()
+            : null;
+        return CreateCondition(syntax.IsNegated, field, syntax.IsRegex, token[syntax.TermsRange]);
     }
 
     private static SearchCondition CreateCondition(bool isNegated, string field, bool isRegex, string rawTerms)
@@ -363,7 +275,7 @@ internal sealed class GridKeywordSearchQuery
                     : GridKeywordSearchDiagnosticKind.EmptyFieldTerm;
             return SearchCondition.Invalid(isNegated, field, diagnosticKind, field ?? string.Empty);
         }
-        List<SearchAlternative> alternatives = [.. SplitUnquoted(rawTerms, '|')
+        List<SearchAlternative> alternatives = [.. GridKeywordSearchSyntax.SplitUnquoted(rawTerms, '|')
             .Select(rawAlternative => CreateAlternative(rawAlternative, isRegex, field))
             .Where(alternative => !alternative.IsEmpty)];
         if (alternatives.Count == 0)
@@ -484,91 +396,6 @@ internal sealed class GridKeywordSearchQuery
             builder.Append('\\');
         }
         return builder.ToString();
-    }
-
-    private static IEnumerable<string> SplitUnquoted(string value, char separator)
-    {
-        var builder = new StringBuilder();
-        bool inQuote = false;
-        bool escaping = false;
-        foreach (char c in value ?? string.Empty)
-        {
-            if (inQuote)
-            {
-                if (escaping)
-                {
-                    builder.Append('\\');
-                    builder.Append(c);
-                    escaping = false;
-                    continue;
-                }
-                if (c == '\\')
-                {
-                    escaping = true;
-                    continue;
-                }
-                builder.Append(c);
-                if (c == '"')
-                {
-                    inQuote = false;
-                }
-                continue;
-            }
-            if (c == separator)
-            {
-                yield return builder.ToString();
-                builder.Clear();
-                continue;
-            }
-            builder.Append(c);
-            if (c == '"')
-            {
-                inQuote = true;
-            }
-        }
-        if (escaping)
-        {
-            builder.Append('\\');
-        }
-        yield return builder.ToString();
-    }
-
-    private static int FindUnquotedChar(string value, char target)
-    {
-        bool inQuote = false;
-        bool escaping = false;
-        for (int i = 0; i < (value?.Length ?? 0); i++)
-        {
-            char c = value[i];
-            if (inQuote)
-            {
-                if (escaping)
-                {
-                    escaping = false;
-                    continue;
-                }
-                if (c == '\\')
-                {
-                    escaping = true;
-                    continue;
-                }
-                if (c == '"')
-                {
-                    inQuote = false;
-                }
-                continue;
-            }
-            if (c == '"')
-            {
-                inQuote = true;
-                continue;
-            }
-            if (c == target)
-            {
-                return i;
-            }
-        }
-        return -1;
     }
 
     private static bool MatchesCondition(SearchCondition condition, LibraryChartRow row)

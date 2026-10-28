@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Text;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -38,28 +39,42 @@ public sealed class KeywordSearchSavedQueryStoreTests
         Assert.AreEqual("title:new", owner.Favorites[0]);
     }
 
-    /// <summary>履歴をお気に入りへ追加すると元履歴を保持して表示だけ隠し、大小文字の異なる解除で再表示することを確認し、お気に入り操作による履歴削除を検出します。</summary>
+    /// <summary>両保存範囲で反対のregex文字クラスを共存させ、pin・解除・削除・再構築を確認し、全文大小文字無視による別式の削除や表示抑制を検出します。</summary>
     [TestMethod]
-    public void KsaFavorites_PinRetainsBackingHistoryAndUnpinRevealsIt()
+    public void KsaFavorites_RegexIdentitySurvivesPinUnpinDeleteAndReconstructionInBothScopes()
     {
-        TestSettingsStore store = new()
+        foreach (KeywordSearchSavedQueryScope scope in Enum.GetValues<KeywordSearchSavedQueryScope>())
         {
-            KeywordSearchHistory = KeywordSearchHistoryStore.Serialize(["title:alpha"])
-        };
-        KeywordSearchSavedQueryOwner owner = CreateOwner(store, KeywordSearchSavedQueryScope.Normal);
+            TestSettingsStore store = new();
+            KeywordSearchSavedQueryOwner owner = CreateOwner(store, scope);
+            GridKeywordSearchContext context = scope == KeywordSearchSavedQueryScope.Normal
+                ? GridKeywordSearchContext.ChartList
+                : GridKeywordSearchContext.PlaylistSummary;
+            const string digit = @"re:\d";
+            const string nonDigit = @"re:\D";
+            Assert.IsTrue(owner.TryCommitHistory(digit).Succeeded);
+            Assert.IsTrue(owner.TryCommitHistory(nonDigit).Succeeded);
+            CollectionAssert.AreEqual(new[] { nonDigit, digit }, owner.History.ToArray());
 
-        Assert.AreEqual("title:alpha", owner.History[0]);
-        KeywordSearchSavedQueryMutationResult pinned = owner.TryAddFavorite("title:alpha");
-        Assert.IsTrue(pinned.Succeeded);
-        Assert.AreEqual(1, owner.History.Count);
-        Assert.AreEqual(0, owner.GetProjectedHistory(GridKeywordSearchContext.ChartList).Count);
-        Assert.AreEqual("title:alpha", owner.GetProjectedFavorites(GridKeywordSearchContext.ChartList)[0]);
+            Assert.IsTrue(owner.TryAddFavorite(@"RE:\d").Succeeded);
+            Assert.IsTrue(owner.TryAddFavorite(nonDigit).Succeeded);
+            CollectionAssert.AreEqual(new[] { nonDigit, @"RE:\d" }, owner.Favorites.ToArray());
+            Assert.IsTrue(owner.TryRemoveFavorite(@"RE:\D").Succeeded);
+            CollectionAssert.AreEqual(new[] { @"RE:\d" }, owner.Favorites.ToArray());
+            CollectionAssert.AreEqual(new[] { nonDigit, digit }, owner.History.ToArray());
+            CollectionAssert.AreEqual(new[] { nonDigit }, owner.GetProjectedHistory(context).ToArray());
+            CollectionAssert.AreEqual(new[] { @"RE:\d" }, owner.GetProjectedFavorites(context).ToArray());
 
-        KeywordSearchSavedQueryMutationResult unpinned = owner.TryRemoveFavorite("TITLE:ALPHA");
-        Assert.IsTrue(unpinned.Succeeded);
-        CollectionAssert.AreEqual(
-            new[] { "title:alpha" },
-            owner.GetProjectedHistory(GridKeywordSearchContext.ChartList).ToArray());
+            Assert.IsTrue(owner.TryRemoveFavorite(digit).Succeeded);
+            CollectionAssert.AreEqual(new[] { nonDigit, digit }, owner.GetProjectedHistory(context).ToArray());
+            Assert.IsTrue(owner.TryDeleteHistory(@" RE:\d ").Succeeded);
+            CollectionAssert.AreEqual(new[] { nonDigit }, owner.History.ToArray());
+
+            KeywordSearchSavedQueryOwner restored = CreateOwner(store, scope);
+            CollectionAssert.AreEqual(new[] { nonDigit }, restored.History.ToArray());
+            CollectionAssert.AreEqual(new[] { nonDigit }, restored.GetProjectedHistory(context).ToArray());
+            Assert.AreEqual(0, restored.Favorites.Count);
+        }
     }
 
     /// <summary>memo検索は譜面一覧で隠し詳細で表示し、元の履歴とお気に入りは残すことを確認し、画面非対応の保存式を削除する誤りを検出します。</summary>
@@ -85,37 +100,87 @@ public sealed class KeywordSearchSavedQueryStoreTests
         Assert.AreEqual(1, owner.GetProjectedFavorites(GridKeywordSearchContext.PlaylistDetail).Count);
     }
 
-    /// <summary>旧Base64履歴の壊れた行を除いて上限件数まで順序を復元し、空白と大小文字を正規化して一件削除することを確認し、保存互換や削除対象の誤りを検出します。</summary>
+    /// <summary>通常部分だけ大小文字を無視して重複を先頭へ移し、regex本体・空白・式順・別名は原文で区別することを確認し、過剰な正規化と部分文字列によるre誤認を検出します。</summary>
     [TestMethod]
-    public void KsaHistory_UsesLegacyBase64CapCorruptLineSkipAndExactNormalizedDelete()
+    public void KsaHistory_AddEntryUsesSyntaxIdentityAndPreservesOtherOrder()
     {
-        string[] entries = Enumerable.Range(0, KeywordSearchHistoryStore.MaxHistoryCount + 3)
-            .Select(index => "title:" + index)
-            .ToArray();
-        TestSettingsStore store = new()
+        (string first, string second, bool same)[] cases =
+        [
+            ("songtitle", " SONGTITLE ", true),
+            ("title:songtitle", "TITLE:SONGTITLE", true),
+            (@"title:re:\d", @"TITLE:RE:\d", true),
+            (@"re:\d", @"re:\D", false),
+            (@"title:re:\w", @"title:re:\W", false),
+            ("re:a", "re:A", false),
+            ("re:[a", "re:[A", false),
+            (@"word title:re:\d -artist:Alpha", @"WORD TITLE:RE:\d -ARTIST:ALPHA", true),
+            (@"word title:re:\d -artist:Alpha", @"WORD TITLE:RE:\D -ARTIST:ALPHA", false),
+            ("\"re:a\"", "\"RE:A\"", true),
+            ("title:\"re:a\"", "TITLE:\"RE:A\"", true),
+            (@"title:alpha|re:\d", @"TITLE:ALPHA|RE:\D", true),
+            (@"title:re:alpha|\d", @"TITLE:RE:alpha|\D", false),
+            (@"C:\re:\d", @"c:\RE:\D", true),
+            (@"-C:\re:\d", @"-c:\RE:\D", true),
+            (@"-re:\d", @"-RE:\D", false),
+            (@"-title:re:\d", @"-TITLE:RE:\d", true),
+            ("-\"re:a\"", "-\"RE:A\"", true),
+            ("title:alpha  artist:beta", "TITLE:ALPHA\r\nARTIST:BETA", true),
+            ("title:alpha artist:beta", "title:alpha  artist:beta", false),
+            ("title:alpha\tartist:beta", "title:alpha artist:beta", false),
+            ("title:alpha artist:beta", "artist:beta title:alpha", false),
+            ("playlist:alpha", "ref:alpha", false),
+            ("re:a", "re:[a]", false),
+            ("title:alpha", "title:\"alpha\"", false),
+            (@"re:""\d""", @"RE:""\D""", false),
+            (@"title:""a\""re:b""", @"TITLE:""A\""RE:B""", true)
+        ];
+        foreach ((string first, string second, bool same) in cases)
         {
-            KeywordSearchHistory = string.Join(
-                Environment.NewLine,
-                new[] { "not-base64", KeywordSearchHistoryStore.Serialize(entries) })
-        };
-        KeywordSearchSavedQueryOwner owner = CreateOwner(store, KeywordSearchSavedQueryScope.Normal);
-
-        Assert.AreEqual(KeywordSearchHistoryStore.MaxHistoryCount, owner.History.Count);
-        Assert.AreEqual("title:0", owner.History[0]);
-
-        KeywordSearchSavedQueryMutationResult deleted = owner.TryDeleteHistory("  TITLE:0  ");
-        Assert.IsTrue(deleted.Succeeded);
-        Assert.IsFalse(owner.History.Any(query => string.Equals(query, "title:0", StringComparison.OrdinalIgnoreCase)));
-        Assert.AreEqual(KeywordSearchHistoryStore.MaxHistoryCount - 1, owner.History.Count);
+            // 入力順を反転しても同じ同一性となり、新しい表記だけが先頭へ移る。
+            foreach ((string existing, string added) in new[] { (first, second), (second, first) })
+            {
+                string[] updated = [.. KeywordSearchHistoryStore.AddEntry(["before", existing, "after"], added)];
+                string normalizedAdded = added.Replace('\r', ' ').Replace('\n', ' ').Trim();
+                string normalizedExisting = existing.Replace('\r', ' ').Replace('\n', ' ').Trim();
+                string[] expected = same
+                    ? [normalizedAdded, "before", "after"]
+                    : [normalizedAdded, "before", normalizedExisting, "after"];
+                CollectionAssert.AreEqual(expected, updated, $"{existing} / {added}");
+            }
+        }
     }
 
-    /// <summary>空白付きで大小文字の異なる既存履歴を追加すると表記を更新して先頭へ移し、他の順序は維持することを確認し、重複の追加や既存順序の破壊を検出します。</summary>
+    /// <summary>独立した旧Base64行から不正行・通常重複を除きregex大小と原文整形・上限を保持して復元し、通常式の削除と両serializerの出力を確認して保存互換の退行を検出します。</summary>
     [TestMethod]
-    public void KsaHistory_AddEntryMovesCaseInsensitiveDuplicateToFront()
+    public void KsaStores_LegacyRowsPreserveRegexIdentityAndLineNormalization()
     {
-        string[] updated = [.. KeywordSearchHistoryStore.AddEntry(["alpha", "beta", "gamma"], " BETA ")];
+        string[] rawEntries =
+        [
+            "  songtitle\r\n ", "SONGTITLE", @"title:re:\d", @"TITLE:RE:\D",
+            " title:alpha\r\nartist:beta ", "TITLE:ALPHA  ARTIST:BETA",
+            @"re:[a", @"re:[A", "\t", .. Enumerable.Range(0, 23).Select(index => "title:" + index)
+        ];
+        string serialized = "not-base64\n" + string.Join("\n", rawEntries.Select(
+            entry => Convert.ToBase64String(Encoding.UTF8.GetBytes(entry))));
+        string[] expected =
+        [
+            "songtitle", @"title:re:\d", @"TITLE:RE:\D", "title:alpha  artist:beta",
+            @"re:[a", @"re:[A", .. Enumerable.Range(0, 23).Select(index => "title:" + index)
+        ];
+        CollectionAssert.AreEqual(expected.Take(20).ToArray(), KeywordSearchHistoryStore.Deserialize(serialized).ToArray());
+        CollectionAssert.AreEqual(expected, KeywordSearchFavoritesStore.Deserialize(serialized).ToArray());
 
-        CollectionAssert.AreEqual(new[] { "BETA", "alpha", "gamma" }, updated);
+        string[] historyOutput = KeywordSearchHistoryStore.Serialize(rawEntries)
+            .Split(Environment.NewLine).Select(line => Encoding.UTF8.GetString(Convert.FromBase64String(line))).ToArray();
+        string[] favoritesOutput = KeywordSearchFavoritesStore.Serialize(rawEntries)
+            .Split(Environment.NewLine).Select(line => Encoding.UTF8.GetString(Convert.FromBase64String(line))).ToArray();
+        CollectionAssert.AreEqual(expected.Take(20).ToArray(), historyOutput);
+        CollectionAssert.AreEqual(expected, favoritesOutput);
+
+        TestSettingsStore store = new() { KeywordSearchHistory = serialized };
+        KeywordSearchSavedQueryOwner owner = CreateOwner(store, KeywordSearchSavedQueryScope.Normal);
+        Assert.IsTrue(owner.TryDeleteHistory("  SONGTITLE  ").Succeeded);
+        CollectionAssert.AreEqual(expected.Take(20).Skip(1).ToArray(), owner.History.ToArray());
     }
 
     /// <summary>お気に入り設定の書込みが失敗した場合に一回の試行だけで旧保存値・順序・履歴・版と通知なしを維持することを確認し、保存前にメモリ状態を確定する誤りを検出します。</summary>
