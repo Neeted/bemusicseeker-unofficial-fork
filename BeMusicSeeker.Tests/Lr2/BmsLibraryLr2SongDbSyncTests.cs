@@ -5651,6 +5651,138 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>Catalogで捕捉した確定Big5・UTF-8を実同期へ渡し、DB・現在一覧・利用者列・健康と無視状態を保持します。</summary>
+    /// <remarks>内容差し替え時は最初の非採用に加え、通常DB読込みから次の明示同期まで旧指定の非復活を確認します。採否条件網羅と単回読取りはservice系列へ分担します。</remarks>
+    [TestMethod]
+    [DataRow("big5", false)]
+    [DataRow("utf-8", false)]
+    [DataRow("big5", true)]
+    public async Task QueueLr2SongDbSync_PreservesFixedEncodingAndExpiresOnlyChangedContent(string encoding, bool changeContent)
+    {
+        using var scope = TestDatabaseScope.Create();
+        TestBmsLibrary? library = null;
+        TestBmsLibrary? reloadedLibrary = null;
+        try
+        {
+            testSettings.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string path = Path.Combine(scope.DirectoryPath, "fixed-sync.bms");
+            const string title = "中文標題";
+            const string subtitle = "副標題";
+            const string artist = "作者";
+            const string subartist = "編曲";
+            const string genre = "音樂";
+            File.WriteAllText(path, $"#PLAYER 1\r\n#TITLE {title}\r\n#SUBTITLE {subtitle}\r\n#ARTIST {artist}\r\n#SUBARTIST {subartist}\r\n#GENRE {genre}\r\n#BPM 120\r\n#WAV01 missing.wav\r\n#00111:01\r\n", Encoding.GetEncoding(encoding));
+            ChartFileSnapshot original = ChartFileContentReader.ReadSnapshot(path);
+            var gateway = new BmsLibraryDbGateway(scope.SongDbPath);
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureMaintenanceSchema(setup);
+                setup.InsertOrReplace(new LR2SongDB.song
+                {
+                    path = path,
+                    hash = original.Md5,
+                    title = title,
+                    subtitle = subtitle,
+                    artist = artist,
+                    subartist = subartist,
+                    genre = genre,
+                    favorite = 7,
+                    tag = "利用者タグ",
+                    adddate = 1234
+                });
+                setup.InsertOrReplace(new LR2SongDBExtended.maintenance
+                {
+                    path = path,
+                    hash = original.Md5.ToUpperInvariant(),
+                    encoding = encoding,
+                    is_encoding_fixed = true,
+                    wav_files_defined = 99,
+                    wav_files_existing = 88,
+                    is_files_warning_ignored = true
+                });
+            }
+
+            ChartFile LoadCurrent()
+            {
+                var initialization = new BmsLibraryInitializationService();
+                var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true };
+                SongTableLoadResult songs = initialization.LoadSongTable(gateway, options,
+                    null, new OwnedChartCollectionTestSupport.TestFileMutationService(), null, exception => exception.Message);
+                MaintenanceTableHydrationResult maintenance = initialization.LoadMaintenanceTable(gateway, options);
+                return ChartFileProjection.WithMaintenance(songs.LoadedFiles.Single(), maintenance.MaintenanceMap[path]);
+            }
+
+            library = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([], testSettings))
+            { BmsCharts = [LoadCurrent()], BmsonCharts = [] };
+            if (changeContent)
+            {
+                File.WriteAllText(path, "#PLAYER 1\r\n#TITLE 更新題名\r\n#SUBTITLE 更新副題\r\n#ARTIST 更新作者\r\n#SUBARTIST 更新編曲\r\n#GENRE 更新ジャンル\r\n#BPM 120\r\n#WAV01 missing.wav\r\n#00111:01\r\n", new UTF8Encoding(true));
+            }
+
+            Lr2SongDbSyncStatusSnapshot result = await library.QueueLr2SongDbSyncAsync("fixed-encoding-sync", force: true);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, result.Status);
+            string expectedTitle = changeContent ? "更新題名" : title;
+            string expectedSubtitle = changeContent ? "更新副題" : subtitle;
+            string expectedArtist = changeContent ? "更新作者" : artist;
+            string expectedSubartist = changeContent ? "更新編曲" : subartist;
+            string expectedGenre = changeContent ? "更新ジャンル" : genre;
+            using (LR2SongDBExtended read = gateway.OpenSongDbReadOnly())
+            {
+                LR2SongDB.song saved = read.Table<LR2SongDB.song>().Single();
+                Assert.AreEqual(expectedTitle, saved.title);
+                Assert.AreEqual(expectedSubtitle, saved.subtitle);
+                Assert.AreEqual(expectedArtist, saved.artist);
+                Assert.AreEqual(expectedSubartist, saved.subartist);
+                Assert.AreEqual(expectedGenre, saved.genre);
+                Assert.AreEqual(7, saved.favorite);
+                Assert.AreEqual("利用者タグ", saved.tag);
+                Assert.AreEqual(1234, saved.adddate);
+                LR2SongDBExtended.maintenance maintenance = read.Table<LR2SongDBExtended.maintenance>().Single();
+                Assert.AreEqual(ChartFileContentReader.ReadSnapshot(path).Md5, maintenance.hash, true);
+                Assert.AreEqual(changeContent ? null : encoding, maintenance.encoding);
+                Assert.AreEqual(!changeContent, maintenance.is_encoding_fixed);
+                Assert.AreEqual(99, maintenance.wav_files_defined);
+                Assert.AreEqual(88, maintenance.wav_files_existing);
+                Assert.IsTrue(maintenance.is_files_warning_ignored);
+            }
+
+            ChartFile current = changeContent ? LoadCurrent() : library.BmsCharts.Single();
+            Assert.AreEqual(expectedTitle, current.RawTitle);
+            Assert.AreEqual(expectedSubtitle, current.RawSubtitle);
+            Assert.AreEqual(expectedArtist, current.RawArtist);
+            Assert.AreEqual(expectedSubartist, current.Subartist);
+            Assert.AreEqual(expectedGenre, current.Genre);
+            Assert.AreEqual(expectedTitle + " " + expectedSubtitle, current.Title);
+            Assert.AreEqual(expectedArtist + " " + expectedSubartist, current.Artist);
+            Assert.AreEqual(changeContent ? null : encoding, current.EncodingName);
+            Assert.AreEqual(!changeContent, current.ResourceHealthMaintenanceSnapshot.EncodingFixed);
+            Assert.AreEqual(99, current.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
+            Assert.AreEqual(88, current.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
+            Assert.IsTrue(current.ResourceHealthWarningsIgnored);
+            if (changeContent)
+            {
+                library.RequestShutdown("fixed-encoding-first-sync-finished");
+                reloadedLibrary = new TestBmsLibrary(scope.SongDbPath, settings: TestBmsFactory.CreateRootSettings([], testSettings))
+                { BmsCharts = [current], BmsonCharts = [] };
+                Lr2SongDbSyncStatusSnapshot next = await reloadedLibrary.QueueLr2SongDbSyncAsync("fixed-encoding-after-reload", force: true);
+                Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, next.Status);
+                using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
+                Assert.AreEqual("更新題名", read.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", path));
+                Assert.IsNull(read.ExecuteScalar<string>("SELECT encoding FROM maintenance WHERE path = ?;", path));
+                Assert.AreEqual(0, read.ExecuteScalar<int>("SELECT is_encoding_fixed FROM maintenance WHERE path = ?;", path));
+                Assert.AreEqual("更新題名 更新副題", reloadedLibrary.BmsCharts.Single().Title);
+            }
+        }
+        finally
+        {
+            reloadedLibrary?.RequestShutdown("fixed-encoding-reload-test-finished");
+            library?.RequestShutdown("fixed-encoding-sync-test-finished");
+            ResetTouchedSettings();
+        }
+    }
+
     /// <summary>
     /// 末尾に不完全なバイトを持つ読取可能な譜面からメタデータを保存し、既存NULL列を無条件に保持しない。
     /// </summary>

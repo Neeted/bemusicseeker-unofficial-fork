@@ -1957,6 +1957,7 @@ internal static class Lr2SongDbSyncService
         return !string.IsNullOrWhiteSpace(md5) && currentChartInfoParseFailureMd5s.Contains(md5);
     }
 
+    /// <summary>同じ入力のCP932資源と生メタデータを生成します。捕捉済み保守値の具体的な確定文字コードは完全一致path・同一MD5でだけ使います。</summary>
     private static ChartFile CreateSyncSongRow(
         SongRowSyncReadCandidate candidate,
         ChartFileSnapshot snapshot,
@@ -1979,7 +1980,18 @@ internal static class Lr2SongDbSyncService
         try
         {
             var stopwatchParse = Stopwatch.StartNew();
-            ChartFile parsed = BmsChartFileParser.ParseSnapshotWithEncodingDetection(snapshot) with
+            ResourceHealthMaintenanceSnapshot maintenance = existingSong.ResourceHealthMaintenanceSnapshot;
+            bool useFixedEncoding = maintenance?.EncodingFixed == true
+                && string.Equals(maintenance.Path, existingSong.Path, StringComparison.Ordinal)
+                && string.Equals(maintenance.Path, snapshot.Path, StringComparison.Ordinal)
+                && string.Equals(maintenance.Hash, snapshot.Md5, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(maintenance.Encoding)
+                && !maintenance.Encoding.Equals("unknown", StringComparison.OrdinalIgnoreCase)
+                && !maintenance.Encoding.EndsWith("?", StringComparison.Ordinal);
+            // 資源は常にCP932で読み、同じ内容への確定指定だけを表示メタデータへ反映します。
+            ChartFile parsed = (useFixedEncoding
+                ? BmsChartFileParser.ApplyMetadataEncoding(snapshot, BmsChartFileParser.ParseSnapshot(snapshot), maintenance.Encoding)
+                : BmsChartFileParser.ParseSnapshotWithEncodingDetection(snapshot)) with
             {
                 Token = existingSong.Token,
                 Txt = ResolveTextGroupFlag(existingSong.Path, textFileDirectories, existingSong.Txt.GetValueOrDefault()),
@@ -2111,6 +2123,8 @@ internal static class Lr2SongDbSyncService
         string tableName = SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName();
         string pathColumn = SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.path);
         string hashColumn = SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.hash);
+        string encodingColumn = SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.encoding);
+        string encodingFixedColumn = SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.is_encoding_fixed);
         string warningFlagsColumn = SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.lr2_warning_flags);
         string maxRelativeBytesColumn = SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.lr2_resource_max_relative_cp932_bytes);
         string hasParentTraversalColumn = SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.lr2_resource_has_parent_traversal);
@@ -2135,9 +2149,14 @@ internal static class Lr2SongDbSyncService
             + "JOIN " + tableName + " m ON m." + pathColumn + " = t.path "
             + "WHERE m." + pathColumn + " IN (SELECT path FROM " + tempName + ") "
             + "AND (" + changedPredicate + ");");
+        string hashChangedPredicate = hashColumn + " IS NOT (SELECT t.hash FROM " + matchTempName
+            + " t WHERE t.target_rowid = " + tableName + ".rowid) COLLATE NOCASE";
         int updated = songDb.Execute(
             "UPDATE " + tableName
             + " SET "
+            // hashを付け替える同じ更新で旧内容の指定を失効させ、次回読込みでの復活を防ぎます。
+            + encodingColumn + " = CASE WHEN " + hashChangedPredicate + " THEN NULL ELSE " + encodingColumn + " END, "
+            + encodingFixedColumn + " = CASE WHEN " + hashChangedPredicate + " THEN 0 ELSE " + encodingFixedColumn + " END, "
             + hashColumn + " = (SELECT t.hash FROM " + matchTempName + " t WHERE t.target_rowid = " + tableName + ".rowid), "
             + warningFlagsColumn + " = (SELECT t.lr2_warning_flags FROM " + matchTempName + " t WHERE t.target_rowid = " + tableName + ".rowid), "
             + maxRelativeBytesColumn + " = (SELECT t.lr2_resource_max_relative_cp932_bytes FROM " + matchTempName + " t WHERE t.target_rowid = " + tableName + ".rowid), "

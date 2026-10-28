@@ -553,7 +553,7 @@ public sealed class Lr2SongDbSyncServiceTests
     }
 
     /// <summary>
-    /// 譜面が読めない場合は失敗件数を報告し既存タイトル・解析列を保持しながらフォルダとtxtを更新して、欠落入力による解析列破損を防ぐ。
+    /// 譜面が読めない場合は失敗件数を報告し既存タイトル・解析列・文字コード指定を保持しながらフォルダとtxtを更新して、欠落入力による解析列破損と指定失効を防ぐ。
     /// </summary>
     /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
@@ -582,6 +582,9 @@ public sealed class Lr2SongDbSyncServiceTests
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
         songDb.InsertOrReplace(capturedStorageRow, typeof(LR2SongDB.song));
+        BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
+        songDb.InsertOrReplace(new LR2SongDBExtended.maintenance
+        { path = missingChartPath, hash = file.Md5, encoding = "big5", is_encoding_fixed = true });
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
@@ -601,6 +604,8 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(314, songDb.ExecuteScalar<int>("SELECT maxbpm FROM song WHERE path = ?;", missingChartPath));
         Assert.AreEqual(157, songDb.ExecuteScalar<int>("SELECT minbpm FROM song WHERE path = ?;", missingChartPath));
         Assert.AreEqual(2718, songDb.ExecuteScalar<int>("SELECT karinotes FROM song WHERE path = ?;", missingChartPath));
+        Assert.AreEqual("big5", songDb.ExecuteScalar<string>("SELECT encoding FROM maintenance WHERE path = ?;", missingChartPath));
+        Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT is_encoding_fixed FROM maintenance WHERE path = ?;", missingChartPath));
     }
 
     /// <summary>
@@ -833,6 +838,118 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual("解析タイトル", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
         Assert.AreEqual("解析アーティスト", songDb.ExecuteScalar<string>("SELECT artist FROM song WHERE path = ?;", chartPath));
         CollectionAssert.AreEqual(new[] { "解析タイトル" }, notifiedTitles);
+    }
+
+    /// <summary>同内容の確定Big5・UTF-8・CP932だけを生5項目へ採用し、混在CP932資源の長さ・警告と単回読取りを保ちます。</summary>
+    /// <remarks>実RunとSQLite保存を境界とし、期待文字列は固定入力から定めます。指定の由来による分岐は設けません。</remarks>
+    [TestMethod]
+    [DataRow("big5", "中文標題", "副標題", "作者", "編曲", "音樂")]
+    [DataRow("utf-8", "日本語題名", "副題", "作曲者", "編曲者", "ジャンル")]
+    [DataRow("shift_jis", "日本語題名", "副題", "作曲者", "編曲者", "ジャンル")]
+    public void SyncService_AppliesFixedMetadataEncodingWithoutRedecodingResources(
+        string encoding, string title, string subtitle, string artist, string subartist, string genre)
+    {
+        using var scope = TestDatabaseScope.Create();
+        string path = Path.Combine(scope.DirectoryPath, "fixed.bms");
+        byte[] metadata = Encoding.GetEncoding(encoding).GetBytes(
+            $"#PLAYER 1\r\n#TITLE {title}\r\n#SUBTITLE {subtitle}\r\n#ARTIST {artist}\r\n#SUBARTIST {subartist}\r\n#GENRE {genre}\r\n#BPM 120\r\n");
+        File.WriteAllBytes(path, [.. metadata, .. Encoding.GetEncoding(932).GetBytes("#WAV01 ソ.wav\r\n#00111:01\r\n")]);
+        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(path);
+        ChartFile file = ChartFileProjection.WithMaintenance(CreateSyncTestFile(path, snapshot), new ResourceHealthMaintenanceSnapshot
+        {
+            Path = path,
+            Hash = snapshot.Md5.ToUpperInvariant(),
+            Encoding = encoding,
+            EncodingFixed = true
+        });
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        // 全体同期は所持済みsongを更新するため、入力と同じ保存行を先に用意します。
+        songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+        BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
+        songDb.InsertOrReplace(new LR2SongDBExtended.maintenance
+        { path = path, hash = snapshot.Md5.ToUpperInvariant(), encoding = encoding, is_encoding_fixed = true });
+        int reads = 0;
+
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        {
+            Signature = "fixed-metadata",
+            RunId = "fixed-metadata",
+            SongRows = [file],
+            ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
+            ChartFileBufferReader = requestedPath =>
+            {
+                Interlocked.Increment(ref reads);
+                return ChartFileContentReader.ReadBuffer(requestedPath);
+            }
+        });
+
+        Assert.AreEqual(1, result.SongRowProcessedCount);
+        Assert.AreEqual(0, result.SongRowParseFailureCount);
+        Assert.AreEqual(1, reads);
+        using LR2SongDBExtended read = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+        LR2SongDB.song saved = read.Table<LR2SongDB.song>().Single();
+        Assert.AreEqual(title, saved.title);
+        Assert.AreEqual(subtitle, saved.subtitle);
+        Assert.AreEqual(artist, saved.artist);
+        Assert.AreEqual(subartist, saved.subartist);
+        Assert.AreEqual(genre, saved.genre);
+        Assert.AreEqual(6, read.ExecuteScalar<int>("SELECT lr2_resource_max_relative_cp932_bytes FROM maintenance WHERE path = ?;", path));
+        Assert.AreEqual(0, read.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", path));
+        Assert.AreEqual(encoding, read.ExecuteScalar<string>("SELECT encoding FROM maintenance WHERE path = ?;", path));
+        Assert.AreEqual(1, read.ExecuteScalar<int>("SELECT is_encoding_fixed FROM maintenance WHERE path = ?;", path));
+    }
+
+    /// <summary>未指定・非具体名・未確定・別path・別hashではBOMなしUTF-8の自動検出を保ち、古い指定を実読取りへ誤適用しません。</summary>
+    /// <remarks>条件差は実Runの保存生5列へ集約します。BOM有無の検出は既存DetectedUtf8系列、hash変更後の非復活はLibraryのDB再読込みケースが分担します。</remarks>
+    [TestMethod]
+    [DataRow("absent")]
+    [DataRow("empty")]
+    [DataRow("unknown")]
+    [DataRow("estimated")]
+    [DataRow("not-fixed")]
+    [DataRow("other-path")]
+    [DataRow("path-case")]
+    [DataRow("other-hash")]
+    public void SyncService_DetectsEncodingUnlessConcreteFixedIdentityMatches(string condition)
+    {
+        using var scope = TestDatabaseScope.Create();
+        string path = Path.Combine(scope.DirectoryPath, "metadata.bms");
+        // BOMによる強制UTF-8復号で誤指定が隠れないようにし、Big5・CP932で誤復号した場合は固定literalと異なる入力にします。
+        File.WriteAllText(path, "#TITLE 日本語題名\r\n#SUBTITLE 副題\r\n#ARTIST 作曲者\r\n#SUBARTIST 編曲者\r\n#GENRE ジャンル\r\n", new UTF8Encoding(false));
+        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(path);
+        ChartFile file = CreateSyncTestFile(path, snapshot);
+        if (condition != "absent")
+        {
+            file = ChartFileProjection.WithMaintenance(file, new ResourceHealthMaintenanceSnapshot
+            {
+                Path = condition == "other-path" ? path + ".other" : condition == "path-case" ? path.ToUpperInvariant() : path,
+                Hash = condition == "other-hash" ? new string('a', 32) : snapshot.Md5,
+                Encoding = condition switch { "empty" => "", "unknown" => "UnKnOwN", "estimated" => "shift_jis?", _ => "big5" },
+                EncodingFixed = condition != "not-fixed"
+            });
+        }
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        // 全体同期の生成列更新は既存songだけを対象にします。
+        songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        {
+            Signature = "encoding-detection",
+            RunId = "encoding-detection",
+            SongRows = [file],
+            ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb)
+        });
+
+        Assert.AreEqual(0, result.SongRowParseFailureCount);
+        using LR2SongDBExtended read = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+        LR2SongDB.song saved = read.Table<LR2SongDB.song>().Single();
+        Assert.AreEqual("日本語題名", saved.title);
+        Assert.AreEqual("副題", saved.subtitle);
+        Assert.AreEqual("作曲者", saved.artist);
+        Assert.AreEqual("編曲者", saved.subartist);
+        Assert.AreEqual("ジャンル", saved.genre);
     }
 
     /// <summary>
@@ -1303,6 +1420,43 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(88, songDb.ExecuteScalar<int>("SELECT wav_files_existing FROM maintenance WHERE path = ?;", chartPath));
         int flags = songDb.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", chartPath);
         Assert.IsTrue((flags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
+    }
+
+    /// <summary>内容変更の指定失効後に同じチャンクのcursor保存が失敗しても、旧hashと指定をまとめて巻き戻します。</summary>
+    /// <remarks>実SQLiteのcursor更新だけをtriggerで失敗させ、互換性更新後の失敗を観測します。読取不能時の非失効は既存の旧生成列保持ケースへ分担します。</remarks>
+    [TestMethod]
+    public void SyncService_RollsBackEncodingExpiryWhenChunkCommitFails()
+    {
+        using var scope = TestDatabaseScope.Create();
+        string path = Path.Combine(scope.DirectoryPath, "changed.bms");
+        WriteBasicBms(path, "changed");
+        ChartFile file = CreateSyncTestFile(path, ChartFileContentReader.ReadSnapshot(path));
+        const string oldHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
+        BmsLibraryDbGateway.EnsureLr2SongDbSyncStatusSchema(songDb);
+        songDb.InsertOrReplace(new LR2SongDBExtended.maintenance
+        { path = path, hash = oldHash, encoding = "big5", is_encoding_fixed = true, wav_files_defined = 99, wav_files_existing = 88 });
+        songDb.Execute("CREATE TRIGGER fail_song_cursor BEFORE INSERT ON lr2_song_db_sync_status "
+            + "WHEN NEW.stage = 'song_rows' AND NEW.processed_cursor > 0 BEGIN SELECT RAISE(ABORT, 'chunk cursor failed'); END;");
+
+        Assert.ThrowsException<SQLite.SQLiteException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        {
+            Signature = "encoding-expiry-rollback",
+            RunId = "encoding-expiry-rollback",
+            SongRows = [file],
+            ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb)
+        }));
+
+        using LR2SongDBExtended read = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+        LR2SongDBExtended.maintenance saved = read.Table<LR2SongDBExtended.maintenance>().Single();
+        Assert.AreEqual(oldHash, saved.hash);
+        Assert.AreEqual("big5", saved.encoding);
+        Assert.IsTrue(saved.is_encoding_fixed);
+        Assert.AreEqual(99, saved.wav_files_defined);
+        Assert.AreEqual(88, saved.wav_files_existing);
+        Assert.AreEqual(0, read.Table<LR2SongDB.song>().Count());
     }
 
     /// <summary>

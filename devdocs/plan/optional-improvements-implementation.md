@@ -34,7 +34,7 @@
 | U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04/U08と直列 |
 | U07 言語変更と確認文言 | 検索 → プロパティ → ランプ → 確認ボタン | 既存owner別コミット。全言語資源は一担当。U03/U16/U17/U20と共有編集を調整 |
 | U08 手動ランキング取得廃止 | UI・専用通信・資料・専用テストを除去 | MainWindow/composition/Ir。U04/U05後、起動時ローカルcache維持 |
-| U09 確定文字コードの保持と導入・同期への引継ぎ | LR2全体同期 → 導入成功先への引継ぎ | Maintenance/Catalog/Install/LR2。導入serviceはU15との順序調整後、署名変更なし |
+| U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
 | U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile。U13のWriter検証と調整 |
 | U12 内蔵再生の対象と候補探索 | 現在曲識別・送り位置・FolderSkip・Repeat失敗探索を統合 | 同じPlayback queue/VMで一単位。現行のentry索引を利用し、選択scopeは流用しない |
 | U13 音声変換の出力名 | Writerのfile path契約へ統一 | Writer/変換owner。U10と検証の重複を調整 |
@@ -240,7 +240,7 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 - 完了条件: 所持/保留/未所持等の通常context menuで項目なし・不要separatorなし。手動owner/通信/専用設定や表示資源の残参照なし。起動時cache XMLと保存済み順位の通常反映、オフライン推定、本人IRは従来どおり。設定と既存ファイル/DB値に便乗変更なし。
 - 既存保証の整理: `RankingCacheDownloadWorkflowOwnerTests` と手動専用service/Downloadテストは対応する製品経路の削除に合わせて退役。`MainWindowSelectedChartContextMenuWpfTests` とcomposition testは現行項目への期待を更新。`BmsLibraryIrStartupTests.InitializeStartup_RankingCacheDerivedValuesReachNormalSearchAndLampAggregation`、起動時cache parser/service、`StartupRankingRefreshPolicyTests` を残し、共通保証を失わない。`devdocs/spec/integration/lr2-ranking.md` の手動取得・保存・関連保証表とユーザーマニュアルの該当案内も同単位で整理する。Resources本体・6言語で専用文言を揃えて除く。
 
-## U09 確定文字コードの保持と導入・同期への引継ぎ
+## U09 確定文字コードの導入への引継ぎ
 
 ### 導入成功先への指定引継ぎ
 
@@ -249,14 +249,6 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 成功先で健康度・警告を評価し、既存の導入終端の保存へまとめる。導入失敗した対象、資源だけ更新した別所持譜面、同hashの別配置へ指定を広げない。現行の所持再スキャンの確定指定保持へ接続し、新しい由来列や保守対象追加を行わない。
 
 通常導入・推定先導入・自動継続・部分失敗の実配置とDB読戻しで成功対象だけのPath/Hash/Encoding/Fixed/タイトル一致、成功先での評価、後続再スキャン・再起動での保持を確認する。U15が扱う導入serviceの編集完了後に同じwriterを渡す。
-
-### LR2全体同期への確定指定適用
-
-`Lr2SongDbSyncService.CreateSyncSongRow` は常に自動検出し、保存済みBig5等の指定と表示メタデータが食い違い得る。`CaptureLr2SynchronizationInputRowSnapshot` が既に捕捉する不変入力の、同じpath・内容hashに対応した具体的な確定指定を使う。新辞書・永続snapshotは不要。
-
-CP932の基本資源解析を保ち、同じ読取りsnapshotへ `ApplyMetadataEncoding` を適用する。資源名まで指定encodingで読む単純置換は行わない。未指定・未確定は従来の検出、別hashには旧指定を移さない。`CommittedBmsPaths` による確定済みsong行の利用では既存の再読取り・再解析省略を維持し、保存同期署名は変えない。
-
-`BmsLibraryLr2SongDbSyncTests`、`Lr2SongDbSyncServiceTests`、保守系列で同期前後の指定・修正印・タイトル・一覧一致、同path別hash、手動/自動確定、未確定、CP932、BOM、BMSONを分担する。仕様は[譜面読取り](../spec/library/chart-file-reading.md)と[LR2 song DB](../spec/integration/lr2-song-db.md)の対応節を実装と同時に更新する。
 
 ## U10 BMS再生入力
 
