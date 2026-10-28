@@ -7,6 +7,8 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
+using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -2399,34 +2401,155 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
-    /// <summary>通常の保留導入先は末尾separatorの有無で同じ宛先と対象を返し、入力表記による拒否・取り違えを検出します。</summary>
+    /// <summary>通常directoryの末尾separator有無を維持し、大小文字だけ違うdirectory・引用符・実file入力は既知集合の登録表記をOrdinal一致で返します。入力表記を返す誤りや受理範囲の縮小を検出します。</summary>
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void ValidateInstallDestination_ReturnsResolvedDirectoryForPendingPackage(bool trailingSeparator)
+    [DataRow("directory")]
+    [DataRow("trailing-separator")]
+    [DataRow("case-directory")]
+    [DataRow("case-trailing-separator")]
+    [DataRow("case-quoted-directory")]
+    [DataRow("case-file")]
+    public void ValidateInstallDestination_ReturnsResolvedDirectoryForPendingPackage(string inputKind)
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string pendingDirectoryPath = Path.Combine(tempRoot, "pending");
-            string installDirectoryPath = Path.Combine(tempRoot, "install");
+            string installDirectoryPath = Path.Combine(tempRoot, "MiXeDParent", "KnownSong");
             Directory.CreateDirectory(pendingDirectoryPath);
             Directory.CreateDirectory(installDirectoryPath);
+            File.WriteAllText(Path.Combine(installDirectoryPath, "known.bms"), "#TITLE Known\n");
             ChartFile pendingFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(pendingDirectoryPath, "chart.bms"));
             ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
             pendingPackage.path = pendingDirectoryPath;
             pendingPackage.delete_parent = false;
+            string changedCase = Path.Combine(tempRoot, "mixedparent", "knownsong");
+            string input = inputKind switch
+            {
+                "directory" => installDirectoryPath,
+                "trailing-separator" => installDirectoryPath + Path.DirectorySeparatorChar,
+                "case-directory" => changedCase,
+                "case-trailing-separator" => changedCase + Path.DirectorySeparatorChar,
+                "case-quoted-directory" => "\"" + changedCase + "\"",
+                "case-file" => Path.Combine(changedCase, "known.bms"),
+                _ => throw new AssertFailedException("未定義の入力条件です。")
+            };
 
             PendingInstallDestinationSelectionResult result = service.ValidateInstallDestination(
                 PackageChartEntry.FromChart((pendingFile)),
                 [pendingPackage],
                 [installDirectoryPath],
-                trailingSeparator ? installDirectoryPath + Path.DirectorySeparatorChar : installDirectoryPath);
+                input);
 
             Assert.IsTrue(result.Success);
-            Assert.AreEqual(installDirectoryPath, result.ValidatedDestinationDirectory);
+            Assert.IsTrue(string.Equals(installDirectoryPath, result.ValidatedDestinationDirectory, StringComparison.Ordinal));
             Assert.AreEqual(1, result.TargetEntries.Count);
             Assert.AreEqual(pendingFile.Path, result.TargetEntries[0].GetBmsChartForTest().Path);
+        });
+    }
+
+    /// <summary>大小文字だけ違う手動DSTを実storeから通常導入へ渡し、登録表記の最終pathとfresh song DB保存、既所持と同じfolder/parentを確認します。CRC式を期待値へ複製せず、既所持行の識別値・内容を保つことも確認します。</summary>
+    [TestMethod]
+    public void ValidateInstallDestination_RegisteredCasingFlowsThroughManualInstallAndSongIdentity()
+    {
+        WithWorkspace((tempRoot, _) =>
+        {
+            string libraryRoot = Path.Combine(tempRoot, "MiXeDParent");
+            string knownDirectory = Path.Combine(libraryRoot, "KnownSong");
+            string pendingDirectory = Path.Combine(tempRoot, "pending");
+            Directory.CreateDirectory(knownDirectory);
+            Directory.CreateDirectory(pendingDirectory);
+            string ownedPath = Path.Combine(knownDirectory, "owned.bms");
+            string pendingPath = Path.Combine(pendingDirectory, "added.bms");
+            File.WriteAllText(ownedPath, BmsLibraryInitializationTestSupport.CreateValidBmsText("Owned"), Encoding.ASCII);
+            File.WriteAllText(pendingPath, BmsLibraryInitializationTestSupport.CreateValidBmsText("Added"), Encoding.ASCII);
+            File.WriteAllBytes(Path.Combine(knownDirectory, "sound.wav"), [1, 2, 3, 4]);
+            File.WriteAllBytes(Path.Combine(pendingDirectory, "sound.wav"), [1, 2, 3, 4]);
+            byte[] ownedBytes = File.ReadAllBytes(ownedPath);
+            byte[] pendingBytes = File.ReadAllBytes(pendingPath);
+            ChartFile owned = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(ownedPath));
+            ChartFile pending = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(pendingPath));
+            var entry = PackageChartEntry.FromChart(pending);
+            BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
+            var package = ChartPackage.FromChartEntries([entry]);
+            package.path = pendingDirectory;
+            package.delete_parent = false;
+            string songDbPath = Path.Combine(tempRoot, "song.db");
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+            {
+                db.CreateTable<LR2SongDB.song>();
+                db.CreateTable<LR2SongDB.folder>();
+                db.CreateTable<LR2SongDBExtended.maintenance>();
+                db.CreateTable<LR2SongDBExtended.bmson_song>();
+                db.CreateTable<LR2SongDBExtended.install>();
+                db.Insert(ChartSongStorageMapping.ToBmsRow(owned));
+                db.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
+            });
+            LR2SongDB.song ownedBefore;
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            {
+                ownedBefore = db.Table<LR2SongDB.song>().ToArray().Single();
+            }
+            Assert.IsFalse(string.IsNullOrEmpty(ownedBefore.folder));
+            Assert.IsFalse(string.IsNullOrEmpty(ownedBefore.parent));
+            Settings settings = TestBmsFactory.CreateRootSettings([libraryRoot]);
+            settings.BMSInstallDir = libraryRoot;
+            var library = new TestBmsLibrary(songDbPath, null, null, new ResilientFileMutationService(), new FileDbReportRecordingDialogs(),
+                new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings), settings: settings)
+            {
+                BmsCharts = [owned],
+                BmsonCharts = [],
+                ChartPackagesPending = [package],
+                ChartPackagesInstalled = []
+            };
+            try
+            {
+                var store = new BmsLibraryPendingPackageStore();
+                var target = new ChartOperationTarget(pending, null, ChartOperationSourceScope.PendingPackage,
+                    isOwned: false, isPending: true, isPlaylistMissing: false,
+                    ChartOperationCapabilities.UpdateInstallDestination, packageEntry: entry);
+                Assert.IsTrue(PendingInstallDestinationEditRequest.TryCreate(target, out PendingInstallDestinationEditRequest request));
+                Assert.AreSame(entry, request.PackageEntry, "保留群の出自を明示して実storeへ渡します。");
+                string changedCaseInput = Path.Combine(tempRoot, "mixedparent", "knownsong");
+                ChartFile changed = store.SetPending(library, request, changedCaseInput);
+                Assert.IsNotNull(changed);
+                string editedDestination = changed.InstallDestination;
+                string requestedDestination = package.ChartEntries.Single().Chart.InstallDestination;
+
+                PendingInstallBatchResult result = store.ManualInstallPackagesWithReceipt(library, [package]);
+
+                Assert.IsTrue(result.HasDurableCommit);
+                Assert.IsFalse(result.HasDurableFinalizationFailure);
+                Assert.IsFalse(result.CompletedWithCleanupFailure);
+                Assert.AreEqual(0, result.FailedPackages.Count);
+                Assert.AreEqual(0, library.ChartPackagesPending.Count);
+                string expectedPath = Path.Combine(knownDirectory, "added.bms");
+                Assert.IsTrue(string.Equals(knownDirectory, editedDestination, StringComparison.Ordinal));
+                Assert.IsTrue(string.Equals(knownDirectory, requestedDestination, StringComparison.Ordinal));
+                Assert.IsTrue(File.Exists(expectedPath));
+                CollectionAssert.AreEqual(pendingBytes, File.ReadAllBytes(expectedPath));
+                CollectionAssert.AreEqual(ownedBytes, File.ReadAllBytes(ownedPath));
+                Assert.IsTrue(string.Equals(expectedPath, library.ChartPackagesInstalled.Single().ChartEntries.Single().Chart.Path, StringComparison.Ordinal));
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                LR2SongDB.song[] savedRows = verify.Table<LR2SongDB.song>().ToArray();
+                Assert.AreEqual(2, savedRows.Length);
+                LR2SongDB.song added = savedRows.Single(row => row.hash == pending.Md5);
+                Assert.IsTrue(string.Equals(expectedPath, added.path, StringComparison.Ordinal));
+                Assert.AreEqual(ownedBefore.folder, added.folder);
+                Assert.AreEqual(ownedBefore.parent, added.parent);
+                LR2SongDB.song ownedAfter = savedRows.Single(row => row.hash == owned.Md5);
+                Assert.AreEqual(ownedBefore.path, ownedAfter.path);
+                Assert.AreEqual(ownedBefore.hash, ownedAfter.hash);
+                Assert.AreEqual(ownedBefore.title, ownedAfter.title);
+                Assert.AreEqual(ownedBefore.folder, ownedAfter.folder);
+                Assert.AreEqual(ownedBefore.parent, ownedAfter.parent);
+                Assert.AreEqual(0, verify.Table<LR2SongDBExtended.install>().Count());
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+            }
+            finally
+            {
+                library.RequestShutdown("install-destination-casing-fixture");
+            }
         });
     }
 

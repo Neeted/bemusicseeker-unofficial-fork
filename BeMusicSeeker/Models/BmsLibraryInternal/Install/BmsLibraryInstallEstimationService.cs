@@ -743,7 +743,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
                 || (chart.Warnings ?? []).Any(warning => warning != null && warning.Category == ChartWarningCategory.InstallEstimation));
     }
 
-    /// <summary>手動導入先を実在・所持の検査へ通し、ファイル入力は親directory、directory入力は絶対ドライブルートを保った宛先として返します。空入力は指定解除です。</summary>
+    /// <summary>手動導入先を実在・所持の検査へ通し、ファイル入力は親directory、directory入力は絶対ドライブルートを保って照合します。大小文字を無視して一致した既知集合の登録表記を返し、後続の表示・導入・保存へ同じ表記を渡します。空入力は指定解除です。</summary>
     public PendingInstallDestinationSelectionResult ValidateInstallDestination(PackageChartEntry targetEntry, IEnumerable<ChartPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory, bool allowStandaloneLibraryChart = false)
     {
         var result = new PendingInstallDestinationSelectionResult();
@@ -794,13 +794,13 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             return result;
         }
         var knownDirectories = new HashSet<string>((knownChartDirectories ?? []).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
-        if (!knownDirectories.Contains(installDirectory))
+        if (!knownDirectories.TryGetValue(installDirectory, out string knownDirectory))
         {
             result.WarningMessage = string.Format(Properties.Resources.Warn_InstallDirMustContainBms, installDirectory);
             return result;
         }
         result.Success = true;
-        result.ValidatedDestinationDirectory = installDirectory;
+        result.ValidatedDestinationDirectory = knownDirectory;
         return result;
     }
 
