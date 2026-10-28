@@ -74,22 +74,25 @@ internal sealed class PlaylistLampHistoricalScoreChange
 internal sealed class PlaylistLampHistoricalScoreSnapshotReader
 {
     /// <summary>
-    /// Reads the active provider history with no display-row limit and applies the requested date.
+    /// 使用中の情報源の履歴を表示件数制限なしで読み、指定時刻帯の日付境界で過去スコアを復元します。
     /// </summary>
-    /// <param name="sourceContext">Active provider and already-resolved source paths.</param>
-    /// <param name="currentScoreSnapshot">Current immutable score snapshot.</param>
-    /// <param name="selectedLocalDate">Selected local date, or null for Latest.</param>
-    /// <param name="cancellationToken">Cancellation token for the read.</param>
-    /// <returns>Immutable historical projection result.</returns>
+    /// <param name="sourceContext">使用中の情報源と解決済みの取得元パス。</param>
+    /// <param name="currentScoreSnapshot">現在の変更不能なスコア。</param>
+    /// <param name="selectedLocalDate">基準日のローカル日付。nullは最新。</param>
+    /// <param name="cancellationToken">読取りの取消トークン。</param>
+    /// <param name="timeZone">今日・履歴行の日付・翌日境界へ共通に使う時刻帯。省略時はこの要求のローカル時刻帯。</param>
+    /// <returns>変更不能な過去スコアの復元結果。</returns>
     internal PlaylistLampHistoricalScoreSnapshotResult Read(
         PlaylistLampHistoricalScoreSourceContext sourceContext,
         PlaylistLampScoreSnapshot currentScoreSnapshot,
         DateTime? selectedLocalDate,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        TimeZoneInfo timeZone = null)
     {
         ArgumentNullException.ThrowIfNull(currentScoreSnapshot);
         cancellationToken.ThrowIfCancellationRequested();
-        var today = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Unspecified);
+        timeZone ??= TimeZoneInfo.Local;
+        DateTime today = TimeZoneInfo.ConvertTime(DateTimeOffset.Now, timeZone).Date;
 
         if (sourceContext == null)
         {
@@ -120,7 +123,8 @@ internal sealed class PlaylistLampHistoricalScoreSnapshotReader
             sourceContext.ActiveScoreSource,
             selectedLocalDate,
             readResult.Changes,
-            today);
+            today,
+            timeZone);
     }
 
     private static ReadChangesResult ReadChanges(
@@ -335,30 +339,33 @@ internal sealed class PlaylistLampHistoricalScoreSnapshotReader
 internal static class PlaylistLampHistoricalScoreSnapshotBuilder
 {
     /// <summary>
-    /// Builds Latest or a historical score projection from provider history changes.
+    /// 指定時刻帯の翌日境界以降の履歴を時刻・同時刻の行IDの降順で巻き戻し、最新または過去スコアを構築します。
     /// </summary>
-    /// <param name="currentScoreSnapshot">Current immutable score snapshot.</param>
-    /// <param name="activeSource">The exact active provider.</param>
-    /// <param name="selectedLocalDate">Selected local date, or null for Latest.</param>
-    /// <param name="changes">Provider history rows in any order.</param>
-    /// <param name="todayLocalDate">Testable local today override.</param>
-    /// <returns>Immutable historical result.</returns>
+    /// <param name="currentScoreSnapshot">現在の変更不能なスコア。</param>
+    /// <param name="activeSource">使用中の情報源。</param>
+    /// <param name="selectedLocalDate">基準日のローカル日付。nullは最新。</param>
+    /// <param name="changes">情報源の履歴行。順序は問いません。</param>
+    /// <param name="todayLocalDate">今日の日付の明示値。省略時は指定時刻帯の今日。</param>
+    /// <param name="timeZone">履歴行の日付と翌日境界へ共通に使う時刻帯。省略時はローカル時刻帯。</param>
+    /// <returns>変更不能な過去スコアの復元結果。</returns>
     internal static PlaylistLampHistoricalScoreSnapshotResult Build(
         PlaylistLampScoreSnapshot currentScoreSnapshot,
         ActiveScoreSource activeSource,
         DateTime? selectedLocalDate,
         IEnumerable<PlaylistLampHistoricalScoreChange> changes,
-        DateTime? todayLocalDate = null)
+        DateTime? todayLocalDate = null,
+        TimeZoneInfo timeZone = null)
     {
         ArgumentNullException.ThrowIfNull(currentScoreSnapshot);
-        var today = DateTime.SpecifyKind((todayLocalDate ?? DateTime.Today).Date, DateTimeKind.Unspecified);
+        timeZone ??= TimeZoneInfo.Local;
+        var today = DateTime.SpecifyKind((todayLocalDate ?? TimeZoneInfo.ConvertTime(DateTimeOffset.Now, timeZone).Date).Date, DateTimeKind.Unspecified);
         var rows = (changes ?? [])
             .Where(row => row != null && row.Source == activeSource)
             .ToList();
         DateTime? earliest = null;
         foreach (PlaylistLampHistoricalScoreChange row in rows)
         {
-            if (!TryToLocalDate(row.PlayedAtUnixSeconds, out DateTime localDate))
+            if (!TryToLocalDate(row.PlayedAtUnixSeconds, timeZone, out DateTime localDate))
             {
                 return CreateUnavailable(
                     currentScoreSnapshot,
@@ -394,7 +401,7 @@ internal static class PlaylistLampHistoricalScoreSnapshotBuilder
                 "Selected historical date is outside the available range.");
         }
 
-        long cutoffUnixSeconds = ToUnixSecondsAtLocalMidnight(selected.AddDays(1));
+        long cutoffUnixSeconds = LocalDateBoundary.ToUnixSeconds(selected.AddDays(1), timeZone);
         var futureRows = rows
             .Where(row => row.PlayedAtUnixSeconds >= cutoffUnixSeconds)
             .OrderByDescending(row => row.PlayedAtUnixSeconds)
@@ -531,12 +538,12 @@ internal static class PlaylistLampHistoricalScoreSnapshotBuilder
         return value is 0 or 1 or 2 or 3 or 4 or 5 or 21;
     }
 
-    private static bool TryToLocalDate(long unixSeconds, out DateTime localDate)
+    private static bool TryToLocalDate(long unixSeconds, TimeZoneInfo timeZone, out DateTime localDate)
     {
         try
         {
             localDate = DateTime.SpecifyKind(
-                DateTimeOffset.FromUnixTimeSeconds(unixSeconds).ToLocalTime().Date,
+                TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(unixSeconds), timeZone).Date,
                 DateTimeKind.Unspecified);
             return true;
         }
@@ -545,13 +552,6 @@ internal static class PlaylistLampHistoricalScoreSnapshotBuilder
             localDate = default;
             return false;
         }
-    }
-
-    private static long ToUnixSecondsAtLocalMidnight(DateTime localDate)
-    {
-        var unspecified = DateTime.SpecifyKind(localDate.Date, DateTimeKind.Unspecified);
-        DateTime utc = TimeZoneInfo.ConvertTimeToUtc(unspecified, TimeZoneInfo.Local);
-        return new DateTimeOffset(utc).ToUnixTimeSeconds();
     }
 
     private static PlaylistLampScoreSnapshot CreateFailedScoreSnapshot(

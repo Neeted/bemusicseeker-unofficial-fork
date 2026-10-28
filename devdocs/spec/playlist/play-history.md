@@ -50,7 +50,11 @@ LR2のクリア2はEASYビットありをEASY、なしをASSISTとし、ASSIST�
 
 ### 期間と集計
 
-固定期間はすべて、今日、昨日、今日を含む最近7日・30日、未確定／診断です。通常期間はローカル午前0時から次の境界までの半開区間です。年→月→日の過去日付ツリーもローカル時刻で範囲を求め、降順に並べます。非同期の古い要求は新しい期間選択を上書きしません。
+固定期間はすべて、今日、昨日、今日を含む最近7日・30日、未確定／診断です。年→月→日の過去日付ツリーはローカル日付でまとめ、降順に並べます。非同期の古い要求は新しい期間選択を上書きしません。
+
+時刻帯 `z` のローカル日付 `D` の開始境界 `Bz(D)` は、0時が有効ならそのUTC、重複するなら早いUTC、欠落するなら指定日以降の最初の有効なローカル境界の早いUTCです。日区間は `[Bz(D), Bz(D+1))` とし、隣接日は同じ境界を共有します。丸日欠落では両端が同値の空区間になります。今日・昨日・最近7日／30日と年・月・日の期間は、同じ境界変換を使います。
+
+対象はアプリが使う `TimeZoneInfo.Local` とOS提供時刻帯です。変換では基準オフセット、各調整規則の基準差分を加えた値、さらに夏時間差分を加えた値を短命な候補集合にし、0時から候補を引いたUTCの逆変換が0時に一致する最小UTCを選びます。写像がなければ最大・最小候補オフセットが挟むUTC区間で、ローカル時刻が0時以上になる最初の境界をticksの二分探索で求めます。この区間は単独で連続する移行を前提とし、任意の人工時刻帯全域やOSデータ以上の歴史補正へ保証を広げません。時刻帯データは保存しません。
 
 一覧の日時はGregorianの `yyyy-MM-dd HH:mm:ss`、率は小数2桁で小数点を `.` として表示します。集計カードの件数は桁区切りなしの整数です。これらは表示書式の規則であり、演奏時間などの集計範囲は以下の取得元別の規則に従います。書式変更で元の成績値やカード検索集合は変えません。`PlayHistoryReadModelTests` は異文化の件数・率と既存カード条件を、`GridKeywordSearchQueryTests` はコピーした表示日時の検索を分担します。
 
@@ -122,6 +126,7 @@ DB読取り、LR2スキーマ検査、期間実績の取得で例外を結果へ
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 取得元・期間・確定状態・未解決行・累計差分 | [`Lr2PlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistoryReader.cs)、[`BeatorajaPlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/BeatorajaPlayHistoryReader.cs) | [`PlayHistoryReadModelTests`](../../../BeMusicSeeker.Tests/PlayHistory/PlayHistoryReadModelTests.cs)、[`PlayHistoryReadSourceSelectorTests`](../../../BeMusicSeeker.Tests/PlayHistory/PlayHistoryReadSourceSelectorTests.cs) |
+| 日付境界の通常・欠落・重複・丸日欠落、相対期間と過去日付ツリー | [`LocalDateBoundary`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/LocalDateBoundary.cs)、[`PlayHistoryPeriodRequest`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryPeriodRequest.cs)、[`PlayHistoryPeriodTreeItem`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryPeriodTreeItem.cs) | `PlayHistoryReadModelTests.PlayHistoryPeriodRequest_DayBoundaryTransitionsShareAdjacentUtcEndpoints` は `CreateDay` から固定UTC期待値と隣接境界を確認する。`PlayHistoryPeriodRequest_RelativePeriodsUseMissingMidnightBoundary` は今日・昨日・最近7日／30日、`PlayHistoryPeriodTreeItem_TransitionDatesBuildOneDayWithUsableRequests` は実UTC行から年・月・日requestと同日重複の統合を確認する。既存のUTC・UTC+09・年月・表示名・確定条件とreader/cacheの半開範囲検査を維持する。 |
 | FC内訳・カードのMAX更新、SCORE単独更新の除外、PF/MAX個別検索 | [`PlayHistoryPeriodSummary`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryPeriodSummary.cs)、[`PlayHistoryPresentationState`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryPresentationState.cs) | `PlayHistoryReadModelTests.BeatorajaSummaryIncludesMaxClearUpdatesInFullComboCard`は実scorelogから投影・集計・カード検索を接続し、9→10・8→10と既存FC/PFの4行、SCORE単独更新とEXHの除外、元値と個別検索を確認する。既存カード指標・選択条件の対応とLR2変換は同テスト群、カードOR・キーワードANDは`GridKeywordSearchQueryTests`、実カード表示とコマンド接続は`MainWindowPlayHistoryWpfTests`が分担する。 |
 | 取得失敗の表示・正常空との区別・次の成功へ復帰 | [`PlayHistoryWorkflowOwner.ViewExecution`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryWorkflowOwner.ViewExecution.cs)、[`PlayHistoryPresentationState`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryPresentationState.cs) | [`PlayHistoryReadModelTests`](../../../BeMusicSeeker.Tests/PlayHistory/PlayHistoryReadModelTests.cs)で実DBの照会失敗から一覧・カード・選択の退役と失敗表示、次の正常0件の採用まで確認する。投影DB故障、条件が一周した古い失敗の拒否、通常画面移動後の非上書きも同テスト群で分担する。 |
 | 索引だけの失敗・正常行と集計の採用 | [`PlayHistoryReadCache`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryReadCache.cs)、`PlayHistoryWorkflowOwner.BuildReadPresentation` | `PlayHistoryReadModelTests`で期間外の不正日時と正常な現在期間を使い、更新後の行・非ゼロ集計・過去日項目の除去・固定期間の継続を確認する。player表だけの障害は同テスト群で正常一覧と3実績の利用不可、既存キャッシュ失効後の復帰を確認する。 |

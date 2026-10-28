@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
@@ -27,10 +28,10 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         PlaylistLampScoreSnapshot current = CurrentLr2(hash, ClearType.EASY, 160, 100);
         PlaylistLampHistoricalScoreChange[] changes = new[]
         {
-            Change(ActiveScoreSource.Lr2, hash, 10, selectedDate.AddHours(12), 4, 8, 100, 100),
-            Change(ActiveScoreSource.Lr2, hash, 11, cutoff, 3, 0, 120, 100),
-            Change(ActiveScoreSource.Lr2, hash, 12, cutoff, 1, 0, 0, 100),
-            Change(ActiveScoreSource.Lr2, hash, 13, cutoff.AddHours(1), 4, 8, 140, 100)
+            Change(ActiveScoreSource.Lr2, hash, 10, selectedDate.AddHours(12), 4, 8, 100, 100, timeZone: TimeZoneInfo.Utc),
+            Change(ActiveScoreSource.Lr2, hash, 11, cutoff, 3, 0, 120, 100, timeZone: TimeZoneInfo.Utc),
+            Change(ActiveScoreSource.Lr2, hash, 12, cutoff, 1, 0, 0, 100, timeZone: TimeZoneInfo.Utc),
+            Change(ActiveScoreSource.Lr2, hash, 13, cutoff.AddHours(1), 4, 8, 140, 100, timeZone: TimeZoneInfo.Utc)
         };
 
         PlaylistLampHistoricalScoreSnapshotResult result = PlaylistLampHistoricalScoreSnapshotBuilder.Build(
@@ -38,12 +39,61 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             ActiveScoreSource.Lr2,
             selectedDate,
             changes,
-            TestToday);
+            TestToday,
+            TimeZoneInfo.Utc);
 
         Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Available, result.Status);
         Assert.IsTrue(result.ScoreSnapshot.ScoresByHash.TryGetValue(hash, out PlaylistLampScore? score));
         Assert.AreEqual(ClearType.CLEAR, score!.Clear);
         Assert.AreEqual(120, score!.ExScore);
+    }
+
+    /// <summary>丸日欠落の前日と当日は同じ翌日境界で実LR2履歴を巻き戻し、境界行・同時刻ID順・指定時刻帯の日付分類を保持する。</summary>
+    /// <remarks>UTC固定値の境界前後を実DBへ保存し、120という復元値で境界除外・順序逆転・現在値/空/利用不可への代用を区別する。読取り前後のDBバイト列も比較する。</remarks>
+    [TestMethod]
+    public void Lr2_reader_skipped_day_shares_cutoff_with_previous_day_without_writing_database()
+    {
+        string directory = CreateTemporaryDirectory();
+        string scoreDbPath = Path.Combine(directory, "score.db");
+        try
+        {
+            CreateLr2ScoreDb(scoreDbPath);
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed,
+                new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true).Status);
+            const string hash = "skipped-day-chart";
+            long boundary = DateTimeOffset.Parse("2024-06-01T12:00:00Z", CultureInfo.InvariantCulture).ToUnixTimeSeconds();
+            using (SQLiteConnection db = new(scoreDbPath))
+            {
+                db.RunInTransaction(() =>
+                {
+                    InsertLr2History(db, 1, hash, boundary - 1, 1, 3, 0, 100, 100);
+                    InsertLr2History(db, 2, hash, boundary, 1, 3, 0, 120, 100);
+                    InsertLr2History(db, 3, hash, boundary, 1, 3, 0, 140, 100);
+                    InsertLr2History(db, 4, hash, boundary + 1, 1, 3, 0, 160, 100);
+                });
+            }
+            byte[] before = File.ReadAllBytes(scoreDbPath);
+            TimeZoneInfo zone = LocalDateBoundaryTestTimeZones.Create(4);
+            var reader = new PlaylistLampHistoricalScoreSnapshotReader();
+            PlaylistLampScoreSnapshot current = CurrentLr2(hash, ClearType.CLEAR, 180, 100);
+            var context = PlaylistLampHistoricalScoreSourceContext.Lr2(scoreDbPath);
+
+            // 5/31の翌日6/1は丸日欠落し、6/1の翌日6/2と同じ境界になる。
+            foreach (DateTime selected in new[] { new DateTime(2024, 5, 31), new DateTime(2024, 6, 1) })
+            {
+                PlaylistLampHistoricalScoreSnapshotResult result = reader.Read(context, current, selected, timeZone: zone);
+                Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Available, result.Status);
+                Assert.AreEqual(selected, result.SelectedLocalDate);
+                Assert.AreEqual(new DateTime(2024, 5, 31), result.DateRange.EarliestLocalDate);
+                Assert.AreEqual(1, result.ScoreSnapshot.ScoresByHash.Count);
+                Assert.AreEqual(120, result.ScoreSnapshot.ScoresByHash[hash].ExScore);
+                CollectionAssert.AreEqual(before, File.ReadAllBytes(scoreDbPath));
+            }
+        }
+        finally
+        {
+            DeleteTemporaryDirectory(directory);
+        }
     }
 
     /// <summary>基準日より後の履歴がなければ現在スコアをそのまま維持する。履歴行の存在だけで巻き戻したり未プレイへ置換する誤りを検出する。</summary>
@@ -713,10 +763,11 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         int? oldOperationHistory,
         int? oldExScore,
         int? oldTotalNotes,
-        long? oldPlayCount = 1)
+        long? oldPlayCount = 1,
+        TimeZoneInfo? timeZone = null)
     {
         var unspecified = DateTime.SpecifyKind(localTime, DateTimeKind.Unspecified);
-        DateTime utc = TimeZoneInfo.ConvertTimeToUtc(unspecified, TimeZoneInfo.Local);
+        DateTime utc = TimeZoneInfo.ConvertTimeToUtc(unspecified, timeZone ?? TimeZoneInfo.Local);
         long unixSeconds = new DateTimeOffset(utc).ToUnixTimeSeconds();
         return new PlaylistLampHistoricalScoreChange(
             source,

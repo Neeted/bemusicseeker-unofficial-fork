@@ -93,6 +93,58 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>
+    /// 通常・30分の0時欠落・前日から続く欠落・0時重複・丸日欠落で、固定UTC期待値と隣接日の共有境界を検証する。
+    /// </summary>
+    /// <remarks>期待値は時刻帯変換で生成せずUTC literalから求め、欠落幅加算、遅い重複境界、丸日欠落の非空化を検出する。</remarks>
+    [DataTestMethod]
+    // scenario順に通常日、0時開始の欠落、前日23:50からの欠落、重複、基準オフセット変更による丸日欠落。
+    [DataRow(0, "2024-03-01", "2024-02-28T15:00:00Z", "2024-02-29T15:00:00Z", "2024-03-01T15:00:00Z")]
+    [DataRow(1, "2024-03-01", "2024-02-29T00:00:00Z", "2024-03-01T00:00:00Z", "2024-03-01T23:30:00Z")]
+    [DataRow(2, "2024-03-02", "2024-03-01T00:00:00Z", "2024-03-01T23:50:00Z", "2024-03-02T23:30:00Z")]
+    [DataRow(3, "2024-10-01", "2024-09-29T23:30:00Z", "2024-09-30T23:30:00Z", "2024-10-02T00:00:00Z")]
+    [DataRow(4, "2024-06-01", "2024-05-31T12:00:00Z", "2024-06-01T12:00:00Z", "2024-06-01T12:00:00Z")]
+    public void PlayHistoryPeriodRequest_DayBoundaryTransitionsShareAdjacentUtcEndpoints(
+        int scenario, string date, string previousBoundary, string boundary, string nextBoundary)
+    {
+        TimeZoneInfo zone = LocalDateBoundaryTestTimeZones.Create(scenario);
+        var day = DateTime.ParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture);
+        DateTime previousDay = day.AddDays(-1);
+        DateTime nextDay = day.AddDays(1);
+        var previous = PlayHistoryPeriodRequest.CreateDay(previousDay.Year, previousDay.Month, previousDay.Day, zone);
+        var current = PlayHistoryPeriodRequest.CreateDay(day.Year, day.Month, day.Day, zone);
+        var next = PlayHistoryPeriodRequest.CreateDay(nextDay.Year, nextDay.Month, nextDay.Day, zone);
+
+        Assert.AreEqual(DateTimeOffset.Parse(previousBoundary, CultureInfo.InvariantCulture).ToUnixTimeSeconds(), previous.PlayedAtFromInclusive);
+        Assert.AreEqual(DateTimeOffset.Parse(boundary, CultureInfo.InvariantCulture).ToUnixTimeSeconds(), current.PlayedAtFromInclusive);
+        Assert.AreEqual(DateTimeOffset.Parse(nextBoundary, CultureInfo.InvariantCulture).ToUnixTimeSeconds(), current.PlayedAtToExclusive);
+        Assert.AreEqual(previous.PlayedAtToExclusive, current.PlayedAtFromInclusive);
+        Assert.AreEqual(current.PlayedAtToExclusive, next.PlayedAtFromInclusive);
+    }
+
+    /// <summary>0時欠落日の今日・昨日・最近7日/30日も同じ日付境界へ接続し、固定時間幅への置換を検出する。</summary>
+    [TestMethod]
+    public void PlayHistoryPeriodRequest_RelativePeriodsUseMissingMidnightBoundary()
+    {
+        TimeZoneInfo zone = LocalDateBoundaryTestTimeZones.Create(1);
+        var now = DateTimeOffset.Parse("2024-03-01T12:00:00Z", CultureInfo.InvariantCulture);
+        long start = DateTimeOffset.Parse("2024-03-01T00:00:00Z", CultureInfo.InvariantCulture).ToUnixTimeSeconds();
+        long end = DateTimeOffset.Parse("2024-03-01T23:30:00Z", CultureInfo.InvariantCulture).ToUnixTimeSeconds();
+        var today = PlayHistoryPeriodRequest.Create(PlayHistoryPeriodKind.Today, now, zone);
+        var yesterday = PlayHistoryPeriodRequest.Create(PlayHistoryPeriodKind.Yesterday, now, zone);
+        var recent7 = PlayHistoryPeriodRequest.Create(PlayHistoryPeriodKind.Recent7Days, now, zone);
+        var recent30 = PlayHistoryPeriodRequest.Create(PlayHistoryPeriodKind.Recent30Days, now, zone);
+
+        Assert.AreEqual(start, today.PlayedAtFromInclusive);
+        Assert.AreEqual(end, today.PlayedAtToExclusive);
+        Assert.AreEqual(DateTimeOffset.Parse("2024-02-29T00:00:00Z", CultureInfo.InvariantCulture).ToUnixTimeSeconds(), yesterday.PlayedAtFromInclusive);
+        Assert.AreEqual(start, yesterday.PlayedAtToExclusive);
+        Assert.AreEqual(DateTimeOffset.Parse("2024-02-24T00:00:00Z", CultureInfo.InvariantCulture).ToUnixTimeSeconds(), recent7.PlayedAtFromInclusive);
+        Assert.AreEqual(end, recent7.PlayedAtToExclusive);
+        Assert.AreEqual(DateTimeOffset.Parse("2024-02-01T00:00:00Z", CultureInfo.InvariantCulture).ToUnixTimeSeconds(), recent30.PlayedAtFromInclusive);
+        Assert.AreEqual(end, recent30.PlayedAtToExclusive);
+    }
+
+    /// <summary>
     /// 診断期間は日付制限なしで未確定だけをLR2/beatoraja要求へ渡し、通常の確定履歴を混ぜない。
     /// </summary>
     [TestMethod]
@@ -188,6 +240,34 @@ public sealed class PlayHistoryReadModelTests
         CollectionAssert.AreEqual(new[] { "2026/01/02", "2026/01/01" }, january.Children.Select(node => node.Label).ToArray());
         Assert.AreEqual(UtcEpoch(2026, 1, 1, 15), january.Children[0].Request.PlayedAtFromInclusive);
         Assert.AreEqual(UtcEpoch(2026, 1, 2, 15), january.Children[0].Request.PlayedAtToExclusive);
+    }
+
+    /// <summary>実UTC行を欠落・重複するローカル日へまとめ、年・月・日requestを構築する。同日重複の二ノード化とツリー全体の変換失敗を検出する。</summary>
+    [DataTestMethod]
+    // 欠落日は最初の有効時刻00:20、重複日は早い0時と遅い0時を同じ日にまとめる。
+    [DataRow(2, "2024-03-01T23:50:00Z", "2024-03-02T12:00:00Z", "2024/03", "2024/03/02", "2024-03-01T00:00:00Z", "2024-03-31T23:30:00Z", "2024-03-01T23:50:00Z", "2024-03-02T23:30:00Z")]
+    [DataRow(3, "2024-09-30T23:30:00Z", "2024-10-01T00:00:00Z", "2024/10", "2024/10/01", "2024-09-30T23:30:00Z", "2024-11-01T00:00:00Z", "2024-09-30T23:30:00Z", "2024-10-02T00:00:00Z")]
+    public void PlayHistoryPeriodTreeItem_TransitionDatesBuildOneDayWithUsableRequests(
+        int scenario, string firstRow, string secondRow, string monthLabel, string dayLabel,
+        string monthStart, string monthEnd, string dayStart, string dayEnd)
+    {
+        IReadOnlyList<PlayHistoryPeriodTreeItem> tree = PlayHistoryPeriodTreeItem.BuildArchiveTree(
+            [DateTimeOffset.Parse(firstRow, CultureInfo.InvariantCulture).ToUnixTimeSeconds(),
+             DateTimeOffset.Parse(secondRow, CultureInfo.InvariantCulture).ToUnixTimeSeconds()],
+            LocalDateBoundaryTestTimeZones.Create(scenario));
+        PlayHistoryPeriodTreeItem year = tree.Single();
+        PlayHistoryPeriodTreeItem month = year.Children.Single();
+        PlayHistoryPeriodTreeItem day = month.Children.Single();
+
+        Assert.AreEqual("2024", year.Label);
+        Assert.AreEqual(DateTimeOffset.Parse("2024-01-01T00:00:00Z", CultureInfo.InvariantCulture).ToUnixTimeSeconds(), year.Request.PlayedAtFromInclusive);
+        Assert.AreEqual(DateTimeOffset.Parse("2025-01-01T00:00:00Z", CultureInfo.InvariantCulture).ToUnixTimeSeconds(), year.Request.PlayedAtToExclusive);
+        Assert.AreEqual(monthLabel, month.Label);
+        Assert.AreEqual(DateTimeOffset.Parse(monthStart, CultureInfo.InvariantCulture).ToUnixTimeSeconds(), month.Request.PlayedAtFromInclusive);
+        Assert.AreEqual(DateTimeOffset.Parse(monthEnd, CultureInfo.InvariantCulture).ToUnixTimeSeconds(), month.Request.PlayedAtToExclusive);
+        Assert.AreEqual(dayLabel, day.Label);
+        Assert.AreEqual(DateTimeOffset.Parse(dayStart, CultureInfo.InvariantCulture).ToUnixTimeSeconds(), day.Request.PlayedAtFromInclusive);
+        Assert.AreEqual(DateTimeOffset.Parse(dayEnd, CultureInfo.InvariantCulture).ToUnixTimeSeconds(), day.Request.PlayedAtToExclusive);
     }
 
     /// <summary>

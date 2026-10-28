@@ -35,10 +35,9 @@
 | U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
 | U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile |
 | U15 導入・推定 | 宛先による範囲拡張廃止 → 入れ子禁止 → 重複保留の登録整理 → 候補根変換・ユニークhash票 → DST表記 | PackageInstall/service/estimation。同一writer。候補根と票数は同じ座標へ揃える。登録整理は発見結果/完全性を共用。U09と順序調整 |
-| U16 ランプの対象・取得元 | 成績と履歴の同一捕捉 | lamp source/model/viewer。U17日付と直列 |
-| U17 日付境界 | 履歴/ランプの日付共用 | PlayHistory/HistoricalSnapshot、U16後 |
+| U16 ランプの対象・取得元 | 成績と履歴の同一捕捉 | lamp source/model/viewer |
 
-現在の所有は、`optional-updater` が共通表、`optional-encoding` がU09、`optional-bms-input` が再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U16/U17は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
+現在の所有は、`optional-updater` が共通表、`optional-encoding` がU09、`optional-bms-input` が再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U16は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
 
 ### 開始・引継ぎと計画の更新
 
@@ -238,15 +237,4 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 - 方針: `BMSLibrary.ScoreSnapshot` が既に持つ `ActiveScoreSource`・`ScoreDbPath`・`SourceGeneration`・`ScoresBySha256` を一回の捕捉値として履歴文脈へ渡す。factoryをその引数から構築する形へ置換し、MainWindowの最新設定と別snapshot再読込みを取り除く。既に完成して公開済みの一組があれば使用し、準備できない場合は未表示／取得不可とする。
 - 境界: 利用者動作の追加未決なし。LR2のリンク有効条件を既存snapshotの取得元契約へどう写すかは実装時に確認する。旧スコア保持cacheや自動retryで一貫性を作らない。
 - 検証: `BmsLibraryPlaylistLampDataSourceTests.CaptureAsync_recapturesCurrentMembershipOwnershipAndApplicationScore:127` とfactory failure系列、`PlaylistLampHistoricalScoreSnapshotTests` を基礎とし、A/Bの実DBでcurrent捕捉後・history構築前にB公開する順序を制御。A一式またはB一式（未準備ならunavailable）を確認し、Bに履歴があるhash／ないhashの混在を検出する。B公開後の新しい日付要求はB成績・履歴・日付範囲を使う。後発日付要求優先と通常Close終端を維持。
-- 単位・依存: data source・factory・文脈とそのテストを一単位。U17の日付境界と履歴スナップショットが重なるため所有調整。本人IRcacheの存廃とは分離する。既存snapshot以上の永続状態・長期lock・追加DB読み直しを導入しない。
-
-## U17 日付境界
-
-### 午前0時の夏時間移行
-
-- 原因: `BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryPeriodRequest.cs:156` の `ToUnixSeconds` と `BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistLampHistoricalScoreSnapshot.cs:550` の `ToUnixSecondsAtLocalMidnight` が、未指定Kindのローカル0時を `TimeZoneInfo.ConvertTimeToUtc` へ直接渡す。日別履歴ツリーは各日requestをまとめて作り、ランプは選択日の翌日境界から巻き戻す。
-- 影響: 0時欠落の日は境界変換が失敗し、履歴日付ツリー全体またはランプ集計が失敗する。曖昧な0時を日付の遅い始端とすると早い側の記録を落とす。日本の通常日には同じ原因はない。
-- 方針: 小さい日付境界変換を履歴とランプで共用。欠落時は指定日以降の最初の有効境界、重複時は早いUTC境界を使い、隣接日は同じ境界を共有する半開区間とする。固定1時間加算、例外を履歴なしに置換、時刻帯設定やDB形式の変更はしない。
-- 境界: 既存資料・コードに早いUTC境界採用を妨げる契約矛盾は見つからない。「0時をそのまま変換」の現行テストは固定UTC/UTC+09の通常日だけ。実装は欠落時間を1時間と仮定しないこと。1日丸ごとの欠落等を許容する一般日付境界として実装できるかを確認し、不要な時刻帯データ保存は加えない。
-- 検証: `PlayHistoryReadModelTests.PlayHistoryPeriodRequest_DayRangesUseLocalMidnightInclusiveAndNextMidnightExclusive:71`、`UsesProvidedLocalTimeZoneForDayBoundary:83`、日付ツリー系列と `PlaylistLampHistoricalScoreSnapshotTests.Cutoff_includes_local_midnight_and_same_timestamp_uses_source_id_descending:22` を拡張。固定のカスタム時刻帯で0時欠落・重複、移行前日／当日／通常日、境界前後の漏れ・二重所属なし、ランプ翌日最初の記録の巻戻しを確認。ホスト時刻帯の変更を要求しない。必要なTimeZone注入は短命な引数に閉じる。
-- 単位・依存: 共通境界と両利用先・両既存テストを一単位。U16の取得元捕捉とはランプ履歴スナップショット周辺を共有する。現行の日付仕様へ反映し、culture改善と混同しない。
+- 単位・依存: data source・factory・文脈とそのテストを一単位。本人IRcacheの存廃とは分離する。既存snapshot以上の永続状態・長期lock・追加DB読み直しを導入しない。
