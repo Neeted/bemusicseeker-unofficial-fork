@@ -1,0 +1,551 @@
+# 採用した任意改善の実装計画
+
+## 目的と再開の入口
+
+次に実装する任意改善を、別チャットから作業ワークツリーへ割り当てられる単位にまとめる。製品実装は未完了であり、以下の採用方針・受入条件を実装済み保証と読み替えない。現存箇所は `dev` の `9b1ae8268` を通常入口と既存テストから静的に照合した。実再現・Functional・実機確認の成功を意味しない。再開時は、この版以降の対象差分と具体的な矛盾だけを確認し、全項目の広範な再調査は繰り返さない。
+
+本書と参照する現行仕様だけで再開できるよう、追加資料の成立条件・方針・検証境界も本文へ取り込む。一時ファイル、旧チャット、削除済みワークツリーの存在を前提にしない。見送りは[既知の課題・未採用候補](release-follow-up-candidates.md)へ分離する。共有URLのBMTと標準偏差0のT-SCOREは、手動ランキング更新廃止やLR2出力修正へ便乗させず、今回の次着手対象に含めない。
+
+文書だけで確定する現行契約は、[外部変更と整合保証](../spec/library/file-db-consistency.md#保証の前提)、[取得元別の履歴集計](../spec/playlist/play-history.md#期間と集計)、[一括外部同期ON](../spec/ui/playlist-properties.md)、[同内容BMS/PMSの詳細識別](../spec/library/chart-info.md#識別と共通詳細値)を正本とする。これらを製品の未実装課題として再計上しない。利用者の事後操作は日英マニュアルへ揃える。
+
+## 共通の確定事項と対象外
+
+- `chartInfoParser` は21を維持する。`lr2_song_db_sync_status.signature` の構成・意味・prefix・順序・参照定数は、利用者の事前明示承認なしに変更しない。旧BMSON対応でも版更新や全件強制再解析を加えず、既存の同hash・版21キャッシュは通常の再利用条件を維持する。
+- 基本BMS/PMS情報解析の資源指示・資源名はCP932、先頭BOMの自動補正なしを維持する。表示メタデータの復号・再生parserのBOM処理と混同しない。
+- プレイリスト一覧は同じ表／譜面を選択し続け、主行消失時は残存選択の表示順先頭、全消失時は解除する。単列TSVも空欄の行を保つ。手動・自動とも具体的な確定文字コードを再スキャン時に保持する。編集できないINSTL DSTには▼・候補選択案内を出さず、確定済みパスだけを示す。これらは利用者回答で確定しており、採否の再確認は不要。
+- 履歴右クリックのhashコピーは廃止し、MD5列を追加して既存SHA256列を使う。右クリックの「ランキングデータの更新」も廃止する。いずれも不要separatorと専用到達経路を除くが、他用途のhash値・ローカルランキングキャッシュまで削除しない。
+- 空名の実子フォルダへのdropはその所属への追加・移動とする。root分類は実際の表rootへのdropだけ。一時停止中の時刻seekは一時停止を保つ。外部プレイヤー固有の先頭戻し・試聴再開は別の見送り項目であり、このseek修正の前提にしない。
+- LR2のBP順修正は、新規生成と既存の明示再出力で反映する。生成済みファイルの自動一斉更新や保存同期署名の変更は行わない。
+- 競合を許す必要性を先に判断し、現在可能な操作や既存テストの内部順序を維持必須の保証にしない。既存受付・未開始拒否・明示再操作を優先し、予約、自動再試行、永続的な修復台帳、全画面共通管理器を増やさない。受理済みTaskの回収・データ正しさは保つ。
+- 本文の対象パスはリポジトリ相対、行番号は調査版での目安。列挙した既存テストは保証分担の入口であり、新テスト数や内部APIの固定要求ではない。
+
+## 実装単位と着手順
+
+「単位」は一担当が調査の補足・設計・局所検証・独立レビュー・コミットまで所有する範囲。複数の原因を含む場合は表中の順で意味のあるコミットへ分ける。全範囲を一つの大変更へまとめず、各コミットで必要な検証とレビューを満たす。優先順位は着手順であり、独立した完成単位のdev統合を待たせない。
+
+| 単位 | 対象・コミットの区切り | 主な共有先・順序 |
+| --- | --- | --- |
+| U01 最優先：検索UIの状態・入力・寿命 | Shift、仮想化選択、Popup離脱、候補行識別を同じ部品で整理 | KeywordSearchEditor／検索支援。U06・U07検索表示と同じ担当で順次 |
+| U02 一覧選択と現在セル | プレイリスト識別選択 → 再生による現在セル追従 | CustomTableView・選択モデル・Playlist表示。U03/U04より先に共有契約を揃える |
+| U03 共通表の表示とコピー | TSV空行 → URL幅 → INSTL DST案内 → 表の言語cache | Column/View/列設定。U02の後、U04と直列 |
+| U04 履歴列とメニュー | hashコピー廃止・MD5列・rootメニュー末尾separator | 共通列とMainWindow XAML/ハンドラー。U03の後、U05/U08と編集を重ねない |
+| U05 ツリーのdropと編集開始 | OSファイルdrop・展開 → 空名drop → 遅延改名失効 | MainWindow tree・Playlist mutations・WPF fixture。U04/U08との共有編集を直列化 |
+| U06 検索文法と保存式 | 予約構文引用 → 正規表現の同一性 | 検索支援・保存store・検索仕様。U01と共用する型/fixtureは直列 |
+| U07 言語変更と確認文言 | 音声 → 検索 → プロパティ → ランプ → 確認ボタン | 既存owner別コミット。全言語資源は一担当。表cacheはU03、ランプはU16/U17と順序調整 |
+| U08 手動ランキング取得廃止 | UI・通信専用経路・資料・専用テストを一緒に除去 | MainWindow/composition/Ir。U04/U05と直列。起動時ローカルcacheは維持 |
+| U09 再スキャンの確定文字コード | 保持・メタデータ復号・保存/現在値 | Maintenance/Catalog。UI群や再生parserと独立 |
+| U10 BMS再生入力 | 分岐解釈 → UTF-8 BOM | 同じRibbit BMSFileとtiming testsなので同担当内直列 |
+| U11 旧BMSON情報解析 | 基本/詳細/通常導入への旧キー対応 | 共通BmsonJsonParser。U10とは独立、版21固定 |
+| U12 内蔵再生操作 | Pause中seek → Repeatの有限候補探索 | Playback View/VM・既存tests。U02は一覧の受理側、再生側の共有APIを増やさない |
+| U13 音声変換の出力名 | Writerのfile path契約へ統一 | Writer/変換owner。U10のWriter代表検証と編集を調整 |
+| U14 重複統合候補 | 候補とCtrl+Gを既存物理条件へ揃える | Duplicate owner。U15の物理パス判定を編集する場合のみ直列 |
+| U15 導入・推定 | 別保留の入力保護 → ユニークhash票 | PackageInstall/service/estimation。同担当内別コミット。正本入力保護と採点を別判定 |
+| U16 ランプの対象・取得元 | 実NO SONG所属 → 成績と履歴の同一捕捉 | lamp source/model/viewer/workspace。U07ランプ・U17日付と直列 |
+| U17 履歴投影・日付境界 | 所属大小文字 → 履歴/ランプの日付共用 | PlayHistory投影とHistoricalSnapshot。U16の後なら共有変更が少ない |
+| U18 LR2出力の復元・整列 | SQL復元の旧配置整理 → BP欠損末尾 | BMSPlaylist/output owner/実出力tests。同担当内別コミット、署名変更なし |
+| U19 Updaterの管理外空フォルダ | 全体空ディレクトリcleanupを削除 | Updater Program/ZIP tests。管理file→directory転換は別の未採用課題 |
+| U20 外部同期の処理済み進捗 | 通知生産・表示・文言を一単位で更新 | ExternalSyncOwner/SyncProgress/Hub/言語資源。U07の資源編集と順序調整 |
+
+最初の割当例はU01、U09、U10、U18、U19。U01を先に着手し、残る独立領域は容量に応じて並行できる。5本を埋めることは目標にしない。U18は復元後の旧出力残存を扱うため、単なる本文再生成済みとして後回しにしない。完了・統合後は最新devから新ブランチへ切り替え、空いた枠へU11/U12/U15等を割り当てる。表・ツリー・メニューは大きい共有ファイルが多いので、同じ箇所の編集を並行させず、上表の順に完了させる。
+
+### 別チャットの開始・引継ぎ
+
+1. 最新dev・作業差分・既存ワークツリーと所有を確認する。過去の作業ツリーは回収対象であり、今回の入力をそこから復旧する必要はない。他チャット分を含め最大5本、各ツリーは別作業ブランチ・一担当とする。
+2. 全体ルートは本書から独立単位を選び、単位責任者へ対象要件・変更可能パス・共有依存・完了条件を渡す。単位責任者が必要な独立テスト設計・引継ぎ・実装・レビューを進め、契約内判断の再承認を全体ルートへ求めない。
+3. Quickと必要ビルドは各責任者が所有し、別ツリーのFunctionalと並行可能。Functionalは全ツリーで同時1件、性能測定は重い検証と分離して全体ルートが調整する。凍結した対象と共有依存へ書き込まない。
+4. 検証・独立レビュー後、日本語の件名・箇条書き本文で通常ローカルコミットする。全体ルートが基準dev・最終対象版・検証版・レビュー版を照合し、必要な作業ブランチ側rebaseと影響確認後、一件ずつ `merge --ff-only` で統合する。公開履歴/dev/mainはrebaseしない。同じ最終検証版の統合直後にFunctionalを重複実行しない。
+5. 統合後は最新devから次ブランチを作って切り替え、統合済み・未使用を確認した完了ローカルブランチを削除する。送信・公開・タグ・署名・バージョン更新は本書で許可しない。
+
+運用の正本は[エージェント運用](../spec/development/agent-workflow.md)、[検証](../spec/development/testing.md)、[ブランチ運用](../spec/development/release.md)。委譲の完了はイベントで待ち、状態一覧・差分・ログの定期確認で待機を代替しない。利用者判断が未確定の単位は割当せず、後続調査で新しい利用者挙動の選択が必要と判明した場合だけ、具体例・影響・推奨案を示して質問する。
+
+## UI共通整理の適用境界
+
+表示Bindingは正本、編集候補は一回の編集が所有し、確定は開始時の対象へ一度渡す。正当なフォーカス離脱確定・IME Enter/Esc・各設定固有の確定境界を保つ。対象交換では古い候補/遅延callbackを破棄し、言語・テーマ・純再描画では候補・選択・scrollを保つ。PropertyChanged/LostFocus/Explicitの一律化や、通常DP・ローカル値所有設定の全面的SetCurrentValue化はしない。
+
+Loadedは表示同期と一回購読、Unloadedは表示購読・予約だけの解除、Closed/Disposeは新規表示の終端とする。開始済みの実処理は既存機能ownerが回収し、Unloadedを最終終了に読み替えない。新しい共通基底・汎用画面差分・入力管理器・新翻訳cache・全行購読/実体化は不要。変更機能の仕様に表示・候補・選択・保存の所有、入力/取消、内外移動、再利用、純表示変更、遅延表示と実Taskの終端を短く記す。
+
+既存のEditableTextBlockの候補分離/Escape、再生開始時の一回フォーカス、右クリック現在セル、通常一覧の識別復元、保存→出力→必要表示→編集解除→受付解放、三択のCancel/X/Escは維持する境界であり、新規実装対象ではない。設定Bindingや非モーダル終了も、具体的な不足なしに全体を作り直さない。初回重複解析の完了で画面を奪わない保証を、明示Merge/Hash成功後の無条件の次群/存続群選択へ広げない。
+
+## U01 検索UIの状態・入力・寿命
+
+### 検索欄外で解放したShiftの残留
+
+部品内KeyUpだけで消すshiftKeyDownが、Shiftを保持して一覧へ移動→一覧で解放→検索へ戻ると残り、通常TabがShift+Tabになる。実装では現在のKeyboardDevice.Modifiers等を判定元にし補助フラグ依存を整理する。MainWindowChartPresentationWpfTestsの実focusで通常Tab適用・実Shift+Tab・行内ボタン巡回・IME確定抑止を確認する。保存式比較とは別の判定とし、下記の検索選択/離脱群と同部品一writerで統合する。
+
+### 画面外の検索候補の選択強調
+
+キー移動は論理indexを変えて既存containerだけIsSelectedを設定してからscrollするため、後から実体化した末尾はEnter対象でも強調されない。実装では区画をまたぐ論理選択をListBox.SelectedItem/SelectedIndexへ投影し、生成後も同じ選択へ揃える。仮想化無効化・全候補実体化・無条件遅延描画は加えない。
+
+MainWindowChartPresentationWpfTestsのLargeFavoritesVirtualizeOffViewportRows等で未実体化を確認→キーで末尾/画面外→生成→強調/Enter一致を判定する。hover色と選択色、先頭末尾折返し、区画間、container再利用、全件実体化しない性質を確認する。同検索部品のShift/離脱/行識別と直列統合し、独立に合否を出す。
+
+### 検索候補の行内ボタンから部品外への離脱
+
+TextBoxからPopup行内ボタンへ進むとBlurを抑止する一方、そのボタンから同Window一覧へ移る終端がなく、StaysOpen=Trueの候補が残る。恒久的操作不能とは扱わない。実装ではTextBox/所有Popup/行内ボタンを含む範囲で、内部移動は保持、外部移動は履歴確定/Blur一回へ揃える。Popupの別ツリー、保留中focusと終了後論理focusも同じ寿命で扱う。
+
+実MainWindow検索/PopupでTextBox→ボタン・ボタン間・ボタン→一覧/別検索を通し、元候補だけの閉鎖と二重実行/履歴保存なしを確認する。TextBox通常外側クリック・Esc・非活性の終端を保つ。Shift/選択/行識別と同検索部品一writerにする。
+
+### 検索候補の行本人と入力状態の識別
+
+候補B→Shift+Tabで行内ボタン→実行せずTabで戻ると先頭Aへ移る。再表示が使うIdentityは入力/caret/版/置換範囲で保存候補全行が共通のため、候補行を区別できない。実装では適用可否の入力照合と、区画/種別/保存式または挿入内容の行識別を分け、行消失時は別行を本人扱いしない。保存式文法比較とも分け、新保存ID/スキーマを導入しない。
+
+MainWindowChartPresentationWpfTestsで二件以上からBを選び実行なしのボタン往復→同候補の選択/強調/Enterを確認する。通常/playlist両検索、履歴/お気に入り混在、同入力再適用、選択候補削除を分担する。同表示の再構築/重複反映は既存等価性で整理するがowner/版更新は保ち、Shift/画面外選択/部品外離脱とは独立判定する。
+
+## U02 一覧選択と現在セル
+
+### プレイリスト一覧の選択維持
+
+**現存。ユーザー回答で同じ表・譜面の識別維持を採用。** 主行が消えたら残存選択の表示順先頭、選択がすべて消えたら解除。Shift基点消失は既存主行へ寄せる等、既存選択モデルに整合する局所的な詳細として扱う。
+
+通常入口はサマリー/詳細の並べ替え、編集による順序変更、追加削除、view交換。`BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs` の `PlaylistSummaryVersionedCollection` は `ObservableCollection` で、`ReplaceItemsWithoutNotification` が内部Itemsを先に置換し、後で `PublishReset` する。`PlaylistDetailVirtualView.cs` も `ICustomTableSelectionIdentitySource` を実装していない。一方 `CustomTableView` は同interfaceを持つsourceだけから変更前選択を捕捉・復元する。このためプレイリストは行位置を保持して別表・別entryへ移り得る。右クリック時に実ヒット行へ選択が切り替わる既存挙動自体の誤操作とは区別する。
+
+サマリーの識別は `PlaylistId`、詳細は同じ生存 `BMSTableEntry` を基本とする。サマリー内部置換の**前**、詳細の複数局所変更の最終反映に合う既存境界で、選択集合・主行・基点を短命に捕捉する。必要な索引は既存の順序/対象索引に統合し、選択維持用に全行を実体化しない。既存BMT順ドラッグのID復元と操作固有の選択意図は同じ反映先へ整合させ、二重復元を残さない。
+
+「処理開始時に捕捉した選択を最後まで保証する」という追加の並行操作契約にはしない。反映直前の現在選択を既存経路で捕捉する単純案を優先する。選択の世代・保存台帳・操作予約を新設しない。別の表・フォルダへの明示ナビゲーション、他操作後の自動選択にはこの契約を無条件に流用しない。
+
+主な変更先は上記collection/view、`PlaylistWorkspaceViewModel.PlaylistSummaryBuild.cs`、詳細適用側、`CustomTableView`/選択モデル。テストは `CustomTableSelectionModelTests`、`CustomTableNavigationTests`、`PlaylistWorkspacePresentationStateTests`/`PlaylistWorkspaceDetailRefreshTests`、`MainWindowPlaylistWorkspaceWpfTests` に分担。採用した表/entryが並べ替え・主行消失・全消失・複数変更後も実表の後続操作対象と一致することを確認する。内部添字や現在のテスト期待を正解として固定しない。
+
+### 再生による選択行変更と現在セル
+
+**現存。再生による主行変更の改善を一覧単位へ含める。** `PlaybackPanelViewModel.cs` の再生候補採用が一覧の選択indexを更新するが、`CustomTableView.OnSelectedIndexChanged` は `selectionModel.SyncCurrentIndex` と再描画だけで、`currentCellHit` を更新しない。Aの列を操作後、Next/Previous/自然終了でBへ移ると、B選択のままF2・文字入力・単一セルコピーにAの現在セルが残る。
+
+実際に受理した外部主行変更の入口で既存 `EnsureCurrentCellForCurrentRow` を共用し、現存する同列をBへ引き継ぐ。内部選択の逆通知と識別復元の条件を守り、コピー・編集入口ごとの補正は置かない。編集中は `CommitActiveEdit`/`CellEditEnded` でAの旧属性へ入力を一回渡してから現在セルを更新し、Bへdraftを付け替えずBのeditorを自動生成しない。保存TaskをUIで同期的に待たず既存terminalへ接続する。
+
+主行を変えないPause/Resume/Stop/時刻や表示更新はeditor・候補・現在セルを変えない。現在セル更新のためのフォーカス要求、追従タイマー、再生側の現在セル状態、draft保存復元状態は不要。現在列が消えた/0列/0行/解除の古いhitは既存規則へ揃える。
+
+`CustomTableNavigationTests` の「外部SelectedIndex変更で現在セルは作り直さない」という旧期待は新契約へ更新する。`CustomTableEditingTests` でAへの一回終端、`MainWindowPlaybackWpfTests` で実再生・Binding・描画/コピー/編集の一致、主行不変時の編集保持を分担する。入力不正や保存失敗は既存保存terminalの通知に従う。再生開始を保存完了まで止める新仕様は含めず、そのための追加状態・再試行は不要。
+
+U02と同じ `CustomTableView` 選択境界を触るため同担当またはU02後に順次統合する。
+
+## U03 共通表の表示とコピー
+
+### 1列TSVコピーの空行
+
+**現存。ユーザー回答で空欄行保持を採用。** `CustomTableDataTransfer.BuildTsv` が `StringBuilder.Length > 0` で行区切りを判断するため、TITLEのみ表示した履歴の空行→SongがSongだけになる。`CustomTableView.CopySelectedRowsToClipboard` も空文字を無条件に不受理とする。
+
+行の存在と文字列長を分け、先頭・中間・末尾・全空行の順序/数を保持する。空行＋SongはCRLF＋Song、空2行はCRLF。0行・0可視列と実在する空セルを区別し、選択した一つの空セルのコピーが古いClipboardを残す扱いも確認する。全件実体化・選択モデル変更は不要で、制御文字正規化と元URLコピーを維持する。
+
+`CustomTableColumnFactoryTests` の既存TSV検証へ空行条件を追加し、実コピーの代表は共通表WPFで接続。複数列、非表示列、null行除外、制御文字の既存保証を維持する。列生成・URL幅とファイルが重なるが原因は独立。TSV単位だけで完了できる。
+
+### URL列幅による表示と操作
+
+**現存する固定ボタンを機能拡張する項目。** `CustomTableColumnFactory.CreateAllMainColumns` のUrl1/Url2はmin/max40、CanResize=false、DownloadIcon、repeat edit=falseで固定。幅を持つ設定自体は既存 `ColumnLayout` にある。
+
+確定済み計画の契約は40 DIPなら現行取得ボタンで通常クリック/再クリックとも取得、F2/文字入力による既存編集と元URLコピーを維持。40より広ければ元URLを表示し、通常セルの選択・再クリック/F2/文字入力編集に揃え、取得actionは出さない。空URLも同じ役割とし、幅だけで編集権限を増やさない。単クリック即編集・行double click変更は含めない。
+
+既存幅から表示種別・値・配置・action・repeat editを同じ列定義で導く。40へ戻せば戻る。新mode保存フラグやDPI物理pixel条件を持たず、列再構築/cache失効・編集終端・幅保存を再利用する。`CustomTableColumn.cs`、`CustomTableView`/interaction、列設定の共有変更になる。
+
+`CustomTableColumnFactoryTests`/`CustomTableEditingTests`/`CustomTableColumnSettingsTests` と実URL列で40→広幅→40、Url1/2、空値、編集許可/拒否、候補編集中の幅変更、保存幅復元、Tooltip/コピーを確認。既定幅の繰返し取得と広幅で取得しない結果を別に確認する。選択/current-cell単位と同じ表担当で順次実装可能。
+
+### 保留以外のINSTL DSTの選べない候補案内
+
+**表示判断と編集判断の不一致は現存。通常画面でどの行に候補が届くかは実行未確認。** `CustomTableColumnFactory.GetInstallDestinationText` はchartの `InstallDestinationSuggestions` が非空なら、画面の操作文脈にかかわらず `▼ SelectCandidate` または `▼ path` を返す。`RegularChartListOwner.CanBeginCellEdit` は `InstallPending`/`FullScanCheck` 区分かつ `UpdateInstallDestination` 能力を要求する。`MainWindowViewModel.MainChartListCellEditBeginningRequested` はプレイリスト詳細なら別の `CanBeginDetailEdit` へ振り分け、導入先列はその編集属性に含まれない。列表示だけを選択可能性の根拠にしている点が原因。
+
+**ユーザー確定:** 編集不可一覧は確定済みパスだけ表示し、▼・候補選択案内を出さない。編集権限を拡張しない。特にFullScanCheckは保留以外でも既存編集可能条件を持つため、「保留以外は一律に消す」実装ではなく、既存文脈/能力へ合わせる。
+
+列定義へ既存の編集可否情報を最小限渡し、表示cache失効も同じ文脈の切替へ接続する。保存パス・推定候補正本・能力付与を変えない。候補表示専用の別状態、一覧ごとの独立権限判定、全行購読は不要。
+
+既存 `CustomTableColumnFactoryTests.InstallDestinationCell_DecoratesCandidatesWithoutChangingEditPaths` はcontextを渡さず候補があれば▼という内部期待を固定している。これを利用者契約の根拠にしない。`CustomTableEditingTests`、`CustomTablePhase6CacheTests`、`MainWindowPackageMaintenanceWpfTests` は保留候補の実編集・保存を維持する検証先。候補を持つ同じ元値で非編集一覧は案内なし/編集不可、編集可能な保留・該当FullScanCheckは案内と操作一致を実UI入口で確認する。通常到達データを後続実装の冒頭で最小限確認し、到達しない画面を仮定して機能を拡張しない。
+
+### 共通表の保留候補案内
+
+**現存。** 通常の保留行で導入先未指定かつ候補ありのとき、`CustomTableColumn.GetInstallDestinationText`（`Views/CustomTable/CustomTableColumn.cs:527`）は `Resources.InstallDestination_SelectCandidate` を「▼」付きで返す。`CustomTableRowCache` がその整形値と描画を保持する。
+
+`CustomTableViewLoaded` / `Unloaded`（322/329行付近）はThemeChangedと表VMの購読を管理し、`RefreshTheme`（436行付近）はrow/text cacheを消して再描画する。`UpdateDrawingEnvironment`（3048行付近）はthread culture/UI culture/palette変更時に `InvalidateDisplayValues` とtext cache失効を行う。しかし `ResourceService.Resources` の購読はなく、ChangeCultureはthread cultureを変えないため、同じrowの既存文字列が残る。
+
+- 方針: 表のLoaded/Unloadedに沿った一つの資源購読から、既存表示値/描画cacheを失効して `RequestRedraw` へ接続する。既存 `InvalidateDisplayValues` / row cache / text layout cacheの責務を使い、言語ごとの別cacheを足さない。thread culture/テーマ用の既存失効を削除しない。
+- 寿命: Loaded中だけ受信し、Unloadedで解除。Dispatcherへ投稿する場合も切離し後の旧更新を表へ適用しない。再Loaded時は現言語で既存cacheを更新する。
+- 完了条件: 同じItemsSource・行参照・選択・scroll・編集中候補・生pathを保持して案内文字列が更新。全行実体化/再検索/ItemsSource交換なし。実表示済み行でアプリChangeCulture→再描画を観測し、hidden/unloaded→再表示も分担。
+- 既存テスト: `CustomTablePhase6CacheTests.InstallDestinationCell_RendersCandidateMarkerInsideNarrowCell`、`CellValueCache_ReusesValuesUntilRowInvalidated`、`CustomTableView_ShownAfterHiddenChangeUsesLatestValues`、`CustomTableView_MainChartListLifecycleFollowsLoadedDataContext`。`CustomTableTextLayoutCacheTests` のcultureキー確認はアプリ言語通知の代用にしない。
+- 共有書込み先: `CustomTableView.cs` と同cache testsは共通UI/編集寿命/URL列整理と直列化する。行モデルへ言語購読を増やす変更は不要。列headerの再構築一般まで本件のために作り直さない。
+- 除外: theme、DPI、thread culture変化時の既存cache失効、候補印の狭幅描画そのものは実装済み。
+
+## U04 履歴列とメニュー
+
+### 履歴の右クリックhashコピー廃止とMD5/SHA256列
+
+**現存。ユーザー確定契約に置換する。** 旧資料の「MD5不明ならMD5メニューだけ隠す」は採らず、履歴専用の右クリックhashコピーを廃止し、不要なseparatorを除く。MD5・SHA256を列から通常セル/TSVコピーできるようにする。
+
+`CustomTableColumnFactory.CreateAllPlayHistoryColumns` にはSHA256列とRAW HASH列が既にあり、MD5列がない。`PlayHistoryRow` はLR2で `Md5=rawHash`、beatorajaで `Md5=md5`、`Sha256=sha256` を持つので、種類の正しい既存値を直接使う。MD5へSHA256を補うfallback、新hash計算、DB列、再読取りを追加しない。RAW HASHは生の履歴識別列として別に存在するため、今回の依頼だけで削除しない。
+
+追加・接続先は `Views/CustomTable/CustomTableColumn.cs`、`ViewModels/ChartList/CustomTableColumnSettings.cs`（既存 `Hash` layout利用を優先）、`ViewModels/PlayHistory/PlayHistorySortEngine.cs`、`Views/MainWindow/MainWindow.xaml` の履歴列メニュー。通常列の表示切替・幅/順序保存・初期化に接続する。既存列ID/設定の不要な破壊や重複した新設定は避ける。
+
+削除候補は `MainWindow.xaml` のCopyMd5/CopySha256項目と専用separator、`MainWindow.cs` の表示switch/`playHistoryContextMenuItemCopyHashClick`、`PlayHistoryContextMenuState` のコピー専用定数/CanCopy/GetCopyValue、`PlayHistoryContextMenuActionKind` のコピー値、`PlayHistoryWorkflowOwner.ContextMenu.cs` のコピーaction/helper、コピー専用資源（全repoの利用箇所を確認して削除）。`ForValue`/Valueも他利用がなければ削る。
+
+**残す責務:** 同じメニューstateのMd5/Sha256は設定Web actionとscore viewerへも渡される。`HasVisibleItem` は現在hashコピーがあることを使って未解決行も受理しているので、コピー廃止で未解決行の設定Web actionまで失わせない。入力値解決とメニューの実際の表示項目の判定を既存責務内で整理する。ここで `RawHash` を無条件にMd5へ入れる旧fallbackを新列へ持ち込まない。設定Web actionのSHA256等は維持する。
+
+保証は未解決beatoraja（MD5空、SHA256既存値）、未解決LR2（MD5生値）、解決済み両hash、行交換後のセルコピー、列設定保存/復元、メニューコピーなし・先頭/末尾/連続separatorなし、設定Web actionとローカル操作/日付検索を維持。`CustomTableColumnFactoryTests`/`CustomTableColumnSettingsTests`、履歴read model/sort系列、`MainWindowPlayHistoryWpfTests` に分担し、削除したcopy actionテストを新列コピーへ置換する。
+
+### ライブラリツリーの末尾separator
+
+**現存。正確な対象はrootメニュー。** `BeMusicSeeker/Views/MainWindow/MainWindow.xaml` の `treeViewLibraryFolderRootContextMenu` はReload、Reinitialize_library、末尾Separatorの3項目で、separatorの後に項目がない。ここを削除する。別の `treeViewLibraryFolderContextMenu` はseparator後にExplorer等があり、同名に近いことを理由に削らない。
+
+メニュー定義一箇所の削除で足り、動的separator管理器は不要。`MainWindowTreePresentationWpfTests` の実rootメニュー代表または既存のcompiledメニュー検証で残る2操作の到達と末尾separatorなしを確認する。削除のためだけの多層テストは増やさない。履歴メニュー変更とXAMLが重なるため同担当または順次統合。
+
+## U05 ツリーのdropと編集開始
+
+### プレイリストツリーのファイルdrop・ホバー展開
+
+**両方現存。既存の合意済み任意改善。** `MainWindow.playlistTableDrop` は形式検査より先に `e.Handled=true` にし、内部行形式でなければreturnする。OSファイルが表見出し/子フォルダへ落ちると、通常の `Window_Drop`→`DroppedInstallDropTerminal`→`PackageInstallWorkflow.AcquireAndTryEnqueueDroppedPaths` に届かない。内部譜面行dropは既存の表/フォルダ、OS FileDropは既存Windowの導入受付へ一回だけ通す。新規の表import扱いへ変えない。
+
+`playlistTableDragEnter` は1秒後のanimation値とCompletedの両方に `!tviTable.IsExpanded` を使い、展開済み見出しも閉じる。未展開の見出しだけを開く。DragLeave/Drop/取消の既存後始末を保持し、新しい展開保存状態・DnD共通管理を加えない。
+
+共有変更先は `MainWindow.cs` のDrop/DragEnter/DragLeave群。`MainWindowPlaylistWorkspaceWpfTests` と既存drop導入系列に、実ヒット対象・一回の受付・追加結果・展開済み維持/未展開→開くを分担する。Handledやanimation値だけのテストでは不十分。アーカイブ・ファイル条件の網羅をこのUI単位へ複製しない。
+
+### 空名プレイリストフォルダへのdrop
+
+**現存。ユーザー確定:** root分類は表rootへdropしたときだけ。実在する空名子ノードは通常フォルダdropであり、その空所属へ追加/移動する。
+
+`PlaylistWorkspaceViewModel.Mutations.cs` の `AddRowsToFolder` は `targetFolder?.FolderName ?? string.Empty` と `string.IsNullOrWhiteSpace(folderName)` でnodeなしのrootと空名nodeを潰す。後続の存在検査、同表entry除去、root分類用 `BuildRootFolderDropMutations` 呼出しがすべてこの区別に依存する。最初だけ直さず、`targetFolder == null` による一つのroot判定を全分岐へ接続する。空文字/空白が名前の実nodeもroot扱いしない。
+
+通常名、真の表見出しdropの既存分類・採番、特殊node/同期ON拒否、MEMO/URL/level保持、物理移動なしを維持する。空名禁止・自動改名・DBスキーマ・新しい分類戦略は不要。`PlaylistWorkspacePersistenceCommandTests` のroot drop系列で所持/同表/別表→空所属、同一所属再drop、DB読戻しと非対象値を確認し、実ヒットnode代表は `MainWindowPlaylistWorkspaceWpfTests` へ置く。モデルdropとツリーUIの合同単位にすれば、二つのroot判定や同じDnDのテスト重複を避けられる。
+
+### ツリーの遅延改名開始
+
+**現存。共通UI整理の具体的不足として扱う。** `MainWindow.playlistTableFolderClicked` は選択済み編集可能フォルダをクリックすると `Task.Delay(1000)` の後、DataContext・ヘッダー・選択・編集可否だけ再検査して `IsInEditMode=true` にする。その間に検索へ入力しても選択は残る。`EditableTextBlock.TextBox_Loaded` がFocus/SelectAllし、検索から入力を奪い、その後Enter/離脱で通常改名へ進む。EscapeのBinding修正・再生開始の一回focus化とは別。
+
+そのクリックの短命な開始要求として、後発の明示入力/フォーカス移動、対象交換/切離し、別編集開始/終了で失効させる。既存部品の編集候補と保存入口を使う。現在の無条件な遅延callbackを残して新ガードを重ねず、旧開始要求の一つの所有に整理する。全画面入力管理器、恒久世代台帳、固定待機の再試行は不要。
+
+`MainWindowPlaylistWorkspaceWpfTests` でクリック→1秒以内に検索入力→callback後も検索の全文/フォーカス保持・改名0回、移動しない場合は一回開始を確認。F2、別ノード、切離し、重複クリックで古い要求が再開しない代表を分担する。遅延完了後の全UI状態を保証する一般フレームワークへ拡張しない。DnDと同MainWindowツリー領域のため同担当へまとめられる。
+
+## U06 検索文法と保存式
+
+### 検索候補の予約構文の引用
+
+候補のQuoteValueIfNeededはre:始まりを引用せず、表re:mixがregex mix、re:[が不正regexになる。実装では大小文字を問わず予約構文始まりも引用し、通常名の意味を保つ。KeywordSearchPresentationTests/GridKeywordSearchQueryTestsで候補を実parserへ通し、re:mix/RE:mix/re:[、引用途中、escape、後続句、caretを判定する。保存式比較とは別原因として、同文法helper/検索仕様の書込みを調整する。
+
+### 保存検索式の正規表現の同一性
+
+履歴/お気に入りは全体の大小文字を無視し、title:re:\dとtitle:re:\D等の別パターンを潰す。実装では通常部分をOrdinalIgnoreCase、regex本体をOrdinalとする小さい文法比較へ統合する。保存文字列は既存の空白/改行整形だけを維持し、大小変換・意味的regex同値・式順/別名の新正規化を追加しない。
+
+tokenizer/引用/否定/項目/OR/Windows drive等の区別を共用し、re:部分文字列だけで判定しない。Regex生成・条件整列を行うGridKeywordSearchQuery.Parse全体は比較へ呼ばず、不正regexも本体原文で比較する。履歴/お気に入りの追加・削除・重複表示・保存復元へ一契約を使う。KeywordSearchSavedQueryStoreTestsと履歴系列でsongtitle/SONGTITLE・title:songtitle/TITLE:SONGTITLEは一件、\d/\D・\w/\Wは別件とし、混在句・引用re:・旧保存値の復元/片方削除と既存上限/形式を確認する。候補行識別とは分ける。
+
+## U07 言語変更と確認文言
+
+### 音声詳細選択肢
+
+**一部更新済み・二つの辞書は現存。** 通常のsettings composition時に `AudioDeviceTestWorkflowOwner.Presentation.cs` の `PlayerResamplingQualityNames`（851行付近）と `PlayerMixerThreadCountNames`（884行付近）が翻訳済みReadOnlyDictionaryとして構築される。ページを初めて作る前にもownerは存在し、途中で言語を変えると旧表示を渡す。
+
+`SettingsDialogViewModel` は既存 `resourceServiceEventListener`（3806行付近）から各設定表示を更新しているが、上の二辞書は対象外。ownerのPropertyChangedは `AudioSettingsPropertyChanged`（5276行付近）がVMへ転送し、VM Disposeで転送/資源listenerとも解除する。したがって資源購読を重ねる必要はない。
+
+- 方針: 音声ownerが現在資源から二つの選択肢名を再整形し、既存設定VMの資源listenerから呼ぶ。既存転送を通じて二プロパティを通知するか、現文化を読むgetterへ揃えて通知する。品質2–6/thread1–4のキー、既定印、SelectedValueは維持。setter経由で選択値を再代入せず、保存/テスト結果失効を起こさない。
+- 寿命: 既存settings listener寿命に揃える。ページ未生成→言語変更→初回表示と、ページ表示中→言語変更の双方を扱う。音声pageのOnVisibleやdevice能力照会へ接続しない。
+- 完了条件: 二Comboboxの選択肢表示が新言語、SelectedValue/下書き/保存値は同じ。言語変更でaudio列挙・能力照会・テスト開始・設定Commitなし。
+- 既存テスト: `SettingsWindowCompiledBehaviorTests.AudioPagesBindPlayerCapabilitiesAndIndependentEncodingOptions`（347行付近）はItemsSource/SelectedValue接続を確認。`SettingsWindowPresentationTests` の既存language tests、`AudioDeviceTestWorkflowOwnerTests` / `SettingDialogEditCompletionTests` の保存・音声受付へ分担する。実native試験を言語だけの変更で増設しない。
+- 共有書込み先: `AudioDeviceTestWorkflowOwner.Presentation.cs` と `SettingsDialogViewModel.cs`、compiled/presentation tests。settings部品のBinding所有整理と直列にし、独立ownerへ集約するための新クラスを追加しない。
+- 除外: settings画面のResourceService直結見出し、既存normalization/theme/右click表示の通知、音声キー保存・音声実行の仕様。
+
+### 検索提示（通常検索・プレイリストサマリー）
+
+**editor本体は一部更新済み・外側の警告/ヘルプは両入口で現存。** `KeywordSearchEditor.Loaded/Unloaded` はResourceService購読を管理し、`ResourceServicePropertyChanged` → `RefreshLocalizedSurface`（226–253行付近）でアクセシビリティ名と開いた候補を更新済み。このhandlerを新たに作り直さない。
+
+通常側は `MainWindow.xaml:716/725` が `ChartFilters.KeywordSearchWarningText` / `KeywordSearchHelpText` をBindingする。`ChartListFilterViewModel.UpdateKeywordSearchPresentation`（188行付近）は警告を再生成しhelpを通知できるが、呼出元は入力/文脈変更でResourceServiceの購読なし。Helpはgetterが最新資源を読むだけなので既存Bindingの更新契機が不足する。
+
+サマリー側は `MainWindow.xaml:767/776` が `PlaylistWorkspace.PlaylistSummaryKeywordSearchWarningText` / `PlaylistSummaryKeywordSearchHelpText` をBindingする。`PlaylistWorkspaceViewModel.KeywordSearch.cs.UpdatePlaylistSummaryKeywordSearchPresentation`（47行付近）は入力変更時のwarning生成だけで、help通知も言語購読もない。別ownerのまま同じ改善項目に含める。通常検索だけを直して完了にしない。
+
+- 方針: 通常ownerは既存 `UpdateKeywordSearchPresentation(raiseHelpText:true)`、サマリーownerは既存warning整形とhelp通知を、資源変更へ接続する。入力・文脈・候補版を変えず、保存式の再代入やUpdateContextを言語通知の代用にしない。
+- 寿命: editorのLoaded/Unloadedは既に確立しているが、それだけでは外側ownerの通知にならない。新購読は各ownerの実寿命で解除される接続を明示する。ChartFiltersはApplicationCompositionで生成されMainWindowが保持し、ファイル内にDispose overrideはないため、「Disposeに書けば通常終了で必ず呼ばれる」と仮定しない。既存shell終了/表示切離しへの実接続か弱い購読等の既存方式を実装時に選び、永久static購読を残さない。サマリーにも同じ寿命確認が必要。新しい検索統合ownerは作らない。
+- 完了条件: 同じraw入力・文脈のまま警告Tooltipと開いているhelpが更新。通常/プレイリストサマリー双方で検索イベント/再取得回数0、入力・caret・候補選択・history/favorite・保存値不変。閉鎖/切離し後の不要通知なし。
+- 既存テスト: `ChartListFilterViewModelTests.KeywordFilter_UpdatesWarningAndContextHelpNotifications`、`KeywordFilter_InvalidPlayHistoryDateShowsLocalizedWarning` は入力時の更新を確認。サマリーの既存keyword/presentation testsと代表MainWindow WPFに通常/summary両Bindingを分担。既存editor language/accessibilityの保証は維持する。
+- 共有書込み先: `ChartListFilterViewModel.cs`、`PlaylistWorkspaceViewModel.KeywordSearch.cs`（必要時同VM本体の寿命接続）、検索VM/WPF tests。候補文法引用/保存式比較と同ファイル編集は直列化するが、今回の静的確認では文法・履歴比較を再調査しない。
+- 除外: editorアクセシビリティ名/開いた候補の言語handler、検索実行/文法、履歴/favorite識別、検索入力編集の状態整理。
+
+### 開いている譜面プロパティ
+
+**現存。** `ChartPropertiesWindowManager.Show`相当の通常窓生成→ `ChartPropertiesViewModel` → `LoadAsync` は一回の背景診断を表示する。`ChartPropertiesViewModel` のconstructorは配置basisを翻訳済み `VerificationBasis` に置換して保持し、`LoadCoreAsync` は診断結果を `Issues` / `UnusedDefinitions` / `UndefinedReferences` に整形して結果本体を保持しない。失敗 `Status` も文字列だけ。`UnusedDescription` / `UndefinedDescription` は資源getterでもPropertyChangedが発火しない。ResourceService購読なし。
+
+- 方針: 捕捉した配置basisと取得済みの診断事実を画面寿命の入力として保ち、既存の `FormatReason` / `JoinOrNone` に再整形を集める。成功/失敗/初期という必要な表示状態から失敗文を再生成し、元例外を翻訳目的で保持しない。basis、issues、なし、BMS/BMSON説明、失敗Statusの通知を揃える。Title/Artist/path/実診断内容はそのまま。
+- 寿命: `ChartPropertiesWindow.WindowClosed` → `viewModel.Close()` が既存終端。ここで購読解除し、開始済みLoadAsyncの失敗回収/非反映を保つ。managerは開始済みTaskを終了待機するため、その寿命を新造しない。
+- 完了条件: 開いた同じ窓の言語変更で確認基準・不足理由・なし・形式説明・失敗表示が新言語。read回数一回、元path/配置basis/資源factを保持。読込み中の言語変更は完成時の現言語で表示。閉鎖後は言語通知・完了結果の反映なし。
+- 既存テスト: `ChartPropertiesViewModelTests.LoadAsync_RunsOnceInBackgroundAndPublishesResult`、`LoadAsync_KeepsPlacementCapturedBeforeDestinationChanges`、`Close_ObservesStartedReadWithoutPublishingAfterClose`、`LoadAsync_ExposesLocalizedFailureWithoutExceptionDetails`、`LoadAsync_FormatsSourceCommandsAndFormatSpecificDescriptions`。実Binding/コピー/窓閉鎖は `ChartPropertiesWindowTests` とmanager系列に分担する。
+- 共有書込み先: `ChartPropertiesViewModel.cs`、同VM/Window tests。保存済み文字コードを診断へ渡す別候補と同ファイルを直列化し、言語更新から再解析を呼ばない。
+- 除外: 一回読込み、捕捉配置保持、閉鎖後非反映、WindowのResourceService直結ラベルは既存保証。
+
+### ランプの既存区間
+
+**一部更新済み・区間表示は現存。** `PlaylistLampViewerViewModel` はconstructor（184行付近）でResourceServiceへ購読し、`Dispose`（404行付近）で解除済み。`ResourceServicePropertyChanged`（524行付近）は `RefreshStatistics`、WindowTitle、ScoreSourceTextを更新する。`RefreshStatistics` は既存集計結果を再整形するだけで、グラフを再構築しない。
+
+不足は同じ既存segment VMへの通知。`PlaylistLampViewerSegmentViewModel` はconstructor（636行付近）で `Label=PlaylistLampViewerLabels.GetLabel(segment)` を固定。`DetailText` / `AutomationName` / `SelectionStatus` は資源getterだが、言語変更通知が来ない。`PlaylistLampViewerWindow.xaml` の凡例はLabel/DetailText、bar ButtonはToolTip=DetailText、Automation Name=AutomationName、ItemStatus=SelectionStatusをBindingしている。handlerがある事実だけで全ラベル更新済みと扱えない。
+
+- 方針: 既存親handlerから `EnumerateSegments`（589行付近、全体clear/rankと各folderのclear/rankを列挙）で同じsegmentへ表示更新を依頼する。Labelを再整形/再評価し、Label・PercentageText・DetailText・AutomationName・SelectionStatusの必要通知を行う。新たにsegmentごとの資源購読を作らない。再集計/ApplyResult/segment collection再作成は呼ばない。
+- 寿命: 既存親購読/Disposeを利用。既に閉じたviewerへ通知しない。所有している同じsegment/Buttonと選択を保つ。
+- 完了条件: 捕捉済み同じButton/segmentでToolTip・Automation Name/ItemStatus・凡例Labelが更新。選択segment、表示mode、folder/clear/rank collection参照、集計結果、取得回数を保持。新規取得・再集計なし。小さい正値/算出不可の割合説明も現言語である。
+- 既存テスト: `PlaylistLampViewerWindowPresentationTests.Viewer_statisticsUseContentWidthsAndWrapWholeGroupsWhileTrackingLanguageAndTheme` は統計言語更新、`Viewer_datePresentationTracksApplicationCultureWithoutChangingTheQuery` は日付の現文化対応、`Viewer_countModeUsesAllNormalFoldersAndPreservesProjectionUntilDataRefresh` は表示modeの参照保持を保証。既存segmentを捕捉して言語変更後のBinding値を追加確認し、変更後に新しいsegmentを取り直して成功判定しない。
+- 共有書込み先: `PlaylistLampViewerViewModel.cs` / presentation tests。過去日取得元の一貫性や日付境界の別修正と同ファイルでも、集計境界は変更しない。
+- 除外: 窓title/source、統計ラベル、DatePicker言語、数値/日時の固定書式、count-mode切替のprojection保持は既改善。
+
+### 確認ボタンの翻訳
+
+**現存。** `BeMusicSeeker/Views/ThemedMessageBox.cs:GetButtons` がOK/Yes/No/Cancelを固定英語で生成する。既定資源・`Resources.cs`・`lang/`の6言語へ既存資源を優先して接続する。modal表示中の言語変更購読や翻訳cacheは不要。
+
+`ThemedMessageBoxTests` はdefault/resultの純粋規則、`DialogPresentationTests` は実Content・明示応答・Enter・Escへ分担する。既存のYes=全体/No=譜面のみ/Cancel・X・Esc=全操作取消の契約は変えない。資源を触る他翻訳作業と担当を揃えれば、ファイル衝突を避けて独立実装可能。
+
+## U08 手動ランキング取得廃止
+
+### 手動ランキング更新の廃止と終了寿命
+
+**手動通信の入口・寿命問題は残るが、採用方針は廃止に確定したため新しい終了待機設計は不要。** `MainWindow.xaml:171/244` の「ランキングデータの更新」→ `tableContextMenuItemUpdateRankingDataClick`（7548行付近）→ `MainWindowRankingCacheTerminal` → `RankingCacheDownloadWorkflowOwner.Request` がbackground taskを開始し、`ObserveFault` だけでShell shutdownへjoinしない。
+
+- 採用方針: 両context menuの項目と連続/末尾の不要separatorを除去する。terminal、composition引数/保持、owner/runtime、専用capability、専用UI可否判定を本番参照に従って取り除く。到達しなくなる通信末端も残さない。
+- 専用末端の候補: `BMSLibrary.GetIRDataNeedUpdates` / `DownloadIRData` / `IRDataCacheInfo`、`rankingInfoUrl` / `rankingDataUrl`、`BmsLibraryIrClient.GetRankingInfo` / `DownloadRankingData` とinterface、`BmsLibraryIrService.GetIRDataNeedUpdatesFromRankingInfo` / `DownloadRankingCacheFiles` / `PrepareDownloadedRankingCache` / `PromoteDownloadedRankingCache` / `ApplyPreparedDownloadedRankingCache` と専用DTO。共通helperは起動時cache読込みの参照を確認して残す。
+- 維持: `UpdateLr2IrRankingCacheOnStartup` 設定、既存Ir XML、`ir_data`、起動時のローカルcache走査/再集計、順位/オフライン推定、本人IR設定・通信・成績、LR2ローカルスコア。ユーザーファイルやDB既存行を削除する移行は作らない。起動時cache読込みは `BMSLibrary:7104` → serviceの既存cache reloadであり、手動Downloadとは別入口。
+- 旧計画から除く: 存続/廃止の再判断、手動task取消/join/staging cleanupの実装案、手動通信成功/部分失敗を維持する受入。廃止する経路を終了寿命へ接続する二重作業はしない。サービス終了の提供情報は実疎通確認済みと書かない。
+- 完了条件: 所持/保留/未所持等の通常context menuで項目なし・不要separatorなし。手動owner/通信/専用設定や表示資源の残参照なし。起動時cache XMLと保存済み順位の通常反映、オフライン推定、本人IRは従来どおり。設定と既存ファイル/DB値に便乗変更なし。
+- 既存保証の整理: `RankingCacheDownloadWorkflowOwnerTests` と手動専用service/Downloadテストは対応する製品経路の削除に合わせて退役。`MainWindowSelectedChartContextMenuWpfTests` とcomposition testは現行項目への期待を更新。`BmsLibraryIrStartupTests.InitializeStartup_RankingCacheDerivedValuesReachNormalSearchAndLampAggregation`、起動時cache parser/service、`StartupRankingRefreshPolicyTests` を残し、共通保証を失わない。`devdocs/spec/integration/lr2-ranking.md` の手動取得・保存・関連保証表とユーザーマニュアルの該当案内も同単位で整理する。Resources本体・6言語で専用文言を揃えて除く。
+
+## U09 再スキャンの確定文字コード
+
+### 所持再スキャンでの手動文字コード保持
+
+**現存する。手動・自動とも具体的な確定値保持にユーザー回答済み。** 通常選択入口は `SelectedChartResourceHealthWorkflowOwner.RescanAsync` → `BMSLibrary.RescanResourceHealthCharts`（8608行付近、forceUpdate:true）、全所持側も `BMSLibrary` のforceUpdate経路 → `CatalogMaintenanceOwner` → `BmsLibraryMaintenanceService.UpdateMaintenanceInfo` → `EvaluateMaintenance`（1076行付近）。
+
+`ApplyEncoding`（498行付近）は具体的文字コードと `EncodingFixed=true` を保存する。一方 `EvaluateMaintenance`（1132–1161行付近）は旧Fixedを保持したままforceUpdateなら再検出し、非CP932確定時にメタデータとEncodingを書換える。非確定判定でもEncodingだけを上書きし得る。資源の再検査とは分離して是正する必要がある。
+
+`maintenance.is_encoding_fixed` は手動由来だけを表していない。自動の非CP932確定時にもtrueになり、`ResourceHealthMaintenanceSnapshot` と `MaintenanceStorageMapping` に由来はない。既存保存値から手動だけを完全に識別できるとは扱えない。
+
+- 確定方針: 手動・自動の由来を分けず、既存の具体的な確定Encodingを再スキャンで保持し、その指定で表示メタデータを復号する。未確定/未指定は従来検出。資源評価は従来どおり更新する。
+- ユーザー回答: **手動・自動とも具体的な確定文字コードを保持し、新列・由来推測を追加しない。** 保持対象の再質問は不要。全件再保存を先行しない。
+- 対象外: 基本資源のCP932、プロパティ診断画面の解釈表示、再生BOM、内容hash・詳細版・保存列の追加。
+- 完了条件: 選択/全所持再スキャン後のDB読戻しと現在一覧でEncoding・Fixed・タイトル等が一致し、BOMなしUTF-8手動指定を失わない。自動確定も保持し、未確定/未指定は従来検出。資源追加/削除は再評価され、hash・非対象列と無変更時の無書込みを保つ。
+- 既存保証: `BmsLibraryMaintenanceServiceTests.ApplyEncoding_ReloadsRequestedEncodingAndMarksFixed`、`ApplyEncoding_MatchingMetadataAndEncodingOnlyCommitsMissingFixedMark`、`UpdateMaintenanceInfo_ForceUpdateDoesNotPersistUnchangedHydratedValues`、`UpdateMaintenanceInfo_BmsEncodingMaintenanceDoesNotMutateDigest`。手動変更そのものを作り直さず、再スキャンへの接続不足を確認する。
+
+## U10 BMS再生入力
+
+### BMS条件分岐の未選択枝の混入
+
+**現存する。** `Ribbit/BMS/BMSFile.ParseMain` の `parseLines` 内 `#IF`（1730行付近）は再帰 `parseLines` / `skipLines` で共有commandを進めた後も、入った時点のローカル `text` をswitchしている。IF true後のELSE/ELSEIF除外、IF false後のELSEIF/ELSE選択を正しく決められない。通常の `PlaybackChart.Load`（80行付近）→ `new BMSFile(path)` を通る内蔵再生・先読み・変換へ届く。
+
+- 採用方針: 再帰が止まった実命令を基準に分岐を継続/読み飛ばしする。古いtextと共有commandの二重管理を整理し、parser全体や乱数選択方式を作り直さない。
+- 重要な境界: `skipLines`（1625–1646行付近）は未選択枝の資源pathも `Resources` へ収集する既存処理である。混入防止の受入は**選択されるWavArray/BmpArray・メタデータ・イベント**で判定し、全資源収集まで一律に削る条件にしない。`Resources` 全件から未選択pathを消す変更は別の互換変更になる。
+- 完了条件: 固定乱数でIF true/false、複数ELSEIF、ELSE、入れ子の選択イベント一回と未選択イベント/採用定義の非混入。選択結果を `PlaybackChart` へ投影する代表も確認する。
+- 既存保証: `BeMusicSeeker.Tests/Chart/RibbitBmsFileTimingTests` の数値/timing、`AuditReportsEachUsedAndSkippedRandomChoiceOnceInOrder` と `AuditKeepsOnlyCompletedRandomChoicesWhenTheNextSelectionFails`。乱数監査の順序・未使用choiceの記録は保持する。基本/詳細側の `ChartInfoParserBehaviorTests.ParseBms_RandomFixture_UsesStableSelectedBranchOne` は別parserで、本件の解消証明ではない。
+
+### 再生・音声変換のUTF-8 BOM
+
+**現存する。** `BMSFile.DecodeForAudit`（1433行付近）と `LoadFile`（1478行付近）は `getAutoDetectedString` をそれぞれ呼び、UTF-8復号の先頭U+FEFFを取り除かない。`ParseMain` はcommand先頭が `#` であることを要求するため、先頭BPM/TITLE/WAVを読み落とす。軽量情報側BOM対応やBMSON先頭BOM処理で解消していない。
+
+- 採用方針: 再生BMSの通常loadと準備済み入力向けdecodeを同じ小さい復号処理へ統合し、UTF-8 BOMのみ先頭から除く。BOMなし自動判別順・CP932資源名の入力・元bytesのMD5を保つ。
+- 対象外: UTF16/32対応追加、基本情報parserの資源BOM補正、詳細parser版変更。
+- 完了条件: BOM有無で先頭BPM120/TITLE/WAVと001小節イベント2秒が一致し、元bytes由来のMD5は各ファイルで正しく異なる。通常 `PlaybackChart.Load` と準備済みdecode→parseの一致、Writerへの代表入力を確認する。
+- 既存保証: `RibbitBmsFileTimingTests` と `BMSAutoPlayWriterTests`。BMS分岐と同ファイルなので直列実装し、BOM条件と分岐条件を混ぜた巨大テストだけにしない。
+
+## U11 旧BMSON情報解析
+
+### 旧BMSONのライブラリ情報解析
+
+**現存する。** `BmsonPlaybackParser`（65–108、201行付近）は0.21/versionlessの旧キー `initBPM`、`bpmNotes`、`stopNotes`、`soundChannel` を受理する。`BmsonChartFileParser.ParseSnapshot` → `BmsonJsonParser.Parse` と `ChartInfoParser.ParseBmsonDocument` → 同parserは現代キーのDTO/生数値抽出だけを使うため、旧入力をBPM0・音源なしとして評価し得る。
+
+- 採用方針: 共通JSON境界で旧キーを正規化し、基本/詳細の二系統へ同じ解釈を渡す。現代キーが存在するときの優先、旧stop等の形式差を明示し、再生adapterの既存対応範囲に合わせる。再生timing全体の無条件流用はしない。
+- 既存互換: `BmsonJsonParser_DuplicateKeysUseLastValueAndDefaultsMatchReference` の重複キー/既定値、`ParseBmson_RawJsonDoublesUseJavaParseDoubleRounding` の元数値字句を壊さない。単にJObjectをserializeし直して元字句を失う設計は避ける。旧キーを受ける際にも `ApplyRawNumberTexts` を同じ優先へ揃える。
+- **確定条件の更新**: 元候補の「parserVersion更新」「旧chart_info→通常更新による全自動置換」は削除する。版は21固定。`ChartInfoBuildService.IsCurrentChartInfoRow`（940行付近）は版21以上・同hash行を再利用するため、既存の版21cacheがこの変更だけで自動刷新されるとは保証しない。新移行台帳、強制全件再解析、署名変更を足さない。
+- 完了条件: 新規解析/既存の通常再解析対象に入った旧新同義入力でBPM・資源・詳細の一致。旧新併記は明示した優先。通常folder導入で音源ありなら適正な導入判定、なしなら保留。生成保存行は21のまま、新DB接続から同結果が読める。既存cache再利用は現行どおり。
+- 既存保証: `BmsonSongParserTests`、`ChartInfoParserBehaviorTests`、`BmsonInputFailureBoundaryTests`、通常folder導入系列。再生の `BeMusicSeeker.Tests/Chart/BmsonPlaybackParserTests.LegacyAndVersionlessAdaptersShareModernTimingAndModernKeysWin` を保持する。SDK実行は今回の静的確認で行っていない。
+
+## U12 内蔵再生操作
+
+### 一時停止中の再生位置操作と外部playerの境界
+
+**sliderの問題は現存し、Pause保持は確定。** `PlaybackPanelView.xaml:156` のsliderは `CurrentlyPlayingTime` へTwoWay Binding、`SeekFromPoint`（827行付近）で位置を変更し、PLAYならbackground `StartCommand` でPauseする。Up/Leave（848–872行付近）は現在IsPausedなら無条件にStart toggleを送るので、操作前からPauseの曲も再開する。
+
+- 採用方針: 明示Pause中のseekでPauseを維持。最初に不要なPause/Resume自体を除去できるか検討し、PLAY中も連続seekを既存engineが受けられるならUIの一時Pause状態を増やさない案を優先する。従来のPLAYドラッグ中の一時Pauseが必要なら、同一gestureが自ら始めたPauseだけを終端で再開する短命な所有へ揃える。いずれも曲/画面交換後へ古いtoggleを送らない。
+- 未決を増やさない境界: 現行で可能という理由だけでPLAYドラッグ中の一時Pauseを必須保証に昇格させない。ユーザー方針はPause保持であり、その実現に永続状態や全操作state machineを追加しない。
+- 完了条件: 明示Pause→click/drag/押下Leaveで位置だけ変更、Pause維持。PLAYからの操作は採用した仕様の状態を維持。実Track座標・clamp・Binding・前面hit testを保ち、解除後の余分toggle、次曲/切離し後の旧gesture作用なし。
+- 既存保証: `PlaybackPanelViewModelTests.PlaybackPanelView_SeekUsesActualTrackAndPreservesBindingAndResume`（4506行付近）はPLAY→drag→mouse-up再開の代表で、明示Pause開始を未確認。名前/説明/期待値を新仕様に合わせ、座標とBindingの保証を残す。engine側 `BMSPlayerControlTests` / `BmsRealtimeAudioSchedulerTests` はSeek/Pause/Restartの状態保持の既存境界。
+
+外部playerの変更はこのslider修正には不要。外部3種の `Duration` は `TimeSpan.MinValue` でslider自体が正値duration条件により非表示。さらに `CurrentTime` setterは `LR2body:63`、`BMIIDXView2015:95`、`uBMplay:379` すべて空であり、時刻seekは実装されていない。`CanSeek` はFF/BWボタンに使う能力で、時刻slider対応能力と同義ではない。
+
+別経路の先頭戻しは前曲単click→`RestartCommand`→`RestartPlayingBmsFile`→adapter `RestartPlayingBMSfile`。LR2body:363とBMIIDX:317はpathでPlayStartし、uBMplay:902はHOMEキーを送る。Pause中の先頭戻しまで採用するなら既存任意候補の独立単位で、Pause保持・次明示Resumeで先頭開始、BMIIDX準備失敗は旧PAUSE保持/旧process終了後失敗はSTOPという既回答を使う。sliderの課題からその採用承認を推定しない。停止中先頭戻しの既知課題も保持する。
+
+### リピート先頭の再生不能曲で探索停止
+
+**現存する。** `PlaybackPanelViewModel.StartAtIndex`（1512行付近）は開始時 `remainingCandidates=count`、`FindPlayableChart`で有限化する。しかしInvalidDataException（1591行付近）でRepeatかつ `SinglePlay || index == (direction>0 ? 0 : count-1)` なら直ちに止める。0行目の音源ロード不可→1行目正常で1行目を試さず止まる。自然終了後の折返しも同入口へ届く。
+
+- 採用方針: 絶対添字を一周終端の代用にしない。Single停止を保ち、既存remainingCandidatesと方向/FolderSkipで有限化する。新再帰・再試行台帳は不要。
+- 完了条件: Repeat ON・Single OFFの先頭不良→次正常、自然終了折返し→先頭不良→次正常、全不良の有限停止。同期例外と非同期Ready失敗を分担。Repeat OFF、Single、後方向/FolderSkipは既存契約を保つ。
+- 既存保証: `InternalReady_InvalidInputNotifiesAndSkipsOnce`、`PlaybackPanel_StopsAfterAllRepeatCandidatesAreUnavailable`（pathなし1万件）、`PlaybackPanel_StopsAfterManyInvalidChartsWithoutRecursiveAdvance`（Repeat OFF）、`Previous_InvalidReadyContinuesBackwardWithoutRecapturingPlayer`。この二つの有限停止既存テストだけではRepeat先頭の入力不良を網羅しない。Previous方向修正は現行に既にあり、再実装対象から外す。
+
+## U13 音声変換の出力名
+
+### 音声出力ベース名の解釈
+
+**現存する。** 本番の `SelectedChartAudioConversionWorkflowOwner`（802–819行付近）は `Path.Combine(saveDirectory, fileName)` を拡張子なしの出力ファイル名として渡す。`BMSAutoPlayWriter.Write`（73–87行付近）は空名をアプリdirectoryへ置換し、DirectoryExistsなら `[artist] title` を配下へ足す。出力先に同名directoryがあるだけで意味が変わる。
+
+- 採用方針: 唯一の本番呼出元のfile path契約へ統合し、未使用のdirectory modeと空名の別意味fallbackを除去する。別mode引数や状態を追加しない。既存encoderの拡張子付与/重名連番処理を使う。
+- 完了条件: `Out/Song` directoryがあっても `Out/Song.wav` を生成し、directoryと入力を保全。完成fileが既にある場合も連番をOut直下へ生成。BMS/BMSONで同じ契約。録音形式・品質・正規化は既存保証を維持する。
+- 既存保証: `BMSAutoPlayWriterTests.Write_RendersInitialNoteOnceAndIgnoresDeviceVolumeAndMute`、`EmptyRenderFailsBeforeEncoderCreationWithoutChangingExistingOutput`、`OfflineNormalizationUsesWholeRenderRmsAndFixedNoneGain`、`SelectedChartAudioConversionWorkflowOwnerTests` の通常変換・CompleteFile系列。実WAVE生成を中心に追加し、各encoder実体を本件だけのため網羅増設しない。
+
+## U14 重複統合候補
+
+### 重複フォルダ統合の候補表示
+
+- 通常入口・原因: `BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs:339` の `CaptureDuplicateFolderMergeDestinations` は同一パスだけを除外する。`CaptureDuplicateFolderKeyboardAction`（353付近）は元グループの2件で一件へ直接統合、3件以上でメニューを開く。親子も候補に残る一方、`BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs:2256` の `EnsureDirectoryMutationDestinationIsDistinct` は相互包含を拒否し、同ファイル1560から統合の物理準備へ接続される。
+- 影響: 実行できない宛先をメニュー・Ctrl+Gから選べる。物理拒否は維持する。
+- 方針: 既存のパス比較を使って同一・相互包含を候補から除く。候補ゼロでは操作しない。元グループ件数による直接統合／メニューの分岐を維持し、3件以上から有効候補が1件になっても新しく直接統合しない。
+- 境界: 利用者向け動作の追加未決なし。物理前提のうち動的な受付・存在確認まで候補計算へ複写しない。
+- 検証: `DuplicateMaintenanceWorkflowOwnerTests.DuplicateFolderInteractionQueries_PreserveDestinationAndKeyboardPolicy` は無関係なA/B/Cのみ。親→子、子→親、有効兄弟、候補ゼロ、有効候補1件だが元件数3件のメニュー維持を同系列へ追加。実物理側拒否は既存導入・統合テストで保持する。
+- 単位・依存: この候補変更だけの独立単位。U15の残存整理と同じ導入サービスの共有パス判定を触る場合は直列化し、候補表示のために物理操作や独自正規化を増やさない。対応仕様は `devdocs/spec/library/mutations.md`。
+
+## U15 導入・推定
+
+### 既所持残存譜面の整理と別保留
+
+- 通常入口・原因: `BeMusicSeeker/Models/Library/BMSLibrary.PackageInstall.cs` の推定先導入が `BuildEstimatedInstallBatchPlan` と `ExecuteEstimatedInstallBatchPlanForMutationSession` を使う。`BmsLibraryPackageInstallService.cs:2835` の計画は現存保留を一回列挙するが要求対象の照合だけに使い、別保留の入力参照を残存整理へ渡さない。`MovePackageFilesWithReceipt` 内の1605以降は `delete_parent` を根拠に親へ調査範囲を広げ、2034の `TryBuildVerifiedResidualCleanupFiles` は独立所持と今回の導入コピーだけを確認する。成功時の `PendingPackagesToRemove` は3006/3061の処理済み本人だけ。
+- 影響: 音源なし差分ZIPのa/bが別の単体保留で、aだけXへ導入、bの独立所持はYにある場合、aの追加整理が親のbを削除するがbの保留・install行は起動中に残る。独立所持は残り、欠落保留は次回通常初期化で整理される。全親整理そのものを廃止すべき根拠にはしない。
+- 方針: 既存計画準備の一回の保留列挙で、要求開始時の別保留が参照する入力パス・範囲を短命に捕捉する。残存候補に参照対象があれば既存の追加整理見送りへ接続する。処理本人の通常入力消費を止めない。後続の選択済み保留も保護し、全件成功しても未登録の既所持残存物を整理し切らない場合を許容する。
+- 境界: 追加の利用者動作未決なし。単体ファイルとディレクトリパッケージの参照範囲を既存表現で確定するのは実装詳細。入力を暗黙に消費した別保留も同時削除する方式は採らない。
+- 検証: `BmsLibraryPackageInstallServiceTests.cs:7560` 以降の親残存物系列（独立所持なら整理、未所持・非譜面・判定不能なら見送り）を保つ。実ZIPから別保留・別install行になる入力を作り、a導入後のFS/song DB/所持/導入済み表示と、b入力bytes・保留・install行・Yコピーの保全を `PendingPackageWorkflowOwnerNormalMutationTests` 等の実接続で観測する。設定OFF、両方選択、後続見送りも確認する。今回の静的確認ではこの再現を実行していない。
+- 単位・依存: `BMSLibrary.PackageInstall`・導入service・計画値・既存仕様 `file-db-consistency.md` と設定説明を一単位。ユニークhash票は候補採点の意味が別で、残存整理の前提にしない。同serviceへの変更と、資源のみ導入後の保守値共用との編集・終端接続を調整する。全所持走査、新索引、保護台帳、成功後の計画再構築を追加しない。
+
+### 導入先推定のユニークhash票
+
+- 原因: `BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryInstallEstimationService.cs:227` の `TryResolveInstalledDestinationFromPackage` は242から入力entryごとに所持先を引き、249で `MatchedHashCount` を加算する。各hashの所持先重複は除くが入力の同hash重複は除かない。`BMSLibrary.PackageInstall.cs` の最上位所持先による自動DST決定へ届く。
+- 影響: Aがhash X、BがY/Zを持つ時、Xの入力コピー3件ならA3対B2、コピー1件ならA1対B2。Strong・音源条件を満たす場合は自動DSTも逆転する。
+- 方針: 一要求の異なる有効primary hashを一回ずつ処理する。同hashが複数所持先なら各先へ一票。`MatchedHashCount` も一致したユニークhash数へ揃える。所持索引・hash解決のBMS/BMSON方針を保つ。
+- 境界: 次着手対象はユニークhash票と明示されているため意味変更の追加選択は不要。同票は現行の複数候補結果を維持する。
+- 検証: `BmsLibraryInstallEstimationServiceTests.TryResolveInstalledDestinationFromPackage_PrefersDirectoryWithMostMatchingCharts:678`、MixedBmsAndBmson、TopTieの系列を拡張。コピー数・名・順の違い、hash欠損、両形式、同hash複数所持先を比較し、`PackageInstallWorkflowOwnerEstimationTests` 等の通常推定でDSTまで確認する。Strong・資源条件を弱めない。
+- 単位・依存: 採点と自動適用の小単位。同じU15の残存整理と共通の導入入口だが物理入力保護は別保証。`devdocs/spec/library/install-estimation.md` の正本へ反映する。I/O・永続状態・新索引を増やさない。
+
+## U16 ランプの対象・取得元
+
+### 実フォルダ名 `[NO SONG]` のランプ集計
+
+- 通常入口・原因: `BmsLibraryPlaylistLampDataSource.CaptureCore`（`BeMusicSeeker/Models/BmsLibraryInternal/Playlist/BmsLibraryPlaylistLampDataSource.cs:79`）は通常表の `folder_list` とentryを供給している。ところが `PlaylistLampModels.cs:865` の順序正規化、`PlaylistLampAggregationService.cs:85,369` の集計、`BeMusicSeeker/ViewModels/Playlist/PlaylistLampViewerViewModel.cs:493` の行、`PlaylistWorkspaceViewModel.PlaylistLampViewer.cs:273` の遷移、`PlaylistWorkspaceViewModel.DetailSource.cs:91` の全通常フォルダ範囲が文字列 `[NO SONG]` だけで除外する。遷移先には既に `PlaylistFolderNode.IsSpecial` があり、その型条件と重複する名前条件が正当な実フォルダを拒否する。
+- 影響: 行・件数・全体ランプ・クリック先の通常一覧から同名の実所属が消える。
+- 方針: 特殊ノードは型／既存選択種別で除外し、通常表の保存folder名はそのまま集計・表示・遷移させる。供給に本来特殊ノードがないなら、全階層へ新しいboolを運ぶ設計を増やさず、文字列による誤除外を削除して型境界だけ残す。
+- 境界: 受理済み名を禁止・改名しないこと以外に利用者動作の未決なし。
+- 検証: `PlaylistLampAggregationTests.cs:198` は通常entryにこの名前を付けて特殊ノード代わりにし、除外を期待している。ここを同名実folderの正しい件数・ランプへ改め、本物の特殊node除外は `PlaylistWorkspaceActionWorkflowTests` へ分担。実folderの行・全体・全通常folderへの遷移、特殊node非対象を確認する。
+- 単位・依存: ランプモデルからworkspace詳細ソースまで一単位。言語変更後のランプ表示改善と同じviewerを触るので同責任者または直列化。同じU16の取得元捕捉はデータソース、U17の日付境界はランプ履歴系だが原因・判定は別にする。仕様は `devdocs/spec/playlist/lamp-viewer.md` の正本へ反映する。
+
+### ランプ現在成績と履歴取得元の同一捕捉
+
+- 原因: `BmsLibraryPlaylistLampDataSource.cs:137` がcurrent score snapshotを捕捉した後、223で引数なし `historicalSourceContextFactory()` を呼ぶ。`BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs:4244` の `ResolvePlaylistLampHistoricalScoreSourceContext` は最新設定とactive provider、Beatorajaでは再取得したscore snapshotから履歴DBパスとnotesを作る。`PlaylistLampHistoricalScoreSnapshot.cs:98` の照合はprovider種別だけ。
+- 影響: Aの現在成績捕捉→同種BeatorajaのB設定・成績公開→Bの履歴文脈生成の順で、A現在値とB履歴の部分巻戻しが混在する。設定Close禁止などを必要条件にしない通常経路。
+- 方針: `BMSLibrary.ScoreSnapshot` が既に持つ `ActiveScoreSource`・`ScoreDbPath`・`SourceGeneration`・`ScoresBySha256` を一回の捕捉値として履歴文脈へ渡す。factoryをその引数から構築する形へ置換し、MainWindowの最新設定と別snapshot再読込みを取り除く。既に完成して公開済みの一組があれば使用し、準備できない場合は未表示／取得不可とする。
+- 境界: 利用者動作の追加未決なし。LR2のリンク有効条件を既存snapshotの取得元契約へどう写すかは実装時に確認する。旧スコア保持cacheや自動retryで一貫性を作らない。
+- 検証: `BmsLibraryPlaylistLampDataSourceTests.CaptureAsync_recapturesCurrentMembershipOwnershipAndApplicationScore:127` とfactory failure系列、`PlaylistLampHistoricalScoreSnapshotTests` を基礎とし、A/Bの実DBでcurrent捕捉後・history構築前にB公開する順序を制御。A一式またはB一式（未準備ならunavailable）を確認し、Bに履歴があるhash／ないhashの混在を検出する。B公開後の新しい日付要求はB成績・履歴・日付範囲を使う。後発日付要求優先と通常Close終端を維持。
+- 単位・依存: data source・factory・文脈とそのテストを一単位。NO SONG改善とdata source、U17の日付境界と履歴スナップショットが重なるため所有調整。本人IRcacheの存廃とは分離する。既存snapshot以上の永続状態・長期lock・追加DB読み直しを導入しない。
+
+## U17 履歴投影・日付境界
+
+### 履歴所属の大小文字
+
+- 通常入口・原因: 表単体／プリセット／FOLDER専用プリセットの表示対象を `BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryDisplayTarget.cs` の索引で投影する。`ResolveMatches:367` がRawHash・Md5・Sha256の一致をまとめた後、375で `Identity` 全体を `OrdinalIgnoreCase` で重複排除する。`PlayHistoryDisplayTargetMatch:454` の識別文字列は表・hash・folderを連結しているため、同表同hashの `A` と `a` が同じ所属になる。
+- 影響: 保存所属は残るが履歴ラベルから片方が落ちる。
+- 方針: hashの既存の大文字小文字同一性を保ち、folderだけはOrdinalとする所属識別へ揃える。単純に全IdentityをOrdinalへ変える案は、hashが既に正規化されていることを実装で確認できる場合に限る。型付きの小さいキーが必要ならこの投影内部に閉じる。
+- 境界: 利用者動作の未決なし。MAX内訳、プリセット名、URL、一般の表名比較へ拡張しない。
+- 検証: `BeMusicSeeker.Tests/PlayHistory/PlayHistoryReadModelTests.cs` の `PlayHistoryDisplayTargetIndex_PlaylistTargetUsesPlaylistFolder:1377` 等へ、同表同hashのA/aが各一回、RawHash/Md5二重一致でも同一所属一回、元entry不変を追加。プリセット二種への投影も同じ索引を通す。
+- 単位・依存: 履歴投影とそのテスト・`devdocs/spec/playlist/play-history.md` の小単位。同じU17の日付境界も同じテストファイルを編集するので所有または直列編集を調整する。
+
+### 午前0時の夏時間移行
+
+- 原因: `BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryPeriodRequest.cs:156` の `ToUnixSeconds` と `BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistLampHistoricalScoreSnapshot.cs:550` の `ToUnixSecondsAtLocalMidnight` が、未指定Kindのローカル0時を `TimeZoneInfo.ConvertTimeToUtc` へ直接渡す。日別履歴ツリーは各日requestをまとめて作り、ランプは選択日の翌日境界から巻き戻す。
+- 影響: 0時欠落の日は境界変換が失敗し、履歴日付ツリー全体またはランプ集計が失敗する。曖昧な0時を日付の遅い始端とすると早い側の記録を落とす。日本の通常日には同じ原因はない。
+- 方針: 小さい日付境界変換を履歴とランプで共用。欠落時は指定日以降の最初の有効境界、重複時は早いUTC境界を使い、隣接日は同じ境界を共有する半開区間とする。固定1時間加算、例外を履歴なしに置換、時刻帯設定やDB形式の変更はしない。
+- 境界: 既存資料・コードに早いUTC境界採用を妨げる契約矛盾は見つからない。「0時をそのまま変換」の現行テストは固定UTC/UTC+09の通常日だけ。実装は欠落時間を1時間と仮定しないこと。1日丸ごとの欠落等を許容する一般日付境界として実装できるかを確認し、不要な時刻帯データ保存は加えない。
+- 検証: `PlayHistoryReadModelTests.PlayHistoryPeriodRequest_DayRangesUseLocalMidnightInclusiveAndNextMidnightExclusive:71`、`UsesProvidedLocalTimeZoneForDayBoundary:83`、日付ツリー系列と `PlaylistLampHistoricalScoreSnapshotTests.Cutoff_includes_local_midnight_and_same_timestamp_uses_source_id_descending:22` を拡張。固定のカスタム時刻帯で0時欠落・重複、移行前日／当日／通常日、境界前後の漏れ・二重所属なし、ランプ翌日最初の記録の巻戻しを確認。ホスト時刻帯の変更を要求しない。必要なTimeZone注入は短命な引数に閉じる。
+- 単位・依存: 共通境界と両利用先・両既存テストを一単位。履歴所属大小文字と同テストを共有し、U16の取得元捕捉とはランプ履歴スナップショット周辺を共有する。現行の日付仕様へ反映し、culture改善と混同しない。
+
+## U18 LR2出力の復元・整列
+
+### SQL復元の旧LR2管理出力
+
+- 現存確認: `BeMusicSeeker/Models/Playlist/BMSPlaylist.cs:1200` の `RestorePlaylistDumpAsync` は1215付近で復元前集合を捕捉するが、その用途は `ApplyReloadedPlaylistHeaders` だけ。1253付近の `HydrateRequiredAsync(... forceCustomFolderOutput: true)` が復元本文の強制再生成を保証する一方、旧配置を捕捉・整理する呼出しはない。出力の移行用 `PreviousOutputLocation` と `CompletePreparedMigrationCleanup` は `PlaylistCustomFolderOutputMaintenanceOwner.cs:538,587` に存在するが復元へ未接続。
+- 既改善との区別: `BmsPlaylistPersistenceLifecycleTests.PlaylistRestore_RebuildsCurrentOutputAfterPrefixOnlyChange:1141` と `PlaylistWorkspacePersistenceCommandTests.PlaylistWorkspaceRestorePlaylistBackupAsync_ReplacesTablesAndPublishesSuccess:643` は復元した新本文・新正本・必須出力を確かめる。消えた表や旧配置の回収保証は持たない。本文強制再生成をもう一度実装しない。
+- 影響: AだけSQL保存→B追加・出力→SQL復元でBの旧物理.lr2folderとLR2 folder行が残る。同表のOriginal→Current→Original復元でもCurrentが残る。次回の管理範囲は新表集合だけなので外部フォルダとして再発見し得る。
+- モードの境界: standaloneでは、SQLバックアップ・復元に伴う `.lr2folder` の生成・整理や、そのためのLR2管理行の変更を行わない。LR2連携モードでは、復元後の表集合・実効配置・出力種別に管理 `.lr2folder` と対応行を揃える。表ごとの出力種別の無効化と、アプリ全体のstandaloneモードを区別する。
+- 方針: LR2連携モードではDB置換前に旧実効絶対配置・基点・ROOT種別を短命に捕捉する。復元後の現在配置は既存の再出力経路で期待ファイル集合へ揃え、無効になった出力種別の旧ファイル・対応行も残さない。復元後の必須生成成功後に、消えた表・使わなくなった配置を既存移行整理へ渡す。現在配置を旧ディレクトリ全体削除から保護することは、その内部の不要ファイルまで保存する意味ではない。すべての出力種別が無効なら期待ファイル集合は空として扱い、旧出力を無条件に保持しない。
+- 保全と失敗: playlist_idだけで旧新同一性を判定せず、別表の旧パス再利用や旧親・新子の重なりでも復元後に必要な出力・行を保つ。空集合への復元でも旧出力整理を実施する。旧表をactive必須の削除APIへ渡さず、配置値で既存整理へ接続する。捕捉した旧管理範囲と復元後の管理配置を対象とし、管理外ファイル・基点全体の探索削除へ広げない。復元確定前は旧出力を消さず、確定後失敗は既存結果通知へ接続する。過去の失敗要求の保持・自動再試行は追加しない。
+- 検証: 実SQL・実FS・LR2 DBでA/B、改名戻し、全表空、ID再利用、旧パスの別表再利用、旧親・新子重なり、同じ配置で出力種別の一部／全部を無効にしたSQLの復元を確認。新readerや次起動が補正する前に不要ファイル・行の除去、必要な出力・行・管理外物の保全を観測し、次通常同期で不要出力を再発見しないことを確認する。standaloneでは同じバックアップ・復元を通して既存 `.lr2folder` とLR2管理行への副作用がないことを確認する。既存の本文強制再生成・確定後readiness終端も回帰する。
+- 単位・依存: 復元・旧配置整理・実復元テスト・`storage-and-export.md`/`lr2-custom-folders.md` を一単位。同じU18のBP順とBMSPlaylistへの書込みが重なるので直列化。見送りの共有URL BMTは前提にせず、LR2保存同期署名や参照定数を変更しない。
+
+### LR2詳細未保存BPの末尾順
+
+- 原因: `BeMusicSeeker/Models/Playlist/BMSPlaylist.cs:1650` のCLEAR FOLDERと1723のBP SORTは共に `MakeScoreColumnNullLastOrder:1890` を使う。式は `score.minbp IS NULL ASC, score.minbp ASC` で、正常な詳細未保存 `minbp=-1` は0より前へ来る。履歴投影の欠損正規化はSQL出力を通らない。
+- 影響: 未保存A、BP0 B、BP20 CがA→B→Cになる。曲欠落・保存スコア変更はない。
+- 方針: BP専用の値式 `CASE WHEN score.minbp >= 0 THEN score.minbp END` 相当を作り、欠損判定と数値順に同じ式を使う。列名用helperへ任意SQL式を渡す責務混同を避ける。BP以外の負値、保存DB、詳細parserを変えない。
+- 境界: 欠損同士の順は新保証を増やさず現行に従う。利用者合意により、新規生成と既存の明示再出力でだけ反映する。生成済みファイルの自動一斉更新は追加せず、LR2保存同期署名・参照定数を変えない。
+- 検証: `BmsPlaylistCustomFolderOutputTests.cs:1616` はNULL判定文字列だけを確認しており負値を扱わない。生成した実.lr2folder COMMANDをsong LEFT JOIN scoreへ適用し、0→20→未保存／scoreなしを確認。CLEAR FOLDERも同じ値式を通し、対象所属・元スコア不変、一般のrate/playcount順を保持する。正常ASSIST未保存の意味は `PlayHistoryReadModelTests` の既存系列を維持する。
+- 単位・依存: SQL生成と実出力テスト・`devdocs/spec/playlist/lr2-custom-folders.md` を一単位。同じU18のSQL復元とBMSPlaylist/出力テストを編集するため直列化。parser21と `lr2_song_db_sync_status.signature` の構成・意味・参照定数を維持する。
+
+## U19 Updaterの管理外空フォルダ
+
+### Updater管理外空ディレクトリ
+
+- 原因: `BeMusicSeeker.Updater/Program.cs:1561` の `ApplyExtractedPackage` が1599で `RemoveEmptyDirectories(appDirectory)` を呼ぶ。2459の実装はreparseを除くアプリ配下を深い順に走査し、保護名以外はmanifest管理対象かによらず空ディレクトリを消す。
+- 影響: 管理外の空Songs等が消え、登録済み検索ルート・導入先は残るため次回preflightでSettingsRequiredになり得る。曲ファイル削除の問題ではない。
+- 方針: アプリ配置先全体の空ディレクトリ整理と、そのためだけの不要helperを削除するのが最小設計。旧管理ファイル削除・新配置は維持する。旧管理ファイルの空祖先まで整理する要件は今回追加しない。
+- 境界: 全体cleanup廃止により旧管理ファイルの空親が残る可能性を許容する案。追加資料の推奨と整合し、機能上必要な再整理要求は未発見。設定解析・BMSルートの新規禁止は不要。
+- 検証: `UpdaterPackageSyncTests` の実FS/ZIP/manifest系列へ管理外空Songs・別の空dirを追加し成功後保持を確認。保存ルートを通常preflightへ渡して通ること、旧管理file削除・新版配置・管理外file・保護dirを保つことを判定。管理file→directory遷移は別原因として単一子／兄弟／多階層とrollbackの既存計画を保つ。
+- 単位・依存: 管理file→directory改善と同じProgram/同テストなので同責任者または直列実装。`devdocs/spec/integration/portable-update.md` と整合させる。
+
+## U20 外部同期の処理済み進捗
+
+### 目的
+
+ステータスバーの外部プレイリスト同期で、対象名を「最後に処理を終了したプレイリスト」として表示し、件数を「処理済み件数」と明示する。最大32件の並列処理において、最後に開始された表や任意の進捗通知が表示名を上書きする曖昧さをなくす。
+
+取得・保存・派生出力の処理結果や実行順序は変更しない。通信待ちによる件数の停滞は、実際に終了した対象が増えていない状態として正確に表示する。
+
+### 表示契約
+
+| 状態 | 主表示 | 補足表示 |
+| --- | --- | --- |
+| 対象確定直後 | `外部プレイリストの同期 0/471件処理済み` | なし |
+| 470件が終了し、1件が未終了 | `外部プレイリストの同期 470/471件処理済み` | `直近の処理終了：縦連コレクション` |
+| 全471件の表単位処理が終了 | `外部プレイリストの同期 471/471件処理済み` | 最後に終了した対象名。複合処理の終端までは行を維持 |
+
+- 分母は既存の再取得対象表数を使う。無効なURIなど、既存の対象選択から除かれる表を新たに算入しない。
+- 分子は成功件数ではなく、**表ごとの再取得・反映試行が終了した件数**とする。取得・適用に失敗した表も、既存の終了時加算に従って数える。「同期成功」「更新済み」とは表現しない。
+- 表示する名前・URIは、最後に**処理終了を通知した対象**のものとする。開始イベントでは更新しない。終了した対象がまだなければ補足表示は空にする。名前が空の場合は既存のURIフォールバックを保つ。
+- 完了通知の順序が並列実行で前後しても、同一要求の表示件数が小さい値へ戻らないようにする。すべての中間値を描画することまでは要求しない。件数と対象名は同じ採用済みスナップショットから表示する。
+- `471/471` は表単位処理の終了であり、LR2カスタムフォルダ・BMT出力等を含む操作全体の成功を意味しない。行を消す条件は従来どおり複合操作の実終端とする。
+- 親行 `[1/5] プレイリストの再読み込み` の段階数・完了条件は変更しない。
+
+### 実装方針と対象
+
+#### 1. 表単位の進捗通知を整理する
+
+対象：`BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistExternalSyncOwner.cs` の `ReloadPlaylistTargetsAsync`。
+
+- 対象確定後の初期通知 `0/総数` は維持する。
+- 各表の**開始時**に表名・URIを報告する通知は廃止する。開始を別の進捗件数として扱わない。
+- 各表の `finally` で行っている終了件数の加算と、終了した表名・URIを伴う通知を残す。成功・失敗・取消の処理契約や結果の格納位置を動かさない。
+- 並列通知の逆転による古い表示を、既存の要求識別と進捗集約の範囲で排除する。通知順序を整えるために外部通信・保存の並列度を落としたり、通知先の処理をモデルのロック下で同期的に待ったりしない。
+
+この入口は自動外部同期と選択プレイリスト再同期で共用されるため、**両方の表名を「直近の処理終了」に統一**する。別入口の `LoadExternalTableSnapshotsAsync` は新規取込み等でも利用されるため、今回は変更しない。
+
+#### 2. ステータスバーの表現を明確化する
+
+主な確認箇所：
+
+- `BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.ExternalPlaylistSync.cs`
+- `BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.Reload.cs`
+- `BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.SyncProgress.cs`
+- `BeMusicSeeker/ViewModels/MainWindow/OperationProgressHubViewModel.cs`
+
+`external_playlist_sync` と `playlist_manual_reload` の進捗行だけに、処理済み件数と直近処理終了名が分かる表示書式を適用する。ほかのプレイリスト編集・取込み・出力が使う `CurrentTableName` の意味や共通スナップショットの構造は、原則として変更しない。
+
+表示識別（`Source`、`OperationId`、`Request`、世代・操作トークン）と、同じ要求の汎用通知・専用通知の統合、旧要求・終了通知の除外を維持する。表示を増やすための新しい進捗台帳や表ごとの実行状態は追加しない。
+
+#### 3. 文言・仕様を更新する
+
+- 主表示の「件処理済み」と補足表示の「直近の処理終了」を表示リソース化する。対象言語は `Resources.resx` / `Resources.cs` と `lang/` の既存6言語。既存の一般的な処理名を別用途まで書き換えず、対象行の書式として対応する。
+- `devdocs/spec/runtime/statusbar-progress.md` の外部同期行・選択プレイリスト再同期行について、件数と対象名の意味を更新する。
+- `devdocs/spec/runtime/progress.md` に追記が必要な場合は、通知の採用と複合終端の意味だけを整合させる。関係のない進捗行や仕様は変更しない。
+
+### 対象外
+
+- HTTPタイムアウト・リトライ・同時実行数・同期対象の選別・取得/保存/出力アルゴリズムの変更
+- 通信中の表一覧、成功/失敗の別カウンタ、経過時間タイマー、擬似的な進捗増加
+- `471/471` 到達後の「後処理中」という新しい段階表示
+- 新規取込み、表URL取込み、プロパティ更新、BMT出力など、別の進捗生産元の表示意味の変更
+
+### テスト担当への引継ぎ観点
+
+具体的な判定基準・テスト配置・テスト作成・既存テストの整理は専用担当に委ね、単位責任者が保証の分担を承認する。少なくとも以下の契約を確認する。
+
+- 並列開始と完了順序が異なっても、表示名は開始対象ではなく直近の処理終了対象になり、件数が後戻りしない。
+- 取得失敗も処理済みに算入し、成功表示へ読み替えない。開始直後の `0/N` は表名を持たない。
+- 自動外部同期・選択再同期の行識別、ほかの進捗行との併存、取消・失敗・派生出力後の行消去が維持される。
+- 多言語リソースが整合し、実ステータスバーでも件数と補足の意味が伝わる。
+
+既存の `BmsPlaylistExternalReloadTests`、`OperationProgressHubViewModelTests`、`MainWindowPlaylistWorkspaceWpfTests` とリソース整合テストを先に調べ、重複する新規テストを増やさない。

@@ -643,6 +643,7 @@ hr {
 <li class="toc-level-4"><a href="#audio-playback-or-conversion-fails">Audio Playback or Conversion Fails</a></li>
 </ul></details></li>
 <li class="toc-level-3"><details open><summary><a href="#maintenance-troubleshooting">Maintenance Troubleshooting</a></summary><ul>
+<li class="toc-level-4"><a href="#missing-resources-remain-reported-after-adding-files-externally">Missing Resources Remain Reported After Adding Files Externally</a></li>
 <li class="toc-level-4"><a href="#file-moving-or-merging-fails">File Moving or Merging Fails</a></li>
 <li class="toc-level-4"><a href="#retrying-metadata-parsing">Retrying Metadata Parsing</a></li>
 <li class="toc-level-4"><a href="#lamp-viewer-scores-are-unavailable">Lamp Viewer Scores Are Unavailable</a></li>
@@ -1520,7 +1521,7 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <p>Select multiple rows and open <code>Bulk edit...</code> from the context menu to apply custom folder output types, <code>OUTPUT</code>, root folder, external sync, <code>.bmt</code> output, or initialization from external data to the selected rows. The dialog has no global OK; only the apply button in each section changes that section.</p>
 <p><code>OUTPUT</code> selects the normal output destination or an additional normal output. The saved <code>OUTPUT</code> value is updated even for playlists with <code>Make root folder</code> enabled, but the actual output destination remains the root folder output destination.</p>
 <p>For custom folder output types, checked means output, unchecked means no output, and indeterminate means no change. Bulk custom folder output changes show progress in the status bar and do not regenerate <code>.bmt</code> files.</p>
-<p>When external sync is turned on, playlists without valid URL information are skipped and reported in the result.</p>
+<p>When external sync is turned on, playlists without valid URL information remain OFF and are skipped without a notification. Playlists already ON are unchanged; only newly enabled playlists are saved and output. If none can be enabled, applying still finishes normally and the dialog input returns to “No change”.</p>
 <p>The external-data initialization section reloads the external playlist URL regardless of the external sync flag and resets only the checked fields. Playlists whose external URL cannot be read are skipped. While applying changes, the status bar shows progress for external data loading, saving, and custom folder output.</p>
 <ul>
 <li>Playlist name: Resets the name from the external data.</li>
@@ -1988,7 +1989,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p><code>WAV</code>, <code>BGA</code>, and <code>MOVIE</code> show existing / required files used by the chart. Multiple IDs referencing the same file count once, and unused definitions are excluded. All files defined for the same used ID are checked, without excluding conditional branches or LNOBJ references. For example, three existing files out of four required files give 75%. A category with no used files shows <code>-</code>.</p>
 <p><code>-</code> also appears before a check or when coverage cannot be determined. IDs without a resource definition are excluded from missing-resource checks. Rescanning also updates older saved counts to the used-file basis.</p>
 <p>An explicitly specified invalid auxiliary image path or parent-folder reference (<code>../</code>) in BMSON also produces a missing-image warning. With complete audio, requiring all used resources keeps the package pending when ON and permits automatic new installation when OFF.</p>
-<p><code>Rescan all charts</code> is an explicit heavy operation. Ordinary startup does not revalidate resources for all charts. If you add missing resources after installation, update the state by rescanning the relevant row or rescanning all charts.</p>
+<p><code>Rescan all charts</code> is an explicit heavy operation. Ordinary startup does not revalidate resources for all charts. After adding missing resources externally, follow <a href="#maintenance-troubleshooting">Maintenance Troubleshooting</a> to update their status.</p>
 <h2 id="play-log">Play Log</h2>
 <p><img alt="Play Log" src="img/一覧_プレイログ.PNG"/></p>
 <p>The <code>Play Log</code> tree shows LR2 or beatoraja play history in the main list.</p>
@@ -2001,6 +2002,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <h3 id="summary">Summary</h3>
 <p>The dedicated summary row below the list header shows judge count, play count, playtime, SCORE / BP / COMBO / CLEAR updates, and a compact clear breakdown such as ASSIST, EASY, NORMAL, HARD, and FC. EXH is shown only when displaying beatoraja history. Clicking an update-type or clear-breakdown card filters the list by that condition.</p>
 <p>Multiple selected cards are combined with OR, and the card filter is combined with the search box by AND. Selected cards are visually highlighted; click them again to clear the card filter.</p>
+<p>For LR2, playtime and judge count are calculated from eligible records remaining in the filtered list. For example, filtering 60-second and 120-second records down to the 60-second record changes playtime from 3:00 to 1:00.</p>
 <p>For beatoraja, judge count, play count, and playtime are values for the period selected on the screen. They do not change when the search box, summary cards, or the top-right drop-down reduces the visible row count. If beatoraja period-summary data cannot be read, the value is shown as <code>-</code>. For loading problems, check the summary diagnostic and <a href="#logs--bug-reports">logs</a>.</p>
 <h3 id="reading-rows">Reading Rows</h3>
 <p>Play-log rows show best-update transitions such as <code>old -&gt; new</code> for SCORE, BEST DJ, BEST RATE, BP, COMBO, and CLEAR. CLEAR uses compact labels such as <code>NP</code>, <code>EASY</code>, <code>NORMAL</code>, <code>HARD</code>, <code>EXH</code>, and <code>FC</code>; CLEAR and BEST DJ color the source, arrow, and destination separately when the row is not selected. Initial BP values are shown as the value only. <code>TYPE</code> can contain multiple update kinds, such as <code>score bp clear</code>; <code>play</code> is used only when no more specific update kind applies. LR2 <code>OP HISTORY</code> shows newly achieved option history by name.</p>
@@ -2110,6 +2112,8 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>For internal playback, check the driver and device in <code>Audio</code>, then use <code>Stop playback and test</code>. Increase the buffer and test again for dropouts. Check panel volume and mute, and Windows volume when using WASAPI Shared.</p>
 <p>For conversion, check the source chart, referenced audio, output folder, and external encoder executable. For integer-range overflow, follow the completion message to reduce gain, or retry with peak normalization and gain 1.0. Logs provide target and cause details.</p>
 <h3 id="maintenance-troubleshooting">Maintenance Troubleshooting</h3>
+<h4 id="missing-resources-remain-reported-after-adding-files-externally">Missing Resources Remain Reported After Adding Files Externally</h4>
+<p>Close BeMusicSeeker before changing charts or resources in the library with external tools. After the changes, start the app and run the library's <code>Reload</code>. Once reload finishes, use <code>File scan</code> → <code>Rescan</code> on the affected charts to update missing-resource status. Reload alone may not update that status.</p>
 <h4 id="file-moving-or-merging-fails">File Moving or Merging Fails</h4>
 <p>Close other applications holding the files, and check permissions and free space. A same-name file/folder conflict stops the affected package before changes and reports the conflicting path. Check both source and destination, resolve the conflict, and retry.</p>
 <h4 id="retrying-metadata-parsing">Retrying Metadata Parsing</h4>

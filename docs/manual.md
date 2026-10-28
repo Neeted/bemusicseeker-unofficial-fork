@@ -738,7 +738,7 @@ Select multiple rows and open `Bulk edit...` from the context menu to apply cust
 
 For custom folder output types, checked means output, unchecked means no output, and indeterminate means no change. Bulk custom folder output changes show progress in the status bar and do not regenerate `.bmt` files.
 
-When external sync is turned on, playlists without valid URL information are skipped and reported in the result.
+When external sync is turned on, playlists without valid URL information remain OFF and are skipped without a notification. Playlists already ON are unchanged; only newly enabled playlists are saved and output. If none can be enabled, applying still finishes normally and the dialog input returns to “No change”.
 
 The external-data initialization section reloads the external playlist URL regardless of the external sync flag and resets only the checked fields. Playlists whose external URL cannot be read are skipped. While applying changes, the status bar shows progress for external data loading, saving, and custom folder output.
 
@@ -1230,7 +1230,7 @@ This view checks missing WAV, BGA, video, image, and similar resources.
 
 An explicitly specified invalid auxiliary image path or parent-folder reference (`../`) in BMSON also produces a missing-image warning. With complete audio, requiring all used resources keeps the package pending when ON and permits automatic new installation when OFF.
 
-`Rescan all charts` is an explicit heavy operation. Ordinary startup does not revalidate resources for all charts. If you add missing resources after installation, update the state by rescanning the relevant row or rescanning all charts.
+`Rescan all charts` is an explicit heavy operation. Ordinary startup does not revalidate resources for all charts. After adding missing resources externally, follow [Maintenance Troubleshooting](#maintenance-troubleshooting) to update their status.
 
 ## Play Log
 
@@ -1255,6 +1255,8 @@ Choose `All`, `Today`, `Yesterday`, `Recent 7 Days`, `Recent 30 Days`, `By Date`
 The dedicated summary row below the list header shows judge count, play count, playtime, SCORE / BP / COMBO / CLEAR updates, and a compact clear breakdown such as ASSIST, EASY, NORMAL, HARD, and FC. EXH is shown only when displaying beatoraja history. Clicking an update-type or clear-breakdown card filters the list by that condition.
 
 Multiple selected cards are combined with OR, and the card filter is combined with the search box by AND. Selected cards are visually highlighted; click them again to clear the card filter.
+
+For LR2, playtime and judge count are calculated from eligible records remaining in the filtered list. For example, filtering 60-second and 120-second records down to the 60-second record changes playtime from 3:00 to 1:00.
 
 For beatoraja, judge count, play count, and playtime are values for the period selected on the screen. They do not change when the search box, summary cards, or the top-right drop-down reduces the visible row count. If beatoraja period-summary data cannot be read, the value is shown as `-`. For loading problems, check the summary diagnostic and [logs](#logs--bug-reports).
 
@@ -1432,6 +1434,10 @@ For internal playback, check the driver and device in `Audio`, then use `Stop pl
 For conversion, check the source chart, referenced audio, output folder, and external encoder executable. For integer-range overflow, follow the completion message to reduce gain, or retry with peak normalization and gain 1.0. Logs provide target and cause details.
 
 ### Maintenance Troubleshooting
+
+#### Missing Resources Remain Reported After Adding Files Externally
+
+Close BeMusicSeeker before changing charts or resources in the library with external tools. After the changes, start the app and run the library's `Reload`. Once reload finishes, use `File scan` → `Rescan` on the affected charts to update missing-resource status. Reload alone may not update that status.
 
 #### File Moving or Merging Fails
 
