@@ -24,6 +24,7 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -33,6 +34,7 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Ribbit.Windows;
 using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 
 namespace BeMusicSeeker.Tests;
@@ -45,6 +47,390 @@ namespace BeMusicSeeker.Tests;
 public sealed class MainWindowPlaylistWorkspaceWpfTests
 {
     private const string NativeModalFixturePlaylistName = "Native modal fixture";
+
+    /// <summary>実表見出しと実子folderのheaderからOSファイルをrouted Dropし、既存導入ownerの一回受付・保留登録とDBを確認します。プレイリストへ取り込む誤配線も検出します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PlaylistTreeFileDrop_ReachesInstallOwnerOnceWithoutChangingPlaylist(bool childFolder)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreatePlaylistDropFixture(scope, configureSettings: settings =>
+            {
+                settings.AutoInstall = false;
+                settings.AutoInstallAfterAutomaticEstimation = false;
+            });
+            PackageInstallWorkflowOwner owner = fixture.ViewModel.PackageInstallWorkflow;
+            var failures = new ConcurrentQueue<PackageInstallFailure>();
+            string[] managedInputs = [];
+            Exception? bodyFailure = null;
+            int completions = 0;
+            Action<PackageInstallCompletionReceipt> completed = _ => Interlocked.Increment(ref completions);
+            Action<PackageInstallFailure> failed = failure => failures.Enqueue(failure);
+            owner.CompletionPublished += completed;
+            owner.FailurePublished += failed;
+            try
+            {
+                fixture.Table.entry_type = LR2SongDBExtended.playlist.EntryUnitType.Folder;
+                fixture.Table.Folder_order = [string.Empty];
+                fixture.Table.entries = [new BMSTableEntry { md5 = new string('b', 32), title = "Kept", folder = "", memo = "Kept memo" }];
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                TreeViewItem table = MaterializePlaylistDropTable(fixture);
+                table.IsExpanded = true;
+                MaterializePlaylistDropItems(table);
+                TreeViewItem target = childFolder ? FindDescendants<TreeViewItem>(table).Single(item => item.DataContext is PlaylistFolderNode { IsSpecial: false, FolderName: "" }) : table;
+                string input = Path.Combine(fixture.Root, "external.bms");
+                byte[] bytes = Encoding.ASCII.GetBytes("#TITLE External drop\n#ARTIST Fixture\n#BPM 120\n#00111:01\n");
+                File.WriteAllBytes(input, bytes);
+                var data = new CountingFileDropDataObject(input);
+
+                DragEventArgs drop = RaisePlaylistHeaderDrag(target, data, DragDrop.DropEvent);
+                Assert.AreEqual(1, data.ExtractionCount, "一つのrouted Dropを二重に導入受付へ渡しません。");
+                Assert.IsTrue(drop.Handled);
+                Assert.AreEqual(DragDropEffects.Copy, drop.Effects);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.WaitForIdleAsync(), "playlist-file-drop-owner-idle");
+
+                Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures.Select(failure => failure.Exception.ToString())));
+                Assert.AreEqual(0, completions, "保留だけの正常終了では導入済み成功通知を発行しません。");
+                Assert.AreEqual(1, fixture.Library.ChartPackagesPending.Count);
+                Assert.AreEqual(0, fixture.Library.ChartPackagesInstalled.Count);
+                ChartPackage pending = fixture.Library.ChartPackagesPending.Single();
+                PackageChartEntry entry = pending.ChartEntries.Single();
+                Assert.IsTrue(TempDirectoryPublisher.IsManagedPath(pending.path));
+                Assert.IsTrue(TempDirectoryPublisher.IsManagedPath(entry.Chart.Path));
+                Assert.IsFalse(string.Equals(input, entry.Chart.Path, StringComparison.OrdinalIgnoreCase));
+                CollectionAssert.AreEqual(bytes, File.ReadAllBytes(entry.Chart.Path));
+                Assert.AreEqual("External drop", entry.Chart.RawTitle);
+                Assert.AreEqual("Fixture", entry.Chart.Artist);
+                string songDb = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(fixture.Root, "BeMusicSeeker.exe")).StandaloneSongDbPath;
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(songDb).OpenSongDbReadOnly();
+                Assert.AreEqual(pending.path, db.Table<LR2SongDBExtended.install>().Single().path);
+                Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count());
+                Assert.AreEqual(1, db.Table<LR2SongDBExtended.playlist>().Count());
+                LR2SongDBExtended.playlist_entry saved = db.Table<LR2SongDBExtended.playlist_entry>().Single();
+                Assert.AreEqual(new string('b', 32), saved.md5);
+                Assert.AreEqual("", saved.folder);
+                Assert.AreEqual("Kept memo", saved.memo);
+                Assert.AreEqual(1, fixture.Table.entries.Count);
+                CollectionAssert.AreEqual(bytes, File.ReadAllBytes(input));
+            }
+            catch (Exception failure)
+            {
+                bodyFailure = failure;
+                throw;
+            }
+            finally
+            {
+                try
+                {
+                    try
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.WaitForIdleAsync(), "playlist-file-drop-final-idle");
+                        managedInputs = fixture.Library.ChartPackagesPending.Select(package => package.path).Where(TempDirectoryPublisher.IsManagedPath).ToArray();
+                    }
+                    finally
+                    {
+                        owner.CompletionPublished -= completed;
+                        owner.FailurePublished -= failed;
+                        try { fixture.Close(); }
+                        finally
+                        {
+                            foreach (string path in managedInputs)
+                            {
+                                // 通常終了が既に管理入力を回収するため、存在する今回の入力だけ追加回収し、最終不存在を確認します。
+                                if (File.Exists(path) || Directory.Exists(path))
+                                {
+                                    Exception? deletionFailure = null;
+                                    TempDirectoryPublisher.TryDeleteManagedPath(path, logWarning: (_, failure) => deletionFailure = failure);
+                                    if (deletionFailure != null) { throw new IOException("今回の保留入力の回収に失敗しました。", deletionFailure); }
+                                }
+                                Assert.IsFalse(File.Exists(path) || Directory.Exists(path), "今回の保留入力が終端後に残っていません。");
+                            }
+                        }
+                    }
+                }
+                catch (Exception cleanupFailure) when (bodyFailure != null)
+                {
+                    bodyFailure.Data["PlaylistDropCleanupFailure"] = cleanupFailure.ToString();
+                }
+            }
+        });
+    }
+
+    /// <summary>正規の内部行DataObjectを実headerへ配送し、表rootの分類と空名実folderの所属を分けます。Dropはhoverを解除し、受理時のP実終端とasyncイベントを回収してからDBを読みます。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PlaylistTreeRowDrop_UsesHitNodeAndClearsHover(bool childFolder)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreatePlaylistDropFixture(scope);
+            try
+            {
+                fixture.Table.entry_type = LR2SongDBExtended.playlist.EntryUnitType.Folder;
+                fixture.Table.is_root_folder = true;
+                fixture.Table.Folder_order = [string.Empty];
+                fixture.Table.entries = [new BMSTableEntry { md5 = new string('b', 32), title = "Kept", folder = "" }];
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                string path = Path.Combine(fixture.Root, "charts", "input.bms");
+                Directory.CreateDirectory(Path.GetDirectoryName(path) ?? throw new InvalidOperationException());
+                byte[] bytes = Encoding.ASCII.GetBytes("#TITLE Classified input\n#BPM 120\n");
+                File.WriteAllBytes(path, bytes);
+                string[] values = PlaylistWorkspaceTestDataSupport.CreateSongTableRow(new string('a', 32), path);
+                values[1] = "Classified input";
+                ChartFile chart = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(values));
+                fixture.Library.BmsCharts = [chart];
+                DataObject data = CustomTableDataTransfer.CreateSelectedRowsDataObject([LibraryChartRow.FromChartFile(chart)], CustomTableRowDragKind.PlaylistDropCandidateRows);
+                TreeViewItem next = AddSecondPlaylistDropTable(fixture);
+                TreeViewItem table = MaterializePlaylistDropTable(fixture);
+                table.IsExpanded = childFolder;
+                MaterializePlaylistDropItems(table);
+                TreeViewItem target = childFolder ? FindDescendants<TreeViewItem>(table).Single(item => item.DataContext is PlaylistFolderNode { IsSpecial: false, FolderName: "" }) : table;
+                RaisePlaylistHeaderDrag(target, data, DragDrop.PreviewDragEnterEvent);
+                Assert.AreEqual(SystemColors.HighlightBrush, target.Background);
+
+                RunAcceptedPlaylistHeaderDrop(fixture, target, data);
+
+                Assert.AreEqual(Brushes.Transparent, target.Background);
+                Assert.AreEqual(childFolder, table.IsExpanded, "Drop後に古いhoverが見出しを展開しません。");
+                string expectedFolder = childFolder ? "" : "Classified input";
+                Assert.AreEqual(expectedFolder, fixture.Table.entries.Single(entry => entry.md5 == new string('a', 32) && !entry.is_removed).folder);
+                string songDb = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(fixture.Root, "BeMusicSeeker.exe")).StandaloneSongDbPath;
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(songDb).OpenSongDbReadOnly();
+                Assert.AreEqual(expectedFolder, db.Table<LR2SongDBExtended.playlist_entry>().Single(entry => entry.md5 == new string('a', 32) && !entry.is_removed).folder);
+                CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path));
+                // 次のdragが正常に開く間も、Dropで終端した旧見出しの要求は再開しません。
+                RaisePlaylistHeaderDrag(next, data, DragDrop.PreviewDragEnterEvent);
+                CompletePlaylistHover(fixture.Window);
+                Assert.IsTrue(next.IsExpanded);
+                Assert.AreEqual(childFolder, table.IsExpanded);
+                RaisePlaylistHeaderDrag(next, data, DragDrop.PreviewDragLeaveEvent);
+                Assert.AreEqual(Brushes.Transparent, next.Background);
+            }
+            finally { fixture.Close(); }
+        });
+    }
+
+    /// <summary>実compiled hoverで未展開だけを開きます。Leave（OLE取消の既存入力先）後の次drag完了でも旧対象を開かず、展開済み見出しは閉じません。</summary>
+    [TestMethod]
+    public void PlaylistTreeHover_OnlyOpensCollapsedHeaderAndLeaveCancelsOldTarget()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreatePlaylistDropFixture(scope);
+            try
+            {
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                TreeViewItem next = AddSecondPlaylistDropTable(fixture);
+                TreeViewItem table = MaterializePlaylistDropTable(fixture);
+                var source = new BMSTableEntry { md5 = new string('a', 32), title = "Source" };
+                DataObject data = CustomTableDataTransfer.CreateSelectedRowsDataObject([new PlaylistDetailSourceRow(source, null).CreateViewRow()], CustomTableRowDragKind.PlaylistDropCandidateRows);
+                table.IsExpanded = false;
+                RaisePlaylistHeaderDrag(table, data, DragDrop.PreviewDragEnterEvent);
+                Assert.AreEqual(SystemColors.HighlightBrush, table.Background);
+                RaisePlaylistHeaderDrag(table, data, DragDrop.PreviewDragLeaveEvent);
+                Assert.AreEqual(Brushes.Transparent, table.Background);
+                Assert.IsFalse(table.IsExpanded);
+                RaisePlaylistHeaderDrag(next, data, DragDrop.PreviewDragEnterEvent);
+                CompletePlaylistHover(fixture.Window);
+                Assert.IsTrue(next.IsExpanded);
+                Assert.IsFalse(table.IsExpanded, "Leaveで失効した旧clockは次dragの完了でも再開しません。");
+                RaisePlaylistHeaderDrag(next, data, DragDrop.PreviewDragLeaveEvent);
+                RaisePlaylistHeaderDrag(next, data, DragDrop.PreviewDragEnterEvent);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(next.IsExpanded);
+                RaisePlaylistHeaderDrag(next, data, DragDrop.PreviewDragLeaveEvent);
+                RaisePlaylistHeaderDrag(table, data, DragDrop.PreviewDragEnterEvent);
+                CompletePlaylistHover(fixture.Window);
+                Assert.IsTrue(table.IsExpanded);
+                Assert.IsTrue(next.IsExpanded);
+                RaisePlaylistHeaderDrag(table, data, DragDrop.PreviewDragLeaveEvent);
+            }
+            finally { fixture.Close(); }
+        });
+    }
+
+    // 専用providerの未保存配置は零矩形・Hideのため、native復元で最小寸法へ縮みます。実hit用の保存済み通常配置を入力します。
+    private static ActualMainWindowFixture CreatePlaylistDropFixture(TestWindowPresentationScope scope, Action<Settings>? configureSettings = null)
+    {
+        return CreateActualMainWindowFixture(scope, configureSettings: settings =>
+        {
+            settings.WindowPlacement = new Win32API.WINDOWPLACEMENT
+            {
+                ShowCmd = Win32API.ShowWindowCommands.Normal,
+                NormalPosition = new Win32API.RECT(0, 0, 1000, 800)
+            };
+            configureSettings?.Invoke(settings);
+        });
+    }
+
+    private static TreeViewItem MaterializePlaylistDropTable(ActualMainWindowFixture fixture, BMSTable? table = null)
+    {
+        var tree = (TreeView)fixture.Window.FindName("treeViewPlaylist");
+        tree.ClearValue(FrameworkElement.HeightProperty);
+        TestUiDispatcherHost.ProcessQueuedPresentation();
+        var root = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+        root.IsExpanded = true;
+        MaterializePlaylistDropItems(root);
+        return root.ItemContainerGenerator.ContainerFromItem(table ?? fixture.Table) as TreeViewItem
+            ?? throw new AssertFailedException("実表の表示コンテナがありません。");
+    }
+
+    private static TreeViewItem AddSecondPlaylistDropTable(ActualMainWindowFixture fixture)
+    {
+        var table = new BMSTable { playlist_id = 2, name = "Next hover", is_bmt_output = false };
+        fixture.Playlist.BMSTables.Add(table);
+        fixture.Playlist.CommitBMSTableWithEntriesToDB(table);
+        fixture.ViewModel.PlaylistWorkspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
+        TreeViewItem item = MaterializePlaylistDropTable(fixture, table);
+        item.IsExpanded = false;
+        return item;
+    }
+
+    // 実hitを使うケースでは子を手動Arrangeせず、表示Windowの親layoutから位置とclipを確定します。
+    private static void MaterializePlaylistDropItems(TreeViewItem item)
+    {
+        item.ApplyTemplate();
+        Window window = Window.GetWindow(item) ?? throw new AssertFailedException("ツリー表示のWindowがありません。");
+        window.UpdateLayout();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
+        window.UpdateLayout();
+    }
+
+    // DragEventArgsの公開ctorがないため入力生成だけを局所反射し、描画済みheader内の座標で実hitした要素へ配送します。
+    private static DragEventArgs RaisePlaylistHeaderDrag(TreeViewItem item, IDataObject data, RoutedEvent routedEvent)
+    {
+        item.ApplyTemplate();
+        item.UpdateLayout();
+        ContentPresenter header = item.Template.FindName("PART_Header", item) as ContentPresenter
+            ?? throw new AssertFailedException("実TreeViewItemのheaderがありません。");
+        Window window = Window.GetWindow(item) ?? throw new AssertFailedException("実headerの表示Windowがありません。");
+        item.BringIntoView();
+        var presented = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler rendered = (_, _) =>
+        {
+            if (header.IsVisible && header.IsMeasureValid && header.IsArrangeValid && header.ActualWidth > 0 && header.ActualHeight > 0)
+            {
+                presented.TrySetResult();
+            }
+        };
+        CompositionTarget.Rendering += rendered;
+        try
+        {
+            window.UpdateLayout();
+            header.InvalidateVisual();
+            TestUiDispatcherHost.AwaitPresentationOnDispatcher(presented.Task, "playlist-drag-header-rendered");
+        }
+        finally { CompositionTarget.Rendering -= rendered; }
+        TextBlock label = FindDescendants<TextBlock>(header).FirstOrDefault(text => text.IsVisible && text.ActualWidth > 0 && text.ActualHeight > 0)
+            ?? throw new AssertFailedException("描画済みheader内の文字領域がありません。");
+        Point windowPoint = label.TranslatePoint(new Point(Math.Min(8d, label.ActualWidth / 2d), label.ActualHeight / 2d), window);
+        IInputElement? inputHit = window.InputHitTest(windowPoint);
+        string hitDiagnostic = $"point={windowPoint}, window={window.RenderSize}, header={header.RenderSize}, label={label.Text}, hit={inputHit?.GetType().Name ?? "null"}, target={item.DataContext}";
+        UIElement hit = inputHit as UIElement
+            ?? throw new AssertFailedException("描画済みheaderの指定座標に実ヒット要素がありません。" + hitDiagnostic);
+        DependencyObject? ancestor = hit;
+        bool insideHeader = false;
+        while (ancestor != null && ancestor is not TreeViewItem)
+        {
+            insideHeader |= ReferenceEquals(ancestor, header);
+            ancestor = VisualTreeHelper.GetParent(ancestor);
+        }
+        Assert.IsTrue(insideHeader, "Windowの実hitが対象headerの描画領域内にあります。" + hitDiagnostic);
+        Assert.AreSame(item, ancestor, "実hitの最寄りTreeViewItemが要求した表/子folderと一致します。" + hitDiagnostic);
+        ConstructorInfo constructor = typeof(DragEventArgs).GetConstructor(BindingFlags.Instance | BindingFlags.NonPublic, null,
+            [typeof(IDataObject), typeof(DragDropKeyStates), typeof(DragDropEffects), typeof(DependencyObject), typeof(Point)], null)
+            ?? throw new AssertFailedException("DragEventArgsの入力生成ctorがありません。");
+        var args = (DragEventArgs)constructor.Invoke([data, DragDropKeyStates.None, DragDropEffects.Copy, hit, window.TranslatePoint(windowPoint, hit)]);
+        args.RoutedEvent = routedEvent;
+        hit.RaiseEvent(args);
+        return args;
+    }
+
+    private static Storyboard ReadPlaylistHoverStoryboard(MainWindow window)
+        => typeof(MainWindow).GetField("treeViewItemInstantStoryBoardPlaylistTable", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(window) as Storyboard
+            ?? throw new AssertFailedException("既存hoverの待機対象がありません。");
+
+    // 本番clockの時間だけを進め、Completedからの実IsExpandedを各ケースで判定します。
+    private static void CompletePlaylistHover(MainWindow window)
+    {
+        Storyboard storyboard = ReadPlaylistHoverStoryboard(window);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler handler = (_, _) =>
+        {
+            if (storyboard.GetCurrentState(window) != ClockState.Active) { completed.TrySetResult(); }
+        };
+        CompositionTarget.Rendering += handler;
+        try
+        {
+            storyboard.SeekAlignedToLastTick(window, TimeSpan.FromSeconds(2), TimeSeekOrigin.BeginTime);
+            TestUiDispatcherHost.AwaitPresentationOnDispatcher(completed.Task, "playlist-hover-clock-completed");
+        }
+        finally { CompositionTarget.Rendering -= handler; }
+    }
+
+    private static void RunAcceptedPlaylistHeaderDrop(ActualMainWindowFixture fixture, TreeViewItem target, IDataObject data)
+    {
+        ChartFileOperationSynchronizer admission = fixture.Library.Lr2Synchronization.PlaylistOperationAdmission;
+        var accepted = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var rejected = new ConcurrentQueue<PlaylistWorkspaceMutationRejectedEventArgs>();
+        EventHandler availability = (_, _) =>
+        {
+            if (admission.IsActive) { accepted.TrySetResult(admission.WaitForIdleAsync()); }
+        };
+        EventHandler<PlaylistWorkspaceMutationRejectedEventArgs> rejection = (_, args) => { rejected.Enqueue(args); accepted.TrySetException(new AssertFailedException("内部dropが拒否されました。")); };
+        admission.AvailabilityChanged += availability;
+        fixture.ViewModel.PlaylistWorkspace.MutationRejected += rejection;
+        Task? operation = null;
+        try
+        {
+            DragEventArgs? args = null;
+            operation = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => args = RaisePlaylistHeaderDrag(target, data, DragDrop.DropEvent));
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(accepted.Task.Unwrap(), "playlist-row-drop-accepted-terminal");
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "playlist-row-drop-event-terminal");
+            Assert.AreEqual(0, rejected.Count);
+            Assert.IsNotNull(args);
+            Assert.IsTrue(args.Handled);
+            Assert.AreEqual(DragDropEffects.Copy, args.Effects);
+        }
+        finally
+        {
+            try
+            {
+                if (accepted.Task.IsCompletedSuccessfully) { TestUiDispatcherHost.AwaitTaskOnDispatcher(accepted.Task.Result, "playlist-row-drop-final-terminal"); }
+                if (operation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "playlist-row-drop-final-event"); }
+            }
+            finally
+            {
+                admission.AvailabilityChanged -= availability;
+                fixture.ViewModel.PlaylistWorkspace.MutationRejected -= rejection;
+            }
+        }
+    }
+
+    private sealed class CountingFileDropDataObject(string path) : IDataObject
+    {
+        private readonly DataObject data = new(DataFormats.FileDrop, new[] { path });
+        internal int ExtractionCount { get; private set; }
+        public object? GetData(string format, bool autoConvert)
+        {
+            if (format == DataFormats.FileDrop) { ExtractionCount++; }
+            return data.GetData(format, autoConvert);
+        }
+        public object? GetData(string format) => GetData(format, true);
+        public object? GetData(Type format) => data.GetData(format);
+        public bool GetDataPresent(string format, bool autoConvert) => data.GetDataPresent(format, autoConvert);
+        public bool GetDataPresent(string format) => data.GetDataPresent(format);
+        public bool GetDataPresent(Type format) => data.GetDataPresent(format);
+        public string[] GetFormats(bool autoConvert) => data.GetFormats(autoConvert);
+        public string[] GetFormats() => data.GetFormats();
+        public void SetData(string format, object value, bool autoConvert) => throw new NotSupportedException();
+        public void SetData(string format, object value) => throw new NotSupportedException();
+        public void SetData(Type format, object value) => throw new NotSupportedException();
+        public void SetData(object value) => throw new NotSupportedException();
+    }
 
     /// <summary>実summary Bindingの行投影交換で主添字が不変でも副選択をIDで保ち、BMTドラッグの確定対象は更新直前の別選択より優先します。</summary>
     /// <remarks>表の選択行とTSV対象を観測します。保存・config・受付終端の網羅はBmtOrderCommandsへ分担します。</remarks>

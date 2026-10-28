@@ -8385,15 +8385,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async void playlistTableDrop(object sender, DragEventArgs e)
     {
-        e.Handled = true;
-        e.Effects = DragDropEffects.None;
         treeViewItemInstantStoryBoardPlaylistTable.Stop(this);
         treeViewItemInstantStoryBoardPlaylistTable.Children.Clear();
-        var viewModel = base.DataContext as MainWindowViewModel;
+        TreeViewItem hitItem = e.OriginalSource is FrameworkElement source
+            ? WPFUtil.FindVisualParent<TreeViewItem>(source)
+            : null;
+        if (hitItem != null)
+        {
+            hitItem.Background = Brushes.Transparent;
+        }
+        // OSファイルはバブル先のWindow_Dropが一度だけ導入受付へ渡します。
         if (!IsPlaylistDropCandidateDrag(e.Data, out List<object> selectedRows))
         {
             return;
         }
+        e.Handled = true;
+        e.Effects = DragDropEffects.None;
+        var viewModel = base.DataContext as MainWindowViewModel;
         if (sender is not TreeViewItem treeViewItem)
         {
             return;
@@ -8402,14 +8410,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        TreeViewItem treeViewItem2 = WPFUtil.FindVisualParent<TreeViewItem>((FrameworkElement)e.OriginalSource);
-        if (treeViewItem2 == null)
+        if (hitItem == null)
         {
             return;
         }
-        treeViewItem2.Background = Brushes.Transparent;
         PlaylistFolderNode targetFolder;
-        if (!TryGetPlaylistFolderNode(treeViewItem2.DataContext, out PlaylistFolderNode folderNode))
+        if (!TryGetPlaylistFolderNode(hitItem.DataContext, out PlaylistFolderNode folderNode))
         {
             targetFolder = null;
         }
@@ -8486,16 +8492,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             e.Effects = DragDropEffects.Copy;
             treeViewItem.Background = SystemColors.HighlightBrush;
         }
-        if (!TryGetPlaylistFolderNode(treeViewItem.DataContext, out _))
+        if (!TryGetPlaylistFolderNode(treeViewItem.DataContext, out _) && !tviTable.IsExpanded)
         {
             var booleanAnimationUsingKeyFrames = new BooleanAnimationUsingKeyFrames();
             Storyboard.SetTargetProperty(booleanAnimationUsingKeyFrames, new PropertyPath(TreeViewItem.IsExpandedProperty));
             Storyboard.SetTarget(booleanAnimationUsingKeyFrames, tviTable);
-            booleanAnimationUsingKeyFrames.KeyFrames.Add(new DiscreteBooleanKeyFrame(!tviTable.IsExpanded, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(1.0))));
+            booleanAnimationUsingKeyFrames.KeyFrames.Add(new DiscreteBooleanKeyFrame(true, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(1.0))));
             booleanAnimationUsingKeyFrames.FillBehavior = FillBehavior.Stop;
             booleanAnimationUsingKeyFrames.Completed += delegate
             {
-                tviTable.IsExpanded = !tviTable.IsExpanded;
+                tviTable.IsExpanded = true;
             };
             treeViewItemInstantStoryBoardPlaylistTable.Children.Add(booleanAnimationUsingKeyFrames);
             treeViewItemInstantStoryBoardPlaylistTable.Begin(this, isControllable: true);

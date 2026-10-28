@@ -14,17 +14,20 @@ public sealed class DroppedInstallDropTerminalTests
     public void Evaluate_SuccessPublishesCopyAndTreeExpansionOnlyAfterAcquisition()
     {
         string[]? acquiredPaths = null;
+        int acquisitionCount = 0;
         var data = new TestDataObject(["external.bms"]);
 
         DroppedInstallDropDecision decision = DroppedInstallDropTerminal.Evaluate(
             data,
             paths =>
             {
+                acquisitionCount++;
                 acquiredPaths = paths;
                 return DroppedInstallIngressAcquisitionResult.Success(
                     new DroppedInstallBatchRequest(paths));
             });
 
+        Assert.AreEqual(1, acquisitionCount);
         CollectionAssert.AreEqual(new[] { "external.bms" }, acquiredPaths);
         Assert.AreEqual(DragDropEffects.Copy, decision.Effects);
         Assert.IsTrue(decision.ExpandPendingTree);

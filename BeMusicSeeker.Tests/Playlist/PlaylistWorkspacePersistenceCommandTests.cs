@@ -3201,6 +3201,200 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         await workspace.AddRowsToFolderAsync([], table, specialFolder);
     }
 
+    /// <summary>空文字・空白名の実folderへ所持追加・同表移動・別表コピーし、root分類せず正確な所属キーと編集値をDBへ保存します。同一所属の再drop、非対象行と元ファイルも保持します。</summary>
+    [DataTestMethod]
+    [DataRow("", "library")]
+    [DataRow("", "move")]
+    [DataRow("", "copy")]
+    [DataRow("   ", "library")]
+    [DataRow("   ", "move")]
+    [DataRow("   ", "copy")]
+    public async Task PlaylistFolderDrop_EmptyNamedNodeKeepsExactMembership(string folderName, string inputKind)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "playlist-empty-folder-drop-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        BMSPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        try
+        {
+            const string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            const string keptHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            var sourceEntry = new BMSTableEntry
+            {
+                md5 = hash,
+                title = "Edited title",
+                folder = "Source",
+                memo = "Input memo",
+                comment = "Input comment",
+                Url = new Uri("https://example.test/input"),
+                Url_diff = new Uri("https://example.test/input-diff"),
+                name_diff = "Input diff",
+                level = 17.25,
+                adddate = new DateTime(2025, 2, 3, 4, 5, 6)
+            };
+            var kept = new BMSTableEntry { md5 = keptHash, title = "Kept", folder = folderName, memo = "Kept memo", level = 23.5 };
+            var target = new BMSTable
+            {
+                playlist_id = 7830,
+                name = "Exact folder target",
+                Output_dir = "ExactFolderTarget",
+                entry_type = LR2SongDBExtended.playlist.EntryUnitType.Folder,
+                is_root_folder = true,
+                Folder_order = [folderName, "Source"],
+                entries = inputKind == "move" ? [kept, sourceEntry] : [kept]
+            };
+            string path = Path.Combine(directory, "charts", "input.bms");
+            Directory.CreateDirectory(Path.GetDirectoryName(path) ?? throw new InvalidOperationException());
+            byte[] bytes = Encoding.ASCII.GetBytes("#TITLE Input\n#BPM 120\n");
+            File.WriteAllBytes(path, bytes);
+            ChartFile chart = CreatePlaylistDropBmsFile(hash, "Catalog title", path);
+            (playlist, library, _, workspace) = CreateRootDropStore(directory, target, [chart]);
+            var sourceTable = new BMSTable
+            {
+                playlist_id = 7831,
+                name = "Copy source",
+                Output_dir = "CopySource",
+                entry_type = LR2SongDBExtended.playlist.EntryUnitType.Folder
+            };
+            if (inputKind == "copy")
+            {
+                sourceTable.entries = [sourceEntry];
+                playlist.BMSTables.Add(sourceTable);
+                playlist.CommitBMSTableWithEntriesToDB(sourceTable);
+            }
+            sourceEntry.ApplyRuntimeUrlCompletion(new Uri("https://example.test/runtime"), null, overwriteExisting: true);
+            object row = inputKind == "library" ? LibraryChartRow.FromChartFile(chart) : new PlaylistDetailSourceRow(sourceEntry, chart).CreateViewRow();
+            var node = PlaylistFolderNode.CreateFolder(folderName);
+
+            await workspace.AddRowsToFolderAsync([row], target, node);
+
+            BMSTableEntry current = target.entries.Single(entry => entry.md5 == hash && !entry.is_removed);
+            Assert.AreEqual(folderName, current.folder);
+            string[] expectedCharts = [hash + "|" + folderName, keptHash + "|" + folderName];
+            CollectionAssert.AreEquivalent(expectedCharts, target.entries.Where(entry => !entry.is_removed && entry.md5 != BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER)
+                .Select(entry => entry.md5 + "|" + entry.folder).ToArray());
+            // 最後の譜面を移した通常名Sourceは、既存の空folder保持規則による専用placeholderだけを残します。
+            string[] expectedPlaceholders = inputKind == "move" ? ["Source"] : [];
+            CollectionAssert.AreEquivalent(expectedPlaceholders, target.entries.Where(entry => !entry.is_removed && entry.md5 == BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER)
+                .Select(entry => entry.folder).ToArray());
+            Assert.AreEqual("Kept memo", kept.memo);
+            Assert.AreEqual(23.5, kept.level);
+            if (inputKind != "library")
+            {
+                Assert.AreEqual("Input memo", current.memo);
+                Assert.AreEqual("Input comment", current.comment);
+                Assert.AreEqual("https://example.test/input", current.Url.AbsoluteUri);
+                Assert.AreEqual("https://example.test/input-diff", current.Url_diff.AbsoluteUri);
+                Assert.AreEqual("Input diff", current.name_diff);
+                Assert.AreEqual(17.25, current.level);
+                Assert.AreEqual(new DateTime(2025, 2, 3, 4, 5, 6), current.adddate);
+            }
+            PlaylistEntryValue before = current.CaptureValue();
+            int revision = target.CaptureEntriesReadSnapshot().Revision;
+            await workspace.AddRowsToFolderAsync([new PlaylistDetailSourceRow(current, chart).CreateViewRow()], target, node);
+            Assert.AreSame(current, target.entries.Single(entry => entry.md5 == hash && !entry.is_removed));
+            Assert.AreEqual(before, current.CaptureValue(), "同じ所属への再dropで値・日時を変更しません。");
+            Assert.AreEqual(revision, target.CaptureEntriesReadSnapshot().Revision);
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(Path.Combine(directory, "song.db")).OpenSongDbReadOnly();
+            LR2SongDBExtended.playlist_entry saved = db.Table<LR2SongDBExtended.playlist_entry>()
+                .Single(entry => entry.playlist_id == target.playlist_id && entry.md5 == hash && !entry.is_removed);
+            CollectionAssert.AreEquivalent(expectedCharts, db.Table<LR2SongDBExtended.playlist_entry>()
+                .Where(entry => entry.playlist_id == target.playlist_id && !entry.is_removed && entry.md5 != BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER)
+                .Select(entry => entry.md5 + "|" + entry.folder).ToArray());
+            CollectionAssert.AreEquivalent(expectedPlaceholders, db.Table<LR2SongDBExtended.playlist_entry>()
+                .Where(entry => entry.playlist_id == target.playlist_id && !entry.is_removed && entry.md5 == BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER)
+                .Select(entry => entry.folder).ToArray());
+            Assert.AreEqual(folderName, saved.folder);
+            Assert.AreEqual(current.memo, saved.memo);
+            Assert.AreEqual(current.comment, saved.comment);
+            Assert.AreEqual(current.Url?.AbsoluteUri ?? string.Empty, saved.url ?? string.Empty);
+            Assert.AreEqual(current.Url_diff?.AbsoluteUri ?? string.Empty, saved.url_diff ?? string.Empty);
+            Assert.AreEqual(current.level, saved.level);
+            Assert.AreEqual(current.adddate, saved.adddate);
+            Assert.AreEqual(0, db.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == target.playlist_id && entry.md5 == hash && entry.folder == "Source" && !entry.is_removed));
+            LR2SongDBExtended.playlist_entry savedKept = db.Table<LR2SongDBExtended.playlist_entry>().Single(entry => entry.playlist_id == target.playlist_id && entry.md5 == keptHash);
+            Assert.AreEqual(folderName, savedKept.folder);
+            Assert.AreEqual("Kept memo", savedKept.memo);
+            Assert.AreEqual(23.5, savedKept.level);
+            if (inputKind == "copy")
+            {
+                Assert.AreEqual("Source", sourceEntry.folder);
+                LR2SongDBExtended.playlist_entry savedSource = db.Table<LR2SongDBExtended.playlist_entry>().Single(entry => entry.playlist_id == sourceTable.playlist_id && entry.md5 == hash);
+                Assert.AreEqual("Source", savedSource.folder);
+                Assert.AreEqual("Input memo", savedSource.memo);
+                Assert.AreEqual("https://example.test/input", savedSource.url);
+                Assert.AreEqual("https://example.test/input-diff", savedSource.url_diff);
+                Assert.AreEqual("Input comment", savedSource.comment);
+                Assert.AreEqual("Input diff", savedSource.name_diff);
+                Assert.AreEqual(17.25, savedSource.level);
+                Assert.AreEqual(new DateTime(2025, 2, 3, 4, 5, 6), savedSource.adddate);
+            }
+            Assert.AreEqual(path, chart.Path);
+            CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path));
+        }
+        finally
+        {
+            if (workspace != null)
+            {
+                workspace.CancelDetailBuilds();
+                await workspace.WaitForDetailBuildIdleAsync();
+                await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                workspace.Dispose();
+            }
+            playlist?.RequestShutdown("playlist_empty_folder_drop_test");
+            library?.RequestShutdown("playlist_empty_folder_drop_test");
+            if (Directory.Exists(directory)) { Directory.Delete(directory, recursive: true); }
+        }
+    }
+
+    /// <summary>通常の改名で失効した空名nodeへの追加をstaleとして拒否し、表rootの分類へ読み替えません。</summary>
+    [DataTestMethod]
+    [DataRow("")]
+    [DataRow("   ")]
+    public async Task PlaylistFolderDrop_RenamedEmptyNodeIsRejectedAsStale(string folderName)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "playlist-stale-empty-drop-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var table = new BMSTable
+        {
+            playlist_id = 7832,
+            name = "Stale folder",
+            Output_dir = "StaleFolder",
+            entry_type = LR2SongDBExtended.playlist.EntryUnitType.Folder,
+            is_root_folder = true,
+            Folder_order = [folderName],
+            entries = [new BMSTableEntry { md5 = new string('b', 32), title = "Existing", folder = folderName }]
+        };
+        ChartFile chart = CreatePlaylistDropBmsFile(new string('a', 32), "Input", Path.Combine(directory, "input.bms"));
+        (BMSPlaylist playlist, TestBmsLibrary library, _, PlaylistWorkspaceViewModel workspace) = CreateRootDropStore(directory, table, [chart]);
+        try
+        {
+            var staleNode = PlaylistFolderNode.CreateFolder(folderName);
+            await workspace.RenameFolderAsync(table, staleNode, "Renamed");
+            var rejected = new List<PlaylistWorkspaceMutationRejectedEventArgs>();
+            workspace.MutationRejected += (_, args) => rejected.Add(args);
+            await workspace.AddRowsToFolderAsync([LibraryChartRow.FromChartFile(chart)], table, staleNode);
+            Assert.AreEqual(1, rejected.Count);
+            Assert.IsTrue(rejected[0].IsStale);
+            Assert.AreEqual("Renamed", table.entries.Single().folder);
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(Path.Combine(directory, "song.db")).OpenSongDbReadOnly();
+            LR2SongDBExtended.playlist_entry saved = db.Table<LR2SongDBExtended.playlist_entry>().Single(entry => entry.playlist_id == table.playlist_id && !entry.is_removed);
+            Assert.AreEqual(new string('b', 32), saved.md5);
+            Assert.AreEqual("Renamed", saved.folder);
+        }
+        finally
+        {
+            workspace.CancelDetailBuilds();
+            await workspace.WaitForDetailBuildIdleAsync();
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            workspace.Dispose();
+            playlist.RequestShutdown("playlist_stale_empty_drop_test");
+            library.RequestShutdown("playlist_stale_empty_drop_test");
+            if (Directory.Exists(directory)) { Directory.Delete(directory, recursive: true); }
+        }
+    }
+
     private static (BMSPlaylist Playlist, TestBmsLibrary Library, BMSTable Table, PlaylistWorkspaceViewModel Workspace,
         ChartFile ChartA, ChartFile ChartB, ChartFile ChartC) CreateRootDropWorkingSetFixture(
         string tempDirectory,

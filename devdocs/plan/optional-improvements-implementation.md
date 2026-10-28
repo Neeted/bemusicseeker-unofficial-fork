@@ -29,7 +29,7 @@
 | 単位 | 対象・コミットの区切り | 共有先・順序 |
 | --- | --- | --- |
 | U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U05と直列 |
-| U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04と直列 |
+| U05 ツリーのdrop・編集とフォルダ識別 | 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04と直列 |
 | U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
 | U15 導入・推定 | 宛先による範囲拡張廃止 → 入れ子禁止 → 重複保留の登録整理 → 候補根変換・ユニークhash票 → DST表記 | PackageInstall/service/estimation。同一writer。候補根と票数は同じ座標へ揃える。登録整理は発見結果/完全性を共用。U09と順序調整 |
 
@@ -76,22 +76,6 @@ Loadedは表示同期と一回購読、Unloadedは表示購読・予約だけの
 メニュー定義一箇所の削除で足り、動的separator管理器は不要。`MainWindowTreePresentationWpfTests` の実rootメニュー代表または既存のcompiledメニュー検証で残る2操作の到達と末尾separatorなしを確認する。削除のためだけの多層テストは増やさない。履歴メニュー変更とXAMLが重なるため同担当または順次統合。
 
 ## U05 ツリーのdrop・編集とフォルダ識別
-
-### プレイリストツリーのファイルdrop・ホバー展開
-
-**両方現存。既存の合意済み任意改善。** `MainWindow.playlistTableDrop` は形式検査より先に `e.Handled=true` にし、内部行形式でなければreturnする。OSファイルが表見出し/子フォルダへ落ちると、通常の `Window_Drop`→`DroppedInstallDropTerminal`→`PackageInstallWorkflow.AcquireAndTryEnqueueDroppedPaths` に届かない。内部譜面行dropは既存の表/フォルダ、OS FileDropは既存Windowの導入受付へ一回だけ通す。新規の表import扱いへ変えない。
-
-`playlistTableDragEnter` は1秒後のanimation値とCompletedの両方に `!tviTable.IsExpanded` を使い、展開済み見出しも閉じる。未展開の見出しだけを開く。DragLeave/Drop/取消の既存後始末を保持し、新しい展開保存状態・DnD共通管理を加えない。
-
-共有変更先は `MainWindow.cs` のDrop/DragEnter/DragLeave群。`MainWindowPlaylistWorkspaceWpfTests` と既存drop導入系列に、実ヒット対象・一回の受付・追加結果・展開済み維持/未展開→開くを分担する。Handledやanimation値だけのテストでは不十分。アーカイブ・ファイル条件の網羅をこのUI単位へ複製しない。
-
-### 空名プレイリストフォルダへのdrop
-
-**現存。ユーザー確定:** root分類は表rootへdropしたときだけ。実在する空名子ノードは通常フォルダdropであり、その空所属へ追加/移動する。
-
-`PlaylistWorkspaceViewModel.Mutations.cs` の `AddRowsToFolder` は `targetFolder?.FolderName ?? string.Empty` と `string.IsNullOrWhiteSpace(folderName)` でnodeなしのrootと空名nodeを潰す。後続の存在検査、同表entry除去、root分類用 `BuildRootFolderDropMutations` 呼出しがすべてこの区別に依存する。最初だけ直さず、`targetFolder == null` による一つのroot判定を全分岐へ接続する。空文字/空白が名前の実nodeもroot扱いしない。
-
-通常名、真の表見出しdropの既存分類・採番、特殊node/同期ON拒否、MEMO/URL/level保持、物理移動なしを維持する。空名禁止・自動改名・DBスキーマ・新しい分類戦略は不要。`PlaylistWorkspacePersistenceCommandTests` のroot drop系列で所持/同表/別表→空所属、同一所属再drop、DB読戻しと非対象値を確認し、実ヒットnode代表は `MainWindowPlaylistWorkspaceWpfTests` へ置く。モデルdropとツリーUIの合同単位にすれば、二つのroot判定や同じDnDのテスト重複を避けられる。
 
 ### 保存済み所属名の前後空白
 

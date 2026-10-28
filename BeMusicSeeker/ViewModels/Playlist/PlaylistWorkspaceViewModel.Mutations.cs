@@ -123,6 +123,11 @@ public sealed partial class PlaylistWorkspaceViewModel
         return ExecutePlaylistMutationAsync(PlaylistWorkspaceMutationKind.CreateFolder, capability => CreateFolder(table, capability));
     }
 
+    /// <summary>内部行を指定所属へ追加します。nullだけを表rootとして分類し、空文字・空白名を持つ実ノードは存在する通常所属として保存します。</summary>
+    /// <param name="rows">追加・移動・コピーする内部行。</param>
+    /// <param name="table">現在の追加先プレイリスト。</param>
+    /// <param name="targetFolder">通常所属ノード。nullの場合だけ表rootです。</param>
+    /// <returns>保存・必要出力・通知と受付解放までのTask。</returns>
     internal Task AddRowsToFolderAsync(
         IEnumerable<object> rows,
         BMSTable table,
@@ -376,7 +381,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        bool isRootFolderDrop = string.IsNullOrWhiteSpace(folderName);
+        bool isRootFolderDrop = targetFolder == null;
         if (!isRootFolderDrop
             && !playlistStore.ContainsPlaylistFolderForMutation(activeTable, folderName))
         {
@@ -411,7 +416,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     List<BMSTableEntry> entriesAlreadyInFolder = [.. entriesFromTarget
                         .Where(entry => string.Equals(entry.folder ?? string.Empty, folderName, StringComparison.Ordinal))];
                     if (activeTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder
-                        && string.IsNullOrWhiteSpace(folderName))
+                        && isRootFolderDrop)
                     {
                         entriesToRemove.AddRange(entriesFromTarget);
                     }
@@ -428,7 +433,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 }
 
                 if (activeTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder
-                    && string.IsNullOrWhiteSpace(folderName))
+                    && isRootFolderDrop)
                 {
                     entriesToAdd.AddRange(sourceRows
                         .Where(ShouldPreserveEntryForRootFolderDrop)

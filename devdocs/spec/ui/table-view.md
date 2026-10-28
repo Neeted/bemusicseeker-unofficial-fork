@@ -32,6 +32,12 @@ LEVELの整列は型付き数値キーを優先し、必要な文字列fallback�
 
 通常Selectedと再クリックは、実際に表示された親TreeViewItemのItemsSourceを選択の出自として渡します。モデル確定後も旧表示が残る間のクリックは旧構成の対応へ追従し、新表示からの同名キーの選択へ旧対応を再適用しません。要求の複製・表参照差替えでも出自を保持し、現在のモデル構成へ暗黙に読み替えません。LampViewerも存在確認と同じ公開構成を使います。
 
+### プレイリストツリーのドロップとホバー
+
+表見出し・実子フォルダにOSのFileDropを落とすと、既存の `Window_Drop`、`DroppedInstallDropTerminal`、導入ownerの受付へ一回渡します。表のインポートやプレイリストへの譜面追加へ変換しません。内部行形式は実ヒット先の表rootまたは通常所属への既存要求を使います。空名・空白名の子ノードは[保存仕様](../playlist/storage-and-export.md#フォルダ単位のドロップ)に従います。
+
+内部行のホバーは未展開の表見出しだけを遅延して開き、展開済み見出しを閉じません。DragLeave・Drop・取消の既存の後始末で背景と待機中の展開を解除し、次のdragへ旧要求を持ち越しません。展開状態の新しい保存や共通DnD管理は設けません。
+
 ### プレイリストツリーのフォルダ名編集
 
 `EditableTextBlock.Text` は `PlaylistFolderNode.DisplayName` のOneWay表示Bindingを保持します。内部TextBoxは編集期間だけ有効な `CandidateText` を更新し、表示元やモデルへ書き戻しません。実際のfalse→trueで表示値から候補を作り、trueの重複設定では候補を作り直しません。編集不可の間のtrue要求は成立せず、後から編集を許可しても自動再開しません。
@@ -318,6 +324,12 @@ DPIは変更コールバックと描画開始時の環境確認で追従しま�
 一覧ヘッダーの上端には `Table.HeaderGridLineBrush` による1 DIPの線を表示幅全体へ描画します。線の中心は上端から0.5 DIPに置き、端で半分が欠けることを避けます。通常一覧・プレイリスト概要とも、保留・プレイログの追加ツールバーや表示列・データ行の有無によらず上枠を表示し、追加ツールバー側には下枠を重ねません。データ行の罫線・行高・スクロール計算は維持します。
 
 ## 実装とテストの対応
+
+| ツリードロップ・ホバーの条件 | 実装 | 検証の分担 |
+| --- | --- | --- |
+| OS FileDropの表見出し/実子folderからの通常導入受付 | `MainWindow.playlistTableDrop` → `Window_Drop` | `MainWindowPlaylistWorkspaceWpfTests.PlaylistTreeFileDrop_ReachesInstallOwnerOnceWithoutChangingPlaylist` は実compiled header内からrouted Dropし、FileDrop取得1回・同期Handled/Copyの後にowner実終端を待ち、自動導入OFFの正常保留でCompletion/Failureとも0回、保留1件・導入済み0件・playlist不変を確認する。唯一の管理対象譜面が元入力と別pathで、入力前の固定bytes・TITLE/ARTISTへ一致し、唯一のpackage根と正規DBのinstall行が対応すること、元入力bytesの保持も確認する。`DroppedInstallDropTerminalTests.Evaluate_SuccessPublishesCopyAndTreeExpansionOnlyAfterAcquisition` は取得delegate1回と転送値・Copy・展開指示を確認する。archive・busy・入力失敗の網羅は既存Install系列へ残す。 |
+| 内部行の実ヒット先、Drop後の背景・展開待機の解除 | 同Dropと既存workspace要求 | 同WPFクラスの `PlaylistTreeRowDrop_UsesHitNodeAndClearsHover` は正規DataObjectを表root/空名実folderへ配送し、受理時Pの実終端・asyncイベント終端後に所属とDBを確認する。次drag完了でも旧対象の展開状態を保持する。空白名・入力種別・編集値の条件差は[保存仕様](../playlist/storage-and-export.md#実装とテストの対応)へ分担する。 |
+| 未展開を開く、既展開保持、Leave/取消後の次drag | `MainWindow.playlistTableDragEnter` / `playlistTableDragLeave` | 同WPFクラスの `PlaylistTreeHover_OnlyOpensCollapsedHeaderAndLeaveCancelsOldTarget` は既存clockの終端と実IsExpanded・背景を確認する。既展開ではclockを開始しない静的接続と実状態を併用する。OLEのEscape入力発行は自動対象外とし、取消の既存PreviewDragLeave入力先を使う。 |
 
 再生開始後の入力保持は `MainWindowPlaybackWpfTests.InternalReady_RestoresTableOnceAndPreservesLaterSearchOrMemoInput` が実MainWindow・検索control・本番受付のMEMOセルで確認します。表への初回要求と後発入力後の追加要求なしを観測し、物理OSフォーカス移動は[推奨実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分担します。再生状態通知による行・選択・未確定編集の保持は既存の `PlaybackStateChangesRefreshLoadedTableWithoutReplacingRowsOrCommittingEditor` が分担します。
 
