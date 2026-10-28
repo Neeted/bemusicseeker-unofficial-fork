@@ -32,7 +32,6 @@
 | U03 共通表の表示とコピー | TSV空行 → URL幅 → フルスキャンDST編集・非編集案内 → 言語cache | U02後。同担当が能力付与・編集終端・一時投影まで所有。U15のDST検証と順序調整 |
 | U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U03後、U05/U08と直列 |
 | U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04/U08と直列 |
-| U06 保存検索式 | 正規表現の同一性 | 検索文法・保存store・検索仕様。U07検索表示へ順次 |
 | U07 言語変更と確認文言 | 音声 → 検索 → プロパティ → ランプ → 確認ボタン | 既存owner別コミット。全言語資源は一担当。U03/U16/U17/U20/U23と共有編集を調整 |
 | U08 手動ランキング取得廃止 | UI・専用通信・資料・専用テストを除去 | MainWindow/composition/Ir。U04/U05後、起動時ローカルcache維持 |
 | U09 確定文字コードの保持と導入・同期への引継ぎ | 保留保存境界 → LR2全体同期 → 導入成功先への引継ぎ | Maintenance/Catalog/Install/LR2。導入serviceはU15との順序調整後、署名変更なし |
@@ -48,7 +47,7 @@
 | U22 standalone外部表の出力名検査 | LR2専用検査をLR2モードへ限定 | ExternalSyncOwner。U20と同担当で順次 |
 | U23 BMSルート確定後の導入先選択表示 | 保存値と選択肢の通知を揃える | Settings VM/page、U07設定通知と編集を調整 |
 
-現在の所有は、`optional-updater` がU21後にU02と共通表、`optional-search-ui` がU06と検索、`optional-encoding` がU09、`optional-bms-input` がU12と再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U13/U14/U16/U17/U20/U22/U23は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
+現在の所有は、`optional-updater` がU21後にU02と共通表、`optional-search-ui` がU07の言語表示、`optional-encoding` がU09、`optional-bms-input` がU12と再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U13/U14/U16/U17/U20/U22/U23は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
 
 ### 開始・引継ぎと計画の更新
 
@@ -182,14 +181,6 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 そのクリックの短命な開始要求として、後発の明示入力/フォーカス移動、対象交換/切離し、別編集開始/終了で失効させる。既存部品の編集候補と保存入口を使う。現在の無条件な遅延callbackを残して新ガードを重ねず、旧開始要求の一つの所有に整理する。全画面入力管理器、恒久世代台帳、固定待機の再試行は不要。
 
 `MainWindowPlaylistWorkspaceWpfTests` でクリック→1秒以内に検索入力→callback後も検索の全文/フォーカス保持・改名0回、移動しない場合は一回開始を確認。F2、別ノード、切離し、重複クリックで古い要求が再開しない代表を分担する。遅延完了後の全UI状態を保証する一般フレームワークへ拡張しない。DnDと同MainWindowツリー領域のため同担当へまとめられる。
-
-## U06 保存検索式
-
-### 保存検索式の正規表現の同一性
-
-履歴/お気に入りは全体の大小文字を無視し、title:re:\dとtitle:re:\D等の別パターンを潰す。実装では通常部分をOrdinalIgnoreCase、regex本体をOrdinalとする小さい文法比較へ統合する。保存文字列は既存の空白/改行整形だけを維持し、大小変換・意味的regex同値・式順/別名の新正規化を追加しない。
-
-tokenizer/引用/否定/項目/OR/Windows drive等の区別を共用し、re:部分文字列だけで判定しない。Regex生成・条件整列を行うGridKeywordSearchQuery.Parse全体は比較へ呼ばず、不正regexも本体原文で比較する。履歴/お気に入りの追加・削除・重複表示・保存復元へ一契約を使う。KeywordSearchSavedQueryStoreTestsと履歴系列でsongtitle/SONGTITLE・title:songtitle/TITLE:SONGTITLEは一件、\d/\D・\w/\Wは別件とし、混在句・引用re:・旧保存値の復元/片方削除と既存上限/形式を確認する。候補行識別とは分ける。
 
 ## U07 言語変更と確認文言
 
