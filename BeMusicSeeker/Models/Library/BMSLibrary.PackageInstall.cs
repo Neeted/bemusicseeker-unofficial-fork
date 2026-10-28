@@ -913,7 +913,8 @@ public partial class BMSLibrary
         bool reportAtTerminal = false,
         BmsLibraryOptionsSnapshot optionsSnapshot = null,
         IReadOnlyDictionary<ChartPackage, string> preparedDestinations = null,
-        ISet<ChartPackage> busyPackages = null)
+        ISet<ChartPackage> busyPackages = null,
+        PendingInstallInputProtection pendingInputProtection = null)
     {
         ArgumentNullException.ThrowIfNull(mutationSession);
         List<ChartPackage> installPackageList = [.. (chartPackagesInstall ?? []).Where(package => package != null)];
@@ -961,7 +962,8 @@ public partial class BMSLibrary
                     enqueueDiagnosticEffect: diagnosticEffectObserver,
                     onMutationScopePrepared: (source, destination) => mutationSession.TryProtectManagedOutput(
                         package.delete_parent ? [source, destination, System.IO.Path.GetDirectoryName(source)] : [source, destination], recursive: true),
-                    preparedDestinationDirectory: preparedDestination);
+                    preparedDestinationDirectory: preparedDestination,
+                    pendingInputProtection: pendingInputProtection);
             },
             mutationSession,
             sourceCleanupPolicy,
@@ -2325,7 +2327,8 @@ public partial class BMSLibrary
                     estimatedInstallBatchApplyContext: batchApplyContext,
                     estimatedInstallDeferredFeedback: deferredFeedback,
                     reportAtTerminal: reportAtTerminal,
-                    optionsSnapshot: options);
+                    optionsSnapshot: options,
+                    pendingInputProtection: new PendingInstallInputProtection(item.OriginalPackage, installPlan.InputReferences));
             },
             CreateInstalledDisplayPackageForResourceOnlyMerge,
             PreparePendingPackageSourceCleanupForMutationSession,

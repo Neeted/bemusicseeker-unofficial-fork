@@ -1286,6 +1286,7 @@ internal sealed class BmsLibraryPackageInstallService
     /// <summary>
     /// package install の filesystem 操作を destination-local staging と durable DB receipt の境界で実行します。
     /// source は DB owner が durable receipt を返すまで保持し、cleanup はその後だけ行います。
+    /// 開始時の別保留入力を渡した場合は追加残存整理だけから保護します。
     /// 宛先未指定の単体譜面も新規フォルダへ導入します。単体入力の物理計画はそのファイルだけを含み、親や兄弟を変更しません。
     /// </summary>
     internal FileDbMutationReceipt MovePackageFilesWithReceipt(
@@ -1306,7 +1307,8 @@ internal sealed class BmsLibraryPackageInstallService
         IInstalledChartLookupIndex independentOwnershipLookup = null,
         ISet<string> excludedComponentPaths = null,
         Action<PackageInstallExecutionResult> onPreflightPrepared = null,
-        Action<Action> enqueueDiagnosticEffect = null)
+        Action<Action> enqueueDiagnosticEffect = null,
+        PendingInstallInputProtection pendingInputProtection = null)
     {
         return MovePackageFilesCore(
             package,
@@ -1329,7 +1331,8 @@ internal sealed class BmsLibraryPackageInstallService
             enqueueDiagnosticEffect,
             deferDurableCommitToSession: false,
             sessionPreparedObserver: null,
-            isPreflightRefusal: out _);
+            isPreflightRefusal: out _,
+            pendingInputProtection: pendingInputProtection);
     }
 
     /// <summary>単体譜面・フォルダの読取り入力から新規導入フォルダを固定します。明示宛先は維持し、未指定時は同一要求の予約と既存実体を避けます。入力の物理的な範囲は変更しません。</summary>
@@ -1368,6 +1371,7 @@ internal sealed class BmsLibraryPackageInstallService
     /// <summary>
     /// 導入・フォルダ統合の session 向けに filesystem promotion までを実行します。
     /// canonical durable apply と source cleanup は outer session が所有し、ここでは実行しません。
+    /// 開始時の別保留入力を渡した場合は追加残存整理だけから保護します。
     /// 新規宛先の準備は入力種別で共用しますが、単体譜面はそのファイルだけを新規フォルダへ配置します。
     /// </summary>
     /// <param name="onMutationScopePrepared">読み取りpreflightで実src/dstを確定した後、最初の物理副作用前に条件付きPを取得します。falseはBusyの継続可能な未処理、trueはcleanup終端まで保持する受理を表します。</param>
@@ -1391,7 +1395,8 @@ internal sealed class BmsLibraryPackageInstallService
         Action<PackageInstallExecutionResult> onPreflightPrepared = null,
         Action<Action> enqueueDiagnosticEffect = null,
         Func<string, string, bool> onMutationScopePrepared = null,
-        string preparedDestinationDirectory = null)
+        string preparedDestinationDirectory = null,
+        PendingInstallInputProtection pendingInputProtection = null)
     {
         PackageInstallExecutionResult executionResult = null;
         PackageInstallSessionPhysicalMutation physicalMutation = null;
@@ -1422,7 +1427,8 @@ internal sealed class BmsLibraryPackageInstallService
             },
             isPreflightRefusal: out bool isPreflightRefusal,
             onMutationScopePrepared: onMutationScopePrepared,
-            preparedDestinationDirectory: preparedDestinationDirectory);
+            preparedDestinationDirectory: preparedDestinationDirectory,
+            pendingInputProtection: pendingInputProtection);
         return new PackageInstallSessionMoveResult(executionResult, physicalMutation, failureReceipt, isPreflightRefusal);
     }
 
@@ -1449,7 +1455,8 @@ internal sealed class BmsLibraryPackageInstallService
         Action<PackageInstallExecutionResult, PackageInstallSessionPhysicalMutation> sessionPreparedObserver,
         out bool isPreflightRefusal,
         Func<string, string, bool> onMutationScopePrepared = null,
-        string preparedDestinationDirectory = null)
+        string preparedDestinationDirectory = null,
+        PendingInstallInputProtection pendingInputProtection = null)
     {
         isPreflightRefusal = false;
         if (package == null)
@@ -1762,6 +1769,7 @@ internal sealed class BmsLibraryPackageInstallService
                         plannedDestinationHashes,
                         sourceCleanupBoundaryDirectories,
                         sourceCleanupPolicy,
+                        pendingInputProtection,
                         out List<string> verifiedResidualCleanupFiles,
                         out string residualCleanupDecisionReason))
                     {
@@ -2038,6 +2046,7 @@ internal sealed class BmsLibraryPackageInstallService
         IPrimaryHashLookup plannedDestinationHashes,
         IEnumerable<string> cleanupBoundaryDirectories,
         PackageSourceCleanupPolicy sourceCleanupPolicy,
+        PendingInstallInputProtection pendingInputProtection,
         out List<string> verifiedResidualCleanupFiles,
         out string reason)
     {
@@ -2058,6 +2067,12 @@ internal sealed class BmsLibraryPackageInstallService
         {
             reason = "safe_cleanup_allowed no_residual_candidates";
             return true;
+        }
+
+        if (residualFiles.Any(path => pendingInputProtection?.IsReferencedByOtherPackage(path) == true))
+        {
+            reason = "residual_referenced_by_other_pending_package";
+            return false;
         }
 
         foreach (string residualFilePath in residualFiles)
@@ -2828,7 +2843,7 @@ internal sealed class BmsLibraryPackageInstallService
     /// package ごとの実行段階まで遅延します。
     /// </summary>
     /// <param name="requestedPackages">ユーザーが指定した pending package の順序付き一覧です。</param>
-    /// <param name="currentPendingPackages">現在 DB/メモリに保持している pending package の snapshot です。</param>
+    /// <param name="currentPendingPackages">一回列挙して要求照合と元入力範囲の捕捉に共用する全保留です。選択外・後続も追加残存整理から保護します。</param>
     /// <param name="installedChartLookup">開始時に所持している譜面 hash の lookup です。</param>
     public PendingInstallBatchPlan BuildEstimatedInstallBatchPlan(
         IEnumerable<ChartPackage> requestedPackages,
@@ -2846,9 +2861,15 @@ internal sealed class BmsLibraryPackageInstallService
             pendingByRequest.Add(package, null);
             if (!string.IsNullOrWhiteSpace(package.path)) { requestedByPath.Add(package.path, package); }
         }
+        List<PendingInstallInputReference> inputReferences = [];
         foreach (ChartPackage package in currentPendingPackages ?? [])
         {
             if (package == null) { continue; }
+            if (!string.IsNullOrWhiteSpace(package.path))
+            {
+                inputReferences.Add(new PendingInstallInputReference(
+                    package, package.path, LongPathFileSystem.DirectoryExists(package.path)));
+            }
             // 参照かパスで最初に一致した保留を保持します。後続の参照一致で先行パス一致を置換しません。
             if (pendingByRequest.TryGetValue(package, out ChartPackage referenceMatch) && referenceMatch == null)
             { pendingByRequest[package] = package; }
@@ -2857,6 +2878,7 @@ internal sealed class BmsLibraryPackageInstallService
                 && pendingByRequest[pathRequest] == null)
             { pendingByRequest[pathRequest] = package; }
         }
+        plan.InputReferences = inputReferences.ToArray();
         var selectedReferences = new HashSet<ChartPackage>();
         var selectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartPackage requestedPackage in requested)

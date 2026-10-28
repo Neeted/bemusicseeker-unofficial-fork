@@ -19,7 +19,7 @@ internal sealed class ManagedArchiveInstallFixture : IDisposable
     private readonly List<string> managedRoots = [];
     private readonly Queue<Func<Task>> background = new();
 
-    internal ManagedArchiveInstallFixture(bool knownCandidate = false)
+    internal ManagedArchiveInstallFixture(bool knownCandidate = false, bool deletePendingSource = false, bool knownInstallDestination = false)
     {
         Root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ManagedArchiveTests_" + Guid.NewGuid().ToString("N"));
         InstallRoot = Path.Combine(Root, "Library");
@@ -45,9 +45,20 @@ internal sealed class ManagedArchiveInstallFixture : IDisposable
             charts = [chart];
             resources[CandidateDirectory] = ["sound.wav"];
         }
+        InstallDestinationDirectory = Path.Combine(InstallRoot, "Target");
+        if (knownInstallDestination)
+        {
+            Directory.CreateDirectory(InstallDestinationDirectory);
+            string chart = Path.Combine(InstallDestinationDirectory, "target-existing.bms");
+            File.WriteAllText(chart, ChartText("Target", 2), Encoding.ASCII);
+            File.WriteAllBytes(Path.Combine(InstallDestinationDirectory, "sound.wav"), [2]);
+            charts = [.. charts, chart];
+            resources[InstallDestinationDirectory] = ["sound.wav"];
+        }
         Options = new BmsLibraryOptionsSnapshot
         {
             OperationModeLR2DB = false,
+            DeletePendingPackageSourceAfterInstall = deletePendingSource,
             ScanBmsFilesOnStartup = true,
             BMSInstallDir = InstallRoot,
             FolderNameFormat = "%TITLE%",
@@ -71,7 +82,7 @@ internal sealed class ManagedArchiveInstallFixture : IDisposable
         Dialogs = new FileDbReportRecordingDialogs();
         Library = new TestBmsLibrary(SongDb, null, null, Files, Dialogs,
             new TestUiScheduler(() => null), () => Options,
-            CapturedChartFileScanner.FromFixture(charts, resources, knownCandidate ? [CandidateDirectory] : []), settings: TestBmsFactory.CreateRootSettings([InstallRoot]))
+            CapturedChartFileScanner.FromFixture(charts, resources, resources.Keys), settings: TestBmsFactory.CreateRootSettings([InstallRoot]))
         {
             BmsCharts = [],
             BmsonCharts = [],
@@ -86,6 +97,7 @@ internal sealed class ManagedArchiveInstallFixture : IDisposable
     internal string InstallRoot { get; }
     internal string SongDb { get; }
     internal string CandidateDirectory { get; }
+    internal string InstallDestinationDirectory { get; }
     internal BmsLibraryOptionsSnapshot Options { get; }
     internal TestBmsLibrary Library { get; }
     internal FileDbReportRecordingDialogs Dialogs { get; }

@@ -4877,7 +4877,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// 所持ハッシュだけを移動防止の基準へ渡し、選択した未導入ハッシュを予約せず、計画段階で後続導入を排除する誤りを検出する。
+    /// 所持ハッシュだけを移動防止の基準へ渡し、選択した未導入ハッシュを予約せず、計画段階で後続導入を排除する誤りを検出する。保留の一回列挙を要求照合と元入力捕捉に共用し、先行警告を変更しない。
     /// </summary>
     [TestMethod]
     public void BuildEstimatedInstallBatchPlan_FiltersCandidatesWithoutReservingUncommittedHashes()
@@ -4900,11 +4900,19 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         cleanupOnlyPackage.path = "C:\\Pending\\Pkg2";
         cleanupOnlyPackage.delete_parent = false;
 
+        int pendingEnumerationCount = 0;
+        IEnumerable<ChartPackage> EnumeratePendingOnce()
+        {
+            Assert.AreEqual(1, ++pendingEnumerationCount, "要求照合と入力保護は同じ一回列挙を使います。");
+            yield return mixedPackage;
+            yield return cleanupOnlyPackage;
+        }
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [mixedPackage, cleanupOnlyPackage],
-            [mixedPackage, cleanupOnlyPackage],
+            EnumeratePendingOnce(),
             CreateInstalledChartLookup([installedFile, cleanupInstalledFile]));
 
+        Assert.AreEqual(1, pendingEnumerationCount);
         Assert.AreEqual(2, plan.SelectedPendingPackages.Count);
         Assert.AreEqual(0, plan.CleanupOnlyCandidates.Count);
         Assert.IsTrue(plan.MoveGuardLookup.ContainsPrimaryHash(installedFile.Md5));
@@ -7676,28 +7684,58 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// 残譜面の実コピーが片付け範囲外の所持先にある場合だけ親を消費し、確認済み重複入力の片付け漏れを検出する。
+    /// 独立所持で裏付けた残譜面を通常は整理し、別保留の単体完全一致・directory配下があれば追加整理全体だけを見送ります。同prefix兄弟は保護範囲へ含めません。
     /// </summary>
-    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
-    [TestMethod]
-    public void MovePackageFilesWithReceipt_DeletesParentDirectory_WhenOnlyInstalledChartsRemain()
+    /// <remarks>実receiptとFSで本人の正常移動・元消費、独立所持コピー、親の削除可否を確認します。保留入力は本番の一回列挙で捕捉し、捕捉後のpackage.path変更で元範囲を失わないことも確認します。実ZIP・DB・表示への接続はSplitZipKeepsOtherPendingInputが分担します。</remarks>
+    [DataTestMethod]
+    [DataRow("none", false)]
+    [DataRow("file", true)]
+    [DataRow("directory", true)]
+    [DataRow("prefix-sibling", false)]
+    public void MovePackageFilesWithReceipt_DeletesParentDirectory_WhenOnlyInstalledChartsRemain(string referenceKind, bool preserveResiduals)
     {
-
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
             string remainingChartPath = CreateBmsFile(setup.ParentDirectoryPath, "remain-installed.bms", "#TITLE Remain Installed");
-
+            string unreferencedPath = CreateBmsFile(setup.ParentDirectoryPath, "unreferenced.bms", "#TITLE Unreferenced Installed");
+            byte[] residualBytes = File.ReadAllBytes(remainingChartPath);
             string independentlyOwnedPath = Path.Combine(tempDirectoryPath, "Installed", "Owned", "remain-installed.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(independentlyOwnedPath)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(independentlyOwnedPath) ?? throw new AssertFailedException());
             File.Copy(remainingChartPath, independentlyOwnedPath);
+            string otherOwnedPath = Path.Combine(Path.GetDirectoryName(independentlyOwnedPath) ?? throw new AssertFailedException(), "unreferenced.bms");
+            File.Copy(unreferencedPath, otherOwnedPath);
+            IInstalledChartLookupIndex lookup = CreateInstalledChartLookup([
+                BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(independentlyOwnedPath)),
+                BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(otherOwnedPath))]);
+            List<ChartPackage> pending = [setup.Package];
+            if (referenceKind != "none")
+            {
+                var other = ChartPackage.FromChartEntries([]);
+                other.path = referenceKind switch
+                {
+                    "file" => remainingChartPath,
+                    "directory" => setup.ParentDirectoryPath,
+                    _ => Path.Combine(setup.ParentDirectoryPath, "remain")
+                };
+                if (referenceKind == "prefix-sibling") { Directory.CreateDirectory(other.path); }
+                // delete_parentを元入力scopeへ拡げると同prefix兄弟行まで整理を見送るため、trueで確認します。
+                other.delete_parent = true;
+                pending.Add(other);
+            }
+            PendingInstallBatchPlan plan = new BmsLibraryPackageInstallService().BuildEstimatedInstallBatchPlan([], pending, lookup);
+            if (pending.Count > 1) { pending[1].path = Path.Combine(tempDirectoryPath, "changed-after-capture"); }
             bool moved = ExecuteSingleChartParentDeleteMoveWithReceipt(
-                setup,
-                CreateInstalledChartLookup([BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(independentlyOwnedPath))]));
+                setup, lookup, new PendingInstallInputProtection(setup.Package, plan.InputReferences));
 
             Assert.IsTrue(moved);
-            Assert.IsFalse(Directory.Exists(setup.ParentDirectoryPath));
+            Assert.AreEqual(preserveResiduals, Directory.Exists(setup.ParentDirectoryPath));
+            Assert.AreEqual(preserveResiduals, File.Exists(remainingChartPath));
+            Assert.AreEqual(preserveResiduals, File.Exists(unreferencedPath), "別保留が一つでも参照すれば追加整理全体を見送ります。");
+            Assert.IsFalse(File.Exists(setup.SourceChartPath));
             Assert.IsTrue(File.Exists(Path.Combine(setup.DestinationDirectoryPath, "install-target.bms")));
+            CollectionAssert.AreEqual(residualBytes, File.ReadAllBytes(independentlyOwnedPath));
+            if (preserveResiduals) { CollectionAssert.AreEqual(residualBytes, File.ReadAllBytes(remainingChartPath)); }
         });
     }
 
@@ -8406,7 +8444,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 
     private static bool ExecuteSingleChartParentDeleteMoveWithReceipt(
         SafeDeleteMoveSetup setup,
-        IInstalledChartLookupIndex? independentlyOwnedLookup)
+        IInstalledChartLookupIndex? independentlyOwnedLookup,
+        PendingInstallInputProtection? pendingInputProtection = null)
     {
         var service = new BmsLibraryPackageInstallService();
         var fileMutationService = new RealFileMutationService();
@@ -8428,7 +8467,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             _ => FileDbMutationCommitResult.Durable(),
             showMessageBoxOnInstallFail: false,
             sourceCleanupPolicy: PackageSourceCleanupPolicy.DeleteVerifiedResidualContents,
-            independentOwnershipLookup: independentlyOwnedLookup);
+            independentOwnershipLookup: independentlyOwnedLookup,
+            pendingInputProtection: pendingInputProtection);
         return receipt?.DurableCommit == true
             && receipt.TerminalState != FileDbMutationTerminalState.DurableFinalizationFailed;
     }

@@ -99,6 +99,69 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
     }
 
+    /// <summary>実ZIPから別々に保留されたa/bのうちaを導入しても、独立所持のあるbを追加整理で消さず、aの通常消費とDB・所持・導入済み表示の確定を保ちます。</summary>
+    /// <remarks>実取込みから推定先導入への入力保護の接続を確認します。bを選択しない場合と導入先なしで後続見送りの場合を分担し、残存の種類・設定OFF・確定失敗は既存ケースを維持します。専用DB・設定・固定scannerを使い、初期化の背景処理と本体をawaitし、fixtureが当該展開と所有終端を回収します。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task InstallPendingPackagesToEstimatedDestinations_SplitZipKeepsOtherPendingInput(bool requestBoth)
+    {
+        using var fixture = new ManagedArchiveInstallFixture(knownCandidate: true, deletePendingSource: true, knownInstallDestination: true);
+        await fixture.InitializeAsync();
+        string ownedPath = Path.Combine(fixture.CandidateDirectory, "existing.bms");
+        byte[] ownedBytes = File.ReadAllBytes(ownedPath);
+        string targetExistingPath = Path.Combine(fixture.InstallDestinationDirectory, "target-existing.bms");
+        byte[] targetExistingBytes = File.ReadAllBytes(targetExistingPath);
+        string archiveContent = Path.Combine(fixture.Root, "split-source");
+        // 通常探索が子フォルダへ降下して単体化すると親整理対象になる。最上段の単体化は親整理しない。
+        string source = Path.Combine(archiveContent, "work");
+        string a = CreateBmsFile(source, "a.bms", BmsLibraryInitializationTestSupport.CreateValidBmsText("New A").Replace("sound.wav", "missing_a.wav"));
+        byte[] aBytes = File.ReadAllBytes(a);
+        File.WriteAllBytes(Path.Combine(source, "b.bms"), ownedBytes);
+        string archive = Path.Combine(fixture.Root, "split.zip");
+        ZipFile.CreateFromDirectory(archiveContent, archive);
+        PackageInstallCommandResult imported = await fixture.Library.InstallChartPackagesAutoWithProgressAsync(
+            [archive], CancellationToken.None, new RecordingPackageInstallProgressWriter());
+        Assert.IsTrue(imported.HasDurableCommit);
+        Assert.IsFalse(imported.HasRequiredFailure, imported.EstimationFailure?.ToString());
+        Assert.AreEqual(2, fixture.Library.ChartPackagesPending.Count);
+        ChartPackage first = fixture.Library.ChartPackagesPending.Single(package => Path.GetFileName(package.path) == "a.bms");
+        ChartPackage other = fixture.Library.ChartPackagesPending.Single(package => Path.GetFileName(package.path) == "b.bms");
+        string firstSourcePath = first.path;
+        string otherSourcePath = other.path;
+        Assert.AreEqual(Path.GetDirectoryName(firstSourcePath), Path.GetDirectoryName(otherSourcePath));
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        {
+            CollectionAssert.AreEquivalent(new[] { firstSourcePath, otherSourcePath }, db.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
+        }
+        string destination = fixture.InstallDestinationDirectory;
+        Assert.IsTrue(fixture.Library.SetPendingInstallDestination(other.ChartEntries.Single(), string.Empty));
+        Assert.IsTrue(fixture.Library.SetPendingInstallDestination(first.ChartEntries.Single(), destination));
+
+        PendingInstallBatchResult result = fixture.Library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
+            requestBoth ? [first, other] : [first]);
+
+        Assert.IsTrue(result.HasDurableCommit);
+        Assert.AreEqual(0, result.FailedPackages.Count);
+        string installedPath = Path.Combine(destination, "a.bms");
+        Assert.IsFalse(File.Exists(firstSourcePath), "本人の通常消費を維持します。");
+        CollectionAssert.AreEqual(aBytes, File.ReadAllBytes(installedPath));
+        Assert.IsTrue(File.Exists(otherSourcePath), "追加整理で別保留bの入力を消費しません。");
+        CollectionAssert.AreEqual(ownedBytes, File.ReadAllBytes(otherSourcePath));
+        CollectionAssert.AreEqual(ownedBytes, File.ReadAllBytes(ownedPath));
+        CollectionAssert.AreEqual(targetExistingBytes, File.ReadAllBytes(targetExistingPath));
+        Assert.AreSame(other, fixture.Library.ChartPackagesPending.Single());
+        Assert.IsTrue(string.IsNullOrWhiteSpace(other.ChartEntries.Single().Chart.InstallDestination));
+        Assert.AreEqual(installedPath, fixture.Library.ChartPackagesInstalled.Single().ChartEntries.Single().Chart.Path);
+        CollectionAssert.AreEquivalent(new[] { ownedPath, targetExistingPath, installedPath }, fixture.Library.BmsCharts.Select(chart => chart.Path).ToArray());
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        {
+            Assert.AreEqual(otherSourcePath, db.Table<LR2SongDBExtended.install>().Single().path);
+            CollectionAssert.AreEquivalent(new[] { ownedPath, targetExistingPath, installedPath }, db.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+        }
+        Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
+    }
+
     /// <summary>混在フォルダを実取り込み・保留DB確定・直接推定へ通し、所持先と未所持群が不一致なら入力・保留・候補・警告を保って受付を解放する。</summary>
     /// <remarks>実SQLiteと本番の取り込み継続を通す代表フローです。Strong条件表はサービス、取消と兄弟Task回収は既存workflowケースへ分担します。</remarks>
     [TestMethod]
