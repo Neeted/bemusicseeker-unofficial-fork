@@ -192,7 +192,7 @@ public sealed class BMSAutoPlayWriterTests
         Assert.AreEqual(0.02f, ReadFloatSample(wave, 40000, 0), 1e-6f);
     }
 
-    /// <summary>BMS／bmsonの破損先頭候補から正常候補へ代替した実保存は直接正常入力とPCM・長さが一致し、省略に誤計上しない。</summary>
+    /// <summary>BMSの親参照と譜面側同名別音源、bmsonの通常参照で破損wavから正常oggへ代替した実保存が直接正常入力と全PCM・長さで一致する。</summary>
     /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [DataTestMethod]
     [DataRow(false)]
@@ -201,12 +201,20 @@ public sealed class BMSAutoPlayWriterTests
     {
         using var directory = new TemporaryDirectory();
         byte[] input = BuildFloatWave(48000, 17, frame => 0.05f + frame * 0.001f);
-        File.WriteAllBytes(directory.File("tone.wav"), [1, 2, 3]);
-        File.WriteAllBytes(directory.File("tone.ogg"), input);
-        File.WriteAllBytes(directory.File("direct.wav"), input);
+        string sourceDirectory = directory.File(bmson ? "" : "a");
+        string chartDirectory = directory.File(bmson ? "" : "a/b/c");
+        Directory.CreateDirectory(sourceDirectory);
+        Directory.CreateDirectory(chartDirectory);
+        File.WriteAllBytes(Path.Combine(sourceDirectory, "tone.wav"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(sourceDirectory, "tone.ogg"), input);
+        File.WriteAllBytes(Path.Combine(chartDirectory, "direct.wav"), input);
+        if (!bmson)
+        {
+            File.WriteAllBytes(Path.Combine(chartDirectory, "tone.wav"), BuildFloatWave(48000, 9, _ => 0.25f));
+        }
         AudioTestWaveFile Render(string name, string resource)
         {
-            string path = directory.File(name + (bmson ? ".bmson" : ".bms"));
+            string path = Path.Combine(chartDirectory, name + (bmson ? ".bmson" : ".bms"));
             File.WriteAllText(path, bmson
                 ? "{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"name\":\"" + resource + "\",\"notes\":[{\"y\":0}]}]}"
                 : "#BPM 120\n#WAV01 " + resource + "\n#00011:01\n");
@@ -216,7 +224,7 @@ public sealed class BMSAutoPlayWriterTests
             writer.Write(EncoderType.WAVE, 0.4f, directory.File(name + "-out"), BMSAutoPlayWriter.Normalization.NONE);
             return AudioTestWaveFileReader.Read(File.ReadAllBytes(directory.File(name + "-out.wav")));
         }
-        AssertSamePcm(Render("direct", "direct.wav"), Render("fallback", "tone.wav"));
+        AssertSamePcm(Render("direct", "direct.wav"), Render("fallback", bmson ? "tone.wav" : "../../tone.wav"));
     }
 
     private static AudioTestWaveFile WriteBmsonOutput(TemporaryDirectory directory, string name, string json)

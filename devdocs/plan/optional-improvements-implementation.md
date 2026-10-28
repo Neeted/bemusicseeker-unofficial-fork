@@ -35,7 +35,7 @@
 | U07 言語変更と確認文言 | 音声 → 検索 → プロパティ → ランプ → 確認ボタン | 既存owner別コミット。全言語資源は一担当。U03/U16/U17/U20/U23と共有編集を調整 |
 | U08 手動ランキング取得廃止 | UI・専用通信・資料・専用テストを除去 | MainWindow/composition/Ir。U04/U05後、起動時ローカルcache維持 |
 | U09 確定文字コードの保持と導入・同期への引継ぎ | 保留保存境界 → LR2全体同期 → 導入成功先への引継ぎ | Maintenance/Catalog/Install/LR2。導入serviceはU15との順序調整後、署名変更なし |
-| U10 BMS再生入力 | 親参照の保持 → 明示BASE62 | Ribbit ResourcesとBMSFile。同担当内別単位、U13のWriter検証と調整 |
+| U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile。U13のWriter検証と調整 |
 | U12 内蔵再生の対象と候補探索 | 現在曲識別・送り位置・FolderSkip・Repeat失敗探索を統合 | 同じPlayback queue/VMで一単位。現行のentry索引を利用し、選択scopeは流用しない |
 | U13 音声変換の出力名 | Writerのfile path契約へ統一 | Writer/変換owner。U10と検証の重複を調整 |
 | U14 重複統合候補 | 候補とCtrl+Gを物理条件へ揃える | Duplicate owner。U15の物理パス判定と共有する場合だけ直列 |
@@ -282,12 +282,6 @@ CP932の基本資源解析を保ち、同じ読取りsnapshotへ `ApplyMetadataE
 `BmsLibraryLr2SongDbSyncTests`、`Lr2SongDbSyncServiceTests`、保守系列で同期前後の指定・修正印・タイトル・一覧一致、同path別hash、手動/自動確定、未確定、CP932、BOM、BMSONを分担する。仕様は[譜面読取り](../spec/library/chart-file-reading.md)と[LR2 song DB](../spec/integration/lr2-song-db.md)の対応節を実装と同時に更新する。
 
 ## U10 BMS再生入力
-
-### 連続する親ディレクトリ参照の保持
-
-`Ribbit/BMS/Resources.NormalizeFilePath` の `[^/]+/\.\./` は先頭の `..` 自体にも一致し、`../../shared/tone.wav` を `shared/tone.wav` へ変える。`BmsAudioResourceLoader` が持つ基点との `Path.Combine`・`Path.GetFullPath` を使い、前段の独自圧縮を除く。区切り・拡張子候補は維持し、別階層の追加探索は行わない。Resourcesは画像にも使われるため、音声だけを確認して共通変換を変えない。
-
-譜面側にも内容の異なる同名音源を置き、正しい親参照が採用されることを実parser→loaderで確認する。`../`、`../../`、`../../../`、`dir/../../`、`dir/../`、バックスラッシュと、内蔵再生・先読み・音声変換の共通入力を既存 `BMSAutoPlayerInputTests` / `AudioContractsTests` 等で分担する。
 
 ### 明示BASE62の音源IDとLNOBJ
 

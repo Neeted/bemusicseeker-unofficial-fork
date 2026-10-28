@@ -4,7 +4,6 @@ using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using Ribbit.Cryptography;
 using Ribbit.Util.Extensions;
 
@@ -22,12 +21,11 @@ public class Resources
 
     public static readonly ReadOnlyCollection<string> VideoFileExtensions = new string[4] { ".mpg", ".wmv", ".mp4", ".mpeg" }.ToList().AsReadOnly();
 
-    private static readonly Regex FormatFilePathRegex = new("[^/]+/\\.\\./", RegexOptions.Compiled);
-
     public ImmutableHashSet<string> FilePaths => _files.Keys.ToImmutableHashSet();
 
     public ImmutableHashSet<uint> FilePathsHashSet => _files.Values.ToImmutableHashSet();
 
+    /// <summary>参照の区切り表記を揃えます。親参照は基点と結合する読込み側で解決するため保持します。</summary>
     private static string NormalizeFilePath(string filePath)
     {
         filePath = filePath?.Trim();
@@ -40,7 +38,6 @@ public class Resources
             return null;
         }
         filePath = filePath.FastReplace('\\', '/').Replace("//", "/").ReplaceFromStart("./", string.Empty);
-        filePath = FormatFilePathRegex.Replace(filePath, string.Empty);
         return filePath;
     }
 
@@ -89,6 +86,7 @@ public class Resources
         return filePath;
     }
 
+    /// <summary>資源参照の表記と拡張子を共通化して登録し、基点未解決の親参照を保った参照名を返します。</summary>
     public string AddFilePath(string filePath)
     {
         filePath = GeneralizeExtension(NormalizeFilePath(filePath.ToLowerInvariant()));
@@ -100,6 +98,7 @@ public class Resources
         return null;
     }
 
+    /// <summary>登録時と同じ表記・拡張子の変換を使い、対応する資源参照を削除します。</summary>
     public bool RemoveFilePath(string filePath)
     {
         filePath = GeneralizeExtension(NormalizeFilePath(filePath.ToLowerInvariant()));

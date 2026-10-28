@@ -25,6 +25,50 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class BMSAutoPlayerInputTests
 {
+    /// <summary>実在する各階層と譜面側に同名・別PCMを置き、BMS/PMSの親参照とdir経由の親参照が意図した階層の音源だけを採用する。</summary>
+    /// <remarks>実PlaybackChart.LoadからNULL_DEVICEの音源読込み・decoderまで接続し、採用絶対path・元PCM・frame・rate・省略なしを確認するため共有native状態を直列所有する。</remarks>
+    [DataTestMethod]
+    [DataRow("../tone.wav", "a/b", 3, 0.375f, "bms")]
+    [DataRow("../../tone.wav", "a", 2, 0.25f, "bms")]
+    [DataRow("../../../tone.wav", "", 1, 0.125f, "bms")]
+    [DataRow("dir/../../tone.wav", "a/b", 3, 0.375f, "bms")]
+    [DataRow("dir/../tone.wav", "a/b/c", 4, 0.5f, "bms")]
+    [DataRow("..\\..\\tone.wav", "a", 2, 0.25f, "pms")]
+    [DataRow("dir\\..\\..\\tone.wav", "a/b", 3, 0.375f, "pms")]
+    public void BmsParentResourceReferencesLoadTheIntendedHierarchyPcm(string reference, string expectedDirectory,
+        int expectedFrames, float expectedSample, string extension)
+    {
+        using var directory = new TemporaryDirectory();
+        foreach ((string folder, int frames, short sample) in new (string, int, short)[]
+        {
+            ("", 1, 4096), ("a", 2, 8192), ("a/b", 3, 12288), ("a/b/c", 4, 16384), ("a/b/c/dir", 5, 20480)
+        })
+        {
+            Directory.CreateDirectory(directory.File(folder));
+            byte[] wave = BuildPcmWave(frames);
+            for (int frame = 0; frame < frames; frame++)
+            {
+                BinaryPrimitives.WriteInt16LittleEndian(wave.AsSpan(44 + frame * sizeof(short)), sample);
+            }
+            File.WriteAllBytes(Path.Combine(directory.File(folder), "tone.wav"), wave);
+        }
+        string path = directory.File("a/b/c/chart." + extension);
+        WriteChart(path, "#BPM 120\n#WAV01 " + reference + "\n#00011:01\n");
+        using var player = new BMSAutoPlayer(PlaybackChart.Load(path));
+        player.LoadResources();
+        BmsAudioResource resource = player.AudioResourcesByIndex.Single(item => item != null)
+            ?? throw new AssertFailedException("親参照の音源が採用されませんでした。");
+        // 期待配置は入力参照から導出せず、fixtureで用意した既知の階層を使います。
+        Assert.AreEqual(Path.GetFullPath(Path.Combine(directory.File(expectedDirectory), "tone.wav")), resource.Path);
+        Assert.AreEqual((long)expectedFrames, resource.Audio.FrameCount);
+        Assert.AreEqual(44100, resource.Audio.SampleRate);
+        for (int frame = 0; frame < expectedFrames; frame++)
+        {
+            Assert.AreEqual(expectedSample, resource.Audio.GetSample(frame), 0f);
+        }
+        Assert.AreEqual(0, player.OmittedAudioSources.Count);
+    }
+
     /// <summary>BMS／bmsonでwav→ogg→mp3の最初の復号成功を採用し、選んだ候補の元rate・frame・PCMを保って途中失敗を省略に出さない。</summary>
     /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [DataTestMethod]
@@ -218,7 +262,7 @@ public sealed class BMSAutoPlayerInputTests
         }
     }
 
-    /// <summary>BMS／bmsonの正常代替を先読みで準備した後に譜面と音源が消えても、一致する準備PCMを採用して再読込みしない。</summary>
+    /// <summary>BMSの親参照と譜面側同名別音源、bmsonの通常参照で正常代替を先読みし、入力消失後も本来の準備PCMを採用して再読込みしない。</summary>
     /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [DataTestMethod]
     [DataRow(false)]
@@ -226,22 +270,50 @@ public sealed class BMSAutoPlayerInputTests
     public async Task NextSongFallbackPreparationAdoptsDecodedResultAfterInputsDisappear(bool bmson)
     {
         using var directory = new TemporaryDirectory();
-        File.WriteAllBytes(directory.File("tone.wav"), [1, 2, 3]);
-        File.WriteAllBytes(directory.File("tone.ogg"), BuildPcmWave(2));
-        PlaybackChart chart = CreateFallbackChart(directory, bmson, "tone.wav");
+        string sourceDirectory = directory.File(bmson ? "" : "a");
+        string chartDirectory = directory.File(bmson ? "" : "a/b/c");
+        Directory.CreateDirectory(sourceDirectory);
+        Directory.CreateDirectory(chartDirectory);
+        string firstCandidate = Path.Combine(sourceDirectory, "tone.wav");
+        string expectedAudioPath = Path.Combine(sourceDirectory, "tone.ogg");
+        File.WriteAllBytes(firstCandidate, [1, 2, 3]);
+        File.WriteAllBytes(expectedAudioPath, BuildPcmWave(2));
+        PlaybackChart chart;
+        if (bmson)
+        {
+            chart = CreateFallbackChart(directory, true, "tone.wav");
+        }
+        else
+        {
+            byte[] decoy = BuildPcmWave(4);
+            for (int frame = 0; frame < 4; frame++)
+            {
+                BinaryPrimitives.WriteInt16LittleEndian(decoy.AsSpan(44 + frame * sizeof(short)), 8192);
+            }
+            File.WriteAllBytes(Path.Combine(chartDirectory, "tone.wav"), decoy);
+            string path = Path.Combine(chartDirectory, "chart.bms");
+            WriteChart(path, "#BPM 120\n#WAV01 ../../tone.wav\n#00011:01\n");
+            chart = PlaybackChart.Load(path);
+        }
         var input = NextSongPreloadInput.Capture(chart.Path);
         var owner = new NextSongPreloadOwner((request, token) => PreparedBmsSong.Prepare(PlaybackChart.Load(request.Path), 1f, token));
         try
         {
             PreparedBmsSong expected = await owner.Request(input);
             File.Delete(chart.Path);
-            File.Delete(directory.File("tone.wav"));
-            File.Delete(directory.File("tone.ogg"));
+            File.Delete(firstCandidate);
+            File.Delete(expectedAudioPath);
             PreparedBmsSong prepared = await owner.TakeAsync(input) ?? throw new AssertFailedException("Missing prepared fallback.");
             Assert.AreSame(expected, prepared);
             using var player = new BMSAutoPlayer(prepared.Chart);
             player.AdoptPreparedSong(prepared);
-            Assert.AreEqual(directory.File("tone.ogg"), player.AudioResourcesByIndex.Single(item => item != null)?.Path);
+            BmsAudioResource resource = player.AudioResourcesByIndex.Single(item => item != null)
+                ?? throw new AssertFailedException("準備済みの音源が採用されませんでした。");
+            Assert.AreEqual(expectedAudioPath, resource.Path);
+            Assert.AreEqual(2L, resource.Audio.FrameCount);
+            Assert.AreEqual(44100, resource.Audio.SampleRate);
+            Assert.AreEqual(0.5f, resource.Audio.GetSample(0), 0f);
+            Assert.AreEqual(0.5f, resource.Audio.GetSample(1), 0f);
             Assert.AreEqual(0, player.OmittedAudioSources.Count);
         }
         finally { await owner.InvalidateAsync(); }

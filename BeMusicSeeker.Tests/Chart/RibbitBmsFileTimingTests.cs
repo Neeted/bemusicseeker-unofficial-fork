@@ -17,6 +17,35 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class RibbitBmsFileTimingTests
 {
+    /// <summary>実在する親階層のBMPと譜面側同名画像を置き、slash・backslashの親参照がBmpArrayでも意図した参照先を保つ。</summary>
+    [DataTestMethod]
+    [DataRow("../../images/art.bmp")]
+    [DataRow("..\\..\\images\\art.bmp")]
+    public void BmpParentResourceReferenceKeepsTheIntendedHierarchy(string reference)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "ribbit-parent-image-" + Guid.NewGuid().ToString("N"));
+        string chartDirectory = Path.Combine(directory, "a", "b", "c");
+        string expectedImage = Path.Combine(directory, "a", "images", "art.bmp");
+        Directory.CreateDirectory(chartDirectory);
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(directory, "a", "images"));
+            Directory.CreateDirectory(Path.Combine(chartDirectory, "images"));
+            File.WriteAllBytes(expectedImage, [11, 22]);
+            File.WriteAllBytes(Path.Combine(chartDirectory, "images", "art.bmp"), [33, 44]);
+            string path = Path.Combine(chartDirectory, "chart.bms");
+            File.WriteAllText(path, "#BPM 120\n#BMP01 " + reference + "\n#00004:01\n", new UTF8Encoding(false));
+            var bms = new BMSFile(path);
+            string resolved = Path.GetFullPath(Path.Combine(chartDirectory, bms.BmpArray[1]));
+            Assert.AreEqual(expectedImage, resolved);
+            CollectionAssert.AreEqual(new byte[] { 11, 22 }, File.ReadAllBytes(resolved));
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
     /// <summary>
     /// 先頭のBPM・TITLE・WAVをUTF-8 BOM有無で通常読込みと監査準備へ渡し、指示の欠落と001小節の発音時刻の変化を検出する。
     /// 通常読込みのhashは元bytesから独立に求め、BOM有無を同じ本文のhashへ置き換える誤りも検出する。
