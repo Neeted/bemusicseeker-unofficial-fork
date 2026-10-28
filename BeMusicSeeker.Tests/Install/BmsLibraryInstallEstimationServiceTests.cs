@@ -832,6 +832,148 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         CollectionAssert.AreEqual(new[] { dirA, dirB }, result.CandidateDirectories.ToArray());
     }
 
+    /// <summary>単体・直下・子・多階層の相対配置からパッケージ根を選び、末尾名の部分一致や入力根外から候補を作る誤りを検出します。直下に所持譜面のない根も許可し、補助hash数はexact directoryのままです。</summary>
+    [TestMethod]
+    [DataRow("old.bms", "old.bms", false, true)]
+    [DataRow("old.bms", "old.bms", true, true)]
+    [DataRow("sub/old.bms", "sub/old.bms", false, true)]
+    [DataRow("sub/old.bms", "SUB/old.bms", false, true)]
+    [DataRow("a/b/old.bms", "a/b/old.bms", false, true)]
+    [DataRow("sub/old.bms", "sub2/old.bms", false, false)]
+    [DataRow("../PackOther/old.bms", "old.bms", false, false)]
+    public void TryResolveInstalledDestinationFromPackage_ResolvesOnlyMatchingRelativePackageRoot(string inputRelative, string installedRelative, bool singleFile, bool matches)
+    {
+        string inputRoot = @"C:\Incoming\Pack";
+        string installedRoot = @"C:\Installed\Song";
+        ChartFile pending = CreateFile("owned", Path.GetFullPath(Path.Combine(inputRoot, inputRelative)));
+        ChartFile installed = CreateFile("owned", Path.GetFullPath(Path.Combine(installedRoot, installedRelative)));
+        ChartPackage package = ChartPackageTestExtensions.CreatePackage([pending]);
+        package.path = singleFile ? pending.Path : inputRoot;
+        InstalledDirectoryLookupResult result = CreateService().TryResolveInstalledDestinationFromPackage(
+            package, package.ChartEntries, CreateInstalledChartLookupIndexSnapshot([installed]));
+
+        Assert.AreEqual(matches, result.Success);
+        Assert.AreEqual(matches ? installedRoot : null, result.InstallDirectory);
+        Assert.AreEqual(matches ? 1 : 0, result.MatchedHashCount);
+        Assert.AreEqual(matches ? 1 : 0, result.CandidateDirectoryCount);
+        Assert.AreEqual(matches ? InstalledDirectoryResolveReason.None : InstalledDirectoryResolveReason.NoInstalledDirectoryMatch, result.Reason);
+        if (matches)
+        {
+            Assert.AreEqual(singleFile || inputRelative == "old.bms" ? 1 : 0,
+                result.GetCandidateDirectoryUniquePrimaryHashCount(installedRoot));
+        }
+    }
+
+    /// <summary>直下と子の所持譜面が同じ候補根へ揃い、各譜面の所在を別候補にして同票扱いする誤りを検出します。</summary>
+    [TestMethod]
+    public void TryResolveInstalledDestinationFromPackage_RootAndChildChartsVoteForSameRoot()
+    {
+        string inputRoot = @"C:\Incoming\Pack";
+        string installedRoot = @"C:\Installed\Song";
+        ChartPackage package = ChartPackageTestExtensions.CreatePackage(
+            CreateFile("root", Path.Combine(inputRoot, "root.bms")),
+            CreateFile("child", Path.Combine(inputRoot, "sub", "old.bms")));
+        package.path = inputRoot;
+        InstalledDirectoryLookupResult result = CreateService().TryResolveInstalledDestinationFromPackage(package, package.ChartEntries,
+            CreateInstalledChartLookupIndexSnapshot([
+                CreateFile("root", Path.Combine(installedRoot, "root.bms")),
+                CreateFile("child", Path.Combine(installedRoot, "sub", "old.bms"))]));
+
+        Assert.IsTrue(result.Success);
+        Assert.AreEqual(installedRoot, result.InstallDirectory);
+        Assert.AreEqual(2, result.MatchedHashCount);
+        Assert.AreEqual(1, result.CandidateDirectoryCount);
+        Assert.AreEqual(1, result.GetCandidateDirectoryUniquePrimaryHashCount(installedRoot));
+    }
+
+    /// <summary>AのH1コピーの件数・名前・順序を変えてもBのH2と一票ずつの同票を保ち、入力entry数で多数派を作る誤りを検出します。</summary>
+    [TestMethod]
+    [DataRow(1, false)]
+    [DataRow(3, false)]
+    [DataRow(3, true)]
+    public void TryResolveInstalledDestinationFromPackage_DuplicatePrimaryHashesKeepTie(int copies, bool reverse)
+    {
+        string inputRoot = @"C:\Incoming\Pack";
+        string dirA = @"C:\Installed\A";
+        string dirB = @"C:\Installed\B";
+        var pending = Enumerable.Range(0, copies)
+            .Select(index => CreateFile("H1", Path.Combine(inputRoot, "copy-" + index + ".bms"))).ToList();
+        pending.Add(CreateFile("H2", Path.Combine(inputRoot, "second.bms")));
+        if (reverse) { pending.Reverse(); }
+        ChartPackage package = ChartPackageTestExtensions.CreatePackage(pending);
+        package.path = inputRoot;
+        InstalledDirectoryLookupResult result = CreateService().TryResolveInstalledDestinationFromPackage(package, package.ChartEntries,
+            CreateInstalledChartLookupIndexSnapshot([
+                CreateFile("H1", Path.Combine(dirA, "owned.bms")),
+                CreateFile("H2", Path.Combine(dirB, "owned.bms"))]));
+
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual(InstalledDirectoryResolveReason.MultipleCandidateDirectories, result.Reason);
+        CollectionAssert.AreEqual(new[] { dirA, dirB }, result.CandidateDirectories.ToArray());
+        Assert.AreEqual(2, result.CandidateDirectoryCount);
+        Assert.AreEqual(2, result.MatchedHashCount);
+    }
+
+    /// <summary>H1の全入力相対位置を使ってA/Bへ各一票を与え、全体の一致数は一件とします。H2がBへ加わるとBを選び、先頭H1だけを使う誤りと根別票の合計を一致数にする誤りを検出します。</summary>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void TryResolveInstalledDestinationFromPackage_UsesEveryRelativePositionOfSameHash(bool secondHash, bool reverse)
+    {
+        string inputRoot = @"C:\Incoming\Pack";
+        string dirA = @"C:\Installed\A";
+        string dirB = @"C:\Installed\B";
+        List<ChartFile> pending = [
+            CreateFile("H1", Path.Combine(inputRoot, "a", "first.bms")),
+            CreateFile("H1", Path.Combine(inputRoot, "b", "copy.bms"))];
+        if (secondHash) { pending.Add(CreateFile("H2", Path.Combine(inputRoot, "second.bms"))); }
+        if (reverse) { pending.Reverse(); }
+        ChartPackage package = ChartPackageTestExtensions.CreatePackage(pending);
+        package.path = inputRoot;
+        InstalledDirectoryLookupResult result = CreateService().TryResolveInstalledDestinationFromPackage(package, package.ChartEntries,
+            CreateInstalledChartLookupIndexSnapshot([
+                CreateFile("H1", Path.Combine(dirA, "a", "owned.bms")),
+                CreateFile("H1", Path.Combine(dirB, "b", "owned.bms")),
+                CreateFile("H2", Path.Combine(dirB, "second.bms"))]));
+
+        Assert.AreEqual(secondHash, result.Success);
+        Assert.AreEqual(secondHash ? dirB : null, result.InstallDirectory);
+        Assert.AreEqual(secondHash ? 2 : 1, result.MatchedHashCount);
+        Assert.AreEqual(2, result.CandidateDirectoryCount);
+        CollectionAssert.AreEqual(secondHash ? new[] { dirB } : new[] { dirA, dirB }, result.CandidateDirectories.ToArray());
+    }
+
+    /// <summary>BMS/BMSONともMD5のnull・空・空白を票にせず、一致SHA256へ救済しません。短い非空MD5は有効な一票として保ち、追加の形式検査を検出します。</summary>
+    [TestMethod]
+    [DataRow(false, null)]
+    [DataRow(false, "")]
+    [DataRow(false, " ")]
+    [DataRow(false, "x")]
+    [DataRow(true, null)]
+    [DataRow(true, "")]
+    [DataRow(true, " ")]
+    [DataRow(true, "x")]
+    public void TryResolveInstalledDestinationFromPackage_UsesOnlyNonblankMd5(bool bmson, string? md5)
+    {
+        string installedRoot = @"C:\Installed\Song";
+        ChartFile pending = CreateFile(md5, @"C:\Incoming\Pack\old.bms") with
+        {
+            Kind = bmson ? ChartFileKind.Bmson : ChartFileKind.Bms,
+            Sha256 = new string('a', 64)
+        };
+        ChartFile installed = pending with { Path = Path.Combine(installedRoot, "old.bms"), Md5 = "x" };
+        ChartPackage package = ChartPackageTestExtensions.CreatePackage([pending]);
+        package.path = @"C:\Incoming\Pack";
+        InstalledDirectoryLookupResult result = CreateService().TryResolveInstalledDestinationFromPackage(package, package.ChartEntries,
+            CreateInstalledChartLookupIndexSnapshot([installed]));
+
+        Assert.AreEqual(md5 == "x", result.Success);
+        Assert.AreEqual(md5 == "x" ? 1 : 0, result.MatchedHashCount);
+        Assert.AreEqual(md5 == "x" ? installedRoot : null, result.InstallDirectory);
+    }
+
     /// <summary>候補フォルダを指定してもリソース索引がなければ推定不能を返し、索引を迂回した自動適用を検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectoryForCandidateDirectories_RequiresResourceIndex()

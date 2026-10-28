@@ -31,6 +31,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
             ];
 
             ChartPackage package = CreatePendingPackage(
+                Path.Combine(tempRoot, "Pending"),
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")),
                 CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme")),
                 CreatePendingFile("cccccccccccccccccccccccccccccccc", Path.Combine(tempRoot, "Pending", "c.pms")));
@@ -59,6 +60,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
             ];
 
             ChartPackage package = CreatePendingPackage(
+                Path.Combine(tempRoot, "Pending"),
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")),
                 CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme")));
 
@@ -110,6 +112,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
             ];
 
             ChartPackage package = CreatePendingPackage(
+                Path.Combine(tempRoot, "Pending"),
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")),
                 CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme")));
 
@@ -135,6 +138,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
             ];
             ChartFile missingPendingFile = CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme"));
             ChartPackage package = CreatePendingPackage(
+                Path.Combine(tempRoot, "Pending"),
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")),
                 missingPendingFile);
 
@@ -189,6 +193,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
             ChartFile pendingA = CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms"));
             ChartFile pendingB = CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme"));
             ChartPackage package = CreatePendingPackage(
+                Path.Combine(tempRoot, "Pending"),
                 ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingA, installedDir1),
                 ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingB, installedDir1));
 
@@ -221,6 +226,51 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
             Assert.IsFalse(resolution.Success);
             Assert.IsNull(resolution.DestinationDirectory);
             Assert.AreEqual(InstalledDirectoryResolveReason.MissingInstallDestination, resolution.Reason);
+        });
+    }
+
+    /// <summary>直下と子の全既所持譜面が同じ根へ戻るときだけ許可し、末尾構成不一致・変換後の別根を見送ります。所持directoryをそのまま比較する誤りを検出します。</summary>
+    [TestMethod]
+    [DataRow("Song", "sub", true, "None")]
+    [DataRow("Song", "other", false, "MissingInstallDestination")]
+    [DataRow("OtherSong", "sub", false, "PackageHasSplitInstalledDirectories")]
+    public void TryPrepareInstalledOnlyPackageDestination_RequiresCommonConvertedRoot(string childRootName, string childDirectory, bool succeeds, string reason)
+    {
+        WithWorkspace((service, tempRoot) =>
+        {
+            string installedRoot = Path.Combine(tempRoot, "Installed", "Song");
+            string inputRoot = Path.Combine(tempRoot, "Pending");
+            ChartPackage package = CreatePendingPackage(inputRoot,
+                CreatePendingFile("root", Path.Combine(inputRoot, "root.bms")),
+                CreatePendingFile("child", Path.Combine(inputRoot, "sub", "old.bms")));
+            InstalledOnlyPackageResolutionResult result = service.TryPrepareInstalledOnlyPackageDestination(package,
+                CreateInstalledChartLookupIndexSnapshot([
+                    CreateInstalledFile("root", Path.Combine(installedRoot, "root.bms")),
+                    CreateInstalledFile("child", Path.Combine(tempRoot, "Installed", childRootName, childDirectory, "old.bms"))]));
+
+            Assert.AreEqual(succeeds, result.Success);
+            Assert.AreEqual(succeeds ? installedRoot : null, result.DestinationDirectory);
+            Assert.AreEqual(Enum.Parse<InstalledDirectoryResolveReason>(reason), result.Reason);
+        });
+    }
+
+    /// <summary>同じhashの二所持先のうち一方だけが入力相対配置と一致しても曖昧として拒否し、根変換で複数所持の拒否を解除する誤りを検出します。</summary>
+    [TestMethod]
+    public void TryPrepareInstalledOnlyPackageDestination_MultipleLocationsRemainAmbiguousBeforeRootConversion()
+    {
+        WithWorkspace((service, tempRoot) =>
+        {
+            string inputRoot = Path.Combine(tempRoot, "Pending");
+            ChartPackage package = CreatePendingPackage(inputRoot,
+                CreatePendingFile("owned", Path.Combine(inputRoot, "sub", "old.bms")));
+            InstalledOnlyPackageResolutionResult result = service.TryPrepareInstalledOnlyPackageDestination(package,
+                CreateInstalledChartLookupIndexSnapshot([
+                    CreateInstalledFile("owned", Path.Combine(tempRoot, "A", "sub", "old.bms")),
+                    CreateInstalledFile("owned", Path.Combine(tempRoot, "B", "other", "old.bms"))]));
+
+            Assert.IsFalse(result.Success);
+            Assert.IsNull(result.DestinationDirectory);
+            Assert.AreEqual(InstalledDirectoryResolveReason.ChartHasMultipleInstalledDirectories, result.Reason);
         });
     }
 
@@ -273,6 +323,20 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         ChartPackage package = ChartPackageTestExtensions.CreatePackage(entries);
         package.path = entries.FirstOrDefault()?.Chart?.Path ?? string.Empty;
         package.delete_parent = false;
+        return package;
+    }
+
+    private static ChartPackage CreatePendingPackage(string packageRoot, params ChartFile[] files)
+    {
+        ChartPackage package = CreatePendingPackage(files);
+        package.path = packageRoot;
+        return package;
+    }
+
+    private static ChartPackage CreatePendingPackage(string packageRoot, params PackageChartEntry[] entries)
+    {
+        ChartPackage package = CreatePendingPackage(entries);
+        package.path = packageRoot;
         return package;
     }
 

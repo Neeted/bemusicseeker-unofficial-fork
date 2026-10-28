@@ -19,6 +19,134 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class PackageInstallWorkflowOwnerTests
 {
+    /// <summary>実取り込みで親のSTAGEFILEだけを根の資源根拠とした混在packageを発見し、子の所持hashから根を推定して相対位置を一度だけ付け、既存譜面のbytes・MD5を保ちます。構成不一致では入力内容を保って保留し、別資源候補へ救済する誤りを検出します。</summary>
+    /// <remarks>本番ownerのEnqueueからidleで得た同じpackageとDSTを明示導入入口へ渡し、実FS・SQLiteまで接続します。自動継続ONは既存系列、変換と票の条件網羅はサービスへ分担し、親の人工的な資源索引は追加しません。</remarks>
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task ProductionImport_ChildOwnedHashResolvesOnlyMatchingPackageRoot(bool matchingLayout)
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        string libraryRoot = Path.Combine(root, "Library");
+        string songRoot = Path.Combine(libraryRoot, "Song");
+        string installedChild = Path.Combine(songRoot, matchingLayout ? "sub" : "other");
+        string outside = Path.Combine(libraryRoot, "Outside");
+        string input = Path.Combine(root, "Pack");
+        string inputChild = Path.Combine(input, "sub");
+        foreach (string directory in new[] { installedChild, outside, inputChild }) { Directory.CreateDirectory(directory); }
+        const string ownedBody = "#TITLE Song\n#ARTIST Artist\n#BPM 120\n#WAV01 tone.wav\n#00111:01\n";
+        const string childNewBody = ownedBody + "#GENRE child-new\n";
+        const string rootNewBody = "#TITLE Song\n#ARTIST Artist\n#GENRE root-new\n#STAGEFILE cover.png\n";
+        string installedOld = Path.Combine(installedChild, "old.bms");
+        File.WriteAllText(installedOld, ownedBody, Encoding.ASCII);
+        byte[] originalOldBytes = File.ReadAllBytes(installedOld);
+        string originalOldMd5 = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(installedOld)).Md5;
+        File.WriteAllText(Path.Combine(inputChild, "old.bms"), ownedBody, Encoding.ASCII);
+        File.WriteAllText(Path.Combine(inputChild, "new.bms"), childNewBody, Encoding.ASCII);
+        File.WriteAllText(Path.Combine(input, "root-new.bms"), rootNewBody, Encoding.ASCII);
+        File.WriteAllBytes(Path.Combine(input, "cover.png"), [7, 8]);
+        File.WriteAllBytes(Path.Combine(inputChild, "tone.wav"), [1, 2]);
+        File.WriteAllBytes(Path.Combine(installedChild, "tone.wav"), [1, 2]);
+        string outsideChart = Path.Combine(outside, "other.bms");
+        File.WriteAllText(outsideChart, "#TITLE Song\n#ARTIST Artist\n#GENRE outside\n#WAV01 sub/tone.wav\n#00111:01\n", Encoding.ASCII);
+        Directory.CreateDirectory(Path.Combine(outside, "sub"));
+        File.WriteAllBytes(Path.Combine(outside, "sub", "tone.wav"), [1, 2]);
+        var options = new BmsLibraryOptionsSnapshot
+        {
+            OperationModeLR2DB = false,
+            ScanBmsFilesOnStartup = true,
+            KeepInstallablePackagesPending = true,
+            DeletePendingPackageSourceAfterInstall = false,
+            AutoInstallAfterAutomaticEstimation = false
+        };
+        string dbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(dbPath, []);
+        var background = new ConcurrentQueue<Func<Task>>();
+        var admission = new ChartFileOperationSynchronizer();
+        var library = new TestBmsLibrary(dbPath, null, null, null, new FileDbReportRecordingDialogs(),
+            new TestUiScheduler(() => null), () => options,
+            CapturedChartFileScanner.FromFixture([installedOld, outsideChart],
+                new Dictionary<string, IEnumerable<string>> { [installedChild] = ["tone.wav"], [outside] = ["sub/tone.wav"] },
+                [installedChild, outside]), operationAdmission: admission, settings: TestBmsFactory.CreateRootSettings([libraryRoot]))
+        {
+            StartupBackgroundTaskScheduler = (_, _, _, work) => { background.Enqueue(work); return true; }
+        };
+        var owner = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), admission, new ChartMutationActivityOwner(),
+            new BmsLibraryPackageInstallMutationPort(), new NoOpChartMutationPlaybackPort(), action => { action(); return true; });
+        owner.AttachLibrary(library);
+        PackageInstallFailure? failure = null;
+        owner.FailurePublished += value => failure = value;
+        try
+        {
+            library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+            while (background.TryDequeue(out Func<Task>? work)) { await work(); }
+            Assert.IsTrue(owner.Enqueue([input]));
+            await owner.WaitForIdleAsync();
+            Assert.IsNull(failure, failure?.Exception.ToString());
+            ChartPackage package = library.ChartPackagesPending.Single();
+            Assert.AreEqual(input, package.path);
+            Assert.AreEqual(3, package.ChartEntries.Count, "実発見で親と子を一つのpackageに含めます。");
+            Assert.IsTrue(package.ChartEntries.All(entry => !entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING)));
+            if (!matchingLayout)
+            {
+                Assert.AreEqual(PendingEstimateDeferredReason.InstalledDestinationResolveFailed, package.DeferredEstimateReason);
+                Assert.IsTrue(package.ChartEntries.All(entry => string.IsNullOrEmpty(entry.Chart.InstallDestination)));
+                Assert.IsTrue(package.ChartEntries.Where(entry => Path.GetFileName(entry.Chart.Path) != "old.bms")
+                    .All(entry => entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed)));
+                Assert.AreEqual(ownedBody, File.ReadAllText(Path.Combine(inputChild, "old.bms"), Encoding.ASCII));
+                Assert.AreEqual(childNewBody, File.ReadAllText(Path.Combine(inputChild, "new.bms"), Encoding.ASCII));
+                Assert.AreEqual(rootNewBody, File.ReadAllText(Path.Combine(input, "root-new.bms"), Encoding.ASCII));
+                CollectionAssert.AreEqual(new byte[] { 7, 8 }, File.ReadAllBytes(Path.Combine(input, "cover.png")));
+                CollectionAssert.AreEqual(new byte[] { 1, 2 }, File.ReadAllBytes(Path.Combine(inputChild, "tone.wav")));
+                Assert.IsFalse(File.Exists(Path.Combine(songRoot, "root-new.bms")));
+                Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
+                using LR2SongDBExtended pendingDb = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+                Assert.AreEqual(1, pendingDb.Table<LR2SongDBExtended.install>().Count());
+                Assert.AreEqual(2, pendingDb.Table<LR2SongDB.song>().Count());
+                return;
+            }
+
+            PackageChartEntry[] missingEntries = [
+                package.ChartEntries.Single(entry => entry.Chart.Path == Path.Combine(input, "root-new.bms")),
+                package.ChartEntries.Single(entry => entry.Chart.Path == Path.Combine(inputChild, "new.bms"))];
+            foreach (PackageChartEntry entry in missingEntries)
+            {
+                Assert.AreEqual(songRoot, entry.Chart.InstallDestination,
+                    entry.Chart.Path + " warnings=" + string.Join(",", entry.Chart.Warnings.Select(warning => warning.Kind)));
+            }
+            Assert.IsTrue(string.IsNullOrEmpty(package.ChartEntries.Single(entry => entry.Chart.Path == Path.Combine(inputChild, "old.bms")).Chart.InstallDestination));
+            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
+            Assert.IsTrue(result.HasDurableCommit);
+            Assert.AreEqual(0, result.FailedPackages.Count);
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
+            Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
+            CollectionAssert.AreEqual(new byte[] { 7, 8 }, File.ReadAllBytes(Path.Combine(songRoot, "cover.png")));
+            string[] expectedCharts = [installedOld, outsideChart, Path.Combine(songRoot, "root-new.bms"), Path.Combine(songRoot, "sub", "new.bms")];
+            foreach (string chartPath in expectedCharts)
+            {
+                Assert.IsTrue(File.Exists(chartPath));
+                Assert.IsTrue(library.BmsCharts.Any(chart => chart.Path == chartPath));
+            }
+            Assert.IsFalse(File.Exists(Path.Combine(songRoot, "sub", "sub", "new.bms")));
+            Assert.IsFalse(File.Exists(Path.Combine(songRoot, "new.bms")));
+            CollectionAssert.AreEqual(originalOldBytes, File.ReadAllBytes(installedOld));
+            Assert.AreEqual(originalOldMd5, library.BmsCharts.Single(chart => chart.Path == installedOld).Md5);
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+            Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
+            CollectionAssert.AreEquivalent(expectedCharts, db.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+            Assert.AreEqual(originalOldMd5, db.Find<LR2SongDB.song>(installedOld).hash);
+        }
+        finally
+        {
+            try { await owner.WaitForIdleAsync(); }
+            finally
+            {
+                try { while (background.TryDequeue(out Func<Task>? work)) { await work(); } }
+                finally { library.RequestShutdown("relative-package-root-test"); Directory.Delete(root, recursive: true); }
+            }
+        }
+    }
+
     /// <summary>自動設定閾値97%でも元音源99%の欠損1件を補う候補へ実自動推定します。画像不足またはBMSONの親参照補助だけの厳格保留は自動推定を省略し、照合不能を実欠損の画像警告へ変換しません。通常画像不足で手動推定を許し、準備中のprovider変更は次操作へ反映します。</summary>
     [TestMethod]
     [DataRow(false, false)]

@@ -30,7 +30,7 @@
 | --- | --- | --- |
 | U05 ツリーのdrop・編集とフォルダ識別 | 遅延改名失効 | MainWindow・Playlist要求/変更 |
 | U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
-| U15 導入・推定 | 入れ子禁止 → 重複保留の登録整理 → 候補根変換・ユニークhash票 → DST表記 | PackageInstall/service/estimation。同一writer。候補根と票数は同じ座標へ揃える。登録整理は発見結果/完全性を共用。U09と順序調整 |
+| U15 導入・推定 | 入れ子禁止 → 重複保留の登録整理 → DST表記 | 入れ子禁止・登録整理は同じPackageInstall担当とし、発見結果/完全性を共用する。DST表記はValidateInstallDestinationの局所変更として別担当で進められる。U09と順序調整 |
 
 現在の所有は、`optional-updater` が共通表、`optional-encoding` がU09、`optional-lr2-output` がU15。空いた作業ツリーは全体ルートが共有先の終了に応じて最新devから再利用する。メイン以外最大5本であり、枠を埋めることを目的にしない。
 
@@ -97,23 +97,6 @@ Loadedは表示同期と一回購読、Unloadedは表示購読・予約だけの
 単位不変の保留は導入先・候補・項目内文字コードを保つ。分割・統合された単位は導入先・候補を解除し、通常の推定・手指定で扱う。旧親の宛先を子へ一律コピーしない。同一起動中の同path・同内容の譜面は確定文字コードと復号済み情報を引き継ぎ、再起動復元用の保存は追加しない。旧packageの相対配置・配置依存診断をそのまま別単位へコピーしない。`delete_parent` は同じ単位で保持し、変更単位へ旧値を一律コピー・ORして後片付け範囲を広げない。
 
 通常追加の親先・子先・同時投入とDB復元で同じ集合になること、借用/管理展開先の整理中のbytes・path不変、読取/取消/DB失敗で元登録保持、無関係な保留の不変、単位変更時の文字コード保持と宛先非拡散、問題解消後の通常再投入を確認する。整理後は既存の導入操作へつなぎ、入れ子の限定禁止・別保留の残存保護を迂回しない。`BmsLibraryInitializationInstallTests`、`BmsLibraryPendingPackageRegroupTests`、通常取込み・推定・導入系列を分担する。
-
-### 所持位置からパッケージ根への変換
-
-入力根 `Incoming/Pack`、入力譜面 `sub/old.bms` に対し、所持 `Songs/Song/sub/old.bms` のdirectoryをそのまま宛先にすると、導入時に `sub/sub` となる。入力根から譜面への相対directoryを所持directory末尾の構成と厳密に照合し、その部分だけ除いた候補根を使う。再結合して元の所持directoryへ戻ることと許可範囲を確認する。構成不一致では自動適用せず保留にし、別祖先探索・directory名補正・別方式の再探索を足さない。
-
-単体と根直下は空の相対部分として既存directoryを使う。混在packageの所持hash票と全既所持資源上書き先で共用し、後者の一譜面複数所持先による見送りは維持する。下記の票数は変換後の候補根に対して数える。祖先資源索引・Strong条件緩和・親参照推定の自動許可を追加しない。
-
-実導入で子既所持＋未所持、全既所持資源更新、直下＋子、多階層、複数候補、相対構成不一致を確認し、相対位置が一度だけ付くことを保証する。`BmsLibraryInstallEstimationServiceTests` と通常推定・導入系列を使い、文字列変換だけの確認で終えない。
-
-### 導入先推定のユニークhash票
-
-- 原因: `BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryInstallEstimationService.cs:227` の `TryResolveInstalledDestinationFromPackage` は242から入力entryごとに所持先を引き、249で `MatchedHashCount` を加算する。各hashの所持先重複は除くが入力の同hash重複は除かない。`BMSLibrary.PackageInstall.cs` の最上位所持先による自動DST決定へ届く。
-- 影響: Aがhash X、BがY/Zを持つ時、Xの入力コピー3件ならA3対B2、コピー1件ならA1対B2。Strong・音源条件を満たす場合は自動DSTも逆転する。
-- 方針: 一要求の候補根ごとに異なる有効primary hashを一票にする。同hashの入力が異なる相対位置にある場合は各配置から候補根を求めて集約し、最初の入力だけで変換しない。同hashが複数候補根へ一致すれば各根へ一票。`MatchedHashCount` も一致したユニークhash数へ揃える。所持索引・hash解決のBMS/BMSON方針を保つ。
-- 境界: 次着手対象はユニークhash票と明示されているため意味変更の追加選択は不要。同票は現行の複数候補結果を維持する。
-- 検証: `BmsLibraryInstallEstimationServiceTests.TryResolveInstalledDestinationFromPackage_PrefersDirectoryWithMostMatchingCharts:678`、MixedBmsAndBmson、TopTieの系列を拡張。コピー数・名・順の違い、hash欠損、両形式、同hash複数所持先を比較し、`PackageInstallWorkflowOwnerEstimationTests` 等の通常推定でDSTまで確認する。Strong・資源条件を弱めない。
-- 単位・依存: 採点と自動適用の小単位。同じU15の残存整理と共通の導入入口だが物理入力保護は別保証。`devdocs/spec/library/install-estimation.md` の正本へ反映する。I/O・永続状態・新索引を増やさない。
 
 ### 指定先の既知フォルダ表記
 

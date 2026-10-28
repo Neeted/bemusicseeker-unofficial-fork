@@ -71,14 +71,26 @@ drive rootの逆引き候補も絶対 `C:\` を保持し、非root現在位置�
 | 入口 | 候補と選び方 |
 | --- | --- |
 | 通常推定 | 外部の譜面フォルダを探す。自動・手動の対象資格は[自動推定と並列処理](#自動推定と並列処理)に従う |
-| 既所持・未所持が混在 | 既所持ハッシュの実配置先を数え、単独最多ならそのフォルダを選択し、未所持群とのStrongを検証する。同点ならその候補集合だけをリソース・基本情報で評価する |
-| 全対象が既所持（手動のみ） | 全対象のハッシュ一致数が単独最多ならそのフォルダを選択し、全対象とのStrongと同梱込みの音源完全性を検証する。同点ならその候補集合を評価する |
+| 既所持・未所持が混在 | 入力相対配置から求めた候補根ごとに異なる有効MD5を一票として数え、単独最多の根と未所持群とのStrongを検証する。同点ならその候補集合だけをリソース・基本情報で評価する |
+| 全対象が既所持（手動のみ） | 全対象の異なる有効MD5の票が単独最多の候補根と、全対象とのStrongと同梱込みの音源完全性を検証する。同点ならその候補集合を評価する |
 | 単独bmson | 所持先が一意ならそのフォルダを選択し、その譜面とのStrongを検証する |
 | 再導入先修正 | 現在の配置先を除いた既存フォルダを評価する。現在配置の状態は改善判定の基準だけに使う |
 
 混在パッケージでは、配置先候補が解決できない場合、または候補限定評価に必要な索引がない場合、通常探索へ切り替えず `InstalledDestinationResolveFailed` とします。単独最多・一意解決は候補選択の事実であり、自動設定の許可とは別です。その候補にも共通の分類・各譜面音源条件を適用し、非関連なら通常ドロップダウンから除外します。解決失敗へ変換したり、少数側や別のリソース候補へ探索し直したりしません。明示的な無関係候補保持モードでは同じ解決候補を残せます。
 
 ハッシュ同点の候補限定評価では、その候補範囲だけを比較します。一意な主ハッシュ数は、この入口で取得処理が渡された場合だけ補助条件に使い、通常探索の全フォルダへ新たな取得を追加しません。曖昧候補自動適用設定の適用入口は維持し、Strongと各譜面音源条件を満たす先頭候補だけを自動設定できます。
+
+### 所持位置からの候補根とハッシュ票
+
+パッケージの導入先は、入力根からの相対配置を一度だけ連結する根です。入力根 `Incoming/Pack` の `sub/old.bms` と所持 `Songs/Song/sub/old.bms` が一致する場合は、所持譜面の親 `Songs/Song/sub` から相対directoryの `sub` を除き、`Songs/Song` を候補根とします。入力根・譜面・所持directoryは絶対パスを要求し、物理パスは既存の `OrdinalIgnoreCase` で比較します。入力根と譜面パスが同一なら単体として相対部分を空とし、それ以外は要素境界付きの厳密な入力根配下だけを使います。根直下も相対directoryは空です。
+
+相対directoryの各要素を所持directoryの末尾と厳密に照合し、一致する部分だけを除きます。候補根と相対directoryの再結合が元の所持directoryへ戻ることを確認します。空・根外・不正な配置や末尾構成不一致は候補にせず、別の祖先探索、名前補正、根外をファイル名へ置き換える処理、別方式の再探索は行いません。候補根直下に所持譜面がなくても許可し、既知譜面directoryや登録BMSrootへの所属を追加条件にしません。入力元と導入先の同一・祖先・子孫および物理重複を拒否する既存の導入判定は維持します。ファイル存在確認、新しい資源索引、祖先の資源索引、Strong・各譜面音源条件の緩和は追加しません。
+
+一要求の候補根ごとに、異なる有効primary hashを一票とします。BMS・BMSONとも空白でないMD5を使い、MD5なしでSHA256へ切り替えたり、新たに長さ・hex形式を検査したりしません。同じMD5の全入力相対位置と全所持位置を変換して根へ集約し、先頭entryだけで判断しません。同じMD5が複数根へ対応すれば各根へ一票を与えます。コピーの数・名前・入力順だけでは票は増えません。
+
+`MatchedHashCount` は要求全体で有効な候補根へ一致した異なるMD5の数です。AへH1、BへH2なら根別は1票ずつ・全体は2件、H1がA/Bへ対応する場合は根別は1票ずつ・全体は1件です。`CandidateDirectoryUniquePrimaryHashCounts` は候補exact directory内の全所持MD5数という補助値を維持し、この票数や一致件数へ読み替えません。候補根直下に所持譜面がなければ補助値は0です。
+
+全既所持パッケージの資源上書き先にも同じ根変換を使い、全譜面が一つの根へ戻る場合だけ許可します。一譜面が複数所持directoryへ一致する場合は、変換前に従来どおり見送ります。一方だけを根へ変換できても複数所持先の拒否は解除しません。
 
 ### 候補の絞込み
 
@@ -407,7 +419,9 @@ ownerから完了・失敗receiverまで、成功として公開できる初段�
 | 手動入力の絶対ドライブルート、実在・所持検査と通常directoryの表記 | `BmsLibraryInstallEstimationService.ValidateInstallDestination` | [`BmsLibraryInstallEstimationServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryInstallEstimationServiceTests.cs) の `ValidateInstallDestination_PreservesOwnedDriveRootAndRejectsUnknownRoot` は専用driveのroot directory/直下fileを独立した絶対rootへ照合し、別のdrive current directoryと非所持root拒否を区別する。`ReturnsResolvedDirectoryForPendingPackage` は通常directoryの末尾separator有無を確認する。欠落先・adapter非依存BMSONの既存系列も維持する。UNCは変更箇所と既知directory索引の静的互換確認へ分担し、実共有接続の実行保証とは区別する。 |
 | 同一導入sessionの先行物理成功を使うリソース専用判定 | `BmsLibraryPackageInstallService` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `InstallPendingPackagesToEstimatedDestinations_ReevaluatesResourceOnlyAfterEarlierPhysicalSuccess`: 先行成功の所有overlayに基づく再判定を維持し、推定入力の世代再評価とは区別する。 |
 | 同一操作の入力再利用、並列度、検索中状態の解除と初期単体範囲 | [`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs)、[`PendingEstimateSourceBatchSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/PendingEstimateSourceBatchSnapshot.cs) | [`PackageInstallWorkflowOwnerTests.ProductionImport_AllOwnedSplitKeepsInitialPackagesWithOrWithoutCancellation`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerEstimationTests.cs) は全既所持の通常分割入力で、正常時・登録後取消とも2単体／2DB行を保持し、準備・work itemなし、取消結果・登録事実・SEARCHING解除・受付終端・明示clear健康度を確認する。発見の条件表は `BmsLibraryPackageInstallServiceTests`、入力再利用・通常推定・編集・表示は `BmsLibraryPendingPackageRegroupTests` が分担する。 |
-| 導入済み対象だけのリソース上書きに必要な実配置の一致 | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs) | [`InstalledOnlyResourceOverwriteValidationTests`](../../../BeMusicSeeker.Tests/Install/InstalledOnlyResourceOverwriteValidationTests.cs) |
+| 入力相対配置からの候補根、根ごとのユニークMD5票と全体一致件数 | `BmsLibraryInstallEstimationService.TryResolveInstalledDestinationFromPackage` | [`BmsLibraryInstallEstimationServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryInstallEstimationServiceTests.cs) の `ResolvesOnlyMatchingRelativePackageRoot`、`RootAndChildChartsVoteForSameRoot` は単体・直下・子・多階層・根外・末尾不一致とexact directory補助値を確認する。`DuplicatePrimaryHashesKeepTie`、`UsesEveryRelativePositionOfSameHash`、`UsesOnlyNonblankMd5` はコピー数・名前・順序、同hashの全相対位置と複数所持先、根別票と全体一致件数、両形式のMD5欠損・短い非空値を確認する。既存の両形式最多・同票とStrong・音源条件は維持する。 |
+| 実混在取り込みの子hashから候補根への推定と相対位置を一度だけ付ける実導入 | `PackageInstallWorkflowOwner`、`BMSLibrary.PackageInstall`、`BmsLibraryInstallEstimationService` | [`PackageInstallWorkflowOwnerTests.ProductionImport_ChildOwnedHashResolvesOnlyMatchingPackageRoot`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerEstimationTests.cs) は実Enqueueからidleまでで、親のSTAGEFILEと子音源を持つ3譜面を一packageとして発見し、根直下に所持譜面のない候補へ未所持2譜面のDSTを設定する。既所持項目の空DSTを保ち、評価対象への適用と区別する。同じpackageとDSTを明示導入入口へ渡し、実FS・SQLiteの親譜面・画像と子譜面の配置、既所持譜面のbytes・所持MD5・DB hash保持と保留解除を確認する。自動継続ONは既存の `ProductionImport_CompleteSourceAudioStillEvaluatesKnownHashCandidates` へ分担する。末尾構成不一致では別資源候補があってもDST空・保留・入力譜面と資源の内容保持、解決失敗警告を確認する。 |
+| 導入済み対象だけのリソース上書きに必要な実配置の一致 | `BmsLibraryInstallEstimationService.TryPrepareInstalledOnlyPackageDestination`、[`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs) | [`InstalledOnlyResourceOverwriteValidationTests`](../../../BeMusicSeeker.Tests/Install/InstalledOnlyResourceOverwriteValidationTests.cs) は既存の全8ケースに加え、`RequiresCommonConvertedRoot` と `MultipleLocationsRemainAmbiguousBeforeRootConversion` で直下＋子の共通根・不一致・別根と、変換前の複数所持先拒否を確認する。[`BmsLibraryPackageInstallServiceTests.OverwritePendingInstalledOnlyPackagesResources_PreservesChartsAndUpdatesChildResourceAtPackageRoot`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) は実FS・SQLiteで子音源bytesだけを更新し、譜面bytes・MD5・件数、相対配置と保留解除を確認する。 |
 | 評価入力の変更不能性とリソース相対キー | [`ChartResourceSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceSnapshot.cs) | [`ChartResourceSnapshotTests`](../../../BeMusicSeeker.Tests/Resources/ChartResourceSnapshotTests.cs) |
 | 空キー・種類不明から親参照理由を生成せず、正常なキー・件数・ハッシュと解析採用範囲を保持 | [`ChartResourceSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceSnapshot.cs)、`BmsChartFileParser`、`BmsonChartFileParser` | [`ChartResourceSnapshotTests`](../../../BeMusicSeeker.Tests/Resources/ChartResourceSnapshotTests.cs) の `Create_ExtensionOnlyBmsResourcesKeepNormalKeysWithoutParentTraversal` は小さい実BMSから投影配列の有無、単体・集約を確認する。`AnalyzeReferencePathForLookup_PreservesExistingPathClassification` と `Create_UnknownResourcePreservesOnlyActualParentTraversal` は解析・種類不明の境界を確認する。[`BmsonSongParserTests`](../../../BeMusicSeeker.Tests/ChartInfo/BmsonSongParserTests.cs) の `Parse_ExtractsResourceReferences` は実bmsonから直接・投影・集約を確認する。 |
 | 空キー等があっても既存候補を推定し、実親参照では警告して保留 | `BMSLibrary.PackageInstall`、[`ChartResourceSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceSnapshot.cs) | [`BmsLibraryPendingPackageRegroupTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPendingPackageRegroupTests.cs) の `SearchEstimatedInstallationDirectory_CurrentDirectoryResourcePath_NormalizesAndEstimates` は本番解析から候補・保留理由・警告なしを、`SearchEstimatedInstallationDirectory_UnsupportedParentResourcePath_WarnsAndSkipsEstimation` は実親参照の警告・保留を確認する。 |

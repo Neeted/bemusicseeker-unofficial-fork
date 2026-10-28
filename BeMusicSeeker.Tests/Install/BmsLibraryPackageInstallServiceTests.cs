@@ -2052,6 +2052,77 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
         });
     }
+    /// <summary>直下と子に全既所持譜面を持つpackageの資源だけを共通根へ上書きし、譜面bytes・MD5・所持件数とDBを保持して保留を解除します。子directoryの二重付加や譜面再登録を検出します。</summary>
+    /// <remarks>実FS・SQLiteと本番の資源上書き入口を接続します。相対構成の条件網羅・複数所持先の拒否はInstalledOnlyResourceOverwriteValidationTestsへ分担します。</remarks>
+    [TestMethod]
+    public void OverwritePendingInstalledOnlyPackagesResources_PreservesChartsAndUpdatesChildResourceAtPackageRoot()
+    {
+        WithTemporarySongDb((songDbPath, root) =>
+        {
+            string songRoot = Path.Combine(root, "Song");
+            string inputRoot = Path.Combine(root, "Pack");
+            const string rootBody = "#TITLE Song\n#ARTIST Artist\n#STAGEFILE cover.png\n";
+            const string childBody = "#TITLE Song\n#ARTIST Artist\n#WAV01 tone.wav\n#00111:01\n";
+            string installedRootPath = CreateBmsFile(songRoot, "root-old.bms", rootBody);
+            string installedChildPath = CreateBmsFile(Path.Combine(songRoot, "sub"), "child-old.bms", childBody);
+            string inputRootPath = CreateBmsFile(inputRoot, "root-old.bms", rootBody);
+            string inputChildPath = CreateBmsFile(Path.Combine(inputRoot, "sub"), "child-old.bms", childBody);
+            byte[] originalRootBytes = File.ReadAllBytes(installedRootPath);
+            byte[] originalChildBytes = File.ReadAllBytes(installedChildPath);
+            File.WriteAllBytes(Path.Combine(songRoot, "cover.png"), [7, 8]);
+            File.WriteAllBytes(Path.Combine(inputRoot, "cover.png"), [7, 8]);
+            File.WriteAllBytes(Path.Combine(songRoot, "sub", "tone.wav"), [1]);
+            File.WriteAllBytes(Path.Combine(inputRoot, "sub", "tone.wav"), [2, 3, 4]);
+            ChartFile installedRoot = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(installedRootPath));
+            ChartFile installedChild = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(installedChildPath));
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([
+                BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(inputRootPath)),
+                BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(inputChildPath))]);
+            package.path = inputRoot;
+            package.delete_parent = false;
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, seedSongDb =>
+            {
+                seedSongDb.CreateTable<LR2SongDBExtended.install>();
+                seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(installedRoot), typeof(LR2SongDB.song));
+                seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(installedChild), typeof(LR2SongDB.song));
+                seedSongDb.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
+            });
+            var library = new TestBmsLibrary(songDbPath, null, null, new RealFileMutationService(),
+                new RecordingDialogService(), new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    DeletePendingPackageSourceAfterInstall = false,
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                })
+            {
+                BmsCharts = [installedRoot, installedChild],
+                ChartPackagesPending = CreatePackageCollection([package]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+
+            PendingInstalledOnlyResourceOverwriteResult result = library.OverwritePendingInstalledOnlyPackagesResources([package]);
+
+            Assert.AreEqual(1, result.SucceededInstall);
+            Assert.AreEqual(0, result.Failed);
+            Assert.IsTrue(result.HasDurableCommit);
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
+            Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
+            CollectionAssert.AreEqual(new byte[] { 2, 3, 4 }, File.ReadAllBytes(Path.Combine(songRoot, "sub", "tone.wav")));
+            CollectionAssert.AreEqual(originalRootBytes, File.ReadAllBytes(installedRootPath));
+            CollectionAssert.AreEqual(originalChildBytes, File.ReadAllBytes(installedChildPath));
+            Assert.IsFalse(Directory.Exists(Path.Combine(songRoot, "sub", "sub")));
+            Assert.AreEqual(2, library.BmsCharts.Count);
+            Assert.AreEqual(installedRoot.Md5, library.BmsCharts.Single(chart => chart.Path == installedRootPath).Md5);
+            Assert.AreEqual(installedChild.Md5, library.BmsCharts.Single(chart => chart.Path == installedChildPath).Md5);
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
+            Assert.AreEqual(2, db.Table<LR2SongDB.song>().Count());
+            Assert.AreEqual(installedRoot.Md5, db.Find<LR2SongDB.song>(installedRootPath).hash);
+            Assert.AreEqual(installedChild.Md5, db.Find<LR2SongDB.song>(installedChildPath).hash);
+        });
+    }
+
     /// <summary>
     /// 資源導入・片付けのみのDB反映が失敗したら準備件数を成功として公開せず、保留行・入力と回復候補を保持して、未確定成功件数の漏出を検出する。
     /// </summary>

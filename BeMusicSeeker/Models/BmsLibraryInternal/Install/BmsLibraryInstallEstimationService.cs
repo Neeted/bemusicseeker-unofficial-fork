@@ -184,6 +184,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
 
     private readonly BmsLibraryOptionsSnapshot options = options ?? throw new ArgumentNullException(nameof(options));
 
+    /// <summary>全譜面の所持先がそれぞれ一意で、入力相対配置から同じパッケージ根へ戻る場合だけ資源上書き先を返します。</summary>
     public InstalledOnlyPackageResolutionResult TryPrepareInstalledOnlyPackageDestination(ChartPackage package, IInstalledChartLookupIndex installedDirectoryIndex)
     {
         var result = new InstalledOnlyPackageResolutionResult();
@@ -212,7 +213,12 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
                 result.Reason = InstalledDirectoryResolveReason.ChartHasMultipleInstalledDirectories;
                 return result;
             }
-            distinctDirectories.Add(chartDirectories[0]);
+            if (!TryConvertInstalledDirectoryToPackageRoot(package.path, item.Chart?.Path, chartDirectories[0], out string candidateRoot))
+            {
+                result.Reason = InstalledDirectoryResolveReason.MissingInstallDestination;
+                return result;
+            }
+            distinctDirectories.Add(candidateRoot);
             if (distinctDirectories.Count > 1)
             {
                 result.Reason = InstalledDirectoryResolveReason.PackageHasSplitInstalledDirectories;
@@ -224,7 +230,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return result;
     }
 
-    /// <summary>既所持ハッシュの一致数から候補を選びます。成功は単独最多の選択を表し、自動設定には別途対象群とのStrongと各譜面の音源許可条件が必要です。</summary>
+    /// <summary>入力相対配置から求めた候補根ごとに異なる有効MD5を一票として選びます。同じMD5の全入力位置を使い、成功後の自動設定には別途対象群とのStrongと各譜面の音源許可条件が必要です。</summary>
     public InstalledDirectoryLookupResult TryResolveInstalledDestinationFromPackage(ChartPackage package, IReadOnlyCollection<PackageChartEntry> missingEntries, IInstalledChartLookupIndex installedDirectoryIndex)
     {
         var result = new InstalledDirectoryLookupResult();
@@ -239,15 +245,28 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             return result;
         }
         var directoryScores = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (PackageChartEntry item in package.ChartEntries ?? [])
+        foreach (IGrouping<string, PackageChartEntry> hashEntries in (package.ChartEntries ?? [])
+            .Where(entry => !string.IsNullOrWhiteSpace(ChartLookupKey.GetPrimaryHash(entry?.Chart)))
+            .GroupBy(entry => ChartLookupKey.GetPrimaryHash(entry.Chart), StringComparer.OrdinalIgnoreCase))
         {
-            List<string> directories = GetDistinctInstalledDirectoriesForChart(installedDirectoryIndex, item?.Chart);
-            if (item == null || directories.Count == 0)
+            List<string> directories = GetDistinctInstalledDirectoriesByPrimaryHash(installedDirectoryIndex, hashEntries.Key);
+            var candidateRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (PackageChartEntry item in hashEntries)
+            {
+                foreach (string directoryPath in directories)
+                {
+                    if (TryConvertInstalledDirectoryToPackageRoot(package.path, item.Chart.Path, directoryPath, out string candidateRoot))
+                    {
+                        candidateRoots.Add(candidateRoot);
+                    }
+                }
+            }
+            if (candidateRoots.Count == 0)
             {
                 continue;
             }
             result.MatchedHashCount++;
-            foreach (string directoryPath in directories)
+            foreach (string directoryPath in candidateRoots)
             {
                 if (!directoryScores.ContainsKey(directoryPath))
                 {
@@ -279,6 +298,57 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         }
         result.Reason = InstalledDirectoryResolveReason.MultipleCandidateDirectories;
         return result;
+    }
+
+    /// <summary>入力根から譜面への安全な相対directoryを所持位置の末尾から除き、再結合で同じ位置へ戻る候補根だけを返します。ファイルの存在確認や不一致時の祖先探索は行いません。</summary>
+    private static bool TryConvertInstalledDirectoryToPackageRoot(string packagePath, string chartPath, string installedDirectory, out string candidateRoot)
+    {
+        candidateRoot = null;
+        if (string.IsNullOrWhiteSpace(packagePath) || string.IsNullOrWhiteSpace(chartPath) || string.IsNullOrWhiteSpace(installedDirectory)
+            || !Path.IsPathFullyQualified(packagePath) || !Path.IsPathFullyQualified(chartPath) || !Path.IsPathFullyQualified(installedDirectory))
+        {
+            return false;
+        }
+        try
+        {
+            string inputRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(packagePath));
+            string inputChart = Path.GetFullPath(chartPath);
+            string installed = Path.TrimEndingDirectorySeparator(Path.GetFullPath(installedDirectory));
+            string relativeDirectory = string.Empty;
+            if (!string.Equals(inputRoot, inputChart, StringComparison.OrdinalIgnoreCase))
+            {
+                string inputPrefix = Path.EndsInDirectorySeparator(inputRoot) ? inputRoot : inputRoot + Path.DirectorySeparatorChar;
+                if (!inputChart.StartsWith(inputPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+                relativeDirectory = Path.GetDirectoryName(Path.GetRelativePath(inputRoot, inputChart)) ?? string.Empty;
+            }
+            string root = installed;
+            string[] segments = relativeDirectory.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+            for (int index = segments.Length - 1; index >= 0; index--)
+            {
+                if (segments[index] is "." or ".." || !string.Equals(Path.GetFileName(root), segments[index], StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+                root = Path.GetDirectoryName(root);
+                if (string.IsNullOrWhiteSpace(root))
+                {
+                    return false;
+                }
+            }
+            if (!string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.Combine(root, relativeDirectory))), installed, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            candidateRoot = root;
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
     }
 
     /// <summary>単独最多または一意に選択済みの所持先を、対象群との共通Strongで評価します。同梱と候補の和集合に各譜面の音源許可条件を適用し、同梱だけで条件を満たせば候補索引の未取得を理由に拒みません。</summary>
