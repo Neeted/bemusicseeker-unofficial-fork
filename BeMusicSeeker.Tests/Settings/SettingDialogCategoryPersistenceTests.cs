@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Configuration;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -323,7 +324,8 @@ public sealed partial class SettingDialogEditCompletionTests
         });
     }
 
-    /// <summary>実音声入力の正常保存では再試行を出さず、実保存失敗だけに保存目的の案内を出し、実retryで保存成功へ進みます。確定値へ戻した場合も解消します。</summary>
+    /// <summary>実音声入力の正常保存・失敗・retry・確定値への復帰を確認します。ページ初生成前と同じComboBox表示中の言語変更で品質・並列度の表示だけを更新し、選択・未保存候補・保存媒体・テスト結果を保ちます。</summary>
+    /// <remarks>専用providerと実Bindingを使い、native機器だけを代替します。資源通知区間の列挙・照会・テスト回数と媒体を観測し、追加Commitの不在は表示更新経路の静的確認と分担します。既存language setterの言語保存は対象外です。</remarks>
     [TestMethod]
     public void CompiledAudioSelection_ShowsSaveRetryOnlyAfterFailureAndClearsOnSuccessOrRestoration()
     {
@@ -331,28 +333,91 @@ public sealed partial class SettingDialogEditCompletionTests
         {
             string root = CreateTemporaryRoot();
             string path = Path.Combine(root, "user.config");
+            string culture = Resources.Culture?.Name ?? "ja-JP";
             Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(path));
             values.PlayerDriver = BassAudioMapping.ToBassDriver(AudioDriver.WasapiShared);
             values.PlayerDevice = string.Empty;
             values.PlayerDeviceName = string.Empty;
             values.PlayerWASAPIParam = false;
+            values.PlayerResamplingQuality = 4;
+            values.PlayerMixerThreadCount = 3;
             values.Save();
             var failures = new List<Exception>();
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(values);
             owner.SettingDialog.Dispose();
-            var workflow = new AudioDeviceTestWorkflowOwner(new NoOpAudioDeviceTestPlaybackPort(), new SuccessfulAudioDeviceTestRuntime(),
-                new DelegateAudioDeviceCapabilityRuntime(request => new AudioDeviceCapabilityResult(request.Backend, request.DeviceIdentity, request.DeviceName, AudioDeviceCapabilityStatus.Unsupported, [])));
+            int testCount = 0;
+            int queryCount = 0;
+            var catalog = new TestAudioDeviceCatalog();
+            var workflow = new AudioDeviceTestWorkflowOwner(new NoOpAudioDeviceTestPlaybackPort(),
+                new DelegateAudioDeviceTestRuntime(request =>
+                {
+                    Interlocked.Increment(ref testCount);
+                    return AudioDeviceTestResultFactory.CreateSuccessful(request);
+                }),
+                new DelegateAudioDeviceCapabilityRuntime(request =>
+                {
+                    Interlocked.Increment(ref queryCount);
+                    return new AudioDeviceCapabilityResult(request.Backend, request.DeviceIdentity, request.DeviceName, AudioDeviceCapabilityStatus.Unsupported, []);
+                }));
             ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
             using var dialog = new SettingsDialogViewModel(owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
                 composition, owner.PlaybackPanel, owner.Lr2SongDbSyncWorkflow, new SettingsEditSession(values), reportApplyFailure: failures.Add,
                 applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 externalShellGateway: ExternalShellGatewayPolicy.Current, applicationPathSnapshot: ApplicationPathPolicy.Current,
-                audioDeviceCatalog: new TestAudioDeviceCatalog(), audioSettingsGateway: new SettingsAudioGateway(() => values), audioDeviceTestWorkflow: workflow);
+                audioDeviceCatalog: catalog, audioSettingsGateway: new SettingsAudioGateway(() => values), audioDeviceTestWorkflow: workflow);
             SettingsWindow? window = null;
             try
             {
+                ResourceService.Current.ChangeCulture("en-US");
+                byte[] beforeFirstCultureChange = File.ReadAllBytes(path);
+                string previousQualityName = dialog.PlayerResamplingQualityNames[4];
+                string previousDefaultThreadName = dialog.PlayerMixerThreadCountNames[1];
+                ResourceService.Current.ChangeCulture("ja-JP");
+                CollectionAssert.AreEqual(beforeFirstCultureChange, File.ReadAllBytes(path));
+                Assert.AreNotEqual(previousQualityName, dialog.PlayerResamplingQualityNames[4]);
+                Assert.AreNotEqual(previousDefaultThreadName, dialog.PlayerMixerThreadCountNames[1]);
+                Assert.AreEqual(0, catalog.RefreshCount, "ページ初生成前の言語変更では列挙しません。");
+                Assert.AreEqual(0, Volatile.Read(ref queryCount));
+                Assert.AreEqual(0, Volatile.Read(ref testCount));
                 window = OpenSettingsWindow(scope, dialog);
                 var toggle = (CheckBox)GetCategoryControl(window, "Audio", nameof(SettingsDialogViewModel.PlayerWASAPIParam)).Control;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "audio-language-first-page-terminal");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "audio-language-first-capability-terminal");
+                var quality = (ComboBox)GetCategoryControl(window, "Audio", nameof(SettingsDialogViewModel.PlayerResamplingQuality)).Control;
+                var threads = (ComboBox)GetCategoryControl(window, "Audio", nameof(SettingsDialogViewModel.PlayerMixerThreadCount)).Control;
+                void AssertLocalizedOptionsAndSelection()
+                {
+                    KeyValuePair<int, string>[] qualityItems = quality.Items.Cast<KeyValuePair<int, string>>().ToArray();
+                    CollectionAssert.AreEqual(new[] { 2, 3, 4, 5, 6 }, qualityItems.Select(item => item.Key).ToArray());
+                    foreach (KeyValuePair<int, string> item in qualityItems)
+                    {
+                        Assert.AreEqual(string.Format(CultureInfo.CurrentCulture, Resources.AudioResamplingQualityOptionFormat,
+                            item.Key, AudioResamplingQuality.GetSincPointCount(item.Key)), item.Value);
+                    }
+                    KeyValuePair<int, string>[] threadItems = threads.Items.Cast<KeyValuePair<int, string>>().ToArray();
+                    CollectionAssert.AreEqual(new[] { 1, 2, 3, 4 }, threadItems.Select(item => item.Key).ToArray());
+                    foreach (KeyValuePair<int, string> item in threadItems)
+                    {
+                        string expected = item.Key == 1
+                            ? string.Format(CultureInfo.CurrentCulture, Resources.AudioMixerThreadCountDefaultOptionFormat, item.Key)
+                            : item.Key.ToString(CultureInfo.CurrentCulture);
+                        Assert.AreEqual(expected, item.Value);
+                    }
+                    Assert.AreEqual(4, quality.SelectedValue);
+                    Assert.AreEqual(3, threads.SelectedValue);
+                    Assert.AreEqual(qualityItems.Single(item => item.Key == 4).Value, quality.Text);
+                    Assert.AreEqual(threadItems.Single(item => item.Key == 3).Value, threads.Text);
+                    Assert.AreEqual(4, dialog.PlayerResamplingQuality);
+                    Assert.AreEqual(3, dialog.PlayerMixerThreadCount);
+                    Settings saved = PortableSettingsPersistenceTests.OpenSettings(path);
+                    Assert.AreEqual(4, saved.PlayerResamplingQuality);
+                    Assert.AreEqual(3, saved.PlayerMixerThreadCount);
+                }
+                AssertLocalizedOptionsAndSelection();
+                Assert.IsFalse(dialog.PlayerWASAPIParam);
+                Assert.IsFalse(toggle.IsChecked);
+                Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(path).PlayerWASAPIParam);
                 Button retry = FindDescendants<Button>(window).Single(button => Equals(button.Tag, "retry:audio"));
                 Assert.AreEqual(Visibility.Collapsed, retry.Visibility);
                 toggle.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
@@ -365,6 +430,41 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual(Visibility.Visible, retry.Visibility);
                 Assert.AreEqual(Resources.Settings_retry_audio_save, retry.Content);
                 Assert.IsTrue(FindDescendants<TextBlock>(window).Any(text => text.Text == Resources.Settings_audio_save_retry_description && text.Visibility == Visibility.Visible));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "audio-language-draft-query-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.RunAudioDeviceTestAsync(), "audio-language-test-result-terminal");
+                Assert.IsFalse(dialog.PlayerWASAPIParam);
+                Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(path).PlayerWASAPIParam);
+                Assert.IsTrue(dialog.CanRetryAudioSettings);
+                AssertLocalizedOptionsAndSelection();
+                string result = dialog.AudioDeviceTestStatusMessage;
+                string diagnostic = dialog.AudioDeviceTestDiagnosticMessage;
+                Assert.IsFalse(string.IsNullOrEmpty(result));
+                int refreshes = catalog.RefreshCount;
+                int queries = Volatile.Read(ref queryCount);
+                int tests = Volatile.Read(ref testCount);
+                byte[] beforeVisibleCultureChange = File.ReadAllBytes(path);
+                previousQualityName = quality.Text;
+                previousDefaultThreadName = threads.Items.Cast<KeyValuePair<int, string>>().Single(item => item.Key == 1).Value;
+                ResourceService.Current.ChangeCulture("en-US");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                AssertLocalizedOptionsAndSelection();
+                Assert.AreNotEqual(previousQualityName, quality.Text);
+                Assert.AreNotEqual(previousDefaultThreadName, threads.Items.Cast<KeyValuePair<int, string>>().Single(item => item.Key == 1).Value);
+                Assert.AreSame(quality, GetCategoryControl(window, "Audio", nameof(SettingsDialogViewModel.PlayerResamplingQuality)).Control);
+                Assert.AreSame(threads, GetCategoryControl(window, "Audio", nameof(SettingsDialogViewModel.PlayerMixerThreadCount)).Control);
+                Assert.IsFalse(dialog.PlayerWASAPIParam);
+                Assert.IsFalse(toggle.IsChecked);
+                Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(path).PlayerWASAPIParam);
+                Assert.IsTrue(dialog.CanRetryAudioSettings);
+                Assert.AreEqual(Visibility.Visible, retry.Visibility);
+                Assert.AreEqual(Resources.Settings_retry_audio_save, retry.Content);
+                Assert.AreEqual(result, dialog.AudioDeviceTestStatusMessage);
+                Assert.AreEqual(diagnostic, dialog.AudioDeviceTestDiagnosticMessage);
+                Assert.AreEqual(refreshes, catalog.RefreshCount);
+                Assert.AreEqual(queries, Volatile.Read(ref queryCount));
+                Assert.AreEqual(tests, Volatile.Read(ref testCount));
+                Assert.AreEqual(1, failures.Count);
+                CollectionAssert.AreEqual(beforeVisibleCultureChange, File.ReadAllBytes(path));
                 retry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(path).PlayerWASAPIParam);
@@ -381,10 +481,18 @@ public sealed partial class SettingDialogEditCompletionTests
             }
             finally
             {
-                window?.CloseForOwnerShutdown();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "audio-save-retry-terminal");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "audio-save-retry-owner-terminal");
-                Directory.Delete(root, recursive: true);
+                try
+                {
+                    window?.CloseForOwnerShutdown();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "audio-save-retry-terminal");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "audio-save-retry-owner-terminal");
+                    dialog.Dispose();
+                }
+                finally
+                {
+                    ResourceService.Current.ChangeCulture(culture);
+                    Directory.Delete(root, recursive: true);
+                }
             }
         });
     }

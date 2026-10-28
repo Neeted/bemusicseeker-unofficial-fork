@@ -847,8 +847,8 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
         }
     }
 
-    /// <summary>サンプルレート変換品質と対応するsinc点数の選択肢です。</summary>
-    public ReadOnlyDictionary<int, string> PlayerResamplingQualityNames { get; } =
+    /// <summary>現在の言語でサンプルレート変換品質と対応するsinc点数の選択肢を取得します。</summary>
+    public ReadOnlyDictionary<int, string> PlayerResamplingQualityNames =>
         new(new Dictionary<int, string>
         {
             [2] = FormatResamplingQualityOption(2),
@@ -880,8 +880,8 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
         }
     }
 
-    /// <summary>通常再生で選択できるnativeミキサーthread数です。</summary>
-    public ReadOnlyDictionary<int, string> PlayerMixerThreadCountNames { get; } =
+    /// <summary>現在の言語で通常再生用nativeミキサーthread数の選択肢を取得します。</summary>
+    public ReadOnlyDictionary<int, string> PlayerMixerThreadCountNames =>
         new(new Dictionary<int, string>
         {
             [1] = FormatMixerThreadCountOption(1),
@@ -889,6 +889,16 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
             [3] = FormatMixerThreadCountOption(3),
             [4] = FormatMixerThreadCountOption(4)
         });
+
+    /// <summary>資源変更時に表示名と選択キーを再通知し、音声の設定値・下書き・処理結果を保ちます。</summary>
+    internal void RefreshLocalizedOptionNames()
+    {
+        RaisePropertyChanged(nameof(PlayerResamplingQualityNames));
+        // 表示名を含む辞書項目の交換でComboBoxの選択が外れるため、保存済みキーをBindingへ読み直させます。
+        RaisePropertyChanged(nameof(PlayerResamplingQuality));
+        RaisePropertyChanged(nameof(PlayerMixerThreadCountNames));
+        RaisePropertyChanged(nameof(PlayerMixerThreadCount));
+    }
 
     private static string FormatMixerThreadCountOption(int threadCount) => threadCount == BassMixerThreadConfigurator.RealtimeDefaultThreadCount
         ? string.Format(CultureInfo.CurrentCulture, Resources.AudioMixerThreadCountDefaultOptionFormat, threadCount)

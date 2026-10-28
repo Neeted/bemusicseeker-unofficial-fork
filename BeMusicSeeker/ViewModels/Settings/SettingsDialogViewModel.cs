@@ -3810,6 +3810,7 @@ public partial class SettingsDialogViewModel : ViewModel
             settingDialogViewModel.RaisePropertyChanged(nameof(settingDialogViewModel.AvailableBMSDirectories));
             settingDialogViewModel.RaiseLr2PathPresentationChanged();
             settingDialogViewModel.RaisePropertyChanged(nameof(AudioDeviceListStatusMessage));
+            audioDeviceTestWorkflow.RefreshLocalizedOptionNames();
             settingDialogViewModel.RaiseValidationStateChanged();
         });
         resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate

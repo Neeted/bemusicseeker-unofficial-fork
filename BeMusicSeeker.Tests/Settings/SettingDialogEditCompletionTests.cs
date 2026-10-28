@@ -223,7 +223,7 @@ public sealed partial class SettingDialogEditCompletionTests
     // MSTest が各ケース開始前に注入する。fixture cleanup の診断に使用する。
     public TestContext TestContext { get; set; } = null!;
 
-    /// <summary>culture 変更で表示カタログを一回更新し、二度 Dispose した後は更新しないことを確認して、共有リソースへの購読漏れを検出します。</summary>
+    /// <summary>culture変更で表示カタログと音声ownerから画面へ転送する二つの選択肢名を更新し、二度Disposeした後はどちらにも通知しないことを確認して、共有リソースへの購読漏れを検出します。</summary>
     [TestMethod]
     public void DisposedSettingsDialogStopsListeningToResourceServiceCultureChanges()
     {
@@ -236,16 +236,30 @@ public sealed partial class SettingDialogEditCompletionTests
             SettingsDialogViewModel? dialog = null;
             try
             {
-                dialog = CreateResourceListeningDialog(owner, playHistoryPort);
+                AudioDeviceTestWorkflowOwner workflow = AudioDeviceTestWorkflowTestFactory.Create();
+                dialog = CreateResourceListeningDialog(owner, playHistoryPort, workflow);
+                var ownerNotifications = new List<string?>();
+                var viewModelNotifications = new List<string?>();
+                workflow.PropertyChanged += (_, args) => ownerNotifications.Add(args.PropertyName);
+                dialog.PropertyChanged += (_, args) => viewModelNotifications.Add(args.PropertyName);
 
                 ResourceService.Current.ChangeCulture("en-US");
                 Assert.AreEqual(1, playHistoryPort.RefreshDisplayTargetCatalogCount);
+                foreach (string name in new[] { nameof(SettingsDialogViewModel.PlayerResamplingQualityNames), nameof(SettingsDialogViewModel.PlayerMixerThreadCountNames) })
+                {
+                    CollectionAssert.Contains(ownerNotifications, name);
+                    CollectionAssert.Contains(viewModelNotifications, name);
+                }
 
                 dialog.Dispose();
                 dialog.Dispose();
+                ownerNotifications.Clear();
+                viewModelNotifications.Clear();
 
                 ResourceService.Current.ChangeCulture("ja-JP");
                 Assert.AreEqual(1, playHistoryPort.RefreshDisplayTargetCatalogCount);
+                Assert.AreEqual(0, ownerNotifications.Count);
+                Assert.AreEqual(0, viewModelNotifications.Count);
             }
             finally
             {
@@ -4542,7 +4556,8 @@ public sealed partial class SettingDialogEditCompletionTests
 
     private static SettingsDialogViewModel CreateResourceListeningDialog(
         MainWindowViewModel owner,
-        ISettingsDialogPlayHistoryPort playHistoryPort)
+        ISettingsDialogPlayHistoryPort playHistoryPort,
+        AudioDeviceTestWorkflowOwner workflow)
     {
         return new SettingsDialogViewModel(
             (ISettingsDialogStatePort)owner,
@@ -4560,7 +4575,7 @@ public sealed partial class SettingDialogEditCompletionTests
             applicationPathSnapshot: ApplicationPathPolicy.Current,
             audioDeviceCatalog: new TestAudioDeviceCatalog(),
             audioSettingsGateway: new TestAudioSettingsGateway(),
-            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
+            audioDeviceTestWorkflow: workflow);
     }
 
     private static SettingsWindow OpenSettingsWindow(

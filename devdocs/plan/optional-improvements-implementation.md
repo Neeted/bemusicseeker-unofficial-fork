@@ -32,7 +32,7 @@
 | U03 共通表の表示とコピー | TSV空行 → URL幅 → フルスキャンDST編集・非編集案内 → 言語cache | U02後。同担当が能力付与・編集終端・一時投影まで所有。U15のDST検証と順序調整 |
 | U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U03後、U05/U08と直列 |
 | U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04/U08と直列 |
-| U07 言語変更と確認文言 | 音声 → 検索 → プロパティ → ランプ → 確認ボタン | 既存owner別コミット。全言語資源は一担当。U03/U16/U17/U20/U23と共有編集を調整 |
+| U07 言語変更と確認文言 | 検索 → プロパティ → ランプ → 確認ボタン | 既存owner別コミット。全言語資源は一担当。U03/U16/U17/U20/U23と共有編集を調整 |
 | U08 手動ランキング取得廃止 | UI・専用通信・資料・専用テストを除去 | MainWindow/composition/Ir。U04/U05後、起動時ローカルcache維持 |
 | U09 確定文字コードの保持と導入・同期への引継ぎ | LR2全体同期 → 導入成功先への引継ぎ | Maintenance/Catalog/Install/LR2。導入serviceはU15との順序調整後、署名変更なし |
 | U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile。U13のWriter検証と調整 |
@@ -183,19 +183,6 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 `MainWindowPlaylistWorkspaceWpfTests` でクリック→1秒以内に検索入力→callback後も検索の全文/フォーカス保持・改名0回、移動しない場合は一回開始を確認。F2、別ノード、切離し、重複クリックで古い要求が再開しない代表を分担する。遅延完了後の全UI状態を保証する一般フレームワークへ拡張しない。DnDと同MainWindowツリー領域のため同担当へまとめられる。
 
 ## U07 言語変更と確認文言
-
-### 音声詳細選択肢
-
-**一部更新済み・二つの辞書は現存。** 通常のsettings composition時に `AudioDeviceTestWorkflowOwner.Presentation.cs` の `PlayerResamplingQualityNames`（851行付近）と `PlayerMixerThreadCountNames`（884行付近）が翻訳済みReadOnlyDictionaryとして構築される。ページを初めて作る前にもownerは存在し、途中で言語を変えると旧表示を渡す。
-
-`SettingsDialogViewModel` は既存 `resourceServiceEventListener`（3806行付近）から各設定表示を更新しているが、上の二辞書は対象外。ownerのPropertyChangedは `AudioSettingsPropertyChanged`（5276行付近）がVMへ転送し、VM Disposeで転送/資源listenerとも解除する。したがって資源購読を重ねる必要はない。
-
-- 方針: 音声ownerが現在資源から二つの選択肢名を再整形し、既存設定VMの資源listenerから呼ぶ。既存転送を通じて二プロパティを通知するか、現文化を読むgetterへ揃えて通知する。品質2–6/thread1–4のキー、既定印、SelectedValueは維持。setter経由で選択値を再代入せず、保存/テスト結果失効を起こさない。
-- 寿命: 既存settings listener寿命に揃える。ページ未生成→言語変更→初回表示と、ページ表示中→言語変更の双方を扱う。音声pageのOnVisibleやdevice能力照会へ接続しない。
-- 完了条件: 二Comboboxの選択肢表示が新言語、SelectedValue/下書き/保存値は同じ。言語変更でaudio列挙・能力照会・テスト開始・設定Commitなし。
-- 既存テスト: `SettingsWindowCompiledBehaviorTests.AudioPagesBindPlayerCapabilitiesAndIndependentEncodingOptions`（347行付近）はItemsSource/SelectedValue接続を確認。`SettingsWindowPresentationTests` の既存language tests、`AudioDeviceTestWorkflowOwnerTests` / `SettingDialogEditCompletionTests` の保存・音声受付へ分担する。実native試験を言語だけの変更で増設しない。
-- 共有書込み先: `AudioDeviceTestWorkflowOwner.Presentation.cs` と `SettingsDialogViewModel.cs`、compiled/presentation tests。settings部品のBinding所有整理と直列にし、独立ownerへ集約するための新クラスを追加しない。
-- 除外: settings画面のResourceService直結見出し、既存normalization/theme/右click表示の通知、音声キー保存・音声実行の仕様。
 
 ### 検索提示（通常検索・プレイリストサマリー）
 
