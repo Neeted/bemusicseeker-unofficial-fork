@@ -322,6 +322,8 @@ public sealed class CustomTableView : Grid
     private void CustomTableViewLoaded(object sender, RoutedEventArgs e)
     {
         AppThemeService.ThemeChanged += AppThemeServiceThemeChanged;
+        ResourceService.Current.PropertyChanged -= ResourceServicePropertyChanged;
+        ResourceService.Current.PropertyChanged += ResourceServicePropertyChanged;
         SubscribeMainChartList(DataContext as MainChartListViewModel);
         RefreshTheme("loaded");
     }
@@ -329,6 +331,7 @@ public sealed class CustomTableView : Grid
     private void CustomTableViewUnloaded(object sender, RoutedEventArgs e)
     {
         AppThemeService.ThemeChanged -= AppThemeServiceThemeChanged;
+        ResourceService.Current.PropertyChanged -= ResourceServicePropertyChanged;
         SubscribeMainChartList(null);
         ApplyVisibilityChanged(false);
     }
@@ -444,6 +447,21 @@ public sealed class CustomTableView : Grid
             {
             }
         }
+    }
+
+    // アプリ言語はthread cultureを変えないため、表示資源の通知で既存cacheを更新します。
+    // 旧語を捕捉せずUI適用時の現在語を使い、切離し後の配送では表へ触れません。
+    private void ResourceServicePropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        if (!string.IsNullOrEmpty(e.PropertyName) && e.PropertyName != nameof(ResourceService.Resources)) { return; }
+        InvokePresentationAction(() =>
+        {
+            if (!IsLoaded) { return; }
+            CloseCellToolTip();
+            InvalidateDisplayValues();
+            surface.ClearTextLayoutCache();
+            RequestRedraw("language_changed");
+        });
     }
 
     private void AppThemeServiceThemeChanged(object sender, EventArgs e)

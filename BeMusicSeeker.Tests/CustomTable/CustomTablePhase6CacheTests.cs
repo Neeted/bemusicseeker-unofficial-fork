@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Windows;
@@ -13,15 +14,143 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Resources = BeMusicSeeker.Properties.Resources;
 
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
 public sealed class CustomTablePhase6CacheTests
 {
+    /// <summary>実ChangeCultureのja→en通知だけで同じ保留仮想行の案内・tooltip・描画を更新し、thread cultureとeditor候補・未確定path・選択/現在セル/scrollを保って確定0とします。明示Enterの旧行/属性/生path一回と、同じ表の再Loadedによる最新語も確認します。</summary>
+    /// <remarks>実通知から描画への接続を確認するため、表示済み表の言語切替後は明示的な描画失効を行いません。候補条件・保存・能力判定と環境別cache条件は既存系列へ分担します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void InstallDestinationLanguage_ChangeCultureRedrawsRetainedRowsAndPreservesActiveEdit()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            CultureInfo? previousResourcesCulture = Resources.Culture;
+            CultureInfo threadCulture = CultureInfo.CurrentCulture;
+            CultureInfo threadUiCulture = CultureInfo.CurrentUICulture;
+            try
+            {
+                ResourceService.Current.ChangeCulture("ja-JP");
+                string[] candidates = [@"C:\BMS\CandidateA", @"C:\BMS\CandidateB"];
+                PackageChartEntry[] entries = [.. Enumerable.Range(0, 64).Select(index => PackageChartEntry.FromChart(
+                    ChartFileProjection.WithPackageState(ChartTestValues.Empty() with
+                    {
+                        Path = @"C:\pending\" + index + ".bms", Md5 = index.ToString("x32"),
+                        RawTitle = "Pending " + index.ToString("D2", CultureInfo.InvariantCulture)
+                    }, string.Empty, string.Empty, string.Empty, candidates, [])))];
+                List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildPackageRows(entries);
+                var rows = new ChartListVirtualView(sourceRows, ChartListOrder.CreateTitleAscending(sourceRows), LibraryChartRow.FromSourceRow);
+                var owner = new MainChartListViewModel();
+                owner.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+                var settings = new CustomTableColumnSettings();
+                foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings)) { layout.Visibility = Visibility.Hidden; }
+                settings.InstallDst.Visibility = settings.Path.Visibility = Visibility.Visible;
+                settings.InstallDst.DisplayIndex = 0; settings.InstallDst.Width = 40;
+                settings.Path.DisplayIndex = 1; settings.Path.Width = 400;
+                var table = new CustomTableView { Width = 220, Height = 150, HeaderHeight = 20, RowHeight = 25, DataContext = owner, ColumnsSettings = settings, ItemsSource = rows };
+                // 既存Popupの所有登録に使う参照だけを読み、入力・描画・通知を反射で作りません。
+                var popup = (Popup)(typeof(CustomTableView).GetField("editSuggestionPopup", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(table)
+                    ?? throw new AssertFailedException("編集Popupがありません。"));
+                scope.TrackPopup(popup);
+                if (popup.Child is not Border { Child: ListBox suggestions }) { throw new AssertFailedException("実候補一覧がありません。"); }
+                var window = new Window { Width = 260, Height = 200, Content = table };
+                var completed = new List<CustomTableCellEditEndedEventArgs>();
+                EventHandler<CustomTableCellEditEndedEventArgs> onEnded = (_, args) => completed.Add(args);
+                table.CellEditEnded += onEnded;
+                try
+                {
+                    scope.ShowAndWaitForContentRendered(window);
+                    CustomTableColumn column = table.VisibleColumns.Single(item => item.Id == "InstallDst");
+                    object columns = table.Columns;
+                    ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Vertical);
+                    ScrollBar horizontal = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Horizontal);
+                    vertical.Value = 2;
+                    table.SelectedIndex = 3;
+                    horizontal.Value = 10;
+                    var row = (LibraryChartRow)rows[3];
+                    Assert.AreSame(entries[3], row.PackageEntry);
+                    Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                    TextBox editor = table.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).Single();
+                    const string input = @"C:\BMS\Manual";
+                    editor.Text = input;
+                    Assert.IsTrue(popup.IsOpen);
+                    CollectionAssert.AreEqual(candidates, suggestions.Items.Cast<string>().ToArray());
+                    Assert.AreEqual(-1, suggestions.SelectedIndex);
+                    double verticalOffset = vertical.Value;
+                    double horizontalOffset = table.HorizontalOffset;
+                    Assert.AreEqual(2d, verticalOffset); Assert.AreEqual(10d, horizontalOffset);
+                    var point = new Point(15, table.HeaderHeight + (3 - table.FirstVisibleRowIndex + 0.5) * table.RowHeight);
+                    RenderExistingTable(table);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    CustomTableRowDrawing japaneseDrawing = table.GetRowEntry(row).Drawings[3];
+                    string japaneseText = "▼ " + Resources.InstallDestination_SelectCandidate;
+                    Assert.AreEqual(japaneseText, table.GetCellValue(row, column, out _).Text);
+                    Assert.AreEqual(japaneseText, table.ResolveCellToolTip(table.HitTestTable(point)));
+                    int realized = rows.RealizedRowCount;
+                    Assert.IsTrue(realized > 0 && realized < rows.Count);
+
+                    ResourceService.Current.ChangeCulture("en-US");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                    // 先に通知による実描画を確認し、getterや強制描画で接続漏れを補いません。
+                    CustomTableRowDrawing englishDrawing = table.GetRowEntry(row).Drawings[3];
+                    Assert.AreNotSame(japaneseDrawing, englishDrawing);
+                    string englishText = "▼ " + Resources.InstallDestination_SelectCandidate;
+                    Assert.AreNotEqual(japaneseText, englishText);
+                    Assert.AreEqual(englishText, table.GetCellValue(row, column, out bool cacheHit).Text); Assert.IsTrue(cacheHit);
+                    Assert.AreEqual(englishText, table.ResolveCellToolTip(table.HitTestTable(point)));
+                    Assert.AreSame(threadCulture, CultureInfo.CurrentCulture); Assert.AreSame(threadUiCulture, CultureInfo.CurrentUICulture);
+                    Assert.AreSame(table, window.Content); Assert.AreSame(rows, table.ItemsSource); Assert.AreSame(columns, table.Columns);
+                    Assert.AreSame(row, rows[3]); Assert.AreSame(entries[3], row.PackageEntry);
+                    Assert.AreEqual(40, column.Width); Assert.AreEqual(3, table.SelectedIndex); Assert.IsTrue(table.IsCurrentCell(3, column));
+                    CollectionAssert.AreEqual(new object[] { row }, table.GetSelectedRowsSnapshot().ToArray());
+                    Assert.AreEqual(verticalOffset, vertical.Value); Assert.AreEqual(horizontalOffset, table.HorizontalOffset);
+                    Assert.AreSame(editor, table.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).Single());
+                    Assert.AreEqual(input, editor.Text); Assert.IsTrue(popup.IsOpen);
+                    CollectionAssert.AreEqual(candidates, suggestions.Items.Cast<string>().ToArray()); Assert.AreEqual(-1, suggestions.SelectedIndex);
+                    CollectionAssert.AreEqual(candidates, row.Chart.InstallDestinationSuggestions.ToArray());
+                    Assert.AreEqual(string.Empty, row.Chart.InstallDestination); Assert.AreEqual(string.Empty, column.GetEditText(row));
+                    Assert.AreEqual(0, completed.Count); Assert.AreEqual(realized, rows.RealizedRowCount);
+
+                    Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+                    Assert.AreEqual(1, completed.Count); Assert.IsTrue(completed[0].Commit);
+                    Assert.AreSame(row, completed[0].Row); Assert.AreSame(column, completed[0].Column);
+                    Assert.AreEqual("instl_dst", completed[0].EditPropertyName); Assert.AreEqual(input, completed[0].Text);
+                    Assert.IsFalse(popup.IsOpen);
+                    window.Content = null;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsFalse(table.IsLoaded);
+                    ResourceService.Current.ChangeCulture("ja-JP");
+                    window.Content = table;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsTrue(table.IsLoaded); Assert.AreSame(table, window.Content); Assert.AreSame(rows, table.ItemsSource); Assert.AreSame(row, rows[3]);
+                    Assert.IsTrue(table.GetRowEntry(row).Drawings.ContainsKey(3), "再Loaded後も最新語で実描画します。");
+                    Assert.AreEqual("▼ " + Resources.InstallDestination_SelectCandidate, table.GetCellValue(row, column, out cacheHit).Text); Assert.IsTrue(cacheHit);
+                    Assert.AreEqual(1, completed.Count);
+                }
+                finally
+                {
+                    window.Content = null; table.ItemsSource = null; table.CellEditEnded -= onEnded;
+                    window.Close(); rows.DisposeRealizedRows();
+                }
+            }
+            finally
+            {
+                ResourceService.Current.ChangeCulture(previousResourcesCulture?.Name ?? "en-US");
+                Resources.Culture = previousResourcesCulture;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+            }
+        });
+    }
+
     /// <summary>実見出しresizeで40→41→広幅→40を描画し、URL値・tooltip・hit/actionとカーソルが追随することを確認します。未編集中は同じ列と他列の保持値を保ち、未表示行を追加評価しません。設定通知あり/直接Columnsの両入口を使います。</summary>
     [DataTestMethod]
     [DataRow(false)]

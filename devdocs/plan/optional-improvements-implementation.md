@@ -28,8 +28,7 @@
 
 | 単位 | 対象・コミットの区切り | 共有先・順序 |
 | --- | --- | --- |
-| U03 共通表の表示とコピー | 言語cache | 同担当が共通表の列・編集寿命を所有 |
-| U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U03後、U05と直列 |
+| U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U05と直列 |
 | U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04と直列 |
 | U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
 | U15 導入・推定 | 宛先による範囲拡張廃止 → 入れ子禁止 → 重複保留の登録整理 → 候補根変換・ユニークhash票 → DST表記 | PackageInstall/service/estimation。同一writer。候補根と票数は同じ座標へ揃える。登録整理は発見結果/完全性を共用。U09と順序調整 |
@@ -53,21 +52,6 @@
 Loadedは表示同期と一回購読、Unloadedは表示購読・予約だけの解除、Closed/Disposeは新規表示の終端とする。開始済みの実処理は既存機能ownerが回収し、Unloadedを最終終了に読み替えない。新しい共通基底・汎用画面差分・入力管理器・新翻訳cache・全行購読/実体化は不要。変更機能の仕様に表示・候補・選択・保存の所有、入力/取消、内外移動、再利用、純表示変更、遅延表示と実Taskの終端を短く記す。
 
 既存のEditableTextBlockの候補分離/Escape、再生開始時の一回フォーカス、右クリック現在セル、通常一覧の識別復元、保存→出力→必要表示→編集解除→受付解放、三択のCancel/X/Escは維持する境界であり、新規実装対象ではない。設定Bindingや非モーダル終了も、具体的な不足なしに全体を作り直さない。初回重複解析の完了で画面を奪わない保証を、明示Merge/Hash成功後の無条件の次群/存続群選択へ広げない。
-
-## U03 共通表の表示とコピー
-
-### 共通表の保留候補案内
-
-**現存。** 通常の保留行で導入先未指定かつ候補ありのとき、`CustomTableColumn.GetInstallDestinationText`（`Views/CustomTable/CustomTableColumn.cs:527`）は `Resources.InstallDestination_SelectCandidate` を「▼」付きで返す。`CustomTableRowCache` がその整形値と描画を保持する。
-
-`CustomTableViewLoaded` / `Unloaded`（322/329行付近）はThemeChangedと表VMの購読を管理し、`RefreshTheme`（436行付近）はrow/text cacheを消して再描画する。`UpdateDrawingEnvironment`（3048行付近）はthread culture/UI culture/palette変更時に `InvalidateDisplayValues` とtext cache失効を行う。しかし `ResourceService.Resources` の購読はなく、ChangeCultureはthread cultureを変えないため、同じrowの既存文字列が残る。
-
-- 方針: 表のLoaded/Unloadedに沿った一つの資源購読から、既存表示値/描画cacheを失効して `RequestRedraw` へ接続する。既存 `InvalidateDisplayValues` / row cache / text layout cacheの責務を使い、言語ごとの別cacheを足さない。thread culture/テーマ用の既存失効を削除しない。
-- 寿命: Loaded中だけ受信し、Unloadedで解除。Dispatcherへ投稿する場合も切離し後の旧更新を表へ適用しない。再Loaded時は現言語で既存cacheを更新する。
-- 完了条件: 同じItemsSource・行参照・選択・scroll・編集中候補・生pathを保持して案内文字列が更新。全行実体化/再検索/ItemsSource交換なし。実表示済み行でアプリChangeCulture→再描画を観測し、hidden/unloaded→再表示も分担。
-- 既存テスト: `CustomTablePhase6CacheTests.InstallDestinationCell_RendersCandidateMarkerInsideNarrowCell`、`CellValueCache_ReusesValuesUntilRowInvalidated`、`CustomTableView_ShownAfterHiddenChangeUsesLatestValues`、`CustomTableView_MainChartListLifecycleFollowsLoadedDataContext`。`CustomTableTextLayoutCacheTests` のcultureキー確認はアプリ言語通知の代用にしない。
-- 共有書込み先: `CustomTableView.cs` と同cache testsは共通UI/編集寿命/URL列整理と直列化する。行モデルへ言語購読を増やす変更は不要。列headerの再構築一般まで本件のために作り直さない。
-- 除外: theme、DPI、thread culture変化時の既存cache失効、候補印の狭幅描画そのものは実装済み。
 
 ## U04 履歴列とメニュー
 
@@ -184,4 +168,4 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 
 `ValidateInstallDestination` は既知directoryへ大小文字無視で一致しても手入力表記を返す。照合成功時は既知集合の登録表記を `ValidatedDestinationDirectory` へ返し、表示・要求・最終path・保存行を同じ値へ揃える。全path小文字化やLR2 CRCの計算式変更は行わない。
 
-大小文字だけ異なるDST手入力から実導入・song DB読戻しまで通し、既所持とfolder/parent識別値が一致することを確認する。引用符・ファイルpath入力・UNC・ドライブルート・空指定の受理契約は維持する。U03のフルスキャン指定・一時保持と同じ検証サービスを使い、同時編集しない。
+大小文字だけ異なるDST手入力から実導入・song DB読戻しまで通し、既所持とfolder/parent識別値が一致することを確認する。引用符・ファイルpath入力・UNC・ドライブルート・空指定の受理契約は維持する。フルスキャンの手動指定・一時保持は[導入先推定](../spec/library/install-estimation.md#比較用の基本情報と導入先の代表ペア)を正本とし、同じ検証サービスを使う。
