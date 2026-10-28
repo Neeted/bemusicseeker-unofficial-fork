@@ -37,7 +37,6 @@
 | U08 手動ランキング取得廃止 | UI・専用通信・資料・専用テストを除去 | MainWindow/composition/Ir。U04/U05後、起動時ローカルcache維持 |
 | U09 確定文字コードの保持と導入・同期への引継ぎ | 保留保存境界 → 導入成功先への引継ぎ → LR2全体同期 | Maintenance/Catalog/Install/LR2。導入serviceはU15との順序調整後、署名変更なし |
 | U10 BMS再生入力 | 親参照の保持 → 明示BASE62 | Ribbit ResourcesとBMSFile。同担当内別単位、U13のWriter検証と調整 |
-| U11 旧BMSON情報解析 | 基本・詳細・通常導入の旧キー対応 | BmsonJsonParser、版21固定。U10と独立 |
 | U12 内蔵再生の対象と候補探索 | 現在曲識別・送り位置・FolderSkip・Repeat失敗探索を統合 | 同じPlayback queue/VMで一単位。U02前半のentry索引を利用し、選択scopeは流用しない |
 | U13 音声変換の出力名 | Writerのfile path契約へ統一 | Writer/変換owner。U10と検証の重複を調整 |
 | U14 重複統合候補 | 候補とCtrl+Gを物理条件へ揃える | Duplicate owner。U15の物理パス判定と共有する場合だけ直列 |
@@ -49,7 +48,7 @@
 | U22 standalone外部表の出力名検査 | LR2専用検査をLR2モードへ限定 | ExternalSyncOwner。U20と同担当で順次 |
 | U23 BMSルート確定後の導入先選択表示 | 保存値と選択肢の通知を揃える | Settings VM/page、U07設定通知と編集を調整 |
 
-現在の所有は、`optional-updater` がU02/U21と共通表、`optional-search-ui` がU06と検索、`optional-encoding` がU11後にU09、`optional-bms-input` がU12と再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U13/U14/U16/U17/U20/U22/U23は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
+現在の所有は、`optional-updater` がU02/U21と共通表、`optional-search-ui` がU06と検索、`optional-encoding` がU09、`optional-bms-input` がU12と再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U13/U14/U16/U17/U20/U22/U23は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
 
 ### 開始・引継ぎと計画の更新
 
@@ -316,18 +315,6 @@ CP932の基本資源解析を保ち、同じ読取りsnapshotへ `ApplyMetadataE
 `BMSFile` は `#BASE` を扱わず、大文字化で定義件数が減るかで基数を推測する。`#BASE 62`、`#WAVAA normal.wav`、`#LNOBJ aa` のように小文字音源が未定義だとAAとaaを潰し、通常音をLN終端として除く。
 
 明示BASE62では定義・ノート・LNOBJを同じ大小文字区別で扱い、BASEなしの既存推測と受理範囲を保つ。WAV AA/aa双方あり、片方だけ、LNOBJだけ大小が異なる入力で通常音が残り、LNOBJ終端自身は発音しないことを実音声イベントで確認する。分岐・BOMの現行契約と同じparserで整合させ、基本情報側の解析へ便乗変更しない。
-
-## U11 旧BMSON情報解析
-
-### 旧BMSONのライブラリ情報解析
-
-**現存する。** `BmsonPlaybackParser`（65–108、201行付近）は0.21/versionlessの旧キー `initBPM`、`bpmNotes`、`stopNotes`、`soundChannel` を受理する。`BmsonChartFileParser.ParseSnapshot` → `BmsonJsonParser.Parse` と `ChartInfoParser.ParseBmsonDocument` → 同parserは現代キーのDTO/生数値抽出だけを使うため、旧入力をBPM0・音源なしとして評価し得る。
-
-- 採用方針: 共通JSON境界で旧キーを正規化し、基本/詳細の二系統へ同じ解釈を渡す。現代キーが存在するときの優先、旧stop等の形式差を明示し、再生adapterの既存対応範囲に合わせる。再生timing全体の無条件流用はしない。
-- 既存互換: `BmsonJsonParser_DuplicateKeysUseLastValueAndDefaultsMatchReference` の重複キー/既定値、`ParseBmson_RawJsonDoublesUseJavaParseDoubleRounding` の元数値字句を壊さない。単にJObjectをserializeし直して元字句を失う設計は避ける。旧キーを受ける際にも `ApplyRawNumberTexts` を同じ優先へ揃える。
-- **確定条件の更新**: 元候補の「parserVersion更新」「旧chart_info→通常更新による全自動置換」は削除する。版は21固定。`ChartInfoBuildService.IsCurrentChartInfoRow`（940行付近）は版21以上・同hash行を再利用するため、既存の版21cacheがこの変更だけで自動刷新されるとは保証しない。新移行台帳、強制全件再解析、署名変更を足さない。
-- 完了条件: 新規解析/既存の通常再解析対象に入った旧新同義入力でBPM・資源・詳細の一致。旧新併記は明示した優先。通常folder導入で音源ありなら適正な導入判定、なしなら保留。生成保存行は21のまま、新DB接続から同結果が読める。既存cache再利用は現行どおり。
-- 既存保証: `BmsonSongParserTests`、`ChartInfoParserBehaviorTests`、`BmsonInputFailureBoundaryTests`、通常folder導入系列。再生の `BeMusicSeeker.Tests/Chart/BmsonPlaybackParserTests.LegacyAndVersionlessAdaptersShareModernTimingAndModernKeysWin` を保持する。SDK実行は今回の静的確認で行っていない。
 
 ## U12 内蔵再生の対象と候補探索
 
