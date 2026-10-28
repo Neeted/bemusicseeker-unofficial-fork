@@ -438,7 +438,7 @@ internal sealed class PlaylistExternalSyncOwner
     /// </summary>
     /// <param name="targets">再取得対象。</param>
     /// <param name="syncResultCallback">対象の保存と必須参照反映後に、返却する同じ確定結果を通知する任意callback。派生出力の全体失敗は含めません。</param>
-    /// <param name="progressCallback">進捗を通知する callback。</param>
+    /// <param name="progressCallback">初期件数と、成功・失敗を含む表単位の試行終了件数・終了対象を通知する callback。</param>
     /// <param name="reason">ログと派生処理へ渡す理由。</param>
     /// <param name="cancellationToken">取得待機を取り消す token。</param>
     /// <param name="requireCurrentTargetForApply">active table でなくなった対象への反映を拒否するか。</param>
@@ -509,14 +509,6 @@ internal sealed class PlaylistExternalSyncOwner
                     try
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-                        InvokeProgressCallback(progressCallback, new PlaylistSyncProgressSnapshot
-                        {
-                            IsActive = true,
-                            TotalTableCount = targetSnapshot.Count,
-                            CompletedTableCount = Volatile.Read(ref completedTableCount),
-                            CurrentTableName = table.name,
-                            CurrentUri = uri
-                        }, reason);
                         PlaylistReloadTargetResult result = await ReloadPlaylistTargetCoreAsync(
                             table,
                             uri,

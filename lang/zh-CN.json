@@ -1368,5 +1368,7 @@
   "Settings_confirm_discard_conflicting_candidates": "要取消 {0} 的未确认编辑并继续吗？已保存的设置和未完成的操作将保留。",
   "Settings_lr2_detailed_paths": "LR2详细路径",
   "Settings_bmt_url_switch_failed": "新的BMT设置已保存，但无法切换表格URL。旧的受管理URL可能仍然有效。此次失败后，未对旧输出位置的文件进行进一步清理。",
-  "Settings_bmt_files_remain": "新的BMT设置和表格URL已应用，但部分旧的受管理文件无法删除，仍然保留。"
+  "Settings_bmt_files_remain": "新的BMT设置和表格URL已应用，但部分旧的受管理文件无法删除，仍然保留。",
+  "Playlist_reload_processed_label_format": "{0} 已处理 {1}/{2} 个表",
+  "Playlist_reload_last_processed_label_format": "最近处理结束：{0}"
 }

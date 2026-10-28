@@ -600,6 +600,7 @@ public sealed class BmsPlaylistExternalReloadTests
     /// 現参照・更新日時・STATUSを採用します。全件終了までPとTaskを保持し、重い詳細更新は終端に一度だけ要求します。
     /// summary要求の必須購読先が失敗する行でも他対象を完了させ、終端で元例外を返して次要求へ持ち越しません。
     /// A/C完了進捗からsummary buildを回収するため、終端一括採用への退行は待機継続ではなく旧表示の表明で検出します。
+    /// 自動・手動とも0件は空名、成功Aと失敗Cの2/3終了では保持中Bを終了名にせず、B解放後に3/3を通知します。
     /// </summary>
     [DataTestMethod]
     [DataRow(false, false)]
@@ -654,6 +655,7 @@ public sealed class BmsPlaylistExternalReloadTests
             playlist.BMSTables = new ObservableCollection<BMSTable>([good, blocked, bad]);
             playlist.CommitBMSTablesWithEntriesToDB(playlist.BMSTables);
             var completedTargets = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
             var summaryAdopted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var summaryFailure = new InvalidOperationException("incremental summary request failed");
             int summaryRequestCount = 0;
@@ -677,6 +679,7 @@ public sealed class BmsPlaylistExternalReloadTests
             currentWorkspace.PlaylistExternalSyncCompleted += (_, _) => Interlocked.Increment(ref completionCount);
             currentWorkspace.PlaylistSyncProgressChanged += (_, change) =>
             {
+                progress.Enqueue(change.Snapshot);
                 if (change.Snapshot.IsActive && change.Snapshot.CompletedTableCount == 2)
                 {
                     completedTargets.TrySetResult();
@@ -744,6 +747,14 @@ public sealed class BmsPlaylistExternalReloadTests
             Assert.AreEqual(0, Volatile.Read(ref completionCount));
             Assert.AreEqual(0, Volatile.Read(ref detailRefreshCount));
             Assert.AreEqual(2, Volatile.Read(ref summaryRequestCount));
+            PlaylistSyncProgressSnapshot[] partialProgress = progress.ToArray();
+            Assert.IsTrue(partialProgress.Any(snapshot => snapshot.IsActive && snapshot.CompletedTableCount == 0));
+            Assert.IsTrue(partialProgress.Where(snapshot => snapshot.IsActive && snapshot.CompletedTableCount == 0)
+                .All(snapshot => string.IsNullOrEmpty(snapshot.CurrentTableName) && snapshot.CurrentUri == null));
+            PlaylistSyncProgressSnapshot lastFinished = partialProgress.Last(snapshot => snapshot.IsActive && snapshot.CompletedTableCount == 2);
+            Assert.AreEqual(3, lastFinished.TotalTableCount);
+            Assert.IsTrue(lastFinished.CurrentTableName is "A success" or "C failed");
+            Assert.AreNotEqual(server.Address, lastFinished.CurrentUri, "通信保持中のBを終了対象として表示しません。");
             server.ReleaseBody.TrySetResult();
             if (failSummaryRequest)
             {
@@ -751,6 +762,10 @@ public sealed class BmsPlaylistExternalReloadTests
                 Assert.AreSame(summaryFailure, actual, "モデルの任意callback境界で必須採用失敗を飲み込みません。");
             }
             else { await operation; }
+            PlaylistSyncProgressSnapshot allFinished = progress.Last(snapshot => snapshot.IsActive && snapshot.CompletedTableCount == 3);
+            Assert.AreEqual(3, allFinished.TotalTableCount);
+            Assert.AreEqual("B blocked", allFinished.CurrentTableName);
+            Assert.AreEqual(server.Address, allFinished.CurrentUri);
             Assert.AreEqual(automatic ? 1 : 0, Volatile.Read(ref completionCount));
             Assert.AreEqual(1, Volatile.Read(ref detailRefreshCount));
             Assert.AreEqual(3, Volatile.Read(ref summaryRequestCount), "終端で対象のSTATUS・参照・summary要求を二重採用しません。");
@@ -783,7 +798,7 @@ public sealed class BmsPlaylistExternalReloadTests
 
     /// <summary>
     /// 手動単表と任意複数表の実再取得で、実BMT失敗と確定参照採用後の詳細通知失敗を重ね、両原因・DB・P/Taskと進捗終端・次要求を保ちます。
-    /// 通常取得失敗と出力単独失敗は既存ケースへ分担し、表示だけをgateで保持して実保存・BMTは置換しません。
+    /// 実BMT開始通知を保持してN/NでもHub行と実Taskが存続することを確認し、次に詳細表示を保持します。実保存・BMTは置換しません。
     /// </summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -795,6 +810,8 @@ public sealed class BmsPlaylistExternalReloadTests
         Directory.CreateDirectory(directory);
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseBmt = new ManualResetEventSlim();
+        var bmtEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         PlaylistWorkspaceViewModel? workspace = null;
         Task? operation = null;
         FileStream? blocker = null;
@@ -833,6 +850,19 @@ public sealed class BmsPlaylistExternalReloadTests
             playlist.BMSTables = new ObservableCollection<BMSTable>(optionalBatch ? [table, other] : [table]);
             playlist.CommitBMSTablesWithEntriesToDB(playlist.BMSTables);
             workspace = CreatePlaylistWorkspace(playlist, library);
+            var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+            var presentation = new ConcurrentQueue<Action>();
+            void DrainPresentation() { while (presentation.TryDequeue(out Action? action)) { action(); } }
+            hub.AttachPlaylistProgressSources(workspace, presentation.Enqueue, () => false);
+            string source = optionalBatch ? "external_playlist_sync" : "playlist_manual_reload";
+            playlist.BmtOutput.ExportProgressReporter = snapshot =>
+            {
+                if (snapshot.IsActive && !bmtEntered.Task.IsCompleted)
+                {
+                    bmtEntered.TrySetResult();
+                    releaseBmt.Wait();
+                }
+            };
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("1"));
             var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
             workspace.PlaylistSyncProgressChanged += (_, request) => progress.Enqueue(request.Snapshot);
@@ -854,6 +884,21 @@ public sealed class BmsPlaylistExternalReloadTests
                 if (optionalBatch) { await currentWorkspace.RunExternalPlaylistSyncAsync("post-adoption-failure", false, true, 21); }
                 else { await currentWorkspace.ResyncPlaylistTableAsync(table); }
             });
+            await TestUiDispatcherHost.AwaitNotificationAsync(bmtEntered.Task, operation, "resync-bmt-start");
+            DrainPresentation();
+            PlaylistSyncProgressSnapshot allProcessed = progress.Last(snapshot => snapshot.IsActive && snapshot.Source == source
+                && snapshot.CompletedTableCount == snapshot.TotalTableCount);
+            Assert.AreEqual(optionalBatch ? 2 : 1, allProcessed.CompletedTableCount);
+            Assert.AreEqual(allProcessed.TotalTableCount, allProcessed.CompletedTableCount);
+            Assert.IsFalse(operation.IsCompleted, "N/NはBMTを含む複合操作の終端ではありません。");
+            OperationProgressRow pendingOutput = hub.Rows.Single(row => row.Key.StartsWith("playlist:" + source + ":", StringComparison.Ordinal));
+            Assert.AreEqual((double)allProcessed.CompletedTableCount, pendingOutput.Value);
+            Assert.AreEqual((double)allProcessed.TotalTableCount, pendingOutput.Maximum);
+            Assert.AreEqual(string.Format(Resources.Playlist_reload_processed_label_format,
+                optionalBatch ? Resources.Statusbar_progress_task_external_playlist_sync : Resources.Statusbar_progress_task_playlist_manual_reload,
+                allProcessed.CompletedTableCount, allProcessed.TotalTableCount), pendingOutput.Label);
+            Assert.AreEqual(string.Format(Resources.Playlist_reload_last_processed_label_format, allProcessed.CurrentTableName), pendingOutput.Detail);
+            releaseBmt.Set();
             await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, operation, "resync-post-adoption-presentation");
             Assert.IsFalse(operation.IsCompleted);
             bool enteredP = playlist.TryEnterPlaylistMutation(out IDisposable admission);
@@ -871,6 +916,8 @@ public sealed class BmsPlaylistExternalReloadTests
             Assert.IsTrue(failures.Any(cause => cause is PlaylistMutationPostCommitException), "元BMT失敗を後段通知失敗が隠しません。");
             Assert.IsTrue(failures.Any(cause => ReferenceEquals(cause, presentationFailure)));
             Assert.IsFalse(progress.Last().IsActive);
+            DrainPresentation();
+            Assert.IsFalse(hub.Rows.Any(row => row.Key.StartsWith("playlist:" + source + ":", StringComparison.Ordinal)));
             Assert.IsFalse(playlist.IsPlaylistUpdating);
             failPresentation = false;
             blocker.Dispose();
@@ -878,10 +925,13 @@ public sealed class BmsPlaylistExternalReloadTests
             BMSTable confirmed = playlist.BMSTables.Single(candidate => candidate.playlist_id == table.playlist_id);
             if (optionalBatch) { await workspace.RunExternalPlaylistSyncAsync("after-presentation-failure", false, true, 22); }
             else { await workspace.ResyncPlaylistTableAsync(confirmed); }
+            DrainPresentation();
+            Assert.IsFalse(hub.HasRows);
             Assert.AreSame(confirmed, workspace.CapturePlaylistDetailSelection().Table);
         }
         finally
         {
+            releaseBmt.Set();
             release.Set();
             if (operation != null) { try { await operation; } catch (Exception) { } }
             blocker?.Dispose();
@@ -2144,7 +2194,7 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
-    /// <summary>実外部表一件の再取得で受付、対象完了、終端の進捗を届け、件数と対象名を保持します。処理済み件数の欠落と終端後も進捗を稼働表示する誤りを検出します。</summary>
+    /// <summary>実外部表一件の再取得で初期0件には名前・URIを付けず、試行終了時だけ対象と件数を届けます。終端では空名と完了件数を保ち、開始名の混入と終了漏れを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task UpdateBmsTablesInternalAsync_ReportsPlaylistSyncProgressSnapshots()
@@ -2176,11 +2226,16 @@ public sealed class BmsPlaylistExternalReloadTests
             Assert.IsNotNull(updated);
             Assert.IsTrue(snapshots.Count >= 3);
             Assert.IsTrue(snapshots.Any(s => s.IsActive && s.TotalTableCount == 1 && s.CompletedTableCount == 0));
+            Assert.IsTrue(snapshots.Where(s => s.IsActive && s.CompletedTableCount == 0)
+                .All(s => string.IsNullOrEmpty(s.CurrentTableName) && s.CurrentUri == null), "0件通知は開始対象名を持ちません。");
             Assert.IsTrue(snapshots.Any(s => s.IsActive && s.TotalTableCount == 1 && s.CompletedTableCount == 1 && string.Equals(s.CurrentTableName, "ProgressTable", StringComparison.Ordinal)));
+            Assert.IsTrue(snapshots.Where(s => s.IsActive && s.CompletedTableCount == 1).All(s => s.CurrentUri == new Uri(headerJsonPath)));
             PlaylistSyncProgressSnapshot playlistSyncProgressSnapshot = snapshots.Last();
             Assert.IsFalse(playlistSyncProgressSnapshot.IsActive);
             Assert.AreEqual(1, playlistSyncProgressSnapshot.TotalTableCount);
             Assert.AreEqual(1, playlistSyncProgressSnapshot.CompletedTableCount);
+            Assert.AreEqual(string.Empty, playlistSyncProgressSnapshot.CurrentTableName);
+            Assert.IsNull(playlistSyncProgressSnapshot.CurrentUri);
         }
         finally
         {

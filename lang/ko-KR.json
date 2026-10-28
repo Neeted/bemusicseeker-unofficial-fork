@@ -1368,5 +1368,7 @@
   "Settings_confirm_discard_conflicting_candidates": "{0}의 미확정 편집을 취소하고 계속하시겠습니까? 저장된 설정과 완료되지 않은 작업은 유지됩니다.",
   "Settings_lr2_detailed_paths": "LR2 상세 경로",
   "Settings_bmt_url_switch_failed": "새 BMT 설정은 저장했지만 테이블 URL을 전환하지 못했습니다. 이전 관리 URL이 여전히 활성 상태일 수 있습니다. 이 실패 후에는 이전 출력 위치의 파일을 추가로 정리하지 않았습니다.",
-  "Settings_bmt_files_remain": "새 BMT 설정과 테이블 URL을 적용했지만 일부 이전 관리 파일을 삭제하지 못해 남아 있습니다."
+  "Settings_bmt_files_remain": "새 BMT 설정과 테이블 URL을 적용했지만 일부 이전 관리 파일을 삭제하지 못해 남아 있습니다.",
+  "Playlist_reload_processed_label_format": "{0} {1}/{2}개 처리 완료",
+  "Playlist_reload_last_processed_label_format": "최근 처리 종료: {0}"
 }

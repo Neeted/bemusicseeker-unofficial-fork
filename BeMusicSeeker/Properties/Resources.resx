@@ -4049,4 +4049,10 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Error_PlaylistJsonDateFormat" xml:space="preserve">
     <value>{0}の日時が不正です。yyyy-MM-dd、yyyy-MM-ddTHH:mm:ss（小数秒1～7桁、Z/±HH:mmは省略可）、またはyyyy/M/d（H:m:sと±HH:mmは省略可）で元データを訂正し、再実行してください。</value>
   </data>
+  <data name="Playlist_reload_processed_label_format" xml:space="preserve">
+    <value>{0} {1}/{2}件処理済み</value>
+  </data>
+  <data name="Playlist_reload_last_processed_label_format" xml:space="preserve">
+    <value>直近の処理終了：{0}</value>
+  </data>
 </root>

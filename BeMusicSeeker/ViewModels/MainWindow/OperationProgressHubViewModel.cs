@@ -26,7 +26,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
     private long startupBackgroundOriginGeneration;
     private StartupAdditionalProgressSnapshot additionalProgress;
     private int rowsPresentationFailureActive;
-    private readonly ConcurrentDictionary<string, long> playlistUiVersions = new();
+    private readonly ConcurrentDictionary<string, (long Version, PlaylistSyncProgressSnapshot Snapshot)> playlistUiUpdates = new();
     private long playlistUiVersionSeed;
     private Action<Action> dispatchPlaylistProgressAction;
     private Func<bool> isShellClosing;
@@ -138,21 +138,29 @@ public sealed class OperationProgressHubViewModel : ViewModel
 
     private void StartupProgressPropertyChanged(object sender, PropertyChangedEventArgs e) => RaiseRowsChanged();
 
+    /// <summary>再取得の逆順終了通知を投入前に除外し、件数と対象を同じ採用値から表示します。</summary>
     private void PlaylistWorkspacePlaylistSyncProgressChanged(object sender, PlaylistSyncProgressChangedEventArgs request)
     {
         string key = GetPlaylistKey(request?.Snapshot);
         long version = Interlocked.Increment(ref playlistUiVersionSeed);
-        playlistUiVersions[key] = version;
+        (long Version, PlaylistSyncProgressSnapshot Snapshot) update = (Version: version, Snapshot: request?.Snapshot);
+        // 更新関数は競合で再実行され得るため、ここでは採用だけを決め、表示配送は外で行います。
+        (long Version, PlaylistSyncProgressSnapshot Snapshot) accepted = playlistUiUpdates.AddOrUpdate(key, update, (_, previous) =>
+            IsProcessedPlaylistReload(previous.Snapshot) && previous.Snapshot.IsActive
+                && update.Snapshot?.IsActive == true
+                && update.Snapshot.CompletedTableCount < previous.Snapshot.CompletedTableCount
+                ? previous : update);
+        if (accepted.Version != version) { return; }
         dispatchPlaylistProgressAction(() =>
         {
-            if (!playlistUiVersions.TryGetValue(key, out long currentVersion) || currentVersion != version || isShellClosing())
+            if (!playlistUiUpdates.TryGetValue(key, out (long Version, PlaylistSyncProgressSnapshot Snapshot) current) || current.Version != version || isShellClosing())
             {
                 return;
             }
 
             if (request?.Snapshot?.Request is { } origin && origin.Generation != backgroundGeneration)
             {
-                ((ICollection<KeyValuePair<string, long>>)playlistUiVersions).Remove(new(key, version));
+                playlistUiUpdates.TryRemove(new(key, update));
                 return;
             }
             if (request?.Snapshot?.IsActive == true)
@@ -162,13 +170,13 @@ public sealed class OperationProgressHubViewModel : ViewModel
             else
             {
                 playlistStatuses.Remove(key);
-                playlistUiVersions.TryRemove(new KeyValuePair<string, long>(key, version));
+                playlistUiUpdates.TryRemove(new(key, update));
             }
 
             RaiseRowsChanged();
             if (request?.Snapshot?.IsActive != true)
             {
-                ((ICollection<KeyValuePair<string, long>>)playlistUiVersions).Remove(new(key, version));
+                playlistUiUpdates.TryRemove(new(key, update));
             }
         });
     }
@@ -246,9 +254,15 @@ public sealed class OperationProgressHubViewModel : ViewModel
                 string single = string.IsNullOrWhiteSpace(status.SingleLabel)
                     ? BeMusicSeeker.Properties.Resources.Playlist_sync_progress_single_label : status.SingleLabel;
                 int completed = Math.Clamp(status.CompletedTableCount, 0, Math.Max(1, status.TotalTableCount));
+                string target = !string.IsNullOrWhiteSpace(status.CurrentTableName)
+                    ? status.CurrentTableName : status.CurrentUri?.ToString() ?? string.Empty;
+                string detail = IsProcessedPlaylistReload(status)
+                    ? status.CompletedTableCount > 0 && !string.IsNullOrWhiteSpace(target)
+                        ? string.Format(BeMusicSeeker.Properties.Resources.Playlist_reload_last_processed_label_format, target) : string.Empty
+                    : target;
                 rows.Add(new("playlist:" + pair.Key, status.TotalTableCount > 0
                     ? string.Format(format, completed, status.TotalTableCount) : single,
-                    !string.IsNullOrWhiteSpace(status.CurrentTableName) ? status.CurrentTableName : status.CurrentUri?.ToString() ?? string.Empty,
+                    detail,
                     completed, Math.Max(1, status.TotalTableCount), status.TotalTableCount <= 0,
                     ParentKey: GetRequestParentKey(status.Request)));
             }
@@ -289,6 +303,9 @@ public sealed class OperationProgressHubViewModel : ViewModel
 
     /// <summary>共通行の有無に応じてステータスバー全体を表示します。</summary>
     public bool HasRows => Rows.Count != 0;
+
+    private static bool IsProcessedPlaylistReload(PlaylistSyncProgressSnapshot snapshot) =>
+        snapshot?.Source is "external_playlist_sync" or "playlist_manual_reload";
 
     private static string GetPlaylistKey(PlaylistSyncProgressSnapshot snapshot) =>
         (snapshot?.Source ?? "playlist") + ":" + (snapshot?.OperationId ?? 0) + (snapshot?.Request == null ? string.Empty : ":" + GetRequestKey(snapshot.Request));

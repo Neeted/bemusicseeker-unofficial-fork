@@ -20,6 +20,7 @@ using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -3048,7 +3049,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     /// </summary>
     /// <remarks>
     /// 実VM・DB再読込みからshell予約、summary build、compiled Bindingと描画セルまでの接続を担います。
-    /// A/C完了進捗から二段のDispatcher予約を回収し、全体終端までの抑制への退行を旧表示の値で検出します。
+    /// A/C完了進捗から二段のDispatcher予約を回収し、全体終端までの抑制への退行を旧表示の値で検出します。進捗の件数と直近終了名は実TextBlock・ProgressBarのBindingで確認します。
     /// メニュー配送と失敗・取消・必須出力の条件網羅は既存の入口・管理主体テストへ分担します。
     /// </remarks>
     [TestMethod]
@@ -3242,6 +3243,31 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.IsFalse(completed.Task.IsCompleted);
                 Assert.IsFalse(progressTerminal.Task.IsCompleted);
                 Assert.AreEqual(0, Volatile.Read(ref notificationTerminalCount));
+                OperationProgressRow syncRow = fixture.ViewModel.ProgressHub.Rows.Single(row => row.Key.StartsWith("playlist:external_playlist_sync:", StringComparison.Ordinal));
+                Assert.AreEqual(2d, syncRow.Value);
+                Assert.AreEqual(3d, syncRow.Maximum);
+                Assert.AreEqual(string.Format(Resources.Playlist_reload_processed_label_format,
+                    Resources.Statusbar_progress_task_external_playlist_sync, 2, 3), syncRow.Label);
+                PlaylistSyncProgressSnapshot finished = progress.Last(snapshot => snapshot.IsActive && snapshot.CompletedTableCount == 2);
+                Assert.IsTrue(finished.CurrentTableName is "A success" or "C failed");
+                Assert.AreEqual(string.Format(Resources.Playlist_reload_last_processed_label_format, finished.CurrentTableName), syncRow.Detail);
+                var progressRows = (ItemsControl)fixture.Window.FindName("progressRows");
+                ProgressBar gauge = FindDescendants<ProgressBar>(progressRows).Single(bar => bar.DataContext is OperationProgressRow row && row.Key == syncRow.Key);
+                Assert.IsNotNull(BindingOperations.GetBindingExpression(gauge, ProgressBar.ValueProperty));
+                Assert.IsNotNull(BindingOperations.GetBindingExpression(gauge, ProgressBar.MaximumProperty));
+                Assert.AreEqual(2d, gauge.Value);
+                Assert.AreEqual(3d, gauge.Maximum);
+                TextBlock progressText = FindDescendants<TextBlock>(progressRows).Single(text => text.DataContext is OperationProgressRow row
+                    && row.Key == syncRow.Key && text.Inlines.Count > 0);
+                // 表示はTextプロパティではなく、各RunのLabel/DetailへのBindingが構成します。
+                Run[] progressRuns = progressText.Inlines.OfType<Run>().ToArray();
+                Run labelRun = progressRuns.Single(run => BindingOperations.GetBindingExpression(run, Run.TextProperty)
+                    ?.ParentBinding.Path?.Path == nameof(OperationProgressRow.Label));
+                Run detailRun = progressRuns.Single(run => BindingOperations.GetBindingExpression(run, Run.TextProperty)
+                    ?.ParentBinding.Path?.Path == nameof(OperationProgressRow.Detail));
+                Assert.AreEqual(syncRow.Label, labelRun.Text);
+                Assert.AreEqual(syncRow.Detail, detailRun.Text);
+                Assert.AreEqual(syncRow.Label + " " + syncRow.Detail, string.Concat(progressRuns.Select(run => run.Text)));
                 Assert.IsTrue(fixture.ViewModel.ProgressHub.Rows.Any(row => row.ParentKey == "startup"
                     && (row.Key.StartsWith("background:external_playlist_sync:", StringComparison.Ordinal)
                         || row.Key.StartsWith("playlist:external_playlist_sync:", StringComparison.Ordinal))));

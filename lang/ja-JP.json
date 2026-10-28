@@ -1368,5 +1368,7 @@
   "Settings_confirm_discard_conflicting_candidates": "{0} の未確定編集を取り消して進めますか？ 保存済みの設定と未完了の処理は保持します。",
   "Settings_lr2_detailed_paths": "LR2の詳細パス",
   "Settings_bmt_url_switch_failed": "新しいBMT設定は保存しましたが、管理URLを切り替えられませんでした。旧管理URLが有効なまま残っている可能性があります。この失敗後、旧出力先のファイルの追加整理は行っていません。",
-  "Settings_bmt_files_remain": "新しいBMT設定と管理URLを反映しましたが、一部の旧管理ファイルを削除できず残っています。"
+  "Settings_bmt_files_remain": "新しいBMT設定と管理URLを反映しましたが、一部の旧管理ファイルを削除できず残っています。",
+  "Playlist_reload_processed_label_format": "{0} {1}/{2}件処理済み",
+  "Playlist_reload_last_processed_label_format": "直近の処理終了：{0}"
 }

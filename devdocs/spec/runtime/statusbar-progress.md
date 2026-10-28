@@ -52,7 +52,7 @@
 パッケージ・フォルダの導入 1/3件                  package.zip   [取消]
 保留パッケージの導入先推定 2/4件  package.zip
 プレイリストURLからの取得 1/2件                     表名         [取消]
-選択プレイリストの再同期 1/3                         表名
+選択プレイリストの再同期 1/3件処理済み             直近の処理終了：表名
 ```
 
 ### 親行
@@ -85,7 +85,7 @@
 | 譜面情報の補完 | 対応親の子。それ以外は独立 | 対象譜面数と処理済み数、対象パス | 対応要求の補完完了 | なし・[譜面情報](../library/chart-info.md) |
 | プレイリスト項目の読込み | 対応親の子。それ以外は独立 | 不定 | 対応する読込み実行の終端 | なし・[起動](startup.md) |
 | プレイリスト参照の反映 | 対応親の子。起動の対応後続は追加親 | 不定 | 対応要求の終端 | なし・[保存と出力](../playlist/storage-and-export.md) |
-| 外部プレイリストの同期 | 対応親の子。起動の対応後続は追加親。それ以外は独立 | 対象表数と現在の表名・URI。専用通知前は不定 | 同じ要求の複合終端 | なし・[保存と出力](../playlist/storage-and-export.md) |
+| 外部プレイリストの同期 | 対応親の子。起動の対応後続は追加親。それ以外は独立 | 対象表数と試行終了数を「件処理済み」で表示。直近の処理終了名、空名ならURI。0件では補足なし。専用通知前は不定 | 同じ要求の複合終端 | なし・[保存と出力](../playlist/storage-and-export.md) |
 | 難易度表リストの取得 | 起動の対応後続は追加親 | 不定 | 要求終端 | なし・[起動](startup.md) |
 | プレイリストURLの補完 | 起動の対応後続は追加親 | 不定 | 要求終端 | なし・[起動](startup.md) |
 | フォルダ一覧の更新 | 起動の対応後続は追加親 | 不定 | 要求終端 | なし・[起動](startup.md) |
@@ -109,13 +109,15 @@
 | 保留パッケージの導入先推定 | 推定対象パッケージ数と適用済み数、実評価の対象名 | 開始済み全評価Taskと後片付けの終端 | なし・[導入先推定](../library/install-estimation.md#自動推定と並列処理) |
 | プレイリストURLからの取得 | 完了URL数・総URL数と対象 | 取得終端 | 取消・[取得](../playlist/downloads.md) |
 | 外部サービスでパッケージの入手先を検索 | 検索済み数・対象数と対象 | 検索終端 | 取消・[取得](../playlist/downloads.md) |
-| 選択プレイリストの再同期 | 対象表数と現在の表名 | 複合終端 | なし・[保存と出力](../playlist/storage-and-export.md) |
+| 選択プレイリストの再同期 | 対象表数と試行終了数を「件処理済み」で表示。直近の処理終了名、空名ならURI。0件では補足なし | 複合終端 | なし・[保存と出力](../playlist/storage-and-export.md) |
 | 表URLの取込み | 入力URL数と参照・登録などの後続段階を含む複合進捗 | 複合終端 | なし・[保存と出力](../playlist/storage-and-export.md) |
 | beatorajaの表URLの取込み | 入力URL数と参照・順序反映などを含む複合進捗 | 複合終端 | なし・[表URL](../playlist/table-url-import.md) |
 | プレイリストのプロパティ更新 | 対象表数と現在の表名。出力段階ではその処理名 | 複合終端 | なし・[保存と出力](../playlist/storage-and-export.md) |
 | プレイリストの外部プロパティ初期化 | 対象表数と現在の表名。出力段階ではその処理名。別要求元の同期と併存 | 複合終端 | なし・[保存と出力](../playlist/storage-and-export.md) |
 | メンテナンス情報の再検査 | 今回の対象譜面数と対象パス | 処理終端 | 取消・[保守](../library/warnings.md) |
 | フォルダ名の自動変更 | 今回の変更対象フォルダ数と対象パス | 処理終端 | なし・[ライブラリ変更](../library/mutations.md) |
+
+外部同期と選択プレイリストの再同期は、成功・失敗とも表単位の再取得・反映試行が終了したときに加算します。開始対象で補足名を更新せず、既存の対象選択による分母を使います。全表が処理済みでもLR2カスタムフォルダ・BMT等の複合処理の実終端まで行を維持し、親の固定5段階は変えません。逆順通知の採用は[件数と通知](progress.md#件数と通知)に従います。
 
 プロパティ更新とサマリー一括編集は、出力段階では同じ操作行を「LR2カスタムフォルダの出力」、同期段階では「LR2カスタムフォルダ情報の同期」として更新します。件数は表の準備・出力作業と同期段階の合計であり、別の操作や探索ファイル数へ読み替えません。専用名を指定しない既存のプレイリスト同期通知は「プレイリストの同期」で表示します。
 
@@ -132,6 +134,7 @@ LR2の終端状態は「LR2楽曲DBの同期が必要です」「LR2楽曲DBの�
 | 読込み・補完・参照・保守・順位 `Statusbar_progress_phase_score_hydration` / `ranking_refresh` / `chart_info_load` / `chart_info` / `playlist_loading` / `playlist_ref` / `maintenance` / `installable_maintenance` | 既存機能所有者から[`StartupBackgroundTaskSchedulerOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupBackgroundTaskSchedulerOwner.cs)とHub | [`ChartInfoInlineHydrationTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInlineHydrationTests.cs)、[`BmsLibraryIrStartupTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryIrStartupTests.cs)、[`PlaylistWorkspaceDetailRefreshTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceDetailRefreshTests.cs)、[`StartupBackgroundTaskSchedulerOwnerTests`](../../../BeMusicSeeker.Tests/Startup/StartupBackgroundTaskSchedulerOwnerTests.cs): 受付・実行・要求捕捉と終端。Owner/Hubで親一致と数値衝突を分担 |
 | 起動の追加親 `Statusbar_progress_startup_additional` と後続子 `Statusbar_progress_task_*`、LR2 `Statusbar_progress_phase_lr2_song_db_sync` | [`StartupBackgroundTaskSchedulerOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupBackgroundTaskSchedulerOwner.cs)・[`StartupPostInitializationWarmupOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupPostInitializationWarmupOwner.cs)から[`OperationProgressHubViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/OperationProgressHubViewModel.cs)へ段階を投影 | [`MainWindowViewModelStartupProgressTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs)とHubで実起動の所属・必須完了後の存続・段階数・独立仕事による非延命・専用通知統合を分担。[`MainWindowProgressStatusBarWpfTests.StartupPostInitialization_ActualWorkReflectsThroughCompiledStatusBarBinding`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowProgressStatusBarWpfTests.cs)で実ProgressBarの値・最大値・確定表示、ラベル、20pxインデント、実終端後の親消去を確認 |
 | 外部同期・取込み・編集・出力 `Statusbar_progress_task_external_playlist_sync` / `playlist_manual_reload` / `custom_folder_repair` / `bmt_output` / `playlist_property_update` / `playlist_external_property_initialization`、`Playlist_*progress*` / `Beatoraja_*progress*` / `Custom_folder_output_progress*` / `Custom_folder_db_sync_progress_single_label` | [`PlaylistWorkspaceViewModel.SyncProgress`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.SyncProgress.cs)、[`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs)、[`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs) | プレイリスト既存の実操作テストとHub: 生産、終端、同じ要求だけの統合、別要求非抑止・旧終端隔離。[`MainWindowPlaylistWorkspaceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs)はHTTP経由の外部同期と実接続 |
+| 自動・選択再同期の `Playlist_reload_processed_label_format` / `Playlist_reload_last_processed_label_format` | [`PlaylistExternalSyncOwner.ReloadPlaylistTargetsAsync`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistExternalSyncOwner.cs)からWorkspace・Hub | [`BmsPlaylistExternalReloadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalReloadTests.cs)で初期空名、実HTTP保持中の成功・失敗2/3と解放後3/3、実BMT中のN/N・Taskと行の存続を確認。Hubの `PlaylistReloadPresentation_KeepsProcessedSnapshotAcrossReversedNotifications` は自動・手動の即時／予約配送で件数と終了対象の一体採用、同数更新・URI代替・次要求0件・対象外の従来表示を担当。実WPFの `ReloadTables_ActualMainWindowPublishesCompletedSummariesWhileAnotherHttpBodyIsPending` は2/3のTextBlock・ProgressBarのBindingを担当 |
 | 導入・推定・URL・再検査・自動変更 `Drop_install_queue_label_format` / `Install_estimation_label_format` / `Playlist_url_download_progress_label_format` / `Playlist_external_package_lookup_progress_label_format` / `Maintenance_rescan_progress_label_format` / `Statusbar_progress_task_folder_rename` | 各管理主体からHub | Hubの既存件数・取消・並行ケースと[`MainWindowProgressStatusBarWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowProgressStatusBarWpfTests.cs): 実Binding、伸縮、複数行、行固有操作 |
 | 全キーと六言語の整合 | `Resources.resx` / `Resources.cs` / `lang/` | [`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs)の共通検査。個別文言固定テストは増やさない |
 

@@ -1005,7 +1005,7 @@ public sealed class OperationProgressHubViewModelTests
         OperationProgressRow remaining = hub.Rows.Single();
         Assert.AreEqual(4d, remaining.Maximum);
         Assert.AreEqual(1d, remaining.Value);
-        Assert.AreEqual("next", remaining.Detail);
+        Assert.AreEqual(string.Format(Resources.Playlist_reload_last_processed_label_format, "next"), remaining.Detail);
         workspace.ReportPlaylistSyncProgress(new() { Source = "external_playlist_sync", OperationId = operationId, Request = next, IsActive = false });
         Assert.IsFalse(hub.HasRows);
     }
@@ -1027,6 +1027,71 @@ public sealed class OperationProgressHubViewModelTests
         hub.UpdateBackgroundTaskProgress(new(name, 1, 4, false, true, request with { Version = 4 }));
         Assert.AreEqual(2, hub.Rows.Count(row => row.Key.StartsWith("background:")));
         Assert.IsFalse(hub.Rows.Single(row => row.Key.StartsWith("background:") && row.Key.Contains(":4:")).IsChild);
+    }
+
+    /// <summary>自動・手動再取得で逆順の終了通知を即時／予約配送しても件数と終了対象を一体で保ち、同数更新・URI代替と次要求の0件を採用します。対象外の通知は最新値を保ちます。</summary>
+    [DataTestMethod]
+    [DataRow("external_playlist_sync", false)]
+    [DataRow("external_playlist_sync", true)]
+    [DataRow("playlist_manual_reload", false)]
+    [DataRow("playlist_manual_reload", true)]
+    public void PlaylistReloadPresentation_KeepsProcessedSnapshotAcrossReversedNotifications(string source, bool queued)
+    {
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        hub.BeginBackgroundProgressGeneration(1);
+        var pending = new Queue<Action>();
+        PlaylistWorkspaceViewModel workspace = AttachPlaylistProgressSources(hub,
+            action => { if (queued) { pending.Enqueue(action); } else { action(); } });
+        OperationProgressRequest? request = source == "external_playlist_sync" ? new(1, 11, source, 1) : null;
+        string label = source == "external_playlist_sync"
+            ? Resources.Statusbar_progress_task_external_playlist_sync : Resources.Statusbar_progress_task_playlist_manual_reload;
+        string format = string.Format(Resources.Playlist_reload_processed_label_format, label, "{0}", "{1}");
+        void Drain() { while (pending.TryDequeue(out Action? action)) { action(); } }
+        PlaylistSyncProgressSnapshot Progress(int count, string name, Uri? uri = null) => new()
+        {
+            Source = source,
+            Request = request,
+            IsActive = true,
+            TotalTableCount = 3,
+            CompletedTableCount = count,
+            CurrentTableName = name,
+            CurrentUri = uri,
+            LabelFormat = format
+        };
+
+        workspace.ReportPlaylistSyncProgress(Progress(0, string.Empty));
+        Drain();
+        Assert.AreEqual(string.Empty, hub.Rows.Single().Detail);
+        Assert.AreEqual(string.Format(Resources.Playlist_reload_processed_label_format, label, 0, 3), hub.Rows.Single().Label);
+        workspace.ReportPlaylistSyncProgress(Progress(2, "B"));
+        workspace.ReportPlaylistSyncProgress(Progress(1, "A"));
+        Drain();
+        OperationProgressRow row = hub.Rows.Single();
+        Assert.AreEqual(2d, row.Value);
+        Assert.AreEqual(3d, row.Maximum);
+        Assert.AreEqual(string.Format(Resources.Playlist_reload_processed_label_format, label, 2, 3), row.Label);
+        Assert.AreEqual(string.Format(Resources.Playlist_reload_last_processed_label_format, "B"), row.Detail);
+
+        var uri = new Uri("https://example.invalid/last-completed");
+        workspace.ReportPlaylistSyncProgress(Progress(2, string.Empty, uri));
+        Drain();
+        Assert.AreEqual(string.Format(Resources.Playlist_reload_last_processed_label_format, uri.ToString()), hub.Rows.Single().Detail);
+        workspace.ReportPlaylistSyncProgress(new() { Source = source, Request = request, IsActive = false });
+        Drain();
+        Assert.IsFalse(hub.HasRows);
+        request = request is null ? null : request with { Version = 2 };
+        workspace.ReportPlaylistSyncProgress(Progress(0, string.Empty));
+        Drain();
+        Assert.AreEqual(0d, hub.Rows.Single().Value);
+        Assert.AreEqual(string.Empty, hub.Rows.Single().Detail);
+        workspace.ReportPlaylistSyncProgress(new() { Source = source, Request = request, IsActive = false });
+        Drain();
+
+        workspace.ReportPlaylistSyncProgress(new() { IsActive = true, TotalTableCount = 3, CompletedTableCount = 2, CurrentTableName = "B" });
+        workspace.ReportPlaylistSyncProgress(new() { IsActive = true, TotalTableCount = 3, CompletedTableCount = 1, CurrentTableName = "A" });
+        Drain();
+        Assert.AreEqual(1d, hub.Rows.Single().Value);
+        Assert.AreEqual("A", hub.Rows.Single().Detail);
     }
 
     private static OperationProgressRow? GetRow(OperationProgressHubViewModel hub, string key) =>

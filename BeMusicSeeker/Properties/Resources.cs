@@ -3195,4 +3195,10 @@ public class Resources
     public static string Confirm_DeleteRegisteredBmsRoots => ResourceManager.GetString("Confirm_DeleteRegisteredBmsRoots", resourceCulture);
     public static string Warn_CannotDeleteProtectedBmsRoot => ResourceManager.GetString("Warn_CannotDeleteProtectedBmsRoot", resourceCulture);
     public static string LibraryChartRemovalReport_RegistrationFailed => ResourceManager.GetString("LibraryChartRemovalReport_RegistrationFailed", resourceCulture);
+
+    /// <summary>表再取得の処理済み件数の書式を取得します。</summary>
+    public static string Playlist_reload_processed_label_format => ResourceManager.GetString("Playlist_reload_processed_label_format", resourceCulture);
+
+    /// <summary>直近に試行を終了した表の補足書式を取得します。</summary>
+    public static string Playlist_reload_last_processed_label_format => ResourceManager.GetString("Playlist_reload_last_processed_label_format", resourceCulture);
 }
