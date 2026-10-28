@@ -52,7 +52,7 @@
 | 履歴の月 | `1` ～ `12` |
 | 履歴の `type` / `kind` | `score bp clear combo play` |
 
-`playlist` / `ref` / `table` の値は、変更不能なプレイリスト候補集合から得ます。大小文字を区別せず前方一致で絞り、重複を除いて並べます。必要な引用符とエスケープを挿入します。解析側の別名 `undef` / `null` が使えても、候補からの挿入は `undefined` に統一します。未所持は `nosong` を挿入します。
+`playlist` / `ref` / `table` の値は、変更不能なプレイリスト候補集合から得ます。大小文字を区別せず前方一致で絞り、重複を除いて並べます。必要な引用符とエスケープを挿入します。`re:` で始まる名前も大小文字を問わず引用し、正規表現の指定ではなく名前全体を通常の検索値として適用します。解析側の別名 `undef` / `null` が使えても、候補からの挿入は `undefined` に統一します。未所持は `nosong` を挿入します。
 
 ### 候補の適用と古い候補の拒否
 
@@ -99,6 +99,7 @@
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 表示先ごとの候補、入力と適用、古い候補の拒否 | [`KeywordSearchAssistanceOwner`](../../../BeMusicSeeker/ViewModels/Search/KeywordSearchAssistance.cs) | [`KeywordSearchPresentationTests`](../../../BeMusicSeeker.Tests/Search/KeywordSearchPresentationTests.cs)、[`GridKeywordSearchQueryTests`](../../../BeMusicSeeker.Tests/Search/GridKeywordSearchQueryTests.cs)、[`ChartListFilterViewModelTests`](../../../BeMusicSeeker.Tests/ChartList/ChartListFilterViewModelTests.cs)、[`PlaylistWorkspacePresentationStateTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePresentationStateTests.cs) |
+| 予約構文で始まる候補名の引用、引用途中・エスケープ・前後句・caret | 同上 | `GridKeywordSearchQueryTests.KeywordSearchAssistance_ReservedPrefixCandidatesRemainLiteralThroughParser` が実候補の適用結果をparserへ渡し、通常名としての一致と予約prefixを除いた名前への不一致、後続条件を確認する。 |
 | 正規表現の意味を保持した詳細要求、初回と局所更新の一致 | [`PlaylistRequestFactory`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistRequestFactory.cs)、[`PlaylistDetailVirtualView`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistDetailVirtualView.cs) | `GridKeywordSearchQueryTests.MatchesChartList_RegexCharacterClassCasePreservesMeaning` は通常一覧の表示行とsource行で単一バックスラッシュの6式を評価する。`PlaylistViewPipelineTests.PlaylistRegexRequest_CharacterClassSwitchBuildsDistinctInitialViews` は実factoryから要求合流と初回表示を確認し、実DBへのMEMO保存・譜面TITLE確定後の集合は `PlaylistCatalogViewChangeTests.TitleRegex_EntryMemoCommitsPreserveMembershipAndMetadataChangesReevaluate` が分担する。 |
 | 保存の成功順序、失敗時の不変性、履歴とお気に入り | [`KeywordSearchSavedQueryOwner`](../../../BeMusicSeeker/ViewModels/Search/KeywordSearchSavedQuery.cs) | [`KeywordSearchSavedQueryStoreTests`](../../../BeMusicSeeker.Tests/Search/KeywordSearchSavedQueryStoreTests.cs)、[`ApplicationCompositionTests`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionTests.cs) |
 | 現在modifier・IME判定、仮想化後の選択・強調・適用、区画横断と折返し、言語変更での行再利用 | [`KeywordSearchEditor`](../../../BeMusicSeeker/Views/Search/KeywordSearchEditor.xaml.cs) | [`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs)の `SearchEditor_LargeFavoritesVirtualizeOffViewportRows` は言語往復後も同じ行内ボタンの説明を更新して選択・入力・各scrollを保持することを含む。`SearchEditor_NavigationAndImeKeepInputLifecycleOwnedByEditor`、`SearchEditor_ActiveImeCompositionRoutedEventsDoNotApplyOrCommitHistory` と共に共通入力境界と実WPFの接続・生成を確認する。 |

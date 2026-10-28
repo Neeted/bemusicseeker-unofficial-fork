@@ -1356,6 +1356,7 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
         string text = value ?? string.Empty;
         bool needsQuote = preserveQuotes
             || text.Length == 0
+            || StartsWithRegexPrefix(text)
             || text.Any(character => char.IsWhiteSpace(character) || character is '"' or '\\' or '|');
         if (!needsQuote)
         {

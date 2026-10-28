@@ -836,6 +836,50 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(query.MatchesPlaylistSummary(negative));
     }
 
+    /// <summary>予約構文で始まる表名候補を適用して実検索へ渡し、大小文字・引用途中・エスケープにかかわらず通常名として一致させ、否定と前後句・区切り・caretを保ちます。</summary>
+    /// <remarks>候補生成からparserのsource行評価までを接続し、re:を落とした名前への誤一致や後続条件の欠落を検出します。</remarks>
+    [TestMethod]
+    [DataRow("playlist:r", " title:x", "re:mix", "playlist:\"re:mix\" title:x", false)]
+    [DataRow("ref:R", "", "RE:mix", "ref:\"RE:mix\" ", false)]
+    [DataRow("table:r", " title:x", "re:[", "table:\"re:[\" title:x", false)]
+    [DataRow("table:\"Re:", "\" title:x", "Re:mix", "table:\"Re:mix\" title:x", false)]
+    [DataRow("playlist:\"re:", "", "re:\"Mix\\A|B", "playlist:\"re:\\\"Mix\\\\A|B\" ", false)]
+    [DataRow("artist:artistx -playlist:r", "   title:x", "re:mix", "artist:artistx -playlist:\"re:mix\" title:x", true)]
+    public void KeywordSearchAssistance_ReservedPrefixCandidatesRemainLiteralThroughParser(
+        string beforeCaret, string suffix, string candidateName, string expectedText, bool negated)
+    {
+        SearchAssistanceSettingsStore store = new();
+        KeywordSearchSavedQueryOwner savedQueries = new(KeywordSearchSavedQueryScope.Normal, store, store);
+        KeywordSearchAssistanceOwner assistance = new(savedQueries, GridKeywordSearchContext.ChartList,
+            new KeywordSearchCatalogSnapshot(54L, [candidateName]));
+        string input = beforeCaret + suffix;
+        KeywordSearchPresentationState state = assistance.Focus(input, beforeCaret.Length);
+        KeywordSearchPresentationItem candidate = state.VisibleItems.Single(item => item.DisplayText == candidateName);
+
+        KeywordSearchApplyResult result = assistance.TryApply(candidate, input, beforeCaret.Length,
+            GridKeywordSearchContext.ChartList, 54L);
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.AreEqual(expectedText, result.Text);
+        int followingClause = expectedText.IndexOf(" title:x", StringComparison.Ordinal);
+        Assert.AreEqual(followingClause < 0 ? expectedText.Length : followingClause + 1, result.CaretIndex);
+        var query = GridKeywordSearchQuery.Parse(result.Text);
+        Assert.AreEqual(0, query.GetDiagnostics(GridKeywordSearchContext.ChartList).Count);
+
+        ChartFile matchingFile = CreateFile() with { Title = "x", RawTitle = "x" };
+        PlaylistReferenceIndex literalIndex = CreatePlaylistReferenceIndex(matchingFile, CreateTable(candidateName, "L"));
+        PlaylistReferenceIndex bareIndex = CreatePlaylistReferenceIndex(matchingFile, CreateTable(candidateName[3..], "B"));
+        Assert.AreEqual(!negated, query.MatchesChartListSourceRow(CreateSourceRow(matchingFile, row => literalIndex.Find(row.Chart))));
+        Assert.AreEqual(negated, query.MatchesChartListSourceRow(CreateSourceRow(matchingFile, row => bareIndex.Find(row.Chart))));
+        if (followingClause >= 0)
+        {
+            ChartFile wrongTitle = matchingFile with { Title = "other", RawTitle = "other" };
+            PlaylistReferenceIndex matchingIndex = negated ? bareIndex : literalIndex;
+            Assert.IsFalse(query.MatchesChartListSourceRow(CreateSourceRow(wrongTitle, row => matchingIndex.Find(row.Chart))),
+                "後続title条件は表名が一致していても評価する。");
+        }
+    }
+
     /// <summary>引用外のTab後は項目候補、引用内のTab後は表名値候補を出すことを確認し、候補解析で引用状態を無視して区切る誤りを検出します。</summary>
     [TestMethod]
     public void KeywordSearchAssistance_TabSeparatorUsesFieldsAndQuotedTabStaysValueContext()
