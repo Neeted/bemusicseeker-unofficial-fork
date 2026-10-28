@@ -207,6 +207,7 @@
               <Binding RelativeSource="{RelativeSource Self}" />
               <Binding ElementName="lampViewerWindow" Path="DataContext.IsCountMode" />
               <Binding ElementName="lampViewerWindow" Path="PixelsPerDip" />
+              <Binding Path="PercentageText" />
             </MultiBinding>
           </Button.Content>
         </Button>

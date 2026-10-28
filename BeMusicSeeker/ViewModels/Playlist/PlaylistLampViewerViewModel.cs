@@ -529,6 +529,10 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         }
         // 言語変更は表示だけを更新し、結果適用やグラフの再構築を起こしません。
         RefreshStatistics();
+        foreach (PlaylistLampViewerSegmentViewModel segment in EnumerateSegments())
+        {
+            segment.RefreshLanguage();
+        }
         RaisePropertyChanged(nameof(WindowTitle));
         RaisePropertyChanged(nameof(ScoreSourceText));
     }
@@ -633,7 +637,6 @@ internal sealed class PlaylistLampViewerSegmentViewModel : ViewModel
         this.segment = segment ?? throw new ArgumentNullException(nameof(segment));
         this.playlistId = playlistId ?? string.Empty;
         this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
-        Label = PlaylistLampViewerLabels.GetLabel(segment);
         CategoryKey = segment.ClearCategory?.ToString() ?? segment.RankCategory?.ToString() ?? string.Empty;
         PaletteKey = segment.ClearCategory is not null
             ? "Clear." + CategoryKey
@@ -643,8 +646,8 @@ internal sealed class PlaylistLampViewerSegmentViewModel : ViewModel
     /// <summary>Semantic segment kind.</summary>
     public PlaylistLampSegmentKind Kind => segment.Kind;
 
-    /// <summary>Semantic category label.</summary>
-    public string Label { get; }
+    /// <summary>同じ集計カテゴリを現在の表示言語で表すラベルです。</summary>
+    public string Label => PlaylistLampViewerLabels.GetLabel(segment);
 
     /// <summary>Non-localized category identity for styling.</summary>
     public string CategoryKey { get; }
@@ -703,6 +706,16 @@ internal sealed class PlaylistLampViewerSegmentViewModel : ViewModel
     public string SelectionStatus => IsSelected
         ? Resources.PlaylistLampViewer_selected
         : Resources.PlaylistLampViewer_not_selected;
+
+    /// <summary>所有者の言語変更を同じ区間の表示へ通知し、集計値と選択を維持します。</summary>
+    internal void RefreshLanguage()
+    {
+        RaisePropertyChanged(nameof(Label));
+        RaisePropertyChanged(nameof(PercentageText));
+        RaisePropertyChanged(nameof(DetailText));
+        RaisePropertyChanged(nameof(AutomationName));
+        RaisePropertyChanged(nameof(SelectionStatus));
+    }
 
     /// <summary>Whether this segment is selected in the current viewer window.</summary>
     public bool IsSelected

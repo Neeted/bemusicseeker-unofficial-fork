@@ -392,20 +392,21 @@ public sealed class PlaylistLampContrastForegroundConverter : IValueConverter
 public sealed class PlaylistLampSegmentLabelConverter : IMultiValueConverter
 {
     /// <summary>選択モードのラベルを、全体が切れずに収まる場合だけ返します。</summary>
-    /// <param name="values">区間、配置幅、ボタン、窓の曲数表示状態、現在のPixelsPerDip。</param>
+    /// <param name="values">区間、配置幅、ボタン、窓の曲数表示状態、現在のPixelsPerDip、言語変更通知を受ける割合文字列。</param>
     /// <param name="targetType">Binding先の型。</param>
     /// <param name="parameter">使用しないBinding引数。</param>
     /// <param name="culture">Bindingのカルチャ。</param>
     /// <returns>完全な割合または曲数。狭い区間は空文字列。</returns>
     public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
     {
-        if (values is not { Length: >= 5 }
+        if (values is not { Length: >= 6 }
             || values[0] is not PlaylistLampViewerSegmentViewModel segment
             || !segment.HasPositiveWidth
             || values[1] is not double width
             || width <= 0d
             || values[2] is not Button button
             || values[4] is not double pixelsPerDip
+            || values[5] is not string percentageText
             || !double.IsFinite(pixelsPerDip) || pixelsPerDip <= 0d)
         {
             return string.Empty;
@@ -414,7 +415,7 @@ public sealed class PlaylistLampSegmentLabelConverter : IMultiValueConverter
         CultureInfo displayCulture = culture ?? CultureInfo.CurrentCulture;
         string label = values[3] is true
             ? segment.Count.ToString("0", CultureInfo.InvariantCulture)
-            : segment.PercentageText;
+            : percentageText;
         double textWidth = new FormattedText(
             label,
             displayCulture,

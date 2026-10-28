@@ -31,7 +31,7 @@
 | U03 共通表の表示とコピー | TSV空行 → URL幅 → フルスキャンDST編集・非編集案内 → 言語cache | 同担当が能力付与・編集終端・一時投影まで所有。U15のDST検証と順序調整 |
 | U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U03後、U05/U08と直列 |
 | U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04/U08と直列 |
-| U07 言語変更と確認文言 | ランプ → 確認ボタン | 既存owner別コミット。全言語資源は一担当。U03/U16/U17/U20と共有編集を調整 |
+| U07 確認文言 | 確認ボタン | 既存owner別コミット。全言語資源は一担当。U03/U20と共有編集を調整 |
 | U08 手動ランキング取得廃止 | UI・専用通信・資料・専用テストを除去 | MainWindow/composition/Ir。U04/U05後、起動時ローカルcache維持 |
 | U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
 | U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile |
@@ -162,20 +162,7 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 
 `MainWindowPlaylistWorkspaceWpfTests` でクリック→1秒以内に検索入力→callback後も検索の全文/フォーカス保持・改名0回、移動しない場合は一回開始を確認。F2、別ノード、切離し、重複クリックで古い要求が再開しない代表を分担する。遅延完了後の全UI状態を保証する一般フレームワークへ拡張しない。DnDと同MainWindowツリー領域のため同担当へまとめられる。
 
-## U07 言語変更と確認文言
-
-### ランプの既存区間
-
-**一部更新済み・区間表示は現存。** `PlaylistLampViewerViewModel` はconstructor（184行付近）でResourceServiceへ購読し、`Dispose`（404行付近）で解除済み。`ResourceServicePropertyChanged`（524行付近）は `RefreshStatistics`、WindowTitle、ScoreSourceTextを更新する。`RefreshStatistics` は既存集計結果を再整形するだけで、グラフを再構築しない。
-
-不足は同じ既存segment VMへの通知。`PlaylistLampViewerSegmentViewModel` はconstructor（636行付近）で `Label=PlaylistLampViewerLabels.GetLabel(segment)` を固定。`DetailText` / `AutomationName` / `SelectionStatus` は資源getterだが、言語変更通知が来ない。`PlaylistLampViewerWindow.xaml` の凡例はLabel/DetailText、bar ButtonはToolTip=DetailText、Automation Name=AutomationName、ItemStatus=SelectionStatusをBindingしている。handlerがある事実だけで全ラベル更新済みと扱えない。
-
-- 方針: 既存親handlerから `EnumerateSegments`（589行付近、全体clear/rankと各folderのclear/rankを列挙）で同じsegmentへ表示更新を依頼する。Labelを再整形/再評価し、Label・PercentageText・DetailText・AutomationName・SelectionStatusの必要通知を行う。新たにsegmentごとの資源購読を作らない。再集計/ApplyResult/segment collection再作成は呼ばない。
-- 寿命: 既存親購読/Disposeを利用。既に閉じたviewerへ通知しない。所有している同じsegment/Buttonと選択を保つ。
-- 完了条件: 捕捉済み同じButton/segmentでToolTip・Automation Name/ItemStatus・凡例Labelが更新。選択segment、表示mode、folder/clear/rank collection参照、集計結果、取得回数を保持。新規取得・再集計なし。小さい正値/算出不可の割合説明も現言語である。
-- 既存テスト: `PlaylistLampViewerWindowPresentationTests.Viewer_statisticsUseContentWidthsAndWrapWholeGroupsWhileTrackingLanguageAndTheme` は統計言語更新、`Viewer_datePresentationTracksApplicationCultureWithoutChangingTheQuery` は日付の現文化対応、`Viewer_countModeUsesAllNormalFoldersAndPreservesProjectionUntilDataRefresh` は表示modeの参照保持を保証。既存segmentを捕捉して言語変更後のBinding値を追加確認し、変更後に新しいsegmentを取り直して成功判定しない。
-- 共有書込み先: `PlaylistLampViewerViewModel.cs` / presentation tests。過去日取得元の一貫性や日付境界の別修正と同ファイルでも、集計境界は変更しない。
-- 除外: 窓title/source、統計ラベル、DatePicker言語、数値/日時の固定書式、count-mode切替のprojection保持は既改善。
+## U07 確認文言
 
 ### 確認ボタンの翻訳
 

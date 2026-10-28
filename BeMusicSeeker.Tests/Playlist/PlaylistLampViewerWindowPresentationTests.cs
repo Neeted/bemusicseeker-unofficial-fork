@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -1355,7 +1357,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         });
     }
 
-    /// <summary>実TextBlockとAutomationを通し、統計9項目の内容幅、既定日本語の一段配置、最小幅の群単位折返し、長い翻訳・大数値・言語とテーマの追従を確認します。集計計算や日付操作は既存ケースが担当します。</summary>
+    /// <summary>統計の内容幅・群単位の折返しと、同じ凡例・全体／フォルダ区間の言語追従を確認し、再取得・再集計・投影の再作成や選択の喪失、破棄後の通知を検出します。</summary>
+    /// <remarks>compiled Bindingと実Automationを観測するため同じWindowを使用します。追加JSON、文化圏、共有テーマと購読を非並列scope内で所有・復元し、日付・集計計算・割合の一般境界は既存ケースへ分担します。</remarks>
     [TestMethod]
     public void Viewer_statisticsUseContentWidthsAndWrapWholeGroupsWhileTrackingLanguageAndTheme()
     {
@@ -1368,23 +1371,174 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             PlaylistLampViewerViewModel? viewModel = null;
             PlaylistLampViewerWindow? window = null;
             Window? owner = null;
+            PlaylistLampViewerSession? session = null;
+            var languageBackups = new Dictionary<string, byte[]?>();
+            var collections = new List<INotifyCollectionChanged>();
+            var observedSegments = new Dictionary<PlaylistLampViewerSegmentViewModel, HashSet<string>>();
+            int collectionChanges = 0;
+            int resultChanges = 0;
+            int parentChanges = 0;
+            NotifyCollectionChangedEventHandler collectionHandler = (_, _) => collectionChanges++;
+            EventHandler<PlaylistLampAggregationResultChangedEventArgs> resultHandler = (_, _) => resultChanges++;
+            PropertyChangedEventHandler parentHandler = (_, _) => parentChanges++;
+            PropertyChangedEventHandler segmentHandler = (sender, args) =>
+            {
+                if (sender is PlaylistLampViewerSegmentViewModel segment && args.PropertyName is { } property)
+                {
+                    observedSegments[segment].Add(property);
+                }
+            };
             try
             {
+                // 同梱言語ではカテゴリ名が共通なので、異なる有効な追加翻訳でLabelの固定を識別する。
+                string languageDirectory = ApplicationPathPolicy.Current.LanguageDirectory;
+                Assert.AreEqual(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "lang")), Path.GetFullPath(languageDirectory), true);
+                Directory.CreateDirectory(languageDirectory);
+                string languagePath = Path.Combine(languageDirectory, "de-DE.json");
+                languageBackups.Add(languagePath, File.Exists(languagePath) ? File.ReadAllBytes(languagePath) : null);
+                File.WriteAllText(languagePath, """
+                    {"_language_name":"Lamp regression", "PlaylistLampViewer_clear_max":"Maximum regression", "PlaylistLampViewer_rank_aaa":"Triple A regression"}
+                    """);
+                JsonLanguageCatalog.Invalidate("de-DE");
+                JsonLanguageCatalog.InvalidateLanguages();
                 CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("ja-JP");
                 CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("ja-JP");
                 ResourceService.Current.ChangeCulture("ja-JP");
                 var source = new FixedLampSource(CreateRequest(ActiveScoreSource.Beatoraja));
                 var executor = new LargeStatisticsBuildExecutor();
-                var session = new PlaylistLampViewerSession("playlist", source, buildExecutor: executor);
-                viewModel = new PlaylistLampViewerViewModel("playlist", "Statistics presentation", session, TestUiDispatcherHost.Dispatcher, _ => { });
+                session = new PlaylistLampViewerSession("playlist", source, buildExecutor: executor);
+                var requests = new List<PlaylistLampViewerNavigationRequest>();
+                viewModel = new PlaylistLampViewerViewModel("playlist", "Statistics presentation", session, TestUiDispatcherHost.Dispatcher, requests.Add);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.StartAndWaitForPresentableAsync(), "statistics presentation result");
                 owner = new Window { Content = new Grid(), Width = 480, Height = 320 };
                 scope.ShowAndWaitForContentRendered(owner);
                 window = new PlaylistLampViewerWindow(owner, viewModel);
                 scope.ShowAndWaitForContentRendered(window);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                window.UpdateLayout();
                 PlaylistLampAggregationResult result = viewModel.CurrentResult;
-                PlaylistLampViewerSegmentViewModel[] segments = viewModel.ClearSegments.ToArray();
+                ObservableCollection<PlaylistLampViewerSegmentViewModel> clearSegments = viewModel.ClearSegments;
+                ObservableCollection<PlaylistLampViewerSegmentViewModel> rankSegments = viewModel.RankSegments;
+                ObservableCollection<PlaylistLampViewerFolderRowViewModel> folderRows = viewModel.FolderRows;
+                PlaylistLampViewerFolderRowViewModel[] rows = folderRows.ToArray();
+                (ObservableCollection<PlaylistLampViewerSegmentViewModel> ClearSegments, ObservableCollection<PlaylistLampViewerSegmentViewModel> RankSegments)[] folderCollections = rows.Select(row => (row.ClearSegments, row.RankSegments)).ToArray();
+                PlaylistLampViewerSegmentViewModel[] segments = clearSegments.Concat(rankSegments)
+                    .Concat(rows.SelectMany(row => row.ClearSegments.Concat(row.RankSegments))).ToArray();
+                Button[] buttons = FindDescendants<Button>(window).Where(button =>
+                    AutomationProperties.GetAutomationId(button) == "PlaylistLampViewerSegment").ToArray();
+                Assert.AreEqual(8, buttons.Length, "全体とフォルダそれぞれのclear/rankの正値を捕捉する");
+                Assert.AreEqual(4, buttons.Count(button =>
+                    button.DataContext is PlaylistLampViewerSegmentViewModel segment && segment.Count == 25000),
+                    "全体とフォルダのclear/rankそれぞれで十分幅のあるNPの表示文字を確認する");
+                object[] buttonSegments = buttons.Select(button => button.DataContext).ToArray();
+                TextBlock[] legendLabels = FindDescendants<Border>(window)
+                    .Where(border => AutomationProperties.GetAutomationId(border) == "PlaylistLampViewerLegend")
+                    .Select(border => FindDescendants<TextBlock>(border).First()).ToArray();
+                Assert.AreEqual(clearSegments.Count + rankSegments.Count, legendLabels.Length);
+                object[] legendSegments = legendLabels.Select(label => label.DataContext).ToArray();
+                var selected = (PlaylistLampViewerSegmentViewModel)buttons.First(button =>
+                    button.DataContext is PlaylistLampViewerSegmentViewModel segment && segment.CategoryKey == "MAX").DataContext;
+                selected.Invoke();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 int captures = source.CaptureCount;
+                int builds = executor.BuildCount;
+                int requestCount = requests.Count;
+                collections.AddRange(new INotifyCollectionChanged[] { clearSegments, rankSegments, folderRows });
+                foreach ((ObservableCollection<PlaylistLampViewerSegmentViewModel> ClearSegments, ObservableCollection<PlaylistLampViewerSegmentViewModel> RankSegments) pair in folderCollections) { collections.Add(pair.ClearSegments); collections.Add(pair.RankSegments); }
+                foreach (INotifyCollectionChanged collection in collections) { collection.CollectionChanged += collectionHandler; }
+                foreach (PlaylistLampViewerSegmentViewModel segment in segments)
+                {
+                    observedSegments.Add(segment, new HashSet<string>());
+                    segment.PropertyChanged += segmentHandler;
+                }
+                session.ResultChanged += resultHandler;
+                viewModel.PropertyChanged += parentHandler;
+
+                void AssertSegmentLanguage(bool expectedCountMode)
+                {
+                    foreach (PlaylistLampViewerSegmentViewModel segment in segments)
+                    {
+                        string label = Resources.ResourceManager.GetString("PlaylistLampViewer_"
+                            + (segment.Kind == PlaylistLampSegmentKind.Clear ? "clear_" : "rank_")
+                            + segment.CategoryKey.ToLowerInvariant(), Resources.Culture)
+                            ?? throw new AssertFailedException("区間の期待ラベル資源がない");
+                        string percentage = segment.Denominator == 0 ? Resources.PlaylistLampViewer_unavailable
+                            : segment.Count == 1 ? string.Format(CultureInfo.InvariantCulture,
+                                Resources.PlaylistLampViewer_percentage_less_than_format,
+                                string.Format(CultureInfo.InvariantCulture, Resources.PlaylistLampViewer_percentage_format, 0.01d))
+                            : string.Format(CultureInfo.InvariantCulture, Resources.PlaylistLampViewer_percentage_format,
+                                segment.Count == 25000 ? 100d : 0d);
+                        string detail = string.Format(CultureInfo.InvariantCulture,
+                            segment.Denominator == 0 ? Resources.PlaylistLampViewer_segment_unavailable_detail_format
+                                : Resources.PlaylistLampViewer_segment_detail_adaptive_format,
+                            label, segment.Count, percentage);
+                        Assert.AreEqual(label, segment.Label);
+                        Assert.AreEqual(percentage, segment.PercentageText);
+                        Assert.AreEqual(detail, segment.DetailText);
+                        Assert.AreEqual(detail, segment.AutomationName);
+                        Assert.AreEqual(segment == selected ? Resources.PlaylistLampViewer_selected
+                            : Resources.PlaylistLampViewer_not_selected, segment.SelectionStatus);
+                        foreach (string property in new[] { "Label", "PercentageText", "DetailText", "AutomationName", "SelectionStatus" })
+                        {
+                            Assert.IsTrue(observedSegments[segment].Contains(property), "非表示・算出不可の区間も更新する: " + property);
+                        }
+                        foreach (Button button in buttons.Where(button => ReferenceEquals(button.DataContext, segment)))
+                        {
+                            Assert.AreEqual(detail, button.ToolTip);
+                            if (segment.Count == 25000)
+                            {
+                                Assert.AreEqual(expectedCountMode ? "25000" : percentage, button.Content,
+                                    "同じボタンの割合文字列は言語変更だけで更新し、曲数と区別する");
+                            }
+                            var peer = new ButtonAutomationPeer(button);
+                            Assert.AreEqual(detail, peer.GetName());
+                            Assert.AreEqual(segment.SelectionStatus, peer.GetItemStatus());
+                        }
+                        foreach (TextBlock legend in legendLabels.Where(legend => ReferenceEquals(legend.DataContext, segment)))
+                        {
+                            Assert.AreEqual(label, legend.Text);
+                        }
+                    }
+                    Assert.AreSame(clearSegments, viewModel.ClearSegments);
+                    Assert.AreSame(rankSegments, viewModel.RankSegments);
+                    Assert.AreSame(folderRows, viewModel.FolderRows);
+                    CollectionAssert.AreEqual(rows, folderRows.ToArray());
+                    for (int index = 0; index < rows.Length; index++)
+                    {
+                        Assert.AreSame(folderCollections[index].ClearSegments, rows[index].ClearSegments);
+                        Assert.AreSame(folderCollections[index].RankSegments, rows[index].RankSegments);
+                    }
+                    CollectionAssert.AreEqual(segments, clearSegments.Concat(rankSegments)
+                        .Concat(rows.SelectMany(row => row.ClearSegments.Concat(row.RankSegments))).ToArray());
+                    CollectionAssert.AreEqual(buttons, FindDescendants<Button>(window).Where(button =>
+                        AutomationProperties.GetAutomationId(button) == "PlaylistLampViewerSegment").ToArray());
+                    CollectionAssert.AreEqual(buttonSegments, buttons.Select(button => button.DataContext).ToArray());
+                    CollectionAssert.AreEqual(legendLabels, FindDescendants<Border>(window)
+                        .Where(border => AutomationProperties.GetAutomationId(border) == "PlaylistLampViewerLegend")
+                        .Select(border => FindDescendants<TextBlock>(border).First()).ToArray());
+                    CollectionAssert.AreEqual(legendSegments, legendLabels.Select(label => label.DataContext).ToArray());
+                    Assert.AreSame(selected, viewModel.SelectedSegment);
+                    Assert.IsTrue(selected.IsSelected);
+                    Assert.AreSame(result, viewModel.CurrentResult);
+                    Assert.AreSame(result, session.Current);
+                    Assert.AreEqual(captures, source.CaptureCount);
+                    Assert.AreEqual(builds, executor.BuildCount);
+                    Assert.AreEqual(requestCount, requests.Count);
+                    Assert.AreEqual(0, resultChanges);
+                    Assert.AreEqual(0, collectionChanges);
+                }
+
+                // 区間の言語契約は割合／曲数の代表だけで確認し、統計の幅×テーマ行列とは重ねない。
+                foreach ((string language, bool countMode) in new[] { ("de-DE", false), ("fr-FR", false), ("en-US", true), ("ja-JP", false) })
+                {
+                    SelectDisplayMode(window, countMode);
+                    foreach (HashSet<string> notifications in observedSegments.Values) { notifications.Clear(); }
+                    ResourceService.Current.ChangeCulture(language);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    window.UpdateLayout();
+                    Assert.AreEqual(countMode, viewModel.IsCountMode);
+                    AssertSegmentLanguage(countMode);
+                }
                 // frのコロン前空白とzhの全角コロンを含む翻訳書式を、表示と実Automation peerまで確認する。
                 foreach (string language in new[] { "ja-JP", "en-US", "fr-FR", "zh-CN", "ja-JP" })
                 {
@@ -1461,18 +1615,37 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                                 Resources.PlaylistLampViewer_no_play, Resources.PlaylistLampViewer_play_rate, Resources.PlaylistLampViewer_average_ex_rate,
                                 Resources.PlaylistLampViewer_clear_rate, Resources.PlaylistLampViewer_score_source, Resources.PlaylistLampViewer_playlist_last_update });
                             Assert.AreSame(result, viewModel.CurrentResult);
-                            CollectionAssert.AreEqual(segments, viewModel.ClearSegments.ToArray());
+                            CollectionAssert.AreEqual(segments[..clearSegments.Count], viewModel.ClearSegments.ToArray());
                             Assert.AreEqual(captures, source.CaptureCount);
                             Assert.AreEqual(1, executor.BuildCount);
                         }
                     }
                 }
+                window.Close();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.DisposeAsync().AsTask(), "closed statistics presentation drain");
+                parentChanges = 0;
+                foreach (HashSet<string> notifications in observedSegments.Values) { notifications.Clear(); }
+                ResourceService.Current.ChangeCulture("en-US");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(0, parentChanges, "実閉鎖と破棄の終端後には親へ通知しない");
+                Assert.IsTrue(observedSegments.Values.All(notifications => notifications.Count == 0), "破棄済みの区間へ言語通知しない");
             }
             finally
             {
                 window?.Close();
                 owner?.Close();
                 if (viewModel != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.DisposeAsync().AsTask(), "statistics presentation drain"); }
+                if (viewModel != null) { viewModel.PropertyChanged -= parentHandler; }
+                if (session != null) { session.ResultChanged -= resultHandler; }
+                foreach (PlaylistLampViewerSegmentViewModel segment in observedSegments.Keys) { segment.PropertyChanged -= segmentHandler; }
+                foreach (INotifyCollectionChanged collection in collections) { collection.CollectionChanged -= collectionHandler; }
+                foreach ((string path, byte[]? contents) in languageBackups)
+                {
+                    if (contents == null) { File.Delete(path); }
+                    else { File.WriteAllBytes(path, contents); }
+                    JsonLanguageCatalog.Invalidate(Path.GetFileNameWithoutExtension(path));
+                }
+                JsonLanguageCatalog.InvalidateLanguages();
                 ResourceService.Current.ChangeCulture(previousResourceCulture?.Name ?? previousUiCulture.Name);
                 Resources.Culture = previousResourceCulture;
                 CultureInfo.CurrentCulture = previousCulture;
@@ -2560,8 +2733,24 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             // 有効なint件数の大数値を、巨大なエントリ集合の生成なしで表示境界へ与える。
             var statistics = new PlaylistLampStatistics(2100000000, 1450000000, 650000000, 1230000000, 870000000,
                 145d / 210, 123d / 210, 0.734, 0.41, true, null, new DateTime(2026, 8, 29, 10, 49, 7));
-            return Task.FromResult(new PlaylistLampAggregationResult(actual.PlaylistId, actual.State, actual.FolderRows,
-                actual.ClearSegments, actual.RankSegments, statistics, actual.ScoreSnapshot, actual.FailureMessage, actual.Query));
+            // 表示用の不変入力で1/25001の小正値と空フォルダを用意し、巨大entryや実DBを不要にする。
+            PlaylistLampSegment[] ClearSegments(string? folder, int denominator) => actual.ClearSegments.Select(segment =>
+                PlaylistLampSegment.CreateClear(segment.ClearCategory ?? throw new AssertFailedException("clear category is required"),
+                    denominator == 0 ? 0 : segment.ClearCategory == PlaylistLampClearCategory.MAX ? 1
+                        : segment.ClearCategory == PlaylistLampClearCategory.NP ? 25000 : 0,
+                    denominator, true, folder != null, folder)).ToArray();
+            PlaylistLampSegment[] RankSegments(string? folder, int denominator) => actual.RankSegments.Select(segment =>
+                PlaylistLampSegment.CreateRank(segment.RankCategory ?? throw new AssertFailedException("rank category is required"),
+                    denominator == 0 ? 0 : segment.RankCategory == PlaylistLampRankCategory.AAA ? 1
+                        : segment.RankCategory == PlaylistLampRankCategory.NP ? 25000 : 0,
+                    denominator, true, folder != null, folder)).ToArray();
+            PlaylistLampFolderRow[] rows =
+            [
+                new("folder", 25001, 1, 25000, ClearSegments("folder", 25001), RankSegments("folder", 25001)),
+                new("empty", 0, 0, 0, ClearSegments("empty", 0), RankSegments("empty", 0))
+            ];
+            return Task.FromResult(new PlaylistLampAggregationResult(actual.PlaylistId, actual.State, rows,
+                ClearSegments(null, 25001), RankSegments(null, 25001), statistics, actual.ScoreSnapshot, actual.FailureMessage, actual.Query));
         }
     }
 
