@@ -608,7 +608,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
         });
     }
 
-    /// <summary>実保守の文字コード再読解を同tokenの基本値・集合版・playlist局所差分と接続済み一覧の順序・絞込みへ反映し、再読解の無変更では版を増やさないことを確認します。</summary>
+    /// <summary>初回の実保守の文字コード再読解を同tokenの基本値・DB・集合版・温まったplaylist索引と接続済み一覧の順序・絞込みへ反映します。確定UTF-8の同値再スキャンは書込みも通知も発生させず、行・表示・版・索引を維持することを確認します。</summary>
     [TestMethod]
     public void MaintenanceMetadataChange_ReachesAttachedViewAndWarmPlaylistDeltaOnce()
     {
@@ -661,8 +661,14 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 Reason = "maintenance_metadata_connection"
             };
             var applied = new TaskCompletionSource<NormalLibraryRefreshNotificationBatch>(TaskCreationOptions.RunContinuationsAsynchronously);
+            int appliedCount = 0;
+            int rowsReplacing = 0;
+            int displayRefreshes = 0;
+            EventHandler replacingHandler = (_, _) => rowsReplacing++;
+            EventHandler displayHandler = (_, _) => displayRefreshes++;
             EventHandler<NormalLibraryRefreshAppliedEventArgs> handler = (_, args) =>
             {
+                appliedCount++;
                 try
                 {
                     MainViewRefreshAction action = receiver.ApplyNotificationPresentation(library, args.NotificationBatch,
@@ -680,12 +686,30 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 }
             };
             Task<MaintenanceWorkflowResult>? operation = null;
+            void AssertSavedMetadataAndEncoding()
+            {
+                using LR2SongDBExtended songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                foreach ((string path, string title, string artist) in new[] { (firstPath, "Zあ", "作者あ"), (secondPath, "Bあ", "別作者あ") })
+                {
+                    LR2SongDB.song row = songDb.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?", path).Single();
+                    Assert.AreEqual(title, row.title);
+                    Assert.AreEqual(artist, row.artist);
+                    Assert.AreEqual("", row.subtitle);
+                    Assert.AreEqual("", row.subartist);
+                    Assert.AreEqual("genre", row.genre);
+                    LR2SongDBExtended.maintenance maintenance = songDb.Query<LR2SongDBExtended.maintenance>("SELECT * FROM maintenance WHERE path = ?", path).Single();
+                    Assert.AreEqual("utf-8", maintenance.encoding);
+                    Assert.IsTrue(maintenance.is_encoding_fixed);
+                }
+            }
             try
             {
                 receiver.AttachNormalLibraryRefreshSource(library);
                 Assert.IsTrue(receiver.TryApplyVirtualNormalLibrary(request).WasCommitted);
                 CollectionAssert.AreEqual(new[] { "A before", "C before", "M before" }, table.Rows.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
                 receiver.NormalLibraryRefreshApplied += handler;
+                table.RowsReplacing += replacingHandler;
+                table.DisplayRefreshRequested += displayHandler;
                 var storeWork = new List<string>();
                 library.PlaylistLibraryResolveIndexStoreWorkObserver = storeWork.Add;
                 PlaylistLibraryResolveIndexSnapshot beforeIndex = library.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out _, out _);
@@ -693,11 +717,13 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 storeWork.Clear();
                 int version = library.CatalogRevision;
                 operation = Task.Run(() => library.RescanResourceHealthCharts([first, second]));
-                await Task.WhenAny(operation, applied.Task);
                 MaintenanceWorkflowResult result = await operation;
+                await receiver.DeliverPendingLibraryChangesAsync(library, CancellationToken.None);
+                Assert.IsTrue(applied.Task.IsCompleted, "初回の変更は配送終端までに一覧へ通知されます。");
                 NormalLibraryRefreshNotificationBatch batch = await applied.Task;
                 Assert.IsTrue(result.HasUpdates);
                 Assert.AreEqual(2, result.ReloadedSongCount);
+                Assert.AreEqual(1, appliedCount);
                 Assert.AreEqual(version + 1, library.CatalogRevision);
                 Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
                 Assert.AreEqual(version + 1, batch.CatalogRevision);
@@ -711,6 +737,10 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 Assert.AreEqual("作者あ", currentFirst.Artist);
                 Assert.AreEqual("Bあ", currentSecond.Title);
                 Assert.AreEqual("別作者あ", currentSecond.Artist);
+                Assert.AreEqual("utf-8", currentFirst.EncodingName);
+                Assert.AreEqual("utf-8", currentSecond.EncodingName);
+                Assert.IsTrue(currentFirst.ResourceHealthMaintenanceSnapshot.EncodingFixed);
+                Assert.IsTrue(currentSecond.ResourceHealthMaintenanceSnapshot.EncodingFixed);
                 Assert.AreEqual("A before", first.Title);
                 Assert.AreEqual("old second", second.Artist);
                 Assert.AreSame(background, collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(background)));
@@ -724,32 +754,69 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 Assert.IsFalse(storeWork.Contains("playlist_resolve_source_entry_visited"));
                 Assert.IsFalse(storeWork.Contains("playlist_resolve_source_enumeration"));
                 Assert.IsFalse(storeWork.Contains("playlist_resolve_full_root_enumeration"));
-                using (LR2SongDBExtended songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
-                {
-                    LR2SongDB.song firstRow = songDb.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?", firstPath).Single();
-                    LR2SongDB.song secondRow = songDb.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?", secondPath).Single();
-                    Assert.AreEqual("Zあ", firstRow.title);
-                    Assert.AreEqual("作者あ", firstRow.artist);
-                    Assert.AreEqual("Bあ", secondRow.title);
-                    Assert.AreEqual("別作者あ", secondRow.artist);
-                }
+                AssertSavedMetadataAndEncoding();
                 request.KeywordFilter = "";
                 request.Stopwatch = System.Diagnostics.Stopwatch.StartNew();
                 Assert.IsTrue(receiver.TryApplyVirtualNormalLibrary(request).WasCommitted);
                 CollectionAssert.AreEqual(new[] { "Bあ", "M before", "Zあ" }, table.Rows.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
-                applied = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+                {
+                    foreach (string tableName in new[] { "song", "maintenance" })
+                    {
+                        foreach (string writeKind in new[] { "INSERT", "UPDATE", "DELETE" })
+                        {
+                            db.Execute($"CREATE TRIGGER reject_repeat_{tableName}_{writeKind} BEFORE {writeKind} ON {tableName} BEGIN SELECT RAISE(ABORT, 'unexpected same-value maintenance write'); END;");
+                        }
+                    }
+                });
+                int notificationVersion = library.NormalLibraryRefreshNotificationVersion;
+                int appliedBeforeRepeat = appliedCount;
+                int replacingBeforeRepeat = rowsReplacing;
+                int displayBeforeRepeat = displayRefreshes;
+                System.Collections.IList rowsBeforeRepeat = table.Rows;
+                LibraryChartRow[] visibleRowsBeforeRepeat = table.Rows.Cast<LibraryChartRow>().ToArray();
+                storeWork.Clear();
                 operation = Task.Run(() => library.RescanResourceHealthCharts([currentFirst, currentSecond]));
-                await Task.WhenAny(operation, applied.Task);
                 MaintenanceWorkflowResult repeated = await operation;
-                NormalLibraryRefreshNotificationBatch repeatedBatch = await applied.Task;
-                Assert.AreEqual(2, repeated.ReloadedSongCount);
+                // 同値なら通知自体がないので、発生しない通知Taskではなく既存配送の終端を待ちます。
+                await receiver.DeliverPendingLibraryChangesAsync(library, CancellationToken.None);
+                Assert.IsFalse(repeated.HasUpdates);
+                Assert.AreEqual(0, repeated.ReloadedSongCount);
+                Assert.AreEqual(0, repeated.SongMetadataUpdateCount);
+                Assert.AreEqual(0, repeated.MaintenanceInfoUpsertCount);
+                Assert.AreEqual(0, repeated.ChangedCharts.Count);
                 Assert.AreEqual(version + 1, library.CatalogRevision);
-                Assert.IsFalse(repeatedBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
+                Assert.AreEqual(notificationVersion, library.NormalLibraryRefreshNotificationVersion);
+                Assert.AreEqual(appliedBeforeRepeat, appliedCount);
+                Assert.AreEqual(replacingBeforeRepeat, rowsReplacing);
+                Assert.AreEqual(displayBeforeRepeat, displayRefreshes);
+                foreach (ChartFile expected in new[] { currentFirst, currentSecond })
+                {
+                    ChartFile current = collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(expected));
+                    Assert.AreSame(expected.Token, current.Token);
+                    Assert.AreEqual((expected.Title, expected.Subtitle, expected.Artist, expected.RawTitle, expected.RawSubtitle, expected.RawArtist, expected.Subartist, expected.Genre),
+                        (current.Title, current.Subtitle, current.Artist, current.RawTitle, current.RawSubtitle, current.RawArtist, current.Subartist, current.Genre));
+                    Assert.AreEqual(expected.EncodingName, current.EncodingName);
+                    Assert.AreEqual(expected.ResourceHealthMaintenanceSnapshot, current.ResourceHealthMaintenanceSnapshot);
+                }
+                AssertSavedMetadataAndEncoding();
+                Assert.AreSame(rowsBeforeRepeat, table.Rows);
                 CollectionAssert.AreEqual(new[] { "Bあ", "M before", "Zあ" }, table.Rows.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
+                for (int index = 0; index < visibleRowsBeforeRepeat.Length; index++) { Assert.AreSame(visibleRowsBeforeRepeat[index], table.Rows[index]); }
+                PlaylistLibraryResolveIndexSnapshot repeatedIndex = library.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out bool repeatedCacheHit, out _);
+                Assert.IsTrue(repeatedCacheHit);
+                Assert.AreEqual("Zあ", library.CaptureCatalogReadSnapshot([repeatedIndex.ResolveChartForPlaylistHash(first.Md5, first.Sha256)]).Resolve(repeatedIndex.ResolveChartForPlaylistHash(first.Md5, first.Sha256)).Title);
+                Assert.AreEqual("Bあ", library.CaptureCatalogReadSnapshot([repeatedIndex.ResolveChartForPlaylistHash(second.Md5, second.Sha256)]).Resolve(repeatedIndex.ResolveChartForPlaylistHash(second.Md5, second.Sha256)).Title);
+                Assert.IsFalse(storeWork.Contains("playlist_resolve_delta_apply"));
+                Assert.IsFalse(storeWork.Contains("playlist_resolve_source_entry_visited"));
+                Assert.IsFalse(storeWork.Contains("playlist_resolve_source_enumeration"));
+                Assert.IsFalse(storeWork.Contains("playlist_resolve_full_root_enumeration"));
             }
             finally
             {
                 receiver.NormalLibraryRefreshApplied -= handler;
+                table.RowsReplacing -= replacingHandler;
+                table.DisplayRefreshRequested -= displayHandler;
                 await receiver.StopAsync();
                 library.PlaylistLibraryResolveIndexStoreWorkObserver = null;
                 library.RequestShutdown("maintenance_metadata_connection_test");

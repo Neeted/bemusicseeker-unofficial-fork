@@ -147,6 +147,50 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
         });
     }
 
+    /// <summary>
+    /// DB読込み後の選択・全所持再スキャンで確定UTF-8を保持して5項目を復号し、資源増減だけならmaintenanceだけを保存します。
+    /// ASCIIのShift_JISへの再判定、BOMなし非ASCIIの文字化け、hash・song対象外全列の改変、同値song更新を検出します。
+    /// </summary>
+    /// <remarks>実owner/storeまたは全所持入口から、実SQLiteと現在一覧への反映まで確認します。Windowは生成しません。</remarks>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task Rescan_FixedUtf8AfterDbLoadPreservesMetadataAndOnlyPersistsResourceChanges(bool allOwned, bool asciiMetadata)
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            using var fixture = new MaintenanceMetadataSongFixture(songDbPath, fixedEncoding: true, asciiMetadata: asciiMetadata);
+            var owner = new SelectedChartResourceHealthWorkflowOwner(() => fixture.Library, new RecordingDialogService());
+            async Task Rescan()
+            {
+                if (allOwned)
+                {
+                    MaintenanceWorkflowResult result = await Task.Run(() => fixture.Library.RescanAllOwnedChartMaintenance());
+                    Assert.IsFalse(result.Canceled);
+                }
+                else
+                {
+                    Assert.IsTrue(ChartResourceHealthRequest.TryCreate([new ChartOperationTarget(fixture.Chart, null,
+                        ChartOperationSourceScope.Library, true, false, false, ChartOperationCapabilities.RunResourceHealthCheck)], out ChartResourceHealthRequest request));
+                    SelectedChartResourceHealthWorkflowResult result = await owner.RescanAsync(request);
+                    Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
+                }
+            }
+            await Rescan();
+            fixture.AssertCurrentAndResourceHealth(0);
+            fixture.RejectSongUpdates();
+            string resourcePath = Path.Combine(Path.GetDirectoryName(fixture.Path) ?? throw new InvalidOperationException("譜面の親が必要です。"), "missing.wav");
+            File.WriteAllBytes(resourcePath, [1]);
+            await Rescan();
+            fixture.AssertCurrentAndResourceHealth(1);
+            File.Delete(resourcePath);
+            await Rescan();
+            fixture.AssertCurrentAndResourceHealth(0);
+        });
+    }
+
     /// <summary>実警告無視・再検査を本番adapterとDBへ転送し、拒否要求が保存を始めないことを確認します。</summary>
     [TestMethod]
     public async Task RealStore_WarningIgnoreAndRescanBorrowAcceptedLibraryAuthority()

@@ -577,7 +577,7 @@ internal sealed class BmsLibraryMaintenanceService
         }
     }
 
-    /// <summary>評価を完了してから一つの不変要求を確定します。明示した選択保留は文字コードを維持してsongを保存せず、成功評価を保存差分と独立して返します。取消時も評価済み対象を従来どおり確定します。選択保留の辞書はキーの有無で対象を区別し、値がnullなら対応する保存前行がありません。</summary>
+    /// <summary>評価を完了してから一つの不変要求を確定します。所持譜面の具体的な確定文字コードは保持してメタデータを再復号し、文字列が同じならsongを更新しません。明示した選択保留は文字コードを維持してsongを保存せず、成功評価を保存差分と独立して返します。取消時も評価済み対象を従来どおり確定します。選択保留の辞書はキーの有無で対象を区別し、値がnullなら対応する保存前行がありません。</summary>
     public MaintenanceWorkflowResult UpdateMaintenanceInfo(IEnumerable<ChartFile> charts, bool forceUpdate,
         Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> durableWrite, IBmsLibraryDialogService dialogService,
         ResourceHealthLookupContext resourceLookupContext = null, Action<string> progressLogger = null,
@@ -1135,30 +1135,43 @@ internal sealed class BmsLibraryMaintenanceService
         {
             long encodingStart = Stopwatch.GetTimestamp();
             ChartFileSnapshot input = snapshot ?? ChartFileContentReader.ReadSnapshot(chart.Path);
-            BmsEncodingDetectionResult detection = detectedEncoding ?? BmsEncodingDetector.Detect(input.Bytes);
-            result.EncodingDetectionResult = detection;
-            ChartFile detected = BmsChartFileParser.ApplyEncodingDetection(input, parsed, detection);
-            bool reloaded = !string.IsNullOrWhiteSpace(detection.EncodingName) && !detection.EncodingName.EndsWith("?", StringComparison.Ordinal)
-                && detection.EncodingName != "unknown" && System.Text.Encoding.GetEncoding(detection.EncodingName).CodePage != 932;
+            bool preserveEncoding = after.EncodingFixed && !string.IsNullOrWhiteSpace(after.Encoding)
+                && !after.Encoding.EndsWith("?", StringComparison.Ordinal) && !after.Encoding.Equals("unknown", StringComparison.OrdinalIgnoreCase);
+            ChartFile decoded;
+            bool reloaded;
+            if (preserveEncoding)
+            {
+                decoded = BmsChartFileParser.ApplyMetadataEncoding(input, parsed, after.Encoding);
+                reloaded = !HasSameDecodedMetadataText(parsed, decoded);
+            }
+            else
+            {
+                BmsEncodingDetectionResult detection = detectedEncoding ?? BmsEncodingDetector.Detect(input.Bytes);
+                result.EncodingDetectionResult = detection;
+                decoded = BmsChartFileParser.ApplyEncodingDetection(input, parsed, detection);
+                // 未確定値の非CP932再検出は、同値でも従来どおり限定したsong更新を要求します。
+                reloaded = !string.IsNullOrWhiteSpace(detection.EncodingName) && !detection.EncodingName.EndsWith("?", StringComparison.Ordinal)
+                    && detection.EncodingName != "unknown" && System.Text.Encoding.GetEncoding(detection.EncodingName).CodePage != 932;
+                after = after with { Encoding = detection.EncodingName, EncodingFixed = reloaded || after.EncodingFixed };
+            }
             if (reloaded)
             {
                 parsed = parsed with
                 {
-                    Title = detected.Title,
-                    Subtitle = detected.Subtitle,
-                    Artist = detected.Artist,
-                    RawTitle = detected.RawTitle,
-                    RawSubtitle = detected.RawSubtitle,
-                    RawArtist = detected.RawArtist,
-                    Subartist = detected.Subartist,
-                    Genre = detected.Genre,
+                    Title = decoded.Title,
+                    Subtitle = decoded.Subtitle,
+                    Artist = decoded.Artist,
+                    RawTitle = decoded.RawTitle,
+                    RawSubtitle = decoded.RawSubtitle,
+                    RawArtist = decoded.RawArtist,
+                    Subartist = decoded.Subartist,
+                    Genre = decoded.Genre,
                     Date = Lr2SongRowEnricher.ToLr2UnixSeconds(input.LastWriteTimeUtc),
                     LastWriteTimeUtc = input.LastWriteTimeUtc
                 };
                 result.EncodingReloadCount = 1;
                 result.ReloadedBmsChart = parsed;
             }
-            after = after with { Encoding = detection.EncodingName, EncodingFixed = reloaded || after.EncodingFixed };
             result.EncodingElapsedTicks = Stopwatch.GetTimestamp() - encodingStart;
             result.EncodingReloadElapsedTicks = reloaded ? result.EncodingElapsedTicks : 0;
         }

@@ -22,6 +22,71 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryMaintenanceServiceTests
 {
+    /// <summary>
+    /// 確定した具体名だけを保持して生5項目と合成表示を再復号し、固定印だけの推定名と未確定の具体名は従来検出します。
+    /// ASCIIをUTF-8確定からShift_JISへ戻す誤り、確定CP932の復号漏れ、同値再評価の余分な保存を検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("utf-8", true, false, "utf-8")]
+    [DataRow("utf-8", true, true, "utf-8")]
+    [DataRow("shift_jis", true, true, "shift_jis")]
+    [DataRow("shift_jis?", true, false, "shift_jis")]
+    [DataRow("utf-8", false, false, "shift_jis")]
+    public void UpdateMaintenanceInfo_ForceUpdatePreservesOnlyConcreteFixedEncoding(string savedEncoding, bool fixedEncoding, bool nonAscii, string expectedEncoding)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string path = Path.Combine(Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException("DBの親が必要です。"), "fixed.bms");
+            string prefix = nonAscii ? "日本語" : "ASCII";
+            File.WriteAllText(path, $"#TITLE {prefix} title\n#SUBTITLE {prefix} subtitle\n#ARTIST {prefix} artist\n#SUBARTIST {prefix} subartist\n#GENRE {prefix} genre\n#WAV01 missing.wav\n#00111:01\n",
+                savedEncoding == "shift_jis" ? Encoding.GetEncoding(932) : new UTF8Encoding(false));
+            File.SetLastWriteTimeUtc(path, new DateTime(2024, 2, 3, 4, 5, 6, DateTimeKind.Utc));
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(path);
+            if (!nonAscii)
+            {
+                Assert.AreEqual("shift_jis", BmsEncodingDetector.Detect(snapshot.Bytes).EncodingName, "ASCIIの自動判定とUTF-8確定保持を区別します。");
+            }
+            bool preserve = fixedEncoding && !savedEncoding.EndsWith("?", StringComparison.Ordinal);
+            ChartFile chart = BmsChartFileParser.ParseSnapshot(snapshot);
+            if (preserve)
+            {
+                chart = chart with { RawTitle = "old", RawSubtitle = "old", RawArtist = "old", Subartist = "old", Genre = "old", Title = "old", Subtitle = "old", Artist = "old" };
+            }
+            chart = ChartFileProjection.WithMaintenance(chart, new ResourceHealthMaintenanceSnapshot
+            { Path = path, Hash = chart.Md5, Encoding = savedEncoding, EncodingFixed = fixedEncoding });
+            var requests = new List<CatalogMaintenanceWriteRequest>();
+            CatalogMaintenanceWriteReceipt Write(CatalogMaintenanceWriteRequest request)
+            {
+                requests.Add(request);
+                return new CatalogMaintenanceWriteReceipt(true, request.MaintenanceInfos.Count, request.SongMetadataUpdates.Count, 0, 0);
+            }
+            var service = new BmsLibraryMaintenanceService();
+            MaintenanceWorkflowResult first = service.UpdateMaintenanceInfo([chart], true, Write, null);
+            ChartFile current = first.ChangedCharts.Single();
+            Assert.AreEqual(expectedEncoding, current.EncodingName);
+            Assert.AreEqual(fixedEncoding, current.ResourceHealthMaintenanceSnapshot.EncodingFixed);
+            Assert.AreEqual(preserve ? 1 : 0, first.SongMetadataUpdateCount);
+            Assert.AreEqual(chart.Md5, current.Md5);
+            Assert.AreEqual(chart.Sha256, current.Sha256);
+            if (preserve)
+            {
+                Assert.AreEqual(prefix + " title", current.RawTitle);
+                Assert.AreEqual(prefix + " subtitle", current.RawSubtitle);
+                Assert.AreEqual(prefix + " artist", current.RawArtist);
+                Assert.AreEqual(prefix + " subartist", current.Subartist);
+                Assert.AreEqual(prefix + " genre", current.Genre);
+                Assert.AreEqual(prefix + " title " + prefix + " subtitle", current.Title);
+                Assert.AreEqual(prefix + " artist " + prefix + " subartist", current.Artist);
+                Assert.AreEqual(1, requests.Single().SongMetadataUpdates.Count);
+            }
+            requests.Clear();
+            MaintenanceWorkflowResult second = service.UpdateMaintenanceInfo([current], true, Write, null);
+            Assert.AreEqual(0, requests.Count, "固定mtime・同値の保守再評価はwriterを呼びません。");
+            Assert.AreEqual(0, second.SongMetadataUpdateCount);
+            Assert.AreEqual(0, second.MaintenanceInfoUpsertCount);
+            Assert.IsFalse(second.HasUpdates);
+        });
+    }
 
     /// <summary>drive root・通常directory・UNCの取得済み索引を正負とも照会し、末尾除去によるcache missと実FS fallbackを検出する。</summary>
     [DataTestMethod]
