@@ -660,6 +660,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         UnsubscribeViewModelUiInteractions();
         subscribedViewModel = viewModel;
+        viewModel.ChartFilters.AttachKeywordSearchPresentation();
+        viewModel.PlaylistWorkspace.AttachPlaylistSummaryKeywordSearchPresentation();
         viewModel.RequiredStartupUiApplying += ApplyRequiredStartupPlayerHost;
         playlistWorkspaceTerminals.UrlInstallTreeExpansionEventSource
             .Subscribe(MainWindow_PlaylistUrlInstallTreeExpansionRequested);
@@ -691,6 +693,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
+        subscribedViewModel.ChartFilters.DetachKeywordSearchPresentation();
+        subscribedViewModel.PlaylistWorkspace.DetachPlaylistSummaryKeywordSearchPresentation();
         subscribedViewModel.RequiredStartupUiApplying -= ApplyRequiredStartupPlayerHost;
         subscribedViewModel.SettingDialog.DetachPresentationPort(this);
         playlistWorkspaceTerminals.UrlInstallTreeExpansionEventSource

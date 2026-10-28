@@ -1011,6 +1011,119 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>通常とサマリーの実警告Tooltip・開いたhelpを言語切替で更新し、入力・caret・候補選択を保持します。実Close完了後は保持した両ownerへ言語通知を送りません。</summary>
+    /// <remarks>外側ownerの通知から実BindingとPopup本文への接続、およびMainWindowの終了時解除を確認します。文脈・警告の組合せと再接続の条件網羅は各ownerテストへ分担します。</remarks>
+    [TestMethod]
+    public void SearchLanguage_UpdatesOuterBindingsAndDetachesBothOwnersAfterClose()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            CultureInfo? previousCulture = Resources.Culture;
+            try
+            {
+                MainWindowPresentationTestHarness.RunConstructorOnly(
+                    MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                    (windowTest, viewModel, window) =>
+                    {
+                        ChartListFilterViewModel filters = viewModel.ChartFilters;
+                        PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
+                        WithPresentedMainWindow(windowTest, window, () =>
+                        {
+                            foreach (bool summary in new[] { false, true })
+                            {
+                                ResourceService.Current.ChangeCulture("ja-JP");
+                                workspace.SetPlaylistSummaryMode(summary);
+                                SearchChrome chrome = GetSearchChrome(window, summary ? "PlaylistSummaryKeywordSearchEditor" : "KeywordSearchEditor");
+                                KeywordSearchAssistanceOwner assistance = summary
+                                    ? workspace.PlaylistSummaryKeywordSearchAssistanceOwner
+                                    : filters.KeywordSearchAssistanceOwner;
+                                string raw = summary ? "  unknown:alpha na" : "  unknown:alpha ti";
+                                if (summary) { workspace.PlaylistSummaryKeywordFilter = raw; }
+                                else { filters.KeywordFilter = raw; }
+                                TestUiDispatcherHost.ProcessQueuedPresentation();
+                                PrepareSearchEditor(chrome, assistance, raw);
+                                chrome.TextBox.CaretIndex = raw.Length - 1;
+                                RaiseSearchKey(chrome.Editor, Key.Down);
+                                if (summary) { workspace.IsPlaylistSummaryKeywordSearchHelpOpen = true; }
+                                else { filters.IsKeywordSearchHelpOpen = true; }
+                                TestUiDispatcherHost.ProcessQueuedPresentation();
+                                MaterializeMainWindow(window);
+                                ListBox fields = GetSectionRows(chrome.Editor, KeywordSearchPresentationSectionKind.Fields);
+                                var selected = (KeywordSearchPresentationItem)fields.SelectedItem;
+                                Assert.IsNotNull(selected);
+                                Assert.IsTrue(chrome.HelpPopup.IsOpen);
+                                TextBlock help = FindVisualDescendants<TextBlock>(chrome.HelpPopup.Child).Single();
+                                int caret = chrome.TextBox.CaretIndex;
+                                long revision = assistance.Presentation.CatalogRevision;
+                                int searches = 0, refreshes = 0;
+                                EventHandler searchChanged = (_, _) => searches++;
+                                EventHandler<PlaylistPresentationRefreshRequestedEventArgs> refreshRequested = (_, _) => refreshes++;
+                                filters.KeywordFilterChanged += searchChanged;
+                                workspace.PlaylistPresentationRefreshRequested += refreshRequested;
+                                try
+                                {
+                                    ResourceService.Current.ChangeCulture("en-US");
+                                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                                    Assert.AreEqual(string.Format(Resources.Keyword_search_warning_unknown_field, "unknown"), chrome.WarningContent.ToolTip);
+                                    string fieldHelp = summary
+                                        ? Resources.Keyword_search_help_fields_playlist_summary
+                                        : Resources.Keyword_search_help_fields_bmsfile;
+                                    Assert.AreEqual(string.Format(Resources.Keyword_search_help_template, fieldHelp), help.Text);
+                                    Assert.IsTrue(chrome.HelpPopup.IsOpen);
+                                    Assert.AreEqual(raw, chrome.TextBox.Text);
+                                    Assert.AreEqual(caret, chrome.TextBox.CaretIndex);
+                                    Assert.AreSame(fields, GetSectionRows(chrome.Editor, KeywordSearchPresentationSectionKind.Fields));
+                                    Assert.AreEqual(selected.InsertionText, ((KeywordSearchPresentationItem)fields.SelectedItem).InsertionText);
+                                    Assert.AreEqual(revision, assistance.Presentation.CatalogRevision);
+                                    Assert.AreEqual(0, searches);
+                                    Assert.AreEqual(0, refreshes);
+                                }
+                                finally
+                                {
+                                    filters.KeywordFilterChanged -= searchChanged;
+                                    workspace.PlaylistPresentationRefreshRequested -= refreshRequested;
+                                    if (summary) { workspace.IsPlaylistSummaryKeywordSearchHelpOpen = false; }
+                                    else { filters.IsKeywordSearchHelpOpen = false; }
+                                }
+                            }
+                        });
+
+                        var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        EventHandler closedHandler = (_, _) => closed.TrySetResult();
+                        window.Closed += closedHandler;
+                        try
+                        {
+                            window.Close();
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(window.CloseCompletion, "search-language.close-completion");
+                            if (!closed.Task.IsCompleted) { window.Close(); }
+                            TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "search-language.closed");
+                        }
+                        finally { window.Closed -= closedHandler; }
+                        int normalNotifications = 0, summaryNotifications = 0;
+                        filters.PropertyChanged += (_, args) =>
+                        {
+                            if (args.PropertyName is nameof(filters.KeywordSearchWarningText) or nameof(filters.HasKeywordSearchWarning) or nameof(filters.KeywordSearchHelpText))
+                            { normalNotifications++; }
+                        };
+                        workspace.PropertyChanged += (_, args) =>
+                        {
+                            if (args.PropertyName is nameof(workspace.PlaylistSummaryKeywordSearchWarningText) or nameof(workspace.HasPlaylistSummaryKeywordSearchWarning) or nameof(workspace.PlaylistSummaryKeywordSearchHelpText))
+                            { summaryNotifications++; }
+                        };
+                        ResourceService.Current.ChangeCulture("ja-JP");
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.AreEqual(0, normalNotifications);
+                        Assert.AreEqual(0, summaryNotifications);
+                    });
+            }
+            finally
+            {
+                ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+                Resources.Culture = previousCulture;
+            }
+        });
+    }
+
     /// <summary>未生成のお気に入りの選択・強調・Enter対象を一致させ、言語往復でも同じ行・ボタンの説明を更新して入力とscrollを保ち、区画横断と折返しで選択が残留しないことを確認します。</summary>
     /// <remarks>実ListBoxの選択と再利用したcontainerのBinding・言語変更通知の接続を検査します。候補計算と古い入力拒否はSearchのownerテスト、辞書整合はLocalizationResourceParityTestsが担います。</remarks>
     [TestMethod]

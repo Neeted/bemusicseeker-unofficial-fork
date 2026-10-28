@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using BeMusicSeeker.Models;
 
@@ -42,6 +43,34 @@ public sealed partial class PlaylistWorkspaceViewModel
                 playlistStore.FreeReaderLockBMSTables();
             }
         }
+    }
+
+    /// <summary>サマリーの表示寿命へ言語通知を接続し、現在の資源で警告とヘルプを同期します。再接続で購読を重複させません。</summary>
+    internal void AttachPlaylistSummaryKeywordSearchPresentation()
+    {
+        ResourceService.Current.PropertyChanged -= PlaylistSummaryKeywordSearchResourcesChanged;
+        ResourceService.Current.PropertyChanged += PlaylistSummaryKeywordSearchResourcesChanged;
+        RefreshPlaylistSummaryKeywordSearchLocalizedPresentation();
+    }
+
+    /// <summary>画面の表示寿命が終わったサマリー検索表示を言語通知から切り離します。</summary>
+    internal void DetachPlaylistSummaryKeywordSearchPresentation()
+    {
+        ResourceService.Current.PropertyChanged -= PlaylistSummaryKeywordSearchResourcesChanged;
+    }
+
+    private void PlaylistSummaryKeywordSearchResourcesChanged(object sender, PropertyChangedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == nameof(ResourceService.Resources))
+        {
+            RefreshPlaylistSummaryKeywordSearchLocalizedPresentation();
+        }
+    }
+
+    private void RefreshPlaylistSummaryKeywordSearchLocalizedPresentation()
+    {
+        UpdatePlaylistSummaryKeywordSearchPresentation();
+        RaisePropertyChanged(nameof(PlaylistSummaryKeywordSearchHelpText));
     }
 
     private void UpdatePlaylistSummaryKeywordSearchPresentation()

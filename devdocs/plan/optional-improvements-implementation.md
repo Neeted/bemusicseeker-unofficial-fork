@@ -32,7 +32,7 @@
 | U03 共通表の表示とコピー | TSV空行 → URL幅 → フルスキャンDST編集・非編集案内 → 言語cache | U02後。同担当が能力付与・編集終端・一時投影まで所有。U15のDST検証と順序調整 |
 | U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U03後、U05/U08と直列 |
 | U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04/U08と直列 |
-| U07 言語変更と確認文言 | 検索 → プロパティ → ランプ → 確認ボタン | 既存owner別コミット。全言語資源は一担当。U03/U16/U17/U20と共有編集を調整 |
+| U07 言語変更と確認文言 | プロパティ → ランプ → 確認ボタン | 既存owner別コミット。全言語資源は一担当。U03/U16/U17/U20と共有編集を調整 |
 | U08 手動ランキング取得廃止 | UI・専用通信・資料・専用テストを除去 | MainWindow/composition/Ir。U04/U05後、起動時ローカルcache維持 |
 | U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
 | U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile。U13のWriter検証と調整 |
@@ -181,21 +181,6 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 `MainWindowPlaylistWorkspaceWpfTests` でクリック→1秒以内に検索入力→callback後も検索の全文/フォーカス保持・改名0回、移動しない場合は一回開始を確認。F2、別ノード、切離し、重複クリックで古い要求が再開しない代表を分担する。遅延完了後の全UI状態を保証する一般フレームワークへ拡張しない。DnDと同MainWindowツリー領域のため同担当へまとめられる。
 
 ## U07 言語変更と確認文言
-
-### 検索提示（通常検索・プレイリストサマリー）
-
-**editor本体は一部更新済み・外側の警告/ヘルプは両入口で現存。** `KeywordSearchEditor.Loaded/Unloaded` はResourceService購読を管理し、`ResourceServicePropertyChanged` → `RefreshLocalizedSurface`（226–253行付近）でアクセシビリティ名と開いた候補を更新済み。このhandlerを新たに作り直さない。
-
-通常側は `MainWindow.xaml:716/725` が `ChartFilters.KeywordSearchWarningText` / `KeywordSearchHelpText` をBindingする。`ChartListFilterViewModel.UpdateKeywordSearchPresentation`（188行付近）は警告を再生成しhelpを通知できるが、呼出元は入力/文脈変更でResourceServiceの購読なし。Helpはgetterが最新資源を読むだけなので既存Bindingの更新契機が不足する。
-
-サマリー側は `MainWindow.xaml:767/776` が `PlaylistWorkspace.PlaylistSummaryKeywordSearchWarningText` / `PlaylistSummaryKeywordSearchHelpText` をBindingする。`PlaylistWorkspaceViewModel.KeywordSearch.cs.UpdatePlaylistSummaryKeywordSearchPresentation`（47行付近）は入力変更時のwarning生成だけで、help通知も言語購読もない。別ownerのまま同じ改善項目に含める。通常検索だけを直して完了にしない。
-
-- 方針: 通常ownerは既存 `UpdateKeywordSearchPresentation(raiseHelpText:true)`、サマリーownerは既存warning整形とhelp通知を、資源変更へ接続する。入力・文脈・候補版を変えず、保存式の再代入やUpdateContextを言語通知の代用にしない。
-- 寿命: editorのLoaded/Unloadedは既に確立しているが、それだけでは外側ownerの通知にならない。新購読は各ownerの実寿命で解除される接続を明示する。ChartFiltersはApplicationCompositionで生成されMainWindowが保持し、ファイル内にDispose overrideはないため、「Disposeに書けば通常終了で必ず呼ばれる」と仮定しない。既存shell終了/表示切離しへの実接続か弱い購読等の既存方式を実装時に選び、永久static購読を残さない。サマリーにも同じ寿命確認が必要。新しい検索統合ownerは作らない。
-- 完了条件: 同じraw入力・文脈のまま警告Tooltipと開いているhelpが更新。通常/プレイリストサマリー双方で検索イベント/再取得回数0、入力・caret・候補選択・history/favorite・保存値不変。閉鎖/切離し後の不要通知なし。
-- 既存テスト: `ChartListFilterViewModelTests.KeywordFilter_UpdatesWarningAndContextHelpNotifications`、`KeywordFilter_InvalidPlayHistoryDateShowsLocalizedWarning` は入力時の更新を確認。サマリーの既存keyword/presentation testsと代表MainWindow WPFに通常/summary両Bindingを分担。既存editor language/accessibilityの保証は維持する。
-- 共有書込み先: `ChartListFilterViewModel.cs`、`PlaylistWorkspaceViewModel.KeywordSearch.cs`（必要時同VM本体の寿命接続）、検索VM/WPF tests。候補文法引用/保存式比較と同ファイル編集は直列化するが、今回の静的確認では文法・履歴比較を再調査しない。
-- 除外: editorアクセシビリティ名/開いた候補の言語handler、検索実行/文法、履歴/favorite識別、検索入力編集の状態整理。
 
 ### 開いている譜面プロパティ
 

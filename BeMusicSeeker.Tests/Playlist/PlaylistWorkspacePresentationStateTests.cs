@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -12,6 +13,7 @@ using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -44,6 +46,95 @@ public sealed class PlaylistWorkspacePresentationStateTests
 
         KeywordSearchPresentationState blurred = workspace.PlaylistSummaryKeywordSearchAssistanceOwner.Blur();
         Assert.IsFalse(blurred.IsOpen);
+    }
+
+    /// <summary>表示中サマリーの警告あり／なしで言語だけを再整形し、行・世代・入力・候補・保存値を保ちます。二重接続は一回の通知、切離しは無通知、再接続は現言語を保証します。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void PlaylistSummaryKeywordSearchLanguage_RefreshesOnlyAttachedPresentation(bool warning)
+    {
+        CultureInfo? previousCulture = Resources.Culture;
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
+        using SettingsDialogViewModel settingsLifetime = owner.SettingDialog;
+        PlaylistWorkspaceViewModel workspace = owner.PlaylistWorkspace;
+        try
+        {
+            ResourceService.Current.ChangeCulture("ja-JP");
+            // 警告を持つregexのORにも有効な選択肢を残し、実フィルターで一致する行を表示します。
+            // 非表示中に条件を準備し、初期化時の非同期再取得を言語通知の観測へ持ち込みません。
+            string raw = warning ? "  name:re:Alpha|[ na  " : "  name:alpha na  ";
+            workspace.PlaylistSummaryKeywordFilter = raw;
+            workspace.IsPlaylistSummaryMode = true;
+            workspace.IsPlaylistSummaryKeywordSearchHelpOpen = true;
+            var sourceRow = new PlaylistSummaryRow { PlaylistId = 7, Name = "Alpha name" };
+            Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+            {
+                Rows = new ObservableCollection<PlaylistSummaryRow>(PlaylistWorkspaceViewModel.ApplyPlaylistSummaryFilters(
+                    [sourceRow], raw, PlaylistOwnedFilter.All)),
+                SummaryText = "summary",
+                PresentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration()
+            }));
+            KeywordSearchAssistanceOwner assistance = workspace.PlaylistSummaryKeywordSearchAssistanceOwner;
+            Assert.IsTrue(assistance.SavedQueryOwner.TryCommitHistory("name:history").Succeeded);
+            Assert.IsTrue(assistance.TryAddFavorite("name:favorite").Succeeded);
+            KeywordSearchPresentationState presentation = assistance.Focus(raw, raw.Length - 2);
+            KeywordSearchSavedQueryState saved = assistance.SavedQueryOwner.State;
+            string history = settings.PlaylistSummaryKeywordSearchHistory;
+            string favorites = settings.PlaylistSummaryKeywordSearchFavorites;
+            ObservableCollection<PlaylistSummaryRow> rows = workspace.PlaylistSummaryView;
+            PlaylistSummaryRow row = rows.Single();
+            long generation = workspace.CurrentPlaylistSummaryPresentationGeneration;
+            long dataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+            long cacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
+            var notifications = new List<string>();
+            int refreshes = 0;
+            workspace.PlaylistPresentationRefreshRequested += (_, _) => refreshes++;
+            workspace.PropertyChanged += (_, args) => notifications.Add(args.PropertyName ?? string.Empty);
+            workspace.AttachPlaylistSummaryKeywordSearchPresentation();
+            workspace.AttachPlaylistSummaryKeywordSearchPresentation();
+            notifications.Clear();
+
+            ResourceService.Current.ChangeCulture("en-US");
+
+            Assert.AreEqual(warning ? string.Format(Resources.Keyword_search_warning_invalid_regex, "[") : string.Empty, workspace.PlaylistSummaryKeywordSearchWarningText);
+            Assert.AreEqual(string.Format(Resources.Keyword_search_help_template, Resources.Keyword_search_help_fields_playlist_summary), workspace.PlaylistSummaryKeywordSearchHelpText);
+            Assert.AreEqual(warning, workspace.HasPlaylistSummaryKeywordSearchWarning);
+            Assert.AreEqual(1, notifications.Count(name => name == nameof(workspace.PlaylistSummaryKeywordSearchHelpText)));
+            Assert.AreEqual(warning ? 1 : 0, notifications.Count(name => name == nameof(workspace.PlaylistSummaryKeywordSearchWarningText)));
+            Assert.AreEqual(0, refreshes);
+            Assert.AreEqual(raw, workspace.PlaylistSummaryKeywordFilter);
+            Assert.IsTrue(workspace.IsPlaylistSummaryKeywordSearchHelpOpen);
+            Assert.AreSame(presentation, assistance.Presentation);
+            Assert.AreSame(saved, assistance.SavedQueryOwner.State);
+            Assert.AreEqual(history, settings.PlaylistSummaryKeywordSearchHistory);
+            Assert.AreEqual(favorites, settings.PlaylistSummaryKeywordSearchFavorites);
+            Assert.AreSame(rows, workspace.PlaylistSummaryView);
+            Assert.AreSame(row, workspace.PlaylistSummaryView.Single());
+            Assert.AreEqual("summary", workspace.PlaylistSummaryText);
+            Assert.AreEqual(generation, workspace.CurrentPlaylistSummaryPresentationGeneration);
+            Assert.AreEqual(dataGeneration, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+            Assert.AreEqual(cacheGeneration, workspace.CurrentPlaylistSummaryRowsCacheGeneration);
+
+            workspace.DetachPlaylistSummaryKeywordSearchPresentation();
+            notifications.Clear();
+            ResourceService.Current.ChangeCulture("ja-JP");
+            Assert.AreEqual(0, notifications.Count);
+            workspace.AttachPlaylistSummaryKeywordSearchPresentation();
+            Assert.AreEqual(warning ? string.Format(Resources.Keyword_search_warning_invalid_regex, "[") : string.Empty, workspace.PlaylistSummaryKeywordSearchWarningText);
+            Assert.AreEqual(1, notifications.Count(name => name == nameof(workspace.PlaylistSummaryKeywordSearchHelpText)));
+            Assert.AreEqual(0, refreshes);
+            Assert.AreSame(presentation, assistance.Presentation);
+            Assert.AreSame(saved, assistance.SavedQueryOwner.State);
+        }
+        finally
+        {
+            workspace.DetachPlaylistSummaryKeywordSearchPresentation();
+            ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+            Resources.Culture = previousCulture;
+        }
     }
 
     /// <summary>列と詳細表示modeを通知なしで一括確定し、明示publish後に各propertyを通知して一部確定状態の公開を防ぎます。</summary>
