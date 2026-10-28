@@ -42,6 +42,8 @@ BMSONの旧キーは基本値・詳細値が共有する `BmsonJsonParser` で�
 
 選択保留の資源再調査も現在の文字コード・修正印を保持し、評価結果を項目と既存表示行へ届けます。入力元と配置先の再評価・表示の分担は[警告仕様](warnings.md#リソース状態の評価)に従います。再起動を越える指定復元や由来・状態の追加は行いません。既存の孤立した保守行は通常の整理に委ね、操作ごとの移行・修復を追加しません。
 
+実際に導入できた保留譜面は、入力元の保守値が元のパス・MD5と大文字小文字を無視して一致する場合だけ、成功先のパス・同じMD5・文字コード・修正印を未評価の保守値へ引き継ぎます。元配置の健康度・警告無視・LR2診断は持ち越さず、成功先で通常の強制保守評価を行い、既存の所持データ保存へまとめます。導入前の単体・子譜面警告は[警告の更新契約](warnings.md#種類ごとの更新)に従い成功項目だけで解除します。具体的な文字コード名・未確定値・推定名の採否は既存の保守評価へ委ねます。導入失敗・未処理の保留指定はその項目内に保持し、資源だけを更新した別の所持譜面や同じMD5の別配置へ指定を広げません。成功後の所持再調査・DB読込みでは通常の確定文字コード保持を使い、保留の再起動復元は追加しません。
+
 ### ファイル差分の処理順序
 
 差分を作る前の走査取得は、完全性が成立した結果だけを採用します。先行走査の通常失敗を「先行結果なし」として同じ要求内で再走査せず、既存の不完全走査の警告と非反映へ渡します。Everythingを利用できない場合に、同じ完全性契約の管理された走査が正常に完了した結果は従来どおり採用します。
@@ -181,6 +183,8 @@ LR2の `song_rows` は、一回だけ読んだスナップショットへCP932�
 | 詳細情報の再利用、公開順序、補完時の限定更新 | [`ChartInfoBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoBuildService.cs)、[`ChartInfoInlineBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoInlineBuildService.cs) | [`ChartInfoInlineHydrationTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInlineHydrationTests.cs)、[`ChartInfoBackfillStorageTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoBackfillStorageTests.cs) |
 | 導入先からの解析と失敗再利用 | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs) | [`ChartInfoInstallFailureRetryTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInstallFailureRetryTests.cs)、[`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) |
 | LR2行の生成と差分直後の同期 | [`Lr2SongRowEnricher`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongRowEnricher.cs) | [`BmsLibraryLr2SongDbSyncTests`](../../../BeMusicSeeker.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs) |
+
+導入成功先への文字コード保存は [`BmsLibraryPackageInstallServiceTests.PendingFixedEncoding_InstallPersistsOnlySuccessfulPlacementAndSurvivesRescan`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceEncodingTests.cs) が固定Big5の実bytes・タイトル・MD5/SHA-256を通常新規・推定先の実FS/SQLite、所持と同じlive項目、再調査と新しいDB読取りで照合します。元フォルダと成功先のCP932対応可否が逆になる二方向では、実保留評価のLR2警告投影を成功時に解放し、再調査前から同じlive項目と所持の成功先診断が一致することも確認します。自然な単体再投入から実推定・自動後段へ進む接続は [`PackageInstallWorkflowOwnerTests.AutomaticContinuation_ReimportedPendingFixedEncodingReachesInstalledDatabase`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerEncodingTests.cs)、資源のみの別所持・同MD5別配置の不変は `PendingFixedEncoding_ResourceOnlyInstallDoesNotOverwriteOwnedSameHashPlacements` が担当します。
 
 ## 関連資料
 

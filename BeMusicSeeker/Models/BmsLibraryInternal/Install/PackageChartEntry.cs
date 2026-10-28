@@ -2,10 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.ComponentModel;
-using System.IO;
 using System.Linq;
 using System.Threading;
-using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -320,34 +318,6 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         RaiseChartChanged();
     }
 
-    /// <summary>導入済みパスと時刻、BMSのテキスト付属状態を適用し、初回追加日時を未確定へ戻します。項目の排他を解放してから通知します。</summary>
-    internal void ApplyInstalledPath(string installedPath)
-    {
-        lock (mutationGate)
-        {
-            if (string.IsNullOrWhiteSpace(installedPath))
-            {
-                return;
-            }
-
-            DateTime writeTime = GetInstalledLastWriteTime(installedPath);
-            chart = ChartFileProjection.WithPath(chart, installedPath) with
-            {
-                LastWriteTimeUtc = writeTime
-            };
-            if (chart.Kind == ChartFileKind.Bms)
-            {
-                chart = chart with
-                {
-                    Txt = Lr2TextGroupResolver.ResolveFlag(installedPath, chart.Txt.GetValueOrDefault()),
-                    AddDate = null,
-                    Date = writeTime == default ? null : Lr2SongRowEnricher.ToLr2UnixSeconds(writeTime)
-                };
-            }
-        }
-        RaiseChartChanged();
-    }
-
     /// <summary>候補と推定警告を保持したまま、導入先と表示根拠だけを更新します。</summary>
     /// <param name="destinationDirectory">新しい導入先。空値による編集も含みます。</param>
     /// <param name="title">導入先の分類根拠となった実在ペアの題名。</param>
@@ -447,13 +417,21 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         }
     }
 
-    /// <summary>導入成功後、登録時の元配置結果を解放し、導入前の候補と一時警告を解除します。</summary>
+    /// <summary>導入成功に向けたdetached準備と成功後のlive反映で、元配置結果・候補・導入前の構造警告と一時警告を解除します。</summary>
+    /// <remarks>準備時はdetached項目だけへ適用し、失敗・未処理のlive項目では元の警告を保持します。LR2投影の所有を解放して確定現在値の診断へ追従し、成功先の健康度は必須保守で再評価します。</remarks>
     internal void ClearPostInstallState()
     {
         DiscardOriginalResourceHealth();
+        ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
         ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
         ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
         ClearResourceHealthProjection();
+        lock (mutationGate)
+        {
+            // 空の投影で上書きすると成功先の新しい診断も隠すため、分類の所有ごと解放します。
+            ClearWarningsByCategoryCore(ChartWarningCategory.Lr2Compatibility);
+            projectedWarningCategories.Remove(ChartWarningCategory.Lr2Compatibility);
+        }
         ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
     }
 
@@ -680,22 +658,6 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
                 yield return ChartWarning.Create(ChartWarningKind.InstallEstimationAudioUnverifiable,
                     string.Format(Properties.Resources.Warning_InstallEstimationAudioUnverifiable, selectedCandidate.DirectoryPath));
             }
-        }
-    }
-
-    private static DateTime GetInstalledLastWriteTime(string path)
-    {
-        if (!LongPathFileSystem.FileExists(path))
-        {
-            return default;
-        }
-        try
-        {
-            return LongPathFileSystem.GetLastWriteTimeUtc(path);
-        }
-        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-        {
-            return default;
         }
     }
 

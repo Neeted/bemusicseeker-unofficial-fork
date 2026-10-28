@@ -775,7 +775,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 Assert.AreEqual("Player", child.Header);
                 Assert.AreEqual(0, requests.Count);
 
-                row.PackageEntry.ApplyInstalledPath(updatedPath);
+                row.PackageEntry.ApplyCurrentChart(ChartFileProjection.WithPath(row.PackageEntry.Chart, updatedPath));
                 Assert.IsTrue(RaiseMenuClick(child).Handled);
 
                 Assert.AreEqual(1, requests.Count);

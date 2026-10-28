@@ -2012,7 +2012,7 @@ internal sealed class BmsLibraryPackageInstallService
             return source;
         }
 
-        return ChartFileProjection.WithPath(source, installedPath);
+        return ChartFileProjection.WithInstalledPath(source, installedPath);
     }
 
     private static bool TryBuildVerifiedResidualCleanupFiles(

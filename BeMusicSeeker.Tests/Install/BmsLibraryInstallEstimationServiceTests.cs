@@ -1951,7 +1951,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
         entry.ApplyInstallDestinationMetadata(destinationDirectory, "Resolved Title", "Resolved Artist");
         entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
-        entry.ApplyInstalledPath(installedPath);
+        entry.ApplyCurrentChart(ChartFileProjection.WithPath(file, installedPath));
 
         Assert.AreNotEqual(installedPath, file.Path);
         Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed));
@@ -1960,99 +1960,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual("Resolved Title", entry.Chart.InstallDestinationTitle);
         Assert.AreEqual("Resolved Artist", entry.Chart.InstallDestinationArtist);
         Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed));
-    }
-
-    /// <summary>適用先にあるreadmeから現在譜面のテキスト件数を再計算し、入力元の未計算値を残す誤りを検出する。</summary>
-    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
-    [TestMethod]
-    public void PackageChartEntry_BmsCurrentChartRecomputesTextGroupOnInstalledPath()
-    {
-        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService _)
-        {
-            string destinationDirectory = Path.Combine(tempRoot, "Installed");
-            Directory.CreateDirectory(destinationDirectory);
-            string installedPath = Path.Combine(destinationDirectory, "chart.bms");
-            File.WriteAllText(installedPath, "#PLAYER 1");
-            File.WriteAllText(Path.Combine(destinationDirectory, "readme.txt"), "text group");
-            ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "chart.bms"));
-            var entry = PackageChartEntry.FromChart((file));
-
-            entry.ApplyInstalledPath(installedPath);
-
-            Assert.AreEqual(1, entry.Chart.Txt);
-        });
-    }
-
-    /// <summary>readmeのない適用先では元譜面のテキスト件数を消し、古いフォルダの件数が残る誤りを検出する。</summary>
-    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
-    [TestMethod]
-    public void PackageChartEntry_BmsCurrentChartClearsStaleTextGroupOnInstalledPath()
-    {
-        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService _)
-        {
-            string destinationDirectory = Path.Combine(tempRoot, "Installed");
-            Directory.CreateDirectory(destinationDirectory);
-            string installedPath = Path.Combine(destinationDirectory, "chart.bms");
-            File.WriteAllText(installedPath, "#PLAYER 1");
-            ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "chart.bms"));
-            file = file with { Txt = 1 };
-            var entry = PackageChartEntry.FromChart((file));
-
-            entry.ApplyInstalledPath(installedPath);
-
-            Assert.AreEqual(0, entry.Chart.Txt);
-        });
-    }
-
-    /// <summary>適用先の実更新日時を現在譜面のDateへ反映し、移動後も日時が未設定になる誤りを検出する。</summary>
-    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
-    [TestMethod]
-    public void PackageChartEntry_BmsCurrentChartSetsDateFromInstalledFileMtime()
-    {
-        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService _)
-        {
-            string destinationDirectory = Path.Combine(tempRoot, "Installed");
-            Directory.CreateDirectory(destinationDirectory);
-            string installedPath = Path.Combine(destinationDirectory, "chart.bms");
-            DateTime installedTimestamp = new(2026, 6, 9, 2, 30, 0, DateTimeKind.Utc);
-            File.WriteAllText(installedPath, "#PLAYER 1");
-            File.SetLastWriteTimeUtc(installedPath, installedTimestamp);
-            ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "chart.bms"));
-            var entry = PackageChartEntry.FromChart((file));
-
-            entry.ApplyInstalledPath(installedPath);
-
-            int expectedDate = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(installedPath));
-
-            Assert.AreEqual(expectedDate, entry.Chart.Date);
-        });
-    }
-
-    /// <summary>適用先の更新日時で古いDateを置き換えAddDateを消し、入力元の日時を引き継ぐ誤りを検出する。</summary>
-    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
-    [TestMethod]
-    public void PackageChartEntry_BmsCurrentChartReplacesStaleDateOnInstalledPath()
-    {
-        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService _)
-        {
-            string destinationDirectory = Path.Combine(tempRoot, "Installed");
-            Directory.CreateDirectory(destinationDirectory);
-            string installedPath = Path.Combine(destinationDirectory, "chart.bms");
-            DateTime installedTimestamp = new(2026, 6, 9, 3, 45, 0, DateTimeKind.Utc);
-            File.WriteAllText(installedPath, "#PLAYER 1");
-            File.SetLastWriteTimeUtc(installedPath, installedTimestamp);
-            ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "chart.bms"));
-            file = file with { Date = 12345 };
-            file = file with { AddDate = 67890 };
-            var entry = PackageChartEntry.FromChart((file));
-
-            entry.ApplyInstalledPath(installedPath);
-
-            int expectedDate = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(installedPath));
-
-            Assert.AreEqual(expectedDate, entry.Chart.Date);
-            Assert.IsFalse(entry.Chart.AddDate.HasValue);
-        });
     }
 
     /// <summary>パッケージ警告と保存側警告を現在譜面へ合わせ、片方の警告を隠す投影の誤りを検出する。</summary>

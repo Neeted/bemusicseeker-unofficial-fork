@@ -1,10 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models;
 
@@ -81,32 +79,6 @@ public class ChartPackage : LR2SongDBExtended.install
         }
         ReplaceChartEntries(nextEntries);
         return true;
-    }
-
-    internal void ApplySingleFileInstallDestination(string destinationDirectory, IEnumerable<PackageChartEntry> entries)
-    {
-        foreach (PackageChartEntry entry in entries ?? [])
-        {
-            string chartPath = entry?.Chart?.Path;
-            if (string.IsNullOrWhiteSpace(chartPath))
-            {
-                continue;
-            }
-            entry.ApplyInstalledPath(Path.Combine(destinationDirectory, Path.GetFileName(chartPath)));
-        }
-    }
-
-    internal void ApplyDirectoryInstallDestination(string sourcePath, string destinationDirectory, IEnumerable<PackageChartEntry> entries)
-    {
-        foreach (PackageChartEntry entry in entries ?? [])
-        {
-            string chartPath = entry?.Chart?.Path;
-            if (string.IsNullOrWhiteSpace(chartPath))
-            {
-                continue;
-            }
-            entry.ApplyInstalledPath(chartPath.ReplaceFromStart(sourcePath + Path.DirectorySeparatorChar, destinationDirectory + Path.DirectorySeparatorChar, isIgnoreCase: true));
-        }
     }
 
     /// <summary>確定した所属列を保持します。残存entryを複製せず、以後のパス変更で再探索しません。</summary>

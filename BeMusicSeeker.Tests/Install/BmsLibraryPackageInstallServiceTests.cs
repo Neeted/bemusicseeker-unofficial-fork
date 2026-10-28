@@ -3482,7 +3482,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 
     /// <summary>
     /// 資源不足の単体BMS・BMSONと通常フォルダを同時に新規導入し、既存実体と要求内予約を避けた準備宛先へ配置します。
-    /// 宛先設定済み行も強制新規では別フォルダを使い、兄弟を保持したままsong DB・所持・新規・保留・install表を一致させます。
+    /// 宛先設定済み行も強制新規では別フォルダを使い、兄弟を保持したままsong DB・所持・新規・保留・install表を一致させ、発見時の単体警告を成功後の所持・live項目から解除します。
     /// </summary>
     /// <remarks>実取り込みで単体分類と保留保存を成立させ、実libraryの変更セッションとSQLite読戻しまでの接続を確認します。命名の物理条件は小さい実FSで観測します。</remarks>
     [DataTestMethod]
@@ -3550,6 +3550,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Assert.AreEqual(3, library.ChartPackagesPending.Count);
                 Assert.AreEqual(firstSource, packages[0].path, "発見後も単体ファイルである入力を使います。");
                 Assert.AreEqual(secondSource, packages[1].path);
+                Assert.IsTrue(packages[0].ChartEntries.Single().Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.SingleBmsFile));
+                Assert.IsTrue(packages[1].ChartEntries.Single().Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.SingleBmsonFile));
                 if (hasConfiguredDestination)
                 {
                     packages[0].ChartEntries.Single().SetInstallDestinationPathOnly(configuredDestination);
@@ -3585,6 +3587,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 foreach (ChartFile installed in library.BmsCharts.Concat(library.BmsonCharts))
                 {
                     Assert.IsTrue(owned.ContainsMd5(installed.Md5));
+                    Assert.IsFalse((installed.Warnings ?? []).Any(warning => warning.Category == ChartWarningCategory.PackageLayout));
+                }
+                foreach (PackageChartEntry entry in library.ChartPackagesInstalled.SelectMany(package => package.ChartEntries))
+                {
+                    Assert.IsFalse((entry.Chart.Warnings ?? []).Any(warning => warning.Category == ChartWarningCategory.PackageLayout));
                 }
                 for (int index = 0; index < expectedPaths.Length; index++)
                 {
@@ -3608,7 +3615,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
     /// <summary>
-    /// BMS・Bmsonの導入後に実保存した資源充足値を新規・通常一覧へ反映し、導入前の一時警告を残す誤りと冷温索引による警告の欠落を検出する。
+    /// BMS・Bmsonの導入後に実保存した資源充足値を新規・通常一覧へ反映し、導入前の単体警告が所持・live項目・表示行へ残る誤りと冷温索引による不足警告の欠落を検出する。
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。 導入結果から新規・通常一覧の管理主体へ渡る警告と資源状態も観測する。</remarks>
     // 順に譜面種類(BMS/Bmson)、導入先資源の既存有無、健全性索引のcold/warmを組み合わせる。
@@ -3662,6 +3669,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     "",
                     "",
                     sourceChart.Warnings));
+            ChartWarningKind layoutKind = bmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile;
+            pendingEntry.SetWarning(layoutKind, "source single chart");
+            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == layoutKind));
             IReadOnlyList<ChartWarning> pendingWarnings =
                 BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjection(pendingEntry);
             Assert.IsTrue(pendingWarnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
@@ -3785,11 +3795,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 }
                 Assert.IsNotNull(installed.Token);
                 AssertCalculatedInstallResourceHealth(installed, resourceAlreadyExistsAtDestination);
+                Assert.IsFalse((installed.Warnings ?? []).Any(warning => warning.Category == ChartWarningCategory.PackageLayout));
                 foreach (PackageChartEntry installedEntry in installedPackage.ChartEntries)
                 {
                     Assert.IsNotNull(installedEntry.Chart);
                     Assert.AreSame(installed.Token, installedEntry.Chart.Token);
                     AssertCalculatedInstallResourceHealth(installedEntry.Chart, resourceAlreadyExistsAtDestination);
+                    Assert.IsFalse((installedEntry.Chart.Warnings ?? []).Any(warning => warning.Category == ChartWarningCategory.PackageLayout));
                     Assert.IsTrue(string.IsNullOrWhiteSpace(installedEntry.Chart.InstallDestination));
                     Assert.IsFalse((installedEntry.Chart.Warnings ?? []).Any(
                         warning => warning.Category == ChartWarningCategory.ResourceHealth));
@@ -3828,6 +3840,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 var installedRow = (LibraryChartRow)table.Rows[0]!;
                 Assert.AreSame(installed.Token, installedRow.Chart.Token);
                 AssertCalculatedInstallResourceHealth(installedRow.Chart, resourceAlreadyExistsAtDestination);
+                Assert.IsFalse((installedRow.Chart.Warnings ?? []).Any(warning => warning.Category == ChartWarningCategory.PackageLayout));
                 Assert.AreEqual(installed.WAVHealth, installedRow.WAVHealth);
                 Assert.AreEqual(installed.BGAHealth, installedRow.BGAHealth);
                 Assert.AreEqual(installed.MovieHealth, installedRow.MovieHealth);
@@ -3866,6 +3879,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 var normalRow = (LibraryChartRow)table.Rows[0]!;
                 Assert.AreSame(installed.Token, normalRow.Chart.Token);
                 AssertCalculatedInstallResourceHealth(normalRow.Chart, resourceAlreadyExistsAtDestination);
+                Assert.IsFalse((normalRow.Chart.Warnings ?? []).Any(warning => warning.Category == ChartWarningCategory.PackageLayout));
                 Assert.AreEqual(installed.WAVHealth, normalRow.WAVHealth);
                 Assert.AreEqual(installed.BGAHealth, normalRow.BGAHealth);
                 Assert.AreEqual(installed.MovieHealth, normalRow.MovieHealth);
@@ -6012,11 +6026,16 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
     /// <summary>
-    /// 物理準備後のDB確定が失敗すると宛先を補償し、元入力・現在エントリと通知なしを保って、確定前のパス公開や入力消費を検出する。
+    /// 元保守の識別一致・大小文字差だけなら未評価のPath/Hash/Encoding/Fixedだけを導入先へ渡し、別path・別hashでは指定を渡しません。旧健全性・無視・LR2診断のコピーを検出します。
+    /// detached準備だけで単体警告を解除し、DB確定失敗では宛先を補償して元入力・live項目のkind/message・通知なしを保持し、確定前の公開や入力消費も検出します。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
-    public void MovePackageFilesWithReceipt_PrecommitFailureRetainsSourceAndRestoresPackageOwner()
+    [DataRow("matching")]
+    [DataRow("case")]
+    [DataRow("path")]
+    [DataRow("hash")]
+    public void MovePackageFilesWithReceipt_PrecommitFailureRetainsSourceAndRestoresPackageOwner(string maintenanceIdentity)
     {
 
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -6027,6 +6046,21 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             string chartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Receipt\r\n");
             ChartFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            chart = ChartFileProjection.WithMaintenance(chart, new ResourceHealthMaintenanceSnapshot
+            {
+                Path = maintenanceIdentity == "path" ? chartPath + ".other" : maintenanceIdentity == "case" ? chartPath.ToUpperInvariant() : chartPath,
+                Hash = maintenanceIdentity == "hash" ? "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" : chart.Md5.ToUpperInvariant(),
+                Encoding = "big5",
+                EncodingFixed = true,
+                Origin = MaintenanceInfoOrigin.Calculated,
+                WavFilesDefined = 1,
+                WavFilesExisting = 0,
+                FilesWarningIgnored = true,
+                Lr2WarningFlags = (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong,
+                Lr2ResourceMaxRelativeCp932Bytes = 10000,
+                Lr2ResourceHasParentTraversal = true
+            });
+            chart = ChartFileProjection.WithWarnings(chart, [.. chart.Warnings, ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "source missing")]);
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([chart]);
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
@@ -6034,6 +6068,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             bool callbackSawSource = false;
             bool callbackSawDestination = false;
             PackageChartEntry liveEntry = package.ChartEntries.Single();
+            liveEntry.SetWarning(ChartWarningKind.SingleBmsFile, "original single chart");
             int liveNotifications = 0;
             System.ComponentModel.PropertyChangedEventHandler liveChanged = (_, _) => liveNotifications++;
             liveEntry.PropertyChanged += liveChanged;
@@ -6059,10 +6094,45 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     {
                         Assert.AreNotSame(liveEntry, installResult.AddedEntries.Single(), "mutableな準備entryをlive項目と共有しません。");
                         Assert.AreEqual(chartPath, liveEntry.Chart.Path);
+                        Assert.AreEqual("original single chart", liveEntry.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.SingleBmsFile).Message);
+                        Assert.IsFalse((installResult.AddedEntries.Single().Chart.Warnings ?? []).Any(warning => warning.Category == ChartWarningCategory.PackageLayout));
+                        Assert.IsFalse((installResult.AddedCharts.Single().Warnings ?? []).Any(warning => warning.Category == ChartWarningCategory.PackageLayout));
                         Assert.AreEqual(0, liveNotifications);
                         callbackSawSource = Directory.Exists(sourceDirectoryPath) && File.Exists(chartPath);
                         callbackSawDestination = File.Exists(Path.Combine(destinationDirectoryPath, "chart.bms"));
                         Assert.AreEqual(Path.Combine(destinationDirectoryPath, "chart.bms"), installResult.AddedCharts.Single().Path);
+                        ChartFile prepared = installResult.AddedCharts.Single();
+                        ResourceHealthMaintenanceSnapshot seed = prepared.ResourceHealthMaintenanceSnapshot;
+                        Assert.IsNotNull(seed);
+                        Assert.AreEqual(prepared.Path, seed.Path);
+                        Assert.AreEqual(chart.Md5, seed.Hash);
+                        bool matches = maintenanceIdentity is "matching" or "case";
+                        Assert.AreEqual(matches ? "big5" : null, seed.Encoding);
+                        Assert.AreEqual(matches, seed.EncodingFixed);
+                        Assert.AreEqual(new ResourceHealthMaintenanceSnapshot
+                        {
+                            Path = Path.Combine(destinationDirectoryPath, "chart.bms"),
+                            Hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                            Encoding = matches ? "big5" : null,
+                            EncodingFixed = matches
+                        }, seed, "新配置の識別と文字コード以外の保守状態を持ち越しません。");
+                        Assert.AreEqual(MaintenanceInfoOrigin.None, seed.Origin);
+                        Assert.IsFalse(seed.IsInformationChecked);
+                        Assert.IsFalse(seed.FilesWarningIgnored);
+                        Assert.IsNull(seed.WavFilesDefined);
+                        Assert.IsNull(seed.WavFilesExisting);
+                        Assert.IsNull(seed.BgaFilesDefined);
+                        Assert.IsNull(seed.MovieFilesDefined);
+                        Assert.IsNull(seed.StagefileDefined);
+                        Assert.IsNull(seed.BannerDefined);
+                        Assert.IsNull(seed.BackbmpDefined);
+                        Assert.IsNull(seed.Lr2WarningFlags);
+                        Assert.IsNull(seed.Lr2ResourceMaxRelativeCp932Bytes);
+                        Assert.IsNull(seed.Lr2ResourceHasParentTraversal);
+                        Assert.IsNull(prepared.WAVHealth);
+                        Assert.IsFalse(prepared.Warnings.Any(w => w.Category is ChartWarningCategory.ResourceHealth or ChartWarningCategory.Lr2Compatibility));
+                        Assert.AreEqual("big5", liveEntry.Chart.EncodingName);
+                        Assert.IsTrue(liveEntry.Chart.ResourceHealthMaintenanceSnapshot.EncodingFixed);
                         return FileDbMutationCommitResult.Failed(new InvalidOperationException("db-before-receipt"));
                     },
                     sourceCleanupPolicy: PackageSourceCleanupPolicy.PreserveUnconsumedContents,
@@ -6080,6 +6150,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Assert.AreEqual(chartPath, chart.Path);
                 Assert.AreSame(liveEntry, package.ChartEntries.Single());
                 Assert.AreEqual(chartPath, liveEntry.Chart.Path);
+                Assert.AreEqual("original single chart", liveEntry.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.SingleBmsFile).Message);
                 Assert.AreEqual(0, liveNotifications);
             }
             finally
@@ -6536,7 +6607,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
     /// <summary>
-    /// 通常・強制導入で開始前に消えた入力を対象失敗へ残し、同じMD5の後続を実導入して、失敗入力のハッシュ予約や成功の巻戻しを検出する。
+    /// 通常・強制導入で開始前に消えた入力の固定指定を保留に残し、同じMD5の後続だけを実導入・保存して、失敗入力のハッシュ予約や指定の拡散を検出する。
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     // falseは通常導入、trueは強制導入で同じ開始前入力消失を注入する。
@@ -6593,6 +6664,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 ChartPackagesPending = CreatePackageCollection(packages),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
+            foreach (ChartPackage pending in packages)
+            {
+                PackageChartEntry entry = pending.ChartEntries.Single();
+                library.SetBMSFilesEncoding([entry.Chart], "big5", pendingEntries: [entry]);
+            }
             // 保留一覧への読み込み後、導入操作を開始する前に source が削除された状態です。
             Directory.Delete(sources[1], recursive: true);
 
@@ -6620,6 +6696,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Path.Combine(installationRoot, "Shared"),
                 packages[1].ChartEntries.Single().Chart.InstallDestination);
             Assert.AreEqual(2, library.ChartPackagesInstalled.Count);
+            Assert.AreEqual("big5", packages[1].ChartEntries.Single().Chart.EncodingName);
+            Assert.IsTrue(packages[1].ChartEntries.Single().Chart.ResourceHealthMaintenanceSnapshot.EncodingFixed);
             Assert.IsTrue(File.Exists(Path.Combine(installationRoot, "First", "chart.bms")));
             Assert.IsTrue(File.Exists(Path.Combine(installationRoot, "Shared", "chart.bms")));
             Assert.IsFalse(Directory.Exists(sources[1]));
@@ -6633,6 +6711,15 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 },
                 verifySongDb.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
             Assert.AreEqual(sources[1], verifySongDb.Table<LR2SongDBExtended.install>().Single().path);
+            foreach (string title in new[] { "First", "Shared" })
+            {
+                LR2SongDBExtended.maintenance saved = verifySongDb.Find<LR2SongDBExtended.maintenance>(
+                    Path.Combine(installationRoot, title, "chart.bms"));
+                Assert.IsNotNull(saved);
+                Assert.AreEqual("big5", saved.encoding);
+                Assert.IsTrue(saved.is_encoding_fixed);
+            }
+            Assert.IsNull(verifySongDb.Find<LR2SongDBExtended.maintenance>(Path.Combine(sources[1], "chart.bms")));
         });
     }
     /// <summary>
@@ -7043,7 +7130,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
     /// <summary>
-    /// 強制導入の途中コピーが失敗しても先行成功を一回確定し、元の物理失敗と未処理後続を保って、事前拒否への誤分類や未実行資源の公開を検出する。
+    /// 強制導入の途中コピーが失敗しても先行成功とその文字コードだけを一回保存し、構造警告も成功分だけ解除します。失敗・未処理保留の指定と構造警告・実評価したLR2警告のkind/message・物理失敗を保ち、未実行資源や指定の拡散を検出します。
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     // 第一値は終端集約、第二値はコピー中の入力消失(falseは別のコピー失敗)を選ぶ。
@@ -7061,8 +7148,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         {
             string installRootPath = Path.Combine(tempRootPath, "Installed");
             string firstSourceDirectoryPath = Path.Combine(tempRootPath, "PendingFirst");
-            string secondSourceDirectoryPath = Path.Combine(tempRootPath, "PendingSecond");
-            string thirdSourceDirectoryPath = Path.Combine(tempRootPath, "PendingThird");
+            string secondSourceDirectoryPath = Path.Combine(tempRootPath, "PendingSecond-🎵");
+            string thirdSourceDirectoryPath = Path.Combine(tempRootPath, "PendingThird-🎵");
             string firstChartPath = CreateBmsFileWithResources(
                 firstSourceDirectoryPath, "first.bms", "#TITLE Prefix First", "first-resource");
             string secondChartPath = CreateBmsFileWithResources(
@@ -7121,6 +7208,21 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             library.ChartPackagesPending = CreatePackageCollection([firstPackage, secondPackage, thirdPackage]);
             library.ChartPackagesInstalled = CreatePackageCollection([]);
 
+            var originalLr2Warnings = new Dictionary<ChartPackage, (ChartWarningKind Kind, string Message)[]>();
+            foreach (ChartPackage pending in new[] { firstPackage, secondPackage, thirdPackage })
+            {
+                PackageChartEntry pendingEntry = pending.ChartEntries.Single();
+                pendingEntry.SetWarning(ChartWarningKind.SingleBmsFile, "layout:" + pending.path);
+                BmsLibraryPackageInstallService.InitializePendingResourceHealth(pendingEntry);
+                originalLr2Warnings.Add(pending, (pendingEntry.Chart.Warnings ?? [])
+                    .Where(warning => warning.Category == ChartWarningCategory.Lr2Compatibility)
+                    .Select(warning => (warning.Kind, warning.Message)).ToArray());
+                Assert.AreEqual(!ReferenceEquals(pending, firstPackage), originalLr2Warnings[pending]
+                    .Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
+                library.SetBMSFilesEncoding([pendingEntry.Chart], "big5", pendingEntries: [pendingEntry]);
+                Assert.IsTrue(pendingEntry.Chart.ResourceHealthMaintenanceSnapshot.EncodingFixed);
+            }
+
             LibraryResourceIndexOwner resourceOwner = LibraryResourceIndexTestSupport.GetOwner(library);
             resourceOwner.Replace(LibraryResourceIndex.CreateFromNativeCanonicalArrays(
                 [], [], [], [], [], [], [], new Dictionary<uint, string[]>(), new Dictionary<uint, string[]>(), new Dictionary<uint, string[]>()));
@@ -7134,6 +7236,20 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 
             Assert.IsTrue(receipt.DurableCommit);
             Assert.IsTrue(receipt.HasRequiredFailure);
+            Assert.AreEqual(1, receipt.ApplyCounts.InstalledTargetApplyCount);
+            Assert.AreEqual(1, receipt.ApplyCounts.RequiredPublicationCount);
+            foreach (ChartPackage pending in new[] { secondPackage, thirdPackage })
+            {
+                Assert.AreEqual("big5", pending.ChartEntries.Single().Chart.EncodingName);
+                Assert.AreEqual("layout:" + pending.path, pending.ChartEntries.Single().Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.SingleBmsFile).Message);
+                CollectionAssert.AreEquivalent(originalLr2Warnings[pending],
+                    (pending.ChartEntries.Single().Chart.Warnings ?? [])
+                        .Where(warning => warning.Category == ChartWarningCategory.Lr2Compatibility)
+                        .Select(warning => (warning.Kind, warning.Message)).ToArray());
+                Assert.IsTrue(pending.ChartEntries.Single().Chart.ResourceHealthMaintenanceSnapshot.EncodingFixed);
+                Assert.AreEqual(pending.ChartEntries.Single().Chart.Path,
+                    pending.ChartEntries.Single().Chart.ResourceHealthMaintenanceSnapshot.Path);
+            }
             Assert.IsNotNull(receipt.PhysicalFailure);
             Assert.AreEqual(0, receipt.ItemFailures.Count);
             Assert.IsFalse(receipt.ManualRecoveryRequired);
@@ -7144,6 +7260,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 
             Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
             Assert.AreSame(firstPackage, library.ChartPackagesInstalled.Single());
+            Assert.IsFalse((firstPackage.ChartEntries.Single().Chart.Warnings ?? []).Any(warning => warning.Category == ChartWarningCategory.PackageLayout));
+            Assert.IsFalse((library.BmsCharts.Single(chart => chart.Path == Path.Combine(firstDestinationDirectoryPath, "first.bms"))
+                .Warnings ?? []).Any(warning => warning.Category == ChartWarningCategory.PackageLayout));
             Assert.AreEqual(2, library.ChartPackagesPending.Count);
             CollectionAssert.Contains(library.ChartPackagesPending.ToList(), secondPackage);
             CollectionAssert.Contains(library.ChartPackagesPending.ToList(), thirdPackage);
@@ -7186,6 +7305,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 row.path,
                 Path.Combine(installRootPath, "Prefix First", "first.bms"),
                 StringComparison.OrdinalIgnoreCase)));
+            LR2SongDBExtended.maintenance savedEncoding = verifySongDb.Find<LR2SongDBExtended.maintenance>(
+                Path.Combine(installRootPath, "Prefix First", "first.bms"));
+            Assert.IsNotNull(savedEncoding);
+            Assert.AreEqual("big5", savedEncoding.encoding);
+            Assert.IsTrue(savedEncoding.is_encoding_fixed);
+            Assert.IsNull(verifySongDb.Find<LR2SongDBExtended.maintenance>(secondChartPath));
+            Assert.IsNull(verifySongDb.Find<LR2SongDBExtended.maintenance>(thirdChartPath));
             Assert.IsFalse(installedRows.Any(row => string.Equals(
                 row.path,
                 secondDestinationChartPath,

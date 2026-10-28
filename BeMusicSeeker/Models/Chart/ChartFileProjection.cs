@@ -270,6 +270,35 @@ internal static class ChartFileProjection
         };
     }
 
+    /// <summary>導入成功先の準備値へ同一入力の文字コード指定だけを渡し、配置に依存する保守値は未評価に戻します。</summary>
+    /// <remarks>DB確定前のdetached値に使います。元配置の健全性・警告無視・LR2診断は成功先で評価し、日時は捕捉済みの値を維持します。</remarks>
+    internal static ChartFile WithInstalledPath(ChartFile source, string path)
+    {
+        ChartFile installed = WithPath(source, path);
+        if (installed == null)
+        {
+            return null;
+        }
+
+        ResourceHealthMaintenanceSnapshot previous = source.ResourceHealthMaintenanceSnapshot;
+        bool matchesSource = previous != null
+            && string.Equals(previous.Path, source.Path, System.StringComparison.OrdinalIgnoreCase)
+            && string.Equals(previous.Hash, source.Md5, System.StringComparison.OrdinalIgnoreCase);
+        var maintenance = new ResourceHealthMaintenanceSnapshot
+        {
+            Path = installed.Path,
+            Hash = installed.Md5,
+            Encoding = matchesSource ? previous.Encoding : null,
+            EncodingFixed = matchesSource && previous.EncodingFixed
+        };
+        return WithMaintenance(installed with
+        {
+            Warnings = [.. (installed.Warnings ?? []).Where(warning =>
+                warning.Category != ChartWarningCategory.ResourceHealth
+                && warning.Category != ChartWarningCategory.Lr2Compatibility)]
+        }, maintenance);
+    }
+
     /// <summary>基本情報を維持して明示取得済みの不変リソース結果を受け渡します。</summary>
     internal static ChartFile WithResources(ChartFile source, System.Collections.Immutable.ImmutableList<ChartResourceReference> resources)
     {

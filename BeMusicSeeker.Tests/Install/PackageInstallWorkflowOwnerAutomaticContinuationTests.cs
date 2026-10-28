@@ -56,7 +56,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.IsTrue(fixture.Result.EstimatedInstallReceipt?.DurableCommit == true);
     }
 
-    /// <summary>既所持の親譜面から解決した候補でも、子譜面の実配置で音源閾値を満たさなければ元FS・保留・installと候補を保ち、子項目の健康度0・不足警告へ揃えます。子配置に音源がある場合だけ階層を保って導入し、song・所持集合へ反映します。</summary>
+    /// <summary>既所持の親譜面から解決した候補でも、子譜面の実配置で音源閾値を満たさなければ元FS・保留・installと候補・子譜面警告を保ち、健康度0・不足警告へ揃えます。子配置に音源がある場合だけ階層を保って導入し、song・所持集合へ反映して所持・live項目の子譜面警告を解除します。</summary>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -90,6 +90,10 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         if (audioInChild)
         {
             Assert.IsNotNull(fixture.Result);
+            ChartFile current = fixture.Library.BmsCharts.Single(chart => chart.Path == destinationChart);
+            PackageChartEntry installedChild = fixture.Library.ChartPackagesInstalled.Single().ChartEntries.Single(entry => entry.Chart.Path == destinationChart);
+            Assert.IsFalse((current.Warnings ?? []).Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
+            Assert.IsFalse((installedChild.Chart.Warnings ?? []).Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
             CollectionAssert.AreEqual(sourceBytes, File.ReadAllBytes(destinationChart));
             Assert.IsTrue(File.Exists(Path.Combine(fixture.Destination, "sub", "sound.wav")));
             Assert.IsTrue(fixture.Result.EstimatedInstallReceipt?.DurableCommit == true);
@@ -98,6 +102,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         {
             Assert.AreEqual(source, fixture.Library.ChartPackagesPending.Single().path);
             PackageChartEntry pendingChild = fixture.Library.ChartPackagesPending.Single().ChartEntries.Single(entry => entry.Chart.Path == sourceChart);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning_NestedChartFileInPackage,
+                pendingChild.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage).Message);
             Assert.AreEqual(1, pendingChild.Chart.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
             Assert.AreEqual(0, pendingChild.Chart.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
             Assert.AreEqual(0, pendingChild.Chart.WAVHealth);
