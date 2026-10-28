@@ -319,6 +319,10 @@ internal sealed class PlayHistoryDisplayTargetIndex
         }
     }
 
+    /// <summary>
+    /// ハッシュを大小文字無視で照合し、フォルダ名をOrdinalで区別した所属ラベルを元行を変更せず投影します。
+    /// 全件対象は元行を保持し、それ以外の非対象行は絞込み条件に従って除外するか、FOLDERだけを空欄にします。
+    /// </summary>
     internal bool TryApply(PlayHistoryRow row, out PlayHistoryRow displayRow)
     {
         displayRow = row;
@@ -371,8 +375,10 @@ internal sealed class PlayHistoryDisplayTargetIndex
         AddMatches(matches, md5Map, row.RawHash);
         AddMatches(matches, md5Map, row.Md5);
         AddMatches(matches, sha256Map, row.Sha256);
+        // entryのMD5/SHA256はBMSTableEntryのsetterで小文字へ正規化済み。
+        // 同じ所属への複数ハッシュ経路をまとめつつ、folderの大小文字は区別する。
         return matches
-            .GroupBy(match => match.Identity, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(match => match.Identity, StringComparer.Ordinal)
             .Select(group => group.First())
             .ToList();
     }
@@ -470,6 +476,7 @@ internal sealed class PlayHistoryDisplayTargetIndex
 
         internal BMSTableEntry Entry { get; }
 
+        /// <summary>表・正規化済みハッシュ・フォルダからなる所属識別値。Ordinal比較でフォルダの大小文字を区別します。</summary>
         internal string Identity { get; }
     }
 }

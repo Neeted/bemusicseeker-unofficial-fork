@@ -1371,13 +1371,19 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>
-    /// 表単体を選ぶと一致するMD5行へその表のフォルダ表示を付け、元行の表示を変更しない。
+    /// 表単体はMD5優先・SHA256単独の両経路でハッシュの大小文字を同一視し、A/aの所属を各一回表示する。
+    /// RawHash/Md5の重複一致でラベルを増やさず、元entryと元履歴行の表示を変更しない。
     /// </summary>
     [TestMethod]
-    public void PlayHistoryDisplayTargetIndex_PlaylistTargetUsesPlaylistFolder()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PlayHistoryDisplayTargetIndex_PlaylistTargetUsesPlaylistFolder(bool sha256Only)
     {
-        PlayHistoryRow row = CreateProjectedRow(HashA);
-        BMSTable table = CreateTargetTable(HashA, "Alpha");
+        PlayHistoryRow row = CreateProjectedRow(HashA.ToUpperInvariant(), ShaA.ToUpperInvariant(), initialFolderLabels: "Original");
+        BMSTable table = CreateTargetTable(sha256Only ? string.Empty : HashA.ToUpperInvariant(), "A", ShaA.ToUpperInvariant());
+        table.entries = [.. table.entries, CreateTargetTable(sha256Only ? string.Empty : HashA, "a", ShaA).entries.Single()];
+        PlaylistEntryValue[] originalEntries = [.. table.entries.Select(entry => entry.CaptureValue())];
+        string originalFolderLabels = row.FolderLabels;
         var index = PlayHistoryDisplayTargetIndex.Create(
             PlayHistoryDisplayTargetItem.FromPlaylist(table),
             [table],
@@ -1386,19 +1392,25 @@ public sealed class PlayHistoryReadModelTests
         bool matched = index.TryApply(row, out PlayHistoryRow displayRow);
 
         Assert.IsTrue(matched);
-        Assert.AreEqual("Alpha", displayRow.FolderLabels);
-        Assert.AreEqual(string.Empty, row.FolderLabels);
+        CollectionAssert.AreEqual(new[] { "A", "a" }, displayRow.FolderLabels.Split(' ').Order(StringComparer.Ordinal).ToArray());
+        CollectionAssert.AreEqual(originalEntries, table.entries.Select(entry => entry.CaptureValue()).ToArray());
+        Assert.AreEqual(originalFolderLabels, row.FolderLabels);
     }
 
     /// <summary>
-    /// preset対象は一致行だけを通し、表記号とレベルを表示する。非対象行を通す誤りを検出する。
+    /// preset対象は一致行だけを通し、同じハッシュのA/aを表記号付きで各一回表示する。
+    /// 非対象行の混入、所属の大小文字の同一視、元entryと元履歴行の変更を検出する。
     /// </summary>
     [TestMethod]
     public void PlayHistoryDisplayTargetIndex_TargetSetFiltersRowsAndUsesOrgSymbolLevel()
     {
-        PlayHistoryRow matchingRow = CreateProjectedRow(HashA);
-        PlayHistoryRow otherRow = CreateProjectedRow(HashB);
-        BMSTable table = CreateTargetTable(HashA, "Alpha");
+        PlayHistoryRow matchingRow = CreateProjectedRow(HashA.ToUpperInvariant(), initialFolderLabels: "Original");
+        PlayHistoryRow otherRow = CreateProjectedRow(HashB, initialFolderLabels: "Other");
+        BMSTable table = CreateTargetTable(HashA.ToUpperInvariant(), "A");
+        table.entries = [.. table.entries, CreateTargetTable(HashA, "a").entries.Single()];
+        PlaylistEntryValue[] originalEntries = [.. table.entries.Select(entry => entry.CaptureValue())];
+        string originalMatchingFolderLabels = matchingRow.FolderLabels;
+        string originalOtherFolderLabels = otherRow.FolderLabels;
         var target = PlayHistoryDisplayTargetItem.FromTargetSet(new PlayHistoryDisplayTargetSet
         {
             Name = "SAT Alpha",
@@ -1417,18 +1429,26 @@ public sealed class PlayHistoryReadModelTests
 
         Assert.IsTrue(matched);
         Assert.IsFalse(otherMatched);
-        Assert.AreEqual("SATAlpha", displayRow.FolderLabels);
+        CollectionAssert.AreEqual(new[] { "SATA", "SATa" }, displayRow.FolderLabels.Split(' ').Order(StringComparer.Ordinal).ToArray());
+        CollectionAssert.AreEqual(originalEntries, table.entries.Select(entry => entry.CaptureValue()).ToArray());
+        Assert.AreEqual(originalMatchingFolderLabels, matchingRow.FolderLabels);
+        Assert.AreEqual(originalOtherFolderLabels, otherRow.FolderLabels);
     }
 
     /// <summary>
-    /// FOLDER専用presetは全行を残し、一致行だけ表記号/レベルを付けて非対象行の古い表示を消す。
+    /// FOLDER専用presetは全行を残し、同じハッシュのA/aを表記号付きで各一回表示して非対象行だけ空欄にする。
+    /// 所属の大小文字の同一視、非対象行の除外、元entryと元履歴行の変更を検出する。
     /// </summary>
     [TestMethod]
     public void PlayHistoryDisplayTargetIndex_TargetSetProjectionOnlyKeepsRowsAndClearsUnmatchedFolder()
     {
-        PlayHistoryRow matchingRow = CreateProjectedRow(HashA, initialFolderLabels: "Original");
+        PlayHistoryRow matchingRow = CreateProjectedRow(HashA.ToUpperInvariant(), initialFolderLabels: "Original");
         PlayHistoryRow otherRow = CreateProjectedRow(HashB, initialFolderLabels: "Original");
-        BMSTable table = CreateTargetTable(HashA, "Alpha");
+        BMSTable table = CreateTargetTable(HashA.ToUpperInvariant(), "A");
+        table.entries = [.. table.entries, CreateTargetTable(HashA, "a").entries.Single()];
+        PlaylistEntryValue[] originalEntries = [.. table.entries.Select(entry => entry.CaptureValue())];
+        string originalMatchingFolderLabels = matchingRow.FolderLabels;
+        string originalOtherFolderLabels = otherRow.FolderLabels;
         var target = PlayHistoryDisplayTargetItem.FromTargetSetProjectionOnly(new PlayHistoryDisplayTargetSet
         {
             Name = "SAT Alpha",
@@ -1447,10 +1467,11 @@ public sealed class PlayHistoryReadModelTests
 
         Assert.IsTrue(matched);
         Assert.IsTrue(otherMatched);
-        Assert.IsFalse(target.IsFiltering);
-        Assert.IsTrue(target.UsesProjection);
-        Assert.AreEqual("SATAlpha", displayRow.FolderLabels);
+        CollectionAssert.AreEqual(new[] { "SATA", "SATa" }, displayRow.FolderLabels.Split(' ').Order(StringComparer.Ordinal).ToArray());
         Assert.AreEqual(string.Empty, otherDisplayRow.FolderLabels);
+        CollectionAssert.AreEqual(originalEntries, table.entries.Select(entry => entry.CaptureValue()).ToArray());
+        Assert.AreEqual(originalMatchingFolderLabels, matchingRow.FolderLabels);
+        Assert.AreEqual(originalOtherFolderLabels, otherRow.FolderLabels);
     }
 
     /// <summary>
