@@ -34,15 +34,14 @@
 | U07 言語変更と確認文言 | ランプ → 確認ボタン | 既存owner別コミット。全言語資源は一担当。U03/U16/U17/U20と共有編集を調整 |
 | U08 手動ランキング取得廃止 | UI・専用通信・資料・専用テストを除去 | MainWindow/composition/Ir。U04/U05後、起動時ローカルcache維持 |
 | U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
-| U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile。U13のWriter検証と調整 |
-| U13 音声変換の出力名 | Writerのfile path契約へ統一 | Writer/変換owner。U10と検証の重複を調整 |
+| U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile |
 | U14 重複統合候補 | 候補とCtrl+Gを物理条件へ揃える | Duplicate owner。U15の物理パス判定と共有する場合だけ直列 |
 | U15 導入・推定 | 宛先による範囲拡張廃止 → 入れ子禁止 → 重複保留の登録整理 → 候補根変換・ユニークhash票 → DST表記 | PackageInstall/service/estimation。同一writer。候補根と票数は同じ座標へ揃える。登録整理は発見結果/完全性を共用。U03/U09と順序調整 |
 | U16 ランプの対象・取得元 | 実NO SONG所属 → 成績と履歴の同一捕捉 | lamp source/model/viewer。U07ランプ・U17日付と直列 |
 | U17 履歴投影・日付境界 | 所属大小文字 → 履歴/ランプの日付共用 | PlayHistory/HistoricalSnapshot、U16後 |
 | U20 外部同期の処理済み進捗 | 通知生産・表示・文言 | ExternalSyncOwner/SyncProgress/Hub、U07の言語資源編集と調整 |
 
-現在の所有は、`optional-updater` が共通表、`optional-search-ui` がU07の言語表示、`optional-encoding` がU09、`optional-bms-input` が再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U13/U14/U16/U17/U20は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
+現在の所有は、`optional-updater` が共通表、`optional-search-ui` がU07の言語表示、`optional-encoding` がU09、`optional-bms-input` が再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U14/U16/U17/U20は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
 
 ### 開始・引継ぎと計画の更新
 
@@ -214,16 +213,6 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 `BMSFile` は `#BASE` を扱わず、大文字化で定義件数が減るかで基数を推測する。`#BASE 62`、`#WAVAA normal.wav`、`#LNOBJ aa` のように小文字音源が未定義だとAAとaaを潰し、通常音をLN終端として除く。
 
 明示BASE62では定義・ノート・LNOBJを同じ大小文字区別で扱い、BASEなしの既存推測と受理範囲を保つ。WAV AA/aa双方あり、片方だけ、LNOBJだけ大小が異なる入力で通常音が残り、LNOBJ終端自身は発音しないことを実音声イベントで確認する。分岐・BOMの現行契約と同じparserで整合させ、基本情報側の解析へ便乗変更しない。
-
-## U13 音声変換の出力名
-
-### 音声出力ベース名の解釈
-
-**現存する。** 本番の `SelectedChartAudioConversionWorkflowOwner`（802–819行付近）は `Path.Combine(saveDirectory, fileName)` を拡張子なしの出力ファイル名として渡す。`BMSAutoPlayWriter.Write`（73–87行付近）は空名をアプリdirectoryへ置換し、DirectoryExistsなら `[artist] title` を配下へ足す。出力先に同名directoryがあるだけで意味が変わる。
-
-- 採用方針: 唯一の本番呼出元のfile path契約へ統合し、未使用のdirectory modeと空名の別意味fallbackを除去する。別mode引数や状態を追加しない。既存encoderの拡張子付与/重名連番処理を使う。
-- 完了条件: `Out/Song` directoryがあっても `Out/Song.wav` を生成し、directoryと入力を保全。完成fileが既にある場合も連番をOut直下へ生成。BMS/BMSONで同じ契約。録音形式・品質・正規化は既存保証を維持する。
-- 既存保証: `BMSAutoPlayWriterTests.Write_RendersInitialNoteOnceAndIgnoresDeviceVolumeAndMute`、`EmptyRenderFailsBeforeEncoderCreationWithoutChangingExistingOutput`、`OfflineNormalizationUsesWholeRenderRmsAndFixedNoneGain`、`SelectedChartAudioConversionWorkflowOwnerTests` の通常変換・CompleteFile系列。実WAVE生成を中心に追加し、各encoder実体を本件だけのため網羅増設しない。
 
 ## U14 重複統合候補
 

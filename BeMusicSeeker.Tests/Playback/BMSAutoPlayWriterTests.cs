@@ -227,6 +227,82 @@ public sealed class BMSAutoPlayWriterTests
         AssertSamePcm(Render("direct", "direct.wav"), Render("fallback", bmson ? "tone.wav" : "../../tone.wav"));
     }
 
+    /// <summary>BMS・bmsonとも同名directoryを出力ベース名として扱い、既存完成fileがある場合は親directory直下で採番し、入力と既存file・directoryを保全する。</summary>
+    /// <remarks>実NULL_DEVICEの読込み・render・WAVE保存を通し、名前だけでなく既知入力のNONE増幅PCMと副作用を確認する。共有native状態は既存fixtureが直列所有・復元する。</remarks>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void WriterTreatsExistingDirectoryAsFileBaseAndPreservesExistingEntries(bool bmson, bool existingOutput)
+    {
+        using var directory = new TemporaryDirectory();
+        string inputDirectory = directory.File("Input");
+        string outputDirectory = directory.File("Out");
+        string outputBase = Path.Combine(outputDirectory, "Song");
+        Directory.CreateDirectory(inputDirectory);
+        Directory.CreateDirectory(outputBase);
+        string keepPath = Path.Combine(outputBase, "keep.bin");
+        byte[] keepBytes = [4, 8, 15, 16, 23, 42];
+        File.WriteAllBytes(keepPath, keepBytes);
+        string sourcePath = Path.Combine(inputDirectory, "audio.wav");
+        byte[] sourceBytes = BuildFloatWave(48000, 480, _ => 0.125f);
+        File.WriteAllBytes(sourcePath, sourceBytes);
+        string chartPath = Path.Combine(inputDirectory, bmson ? "chart.bmson" : "chart.bms");
+        File.WriteAllText(chartPath, bmson
+            ? "{\"info\":{\"title\":\"Different title\",\"artist\":\"Different artist\",\"init_bpm\":120},\"sound_channels\":[{\"name\":\"audio.wav\",\"notes\":[{\"y\":0}]}]}"
+            : "#TITLE Different title\n#ARTIST Different artist\n#BPM 120\n#WAV01 audio.wav\n#00011:01\n");
+        byte[] chartBytes = File.ReadAllBytes(chartPath);
+        string existingPath = outputBase + ".wav";
+        byte[] existingBytes = BuildFloatWave(48000, 7, _ => -0.25f);
+        if (existingOutput)
+        {
+            File.WriteAllBytes(existingPath, existingBytes);
+        }
+
+        using (var writer = new BMSAutoPlayWriter(PlaybackChart.Load(chartPath)))
+        {
+            writer.LoadResources();
+            writer.Write(EncoderType.WAVE, 0.4f, outputBase, BMSAutoPlayWriter.Normalization.NONE);
+        }
+
+        string expectedOutputPath = outputBase + (existingOutput ? " (2).wav" : ".wav");
+        CollectionAssert.AreEquivalent(
+            existingOutput ? new[] { existingPath, expectedOutputPath } : new[] { expectedOutputPath },
+            Directory.GetFiles(outputDirectory));
+        CollectionAssert.AreEqual(new[] { outputBase }, Directory.GetDirectories(outputDirectory));
+        CollectionAssert.AreEqual(new[] { keepPath }, Directory.GetFileSystemEntries(outputBase));
+        CollectionAssert.AreEqual(keepBytes, File.ReadAllBytes(keepPath));
+        CollectionAssert.AreEqual(chartBytes, File.ReadAllBytes(chartPath));
+        CollectionAssert.AreEqual(sourceBytes, File.ReadAllBytes(sourcePath));
+        if (existingOutput)
+        {
+            CollectionAssert.AreEqual(existingBytes, File.ReadAllBytes(existingPath));
+        }
+
+        AudioTestWaveFile wave = AudioTestWaveFileReader.Read(File.ReadAllBytes(expectedOutputPath));
+        Assert.AreEqual((ushort)3, wave.Format);
+        Assert.AreEqual((ushort)32, wave.BitsPerSample);
+        Assert.AreEqual(48000, wave.SampleRate);
+        Assert.AreEqual((ushort)2, wave.Channels);
+        int frameSize = wave.Channels * sizeof(float);
+        Assert.IsTrue(wave.DataLength >= 480 * frameSize);
+        Assert.AreEqual(0, wave.DataLength % frameSize);
+        for (int frame = 0; frame < wave.DataLength / frameSize; frame++)
+        {
+            for (int channel = 0; channel < wave.Channels; channel++)
+            {
+                float sample = ReadFloatSample(wave, frame, channel);
+                Assert.IsTrue(float.IsFinite(sample));
+                if (frame < 480)
+                {
+                    // 固定入力0.125とNONE係数0.16から独立に求めたPCM。
+                    Assert.AreEqual(0.02f, sample, 1e-6f);
+                }
+            }
+        }
+    }
+
     private static AudioTestWaveFile WriteBmsonOutput(TemporaryDirectory directory, string name, string json)
     {
         string path = directory.File(name + ".bmson");

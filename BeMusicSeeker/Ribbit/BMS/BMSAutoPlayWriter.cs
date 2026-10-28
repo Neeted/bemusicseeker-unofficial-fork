@@ -1,13 +1,10 @@
 using System;
 using System.Globalization;
-using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using BeMusicSeeker.Models.Utils;
 using Ribbit.Logging;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
-using Ribbit.Util.Extensions;
 
 namespace Ribbit.BMS;
 
@@ -46,7 +43,7 @@ public class BMSAutoPlayWriter : BMSAutoPlayer
     /// <summary>曲を一度だけfloat PCMへrenderし、同じPCMを測定・正規化してencoderへ供給します。</summary>
     /// <param name="encodetype">使用するencoder形式です。</param>
     /// <param name="quality">encoder固有の品質値です。</param>
-    /// <param name="filePathWithoutExtension">拡張子を除いた出力pathまたは出力directoryです。</param>
+    /// <param name="filePathWithoutExtension">非空の、拡張子を除いた出力ファイルpathです。同名directoryが存在してもファイル名として扱います。</param>
     /// <param name="normalize">PCM全体へ適用する正規化方式です。</param>
     /// <param name="normalizationAmplifier">正規化後に適用する追加amplifierです。</param>
     public void Write(
@@ -72,20 +69,6 @@ public class BMSAutoPlayWriter : BMSAutoPlayer
         ResetPlaybackState();
         string artist = ((base.Chart.Artist.Trim() ?? string.Empty) + " " + (base.Chart.Subartist?.Trim() ?? string.Empty)).Trim();
         string title = ((base.Chart.Title.Trim() ?? string.Empty) + " " + (base.Chart.Subtitle?.Trim() ?? string.Empty)).Trim();
-        if (string.IsNullOrWhiteSpace(filePathWithoutExtension))
-        {
-            filePathWithoutExtension = AppContext.BaseDirectory;
-        }
-        if (LongPathFileSystem.DirectoryExists(filePathWithoutExtension))
-        {
-            string input = "[" + artist + "] " + title;
-            filePathWithoutExtension = Path.Combine(
-                filePathWithoutExtension,
-                input.NaturalNormalizationForFileName()
-                    .ReplaceInvalidFileNameCharsByWide()
-                    .RemoveInvalidFileNameChars());
-        }
-
         if (base.Duration < TimeSpan.Zero)
         {
             throw new InvalidOperationException("The BMS render duration must not be negative.");

@@ -16,6 +16,12 @@ BMS・bmsonのオフライン変換、外部エンコーダーの起動、音量
 
 `PlaybackChart.Load(path)` が通常再生と同じ形式選択・解析を行い、`BMSAutoPlayWriter` が共通音声区間を出力します。bmsonの旧0.21、固定刻み時刻、音切り、up音は[bmson再生仕様](../library/bmson-playback.md)に従います。ファイル名の `%HASH%` とタグコメントには実入力byteのMD5を使い、題名・作者・ジャンル等は再生解析結果から取り、BMSのRANDOM選択をタグのコメントへ残す既存の意味は維持します。bmsonをBMS保存行に偽造しません。
 
+### 出力ファイルのベース名
+
+`BMSAutoPlayWriter.Write` の出力引数は、非空の拡張子なしファイルpathです。呼出元の `BassSelectedChartAudioConversionExecutor` が設定の書式からベース名を確定し、空白だけになる場合は曲順の番号を使って出力フォルダと結合します。Writerは既存directoryを出力先として解釈せず、空名をアプリケーションdirectoryへ置き換えません。
+
+BMS・bmsonとも、`Out/Song` directoryが存在してもWAVE出力は `Out/Song.wav` です。拡張子はencoderが付与し、完成pathが既存のfileまたはdirectoryと衝突する場合は既存の採番処理で `Out/Song (2).wav` のように同じ親directory直下へ保存します。同名directoryとその内容、既存完成file、入力譜面と音源は保全します。録音形式・品質・正規化と後片付けの契約は共通です。
+
 ### 無音の変換用セッション
 
 `NullDevice` は物理的な出力先を使わない変換専用です。内部ミキサーはFloat32・unityで動作し、有限音源末尾の欠落に対する暫定措置として、再生時の選択値に関わらず初期化時から1スレッドに固定します。BASSmix 2.4.13を維持し、設定・読戻しを確認します。根拠と解除条件は[設計判断](../../decisions/audio-library-boundaries.md#並列ミキシングの末尾欠落に対する暫定措置)を参照します。変換はジョブ固有のNONE係数0.16を持ち、再生用DeviceVolumeとmuteを参照・変更しません。SRC品質は[音声実行基盤](audio.md#src品質と並列ミキシング)の共通設定を変換開始時に捕捉します。
@@ -112,6 +118,7 @@ flowchart TB
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 拡張子なしベース名と同名directory、既存完成fileとの衝突時の採番・保全 | [`BMSAutoPlayWriter.Write`](../../../BeMusicSeeker/Ribbit/BMS/BMSAutoPlayWriter.cs)、`BassSelectedChartAudioConversionExecutor`、`BassAudioWriter.GetAvailableOutputFile` | [`BMSAutoPlayWriterTests.WriterTreatsExistingDirectoryAsFileBaseAndPreservesExistingEntries`](../../../BeMusicSeeker.Tests/Playback/BMSAutoPlayWriterTests.cs) はBMS・bmsonと既存完成fileの有無を組み合わせ、実WAVEの親directory直下の名前・既知入力のNONE増幅PCM・Float32 48kHz形式と、入力・既存file・directory内容の保全を確認する。通常バッチの形式・増幅・完了と解放は既存の変換ownerテストが担う。 |
 | 表示時の形式保持と実変換時の既存WAVE代替の分離 | `SettingsDialogViewModel.EncoderIndex`、`BassSelectedChartAudioConversionExecutor`、`SettingsAudioGateway.ApplyEncoderFallback` | 表示・保存・変換前snapshotは[設定の検証対応](settings.md#実装とテストの対応)で確認する。実変換の欠損判定から共有設定更新・終了時保存への接続は実装を静的確認し、表示テストで保証したものとは扱わない。 |
 | BMS・BMSON二曲の本番バッチから実WAVEと次変換への接続 | `SelectedChartAudioConversionWorkflowOwner`、`BassSelectedChartAudioConversionExecutor`、`BMSAutoPlayWriter` | [`SelectedChartAudioConversionWorkflowOwnerTests.RunAsync_RealNativeExecutorRetainsLibraryAdmissionThroughEncoderAndSessionCleanup`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) は生成した48kHzステレオFloat32入力から独立に求めたPCM・frame数・形式・増幅設定、二成功・未処理0を実WAVEで確認する。encoder/sessionの実解放中の共通受付保持・Busyを維持し、元Taskと解放終端後の次の明示二曲変換も確認する。NullDevice WAVEの結果を外部encoderや物理deviceの確認として扱わない。 |
 | BMS・bmsonの変換許可、選択順、保留・消失ファイルの除外と実行への受渡し | [`GridRowResolver`](../../../BeMusicSeeker/ViewModels/ChartList/GridRowResolver.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) の変換メニュー、`SelectedChartAudioConversionWorkflowOwner` | [譜面モデルの能力・メニューテスト](../library/chart-model.md#実装とテストの対応)に加え、[`SelectedChartAudioConversionWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) の `Request_FiltersCapabilityAndExistingFilesAcrossChartKindsInSelectionOrder` は実際のresolverから得た対象で形式共通の選択順・ファイル存在確認と両形式の保留拒否を確認し、`RunAsync_AcceptedRoutePreservesCountsSettingsAndTerminalNotificationOrder` はbmsonを先頭にした混在選択を正確な譜面参照のままexecutorへ渡し、設定・件数・再生停止・一回の完了通知の順序を確認する。 |
