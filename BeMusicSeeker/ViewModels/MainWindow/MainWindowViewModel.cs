@@ -4235,24 +4235,23 @@ public partial class MainWindowViewModel : ViewModel,
     }
 
     /// <summary>
-    /// Captures the exact active provider context used by playlist lamp historical reads.
-    /// Unlike the play-history view selector this boundary never falls back to another provider.
+    /// 捕捉済みの現在成績と同じ取得元・DBパス・ノーツで、ランプの履歴読取りを構成します。
+    /// 未準備の入力では利用不可とし、最新設定や別の情報源から補いません。
     /// </summary>
-    internal PlaylistLampHistoricalScoreSourceContext ResolvePlaylistLampHistoricalScoreSourceContext()
+    /// <param name="snapshot">現在成績の投影にも使う公開済みスナップショット。未準備ならnullです。</param>
+    /// <returns>同じ取得元の履歴コンテキスト。取得元がなければnullです。</returns>
+    internal PlaylistLampHistoricalScoreSourceContext ResolvePlaylistLampHistoricalScoreSourceContext(BMSLibrary.ScoreSnapshot snapshot)
     {
-        StartupSettingsSnapshot settings = GetStartupSettingsSnapshot();
-        ActiveScoreSource activeScoreSource = files?.GetActiveScoreSourceForDiagnostics() ?? ActiveScoreSource.None;
-        if (activeScoreSource == ActiveScoreSource.Lr2 && settings.OperationModeLR2DB)
+        if (snapshot?.ActiveScoreSource == ActiveScoreSource.Lr2)
         {
             return PlaylistLampHistoricalScoreSourceContext.Lr2(
-                ResolveMainViewLr2PlayHistoryScoreDbPath(),
+                snapshot.ScoreDbPath,
                 isLr2LinkedProfile: true);
         }
-        if (activeScoreSource == ActiveScoreSource.Beatoraja && settings.UseBeatorajaScoreDb)
+        if (snapshot?.ActiveScoreSource == ActiveScoreSource.Beatoraja)
         {
-            BMSLibrary.ScoreSnapshot scoreSnapshot = files?.GetScoreSnapshotForDiagnostics();
             var notesBySha256 = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            foreach (KeyValuePair<string, BMSScore> pair in scoreSnapshot?.ScoresBySha256 ?? new Dictionary<string, BMSScore>())
+            foreach (KeyValuePair<string, BMSScore> pair in snapshot.ScoresBySha256)
             {
                 if (!string.IsNullOrWhiteSpace(pair.Key) && pair.Value?.totalnotes > 0)
                 {
@@ -4260,7 +4259,7 @@ public partial class MainWindowViewModel : ViewModel,
                 }
             }
             return PlaylistLampHistoricalScoreSourceContext.Beatoraja(
-                ResolveMainViewBeatorajaPlayHistoryScoreDbPath(),
+                snapshot.ScoreDbPath,
                 notesBySha256);
         }
         return null;

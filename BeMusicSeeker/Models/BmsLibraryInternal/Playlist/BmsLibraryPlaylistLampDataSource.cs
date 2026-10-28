@@ -16,7 +16,7 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
 
     private readonly BMSLibrary library;
 
-    private readonly Func<PlaylistLampHistoricalScoreSourceContext> historicalSourceContextFactory;
+    private readonly Func<BMSLibrary.ScoreSnapshot, PlaylistLampHistoricalScoreSourceContext> historicalSourceContextFactory;
 
     private readonly record struct RawEntrySnapshot(
         string Folder,
@@ -30,12 +30,13 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
     /// <param name="playlist">playlist owner。</param>
     /// <param name="library">catalog と score owner。</param>
     /// <param name="historicalSourceContextFactory">
-    /// active provider の read-only history source context。null の場合は Latest のみを提供します。
+    /// 捕捉した公開済みスコアと同じ取得元の履歴コンテキストを生成します。未準備の入力はnullです。
+    /// factoryがnullの場合は最新スコアのみを提供します。
     /// </param>
     public BmsLibraryPlaylistLampDataSource(
         BMSPlaylist playlist,
         BMSLibrary library,
-        Func<PlaylistLampHistoricalScoreSourceContext> historicalSourceContextFactory = null)
+        Func<BMSLibrary.ScoreSnapshot, PlaylistLampHistoricalScoreSourceContext> historicalSourceContextFactory = null)
     {
         this.playlist = playlist ?? throw new ArgumentNullException(nameof(playlist));
         this.library = library ?? throw new ArgumentNullException(nameof(library));
@@ -134,10 +135,11 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             out _,
             out _);
         cancellationToken.ThrowIfCancellationRequested();
-        BMSLibrary.ScoreSnapshot scoreSnapshot = library.GetScoreSnapshotForDiagnostics();
+        BMSLibrary.ScoreSnapshot scoreSnapshot = library.CaptureScoreSnapshotForView();
         var currentLampScoreSnapshot = PlaylistLampScoreSnapshot.FromBmsLibrarySnapshot(scoreSnapshot);
         PlaylistLampHistoricalScoreSnapshotResult historicalResult = ResolveHistoricalScoreSnapshot(
             query,
+            scoreSnapshot,
             currentLampScoreSnapshot,
             cancellationToken);
         PlaylistLampScoreSnapshot lampScoreSnapshot = historicalResult.ScoreSnapshot;
@@ -191,6 +193,7 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
 
     private PlaylistLampHistoricalScoreSnapshotResult ResolveHistoricalScoreSnapshot(
         PlaylistLampViewerQuery query,
+        BMSLibrary.ScoreSnapshot scoreSnapshot,
         PlaylistLampScoreSnapshot currentScoreSnapshot,
         CancellationToken cancellationToken)
     {
@@ -220,7 +223,7 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            sourceContext = historicalSourceContextFactory();
+            sourceContext = historicalSourceContextFactory(scoreSnapshot);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

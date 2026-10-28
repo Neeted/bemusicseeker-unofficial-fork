@@ -93,7 +93,7 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
 
     private readonly Func<PlaylistLampViewerOpenContext, IPlaylistLampViewerDataSource> dataSourceFactory;
 
-    private readonly Func<PlaylistLampHistoricalScoreSourceContext> historicalSourceContextFactory;
+    private readonly Func<BMSLibrary.ScoreSnapshot, PlaylistLampHistoricalScoreSourceContext> historicalSourceContextFactory;
 
     private readonly Action<PlaylistLampViewerWindow> prepareWindowForShow;
 
@@ -129,6 +129,7 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
     /// its temporary WPF owner is released. Production uses the viewer's regular activation
     /// behavior; deterministic hosts may observe this boundary without activating a native window.
     /// </param>
+    /// <param name="historicalSourceContextFactory">現在成績に使う捕捉済みスナップショットから、同じ取得元の履歴コンテキストを生成します。</param>
     internal PlaylistLampViewerWindowManager(
         MainWindow owner,
         PlaylistWorkspaceViewModel workspace,
@@ -136,7 +137,7 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
         Func<PlaylistLampViewerOpenContext, IPlaylistLampViewerDataSource> dataSourceFactory = null,
         Action<PlaylistLampViewerWindow> prepareWindowForShow = null,
         Action<PlaylistLampViewerWindow> activateWindowForInitialPresentation = null,
-        Func<PlaylistLampHistoricalScoreSourceContext> historicalSourceContextFactory = null)
+        Func<BMSLibrary.ScoreSnapshot, PlaylistLampHistoricalScoreSourceContext> historicalSourceContextFactory = null)
     {
         this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
         this.workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));

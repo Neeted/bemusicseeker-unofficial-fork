@@ -34,9 +34,8 @@
 | U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
 | U10 BMS再生入力 | 明示BASE62 | Ribbit BMSFile |
 | U15 導入・推定 | 宛先による範囲拡張廃止 → 入れ子禁止 → 重複保留の登録整理 → 候補根変換・ユニークhash票 → DST表記 | PackageInstall/service/estimation。同一writer。候補根と票数は同じ座標へ揃える。登録整理は発見結果/完全性を共用。U09と順序調整 |
-| U16 ランプの対象・取得元 | 成績と履歴の同一捕捉 | lamp source/model/viewer |
 
-現在の所有は、`optional-updater` が共通表、`optional-encoding` がU09、`optional-bms-input` が再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U16は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
+現在の所有は、`optional-updater` が共通表、`optional-encoding` がU09、`optional-bms-input` が再生入力、`optional-lr2-output` がU15。空いた作業ツリーは全体ルートが共有先の終了に応じて最新devから再利用する。メイン以外最大5本であり、枠を埋めることを目的にしない。
 
 ### 開始・引継ぎと計画の更新
 
@@ -205,14 +204,3 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 `ValidateInstallDestination` は既知directoryへ大小文字無視で一致しても手入力表記を返す。照合成功時は既知集合の登録表記を `ValidatedDestinationDirectory` へ返し、表示・要求・最終path・保存行を同じ値へ揃える。全path小文字化やLR2 CRCの計算式変更は行わない。
 
 大小文字だけ異なるDST手入力から実導入・song DB読戻しまで通し、既所持とfolder/parent識別値が一致することを確認する。引用符・ファイルpath入力・UNC・ドライブルート・空指定の受理契約は維持する。U03のフルスキャン指定・一時保持と同じ検証サービスを使い、同時編集しない。
-
-## U16 ランプの対象・取得元
-
-### ランプ現在成績と履歴取得元の同一捕捉
-
-- 原因: `BmsLibraryPlaylistLampDataSource.cs:137` がcurrent score snapshotを捕捉した後、223で引数なし `historicalSourceContextFactory()` を呼ぶ。`BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs:4244` の `ResolvePlaylistLampHistoricalScoreSourceContext` は最新設定とactive provider、Beatorajaでは再取得したscore snapshotから履歴DBパスとnotesを作る。`PlaylistLampHistoricalScoreSnapshot.cs:98` の照合はprovider種別だけ。
-- 影響: Aの現在成績捕捉→同種BeatorajaのB設定・成績公開→Bの履歴文脈生成の順で、A現在値とB履歴の部分巻戻しが混在する。設定Close禁止などを必要条件にしない通常経路。
-- 方針: `BMSLibrary.ScoreSnapshot` が既に持つ `ActiveScoreSource`・`ScoreDbPath`・`SourceGeneration`・`ScoresBySha256` を一回の捕捉値として履歴文脈へ渡す。factoryをその引数から構築する形へ置換し、MainWindowの最新設定と別snapshot再読込みを取り除く。既に完成して公開済みの一組があれば使用し、準備できない場合は未表示／取得不可とする。
-- 境界: 利用者動作の追加未決なし。LR2のリンク有効条件を既存snapshotの取得元契約へどう写すかは実装時に確認する。旧スコア保持cacheや自動retryで一貫性を作らない。
-- 検証: `BmsLibraryPlaylistLampDataSourceTests.CaptureAsync_recapturesCurrentMembershipOwnershipAndApplicationScore:127` とfactory failure系列、`PlaylistLampHistoricalScoreSnapshotTests` を基礎とし、A/Bの実DBでcurrent捕捉後・history構築前にB公開する順序を制御。A一式またはB一式（未準備ならunavailable）を確認し、Bに履歴があるhash／ないhashの混在を検出する。B公開後の新しい日付要求はB成績・履歴・日付範囲を使う。後発日付要求優先と通常Close終端を維持。
-- 単位・依存: data source・factory・文脈とそのテストを一単位。本人IRcacheの存廃とは分離する。既存snapshot以上の永続状態・長期lock・追加DB読み直しを導入しない。
