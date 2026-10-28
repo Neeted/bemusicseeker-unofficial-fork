@@ -1838,7 +1838,8 @@ public sealed partial class SettingDialogEditCompletionTests
                     Task<bool> initialize = owner.InitializeAsync();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(initialize, "folder-settings-initialize");
                     Assert.IsTrue(initialize.GetAwaiter().GetResult());
-                    if (lr2) { AwaitStartupBackgroundCompletionOnDispatcher(owner, "lr2-confirm-initial-background"); }
+                    // 次の明示確定が起動後保守のL受付と競合しないよう、両動作modeで受理済み保守の実終端を待ちます。
+                    AwaitStartupBackgroundCompletionOnDispatcher(owner, "bms-confirm-initial-background");
                     Assert.AreEqual(1, defaultPlayerCount, "単独動作の実構築は既定playerを一回接続します。");
                     File.WriteAllText(chartB, "#PLAYER 1\n#TITLE Folder B\n#BPM 120\n#00111:01\n");
                     var next = CapturedChartFileScanner.FromFixture([chartA, chartB],
