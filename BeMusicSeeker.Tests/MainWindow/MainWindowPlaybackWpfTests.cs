@@ -282,7 +282,8 @@ public sealed class MainWindowPlaybackWpfTests
                 (scope, viewModel, window) =>
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.ReplacePlayerAsync(player), "replace-player");
-                    ChartFile chart = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = path, RawTitle = "Bmson" });
+                    // playlistの所持行から再生するため、実pathと所持判定に使うhashを揃えます。
+                    ChartFile chart = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = path, Md5 = new string('a', 32), RawTitle = "Bmson" });
                     PlaylistDetailRow first = viewModel.MainChartList.RowProjection.CreatePlaylistDetailSourceRow(
                         null, new BMSTableEntry { memo = "original" }, chart,
                         new BMSScore { perfect = 100, great = 12, totalnotes = 200, IsLr2IrScoreUnsent = true }, null, null).CreateViewRow();
@@ -329,7 +330,8 @@ public sealed class MainWindowPlaybackWpfTests
                         expected = ChartFileStatus.LOADING;
                         rendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                         start = viewModel.PlaybackPanel.StartAtIndex(0);
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(player.StartObserved.Task, "preparing-start");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(
+                            player.StartObserved.Task, start, "preparing-start"), "preparing-start");
                         TestUiDispatcherHost.AwaitPresentationOnDispatcher(rendered.Task, "loading-table-render");
                         expected = ChartFileStatus.PLAY;
                         rendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -598,7 +600,8 @@ public sealed class MainWindowPlaybackWpfTests
                         readPlaybackForegroundWindow: () => readForeground(shellHandle),
                         requestPlaybackKeyboardFocus: requestFocus));
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.ReplacePlayerAsync(player), "focus-replace-internal-player");
-                    ChartFile chart = ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = path, RawTitle = "Ready対象" };
+                    // 本番の所持playlist行を使い、未所持除外のケースとは入力条件を分けます。
+                    ChartFile chart = ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = path, Md5 = new string('a', 32), RawTitle = "Ready対象" };
                     var entry = new BMSTableEntry { parent = new BMSTable(), memo = "original" };
                     PlaylistDetailRow row = viewModel.MainChartList.RowProjection.CreatePlaylistDetailSourceRow(
                         null, entry, chart, null, null, null).CreateViewRow();

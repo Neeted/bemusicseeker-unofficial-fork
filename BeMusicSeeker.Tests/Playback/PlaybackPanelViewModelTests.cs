@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -353,7 +354,6 @@ public sealed class PlaybackPanelViewModelTests
             Assert.AreEqual(1, surfaces, "受理済みの面選択意図は取消でも一度配送します。");
             Assert.IsNull(panel.NowPlayingChart);
             Assert.IsFalse(panel.IsPlaying);
-            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
             Assert.AreEqual(0, rows.SelectedIndex);
             Assert.IsFalse(operations.IsActive, "一時配置のLを要求終端で解放します。");
             Assert.AreEqual(afterAdoption ? TimeSpan.FromSeconds(2) : TimeSpan.FromSeconds(1), panel.CurrentlyPlayingDuration);
@@ -553,16 +553,19 @@ public sealed class PlaybackPanelViewModelTests
         Directory.CreateDirectory(root);
         string source = Path.Combine(root, "pending.bms");
         string normal = Path.Combine(root, "normal.bms");
+        string previousNormal = Path.Combine(root, "previous-normal.bms");
         string destination = Path.Combine(root, "destination");
         string songDb = Path.Combine(root, "song.db");
         Directory.CreateDirectory(destination);
         File.WriteAllText(source, "pending");
         File.WriteAllText(normal, "normal");
+        File.WriteAllText(previousNormal, "previous normal");
         File.WriteAllBytes(songDb, []);
         ChartFile pending = ChartPackageTestExtensions.CreateEntryWithInstallDestination(ChartTestValues.Empty() with { Path = source, Title = "新しい曲 [新しい字幕]", RawTitle = "新しい曲", Subtitle = "[新しい字幕]", Artist = "新しい作者" }, destination).Chart;
         var pendingRow = LibraryChartRow.FromChartFile(pending);
         ChartFile normalChart = ChartTestValues.Empty() with { Path = normal, Title = "現在の曲 [現在の字幕]", RawTitle = "現在の曲", Subtitle = "[現在の字幕]", Artist = "現在の作者" };
-        var rows = new MainChartListViewModel { Rows = new List<object> { normalChart, pendingRow, normalChart } };
+        // 通常曲はkind/pathで識別するため、前後の開始位置には別の実在pathを使います。
+        var rows = new MainChartListViewModel { Rows = new List<object> { normalChart, pendingRow, normalChart with { Path = previousNormal } } };
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
         var queue = new GatedPlaybackChartQueue(new MainChartListPlaybackQueue(rows), entered, release);
@@ -582,7 +585,7 @@ public sealed class PlaybackPanelViewModelTests
             if (entry is "Start" or "PlayButton") { rows.SelectedIndex = 1; }
             if (entry == "Activate") { panel.TogglePause(); }
             ChartFile? oldChart = panel.NowPlayingChart;
-            (int NowPlayingRowIndex, string PlayerHeaderTitle, string PlayerHeaderSubtitle, string PlayerHeaderArtist, ChartFileStatus, int SelectedIndex) oldState = (panel.NowPlayingRowIndex, panel.PlayerHeaderTitle, panel.PlayerHeaderSubtitle, panel.PlayerHeaderArtist, panel.GetPlaybackStatus(oldChart), rows.SelectedIndex);
+            (string PlayerHeaderTitle, string PlayerHeaderSubtitle, string PlayerHeaderArtist, ChartFileStatus, int SelectedIndex) oldState = (panel.PlayerHeaderTitle, panel.PlayerHeaderSubtitle, panel.PlayerHeaderArtist, panel.GetPlaybackStatus(oldChart), rows.SelectedIndex);
             ChartFile? oldDisplayedChart = panel.DisplayedChart;
             string[] files = Directory.GetFiles(root, "*", SearchOption.AllDirectories).Order().ToArray();
             int starting = 0;
@@ -609,7 +612,7 @@ public sealed class PlaybackPanelViewModelTests
             release.Set();
             await attempt;
             Assert.AreSame(oldChart, panel.NowPlayingChart);
-            Assert.AreEqual(oldState, (panel.NowPlayingRowIndex, panel.PlayerHeaderTitle, panel.PlayerHeaderSubtitle, panel.PlayerHeaderArtist, panel.GetPlaybackStatus(oldChart), rows.SelectedIndex));
+            Assert.AreEqual(oldState, (panel.PlayerHeaderTitle, panel.PlayerHeaderSubtitle, panel.PlayerHeaderArtist, panel.GetPlaybackStatus(oldChart), rows.SelectedIndex));
             Assert.AreSame(oldDisplayedChart, panel.DisplayedChart);
             CollectionAssert.AreEqual(files, Directory.GetFiles(root, "*", SearchOption.AllDirectories).Order().ToArray());
             Assert.AreEqual(0, Directory.GetFiles(destination).Length);
@@ -1595,7 +1598,6 @@ public sealed class PlaybackPanelViewModelTests
             Assert.IsTrue(panel.IsPlaying);
             Assert.IsFalse(completion.Task.IsCompleted);
             Assert.AreEqual(secondPath, player.Preloads.Single().Path);
-            Assert.AreEqual(0, panel.NowPlayingRowIndex);
             Assert.AreEqual(0, rows.SelectedIndex);
             Assert.AreEqual(0, surfaceRequests);
             dispatcher.RunAll();
@@ -1787,7 +1789,6 @@ public sealed class PlaybackPanelViewModelTests
             CollectionAssert.AreEqual(new[] { paths[0] }, player.Starts.ToArray());
             Assert.AreEqual(1, player.CloseProcessCount);
             Assert.IsNull(panel.NowPlayingChart);
-            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
             Assert.IsFalse(panel.IsPlaying);
             Assert.IsFalse(panel.IsPaused);
         }
@@ -1848,7 +1849,6 @@ public sealed class PlaybackPanelViewModelTests
             Assert.AreSame(failure, dialogs.LastPlaybackFailure);
             CollectionAssert.AreEqual(paths, player.Starts.ToArray());
             Assert.IsNull(panel.NowPlayingChart);
-            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
             Assert.IsFalse(panel.IsPlaying);
             Assert.IsFalse(panel.IsPaused);
         }
@@ -2515,7 +2515,6 @@ public sealed class PlaybackPanelViewModelTests
 
         Assert.IsTrue(sessionProbeCompleted);
         Assert.AreSame(replacementSession, panel.NowPlayingChart);
-        Assert.AreEqual(7, panel.NowPlayingRowIndex);
     }
 
     /// <summary>進行中のplayer開始を停止が追い越さず、開始呼出し終端後にCloseして現在曲を解除する順序を確認します。</summary>
@@ -2590,7 +2589,6 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(1, first.CloseProcessCount);
         Assert.AreSame(host, replacement.WindowHost);
         Assert.IsNull(panel.NowPlayingChart);
-        Assert.AreEqual(-1, panel.NowPlayingRowIndex);
 
         ((IAudioDeviceTestPlaybackPort)panel).StopPlayback().GetAwaiter().GetResult();
 
@@ -2676,7 +2674,6 @@ public sealed class PlaybackPanelViewModelTests
         panel.NotifyPlaybackStarted(firstGeneration);
 
         Assert.AreSame(first, panel.NowPlayingChart);
-        Assert.AreEqual(3, panel.NowPlayingRowIndex);
         Assert.IsTrue(panel.IsPlaying);
         Assert.AreEqual(1, startingCount);
         Assert.AreEqual(1, startedCount);
@@ -2694,7 +2691,6 @@ public sealed class PlaybackPanelViewModelTests
         secondExit(player, EventArgs.Empty);
         Assert.AreEqual(1, exitCount);
         Assert.IsNull(panel.NowPlayingChart);
-        Assert.AreEqual(-1, panel.NowPlayingRowIndex);
         Assert.IsTrue(panel.IsStoppedOrPaused);
         Assert.AreEqual(0, player.CloseProcessCount);
     }
@@ -2807,7 +2803,6 @@ public sealed class PlaybackPanelViewModelTests
             }
             finally { panel.PlaybackStarted -= nextStartedHandler; }
             firstExit(player, EventArgs.Empty);
-            Assert.AreEqual(1, panel.NowPlayingRowIndex);
             Assert.IsNotNull(panel.NowPlayingChart);
             Assert.AreEqual(ChartFileKind.Bmson, panel.NowPlayingChart.Kind);
             Assert.AreEqual("Bmson", panel.PlayerHeaderTitle);
@@ -2920,7 +2915,6 @@ public sealed class PlaybackPanelViewModelTests
 
             Assert.IsNotNull(panel.NowPlayingChart);
             Assert.AreEqual(secondPath, panel.NowPlayingChart.Path);
-            Assert.AreEqual(1, panel.NowPlayingRowIndex);
             Assert.AreEqual(1, chartList.SelectedIndex);
             Assert.IsFalse(chartList.Rows.Cast<ChartFile>().ElementAt(0).Status.HasFlag(ChartFileStatus.PLAYALL));
             Assert.IsTrue(panel.IsPlaying);
@@ -2929,8 +2923,6 @@ public sealed class PlaybackPanelViewModelTests
                 player.Commands.Where(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)).ToArray());
 
             firstExit(player, EventArgs.Empty);
-
-            Assert.AreEqual(1, panel.NowPlayingRowIndex);
             Assert.AreEqual(2, player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
         }
         finally
@@ -2972,36 +2964,43 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(1, replacementPlayer.CloseProcessCount);
     }
 
-    /// <summary>リピート対象一万件がすべて利用不能でも探索が終端し、現在曲を残して巡回し続けないことを確認します。</summary>
+    /// <summary>正常曲の再生中でも、明示Startのリピート対象一万件がすべて利用不能なら有限探索で停止し、現在曲を解除します。</summary>
     [TestMethod]
-    public void PlaybackPanel_StopsAfterAllRepeatCandidatesAreUnavailable()
+    public async Task PlaybackPanel_StopsAfterAllRepeatCandidatesAreUnavailable()
     {
-        bool originalRepeat = testSettings.RepeatPlayMode;
+        string[] paths = CreateNavigationChartFiles(1);
         var chartList = new MainChartListViewModel
         {
-            Rows = Enumerable.Range(0, 10000).Select(_ => (object)ChartTestValues.Empty()).ToList(),
+            Rows = new List<object> { ChartTestValues.Empty() with { Path = paths[0] } },
             SelectedIndex = 0
         };
+        var player = new FakeBmsPlayer();
         var panel = new PlaybackPanelViewModel(
-            new FakeBmsPlayer(),
+            player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
-            new SettingsPlaybackSettingsStore(() => testSettings),
+            new InMemoryPlaybackSettingsStore { RepeatPlay = true },
             new FakePlaybackDialogService(),
             _ => { },
             new ChartFileOperationSynchronizer());
         try
         {
-            testSettings.RepeatPlayMode = true;
+            await panel.Start();
+            Assert.IsTrue(panel.IsPlaying);
+            chartList.Rows = Enumerable.Range(0, 10000).Select(_ => (object)ChartTestValues.Empty()).ToList();
+            chartList.SelectedIndex = 0;
 
-            panel.Start().GetAwaiter().GetResult();
+            await panel.Start();
 
             Assert.IsNull(panel.NowPlayingChart);
-            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+            Assert.IsFalse(panel.IsPlaying);
+            Assert.IsFalse(panel.IsPaused);
+            CollectionAssert.AreEqual(new[] { "PlayStart:" + paths[0] }, player.Commands.Where(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)).ToArray());
         }
         finally
         {
-            testSettings.RepeatPlayMode = originalRepeat;
+            try { await panel.CloseForShutdown(); }
+            finally { File.Delete(paths[0]); }
         }
     }
 
@@ -3035,7 +3034,6 @@ public sealed class PlaybackPanelViewModelTests
             panel.Start().GetAwaiter().GetResult();
 
             Assert.IsNull(panel.NowPlayingChart);
-            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
             Assert.AreEqual(4096, player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
             Assert.AreEqual(4096, warningCount);
         }
@@ -3071,7 +3069,6 @@ public sealed class PlaybackPanelViewModelTests
         dialogs.BeforePlaybackFailureNotification = () =>
         {
             Assert.IsNull(panel.NowPlayingChart);
-            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
         };
         try
         {
@@ -3080,7 +3077,6 @@ public sealed class PlaybackPanelViewModelTests
             Assert.AreSame(failure, dialogs.LastPlaybackFailure);
             Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
             Assert.IsNull(panel.NowPlayingChart);
-            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
         }
         finally
         {
@@ -3122,7 +3118,7 @@ public sealed class PlaybackPanelViewModelTests
 
             await failureNotification;
             Assert.AreSame(failure, dialogs.LastPlaybackFailure);
-            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+            Assert.IsNull(panel.NowPlayingChart);
             Assert.AreEqual(0, player.CloseProcessCount);
         }
         finally
@@ -3176,7 +3172,7 @@ public sealed class PlaybackPanelViewModelTests
         player.ExitHandler!(player, EventArgs.Empty);
 
         Assert.AreEqual(0, exitCount);
-        Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+        Assert.IsNull(panel.NowPlayingChart);
     }
 
     /// <summary>commandから開始した未完了Taskが取消された場合、現在曲解除の通知まで到達し故障ダイアログを出さないことを確認します。</summary>
@@ -3225,7 +3221,7 @@ public sealed class PlaybackPanelViewModelTests
                 panel.PropertyChanged -= stoppedHandler;
             }
             Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
-            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+            Assert.IsNull(panel.NowPlayingChart);
         }
         finally
         {
@@ -3261,7 +3257,6 @@ public sealed class PlaybackPanelViewModelTests
             panel.Start().GetAwaiter().GetResult();
 
             Assert.IsNull(panel.NowPlayingChart);
-            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
             Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
         }
         finally
@@ -3405,7 +3400,6 @@ public sealed class PlaybackPanelViewModelTests
             Assert.AreSame(playerFailure, dialogs.LastPlaybackFailure);
             Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
             Assert.IsNull(panel.NowPlayingChart);
-            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
             Assert.AreEqual(0, player.CloseProcessCount);
             Assert.AreEqual(
                 1,
@@ -3688,7 +3682,6 @@ public sealed class PlaybackPanelViewModelTests
             Assert.AreEqual(1, rejectedDialogs.TemporaryInstallConfirmationCount);
             Assert.IsFalse(rejectedGateway.Session.Started);
             Assert.IsNull(rejectedPanel.NowPlayingChart);
-            Assert.AreEqual(-1, rejectedPanel.NowPlayingRowIndex);
             rejectedPanel.BeginShutdown();
             rejectedPanel.CloseForShutdown().GetAwaiter().GetResult();
         }
@@ -3739,7 +3732,6 @@ public sealed class PlaybackPanelViewModelTests
             Assert.AreEqual(1, dialogs.TemporaryInstallConfirmationCount);
             Assert.IsFalse(gateway.Session.Started);
             Assert.IsNull(panel.NowPlayingChart);
-            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
             panel.BeginShutdown();
             panel.CloseForShutdown().GetAwaiter().GetResult();
         }
@@ -3801,7 +3793,6 @@ public sealed class PlaybackPanelViewModelTests
             Assert.IsNotNull(dialogs.LastPlaybackFailure);
             Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
             Assert.IsNull(panel.NowPlayingChart);
-            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
             Assert.AreEqual(0, startedCount);
             Assert.IsFalse(player.Commands.Any(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
             Assert.IsTrue(File.Exists(chartPath));
@@ -3856,6 +3847,66 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>同chart別entryの位置検索後に並替わっても、元位置へ移った別entryを現在曲として採用しません。</summary>
+    [TestMethod]
+    public void MainChartListPlaybackQueue_RejectsAnotherEntryMovedToResolvedPosition()
+    {
+        ChartFile chart = ChartTestValues.Empty() with { Path = Path.Combine(Path.GetTempPath(), $"PlaybackQueue-{Guid.NewGuid():N}.bms"), Md5 = new string('a', 32) };
+        var first = new NavigationPlaylistEntry("A");
+        var second = new NavigationPlaylistEntry("B");
+        var rows = new ReorderingPlaybackRows(new PlaylistDetailSourceRow(first, chart).CreateViewRow(),
+            new PlaylistDetailSourceRow(second, chart).CreateViewRow());
+        var queue = new MainChartListPlaybackQueue(new MainChartListViewModel { Rows = rows });
+        PlaybackQueueItem current = queue.CapturePlaybackItem(0);
+        rows.AfterIdentityLocated = rows.Reverse;
+
+        int index = queue.IndexOfPlaybackItem(current.Locator, current.Chart);
+
+        Assert.AreSame(second, rows.GetSelectionIdentity(0), "位置計算後に同chartの別entryへ並替えています。");
+        Assert.IsTrue(index == -1 || ReferenceEquals(first, rows.GetSelectionIdentity(index)), "位置なし又は同じentryだけを返します。");
+    }
+
+    /// <summary>行取得と識別取得の間に同chart別entryが並替わっても、返した行の譜面とlocatorを一組として捕捉します。</summary>
+    [TestMethod]
+    public void MainChartListPlaybackQueue_CapturesChartAndLocatorFromReturnedRowDuringReorder()
+    {
+        ChartFile chart = ChartTestValues.Empty() with { Path = Path.Combine(Path.GetTempPath(), $"PlaybackQueue-{Guid.NewGuid():N}.bms"), Md5 = new string('a', 32) };
+        var first = new NavigationPlaylistEntry("A");
+        var second = new NavigationPlaylistEntry("B");
+        var rows = new ReorderingPlaybackRows(new PlaylistDetailSourceRow(first, chart).CreateViewRow(),
+            new PlaylistDetailSourceRow(second, chart).CreateViewRow());
+        var queue = new MainChartListPlaybackQueue(new MainChartListViewModel { Rows = rows });
+        rows.AfterRowRead = rows.Reverse;
+
+        PlaybackQueueItem item = queue.CapturePlaybackItem(0);
+
+        Assert.AreSame(second, rows.GetSelectionIdentity(0), "行を返す境界で並替えています。");
+        Assert.IsTrue(GridRowResolver.TryGetPlaybackChart(rows.LastReturnedRow, out ChartFile returnedChart));
+        Assert.AreSame(returnedChart, item.Chart);
+        Assert.AreSame(GridRowResolver.GetPlaylistEntry(rows.LastReturnedRow), item.Locator);
+    }
+
+    /// <summary>token・packageのない実subsetでも、同kind別pathの非先頭行を捕捉し既存identity索引で同じ位置へ戻ります。</summary>
+    [TestMethod]
+    public void MainChartListPlaybackQueue_ResolvesTokenlessSubsetItemAtItsCurrentPosition()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"PlaybackQueue-{Guid.NewGuid():N}");
+        ChartFile[] charts =
+        [
+            ChartTestValues.Empty() with { Path = Path.Combine(root, "first.bms"), Title = "A" },
+            ChartTestValues.Empty() with { Path = Path.Combine(root, "second.bms"), Title = "B" }
+        ];
+        var sources = charts.Select(chart => ChartListSourceRow.FromChartFile(chart)).ToList();
+        var view = new ChartListVirtualView(sources, ChartListOrder.CreateTitleAscending(sources),
+            LibraryChartRow.FromSourceRow, scoreInput: new ChartListScoreInput(null));
+        var queue = new MainChartListPlaybackQueue(new MainChartListViewModel { Rows = view });
+
+        PlaybackQueueItem item = queue.CapturePlaybackItem(1);
+
+        Assert.AreEqual(charts[1].Path, item.Chart.Path);
+        Assert.AreEqual(1, queue.IndexOfPlaybackItem(item.Locator, item.Chart));
+    }
+
     /// <summary>キューが差替え後の行集合を読み、指定した選択を一覧の通知へ接続することで古い行や選択を保持する誤りを検出します。</summary>
     [TestMethod]
     public void MainChartListPlaybackQueue_ForwardsLiveRowsAndSelection()
@@ -3880,7 +3931,7 @@ public sealed class PlaybackPanelViewModelTests
         CollectionAssert.Contains(changed, nameof(MainChartListViewModel.SelectedIndex));
     }
 
-    /// <summary>行起動とNext・Previousが最新の一覧選択へ従い、再生中の別行ハイライトや不一致の起動入力で現在曲を変えないことを確認します。</summary>
+    /// <summary>SingleがONでも明示Next・Previousは現一覧から送り、別行ハイライトや不一致の起動入力で現在曲を変えません。</summary>
     [TestMethod]
     public async Task PlaybackPanel_StartNextAndPreviousFollowLiveQueueSelection()
     {
@@ -3913,7 +3964,7 @@ public sealed class PlaybackPanelViewModelTests
         {
             testSettings.RepeatPlayMode = false;
             testSettings.FolderSkipPlayMode = false;
-            testSettings.SinglePlayMode = false;
+            testSettings.SinglePlayMode = true;
 
             panel.HandleTableSelection(chartList.Rows[1]);
             Assert.IsNotNull(panel.DisplayedChart);
@@ -3923,7 +3974,6 @@ public sealed class PlaybackPanelViewModelTests
             await playStartObserved;
             Assert.IsNotNull(panel.NowPlayingChart);
             Assert.AreEqual(secondPath, panel.NowPlayingChart.Path);
-            Assert.AreEqual(1, panel.NowPlayingRowIndex);
             Assert.AreEqual(1, chartList.SelectedIndex);
             panel.HandleTableSelection(chartList.Rows[0]);
             Assert.IsNotNull(panel.DisplayedChart);
@@ -3933,13 +3983,11 @@ public sealed class PlaybackPanelViewModelTests
             panel.Next().GetAwaiter().GetResult();
             Assert.IsNotNull(panel.NowPlayingChart);
             Assert.AreEqual(thirdPath, panel.NowPlayingChart.Path);
-            Assert.AreEqual(2, panel.NowPlayingRowIndex);
             Assert.AreEqual(2, chartList.SelectedIndex);
 
             panel.Previous().GetAwaiter().GetResult();
             Assert.IsNotNull(panel.NowPlayingChart);
             Assert.AreEqual(secondPath, panel.NowPlayingChart.Path);
-            Assert.AreEqual(1, panel.NowPlayingRowIndex);
             Assert.AreEqual(1, chartList.SelectedIndex);
             CollectionAssert.AreEqual(
                 new[] { "PlayStart:" + secondPath, "PlayStart:" + thirdPath, "PlayStart:" + secondPath },
@@ -4119,13 +4167,15 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
-    /// <summary>前曲の準備時除外は後方だけを探索し、次曲は同じ除外を前方へ探索します。実一覧と非BMSON player能力を使い、開始列で逆方向への退行を検出します。</summary>
+    /// <summary>準備時除外後も要求方向の有効曲だけへ送り、手動送り先がなければ現在曲・再生状態・選択を維持します。</summary>
     [DataTestMethod]
     [DataRow("Bmson", false)]
     [DataRow("Missing", false)]
     [DataRow("Multiple", false)]
     [DataRow("None", false)]
     [DataRow("Bmson", true)]
+    [DataRow("Unowned", false)]
+    [DataRow("Unowned", true)]
     public async Task Navigation_UnavailableCandidatesKeepRequestedDirection(string unavailable, bool forward)
     {
         string[] paths = CreateNavigationChartFiles(5);
@@ -4136,7 +4186,12 @@ public sealed class PlaybackPanelViewModelTests
         if (unavailable == "None") { charts[0] = charts[0] with { Path = paths[0] + ".missing" }; }
         int current = unavailable == "Multiple" ? 3 : 2;
         if (unavailable == "Multiple") { charts[2] = charts[2] with { Path = paths[2] + ".missing" }; }
-        var rows = new MainChartListViewModel { Rows = charts.Cast<object>().ToList(), SelectedIndex = forward ? 0 : current };
+        var rows = new MainChartListViewModel
+        {
+            Rows = charts.Select((chart, index) => index == 1 && unavailable == "Unowned"
+                ? (object)new PlaylistDetailSourceRow(new NavigationPlaylistEntry("missing"), null).CreateViewRow() : chart).ToList(),
+            SelectedIndex = forward ? 0 : current
+        };
         var player = new FakeBmsPlayer();
         int notices = 0;
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
@@ -4144,23 +4199,116 @@ public sealed class PlaybackPanelViewModelTests
         try
         {
             await panel.Start();
+            ChartFile? original = panel.NowPlayingChart;
             if (forward) { await panel.Next(); } else { await panel.Previous(); }
             int target = forward ? current : 0;
             string[] expectedStarts = unavailable == "None" ? [paths[current]] : [paths[forward ? 0 : current], paths[target]];
             CollectionAssert.AreEqual(expectedStarts,
                 player.Commands.Where(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)).Select(command => command[10..]).ToArray());
-            Assert.AreEqual(unavailable == "None" ? null : paths[target], panel.NowPlayingChart?.Path);
+            Assert.AreEqual(unavailable == "None" ? paths[current] : paths[target], panel.NowPlayingChart?.Path);
+            if (unavailable == "None") { Assert.AreSame(original, panel.NowPlayingChart); }
+            Assert.IsTrue(panel.IsPlaying);
+            Assert.IsFalse(panel.IsPaused);
             Assert.AreEqual(unavailable == "None" ? current : target, rows.SelectedIndex);
             Assert.AreEqual(0, notices);
         }
         finally { await panel.CloseForShutdown(); foreach (string path in paths) { File.Delete(path); } }
     }
 
-    /// <summary>外部playerと同じ開始Task境界で前曲候補がInvalidDataExceptionを返しても後方の有効曲を開始し、現在曲や前方曲を再開始しません。</summary>
-    [TestMethod]
-    public async Task Previous_LegacyInvalidStartContinuesBackward()
+    /// <summary>手動送りの初回候補ゼロはfolder設定や不備種別によらず現在曲・PLAY/PAUSE・次回方式を保ち、自然終曲だけは停止します。</summary>
+    /// <remarks>同folder正常曲は中央から前後と自然終了を、未所持・別folder欠落・非対応形式は手動を、混在は自然終了を確認します。実ロード後の枯渇はLegacy/Readyケースへ分担します。</remarks>
+    [DataTestMethod]
+    [DataRow("SameFolder", "Next", true, false)]
+    [DataRow("SameFolder", "Previous", true, false)]
+    [DataRow("SameFolder", "Natural", true, false)]
+    [DataRow("Unowned", "Next", false, false)]
+    [DataRow("Missing", "Previous", true, true)]
+    [DataRow("Unsupported", "Next", false, false)]
+    [DataRow("Mixed", "Natural", false, false)]
+    public async Task Navigation_InitialEmptyKeepsManualPlaybackAndPendingPlayerButNaturalExitStops(
+        string unavailable, string operation, bool folderSkip, bool paused)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "PlaybackEmpty_" + Guid.NewGuid().ToString("N"));
+        foreach (string folder in new[] { "A", "B" }) { Directory.CreateDirectory(Path.Combine(root, folder)); }
+        string currentPath = Path.Combine(root, "A", "current.bms");
+        string beforePath = Path.Combine(root, "A", "before.bms");
+        string afterPath = Path.Combine(root, "A", "after.bms");
+        string missingPath = Path.Combine(root, "B", "missing.bms");
+        string unsupportedPath = Path.Combine(root, "B", "unsupported.bmson");
+        string healthyPath = Path.Combine(root, "B", "healthy.bms");
+        foreach (string path in new[] { currentPath, beforePath, afterPath, unsupportedPath, healthyPath }) { File.WriteAllText(path, ""); }
+        ChartFile currentChart = ChartTestValues.Empty() with { Path = currentPath };
+        object unowned = new PlaylistDetailSourceRow(new NavigationPlaylistEntry("unowned"), null).CreateViewRow();
+        ChartFile missing = ChartTestValues.Empty() with { Path = missingPath };
+        ChartFile unsupported = ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = unsupportedPath };
+        List<object> candidates = unavailable switch
+        {
+            "SameFolder" => [ChartTestValues.Empty() with { Path = beforePath }, currentChart, ChartTestValues.Empty() with { Path = afterPath }],
+            "Unowned" => [currentChart, unowned],
+            "Missing" => [missing, currentChart],
+            "Unsupported" => [currentChart, unsupported],
+            _ => [currentChart, unowned, missing, unsupported]
+        };
+        int currentIndex = unavailable is "SameFolder" or "Missing" ? 1 : 0;
+        var rows = new MainChartListViewModel { Rows = candidates, SelectedIndex = currentIndex };
+        var player = new FakeBmsPlayer();
+        var replacement = new FakeBmsPlayer();
+        int factoryCalls = 0;
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+            new InMemoryPlaybackSettingsStore { FolderSkipPlay = folderSkip }, new FakePlaybackDialogService(),
+            _ => Assert.Fail("ロード前の候補除外で入力不良を通知しません。"), new ChartFileOperationSynchronizer());
+        try
+        {
+            await panel.StartAtIndex(currentIndex);
+            if (paused) { panel.TogglePause(); }
+            ChartFile? original = panel.NowPlayingChart;
+            int closes = player.CloseProcessCount;
+            ((ISettingsDialogPlaybackRuntimePort)panel).UsePlayerForNextPlayback(() => { factoryCalls++; return replacement; }, supportsBmson: false);
+
+            if (operation == "Previous") { await panel.Previous(); }
+            else { await panel.Next(operation == "Natural" ? player : null, EventArgs.Empty); }
+
+            CollectionAssert.AreEqual(new[] { "PlayStart:" + currentPath },
+                player.Commands.Where(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)).ToArray());
+            Assert.AreEqual(0, factoryCalls);
+            if (operation == "Natural")
+            {
+                Assert.IsNull(panel.NowPlayingChart);
+                Assert.IsFalse(panel.IsPlaying);
+                Assert.IsFalse(panel.IsPaused);
+                Assert.IsTrue(player.CloseProcessCount > closes);
+            }
+            else
+            {
+                Assert.AreSame(original, panel.NowPlayingChart);
+                Assert.AreEqual(!paused, panel.IsPlaying);
+                Assert.AreEqual(paused, panel.IsPaused);
+                Assert.AreEqual(currentIndex, rows.SelectedIndex);
+                Assert.AreEqual(closes, player.CloseProcessCount);
+
+                rows.Rows = new List<object> { ChartTestValues.Empty() with { Path = healthyPath } };
+                await panel.StartAtIndex(0);
+                Assert.AreEqual(1, factoryCalls, "候補ゼロで消費しなかった次回要求を、次の正常な明示Startで採用します。");
+                Assert.AreEqual(healthyPath, panel.NowPlayingChart?.Path);
+                CollectionAssert.AreEqual(new[] { "PlayStart:" + healthyPath },
+                    replacement.Commands.Where(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)).ToArray());
+            }
+        }
+        finally
+        {
+            try { await panel.CloseForShutdown(); }
+            finally { Directory.Delete(root, true); }
+        }
+    }
+
+    /// <summary>前曲のロード入力不良後は後方の正常曲へ進み、後続が欠落だけなら停止します。初回候補ゼロの無作用へ読み替えません。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Previous_LegacyInvalidStartContinuesBackward(bool remainingMissing)
     {
         string[] paths = CreateNavigationChartFiles(4);
+        if (remainingMissing) { File.Delete(paths[0]); }
         var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList(), SelectedIndex = 2 };
         var player = new FakeBmsPlayer();
         player.BeforePlayStart = () => player.PlayStartException = player.Commands.Last() == "PlayStart:" + paths[1]
@@ -4172,10 +4320,12 @@ public sealed class PlaybackPanelViewModelTests
         {
             await panel.Start();
             await panel.Previous();
-            CollectionAssert.AreEqual(new[] { paths[2], paths[1], paths[0] },
+            CollectionAssert.AreEqual(remainingMissing ? new[] { paths[2], paths[1] } : new[] { paths[2], paths[1], paths[0] },
                 player.Commands.Where(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)).Select(command => command[10..]).ToArray());
-            Assert.AreEqual(paths[0], panel.NowPlayingChart?.Path);
-            Assert.AreEqual(0, rows.SelectedIndex);
+            Assert.AreEqual(remainingMissing ? null : paths[0], panel.NowPlayingChart?.Path);
+            Assert.AreEqual(!remainingMissing, panel.IsPlaying);
+            Assert.IsFalse(panel.IsPaused);
+            Assert.AreEqual(remainingMissing ? 1 : 0, rows.SelectedIndex);
             Assert.AreEqual(1, notices);
         }
         finally { await panel.CloseForShutdown(); foreach (string path in paths) { File.Delete(path); } }
@@ -4301,11 +4451,12 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
-    /// <summary>固定一覧のFolderSkipは後方最寄りの異フォルダへ戻り、全行同フォルダなら捕捉したRepeatで一巡して現在曲を一回開始します。探索中のモード変更は次要求へ適用します。</summary>
+    /// <summary>FolderSkipは後方最寄りの異folderへ戻り、全行同folderなら前後とも捕捉したRepeatで現在曲を一回開始します。探索中のモード変更は次要求へ適用します。</summary>
     [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task Previous_FolderTraversalUsesCapturedModes(bool differentFolder)
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public async Task Previous_FolderTraversalUsesCapturedModes(bool differentFolder, bool forward)
     {
         string root = Path.Combine(Path.GetTempPath(), "Previous_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(root, "A"));
@@ -4325,7 +4476,7 @@ public sealed class PlaybackPanelViewModelTests
         {
             await panel.Start();
             queue.Armed = true;
-            previous = Task.Run(() => panel.Previous());
+            previous = Task.Run(() => forward ? panel.Next() : panel.Previous());
             await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, previous, "previous.mode-snapshot");
             if (!differentFolder) { settings.RepeatPlay = false; settings.FolderSkipPlay = false; }
             release.Set();
@@ -4353,6 +4504,309 @@ public sealed class PlaybackPanelViewModelTests
         return paths;
     }
 
+    /// <summary>同hash別pathの通常viewと同chart別entryのplaylist viewで、並替・現在行が残る絞込み後も生存identityの現位置から送ります。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Navigation_CurrentIdentitySurvivesSortAndFilterWithoutMergingDuplicateCharts(bool playlist)
+    {
+        string[] paths = CreateNavigationChartFiles(3);
+        ChartFile[] charts = paths.Select((path, index) => ChartTestValues.Empty() with
+        {
+            Path = path,
+            Title = ((char)('A' + index)).ToString(),
+            Md5 = new string('a', 32),
+            Token = new OwnedChartToken()
+        }).ToArray();
+        if (playlist) { charts[1] = charts[1] with { Path = paths[0], Token = charts[0].Token }; }
+        NavigationPlaylistEntry[] entries = [new("A"), new("B"), new("C")];
+        var table = new BMSTable { entries = entries.Cast<BMSTableEntry>().ToList() };
+        IList View(bool descending, bool filter)
+        {
+            int[] indexes = filter ? [2, 1] : descending ? [2, 1, 0] : [0, 1, 2];
+            if (playlist)
+            {
+                PlaylistRequestIdentity identity = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.OrdinaryRoot,
+                    null, PlaylistDetailFilter.PlaylistFilter, string.Empty, ChartModeFilter.All,
+                    new ChartListSortParameters { ColumnsName = "Title", Direction = descending ? ListSortDirection.Descending : ListSortDirection.Ascending },
+                    1, 1, 1, 1, true);
+                return new PlaylistDetailVirtualView(indexes.Select(index => new PlaylistDetailSourceRow(entries[index], charts[index], entryOrder: index)).ToList(), identity: identity);
+            }
+            var sources = indexes.Select(index => ChartListSourceRow.FromChartFile(charts[index], ChartListSourceProjectionMode.OwnerBacked)).ToList();
+            Assert.IsTrue(ChartListOrder.TryCreate(sources, "Title", descending ? ListSortDirection.Descending : ListSortDirection.Ascending, out ChartListOrder order));
+            return new ChartListVirtualView(sources, order, source => LibraryChartRow.FromChartFile(source.Chart), scoreInput: new ChartListScoreInput(null));
+        }
+        var rows = new MainChartListViewModel { Rows = View(false, false) };
+        var player = new FakeBmsPlayer();
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("有効なidentityで通知しません。"), new ChartFileOperationSynchronizer());
+        try
+        {
+            await panel.StartAtIndex(0);
+            rows.Rows = View(true, false);
+            await panel.Previous();
+            Assert.AreEqual(charts[1].Path, panel.NowPlayingChart?.Path);
+            Assert.AreEqual(1, rows.SelectedIndex, "同chartの別entryを混同せず直前の生存行へ戻ります。");
+            rows.Rows = View(true, true);
+            await panel.Previous();
+            Assert.AreEqual(paths[2], panel.NowPlayingChart?.Path);
+            Assert.AreEqual(0, rows.SelectedIndex);
+        }
+        finally { await panel.CloseForShutdown(); foreach (string path in paths) { File.Delete(path); } }
+    }
+
+    /// <summary>現在行消失後の手動前後送りは現曲を保ち、通常自然終了は停止、SingleRepeatは同曲だけを再開し、その入力不良で別曲へ進みません。</summary>
+    [DataTestMethod]
+    [DataRow("Manual")]
+    [DataRow("Natural")]
+    [DataRow("SingleRepeat")]
+    [DataRow("SingleRepeatInvalid")]
+    public async Task Navigation_RemovedCurrentRowKeepsManualPlaybackAndSingleRepeatTarget(string scenario)
+    {
+        string[] paths = CreateNavigationChartFiles(2);
+        var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
+        var player = new FakeBmsPlayer();
+        int notices = 0;
+        bool single = scenario.StartsWith("Single", StringComparison.Ordinal);
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+            new InMemoryPlaybackSettingsStore { SinglePlay = single, RepeatPlay = single }, new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer());
+        try
+        {
+            await panel.StartAtIndex(0);
+            ChartFile? current = panel.NowPlayingChart;
+            rows.Rows = new List<object> { ChartTestValues.Empty() with { Path = paths[1] } };
+            if (scenario == "Manual")
+            {
+                string[] commands = player.Commands.ToArray();
+                await panel.Next();
+                await panel.Previous();
+                Assert.AreSame(current, panel.NowPlayingChart);
+                Assert.IsTrue(panel.IsPlaying);
+                CollectionAssert.AreEqual(commands, player.Commands.ToArray());
+            }
+            else
+            {
+                if (scenario == "SingleRepeatInvalid") { player.PlayStartException = new InvalidDataException("same chart reload failed"); }
+                await panel.Next(player, EventArgs.Empty);
+                CollectionAssert.AreEqual(single ? new[] { paths[0], paths[0] } : new[] { paths[0] },
+                    player.Commands.Where(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)).Select(command => command[10..]).ToArray());
+                Assert.AreEqual(scenario == "SingleRepeat" ? paths[0] : null, panel.NowPlayingChart?.Path);
+                Assert.AreEqual(scenario == "SingleRepeatInvalid" ? 1 : 0, notices);
+            }
+        }
+        finally { await panel.CloseForShutdown(); foreach (string path in paths) { File.Delete(path); } }
+    }
+
+    /// <summary>FolderSkipでは未所持を除外してから元folderと比較し、先読みと実Nextの両方で同folderの後続を飛ばして異folderを選びます。</summary>
+    [TestMethod]
+    public async Task Navigation_FolderSkipPreloadAndNextIgnoreUnownedRowsBeforeFolderComparison()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "PlaybackFolder_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(root, "A"));
+        Directory.CreateDirectory(Path.Combine(root, "B"));
+        string[] paths = [Path.Combine(root, "A", "one.bms"), Path.Combine(root, "A", "two.bms"), Path.Combine(root, "B", "one.bms")];
+        foreach (string path in paths) { File.WriteAllText(path, ""); }
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var player = new PreloadBmsPlayer { Completion = completion.Task };
+        var rows = new MainChartListViewModel
+        {
+            Rows = new List<object>
+        {
+            ChartTestValues.Empty() with { Path = paths[0] }, new PlaylistDetailSourceRow(new NavigationPlaylistEntry("unowned"), null).CreateViewRow(),
+            ChartTestValues.Empty() with { Path = paths[1] }, ChartTestValues.Empty() with { Path = paths[2] }
+        }
+        };
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+            new InMemoryPlaybackSettingsStore { FolderSkipPlay = true }, new FakePlaybackDialogService(), _ => Assert.Fail("有効な候補で通知しません。"), new ChartFileOperationSynchronizer());
+        try
+        {
+            await panel.StartAtIndex(0);
+            Assert.AreEqual(paths[0], panel.NowPlayingChart?.Path);
+            Assert.AreEqual(paths[2], player.Preloads.Single().Path);
+            await panel.Next();
+            CollectionAssert.AreEqual(new[] { paths[0], paths[2] }, player.Starts.ToArray());
+            Assert.AreEqual(3, rows.SelectedIndex);
+        }
+        finally { completion.TrySetResult(); await panel.CloseForShutdown(); Directory.Delete(root, true); }
+    }
+
+    /// <summary>ロード不良後も送り元Aを固定し、Aotherは大小文字差も含め除外、別folderのBotherは採用します。同期開始例外と遅延Readyの試行列を同じ基準で確認します。</summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task Navigation_FolderSkipKeepsSuccessfulOriginAcrossInputFailures(bool nextInBadFolder, bool delayedReady)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "PlaybackFolderFailure_" + Guid.NewGuid().ToString("N"));
+        foreach (string folder in new[] { "A", "B", "C" }) { Directory.CreateDirectory(Path.Combine(root, folder)); }
+        string[] paths = [Path.Combine(root, "A", "current.bms"), Path.Combine(root, "B", "bad.bms"),
+            Path.Combine(root, nextInBadFolder ? "B" : "a", "other.bms"), Path.Combine(root, "C", "target.bms")];
+        foreach (string path in paths) { File.WriteAllText(path, ""); }
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var failure = new InvalidDataException("bad folder candidate");
+        FakeBmsPlayer player;
+        if (delayedReady)
+        {
+            player = new PreloadBmsPlayer
+            {
+                Completion = completion.Task,
+                BeginOperation = path =>
+            {
+                if (path == paths[1]) { entered.TrySetResult(); return new PlaybackStartOperation(ready.Task, completion.Task); }
+                return new PlaybackStartOperation(Task.CompletedTask, completion.Task);
+            }
+            };
+        }
+        else
+        {
+            player = new FakeBmsPlayer();
+            player.BeforePlayStart = () => player.PlayStartException = player.Commands.Last() == "PlayStart:" + paths[1] ? failure : null;
+        }
+        int notices = 0;
+        var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+            new InMemoryPlaybackSettingsStore { FolderSkipPlay = true }, new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer());
+        Task? navigation = null;
+        try
+        {
+            await panel.StartAtIndex(0);
+            navigation = panel.Next();
+            if (delayedReady)
+            {
+                await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, navigation, "navigation.folder-invalid-ready");
+                ready.TrySetException(failure);
+            }
+            await navigation;
+            int target = nextInBadFolder ? 2 : 3;
+            CollectionAssert.AreEqual(new[] { paths[0], paths[1], paths[target] },
+                player.Commands.Where(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)).Select(command => command[10..]).ToArray());
+            Assert.AreEqual(paths[target], panel.NowPlayingChart?.Path);
+            Assert.AreEqual(1, notices);
+        }
+        finally
+        {
+            if (delayedReady) { ready.TrySetException(failure); }
+            else { ready.TrySetResult(); }
+            completion.TrySetResult();
+            try { await (navigation ?? Task.CompletedTask); }
+            finally { await panel.CloseForShutdown(); Directory.Delete(root, true); }
+        }
+    }
+
+    /// <summary>Repeatの先頭折返し不良を周回終端と誤認せず、手動・自然終了とも次の正常曲へ進み、全開始不良なら一巡だけで停止します。</summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public async Task Navigation_RepeatWrapContinuesAfterFirstInputFailureAndStopsAfterOneFailedCycle(bool natural, bool allInvalid)
+    {
+        string[] paths = CreateNavigationChartFiles(3);
+        var player = new FakeBmsPlayer();
+        var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
+        int notices = 0;
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+            new InMemoryPlaybackSettingsStore { RepeatPlay = true }, new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer());
+        try
+        {
+            await panel.StartAtIndex(2);
+            player.BeforePlayStart = () => player.PlayStartException = allInvalid || player.Commands.Last() == "PlayStart:" + paths[0]
+                ? new InvalidDataException("repeat input failed") : null;
+            await panel.Next(natural ? player : null, EventArgs.Empty);
+            CollectionAssert.AreEqual(allInvalid ? new[] { paths[2], paths[0], paths[1], paths[2] } : new[] { paths[2], paths[0], paths[1] },
+                player.Commands.Where(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)).Select(command => command[10..]).ToArray());
+            Assert.AreEqual(allInvalid ? null : paths[1], panel.NowPlayingChart?.Path);
+            Assert.AreEqual(allInvalid ? 3 : 1, notices);
+        }
+        finally { await panel.CloseForShutdown(); foreach (string path in paths) { File.Delete(path); } }
+    }
+
+    /// <summary>明示Startは同folderの指定曲を優先し、その入力不良後は直前の成功曲ではなく初期対象のfolderを固定して探索します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Navigation_ExplicitStartPrioritizesInitialRowAndKeepsItsFolderAfterFailure(bool invalid)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "PlaybackExplicit_" + Guid.NewGuid().ToString("N"));
+        foreach (string folder in new[] { "A", "B" }) { Directory.CreateDirectory(Path.Combine(root, folder)); }
+        string[] paths = [Path.Combine(root, "A", "initial.bms"), Path.Combine(root, "A", "same.bms"), Path.Combine(root, "B", "previous.bms")];
+        foreach (string path in paths) { File.WriteAllText(path, ""); }
+        var player = new FakeBmsPlayer();
+        var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
+        int notices = 0;
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+            new InMemoryPlaybackSettingsStore { FolderSkipPlay = true }, new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer());
+        try
+        {
+            int previous = invalid ? 2 : 1;
+            await panel.StartAtIndex(previous);
+            player.BeforePlayStart = () => player.PlayStartException = invalid && player.Commands.Last() == "PlayStart:" + paths[0]
+                ? new InvalidDataException("initial input failed") : null;
+            await panel.StartAtIndex(0);
+            CollectionAssert.AreEqual(invalid ? new[] { paths[2], paths[0], paths[2] } : new[] { paths[1], paths[0] },
+                player.Commands.Where(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)).Select(command => command[10..]).ToArray());
+            Assert.AreEqual(invalid ? paths[2] : paths[0], panel.NowPlayingChart?.Path);
+            Assert.AreEqual(invalid ? 1 : 0, notices);
+        }
+        finally { await panel.CloseForShutdown(); Directory.Delete(root, true); }
+    }
+
+    private sealed class NavigationPlaylistEntry : BMSTableEntry
+    {
+        internal NavigationPlaylistEntry(string name) { md5 = new string('a', 32); title = name; }
+    }
+
+    /// <summary>実queueへ一覧とidentityだけを提供し、行返却又は位置検索の境界で一度だけ並替えます。</summary>
+    private sealed class ReorderingPlaybackRows(params object[] rows) : ArrayList(rows), ICustomTableSelectionIdentitySource
+    {
+        /// <summary>行を捕捉してから返すまでに、一度だけ実行する更新です。</summary>
+        internal Action? AfterRowRead { get; set; }
+        /// <summary>位置を計算してから返すまでに、一度だけ実行する更新です。</summary>
+        internal Action? AfterIdentityLocated { get; set; }
+        /// <summary>queueへ実際に返した行です。並替え後の添字から取り直しません。</summary>
+        internal object? LastReturnedRow { get; private set; }
+
+        /// <inheritdoc/>
+        public override object? this[int index]
+        {
+            get
+            {
+                object? row = base[index];
+                LastReturnedRow = row;
+                Action? action = AfterRowRead;
+                AfterRowRead = null;
+                action?.Invoke();
+                return row;
+            }
+            set => base[index] = value;
+        }
+
+        /// <inheritdoc/>
+        public event EventHandler? SelectionUpdateStarting { add { } remove { } }
+        /// <inheritdoc/>
+        public event EventHandler? SelectionUpdateCompleted { add { } remove { } }
+        /// <inheritdoc/>
+        public object? GetSelectionIdentity(int index)
+            => index >= 0 && index < Count ? GridRowResolver.GetPlaylistEntry(base[index]) : null;
+        /// <inheritdoc/>
+        public int IndexOfSelectionIdentity(object identity)
+        {
+            int index = -1;
+            for (int candidate = 0; candidate < Count; candidate++)
+            {
+                if (ReferenceEquals(identity, GetSelectionIdentity(candidate))) { index = candidate; break; }
+            }
+            Action? action = AfterIdentityLocated;
+            AfterIdentityLocated = null;
+            action?.Invoke();
+            return index;
+        }
+        /// <inheritdoc/>
+        public bool SharesSelectionIdentityScope(ICustomTableSelectionIdentitySource other) => ReferenceEquals(this, other);
+    }
+
     private sealed class PreviousNavigationQueue(
         IPlaybackChartQueue inner, TaskCompletionSource entered, ManualResetEventSlim release) : IPlaybackChartQueue
     {
@@ -4363,10 +4817,13 @@ public sealed class PlaybackPanelViewModelTests
         public int Count => inner.Count;
         public int SelectedIndex { get => inner.SelectedIndex; set => inner.SelectedIndex = value; }
         public object GetRow(int index) => inner.GetRow(index);
-        public ChartFile GetPlaybackChart(int index)
+        /// <inheritdoc/>
+        public int IndexOfPlaybackItem(object locator, ChartFile chart) => inner.IndexOfPlaybackItem(locator, chart);
+        /// <inheritdoc/>
+        public PlaybackQueueItem CapturePlaybackItem(int index, object? expectedRow = null)
         {
-            ChartFile chart = inner.GetPlaybackChart(index);
-            if (!Armed) { return chart; }
+            PlaybackQueueItem item = inner.CapturePlaybackItem(index, expectedRow);
+            if (!Armed) { return item; }
             if (Interlocked.Increment(ref evaluated) > 24) { throw new InvalidOperationException("前曲候補探索が一巡の有限予算を超過しました。"); }
             if (index == 2 && Interlocked.Exchange(ref claimed, 1) == 0)
             {
@@ -4374,7 +4831,7 @@ public sealed class PlaybackPanelViewModelTests
                 release.Wait();
                 Released = true;
             }
-            return chart;
+            return item;
         }
     }
 
@@ -4383,22 +4840,32 @@ public sealed class PlaybackPanelViewModelTests
     {
         private int rowResolved;
         private int claimed;
-        private int resolveCount;
-        internal int ResolveCount => Volatile.Read(ref resolveCount);
         internal bool RowResolved => Volatile.Read(ref rowResolved) != 0;
         public int Count => inner.Count;
         public int SelectedIndex { get => inner.SelectedIndex; set => inner.SelectedIndex = value; }
+        /// <inheritdoc/>
+        public int IndexOfPlaybackItem(object locator, ChartFile chart) => inner.IndexOfPlaybackItem(locator, chart);
+        /// <inheritdoc/>
+        public PlaybackQueueItem CapturePlaybackItem(int index, object? expectedRow = null)
+        {
+            PlaybackQueueItem item = inner.CapturePlaybackItem(index, expectedRow);
+            ObserveResolution(index);
+            return item;
+        }
         public object GetRow(int index)
         {
-            Interlocked.Increment(ref resolveCount);
             object row = inner.GetRow(index);
+            ObserveResolution(index);
+            return row;
+        }
+        private void ObserveResolution(int index)
+        {
             if (index == gatedIndex && Interlocked.Exchange(ref claimed, 1) == 0)
             {
                 entered.TrySetResult();
                 release.Wait();
                 Interlocked.Exchange(ref rowResolved, 1);
             }
-            return row;
         }
     }
 
