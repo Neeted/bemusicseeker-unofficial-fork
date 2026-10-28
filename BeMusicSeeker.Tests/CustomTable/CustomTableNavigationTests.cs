@@ -14,6 +14,49 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTableNavigationTests
 {
+    /// <summary>外部主行変更の入力直後に同列と画面外の対象行を可視化し、同値では手動scrollを保ちます。消えた列・0列・解除・空行の古いhitを使わないことも確認します。</summary>
+    [TestMethod]
+    public void ExternalSelection_RevealsCurrentRowAndColumnOnlyWhenPrimaryChanges()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            CustomTableView table = CreateTable(CreateColumns(60, 60, 60, 60));
+            table.ItemsSource = Enumerable.Range(0, 12).Select(_ => new object()).ToArray();
+            try
+            {
+                Assert.IsTrue(PressCell(table, 0, 1, MouseButton.Left));
+                table.SelectedIndex = 11;
+                AssertCurrentCell(table, 11, "C1");
+                Assert.AreEqual(11 - table.CalculateFullVisibleRowCapacity() + 1, table.FirstVisibleRowIndex);
+                ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == System.Windows.Controls.Orientation.Vertical);
+                vertical.Value = 0d;
+                HorizontalScrollBar(table).Value = 40d;
+                table.SelectedIndex = 11;
+                AssertCurrentCell(table, 11, "C1");
+                Assert.AreEqual(0, table.FirstVisibleRowIndex);
+                Assert.AreEqual(40d, table.HorizontalOffset);
+
+                table.Columns = CreateColumns(60);
+                table.SelectedIndex = 10;
+                AssertCurrentCell(table, 10, "C0");
+                table.Columns = Array.Empty<CustomTableColumn>();
+                table.SelectedIndex = 9;
+                Assert.IsNull(table.GetCurrentCellColumn(9));
+                table.Columns = CreateColumns(60, 60);
+                table.SelectedIndex = 8;
+                AssertCurrentCell(table, 8, "C0");
+                table.SelectedIndex = -1;
+                Assert.IsNull(table.GetCurrentCellColumn(8));
+                Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count);
+                table.ItemsSource = Array.Empty<object>();
+                table.SelectedIndex = 0;
+                Assert.IsNull(table.GetCurrentCellColumn(0));
+                Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count);
+            }
+            finally { table.ItemsSource = null; }
+        });
+    }
+
     /// <summary>Ctrl+A後のShift下と末尾クリックは同じ集合の主行変更を一回通知し、通知内の現在セルも同期することを確認します。反復と列だけの移動は無通知で、次のShift上は先頭基点から縮みます。</summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -134,6 +177,7 @@ public sealed class CustomTableNavigationTests
         {
             CustomTableView table = CreateTable(CreateColumns(100, 120, 320, 80, 80));
             table.SelectedIndex = 0;
+            table.Columns = table.Columns.ToArray();
             Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
             AssertCurrentCell(table, 0, "C0");
             ScrollBar scroll = HorizontalScrollBar(table);
@@ -148,11 +192,12 @@ public sealed class CustomTableNavigationTests
             }
             Assert.AreEqual(400d, table.HorizontalOffset);
             AssertCurrentCell(table, 0, "C0");
-            // SelectedIndexの外部変更は現在セルを作り直さないため、旧行のヒットを基点にしてはいけません。
+            // 外部主行変更は入力直後に同列へ追従します。列交換後の左右は現在セルなしの方向端を使います。
             table.SelectedIndex = 1;
-            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
             AssertCurrentCell(table, 1, "C0");
             table.SelectedIndex = 2;
+            AssertCurrentCell(table, 2, "C0");
+            table.Columns = table.Columns.ToArray();
             Assert.IsTrue(table.HandleKeyDown(Key.Left, ModifierKeys.None));
             AssertCurrentCell(table, 2, "C4");
             scroll.Value = 0d;
@@ -168,6 +213,7 @@ public sealed class CustomTableNavigationTests
             // 縦の手動スクロールでも識別を保ち、外向きの端入力では再表示しません。
             table.Columns = CreateColumns(100, 120, 320);
             table.SelectedIndex = 0;
+            table.Columns = table.Columns.ToArray();
             table.Height = 70d;
             table.Measure(new Size(200d, 70d));
             table.Arrange(new Rect(0d, 0d, 200d, 70d));
@@ -194,6 +240,7 @@ public sealed class CustomTableNavigationTests
         {
             CustomTableView table = CreateTable(CreateColumns(100, 120, 320));
             table.SelectedIndex = 0;
+            table.Columns = table.Columns.ToArray();
             Assert.IsTrue(table.HandleKeyDown(Key.Left, ModifierKeys.None));
             double offset = table.HorizontalOffset;
             table.ClearSelection();
@@ -214,6 +261,7 @@ public sealed class CustomTableNavigationTests
             Assert.IsFalse(table.HandleKeyDown(Key.Right, ModifierKeys.None));
             Assert.AreEqual(offset, table.HorizontalOffset);
             var unarranged = new CustomTableView { Columns = CreateColumns(100, 120), ItemsSource = new object[] { new() }, SelectedIndex = 0 };
+            unarranged.Columns = unarranged.Columns.ToArray();
             foreach (Key key in new[] { Key.Left, Key.Right })
             {
                 unarranged.HandleKeyDown(key, ModifierKeys.None);
@@ -234,6 +282,7 @@ public sealed class CustomTableNavigationTests
             CustomTableView table = CreateTable(CreateColumns(100, 120, 320, 80, 80));
             Assert.AreEqual(200d, table.SurfaceWidth);
             table.SelectedIndex = 0;
+            table.Columns = table.Columns.ToArray();
             Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
             Assert.AreEqual(0d, table.HorizontalOffset);
             Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
@@ -261,6 +310,7 @@ public sealed class CustomTableNavigationTests
             // 列の右端が画面左端に一致する完全画面外の条件は別の広列で作ります。
             table.Columns = CreateColumns(100, 120, 320, 400);
             table.SelectedIndex = 0;
+            table.Columns = table.Columns.ToArray();
             Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
             Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
             Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
@@ -293,6 +343,7 @@ public sealed class CustomTableNavigationTests
         {
             CustomTableView table = CreateTable(CreateColumns(100, 120, 320));
             table.SelectedIndex = 0;
+            table.Columns = table.Columns.ToArray();
             Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
             var source = new NavigationInputSource(table);
             foreach (ScrollBar scroll in table.Children.OfType<ScrollBar>())

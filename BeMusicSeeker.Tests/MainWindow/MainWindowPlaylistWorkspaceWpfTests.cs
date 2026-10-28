@@ -1308,7 +1308,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         });
     }
 
-    /// <summary>実MainWindowの単一配送から、開いたplaylistへ保守値・独立score・別表参照を局所配送します。score版とMD5の実batch・行通知・drain終端を待ち、実controlと集計TextBlockのBinding、無関係行・未訪問BMSONを確認し、条件網羅は各ownerへ分担します。</summary>
+    /// <summary>実MainWindowの単一配送から、開いたplaylistへ保守値・独立score・別表参照を局所配送します。score測定は外部主行のBinding・選択と表示反映後から始め、実batch・行通知・drain終端と無関係行・実体化数不増を確認します。正の描画領域と現在セルはNext/Navigation/Editing系列へ分担します。</summary>
     [TestMethod]
     public void CatalogMaintenance_ActualMainWindowRefreshesOpenPlaylistAndBoundCells()
     {
@@ -1437,8 +1437,27 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     Assert.IsNull(last.WAVHealth);
 
                     PlaylistDetailRow unrelated = rows[1] as PlaylistDetailRow ?? throw new AssertFailedException();
+                    var selectionApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    System.ComponentModel.DependencyPropertyDescriptor selection = System.ComponentModel.DependencyPropertyDescriptor.FromProperty(
+                        CustomTableView.SelectedIndexProperty, typeof(CustomTableView)) ?? throw new AssertFailedException("表の主行DPを観測できません。");
+                    void ObserveSelection(object? sender, EventArgs args)
+                    {
+                        if (control.SelectedIndex == 1) { selectionApplied.TrySetResult(); }
+                    }
+                    selection.AddValueChanged(control, ObserveSelection);
+                    try
+                    {
+                        fixture.ViewModel.MainChartList.SelectedIndex = 1;
+                        ObserveSelection(null, EventArgs.Empty);
+                        TestUiDispatcherHost.AwaitPresentationOnDispatcher(selectionApplied.Task, "catalog-main-window-score-selection-binding");
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.AreEqual(1, fixture.ViewModel.MainChartList.SelectedIndex); Assert.AreEqual(1, control.SelectedIndex);
+                        Assert.IsTrue(control.IsRowSelected(1)); Assert.AreSame(unrelated, control.GetSelectedRowsSnapshot().Single());
+                        Assert.AreSame(unrelated, control.ItemsSource[1]);
+                    }
+                    finally { selection.RemoveValueChanged(control, ObserveSelection); }
+                    // 新しい主行の可視化で必要な行を実体化してから、score配送だけの仕事量を測る。
                     int scoreRealized = metadata.RealizedRowCount;
-                    fixture.ViewModel.MainChartList.SelectedIndex = 1;
                     var scoreWork = new List<string>();
                     workspace.DetailWorkObserver = scoreWork.Add;
                     int scoreVersion = fixture.Library.ScoreSnapshotVersion;

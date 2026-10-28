@@ -735,6 +735,7 @@ public sealed class CustomTableView : Grid
             : BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize;
     }
 
+    /// <summary>外部から実際に受理した主行変更だけで旧編集を一回確定し、同期再入後の最新主行へ現在セルと可視範囲を揃えます。</summary>
     private static void OnSelectedIndexChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         var view = (CustomTableView)d;
@@ -743,8 +744,18 @@ public sealed class CustomTableView : Grid
             int selectedIndex = (int)e.NewValue;
             if (selectedIndex < 0 || view.RowCount > 0)
             {
+                int previousCurrent = view.selectionModel.CurrentIndex;
                 view.selectionModel.SetItemCount(view.RowCount);
                 view.selectionModel.SyncCurrentIndex(selectedIndex);
+                if (previousCurrent != view.selectionModel.CurrentIndex)
+                {
+                    string columnId = view.currentCellHit?.Column?.Id;
+                    IList rows = view.ItemsSource;
+                    view.CommitActiveEdit();
+                    // 編集終端の同期整列で主行が移動し得るため、入力の旧添字を再適用しない。
+                    view.EnsureRowVisible(view.selectionModel.CurrentIndex);
+                    view.EnsureCurrentCellForCurrentRow(ReferenceEquals(rows, view.ItemsSource) ? columnId : null);
+                }
             }
         }
         view.RequestRedraw("selection");
@@ -1905,7 +1916,9 @@ public sealed class CustomTableView : Grid
         return true;
     }
 
-    private void EnsureCurrentCellForCurrentRow()
+    /// <summary>最新主行へ現存する同列を引き継ぎ、列消失時は先頭表示列へ移します。</summary>
+    /// <param name="fallbackColumnId">旧編集の同期整列がhitを破棄した場合だけ使う、同じ行集合で捕捉した列ID。再入が作ったhitを優先します。</param>
+    private void EnsureCurrentCellForCurrentRow(string fallbackColumnId = null)
     {
         int rowIndex = selectionModel.CurrentIndex;
         if (rowIndex < 0)
@@ -1914,6 +1927,7 @@ public sealed class CustomTableView : Grid
             return;
         }
         IReadOnlyList<CustomTableColumnLayoutEntry> entries = GetColumnLayoutSnapshot().Entries;
+        string columnId = currentCellHit == null ? fallbackColumnId : currentCellHit.Column?.Id;
         CustomTableColumnLayoutEntry? first = null;
         CustomTableColumnLayoutEntry? target = null;
         foreach (CustomTableColumnLayoutEntry entry in entries)
@@ -1923,7 +1937,7 @@ public sealed class CustomTableView : Grid
                 continue;
             }
             first ??= entry;
-            if (string.Equals(entry.Column.Id, currentCellHit?.Column?.Id, StringComparison.Ordinal))
+            if (string.Equals(entry.Column.Id, columnId, StringComparison.Ordinal))
             {
                 target = entry;
                 break;

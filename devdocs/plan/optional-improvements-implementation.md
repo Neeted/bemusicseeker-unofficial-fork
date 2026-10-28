@@ -28,8 +28,7 @@
 
 | 単位 | 対象・コミットの区切り | 共有先・順序 |
 | --- | --- | --- |
-| U02 再生による現在セル追従 | 再生による選択変更と現在セルを揃える | U02 → U03。現行の識別選択と編集値引渡し・詳細編集開始gateを維持 |
-| U03 共通表の表示とコピー | TSV空行 → URL幅 → フルスキャンDST編集・非編集案内 → 言語cache | U02後。同担当が能力付与・編集終端・一時投影まで所有。U15のDST検証と順序調整 |
+| U03 共通表の表示とコピー | TSV空行 → URL幅 → フルスキャンDST編集・非編集案内 → 言語cache | 同担当が能力付与・編集終端・一時投影まで所有。U15のDST検証と順序調整 |
 | U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U03後、U05/U08と直列 |
 | U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04/U08と直列 |
 | U07 言語変更と確認文言 | ランプ → 確認ボタン | 既存owner別コミット。全言語資源は一担当。U03/U16/U17/U20と共有編集を調整 |
@@ -43,7 +42,7 @@
 | U17 履歴投影・日付境界 | 所属大小文字 → 履歴/ランプの日付共用 | PlayHistory/HistoricalSnapshot、U16後 |
 | U20 外部同期の処理済み進捗 | 通知生産・表示・文言 | ExternalSyncOwner/SyncProgress/Hub、U07の言語資源編集と調整 |
 
-現在の所有は、`optional-updater` がU02と共通表、`optional-search-ui` がU07の言語表示、`optional-encoding` がU09、`optional-bms-input` が再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U13/U14/U16/U17/U20は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
+現在の所有は、`optional-updater` が共通表、`optional-search-ui` がU07の言語表示、`optional-encoding` がU09、`optional-bms-input` が再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U13/U14/U16/U17/U20は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
 
 ### 開始・引継ぎと計画の更新
 
@@ -62,20 +61,6 @@
 Loadedは表示同期と一回購読、Unloadedは表示購読・予約だけの解除、Closed/Disposeは新規表示の終端とする。開始済みの実処理は既存機能ownerが回収し、Unloadedを最終終了に読み替えない。新しい共通基底・汎用画面差分・入力管理器・新翻訳cache・全行購読/実体化は不要。変更機能の仕様に表示・候補・選択・保存の所有、入力/取消、内外移動、再利用、純表示変更、遅延表示と実Taskの終端を短く記す。
 
 既存のEditableTextBlockの候補分離/Escape、再生開始時の一回フォーカス、右クリック現在セル、通常一覧の識別復元、保存→出力→必要表示→編集解除→受付解放、三択のCancel/X/Escは維持する境界であり、新規実装対象ではない。設定Bindingや非モーダル終了も、具体的な不足なしに全体を作り直さない。初回重複解析の完了で画面を奪わない保証を、明示Merge/Hash成功後の無条件の次群/存続群選択へ広げない。
-
-## U02 再生による現在セル追従
-
-### 再生による選択行変更と現在セル
-
-**現存。再生による主行変更の改善を一覧単位へ含める。** `PlaybackPanelViewModel.cs` の再生候補採用が一覧の選択indexを更新するが、`CustomTableView.OnSelectedIndexChanged` は `selectionModel.SyncCurrentIndex` と再描画だけで、`currentCellHit` を更新しない。Aの列を操作後、Next/Previous/自然終了でBへ移ると、B選択のままF2・文字入力・単一セルコピーにAの現在セルが残る。
-
-実際に受理した外部主行変更の入口で既存 `EnsureCurrentCellForCurrentRow` を共用し、現存する同列をBへ引き継ぐ。内部選択の逆通知と識別復元の条件を守り、コピー・編集入口ごとの補正は置かない。編集中は `CommitActiveEdit`/`CellEditEnded` でAの旧属性へ入力を一回渡してから現在セルを更新し、Bへdraftを付け替えずBのeditorを自動生成しない。保存TaskをUIで同期的に待たず既存terminalへ接続する。
-
-主行を変えないPause/Resume/Stop/時刻や表示更新はeditor・候補・現在セルを変えない。現在セル更新のためのフォーカス要求、追従タイマー、再生側の現在セル状態、draft保存復元状態は不要。現在列が消えた/0列/0行/解除の古いhitは既存規則へ揃える。
-
-`CustomTableNavigationTests` の「外部SelectedIndex変更で現在セルは作り直さない」という旧期待は新契約へ更新する。`CustomTableEditingTests` でAへの一回終端、`MainWindowPlaybackWpfTests` で実再生・Binding・描画/コピー/編集の一致、主行不変時の編集保持を分担する。入力不正や保存失敗は既存保存terminalの通知に従う。再生開始を保存完了まで止める新仕様は含めず、そのための追加状態・再試行は不要。
-
-現行の `CustomTableView` の識別選択と[詳細セルの編集開始・保存終端](../spec/ui/table-view.md#行のドラッグと編集)を維持し、同じ担当で実装する。
 
 ## U03 共通表の表示とコピー
 
@@ -109,7 +94,7 @@ Loadedは表示同期と一回購読、Unloadedは表示購読・予約だけの
 
 既存 `CustomTableColumnFactoryTests.InstallDestinationCell_DecoratesCandidatesWithoutChangingEditPaths` はcontextを渡さず候補があれば▼という内部期待を固定しており、利用者契約の根拠にしない。独立テスト設計には追加契約と保持寿命を渡し、`CustomTableEditingTests`、`CustomTablePhase6CacheTests`、`MainWindowPackageMaintenanceWpfTests`、導入先更新と再インストールの既存テストで保証を分担する。実フルスキャン画面の全件・欠落・欠落無視（`FullScanAllChartsFilterSelected` / `FileMissingFilterSelected` / `FileMissingIgnoredFilterSelected`）の通常入口で編集開始、候補選択・手入力、確定・取消、確定値と一覧表示の一致、画面再表示の保持、後続の明示再インストールによる指定先利用を確認する。セル確定だけでは物理処理しないこと、単譜面と保留パッケージ全項目の範囲、全リセット・再起動を越える保持を追加しないことも確認する。候補を持つ同じ元値で非編集一覧は案内なし・編集不可、保留とフルスキャンは案内と操作が一致することを確認し、保留の既存操作を維持する。
 
-現行の識別選択と[詳細セルの編集開始・保存終端](../spec/ui/table-view.md#行のドラッグと編集)を維持し、U02の現在セル追従を完結させた同担当が、このU03項目を実装する。導入サービスを共有するU15とは編集・検証の順序を調整する。機能仕様の実装済み記述への反映は製品変更と同時に行う。
+現行の識別選択と[詳細セルの編集開始・保存終端](../spec/ui/table-view.md#行のドラッグと編集)を維持し、同じ表担当が、このU03項目を実装する。導入サービスを共有するU15とは編集・検証の順序を調整する。機能仕様の実装済み記述への反映は製品変更と同時に行う。
 
 ### 共通表の保留候補案内
 

@@ -25,6 +25,114 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class MainWindowPlaybackWpfTests
 {
+    /// <summary>標準Nextの実候補採用をcompiled Bindingへ届け、次キーより前にBの同列と描画を揃え、実F2とCtrl+Cも同じB列を使うことを確認します。</summary>
+    /// <remarks>実TaskとDPのBinding到達を分け、描画が記録した現在列を読みます。文字列cacheのselector再呼出しは要求しません。コピーは実キー受付から編集値selectorへの到達をsentinelで止め、OS Clipboardを使いません。送り候補の条件差はPlaybackPanel系列、旧編集の一回終端と同期整列はEditing系列へ分担します。</remarks>
+    [TestMethod]
+    public void NextPlayback_FollowsCurrentCellThroughBindingForDisplayEditAndCopy()
+    {
+        string directory = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "main-current-cell-" + Guid.NewGuid().ToString("N"))).FullName;
+        string aPath = Path.Combine(directory, "a.bms"), bPath = Path.Combine(directory, "b.bms");
+        File.WriteAllBytes(aPath, []); File.WriteAllBytes(bPath, []);
+        try
+        {
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.FolderSkipPlayMode = false; values.RepeatPlayMode = false; values.SinglePlayMode = false;
+            });
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(settings, (scope, viewModel, window) =>
+            {
+                var player = new PlaybackPanelViewModelTests.FakeBmsPlayer();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.ReplacePlayerAsync(player), "current-cell-replace-player");
+                ChartFile a = ChartTestValues.Empty() with { Path = aPath, Md5 = new string('a', 32), RawTitle = "A" };
+                ChartFile b = ChartTestValues.Empty() with { Path = bPath, Md5 = new string('b', 32), RawTitle = "B" };
+                viewModel.MainChartList.Rows = new List<object> { a, b };
+                viewModel.MainChartList.SelectedIndex = -1;
+                MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+                var table = (CustomTableView)window.FindName("customTableView");
+                var bindingApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                bool probeCopy = false;
+                var copyRows = new List<object>();
+                var copySentinel = new InvalidOperationException("current_cell_copy_probe");
+                var memo = new CustomTableColumn("Memo", "Memo", new CustomTableColumnSettings.ColumnLayout { Width = 100 }, 1, null, TextAlignment.Left,
+                    row => ReferenceEquals(row, a) ? "A display" : "B display", editPropertyName: nameof(PlaylistDetailRow.memo), editTextSelector: row =>
+                    {
+                        if (probeCopy) { copyRows.Add(row); throw copySentinel; }
+                        return ReferenceEquals(row, a) ? "A edit" : "B edit";
+                    });
+                table.Columns =
+                [
+                    new CustomTableColumn("Title", "Title", new CustomTableColumnSettings.ColumnLayout { Width = 100 }, 0, null, TextAlignment.Left, row => ((ChartFile)row).RawTitle),
+                    memo
+                ];
+                EventHandler<MainChartListCellEditBeginningEventArgs> allowEdit = (_, request) => request.Accepted = true;
+                var beginnings = new List<CustomTableCellEditBeginningEventArgs>();
+                EventHandler<CustomTableCellEditBeginningEventArgs> onBeginning = (_, args) => beginnings.Add(args);
+                viewModel.MainChartList.CellEditBeginningRequested += allowEdit;
+                table.CellEditBeginning += onBeginning;
+                DependencyPropertyDescriptor selection = DependencyPropertyDescriptor.FromProperty(CustomTableView.SelectedIndexProperty, typeof(CustomTableView))
+                    ?? throw new AssertFailedException("表の主行DPを観測できません。");
+                void ObserveSelection(object? sender, EventArgs args)
+                {
+                    if (table.SelectedIndex == 1) { bindingApplied.TrySetResult(); }
+                }
+                selection.AddValueChanged(table, ObserveSelection);
+                ObserveSelection(null, EventArgs.Empty);
+                Task? next = null;
+                try
+                {
+                    table.UpdateLayout();
+                    var point = new Point(150, table.HeaderHeight + 5);
+                    CustomTableHitTestResult hit = table.HitTestTable(point);
+                    Assert.AreSame(a, hit.Row); Assert.AreSame(memo, hit.Column);
+                    Assert.IsTrue(table.HandleCellMouseDown(hit, MouseButton.Left, ModifierKeys.None, 1, point));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.RequestPlaybackFromTable(0, a), "current-cell-start-A");
+                    Assert.IsTrue(table.IsCurrentCell(0, memo));
+                    next = viewModel.PlaybackPanel.Next();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(next, "current-cell-next-B");
+                    Assert.AreSame(b, viewModel.PlaybackPanel.NowPlayingChart);
+                    Assert.AreEqual(1, player.Commands.Count(command => command == "PlayStart:" + bPath));
+                    Assert.AreEqual(1, viewModel.MainChartList.SelectedIndex);
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(bindingApplied.Task, "current-cell-B-binding");
+                    Assert.AreSame(b, viewModel.PlaybackPanel.NowPlayingChart);
+                    Assert.AreEqual(1, viewModel.MainChartList.SelectedIndex); Assert.AreEqual(1, table.SelectedIndex);
+                    Assert.IsTrue(table.IsCurrentCell(1, memo)); Assert.AreSame(memo, table.GetCurrentCellColumn(1));
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    CustomTableRowDrawing drawing = table.GetRowEntry(b).Drawings.GetValueOrDefault(1)
+                        ?? throw new AssertFailedException("Bの実描画がありません。");
+                    Assert.AreSame(memo, drawing.CurrentColumn);
+                    Assert.AreEqual("B display", table.GetCellValue(b, memo, out _).Text);
+                    Assert.AreEqual(1, player.Commands.Count(command => command == "PlayStart:" + bPath));
+                    Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                    TextBox editor = FindVisualChildren<TextBox>(table).Single();
+                    Assert.AreEqual("B edit", editor.Text);
+                    Assert.AreEqual(1, beginnings.Count); Assert.AreSame(b, beginnings[0].Row);
+                    Assert.AreEqual(nameof(PlaylistDetailRow.memo), beginnings[0].EditPropertyName);
+                    Assert.IsTrue(table.HandleKeyDown(Key.Escape, ModifierKeys.None));
+                    probeCopy = true;
+                    Assert.AreSame(copySentinel, Assert.ThrowsException<InvalidOperationException>(() => table.HandleKeyDown(Key.C, ModifierKeys.Control)));
+                    CollectionAssert.AreEqual(new object[] { b }, copyRows.ToArray());
+                }
+                finally
+                {
+                    probeCopy = false;
+                    table.HandleKeyDown(Key.Escape, ModifierKeys.None);
+                    try { if (next != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(next, "current-cell-next-cleanup"); } }
+                    finally
+                    {
+                        try { TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.StopPlayback(), "current-cell-stop-cleanup"); }
+                        finally
+                        {
+                            selection.RemoveValueChanged(table, ObserveSelection);
+                            table.CellEditBeginning -= onBeginning;
+                            viewModel.MainChartList.CellEditBeginningRequested -= allowEdit;
+                        }
+                    }
+                }
+            });
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     /// <summary>停止中のCtrl+AからShift下で主行の題名・字幕・作者と表示譜面を更新し、実開始後の同じ選択操作では現在曲の表示を保つことを確認し、標準terminalへの主行通知漏れを検出します。</summary>
     /// <remarks>集合・主行・基点の条件差はSelectionModel、通知回数と入力内の現在セルはWindowなしNavigationへ分担し、このケースはcompiled Bindingと標準再生接続を確認します。</remarks>
     [TestMethod]
@@ -297,10 +405,13 @@ public sealed class MainWindowPlaybackWpfTests
                     var rendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     int evaluationCount = 0;
                     int refreshCount = 0;
+                    int editEnded = 0;
+                    EventHandler<CustomTableCellEditEndedEventArgs> onEnded = (_, _) => editEnded++;
                     EventHandler refresh = (_, _) => refreshCount++;
                     EventHandler<MainChartListCellEditBeginningEventArgs> allowEdit = (_, request) => request.Accepted = true;
                     viewModel.MainChartList.DisplayRefreshRequested += refresh;
                     viewModel.MainChartList.CellEditBeginningRequested += allowEdit;
+                    table.CellEditEnded += onEnded;
                     var layout = new CustomTableColumnSettings.ColumnLayout { Width = 120, Visibility = Visibility.Visible };
                     table.Columns =
                     [
@@ -338,6 +449,7 @@ public sealed class MainWindowPlaybackWpfTests
                         ready.TrySetResult();
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(start, "ready-start");
                         TestUiDispatcherHost.AwaitPresentationOnDispatcher(rendered.Task, "playing-table-render");
+                        AssertEditPreserved();
                         foreach (ChartFileStatus status in new[] { ChartFileStatus.PAUSE, ChartFileStatus.PLAY })
                         {
                             expected = status;
@@ -345,6 +457,7 @@ public sealed class MainWindowPlaybackWpfTests
                             viewModel.PlaybackPanel.TogglePause();
                             TestUiDispatcherHost.AwaitPresentationOnDispatcher(rendered.Task, "pause-resume-table-render");
                             Assert.AreEqual(status, duplicate.status & ChartFileStatus.PLAYALL);
+                            AssertEditPreserved();
                         }
                         TestUiDispatcherHost.ProcessQueuedPresentation();
                         int evaluationsBeforeTime = evaluationCount;
@@ -365,6 +478,7 @@ public sealed class MainWindowPlaybackWpfTests
                         finally { viewModel.PlaybackPanel.PropertyChanged -= timeChanged; }
                         Assert.AreEqual(evaluationsBeforeTime, evaluationCount);
                         Assert.AreEqual(refreshesBeforeTime, refreshCount);
+                        AssertEditPreserved();
                         expected = ChartFileStatus.NONE;
                         rendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.StopPlayback(), "stop-playback");
@@ -379,6 +493,14 @@ public sealed class MainWindowPlaybackWpfTests
                         Assert.AreEqual("original", first.memo);
                         Assert.AreSame(editor, FindVisualChildren<TextBox>(table).Single());
                         Assert.AreEqual("uncommitted", editor.Text);
+                        AssertEditPreserved();
+
+                        void AssertEditPreserved()
+                        {
+                            Assert.AreSame(editor, FindVisualChildren<TextBox>(table).Single());
+                            Assert.AreEqual("uncommitted", editor.Text); Assert.AreEqual(0, editEnded);
+                            Assert.AreSame(table.VisibleColumns[0], table.GetCurrentCellColumn(selectedIndex));
+                        }
                     }
                     finally
                     {
@@ -393,6 +515,7 @@ public sealed class MainWindowPlaybackWpfTests
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.StopPlayback(), "stop-cleanup");
                         viewModel.MainChartList.DisplayRefreshRequested -= refresh;
                         viewModel.MainChartList.CellEditBeginningRequested -= allowEdit;
+                        table.CellEditEnded -= onEnded;
                     }
                 });
         }
