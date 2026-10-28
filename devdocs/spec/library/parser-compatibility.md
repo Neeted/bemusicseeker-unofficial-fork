@@ -145,6 +145,10 @@ LN記号と音声長は文字列の単純連結ではなく、記号の整数値
 
 JSON.NETを使い、無効なJSONは失敗、未知項目は無視、重複キーは後の値を採用します。欠けたオブジェクト・配列は次の既定値で補います。
 
+基本値と詳細値は共通のJSON境界で旧キーを正規化します。`info.initBPM` → `init_bpm`、ルートの `bpmNotes` → `bpm_events`、`stopNotes` → `stop_events`、`soundChannel` → `sound_channels`、BPMイベントの `v` → `bpm`、STOPイベントの `v` → `duration` を受理し、別名の受理をversionで制限しません。各原文オブジェクトに現代名が存在すれば、値がnull・空配列・不正でも旧名へ戻りません。DTOが受ける現代名の大小文字違いも存在として扱い、その綴りは変更しません。
+
+versionが `0.21`、またはversion省略かつ上記の旧ルートキー・最後の `info` の `initBPM` がある入力は、`info.resolution` の値をDTO変換前に240へ固定します。旧形式の判定は再生adapterと同じ最後の `info` を使いますが、DTOへのpopulateは各原文objectの順序を保ちます。旧STOPの `v` はpulse長として扱い、単位換算を加えません。構文を先に確認してから原文のキーと対象resolutionだけを置換し、壊れたJSONを修復して受理しません。オブジェクトや重複プロパティを集約せず、JSON.NETの既存populate順、元数値字句、既定値と既存受理範囲を保ちます。再生解析器のその他の時刻処理や入力制限は移しません。
+
 | 項目 | 既定値 |
 | --- | --- |
 | `info`、`bga` | 空の対応オブジェクト |
@@ -185,6 +189,7 @@ BGA使用は、BMSのBGA・LAYERチャンネルまたはBMSONの `bga_events` �
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 文字コード、構文、条件分岐、LN、BMSON、難易度 | [`ChartInfoParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoParser.cs) | [`ChartInfoParserBehaviorTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoParserBehaviorTests.cs) |
+| 旧BMSON別名、原文objectごとの現代名優先、固定resolution、数値字句 | [`BmsonJsonParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/BmsonJsonParser.cs)、[`BmsonLegacyKeyNormalizer`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/BmsonLegacyKeyNormalizer.cs) | `ChartInfoParserBehaviorTests` の `ParseBmson_LegacyAliasesMatchModernTimingAndHash` は120→240BPM・STOP240pulse・3ノート・最終1000msと同義入力のChartString/hashを確認する。`BmsonJsonParser_ModernNamesWinWithinEachOriginalObject` は順序逆転・null・空配列・大小文字・重複とpopulateを、`BmsonJsonParser_ModernInvalidValuesAndMalformedLegacyResolutionRemainFatal` は不正値・構文失敗を、`ParseBmson_RawJsonDoublesUseJavaParseDoubleRounding` は旧新3形式の丸めを分担する。 |
 | 軽量解析の使用参照、重複キー、特殊ID、全行収集、未定義除外 | [`BmsChartFileParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/BmsChartFileParser.cs)、[`BmsonChartFileParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/BmsonChartFileParser.cs) | [`ChartResourceSnapshotTests`](../../../BeMusicSeeker.Tests/Resources/ChartResourceSnapshotTests.cs)、[`BmsonSongParserTests`](../../../BeMusicSeeker.Tests/ChartInfo/BmsonSongParserTests.cs) で実入力から使用要求と定義済み照合不能を確認する。`ParseSnapshot_CollectsAllLinesWithoutEvaluatingConditions` は不成立IF・入れ子の収集、`ParseSnapshot_LnobjDefinitionIsRequiredForEveryAudioChannel` はLNOBJを除外しない音声要求を確認する。詳細ノート解析とは分担する。 |
 | 生成済み前駆、非単調座標、LN探索・被覆、診断順、文字列保持モード | [`BMS入力と疎な操作`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoParser.BmsTimeline.cs)、[`共通集計とUTF-8出力`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoParser.Output.cs) | [`ChartInfoParserBoundaryTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoParserBoundaryTests.cs)。基準版の小入力結果、全rowのdoubleビット、診断を維持し、同一bytesをja-JP/en-US/de-DE/fr-FR/th-TH/ar-SAと負号を変えたCultureで解析する。負時刻 `-3333` / `-2000` を含む独立したliteralのChartStringと、そのUTF-8から計算したSHA-256を照合する。文字列保持の有無によるrow・診断・hashの同値性も分担する。 |
 | Java互換の数値読取りと文字列化 | [`JavaDoubleParserJdk17`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/JavaDoubleParserJdk17.cs)、[`JavaDoubleToStringJdk21`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/JavaDoubleToStringJdk21.cs) | [`ChartInfoParserBehaviorTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoParserBehaviorTests.cs)、[`ChartInfoProductionCompareTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoProductionCompareTests.cs) |

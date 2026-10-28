@@ -5426,35 +5426,111 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// 音声不足の実Bmsonを自動導入せず保留へ残して不足を説明し、Bmsonの資源検査を省いた自動導入を検出する。
+    /// 通常フォルダ入力の旧0.21・versionless・現代Bmsonを実導入し、音源ありは実配置・所持・専用song表と版21の詳細保存まで、欠損は元入力保持・不足警告付き保留・未導入まで確認します。
     /// </summary>
-    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
-    [TestMethod]
-    public void PrepareAutoInstallWorkflow_KeepsBmsonPackagePendingWhenResourcesAreMissing()
+    /// <remarks>公開導入入口から実FS・本番保存・所持反映へ接続し、新規の読取り専用DB接続で観測します。キー優先・数値字句などの条件網羅は共通JSON境界へ分担し、各caseのDB・設定・実フォルダを所有して操作終端後に解放します。</remarks>
+    [DataTestMethod]
+    [DataRow("modern", false)]
+    [DataRow("modern", true)]
+    [DataRow("legacy", false)]
+    [DataRow("legacy", true)]
+    [DataRow("versionless", false)]
+    [DataRow("versionless", true)]
+    public async Task InstallChartPackagesAuto_BmsonFolderPreservesLegacyResourceAndStorageContracts(string format, bool soundExists)
     {
-
-        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        await WithTemporarySongDbAsync(async (songDbPath, root) =>
         {
-            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsonMissingResource");
-            Directory.CreateDirectory(packageDirectoryPath);
-            string bmsonFilePath = Path.Combine(packageDirectoryPath, "chart.bmson");
-            File.WriteAllText(bmsonFilePath, CreateBmsonJsonWithSound("missing.wav"));
-            var service = new BmsLibraryPackageInstallService();
+            string source = Path.Combine(root, "Source");
+            string installRoot = Path.Combine(root, "Library");
+            Directory.CreateDirectory(source);
+            Directory.CreateDirectory(installRoot);
+            string sourceChart = Path.Combine(source, "chart.bmson");
+            string json = """
+                {"version":"1.0.0","info":{"title":"Bmson","artist":"Artist","init_bpm":120,"resolution":240},
+                 "bpm_events":[{"y":240,"bpm":240}],"stop_events":[{"y":240,"duration":240}],
+                 "sound_channels":[{"name":"sound.wav","notes":[{"x":1,"y":0},{"x":2,"y":240},{"x":3,"y":480}]}]}
+                """;
+            if (format != "modern")
+            {
+                json = json.Replace("1.0.0", "0.21").Replace("init_bpm", "initBPM")
+                    .Replace("bpm_events", "bpmNotes").Replace("\"bpm\"", "\"v\"")
+                    .Replace("stop_events", "stopNotes").Replace("duration", "v")
+                    .Replace("sound_channels", "soundChannel").Replace("\"resolution\":240", "\"resolution\":480");
+                if (format == "versionless") { json = json.Replace("\"version\":\"0.21\",", string.Empty); }
+            }
+            File.WriteAllText(sourceChart, json);
+            byte[] chartBytes = File.ReadAllBytes(sourceChart);
+            byte[] audioBytes = [1, 2, 3];
+            if (soundExists) { File.WriteAllBytes(Path.Combine(source, "sound.wav"), audioBytes); }
+            string md5 = Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(chartBytes));
+            string sha256 = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(chartBytes));
+            var library = new TestBmsLibrary(songDbPath, null, null, new RealFileMutationService(),
+                new RecordingDialogService(), new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = installRoot,
+                    FolderNameFormat = "%TITLE%",
+                    KeepInstallablePackagesPending = false
+                }, settings: TestBmsFactory.CreateRootSettings([installRoot]))
+            {
+                BmsCharts = [],
+                BmsonCharts = [],
+                ChartPackagesPending = CreatePackageCollection([]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+            try
+            {
+                PackageInstallCommandResult result = await library.InstallChartPackagesAutoWithProgressAsync(
+                    [source], CancellationToken.None, new RecordingPackageInstallProgressWriter());
 
-            AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
-                [packageDirectoryPath],
-                [],
-                [],
-                _ => false,
-                0.6);
-
-            Assert.AreEqual(1, result.DiscoveredPackages.Count);
-            Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
-            Assert.AreEqual(0, result.AutoInstallCandidates.Count);
-            PackageChartEntry chartEntry = result.PendingPackagesToAdd[0].ChartEntries.Single();
-            Assert.AreEqual(ChartFileKind.Bmson, chartEntry.Chart.Kind);
-            Assert.IsTrue(chartEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
-            StringAssert.Contains(chartEntry.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.ResourceWavMissing).Message, "WAV");
+                Assert.IsTrue(result.HasDurableCommit);
+                Assert.IsFalse(result.HasRequiredFailure);
+                Assert.AreEqual(0, library.BmsCharts.Count);
+                Assert.AreEqual(soundExists ? 1 : 0, library.BmsonCharts.Count);
+                Assert.AreEqual(soundExists ? 1 : 0, library.ChartPackagesInstalled.Count);
+                Assert.AreEqual(soundExists ? 0 : 1, library.ChartPackagesPending.Count);
+                Assert.AreEqual(soundExists, library.GetOwnedChartHashIndexSnapshot().ContainsMd5(md5));
+                string destination = Path.Combine(installRoot, "Bmson");
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
+                if (soundExists)
+                {
+                    string installedPath = Path.Combine(destination, "chart.bmson");
+                    CollectionAssert.AreEqual(chartBytes, File.ReadAllBytes(installedPath));
+                    CollectionAssert.AreEqual(audioBytes, File.ReadAllBytes(Path.Combine(destination, "sound.wav")));
+                    ChartFile installed = library.BmsonCharts.Single();
+                    Assert.AreEqual(installedPath, installed.Path);
+                    Assert.AreEqual(installedPath, library.ChartPackagesInstalled.Single().ChartEntries.Single().Chart.Path);
+                    Assert.AreEqual(md5, installed.Md5);
+                    Assert.AreEqual(sha256, installed.Sha256);
+                    Assert.IsNotNull(library.ResolveChartInfo(sha256, md5));
+                    LR2SongDBExtended.bmson_song saved = readback.Table<LR2SongDBExtended.bmson_song>().Single();
+                    Assert.AreEqual(installedPath, saved.path);
+                    Assert.AreEqual(md5, saved.md5);
+                    Assert.AreEqual(sha256, saved.sha256);
+                    ChartDetails details = readback.Query<ChartDetails>("SELECT * FROM chart_info WHERE sha256 = ?;", sha256).Single();
+                    Assert.AreEqual(21, details.parser_version);
+                    Assert.AreEqual(md5, details.md5);
+                    Assert.AreEqual(120d, details.minbpm);
+                    Assert.AreEqual(240d, details.maxbpm);
+                    Assert.AreEqual(3, details.notes);
+                    Assert.AreEqual(1000, details.length);
+                }
+                else
+                {
+                    CollectionAssert.AreEqual(chartBytes, File.ReadAllBytes(sourceChart));
+                    Assert.IsFalse(Directory.Exists(destination));
+                    Assert.AreEqual(0, readback.Table<LR2SongDBExtended.bmson_song>().Count());
+                    ChartPackage pending = library.ChartPackagesPending.Single();
+                    Assert.AreEqual(source, pending.path);
+                    PackageChartEntry entry = pending.ChartEntries.Single();
+                    Assert.AreEqual(sourceChart, entry.Chart.Path);
+                    Assert.AreEqual(1, entry.ResourceSnapshot.AudioReferenceCount);
+                    StringAssert.Contains(entry.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.ResourceWavMissing).Message, "WAV");
+                    Assert.AreEqual(source, readback.Table<LR2SongDBExtended.install>().Single().path);
+                }
+            }
+            finally { library.RequestShutdown("bmson-folder-install-test"); }
         });
     }
 

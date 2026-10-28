@@ -10,6 +10,25 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsonSongParserTests
 {
+    /// <summary>旧0.21・versionlessの捕捉bytesから現代形式と同じ基本値・使用音源を生成し、空notesの音源を使用要求に混ぜません。</summary>
+    [DataTestMethod]
+    [DataRow("\"version\":\"0.21\",")]
+    [DataRow("")]
+    public void ParseSnapshot_LegacySoundChannelsMatchModernUsedResources(string version)
+    {
+        string legacy = "{" + version + "\"info\":{\"title\":\"Song\",\"initBPM\":120},"
+            + "\"soundChannel\":[{\"name\":\"sound.wav\",\"notes\":[{\"x\":1,\"y\":0}]},{\"name\":\"unused.wav\",\"notes\":[]}]}";
+        string modern = legacy.Replace("0.21", "1.0.0").Replace("initBPM", "init_bpm").Replace("soundChannel", "sound_channels");
+        ChartFile Parse(string json) => BmsonChartFileParser.ParseSnapshot(ChartFileContentReader.CreateSnapshot(
+            @"C:\Pending\chart.bmson", System.Text.Encoding.UTF8.GetBytes(json), DateTime.UtcNow));
+        ChartFile actual = Parse(legacy);
+        ChartFile expected = Parse(modern);
+        Assert.AreEqual(expected.RawTitle, actual.RawTitle);
+        CollectionAssert.AreEqual(expected.Resources.ToArray(), actual.Resources.ToArray());
+        CollectionAssert.AreEqual(new[] { "sound" }, ChartResourceSnapshot.Create(actual).AudioRelativePaths.ToArray());
+        Assert.AreEqual(1, actual.Resources.Count(reference => reference.IsUsed && reference.Kind == ChartResourceKind.Audio && reference.Usage == ChartResourceUsage.Normal));
+    }
+
     /// <summary>音声はノートのあるsound/key/mineだけ、BGAはイベントの数値IDだけを使用集合へ解決します。previewと補助画像を保持し、空notesと未参照ヘッダーを除きます。</summary>
     [TestMethod]
     public void ParseSnapshot_UsesChannelNotesAndNumericBgaEventIds()

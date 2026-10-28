@@ -23,6 +23,9 @@ public sealed class BmsonInputFailureBoundaryTests
     [DataRow("{\"sound_channels\":[1]}")]
     [DataRow("{\"sound_channels\":[{\"notes\":[1]}]}")]
     [DataRow("{\"info\":{\"init_bpm\":120},\"bpm_events\":[null]}")]
+    [DataRow("{\"version\":\"0.21\",\"info\":{\"initBPM\":120},\"bpmNotes\":[null]}")]
+    [DataRow("{\"info\":{\"initBPM\":120},\"stopNotes\":[null]}")]
+    [DataRow("{\"info\":{\"initBPM\":120},\"soundChannel\":[{\"notes\":[null]}]}")]
     [DataRow("{\"info\":{\"init_bpm\":120},\"BPM_EVENTS\":[null]}")]
     [DataRow("{\"info\":{\"init_bpm\":120},\"stop_events\":[null]}")]
     [DataRow("{\"info\":{\"init_bpm\":120},\"scroll_events\":[null]}")]
@@ -43,13 +46,22 @@ public sealed class BmsonInputFailureBoundaryTests
         Assert.AreEqual("parse_failed", result.ParseFailureRow.failure_kind);
     }
 
-    /// <summary>省略可能な配列・チャンネルのnullを全面拒否せず、有効ノートの解析結果を保持します。</summary>
-    [TestMethod]
-    public void EvaluateSnapshot_OptionalNullArraysAndChannelsRemainAccepted()
+    /// <summary>旧0.21・versionless・現代形式の省略可能な配列・チャンネルのnullを全面拒否せず、有効ノートの解析結果を保持します。</summary>
+    [DataTestMethod]
+    [DataRow("modern")]
+    [DataRow("legacy")]
+    [DataRow("versionless")]
+    public void EvaluateSnapshot_OptionalNullArraysAndChannelsRemainAccepted(string format)
     {
-        const string json = "{\"info\":{\"init_bpm\":120},\"lines\":null,\"bpm_events\":null,"
+        string json = "{\"info\":{\"init_bpm\":120},\"lines\":null,\"bpm_events\":null,"
             + "\"stop_events\":null,\"scroll_events\":null,\"key_channels\":[null],\"mine_channels\":[null],"
             + "\"sound_channels\":[null,{\"notes\":[{\"x\":1,\"y\":240}]}]}";
+        if (format != "modern")
+        {
+            json = json.Replace("init_bpm", "initBPM").Replace("bpm_events", "bpmNotes")
+                .Replace("stop_events", "stopNotes").Replace("sound_channels", "soundChannel");
+            if (format == "legacy") { json = "{\"version\":\"0.21\"," + json[1..]; }
+        }
         ChartInfoBuildService.ChartInfoSnapshotBuildResult result = Evaluate(json);
 
         Assert.IsFalse(result.ParseFailed);

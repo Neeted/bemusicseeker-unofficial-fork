@@ -20,6 +20,100 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartInfoParserBehaviorTests
 {
+    /// <summary>旧0.21・versionless・現代versionの旧別名を同じJSON境界で受理し、旧形式だけresolutionを240へ固定してSTOPをpulse長のまま扱います。</summary>
+    [DataTestMethod]
+    [DataRow("\"version\":\"0.21\",", 480)]
+    [DataRow("", 480)]
+    [DataRow("\"version\":\"1.0.0\",", 240)]
+    public void ParseBmson_LegacyAliasesMatchModernTimingAndHash(string version, int resolution)
+    {
+        string legacy = "{" + version + "\"info\":{\"initBPM\":120,\"resolution\":" + resolution + "},"
+            + "\"bpmNotes\":[{\"y\":240,\"v\":240}],\"stopNotes\":[{\"y\":240,\"v\":240}],"
+            + "\"soundChannel\":[{\"name\":\"sound.wav\",\"notes\":[{\"x\":1,\"y\":0},{\"x\":2,\"y\":240},{\"x\":3,\"y\":480}]}]}";
+        const string modern = """
+            {"version":"1.0.0","info":{"init_bpm":120,"resolution":240},
+             "bpm_events":[{"y":240,"bpm":240}],"stop_events":[{"y":240,"duration":240}],
+             "sound_channels":[{"name":"sound.wav","notes":[{"x":1,"y":0},{"x":2,"y":240},{"x":3,"y":480}]}]}
+            """;
+        ChartInfoParser.ChartInfoParseResult actual = ChartInfoParser.ParseBytesDetailed(Encoding.UTF8.GetBytes(legacy), "legacy.bmson");
+        ChartInfoParser.ChartInfoParseResult expected = ChartInfoParser.ParseBytesDetailed(Encoding.UTF8.GetBytes(modern), "modern.bmson");
+        Assert.AreEqual(120d, actual.Row.minbpm);
+        Assert.AreEqual(240d, actual.Row.maxbpm);
+        Assert.AreEqual(3, actual.Row.notes);
+        Assert.AreEqual(1000, actual.Row.length);
+        Assert.AreEqual(expected.ChartString, actual.ChartString);
+        Assert.AreEqual(expected.Row.charthash, actual.Row.charthash);
+        Assert.AreEqual(expected.Row.speedchange, actual.Row.speedchange);
+        Assert.AreEqual(expected.Row.distribution, actual.Row.distribution);
+        if (version.Contains("1.0.0", StringComparison.Ordinal))
+        {
+            Assert.AreEqual(480, BmsonJsonParser.Parse(legacy.Replace("\"resolution\":240", "\"resolution\":480")).Info.Resolution);
+        }
+    }
+
+    /// <summary>各原文objectの現代名を位置にかかわらず優先し、null・空配列・大小文字違いを旧値で補いません。別info objectのpopulateと重複キーの順序も保持します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void BmsonJsonParser_ModernNamesWinWithinEachOriginalObject(bool legacyFirst)
+    {
+        string Pair(string modern, string legacy) => legacyFirst ? legacy + "," + modern : modern + "," + legacy;
+        string json = "{\"info\":{" + Pair("\"init_bpm\":null", "\"initBPM\":999") + "},"
+            + Pair("\"bpm_events\":[]", "\"bpmNotes\":[{\"v\":999}]") + ","
+            + Pair("\"STOP_EVENTS\":null", "\"stopNotes\":[{\"v\":999}]") + ","
+            + Pair("\"sound_channels\":[]", "\"soundChannel\":[{\"name\":\"ignored.wav\"}]") + "}";
+        BmsonDocument empty = BmsonJsonParser.Parse(json);
+        Assert.AreEqual(0d, empty.Info.InitBpm);
+        Assert.AreEqual(0, empty.BpmEvents.Length);
+        Assert.AreEqual(0, empty.StopEvents.Length);
+        Assert.AreEqual(0, empty.SoundChannels.Length);
+
+        BmsonDocument events = BmsonJsonParser.Parse("{\"info\":{\"initBPM\":120},\"info\":{\"title\":\"kept\"},"
+            + "\"bpmNotes\":[{" + Pair("\"bpm\":150,\"bpm\":180", "\"v\":999") + "}],"
+            + "\"stopNotes\":[{" + Pair("\"DURATION\":null", "\"v\":999") + "}]}");
+        Assert.AreEqual(120d, events.Info.InitBpm);
+        Assert.AreEqual("kept", events.Info.Title);
+        Assert.AreEqual(180d, events.BpmEvents.Single().Bpm);
+        Assert.AreEqual(0d, events.StopEvents.Single().Duration);
+        BmsonDocument duplicates = BmsonJsonParser.Parse("{\"bpmNotes\":[{\"v\":120}],\"bpmNotes\":[{\"v\":150,\"v\":180}]}");
+        Assert.AreEqual(180d, duplicates.BpmEvents.Single().Bpm);
+        // 旧形式の判定は最後のinfoに従い、先行infoの旧名を理由に現代形式のresolutionを上書きしません。
+        BmsonDocument modernInfoLast = BmsonJsonParser.Parse("{\"info\":{\"initBPM\":120},\"info\":{\"init_bpm\":150,\"resolution\":480}}");
+        Assert.AreEqual(150d, modernInfoLast.Info.InitBpm);
+        Assert.AreEqual(480, modernInfoLast.Info.Resolution);
+        BmsonDocument legacyInfoLast = BmsonJsonParser.Parse("{\"info\":{\"init_bpm\":150},\"info\":{\"initBPM\":120,\"resolution\":480}}");
+        Assert.AreEqual(120d, legacyInfoLast.Info.InitBpm);
+        Assert.AreEqual(240, legacyInfoLast.Info.Resolution);
+    }
+
+    /// <summary>現代名の不正値は旧値へfallbackせず入力失敗にし、旧resolutionの変換前固定でも構文不良を消して受理しません。</summary>
+    [DataTestMethod]
+    [DataRow("{\"info\":{\"initBPM\":120,\"init_bpm\":{}}}")]
+    [DataRow("{\"bpmNotes\":[],\"bpm_events\":5}")]
+    [DataRow("{\"bpmNotes\":[{\"v\":120,\"bpm\":{}}]}")]
+    [DataRow("{\"stopNotes\":[{\"v\":120,\"duration\":{}}]}")]
+    [DataRow("{\"soundChannel\":[],\"sound_channels\":5}")]
+    [DataRow("{\"version\":\"0.21\",\"info\":{\"resolution\":{broken}}}")]
+    public void BmsonJsonParser_ModernInvalidValuesAndMalformedLegacyResolutionRemainFatal(string json)
+    {
+        try
+        {
+            BmsonJsonParser.Parse(json);
+            Assert.Fail("不正な現代名の値と壊れたJSONは受理しません。");
+        }
+        catch (Newtonsoft.Json.JsonException) { }
+    }
+
+    /// <summary>旧resolutionの型変換は行わず240へ固定し、単一引用符・コメント・escaped keyという既存JSON受理範囲を保持します。</summary>
+    [TestMethod]
+    public void BmsonJsonParser_LegacyResolutionIsFixedBeforeConversionWithoutReserializingValues()
+    {
+        BmsonDocument document = BmsonJsonParser.Parse("{\r\n'version':'0.21',/*旧形式*/'info':{'init\\u0042PM':120,'resolution':{}},'bpmNotes':[{'v':180}]}");
+        Assert.AreEqual(240, document.Info.Resolution);
+        Assert.AreEqual(120d, document.Info.InitBpm);
+        Assert.AreEqual(180d, document.BpmEvents.Single().Bpm);
+    }
+
     /// <summary>通常音符・LN・scratch・地雷・BGAを含むBMSから詳細を生成し、統計、明示難度・TOTAL、判定値、保存ハッシュの取違えを検出する。</summary>
     [TestMethod]
     public void ParseBms_SimpleFixture_ComputesChartMetadata()
@@ -172,25 +266,33 @@ public sealed class ChartInfoParserBehaviorTests
     }
 
     /// <summary>bmsonのJSON数値の原文から参照互換のBPMを生成し、中間変換で末尾桁が変わってハッシュ入力をずらす誤りを検出する。</summary>
-    [TestMethod]
-    public void ParseBmson_RawJsonDoublesUseJavaParseDoubleRounding()
+    [DataTestMethod]
+    [DataRow("modern")]
+    [DataRow("legacy")]
+    [DataRow("versionless")]
+    public void ParseBmson_RawJsonDoublesUseJavaParseDoubleRounding(string format)
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "java-parse-double-bpm.bmson");
-            File.WriteAllText(
-                chartPath,
-                "{"
+            string json = "{"
                     + "\"version\":\"1.0.0\","
-                    + "\"info\":{\"mode_hint\":\"beat-7k\",\"init_bpm\":150,\"judge_rank\":100,\"total\":100,\"resolution\":240},"
+                    + "\"info\":{\"mode_hint\":\"beat-7k\",\"init_bpm\":114.15384615384615384615384615,\"judge_rank\":100,\"total\":100,\"resolution\":240},"
                     + "\"bpm_events\":[{\"y\":240,\"bpm\":131.4889812233735}],"
                     + "\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":480}]}]"
-                    + "}",
-                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                    + "}";
+            if (format != "modern")
+            {
+                json = json.Replace("1.0.0", "0.21").Replace("init_bpm", "initBPM")
+                    .Replace("bpm_events", "bpmNotes").Replace("\"bpm\"", "\"v\"").Replace("sound_channels", "soundChannel");
+                if (format == "versionless") { json = json.Replace("\"version\":\"0.21\",", string.Empty); }
+            }
+            File.WriteAllText(chartPath, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
             ChartInfoParser.ChartInfoParseResult result = ChartInfoParser.ParseBytesDetailed(File.ReadAllBytes(chartPath), chartPath);
 
             StringAssert.Contains(result.Row.speedchange, "131.4889812233735");
+            StringAssert.Contains(result.Row.speedchange, "114.15384615384616");
             Assert.IsFalse(result.Row.speedchange.Contains("131.48898122337351"));
             StringAssert.Contains((result.ChartString ?? throw new AssertFailedException("詳細解析のChartStringがありません。")), "B(131.4889812233735)");
         });

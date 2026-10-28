@@ -8,6 +8,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal static class BmsonJsonParser
 {
+    /// <summary>旧キーを原文上で現代名へ揃え、基本値・詳細値へ同じ数値字句と旧形式の固定resolutionを渡します。</summary>
     public static BmsonDocument Parse(string json)
     {
         if (string.IsNullOrWhiteSpace(json))
@@ -20,7 +21,7 @@ internal static class BmsonJsonParser
             Converters = { new BmsonIntJsonConverter(), new BmsonDoubleJsonConverter() },
             MissingMemberHandling = MissingMemberHandling.Ignore
         };
-        string normalizedJson = (json ?? string.Empty).TrimStart('\uFEFF');
+        string normalizedJson = BmsonLegacyKeyNormalizer.Normalize(json.TrimStart('\uFEFF'));
         BmsonDocument document = JsonConvert.DeserializeObject<BmsonDocument>(normalizedJson, settings) ?? new BmsonDocument();
         ApplyRawNumberTexts(document, normalizedJson);
         return Normalize(document);

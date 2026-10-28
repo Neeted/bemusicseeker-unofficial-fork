@@ -583,23 +583,29 @@ public sealed class ChartInfoBackfillStorageTests
         Assert.IsTrue(ChartInfoBuildTargetMapper.ShouldSkipBackfillTarget(noHashBmsChart));
     }
 
-    /// <summary>bmsonの詳細を実DBへ保存し、BMS専用digest対応やsong表を作らないことで形式固有の保存境界への漏出を検出する。</summary>
+    /// <summary>旧・現代bmsonの詳細を実DBへ版21で保存し、旧20の通常再解析と同hash21の読取り省略を保ち、BMS専用digestやsong表へ漏出させません。</summary>
     /// <remarks>実SQLiteの確定・rollbackと本番補完経路を観測し、保存前の計算結果だけで成功としない。</remarks>
-    [TestMethod]
-    public void BackfillChartInfos_AppliesChartInfoToBmsonStorageOwner()
+    [DataTestMethod]
+    [DataRow("modern")]
+    [DataRow("legacy")]
+    [DataRow("versionless")]
+    public void BackfillChartInfos_AppliesChartInfoToBmsonStorageOwner(string format)
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "backfill-target.bmson");
-            File.WriteAllText(
-                chartPath,
-                "{"
+            string json = "{"
                     + "\"version\":\"1.0.0\","
                     + "\"info\":{\"title\":\"backfill target\",\"level\":6,\"mode_hint\":\"beat-7k\",\"init_bpm\":150,\"judge_rank\":100,\"total\":100,\"resolution\":240},"
                     + "\"lines\":[{\"y\":0}],"
                     + "\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0}]}]"
-                    + "}",
-                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                    + "}";
+            if (format != "modern")
+            {
+                json = json.Replace("1.0.0", "0.21").Replace("init_bpm", "initBPM").Replace("sound_channels", "soundChannel");
+                if (format == "versionless") { json = json.Replace("\"version\":\"0.21\",", string.Empty); }
+            }
+            File.WriteAllText(chartPath, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             ChartFile song = ChartTestValues.ReadBmson(chartPath);
             var gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.EnsureChartInfoSchema();
@@ -614,13 +620,37 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual(1, result.BackfilledCount);
             Assert.AreEqual(0, result.DigestTargetCount);
             Assert.AreEqual(0, result.DigestBackfilledCount);
-            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
-            BeMusicSeeker.Models.ChartDetails row = verify.Query<BeMusicSeeker.Models.ChartDetails>("SELECT * FROM chart_info WHERE sha256 = ?;", song.Sha256).Single();
-            Assert.AreEqual(song.Md5, row.md5);
-            Assert.AreEqual(song.Sha256, row.sha256);
-            Assert.AreEqual(6, row.level);
-            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
-            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'song';"));
+            ChartDetails row;
+            using (var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            {
+                row = verify.Query<ChartDetails>("SELECT * FROM chart_info WHERE sha256 = ?;", song.Sha256).Single();
+                Assert.AreEqual(song.Md5, row.md5);
+                Assert.AreEqual(song.Sha256, row.sha256);
+                Assert.AreEqual(6, row.level);
+                Assert.AreEqual(21, row.parser_version);
+                Assert.AreEqual(150d, row.mainbpm);
+                Assert.AreEqual(1, row.notes);
+                Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
+                Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'song';"));
+            }
+
+            gateway.UpsertChartInfos([row with { parser_version = 20, charthash = new string('a', 64) }]);
+            ChartInfoBackfillResult reparsed = BackfillChartInfos(service, gateway, [], [song]);
+            Assert.AreEqual(1, reparsed.FileReadCount);
+            Assert.AreEqual(1, reparsed.BackfilledCount);
+            using (var saved = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            {
+                Assert.AreEqual(21, saved.ExecuteScalar<int>("SELECT parser_version FROM chart_info WHERE sha256 = ?;", song.Sha256));
+                Assert.AreEqual(row.charthash, saved.ExecuteScalar<string>("SELECT charthash FROM chart_info WHERE sha256 = ?;", song.Sha256));
+            }
+            string savedHash = new('b', 64);
+            gateway.UpsertChartInfos([row with { parser_version = 21, charthash = savedHash }]);
+            ChartInfoBackfillResult reused = BackfillChartInfos(service, gateway, [], [song]);
+            Assert.AreEqual(0, reused.FileReadCount);
+            Assert.AreEqual(1, reused.CurrentRowSkippedCount);
+            using var retained = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            Assert.AreEqual(21, retained.ExecuteScalar<int>("SELECT parser_version FROM chart_info WHERE sha256 = ?;", song.Sha256));
+            Assert.AreEqual(savedHash, retained.ExecuteScalar<string>("SELECT charthash FROM chart_info WHERE sha256 = ?;", song.Sha256));
         });
     }
 
