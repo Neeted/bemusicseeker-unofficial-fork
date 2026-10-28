@@ -823,7 +823,7 @@ public partial class PlaybackPanelView : UserControl
 
     /// <summary>シークSlider相対の入力座標を実Trackとつまみの配置で再生時刻へ換算し、双方向Bindingを保って反映します。</summary>
     /// <param name="position">シークSliderを基準にしたポインター座標。</param>
-    /// <remarks>範囲外はSliderの上下限へ丸め、再生中のドラッグでは既存の一時停止操作へ渡します。</remarks>
+    /// <remarks>範囲外はSliderの上下限へ丸めます。位置だけを変更し、再生中・一時停止中の状態は維持します。</remarks>
     internal void SeekFromPoint(Point position)
     {
         if (sliderPlayer.Template.FindName("PART_Track", sliderPlayer) is not Track track)
@@ -835,42 +835,6 @@ public partial class PlaybackPanelView : UserControl
         Point trackPosition = sliderPlayer.TranslatePoint(position, track);
         double value = track.ValueFromPoint(trackPosition);
         sliderPlayer.SetCurrentValue(Slider.ValueProperty, Math.Clamp(value, sliderPlayer.Minimum, sliderPlayer.Maximum));
-        if (DataContext is not PlaybackPanelViewModel viewModel)
-        {
-            return;
-        }
-        if (viewModel.IsPlaying)
-        {
-            viewModel.StartCommand.Execute();
-        }
-    }
-
-    private void sliderPlayerMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-    {
-        if (DataContext is not PlaybackPanelViewModel viewModel)
-        {
-            return;
-        }
-        if (viewModel.IsPaused)
-        {
-            viewModel.StartCommand.Execute();
-        }
-    }
-
-    private void sliderPlayerMouseLeave(object sender, MouseEventArgs e)
-    {
-        if (e.LeftButton == MouseButtonState.Released)
-        {
-            return;
-        }
-        if (DataContext is not PlaybackPanelViewModel viewModel)
-        {
-            return;
-        }
-        if (viewModel.IsPaused)
-        {
-            viewModel.StartCommand.Execute();
-        }
     }
 
 

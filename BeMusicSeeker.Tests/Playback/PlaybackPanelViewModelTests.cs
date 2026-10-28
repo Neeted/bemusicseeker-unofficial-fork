@@ -4499,11 +4499,11 @@ public sealed class PlaybackPanelViewModelTests
             PlaybackPanelView.ResolveSurfaceState(PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER, false));
     }
 
-    /// <summary>ボタンhover背景に対してシークが描画・入力で前面にあり、実Trackの時刻換算・双方向接続と一時停止・実mouse-upによる再開を保ちます。</summary>
-    /// <remarks>物理ポインターは動かさず本番MouseMoveと共通の座標入口を使い、押下mouse-leaveの判定は静的確認へ分担します。</remarks>
+    /// <summary>ボタンhover背景に対する前面描画・入力、実Trackの換算・Bindingを保ち、PLAYの連続seekと明示Pause後のclick・drag・反復mouse-upで再生状態を変えません。</summary>
+    /// <remarks>実Windowの配置・描画・hit testと双方向Bindingを確認し、座標入力は本番MouseMoveと共通の入口を使います。非同期toggleと押下mouse-leave接続の不在は静的確認、engineの状態・時計保持は既存Realtimeテストへ分担します。</remarks>
     [TestMethod]
     [DoNotParallelize]
-    public void PlaybackPanelView_SeekUsesActualTrackAndPreservesBindingAndResume()
+    public void PlaybackPanelView_SeekPreservesTrackBindingAndPlaybackState()
     {
         List<Exception> cleanupFailures = [];
         try
@@ -4587,7 +4587,8 @@ public sealed class PlaybackPanelViewModelTests
                     Color gripColor = ((SolidColorBrush)overlappingGrip.Fill).Color;
                     CollectionAssert.AreEqual(new byte[] { gripColor.B, gripColor.G, gripColor.R, gripColor.A }, pixel,
                     $"ボタン背景よりseekが前面に描画されます。期待={gripColor}, 実BGRA={Convert.ToHexString(pixel)}, 重なり={gripOverlap}, 採取点={sample}");
-                    Task pauseObserved = player.WaitForCommandAsync("Pause");
+                    Assert.IsTrue(panel.IsPlaying);
+                    Point pausedClickPosition = default;
                     foreach ((double width, double thumbWidth) in new[] { (300d, 11d), (480d, 25d) })
                     {
                         slider.Width = width;
@@ -4602,31 +4603,53 @@ public sealed class PlaybackPanelViewModelTests
                             window.UpdateLayout();
                             Assert.AreEqual(expected, slider.Value, 0.001, "player通知が同じSliderへ届きます。");
                             Point center = track.Thumb.TranslatePoint(new Point(track.Thumb.ActualWidth / 2, track.Thumb.ActualHeight / 2), slider);
+                            if (expected == 60d) { pausedClickPosition = center; }
                             slider.SetCurrentValue(Slider.ValueProperty, 0d);
                             window.UpdateLayout();
                             view.SeekFromPoint(center);
-                            // 最初の非同期Pauseがplayerへ到達してから、同じドラッグの次座標へ進みます。
-                            TestUiDispatcherHost.AwaitTaskOnDispatcher(pauseObserved, "seek-pause");
                             Assert.AreEqual(expected, slider.Value, 0.001);
                             Assert.AreEqual(expected, player.CurrentTime.TotalSeconds, 0.001);
+                            Assert.IsTrue(panel.IsPlaying, "再生中の連続seekはPLAYを維持します。");
                             Assert.AreSame(binding, slider.GetBindingExpression(Slider.ValueProperty));
                         }
                         view.SeekFromPoint(new Point(-100, 9));
                         Assert.AreEqual(0d, player.CurrentTime.TotalSeconds, 0.001);
+                        Assert.IsTrue(panel.IsPlaying);
                         view.SeekFromPoint(new Point(slider.ActualWidth + 100, 9));
                         Assert.AreEqual(120d, player.CurrentTime.TotalSeconds, 0.001);
+                        Assert.IsTrue(panel.IsPlaying);
                     }
                     var rail = (Border)track.DecreaseRepeatButton.Template.FindName("RailChrome", track.DecreaseRepeatButton);
                     Assert.IsTrue(rail.ActualHeight > 0 && rail.ActualHeight < slider.ActualHeight);
                     Assert.AreEqual(((SolidColorBrush)slider.FindResource("App.AccentBrush")).Color, ((SolidColorBrush)rail.Background).Color);
-                    Assert.IsTrue(panel.IsPaused);
+                    Assert.AreEqual(0, player.Commands.Count(command => command == "Pause"));
+                    panel.TogglePause();
+                    Assert.IsTrue(panel.IsPaused, "seekとは別の明示操作でPauseへ切り替えます。");
                     Assert.AreEqual(1, player.Commands.Count(command => command == "Pause"));
-                    Task resumeObserved = player.WaitForCommandAsync("Pause");
-                    slider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
-                    { RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent });
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(resumeObserved, "seek-resume");
-                    Assert.IsTrue(panel.IsPlaying);
-                    Assert.AreEqual(2, player.Commands.Count(command => command == "Pause"));
+                    view.SeekFromPoint(pausedClickPosition);
+                    Assert.AreEqual(60d, player.CurrentTime.TotalSeconds, 0.001, "明示Pause後のclickで位置だけを変えます。");
+                    Assert.IsTrue(panel.IsPaused);
+                    foreach ((Point position, double expected) in new[]
+                    {
+                        (new Point(-100, 9), 0d),
+                        (pausedClickPosition, 60d),
+                        (new Point(slider.ActualWidth + 100, 9), 120d)
+                    })
+                    {
+                        view.SeekFromPoint(position);
+                        Assert.AreEqual(expected, slider.Value, 0.001);
+                        Assert.AreEqual(expected, player.CurrentTime.TotalSeconds, 0.001);
+                        Assert.IsTrue(panel.IsPaused, "一時停止中の連続seekはPauseを維持します。");
+                        Assert.AreSame(binding, slider.GetBindingExpression(Slider.ValueProperty));
+                    }
+                    for (int release = 0; release < 2; release++)
+                    {
+                        slider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                        { RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent });
+                        Assert.AreEqual(120d, player.CurrentTime.TotalSeconds, 0.001);
+                        Assert.IsTrue(panel.IsPaused, "mouse-upを繰り返しても明示Pauseを再開しません。");
+                        Assert.AreEqual(1, player.Commands.Count(command => command == "Pause"));
+                    }
                     Assert.AreEqual(1, player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
                     Assert.AreSame(binding, slider.GetBindingExpression(Slider.ValueProperty));
                 }
