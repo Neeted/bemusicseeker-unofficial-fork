@@ -41,10 +41,9 @@
 | U15 導入・推定 | 宛先による範囲拡張廃止 → 入れ子禁止 → 重複保留の登録整理 → 候補根変換・ユニークhash票 → DST表記 | PackageInstall/service/estimation。同一writer。候補根と票数は同じ座標へ揃える。登録整理は発見結果/完全性を共用。U03/U09と順序調整 |
 | U16 ランプの対象・取得元 | 実NO SONG所属 → 成績と履歴の同一捕捉 | lamp source/model/viewer。U07ランプ・U17日付と直列 |
 | U17 履歴投影・日付境界 | 所属大小文字 → 履歴/ランプの日付共用 | PlayHistory/HistoricalSnapshot、U16後 |
-| U20 外部同期の処理済み進捗 | 通知生産・表示・文言 | ExternalSyncOwner/SyncProgress/Hub、U22と直列、U07の言語資源編集と調整 |
-| U22 standalone外部表の出力名検査 | LR2専用検査をLR2モードへ限定 | ExternalSyncOwner。U20と同担当で順次 |
+| U20 外部同期の処理済み進捗 | 通知生産・表示・文言 | ExternalSyncOwner/SyncProgress/Hub、U07の言語資源編集と調整 |
 
-現在の所有は、`optional-updater` がU02と共通表、`optional-search-ui` がU07の言語表示、`optional-encoding` がU09、`optional-bms-input` が再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U13/U14/U16/U17/U20/U22は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
+現在の所有は、`optional-updater` がU02と共通表、`optional-search-ui` がU07の言語表示、`optional-encoding` がU09、`optional-bms-input` が再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U13/U14/U16/U17/U20は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
 
 ### 開始・引継ぎと計画の更新
 
@@ -417,9 +416,3 @@ Aと ` A ` が共存する表で、改名、再選択、保存再読込み、詳
 - 多言語リソースが整合し、実ステータスバーでも件数と補足の意味が伝わる。
 
 既存の `BmsPlaylistExternalReloadTests`、`OperationProgressHubViewModelTests`、`MainWindowPlaylistWorkspaceWpfTests` とリソース整合テストを先に調べ、重複する新規テストを増やさない。
-
-## U22 standalone外部表の出力名検査
-
-standaloneで表名 `한글`・ASCII tagの外部表を取り込むと、CP932向け `Output_dir` が空になり、`PlaylistExternalSyncOwner` の単表・一括登録でモード判定前に拒否される。配置やプロパティ保存には既にモード別検査があるため、検証機構全体を作り替えず、無条件の空出力名拒否を捕捉済み `OperationModeLR2DB` が有効な場合へ限定する。
-
-アプリ内名・Unicode・JSON保存値を保ち、翻字・仮ASCII名・強制改名を行わない。通常URL/JSONインポートの単独・複数登録と再読込み、LR2モードの既存拒否・配置検査・重複URL/名前・必要出力を確認する。`BmsPlaylistMigrationAndRegistrationTests`、`PlaylistWorkspaceExternalSourceTests` 等へ分担する。U20と同じownerの編集を直列化する。

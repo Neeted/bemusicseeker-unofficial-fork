@@ -301,7 +301,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         }
     }
 
-    /// <summary>二つのURIを一要求にまとめ、HTTP本文と必要BMT出力の終端まで追加受付を拒否します。通信中は表の読取りロックを解放し、入力順の登録と進捗終端を維持します。</summary>
+    /// <summary>Unicode実名・ASCII tag・明示出力名なしのHTTPとローカルJSONを一要求で登録し、実BMTを生成します。通信・必要出力中の追加拒否、通信中の表ロック解放、入力順と進捗終端を維持します。</summary>
     [TestMethod]
     public async Task TryStartPlaylistImport_HoldsAdmissionThroughCommunicationAndRequiredOutput()
     {
@@ -312,11 +312,17 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         Directory.CreateDirectory(tempDirectory);
         SingleRequestHttpServer? server = null;
         TestBmsPlaylist? acceptedPlaylist = null;
+        TestBmsLibrary? acceptedLibrary = null;
+        PlaylistWorkspaceViewModel? workspace = null;
         var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
+        void OnProgress(object? sender, PlaylistSyncProgressChangedEventArgs request) => progress.Enqueue(request.Snapshot);
+        void OnSummary(object? sender, ExternalPlaylistImportQueueSummaryReadyEventArgs request) => summaryReady.TrySetResult(request.Summary);
         var outputEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var outputRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Task? importCompletion = null;
         bool holdOutput = false;
+        Exception? primaryFailure = null;
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
@@ -328,7 +334,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             string secondHeaderPath = Path.Combine(tempDirectory, "second.json");
             string secondDataPath = Path.Combine(tempDirectory, "second-data.json");
             File.WriteAllText(firstDataPath, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"First song\",\"artist\":\"Artist\",\"level\":\"1\"}]");
-            File.WriteAllText(secondHeaderPath, "{\"name\":\"SecondImport\",\"symbol\":\"S\",\"output_dir\":\"SecondImport\",\"data_url\":\"./second-data.json\"}");
+            File.WriteAllText(secondHeaderPath, "{\"name\":\"한국어\",\"symbol\":\"S\",\"tag\":\"SECOND\",\"data_url\":\"./second-data.json\"}");
             File.WriteAllText(secondDataPath, "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Second song\",\"artist\":\"Artist\",\"level\":\"2\"}]");
             string outputDirectory = Path.Combine(tempDirectory, "table");
             Directory.CreateDirectory(outputDirectory);
@@ -356,17 +362,16 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             };
             acceptedPlaylist = playlist;
             var library = new TestBmsLibrary(songDbPath);
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            acceptedLibrary = library;
+            workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () => playlist,
                 playlistLibraryProvider: () => library);
-            var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
-            workspace.PlaylistSyncProgressChanged += (_, request) => progress.Enqueue(request.Snapshot);
-            workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) =>
-                summaryReady.TrySetResult(request.Summary);
+            workspace.PlaylistSyncProgressChanged += OnProgress;
+            workspace.ExternalPlaylistImportQueueSummaryReady += OnSummary;
 
             server = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes(
-                "{\"name\":\"FirstImport\",\"symbol\":\"F\",\"output_dir\":\"FirstImport\",\"data_url\":\"" + new Uri(firstDataPath).AbsoluteUri + "\"}"), holdBody: true);
+                "{\"name\":\"한글\",\"symbol\":\"F\",\"tag\":\"FIRST\",\"data_url\":\"" + new Uri(firstDataPath).AbsoluteUri + "\"}"), holdBody: true);
             string firstUri = server.Address.AbsoluteUri;
             string secondUri = new Uri(secondHeaderPath).AbsoluteUri;
             holdOutput = true;
@@ -386,7 +391,10 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             });
             server.ReleaseBody.TrySetResult();
             await Task.WhenAny(outputEntered.Task, importCompletion);
-            Assert.IsTrue(outputEntered.Task.IsCompleted, "登録後の必要出力まで到達します。");
+            string outputDiagnostics = summaryReady.Task.IsCompletedSuccessfully
+                ? string.Join(Environment.NewLine, (await summaryReady.Task).FailedOutcomes.Select(outcome => outcome.Exception))
+                : string.Empty;
+            Assert.IsTrue(outputEntered.Task.IsCompleted, "登録後の必要出力まで到達します。" + outputDiagnostics);
             Assert.IsFalse(importCompletion.IsCompleted);
             Assert.AreEqual(PlaylistImportStartStatus.Busy,
                 workspace.TryStartPlaylistImport([new Uri(secondUri)]).Status, "必要出力中も同じ受付を保持します。");
@@ -410,28 +418,46 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 new[] { firstUri, secondUri },
                 summary.Outcomes.Select(outcome => outcome.Uri.AbsoluteUri).ToArray());
             CollectionAssert.AreEqual(
-                new[] { "FirstImport", "SecondImport" },
+                new[] { "한글", "한국어" },
                 playlist.BMSTables.Select(table => table.name).ToArray());
+            CollectionAssert.AreEqual(new[] { "FIRST", "SECOND" }, playlist.BMSTables.Select(table => table.tag).ToArray());
+            Assert.IsTrue(playlist.BMSTables.All(table => string.IsNullOrWhiteSpace(table.Output_dir)));
+        }
+        catch (Exception failure)
+        {
+            primaryFailure = failure;
+            throw;
         }
         finally
         {
             server?.ReleaseBody.TrySetResult();
             outputRelease.TrySetResult();
-            try
+            var cleanupFailures = new List<Exception>();
+            async Task CleanupAsync(Func<Task> action)
             {
-                if (importCompletion != null)
-                {
-                    await importCompletion;
-                }
-                if (acceptedPlaylist != null)
-                {
-                    await acceptedPlaylist.WaitForPlaylistMutationIdleAsync();
-                }
+                try { await action(); }
+                catch (Exception failure) { cleanupFailures.Add(failure); }
             }
-            finally
+            if (importCompletion != null) { await CleanupAsync(() => importCompletion); }
+            if (acceptedPlaylist != null) { await CleanupAsync(acceptedPlaylist.WaitForPlaylistMutationIdleAsync); }
+            if (workspace != null)
             {
-                try { if (server != null) { await server.DisposeAsync(); } }
-                finally { if (Directory.Exists(tempDirectory)) { Directory.Delete(tempDirectory, recursive: true); } }
+                workspace.PlaylistSyncProgressChanged -= OnProgress;
+                workspace.ExternalPlaylistImportQueueSummaryReady -= OnSummary;
+                await CleanupAsync(workspace.WaitForDetailBuildIdleAsync);
+                await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
+                await CleanupAsync(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+                await CleanupAsync(() => { workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+            }
+            await CleanupAsync(() => { acceptedPlaylist?.RequestShutdown("unicode-mixed-import-test"); return Task.CompletedTask; });
+            await CleanupAsync(() => { acceptedLibrary?.RequestShutdown("unicode-mixed-import-test"); return Task.CompletedTask; });
+            if (server != null) { await CleanupAsync(async () => await server.DisposeAsync()); }
+            await CleanupAsync(() => { Directory.Delete(tempDirectory, recursive: true); return Task.CompletedTask; });
+            if (cleanupFailures.Count > 0)
+            {
+                var cleanupFailure = new AggregateException("Unicode混合取込みテストの後片付け", cleanupFailures);
+                if (primaryFailure == null) { throw cleanupFailure; }
+                Console.WriteLine(cleanupFailure);
             }
         }
     }
@@ -1303,7 +1329,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         }
     }
 
-    /// <summary>一要求の実終端後に次の明示要求を受け、各一表の結果通知・URI順・実表登録を保持します。</summary>
+    /// <summary>出力名を持たないUnicode実名・ASCII tagの単一JSONを登録し、実終端後に次の明示要求を受けます。各一表の結果通知・URI順・実表登録を保持します。</summary>
     [TestMethod]
     public async Task TryStartPlaylistImport_AcceptsNextExplicitRequestAfterCompletion()
     {
@@ -1313,6 +1339,11 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         BMSPlaylist? pendingPlaylist = null;
+        TestBmsLibrary? pendingLibrary = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnSummary(object? sender, ExternalPlaylistImportQueueSummaryReadyEventArgs request) => summaryReady.TrySetResult(request.Summary);
+        Exception? primaryFailure = null;
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
@@ -1324,25 +1355,25 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             string firstDataPath = Path.Combine(tempDirectory, "catalog-data.json");
             string secondHeaderPath = Path.Combine(tempDirectory, "walkure.json");
             string secondDataPath = Path.Combine(tempDirectory, "walkure-data.json");
-            File.WriteAllText(firstHeaderPath, "{\"name\":\"CatalogImport\",\"symbol\":\"C\",\"output_dir\":\"CatalogImport\",\"data_url\":\"./catalog-data.json\"}");
+            File.WriteAllText(firstHeaderPath, "{\"name\":\"한글\",\"symbol\":\"C\",\"tag\":\"CATALOG\",\"data_url\":\"./catalog-data.json\"}");
             File.WriteAllText(firstDataPath, "[{\"md5\":\"cccccccccccccccccccccccccccccccc\",\"title\":\"Catalog song\",\"artist\":\"Artist\",\"level\":\"3\"}]");
             File.WriteAllText(secondHeaderPath, "{\"name\":\"WalkureImport\",\"symbol\":\"W\",\"output_dir\":\"WalkureImport\",\"data_url\":\"./walkure-data.json\"}");
             File.WriteAllText(secondDataPath, "[{\"md5\":\"dddddddddddddddddddddddddddddddd\",\"title\":\"Walkure song\",\"artist\":\"Artist\",\"level\":\"4\"}]");
 
-            var playlist = new TestBmsPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot())
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
             pendingPlaylist = playlist;
             var library = new TestBmsLibrary(songDbPath);
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            pendingLibrary = library;
+            workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () => playlist,
                 playlistLibraryProvider: () => library);
-            var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) =>
-                summaryReady.TrySetResult(request.Summary);
+            workspace.ExternalPlaylistImportQueueSummaryReady += OnSummary;
 
             using (playlist.AcquirePlaylistMutationLease("explicit-import-busy"))
             {
@@ -1358,7 +1389,11 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             await playlist.WaitForPlaylistMutationIdleAsync();
             Assert.IsTrue(summaryReady.Task.IsCompleted, "受理済み取込みの終端までに結果通知を完了します。");
             ExternalPlaylistImportQueueSummary first = await summaryReady.Task;
-            Assert.AreEqual(1, first.ImportedCount);
+            Assert.AreEqual(1, first.ImportedCount,
+                string.Join(Environment.NewLine, first.FailedOutcomes.Select(outcome => outcome.Uri + ": " + outcome.Exception)));
+            Assert.AreEqual("한글", playlist.BMSTables.Single().name);
+            Assert.AreEqual("CATALOG", playlist.BMSTables.Single().tag);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(playlist.BMSTables.Single().Output_dir));
             summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
             Assert.AreEqual(PlaylistImportStartStatus.Started,
                 workspace.TryStartPlaylistImport([new Uri(secondHeaderPath)]).Status);
@@ -1370,19 +1405,151 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 new[] { new Uri(firstHeaderPath).AbsoluteUri, new Uri(secondHeaderPath).AbsoluteUri },
                 first.Outcomes.Concat(second.Outcomes).Select(outcome => outcome.Uri.AbsoluteUri).ToArray());
             CollectionAssert.AreEqual(
-                new[] { "CatalogImport", "WalkureImport" },
+                new[] { "한글", "WalkureImport" },
                 playlist.BMSTables.Select(table => table.name).ToArray());
 
             playlist.RequestShutdown("explicit-import-test");
             Assert.AreEqual(PlaylistImportStartStatus.ShuttingDown,
                 workspace.TryStartPlaylistImport([new Uri(firstHeaderPath)]).Status);
         }
+        catch (Exception failure)
+        {
+            primaryFailure = failure;
+            throw;
+        }
         finally
         {
-            if (pendingPlaylist != null) { await pendingPlaylist.WaitForPlaylistMutationIdleAsync(); }
-            if (Directory.Exists(tempDirectory))
+            var cleanupFailures = new List<Exception>();
+            async Task CleanupAsync(Func<Task> action)
             {
-                Directory.Delete(tempDirectory, recursive: true);
+                try { await action(); }
+                catch (Exception failure) { cleanupFailures.Add(failure); }
+            }
+            if (pendingPlaylist != null) { await CleanupAsync(pendingPlaylist.WaitForPlaylistMutationIdleAsync); }
+            if (workspace != null)
+            {
+                workspace.ExternalPlaylistImportQueueSummaryReady -= OnSummary;
+                await CleanupAsync(workspace.WaitForDetailBuildIdleAsync);
+                await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
+                await CleanupAsync(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+                await CleanupAsync(() => { workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+            }
+            await CleanupAsync(() => { pendingPlaylist?.RequestShutdown("unicode-single-import-test"); return Task.CompletedTask; });
+            await CleanupAsync(() => { pendingLibrary?.RequestShutdown("unicode-single-import-test"); return Task.CompletedTask; });
+            await CleanupAsync(() => { Directory.Delete(tempDirectory, recursive: true); return Task.CompletedTask; });
+            if (cleanupFailures.Count > 0)
+            {
+                var cleanupFailure = new AggregateException("Unicode単一JSON取込みテストの後片付け", cleanupFailures);
+                if (primaryFailure == null) { throw cleanupFailure; }
+                Console.WriteLine(cleanupFailure);
+            }
+        }
+    }
+
+    /// <summary>LR2取込みでは先頭のUnicode実名由来の空出力名だけを失敗にし、後続の有効表を保存・公開・実LR2出力します。Workspace側がスタンドアロンでも実storeの捕捉モードを使い、終端で受付を解放します。</summary>
+    /// <remarks>通常取込み入口から対象別除外と登録への接続を確認します。モード×単表・一括の条件網羅と保存値の詳細は登録ownerの条件表へ分担します。</remarks>
+    [TestMethod]
+    public async Task TryStartPlaylistImport_Lr2ModeRejectsOnlyEmptyOutputNameAndImportsValidTable()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceExternalSourceTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnSummary(object? sender, ExternalPlaylistImportQueueSummaryReadyEventArgs request) => summaryReady.TrySetResult(request.Summary);
+        Exception? primaryFailure = null;
+        try
+        {
+            string databasePath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(databasePath);
+            string rejectedHeader = Path.Combine(directory, "unicode.json");
+            string validHeader = Path.Combine(directory, "valid.json");
+            File.WriteAllText(rejectedHeader, "{\"name\":\"한글\",\"symbol\":\"U\",\"tag\":\"UNICODE\",\"data_url\":\"./unicode-data.json\"}");
+            File.WriteAllText(Path.Combine(directory, "unicode-data.json"), "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Rejected song\",\"level\":\"1\"}]");
+            File.WriteAllText(validHeader, "{\"name\":\"ValidImport\",\"symbol\":\"V\",\"tag\":\"VALID\",\"data_url\":\"./valid-data.json\"}");
+            File.WriteAllText(Path.Combine(directory, "valid-data.json"), "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Valid song\",\"level\":\"2\"}]");
+            string outputBase = Path.Combine(directory, "Output");
+            var outputSettings = new CustomFolderOutputSettingsSnapshot
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderOutputBaseDir = outputBase,
+                LR2CustomFolderOutputBaseDirRootType = Path.Combine(directory, "RootOutput"),
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            var configOwner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Path.Combine(directory, "LR2"), outputBase));
+            playlist = new TestBmsPlaylist(databasePath, configOwner, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
+                () => outputSettings, BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databasePath, CustomFolderOutputPhysicalSurface.Empty))
+            { BMSTables = [] };
+            library = new TestBmsLibrary(databasePath);
+            // 既存factoryのWorkspace設定はOperationModeLR2DB=falseです。登録先storeだけLR2を有効にします。
+            workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
+            workspace.ExternalPlaylistImportQueueSummaryReady += OnSummary;
+            PlaylistImportStartResult start = workspace.TryStartPlaylistImport([new Uri(rejectedHeader), new Uri(validHeader)]);
+            Assert.AreEqual(PlaylistImportStartStatus.Started, start.Status);
+            Assert.AreEqual(2, start.StartedCount);
+            await playlist.WaitForPlaylistMutationIdleAsync();
+            Assert.IsTrue(summaryReady.Task.IsCompleted, "受理済み要求の実終端までに対象別結果を通知します。");
+            ExternalPlaylistImportQueueSummary summary = await summaryReady.Task;
+            string diagnostics = string.Join(Environment.NewLine, summary.FailedOutcomes.Select(outcome => outcome.Uri + ": " + outcome.Exception));
+            Assert.AreEqual(1, summary.ImportedCount, diagnostics);
+            Assert.AreEqual(1, summary.FailedCount, diagnostics);
+            Assert.AreEqual(0, summary.SkippedDuplicateNameCount);
+            Assert.AreEqual(0, summary.SkippedDuplicateUrlCount);
+            ExternalPlaylistImportOutcome rejected = summary.FailedOutcomes.Single();
+            Assert.AreEqual(new Uri(rejectedHeader).AbsoluteUri, rejected.Uri.AbsoluteUri);
+            Assert.IsInstanceOfType<InvalidOperationException>(rejected.Exception);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Error_OutputDirNameEmpty, rejected.Exception.Message);
+            ExternalPlaylistImportOutcome imported = summary.Outcomes.Single(outcome => outcome.Kind == ExternalPlaylistImportOutcomeKind.Imported);
+            Assert.AreEqual(new Uri(validHeader).AbsoluteUri, imported.Uri.AbsoluteUri);
+            Assert.AreEqual("ValidImport", imported.TableName);
+            Assert.AreEqual("ValidImport", playlist.BMSTables.Single().name);
+            using (LR2SongDBExtended read = new BmsLibraryDbGateway(databasePath).OpenSongDbReadOnly())
+            {
+                BMSTable saved = read.Table<BMSTable>().Single();
+                Assert.AreEqual("ValidImport", saved.name);
+                Assert.AreEqual("VALID", saved.tag);
+                BMSTableEntry entry = read.Table<BMSTableEntry>().Single();
+                Assert.AreEqual(saved.playlist_id, entry.playlist_id);
+                Assert.AreEqual(new string('b', 32), entry.md5);
+            }
+            string validOutput = Path.Combine(outputBase, "ValidImport");
+            Assert.IsTrue(Directory.Exists(validOutput));
+            Assert.IsTrue(Directory.EnumerateFiles(validOutput, "*.lr2folder").Any(), "有効表の必要LR2出力を実生成します。");
+            CollectionAssert.AreEqual(new[] { validOutput }, Directory.GetDirectories(outputBase));
+            using (playlist.AcquirePlaylistMutationLease("after-lr2-mixed-import")) { }
+        }
+        catch (Exception failure)
+        {
+            primaryFailure = failure;
+            throw;
+        }
+        finally
+        {
+            var cleanupFailures = new List<Exception>();
+            async Task CleanupAsync(Func<Task> action)
+            {
+                try { await action(); }
+                catch (Exception failure) { cleanupFailures.Add(failure); }
+            }
+            if (playlist != null) { await CleanupAsync(playlist.WaitForPlaylistMutationIdleAsync); }
+            if (workspace != null)
+            {
+                workspace.ExternalPlaylistImportQueueSummaryReady -= OnSummary;
+                await CleanupAsync(workspace.WaitForDetailBuildIdleAsync);
+                await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
+                await CleanupAsync(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+                await CleanupAsync(() => { workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+            }
+            await CleanupAsync(() => { playlist?.RequestShutdown("lr2-mixed-output-name-import-test"); return Task.CompletedTask; });
+            await CleanupAsync(() => { library?.RequestShutdown("lr2-mixed-output-name-import-test"); return Task.CompletedTask; });
+            await CleanupAsync(() => { Directory.Delete(directory, recursive: true); return Task.CompletedTask; });
+            if (cleanupFailures.Count > 0)
+            {
+                var cleanupFailure = new AggregateException("LR2混合取込みテストの後片付け", cleanupFailures);
+                if (primaryFailure == null) { throw cleanupFailure; }
+                Console.WriteLine(cleanupFailure);
             }
         }
     }

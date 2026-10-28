@@ -218,7 +218,8 @@ public sealed partial class PlaylistWorkspaceViewModel
 
                 ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
                 UpdateExternalPlaylistImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_check_duplicates);
-                List<ExternalPlaylistImportWorkItem> registrationItems = PrepareExternalPlaylistImportRegistrationItems(loadItems, outcomes);
+                bool operationModeLR2DB = tables.GetCustomFolderOutputSettings().OperationModeLR2DB;
+                List<ExternalPlaylistImportWorkItem> registrationItems = PrepareExternalPlaylistImportRegistrationItems(loadItems, outcomes, operationModeLR2DB);
                 postProgressCompletedCount++;
 
                 List<ExternalPlaylistImportWorkItem> registeredItems = [];
@@ -369,7 +370,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    private List<ExternalPlaylistImportWorkItem> PrepareExternalPlaylistImportRegistrationItems(IReadOnlyList<ExternalPlaylistImportWorkItem> loadItems, List<ExternalPlaylistImportOutcome> outcomes)
+    /// <summary>実storeから捕捉したLR2モードでだけ空出力名を対象別に除外し、残る候補の重複名を検査します。スタンドアロンのUnicode実名は出力名で除外しません。</summary>
+    /// <param name="operationModeLR2DB">この候補準備で固定する実storeのLR2連携モード。</param>
+    private List<ExternalPlaylistImportWorkItem> PrepareExternalPlaylistImportRegistrationItems(IReadOnlyList<ExternalPlaylistImportWorkItem> loadItems, List<ExternalPlaylistImportOutcome> outcomes, bool operationModeLR2DB)
     {
         var reservedNames = new HashSet<string>(GetExternalPlaylistImportExistingNamesSnapshot(), StringComparer.Ordinal);
         List<ExternalPlaylistImportWorkItem> registrationItems = [];
@@ -379,7 +382,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 continue;
             }
-            if (string.IsNullOrWhiteSpace(item.LoadedTable.Output_dir))
+            if (operationModeLR2DB && string.IsNullOrWhiteSpace(item.LoadedTable.Output_dir))
             {
                 var exception = new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_OutputDirNameEmpty);
                 item.Failure = exception;

@@ -1674,6 +1674,148 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>実JSONのUnicode実名とASCII tagから空になる出力名は、捕捉したLR2モードだけで拒否します。単表・一括の保存・公開・JSON意味値を保ち、LR2拒否では既存DB・出力・XMLを変えず次要求を受理します。</summary>
+    /// <remarks>一般設定を捕捉モードと逆にして設定元の取り違えを検出します。スタンドアロン単表は実再読込みまで確認し、通常URL/JSON入口とBMT生成はWorkspaceの代表へ分担します。</remarks>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    [TestCategory("Playlist")]
+    public async Task ExternalTableRegistration_EmptyDerivedOutputNameUsesCapturedMode(bool lr2Mode, bool multiple)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistMigrationAndRegistrationTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsPlaylist? playlist = null;
+        try
+        {
+            string songPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string outputBase = Path.Combine(directory, "Output");
+            testSettings.OperationModeLR2DB = !lr2Mode;
+            testSettings.LR2RootPath = Path.Combine(directory, "LR2");
+            var snapshot = new CustomFolderOutputSettingsSnapshot
+            {
+                OperationModeLR2DB = lr2Mode,
+                LR2CustomFolderOutputBaseDir = outputBase,
+                LR2CustomFolderOutputBaseDirRootType = Path.Combine(directory, "RootOutput"),
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            LR2Config config = CreateLr2Config(testSettings.LR2RootPath, outputBase);
+            byte[] oldXml = File.ReadAllBytes(config.ConfigFilePath);
+            var existing = new BMSTable { playlist_id = 7790, name = "Existing", Output_dir = "Existing" };
+            playlist = new TestBmsPlaylist(songPath, new Lr2ConfigOwner(config), null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
+                () => snapshot, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            { BMSTables = new ObservableCollection<BMSTable>([existing]) };
+            playlist.CommitBMSTableHeadersToDB([existing]);
+            string oldFile = Path.Combine(outputBase, "Existing", "0000.lr2folder");
+            Directory.CreateDirectory(Path.GetDirectoryName(oldFile) ?? throw new InvalidOperationException());
+            File.WriteAllText(oldFile, "existing LR2 output");
+            DateTime oldTimestamp = File.GetLastWriteTimeUtc(oldFile);
+            using (var db = new LR2SongDBExtended(songPath))
+            {
+                db.CreateTable<LR2SongDB.folder>();
+                db.Insert(new LR2SongDB.folder { path = oldFile, title = "existing folder", type = 2 });
+            }
+
+            string[] names = multiple ? ["한글", "한국어"] : ["한글"];
+            BMSTable[] candidates = names.Select((name, index) =>
+            {
+                var table = new BMSTable();
+                table.LoadHeaderJSON(new JObject { ["name"] = name, ["tag"] = "ASCII", ["symbol"] = "S" }.ToString());
+                table.LoadDataJSON(new JArray(new JObject
+                {
+                    ["md5"] = new string((char)('a' + index), 32),
+                    ["title"] = "곡" + index,
+                    ["artist"] = "Artist",
+                    ["level"] = "1"
+                }).ToString());
+                Assert.IsTrue(string.IsNullOrWhiteSpace(table.Output_dir), "明示出力名を代入せず、実名から自然に空になる入力を使います。");
+                return table;
+            }).ToArray();
+            string[] expectedData = candidates.Select(table => table.DataToJson()).ToArray();
+            async Task RegisterAsync()
+            {
+                if (multiple)
+                {
+                    PlaylistExternalSyncOwner.RegisteredExternalTableBatchResult result = await playlist.ExternalSyncOwner.RegistrateExternalTablesAsync(candidates, false, "unicode_registration");
+                    Assert.AreEqual(candidates.Length, result.RegisteredTables.Count);
+                }
+                else { await playlist.ExternalSyncOwner.RegistrateExternalTableAsync(candidates[0], false, "unicode_registration"); }
+            }
+
+            if (lr2Mode)
+            {
+                InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(RegisterAsync);
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Error_OutputDirNameEmpty, failure.Message);
+                CollectionAssert.AreEqual(new[] { existing }, playlist.BMSTables.ToArray());
+                Assert.IsTrue(candidates.All(table => !table.playlist_id.HasValue));
+                using (LR2SongDBExtended read = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+                {
+                    Assert.AreEqual(existing.playlist_id, read.Table<BMSTable>().Single().playlist_id);
+                    Assert.AreEqual(0, read.Table<BMSTableEntry>().Count());
+                    Assert.AreEqual("existing folder", read.Table<LR2SongDB.folder>().Single().title);
+                }
+            }
+            else
+            {
+                await RegisterAsync();
+                void AssertRegisteredTables()
+                {
+                    Assert.AreEqual(candidates.Length + 1, playlist.BMSTables.Count);
+                    using LR2SongDBExtended read = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly();
+                    Assert.AreEqual(candidates.Length + 1, read.Table<BMSTable>().Count());
+                    Assert.AreEqual(candidates.Length, read.Table<BMSTableEntry>().Count());
+                    for (int index = 0; index < candidates.Length; index++)
+                    {
+                        int? playlistId = candidates[index].playlist_id;
+                        Assert.IsTrue(playlistId.HasValue);
+                        BMSTable visible = playlist.BMSTables.Single(table => table.playlist_id == playlistId);
+                        BMSTable saved = read.Table<BMSTable>().Single(table => table.playlist_id == playlistId);
+                        Assert.AreEqual(names[index], visible.name);
+                        Assert.AreEqual(names[index], saved.name);
+                        Assert.AreEqual("ASCII", saved.tag);
+                        Assert.IsTrue(string.IsNullOrWhiteSpace(visible.Output_dir));
+                        Assert.IsTrue(string.IsNullOrWhiteSpace(saved.Output_dir));
+                        var header = JObject.Parse(visible.HeaderToJson());
+                        Assert.AreEqual(names[index], header.Value<string>("name"));
+                        Assert.AreEqual("ASCII", header.Value<string>("tag"));
+                        Assert.IsTrue(JToken.DeepEquals(JArray.Parse(expectedData[index]), JArray.Parse(visible.DataToJson())));
+                        BMSTableEntry savedEntry = read.Table<BMSTableEntry>().Single(entry => entry.playlist_id == playlistId);
+                        Assert.AreEqual(new string((char)('a' + index), 32), savedEntry.md5);
+                        Assert.AreEqual("곡" + index, savedEntry.title);
+                        Assert.AreEqual("Artist", savedEntry.artist);
+                        Assert.AreEqual(visible.entries.Single().folder, savedEntry.folder);
+                        Assert.AreEqual(visible.entries.Single().level, savedEntry.level);
+                    }
+                }
+                AssertRegisteredTables();
+                if (!multiple)
+                {
+                    await playlist.ReloadTablesAsync(exportBeatorajaBmt: false);
+                    AssertRegisteredTables();
+                }
+            }
+            CollectionAssert.AreEqual(oldXml, File.ReadAllBytes(config.ConfigFilePath));
+            Assert.AreEqual("existing LR2 output", File.ReadAllText(oldFile));
+            Assert.AreEqual(oldTimestamp, File.GetLastWriteTimeUtc(oldFile));
+            CollectionAssert.AreEqual(new[] { oldFile }, Directory.GetFiles(outputBase, "*", SearchOption.AllDirectories));
+
+            await playlist.ExternalSyncOwner.RegistrateExternalTableAsync(new BMSTable { name = "Next explicit request", symbol = "N" }, false, "after_unicode_registration");
+            Assert.IsTrue(playlist.BMSTables.Any(table => table.name == "Next explicit request"));
+        }
+        finally
+        {
+            if (playlist != null)
+            {
+                playlist.RequestShutdown("unicode-registration-test");
+                await playlist.WaitForPlaylistMutationIdleAsync();
+            }
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     /// <summary>未登録追加名を持つ単独表の登録ではLR2出力だけを止め、名前を実DBに保持し、BMT出力を完了します。旧通常先の管理外ファイルも保全します。</summary>
     [TestMethod]
     public async Task ExternalTableRegistration_UnregisteredOutputBasePreservesHeaderAndCompletesBmt()

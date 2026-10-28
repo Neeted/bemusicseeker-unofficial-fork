@@ -750,6 +750,7 @@ internal sealed class PlaylistExternalSyncOwner
             cancellationToken, authority).ConfigureAwait(false);
     }
 
+    /// <summary>準備済み外部表を保存・公開し、必要出力の終端まで待ちます。空のLR2出力名は捕捉したLR2連携モードでだけ拒否し、スタンドアロンでは実名を保持します。</summary>
     internal async Task<BMSTable> RegistrateExternalTableAsync(
         BMSTable bmsTable,
         bool renameDuplicateName,
@@ -781,7 +782,7 @@ internal sealed class PlaylistExternalSyncOwner
             {
                 throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, bmsTable.name);
             }
-            if (string.IsNullOrWhiteSpace(bmsTable.Output_dir))
+            if (settings.OperationModeLR2DB && string.IsNullOrWhiteSpace(bmsTable.Output_dir))
             {
                 throw new InvalidOperationException(Resources.Error_OutputDirNameEmpty);
             }
@@ -831,6 +832,7 @@ internal sealed class PlaylistExternalSyncOwner
         return bmsTable;
     }
 
+    /// <summary>外部表の全候補を検査してまとめて保存・公開し、必要出力の終端まで待ちます。空のLR2出力名の拒否は同じ操作で捕捉したLR2連携モードに限定します。</summary>
     internal async Task<RegisteredExternalTableBatchResult> RegistrateExternalTablesAsync(
         IEnumerable<BMSTable> bmsTables,
         bool renameDuplicateName,
@@ -868,7 +870,7 @@ internal sealed class PlaylistExternalSyncOwner
                 {
                     throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, table.name);
                 }
-                if (string.IsNullOrWhiteSpace(table.Output_dir))
+                if (settings.OperationModeLR2DB && string.IsNullOrWhiteSpace(table.Output_dir))
                 {
                     throw new InvalidOperationException(Resources.Error_OutputDirNameEmpty);
                 }
