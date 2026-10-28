@@ -1613,8 +1613,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             StringAssert.Contains(bpmSortText, "FROM chart_info");
             StringAssert.Contains(bpmSortText, "mainbpm");
             StringAssert.Contains(bpmSortText, "IS NULL ASC");
-            string bpSortText = ReadShiftJisText(Path.Combine(outputDir, "BP SORT", "0000.lr2folder"));
-            StringAssert.Contains(bpSortText, "score.minbp IS NULL ASC");
             string playCountSortText = ReadShiftJisText(Path.Combine(outputDir, "PLAY COUNT SORT", "0000.lr2folder"));
             StringAssert.Contains(playCountSortText, "score.playcount IS NULL ASC");
             StringAssert.Contains(playCountSortText, "score.playcount DESC");
@@ -1629,6 +1627,115 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 Directory.Delete(tempDirectory, recursive: true);
             }
+        }
+    }
+
+    /// <summary>新規生成と既存ファイルの明示再出力で実COMMANDを実行し、BP0・20の後へ負値・NULL・scoreなしを置きます。ASSISTの分類とNO PLAY、対象所属・削除除外、BP以外の負値を含む降順と元スコアを保ち、欠損同士の順は固定しません。</summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void CustomFolderOutput_BpMissingValuesFollowNonnegativeValuesOnCreationAndExplicitReoutput()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistCustomFolderOutputTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        TestBmsPlaylist? playlist = null;
+        try
+        {
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var table = new BMSTable
+            {
+                playlist_id = 7392,
+                name = "BpMissing",
+                symbol = "BP",
+                Output_dir = "BpMissing",
+                entry_type = LR2SongDBExtended.playlist.EntryUnitType.File,
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.ClearFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder,
+                entries = Enumerable.Range(1, 7).Select(number => new BMSTableEntry
+                {
+                    md5 = number.ToString("x32"),
+                    title = "Song " + number,
+                    folder = number == 6 ? "Other" : "Group",
+                    is_removed = number == 7
+                }).ToArray(),
+                Folder_order = ["Group", "Other"]
+            };
+            const string RawScoreSnapshotSql = "SELECT group_concat(hash || ':' || quote(minbp) || ':' || quote(rate) || ':' || quote(playcount) || ':' || quote(clear) || ':' || quote(op_history) || ':' || quote(rank), ';') FROM (SELECT * FROM score ORDER BY hash);";
+            string originalScores;
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                // NULLをCLRの数値既定値へ変換せず、外部scoreの保存値のままCOMMANDへ渡す。
+                db.RunInTransaction(() =>
+                {
+                    db.Execute("CREATE TABLE score(hash TEXT PRIMARY KEY, clear INTEGER, rank INTEGER, op_history INTEGER, minbp INTEGER, rate REAL, playcount INTEGER);");
+                    foreach (int number in Enumerable.Range(1, 8))
+                    {
+                        string hash = number.ToString("x32");
+                        db.Execute("INSERT INTO song(hash, title, path) VALUES (?, ?, ?);", hash, "Song " + number, hash + ".bms");
+                        if (number == 5)
+                        {
+                            continue;
+                        }
+                        int? bp = number switch { 1 => -1, 2 => 0, 3 => 20, 4 => null, _ => -number };
+                        double rate = number switch { 1 => -10, 2 => 80, 3 => 90, 4 => -5, _ => 0 };
+                        int playCount = number switch { 1 => -2, 2 => 1, 3 => 8, 4 => -1, _ => 0 };
+                        db.Execute("INSERT INTO score(hash, clear, rank, op_history, minbp, rate, playcount) VALUES (?, 2, 0, ?, ?, ?, ?);",
+                            hash, ClearTypeStorageConverter.OptionHistoryAssist, bp, rate, playCount);
+                    }
+                });
+                originalScores = db.ExecuteScalar<string>(RawScoreSnapshotSql);
+            }
+            playlist = new TestBmsPlaylist(songDbPath,
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            {
+                BMSTables = new ObservableCollection<BMSTable>([table])
+            };
+            string outputDir = Path.Combine(testSettings.LR2CustomFolderOutputBaseDir, table.Output_dir);
+            string bpPath = Path.Combine(outputDir, "BP SORT", "0000.lr2folder");
+            string assistPath = Path.Combine(outputDir, "CLEAR FOLDER", "2 ASSIST", "0000.lr2folder");
+
+            foreach (bool explicitReoutput in new[] { false, true })
+            {
+                if (explicitReoutput)
+                {
+                    // 既存ファイルも明示再出力で置換する。新規ファイルの生成だけでは成功しない入力とする。
+                    File.WriteAllText(bpPath, "#TITLE stale BP\n#COMMAND 0", Encoding.GetEncoding("shift_jis"));
+                    File.WriteAllText(assistPath, "#TITLE stale ASSIST\n#COMMAND 0", Encoding.GetEncoding("shift_jis"));
+                    playlist.ReOutputCustomFolder(table);
+                }
+                else
+                {
+                    playlist.ReOutputCustomFolderAndCommitToDB(table);
+                }
+
+                using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+                foreach ((string path, int[] missingNumbers) in new[] { (bpPath, new[] { 1, 4, 5 }), (assistPath, new[] { 1, 4 }) })
+                {
+                    string command = ReadCustomFolderCommand(ReadShiftJisText(path));
+                    string[] hashes = verify.Query<LR2SongDB.song>("SELECT song.* FROM song LEFT JOIN score ON song.hash = score.hash WHERE " + command)
+                        .Select(song => song.hash).ToArray();
+                    CollectionAssert.AreEqual(new[] { 2, 3 }.Select(number => number.ToString("x32")).ToArray(), hashes.Take(2).ToArray(), path);
+                    CollectionAssert.AreEquivalent(missingNumbers.Select(number => number.ToString("x32")).ToArray(), hashes.Skip(2).ToArray(), path);
+                }
+                AssertCustomFolderCommandHashOrder(verify,
+                    ReadCustomFolderCommand(ReadShiftJisText(Path.Combine(outputDir, "CLEAR FOLDER", "0 NO PLAY", "0000.lr2folder"))), [5]);
+                AssertCustomFolderCommandHashOrder(verify,
+                    ReadCustomFolderCommand(ReadShiftJisText(Path.Combine(outputDir, "DJ LEVEL", "UNDER A", "0000.lr2folder"))), [3, 2, 4, 1, 5]);
+                AssertCustomFolderCommandHashOrder(verify,
+                    ReadCustomFolderCommand(ReadShiftJisText(Path.Combine(outputDir, "PLAY COUNT SORT", "0000.lr2folder"))), [3, 2, 4, 1, 5]);
+                Assert.AreEqual(originalScores, verify.ExecuteScalar<string>(RawScoreSnapshotSql), "出力はNULL・負値を含む保存済みscoreを変更しません。");
+            }
+        }
+        finally
+        {
+            playlist?.RequestShutdown("bp-sort-fixture");
+            Directory.Delete(tempDirectory, recursive: true);
         }
     }
 

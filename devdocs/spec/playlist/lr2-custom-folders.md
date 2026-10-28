@@ -81,11 +81,15 @@
 | `OtherFolder` | `MY BEST`、`NEW SONGS`、`REMOVED SONGS`。IR取得・未送信検知が有効なときは `UNSENT SONGS`。 |
 | `RandomFolder` | 対象範囲・レベル・クリア・DJレベルの各出力にランダム版を追加する。`ORDER BY random()` と `#MAXTRACKS 1` の両方が必要。 |
 | `BpmSortFolder` | `chart_info.mainbpm` の昇順、欠損は末尾。パーサー版を条件にしない。 |
-| `BpSortFolder` | `score.minbp` の昇順、未プレイ・欠損は末尾。 |
+| `BpSortFolder` | 非負の `score.minbp` の昇順、詳細未保存の負値・NULL・スコアなしは末尾。 |
 | `PlayCountSortFolder` | `score.playcount` の降順、未プレイ・欠損は末尾。 |
 | `LastPlaySortFolder` | `bms_lr2_last_play.last_play_at` の降順、欠損は末尾。他の日時へ代用しない。 |
 
 最終プレイ順は履歴スキーマ未導入でもファイルを生成しますが、LR2側で開くには対象表が必要です。SQLで現在の履歴を参照するため、プレイごとの再出力は不要です。
+
+BP順と `CLEAR FOLDER` の通常版は、0を含む非負のBPを昇順に並べ、負値・NULL・スコアなしを欠損として末尾へ置きます。欠損同士の順は保証しません。クリア分類はBP欠損と独立し、詳細未保存のASSISTをNO PLAYへ移しません。DJレベルの `rate` とプレイ回数の降順では負値も数値として扱い、BP順のために保存済みスコアや詳細解析を変更しません。
+
+このBP順は新規生成と既存表の明示再出力で反映します。生成済みファイルの自動一斉更新は追加せず、LR2の保存同期署名とその参照定数、`chartInfoParser=21` を維持します。
 
 ### ファイルとSQL
 
@@ -161,6 +165,7 @@ ROOT登録の補完・同期、表削除、プロパティ、一括編集は同�
 | 旧先削除失敗と新先状態、次通常処理で旧残余不変 | `BMSPlaylist` | [`RegenerateCustomFolderOutputs_UsesInjectedSettingsAndPreservesCommittedDestinationAfterOldCleanupFailure`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
 | 同一編集セッションの未完了移行・config原子的保存とC保存前の完了 | `PlaylistPropertySaveService`、`BMSPlaylist.MigrateCustomFolderOutputDirectoryWithSettings` | [`BmsPlaylistCustomFolderOutputTests.PlaylistPropertyDialog_UnfinishedOutputsCompleteBeforeSavingFurtherEdits`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)。DB=B、旧A/新B、ディスクから再読込みしたconfig、BMT、他表と管理外データを確認する。通常型・ルート型・追加先の正常移行は既存保存・移行テストと分担する。 |
 | 種類・SQL・階層と保存設定 | [`BMSTable`](../../../BeMusicSeeker/Models/Playlist/BMSTable.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) |
+| BP順・クリア通常版の負値・NULL・スコアなしの末尾配置と新規生成・明示再出力 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) の `MakeBpNullLastOrder` とBP・クリア出力 | [`BmsPlaylistCustomFolderOutputTests.CustomFolderOutput_BpMissingValuesFollowNonnegativeValuesOnCreationAndExplicitReoutput`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) が実ファイルのCOMMANDを実DBへ適用し、0→20→欠損集合、ASSIST・NO PLAYの分類、対象所属・削除除外、rate・playcountの負値を含む降順と保存済みscore不変を確認する。階層・ランダム・ASSIST/EASY分類は同クラスの `ReOutputCustomFolderAndCommitToDB_WritesHierarchicalRandomAndSortFolders`、詳細未保存ASSISTの履歴投影は `PlayHistoryReadModelTests.RowProjectionTreatsInitialLr2ForceEasySentinelsAsClearOnly` が分担する。署名・参照定数・パーサー版の維持と自動一斉更新を加えないことは差分検査で確認する。 |
 | 名前なし・空白名の所属保持とLEVEL/ADDDATEの所属内ソート、変更保存時の再出力 | [`BMSPlaylist.makeCustomFolderCmdSort`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`BmsPlaylistCustomFolderOutputTests.ReOutputCustomFolderAndCommitToDB_UserFolderSortUsesOwnMembershipValues`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) が実保存値、生成COMMANDのSQLite上の順序と別所属専用曲の除外を確認する。名前なしはLEVEL/ADDDATE両方向、空白名はLEVEL昇順を扱い、名前なしLEVEL昇順だけは方向変更保存後に同じファイルを再読込みして降順を確認する。同じ代表の初回COMMANDは、ケース所有の読取り接続で未指定走査順を反転しても所属内のhash順が不変であることを確認する。ALL/通常名・旧NULL生存行・File/Folderは既存の `ReOutputCustomFolder_RawNullLiveEntriesRemainIncludedAndUsePersistedSortValues`、種類の独立有効化・ランダム・スキーマは既存ケースと分担する。 |
 | 一括生成・旧出力先・状態・受付 | [`PlaylistCustomFolderOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistCustomFolderOutputOwner.cs) | [`PlaylistCustomFolderOutputOwnerTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistCustomFolderOutputOwnerTests.cs)、[`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) |
 | 部分修復の開始・更新・全終端の要求識別 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) の `HydrateRequiredAsync` | [`BmsPlaylistPersistenceLifecycleTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs) の `ReloadTables_HydrationRepairRegeneratesBatchPrunesStaleRowsAndPreservesCurrentFiles` と `ReloadTables_ZeroTargetRepairPublishesOnlyInactiveProgress`: 通知元`custom_folder_repair`と要求のSource`playlist_custom_folder_output_repair`、世代・親操作IDを保ち、成功・元の修復失敗・対象0件の全終端まで同じ要求IDを確認する。一括再生成・余分な行の整理・現在ファイルと利用者列の保持、既存の部分修復カウントも維持する。 |

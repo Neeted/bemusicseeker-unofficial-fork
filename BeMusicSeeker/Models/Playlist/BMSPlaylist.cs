@@ -1658,7 +1658,7 @@ public partial class BMSPlaylist : ObservableObject
             Tuple.Create("7 P.A", "P.A", clearColumn + " = 5 AND (" + opHistoryValue + " & " + ClearTypeStorageConverter.OptionHistoryPerfect + ") != 0")
         };
         IReadOnlyList<CustomFolderEntryScope> entryScopes = CreateCustomFolderEntryScopes(bmsTable);
-        string orderBy = MakeScoreColumnNullLastOrder(SQLiteTable<LR2ScoreDB.score>.GetColumnName(e => e.minbp), asc: true);
+        string orderBy = MakeBpNullLastOrder();
         foreach (Tuple<string, string, string> clearScope in clearScopes)
         {
             foreach (CustomFolderEntryScope entryScope in entryScopes)
@@ -1731,7 +1731,7 @@ public partial class BMSPlaylist : ObservableObject
         return makeCustomFolderDefinitionsScopedSortFolder(
             bmsTable,
             "BP SORT",
-            MakeScoreColumnNullLastOrder(SQLiteTable<LR2ScoreDB.score>.GetColumnName(e => e.minbp), asc: true),
+            MakeBpNullLastOrder(),
             "Sort: BP ASC");
     }
 
@@ -1896,6 +1896,14 @@ public partial class BMSPlaylist : ObservableObject
             .Trim()
             .Trim(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+    }
+
+    /// <summary>詳細未保存の負値を欠損として扱い、非負のBP昇順の後へ欠損を置くSQLを生成します。</summary>
+    private static string MakeBpNullLastOrder()
+    {
+        string column = SQLiteTable<LR2ScoreDB.score>.GetTableName() + "." + SQLiteTable<LR2ScoreDB.score>.GetColumnName(e => e.minbp);
+        string value = "CASE WHEN " + column + " >= 0 THEN " + column + " END";
+        return value + " IS NULL ASC, " + value + " ASC";
     }
 
     private static string MakeScoreColumnNullLastOrder(string columnName, bool asc)
