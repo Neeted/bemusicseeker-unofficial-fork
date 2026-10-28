@@ -329,21 +329,25 @@ public sealed class BMSAutoPlayWriterTests
         }
     }
 
-    /// <summary>初期音を一回描画してpeak正規化し、可聴deviceの音量・muteをオフライン出力に適用も変更もしない。</summary>
-    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
-    [TestMethod]
-    public void Write_RendersInitialNoteOnceAndIgnoresDeviceVolumeAndMute()
+    /// <summary>UTF-8 BOM有無の先頭BPMを通常読込みし、2秒の初回発音を一回描画・peak正規化して、前方無音と可聴deviceの音量・muteを保つ。</summary>
+    /// <remarks>PlaybackChart.Loadから実NULL_DEVICEの音源読込み・描画・encoder保存まで接続し、BOM補正が有限PCMの発音位置と保存長へ届くことを確認するため共有native状態を直列所有する。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Write_RendersInitialNoteOnceAndIgnoresDeviceVolumeAndMute(bool includeBom)
     {
         using var directory = new TemporaryDirectory();
         File.WriteAllBytes(directory.File("audio.wav"), BuildPcmWave());
         File.WriteAllText(
             directory.File("chart.bms"),
-            "#PLAYER 1\n#TITLE offline output\n#ARTIST test\n#BPM 120\n"
+            "#BPM 120\n#PLAYER 1\n#TITLE offline output\n#ARTIST test\n"
                 + "#WAV01 audio.wav\n#00101:01\n",
-            Encoding.ASCII);
+            new UTF8Encoding(includeBom));
         string outputWithoutExtension = directory.File("converted");
 
-        using var writer = new BMSAutoPlayWriter(new BMSFile(directory.File("chart.bms")));
+        var chart = PlaybackChart.Load(directory.File("chart.bms"));
+        Assert.AreEqual(20000000L, chart.AudioEvents.Single().Start.ToTimeSpan().Ticks);
+        using var writer = new BMSAutoPlayWriter(chart);
         writer.LoadResources();
         // #001は120 BPMの2秒地点で、0.1秒の音源を含むチャート長は2.1秒です。
         const long expectedFrameCount = 2L * 48000 + 4800;
@@ -368,13 +372,26 @@ public sealed class BMSAutoPlayWriterTests
         Assert.AreEqual(expectedFrameCount, dataLength / (channels * sizeof(float)));
 
         float peak = 0f;
+        float leadingSilencePeak = 0f;
+        float audioPeak = 0f;
         for (int offset = wave.DataOffset; offset < wave.DataOffset + dataLength; offset += sizeof(float))
         {
             float sample = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(output.AsSpan(offset, sizeof(float))));
             Assert.IsTrue(float.IsFinite(sample));
             peak = Math.Max(peak, Math.Abs(sample));
+            int frame = (offset - wave.DataOffset) / (channels * sizeof(float));
+            if (frame < 96000)
+            {
+                leadingSilencePeak = Math.Max(leadingSilencePeak, Math.Abs(sample));
+            }
+            else
+            {
+                audioPeak = Math.Max(audioPeak, Math.Abs(sample));
+            }
         }
-        Assert.IsTrue(peak > 0.98f, "The note at time zero must be rendered and normalized.");
+        Assert.AreEqual(0f, leadingSilencePeak, "初回発音前の96000frameを全channelで無音に保ちます。");
+        Assert.IsTrue(audioPeak > 0f, "2秒以降に初回発音の非零PCMを残します。");
+        Assert.IsTrue(peak > 0.98f, "The note at two seconds must be rendered and normalized.");
         Assert.IsTrue(peak <= 0.991f, "Peak normalization must use the rendered PCM without clipping.");
     }
 

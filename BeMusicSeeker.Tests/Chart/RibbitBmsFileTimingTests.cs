@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.BMS;
@@ -16,6 +17,58 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class RibbitBmsFileTimingTests
 {
+    /// <summary>
+    /// 先頭のBPM・TITLE・WAVをUTF-8 BOM有無で通常読込みと監査準備へ渡し、指示の欠落と001小節の発音時刻の変化を検出する。
+    /// 通常読込みのhashは元bytesから独立に求め、BOM有無を同じ本文のhashへ置き換える誤りも検出する。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow("BPM", false)]
+    [DataRow("BPM", true)]
+    [DataRow("TITLE", false)]
+    [DataRow("TITLE", true)]
+    [DataRow("WAV", false)]
+    [DataRow("WAV", true)]
+    public void Utf8BomKeepsFirstDirectiveAndPlaybackTimeWhileHashUsesOriginalBytes(string firstDirective, bool includeBom)
+    {
+        string source = firstDirective switch
+        {
+            "BPM" => "#BPM 120\n#TITLE bom-title\n#WAV01 audio.wav\n#00101:01\n",
+            "TITLE" => "#TITLE bom-title\n#BPM 120\n#WAV01 audio.wav\n#00101:01\n",
+            "WAV" => "#WAV01 audio.wav\n#BPM 120\n#TITLE bom-title\n#00101:01\n",
+            _ => throw new ArgumentOutOfRangeException(nameof(firstDirective))
+        };
+        var encoding = new UTF8Encoding(includeBom);
+        byte[] bytes = encoding.GetPreamble().Concat(encoding.GetBytes(source)).ToArray();
+        string actualHash = AssertDecodedPlaybackInputs(bytes, source, "bom-title", "audio.wav");
+        byte[] oppositeBomBytes = includeBom ? Encoding.UTF8.GetBytes(source) : Encoding.UTF8.GetPreamble().Concat(bytes).ToArray();
+        Assert.AreNotEqual(Convert.ToHexString(MD5.HashData(oppositeBomBytes)).ToLowerInvariant(), actualHash);
+    }
+
+    /// <summary>
+    /// BOMなしCP932の日本語資源名を両復号経路でそのまま採用し、UTF-8優先化による既存入力の文字化けを検出する。
+    /// </summary>
+    [TestMethod]
+    public void BomlessCp932KeepsJapaneseResourceNamesInNormalAndPreparedInput()
+    {
+        const string source = "#BPM 120\n#TITLE cp932-title\n#WAV01 日本語.wav\n#00101:01\n";
+        AssertDecodedPlaybackInputs(Encoding.GetEncoding(932).GetBytes(source), source, "cp932-title", "日本語.wav", 932);
+    }
+
+    /// <summary>
+    /// 既存判別でUTF-8となる本文のU+FEFFはBOM有無によらず曲名へ残し、先頭以外まで削除する過剰な補正を検出する。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Utf8BomRemovalPreservesByteOrderMarkInsideTheBody(bool includeBom)
+    {
+        // U+FEFF直後の空白により、BOMなしでも別の文字コードとして読める曖昧な入力を避けます。
+        const string source = "#BPM 120\n#TITLE before\uFEFF after\n#WAV01 audio.wav\n#00101:01\n";
+        var encoding = new UTF8Encoding(includeBom);
+        AssertDecodedPlaybackInputs(encoding.GetPreamble().Concat(encoding.GetBytes(source)).ToArray(), source,
+            "before\uFEFF after", "audio.wav", 65001);
+    }
+
     /// <summary>
     /// 各小節境界で捨てた端数tickを後続へ補償せず、六小節後の終端時刻から既存時計とのずれを検出する。
     /// </summary>
@@ -416,6 +469,49 @@ public sealed class RibbitBmsFileTimingTests
         Assert.AreSame(cause, failure.InnerException);
         Assert.IsFalse(failure.IsInputFailure, "通常範囲の乱数実装故障を譜面入力不良に変換しません。");
         CollectionAssert.AreEqual(new[] { (2, 1, true), (3, 2, false) }, observed.ToArray());
+    }
+
+    private static string AssertDecodedPlaybackInputs(byte[] bytes, string expectedSource, string expectedTitle,
+        string expectedResource, int? expectedCodePage = null)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "ribbit-decoding-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string path = Path.Combine(directory, "input.bms");
+            File.WriteAllBytes(path, bytes);
+            string expectedHash = Convert.ToHexString(MD5.HashData(bytes)).ToLowerInvariant();
+            var loaded = PlaybackChart.Load(path);
+            Assert.AreEqual(expectedHash, loaded.Hash);
+            AssertDecodedPlaybackChart(loaded, expectedTitle, expectedResource);
+
+            string decoded = BMSFile.DecodeForAudit(bytes, out Encoding encoding);
+            Assert.AreEqual(expectedSource, decoded);
+            if (expectedCodePage.HasValue)
+            {
+                Assert.AreEqual(expectedCodePage.Value, encoding.CodePage);
+                Assert.AreEqual(expectedCodePage.Value, loaded.Bms?.Encode.CodePage);
+            }
+            var prepared = BMSFile.ParsePreparedForAudit(path, decoded, encoding, expectedHash, new BmsParseOptions());
+            // 準備入口は呼出側で計算したhashを受け渡す契約だけを確認し、生産hashの保証には用いません。
+            Assert.AreEqual(expectedHash, prepared.Md5);
+            AssertDecodedPlaybackChart(PlaybackChart.FromBms(prepared), expectedTitle, expectedResource);
+            return loaded.Hash;
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
+    private static void AssertDecodedPlaybackChart(PlaybackChart chart, string expectedTitle, string expectedResource)
+    {
+        Assert.AreEqual(new Fraction(120), chart.Bpm);
+        Assert.AreEqual(expectedTitle, chart.Title);
+        CollectionAssert.AreEqual(new[] { (1, expectedResource) }, chart.ResourceNames.Select((path, index) => (index, path))
+            .Where(value => !string.IsNullOrEmpty(value.path)).ToArray());
+        CollectionAssert.AreEqual(new[] { (1, 20000000L) },
+            chart.AudioEvents.Select(value => (value.ResourceIndex, value.Start.ToTimeSpan().Ticks)).ToArray());
     }
 
     private static string ConditionalBranchesSource() =>

@@ -1426,15 +1426,26 @@ public partial class BMSFile
     }
 #nullable restore annotations
 
-    /// <summary>通常読込みの自動判別と同じfallbackでbyte列を復号します。空入力の拒否とMD5採取は読込み側の責務です。</summary>
+    /// <summary>通常読込みと同じ自動判別・fallbackで復号し、UTF-8の先頭BOMだけを除きます。空入力の拒否とMD5採取は読込み側の責務です。</summary>
     /// <param name="data">一度だけ読み込んだ譜面byte列です。</param>
     /// <param name="encoding">通常の判別またはfallbackで採用した文字コードです。</param>
     /// <returns>通常読込みと同じ復号本文です。</returns>
     public static string DecodeForAudit(byte[] data, out Encoding encoding)
     {
+        return DecodeSource(data, out encoding);
+    }
+
+    /// <summary>通常読込みと監査準備が共有する復号です。UTF-8の先頭BOM以外は従来の本文・判別順・fallbackを保ちます。</summary>
+    private static string DecodeSource(byte[] data, out Encoding encoding)
+    {
         string source = getAutoDetectedString(data, out Encoding detected);
         encoding = detected ?? sjisEncDefault;
-        return detected == null ? sjisEncDefault.GetString(data) : source;
+        if (detected == null)
+        {
+            source = sjisEncDefault.GetString(data);
+        }
+        return encoding.CodePage == utf8Enc.CodePage && source.Length > 0 && source[0] == '\uFEFF'
+            ? source.Substring(1) : source;
     }
 
     public static BMSFile Parse(string path)
@@ -1494,15 +1505,15 @@ public partial class BMSFile
             throw new Exception("Invalid MD5 string: " + text);
         }
         Md5 = text.ToLowerInvariant();
-        string autoDetectedString = getAutoDetectedString(array, out Encoding enc);
-        Encode = enc ?? sjisEncDefault;
+        string source = DecodeSource(array, out Encoding encoding);
+        Encode = encoding;
         parseOptions?.InputRead?.Invoke(new BmsInputIdentity(Md5, array.LongLength, Encode.WebName, Encode.CodePage));
         if (array.Length == 0)
         {
             throw new InvalidDataException(filePath + " is empty file.");
         }
 
-        return enc == null ? sjisEncDefault.GetString(array) : autoDetectedString;
+        return source;
     }
 
     private void Analyze(Queue<int> randomPattern = null)
