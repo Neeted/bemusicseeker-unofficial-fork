@@ -537,6 +537,53 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
     /// <summary>今回の変更前だけを表す不変な整理入力です。後続操作へ保持しません。</summary>
     internal sealed record PreviousOutputLocation(BMSTable Table, string Directory, string BaseDirectory, bool IsRoot);
 
+    /// <summary>SQL置換前のLR2実効絶対配置・基点・ROOT種別を捕捉します。standaloneでは既存出力へ触れる入力を作りません。</summary>
+    internal IReadOnlyList<PreviousOutputLocation> CapturePreviousOutputLocations(
+        IReadOnlyList<BMSTable> tables, CustomFolderOutputSettingsSnapshot settings)
+    {
+        if (!settings.OperationModeLR2DB) { return []; }
+        var locations = new List<PreviousOutputLocation>();
+        foreach (BMSTable table in tables ?? [])
+        {
+            if (table == null || string.IsNullOrWhiteSpace(table.Output_dir)) { continue; }
+            string directory = ResolveOutputDirectory(table, settings);
+            string baseDirectory = table.is_root_folder ? settings.LR2CustomFolderOutputBaseDirRootType
+                : CustomFolderOutputBaseRegistry.ResolveNormalOutputBaseDirectory(table.custom_folder_output_base_name,
+                    settings.LR2CustomFolderOutputBaseDir, settings.LR2CustomFolderAdditionalOutputBaseDirs);
+            if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(baseDirectory)) { continue; }
+            locations.Add(new(table, Path.GetFullPath(directory), Path.GetFullPath(baseDirectory), table.is_root_folder));
+        }
+        return locations.AsReadOnly();
+    }
+
+    /// <summary>新正本の必須生成成功後だけ旧全配置を整理します。旧表のIDや現在所属に依存せず新配置集合を保全し、整理失敗は残存警告で終えます。</summary>
+    internal void CleanupReplacedCustomFolderOutputs(IReadOnlyList<PreviousOutputLocation> previousLocations,
+        CustomFolderOutputSettingsSnapshot settings,
+        Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization)
+    {
+        if (!settings.OperationModeLR2DB || previousLocations == null || previousLocations.Count == 0) { return; }
+        var plans = previousLocations.Select(previous => new MigrationPlan
+        {
+            Table = previous.Table,
+            OutputDirectoryBefore = previous.Directory,
+            WasRootFolderBefore = previous.IsRoot,
+            RootOutputBaseDirectoryBefore = previous.BaseDirectory,
+            OutputBaseDirectoryBefore = previous.BaseDirectory
+        }).ToList();
+        try
+        {
+            // 復元前後で表IDや所有表が変わっても、今回生成した全配置を保全します。
+            IReadOnlyCollection<string> protectedDirectories = CreateMigrationDestinationDirectories(null, settings);
+            CustomFolderBatchOutputResult cleanup = CompletePreparedMigrationCleanup(new(plans, settings, protectedDirectories), syncMaterialization);
+            PublishPostLeaseResult(cleanup, null);
+        }
+        catch (Exception failure)
+        {
+            notificationOwner.QueueWarning(string.Format(Resources.Warn_CustomFolderCleanupFailed,
+                string.Join(Environment.NewLine, plans.Select(plan => plan.OutputDirectoryBefore).Distinct(StringComparer.OrdinalIgnoreCase)), failure.Message));
+        }
+    }
+
     /// <summary>現在正本から生成し、成立した生成の後だけ今回の旧配置を整理します。必要生成の失敗は伝播し、旧先整理の失敗は対象と原因を通知して終端します。</summary>
     internal void RegenerateCustomFolderOutputs(IReadOnlyList<BMSTable> tables,
         IReadOnlyList<PreviousOutputLocation> previousLocations, CustomFolderOutputSettingsSnapshot settings,

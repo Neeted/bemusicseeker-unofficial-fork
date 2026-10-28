@@ -25,6 +25,122 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsPlaylistPersistenceLifecycleTests
 {
+    /// <summary>実SQL保存→別状態の出力→復元を通し、追加・改名・空集合・ID再利用・別表の旧path再利用・旧親新子・旧ROOTの通常/追加先化・種類一部/全無効で旧ファイルと行だけを整理します。追加代表は同じlibraryの実差分再読込みでも再発見されないことを確認します。</summary>
+    [TestMethod]
+    [DataRow("append")]
+    [DataRow("rename")]
+    [DataRow("empty")]
+    [DataRow("id-reuse")]
+    [DataRow("path-reuse")]
+    [DataRow("child")]
+    [DataRow("root-normal")]
+    [DataRow("root-additional")]
+    [DataRow("partial-disabled")]
+    [DataRow("all-disabled")]
+    public async Task PlaylistRestore_CleansPreviousLocationsAndProtectsCurrentPlacement(string scenario)
+    {
+        await using var fixture = new PlaylistRestoreOutputFixture();
+        LR2SongDBExtended.playlist.CustomFolderType all = LR2SongDBExtended.playlist.CustomFolderType.AllFolders;
+        LR2SongDBExtended.playlist.CustomFolderType both = all & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder;
+        BMSTable[] saved = scenario switch
+        {
+            "empty" => [],
+            "path-reuse" => [PlaylistRestoreOutputFixture.Table(2, "Shared")],
+            "child" => [PlaylistRestoreOutputFixture.Table(1, Path.Combine("Parent", "Child"))],
+            "root-additional" => [PlaylistRestoreOutputFixture.Table(1, "A", baseName: "Additional")],
+            "all-disabled" => [PlaylistRestoreOutputFixture.Table(1, "A", ignored: all)],
+            _ => [PlaylistRestoreOutputFixture.Table(1, "A")]
+        };
+        BMSTable[] current = scenario switch
+        {
+            "append" => [PlaylistRestoreOutputFixture.Table(1, "A", "Changed"), PlaylistRestoreOutputFixture.Table(2, "B", "Added")],
+            "path-reuse" => [PlaylistRestoreOutputFixture.Table(1, "Shared", "Other owner"), PlaylistRestoreOutputFixture.Table(2, "Retired", "Changed")],
+            "child" => [PlaylistRestoreOutputFixture.Table(1, "Parent", "Changed")],
+            "root-normal" or "root-additional" => [PlaylistRestoreOutputFixture.Table(1, "A", "Changed", root: true)],
+            "partial-disabled" or "all-disabled" => [PlaylistRestoreOutputFixture.Table(1, "A", "Changed", ignored: both)],
+            _ => [PlaylistRestoreOutputFixture.Table(1, "B", "Changed")]
+        };
+        string[] scopes = saved.Concat(current).Select(fixture.OutputDirectory).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        fixture.PersistAndOutput(saved);
+        string dump = fixture.Playlist.GetPlaylistDump();
+        string[] savedLayout = fixture.CaptureFolderLayout(scopes);
+        if (scenario == "id-reuse") { current[0].entries.Single().md5 = new string('b', 32); }
+        fixture.PersistAndOutput(current);
+        // 実ファイルが既に消えた残存行も、同じ配置の期待集合から除かれることを確認します。
+        using (var stale = new LR2SongDBExtended(fixture.SongDb))
+        { stale.InsertOrReplace(new LR2SongDB.folder { path = Path.Combine(fixture.OutputDirectory(current[0]), "db-only.lr2folder"), title = "DB-only stale" }); }
+        string[] oldFiles = current.SelectMany(table => Directory.GetFiles(fixture.OutputDirectory(table), "*.lr2folder", SearchOption.AllDirectories)).ToArray();
+        string? ordinary = scenario is "partial-disabled" or "all-disabled" ? Path.Combine(fixture.OutputDirectory(current[0]), "keep.txt") : null;
+        if (ordinary != null) { File.WriteAllText(ordinary, "same-location ordinary file"); }
+
+        await fixture.Playlist.RestorePlaylistDumpAsync(dump);
+
+        // 新readerや起動時補正を行う前に判定し、後続の補正で旧残存を隠しません。
+        fixture.AssertCurrentOutput(saved);
+        CollectionAssert.AreEquivalent(savedLayout, fixture.CaptureFolderLayout(scopes), "旧ROOT行・不要旧dir行を除き、新子への祖先行を保全します。");
+        foreach (string oldFile in oldFiles.Where(file => !saved.Any(table =>
+            file.StartsWith(fixture.OutputDirectory(table) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))))
+        { Assert.IsFalse(File.Exists(oldFile), oldFile); }
+        using (var db = new LR2SongDBExtended(fixture.SongDb))
+        {
+            foreach (BMSTable retired in current.Where(table => !saved.Any(target => fixture.OutputDirectory(target) == fixture.OutputDirectory(table)
+                || fixture.OutputDirectory(target).StartsWith(fixture.OutputDirectory(table) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))))
+            {
+                string retiredPath = fixture.OutputDirectory(retired).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                Assert.IsFalse(db.Table<LR2SongDB.folder>().Any(row => string.Equals(row.path.TrimEnd(Path.DirectorySeparatorChar),
+                    retiredPath.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
+                    || row.path.StartsWith(retiredPath, StringComparison.OrdinalIgnoreCase)), retiredPath);
+            }
+        }
+        if (ordinary != null) { Assert.AreEqual("same-location ordinary file", File.ReadAllText(ordinary)); }
+        await fixture.Playlist.StartupReadiness.WaitForRequiredPlaylistReadinessAsync();
+        Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+        if (scenario == "append")
+        {
+            fixture.Library.ReloadFileDiff();
+            Assert.IsTrue(File.Exists(Path.Combine(fixture.OutputDirectory(saved[0]), "0000.lr2folder")));
+            Assert.IsFalse(Directory.Exists(fixture.OutputDirectory(current[1])));
+            using var db = new LR2SongDBExtended(fixture.SongDb);
+            string removedPrefix = fixture.OutputDirectory(current[1]) + Path.DirectorySeparatorChar;
+            Assert.IsFalse(db.Table<LR2SongDB.folder>().Any(row => row.path.StartsWith(removedPrefix, StringComparison.OrdinalIgnoreCase)));
+        }
+    }
+
+    /// <summary>standaloneの実SQL保存・復元は、LR2で既に作られた全ファイルのbytes/mtimeと全folder行を一切変更しません。</summary>
+    [TestMethod]
+    public async Task PlaylistRestore_StandalonePreservesExistingFilesAndFolderRows()
+    {
+        await using var fixture = new PlaylistRestoreOutputFixture();
+        fixture.PersistAndOutput(PlaylistRestoreOutputFixture.Table(1, "A"));
+        string dump = fixture.Playlist.GetPlaylistDump();
+        LR2SongDBExtended.playlist.CustomFolderType both = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+            & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder;
+        fixture.PersistAndOutput(PlaylistRestoreOutputFixture.Table(1, "A", "Changed", ignored: both),
+            PlaylistRestoreOutputFixture.Table(2, "B", "Added", root: true));
+        fixture.Settings.OperationModeLR2DB = false;
+        string[] files = Directory.GetFiles(fixture.DirectoryPath, "*.lr2folder", SearchOption.AllDirectories);
+        Dictionary<string, byte[]> bytes = files.ToDictionary(path => path, File.ReadAllBytes);
+        Dictionary<string, DateTime> times = files.ToDictionary(path => path, File.GetLastWriteTimeUtc);
+        string[] BeforeRows()
+        {
+            using var db = new LR2SongDBExtended(fixture.SongDb);
+            return db.Query<LR2SongDB.folder>("SELECT * FROM folder ORDER BY path;")
+                .Select(Newtonsoft.Json.JsonConvert.SerializeObject).ToArray();
+        }
+        string[] rows = BeforeRows();
+
+        _ = fixture.Playlist.GetPlaylistDump();
+        await fixture.Playlist.RestorePlaylistDumpAsync(dump);
+
+        CollectionAssert.AreEquivalent(files, Directory.GetFiles(fixture.DirectoryPath, "*.lr2folder", SearchOption.AllDirectories));
+        foreach (string file in files)
+        {
+            CollectionAssert.AreEqual(bytes[file], File.ReadAllBytes(file));
+            Assert.AreEqual(times[file], File.GetLastWriteTimeUtc(file));
+        }
+        CollectionAssert.AreEqual(rows, BeforeRows());
+        Assert.AreEqual("A", fixture.Playlist.BMSTables.Single().Output_dir);
+    }
     /// <summary>実DB保存境界で全件/一部失効の厳格保存を拒否し、一部だけの保存を防ぎます。入力空と非厳格の現行対象だけ保存する互換契約も同じDBで確認します。</summary>
     [TestMethod]
     public async Task CommitHeaders_CurrentTargetRequirementRejectsAllAndPartialRetirementButAllowsEmpty()
@@ -1276,6 +1392,12 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 () => settings,
                 CreateDeterministicLr2PlaylistFolderSynchronizationPort(dbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
             playlist.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
+            BMSTable previous = PlaylistRestoreOutputFixture.Table(8010, "OldRoot", root: true);
+            playlist.BMSTables.Add(previous);
+            playlist.CommitBMSTableWithEntriesToDB(previous);
+            playlist.ReOutputCustomFolder(previous);
+            string previousFile = Path.Combine(outputBase, "OldRoot", "0000.lr2folder");
+            byte[] previousBytes = File.ReadAllBytes(previousFile);
             string backupPath = Path.Combine(directory, "restore.sql");
             File.WriteAllText(backupPath,
                 PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(8011, "Restored root", "R")
@@ -1293,6 +1415,9 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             }
             Assert.AreEqual(8011, playlist.BMSTables.Single().playlist_id);
             Assert.AreEqual("Restored root", playlist.BMSTables.Single().name);
+            CollectionAssert.AreEqual(previousBytes, File.ReadAllBytes(previousFile));
+            using (var previousOutput = new LR2SongDBExtended(dbPath))
+            { Assert.IsTrue(previousOutput.Table<LR2SongDB.folder>().Any(row => row.path == previousFile)); }
 
             readiness = playlist.StartupReadiness.WaitForRequiredPlaylistReadinessAsync();
             IOException readinessFailure = await Assert.ThrowsExceptionAsync<IOException>(() =>

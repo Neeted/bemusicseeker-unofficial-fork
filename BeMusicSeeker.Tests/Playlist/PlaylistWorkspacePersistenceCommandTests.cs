@@ -28,6 +28,75 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistWorkspacePersistenceCommandTests
 {
+    /// <summary>旧ファイルの削除共有禁止と旧path限定のSQLite削除失敗を実SQL復元→workspace通知まで通し、残存警告でも新出力・readiness・終了許可・受付解放を保ちます。故障解除後の現在表の明示再出力で過去の整理を再開しません。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PlaylistRestore_PreviousCleanupFailureWarnsWithoutBlockingReadinessOrExit(bool failDatabaseCleanup)
+    {
+        await using var fixture = new PlaylistRestoreOutputFixture();
+        fixture.PersistAndOutput(PlaylistRestoreOutputFixture.Table(1, "A"));
+        string backupPath = Path.Combine(fixture.DirectoryPath, "restore.sql");
+        File.WriteAllText(backupPath, fixture.Playlist.GetPlaylistDump());
+        fixture.PersistAndOutput(PlaylistRestoreOutputFixture.Table(1, "B", "Changed"));
+        string oldDirectory = Path.Combine(fixture.Settings.LR2CustomFolderOutputBaseDir, "B");
+        string oldFile = Path.Combine(oldDirectory, "0000.lr2folder");
+        string newFile = Path.Combine(fixture.Settings.LR2CustomFolderOutputBaseDir, "A", "0000.lr2folder");
+        FileStream? held = null;
+        PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(fixture.Playlist, fixture.Library,
+            () => fixture.OutputSettings, () => fixture.Config);
+        var notifications = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
+        try
+        {
+            if (failDatabaseCleanup)
+            {
+                using var db = new LR2SongDBExtended(fixture.SongDb);
+                string path = oldFile.Replace("'", "''", StringComparison.Ordinal);
+                db.Execute("CREATE TRIGGER fail_restore_old_cleanup BEFORE DELETE ON folder WHEN OLD.path = '" + path
+                    + "' BEGIN SELECT RAISE(ABORT, 'old output cleanup failure'); END;");
+            }
+            else { held = new FileStream(oldFile, FileMode.Open, FileAccess.Read, FileShare.Read); }
+
+            Assert.IsTrue(await workspace.RestorePlaylistBackupAsync(backupPath), "旧整理の残存だけで終了を拒否しません。");
+            await fixture.Playlist.StartupReadiness.WaitForRequiredPlaylistReadinessAsync();
+            Assert.IsTrue(File.Exists(newFile));
+            StringAssert.Contains(BmsPlaylistTestSupport.ReadShiftJisText(newFile), "#TITLE Saved");
+            using (var db = new LR2SongDBExtended(fixture.SongDb))
+            {
+                Assert.AreEqual("A", db.Table<BMSTable>().Single().Output_dir);
+                Assert.IsTrue(db.Table<LR2SongDB.folder>().Any(row => row.path == newFile && row.title == "Saved"));
+                Assert.IsTrue(db.Table<LR2SongDB.folder>().Any(row => row.path == oldFile));
+            }
+            if (!failDatabaseCleanup) { Assert.IsTrue(File.Exists(oldFile)); }
+            IReadOnlyList<PlaylistOperationNotificationOwner.OperationNotification> receipt = notifications.Single().Receipt.Notifications;
+            Assert.IsTrue(receipt.Any(item => item.Severity == PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning));
+            Assert.IsTrue(receipt.Any(item => item.Severity == PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning
+                && item.Message.Contains(oldDirectory, StringComparison.OrdinalIgnoreCase)), "残存する旧配置を警告で識別できます。");
+            Assert.IsTrue(receipt.Any(item => item.Message.Contains(Resources.Msg_success_playlist_restore, StringComparison.Ordinal)));
+            Assert.IsFalse(receipt.Any(item => item.Severity == PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error
+                || item.Message.Contains(Resources.Msg_failed_playlist_restore, StringComparison.Ordinal)));
+            Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+            Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
+            held?.Dispose();
+            held = null;
+            if (failDatabaseCleanup)
+            {
+                using var db = new LR2SongDBExtended(fixture.SongDb);
+                db.Execute("DROP TRIGGER fail_restore_old_cleanup;");
+            }
+            fixture.Playlist.ReOutputCustomFolder(fixture.Playlist.BMSTables.Single());
+            using (var db = new LR2SongDBExtended(fixture.SongDb))
+            { Assert.IsTrue(db.Table<LR2SongDB.folder>().Any(row => row.path == oldFile), "明示再出力へ過去の旧整理を持ち越しません。"); }
+            Assert.AreEqual(!failDatabaseCleanup, File.Exists(oldFile));
+        }
+        finally
+        {
+            held?.Dispose();
+            workspace.StopPlaylistSummaryDataBuild();
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        }
+    }
     /// <summary>実workerのrawからDispatcher適用へ接続し、通常・表示失敗・交換・停止でもAction後のscheduler実Taskより先にbuild idleへ抜けません。entry集計はworker、通知はUIに属します。</summary>
     [DataTestMethod]
     [DataRow("normal")]

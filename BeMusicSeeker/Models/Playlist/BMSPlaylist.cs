@@ -1193,7 +1193,8 @@ public partial class BMSPlaylist : ObservableObject
 
     /// <summary>
     /// 復元の DB ロック・transaction・ヘッダー読込を worker で実行し、UI 一覧適用と必要出力・公開の実終端までPを保持します。
-    /// 復元前の物理配置・出力状態にかかわらず、復元した内容でカスタムフォルダ本文とLR2行を再生成します。
+    /// 復元前の実効配置を今回だけ捕捉し、復元した本文とLR2行の生成成功後に旧配置を整理してから必須準備を完了します。
+    /// 旧配置だけの整理失敗は残存警告として終え、復元済みDB・新出力と利用可能な準備状態を保持します。
     /// commit 後の読込・UI 失敗は復元 DB を保持したまま伝播し、再試行や巻戻しを行いません。
     /// 必須公開・出力後の任意URL補完予約や診断失敗は局所で終え、復元成功を取り消しません。
     /// </summary>
@@ -1211,6 +1212,9 @@ public partial class BMSPlaylist : ObservableObject
             try
             {
                 PlaylistEntriesHydrationOwner.PlaylistHydrationTableSnapshot previous = playlistAggregatePersistenceOwner.GetActiveCollectionSnapshot();
+                CustomFolderOutputSettingsSnapshot outputSettings = GetCustomFolderOutputSettings();
+                IReadOnlyList<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation> previousOutputLocations =
+                    customFolderOutputMaintenanceOwner.CapturePreviousOutputLocations(previous.Tables, outputSettings);
                 List<BMSTable> headers;
                 long persistenceGeneration;
                 bool lockAcquired = false;
@@ -1253,7 +1257,8 @@ public partial class BMSPlaylist : ObservableObject
                     bool rootOutputSearchRootsChanged = SyncRootFolderOutputDirectoriesToLr2Config();
                     await HydrateRequiredAsync("RestorePlaylist", exportBeatorajaBmt: true,
                         verifyRootOutputDirectoryRows: rootOutputSearchRootsChanged, authority,
-                        forceCustomFolderOutput: true).ConfigureAwait(false);
+                        settings: outputSettings, forceCustomFolderOutput: true,
+                        previousOutputLocations: previousOutputLocations).ConfigureAwait(false);
                 }
                 catch (Exception exception)
                 {
@@ -1284,7 +1289,8 @@ public partial class BMSPlaylist : ObservableObject
         });
     }
 
-    private async Task<Lr2SongDbSyncPreparedDataSurface> HydrateRequiredAsync(string reason, bool exportBeatorajaBmt, bool verifyRootOutputDirectoryRows, LibraryFileMutationCapability capability, bool prepareAllCustomFolders = false, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot settings = null, bool forceBeatorajaBmtProjection = false, bool forceCustomFolderOutput = false)
+    private async Task<Lr2SongDbSyncPreparedDataSurface> HydrateRequiredAsync(string reason, bool exportBeatorajaBmt, bool verifyRootOutputDirectoryRows, LibraryFileMutationCapability capability, bool prepareAllCustomFolders = false, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot settings = null, bool forceBeatorajaBmtProjection = false, bool forceCustomFolderOutput = false,
+        IReadOnlyList<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation> previousOutputLocations = null)
     {
         OperationProgressRequest progressRequest = null;
         ExceptionDispatchInfo referenceFailure = null;
@@ -1322,6 +1328,11 @@ public partial class BMSPlaylist : ObservableObject
             if (exportBeatorajaBmt)
             {
                 await BmtOutput.ExportAllAsync(reason, originatingRequest: receipt.ProgressRequest, capability: capability, forceProjection: forceBeatorajaBmtProjection).ConfigureAwait(false);
+            }
+            if (forceCustomFolderOutput)
+            {
+                await Task.Run(() => customFolderOutputMaintenanceOwner.CleanupReplacedCustomFolderOutputs(previousOutputLocations, settings,
+                    request => SyncCustomFolderRowsBatch(request, capability))).ConfigureAwait(false);
             }
             if (libraryBindings == null)
             {
